@@ -1,0 +1,36 @@
+name: Bug report
+description: Something produces wrong SQL, wrong results or an error
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected and what you got instead. Include the generated SQL if you have it.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: The model class, the query and the entity mapping, trimmed to the smallest case that fails.
+      render: java
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Model Query version
+    validations:
+      required: true
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database
+      options: [H2, PostgreSQL, MySQL, Other]
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Database version, Hibernate version, JDK, Spring Boot (if used)

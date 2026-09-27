@@ -1,0 +1,23 @@
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      maven-plugins:
+        patterns: ['org.apache.maven.plugins:*', 'org.codehaus.mojo:*', 'org.sonatype.central:*']
+      test:
+        patterns: ['org.junit*', 'org.assertj:*', 'org.testcontainers:*', 'com.h2database:*', 'org.postgresql:*', 'com.mysql:*']
+    ignore:
+      # Compiled against the minimum supported baselines; newer majors are covered by the nightly matrix
+      - dependency-name: 'org.hibernate.orm:*'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      - dependency-name: 'jakarta.persistence:*'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+      - dependency-name: 'org.springframework*'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

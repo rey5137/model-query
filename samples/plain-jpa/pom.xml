@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.github.rey5137</groupId>
+        <artifactId>model-query-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>model-query-sample-plain-jpa</artifactId>
+    <name>Model Query Sample: plain JPA</name>
+    <description>Plain JPA sample using Hibernate and H2 (not published)</description>
+
+    <properties>
+        <!-- Not published -->
+        <maven.source.skip>true</maven.source.skip>
+        <maven.javadoc.skip>true</maven.javadoc.skip>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>io.github.rey5137</groupId>
+            <artifactId>model-query-jpa</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.rey5137</groupId>
+            <artifactId>model-query-annotations</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Listed so the reactor builds the processor first; it runs from annotationProcessorPaths -->
+        <dependency>
+            <groupId>io.github.rey5137</groupId>
+            <artifactId>model-query-processor</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.hibernate.orm</groupId>
+            <artifactId>hibernate-core</artifactId>
+            <version>${hibernate.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <version>${h2.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>io.github.rey5137</groupId>
+                            <artifactId>model-query-processor</artifactId>
+                            <version>${project.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
