@@ -1,0 +1,25 @@
+# Build
+target/
+dependency-reduced-pom.xml
+.flattened-pom.xml
+release.properties
+pom.xml.versionsBackup
+
+# Maven wrapper downloads
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+.factorypath
+
+# OS
+.DS_Store
+
+# Secrets
+*.asc
+*.gpg
