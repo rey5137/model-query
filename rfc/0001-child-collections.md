@@ -3,7 +3,7 @@
 - **Status:** draft
 - **Affects:** `INV-2`, `INV-4` (wording), `INV-9` (adds `ChildQuery`); SPEC.md §1, §7; `api/11` §5, §6;
   `engine/20` R-EXE-02/05/07; `engine/21` §4; `processor/30`, `processor/31` §4, `processor/32`; `vendor/41` notes;
-  `integration/50` properties; `reference/90` (new codes); `reference/92` (new D-14). Adds `api/14` with `R-CHD-*` /
+  `integration/50` properties; `reference/90` (new codes); `reference/92` (new D-15). Adds `api/15` with `R-CHD-*` /
   `AC-CHD-*`.
 - **Discussion:** TBD
 - **Target:** 0.2, `@Incubating`. Nothing is reserved in 0.1: the change is purely additive.
@@ -241,8 +241,8 @@ Every other link, such as a business key or a unidirectional FK column, is writt
 - **SPEC §7:** engine-added columns now also include link columns (R-CHD-02).
 - **R-EXE-07:** `stream` refuses a query with children.
 - **`engine/21` §4:** the child step goes between the dedupe and `pageTransformer`.
-- **New spec file:** `api/14-child-collections.md` owns `R-CHD-01..18`, and area `CHD` is added to SPEC.md §1.
-- **New decision D-14:** "Child collections load in separate, breadth-first, batched `IN` queries per level, never
+- **New spec file:** `api/15-child-collections.md` owns `R-CHD-01..18`, and area `CHD` is added to SPEC.md §1.
+- **New decision D-15:** "Child collections load in separate, breadth-first, batched `IN` queries per level, never
   joins. Link keys come from the `Row`. Children are capped per batch through `maxResults`. Derived values go in
   `attach`, not `afterMap`." It traces to INV-2, INV-4, INV-5 and D-11.
 
