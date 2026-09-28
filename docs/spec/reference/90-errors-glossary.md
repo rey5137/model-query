@@ -54,7 +54,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ2202` | A keyset column is NULL and the column has no explicit null precedence | `engine/21` R-PAG-05 |
 | `MQ2301` | A `Sort` property resolves to neither an attribute path nor a known column | `integration/50` R-SPR-06 |
 | `MQ2501` | A bulk write, other than `commitEachChunk()`, ran without an active transaction (`Future`, M8) | `api/14` R-WRT-18 |
-| `MQ2502` | A per-chunk write failed; `ChunkedWriteException` carries the committed rows, the last committed key and whether a chunk is in doubt (`Future`, M8) | `api/14` R-WRT-20 |
+| `MQ2502` | A per-chunk write failed; `ChunkedWriteException` carries the committed rows, the last committed key and the keys of a chunk in doubt (`Future`, M8) | `api/14` R-WRT-20 |
 
 **R-ERR-04** One JPA exception is thrown deliberately instead of a library type: `OptimisticLockException` when an
 `expectVersion` update affects no rows (`api/14` R-WRT-16), because callers already handle it for entity writes.

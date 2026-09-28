@@ -44,7 +44,7 @@ a composite key, a table with nullable sort columns, and about 20 000 seeded row
 
 **R-QA-05** A test method name starts with the criterion id in snake case:
 `ac_pag_07_null_keyset_requires_explicit_precedence`. A test covering several criteria names the main one and lists the
-rest in a one-line comment (`CC-TEST-01`).
+rest in a one-line comment.
 
 **R-QA-06** Every rule that rejects something has a test asserting the exact `MQnnnn` code, not merely that an exception
 was thrown.

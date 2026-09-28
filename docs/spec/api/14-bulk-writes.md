@@ -166,12 +166,15 @@ parameters, never inlined. A to-one attribute set by id binds `EntityManager#get
 loaded. Types are checked as for queries (INV-3, `api/10` R-COL-08). `setExpression` on a column with a converter
 throws `MQ1609` at `build()`, because the expression's path has the entity attribute's type, not the model's.
 
-**R-WRT-15** **The persistence context is not left stale.** Before the statement the engine calls `flush()`, so pending
-entity changes are written first and not overwritten afterwards. After it, `clear()` by default
-(`PersistenceContextMode.CLEAR`), or nothing with `KEEP`. `CLEAR` detaches every managed entity, not only the root
-type's, so a later change to any of them is silently not written; the Javadoc and the user guide say so. With `KEEP`
-the root's entities stay managed but stale, and flushing a stale versioned one fails loudly because its version moved
-(R-WRT-16). Either way the engine evicts the root entity from the second-level cache with
+**R-WRT-15** **The persistence context is not left stale.** Once per write, before its first statement, the engine calls
+`flush()` when the `EntityManager` is joined to a transaction, so pending entity changes are written first and not
+overwritten afterwards; outside one (only possible with `commitEachChunk()`, R-WRT-19) there is nothing it could flush.
+After the write's last statement, `clear()` by default (`PersistenceContextMode.CLEAR`), or nothing with `KEEP`. `CLEAR`
+detaches every managed entity, not only the root type's, so a later change to any of them is silently not written; the
+Javadoc and the user guide say so. With `KEEP` the root's entities stay managed but stale. Flushing a stale versioned
+one fails loudly because its version moved (R-WRT-16); with `keepVersion()`, or on a root with no `@Version` attribute,
+nothing moved, so the flush silently writes the stale values back over the bulk write, and the Javadoc of `KEEP` says
+so. Either way the engine evicts the root entity from the second-level cache with
 `EntityManagerFactory#getCache().evict(root)`, which is portable.
 
 **R-WRT-16** **Bulk updates respect optimistic locking.** When the root has a `@Version` attribute, every update renders
@@ -203,21 +206,23 @@ public interface ChunkTransactions {
 }
 ```
 
-passing the executor's own `EntityManagerFactory`, so one callback serves every datasource. A chunk's key select and
-its write both run on the callback's `EntityManager`. `commitEachChunk()` with no callback, or with one that cannot
-serve that factory, throws `MQ4004` before any statement runs. The Spring starter provides one (`integration/50`
-R-SPR-11); a plain-JPA caller writes their own, usually `begin`/`commit` on a resource-local `EntityManager` (INV-8,
-D-16). The caller's `EntityManager` is still flushed first (R-WRT-15); inside a transaction, the row locks that flush
-takes are held until that transaction ends, and a chunk writing one of those rows waits on them until the lock
-timeout. `commitEachChunk()` is therefore meant to run outside a transaction, and the Javadoc says so.
+passing the executor's own `EntityManagerFactory`, so one callback serves every datasource. A chunk's key select and its
+write both run on the callback's `EntityManager`. `commitEachChunk()` with no callback, or with one that cannot serve
+that factory, throws `MQ4004` before any statement runs. The Spring starter provides one (`integration/50` R-SPR-11); a
+plain-JPA caller writes their own, usually `begin`/`commit` on a resource-local `EntityManager` (INV-8, D-16). The
+caller's `EntityManager` is flushed first when it is in a transaction (R-WRT-15); there, the row locks that flush takes
+are held until that transaction ends, and a chunk writing one of those rows waits on them until the lock timeout.
+`commitEachChunk()` is therefore meant to run outside a transaction, and the Javadoc says so.
 
-**R-WRT-20** A per-chunk write that fails throws `ChunkedWriteException` (`MQ2502`) with the provider's exception as
-the cause, even when the first chunk fails. It carries `committedRows()` and `lastCommittedKey()` (empty when nothing
-committed), and `inDoubt()`, true when the commit of a chunk itself failed, so that chunk's outcome is unknown and its
-rows are not counted. Committed chunks stay committed, and the message says so, because a caller who assumed
-atomicity would otherwise misread the table's state (INV-5). `ChunkOptions.startAfter(key)` resumes after
-`lastCommittedKey()`. Re-running the whole write is safe only when it is idempotent: `total * 1.1` would apply again
-to rows already committed, and the Javadoc says so.
+**R-WRT-20** A per-chunk write that fails throws `ChunkedWriteException` (`MQ2502`) with the provider's exception as the
+cause, even when the first chunk fails. It carries `committedRows()` and `lastCommittedKey()` (empty when nothing
+committed), and `inDoubtKeys()`: when the commit of a chunk itself failed, that chunk's outcome is unknown, its rows are
+not counted, and this lists its keys; otherwise it is empty. Committed chunks stay committed,
+and the message says so, because a caller who assumed atomicity would otherwise misread the table's state (INV-5).
+`ChunkOptions.startAfter(key)` resumes after `lastCommittedKey()`. Re-running the whole write is safe only when it is
+idempotent: `total * 1.1` would apply again to rows already committed. The same holds for resuming after an in-doubt
+chunk, which may in fact have committed: a non-idempotent caller checks `inDoubtKeys()` against the table first, and
+resumes after the last of them if the chunk did commit. The Javadoc says both.
 
 ## 7. Validation
 
@@ -262,12 +267,12 @@ public interface ModelQueryExecutor<E> {
 | AC-WRT-07 | For every fixture of the TCK Filters group, including `not` and `or` over a LEFT-joined column whose association is missing, the keys a write affects equal the keys the matching read returns: as one statement on H2 and PostgreSQL, key-first on MySQL, and chunked on all three (R-WRT-10, R-WRT-11, R-WRT-17). |
 | AC-WRT-08 | A write with every filter skipped throws `MQ1601`; `all()` writes every row; `where(...).all()` does not compile (R-WRT-12). |
 | AC-WRT-09 | Converters apply to assigned values, and a to-one set by id loads no row; `setExpression` on a converted column throws `MQ1609` (R-WRT-14). |
-| AC-WRT-10 | Pending entity changes are flushed first; the persistence context is cleared by default and kept with `KEEP`; the root's second-level cache entries are evicted (R-WRT-15). |
+| AC-WRT-10 | Pending entity changes are flushed first inside a transaction, and a `commitEachChunk()` write outside one runs without flushing; the persistence context is cleared by default and kept with `KEEP`; the root's second-level cache entries are evicted (R-WRT-15). |
 | AC-WRT-11 | Updates increment the version; `keepVersion` does not; an `expectVersion` mismatch throws `OptimisticLockException`; `expectVersion` without `whereKey`, or on a root with no `@Version`, throws `MQ1606` (R-WRT-16). |
 | AC-WRT-12 | A chunked update that leaves rows matching terminates and touches each row once; a chunked delete crosses the vendor's IN limits, single and composite key (R-WRT-17). |
 | AC-WRT-13 | A write with no transaction throws `MQ2501`; a delete blocked by a foreign key surfaces the provider's constraint exception (R-WRT-18). |
 | AC-WRT-14 | `commitEachChunk()` with no `ChunkTransactions` throws `MQ4004` and runs no SQL; with a plain-JPA resource-local callback each chunk commits separately (R-WRT-19). |
-| AC-WRT-15 | A per-chunk write whose third chunk fails throws `ChunkedWriteException` (`MQ2502`) reporting the first two chunks' rows and last key, and those rows stay written; a first-chunk failure also throws it, with zero rows; `startAfter` resumes after the last key (R-WRT-20). |
+| AC-WRT-15 | A per-chunk write whose third chunk fails throws `ChunkedWriteException` (`MQ2502`) reporting the first two chunks' rows and last key, and those rows stay written; a first-chunk failure also throws it, with zero rows; `startAfter` resumes after the last key; a failed chunk commit lists that chunk's keys in `inDoubtKeys()` (R-WRT-20). |
 | AC-WRT-16 | With `@NotNull` and `@Size` on update-model fields: an unset field passes, a field set to NULL fails, a set field over the size fails; `@Valid @RequestBody` reports each as a field error in the Spring sample; a value containing `${…}` is not evaluated (R-WRT-21). |
 | AC-WRT-17 | Without `jakarta.validation` on the classpath, generated change sets compile, carry no `@ValidChanges`, and nothing is validated (R-WRT-22). |
 | AC-WRT-18 | On MySQL, a row that stops matching on a root column between the key select and the write is not written; with `lockKeys()` a concurrent change to a matched row waits for the write (R-WRT-11). |

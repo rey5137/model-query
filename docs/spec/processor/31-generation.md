@@ -214,5 +214,5 @@ are never copied to the change set. A field whose generated members would clash 
 | AC-GEN-08 | A second compilation with one model changed regenerates only that model's file (R-GEN-05). |
 | AC-GEN-09 | The processor jar contains no unshaded JavaPoet package (R-GEN-05). |
 | AC-GEN-10 | (`Future`, M8) Golden files pin `QOrderPatch` and `OrderPatchChanges` for a record and a class update model, with a converter, a to-one by id and a composite key (R-GEN-19). |
-| AC-GEN-11 | (`Future`, M8) `generateChanges = true` adds `changes()`, `update(...)` and `from(...)` covering root non-key columns only; every query model with a `@PrimaryKey` gets `delete()` (R-GEN-21, R-GEN-22). |
+| AC-GEN-11 | (`Future`, M8) `generateChanges = true` adds `changes()`, `update(...)` and `from(...)` covering root non-key columns only; a query model gets `delete()` exactly when its `@PrimaryKey` is the root entity's id (R-GEN-21, R-GEN-22). |
 | AC-GEN-12 | (`Future`, M8) The generated change set carries `@ValidChanges` naming its model when Bean Validation is on the classpath, no annotation when it is not, and never the model's field constraints (R-GEN-23). |

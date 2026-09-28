@@ -85,17 +85,14 @@ the column's Java type. A new type parameter uses these letters or explains itse
 
 ## 6. Tests
 
-**CC-TEST-01** Test method names start with the criterion id in snake case:
-`ac_pag_07_null_keyset_requires_explicit_precedence`. A test covering several criteria names the main one and lists the
-rest in a one-line comment.
+The test rules are owned by `spec/delivery/60`; in short:
 
-**CC-TEST-02** Every rejecting rule asserts the exact `MqCode`, not merely that an exception was thrown
-(`delivery/60` R-QA-06).
+**CC-TEST-01** Test method names start with the criterion id in snake case (R-QA-05).
 
-**CC-TEST-03** Paging and export tests page through the whole fixture and assert the multiset of visited keys. A
-single-page assertion cannot detect the bugs `R-PAG-*` exist for (R-QA-07).
+**CC-TEST-02** Every rejecting rule asserts the exact `MqCode` (R-QA-06).
 
-**CC-TEST-04** No mocks of JPA or JDBC internals. Unit tests use a real `CriteriaBuilder` over an H2 metamodel; TCK
-tests use Testcontainers.
+**CC-TEST-03** Paging and export tests assert the multiset of visited keys over the whole fixture (R-QA-07).
 
-**CC-TEST-05** SQL snapshots are reviewed as diffs, never regenerated blindly. The PR says which changed and why.
+**CC-TEST-04** No mocks of JPA or JDBC internals (R-QA-01); TCK tests use Testcontainers.
+
+**CC-TEST-05** SQL snapshots are reviewed as diffs, never regenerated blindly (R-QA-04).

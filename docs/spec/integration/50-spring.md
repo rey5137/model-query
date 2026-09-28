@@ -18,8 +18,8 @@ public interface ModelQueryRepository<E, ID> extends JpaRepository<E, ID> {
     long count(ModelQuery<E, ?, ?> q);
     <M, R> R stream(ModelQuery<E, ?, M> q, Limit limit, Function<Stream<M>, R> body);
     <M, S> long export(ModelQuery<E, ?, M> q, ExportOptions options, Function<List<M>, List<S>> t, Consumer<S> sink);
-    long update(ModelUpdate<E, ?> u);                // Future (M8), @Transactional
-    long delete(ModelDelete<E, ?> d);                // Future (M8), @Transactional
+    long update(ModelUpdate<E, ?> u);                // Future (M8), transactional per R-SPR-10
+    long delete(ModelDelete<E, ?> d);                // Future (M8), transactional per R-SPR-10
 }
 ```
 
@@ -33,17 +33,18 @@ only works under Spring is a bug.
 **R-SPR-03** `stream(...)` opens a read-only transaction when none is active, which PostgreSQL needs for cursor
 streaming (`vendor/41` R-PRF-03).
 
-**R-SPR-10** `update(...)` and `delete(...)` (`Future`, M8) join the current transaction or open one, like the
-modifying methods of `SimpleJpaRepository`, except for a `commitEachChunk()` write, which opens none, because each
-chunk commits on its own (`api/14` R-WRT-19). Change sets bind from request bodies with no extra configuration
-(`api/14` R-WRT-03).
+**R-SPR-10** `update(...)` and `delete(...)` (`Future`, M8) join the current transaction or open one, like the modifying
+methods of `SimpleJpaRepository`, except for a `commitEachChunk()` write, which opens none, because each chunk commits
+on its own (`api/14` R-WRT-19). Because that depends on the argument, the methods are not annotated `@Transactional`;
+they use a `TransactionTemplate` (`PROPAGATION_REQUIRED`) unless the write is `commitEachChunk()`. Change sets bind from
+request bodies with no extra configuration (`api/14` R-WRT-03).
 
 **R-SPR-11** The starter registers a `ChunkTransactions` that finds, for the `EntityManagerFactory` it is given, the
-`JpaTransactionManager` bound to that factory, and runs the chunk in a `TransactionTemplate` with `REQUIRES_NEW` on it,
-on that factory's transactional `EntityManager`. So `ChunkOptions.commitEachChunk()` works with no configuration and
-with several datasources (`api/14` R-WRT-19). No matching transaction manager, or more than one, throws `MQ4004`. A
-user-defined `ChunkTransactions` bean replaces it. This is the plain-JPA callback with a Spring default, not a
-Spring-only feature (R-SPR-01).
+`JpaTransactionManager` bound to that factory (once per factory, then cached), and runs the chunk in a
+`TransactionTemplate` with `REQUIRES_NEW` on it, on that factory's transactional `EntityManager`. So
+`ChunkOptions.commitEachChunk()` works with no configuration and with several datasources (`api/14` R-WRT-19). No
+matching transaction manager, or more than one, throws `MQ4004`. A user-defined `ChunkTransactions` bean replaces it.
+This is the plain-JPA callback with a Spring default, not a Spring-only feature (R-SPR-01).
 
 ## 2. `Pageable` and `Sort`
 

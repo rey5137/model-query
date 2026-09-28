@@ -43,8 +43,8 @@ precedence over a `ServiceLoader`-provided profile for the same vendor (`integra
 a sub-query. When it is false, a bulk write whose rendering needs such a sub-query runs key-first (`api/14` R-WRT-11).
 It defaults to `false`, which is always correct and only slower, so a profile written before M8 keeps compiling and
 stays safe (R-VND-01). It is a capability, not a rendering hook, because the engine renders every predicate itself
-(R-VND-08, P-5). Values: `true` for H2, PostgreSQL, Oracle, SQL Server and MariaDB 10.3.1+; `false` for MySQL and
-`OTHER`.
+(R-VND-08, P-5). Tier-1 values are in `vendor/41` §2; otherwise `true` for Oracle, SQL Server and MariaDB 10.3.1+, and
+`false` for `OTHER`.
 
 ## 2. Detection
 
