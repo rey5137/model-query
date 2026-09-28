@@ -84,6 +84,23 @@ case and cannot be expressed with one `set(...)` per field. Rejected: entity-lev
 "ignore nulls" copy (it makes clearing a field impossible). Accepted into the plan by rey5137/model-query#5 before the
 RFC process existed; `Future` (M8) until built. → INV-1, `api/14`, `processor/31` §6.
 
+**D-15 — Change sets validate set fields only, against the update model's constraints.**
+Copying `@NotNull` onto a change set would reject every PATCH that omits the field, because an unset field is `null`
+and Bean Validation checks every property. PATCH needs "if sent, must be valid", which
+`Validator.validateValue(model, property, value)` expresses directly against the update model's own annotations. A
+class-level `@ValidChanges` on the generated change set runs it for set fields only, so `@Valid @RequestBody` works
+unchanged. It lives in `jpa` behind an optional dependency, since `annotations` and `core` may not import
+`jakarta.validation` (INV-7). Rejected: copying annotations (wrong for unset fields) and validation groups (every
+constraint would need one). → `api/14` R-WRT-21, R-WRT-22, `processor/31` R-GEN-23. Resolves Q-6.
+
+**D-16 — Per-chunk commits go through a callback, not a Spring-only option.**
+The library cannot start or suspend a transaction portably: under JTA or container-managed transactions it has no
+handle on one. A `ChunkTransactions` callback on `ModelQueryConfig` leaves that to whoever owns transactions; the
+starter supplies a `REQUIRES_NEW` default, so the feature is reachable without Spring (INV-8) and costs Spring users
+nothing. Because committed chunks survive a later failure, the failure reports how much was written (INV-5). Rejected:
+a Spring-only option (breaks INV-8) and dropping it (every large delete would hand-roll the loop).
+→ `api/14` R-WRT-19, R-WRT-20, `integration/50` R-SPR-11. Resolves Q-7.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter
@@ -103,13 +120,9 @@ Should 0.1 ship an opaque encoded form (so a REST API can page without exposing 
 **Q-5 — `Agg.of` scope.** It is the escape hatch for any expression. Does it need a matching `Col.of(expression)` for
 non-aggregate computed columns, or does that invite the SQL-builder scope creep P-5 rules out?
 
-**Q-6 — Bean Validation on change sets.** Should generated change sets copy Bean Validation annotations from the
-update model's fields, so `@Valid @RequestBody OrderPatchChanges` validates the fields that were set? → `processor/31`
-§6.
+**Q-6 — Bean Validation on change sets.** Resolved by D-15.
 
-**Q-7 — Per-chunk commits without Spring.** `commitEachChunk()` is Spring-only (`integration/50` R-SPR-11), which
-INV-8 forbids for a feature. Should `ModelQueryConfig` take a transaction callback, should chunked writes document
-`whereKeys` batching as the plain-JPA route, or should the option go? → `api/14` R-WRT-19.
+**Q-7 — Per-chunk commits without Spring.** Resolved by D-16.
 
 ## 3. Risks
 

@@ -52,6 +52,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ2202` | A keyset column is NULL and the column has no explicit null precedence | `engine/21` R-PAG-05 |
 | `MQ2301` | A `Sort` property resolves to neither an attribute path nor a known column | `integration/50` R-SPR-06 |
 | `MQ2501` | A bulk write ran without an active transaction (`Future`, M8) | `api/14` R-WRT-18 |
+| `MQ2502` | A per-chunk write failed after earlier chunks committed; carries the committed row count (`Future`, M8) | `api/14` R-WRT-20 |
 
 **R-ERR-04** One JPA exception is thrown deliberately instead of a library type: `OptimisticLockException` when an
 `expectVersion` update affects no rows (`api/14` R-WRT-16), because callers already handle it for entity writes.
@@ -68,6 +69,7 @@ models, `MQ3301`–`MQ3305` for update models (`Future`, M8). Codes are not repe
 | `MQ4001` | `modelquery.vendor` names an unknown vendor | `vendor/40` R-VND-04 |
 | `MQ4002` | Two `VendorProfile`s registered for the same vendor with no precedence rule | `vendor/40` R-VND-03 |
 | `MQ4003` | A property value is outside its allowed range | `integration/50` §3 |
+| `MQ4004` | `commitEachChunk()` with no `ChunkTransactions` configured (`Future`, M8) | `api/14` R-WRT-19 |
 
 ## 6. Glossary
 

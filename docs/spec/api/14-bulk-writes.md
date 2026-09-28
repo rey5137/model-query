@@ -149,10 +149,38 @@ never re-reads what it removed. The chunk size is clamped to the vendor's limits
 **R-WRT-18** A bulk write needs an active transaction. The executor checks `EntityManager#isJoinedToTransaction` and
 throws `MQ2501` naming the operation, instead of the provider's `TransactionRequiredException` at the end.
 
-**R-WRT-19** A chunked write runs every chunk in the caller's transaction. The Spring module can commit per chunk
-instead (`integration/50` R-SPR-11), trading atomicity for short locks and undo logs.
+**R-WRT-19** A chunked write runs every chunk in the caller's transaction by default. `ChunkOptions.commitEachChunk()`
+runs each chunk in a new transaction instead, which keeps locks and undo logs short at the cost of atomicity. The
+library never starts a transaction itself: it calls the `ChunkTransactions` callback on `ModelQueryConfig`,
 
-## 7. Executor surface
+```java
+public interface ChunkTransactions {
+    <T> T inNewTransaction(Function<EntityManager, T> chunk);   // run one chunk, commit, return its result
+}
+```
+
+and `commitEachChunk()` with no callback configured throws `MQ4004` before any statement runs. The Spring starter
+provides one (`integration/50` R-SPR-11); a plain-JPA caller writes their own, usually `begin`/`commit` on a
+resource-local `EntityManager` (INV-8, D-16).
+
+**R-WRT-20** A per-chunk write that fails part-way throws `MQ2502` carrying the rows committed before the failing chunk,
+with the provider's exception as the cause. Committed chunks stay committed; the message says so, because a caller who
+assumed atomicity would otherwise misread the table's state (INV-5).
+
+## 7. Validation
+
+**R-WRT-21** A change set is validated field by field: a field that was set is checked against the Bean Validation
+constraints declared on the update model's field; a field that was not set is not checked, so `@NotNull` means "may not
+be cleared", not "must be sent". The processor never copies constraint annotations onto the change set (D-15). The
+generated class carries one class-level constraint, `@ValidChanges`, whose validator calls
+`Validator.validateValue(OrderPatch.class, property, value)` for each set field, so `@Valid @RequestBody
+OrderPatchChanges` works with no configuration (`processor/31` R-GEN-23).
+
+**R-WRT-22** `@ValidChanges` and its validator live in `model-query-jpa` behind an optional `jakarta.validation`
+dependency (`delivery/61` R-REL-03). Without Bean Validation on the classpath the annotation is inert and nothing is
+validated. The engine itself never validates: `update` writes what it is given.
+
+## 8. Executor surface
 
 ```java
 public interface ModelQueryExecutor<E> {
@@ -162,10 +190,10 @@ public interface ModelQueryExecutor<E> {
 }
 ```
 
-**R-WRT-20** Both methods return the rows affected, summed over chunks, and are reachable with a plain `EntityManager`
+**R-WRT-23** Both methods return the rows affected, summed over chunks, and are reachable with a plain `EntityManager`
 (INV-8).
 
-## 8. Acceptance criteria
+## 9. Acceptance criteria
 
 | ID | Criterion |
 |---|---|
@@ -182,3 +210,7 @@ public interface ModelQueryExecutor<E> {
 | AC-WRT-11 | Updates increment the version; `keepVersion` does not; an `expectVersion` mismatch throws `OptimisticLockException`; `expectVersion` without `whereKey` throws `MQ1606` (R-WRT-16). |
 | AC-WRT-12 | A chunked update that leaves rows matching terminates and touches each row once; a chunked delete crosses the vendor's IN limits (R-WRT-17). |
 | AC-WRT-13 | A write with no transaction throws `MQ2501`; a delete blocked by a foreign key surfaces the provider's constraint exception (R-WRT-18). |
+| AC-WRT-14 | `commitEachChunk()` with no `ChunkTransactions` throws `MQ4004` and runs no SQL; with a plain-JPA resource-local callback each chunk commits separately (R-WRT-19). |
+| AC-WRT-15 | A per-chunk write whose third chunk fails throws `MQ2502` reporting the first two chunks' rows, and those rows stay written (R-WRT-20). |
+| AC-WRT-16 | With `@NotNull` and `@Size` on update-model fields: an unset field passes, a field set to NULL fails, a set field over the size fails; `@Valid @RequestBody` triggers it in the Spring sample (R-WRT-21). |
+| AC-WRT-17 | Without `jakarta.validation` on the classpath, generated change sets compile and nothing is validated (R-WRT-22). |

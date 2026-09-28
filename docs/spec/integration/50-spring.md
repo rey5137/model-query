@@ -37,9 +37,9 @@ streaming (`vendor/41` R-PRF-03).
 modifying methods of `SimpleJpaRepository`. Change sets bind from request bodies with no extra configuration
 (`api/14` R-WRT-03).
 
-**R-SPR-11** `ChunkOptions.commitEachChunk()` runs each chunk of a chunked write in its own `REQUIRES_NEW` transaction,
-which keeps locks and undo logs short at the cost of atomicity (`api/14` R-WRT-19). A Spring-only option sits badly
-with R-SPR-01 and INV-8; Q-7 asks how the plain-JPA path gets it.
+**R-SPR-11** The starter registers a `ChunkTransactions` backed by a `TransactionTemplate` with `REQUIRES_NEW`, so
+`ChunkOptions.commitEachChunk()` works with no configuration (`api/14` R-WRT-19). A user-defined `ChunkTransactions`
+bean replaces it. This is the plain-JPA callback with a Spring default, not a Spring-only feature (R-SPR-01).
 
 ## 2. `Pageable` and `Sort`
 

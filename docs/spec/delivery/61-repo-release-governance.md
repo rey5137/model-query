@@ -45,6 +45,8 @@ source tree.
 - `jpa` does not import `org.hibernate.*`. Hibernate features are found with `ServiceLoader` and have a portable
   fallback.
 - Only `spring-*` modules import `org.springframework.*`.
+- `jakarta.validation` is an optional dependency of `jpa` only, used by `@ValidChanges` (`Future`, M8; `api/14`
+  R-WRT-22).
 - `processor` depends only on `annotations` and shaded JavaPoet.
 - No Lombok anywhere in the library. Consumers may use Lombok on their models (`processor/31` R-GEN-10).
 

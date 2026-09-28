@@ -92,4 +92,4 @@ numbering, which collides with the original plan's: their §4.6 and R16–R18 ar
 | rey5137/model-query#5 | §8.1–§8.2 repository methods, properties | `integration/50` R-SPR-10, R-SPR-11, §3 |
 | rey5137/model-query#5 | §9.2 Mutations group | `delivery/60` §2 |
 | rey5137/model-query#5 | §11 M8 | `delivery/62` §1, R-RDM-01 |
-| rey5137/model-query#5 | §13 risks, §14 question 4 | `reference/92` §3, Q-6 |
+| rey5137/model-query#5 | §13 risks, §14 question 4 | `reference/92` §3, Q-6 (resolved by D-15) |

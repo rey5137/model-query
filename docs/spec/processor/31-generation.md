@@ -193,6 +193,9 @@ model's getters or record accessors (`api/14` R-WRT-04).
 **R-GEN-22** `QOrderView.delete()` is generated for every query model with a `@PrimaryKey`, since a delete writes no
 columns.
 
+**R-GEN-23** Every generated change set is annotated `@ValidChanges(OrderPatch.class)`, naming the model whose field
+constraints apply (`api/14` R-WRT-21). Constraint annotations on the model's fields are never copied to the change set.
+
 ## 7. Acceptance criteria
 
 | ID | Criterion |
@@ -208,3 +211,4 @@ columns.
 | AC-GEN-09 | The processor jar contains no unshaded JavaPoet package (R-GEN-05). |
 | AC-GEN-10 | Golden files pin `QOrderPatch` and `OrderPatchChanges` for a record and a class update model, with a converter, a to-one by id and a composite key (R-GEN-19). |
 | AC-GEN-11 | `generateChanges = true` adds `changes()`, `update(...)` and `from(...)` covering root non-key columns only; every query model with a `@PrimaryKey` gets `delete()` (R-GEN-21, R-GEN-22). |
+| AC-GEN-12 | The generated change set carries `@ValidChanges` naming its model, and none of the model's field constraints (R-GEN-23). |

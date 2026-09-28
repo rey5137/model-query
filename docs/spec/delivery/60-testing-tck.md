@@ -40,7 +40,7 @@ a composite key, a table with nullable sort columns, and about 20 000 seeded row
 | Streaming | 20 000 rows with a bounded-heap assertion, early exit releases the connection (checked against the pool's active count), PostgreSQL without a transaction fails fast |
 | Timeout | a slow query is cancelled (`SLEEP()` / `pg_sleep()` / an H2 user function) |
 | Detection | each container resolves to the expected profile |
-| Bulk writes (`Future`, M8) | the `api/14` acceptance criteria AC-WRT-01..13 on every Tier-1 vendor |
+| Bulk writes (`Future`, M8) | the `api/14` acceptance criteria AC-WRT-01..17 on every Tier-1 vendor |
 
 **R-QA-05** A test method name starts with the criterion id in snake case:
 `ac_pag_07_null_keyset_requires_explicit_precedence`. A test covering several criteria names the main one and lists the
