@@ -82,7 +82,7 @@ numbering, which collides with the original plan's: their §4.6 and R16–R18 ar
 | rey5137/model-query#4 | §11.1 Milestone status | `delivery/61` R-REL-06 |
 | rey5137/model-query#5 | §1 goal 7, non-goals | SPEC.md §2 INV-1, §4; D-14 |
 | rey5137/model-query#5 | §2 concepts (update model, `Changes`, `ModelUpdate`/`ModelDelete`) | `api/14`, `reference/90` §6 |
-| rey5137/model-query#5 | §4.5 `update`/`delete` | `api/14` §7 |
+| rey5137/model-query#5 | §4.5 `update`/`delete` | `api/14` §8 |
 | rey5137/model-query#5 | §4.6 Bulk updates and deletes | `api/14` §1–§6 |
 | rey5137/model-query#5 | R16 → R-WRT-10, R17 → R-WRT-11, R18 → R-WRT-12, R19 → R-WRT-13, R20 → R-WRT-14, R21 → R-WRT-15, R22 → R-WRT-16, R23 → R-WRT-17 | `api/14` §5 |
 | rey5137/model-query#5 | §6.1 `@UpdateModel`, `generateChanges` | `processor/30` §7 |

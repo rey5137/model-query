@@ -190,11 +190,15 @@ change sets.
 `OrderViewChanges` gains `static OrderViewChanges from(OrderView model, ColumnSet<OrderView> columns)`, which reads the
 model's getters or record accessors (`api/14` R-WRT-04).
 
-**R-GEN-22** `QOrderView.delete()` is generated for every query model with a `@PrimaryKey`, since a delete writes no
-columns.
+**R-GEN-22** `QOrderView.delete()` is generated for every query model whose `@PrimaryKey` is the root entity's id,
+since a delete writes no columns. A query model whose key is not the id (a unique column on a view, say) gets no
+`delete()`; on an `@UpdateModel`, or with `generateChanges = true`, such a key is `MQ3306` (`api/14` R-WRT-08).
 
-**R-GEN-23** Every generated change set is annotated `@ValidChanges(OrderPatch.class)`, naming the model whose field
-constraints apply (`api/14` R-WRT-21). Constraint annotations on the model's fields are never copied to the change set.
+**R-GEN-23** A generated change set is annotated `@ValidChanges(OrderPatch.class)`, naming the model whose field
+constraints apply (`api/14` R-WRT-21), when `@ValidChanges` and `jakarta.validation.Constraint` both resolve on the
+compile classpath; otherwise it carries no annotation (`api/14` R-WRT-22). Constraint annotations on the model's fields
+are never copied to the change set. A field whose generated members would clash with `Changes<M>`'s own (`isEmpty`,
+`isSet`, `unset`, `assignments`) is `MQ3307`.
 
 ## 7. Acceptance criteria
 
@@ -209,6 +213,6 @@ constraints apply (`api/14` R-WRT-21). Constraint annotations on the model's fie
 | AC-GEN-07 | Two-level nesting maps correctly with a class nested in a record and vice versa (R-GEN-14). |
 | AC-GEN-08 | A second compilation with one model changed regenerates only that model's file (R-GEN-05). |
 | AC-GEN-09 | The processor jar contains no unshaded JavaPoet package (R-GEN-05). |
-| AC-GEN-10 | Golden files pin `QOrderPatch` and `OrderPatchChanges` for a record and a class update model, with a converter, a to-one by id and a composite key (R-GEN-19). |
-| AC-GEN-11 | `generateChanges = true` adds `changes()`, `update(...)` and `from(...)` covering root non-key columns only; every query model with a `@PrimaryKey` gets `delete()` (R-GEN-21, R-GEN-22). |
-| AC-GEN-12 | The generated change set carries `@ValidChanges` naming its model, and none of the model's field constraints (R-GEN-23). |
+| AC-GEN-10 | (`Future`, M8) Golden files pin `QOrderPatch` and `OrderPatchChanges` for a record and a class update model, with a converter, a to-one by id and a composite key (R-GEN-19). |
+| AC-GEN-11 | (`Future`, M8) `generateChanges = true` adds `changes()`, `update(...)` and `from(...)` covering root non-key columns only; every query model with a `@PrimaryKey` gets `delete()` (R-GEN-21, R-GEN-22). |
+| AC-GEN-12 | (`Future`, M8) The generated change set carries `@ValidChanges` naming its model when Bean Validation is on the classpath, no annotation when it is not, and never the model's field constraints (R-GEN-23). |

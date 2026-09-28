@@ -34,12 +34,16 @@ only works under Spring is a bug.
 streaming (`vendor/41` R-PRF-03).
 
 **R-SPR-10** `update(...)` and `delete(...)` (`Future`, M8) join the current transaction or open one, like the
-modifying methods of `SimpleJpaRepository`. Change sets bind from request bodies with no extra configuration
+modifying methods of `SimpleJpaRepository`, except for a `commitEachChunk()` write, which opens none, because each
+chunk commits on its own (`api/14` R-WRT-19). Change sets bind from request bodies with no extra configuration
 (`api/14` R-WRT-03).
 
-**R-SPR-11** The starter registers a `ChunkTransactions` backed by a `TransactionTemplate` with `REQUIRES_NEW`, so
-`ChunkOptions.commitEachChunk()` works with no configuration (`api/14` R-WRT-19). A user-defined `ChunkTransactions`
-bean replaces it. This is the plain-JPA callback with a Spring default, not a Spring-only feature (R-SPR-01).
+**R-SPR-11** The starter registers a `ChunkTransactions` that finds, for the `EntityManagerFactory` it is given, the
+`JpaTransactionManager` bound to that factory, and runs the chunk in a `TransactionTemplate` with `REQUIRES_NEW` on it,
+on that factory's transactional `EntityManager`. So `ChunkOptions.commitEachChunk()` works with no configuration and
+with several datasources (`api/14` R-WRT-19). No matching transaction manager, or more than one, throws `MQ4004`. A
+user-defined `ChunkTransactions` bean replaces it. This is the plain-JPA callback with a Spring default, not a
+Spring-only feature (R-SPR-01).
 
 ## 2. `Pageable` and `Sort`
 
@@ -66,8 +70,8 @@ whose total is documented as unknown; it never fabricates a total from the curre
 | `modelquery.mysql.streaming-mode` | `row-by-row` | or `cursor-fetch` (`vendor/41` R-PRF-07) |
 | `modelquery.query-timeout` | none | Default per-query timeout |
 | `modelquery.keyset.null-keys` | `fail` | `fail` or `honour-null-precedence` (`engine/21` R-PAG-05) |
-| `modelquery.mutation.persistence-context` | `clear` | `Future` (M8): `clear` or `keep` after a bulk write (`api/14` R-WRT-15) |
-| `modelquery.mutation.chunk-size` | 1000 | `Future` (M8): default size for `chunked(...)`, clamped per vendor (`api/14` R-WRT-17) |
+| `modelquery.bulk-write.persistence-context` | `clear` | `Future` (M8): `clear` or `keep` after a bulk write (`api/14` R-WRT-15) |
+| `modelquery.bulk-write.chunk-size` | 1000 | `Future` (M8): default size for `chunked(...)`, clamped per vendor (`api/14` R-WRT-17) |
 
 **R-SPR-08** Every property has a plain-JPA equivalent on `ModelQueryConfig`; the starter only reads properties into it
 (INV-8).
@@ -87,4 +91,4 @@ migration aid with the failure it re-enables, and logged at `WARN` once on start
 | AC-SPR-06 | `NO_COUNT` returns a `Page` that does not claim a total (R-SPR-07). |
 | AC-SPR-07 | Every property in §3 is settable on `ModelQueryConfig` without Spring (R-SPR-08). |
 | AC-SPR-08 | `modelquery.keyset.null-keys=honour-null-precedence` logs one startup warning (R-SPR-09). |
-| AC-SPR-09 | `update`/`delete` without an ambient transaction succeed through the repository; `commitEachChunk` commits each chunk separately (R-SPR-10, R-SPR-11). |
+| AC-SPR-09 | (`Future`, M8) `update`/`delete` without an ambient transaction succeed through the repository; `commitEachChunk` commits each chunk separately on the primary and on a secondary datasource of the multi-datasource sample, and a failed third chunk leaves the first two committed (R-SPR-10, R-SPR-11). |

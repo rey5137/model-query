@@ -46,7 +46,7 @@ source tree.
   fallback.
 - Only `spring-*` modules import `org.springframework.*`.
 - `jakarta.validation` is an optional dependency of `jpa` only, used by `@ValidChanges` (`Future`, M8; `api/14`
-  R-WRT-22).
+  R-WRT-22). Generated change sets reference it only when it is on the model module's classpath.
 - `processor` depends only on `annotations` and shaded JavaPoet.
 - No Lombok anywhere in the library. Consumers may use Lombok on their models (`processor/31` R-GEN-10).
 

@@ -95,11 +95,22 @@ constraint would need one). → `api/14` R-WRT-21, R-WRT-22, `processor/31` R-GE
 
 **D-16 — Per-chunk commits go through a callback, not a Spring-only option.**
 The library cannot start or suspend a transaction portably: under JTA or container-managed transactions it has no
-handle on one. A `ChunkTransactions` callback on `ModelQueryConfig` leaves that to whoever owns transactions; the
-starter supplies a `REQUIRES_NEW` default, so the feature is reachable without Spring (INV-8) and costs Spring users
+handle on one. A `ChunkTransactions` callback on `ModelQueryConfig` leaves that to whoever owns transactions. It is given
+the write's `EntityManagerFactory`, so one callback serves several datasources, and the starter supplies a default that
+uses `REQUIRES_NEW` on the transaction manager bound to that factory, so the feature is reachable without Spring (INV-8) and costs Spring users
 nothing. Because committed chunks survive a later failure, the failure reports how much was written (INV-5). Rejected:
 a Spring-only option (breaks INV-8) and dropping it (every large delete would hand-roll the loop).
 → `api/14` R-WRT-19, R-WRT-20, `integration/50` R-SPR-11. Resolves Q-7.
+
+**D-17 — A bulk write affects exactly the rows the equivalent read returns.**
+A preview query and the write it previews must agree, or a user who checked the count first deletes more than they
+saw (INV-5). Three things follow. A filter tree that needs a join renders whole inside one `EXISTS`, because splitting
+it per predicate changes what `not` and `or` mean over a missing association. Key-first and chunked writes re-apply the
+filter, or its root predicates where the vendor cannot read the target table, so a row that stopped matching is not
+written. The write key is the entity's id from the JPA metamodel, because a non-unique key writes rows nobody
+selected. Rejected: one `EXISTS` per joined predicate (simpler SQL, different rows) and trusting the selected keys
+(wrong under concurrency and under MySQL's snapshot reads). → `api/14` R-WRT-08, R-WRT-10, R-WRT-11, R-WRT-17,
+AC-WRT-07.
 
 ## 2. Open questions
 
@@ -135,7 +146,8 @@ non-aggregate computed columns, or does that invite the SQL-builder scope creep 
 | `Optional` fields on models are unusual (not `Serializable`, need Jackson `jdk8`) | Documented. Only `@Join` fields use `Optional`; plain columns stay plain types. |
 | `CASE WHEN … IS NULL` null-precedence fallback defeats index use | Used only without `model-query-hibernate`, and only when the requested precedence differs from the vendor default. |
 | API churn before 1.0 | `@Incubating`, `0.x` versions, an explicit API review at M7, `japicmp` from 1.0. |
-| Scope creep toward a general SQL builder | P-5 and `delivery/62` R-RDM-03. `QueryCustomizer`, `Agg.of` and `Filters.add` are the only escape hatches, and each is documented as one. |
-| Bulk writes surprise users who expect entity semantics (listeners, cascades, Envers and Bean Validation don't run) | Stated in the Javadoc of every write method and in the user guide. Flush and clear by default (`api/14` R-WRT-15), version increment by default (R-WRT-16). The TCK pins down what the provider does for join tables and element collections. |
+| Scope creep toward a general SQL builder | P-5 and `delivery/62` R-RDM-03. `QueryCustomizer`, `Agg.of`, `Filters.add` and, for bulk updates, `setExpression` are the only escape hatches, and each is documented as one. |
+| Bulk writes surprise users who expect entity semantics (listeners, cascades, Envers and Bean Validation don't run) | Stated in the Javadoc of every write method and in the user guide. Flush and clear by default (`api/14` R-WRT-15), version increment by default (R-WRT-16). Clearing also detaches unrelated managed entities, whose later changes are then silently not written; stated in the same Javadoc, and `KEEP` is the alternative. The TCK pins down what the provider does for join tables and element collections. |
 | A change set bound from a request lets clients write fields they shouldn't (mass assignment) | An update model lists exactly the writable fields, so the user guide recommends one per endpoint. `generateChanges` on a query model is documented as for internal use (`processor/30` R-PROC-19). |
+| A timestamp `@Version` has the database's precision (one second on MySQL `DATETIME`), so two bulk updates in the same second leave the version unchanged and `expectVersion` misses the second | Documented; the user guide recommends a numeric `@Version` for rows that bulk updates touch. A TCK case pins the behaviour per vendor. |
 | The spec drifting from the code | Every rule has an `AC-*` with a test named after it; the AC audit fails CI on an uncovered criterion (`delivery/60` R-QA-11). |

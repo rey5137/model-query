@@ -10,7 +10,7 @@
 
 | Annotation | Target | Purpose |
 |---|---|---|
-| `@QueryModel(root = X.class, generateColumnSets = true, prefix = "Q", singleGroup = false)` | model class or record | Enables generation |
+| `@QueryModel(root = X.class, generateColumnSets = true, prefix = "Q", singleGroup = false, generateChanges = false)` | model class or record | Enables generation |
 | `@UpdateModel(root = X.class, prefix = "Q")` | class or record | `Future` (M8): the attributes a bulk update may write; generates columns and a change set (§7) |
 | `@PrimaryKey` | field or record component | Primary-key column(s); composite keys supported |
 | `@Column(attribute = "...", converter = Foo.class)` | field or component | Rename the attribute or convert the value (`ColumnConverter<C, F>`) |
@@ -24,8 +24,8 @@
 **R-PROC-01** The annotations module has no dependencies beyond the JDK (INV-7), so a model can be annotated in a module
 that does not depend on JPA or on the engine.
 
-**R-PROC-02** Every annotation is `RetentionPolicy.SOURCE` except `@QueryModel`, which is `CLASS` so tooling can find
-generated pairs.
+**R-PROC-02** Every annotation is `RetentionPolicy.SOURCE` except `@QueryModel` and `@UpdateModel` (`Future`, M8),
+which are `CLASS` so tooling can find generated pairs.
 
 ## 2. `@QueryModel`
 

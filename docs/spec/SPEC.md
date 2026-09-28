@@ -77,7 +77,7 @@ These hold for the life of the library. A change that breaks one is an architect
 
 | ID | Invariant |
 |---|---|
-| **INV-1** | **Queries are read-only.** A query never writes, flushes or deletes, and nothing the library returns is a managed entity. The only writes are explicit bulk `update`/`delete` calls (`api/14`, D-14), which load no entity and leave the persistence context flushed and, by default, cleared. |
+| **INV-1** | **Queries are read-only.** A query never writes or deletes and never calls `flush()` (the provider's own auto-flush before a query still applies), and nothing the library returns is a managed entity. The only writes are explicit bulk `update`/`delete` calls (`api/14`, D-14), which load no entity and leave the persistence context flushed and, by default, cleared. |
 | **INV-2** | **Projection-first.** A query selects the columns a use case declared and nothing else. Results are plain models built from a result row; no lazy proxy, no entity graph, no N+1. |
 | **INV-3** | **A column's type is checked, not trusted.** A `ColumnField`'s Java type matches the entity attribute it reads and the model field it fills — at compile time for generated columns, at first path resolution for hand-written ones (`api/10`). |
 | **INV-4** | **An export visits every row, or every group, exactly once,** with memory bounded by one page, on every supported database (`engine/21`). |
@@ -85,7 +85,7 @@ These hold for the life of the library. A change that breaks one is an architect
 | **INV-6** | **Vendor differences live only behind `VendorProfile`.** No `if (vendor == MYSQL)` outside a profile, and no vendor name in `core` (`vendor/40`). |
 | **INV-7** | **Dependencies flow one way:** `annotations` ← `core` ← `jpa` ← (`hibernate`, `spring-data`) ← `spring-boot-starter`, with `processor` depending only on `annotations`. `core` imports only `jakarta.persistence` and the JDK; `jpa` never imports `org.hibernate` (`delivery/61`). |
 | **INV-8** | **Framework-optional.** Every feature is reachable with a plain `EntityManager`. Spring is a convenience layer, never a requirement. |
-| **INV-9** | **Definitions are immutable and thread-safe.** `TableField`, `ColumnField`, `AggregateField`, `ColumnSet`, `OrderField` and `ModelQuery` can be `static final`. Per-query state lives only in `JoinContext`, created per build. |
+| **INV-9** | **Definitions are immutable and thread-safe.** `TableField`, `ColumnField`, `AggregateField`, `ColumnSet`, `OrderField`, `ModelQuery`, and from M8 `ModelUpdate` and `ModelDelete`, can be `static final`. Per-query state lives only in `JoinContext`, created per build. |
 | **INV-10** | **Diagnostic codes are stable:** once released, an `MQnnnn` code is never reused for a different meaning. |
 
 ## 3. Design principles
@@ -132,6 +132,7 @@ Full milestone list and exclusions: `delivery/62`.
 | Auto-configuration and properties | `model-query-spring-boot-starter` | `integration/50` | 0.1 |
 | Vendor conformance suite | `model-query-tck` | `delivery/60` | 0.1 |
 | Version alignment | `model-query-bom` | `delivery/61` | 0.1 |
+| Bulk writes: `ModelUpdate`, `ModelDelete`, `Changes`, `ChunkTransactions`; `@ValidChanges` | `model-query-core`; `model-query-jpa` | `api/14` | Future (M8) |
 | Samples | `samples/plain-jpa`, `samples/spring-boot-multi-datasource` | `delivery/62` | 0.1 |
 
 ## 6. Architecture decisions (summary)
@@ -153,6 +154,7 @@ Full milestone list and exclusions: `delivery/62`.
 | Code generation | annotation processor + JavaPoet, isolating and incremental; one file per model | `processor/31` |
 | Error codes | `MQ` + 4 digits, grouped by phase | D-10, `reference/90` |
 | Writes | filter-driven bulk `CriteriaUpdate`/`CriteriaDelete` with generated change sets; never entity writes | D-14, `api/14` |
+| Write parity | a bulk write affects exactly the rows the equivalent read returns | D-17, `api/14` |
 | License | Apache-2.0 for code and docs | `delivery/61` |
 
 ## 7. Source of truth

@@ -33,13 +33,15 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1302` | A column inside `exists(...)` is not on or below the given path | `api/12` R-FLT-11 |
 | `MQ1401` | A selected non-aggregate column is not in the group-by | `api/13` R-AGG-08 |
 | `MQ1402` | Keyset paging or primary-key-first on a grouped query | `api/13` R-AGG-10 |
-| `MQ1601` | A bulk write has no predicate left and `all()` was not called (`Future`, M8) | `api/14` R-WRT-12 |
+| `MQ1601` | A bulk write chose its rows with `where(...)` and no predicate is left (`Future`, M8) | `api/14` R-WRT-12 |
 | `MQ1602` | A column is assigned twice in one update (`Future`, M8) | `api/14` R-WRT-13 |
 | `MQ1603` | `set(column, null)`; NULL must be written with `setNull` (`Future`, M8) | `api/14` R-WRT-06 |
 | `MQ1604` | An assigned column is not on the update's root (a self-referencing join) (`Future`, M8) | `api/14` R-WRT-06 |
 | `MQ1605` | A primary-key or `@Version` column is assigned (`Future`, M8) | `api/14` R-WRT-13 |
-| `MQ1606` | `expectVersion` without `whereKey`, or on a root with no `@Version` (`Future`, M8) | `api/14` R-WRT-16 |
+| `MQ1606` | `expectVersion` without `whereKey`, on a root with no `@Version`, or with `keepVersion` and nothing to write (`Future`, M8) | `api/14` R-WRT-16, R-WRT-07 |
 | `MQ1607` | `Changes.from(...)` names a column that is not writable (`Future`, M8) | `api/14` R-WRT-04 |
+| `MQ1608` | A bulk write's `@PrimaryKey` is not the root entity's id (`Future`, M8) | `api/14` R-WRT-08 |
+| `MQ1609` | `setExpression` on a column with a converter (`Future`, M8) | `api/14` R-WRT-14 |
 
 ## 3. `MQ2xxx` — execution
 
@@ -51,8 +53,8 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ2201` | A row's primary key mapped to `null` during export | `engine/21` R-PAG-03 |
 | `MQ2202` | A keyset column is NULL and the column has no explicit null precedence | `engine/21` R-PAG-05 |
 | `MQ2301` | A `Sort` property resolves to neither an attribute path nor a known column | `integration/50` R-SPR-06 |
-| `MQ2501` | A bulk write ran without an active transaction (`Future`, M8) | `api/14` R-WRT-18 |
-| `MQ2502` | A per-chunk write failed after earlier chunks committed; carries the committed row count (`Future`, M8) | `api/14` R-WRT-20 |
+| `MQ2501` | A bulk write, other than `commitEachChunk()`, ran without an active transaction (`Future`, M8) | `api/14` R-WRT-18 |
+| `MQ2502` | A per-chunk write failed; `ChunkedWriteException` carries the committed rows, the last committed key and whether a chunk is in doubt (`Future`, M8) | `api/14` R-WRT-20 |
 
 **R-ERR-04** One JPA exception is thrown deliberately instead of a library type: `OptimisticLockException` when an
 `expectVersion` update affects no rows (`api/14` R-WRT-16), because callers already handle it for entity writes.
@@ -60,7 +62,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 ## 4. `MQ3xxx` — annotation processing
 
 Catalogued with messages in `processor/32` §1: `MQ3001`–`MQ3013` for structural checks, `MQ3201`–`MQ3205` for aggregate
-models, `MQ3301`–`MQ3305` for update models (`Future`, M8). Codes are not repeated here to keep one owner.
+models, `MQ3301`–`MQ3307` for update models (`Future`, M8). Codes are not repeated here to keep one owner.
 
 ## 5. `MQ4xxx` — configuration
 
@@ -69,7 +71,7 @@ models, `MQ3301`–`MQ3305` for update models (`Future`, M8). Codes are not repe
 | `MQ4001` | `modelquery.vendor` names an unknown vendor | `vendor/40` R-VND-04 |
 | `MQ4002` | Two `VendorProfile`s registered for the same vendor with no precedence rule | `vendor/40` R-VND-03 |
 | `MQ4003` | A property value is outside its allowed range | `integration/50` §3 |
-| `MQ4004` | `commitEachChunk()` with no `ChunkTransactions` configured (`Future`, M8) | `api/14` R-WRT-19 |
+| `MQ4004` | `commitEachChunk()` with no `ChunkTransactions` configured, or none that serves the write's `EntityManagerFactory` (`Future`, M8) | `api/14` R-WRT-19 |
 
 ## 6. Glossary
 
