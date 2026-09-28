@@ -10,6 +10,10 @@ An open-source Java library for **typed, projection-first queries on top of JPA*
 This document is the full plan: goals, architecture, API, correctness requirements, multi-vendor design, testing,
 open-source setup and milestones. It is self-contained.
 
+It holds **what to build, never progress**. There are no checkboxes, status columns or session notes here. Milestone
+status is read from git (§11.1), and working notes such as progress logs and agent instructions are kept outside this
+repository.
+
 ---
 
 ## 1. Goals and non-goals
@@ -814,6 +818,18 @@ GitHub Actions:
 | **M7: Hardening → 1.0.0** | Early-adopter feedback, API review, `japicmp` baseline, MariaDB Tier 2 | API frozen |
 
 M3 and M4 can run in parallel after M2.
+
+### 11.1 Milestone status
+
+Milestone status is public through git, not through a tracker file:
+
+- **In progress:** a `mN-<name>` branch exists (`m1-core`, `m2-engine`, ...). All of the milestone's work happens there.
+- **Done:** the branch has been merged into `main` after its exit criteria were met, and the merge commit is tagged
+  `mN-verified` (`m1-verified`). The branch is then deleted.
+- **Not started:** neither a branch nor a tag exists.
+
+`git tag -l 'm*-verified'` lists the finished milestones. Tagging is part of merging the milestone, so there is
+nothing else to update.
 
 ---
 
