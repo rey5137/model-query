@@ -5,6 +5,8 @@ An open-source Java library for **typed, projection-first queries on top of JPA*
 - typed column and join definitions (`ColumnField`, `TableField`) that map query results straight into plain model classes,
 - an **annotation processor** that generates those definitions as `QModel` classes,
 - a query execution engine for page, count, stream, and exports of large results (offset or keyset paging),
+- bulk `UPDATE` and `DELETE` driven by the same filters, with generated change sets that write only the fields that
+  were set,
 - vendor-aware behaviour for **H2, PostgreSQL and MySQL** first, behind an SPI that other databases can implement.
 
 This document is the full plan: goals, architecture, API, correctness requirements, multi-vendor design, testing,
@@ -30,10 +32,14 @@ repository.
 5. **Multi-vendor.** H2, PostgreSQL and MySQL are Tier 1 from the first release. Vendor differences live behind one SPI.
 6. **Framework-optional.** The core works with a plain `EntityManager`. Spring Data and Spring Boot integration are
    separate modules.
+7. **Filter-driven bulk writes.** Update or delete the rows a filter matches in one statement, and write only the
+   fields a caller actually set, so a partial update (HTTP PATCH) never needs a hand-written `set(...)` per field.
 
 ### Non-goals
 
-- Replacing JPA entities or writes. The library is read-only.
+- Replacing JPA entities or entity-level writes. Inserts, cascades, lifecycle callbacks and dirty checking stay with
+  JPA. Writes are bulk `UPDATE` and `DELETE` statements keyed by filters (§4.6), and they bypass the persistence
+  context by design.
 - A general SQL builder like jOOQ. The library stays on the JPA Criteria API and entity mappings.
 - Generating code from a database schema. The source of truth is the JPA entity model.
 - Abstracting collation, JSON column types, or time-zone handling. These stay with the entity mapping and the driver
@@ -63,7 +69,10 @@ repository.
 | **`ColumnSet<M>`** | An immutable, named set of columns (for example `DEFAULT`, `ALL`, `CUSTOMER`). |
 | **`QModel`** | A generated companion class (`QOrderView`) holding all `TableField`, `ColumnField` and `ColumnSet` constants for one model. |
 | **`ModelQuery<E, P, M>`** | The query definition: root, selected columns, primary key, order, filters, and paging mode. Built with a builder. |
-| **`ModelQueryExecutor<E>`** | Runs a `ModelQuery` against an `EntityManager`: `list`, `page`, `count`, `stream`, `export`. |
+| **`ModelQueryExecutor<E>`** | Runs a `ModelQuery` against an `EntityManager`: `list`, `page`, `count`, `stream`, `export`, and the bulk writes `update` and `delete`. |
+| **Update model** | A class or record annotated `@UpdateModel` that lists the root-entity attributes an update may write. It holds no data itself; the processor generates a change set for it. |
+| **`Changes<M>`** | A generated, mutable change set for model `M` (`OrderPatchChanges`). Each setter records that its column was set, so "set to NULL" and "not set" stay different. |
+| **`ModelUpdate<E, M>` / `ModelDelete<E, M>`** | Bulk write definitions: assignments (for updates), filters, and safety options. Built with a builder, immutable like `ModelQuery`. |
 | **`VendorProfile`** | An SPI holding all database-specific behaviour. |
 
 ### Example
@@ -126,10 +135,10 @@ long exported = executor.export(
 ```
 model-query/
 ├── model-query-bom                  Version alignment
-├── model-query-annotations          @QueryModel, @PrimaryKey, @Column, @Join, @FilterColumn, @ExcludeFromDefaults, @Transient    (no deps)
+├── model-query-annotations          @QueryModel, @UpdateModel, @PrimaryKey, @Column, @Join, @FilterColumn, @ExcludeFromDefaults, @Transient    (no deps)
 ├── model-query-core                 TableField, ColumnField, OrderField, ColumnSet, Row, RowMapper, ModelQuery,
-│                                    Filters DSL, JoinContext, SPI interfaces                                          (jakarta.persistence-api)
-├── model-query-jpa                  ModelQueryExecutor, paging and export engine, built-in VendorProfiles             (core)
+│                                    ModelUpdate, ModelDelete, Changes, Filters DSL, JoinContext, SPI interfaces      (jakarta.persistence-api)
+├── model-query-jpa                  ModelQueryExecutor, paging, export and bulk-write engine, built-in VendorProfiles  (core)
 ├── model-query-hibernate            Hibernate 6.x extras: dialect-based vendor detection, grouped count,
 │                                    null precedence                                                                   (jpa + hibernate-core, optional)
 ├── model-query-processor            Annotation processor generating QModel classes                                    (annotations, JavaPoet shaded)
@@ -413,17 +422,116 @@ public interface ModelQueryExecutor<E> {
     <M, R> R stream(ModelQuery<E, ?, M> q, Limit limit, Function<Stream<M>, R> body); // owns and closes the stream
     <M, S> long export(ModelQuery<E, ?, M> q, ExportOptions options,
                        Function<List<M>, List<S>> pageTransformer, Consumer<S> sink);
+
+    long update(ModelUpdate<E, ?> u);                                               // rows affected (§4.6)
+    long delete(ModelDelete<E, ?> d);                                               // rows affected (§4.6)
 }
 ```
 
 `ModelQueryExecutor.create(EntityManager, Class<E>, ModelQueryConfig)` is enough to use it without Spring.
 
+### 4.6 Bulk updates and deletes
+
+A bulk write is "change the rows these filters match", rendered as one JPA `CriteriaUpdate` or `CriteriaDelete` (or a
+chunked series of them). It reuses the filters DSL, join resolution, converters and vendor limits of queries. It
+doesn't load entities, run lifecycle callbacks or cascade (§1 non-goals, R21).
+
+**Change sets.** Writing `set(...)` once per field is tedious for wide entities, and it can't express "only the fields
+the client sent". An update model lists the writable attributes once:
+
+```java
+@UpdateModel(root = OrderEntity.class)
+@FilterColumn(name = "CREATED_AT", path = "createdAt")                 // filter-only, as on query models
+@FilterColumn(name = "CUSTOMER_COUNTRY", path = "customer.country")
+public record OrderPatch(                       // a class works too; it is only read by the processor
+        @PrimaryKey Long id,                    // never written; used by whereKey(...)
+        OrderStatus status,                     // converter from @Column or the entity mapping, as for queries
+        BigDecimal total,
+        Instant deliveredAt,
+        Instant updatedAt,
+        String note,
+        @Column(attribute = "customer") Long customerId) {}   // to-one by id: writes the foreign key
+```
+
+The processor generates `QOrderPatch` (columns, like a QModel) and `OrderPatchChanges`, a mutable change set that
+records which setters were called (§6.5):
+
+```java
+OrderPatchChanges c = QOrderPatch.changes()
+        .status(OrderStatus.SHIPPED)
+        .deliveredAt(null);                     // explicitly NULL; total, note, customerId not set
+
+c.isSet(QOrderPatch.TOTAL);                     // false
+c.unset(QOrderPatch.STATUS);                    // drop a field again
+
+long n = executor.update(QOrderPatch.update(c).whereKey(id).build());
+// UPDATE orders SET delivered_at = NULL, version = version + 1 WHERE id = ?
+```
+
+Because the change set also has JavaBean setters and a no-arg constructor, it binds straight from a PATCH request body.
+Jackson (and other binders) only call the setter of a property that is present, so `{"note": null}` clears `note`
+and a body without `note` leaves it alone. `core` needs no Jackson dependency for this.
+
+```java
+@PatchMapping("/orders/{id}")
+void patch(@PathVariable long id, @RequestBody OrderPatchChanges changes) {
+    orders.update(QOrderPatch.update(changes).whereKey(id).build());
+}
+```
+
+A query model can get a change set too, with `@QueryModel(generateChanges = true)`. It covers the model's root,
+non-key columns; joined and filter-only columns are left out. `OrderViewChanges.from(view, QOrderView.EDITABLE)` copies
+the named columns from a model instance, nulls included. There is deliberately no "ignore nulls" copy, because that is
+how PATCH endpoints lose the ability to clear a field.
+
+**Update definition.**
+
+```java
+ModelUpdate<OrderEntity, OrderPatch> u = QOrderPatch.update(changes)   // or ModelUpdate.builder(QOrderPatch.ROOT)
+        .set(QOrderPatch.UPDATED_AT, now)                  // extra assignment; a column set twice throws at build()
+        .setNull(QOrderPatch.NOTE)                         // set(col, null) throws: NULL must be explicit
+        .setExpression(QOrderPatch.TOTAL, (path, cb) -> cb.prod(path, rate))   // escape hatch
+        .where(f -> f.lt(QOrderPatch.CREATED_AT, cutoff)
+                     .eq(QOrderPatch.CUSTOMER_COUNTRY, country))   // @FilterColumn: rendered as EXISTS (R16)
+        .all()                                             // required only when no filter is left (R18)
+        .expectVersion(version)                            // AND version = ?; needs whereKey, 0 rows → OptimisticLockException
+        .keepVersion()                                     // opt out of the default version increment (R22)
+        .chunked(ChunkOptions.size(1_000))                 // optional: key-first chunks (R23)
+        .build();
+```
+
+- `set` only accepts `ColumnField<M, E, C>`, a column whose table is the root entity type `E`, so most joined columns
+  fail to compile. A join back to the same entity type (a self-reference) passes the type check and throws at
+  `build()`.
+- `set(Changes<M>)` adds every column the change set marked. An empty change set makes the whole update a no-op:
+  `update` returns 0 without running SQL.
+- `whereKey(key)` and `whereKeys(keys)` filter by the model's `@PrimaryKey` (single or composite). `whereKeys` splits
+  long lists to the vendor's limits (R12).
+
+**Delete definition.**
+
+```java
+long d = executor.delete(QOrderView.delete()
+        .where(f -> f.eq(QOrderView.STATUS, "DRAFT").lt(QOrderView.CREATED_AT, cutoff))
+        .chunked(ChunkOptions.size(5_000))
+        .build());
+```
+
+`ModelDelete` has the same `where`, `whereKey(s)`, `all()` and `chunked(...)` options as `ModelUpdate`. Soft deletes
+are updates (`set(DELETED, true)`); entities mapped with Hibernate's `@SoftDelete` get that from Hibernate itself.
+
+**Transactions.** Bulk writes need an active transaction. The executor checks with `EntityManager#isJoinedToTransaction`
+and fails fast with a message naming the operation, instead of the provider's `TransactionRequiredException` at the
+end. The Spring module runs them in a transaction automatically, like `SimpleJpaRepository`'s modifying methods.
+Chunked writes run every chunk in the caller's transaction. In the Spring module, `ChunkOptions.commitEachChunk()`
+commits after each chunk instead, which keeps locks and undo logs short at the cost of atomicity.
+
 ---
 
 ## 5. Correctness requirements for the engine
 
-A naive implementation of this pattern hits each of these problems. Every one of them is a release requirement with a
-TCK test (§9.2).
+A naive implementation of this pattern hits each of R1–R15. R16–R23 cover bulk writes (§4.6). Every one of them is a
+release requirement with a TCK test (§9.2).
 
 | # | Requirement | Design |
 |---|---|---|
@@ -442,6 +550,14 @@ TCK test (§9.2).
 | R13 | **One path, one join.** | Joins are cached by join key (parent key, attribute, type, alias), never by object identity. Selecting, filtering and ordering on the same path uses one join; a second join needs `as(...)` (§4.1). |
 | R14 | **`or` and `not` don't lose rows through joins.** | Joins first created inside `or`/`not` are LEFT (§4.4). |
 | R15 | **Filter values never change the query's meaning by accident.** | Empty `Optional` skips; an empty collection means "none"; negation includes NULLs; `like` input is escaped; long IN lists are split to the vendor's limit (§4.4). |
+| R16 | **Bulk writes never join.** | `CriteriaUpdate` and `CriteriaDelete` have a root and no joins. Filters on root columns render directly. Filters that need a join are built as a correlated sub-query over the root with the normal `JoinContext` and rendered as `EXISTS (SELECT 1 FROM orders o2 JOIN … WHERE o2.pk = o.pk AND …)`, which works for composite keys too. `exists(...)` filters stay correlated sub-queries. |
+| R17 | **Bulk writes work where the database can't read the target table in a sub-query.** | MySQL rejects `UPDATE`/`DELETE` whose sub-query reads the target table (error 1093). When `VendorProfile.targetTableInSubquery()` is false and R16 needs a sub-query, the engine runs key-first: select matching keys with the query engine, then write `WHERE pk IN (…)` in chunks sized by R12. The Javadoc notes that rows committed by others between the two steps aren't touched. |
+| R18 | **No accidental full-table writes.** | If no predicate is left after skipping empty `Optional`s, `build()` throws unless `all()` was called. A forgotten filter or an all-empty request can't update or delete every row. `in(col, List.of())` still renders `FALSE` and affects nothing (R15). |
+| R19 | **Only what was set is written.** | The `SET` clause contains exactly the columns marked in the change set plus explicit `set`/`setNull`/`setExpression` calls, in declaration order. "Set to NULL" writes NULL; "not set" writes nothing. An empty assignment list returns 0 without SQL. Primary-key columns and the `@Version` attribute are never assignable. A column assigned twice throws at `build()`. |
+| R20 | **Assigned values are typed and bound.** | Values pass through the column's converter and are always bind parameters, never inlined. A to-one attribute set by id binds `EntityManager#getReference(target, id)`, so no row is loaded. Types are checked like R11. |
+| R21 | **The persistence context isn't left stale.** | Before the statement: `flush()`, so pending entity changes are written first and not overwritten afterwards. After it: `clear()` by default (`PersistenceContextMode.CLEAR`), or nothing with `KEEP`. Hibernate invalidates the second-level cache region of the entity for bulk statements. |
+| R22 | **Bulk updates respect optimistic locking.** | When the root has a `@Version` attribute, every update renders `version = version + 1` (or the current timestamp for timestamp versions) unless `keepVersion()` is set. `expectVersion(v)` with `whereKey` adds `AND version = ?`; 0 affected rows throws `OptimisticLockException`. |
+| R23 | **Chunked writes visit every matched row once and terminate.** | Keyset over the primary key: select the next `n` matching keys `WHERE <filters> AND pk > :last ORDER BY pk`, write `WHERE pk IN (…)`, repeat until a chunk is short. Because the cursor moves forward on the key, an update that leaves rows still matching can't loop forever, and a delete never re-reads what it removed. |
 
 Export algorithm (one loop for both modes):
 
@@ -463,7 +579,8 @@ loop:
 
 | Annotation | Target | Purpose |
 |---|---|---|
-| `@QueryModel(root = X.class, generateColumnSets = true, prefix = "Q")` | model class or record | Enables generation |
+| `@QueryModel(root = X.class, generateColumnSets = true, generateChanges = false, prefix = "Q")` | model class or record | Enables generation. `generateChanges` also generates a change set over the root, non-key columns (§6.5). |
+| `@UpdateModel(root = X.class, prefix = "Q")` | class or record | Declares the attributes a bulk update may write, and generates columns and a change set for them (§6.5) |
 | `@PrimaryKey` | field or record component | Primary-key column(s). Composite keys are supported. |
 | `@Column(attribute = "...", converter = Foo.class)` | field or component | Rename the attribute or convert the value (`ColumnConverter<C, F>`) |
 | `@Join(attribute = "...", type = LEFT, prefix = "CUSTOMER", alias = "")` | `Optional<NestedModel>` field (initialised to `Optional.empty()`) or component | Join the association and reuse the nested model's QModel columns (§6.3, nested models). Two `@Join`s on the same attribute get the field name as their alias automatically. |
@@ -611,13 +728,81 @@ private Optional<CustomerView> customer = Optional.empty();
 | `@FilterColumn` path doesn't resolve, or passes through a collection without an explicit `joinType` | `OrderView @FilterColumn(CUSTOMER_COUNTRY): no attribute 'contry' on CustomerEntity` |
 | Two `@FilterColumn`s with the same `alias` and path prefix but different `joinType` | `OrderView @FilterColumn(SKU_B): alias 'itemB' is INNER here, LEFT on SKU_B_QTY` |
 | `@FilterColumn` name clashes with a generated constant | `OrderView @FilterColumn(STATUS): name already used by field 'status'` |
+| Update-model field maps through a join or a collection | `OrderPatch.customerName: update models can only write attributes of OrderEntity; 'customer.name' needs a join` |
+| `@Join` on an update model | `OrderPatch.customer: @Join isn't allowed on @UpdateModel; write the foreign key with @Column(attribute = "customer") Long customerId` |
+| Update-model field maps to the primary key without `@PrimaryKey`, or to the `@Version` attribute | `OrderPatch.version: the @Version attribute is managed by the engine (keepVersion, expectVersion)` |
+| Update-model field maps to an attribute that can't be written | `OrderPatch.createdAt: OrderEntity.createdAt is @Column(updatable = false)` |
+| To-one attribute written by id with the wrong id type | `OrderPatch.customerId: CustomerEntity's id is Long, found String` |
 
 The processor is tested with `com.google.testing.compile:compile-testing`: one case per diagnostic, Lombok on and off,
 classes and records (and records nested in classes and vice versa), composite and embedded keys, nested joins,
 `@FilterColumn` paths sharing and not sharing a `@Join`, and golden files for the generated sources.
 
+The same compile-testing suite covers update models: records and classes, converters, to-one by id, composite keys in
+`whereKey`, and golden files for `QOrderPatch` and `OrderPatchChanges`.
+
 A missing setter on a class model isn't a processor diagnostic, because Lombok-generated setters aren't reliably
 visible to other processors. javac reports it when compiling the generated `QOrderView.map`, pointing at the call.
+
+### 6.5 Generated update models
+
+For `@UpdateModel OrderPatch` (§4.6) the processor generates two files, both in the model's package.
+
+```java
+@Generated("com.rey.modelquery.processor.ModelQueryProcessor")
+public final class QOrderPatch {
+    public static final TableField<OrderEntity, OrderEntity> ROOT = TableField.root(OrderEntity.class);
+    public static final ColumnField<OrderPatch, OrderEntity, Long> ID = …;              // @PrimaryKey: whereKey only
+    public static final ColumnField<OrderPatch, OrderEntity, String> STATUS = …;
+    public static final ColumnField<OrderPatch, OrderEntity, Long> CUSTOMER_ID = …;     // to-one by id
+    public static final ColumnField<OrderPatch, OrderEntity, Instant> CREATED_AT = …;   // @FilterColumn
+    public static final ColumnField<OrderPatch, CustomerEntity, String> CUSTOMER_COUNTRY = …;
+    // …
+
+    public static OrderPatchChanges changes() { return new OrderPatchChanges(); }
+
+    public static ModelUpdate.Builder<OrderEntity, OrderPatch> update(Changes<OrderPatch> changes) {
+        return ModelUpdate.builder(ROOT).primaryKey(PrimaryKey.of(ID)).set(changes);
+    }
+
+    public static ModelDelete.Builder<OrderEntity, OrderPatch> delete() {
+        return ModelDelete.builder(ROOT).primaryKey(PrimaryKey.of(ID));
+    }
+
+    private QOrderPatch() {}
+}
+
+@Generated("com.rey.modelquery.processor.ModelQueryProcessor")
+public final class OrderPatchChanges implements Changes<OrderPatch> {
+    private final BitSet set = new BitSet();          // one bit per writable column, in declaration order
+    private OrderStatus status;
+    // …
+
+    public OrderPatchChanges() {}                     // for Jackson and other binders
+
+    public OrderPatchChanges status(OrderStatus value) { this.status = value; set.set(0); return this; }
+    public void setStatus(OrderStatus value) { status(value); }     // JavaBean form: binders call it only when present
+    public OrderStatus getStatus() { return status; }
+    // … one fluent setter, JavaBean setter and getter per writable field
+
+    @Override public boolean isSet(ColumnField<OrderPatch, ?, ?> column) { … }
+    @Override public OrderPatchChanges unset(ColumnField<OrderPatch, ?, ?> column) { … }
+    @Override public boolean isEmpty() { return set.isEmpty(); }
+    @Override public List<Assignment<OrderPatch, ?>> assignments() {
+        // set columns only, in declaration order; converters applied, e.g. STATUS ← converter.toEntity(status)
+    }
+}
+```
+
+- The update model itself is only a declaration. It is never instantiated, so a record is the shortest way to write
+  one.
+- Only root attributes (including embedded ones, as a dotted `@Column(attribute = "address.city")`) and to-one
+  associations written by id are writable. `@PrimaryKey` fields get a column constant but no setter.
+- `@FilterColumn` works as on query models. Joined filter columns are rendered through R16.
+- For `@QueryModel(generateChanges = true)`, `QOrderView` gains `changes()` and `update(changes)`, and
+  `OrderViewChanges` gains `static OrderViewChanges from(OrderView model, ColumnSet<OrderView> columns)`, which reads the
+  model's getters or record accessors. Columns in `columns` that aren't writable throw.
+- `QOrderView.delete()` is generated for every query model with a `@PrimaryKey`, since a delete writes no columns.
 
 ---
 
@@ -653,6 +838,8 @@ public interface VendorProfile {
     void applyTimeout(Query query, Duration timeout);
 
     NullOrdering defaultAscendingNullOrdering();               // NULLS_FIRST, NULLS_LAST, UNKNOWN
+
+    boolean targetTableInSubquery();                           // may UPDATE/DELETE read their own table in a sub-query (R17)
 }
 ```
 
@@ -669,6 +856,7 @@ Profiles are discovered with `ServiceLoader`. Spring users can also register the
 | NULLs in ASC order | first | **last** | first |
 | Explicit `NULLS FIRST/LAST` | native | native | emulated by Hibernate (`ISNULL(col)` sort) |
 | Keyset row-value `(a,b) > (?,?)` | yes | yes | yes. A possible later optimisation; the default is the portable OR-expansion. |
+| Target table in an `UPDATE`/`DELETE` sub-query | yes | yes | **no** (error 1093), so joined filters run key-first (R17) |
 
 Notes:
 
@@ -676,7 +864,8 @@ Notes:
 - MySQL Connector/J implements `setQueryTimeout` by opening a second connection to run `KILL QUERY`. That works, but
   it costs an extra connection per cancelled query. Keep pool sizing in mind when timeouts are short.
 - The `OTHER` profile is conservative: fetch size 500, JPA timeout, IN list 1 000, bind parameters 2 000, NULL
-  ordering `UNKNOWN`. Keyset paging on nullable columns without explicit null precedence is refused.
+  ordering `UNKNOWN`, and no target table in sub-queries (bulk writes with joined filters run key-first). Keyset
+  paging on nullable columns without explicit null precedence is refused.
 
 ### 7.4 Vendor detection
 
@@ -724,6 +913,8 @@ public interface ModelQueryRepository<E, ID> extends JpaRepository<E, ID> {
     long count(ModelQuery<E, ?, ?> q);
     <M, R> R stream(ModelQuery<E, ?, M> q, Limit limit, Function<Stream<M>, R> body);
     <M, S> long export(ModelQuery<E, ?, M> q, ExportOptions options, Function<List<M>, List<S>> t, Consumer<S> sink);
+    long update(ModelUpdate<E, ?> u);                // @Transactional
+    long delete(ModelDelete<E, ?> d);                // @Transactional
 }
 ```
 
@@ -732,6 +923,9 @@ public interface ModelQueryRepository<E, ID> extends JpaRepository<E, ID> {
 - `Pageable`/`Sort` are converted to `PageSpec`/`SortSpec`. Sort properties resolve against the root entity's
   attribute paths, or against `ColumnField`s by name when the sort names a column.
 - `stream(...)` opens a read-only transaction when none is active, which PostgreSQL needs for cursor streaming.
+- `update(...)` and `delete(...)` join the current transaction or open one, like the modifying methods of
+  `SimpleJpaRepository`. `ChunkOptions.commitEachChunk()` runs each chunk in its own `REQUIRES_NEW` transaction.
+- Change sets bind from request bodies with no extra configuration (§4.6).
 
 ### 8.2 Configuration (`modelquery.*` in the starter)
 
@@ -744,6 +938,8 @@ public interface ModelQueryRepository<E, ID> extends JpaRepository<E, ID> {
 | `modelquery.mysql.streaming-mode` | `row-by-row` | or `cursor-fetch` |
 | `modelquery.query-timeout` | none | Default per-query timeout |
 | `modelquery.keyset.null-keys` | `fail` | `fail` or `honour-null-precedence` |
+| `modelquery.mutation.persistence-context` | `clear` | `clear` or `keep` after a bulk write (R21) |
+| `modelquery.mutation.chunk-size` | 1000 | Default size for `chunked(...)`, clamped per vendor |
 
 ---
 
@@ -753,7 +949,7 @@ public interface ModelQueryRepository<E, ID> extends JpaRepository<E, ID> {
 
 - `core`: join resolution, column sets, keyset predicate trees, filters. Uses Hibernate's `CriteriaBuilder` against an
   in-memory H2 metamodel. No mocks of JPA internals.
-- `processor`: compile-testing suite (§6.4).
+- `processor`: compile-testing suite (§6.4), including update models (§6.5).
 - Rendered-SQL snapshots: a test-only JDBC proxy (`datasource-proxy`) captures the SQL for about 30 reference queries on each vendor
   into `src/test/resources/sql/<vendor>/*.sql`. A PR that changes generated SQL shows the change as a diff.
 
@@ -775,6 +971,7 @@ with a composite key, a table with nullable sort columns, and about 20 000 seede
 | Streaming | 20 000 rows with a bounded heap assertion, early exit releases the connection (checked with the pool's active count), PostgreSQL without a transaction fails fast (R10) |
 | Timeout | a slow query is cancelled (`SLEEP()` / `pg_sleep()` / H2 user function) |
 | Detection | each container resolves to the expected profile |
+| Mutations | change sets write only set columns, NULL vs not set, converters and to-one by id (R19, R20); joined filters render as `EXISTS` and key-first on MySQL (R16, R17); a write with every filter skipped throws unless `all()` (R18); empty change set runs no SQL; version increment, `keepVersion`, `expectVersion` mismatch throws (R22); persistence context cleared or kept, pending changes flushed first (R21); chunked update that leaves rows matching terminates and touches each row once, chunked delete across the vendor's IN limits (R23); no transaction fails fast; a delete blocked by a foreign key surfaces the provider's constraint exception |
 
 ### 9.3 CI
 
@@ -816,8 +1013,10 @@ GitHub Actions:
 | **M5: Spring** | `spring-data` module + starter + properties | Spring Boot sample with several datasources on H2, PostgreSQL and MySQL |
 | **M6: 0.1.0 release** | Docs site, samples, Maven Central publishing | First public release |
 | **M7: Hardening → 1.0.0** | Early-adopter feedback, API review, `japicmp` baseline, MariaDB Tier 2 | API frozen |
+| **M8: Bulk writes** | `ModelUpdate`, `ModelDelete`, `Changes`, `@UpdateModel` and `generateChanges` in the processor, executor and repository methods, chunked mode, `VendorProfile.targetTableInSubquery`. Requirements R16–R23. | TCK mutation group green on the Tier-1 databases. compile-testing cases for §6.5. The Spring Boot sample has a PATCH endpoint. |
 
-M3 and M4 can run in parallel after M2.
+M3 and M4 can run in parallel after M2. M8 starts after M6, so the first release ships the read API, and runs alongside
+M7. Its API is `@Incubating` until the M7 API review, which covers it before 1.0.0.
 
 ### 11.1 Milestone status
 
@@ -845,6 +1044,8 @@ nothing else to update.
 | `CASE WHEN … IS NULL` null-precedence fallback defeats index use | Used only without `model-query-hibernate` and only when the requested precedence differs from the vendor default. Documented in §4.1. |
 | API churn before 1.0 | `@Incubating`, `0.x` versions, and an explicit API review at M7 |
 | Scope creep toward a general SQL builder | Non-goals in §1. `QueryCustomizer` is the escape hatch for everything else. |
+| Bulk writes surprise users who expect entity semantics (listeners, cascades, Envers, Bean Validation don't run) | Stated in the Javadoc of every write method and in the user guide. Flush and clear by default (R21), version increment by default (R22). The TCK pins down what the provider does for join tables and element collections. |
+| A change set bound from a request lets clients write fields they shouldn't (mass assignment) | An update model lists exactly the writable fields, so the user guide recommends one per endpoint. `generateChanges` on a query model exposes all its root columns and is documented as for internal use. |
 
 ---
 
@@ -854,3 +1055,5 @@ nothing else to update.
 2. Should the MySQL default be row-by-row streaming or `useCursorFetch`? Row-by-row is faster, but it blocks other
    statements on the same connection until the result has been read.
 3. Is Hibernate 6.6 the right minimum, or should the library target Hibernate 7 only, since Spring Boot 4 uses it?
+4. Should generated change sets copy Bean Validation annotations from the update model's fields, so
+   `@Valid @RequestBody OrderPatchChanges` validates the fields that were set?
