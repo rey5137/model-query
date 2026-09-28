@@ -6,6 +6,9 @@ Thanks for helping. Bug reports, TCK cases and vendor profiles are especially we
 
 - For anything bigger than a small fix, open an issue first so we can agree on the API.
 - The design lives in [docs/plan.md](docs/plan.md). Changes that contradict it should update it in the same PR.
+- The plan holds what to build, never progress. Don't add checkboxes, status columns or work logs to it.
+- This file and the plan hold every rule that applies to contributors, human or AI. Tool-specific agent instructions
+  (`CLAUDE.md`, `AGENTS.md`) and personal working notes are kept out of the repository.
 
 ## Building
 
@@ -19,6 +22,9 @@ Requirements: JDK 17+, Docker (for the TCK).
 ## Pull requests
 
 - Branch from `main` and keep PRs focused.
+- Milestone work (plan §11) happens on an `mN-<name>` branch, e.g. `m1-core`. Once the milestone's exit criteria are
+  met, it is merged into `main` and the merge commit is tagged `mN-verified`. That tag is the public record that the
+  milestone is done (plan §11.1).
 - PR titles follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, ...).
   PRs are squash-merged, so the title becomes the commit message and the changelog entry.
 - Add tests. Anything that changes generated SQL or results needs a TCK case that runs on every Tier-1 vendor.
