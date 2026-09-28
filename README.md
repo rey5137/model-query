@@ -9,6 +9,8 @@ Typed, projection-first queries on top of JPA.
   classes or records.
 - An annotation processor that generates those definitions as `QModel` classes.
 - A query engine for list, page, count, stream and large exports (offset or keyset paging).
+- Bulk update and delete driven by the same filters, with generated change sets that write only the fields that were
+  set (planned, M8).
 - Vendor-aware behaviour for **H2, PostgreSQL and MySQL**, behind an SPI other databases can implement.
 
 > **Status: early development.** Nothing is published yet and the API below is the target design.
