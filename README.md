@@ -14,7 +14,9 @@ Typed, projection-first queries on top of JPA.
 - Vendor-aware behaviour for **H2, PostgreSQL and MySQL**, behind an SPI other databases can implement.
 
 > **Status: early development.** Nothing is published yet and the API below is the target design.
-> See [the plan](docs/plan.md) for the full design and milestones. Finished milestones are tagged `mN-verified`.
+> The full specification is in [`docs/spec/`](docs/spec/SPEC.md) — start at the routing table in `SPEC.md`.
+> Milestones are in [`docs/spec/delivery/62-roadmap.md`](docs/spec/delivery/62-roadmap.md); finished ones are tagged
+> `mN-verified`.
 
 ## Example
 
@@ -106,6 +108,15 @@ Java 17+, Jakarta Persistence 3.1+, Hibernate ORM 6.6+ (tested on 6.6 and 7.x), 
 ```
 
 The TCK module needs Docker (Testcontainers starts PostgreSQL and MySQL).
+
+## Documentation
+
+| Audience | Where |
+|---|---|
+| Using the library | this README, then the user guide (published at 0.1.0) |
+| Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/code-conventions.md](docs/code-conventions.md) |
+| How it is specified | [docs/spec/SPEC.md](docs/spec/SPEC.md) — invariants, rules, acceptance criteria |
+| Why a design choice was made | [docs/spec/reference/92-decisions-questions.md](docs/spec/reference/92-decisions-questions.md) |
 
 ## Contributing
 
