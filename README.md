@@ -12,7 +12,7 @@ Typed, projection-first queries on top of JPA.
 - Vendor-aware behaviour for **H2, PostgreSQL and MySQL**, behind an SPI other databases can implement.
 
 > **Status: early development.** Nothing is published yet and the API below is the target design.
-> See [the plan](docs/plan.md) for the full design and milestones.
+> See [the plan](docs/plan.md) for the full design and milestones. Finished milestones are tagged `mN-verified`.
 
 ## Example
 
