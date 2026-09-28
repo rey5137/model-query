@@ -1,0 +1,114 @@
+# 30 — Annotations
+
+**Covers:** every annotation in `model-query-annotations` and what it means for the generated `QModel`.
+**Read when:** adding an annotation or an attribute, or deciding which annotation a use case needs.
+**Owns:** `R-PROC-*`, `AC-PROC-*`. What gets generated is `processor/31`; the checks are `processor/32`.
+
+---
+
+## 1. Catalog
+
+| Annotation | Target | Purpose |
+|---|---|---|
+| `@QueryModel(root = X.class, generateColumnSets = true, prefix = "Q", singleGroup = false, generateChanges = false)` | model class or record | Enables generation |
+| `@UpdateModel(root = X.class, prefix = "Q")` | class or record | `Future` (M8): the attributes a bulk update may write; generates columns and a change set (§7) |
+| `@PrimaryKey` | field or record component | Primary-key column(s); composite keys supported |
+| `@Column(attribute = "...", converter = Foo.class)` | field or component | Rename the attribute or convert the value (`ColumnConverter<C, F>`) |
+| `@Join(attribute = "...", type = LEFT, prefix = "CUSTOMER", alias = "")` | `Optional<NestedModel>` field or component | Join the association and reuse the nested model's QModel columns |
+| `@FilterColumn(name = "...", path = "...", joinType = LEFT, alias = "", converter = Foo.class)` | model type (repeatable) | A filter-only column: a `ColumnField` constant with no model field, left out of every generated `ColumnSet` and of `map(Row)` |
+| `@Aggregate(fn = SUM, attribute = "...", distinct = false)` | field or component | An `AggregateField` constant, mapped into this field (`api/13`) |
+| `@GroupBy` | field or component | The column joins the generated `GROUP_KEYS` set and the query's group-by |
+| `@ExcludeFromDefaults` | field or component | Leave the column out of `DEFAULT` (heavy BLOB/TEXT columns) |
+| `@Transient` | field or component | Not a column |
+
+**R-PROC-01** The annotations module has no dependencies beyond the JDK (INV-7), so a model can be annotated in a module
+that does not depend on JPA or on the engine.
+
+**R-PROC-02** Every annotation is `RetentionPolicy.SOURCE` except `@QueryModel` and `@UpdateModel` (`Future`, M8),
+which are `CLASS` so tooling can find generated pairs.
+
+## 2. `@QueryModel`
+
+**R-PROC-03** `root` is the JPA entity the model reads from. It may be in the same compilation or on the classpath
+(`processor/31` R-GEN-01).
+
+**R-PROC-04** `prefix` and `suffix` (also settable as `-Amodelquery.prefix=` / `-Amodelquery.suffix=`) name the
+generated class. A project also using Querydsl on the same classes should change one of them, although a collision is
+unlikely: Querydsl generates for entities, this processor generates for models.
+
+**R-PROC-05** `singleGroup = true` marks a model that has `@Aggregate` fields and deliberately no `@GroupBy` field — a
+whole-table total. Without it, that combination is a diagnostic (`processor/32` `MQ3203`).
+
+## 3. `@Column` and converters
+
+**R-PROC-06** `attribute` is a dotted path from `root` only when it stays inside `@Embedded` values; crossing an
+association needs `@Join` or `@FilterColumn`.
+
+**R-PROC-07** A `ColumnConverter<C, F>` converts between the model type `C` and the entity attribute type `F`. It must
+be stateless and have a no-arg constructor or an `INSTANCE` field. The generated mapper calls it; filters call it in the
+other direction, so a converter that is not a bijection is documented as filter-unsafe.
+
+## 4. `@Join` and nested models
+
+**R-PROC-08** A `@Join` field or component is always `Optional<NestedModel>`, and a class field is initialised to
+`Optional.empty()`. Semantics — empty means "no data", presence follows the joined primary key — are `processor/31` §4.
+
+**R-PROC-09** Two `@Join`s on the same attribute get the field name as their alias automatically, so they become two
+joins (`api/10` R-COL-03).
+
+## 5. `@FilterColumn`
+
+**R-PROC-10** `path` is a dotted attribute path from `root` (`"deleted"`, `"customer.country"`,
+`"customer.address.city"`), validated like any other attribute. The constant's type is the entity attribute's type, or
+the converter's model type.
+
+**R-PROC-11** Joins are shared: when a path prefix matches a `@Join`, that `TableField` is reused, so filtering and
+selecting the same association never joins it twice. Any other association on the path gets its own generated
+`TableField` (`<PREFIX>_TABLE`) with `joinType`, default `LEFT`.
+
+**R-PROC-12** `alias` puts the whole path on a separate join. Filter columns sharing an alias share that join. Join
+`ON` conditions cannot be expressed in an annotation, because they are lambdas: declare that `TableField` by hand, or
+use `Filters.exists` with an inner group (`api/12` §7).
+
+**R-PROC-13** Every collection association on the root also gets a generated `TableField` constant (`ITEMS_TABLE`), so
+`Filters.exists(QOrderView.ITEMS_TABLE, …)` works with no hand-written join.
+
+**R-PROC-14** A filter-only column may be used in `orderBy`. With keyset paging the engine selects it automatically
+(`engine/21` R-PAG-04).
+
+## 6. `@Aggregate` and `@GroupBy`
+
+**R-PROC-15** `@Aggregate` generates one `AggregateField` constant and maps it into its field. `fn` is `COUNT`, `SUM`,
+`AVG`, `MIN` or `MAX`; `attribute` is omitted for `COUNT` over the root; `distinct = true` yields `countDistinct`.
+
+**R-PROC-16** `@GroupBy` fields, in declaration order, form the generated `GROUP_KEYS` `ColumnSet`, and
+`Q<Model>.query()` is pre-configured with `groupBy(GROUP_KEYS)`. `@GroupBy` cannot be combined with `@Aggregate` or
+`@Join` (`processor/32` `MQ3204`).
+
+**R-PROC-17** Aggregates are in no generated `ColumnSet` (`api/13` R-AGG-12).
+
+## 7. Update models — `Future` (M8)
+
+**R-PROC-18** `@UpdateModel(root = …)` declares the root-entity attributes a bulk update may write (`api/14` §2). The
+type is only read by the processor and never instantiated. It accepts `@PrimaryKey`, `@Column` (including a to-one
+association written by id, `@Column(attribute = "customer") Long customerId`) and `@FilterColumn`, and rejects `@Join`,
+`@Aggregate` and `@GroupBy` (`processor/32` §1).
+
+**R-PROC-19** `@QueryModel(generateChanges = true)` also generates a change set over the query model's root, non-key
+columns; joined and filter-only columns are left out. It is meant for internal use: an endpoint binding it from a
+request can write every root column of the model, so the user guide recommends one `@UpdateModel` per endpoint.
+
+## 8. Acceptance criteria
+
+| ID | Criterion |
+|---|---|
+| AC-PROC-01 | `model-query-annotations` has no non-JDK dependency and compiles on a bare JDK 17 (R-PROC-01). |
+| AC-PROC-02 | A model whose `root` is only on the classpath generates correctly (R-PROC-03). |
+| AC-PROC-03 | `-Amodelquery.prefix=X` renames the generated class and every reference in it (R-PROC-04). |
+| AC-PROC-04 | `@Column(converter = …)` round-trips through `Row.get` and through a filter on the same column (R-PROC-07). |
+| AC-PROC-05 | Two `@Join`s on one attribute produce two joins with distinct aliases (R-PROC-09). |
+| AC-PROC-06 | A `@FilterColumn` path sharing a prefix with a `@Join` reuses that join; a different path creates its own (R-PROC-11). |
+| AC-PROC-07 | `@FilterColumn`s sharing an alias share one join; different aliases do not (R-PROC-12). |
+| AC-PROC-08 | Every collection association on the root has a generated `TableField` usable in `exists` (R-PROC-13). |
+| AC-PROC-09 | `@Aggregate`/`@GroupBy` on a summary model generate `GROUP_KEYS` and a pre-configured `query()` (R-PROC-15, R-PROC-16). |
+| AC-PROC-10 | `singleGroup = true` suppresses `MQ3203`; omitting it raises it (R-PROC-05). |
