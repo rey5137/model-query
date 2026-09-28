@@ -23,8 +23,3 @@ pom.xml.versionsBackup
 # Secrets
 *.asc
 *.gpg
-
-# Agent instructions and working notes are kept outside the repository
-CLAUDE.md
-CLAUDE.local.md
-AGENTS.md
