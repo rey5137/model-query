@@ -72,5 +72,7 @@ key when the `VendorProfile` default already matches (`api/10` R-COL-12). M1.3 c
 tested alongside `vendor/41` AC-PRF-02 and AC-PRF-03. Also decide whether M2.1's `jpa.spi.GroupedCountStrategy`
 (R-EXE-03's Hibernate count, found through `ServiceLoader`) folds into `VendorProfile`. And `stream`'s vendor hooks: the
 R-EXE-08 `checkStreamingPreconditions` and `applyStreaming` calls and the R-EXE-11 timeout, with AC-EXE-08 (the same
-case as `vendor/41` AC-PRF-04) and AC-EXE-09.
+case as `vendor/41` AC-PRF-04) and AC-EXE-09. And the engine half of `modelquery.keyset.null-keys=honour-null-precedence`
+(`engine/21` R-PAG-05): paging a `DEFAULT`-precedence keyset over its NULLs in the vendor's own position, read from
+`VendorProfile.defaultAscendingNullOrdering()`; M2.4 covers the default `fail`.
 

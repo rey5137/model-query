@@ -209,6 +209,22 @@ and group (R-PAG-11) from the `Row` without a second definition of the selection
 `keyset()` or `primaryKeyFirst(...)` (offset export needs it too, R-QRY-03). `ModelQuery` and `QuerySpec` expose
 `isGrouped()` and `groupBy()` for the executor. → `api/11` R-QRY-04, AC-QRY-03.
 
+**D-30 — A `DEFAULT`-precedence keyset reaches its NULLs in order to refuse them.**
+Under the default `fail`, a NULL in a keyset column with `DEFAULT` precedence throws `MQ2202`, but only if a page reads
+it: where the database sorts NULLs after every value (PostgreSQL ascending, H2 and MySQL descending), the plain
+`a > :ka` branch never matches them, and the export would end early without a word. So each non-key `DEFAULT` column's
+branch is `(a > :ka OR a IS NULL)`, every row read is checked, and the NULL is refused wherever the vendor sorts it,
+without consulting `VendorProfile`. Primary-key columns get no such branch (R-PAG-03 keeps them non-NULL). Rejected:
+checking only the cursor row (it silently drops the NULLs on those vendors); a count probe per export (an extra query).
+M3 may drop the branch where `defaultAscendingNullOrdering()` puts the NULLs first. → `engine/21` R-PAG-05, INV-5,
+AC-PAG-07.
+
+**D-31 — Keyset export drops repeated keys within a page only.**
+Each keyset page starts strictly after the last row of the page before, in an order closed by the primary key
+(R-PAG-04), so no row can reach two pages. A key can still repeat inside one page through a to-many join used only by
+predicates, and that repeat is dropped as in offset mode. No key set is kept across pages. Rejected: offset mode's
+cross-boundary dedupe (bookkeeping with nothing to catch). → `engine/21` R-PAG-02, R-PAG-04, AC-PAG-05.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter

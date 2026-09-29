@@ -87,6 +87,9 @@ public enum MqCode {
     /** A row's primary key mapped to {@code null} during export (R-PAG-03). */
     MQ2201("A row's primary key mapped to null during export"),
 
+    /** A keyset column is NULL and has no explicit null precedence (R-PAG-05). */
+    MQ2202("A keyset column is NULL and the column has no explicit null precedence"),
+
     /** An operation needing a primary key on a query without one (R-QRY-03). */
     MQ2203("An operation needing a primary key ran on a query without one"),
 
