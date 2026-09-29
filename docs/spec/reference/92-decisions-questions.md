@@ -259,6 +259,16 @@ Should 0.1 ship an opaque encoded form (so a REST API can page without exposing 
 
 **Q-7 — Per-chunk commits without Spring.** Resolved by D-16.
 
+**Q-8 — Per-page enrichment and to-many children.** A report model often needs more than its own row: a child
+collection with its own columns (an order's lines), or a value computed per row by a lookup outside the query. Today the
+caller does it: `export` hands each page to `pageTransformer` (`engine/21` R-PAG-09), but `page` and `list` have no
+per-page hook, and `afterMap` runs per row, where a lookup is one query per row (D-11). A selection through a to-many
+join is refused (R-PAG-13), so a child collection is a second query on the parents' keys, batched by hand within the
+vendor's IN-list limit. Should 0.x add (a) a per-page hook on `page` and `list` matching `pageTransformer`, and/or
+(b) a declared to-many child with its own `ColumnSet`, loaded by the executor in batches on the parents' keys, reusing
+the primary-key-first step-2 batching and clamp (R-PAG-07, D-32)? Either is new public API, and (b) must keep memory
+bounded by one page (INV-4). → `api/11`, `engine/21`.
+
 ## 3. Risks
 
 | Risk | Mitigation |
