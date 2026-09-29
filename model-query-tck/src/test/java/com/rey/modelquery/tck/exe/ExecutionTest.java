@@ -38,6 +38,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.logging.Handler;
@@ -45,10 +47,13 @@ import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
+import java.lang.reflect.Proxy;
+import java.sql.Connection;
+import java.util.stream.Stream;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
 
-/** {@code list}, {@code page} and {@code count} of the executor (engine/20). */
+/** {@code list}, {@code page}, {@code count} and {@code stream} of the executor (engine/20). */
 class ExecutionTest {
 
     record OrderRow(Long id, String status, BigDecimal total) {}
@@ -320,6 +325,128 @@ class ExecutionTest {
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ2002));
         }));
         assertThat(sql).isEmpty();
+    }
+
+    // ---- AC-EXE-06, AC-EXE-07
+
+    @TckTest
+    void ac_exe_06_streaming_20_000_rows_maps_them_one_at_a_time(TckDatabase db) {
+        // The mapper counts the models the engine has built. An engine that buffered (mapAll into a list, then
+        // list.stream()) would have built all 20 000 before body sees the first, so the bound below would fail; a
+        // lazy stream has built the first one or two, so the live models never exceed a small constant. The
+        // assertion is on the engine's own buffering: a driver that buffers its rows (PostgreSQL outside a
+        // transaction, MySQL without a streaming fetch size) does not change how many models are mapped, and the
+        // vendor-side streaming setup is M3's (R-EXE-08).
+        AtomicLong mapped = new AtomicLong();
+        AtomicLong consumed = new AtomicLong();
+        AtomicLong maxAhead = new AtomicLong();
+        var itemRows = ModelQuery.builder(ORDERS, row -> {
+                    mapped.incrementAndGet();
+                    return new ItemRow(row.get(ITEM_ORDER_ID), row.get(ITEM_PRODUCT));
+                })
+                .columns(ColumnSet.of(ITEM_ORDER_ID, ITEM_PRODUCT))
+                .build();
+        withExecutor(db, executor -> {
+            // forEach, not count(): count() skips a SIZED stream's pipeline, which is what a buffered list would be
+            long total = executor.stream(itemRows, Limit.unlimited(), rows -> {
+                rows.forEach(row -> {
+                    consumed.incrementAndGet();
+                    maxAhead.accumulateAndGet(mapped.get() - consumed.get(), Math::max);
+                });
+                return consumed.get();
+            });
+            assertThat(total).isEqualTo(TckFixture.ORDER_ITEMS);
+        });
+        assertThat(mapped).hasValue(TckFixture.ORDER_ITEMS);
+        assertThat(maxAhead.get()).as("models built ahead of the one body is reading").isLessThanOrEqualTo(2);
+    }
+
+    @TckTest
+    void ac_exe_06_a_zero_limit_streams_nothing_and_runs_no_query(TckDatabase db) {
+        List<Long> counts = new ArrayList<>();
+        List<String> sql = SqlSnapshots.assertMatches(db, "exe-06-zero-limit", ds -> withExecutor(ds,
+                executor -> counts.add(executor.stream(NEW_ORDERS, Limit.of(0), Stream::count))));
+        assertThat(sql).isEmpty();
+        assertThat(counts).containsExactly(0L);
+    }
+
+    @TckTest
+    void ac_exe_06_stream_applies_the_limit_and_keeps_the_order(TckDatabase db) {
+        withExecutor(db, executor -> {
+            List<Long> ids = executor.stream(ORDER_ROWS.build(), Limit.of(5),
+                    rows -> rows.map(OrderRow::id).toList());
+            assertThat(ids).containsExactly(1L, 2L, 3L, 4L, 5L);
+        });
+    }
+
+    @TckTest
+    void ac_exe_07_an_early_exit_from_body_releases_the_connection(TckDatabase db) {
+        // A leak check that cannot pass by accident: the control opens a stream through JPA and never closes it, and
+        // the pool's active count must show it (the session releases a connection as soon as no result set is open); then the same count must return to zero after every way body can end.
+        try (SessionFactory sf = JoinTestSupport.sessionFactoryReleasingAfterStatement(countingPool(db, ACTIVE))) {
+            ACTIVE.set(0);
+            sf.inSession(em -> {
+                Stream<?> leaked = em.createQuery("select o from OrderEntity o", OrderEntity.class).getResultStream();
+                assertThat(ACTIVE.get()).as("control: an unclosed stream holds a connection").isPositive();
+                leaked.close();
+            });
+            assertThat(ACTIVE.get()).as("control: closing the stream releases it").isZero();
+
+            var rows = ORDER_ROWS.build();
+            sf.inSession(em -> {
+                ModelQueryExecutor<OrderEntity> executor =
+                        ModelQueryExecutor.create(em, OrderEntity.class, ModelQueryConfig.defaults());
+                // findFirst stops after one row of 5 000
+                Optional<OrderRow> first = executor.<OrderRow, Optional<OrderRow>>stream(rows, Limit.unlimited(), Stream::findFirst);
+                assertThat(first).isPresent();
+                assertThat(ACTIVE.get()).as("after findFirst").isZero();
+                // an exception thrown from body
+                assertThatThrownBy(() -> executor.stream(rows, Limit.unlimited(), s -> {
+                    s.limit(3).forEach(r -> {});
+                    throw new IllegalStateException("boom");
+                })).isInstanceOf(IllegalStateException.class).hasMessage("boom");
+                assertThat(ACTIVE.get()).as("after an exception").isZero();
+                // body that never touches the stream
+                String untouched = executor.stream(rows, Limit.unlimited(), s -> "untouched");
+                assertThat(untouched).isEqualTo("untouched");
+                assertThat(ACTIVE.get()).as("after ignoring the stream").isZero();
+                // a full pass
+                long all = executor.stream(rows, Limit.unlimited(), Stream::count);
+                assertThat(all).isEqualTo(TckFixture.ORDERS);
+                assertThat(ACTIVE.get()).as("after a full pass").isZero();
+            });
+        }
+    }
+
+    private static final AtomicInteger ACTIVE = new AtomicInteger();
+
+    /** A DataSource whose connections count themselves in {@code active} from opening to closing. */
+    private static DataSource countingPool(TckDatabase db, AtomicInteger active) {
+        return (DataSource) Proxy.newProxyInstance(ExecutionTest.class.getClassLoader(), new Class<?>[] {DataSource.class},
+                (proxy, method, args) -> {
+                    if (method.getDeclaringClass() == Object.class) {
+                        return method.getName().equals("toString") ? "counting pool of " + db
+                                : method.getName().equals("hashCode") ? System.identityHashCode(proxy)
+                                : proxy == args[0];
+                    }
+                    if (!method.getName().equals("getConnection")) {
+                        throw new UnsupportedOperationException(method.getName());
+                    }
+                    Connection connection = db.getConnection();
+                    active.incrementAndGet();
+                    AtomicInteger closed = new AtomicInteger();
+                    return Proxy.newProxyInstance(ExecutionTest.class.getClassLoader(), new Class<?>[] {Connection.class},
+                            (c, m, a) -> {
+                                if (m.getName().equals("close") && closed.getAndIncrement() == 0) {
+                                    active.decrementAndGet();
+                                }
+                                try {
+                                    return m.invoke(connection, a);
+                                } catch (java.lang.reflect.InvocationTargetException e) {
+                                    throw e.getCause();
+                                }
+                            });
+                });
     }
 
     // ---- support

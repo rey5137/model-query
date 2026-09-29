@@ -9,13 +9,15 @@ import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.Slice;
 import jakarta.persistence.EntityManager;
 import java.util.List;
+import java.util.function.Function;
+import java.util.stream.Stream;
 
 /**
  * Runs model queries against a JPA {@code EntityManager}. An executor holds no state beyond its
  * {@code EntityManager}, so it is as thread-safe as that is.
  *
  * @param <E> the root entity type
- * @implSpec R-QRY-10, R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04
+ * @implSpec R-QRY-10, R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-07, R-EXE-09
  */
 @Incubating
 public interface ModelQueryExecutor<E> {
@@ -46,4 +48,15 @@ public interface ModelQueryExecutor<E> {
      * through one (R-EXE-04).
      */
     long count(ModelQuery<E, ?, ?> q);
+
+    /**
+     * Passes the rows of {@code q} to {@code body} as a stream read one at a time, and closes the stream when
+     * {@code body} returns or throws, so an early exit releases the connection too (R-EXE-07, R-EXE-09). No method
+     * returns an open stream, so a caller cannot leak a result set. {@code Limit.of(0)} passes an empty stream without
+     * querying (R-EXE-06). For a single pass over a large result inside one transaction; keyset {@code export} is the
+     * default for very large ones (R-EXE-10).
+     *
+     * @param body reads the stream and returns the result; it must not let the stream escape
+     */
+    <M, R> R stream(ModelQuery<E, ?, M> q, Limit limit, Function<Stream<M>, R> body);
 }
