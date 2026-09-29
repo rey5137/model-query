@@ -1,5 +1,7 @@
 package com.rey.modelquery.tck.col;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
@@ -16,6 +18,11 @@ public class OrderEntity {
     Long id;
 
     String status;
+
+    // The same column read through a converter (R-COL-08).
+    @Convert(converter = OrderStatus.TextConverter.class)
+    @Column(name = "status", insertable = false, updatable = false)
+    OrderStatus statusCode;
 
     @ManyToOne
     @JoinColumn(name = "customer_id")

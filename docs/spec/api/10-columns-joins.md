@@ -86,7 +86,7 @@ reads the columns it knows, so a filter-only column never affects the result eve
 
 **R-COL-08** *(was R11)* **Column types match entity attributes.** Generated columns are checked by the processor
 (`processor/32`). Hand-written columns are checked at first path resolution — `path.getJavaType()` against
-`ColumnField.type`, through a converter allow-list — and throw `MQ1001` on a mismatch (INV-3).
+`ColumnField.type`, through a converter allow-list (D-20) — and throw `MQ1001` on a mismatch (INV-3).
 
 ## 4. `ColumnSet` — an immutable named set
 

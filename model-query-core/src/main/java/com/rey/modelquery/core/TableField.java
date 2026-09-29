@@ -95,6 +95,10 @@ public final class TableField<P, T> {
         return (From<?, T>) ctx.join(key, parentFrom, attribute, type, condition, describe());
     }
 
+    JoinKey key() {
+        return key;
+    }
+
     private String describe() {
         return "join '" + attribute + "' (" + type + (alias.isEmpty() ? "" : ", alias '" + alias + "'") + ")";
     }
