@@ -26,7 +26,8 @@ jobs:
           distribution: temurin
           java-version: ${{ matrix.java }}
           cache: maven
-      # Database versions (PostgreSQL 14-17, MySQL 8.0/8.4) are iterated inside the TCK
+      # Database versions (PostgreSQL 14-17, MySQL 8.0/8.4) are iterated inside the TCK by -Dtck.full-matrix=true
+      # (R-QA-09). Tier-2/3 vendor profiles (R-PRF-02) join this matrix when they exist; none does yet.
       - run: >
           ./mvnw -B -ntp verify
           -Dhibernate.version=${{ matrix.hibernate.version }}

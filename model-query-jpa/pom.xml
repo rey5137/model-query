@@ -34,4 +34,36 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <!-- AC-REL-03: nothing under org.hibernate or org.springframework reaches a user of this module.
+                         Test scope is not passed on, so the test-only Hibernate and H2 stay allowed. -->
+                    <execution>
+                        <id>no-hibernate-or-spring</id>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <bannedDependencies>
+                                    <excludes>
+                                        <exclude>org.hibernate*:*:*:*:compile</exclude>
+                                        <exclude>org.hibernate*:*:*:*:runtime</exclude>
+                                        <exclude>org.springframework*:*:*:*:compile</exclude>
+                                        <exclude>org.springframework*:*:*:*:runtime</exclude>
+                                    </excludes>
+                                    <searchTransitive>true</searchTransitive>
+                                    <message>AC-REL-03: core and jpa must not depend on Hibernate or Spring (delivery/61)</message>
+                                </bannedDependencies>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

@@ -1,0 +1,19 @@
+{
+  "_comment": "Scope for ac_audit.py (delivery/60 R-QA-11). A milestone's criteria are enforced once it is listed in 'started'. 'files' are spec paths (relative to docs/spec, without .md) taken from the 'Exit criteria' column of delivery/62 section 1; 'ids' name individual criteria the plan assigns to the milestone. Criteria in no milestone are reported as unscheduled and do not fail the audit.",
+  "started": ["M0"],
+  "milestones": {
+    "M0": { "ids": ["AC-REL-01", "AC-REL-02", "AC-REL-03", "AC-REL-07", "AC-QA-01", "AC-QA-05"] },
+    "M1": { "files": ["api/10-columns-joins", "api/11-query-definition", "api/12-filters", "api/13-aggregates-grouping"] },
+    "M2": { "files": ["engine/20-execution", "engine/21-paging-export"], "ids": ["AC-QA-02", "AC-QA-03", "AC-QA-04"] },
+    "M3": { "files": ["vendor/40-vendor-spi", "vendor/41-tier1-profiles"] },
+    "M4": { "files": ["processor/30-annotations", "processor/31-generation", "processor/32-diagnostics"] },
+    "M5": { "files": ["integration/50-spring"] },
+    "M6": { "ids": ["AC-REL-04", "AC-REL-05"] },
+    "M7": { "ids": ["AC-REL-06"] },
+    "M8": { "files": ["api/14-bulk-writes"] }
+  },
+  "build_proven": {
+    "AC-REL-01": "The build produces exactly the modules in delivery/61 section 1 and 'mvnw verify' is green: proven by the CI build job, which fails otherwise.",
+    "AC-REL-03": "maven-enforcer bannedDependencies in model-query-core and model-query-jpa bans org.hibernate* and org.springframework* at compile/runtime scope, transitively; 'mvnw verify' fails on a violation."
+  }
+}
