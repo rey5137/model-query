@@ -69,5 +69,6 @@ a slice plan written three milestones early is guesswork.
 Carried into M3: AC-COL-08 with `model-query-hibernate` (`HibernateCriteriaBuilder#sort`), and skipping the null sort
 key when the `VendorProfile` default already matches (`api/10` R-COL-12). M1.3 covers the plain-JPA half. Also
 AC-FLT-08 (`api/12` R-FLT-09): `IN`-list splitting, with the vendor limits reaching `core` through a mechanism decided
-in M3, tested alongside `vendor/41` AC-PRF-02 and AC-PRF-03.
+in M3, tested alongside `vendor/41` AC-PRF-02 and AC-PRF-03. Also decide whether M2.1's `jpa.spi.GroupedCountStrategy`
+(R-EXE-03's Hibernate count, found through `ServiceLoader`) folds into `VendorProfile`.
 

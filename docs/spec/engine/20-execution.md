@@ -44,7 +44,7 @@ join that can change the number of matching rows.
 ## 4. Limits and validation
 
 **R-EXE-06** *(was R9)* `limit == 0` returns an empty result without querying. `pageSize <= 0` throws `MQ2001`. A
-negative offset throws `MQ2002`. `ExportOptions.pageSize` follows the same rule.
+negative offset throws `MQ2002`. A negative `Limit` throws `MQ2001`. `ExportOptions.pageSize` follows the same rule.
 
 ## 5. `stream`
 

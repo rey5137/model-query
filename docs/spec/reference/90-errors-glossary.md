@@ -61,7 +61,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 
 | Code | Meaning | Owner |
 |---|---|---|
-| `MQ2001` | `pageSize` or `ExportOptions.pageSize` is not positive | `engine/20` R-EXE-06 |
+| `MQ2001` | `pageSize` or `ExportOptions.pageSize` is not positive, or a `Limit` is negative | `engine/20` R-EXE-06 |
 | `MQ2002` | Negative offset | `engine/20` R-EXE-06 |
 | `MQ2101` | Streaming requires a transaction on this vendor | `engine/20` R-EXE-08 |
 | `MQ2201` | A row's primary key mapped to `null` during export | `engine/21` R-PAG-03 |
