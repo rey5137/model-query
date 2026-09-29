@@ -61,8 +61,9 @@ committed with the code that changed them.
 
 **R-REL-06** Milestone status is read from git, never from a tracker file. A milestone is **in progress** while an
 `mN-<name>` branch exists (`m1-core`) and all its work happens there. It is **done** once that branch is merged into
-`main` after its exit criteria are met (`delivery/62` R-RDM-02); the merge commit is tagged `mN-verified` and the branch
-is deleted. With neither branch nor tag it is **not started**. `git tag -l 'm*-verified'` lists finished milestones.
+`main` after its exit criteria are met (`delivery/62` R-RDM-02); the last commit it brings onto `main` is tagged
+`mN-verified` and the branch is deleted. With neither branch nor tag it is **not started**.
+`git tag -l 'm*-verified'` lists finished milestones.
 
 ## 4. Versions and releases
 
