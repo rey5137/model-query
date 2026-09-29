@@ -71,9 +71,11 @@ Requirements: JDK 17+, Docker (for the TCK).
 - Milestone work happens on an `mN-<name>` branch (`m1-core`). Once the milestone's exit criteria are met it is merged
   into `main` and the merge commit is tagged `mN-verified`, the public record that the milestone is done
   (`delivery/61` R-REL-06).
-- PR titles follow [Conventional Commits](https://www.conventionalcommits.org/) with the module as scope and the ids
-  covered: `feat(core): aggregate selections (AC-AGG-01..05)`. Spec-only edits use `docs(spec)`. PRs are squash-merged,
-  so the title becomes the commit message and the changelog entry.
+- Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/) with the module as scope and the
+  ids covered: `feat(core): aggregate selections (AC-AGG-01..05)`. Spec-only edits use `docs(spec)`. Each commit is
+  green on its own (`delivery/61` R-REL-04).
+- PRs are rebase-merged after one approving review with CI green (`delivery/61` R-REL-05), so every commit lands on
+  `main` as written and becomes a changelog entry.
 - Add tests. Anything that changes generated SQL or results needs a TCK case that runs on every Tier-1 vendor.
 - New public API that may still change is marked `@Incubating`.
 
