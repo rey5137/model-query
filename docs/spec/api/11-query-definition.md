@@ -29,7 +29,8 @@ ModelQuery<OrderEntity, Long, OrderView> q = ModelQuery.builder(QOrderView.ROOT,
 resolved against a `CriteriaBuilder` until the query is executed.
 
 **R-QRY-02** `ModelQuery.builder(root, mapper)` is the only required input besides `columns`. Everything else is
-optional, and every optional part has a defined behaviour when absent, listed in §5.
+optional, and every optional part has a defined behaviour when absent, listed in §5. `build()` without `columns`
+throws `MQ1202`.
 
 ## 2. Primary keys
 
@@ -68,7 +69,7 @@ value that must reach the model goes through a `ColumnField` or an `AggregateFie
 
 **R-QRY-09** The three phases must stay consistent: a predicate that narrows `MODEL` but not `PRIMARY_KEY` makes
 primary-key-first paging return rows the caller filtered out. A customizer that adds a predicate in only one phase logs
-a warning at build time.
+a warning naming the phase, once per `ModelQuery`, when it is first executed (D-21).
 
 ## 5. Defaults when a part is absent
 

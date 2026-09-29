@@ -132,6 +132,13 @@ converter allow-list is empty until a real case needs an entry. Loosening the ch
 would. Rejected: accepting any assignable supertype (hides a wrong column until a value fails to map).
 → `api/10` R-COL-08, AC-COL-04.
 
+**D-21 — The phase-consistency warning runs on first execution, not in `build()`.**
+Checking that a `QueryCustomizer` narrows every phase alike means running it against a real `CriteriaBuilder`, which
+`build()` does not have (R-QRY-01: nothing is resolved until execution). The executor runs the check once per
+`ModelQuery`, on its first execution, and logs one warning naming the phases that differ. Rejected: passing a
+`CriteriaBuilder` to `build()` (ties a definition to a persistence unit) and checking on every execution (log noise).
+→ `api/11` R-QRY-09, AC-QRY-06.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter
