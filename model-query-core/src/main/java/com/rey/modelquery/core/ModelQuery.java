@@ -275,6 +275,12 @@ public final class ModelQuery<E, K, M> {
         return finisher == null ? model : finisher.apply(model);
     }
 
+    /** The model's simple name, the way a failure message names the query. */
+    @Override
+    public String toString() {
+        return modelName();
+    }
+
     private String modelName() {
         return Builder.modelName(columns, root.rootEntity());
     }

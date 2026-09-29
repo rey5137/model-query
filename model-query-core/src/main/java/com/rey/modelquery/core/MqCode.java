@@ -84,8 +84,14 @@ public enum MqCode {
     /** A negative offset (R-EXE-06). */
     MQ2002("An offset must not be negative"),
 
+    /** A row's primary key mapped to {@code null} during export (R-PAG-03). */
+    MQ2201("A row's primary key mapped to null during export"),
+
     /** An operation needing a primary key on a query without one (R-QRY-03). */
-    MQ2203("An operation needing a primary key ran on a query without one");
+    MQ2203("An operation needing a primary key ran on a query without one"),
+
+    /** Key-based paging over a selection read through a to-many join (R-PAG-13). */
+    MQ2204("Offset export, keyset paging or the primary-key-first phase selected a column through a to-many join");
 
     private final String defaultMessage;
 
