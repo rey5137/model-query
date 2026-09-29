@@ -5,7 +5,7 @@
     "M0": { "ids": ["AC-REL-01", "AC-REL-02", "AC-REL-03", "AC-REL-07", "AC-QA-01", "AC-QA-05"] },
     "M1": { "files": ["api/10-columns-joins", "api/11-query-definition", "api/12-filters", "api/13-aggregates-grouping"] },
     "M2": { "files": ["engine/20-execution", "engine/21-paging-export"], "ids": ["AC-QA-02", "AC-QA-03", "AC-QA-04"] },
-    "M3": { "files": ["vendor/40-vendor-spi", "vendor/41-tier1-profiles"] },
+    "M3": { "files": ["vendor/40-vendor-spi", "vendor/41-tier1-profiles"], "ids": ["AC-EXE-08", "AC-EXE-09"] },
     "M4": { "files": ["processor/30-annotations", "processor/31-generation", "processor/32-diagnostics"] },
     "M5": { "files": ["integration/50-spring"] },
     "M6": { "ids": ["AC-REL-04", "AC-REL-05"] },

@@ -49,7 +49,7 @@ Spec: `engine/20`, `engine/21`. Model: `architect-review` required for the expor
 | Slice | Contents | Done when |
 |---|---|---|
 | M2.1 | `ModelQueryExecutor.create`, `list`, `page`, `count` incl. grouped and collection-join counting | AC-EXE-01..05, AC-EXE-10 |
-| M2.2 | `stream` with the closing contract and vendor preconditions | AC-EXE-06..09 |
+| M2.2 | `stream` with the closing contract | AC-EXE-06, AC-EXE-07 |
 | M2.3 | Offset export: stable order, boundary dedupe, primary-key check, to-many refusal | AC-PAG-01..04, AC-PAG-12, AC-QRY-03/04 export halves |
 | M2.4 | Keyset paging: cursors, ties, NULL handling | AC-PAG-05..07 |
 | M2.5 | Primary-key-first paging with vendor clamping | AC-PAG-08, AC-PAG-09 |
@@ -67,8 +67,10 @@ Contents and exit criteria are in `delivery/62` §1. Slice breakdowns are writte
 a slice plan written three milestones early is guesswork.
 
 Carried into M3: AC-COL-08 with `model-query-hibernate` (`HibernateCriteriaBuilder#sort`), and skipping the null sort
-key when the `VendorProfile` default already matches (`api/10` R-COL-12). M1.3 covers the plain-JPA half. Also
-AC-FLT-08 (`api/12` R-FLT-09): `IN`-list splitting, with the vendor limits reaching `core` through a mechanism decided
-in M3, tested alongside `vendor/41` AC-PRF-02 and AC-PRF-03. Also decide whether M2.1's `jpa.spi.GroupedCountStrategy`
-(R-EXE-03's Hibernate count, found through `ServiceLoader`) folds into `VendorProfile`.
+key when the `VendorProfile` default already matches (`api/10` R-COL-12). M1.3 covers the plain-JPA half. Also AC-FLT-08
+(`api/12` R-FLT-09): `IN`-list splitting, with the vendor limits reaching `core` through a mechanism decided in M3,
+tested alongside `vendor/41` AC-PRF-02 and AC-PRF-03. Also decide whether M2.1's `jpa.spi.GroupedCountStrategy`
+(R-EXE-03's Hibernate count, found through `ServiceLoader`) folds into `VendorProfile`. And `stream`'s vendor hooks: the
+R-EXE-08 `checkStreamingPreconditions` and `applyStreaming` calls and the R-EXE-11 timeout, with AC-EXE-08 (the same
+case as `vendor/41` AC-PRF-04) and AC-EXE-09.
 
