@@ -81,12 +81,28 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         return kind == Kind.OF ? attribute : kind.function + "(" + attribute + ")";
     }
 
-    /** The aggregate expression, resolving the source's joins through {@code ctx}. */
+    /**
+     * The aggregate expression, resolving the source's joins through {@code ctx}.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1405} when an {@code Agg.of} function returns {@code null} or an
+     *     expression whose Java type is not {@link #type()}
+     */
     @Override
     public Expression<C> expression(JoinContext ctx) {
         Expression<C> result = expression.apply(Objects.requireNonNull(ctx, "ctx"), ctx.cb());
         // Only an Agg.of function can return null; failing here names it, where Criteria would fail anonymously.
-        return Objects.requireNonNull(result, () -> "Agg.of(\"" + attribute + "\") returned no expression");
+        if (result == null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1405,
+                    "Agg.of(\"" + attribute + "\") returned no expression");
+        }
+        // A mismatch would otherwise surface as a ClassCastException in Row.get, far from the definition.
+        Class<?> actual = result.getJavaType();
+        if (kind == Kind.OF && actual != null && ColumnField.boxed(actual) != type) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1405, String.format(
+                    "Agg.of(\"%s\"): declared %s, the expression is %s", attribute, type.getSimpleName(),
+                    actual.getSimpleName()));
+        }
+        return result;
     }
 
     /** Whether {@code a} and {@code b} are one {@code Agg.of} key defined by different functions (R-AGG-02). */

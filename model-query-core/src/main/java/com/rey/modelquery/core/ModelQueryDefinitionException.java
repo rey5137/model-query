@@ -18,6 +18,12 @@ public class ModelQueryDefinitionException extends RuntimeException {
         this.code = code;
     }
 
+    /** Creates an exception whose message is the code followed by {@code detail}, caused by {@code cause}. */
+    public ModelQueryDefinitionException(MqCode code, String detail, Throwable cause) {
+        super(code.code() + ": " + detail, cause);
+        this.code = code;
+    }
+
     /** The code this failure carries. */
     public MqCode code() {
         return code;

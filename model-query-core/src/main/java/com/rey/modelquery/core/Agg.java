@@ -88,7 +88,9 @@ public final class Agg {
      * sharing a name with different {@code expression} instances throw {@code MQ1103} when the query is built.
      * {@code expression} runs once per query build with that build's {@link JoinContext} and {@code CriteriaBuilder}
      * (D-24), so resolve columns through {@link ColumnField#path} with that context to share the query's joins. It
-     * must return an expression of {@code type}. A primitive {@code type} is stored as its wrapper.
+     * must return an expression of {@code type}, else {@code MQ1405} when the query is built. A primitive
+     * {@code type} is stored as its wrapper. It is for aggregate expressions only, since any aggregate makes the query
+     * grouped; a value derived per row belongs in {@code afterMap} (R-QRY-08, D-27).
      */
     @SuppressWarnings("unchecked")
     public static <M, C> AggregateField<M, C> of(

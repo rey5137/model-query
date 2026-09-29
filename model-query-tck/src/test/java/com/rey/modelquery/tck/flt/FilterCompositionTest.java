@@ -311,6 +311,29 @@ class FilterCompositionTest {
         assertThat(nested).isEqualTo(expected);
     }
 
+    @TckTest
+    void ac_flt_10_a_nested_exists_on_the_same_path_correlates_to_the_same_child_row(TckDatabase db) {
+        BigDecimal t950 = new BigDecimal("950.00");
+        List<Long> nested = new ArrayList<>();
+        SqlSnapshots.assertMatches(db, "flt-10-nested-exists-same-path", ds -> inSession(ds, em -> nested.addAll(
+                run(em, CUSTOMER_QUERY.where(f -> f.exists(ORDERS_INNER, o -> o.gt(ORDER_TOTAL, T900)
+                        .exists(ORDERS_INNER, same -> same.lt(ORDER_TOTAL, t950)))))
+                        .stream().map(C::id).toList())));
+        List<Long> sameRow = new ArrayList<>();
+        List<Long> anyRow = new ArrayList<>();
+        inSession(db, em -> {
+            sameRow.addAll(em.createQuery("select c.id from CustomerEntity c where exists (select 1 from OrderEntity"
+                    + " o where o.customer = c and o.total > 900 and o.total < 950) order by c.id", Long.class)
+                    .getResultList());
+            anyRow.addAll(em.createQuery("select c.id from CustomerEntity c where exists (select 1 from OrderEntity"
+                    + " o where o.customer = c and o.total > 900) and exists (select 1 from OrderEntity o2 where"
+                    + " o2.customer = c and o2.total < 950) order by c.id", Long.class).getResultList());
+        });
+        // The inner exists tests the order the outer one found, not another order of the same customer.
+        assertThat(sameRow).isNotEmpty().hasSizeLessThan(anyRow.size());
+        assertThat(nested).isEqualTo(sameRow);
+    }
+
     // ---- AC-FLT-11
 
     @TckTest
@@ -364,11 +387,11 @@ class FilterCompositionTest {
     }
 
     @TckTest
-    void ac_flt_02_a_custom_predicate_returning_null_throws_mq1301_when_the_query_is_built(TckDatabase db) {
+    void ac_flt_02_a_custom_predicate_returning_null_throws_mq1305_when_the_query_is_built(TckDatabase db) {
         var query = ORDER_QUERY.where(f -> f.eq(STATUS, "PAID").add((ctx, cb) -> null)).build();
         inSession(db, em -> assertThatThrownBy(() -> query.buildQuery(em.getCriteriaBuilder(), Phase.MODEL))
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
-                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1301))
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1305))
                 .hasMessageContaining("add(...)"));
     }
 

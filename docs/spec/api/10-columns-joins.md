@@ -86,7 +86,10 @@ reads the columns it knows, so a filter-only column never affects the result eve
 
 **R-COL-08** *(was R11)* **Column types match entity attributes.** Generated columns are checked by the processor
 (`processor/32`). Hand-written columns are checked at first path resolution — `path.getJavaType()` against
-`ColumnField.type`, through a converter allow-list (D-20) — and throw `MQ1001` on a mismatch (INV-3).
+`ColumnField.type`, through a converter allow-list (D-20) — and throw `MQ1001` on a mismatch (INV-3). The same
+resolution throws `MQ1002` for an attribute, of a column or a join, that the entity does not have, and `MQ1003` for a
+column whose path starts at a root the query is not rooted at, which would otherwise read the query root's attribute of
+the same name.
 
 ## 4. `ColumnSet` — an immutable named set
 
@@ -162,9 +165,9 @@ public enum NullPrecedence { DEFAULT, FIRST, LAST }        // DEFAULT = whatever
 | ID | Criterion |
 |---|---|
 | AC-COL-01 | Selecting, filtering and ordering on one path renders exactly one join; `as(...)` renders two; children of an aliased join stay separate (R-COL-03, R-COL-05). |
-| AC-COL-02 | `on(...)` without an alias throws; two `TableField`s with the same key and different conditions throw `MQ1101` (R-COL-04). |
+| AC-COL-02 | `on(...)` without an alias throws; two `TableField`s with the same key and different conditions throw `MQ1101`; `as(...)` or `on(...)` on a root throws `MQ1104` (R-COL-04). |
 | AC-COL-03 | `on(...)` on a LEFT join keeps rows with no matching child (R-COL-03). |
-| AC-COL-04 | A hand-written `ColumnField` whose type does not match the entity attribute throws `MQ1001` at first resolution (R-COL-08). |
+| AC-COL-04 | A hand-written `ColumnField` whose type does not match the entity attribute throws `MQ1001` at first resolution; an unknown attribute throws `MQ1002` and a column on another entity's root `MQ1003` (R-COL-08). |
 | AC-COL-05 | `ColumnSet.with`/`without` leave the original set unchanged (R-COL-09). |
 | AC-COL-06 | Every `ColumnField` type round-trips through `Row.get`, including converters, for a class model and an equivalent record model (R-COL-10). |
 | AC-COL-07 | A filter-only column filters correctly, adds no join when its filter is skipped, and never reaches the model (R-COL-07). |

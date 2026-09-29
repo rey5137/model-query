@@ -19,6 +19,7 @@ import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Root;
 import java.util.List;
 import org.hibernate.SessionFactory;
+import org.junit.jupiter.api.Test;
 
 /** Table fields and join sharing (spec api/10 R-COL-01..05). */
 class ColumnsJoinsTest {
@@ -81,6 +82,21 @@ class ColumnsJoinsTest {
                                 e -> assertThat(e.code()).isEqualTo(MqCode.MQ1102));
             });
         }
+    }
+
+    @Test
+    void ac_col_02_as_and_on_on_a_root_throw_mq1104_and_with_parent_leaves_a_root_as_is() {
+        assertMq1104(() -> ROOT.as("x"), "MQ1104: root OrderEntity: as(...) applies to a join");
+        assertMq1104(() -> ROOT.on((o, cb) -> cb.isNotNull(o.get("id"))),
+                "MQ1104: root OrderEntity: on(...) applies to a join");
+        assertThat(ROOT.withParent(ROOT)).isSameAs(ROOT);
+    }
+
+    private static void assertMq1104(Runnable call, String message) {
+        assertThatThrownBy(call::run)
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1104))
+                .hasMessageStartingWith(message);
     }
 
     @TckTest

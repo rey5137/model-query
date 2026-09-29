@@ -40,8 +40,11 @@ public final class SqlSnapshots {
         void run(DataSource dataSource) throws Exception;
     }
 
-    /** Runs {@code work} and asserts its SQL equals the snapshot {@code name} for the database's vendor. */
-    public static void assertMatches(TckDatabase db, String name, SqlWork work) {
+    /**
+     * Runs {@code work} and asserts its SQL equals the snapshot {@code name} for the database's vendor. Returns the
+     * captured statements, normalized as the snapshot holds them, for a test that also inspects them.
+     */
+    public static List<String> assertMatches(TckDatabase db, String name, SqlWork work) {
         List<String> actual = capture(db, work);
         Path file = snapshotFile(db, name);
         boolean update = Boolean.getBoolean(UPDATE_PROPERTY);
@@ -50,7 +53,7 @@ public final class SqlSnapshots {
             if (update) {
                 Files.createDirectories(file.getParent());
                 Files.writeString(file, rendered, StandardCharsets.UTF_8);
-                return;
+                return actual;
             }
             if (!Files.exists(file)) {
                 fail("Missing SQL snapshot %s. Captured:%n%s%nRe-run with -D%s=true to create it, then review the diff.",
@@ -64,6 +67,7 @@ public final class SqlSnapshots {
         } catch (IOException e) {
             throw new IllegalStateException("Cannot access snapshot " + file, e);
         }
+        return actual;
     }
 
     static List<String> capture(TckDatabase db, SqlWork work) {

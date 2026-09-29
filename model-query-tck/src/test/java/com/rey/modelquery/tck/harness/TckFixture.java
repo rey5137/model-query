@@ -73,12 +73,18 @@ public final class TckFixture {
             ps.setBoolean(5, i % 10 == 0);
             ps.setTimestamp(6, Timestamp.valueOf(BASE.plusHours(i)));
         });
-        insert(c, "INSERT INTO orders (id, customer_id, status, total, placed_at) VALUES (?,?,?,?,?)", ORDERS, (ps, i) -> {
+        // A third of the orders have a referrer: a nullable to-one reference, where an INNER join removes rows.
+        insert(c, "INSERT INTO orders (id, customer_id, status, total, placed_at, referrer_id) VALUES (?,?,?,?,?,?)", ORDERS, (ps, i) -> {
             ps.setLong(1, i);
             ps.setLong(2, (i * 37L) % CUSTOMERS + 1);
             ps.setString(3, STATUSES[i % STATUSES.length]);
             ps.setBigDecimal(4, BigDecimal.valueOf((i * 1317L) % 100_000, 2));
             ps.setTimestamp(5, Timestamp.valueOf(BASE.plusMinutes(i * 17L)));
+            if (i % 3 == 0) {
+                ps.setLong(6, (i * 11L) % CUSTOMERS + 1);
+            } else {
+                ps.setNull(6, Types.BIGINT);
+            }
         });
         insert(c, "INSERT INTO order_items (id, order_id, product_code, quantity, unit_price) VALUES (?,?,?,?,?)", ORDER_ITEMS, (ps, i) -> {
             ps.setLong(1, i);

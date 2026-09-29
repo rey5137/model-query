@@ -26,4 +26,12 @@ public interface QuerySpec {
 
     /** Whether keyset paging is allowed. */
     boolean keyset();
+
+    /** The group-by columns, in order; empty when the query has no group-by. */
+    @Incubating
+    List<ColumnField<?, ?, ?>> groupBy();
+
+    /** Whether the query is grouped: it has a group-by or selects an aggregate (R-AGG-07). */
+    @Incubating
+    boolean isGrouped();
 }

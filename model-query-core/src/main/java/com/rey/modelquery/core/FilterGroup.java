@@ -205,14 +205,11 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
         return super.compare(left, op, right);
     }
 
-    // ---- composition: or, not, when and apply are ConditionGroup's own
-
     // ---- correlated sub-queries
 
     @Override
     public Filters<M> exists(TableField<?, ?> path, UnaryOperator<Filters<M>> inner) {
-        List<Filter> required = nested(Objects.requireNonNull(inner, "inner"), new FilterGroup<>(existsPath(path)));
-        return required.isEmpty() ? this : record(exists(path, required, false)); // R-FLT-01
+        return exists(path, inner, false);
     }
 
     @Override
@@ -223,8 +220,12 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
 
     @Override
     public Filters<M> notExists(TableField<?, ?> path, UnaryOperator<Filters<M>> inner) {
-        List<Filter> excluded = nested(Objects.requireNonNull(inner, "inner"), new FilterGroup<>(existsPath(path)));
-        return excluded.isEmpty() ? this : record(exists(path, excluded, true)); // R-FLT-01
+        return exists(path, inner, true);
+    }
+
+    private Filters<M> exists(TableField<?, ?> path, UnaryOperator<Filters<M>> inner, boolean negated) {
+        List<Filter> group = nested(Objects.requireNonNull(inner, "inner"), new FilterGroup<>(existsPath(path)));
+        return group.isEmpty() ? this : record(exists(path, group, negated)); // R-FLT-01
     }
 
     private static Filter exists(TableField<?, ?> path, List<Filter> inner, boolean negated) {
@@ -239,7 +240,8 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
         checkOpen();
         Objects.requireNonNull(path, "path");
         if (path.rootEntity() != null) {
-            throw new IllegalArgumentException("exists(...) needs a join path, not the " + path.describe());
+            throw new ModelQueryDefinitionException(MqCode.MQ1304,
+                    "exists(...) needs a join path, not the " + path.describe());
         }
         if (scope != null && !path.isAtOrBelow(scope)) {
             throw new ModelQueryDefinitionException(MqCode.MQ1302, "exists(...) on " + path.describe()
@@ -256,7 +258,7 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
         return record(ctx -> {
             Predicate predicate = custom.apply(ctx, ctx.cb());
             if (predicate == null) {
-                throw new ModelQueryDefinitionException(MqCode.MQ1301,
+                throw new ModelQueryDefinitionException(MqCode.MQ1305,
                         "add(...): the custom predicate returned null; skip it explicitly with when(...)");
             }
             return Optional.of(predicate);

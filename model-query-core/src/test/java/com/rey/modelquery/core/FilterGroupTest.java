@@ -139,8 +139,7 @@ class FilterGroupTest {
                 () -> late.range(TOTAL, Optional.empty(), Optional.empty()),
                 () -> late.isNull(STATUS));
         for (Runnable use : uses) {
-            assertThatThrownBy(use::run).isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("only valid inside its where(...) operator");
+            assertMq1303(use, "only valid inside its where(...) operator");
         }
         assertThat(recorded).hasSize(1);
     }
@@ -179,15 +178,21 @@ class FilterGroupTest {
                 f -> f.not(g -> f.eq(STATUS, "PAID")),
                 f -> f.apply(g -> f.eq(STATUS, "PAID")),
                 f -> f.exists(ITEMS, i -> f.eq(STATUS, "PAID")))) {
-            assertThatThrownBy(() -> FilterGroup.collect(misuse)).isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("nested");
+            assertMq1303(() -> FilterGroup.collect(misuse), "nested");
         }
         List<Filters<OrderView>> leaked = new ArrayList<>();
         FilterGroup.<OrderView>collect(f -> f.or(a -> {
             leaked.add(a);
             return a.eq(STATUS, "PAID");
         }));
-        assertThatThrownBy(() -> leaked.get(0).eq(STATUS, "NEW")).isInstanceOf(IllegalStateException.class);
+        assertMq1303(() -> leaked.get(0).eq(STATUS, "NEW"), "only valid inside");
+    }
+
+    static void assertMq1303(Runnable misuse, String message) {
+        assertThatThrownBy(misuse::run)
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1303))
+                .hasMessageStartingWith("MQ1303: ").hasMessageContaining(message);
     }
 
     @Test
@@ -222,6 +227,11 @@ class FilterGroupTest {
 
         assertThat(FilterGroup.<OrderView>collect(f -> f.exists(OTHER_ITEMS, i -> i.eq(OTHER_SKU, "A")))).hasSize(1);
         assertThatThrownBy(() -> FilterGroup.<OrderView>collect(f -> f.exists(ROOT)))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("root Order");
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1304))
+                .hasMessage("MQ1304: exists(...) needs a join path, not the root Order");
+        assertThatThrownBy(() -> FilterGroup.<OrderView>collect(f -> f.notExists(ROOT, i -> i.eq(STATUS, "PAID"))))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1304));
     }
 }

@@ -20,7 +20,7 @@ import java.util.function.UnaryOperator;
  * @param <M> the model the query maps to
  * <p>A nested {@code Filters} (an {@code or} branch, a {@code not}, {@code when} or {@code apply} group, an
  * {@code exists} inner group) is valid only inside its own operator, and the enclosing one cannot be used while it
- * runs: add the nested filters to the {@code Filters} the operator receives.
+ * runs: add the nested filters to the {@code Filters} the operator receives. Either misuse throws {@code MQ1303}.
  *
  * @implSpec api/12 §1, R-FLT-01..08, R-FLT-10, R-FLT-11, R-FLT-13, R-FLT-14
  */
@@ -163,10 +163,11 @@ public interface Filters<M> {
      * one's path), for which every filter of {@code inner} holds (R-FLT-11). It joins nothing on the outer query, so
      * it multiplies no row (R-FLT-12). Columns in {@code inner} must sit on {@code path} or below it, else
      * {@code MQ1302}; an alias and an {@code on(...)} condition on {@code path} are kept. Skipped when every filter
-     * of {@code inner} was skipped (R-FLT-01); use {@link #exists(TableField)} for "has at least one".
+     * of {@code inner} was skipped (R-FLT-01); use {@link #exists(TableField)} for "has at least one". A nested
+     * {@code exists} on exactly the enclosing path tests the same child row, not another row of that path.
      *
      * @throws ModelQueryDefinitionException {@code MQ1302} for a column of {@code inner} outside {@code path}
-     * @throws IllegalArgumentException when {@code path} is a root rather than a join
+     * @throws ModelQueryDefinitionException {@code MQ1304} when {@code path} is a root rather than a join
      */
     Filters<M> exists(TableField<?, ?> path, UnaryOperator<Filters<M>> inner);
 
@@ -186,7 +187,7 @@ public interface Filters<M> {
      * {@link #or} or {@link #not} they resolve as there (R-FLT-10), and inside {@link #exists} the context is the
      * sub-query's. Values should be bind parameters, never concatenated into SQL (R-FLT-08).
      *
-     * <p>{@code custom} must return a predicate: returning {@code null} throws {@code MQ1301} when the query is built,
+     * <p>{@code custom} must return a predicate: returning {@code null} throws {@code MQ1305} when the query is built,
      * because by then a skip could no longer promise to create no join (R-FLT-03). Skip explicitly with
      * {@link #when}.
      */

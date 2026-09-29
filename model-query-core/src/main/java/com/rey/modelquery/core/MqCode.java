@@ -12,6 +12,12 @@ public enum MqCode {
     /** A column's declared type does not match the entity attribute (R-COL-08). */
     MQ1001("A column's declared type does not match the entity attribute"),
 
+    /** An attribute named by a column or join does not exist on its entity (R-COL-01, R-COL-08). */
+    MQ1002("An attribute named by a column or join does not exist"),
+
+    /** A column or table sits on a root entity the query is not rooted at (R-COL-01). */
+    MQ1003("A column or table sits on a root entity the query is not rooted at"),
+
     /** Two {@code TableField}s share a join key but carry different {@code on(...)} conditions (R-COL-04). */
     MQ1101("Two table fields share a join key but carry different on(...) conditions"),
 
@@ -21,17 +27,35 @@ public enum MqCode {
     /** Two {@code Agg.of} fields share a name with different expressions (R-AGG-02). */
     MQ1103("Two Agg.of fields share a name with different expressions"),
 
+    /** {@code as(...)} or {@code on(...)} on a root {@code TableField} (R-COL-03, R-COL-04). */
+    MQ1104("as(...) and on(...) apply to a join, not to a root"),
+
     /** {@code keyset()} or {@code primaryKeyFirst(...)} without a primary key (R-QRY-03). */
     MQ1201("keyset() and primaryKeyFirst(...) require a primary key"),
 
     /** {@code build()} called without {@code columns(...)} (R-QRY-02). */
     MQ1202("columns(...) is required"),
 
+    /** {@code ModelQuery.builder} given a join instead of a root {@code TableField} (R-QRY-02). */
+    MQ1203("ModelQuery.builder(...) takes a root TableField, not a join"),
+
+    /** {@code PrimaryKeyFirst.whenOffsetAbove} with a negative offset (R-QRY-03). */
+    MQ1204("PrimaryKeyFirst.whenOffsetAbove(...) takes an offset that is not negative"),
+
     /** A value-form filter received {@code null} (api/12 §1). */
     MQ1301("A value-form filter received null; pass Optional.empty() to skip the filter"),
 
-    /** A column inside {@code exists(...)} is not on or below the given path (R-FLT-11). */
-    MQ1302("A column inside exists(...) is not on or below the given path"),
+    /** A column or nested {@code exists(...)} path is not on or below the enclosing {@code exists} path (R-FLT-11). */
+    MQ1302("A column or nested exists(...) path inside exists(...) is not on or below the given path"),
+
+    /** A {@code Filters} or {@code Having} used after its operator returned, or while a nested one runs (D-23). */
+    MQ1303("A Filters or Having was used outside its own operator"),
+
+    /** {@code exists(...)} given a root instead of a join path (R-FLT-11). */
+    MQ1304("exists(...) takes a join path, not a root"),
+
+    /** A {@code Filters.add} predicate returned {@code null} (D-24). */
+    MQ1305("A Filters.add(...) predicate returned null; skip it explicitly with when(...)"),
 
     /** A selected non-aggregate column is not in the group-by (R-AGG-08). */
     MQ1401("A selected non-aggregate column is not in the group-by"),
@@ -40,7 +64,22 @@ public enum MqCode {
     MQ1402("keyset() and primaryKeyFirst(...) are refused on a grouped query"),
 
     /** {@code Agg.sum} or {@code Agg.sumAsLong} over a column whose SQL sum type is not its result type (R-AGG-03). */
-    MQ1403("Agg.sum or Agg.sumAsLong over a column whose SQL sum type differs from the declared result type");
+    MQ1403("Agg.sum or Agg.sumAsLong over a column whose SQL sum type differs from the declared result type"),
+
+    /** An aggregate passed to {@code groupBy} (R-AGG-05). */
+    MQ1404("groupBy(...) takes columns, not aggregates"),
+
+    /** An {@code Agg.of} expression returned {@code null} or has a Java type other than the declared one (R-AGG-02). */
+    MQ1405("An Agg.of expression returned null or an expression of another Java type"),
+
+    /** An {@code orderBy} key that does not fit the grouping (R-AGG-08). */
+    MQ1406("An orderBy key does not fit the grouping"),
+
+    /** {@code having(...)} on an ungrouped query (R-AGG-07). */
+    MQ1407("having(...) needs a grouped query: a groupBy or a selected aggregate"),
+
+    /** An operation needing a primary key on a query without one (R-QRY-03). */
+    MQ2203("An operation needing a primary key ran on a query without one");
 
     private final String defaultMessage;
 

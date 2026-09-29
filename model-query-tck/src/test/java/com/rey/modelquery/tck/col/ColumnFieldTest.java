@@ -4,6 +4,7 @@ import static jakarta.persistence.criteria.JoinType.INNER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.JoinContext;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
@@ -75,6 +76,41 @@ class ColumnFieldTest {
                 // A re-rooted column is checked against the join it now sits on.
                 assertMq1001(() -> nameAsInteger.path(ctx),
                         "OrderView.name: declared Integer, entity attribute CustomerEntity.name is String");
+            });
+        }
+    }
+
+    @TckTest
+    void ac_col_04_an_unknown_attribute_throws_mq1002_and_a_column_on_another_root_throws_mq1003(TckDatabase db) {
+        var noAttribute = ColumnField.of(OrderView.class, ROOT, "nope", String.class);
+        var onNoJoin = ColumnField.of(OrderView.class, TableField.join(ROOT, "nope", INNER), "id", Long.class);
+        // CustomerEntity.id exists on OrderEntity too: without the check this would silently read the order's id.
+        var customerId = ColumnField.of(CustomerView.class, CUSTOMER_ROOT, "id", Long.class);
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
+            sf.inSession(em -> {
+                CriteriaBuilder cb = em.getCriteriaBuilder();
+                JoinContext ctx = JoinContext.of(cb.createTupleQuery().from(OrderEntity.class), cb);
+                assertThatThrownBy(() -> noAttribute.path(ctx))
+                        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ1002))
+                        .hasMessage("MQ1002: OrderView.nope: entity OrderEntity has no attribute 'nope'")
+                        .hasCauseInstanceOf(IllegalArgumentException.class);
+                assertThatThrownBy(() -> onNoJoin.path(ctx))
+                        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ1002))
+                        .hasMessage("MQ1002: OrderView.id: join 'nope' (INNER): OrderEntity has no attribute 'nope'")
+                        .hasCauseInstanceOf(IllegalArgumentException.class);
+                assertThatThrownBy(() -> customerId.path(ctx))
+                        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ1003))
+                        .hasMessage("MQ1003: CustomerView.id: sits on root CustomerEntity, but the query is rooted "
+                                + "at OrderEntity");
+                assertThatThrownBy(() -> Agg.count(CUSTOMER_ROOT).expression(ctx))
+                        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ1003))
+                        .hasMessage("MQ1003: sits on root CustomerEntity, but the query is rooted at OrderEntity");
+                // Re-rooted under a join, the same column resolves.
+                assertThat(customerId.withTable(OrderView.class, CUSTOMER).path(ctx)).isNotNull();
             });
         }
     }

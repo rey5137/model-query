@@ -25,16 +25,28 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | Code | Meaning | Owner |
 |---|---|---|
 | `MQ1001` | A column's declared type does not match the entity attribute | `api/10` R-COL-08 |
+| `MQ1002` | An attribute named by a column or join does not exist on its entity; the provider's exception is the cause | `api/10` R-COL-01, R-COL-08 |
+| `MQ1003` | A column or table sits on a root entity the query is not rooted at | `api/10` R-COL-01 |
 | `MQ1101` | Two `TableField`s share a join key but carry different `on(...)` conditions | `api/10` R-COL-04 |
 | `MQ1102` | `on(...)` used without `as(...)` | `api/10` R-COL-04 |
 | `MQ1103` | Two `Agg.of` fields share a name with different expressions | `api/13` R-AGG-02 |
+| `MQ1104` | `as(...)` or `on(...)` on a root `TableField`, which is not a join | `api/10` R-COL-03, R-COL-04 |
 | `MQ1201` | `keyset()` or `primaryKeyFirst(...)` without a primary key | `api/11` R-QRY-03 |
 | `MQ1202` | `build()` without `columns` | `api/11` R-QRY-02 |
+| `MQ1203` | `ModelQuery.builder` given a join instead of a root `TableField` | `api/11` R-QRY-02 |
+| `MQ1204` | `PrimaryKeyFirst.whenOffsetAbove` with a negative offset | `api/11` R-QRY-03 |
 | `MQ1301` | A value-form filter received `null` | `api/12` §1 |
-| `MQ1302` | A column inside `exists(...)` is not on or below the given path | `api/12` R-FLT-11 |
+| `MQ1302` | A column or nested `exists(...)` path inside `exists(...)` is not on or below the given path | `api/12` R-FLT-11 |
+| `MQ1303` | A `Filters` or `Having` used after its operator returned, or while a nested operator runs | `api/12` §1, D-23 |
+| `MQ1304` | `exists(...)` given a root instead of a join path | `api/12` R-FLT-11 |
+| `MQ1305` | A `Filters.add` predicate returned `null` | `api/12` §1, D-24 |
 | `MQ1401` | A selected non-aggregate column is not in the group-by | `api/13` R-AGG-08 |
 | `MQ1402` | Keyset paging or primary-key-first on a grouped query | `api/13` R-AGG-10 |
 | `MQ1403` | `Agg.sum` or `Agg.sumAsLong` over a column whose SQL sum type differs from the declared result type | `api/13` R-AGG-03 |
+| `MQ1404` | An aggregate passed to `groupBy`, which takes columns only | `api/13` R-AGG-05 |
+| `MQ1405` | An `Agg.of` expression returned `null`, or an expression whose Java type is not the declared type | `api/13` R-AGG-02 |
+| `MQ1406` | An `orderBy` key that does not fit the grouping: a non-group-key column on a grouped query, or an aggregate on an ungrouped one | `api/13` R-AGG-08 |
+| `MQ1407` | `having(...)` on an ungrouped query, one with neither a `groupBy` nor a selected aggregate | `api/13` R-AGG-07 |
 | `MQ1601` | A bulk write chose its rows with `where(...)` and no predicate is left (`Future`, M8) | `api/14` R-WRT-12 |
 | `MQ1602` | A column is assigned twice in one update (`Future`, M8) | `api/14` R-WRT-13 |
 | `MQ1603` | `set(column, null)`; NULL must be written with `setNull` (`Future`, M8) | `api/14` R-WRT-06 |
@@ -54,6 +66,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ2101` | Streaming requires a transaction on this vendor | `engine/20` R-EXE-08 |
 | `MQ2201` | A row's primary key mapped to `null` during export | `engine/21` R-PAG-03 |
 | `MQ2202` | A keyset column is NULL and the column has no explicit null precedence | `engine/21` R-PAG-05 |
+| `MQ2203` | An operation needing a primary key (offset export of an ungrouped query, the `PRIMARY_KEY` phase) on a query without one; a grouped query never has one (`api/13` R-AGG-09) | `api/11` R-QRY-03 |
 | `MQ2301` | A `Sort` property resolves to neither an attribute path nor a known column | `integration/50` R-SPR-06 |
 | `MQ2501` | A bulk write, other than `commitEachChunk()`, ran without an active transaction (`Future`, M8) | `api/14` R-WRT-18 |
 | `MQ2502` | A per-chunk write failed; `ChunkedWriteException` carries the committed rows, the last committed key and the keys of a chunk in doubt (`Future`, M8) | `api/14` R-WRT-20 |

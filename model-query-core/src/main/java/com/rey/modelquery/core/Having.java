@@ -11,7 +11,7 @@ import java.util.function.UnaryOperator;
  *
  * <p>Only {@code AggregateField}s are accepted, so a plain column in {@code having} does not compile, as an aggregate
  * in {@code where} does not (R-AGG-06). A nested {@code Having} ({@code or} branch, {@code not}, {@code when},
- * {@code apply}) is valid only inside its own operator.
+ * {@code apply}) is valid only inside its own operator, else {@code MQ1303}.
  *
  * @param <M> the model the query maps to
  * @implSpec R-AGG-06

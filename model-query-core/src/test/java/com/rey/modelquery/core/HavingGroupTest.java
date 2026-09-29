@@ -84,10 +84,8 @@ class HavingGroupTest {
             return h.gt(COUNT, 1L);
         });
         assertThat(recorded.filters()).hasSize(1);
-        assertThatThrownBy(() -> leaked.get(0).gt(SUM, 3L)).isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("only valid inside its having(...) operator");
-        assertThatThrownBy(() -> HavingGroup.<Summary>collect(h -> h.or(a -> h.gt(SUM, 1L))))
-                .isInstanceOf(IllegalStateException.class).hasMessageContaining("nested");
+        FilterGroupTest.assertMq1303(() -> leaked.get(0).gt(SUM, 3L), "only valid inside its having(...) operator");
+        FilterGroupTest.assertMq1303(() -> HavingGroup.<Summary>collect(h -> h.or(a -> h.gt(SUM, 1L))), "nested");
     }
 
     @Test

@@ -19,7 +19,8 @@ import java.util.function.UnaryOperator;
  *
  * <p>A group lives only while its operator runs; {@link #collect} freezes what it recorded into an immutable list,
  * which is what a {@link ModelQuery} keeps (INV-9). The group is closed once {@code collect} returns, so a reference
- * kept past the operator fails loudly instead of adding filters nobody reads (D-23). A nested group ({@code or}
+ * kept past the operator fails loudly, with {@code MQ1303}, instead of adding filters nobody reads (D-23). A nested
+ * group ({@code or}
  * branch, {@code not}, {@code when}, {@code apply}, {@code exists}) is collected the same way.
  *
  * @param <M> the model the query maps to
@@ -63,24 +64,39 @@ abstract class ConditionGroup<M, G> {
         }
     }
 
-    /**
-     * The predicates of {@code filters} against one build's joins, in order, leaving out filters that hold for every
-     * row. {@code or} and {@code not} render last: an INNER join the rest of the group needs then already exists for
-     * them to reuse (R-FLT-10), where rendering them first would join the path LEFT and the rest would join it again.
-     */
+    /** The predicates of one group against one build's joins, rendered as {@link #clausePredicates} renders. */
     static List<Predicate> toPredicates(List<Filter> filters, JoinContext ctx) {
-        var rendered = new ArrayList<Optional<Predicate>>(filters.size());
-        for (Filter filter : filters) {
-            rendered.add(filter instanceof LeftJoining ? null : filter.toPredicate(ctx));
-        }
-        for (int i = 0; i < filters.size(); i++) {
-            if (filters.get(i) instanceof LeftJoining filter) {
-                rendered.set(i, filter.toPredicate(ctx));
+        return clausePredicates(List.of(filters), ctx).get(0);
+    }
+
+    /**
+     * The predicates of each clause of {@code clauses} ({@code where}, then {@code having}) against one build's joins,
+     * each clause in order, leaving out filters that hold for every row. Every {@code or} and {@code not} renders
+     * after every other filter of every clause: an INNER join the rest of the query needs then already exists for them
+     * to reuse (R-FLT-10), where rendering one first would join the path LEFT and the rest would join it again (D-26).
+     */
+    static List<List<Predicate>> clausePredicates(List<List<Filter>> clauses, JoinContext ctx) {
+        var rendered = new ArrayList<List<Optional<Predicate>>>(clauses.size());
+        for (List<Filter> filters : clauses) {
+            var clause = new ArrayList<Optional<Predicate>>(filters.size());
+            for (Filter filter : filters) {
+                clause.add(filter instanceof LeftJoining ? null : filter.toPredicate(ctx));
             }
+            rendered.add(clause);
         }
-        var predicates = new ArrayList<Predicate>();
-        rendered.forEach(predicate -> predicate.ifPresent(predicates::add));
-        return predicates;
+        var result = new ArrayList<List<Predicate>>(clauses.size());
+        for (int c = 0; c < clauses.size(); c++) {
+            List<Filter> filters = clauses.get(c);
+            for (int i = 0; i < filters.size(); i++) {
+                if (filters.get(i) instanceof LeftJoining filter) {
+                    rendered.get(c).set(i, filter.toPredicate(ctx));
+                }
+            }
+            var predicates = new ArrayList<Predicate>();
+            rendered.get(c).forEach(predicate -> predicate.ifPresent(predicates::add));
+            result.add(predicates);
+        }
+        return result;
     }
 
     /** An {@code or} or {@code not}: the joins it is the first to need resolve as LEFT (R-FLT-10). */
@@ -177,8 +193,7 @@ abstract class ConditionGroup<M, G> {
     /** {@code column >= from}, then {@code column < to} or {@code <= to}; each bound skipped on its own when empty. */
     private <C extends Comparable<? super C>> G bounds(
             SelectField<M, C> column, Optional<? extends C> from, Optional<? extends C> to, boolean toInclusive) {
-        checkOpen();
-        check(Objects.requireNonNull(column, "column"));
+        guard(column, "column");
         C lower = Objects.requireNonNull(from, "fromInclusive").orElse(null);
         C upper = Objects.requireNonNull(to, toInclusive ? "toInclusive" : "toExclusive").orElse(null);
         if (lower == null && upper == null) {
@@ -234,13 +249,12 @@ abstract class ConditionGroup<M, G> {
 
     final G like(SelectField<M, String> column, String value, LikeMode mode) {
         String pattern = pattern(required(column, "like", value), Objects.requireNonNull(mode, "mode"));
-        return record(ctx -> {
-            CriteriaBuilder cb = ctx.cb();
-            Expression<String> expression = column.expression(ctx);
-            return Optional.of(mode == LikeMode.EXACT
-                    ? cb.like(expression, pattern)
-                    : cb.like(expression, pattern, ESCAPE));
-        });
+        return record(ctx -> Optional.of(like(ctx.cb(), column.expression(ctx), pattern, mode)));
+    }
+
+    /** {@code LIKE}, with the escape character only when the pattern was escaped, i.e. not {@code EXACT}. */
+    private static Predicate like(CriteriaBuilder cb, Expression<String> expression, String pattern, LikeMode mode) {
+        return mode == LikeMode.EXACT ? cb.like(expression, pattern) : cb.like(expression, pattern, ESCAPE);
     }
 
     final G like(SelectField<M, String> column, Optional<String> value, LikeMode mode) {
@@ -251,11 +265,7 @@ abstract class ConditionGroup<M, G> {
     final G likeIgnoreCase(SelectField<M, String> column, String value, LikeMode mode) {
         Objects.requireNonNull(mode, "mode");
         String pattern = lower(pattern(required(column, "likeIgnoreCase", value), mode));
-        return record(ctx -> {
-            CriteriaBuilder cb = ctx.cb();
-            Expression<String> lowered = cb.lower(column.expression(ctx));
-            return Optional.of(mode == LikeMode.EXACT ? cb.like(lowered, pattern) : cb.like(lowered, pattern, ESCAPE));
-        });
+        return record(ctx -> Optional.of(like(ctx.cb(), ctx.cb().lower(column.expression(ctx)), pattern, mode)));
     }
 
     final G likeIgnoreCase(SelectField<M, String> column, Optional<String> value, LikeMode mode) {
@@ -278,14 +288,12 @@ abstract class ConditionGroup<M, G> {
     // ---- nulls
 
     final G isNull(SelectField<M, ?> column) {
-        checkOpen();
-        check(Objects.requireNonNull(column, "column"));
+        guard(column, "column");
         return record(ctx -> Optional.of(ctx.cb().isNull(column.expression(ctx))));
     }
 
     final G isNotNull(SelectField<M, ?> column) {
-        checkOpen();
-        check(Objects.requireNonNull(column, "column"));
+        guard(column, "column");
         return record(ctx -> Optional.of(ctx.cb().isNotNull(column.expression(ctx))));
     }
 
@@ -300,10 +308,9 @@ abstract class ConditionGroup<M, G> {
 
     @SuppressWarnings({"unchecked", "rawtypes"})
     final <C> G compare(SelectField<M, C> left, Op op, SelectField<M, C> right) {
-        checkOpen();
-        check(Objects.requireNonNull(left, "left"));
+        guard(left, "left");
         Objects.requireNonNull(op, "op");
-        check(Objects.requireNonNull(right, "right"));
+        guard(right, "right");
         return record(ctx -> {
             CriteriaBuilder cb = ctx.cb();
             // Raw: the ordering operators need a Comparable bound that compare's signature leaves open (api/12 §1).
@@ -403,23 +410,28 @@ abstract class ConditionGroup<M, G> {
         return self();
     }
 
-    /** Internal-misuse guard, like {@code PRIMARY_KEY} without a key: not a query definition error, so no MQ code. */
+    /** Refuses a builder kept past its operator, or used while a nested operator runs, with {@code MQ1303} (D-23). */
     final void checkOpen() {
         if (closed) {
-            throw new IllegalStateException("This " + builder + " instance is only valid inside its " + clause
-                    + "(...) operator; add filters there");
+            throw new ModelQueryDefinitionException(MqCode.MQ1303, "This " + builder + " instance is only valid "
+                    + "inside its " + clause + "(...) operator; add filters there");
         }
         if (nesting) {
-            throw new IllegalStateException("This " + builder + " instance is in use by a nested operator; add that "
-                    + "operator's filters to the " + builder + " it receives");
+            throw new ModelQueryDefinitionException(MqCode.MQ1303, "This " + builder + " instance is in use by a "
+                    + "nested operator; add that operator's filters to the " + builder + " it receives");
         }
     }
 
     /** Whether an {@code Optional}-form filter applies; a {@code null} Optional is a programming error (D-19). */
     private boolean present(SelectField<M, ?> column, Optional<?> value) {
-        checkOpen();
-        check(Objects.requireNonNull(column, "column"));
+        guard(column, "column");
         return Objects.requireNonNull(value, "value").isPresent();
+    }
+
+    /** The checks every operator runs on a column it is given: the builder is open, the column non-null and valid. */
+    private void guard(SelectField<M, ?> column, String name) {
+        checkOpen();
+        check(Objects.requireNonNull(column, name));
     }
 
     /** The value of a value-form filter; {@code null} throws {@code MQ1301}, since skipping must be explicit (P-3). */

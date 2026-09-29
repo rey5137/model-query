@@ -140,7 +140,13 @@ public final class JoinContext {
             }
             return cached.from();
         }
-        Join<?, ?> join = parent.join(attribute, resolvedType);
+        Join<?, ?> join;
+        try {
+            join = parent.join(attribute, resolvedType);
+        } catch (IllegalArgumentException e) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1002, description + ": "
+                    + parent.getJavaType().getSimpleName() + " has no attribute '" + attribute + "'", e);
+        }
         if (condition != null) {
             Predicate on = (Predicate) ((BiFunction) condition).apply(join, cb);
             if (required.contains(key)) {

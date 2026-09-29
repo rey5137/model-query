@@ -5,6 +5,7 @@ import jakarta.persistence.criteria.Selection;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,10 +21,21 @@ import java.util.Objects;
 @Incubating
 public final class RowSelection {
 
+    /** A selected column's path, attribute and type: what a scoped {@link Row} matches a nested model's column by. */
+    private record PathKey(JoinKey table, String attribute, Class<?> type) {}
+
     private final Map<SelectField<?, ?>, String> aliases;
+    private final Map<PathKey, String> byPath;
 
     private RowSelection(Map<SelectField<?, ?>, String> aliases) {
         this.aliases = aliases;
+        var paths = new HashMap<PathKey, String>();
+        aliases.forEach((column, alias) -> {
+            if (column instanceof ColumnField<?, ?, ?> field) {
+                paths.putIfAbsent(new PathKey(field.table().key(), field.name(), field.type()), alias);
+            }
+        });
+        this.byPath = Map.copyOf(paths);
     }
 
     /** A selection of {@code columns}, in order. */
@@ -45,10 +57,11 @@ public final class RowSelection {
 
     /** The row view of one tuple produced by {@link #selections(JoinContext)}. */
     public Row row(Tuple tuple) {
-        return new TupleRow(aliases, Objects.requireNonNull(tuple, "tuple"), null);
+        return new TupleRow(aliases, byPath, Objects.requireNonNull(tuple, "tuple"), null);
     }
 
-    private record TupleRow(Map<SelectField<?, ?>, String> aliases, Tuple tuple, JoinKey scope) implements Row {
+    private record TupleRow(Map<SelectField<?, ?>, String> aliases, Map<PathKey, String> byPath, Tuple tuple,
+            JoinKey scope) implements Row {
 
         @Override
         public <C> C get(SelectField<?, C> column) {
@@ -63,7 +76,9 @@ public final class RowSelection {
 
         @Override
         public Row scoped(TableField<?, ?> join) {
-            return new TupleRow(aliases, tuple, Objects.requireNonNull(join, "join").key());
+            JoinKey key = Objects.requireNonNull(join, "join").key();
+            // Inside a scope, join is a path of the nested model, so it is re-rooted too: scopes compose.
+            return new TupleRow(aliases, byPath, tuple, scope == null ? key : key.reroot(scope));
         }
 
         private String alias(SelectField<?, ?> column) {
@@ -74,15 +89,9 @@ public final class RowSelection {
             if (!(column instanceof ColumnField<?, ?, ?> wanted)) {
                 return null;
             }
-            for (var entry : aliases.entrySet()) {
-                if (entry.getKey() instanceof ColumnField<?, ?, ?> candidate
-                        && candidate.table().key().equals(scope)
-                        && candidate.name().equals(wanted.name())
-                        && candidate.type().equals(wanted.type())) {
-                    return entry.getValue();
-                }
-            }
-            return null;
+            // The whole chain of join keys is re-rooted, so a column on a join below the nested root matches that
+            // join's column, not the same attribute on the scope itself.
+            return byPath.get(new PathKey(wanted.table().key().reroot(scope), wanted.name(), wanted.type()));
         }
     }
 }

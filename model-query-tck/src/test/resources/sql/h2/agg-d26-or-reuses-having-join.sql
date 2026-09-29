@@ -1,0 +1,1 @@
+select oe1_0.status c0,count(oe1_0.id) c1 from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id where i1_0.product_code=? or oe1_0.status=? group by c0 having sum(i1_0.unit_price)>? order by 1
