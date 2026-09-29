@@ -1,45 +1,122 @@
 package com.rey.modelquery.core;
 
+import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.BiFunction;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * Per-query join state: caches the joins created for one Criteria query by {@link JoinKey}. The only mutable holder
  * of join state (CC-IMM-02); create one per query build and never share it.
  *
- * @implSpec R-COL-02
+ * @implSpec R-COL-02, R-FLT-10, R-FLT-11
  */
 @Incubating
 public final class JoinContext {
 
     private record Resolved(From<?, ?> from, Object condition) {}
 
-    private final Root<?> root;
+    private final From<?, ?> root;
     private final CriteriaBuilder cb;
+    /** Where an {@code exists} sub-query is created; {@code null} for a context made with {@link #of}. */
+    private final CommonAbstractCriteria query;
+    /** In a nested {@code exists}, the key of the enclosing path that {@link #root} stands for; else {@code null}. */
+    private final JoinKey rootKey;
+    /** In an {@code exists}, its path and the path's parents up to {@link #root}: always INNER there. */
+    private final Set<JoinKey> required;
     private final Map<JoinKey, Resolved> joins = new HashMap<>();
+    /** The key each join was cached under, which is not the declared key when its type was changed. */
+    private final Map<From<?, ?>, JoinKey> keys = new IdentityHashMap<>();
+    /** In an {@code exists}, the {@code on(...)} conditions of its required joins, rendered in its WHERE instead. */
+    private final List<Predicate> requiredConditions = new ArrayList<>();
+    /** In an {@code exists}, its path and the join it resolved to, for a nested {@code exists} to correlate with. */
+    private TableField<?, ?> existsPath;
+    private From<?, ?> existsFrom;
+    private int leftJoining;
 
-    private JoinContext(Root<?> root, CriteriaBuilder cb) {
+    private JoinContext(
+            From<?, ?> root, CriteriaBuilder cb, CommonAbstractCriteria query, JoinKey rootKey, Set<JoinKey> required) {
         this.root = root;
         this.cb = cb;
+        this.query = query;
+        this.rootKey = rootKey;
+        this.required = required;
     }
 
     /** A context over {@code root}, the query's root table. */
     public static JoinContext of(Root<?> root, CriteriaBuilder cb) {
-        return new JoinContext(root, cb);
+        return new JoinContext(root, cb, null, null, Set.of());
+    }
+
+    /** A context over the root of {@code query}, which can also render {@code exists} sub-queries. */
+    static JoinContext of(Root<?> root, CriteriaBuilder cb, CommonAbstractCriteria query) {
+        return new JoinContext(root, cb, query, null, Set.of());
     }
 
     From<?, ?> root() {
         return root;
     }
 
+    JoinKey rootKey() {
+        return rootKey;
+    }
+
     CriteriaBuilder cb() {
         return cb;
+    }
+
+    /**
+     * Runs {@code render} with every INNER join it is the first to need resolved as LEFT, because an INNER join made
+     * for one {@code or} branch would remove rows another branch matches. An INNER join made before is reused, since
+     * its rows are already required (R-FLT-10).
+     */
+    <R> R leftJoining(Supplier<R> render) {
+        leftJoining++;
+        try {
+            return render.get();
+        } finally {
+            leftJoining--;
+        }
+    }
+
+    /**
+     * {@code EXISTS (SELECT 1 ... WHERE <inner>)} over {@code path}, correlated to this context's root, or to its own
+     * {@code exists} path when this context is itself an {@code exists}. The sub-query joins {@code path} from there,
+     * as INNER, and {@code inner} renders against the sub-query's own context, so the outer query joins nothing
+     * (R-FLT-11, R-FLT-12).
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    Predicate exists(TableField<?, ?> path, Function<JoinContext, List<Predicate>> inner) {
+        if (query == null) {
+            throw new IllegalStateException("exists(...) needs the JoinContext of a ModelQuery build");
+        }
+        Subquery<Integer> sub = query.subquery(Integer.class);
+        JoinContext ctx = existsPath == null
+                ? new JoinContext(sub.correlate((Root) root), cb, sub, null, path.keysUpTo(null))
+                : new JoinContext(sub.correlate((Join) existsFrom), cb, sub, existsPath.key(),
+                        path.keysUpTo(existsPath.key()));
+        ctx.existsPath = path;
+        ctx.existsFrom = path.resolve(ctx);
+        sub.select(cb.literal(1));
+        var where = new ArrayList<>(ctx.requiredConditions);
+        where.addAll(inner.apply(ctx));
+        if (!where.isEmpty()) {
+            sub.where(where.toArray(Predicate[]::new));
+        }
+        return cb.exists(sub);
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -50,7 +127,11 @@ public final class JoinContext {
             JoinType type,
             BiFunction<? extends From<?, ?>, CriteriaBuilder, ?> condition,
             String description) {
-        Resolved cached = joins.get(key);
+        // The parent's own cache key, so a join below a join whose type changed is keyed under it.
+        JoinKey parentKey = keys.getOrDefault(parent, key.parent());
+        JoinType resolvedType = resolvedType(key, parentKey, type);
+        JoinKey cacheKey = new JoinKey(parentKey, attribute, resolvedType, key.alias());
+        Resolved cached = joins.get(cacheKey);
         if (cached != null) {
             // Lambdas cannot be compared, so an equal key must carry the very same condition instance (R-COL-04).
             if (cached.condition() != condition) {
@@ -59,11 +140,30 @@ public final class JoinContext {
             }
             return cached.from();
         }
-        Join<?, ?> join = parent.join(attribute, type);
+        Join<?, ?> join = parent.join(attribute, resolvedType);
         if (condition != null) {
-            join.on((jakarta.persistence.criteria.Predicate) ((BiFunction) condition).apply(join, cb));
+            Predicate on = (Predicate) ((BiFunction) condition).apply(join, cb);
+            if (required.contains(key)) {
+                // Hibernate 6 renders the join off a correlated root as the sub-query's FROM and drops its ON.
+                // For an INNER join the condition means the same in WHERE, where every provider keeps it.
+                requiredConditions.add(on);
+            } else {
+                join.on(on);
+            }
         }
-        joins.put(key, new Resolved(join, condition));
+        joins.put(cacheKey, new Resolved(join, condition));
+        keys.put(join, cacheKey);
         return join;
+    }
+
+    private JoinType resolvedType(JoinKey key, JoinKey parentKey, JoinType type) {
+        if (required.contains(key)) {
+            return JoinType.INNER; // a LEFT join would make every row "exist"
+        }
+        if (leftJoining > 0 && type == JoinType.INNER
+                && !joins.containsKey(new JoinKey(parentKey, key.attribute(), JoinType.INNER, key.alias()))) {
+            return JoinType.LEFT;
+        }
+        return type;
     }
 }

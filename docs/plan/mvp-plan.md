@@ -32,7 +32,7 @@ Spec: `api/10`, `api/11`, `api/12`, `api/13`. Model: `architect-review` required
 | M1.3 | `Row`, `RowMapper`, `SetterMapper`, `OrderField`, null precedence | AC-COL-06, AC-COL-08 without `model-query-hibernate` |
 | M1.4 | `ModelQuery` builder, `PrimaryKey`, `afterMap`, `QueryCustomizer` | AC-QRY-01..07 at definition level (see note), AC-COL-09 |
 | M1.5 | `Filters`: comparison, sets, strings, nulls, `compare` | AC-FLT-01, 02, 05..07, AC-COL-07, AC-QRY-07 `where` row |
-| M1.6 | `Filters`: `or`/`not`/`when`/`apply`, `exists`, join resolution inside `or` | AC-FLT-03, 04, 09..11 |
+| M1.6 | `Filters`: `or`/`not`/`when`/`apply`, `exists`, join resolution inside `or`, `add` | AC-FLT-03, 04, 09..11 |
 | M1.7 | `Agg`, `AggregateField`, `groupBy`, `having`, grouped build-time checks | AC-AGG-01..11, AC-QRY-07 `groupBy` row |
 
 M1.4 tests AC-QRY-03 and AC-QRY-04 on the built selection and mapping. Their paging and `export` halves need the

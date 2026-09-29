@@ -1,0 +1,1 @@
+select ce1_0.id from customers ce1_0 where exists(select 1 from orders o1_0 where o1_0.total>? and exists(select 1 from order_items i1_0 where i1_0.quantity=? and o1_0.id=i1_0.order_id) and ce1_0.id=o1_0.customer_id) order by 1

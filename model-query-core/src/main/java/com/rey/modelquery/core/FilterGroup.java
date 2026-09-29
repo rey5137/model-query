@@ -10,26 +10,38 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.BiFunction;
 import java.util.function.UnaryOperator;
 
 /**
  * The {@link Filters} implementation: an AND group that records one {@link Filter} per filter added. It lives only
  * while a {@code where} operator runs; {@link #collect} freezes what it recorded into an immutable list, which is
  * what a {@link ModelQuery} keeps (INV-9). The group is closed once {@code collect} returns, so a reference kept past
- * the operator fails loudly instead of adding filters nobody reads (D-23).
+ * the operator fails loudly instead of adding filters nobody reads (D-23). A nested group ({@code or} branch,
+ * {@code not}, {@code when}, {@code apply}, {@code exists}) is collected the same way.
  */
 final class FilterGroup<M> implements Filters<M> {
 
     private static final char ESCAPE = '\\';
 
     private final List<Filter> filters = new ArrayList<>();
+    /** Inside an {@code exists}, its path: every column must sit on it or below it (R-FLT-11). */
+    private final TableField<?, ?> scope;
     private boolean closed;
+    /** Set while a nested group is collected, so a filter meant for the branch cannot land here by mistake. */
+    private boolean nesting;
 
-    private FilterGroup() {}
+    private FilterGroup(TableField<?, ?> scope) {
+        this.scope = scope;
+    }
 
     /** Runs {@code operator} on an empty group and returns the filters it added, as an immutable list. */
     static <M> List<Filter> collect(UnaryOperator<Filters<M>> operator) {
-        var group = new FilterGroup<M>();
+        return collect(operator, null);
+    }
+
+    private static <M> List<Filter> collect(UnaryOperator<Filters<M>> operator, TableField<?, ?> scope) {
+        var group = new FilterGroup<M>(scope);
         // Every filter added to the group counts, so a statement-style operator that ignores a return value
         // loses nothing; the operator's own result carries no extra information.
         try {
@@ -40,13 +52,32 @@ final class FilterGroup<M> implements Filters<M> {
         }
     }
 
-    /** The predicates of {@code filters} against one build's joins, leaving out filters that hold for every row. */
+    /**
+     * The predicates of {@code filters} against one build's joins, in order, leaving out filters that hold for every
+     * row. {@code or} and {@code not} render last: an INNER join the rest of the group needs then already exists for
+     * them to reuse (R-FLT-10), where rendering them first would join the path LEFT and the rest would join it again.
+     */
     static List<Predicate> toPredicates(List<Filter> filters, JoinContext ctx) {
-        var predicates = new ArrayList<Predicate>();
+        var rendered = new ArrayList<Optional<Predicate>>(filters.size());
         for (Filter filter : filters) {
-            filter.toPredicate(ctx).ifPresent(predicates::add);
+            rendered.add(filter instanceof LeftJoining ? null : filter.toPredicate(ctx));
         }
+        for (int i = 0; i < filters.size(); i++) {
+            if (filters.get(i) instanceof LeftJoining filter) {
+                rendered.set(i, filter.toPredicate(ctx));
+            }
+        }
+        var predicates = new ArrayList<Predicate>();
+        rendered.forEach(predicate -> predicate.ifPresent(predicates::add));
         return predicates;
+    }
+
+    /** An {@code or} or {@code not}: the joins it is the first to need resolve as LEFT (R-FLT-10). */
+    private record LeftJoining(Filter filter) implements Filter {
+        @Override
+        public Optional<Predicate> toPredicate(JoinContext ctx) {
+            return ctx.leftJoining(() -> filter.toPredicate(ctx));
+        }
     }
 
     // ---- equality and comparison
@@ -152,7 +183,7 @@ final class FilterGroup<M> implements Filters<M> {
     private <C extends Comparable<? super C>> Filters<M> bounds(
             ColumnField<M, ?, C> column, Optional<? extends C> from, Optional<? extends C> to, boolean toInclusive) {
         checkOpen();
-        Objects.requireNonNull(column, "column");
+        inScope(column);
         C lower = Objects.requireNonNull(from, "fromInclusive").orElse(null);
         C upper = Objects.requireNonNull(to, toInclusive ? "toInclusive" : "toExclusive").orElse(null);
         if (lower == null && upper == null) {
@@ -168,7 +199,7 @@ final class FilterGroup<M> implements Filters<M> {
             if (upper != null) {
                 parts.add(toInclusive ? cb.lessThanOrEqualTo(path, upper) : cb.lessThan(path, upper));
             }
-            return Optional.of(parts.size() == 1 ? parts.get(0) : cb.and(parts.toArray(Predicate[]::new)));
+            return Optional.of(and(cb, parts));
         });
     }
 
@@ -261,13 +292,13 @@ final class FilterGroup<M> implements Filters<M> {
 
     @Override
     public Filters<M> isNull(ColumnField<M, ?, ?> column) {
-        Objects.requireNonNull(column, "column");
+        inScope(column);
         return add(ctx -> Optional.of(ctx.cb().isNull(column.path(ctx))));
     }
 
     @Override
     public Filters<M> isNotNull(ColumnField<M, ?, ?> column) {
-        Objects.requireNonNull(column, "column");
+        inScope(column);
         return add(ctx -> Optional.of(ctx.cb().isNotNull(column.path(ctx))));
     }
 
@@ -284,9 +315,9 @@ final class FilterGroup<M> implements Filters<M> {
     @Override
     @SuppressWarnings({"unchecked", "rawtypes"})
     public <C> Filters<M> compare(ColumnField<M, ?, C> left, Op op, ColumnField<M, ?, C> right) {
-        Objects.requireNonNull(left, "left");
+        inScope(Objects.requireNonNull(left, "left"));
         Objects.requireNonNull(op, "op");
-        Objects.requireNonNull(right, "right");
+        inScope(Objects.requireNonNull(right, "right"));
         return add(ctx -> {
             CriteriaBuilder cb = ctx.cb();
             // Raw: the ordering operators need a Comparable bound that compare's signature leaves open (api/12 §1).
@@ -303,7 +334,142 @@ final class FilterGroup<M> implements Filters<M> {
         });
     }
 
+    // ---- composition
+
+    @Override
+    @SafeVarargs
+    public final Filters<M> or(UnaryOperator<Filters<M>>... branches) {
+        checkOpen();
+        var groups = new ArrayList<List<Filter>>();
+        for (UnaryOperator<Filters<M>> branch : Objects.requireNonNull(branches, "branches")) {
+            List<Filter> group = nested(Objects.requireNonNull(branch, "branch"), scope);
+            if (!group.isEmpty()) {
+                groups.add(group); // a branch whose filters were all skipped is dropped (R-FLT-01)
+            }
+        }
+        if (groups.isEmpty()) {
+            return this; // skipped, rather than FALSE matching nothing (R-FLT-01)
+        }
+        List<List<Filter>> recorded = List.copyOf(groups);
+        return add(new LeftJoining(ctx -> {
+            CriteriaBuilder cb = ctx.cb();
+            var alternatives = new ArrayList<Predicate>(recorded.size());
+            for (List<Filter> group : recorded) {
+                List<Predicate> parts = toPredicates(group, ctx);
+                if (parts.isEmpty()) {
+                    return Optional.empty(); // this branch holds for every row, so the or does too
+                }
+                alternatives.add(and(cb, parts));
+            }
+            return Optional.of(alternatives.size() == 1
+                    ? alternatives.get(0)
+                    : cb.or(alternatives.toArray(Predicate[]::new)));
+        }));
+    }
+
+    @Override
+    public Filters<M> not(UnaryOperator<Filters<M>> group) {
+        List<Filter> negated = nested(Objects.requireNonNull(group, "group"), scope);
+        if (negated.isEmpty()) {
+            return this; // R-FLT-01
+        }
+        return add(new LeftJoining(ctx -> {
+            CriteriaBuilder cb = ctx.cb();
+            List<Predicate> parts = toPredicates(negated, ctx);
+            // Plain NOT (R-FLT-05); a group holding for every row negates to one matching none.
+            return Optional.of(parts.isEmpty() ? cb.disjunction() : cb.not(and(cb, parts)));
+        }));
+    }
+
+    @Override
+    public Filters<M> when(boolean condition, UnaryOperator<Filters<M>> group) {
+        checkOpen();
+        Objects.requireNonNull(group, "group");
+        return condition ? apply(group) : this;
+    }
+
+    @Override
+    public Filters<M> apply(UnaryOperator<Filters<M>> fragment) {
+        List<Filter> added = nested(Objects.requireNonNull(fragment, "fragment"), scope);
+        filters.addAll(added);
+        return this;
+    }
+
+    // ---- correlated sub-queries
+
+    @Override
+    public Filters<M> exists(TableField<?, ?> path, UnaryOperator<Filters<M>> inner) {
+        List<Filter> required = nested(Objects.requireNonNull(inner, "inner"), existsPath(path));
+        return required.isEmpty() ? this : add(exists(path, required, false)); // R-FLT-01
+    }
+
+    @Override
+    public Filters<M> exists(TableField<?, ?> path) {
+        checkOpen();
+        return add(exists(existsPath(path), List.of(), false));
+    }
+
+    @Override
+    public Filters<M> notExists(TableField<?, ?> path, UnaryOperator<Filters<M>> inner) {
+        List<Filter> excluded = nested(Objects.requireNonNull(inner, "inner"), existsPath(path));
+        return excluded.isEmpty() ? this : add(exists(path, excluded, true)); // R-FLT-01
+    }
+
+    private static Filter exists(TableField<?, ?> path, List<Filter> inner, boolean negated) {
+        return ctx -> {
+            Predicate exists = ctx.exists(path, sub -> toPredicates(inner, sub));
+            return Optional.of(negated ? ctx.cb().not(exists) : exists);
+        };
+    }
+
+    /** {@code path}, checked to be a join, and inside an {@code exists} to sit on or below its path (R-FLT-11). */
+    private TableField<?, ?> existsPath(TableField<?, ?> path) {
+        checkOpen();
+        Objects.requireNonNull(path, "path");
+        if (path.rootEntity() != null) {
+            throw new IllegalArgumentException("exists(...) needs a join path, not the " + path.describe());
+        }
+        if (scope != null && !path.isAtOrBelow(scope)) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1302, "exists(...) on " + path.describe()
+                    + " sits outside the enclosing exists(...) path " + scope.describe());
+        }
+        return path;
+    }
+
+    // ---- escape hatch
+
+    @Override
+    public Filters<M> add(BiFunction<JoinContext, CriteriaBuilder, Predicate> custom) {
+        Objects.requireNonNull(custom, "custom");
+        return add(ctx -> {
+            Predicate predicate = custom.apply(ctx, ctx.cb());
+            if (predicate == null) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1301,
+                        "add(...): the custom predicate returned null; skip it explicitly with when(...)");
+            }
+            return Optional.of(predicate);
+        });
+    }
+
     // ---- helpers
+
+    /**
+     * Collects {@code operator} as a nested group under {@code scope}. This group refuses filters meanwhile, so a
+     * branch lambda that adds to the outer {@code Filters} by mistake fails instead of silently ANDing.
+     */
+    private List<Filter> nested(UnaryOperator<Filters<M>> operator, TableField<?, ?> scope) {
+        checkOpen();
+        nesting = true;
+        try {
+            return collect(operator, scope);
+        } finally {
+            nesting = false;
+        }
+    }
+
+    private static Predicate and(CriteriaBuilder cb, List<Predicate> parts) {
+        return parts.size() == 1 ? parts.get(0) : cb.and(parts.toArray(Predicate[]::new));
+    }
 
     private FilterGroup<M> add(Filter filter) {
         checkOpen();
@@ -317,18 +483,31 @@ final class FilterGroup<M> implements Filters<M> {
             throw new IllegalStateException(
                     "This Filters instance is only valid inside its where(...) operator; add filters there");
         }
+        if (nesting) {
+            throw new IllegalStateException("This Filters instance is in use by a nested or/not/when/apply/exists "
+                    + "operator; add that operator's filters to the Filters it receives");
+        }
+    }
+
+    /** Inside an {@code exists}, a column must sit on its path or below it (R-FLT-11). */
+    private void inScope(ColumnField<?, ?, ?> column) {
+        Objects.requireNonNull(column, "column");
+        if (scope != null && !column.table().isAtOrBelow(scope)) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1302, column + " sits on " + column.table().describe()
+                    + ", outside the exists(...) path " + scope.describe() + "; use a column on that path or below it");
+        }
     }
 
     /** Whether an {@code Optional}-form filter applies; a {@code null} Optional is a programming error (D-19). */
     private boolean present(ColumnField<?, ?, ?> column, Optional<?> value) {
         checkOpen();
-        Objects.requireNonNull(column, "column");
+        inScope(column);
         return Objects.requireNonNull(value, "value").isPresent();
     }
 
     /** The value of a value-form filter; {@code null} throws {@code MQ1301}, since skipping must be explicit (P-3). */
-    private static <V> V required(ColumnField<?, ?, ?> column, String operator, V value) {
-        Objects.requireNonNull(column, "column");
+    private <V> V required(ColumnField<?, ?, ?> column, String operator, V value) {
+        inScope(column);
         if (value == null) {
             throw new ModelQueryDefinitionException(MqCode.MQ1301,
                     column + ": " + operator + "(...) received null; pass Optional.empty() to skip the filter");
@@ -337,7 +516,7 @@ final class FilterGroup<M> implements Filters<M> {
     }
 
     /** An immutable copy of {@code values}; the collection or any element being {@code null} throws MQ1301. */
-    private static <C> List<C> elements(ColumnField<?, ?, ?> column, String operator, Collection<? extends C> values) {
+    private <C> List<C> elements(ColumnField<?, ?, ?> column, String operator, Collection<? extends C> values) {
         for (C value : required(column, operator, values)) {
             if (value == null) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1301, column + ": " + operator

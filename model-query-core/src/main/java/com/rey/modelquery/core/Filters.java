@@ -1,7 +1,11 @@
 package com.rey.modelquery.core;
 
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.Predicate;
 import java.util.Collection;
 import java.util.Optional;
+import java.util.function.BiFunction;
+import java.util.function.UnaryOperator;
 
 /**
  * The {@code WHERE} builder a {@link ModelQuery.Builder#where} operator receives: every filter added to it is ANDed.
@@ -14,7 +18,11 @@ import java.util.Optional;
  * <p>Only {@link ColumnField}s are accepted, so an aggregate in {@code where} does not compile (R-COL-06).
  *
  * @param <M> the model the query maps to
- * @implSpec api/12 §1, R-FLT-01..08, R-FLT-13, R-FLT-14
+ * <p>A nested {@code Filters} (an {@code or} branch, a {@code not}, {@code when} or {@code apply} group, an
+ * {@code exists} inner group) is valid only inside its own operator, and the enclosing one cannot be used while it
+ * runs: add the nested filters to the {@code Filters} the operator receives.
+ *
+ * @implSpec api/12 §1, R-FLT-01..08, R-FLT-10, R-FLT-11, R-FLT-13, R-FLT-14
  */
 @Incubating
 public interface Filters<M> {
@@ -128,4 +136,59 @@ public interface Filters<M> {
      * never matches, {@link Op#NE} included.
      */
     <C> Filters<M> compare(ColumnField<M, ?, C> left, Op op, ColumnField<M, ?, C> right);
+
+    /**
+     * {@code (branch1) OR (branch2) ...}, each branch an AND group. A branch whose filters were all skipped is dropped,
+     * and with every branch dropped the {@code or} is skipped rather than matching nothing (R-FLT-01). A join first
+     * needed inside a branch is LEFT, so a row without the joined row can still match another branch; a path joined
+     * INNER elsewhere in the query keeps that join (R-FLT-10).
+     */
+    Filters<M> or(UnaryOperator<Filters<M>>... branches);
+
+    /**
+     * {@code NOT (group)}, plain SQL negation (R-FLT-05): a row where the group is UNKNOWN, because a column it reads
+     * is NULL, matches neither the group nor its negation. Skipped when every filter in the group was skipped
+     * (R-FLT-01); its joins resolve as they do inside {@link #or} (R-FLT-10).
+     */
+    Filters<M> not(UnaryOperator<Filters<M>> group);
+
+    /** The filters {@code group} adds, ANDed into this builder when {@code condition} holds; else nothing. */
+    Filters<M> when(boolean condition, UnaryOperator<Filters<M>> group);
+
+    /** The filters {@code fragment} adds, ANDed into this builder: a way to reuse a shared fragment. */
+    Filters<M> apply(UnaryOperator<Filters<M>> fragment);
+
+    /**
+     * {@code EXISTS} a row of {@code path}, correlated to the query's root (inside another {@code exists}, to that
+     * one's path), for which every filter of {@code inner} holds (R-FLT-11). It joins nothing on the outer query, so
+     * it multiplies no row (R-FLT-12). Columns in {@code inner} must sit on {@code path} or below it, else
+     * {@code MQ1302}; an alias and an {@code on(...)} condition on {@code path} are kept. Skipped when every filter
+     * of {@code inner} was skipped (R-FLT-01); use {@link #exists(TableField)} for "has at least one".
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1302} for a column of {@code inner} outside {@code path}
+     * @throws IllegalArgumentException when {@code path} is a root rather than a join
+     */
+    Filters<M> exists(TableField<?, ?> path, UnaryOperator<Filters<M>> inner);
+
+    /** {@code EXISTS} a row of {@code path}, correlated to the query's root: "has at least one" (R-FLT-11). */
+    Filters<M> exists(TableField<?, ?> path);
+
+    /**
+     * {@code NOT EXISTS} a row of {@code path} for which every filter of {@code inner} holds; the rules of
+     * {@link #exists(TableField, UnaryOperator)} apply, including the skip when every inner filter was skipped.
+     */
+    Filters<M> notExists(TableField<?, ?> path, UnaryOperator<Filters<M>> inner);
+
+    /**
+     * The escape hatch: a predicate built by {@code custom}, ANDed like any other filter. It runs once per query
+     * build with that build's {@link JoinContext} and {@code CriteriaBuilder} (D-24), so resolve joins through
+     * {@link TableField#resolve} or {@link ColumnField#path} with that context to share the query's joins; inside
+     * {@link #or} or {@link #not} they resolve as there (R-FLT-10), and inside {@link #exists} the context is the
+     * sub-query's. Values should be bind parameters, never concatenated into SQL (R-FLT-08).
+     *
+     * <p>{@code custom} must return a predicate: returning {@code null} throws {@code MQ1301} when the query is built,
+     * because by then a skip could no longer promise to create no join (R-FLT-03). Skip explicitly with
+     * {@link #when}.
+     */
+    Filters<M> add(BiFunction<JoinContext, CriteriaBuilder, Predicate> custom);
 }

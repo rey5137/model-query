@@ -129,20 +129,22 @@ public final class ModelQuery<E, K, M> {
     private BuiltQuery<M> assemble(CriteriaBuilder cb, Phase phase) {
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root<E> from = query.from(root.rootEntity());
-        JoinContext joins = JoinContext.of(from, cb);
+        JoinContext joins = JoinContext.of(from, cb, query);
         RowSelection selection = RowSelection.of(selected(phase));
         query.multiselect(selection.selections(joins));
-        // Every phase carries the same predicate, so primary-key-first paging selects the rows MODEL would (R-QRY-09).
-        List<Predicate> predicates = FilterGroup.toPredicates(where, joins);
-        if (!predicates.isEmpty()) {
-            query.where(predicates.toArray(Predicate[]::new));
-        }
+        // Ordering resolves its joins before the predicate: an or(...) then finds the INNER join an ordering key
+        // needs and reuses it, instead of joining the path LEFT and leaving ordering to join it again (R-FLT-10).
         List<Order> orders = new ArrayList<>();
         for (OrderField<M, ?> order : orderBy) {
             orders.addAll(order.toOrders(joins, cb));
         }
         if (!orders.isEmpty()) {
             query.orderBy(orders);
+        }
+        // Every phase carries the same predicate, so primary-key-first paging selects the rows MODEL would (R-QRY-09).
+        List<Predicate> predicates = FilterGroup.toPredicates(where, joins);
+        if (!predicates.isEmpty()) {
+            query.where(predicates.toArray(Predicate[]::new));
         }
         return new BuiltQuery<>(query, joins, selection, this::toModel);
     }

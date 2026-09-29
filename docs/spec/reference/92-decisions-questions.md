@@ -158,6 +158,16 @@ call returns: a reference kept past it (in a field, or passed to a deferred help
 any later use rather than adding filters nobody reads. Rejected: an immutable builder
 whose returned instance is the result (the same call shape, with a silent failure mode). → `api/12` §1, R-FLT-01.
 
+**D-24 — Custom expressions receive the `CriteriaBuilder` as an argument.**
+`Filters.add` and `Agg.of` take a `BiFunction<JoinContext, CriteriaBuilder, …>`, the shape of `TableField.on`, and are
+called once per query build with that build's context and builder. A predicate or expression needs a
+`CriteriaBuilder`, and one captured in the lambda would tie an immutable definition to one persistence unit (INV-9,
+D-21); passing it keeps `JoinContext`'s public surface to `of` and `TableField.resolve` (D-18). A custom predicate that
+returns `null` throws `MQ1301`: it is evaluated at build time, when a skip could no longer promise to create no join
+(R-FLT-03), so skipping stays explicit through `when(...)` or the `Optional` forms (P-3). Rejected: a public
+`JoinContext.cb()` (widens an `@Incubating` type for one use) and `Function<JoinContext, …>` with no builder (only the
+few predicates `Path` builds on its own). → `api/12` §1, `api/13` §1.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter
