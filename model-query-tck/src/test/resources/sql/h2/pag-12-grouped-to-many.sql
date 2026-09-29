@@ -1,0 +1,16 @@
+select oe1_0.id c0,sum(i1_0.quantity) c1 from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by c0 order by sum(i1_0.quantity) desc,1 offset ? rows fetch first ? rows only
+select oe1_0.id c0,sum(i1_0.quantity) c1 from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by c0 order by sum(i1_0.quantity) desc,1 offset ? rows fetch first ? rows only
+select oe1_0.id c0,sum(i1_0.quantity) c1 from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by c0 order by sum(i1_0.quantity) desc,1 offset ? rows fetch first ? rows only
+select oe1_0.id c0,sum(i1_0.quantity) c1 from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by c0 order by sum(i1_0.quantity) desc,1 offset ? rows fetch first ? rows only
+select oe1_0.id c0,sum(i1_0.quantity) c1 from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by c0 order by sum(i1_0.quantity) desc,1 offset ? rows fetch first ? rows only
+select oe1_0.id c0,sum(i1_0.quantity) c1 from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by c0 order by sum(i1_0.quantity) desc,1 offset ? rows fetch first ? rows only
+select oe1_0.id c0,sum(i1_0.quantity) c1 from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by c0 order by sum(i1_0.quantity) desc,1 offset ? rows fetch first ? rows only
+select oe1_0.id c0,sum(i1_0.quantity) c1 from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by c0 order by sum(i1_0.quantity) desc,1 offset ? rows fetch first ? rows only
+select i1_0.product_code c0,sum(i1_0.quantity) c1 from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by c0 order by sum(i1_0.quantity) desc,1 offset ? rows fetch first ? rows only
+select i1_0.product_code c0,sum(i1_0.quantity) c1 from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by c0 order by sum(i1_0.quantity) desc,1 offset ? rows fetch first ? rows only
+select i1_0.product_code c0,sum(i1_0.quantity) c1 from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by c0 order by sum(i1_0.quantity) desc,1 offset ? rows fetch first ? rows only
+select i1_0.product_code c0,sum(i1_0.quantity) c1 from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by c0 order by sum(i1_0.quantity) desc,1 offset ? rows fetch first ? rows only
+select i1_0.product_code c0,sum(i1_0.quantity) c1 from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by c0 order by sum(i1_0.quantity) desc,1 offset ? rows fetch first ? rows only
+select i1_0.product_code c0,sum(i1_0.quantity) c1 from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by c0 order by sum(i1_0.quantity) desc,1 offset ? rows fetch first ? rows only
+select i1_0.product_code c0,sum(i1_0.quantity) c1 from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by c0 order by sum(i1_0.quantity) desc,1 offset ? rows fetch first ? rows only
+select i1_0.product_code c0,sum(i1_0.quantity) c1 from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by c0 order by sum(i1_0.quantity) desc,1 offset ? rows fetch first ? rows only

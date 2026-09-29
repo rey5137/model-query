@@ -25,9 +25,10 @@ automatically, and keys are read from the `Row`, so this holds for classes and r
 **R-PAG-13** **Key-based paging refuses a to-many selection.** When a selected column is read through a to-many join
 (the join's attribute is a `PluralAttribute` in `jakarta.persistence.metamodel`), one primary key spans several rows:
 the R-PAG-01 tie-breaker is no longer unique, R-PAG-02's boundary dedupe drops real rows, and a keyset cursor skips the
-rest of the key's rows. Offset export, keyset paging and the primary-key-first phase therefore throw `MQ2204` naming the
-model and the join, before the first query runs. Ordering keys count as selected (D-29), so ordering through a to-many
-join is refused too: its repeated rows need not be adjacent. A to-many join used only by predicates is unaffected; select from the
+rest of the key's rows. Offset export of an ungrouped query, keyset paging and the primary-key-first phase therefore
+throw `MQ2204` naming the model and the join, before the first query runs. A grouped export is exempt: its tie-breaker
+and dedupe are the group-key tuple, which is unique per result row even through a to-many join (R-PAG-11). Ordering
+keys count as selected (D-29), so ordering through a to-many join is refused too: its repeated rows need not be adjacent. A to-many join used only by predicates is unaffected; select from the
 child side, or filter with `Filters.exists` (`api/12` R-FLT-12). `list`, `page` and `stream` still accept the shape, and
 `count` counts its rows (`engine/20` R-EXE-04).
 
@@ -102,4 +103,4 @@ that could overlap pages, and R-PAG-11 makes it unreachable.
 | AC-PAG-09 | A step-2 batch larger than the vendor's IN limit is split and stays correctly ordered (R-PAG-07, R-PAG-08). |
 | AC-PAG-10 | Grouped offset export over 20 000 rows visits every group exactly once, with duplicated order keys (R-PAG-11). |
 | AC-PAG-11 | `export` returns the count passed to `sink`, not the count read, when `pageTransformer` filters (R-PAG-10). |
-| AC-PAG-12 | Offset export, keyset paging and primary-key-first paging over a selection read through a to-many join throw `MQ2204` naming the join, without querying; the same export with the to-many join used only in a predicate succeeds (R-PAG-13). |
+| AC-PAG-12 | Offset export of an ungrouped query, keyset paging and primary-key-first paging over a selection read through a to-many join throw `MQ2204` naming the join, without querying; the same export with the to-many join used only in a predicate succeeds, and so does a grouped export over it (R-PAG-13). |
