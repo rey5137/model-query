@@ -168,6 +168,15 @@ returns `null` throws `MQ1301`: it is evaluated at build time, when a skip could
 `JoinContext.cb()` (widens an `@Incubating` type for one use) and `Function<JoinContext, …>` with no builder (only the
 few predicates `Path` builds on its own). → `api/12` §1, `api/13` §1.
 
+**D-25 — `Agg.sum` and `Agg.sumAsLong` check their column's type when called.**
+R-AGG-03 wants `Agg.sum` over a 32-bit column rejected, but Java cannot overload on a type argument:
+`sum(ColumnField<M, ?, Integer>)` and `sum(ColumnField<M, ?, BigDecimal>)` erase to one method, so the signature alone
+accepts every `Number`, and `sumAsLong`'s alone lets a `BigDecimal` sum be read as a `Long` and silently truncated
+(INV-5). Both factories therefore check the column's Java type when called, the earliest point that can see it
+(CC-ERR-03), and throw `MQ1403`; generated columns are caught earlier still, by the processor (`MQ3205`). Rejected:
+typed method names (`sumDecimal`, `sumLong`, …), which multiply the surface for a check one call can make.
+→ `api/13` R-AGG-03, AC-AGG-02.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter

@@ -77,7 +77,7 @@ a warning naming the phase, once per `ModelQuery`, when it is first executed (D-
 |---|---|
 | `orderBy` | Unordered for `list` and `count`. Offset paging and export append the primary key (or the group keys) to get a stable order (`engine/21` R-PAG-01). |
 | `primaryKey` | Allowed except where R-QRY-03 requires one. |
-| `groupBy` | The query is not grouped; selecting an `AggregateField` makes it a single-group query (`api/13` R-AGG-04). |
+| `groupBy` | The query is not grouped; selecting an `AggregateField` makes it a single-group query (`api/13` R-AGG-07). |
 | `keyset()` | Paging and export use offset mode. |
 | `primaryKeyFirst` | Never used, whatever the offset. |
 | `afterMap` | The `RowMapper`'s result is returned as is. |

@@ -1,0 +1,1 @@
+select count(oie1_0.id),count(distinct oie1_0.product_code),sum(oie1_0.unit_price),sum(oie1_0.id),sum(oie1_0.quantity),avg(oie1_0.quantity),avg(oie1_0.unit_price),min(oie1_0.product_code),max(oie1_0.quantity),min(oie1_0.unit_price),max(o1_0.placed_at),(max(oie1_0.unit_price)-min(oie1_0.unit_price)) from order_items oie1_0 join orders o1_0 on o1_0.id=oie1_0.order_id
