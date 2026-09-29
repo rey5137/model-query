@@ -27,8 +27,18 @@ jobs:
           distribution: temurin
           java-version: ${{ matrix.java }}
           cache: maven
-      # TCK runs against H2, PostgreSQL 17 and MySQL 8.4 through Testcontainers (Docker is available on ubuntu-latest)
+      # One verify is the whole R-QA-08 gate: build, unit tests, ArchUnit layering (INV-7), SQL-snapshot diff, and the
+      # TCK on H2, PostgreSQL 17 and MySQL 8.4 through Testcontainers (Docker is available on ubuntu-latest)
       - run: ./mvnw -B -ntp verify
+
+  ac-audit:
+    name: AC audit (R-QA-11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # python3 is preinstalled on ubuntu-latest; the scripts use only the standard library
+      - run: python3 .github/scripts/ac_audit_selftest.py
+      - run: python3 .github/scripts/ac_audit.py
 
   release-check:
     name: Release build (sources, javadoc, shading)
