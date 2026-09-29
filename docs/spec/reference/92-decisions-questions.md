@@ -225,6 +225,18 @@ Each keyset page starts strictly after the last row of the page before, in an or
 predicates, and that repeat is dropped as in offset mode. No key set is kept across pages. Rejected: offset mode's
 cross-boundary dedupe (bookkeeping with nothing to catch). → `engine/21` R-PAG-02, R-PAG-04, AC-PAG-05.
 
+**D-32 — Primary-key-first paging places rows by key, clamped to the lowest Tier-1 limits until M3.**
+`page` and offset `export` read a page past the `whenOffsetAbove` threshold key-first; export reads back only the keys
+it has not exported. Step 2 re-applies the query's order and also places each row at its key's step-1 position, so the
+order holds across batches and a key a predicate's to-many join repeats gives its row twice, as the one-step page does.
+A NULL key in step 1 throws `MQ2201`, since step 2 could not read that row back. Before `VendorProfile` exists, each
+step-2 statement takes at most the lowest Tier-1 limits in `vendor/41` §2 (10 000 keys; 65 535 binds, less the
+statement's own binds that JPA reports as query parameters, at one per key column), defined once in `jpa`; the clamp
+from `VendorProfile` follows the same rule. With no `primary-key-first.batch-size` on `ModelQueryConfig` yet, the batch
+is otherwise the whole page. Rejected: concatenating the batches in statement order (a row changing between the two
+steps breaks it); a hidden default batch of 1 000 (it would leave the vendor clamp untested until the setting exists). →
+`engine/21` R-PAG-03, R-PAG-07, R-PAG-08, AC-PAG-08, AC-PAG-09.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter
