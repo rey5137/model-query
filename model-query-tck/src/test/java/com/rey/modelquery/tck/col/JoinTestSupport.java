@@ -24,6 +24,16 @@ public final class JoinTestSupport {
                 .applySetting(AvailableSettings.JAKARTA_NON_JTA_DATASOURCE, dataSource));
     }
 
+    /**
+     * Like {@link #sessionFactory(DataSource)}, but the connection goes back to the DataSource as soon as no statement
+     * or result set of the session is open, so the DataSource's active count shows a result set left open.
+     */
+    public static SessionFactory sessionFactoryReleasingAfterStatement(DataSource dataSource) {
+        return build(new StandardServiceRegistryBuilder()
+                .applySetting(AvailableSettings.JAKARTA_NON_JTA_DATASOURCE, dataSource)
+                .applySetting(AvailableSettings.CONNECTION_HANDLING, "DELAYED_ACQUISITION_AND_RELEASE_AFTER_STATEMENT"));
+    }
+
     private static SessionFactory build(StandardServiceRegistryBuilder builder) {
         var registry = builder
                 .applySetting(AvailableSettings.HBM2DDL_AUTO, "none")

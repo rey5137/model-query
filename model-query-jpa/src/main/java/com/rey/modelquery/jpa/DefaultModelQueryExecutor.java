@@ -29,11 +29,13 @@ import java.util.List;
 import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.ServiceLoader;
+import java.util.function.Function;
+import java.util.stream.Stream;
 
 /**
  * The executor {@link ModelQueryExecutor#create} returns.
  *
- * @implSpec R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-05, R-EXE-06
+ * @implSpec R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-05, R-EXE-06, R-EXE-07, R-EXE-09
  */
 final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
@@ -63,6 +65,26 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         TypedQuery<Tuple> query = em.createQuery(built.query());
         limit.maxRows().ifPresent(query::setMaxResults);
         return mapAll(query, built);
+    }
+
+    @Override
+    public <M, R> R stream(ModelQuery<E, ?, M> q, Limit limit, Function<Stream<M>, R> body) {
+        Objects.requireNonNull(q, "q");
+        Objects.requireNonNull(limit, "limit");
+        Objects.requireNonNull(body, "body");
+        if (limit.maxRows().isPresent() && limit.maxRows().getAsInt() == 0) {
+            try (Stream<M> none = Stream.empty()) {
+                return body.apply(none); // no statement runs for a zero limit (R-EXE-06)
+            }
+        }
+        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
+        TypedQuery<Tuple> query = em.createQuery(built.query());
+        limit.maxRows().ifPresent(query::setMaxResults);
+        // Rows are mapped one at a time as body pulls them; closing the mapped stream closes the result stream under
+        // it, whether body returns, stops early or throws (R-EXE-07, R-EXE-09).
+        try (Stream<Tuple> tuples = query.getResultStream(); Stream<M> models = tuples.map(built::map)) {
+            return body.apply(models);
+        }
     }
 
     @Override
