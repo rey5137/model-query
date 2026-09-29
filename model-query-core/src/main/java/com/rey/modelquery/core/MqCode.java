@@ -25,7 +25,10 @@ public enum MqCode {
     MQ1202("columns(...) is required"),
 
     /** A value-form filter received {@code null} (api/12 §1). */
-    MQ1301("A value-form filter received null; pass Optional.empty() to skip the filter");
+    MQ1301("A value-form filter received null; pass Optional.empty() to skip the filter"),
+
+    /** A column inside {@code exists(...)} is not on or below the given path (R-FLT-11). */
+    MQ1302("A column inside exists(...) is not on or below the given path");
 
     private final String defaultMessage;
 

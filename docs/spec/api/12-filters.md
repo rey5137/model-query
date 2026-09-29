@@ -60,7 +60,7 @@ public interface Filters<M> {
     Filters<M> notExists(TableField<?, ?> path, UnaryOperator<Filters<M>> inner);
 
     // Escape hatch
-    Filters<M> add(Function<JoinContext, Predicate> custom);
+    Filters<M> add(BiFunction<JoinContext, CriteriaBuilder, Predicate> custom);    // D-24
 }
 ```
 

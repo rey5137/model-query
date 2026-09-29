@@ -29,7 +29,7 @@ public final class Agg {
     public static <M, C extends Comparable<? super C>> AggregateField<M, C> max(ColumnField<M, ?, C> column);
 
     public static <M, C> AggregateField<M, C> of(String name, Class<C> type,
-                                                Function<JoinContext, Expression<C>> expression);
+                                                BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression);
 }
 ```
 
