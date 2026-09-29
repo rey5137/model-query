@@ -27,6 +27,7 @@ import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Path;
+import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Selection;
 import jakarta.persistence.metamodel.Attribute;
 import jakarta.persistence.metamodel.PluralAttribute;
@@ -47,7 +48,7 @@ import java.util.stream.Stream;
  * The executor {@link ModelQueryExecutor#create} returns.
  *
  * @implSpec R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-05, R-EXE-06, R-EXE-07, R-EXE-09, R-QRY-09, R-PAG-01,
- *     R-PAG-02, R-PAG-03, R-PAG-09, R-PAG-10, R-PAG-13
+ *     R-PAG-02, R-PAG-03, R-PAG-04, R-PAG-05, R-PAG-06, R-PAG-09, R-PAG-10, R-PAG-13
  */
 final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
@@ -154,16 +155,19 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(pageTransformer, "pageTransformer");
         Objects.requireNonNull(sink, "sink");
         checkPhasesOnce(q);
-        if (q.isGrouped() || q.isKeyset()) {
-            throw new UnsupportedOperationException(q + ": " + (q.isGrouped() ? "grouped" : "keyset")
-                    + " export is not implemented yet; only ungrouped offset export is");
+        if (q.isGrouped()) {
+            throw new UnsupportedOperationException(q + ": grouped export is not implemented yet");
         }
+        // A keyset query always has a primary key (MQ1201 at build time), so only offset export can fail here.
         PrimaryKey<M, ?> key = q.primaryKey().orElseThrow(() -> new ModelQueryExecutionException(MqCode.MQ2203,
                 q + ": offset export needs a primary key to order and dedupe its pages, and primaryKey(...) was not set"));
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
-        refuseToManySelection(q, built, "offset export");
-        appendStableOrder(q, built);
+        refuseToManySelection(q, built, q.isKeyset() ? "keyset paging" : "offset export");
         long limit = options.limit().maxRows().isPresent() ? options.limit().maxRows().getAsInt() : Long.MAX_VALUE;
+        if (q.isKeyset()) {
+            return exportByKeyset(q, built, key, options.pageSize(), limit, pageTransformer, sink);
+        }
+        appendStableOrder(q, built);
         return exportByOffset(q, built, key, options.pageSize(), limit, pageTransformer, sink);
     }
     /** Runs the R-QRY-09 phase check the first time any executor runs {@code q} (D-21). */
@@ -241,13 +245,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                     fresh.add(built.map(tuple));
                 }
             }
-            if (!fresh.isEmpty()) {
-                List<S> items = Objects.requireNonNull(pageTransformer.apply(fresh), "pageTransformer result");
-                for (int i = 0; i < items.size() && passed < limit; i++) {
-                    sink.accept(items.get(i));
-                    passed++;
-                }
-            }
+            passed = pass(fresh, passed, limit, pageTransformer, sink);
             if (rows.size() < pageSize) {
                 break;
             }
@@ -259,6 +257,69 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             offset += rows.size();
         }
         return passed;
+    }
+
+    /**
+     * The export loop of engine/21 §4 in keyset mode: each page is the rows after the last row of the page before, so
+     * no offset is skipped and no page overlaps the last (R-PAG-04, R-PAG-06). {@code first} is the unrestricted first
+     * page's statement; each later page is built afresh with the keyset predicate added to the query's own.
+     */
+    private <M, S> long exportByKeyset(ModelQuery<E, ?, M> q, BuiltQuery<M> first, PrimaryKey<M, ?> key,
+            int pageSize, long limit, Function<List<M>, List<S>> pageTransformer, Consumer<S> sink) {
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        Keyset<M> keyset = Keyset.of(q, key);
+        long passed = 0;
+        BuiltQuery<M> built = first;
+        // The last row's keyset values: the only state carried from page to page (INV-4).
+        Object[] cursor = null;
+        while (passed < limit) {
+            if (cursor != null) {
+                built = q.buildQuery(cb, Phase.MODEL);
+                Predicate after = keyset.after(cursor, built.joins(), cb);
+                Predicate own = built.query().getRestriction();
+                built.query().where(own == null ? after : cb.and(own, after));
+            }
+            keyset.appendOrder(built, cb);
+            TypedQuery<Tuple> query = em.createQuery(built.query());
+            query.setMaxResults(pageSize);
+            List<Tuple> rows = query.getResultList();
+            Set<Object> keys = new HashSet<>();
+            List<M> fresh = new ArrayList<>(rows.size());
+            for (Tuple tuple : rows) {
+                Row row = built.selection().row(tuple);
+                Object rowKey = keyOf(q, key, row);
+                // Read from every row, not only the last, so a NULL key is refused wherever the page holds it.
+                cursor = keyset.cursor(row);
+                // Equal keys sort together and the cursor is past them all, so a key repeats only within a page,
+                // when a predicate's to-many join repeats the root (R-PAG-02).
+                if (keys.add(rowKey)) {
+                    fresh.add(built.map(tuple));
+                }
+            }
+            passed = pass(fresh, passed, limit, pageTransformer, sink);
+            if (rows.size() < pageSize) {
+                break;
+            }
+        }
+        return passed;
+    }
+
+    /**
+     * Passes a page's models to {@code pageTransformer} and its items to {@code sink} until {@code limit}; neither is
+     * called for an empty page (R-PAG-09). Returns the items passed so far (R-PAG-10).
+     */
+    private static <M, S> long pass(List<M> fresh, long passed, long limit,
+            Function<List<M>, List<S>> pageTransformer, Consumer<S> sink) {
+        if (fresh.isEmpty()) {
+            return passed;
+        }
+        List<S> items = Objects.requireNonNull(pageTransformer.apply(fresh), "pageTransformer result");
+        long total = passed;
+        for (int i = 0; i < items.size() && total < limit; i++) {
+            sink.accept(items.get(i));
+            total++;
+        }
+        return total;
     }
 
     /**

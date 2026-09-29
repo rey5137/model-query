@@ -69,7 +69,10 @@ public interface ModelQueryExecutor<E> {
      * bounded by one page (INV-4). Offset pages are read in a stable order, the primary key appended to the query's
      * order (R-PAG-01). A row whose key the previous page or the same page already held is dropped: with a stable
      * order a row can repeat only across a page boundary, or within a page through a to-many join used only by
-     * predicates (R-PAG-02). Each page's remaining models go whole to
+     * predicates (R-PAG-02). A {@code keyset()} query reads each page after the last row of the one before, its
+     * order closed by the primary key in the direction of its last order column (R-PAG-04); a NULL in a keyset
+     * column needs an explicit {@code nullsFirst()} or {@code nullsLast()} (R-PAG-05). Each page's remaining models
+     * go whole to
      * {@code pageTransformer}, and its items one at a time to {@code sink} until {@code options.limit()} is reached;
      * neither is called for an empty page (R-PAG-09). {@code Limit.of(0)} exports nothing without querying.
      *
@@ -79,7 +82,8 @@ public interface ModelQueryExecutor<E> {
      *     {@code pageTransformer} expands or filters (R-PAG-10)
      * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2203} for a query without a primary key,
      *     and {@code MQ2204} for one selecting a column through a to-many join (R-PAG-13), both before any query runs;
-     *     {@code MQ2201} when a row's primary key is {@code null} (R-PAG-03)
+     *     {@code MQ2201} when a row's primary key is {@code null} (R-PAG-03); {@code MQ2202} when a keyset column
+     *     without explicit null precedence is NULL (R-PAG-05)
      */
     <M, S> long export(ModelQuery<E, ?, M> q, ExportOptions options,
             Function<List<M>, List<S>> pageTransformer, Consumer<S> sink);
