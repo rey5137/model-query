@@ -111,14 +111,10 @@ class LayeringTest {
 
     @Test
     void ac_qa_05_coreAndJpaHibernateEdgesFail() {
-        assertThatCode(() -> REAL_RULES.coreImportsOnlyJakartaPersistenceAndJdk().check(REAL))
-                .doesNotThrowAnyException();
-        assertThatCode(() -> REAL_RULES.jpaDoesNotImportHibernate().check(REAL)).doesNotThrowAnyException();
-        assertThatCode(() -> BAD_RULES.coreImportsOnlyJakartaPersistenceAndJdk().check(BAD))
-                .isInstanceOf(AssertionError.class)
-                .hasMessageContainingAll(F + "core.BadCoreHibernate", "org.hibernate.Session");
-        assertThatCode(() -> BAD_RULES.jpaDoesNotImportHibernate().check(BAD))
-                .isInstanceOf(AssertionError.class)
-                .hasMessageContainingAll(F + "jpa.BadJpaHibernate", "org.hibernate.SessionFactory");
+        proves(
+                LayeringRules::coreImportsOnlyJakartaPersistenceAndJdk,
+                F + "core.BadCoreHibernate",
+                "org.hibernate.Session");
+        proves(LayeringRules::jpaDoesNotImportHibernate, F + "jpa.BadJpaHibernate", "org.hibernate.SessionFactory");
     }
 }

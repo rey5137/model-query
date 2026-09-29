@@ -7,6 +7,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.CompositeArchRule;
+import java.util.Arrays;
 
 /**
  * The INV-7 dependency rules (delivery/61 R-REL-03). Every rule is parameterised by the root package, so the same
@@ -132,10 +133,7 @@ final class LayeringRules {
     }
 
     private ArchRule forbid(String from, String... to) {
-        String[] targets = new String[to.length];
-        for (int i = 0; i < to.length; i++) {
-            targets[i] = pkg(to[i]);
-        }
+        String[] targets = Arrays.stream(to).map(this::pkg).toArray(String[]::new);
         return noClasses()
                 .that()
                 .resideInAPackage(pkg(from))
