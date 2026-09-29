@@ -14,7 +14,9 @@ CREATE TABLE orders (
     status      VARCHAR(20) @COLLATE@ NOT NULL,
     total       DECIMAL(12,2) NOT NULL,
     placed_at   TIMESTAMP NOT NULL,
-    CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers (id)
+    referrer_id BIGINT NULL,
+    CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers (id),
+    CONSTRAINT fk_orders_referrer FOREIGN KEY (referrer_id) REFERENCES customers (id)
 );
 CREATE TABLE order_items (
     id           BIGINT NOT NULL PRIMARY KEY,

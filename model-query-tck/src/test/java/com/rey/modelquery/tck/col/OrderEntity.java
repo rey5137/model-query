@@ -35,6 +35,11 @@ public class OrderEntity {
     @JoinColumn(name = "customer_id")
     CustomerEntity customer;
 
+    /** Nullable: an INNER join to it removes the orders that have none. */
+    @ManyToOne
+    @JoinColumn(name = "referrer_id")
+    CustomerEntity referrer;
+
     @OneToMany(mappedBy = "order")
     List<OrderItemEntity> items;
 }

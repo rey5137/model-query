@@ -9,17 +9,22 @@ import jakarta.persistence.criteria.CriteriaQuery;
  *
  * <p><b>A selection added here cannot be read back.</b> It has no {@link SelectField} key, so {@link Row#get} never
  * returns it and it never reaches the model. A value the model needs goes through a {@link ColumnField} in the
- * {@code ColumnSet}, or through an aggregate built with {@code Agg.of(...)} for an arbitrary expression (spec api/13):
+ * {@code ColumnSet}; a value derived from other columns of the row is computed in {@code afterMap} (R-QRY-05). Keep
+ * {@code Agg.of(...)} for aggregate expressions: any aggregate makes the query grouped (R-QRY-08, D-27).
  *
  * <pre>{@code
  * // Wrong: the model never sees this.
  * (spec, joins, query, cb, phase) -> query.multiselect(withExtra(query, cb.upper(status)));
- * // Right: declare the value as a field and select it through the ColumnSet.
- * static final AggregateField<OrderView, String> LABEL = Agg.of(String.class, "label", ctx -> cb.upper(...));
+ * // Right: select the column through the ColumnSet and derive the value per row.
+ * .columns(ColumnSet.of(ID, STATUS))
+ * .afterMap((view, row) -> view.setLabel(row.get(STATUS).toUpperCase(Locale.ROOT)))
  * }</pre>
  *
- * <p>Keep the phases consistent: a predicate added in {@code MODEL} but not in {@code PRIMARY_KEY} makes
- * primary-key-first paging return rows the caller filtered out. {@link ModelQuery#checkPhases} warns about it.
+ * <p>Keep the phases consistent: a predicate or an INNER join added in {@code MODEL} but not in {@code PRIMARY_KEY}
+ * makes primary-key-first paging return rows the caller filtered out. {@link ModelQuery#checkPhases} warns about it.
+ * The query's own joins are all made before the customizer runs, and a join resolved here through {@code joins} is
+ * shared by join key; but a path the query joined LEFT only because an {@code or(...)} or {@code not(...)} first
+ * needed it is cached as LEFT, so resolving it here as INNER adds a second join to that path (R-FLT-10, D-26).
  *
  * @implSpec R-QRY-07, R-QRY-08, R-QRY-09
  */

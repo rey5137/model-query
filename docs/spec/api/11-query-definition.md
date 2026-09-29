@@ -39,7 +39,8 @@ throws `MQ1202`.
 (`api/13` R-AGG-07). `keyset()` without a primary key is a build-time error, `MQ1201`.
 
 **R-QRY-04** The primary-key columns are added to the selection automatically whenever they are needed. A caller never
-has to put them in a `ColumnSet` to make paging work.
+has to put them in a `ColumnSet` to make paging work. `MODEL` and `MODEL_BY_KEYS` therefore select the key of every
+ungrouped query that defines one, and every ordering and group key, whether or not the `ColumnSet` names them (D-29).
 
 ## 3. `afterMap` and derived fields
 
@@ -64,12 +65,16 @@ public enum Phase { MODEL, PRIMARY_KEY, MODEL_BY_KEYS }
 for each phase the engine runs (P-6).
 
 **R-QRY-08** A selection added by a customizer has no `SelectField` key, so it cannot be read back through `Row`. A
-value that must reach the model goes through a `ColumnField` or an `AggregateField` instead (`api/13` §2, including
-`Agg.of` for an arbitrary expression). The Javadoc says so explicitly, because this is the trap the escape hatch sets.
+value that must reach the model goes through a `ColumnField`, or an `AggregateField` for an aggregate. `Agg.of` is for
+aggregate expressions only, since any aggregate makes the query grouped (`api/13` R-AGG-07); a non-aggregate value
+derived from the row is computed in `afterMap` (R-QRY-05), and there is no `Col.of` (D-27). The Javadoc says so
+explicitly, because this is the trap the escape hatch sets.
 
 **R-QRY-09** The three phases must stay consistent: a predicate that narrows `MODEL` but not `PRIMARY_KEY` makes
-primary-key-first paging return rows the caller filtered out. A customizer that adds a predicate in only one phase logs
-a warning naming the phase, once per `ModelQuery`, when it is first executed (D-21).
+primary-key-first paging return rows the caller filtered out. The engine builds every phase with the same joins,
+predicate, grouping and ordering, and only the SELECT list differs (D-26). A customizer that adds a predicate or an
+INNER join in only some phases logs a warning naming the phases, once per `ModelQuery`, when it is first executed
+(D-21).
 
 ## 5. Defaults when a part is absent
 
@@ -108,6 +113,8 @@ without Spring (INV-8). Semantics of each method are `engine/20`. The bulk `upda
 | AC-QRY-02 | `keyset()` without `primaryKey` throws `MQ1201` naming the model (R-QRY-03). |
 | AC-QRY-03 | A `ColumnSet` omitting the primary key still pages and exports correctly (R-QRY-04). |
 | AC-QRY-04 | `afterMap` runs exactly once per row, sees every selected column, and its effect survives `export` (R-QRY-05). |
-| AC-QRY-05 | A customizer-added selection is not readable through `Row`; the Javadoc example uses `Agg.of` instead (R-QRY-08). |
+| AC-QRY-05 | A customizer-added selection is not readable through `Row`; the Javadoc example uses `afterMap` instead (R-QRY-08). |
 | AC-QRY-06 | A customizer adding a predicate only in `Phase.MODEL` logs a warning naming the phase (R-QRY-09). |
 | AC-QRY-07 | Every row of §5 is covered by a test that omits exactly that part (R-QRY-02). |
+| AC-QRY-08 | `builder` on a join throws `MQ1203`; `whenOffsetAbove` with a negative offset throws `MQ1204`; the `PRIMARY_KEY` phase of a query without a primary key throws `MQ2203` (R-QRY-02, R-QRY-03). |
+| AC-QRY-09 | Every phase of a query with a primary key renders the same joins, predicate and ordering, including a nullable join made only by the selection, and returns the same keys in the same order (R-QRY-09, D-26). |

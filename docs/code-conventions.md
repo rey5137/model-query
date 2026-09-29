@@ -67,8 +67,9 @@ needs a reason in the PR: purpose, maintenance, license.
 **CC-API-03** Hibernate types appear only in `model-query-hibernate`. `jpa` finds its features through `ServiceLoader`
 and always has a portable fallback.
 
-**CC-API-04** Generics carry meaning: `M` model, `E` root entity, `P` primary key, `T` the table a column sits on, `C`
-the column's Java type. A new type parameter uses these letters or explains itself in Javadoc.
+**CC-API-04** Generics carry meaning: `M` model, `E` root entity, `K` primary key, `P` the parent table's entity (a
+`TableField`'s parent), `T` the table a column sits on, `C` the column's Java type. A new type parameter uses these
+letters or explains itself in Javadoc.
 
 **CC-API-05** Javadoc on every public type and method: one line on what it is, plus the spec id it implements
 (`@implSpec R-PAG-04`). No essays; the spec is the essay.

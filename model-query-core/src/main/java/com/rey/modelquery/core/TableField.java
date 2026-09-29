@@ -62,18 +62,29 @@ public final class TableField<P, T> {
                 null);
     }
 
-    /** The same path under its own alias, which resolves to a separate join (R-COL-03). */
+    /**
+     * The same path under its own alias, which resolves to a separate join (R-COL-03).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1104} on a root, which is not a join
+     */
     public TableField<P, T> as(String alias) {
-        return new TableField<>(rootEntity, parent, attribute, type, Objects.requireNonNull(alias, "alias"), condition);
+        Objects.requireNonNull(alias, "alias");
+        requireJoin("as(...)");
+        return new TableField<>(rootEntity, parent, attribute, type, alias, condition);
     }
 
-    /** Adds an {@code ON} condition, applied through {@code Join#on}; requires {@link #as(String)} (R-COL-04). */
+    /**
+     * Adds an {@code ON} condition, applied through {@code Join#on}; requires {@link #as(String)} (R-COL-04).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1104} on a root, which is not a join
+     */
     public TableField<P, T> on(BiFunction<From<?, T>, CriteriaBuilder, Predicate> condition) {
-        return new TableField<>(
-                rootEntity, parent, attribute, type, alias, Objects.requireNonNull(condition, "condition"));
+        Objects.requireNonNull(condition, "condition");
+        requireJoin("on(...)");
+        return new TableField<>(rootEntity, parent, attribute, type, alias, condition);
     }
 
-    /** The same node under a different parent, keeping alias and {@code ON} condition. */
+    /** The same node under a different parent, keeping alias and {@code ON} condition; a root is returned as is. */
     public TableField<P, T> withParent(TableField<?, P> newParent) {
         if (rootEntity != null) {
             return this; // a root has no parent to replace
@@ -82,10 +93,29 @@ public final class TableField<P, T> {
                 null, Objects.requireNonNull(newParent, "newParent"), attribute, type, alias, condition);
     }
 
-    /** Resolves this node to a {@link From}, creating the join on first use within {@code ctx}. */
-    @SuppressWarnings("unchecked")
+    /**
+     * Resolves this node to a {@link From}, creating the join on first use within {@code ctx}.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1003} when the path starts at a root the query is not rooted
+     *     at, {@code MQ1002} when a join names an attribute its entity does not have
+     */
     public From<?, T> resolve(JoinContext ctx) {
-        if (rootEntity != null || key.equals(ctx.rootKey())) {
+        return resolve(Objects.requireNonNull(ctx, "ctx"), null);
+    }
+
+    /** {@link #resolve(JoinContext)}, naming {@code owner} (a column, or {@code null}) in its failures. */
+    @SuppressWarnings("unchecked")
+    From<?, T> resolve(JoinContext ctx, Object owner) {
+        if (key.equals(ctx.rootKey())) {
+            return (From<?, T>) ctx.root();
+        }
+        if (rootEntity != null) {
+            Class<?> queried = ctx.root().getJavaType();
+            // Otherwise a column declared on another entity's root would silently read the query root's attribute.
+            if (!rootEntity.isAssignableFrom(queried)) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1003, prefix(owner) + "sits on " + describe()
+                        + ", but the query is rooted at " + queried.getSimpleName());
+            }
             return (From<?, T>) ctx.root();
         }
         if (condition != null && alias.isEmpty()) {
@@ -93,8 +123,8 @@ public final class TableField<P, T> {
                     MqCode.MQ1102,
                     describe() + ": on(...) has no alias; call as(...) so the condition can be compared");
         }
-        From<?, P> parentFrom = parent.resolve(ctx);
-        return (From<?, T>) ctx.join(key, parentFrom, attribute, type, condition, describe());
+        From<?, P> parentFrom = parent.resolve(ctx, owner);
+        return (From<?, T>) ctx.join(key, parentFrom, attribute, type, condition, prefix(owner) + describe());
     }
 
     /** The entity of a root node, or {@code null} for a join. */
@@ -123,6 +153,17 @@ public final class TableField<P, T> {
             keys.add(node.key);
         }
         return keys;
+    }
+
+    private void requireJoin(String method) {
+        if (rootEntity != null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1104, describe() + ": " + method
+                    + " applies to a join; a root is the query's FROM, not a join");
+        }
+    }
+
+    private static String prefix(Object owner) {
+        return owner == null ? "" : owner + ": ";
     }
 
     String describe() {

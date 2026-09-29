@@ -165,6 +165,58 @@ class RowMapperTest {
         }
     }
 
+    @TckTest
+    void ac_col_06_a_scoped_row_reads_columns_on_joins_below_its_scope_and_scopes_compose(TckDatabase db) {
+        // Rooted at an item: its order, and that order's customer, are the nested models.
+        TableField<OrderItemEntity, OrderItemEntity> itemRoot = TableField.root(OrderItemEntity.class);
+        TableField<OrderItemEntity, OrderEntity> itemOrder = TableField.join(itemRoot, "order", INNER);
+        TableField<OrderEntity, CustomerEntity> itemOrderCustomer = TableField.join(itemOrder, "customer", INNER);
+        ColumnField<OrderView, OrderEntity, Long> orderId =
+                ColumnField.of(OrderView.class, itemOrder, "id", Long.class);
+        ColumnField<OrderView, CustomerEntity, Long> customerId =
+                ColumnField.of(OrderView.class, itemOrderCustomer, "id", Long.class);
+        ColumnField<OrderView, CustomerEntity, String> customerName =
+                ColumnField.of(OrderView.class, itemOrderCustomer, "name", String.class);
+        // The nested order model, declared on its own root, with a column on the join below it.
+        TableField<OrderEntity, CustomerEntity> nestedCustomer = TableField.join(ROOT, "customer", INNER);
+        ColumnField<OrderView, OrderEntity, Long> nestedOrderId =
+                ColumnField.of(OrderView.class, ROOT, "id", Long.class);
+        ColumnField<OrderView, CustomerEntity, Long> nestedCustomerId =
+                ColumnField.of(OrderView.class, nestedCustomer, "id", Long.class);
+        // Two levels down: the customer model, declared on its own root.
+        ColumnField<CustomerView, CustomerEntity, Long> innerId =
+                ColumnField.of(CustomerView.class, CUSTOMER_ROOT, "id", Long.class);
+        ColumnField<CustomerView, CustomerEntity, String> innerName =
+                ColumnField.of(CustomerView.class, CUSTOMER_ROOT, "name", String.class);
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
+            sf.inSession(em -> {
+                CriteriaBuilder cb = em.getCriteriaBuilder();
+                CriteriaQuery<Tuple> q = cb.createTupleQuery();
+                Root<OrderItemEntity> root = q.from(OrderItemEntity.class);
+                JoinContext ctx = JoinContext.of(root, cb);
+                RowSelection selection = RowSelection.of(List.of(orderId, customerId, customerName));
+                // Item 1 is on order 1, whose customer is 38: the two ids differ.
+                q.multiselect(selection.selections(ctx)).where(cb.equal(root.get("id"), 1L));
+                Row row = selection.row(em.createQuery(q).getSingleResult());
+                assertThat(row.get(orderId)).isEqualTo(1L);
+                assertThat(row.get(customerId)).isEqualTo(38L);
+
+                Row order = row.scoped(itemOrder);
+                assertThat(order.get(nestedOrderId)).isEqualTo(1L);
+                // The customer's id, not the order's: the whole path is re-rooted, not just its last attribute.
+                assertThat(order.isSelected(nestedCustomerId)).isTrue();
+                assertThat(order.get(nestedCustomerId)).isEqualTo(38L);
+
+                Row customer = order.scoped(nestedCustomer);
+                assertThat(customer.get(innerId)).isEqualTo(38L);
+                assertThat(customer.get(innerName)).isEqualTo(row.get(customerName)).isNotNull();
+                // A customer column the query did not select is not found under any other join.
+                assertThat(customer.isSelected(ColumnField.of(CustomerView.class, CUSTOMER_ROOT, "createdAt",
+                        LocalDateTime.class))).isFalse();
+            });
+        }
+    }
+
     private record Expected(long itemId, String status, BigDecimal total, LocalDateTime placedAt, boolean vip,
             String customerName, LocalDateTime customerCreatedAt, int quantity, BigDecimal unitPrice) {
 

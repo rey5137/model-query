@@ -154,8 +154,9 @@ and returns the same collector, and the call's result is frozen into an immutabl
 INV-9 holds and nothing per-query lives outside `JoinContext`. The operator's return value is ignored, because every
 filter added to the collector counts: with an immutable builder, a lambda that drops a return value
 (`f -> { f.eq(A, x); return f.eq(B, y); }`) would silently lose `eq(A, x)` (INV-5). The collector is closed when the
-call returns: a reference kept past it (in a field, or passed to a deferred helper) throws `IllegalStateException` on
-any later use rather than adding filters nobody reads. Rejected: an immutable builder
+call returns: a reference kept past it (in a field, or passed to a deferred helper) throws `MQ1303` on any later use
+rather than adding filters nobody reads, and so does the enclosing collector used while a nested operator runs (a branch
+lambda adding to the outer builder by mistake). Rejected: an immutable builder
 whose returned instance is the result (the same call shape, with a silent failure mode). → `api/12` §1, R-FLT-01.
 
 **D-24 — Custom expressions receive the `CriteriaBuilder` as an argument.**
@@ -163,8 +164,9 @@ whose returned instance is the result (the same call shape, with a silent failur
 called once per query build with that build's context and builder. A predicate or expression needs a
 `CriteriaBuilder`, and one captured in the lambda would tie an immutable definition to one persistence unit (INV-9,
 D-21); passing it keeps `JoinContext`'s public surface to `of` and `TableField.resolve` (D-18). A custom predicate that
-returns `null` throws `MQ1301`: it is evaluated at build time, when a skip could no longer promise to create no join
-(R-FLT-03), so skipping stays explicit through `when(...)` or the `Optional` forms (P-3). Rejected: a public
+returns `null` throws `MQ1305`, and an `Agg.of` expression that does `MQ1405`: each is evaluated at build time, when a
+skip could no longer promise to create no join (R-FLT-03), so skipping stays explicit through `when(...)` or the
+`Optional` forms (P-3). `MQ1301` stays the code for a `null` filter value. Rejected: a public
 `JoinContext.cb()` (widens an `@Incubating` type for one use) and `Function<JoinContext, …>` with no builder (only the
 few predicates `Path` builds on its own). → `api/12` §1, `api/13` §1.
 
@@ -176,6 +178,36 @@ accepts every `Number`, and `sumAsLong`'s alone lets a `BigDecimal` sum be read 
 (CC-ERR-03), and throw `MQ1403`; generated columns are caught earlier still, by the processor (`MQ3205`). Rejected:
 typed method names (`sumDecimal`, `sumLong`, …), which multiply the surface for a check one call can make.
 → `api/13` R-AGG-03, AC-AGG-02.
+
+**D-26 — The join set is the same in every phase.**
+A query's FROM/JOIN is decided by its selection, ordering, grouping and filters together, and only the SELECT list
+differs between `MODEL`, `PRIMARY_KEY` and `MODEL_BY_KEYS`. Joins needed outside `or`/`not` are resolved before any
+inside them, across `where` and `having`. Rejected: phase-dependent joins (primary-key-first returns different rows,
+R-QRY-09), and `or()` never reusing an INNER join (a second join on to-many paths). A customizer runs last, so a path
+the query joined LEFT only for an `or`/`not` and that the customizer resolves as INNER gets a second join; that is
+documented on `QueryCustomizer` and accepted (P-6). → `api/11` R-QRY-09, `api/12` R-FLT-10, AC-QRY-09.
+
+**D-27 — No `Col.of`: a non-aggregate derived value belongs in `afterMap`.**
+`Agg.of` is the escape hatch for aggregate expressions only, since any aggregate makes the query grouped (R-AGG-07).
+A value computed per row from other columns is derived in `afterMap` (or a record's `finisher`) from the columns the
+`ColumnSet` selects. Rejected: `Col.of(expression)` for computed non-aggregate columns, which would turn the column
+model into a general expression builder (P-5). Resolves Q-5. → `api/11` R-QRY-05, R-QRY-08, `api/13` R-AGG-02.
+
+**D-28 — Grouping is structural.**
+A query is grouped when it has a `groupBy` or selects an aggregate, and nothing else: `having(...)` on any other query
+throws `MQ1407` at build time, even when every filter it recorded was skipped, so whether a query is grouped never
+depends on a request's values. Ordering must fit the grouping for the same reason: a grouped query orders by group
+keys and aggregates, an ungrouped one never by an aggregate, else `MQ1406`. Rejected: `having` making a query grouped
+(a skipped filter would silently turn a grouped query back into a row query with a different shape and row count).
+→ `api/13` R-AGG-07, R-AGG-08, AC-AGG-08, AC-AGG-12.
+
+**D-29 — The model phases select every key the executor reads.**
+`MODEL` and `MODEL_BY_KEYS` select the `ColumnSet`, plus the primary key when one is defined on an ungrouped query,
+every ordering key and every group key. None of these changes which rows return, since their joins are made anyway
+(D-26), and selecting them lets the executor read a row's key (offset export, R-PAG-01, R-PAG-03), cursor (R-PAG-04)
+and group (R-PAG-11) from the `Row` without a second definition of the selection. Rejected: adding the key only for
+`keyset()` or `primaryKeyFirst(...)` (offset export needs it too, R-QRY-03). `ModelQuery` and `QuerySpec` expose
+`isGrouped()` and `groupBy()` for the executor. → `api/11` R-QRY-04, AC-QRY-03.
 
 ## 2. Open questions
 
@@ -193,8 +225,7 @@ Targeting 7 only drops the `model-query-hibernate` compatibility matrix but excl
 Should 0.1 ship an opaque encoded form (so a REST API can page without exposing column values), or leave it to callers?
 → SPEC.md §4.
 
-**Q-5 — `Agg.of` scope.** It is the escape hatch for any expression. Does it need a matching `Col.of(expression)` for
-non-aggregate computed columns, or does that invite the SQL-builder scope creep P-5 rules out?
+**Q-5 — `Agg.of` scope.** Resolved by D-27.
 
 **Q-6 — Bean Validation on change sets.** Resolved by D-15.
 

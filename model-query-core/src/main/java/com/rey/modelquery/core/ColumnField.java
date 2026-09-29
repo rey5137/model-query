@@ -35,12 +35,15 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
     private final TableField<?, T> table;
     private final String attribute;
     private final Class<C> type;
+    /** Cached: a row looks every column up by it, once per row (R-COL-10). */
+    private final int hash;
 
     private ColumnField(Class<M> model, TableField<?, T> table, String attribute, Class<C> type) {
         this.model = model;
         this.table = table;
         this.attribute = attribute;
         this.type = type;
+        this.hash = Objects.hash(model, table.key(), attribute, type);
     }
 
     /**
@@ -59,12 +62,22 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
     }
 
     /**
-     * Resolves the column's path, joining its table through {@code ctx}. Throws {@code MQ1001} when the entity
-     * attribute's type does not match {@link #type()} (INV-3).
+     * Resolves the column's path, joining its table through {@code ctx}.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1001} when the entity attribute's type does not match
+     *     {@link #type()} (INV-3), {@code MQ1002} when the entity has no such attribute, {@code MQ1003} when the
+     *     column sits on a root the query is not rooted at
      */
     public Path<C> path(JoinContext ctx) {
-        From<?, T> from = table.resolve(Objects.requireNonNull(ctx, "ctx"));
-        Path<C> path = from.get(attribute);
+        From<?, T> from = table.resolve(Objects.requireNonNull(ctx, "ctx"), this);
+        Path<C> path;
+        try {
+            path = from.get(attribute);
+        } catch (IllegalArgumentException e) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1002, String.format(
+                    "%s.%s: entity %s has no attribute '%s'",
+                    model.getSimpleName(), attribute, from.getJavaType().getSimpleName(), attribute), e);
+        }
         Class<?> actual = path.getJavaType();
         if (actual == null || boxed(actual) != type) {
             throw new ModelQueryDefinitionException(MqCode.MQ1001, String.format(
@@ -120,7 +133,7 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
 
     @Override
     public int hashCode() {
-        return Objects.hash(model, table.key(), attribute, type);
+        return hash;
     }
 
     @Override

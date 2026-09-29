@@ -11,4 +11,9 @@ record JoinKey(JoinKey parent, String attribute, JoinType type, String alias) {
     static JoinKey root(Class<?> entity) {
         return new JoinKey(null, entity.getName(), null, "");
     }
+
+    /** This key with its root replaced by {@code newRoot}, as {@code TableField.withParent} re-roots a path. */
+    JoinKey reroot(JoinKey newRoot) {
+        return parent == null ? newRoot : new JoinKey(parent.reroot(newRoot), attribute, type, alias);
+    }
 }

@@ -30,10 +30,10 @@ Spec: `api/10`, `api/11`, `api/12`, `api/13`. Model: `architect-review` required
 | M1.1 | `TableField`, `JoinContext`, join keys, `as`, `on`, `withParent` | AC-COL-01..03 |
 | M1.2 | `SelectField`, `ColumnField`, type checking, `withTable`, `ColumnSet` | AC-COL-04, AC-COL-05 |
 | M1.3 | `Row`, `RowMapper`, `SetterMapper`, `OrderField`, null precedence | AC-COL-06, AC-COL-08 without `model-query-hibernate` |
-| M1.4 | `ModelQuery` builder, `PrimaryKey`, `afterMap`, `QueryCustomizer` | AC-QRY-01..07 at definition level (see note), AC-COL-09 |
+| M1.4 | `ModelQuery` builder, `PrimaryKey`, `afterMap`, `QueryCustomizer` | AC-QRY-01..09 at definition level (see note), AC-COL-09 |
 | M1.5 | `Filters`: comparison, sets, strings, nulls, `compare` | AC-FLT-01, 02, 05..07, AC-COL-07, AC-QRY-07 `where` row |
 | M1.6 | `Filters`: `or`/`not`/`when`/`apply`, `exists`, join resolution inside `or`, `add` | AC-FLT-03, 04, 09..11 |
-| M1.7 | `Agg`, `AggregateField`, `groupBy`, `having`, grouped build-time checks | AC-AGG-01..11, AC-QRY-07 `groupBy` row |
+| M1.7 | `Agg`, `AggregateField`, `groupBy`, `having`, grouped build-time checks | AC-AGG-01..12, AC-QRY-07 `groupBy` row |
 
 M1.4 tests AC-QRY-03 and AC-QRY-04 on the built selection and mapping. Their paging and `export` halves need the
 executor and are owed by M2.3, which also calls the R-QRY-09 phase check on first execution. Likewise M1.7 tests
@@ -54,6 +54,11 @@ Spec: `engine/20`, `engine/21`. Model: `architect-review` required for the expor
 | M2.4 | Keyset paging: cursors, ties, NULL handling | AC-PAG-05..07 |
 | M2.5 | Primary-key-first paging with vendor clamping | AC-PAG-08, AC-PAG-09 |
 | M2.6 | Grouped export | AC-PAG-10, AC-PAG-11, AC-AGG-09 export half |
+
+Owed by M2.1 and M2.3, decided there: a column selected through a to-many join repeats the primary key on several
+rows, so R-PAG-02's page-boundary dedupe drops real rows and R-EXE-04's `count(distinct root)` disagrees with the rows
+listed. The proposal is `MQ2204` for key-based export or paging over a to-many selection join, detected from the plural
+attribute in `jakarta.persistence.metamodel`; the spec gap and the code are both open until then.
 
 **Exit:** TCK green on Tier-1 databases.
 

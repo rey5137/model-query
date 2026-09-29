@@ -11,6 +11,7 @@ import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
+import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
@@ -116,6 +117,11 @@ class AggregatesTest {
             ColumnField.of(Totals.class, CUSTOMER, "id", Long.class);
     private static final ColumnField<Totals, CustomerEntity, String> CUSTOMER_NAME =
             ColumnField.of(Totals.class, CUSTOMER, "name", String.class);
+    private static final TableField<OrderEntity, OrderItemEntity> ORDER_ITEMS = TableField.join(ORDERS, "items", INNER);
+    private static final ColumnField<Totals, OrderItemEntity, String> ORDER_PRODUCT =
+            ColumnField.of(Totals.class, ORDER_ITEMS, "productCode", String.class);
+    private static final ColumnField<Totals, OrderItemEntity, BigDecimal> ORDER_UNIT_PRICE =
+            ColumnField.of(Totals.class, ORDER_ITEMS, "unitPrice", BigDecimal.class);
 
     private static final AggregateField<Totals, BigDecimal> SUM_TOTAL = Agg.sum(TOTAL);
     private static final AggregateField<Totals, Long> COUNT = Agg.count(ORDERS);
@@ -283,6 +289,28 @@ class AggregatesTest {
         TOTALS.columns(ColumnSet.of(largest, alsoLargest.as("other"))).build();
     }
 
+    @TckTest
+    @SuppressWarnings({"unchecked", "rawtypes"}) // an expression deliberately declared as the wrong type
+    void ac_agg_05_an_agg_of_returning_null_or_another_java_type_throws_mq1405_when_the_query_is_built(
+            TckDatabase db) {
+        AggregateField<Totals, BigDecimal> none = Agg.of("none", BigDecimal.class, (ctx, cb) -> null);
+        // Declared a Long, but max(total) is a BigDecimal: Row.get would fail with a ClassCastException instead.
+        AggregateField<Totals, Long> mistyped = Agg.of("mistyped", Long.class,
+                (ctx, cb) -> (jakarta.persistence.criteria.Expression) cb.max(TOTAL.path(ctx)));
+        var returnsNull = TOTALS.columns(ColumnSet.of(none)).build();
+        var wrongType = TOTALS.columns(ColumnSet.of(mistyped)).build();
+        inSession(db, em -> {
+            assertThatThrownBy(() -> returnsNull.buildQuery(em.getCriteriaBuilder(), Phase.MODEL))
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1405))
+                    .hasMessage("MQ1405: Agg.of(\"none\") returned no expression");
+            assertThatThrownBy(() -> wrongType.buildQuery(em.getCriteriaBuilder(), Phase.MODEL))
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1405))
+                    .hasMessage("MQ1405: Agg.of(\"mistyped\"): declared Long, the expression is BigDecimal");
+        });
+    }
+
     private static void assertMq1103(Runnable call, String named) {
         assertThatThrownBy(call::run)
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
@@ -391,10 +419,8 @@ class AggregatesTest {
     void ac_agg_08_a_selected_column_missing_from_the_group_by_throws_mq1401_naming_the_column() {
         var selected = TOTALS.columns(ColumnSet.of(CUSTOMER_ID, CUSTOMER_NAME, SUM_TOTAL));
         assertMq1401(() -> selected.groupBy(CUSTOMER_ID).build(), "Totals.name");
-        // With no groupBy an aggregate makes one group, and a having filter makes the query grouped too.
+        // With no groupBy an aggregate makes one group.
         assertMq1401(() -> TOTALS.columns(ColumnSet.of(STATUS, COUNT)).build(), "Totals.status");
-        assertMq1401(() -> TOTALS.columns(ColumnSet.of(STATUS)).having(h -> h.gt(COUNT, 1L)).build(),
-                "Totals.status");
         // The same attribute on another join is another column.
         assertMq1401(() -> selected.groupBy(CUSTOMER_ID, ColumnField.of(Totals.class, CUSTOMER.as("other"), "name",
                 String.class)).build(), "Totals.name");
@@ -402,11 +428,33 @@ class AggregatesTest {
         ColumnSet<Totals> keys = ColumnSet.of(CUSTOMER_ID, CUSTOMER_NAME);
         selected.groupBy(keys).build();
         selected.groupBy(CUSTOMER_ID, CUSTOMER_NAME).build();
-        // A skipped having records nothing, so the query is not grouped and needs no group-by.
-        TOTALS.columns(ColumnSet.of(STATUS)).having(h -> h.gt(COUNT, NO_COUNT)).build();
-        // A group key must be a column: an aggregate in the group-by set is refused at once.
-        assertThatThrownBy(() -> selected.groupBy(keys.with(SUM_TOTAL)))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("sum(total)");
+    }
+
+    @Test
+    void ac_agg_08_an_order_key_that_does_not_fit_the_grouping_throws_mq1406() {
+        var grouped = TOTALS.columns(ColumnSet.of(STATUS, COUNT)).groupBy(STATUS);
+        // A group holds many totals: ordering the groups by one of them is undefined.
+        assertMq1406(() -> grouped.orderBy(STATUS.asc(), TOTAL.desc()).build(),
+                "MQ1406: Totals.total: ordered by but not in groupBy");
+        assertMq1406(() -> TOTALS.columns(ColumnSet.of(COUNT)).orderBy(STATUS.asc()).build(),
+                "MQ1406: Totals.status: ordered by but not in groupBy");
+        // An aggregate cannot order rows that are not grouped.
+        assertMq1406(() -> TOTALS.columns(ColumnSet.of(STATUS)).orderBy(COUNT.desc()).build(),
+                "MQ1406: Totals.count(OrderEntity): ordered by an aggregate on an ungrouped query");
+
+        grouped.orderBy(STATUS.asc()).build();
+        grouped.orderBy(COUNT.desc(), STATUS.asc()).build();
+        // An aggregate that is not selected still orders the groups, and a group key need not be selected.
+        grouped.orderBy(SUM_TOTAL.desc()).build();
+        TOTALS.columns(ColumnSet.of(COUNT)).groupBy(STATUS).orderBy(STATUS.asc()).build();
+        TOTALS.columns(ColumnSet.of(STATUS)).orderBy(TOTAL.desc()).build();
+    }
+
+    private static void assertMq1406(Runnable call, String message) {
+        assertThatThrownBy(call::run)
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1406))
+                .hasMessageStartingWith(message);
     }
 
     private static void assertMq1401(Runnable call, String column) {
@@ -483,7 +531,8 @@ class AggregatesTest {
             assertThat(keyed.buildQuery(em.getCriteriaBuilder(), Phase.MODEL).query().getSelection()
                     .getCompoundSelectionItems()).hasSize(2);
             assertThatThrownBy(() -> keyed.buildQuery(em.getCriteriaBuilder(), Phase.PRIMARY_KEY))
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ2203));
             results.add(run(em, keyless));
             results.add(run(em, keyed));
         });
@@ -559,6 +608,65 @@ class AggregatesTest {
             assertThat(summary.total).isEqualByComparingTo((BigDecimal) expected.get(i)[2]);
             assertThat(summary.average).isNotNull();
         }
+    }
+
+    // ---- AC-AGG-12
+
+    @Test
+    void ac_agg_12_having_on_an_ungrouped_query_throws_mq1407_even_when_every_filter_was_skipped() {
+        var ungrouped = TOTALS.columns(ColumnSet.of(STATUS));
+        for (Runnable call : List.<Runnable>of(
+                () -> ungrouped.having(h -> h.gt(COUNT, 1L)).build(),
+                // Skipped or not: whether a query is grouped never depends on a request's values.
+                () -> ungrouped.having(h -> h.gt(COUNT, NO_COUNT)).build(),
+                () -> ungrouped.having(h -> h).build())) {
+            assertThatThrownBy(call::run)
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1407))
+                    .hasMessageStartingWith("MQ1407: Totals: having(...) needs a grouped query");
+        }
+        // A group-by or a selected aggregate makes it grouped, and then having is allowed, skipped or not.
+        ungrouped.groupBy(STATUS).having(h -> h.gt(COUNT, NO_COUNT)).build();
+        TOTALS.columns(ColumnSet.of(COUNT)).having(h -> h.gt(COUNT, 1L)).build();
+    }
+
+    @Test
+    void ac_agg_12_an_aggregate_in_the_group_by_set_throws_mq1404() {
+        var selected = TOTALS.columns(ColumnSet.of(CUSTOMER_ID, SUM_TOTAL));
+        assertThatThrownBy(() -> selected.groupBy(ColumnSet.of(CUSTOMER_ID, SUM_TOTAL)))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1404))
+                .hasMessage("MQ1404: Totals.sum(total): groupBy(...) takes columns; an aggregate cannot be a group "
+                        + "key");
+        selected.groupBy(ColumnSet.of(CUSTOMER_ID)).build();
+    }
+
+    // ---- D-26: joins outside or/not resolve first, across where and having
+
+    @TckTest
+    void d_26_an_or_in_where_reuses_the_inner_join_a_having_aggregate_needs(TckDatabase db) {
+        AggregateField<Totals, BigDecimal> itemTotal = Agg.sum(ORDER_UNIT_PRICE);
+        BigDecimal threshold = new BigDecimal("40000.00");
+        // The items path is needed inside the or and by an aggregate that is only in having: one INNER join serves
+        // both, where joining it LEFT for the or and again for the aggregate would multiply every sum.
+        var query = TOTALS.columns(ColumnSet.of(STATUS, COUNT)).groupBy(STATUS).orderBy(STATUS.asc())
+                .where(f -> f.or(a -> a.eq(ORDER_PRODUCT, "P007"), b -> b.eq(STATUS, "PAID")))
+                .having(h -> h.gt(itemTotal, threshold))
+                .build();
+        List<Totals> results = new ArrayList<>();
+        List<String> sql = SqlSnapshots.assertMatches(db, "agg-d26-or-reuses-having-join",
+                ds -> inSession(ds, em -> results.addAll(run(em, query))));
+        assertThat(sql).hasSize(1);
+        assertThat(sql.get(0).split("order_items", -1)).as(sql.get(0)).hasSize(2);
+        List<Object[]> expected = new ArrayList<>();
+        inSession(db, em -> expected.addAll(em.createQuery("select o.status, count(o) from OrderEntity o"
+                + " join o.items i where i.productCode = 'P007' or o.status = 'PAID' group by o.status"
+                + " having sum(i.unitPrice) > :threshold order by o.status", Object[].class)
+                .setParameter("threshold", threshold).getResultList()));
+        assertThat(expected).isNotEmpty();
+        assertThat(results).extracting(Totals::status, Totals::count)
+                .containsExactlyElementsOf(expected.stream()
+                        .map(r -> org.assertj.core.groups.Tuple.tuple(r[0], r[1])).toList());
     }
 
     // ---- helpers

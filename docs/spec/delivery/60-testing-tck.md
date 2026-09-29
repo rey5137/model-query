@@ -22,8 +22,9 @@ queries per vendor into `src/test/resources/sql/<vendor>/*.sql`. A PR that chang
 
 ## 2. The TCK (`model-query-tck`)
 
-A JUnit 5 suite parameterized by vendor, over a shared fixture schema: `customers`, `orders`, `order_items`, a table with
-a composite key, a table with nullable sort columns, and about 20 000 seeded rows.
+A JUnit 5 suite parameterized by vendor, over a shared fixture schema: `customers`, `orders` (with a nullable second
+reference to `customers`), `order_items`, a table with a composite key, a table with nullable sort columns, and about
+20 000 seeded rows.
 
 | Group | Tests |
 |---|---|

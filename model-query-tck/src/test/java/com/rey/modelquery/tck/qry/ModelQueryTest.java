@@ -11,6 +11,7 @@ import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
+import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
@@ -36,7 +37,9 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -48,6 +51,8 @@ import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.Test;
 
@@ -67,6 +72,9 @@ class ModelQueryTest {
     private static final TableField<OrderEntity, OrderEntity> ROOT = TableField.root(OrderEntity.class);
     private static final TableField<OrderEntity, CustomerEntity> CUSTOMER =
             TableField.join(ROOT, "customer", INNER);
+    /** A nullable reference: joined INNER, it removes the two thirds of the orders that have no referrer. */
+    private static final TableField<OrderEntity, CustomerEntity> REFERRER =
+            TableField.join(ROOT, "referrer", INNER);
 
     private static final ColumnField<View, OrderEntity, Long> ID =
             ColumnField.of(View.class, ROOT, "id", Long.class);
@@ -76,6 +84,8 @@ class ModelQueryTest {
             ColumnField.of(View.class, ROOT, "total", BigDecimal.class);
     private static final ColumnField<View, CustomerEntity, String> CUSTOMER_NAME =
             ColumnField.of(View.class, CUSTOMER, "name", String.class);
+    private static final ColumnField<View, CustomerEntity, String> REFERRER_NAME =
+            ColumnField.of(View.class, REFERRER, "name", String.class);
 
     private static final ColumnField<Labelled, OrderEntity, Long> L_ID =
             ColumnField.of(Labelled.class, ROOT, "id", Long.class);
@@ -184,8 +194,8 @@ class ModelQueryTest {
         });
         assertThat(result[0]).isNotEmpty().allSatisfy(v -> assertThat(v.id()).isNotNull());
         assertThat(result[0].stream().map(View::id).toList()).isSorted();
-        // Without keyset() or primaryKeyFirst(...) nothing needs the key, so it is not added.
-        assertThat(result[1]).hasSameSizeAs(result[0]).allSatisfy(v -> assertThat(v.id()).isNull());
+        // Without keyset() or primaryKeyFirst(...) the key is still added: offset export needs it too (D-29).
+        assertThat(result[1]).isEqualTo(result[0]);
         assertThat(keyOnly).isEqualTo(result[0].stream().map(View::id).toList());
     }
 
@@ -335,7 +345,8 @@ class ModelQueryTest {
                 assertThat(minimal.buildQuery(cb, Phase.MODEL).query().getSelection().getCompoundSelectionItems())
                         .hasSize(2);
                 assertThatThrownBy(() -> minimal.buildQuery(cb, Phase.PRIMARY_KEY))
-                        .isInstanceOf(IllegalStateException.class);
+                        .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ2203));
                 // groupBy: not grouped.
                 assertThat(minimal.buildQuery(cb, Phase.MODEL).query().getGroupList()).isEmpty();
                 // keyset() and primaryKeyFirst: offset mode, never two-step.
@@ -387,6 +398,15 @@ class ModelQueryTest {
         try (SessionFactory sf = sessionFactory(db)) {
             sf.inSession(em -> {
                 CriteriaBuilder cb = em.getCriteriaBuilder();
+                assertThat(plain.isGrouped()).isFalse();
+                assertThat(plain.groupBy()).isEmpty();
+                assertThat(plain.spec().isGrouped()).isFalse();
+                assertThat(single.isGrouped()).isTrue();
+                assertThat(single.groupBy()).isEmpty();
+                assertThat(grouped.isGrouped()).isTrue();
+                assertThat(grouped.groupBy()).containsExactly(STATUS);
+                assertThat(grouped.spec().groupBy()).containsExactly(STATUS);
+                assertThat(grouped.spec().isGrouped()).isTrue();
                 assertThat(plain.buildQuery(cb, Phase.MODEL).query().getGroupList()).isEmpty();
                 assertThat(run(em, plain, Phase.MODEL)).hasSize(TckFixture.ORDERS);
                 assertThat(single.buildQuery(cb, Phase.MODEL).query().getGroupList()).isEmpty();
@@ -438,6 +458,196 @@ class ModelQueryTest {
         }
         assertThat(warnings).hasSize(1);
         assertThat(warnings.get(0)).contains("[MODEL]").contains("PRIMARY_KEY");
+    }
+
+    @TckTest
+    void ac_qry_06_a_customizer_adding_an_inner_join_only_in_model_logs_a_warning(TckDatabase db) {
+        QueryCustomizer leftOnlyInModel = (spec, joins, query, cb, phase) -> {
+            if (phase == Phase.MODEL) {
+                query.getRoots().iterator().next().join("referrer", jakarta.persistence.criteria.JoinType.LEFT);
+            }
+        };
+        QueryCustomizer innerOnlyInModel = (spec, joins, query, cb, phase) -> {
+            if (phase == Phase.MODEL) {
+                query.getRoots().iterator().next().join("referrer");
+            }
+        };
+        var keyed = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT).primaryKey(PrimaryKey.of(ID));
+        List<String> warnings = warnings(() -> {
+            try (SessionFactory sf = sessionFactory(db)) {
+                sf.inSession(em -> {
+                    // A LEFT join removes no row, so it cannot make the phases disagree on which rows exist.
+                    keyed.customize(leftOnlyInModel).build().checkPhases(em.getCriteriaBuilder());
+                    keyed.customize(innerOnlyInModel).build().checkPhases(em.getCriteriaBuilder());
+                });
+            }
+        });
+        assertThat(warnings).hasSize(1);
+        assertThat(warnings.get(0)).contains("INNER join").contains("[MODEL]").contains("PRIMARY_KEY");
+    }
+
+    /** The warnings {@code ModelQuery} logs while {@code work} runs. */
+    private static List<String> warnings(Runnable work) {
+        List<String> warnings = new ArrayList<>();
+        Logger logger = Logger.getLogger(ModelQuery.class.getName());
+        Handler handler = new Handler() {
+            @Override
+            public void publish(LogRecord r) {
+                if (r.getLevel().intValue() >= Level.WARNING.intValue()) {
+                    warnings.add(new SimpleFormatter().formatMessage(r));
+                }
+            }
+
+            @Override
+            public void flush() {}
+
+            @Override
+            public void close() {}
+        };
+        logger.addHandler(handler);
+        try {
+            work.run();
+        } finally {
+            logger.removeHandler(handler);
+        }
+        return warnings;
+    }
+
+    // ---- AC-QRY-08
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"}) // a join passed where the signature wants a root
+    void ac_qry_08_a_join_as_root_and_a_negative_offset_throw_mq1203_and_mq1204() {
+        assertThatThrownBy(() -> ModelQuery.builder((TableField) CUSTOMER, VIEW_MAPPER))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1203))
+                .hasMessage("MQ1203: builder(...) takes a TableField.root(...), not the join 'customer' (INNER)");
+        assertThatThrownBy(() -> PrimaryKeyFirst.whenOffsetAbove(-1))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1204))
+                .hasMessageContaining("whenOffsetAbove(-1)");
+        assertThat(PrimaryKeyFirst.whenOffsetAbove(0).offsetThreshold()).isZero();
+    }
+
+    @TckTest
+    void ac_qry_08_the_primary_key_phase_of_a_query_without_a_key_throws_mq2203(TckDatabase db) {
+        var noKey = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT).build();
+        AggregateField<View, Long> count = Agg.count(ROOT);
+        var grouped = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(ColumnSet.of(STATUS, count)).groupBy(STATUS)
+                .primaryKey(PrimaryKey.of(ID)).build();
+        try (SessionFactory sf = sessionFactory(db)) {
+            sf.inSession(em -> {
+                CriteriaBuilder cb = em.getCriteriaBuilder();
+                assertThatThrownBy(() -> noKey.buildQuery(cb, Phase.PRIMARY_KEY))
+                        .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ2203))
+                        .hasMessage("MQ2203: View: phase PRIMARY_KEY needs a primary key, and primaryKey(...) was "
+                                + "not set");
+                assertThatThrownBy(() -> grouped.buildQuery(cb, Phase.PRIMARY_KEY))
+                        .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ2203))
+                        .hasMessageContaining("a grouped query has none");
+            });
+        }
+    }
+
+    // ---- AC-QRY-09
+
+    @TckTest
+    void ac_qry_09_every_phase_has_the_same_joins_predicate_and_order_and_selects_the_same_rows(TckDatabase db) {
+        var keyed = ModelQuery.builder(ROOT, VIEW_MAPPER).primaryKey(PrimaryKey.of(ID))
+                .primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0));
+        List<ModelQuery<OrderEntity, Long, View>> queries = List.of(
+                // A nullable join made only by the selection: PRIMARY_KEY must drop the orders it drops.
+                keyed.columns(ColumnSet.of(STATUS, REFERRER_NAME)).orderBy(TOTAL.desc(), ID.asc()).build(),
+                // The same path inside an or(...) reuses the selection's INNER join, in every phase.
+                keyed.columns(ColumnSet.of(STATUS, REFERRER_NAME))
+                        .where(f -> f.or(a -> a.lt(REFERRER_NAME, "Customer 0100"), b -> b.eq(STATUS, "PAID")))
+                        .orderBy(ID.asc()).build(),
+                // Needed only inside the or(...): LEFT in every phase, next to an INNER join made by the selection.
+                keyed.columns(ColumnSet.of(STATUS, CUSTOMER_NAME))
+                        .where(f -> f.or(a -> a.lt(REFERRER_NAME, "Customer 0100"), b -> b.eq(STATUS, "PAID")))
+                        .orderBy(CUSTOMER_NAME.asc(), ID.asc()).build());
+        List<Map<Phase, List<Long>>> keys = new ArrayList<>();
+        List<String> sql = SqlSnapshots.assertMatches(db, "qry-09-phases-share-joins", ds -> {
+            try (SessionFactory sf = sessionFactory(ds)) {
+                sf.inSession(em -> queries.forEach(q -> {
+                    Map<Phase, List<Long>> byPhase = new EnumMap<>(Phase.class);
+                    for (Phase phase : Phase.values()) {
+                        BuiltQuery<View> built = q.buildQuery(em.getCriteriaBuilder(), phase);
+                        byPhase.put(phase, em.createQuery(built.query()).getResultList().stream()
+                                .map(t -> built.selection().row(t).get(ID)).toList());
+                    }
+                    keys.add(byPhase);
+                }));
+            }
+        });
+        assertThat(sql).hasSize(queries.size() * Phase.values().length);
+        for (int i = 0; i < queries.size(); i++) {
+            String model = sql.get(3 * i);
+            String primaryKey = sql.get(3 * i + 1);
+            String modelByKeys = sql.get(3 * i + 2);
+            assertThat(modelByKeys).as("query %d", i).isEqualTo(model);
+            assertThat(afterSelect(primaryKey)).as("query %d", i).isEqualTo(afterSelect(model));
+            Map<Phase, List<Long>> byPhase = keys.get(i);
+            assertThat(byPhase.get(Phase.MODEL)).as("query %d", i).isNotEmpty().hasSizeLessThan(TckFixture.ORDERS)
+                    .isEqualTo(byPhase.get(Phase.PRIMARY_KEY)).isEqualTo(byPhase.get(Phase.MODEL_BY_KEYS));
+        }
+    }
+
+    private static final Pattern POSITION = Pattern.compile("^(\\d+)(.*)$");
+
+    /**
+     * {@code sql} from its {@code FROM} on, with every ordering key given by its position in the SELECT list
+     * ({@code order by 2 desc}) replaced by that item, so statements selecting different lists compare equal.
+     */
+    private static String afterSelect(String sql) {
+        int from = topLevel(sql, " from ", 0);
+        // An item may carry a generated alias ("oe1_0.total c2"); the alias is not part of what is selected.
+        List<String> items = split(sql.substring("select ".length(), from)).stream()
+                .map(item -> item.replaceFirst(" c\\d+$", "")).toList();
+        String rest = sql.substring(from);
+        int order = rest.lastIndexOf(" order by ");
+        if (order < 0) {
+            return rest;
+        }
+        var keys = new ArrayList<String>();
+        for (String key : split(rest.substring(order + " order by ".length()))) {
+            Matcher position = POSITION.matcher(key);
+            keys.add(position.matches()
+                    ? items.get(Integer.parseInt(position.group(1)) - 1) + position.group(2)
+                    : key);
+        }
+        return rest.substring(0, order) + " order by " + String.join(",", keys);
+    }
+
+    /** The comma-separated items of {@code list}, not splitting inside parentheses. */
+    private static List<String> split(String list) {
+        var items = new ArrayList<String>();
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < list.length(); i++) {
+            char c = list.charAt(i);
+            depth += c == '(' ? 1 : c == ')' ? -1 : 0;
+            if (c == ',' && depth == 0) {
+                items.add(list.substring(start, i).trim());
+                start = i + 1;
+            }
+        }
+        items.add(list.substring(start).trim());
+        return items;
+    }
+
+    private static int topLevel(String sql, String token, int from) {
+        int depth = 0;
+        for (int i = from; i < sql.length(); i++) {
+            char c = sql.charAt(i);
+            depth += c == '(' ? 1 : c == ')' ? -1 : 0;
+            if (depth == 0 && sql.startsWith(token, i)) {
+                return i;
+            }
+        }
+        throw new IllegalArgumentException("No top-level '" + token.trim() + "' in " + sql);
     }
 
     // ---- AC-COL-09

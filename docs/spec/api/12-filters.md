@@ -13,6 +13,8 @@ escaping, and `IN`-list splitting.
 value has two overloads:
 
 - `(column, C value)` — the filter always applies; `null` throws `MQ1301`, because "no filter" must be explicit (P-3).
+  A predicate from `add(...)` that returns `null` throws `MQ1305` (D-24). A `Filters` used outside its own operator,
+  or while a nested operator runs, throws `MQ1303` (D-23).
 - `(column, Optional<? extends C> value)` — `Optional.empty()` skips the filter, and no join is created for it.
 
 Only the value-form signatures are listed below; each has an `Optional` twin.
@@ -123,7 +125,10 @@ query, that join is reused, because those rows are already required.
 
 **R-FLT-11** `exists(ITEMS_TABLE, inner)` renders `EXISTS (SELECT 1 FROM order_items i WHERE i.order_id = o.id AND
 <inner>)`. Columns inside `inner` must sit on `path` or below it and are re-rooted to the sub-query; any other column
-throws `MQ1302` naming the column. Aliased paths and `on(...)` conditions are carried into the sub-query.
+throws `MQ1302` naming the column. Aliased paths and `on(...)` conditions are carried into the sub-query. `path` must
+be a join, else `MQ1304`. A nested `exists` correlates to the enclosing `exists` path: on a path below it, to rows of
+that child; on exactly the same path, to the **same child row**, so its filters narrow the row the enclosing `exists`
+found rather than asking for another row of that path.
 
 **R-FLT-12** Because `exists` joins nothing on the outer query, `count` and export need no distinct or dedupe work
 (`engine/20` R-EXE-04). It is the preferred form for "has a child matching X".
@@ -141,7 +146,7 @@ collection means "none"; negation includes NULLs; `like` input is escaped; long 
 | ID | Criterion |
 |---|---|
 | AC-FLT-01 | Every operator behaves identically in value and `Optional` form on every Tier-1 vendor. |
-| AC-FLT-02 | A value-form filter with `null` throws `MQ1301` naming the column (§1). |
+| AC-FLT-02 | A value-form filter with `null` throws `MQ1301` naming the column; an `add(...)` predicate returning `null` throws `MQ1305` (§1). |
 | AC-FLT-03 | An `or` whose every branch was skipped disappears; the query returns the same rows as one without it (R-FLT-01). |
 | AC-FLT-04 | `exists(path, inner)` with every inner filter skipped is skipped; `exists(path)` still renders (R-FLT-01). |
 | AC-FLT-05 | `in(col, List.of())` returns no rows; `notIn(col, List.of())` returns every row (R-FLT-02). |
@@ -149,5 +154,5 @@ collection means "none"; negation includes NULLs; `like` input is escaped; long 
 | AC-FLT-07 | `like` with `%`, `_` and `\` in the value matches those characters literally (R-FLT-06). |
 | AC-FLT-08 | An `IN` list above the vendor limit is split and returns the same rows as an unsplit one (R-FLT-09). |
 | AC-FLT-09 | An `or` branch over a LEFT-joined column keeps rows that have no joined row (R-FLT-10). |
-| AC-FLT-10 | A column outside the `exists` path throws `MQ1302`; an aliased path works inside `exists` (R-FLT-11). |
+| AC-FLT-10 | A column outside the `exists` path throws `MQ1302`; a root as the path throws `MQ1304`; an aliased path works inside `exists`; a nested `exists` on the same path tests the same child row (R-FLT-11). |
 | AC-FLT-11 | `count` over a query using `exists` equals `count` over the equivalent join query with distinct (R-FLT-12). |

@@ -13,9 +13,7 @@ import java.util.function.UnaryOperator;
 final class HavingGroup<M> extends ConditionGroup<M, Having<M>> implements Having<M> {
 
     /** What a {@code having} operator recorded: its filters, and every aggregate they name. Immutable (INV-9). */
-    record Clause(List<Filter> filters, List<AggregateField<?, ?>> aggregates) {
-        static final Clause NONE = new Clause(List.of(), List.of());
-    }
+    record Clause(List<Filter> filters, List<AggregateField<?, ?>> aggregates) {}
 
     /** Shared with every nested group of one {@code having} operator. */
     private final List<AggregateField<?, ?>> aggregates;
@@ -198,6 +196,4 @@ final class HavingGroup<M> extends ConditionGroup<M, Having<M>> implements Havin
     public <C> Having<M> compare(AggregateField<M, C> left, Op op, AggregateField<M, C> right) {
         return super.compare(left, op, right);
     }
-
-    // or, not, when and apply are ConditionGroup's own
 }

@@ -16,8 +16,11 @@ public interface Row {
     boolean isSelected(SelectField<?, ?> column);
 
     /**
-     * A view of a nested model's columns under {@code join}: a {@link ColumnField} of the nested model is looked up as
-     * the same attribute and type on {@code join}. Aggregates are not visible through a scoped view.
+     * A view of a nested model's columns under {@code join}: a {@link ColumnField} of the nested model, declared on
+     * the nested model's own root or a join below it, is looked up as the same attribute and type on that path
+     * re-rooted under {@code join}. Called on a scoped view, {@code join} is a path of the nested model and is
+     * re-rooted the same way, so scopes compose for nesting two levels deep. Aggregates are not visible through a
+     * scoped view.
      */
     Row scoped(TableField<?, ?> join);
 }

@@ -14,10 +14,15 @@ public final class PrimaryKeyFirst {
         this.offsetThreshold = offsetThreshold;
     }
 
-    /** Use two-step paging only for an offset strictly above {@code offset}. */
+    /**
+     * Use two-step paging only for an offset strictly above {@code offset}.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1204} for a negative {@code offset}
+     */
     public static PrimaryKeyFirst whenOffsetAbove(long offset) {
         if (offset < 0) {
-            throw new IllegalArgumentException("offset must not be negative: " + offset);
+            throw new ModelQueryDefinitionException(MqCode.MQ1204,
+                    "PrimaryKeyFirst.whenOffsetAbove(" + offset + "): the offset must not be negative");
         }
         return new PrimaryKeyFirst(offset);
     }
