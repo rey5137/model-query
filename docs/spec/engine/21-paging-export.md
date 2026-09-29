@@ -15,6 +15,8 @@ appends the primary-key columns as a tie-breaker to whatever order the caller ga
 
 **R-PAG-02** *(was R2)* **Export memory is bounded.** There is no global "seen ids" set. With a stable order,
 duplicates can only appear at a page boundary, so the engine dedupes only against the previous page's keys (INV-4).
+It also drops a key repeated within one page: a to-many join used only by predicates repeats its root's rows, and
+exporting each root once matches `count` (`engine/20` R-EXE-04) whatever the page size.
 
 **R-PAG-03** *(was R3)* **Export fails loudly when the primary key isn't selected.** If `primaryKey` is set and a row's
 key is `null`, the engine throws `MQ2201` naming the model. Primary-key columns are added to the selection
@@ -24,7 +26,8 @@ automatically, and keys are read from the `Row`, so this holds for classes and r
 (the join's attribute is a `PluralAttribute` in `jakarta.persistence.metamodel`), one primary key spans several rows:
 the R-PAG-01 tie-breaker is no longer unique, R-PAG-02's boundary dedupe drops real rows, and a keyset cursor skips the
 rest of the key's rows. Offset export, keyset paging and the primary-key-first phase therefore throw `MQ2204` naming the
-model and the join, before the first query runs. A to-many join used only by predicates is unaffected; select from the
+model and the join, before the first query runs. Ordering keys count as selected (D-29), so ordering through a to-many
+join is refused too: its repeated rows need not be adjacent. A to-many join used only by predicates is unaffected; select from the
 child side, or filter with `Filters.exists` (`api/12` R-FLT-12). `list`, `page` and `stream` still accept the shape, and
 `count` counts its rows (`engine/20` R-EXE-04).
 
