@@ -76,6 +76,7 @@
         <h2.version>2.5.252</h2.version>
         <postgresql.version>42.7.13</postgresql.version>
         <mysql.version>9.7.0</mysql.version>
+        <datasource-proxy.version>1.11.0</datasource-proxy.version>
 
         <!-- Plugins -->
         <maven-enforcer-plugin.version>3.6.3</maven-enforcer-plugin.version>
