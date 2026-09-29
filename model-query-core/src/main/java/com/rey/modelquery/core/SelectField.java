@@ -21,4 +21,14 @@ public sealed interface SelectField<M, C> permits ColumnField, AggregateField {
 
     /** The Criteria expression this selection renders to, resolving any join through {@code ctx}. */
     Expression<C> expression(JoinContext ctx);
+
+    /** Ascending order on this selection, with the database's own null order. */
+    default OrderField<M, C> asc() {
+        return new OrderField<>(this, true, NullPrecedence.DEFAULT);
+    }
+
+    /** Descending order on this selection, with the database's own null order. */
+    default OrderField<M, C> desc() {
+        return new OrderField<>(this, false, NullPrecedence.DEFAULT);
+    }
 }
