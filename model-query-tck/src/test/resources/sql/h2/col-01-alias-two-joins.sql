@@ -1,0 +1,1 @@
+select oe1_0.id,i1_0.id,i2_0.id,o1_0.id,o2_0.id from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id join orders o1_0 on o1_0.id=i1_0.order_id join order_items i2_0 on oe1_0.id=i2_0.order_id join orders o2_0 on o2_0.id=i2_0.order_id where oe1_0.id=?
