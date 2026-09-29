@@ -38,6 +38,10 @@ public final class JoinContext {
         return root;
     }
 
+    CriteriaBuilder cb() {
+        return cb;
+    }
+
     @SuppressWarnings({"unchecked", "rawtypes"})
     From<?, ?> join(
             JoinKey key,

@@ -22,7 +22,10 @@ public enum MqCode {
     MQ1201("keyset() and primaryKeyFirst(...) require a primary key"),
 
     /** {@code build()} called without {@code columns(...)} (R-QRY-02). */
-    MQ1202("columns(...) is required");
+    MQ1202("columns(...) is required"),
+
+    /** A value-form filter received {@code null} (api/12 §1). */
+    MQ1301("A value-form filter received null; pass Optional.empty() to skip the filter");
 
     private final String defaultMessage;
 

@@ -4,6 +4,7 @@ import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Order;
+import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import java.util.ArrayList;
 import java.util.List;
@@ -38,6 +39,7 @@ public final class ModelQuery<E, K, M> {
     private final BiConsumer<M, Row> afterMap;
     private final UnaryOperator<M> finisher;
     private final QueryCustomizer customizer;
+    private final List<Filter> where;
     private final QuerySpec spec;
 
     private ModelQuery(Builder<E, K, M> b) {
@@ -51,6 +53,7 @@ public final class ModelQuery<E, K, M> {
         this.afterMap = b.afterMap;
         this.finisher = b.finisher;
         this.customizer = b.customizer;
+        this.where = b.where;
         this.spec = new Spec(root.rootEntity(), List.copyOf(columns.columns()),
                 Optional.ofNullable(primaryKey), List.copyOf(orderBy), keyset);
     }
@@ -65,7 +68,7 @@ public final class ModelQuery<E, K, M> {
             throw new IllegalArgumentException("root must be a TableField.root(...), not a join");
         }
         return new Builder<>(root, Objects.requireNonNull(mapper, "mapper"), null, null, List.of(), false, null, null,
-                null, null);
+                null, null, List.of());
     }
 
     /** The entity the query is rooted at. */
@@ -107,7 +110,8 @@ public final class ModelQuery<E, K, M> {
      * Resolves the statement of {@code phase} against {@code cb}. {@code MODEL} and {@code MODEL_BY_KEYS} select the
      * columns, plus the primary-key columns when the query needs them for paging ({@code keyset()} or
      * {@code primaryKeyFirst(...)}) and the {@code ColumnSet} omits them (R-QRY-04); {@code PRIMARY_KEY} selects the
-     * key columns only. The customizer, if any, runs last. A new {@link JoinContext} is created per call.
+     * key columns only. The {@code where} predicate applies in every phase, and the customizer, if any, runs last. A
+     * new {@link JoinContext} is created per call.
      *
      * @throws IllegalStateException for {@code PRIMARY_KEY} on a query without a primary key
      */
@@ -121,13 +125,18 @@ public final class ModelQuery<E, K, M> {
         return built;
     }
 
-    /** Selection and ordering of {@code phase}, before any customizer runs. */
+    /** Selection, predicate and ordering of {@code phase}, before any customizer runs. */
     private BuiltQuery<M> assemble(CriteriaBuilder cb, Phase phase) {
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root<E> from = query.from(root.rootEntity());
         JoinContext joins = JoinContext.of(from, cb);
         RowSelection selection = RowSelection.of(selected(phase));
         query.multiselect(selection.selections(joins));
+        // Every phase carries the same predicate, so primary-key-first paging selects the rows MODEL would (R-QRY-09).
+        List<Predicate> predicates = FilterGroup.toPredicates(where, joins);
+        if (!predicates.isEmpty()) {
+            query.where(predicates.toArray(Predicate[]::new));
+        }
         List<Order> orders = new ArrayList<>();
         for (OrderField<M, ?> order : orderBy) {
             orders.addAll(order.toOrders(joins, cb));
@@ -140,8 +149,9 @@ public final class ModelQuery<E, K, M> {
 
     /**
      * Logs a warning for a customizer that adds a predicate in some phases but not all of them (R-QRY-09). It runs the
-     * customizer once per phase on a scratch query with the same selection and ordering as {@link #buildQuery}. Call
-     * it once per ModelQuery, on first execution (D-21).
+     * customizer once per phase on a scratch query built as {@link #buildQuery} builds it, and compares the predicate
+     * before and after, so the query's own {@code where} does not count. Call it once per ModelQuery, on first
+     * execution (D-21).
      */
     public void checkPhases(CriteriaBuilder cb) {
         Objects.requireNonNull(cb, "cb");
@@ -152,8 +162,9 @@ public final class ModelQuery<E, K, M> {
         List<Phase> without = new ArrayList<>();
         for (Phase phase : Phase.values()) {
             BuiltQuery<M> scratch = assemble(cb, phase);
+            Predicate own = scratch.query().getRestriction();
             customizer.customize(spec, scratch.joins(), scratch.query(), cb, phase);
-            (scratch.query().getRestriction() != null ? with : without).add(phase);
+            (scratch.query().getRestriction() != own ? with : without).add(phase);
         }
         if (!with.isEmpty() && !without.isEmpty()) {
             LOG.log(System.Logger.Level.WARNING,
@@ -215,11 +226,12 @@ public final class ModelQuery<E, K, M> {
         private final BiConsumer<M, Row> afterMap;
         private final UnaryOperator<M> finisher;
         private final QueryCustomizer customizer;
+        private final List<Filter> where;
 
         private Builder(TableField<E, E> root, RowMapper<M> mapper, ColumnSet<M> columns,
                 PrimaryKey<M, K> primaryKey, List<OrderField<M, ?>> orderBy, boolean keyset,
                 PrimaryKeyFirst primaryKeyFirst, BiConsumer<M, Row> afterMap, UnaryOperator<M> finisher,
-                QueryCustomizer customizer) {
+                QueryCustomizer customizer, List<Filter> where) {
             this.root = root;
             this.mapper = mapper;
             this.columns = columns;
@@ -230,18 +242,19 @@ public final class ModelQuery<E, K, M> {
             this.afterMap = afterMap;
             this.finisher = finisher;
             this.customizer = customizer;
+            this.where = where;
         }
 
         /** The columns to select; required. */
         public Builder<E, K, M> columns(ColumnSet<M> columns) {
             return new Builder<>(root, mapper, Objects.requireNonNull(columns, "columns"), primaryKey, orderBy, keyset,
-                    primaryKeyFirst, afterMap, finisher, customizer);
+                    primaryKeyFirst, afterMap, finisher, customizer, where);
         }
 
         /** The primary key; required for {@link #keyset()} and {@link #primaryKeyFirst}. */
         public <K2> Builder<E, K2, M> primaryKey(PrimaryKey<M, K2> primaryKey) {
             return new Builder<>(root, mapper, columns, Objects.requireNonNull(primaryKey, "primaryKey"), orderBy,
-                    keyset, primaryKeyFirst, afterMap, finisher, customizer);
+                    keyset, primaryKeyFirst, afterMap, finisher, customizer, where);
         }
 
         /** The ordering keys, replacing any set before. */
@@ -252,19 +265,20 @@ public final class ModelQuery<E, K, M> {
                 copy.add(Objects.requireNonNull(order, "orderBy element"));
             }
             return new Builder<>(root, mapper, columns, primaryKey, List.copyOf(copy), keyset, primaryKeyFirst,
-                    afterMap, finisher, customizer);
+                    afterMap, finisher, customizer, where);
         }
 
         /** Allows keyset paging; needs a primary key ({@code MQ1201} at {@link #build()} otherwise). */
         public Builder<E, K, M> keyset() {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, true, primaryKeyFirst, afterMap,
-                    finisher, customizer);
+                    finisher, customizer, where);
         }
 
         /** Allows two-step deep paging; needs a primary key ({@code MQ1201} at {@link #build()} otherwise). */
         public Builder<E, K, M> primaryKeyFirst(PrimaryKeyFirst primaryKeyFirst) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset,
-                    Objects.requireNonNull(primaryKeyFirst, "primaryKeyFirst"), afterMap, finisher, customizer);
+                    Objects.requireNonNull(primaryKeyFirst, "primaryKeyFirst"), afterMap, finisher, customizer,
+                    where);
         }
 
         /**
@@ -274,19 +288,29 @@ public final class ModelQuery<E, K, M> {
          */
         public Builder<E, K, M> afterMap(BiConsumer<M, Row> afterMap) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst,
-                    Objects.requireNonNull(afterMap, "afterMap"), finisher, customizer);
+                    Objects.requireNonNull(afterMap, "afterMap"), finisher, customizer, where);
         }
 
         /** Replaces each mapped model with {@code finisher}'s result, after {@code afterMap}; for records. */
         public Builder<E, K, M> finisher(UnaryOperator<M> finisher) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    Objects.requireNonNull(finisher, "finisher"), customizer);
+                    Objects.requireNonNull(finisher, "finisher"), customizer, where);
         }
 
         /** Raw Criteria access for each phase; see {@link QueryCustomizer}. Replaces any customizer set before. */
         public Builder<E, K, M> customize(QueryCustomizer customizer) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, Objects.requireNonNull(customizer, "customizer"));
+                    finisher, Objects.requireNonNull(customizer, "customizer"), where);
+        }
+
+        /**
+         * The {@code WHERE} predicate: {@code filters} receives an empty {@link Filters}, and every filter it adds is
+         * ANDed. It runs once, here, so a {@code null} value fails now with {@code MQ1301}; the query keeps only what
+         * it recorded. Replaces any predicate set before. Without it the query has no predicate (api/11 §5).
+         */
+        public Builder<E, K, M> where(UnaryOperator<Filters<M>> filters) {
+            return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
+                    finisher, customizer, FilterGroup.collect(Objects.requireNonNull(filters, "filters")));
         }
 
         /**

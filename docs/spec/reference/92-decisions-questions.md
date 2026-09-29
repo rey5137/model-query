@@ -139,6 +139,25 @@ Checking that a `QueryCustomizer` narrows every phase alike means running it aga
 `CriteriaBuilder` to `build()` (ties a definition to a persistence unit) and checking on every execution (log noise).
 → `api/11` R-QRY-09, AC-QRY-06.
 
+**D-22 — Ignore-case filters lower-case the value in Java and bind it.**
+JPA 3.1 has no bound value expression: `lower(cb.literal(v))` inlines the value into the SQL, against R-FLT-08, and a
+bound `lower(?)` cannot be typed by H2. So `likeIgnoreCase` and `eqIgnoreCase` render `lower(col) LIKE ?` and
+`lower(col) = ?`, with the value lower-cased with `Locale.ROOT` and bound, identically on every Tier-1 vendor. A
+database whose `lower()` folds only ASCII, such as PostgreSQL with C collation, can disagree with Java on non-ASCII
+text. Rejected: `lower(literal)` (inlines the value), a bound value wrapped to force a type (vendor-specific SQL), and
+`ParameterExpression`s bound by the executor (every caller of a built query would have to bind them).
+→ `api/12` R-FLT-07, R-FLT-08.
+
+**D-23 — `Filters` is a mutable collector frozen into an immutable list.**
+The `Filters` a `where(...)` operator, or a fragment, receives lives for that one call: each method adds its filter
+and returns the same collector, and the call's result is frozen into an immutable list that the `ModelQuery` keeps, so
+INV-9 holds and nothing per-query lives outside `JoinContext`. The operator's return value is ignored, because every
+filter added to the collector counts: with an immutable builder, a lambda that drops a return value
+(`f -> { f.eq(A, x); return f.eq(B, y); }`) would silently lose `eq(A, x)` (INV-5). The collector is closed when the
+call returns: a reference kept past it (in a field, or passed to a deferred helper) throws `IllegalStateException` on
+any later use rather than adding filters nobody reads. Rejected: an immutable builder
+whose returned instance is the result (the same call shape, with a silent failure mode). → `api/12` §1, R-FLT-01.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter
