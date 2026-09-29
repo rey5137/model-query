@@ -10,10 +10,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.CopyOnWriteArrayList;
 import javax.sql.DataSource;
-import net.ttddyy.dsproxy.QueryInfo;
-import net.ttddyy.dsproxy.listener.QueryExecutionListener;
 import net.ttddyy.dsproxy.support.ProxyDataSourceBuilder;
 
 /**
@@ -70,20 +67,9 @@ public final class SqlSnapshots {
     }
 
     static List<String> capture(TckDatabase db, SqlWork work) {
-        List<String> captured = new CopyOnWriteArrayList<>();
-        QueryExecutionListener listener = new QueryExecutionListener() {
-            @Override
-            public void beforeQuery(net.ttddyy.dsproxy.ExecutionInfo execInfo, List<QueryInfo> queryInfoList) {}
-
-            @Override
-            public void afterQuery(net.ttddyy.dsproxy.ExecutionInfo execInfo, List<QueryInfo> queryInfoList) {
-                for (QueryInfo q : queryInfoList) {
-                    captured.add(normalize(q.getQuery()));
-                }
-            }
-        };
+        List<String> captured = new ArrayList<>();
         DataSource proxy = ProxyDataSourceBuilder.create(new DriverManagerDataSource(db))
-                .listener(listener)
+                .afterQuery((execInfo, queries) -> queries.forEach(q -> captured.add(normalize(q.getQuery()))))
                 .build();
         try {
             work.run(proxy);
@@ -92,7 +78,7 @@ public final class SqlSnapshots {
         } catch (Exception e) {
             throw new IllegalStateException("SQL snapshot work failed", e);
         }
-        return new ArrayList<>(captured);
+        return captured;
     }
 
     static String normalize(String sql) {
@@ -125,25 +111,20 @@ public final class SqlSnapshots {
             }
         }
         StringBuilder out = new StringBuilder();
-        Lines w = line -> out.append(line).append('\n');
         int i = 0;
         int j = 0;
         while (i < n || j < m) {
             if (i < n && j < m && expected.get(i).equals(actual.get(j))) {
-                w.add("  " + expected.get(i));
+                out.append("  ").append(expected.get(i)).append('\n');
                 i++;
                 j++;
             } else if (i < n && (j == m || lcs[i + 1][j] >= lcs[i][j + 1])) {
-                w.add("- " + expected.get(i++));
+                out.append("- ").append(expected.get(i++)).append('\n');
             } else {
-                w.add("+ " + actual.get(j++));
+                out.append("+ ").append(actual.get(j++)).append('\n');
             }
         }
         return out.toString();
-    }
-
-    private interface Lines {
-        void add(String line);
     }
 
     /** Minimal DataSource over {@link TckDatabase}; no pooling, each call opens a new connection. */
