@@ -69,8 +69,8 @@ Requirements: JDK 17+, Docker (for the TCK).
 
 - Branch from `main` and keep PRs focused. `main` is protected.
 - Milestone work happens on an `mN-<name>` branch (`m1-core`). Once the milestone's exit criteria are met it is merged
-  into `main` and the merge commit is tagged `mN-verified`, the public record that the milestone is done
-  (`delivery/61` R-REL-06).
+  into `main` and the last commit it brings onto `main` is tagged `mN-verified`, the public record that the milestone
+  is done (`delivery/61` R-REL-06).
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/) with the module as scope and the
   ids covered: `feat(core): aggregate selections (AC-AGG-01..05)`. Spec-only edits use `docs(spec)`. Each commit is
   green on its own (`delivery/61` R-REL-04).
