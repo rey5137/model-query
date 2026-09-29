@@ -34,7 +34,9 @@ correct-but-slow total is better than a wrong one (INV-5).
 
 **R-EXE-04** *(was R7)* `count` is not inflated by collection joins. After predicates are built, the engine inspects
 `root.getJoins()` recursively and uses `count(distinct root)` only when a to-many join exists. A query using
-`Filters.exists` instead of a join needs neither (`api/12` R-FLT-12).
+`Filters.exists` instead of a join needs neither (`api/12` R-FLT-12). When a selected column is read through a to-many
+join, each joined row is a result, so `count` counts rows and agrees with `list`; key-based paging refuses that shape
+(`engine/21` R-PAG-13).
 
 **R-EXE-05** The count query drops `orderBy` and any selection the count does not need, and keeps every predicate and
 join that can change the number of matching rows.
@@ -75,6 +77,7 @@ keyset `export` is the documented default, because it runs short queries per pag
 | AC-EXE-02 | `NO_COUNT` reports `hasNext` correctly on an exact multiple of the page size (R-EXE-02). |
 | AC-EXE-03 | `count` over a grouped query equals the number of groups, with and without `model-query-hibernate` (R-EXE-03). |
 | AC-EXE-04 | `count` over a query with a to-many join equals the number of distinct roots (R-EXE-04). |
+| AC-EXE-10 | `count` over a query selecting a column through a to-many join equals the number of rows `list` returns (R-EXE-04). |
 | AC-EXE-05 | `pageSize <= 0` throws `MQ2001`; a negative offset throws `MQ2002` (R-EXE-06). |
 | AC-EXE-06 | Streaming 20 000 rows keeps heap bounded; the assertion fails if the engine buffers (R-EXE-07). |
 | AC-EXE-07 | An early exit from `body` releases the connection, checked against the pool's active count (R-EXE-09). |

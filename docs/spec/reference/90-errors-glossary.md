@@ -67,6 +67,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ2201` | A row's primary key mapped to `null` during export | `engine/21` R-PAG-03 |
 | `MQ2202` | A keyset column is NULL and the column has no explicit null precedence | `engine/21` R-PAG-05 |
 | `MQ2203` | An operation needing a primary key (offset export of an ungrouped query, the `PRIMARY_KEY` phase) on a query without one; a grouped query never has one (`api/13` R-AGG-09) | `api/11` R-QRY-03 |
+| `MQ2204` | Offset export, keyset paging or the primary-key-first phase over a selection read through a to-many join | `engine/21` R-PAG-13 |
 | `MQ2301` | A `Sort` property resolves to neither an attribute path nor a known column | `integration/50` R-SPR-06 |
 | `MQ2501` | A bulk write, other than `commitEachChunk()`, ran without an active transaction (`Future`, M8) | `api/14` R-WRT-18 |
 | `MQ2502` | A per-chunk write failed; `ChunkedWriteException` carries the committed rows, the last committed key and the keys of a chunk in doubt (`Future`, M8) | `api/14` R-WRT-20 |
