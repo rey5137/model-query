@@ -70,6 +70,7 @@
         <!-- Test -->
         <junit.version>6.1.3</junit.version>
         <assertj.version>3.27.7</assertj.version>
+        <archunit.version>1.5.1</archunit.version>
         <compile-testing.version>0.23.0</compile-testing.version>
         <testcontainers.version>2.0.5</testcontainers.version>
         <h2.version>2.5.252</h2.version>
@@ -158,6 +159,13 @@
                                 <requireJavaVersion>
                                     <version>[17,)</version>
                                 </requireJavaVersion>
+                                <!-- No Lombok anywhere in the library (delivery/61 R-REL-03). Its annotations are
+                                     source-retained, so ArchUnit cannot see them: this is the primary guard. -->
+                                <bannedDependencies>
+                                    <excludes>
+                                        <exclude>org.projectlombok:*</exclude>
+                                    </excludes>
+                                </bannedDependencies>
                             </rules>
                         </configuration>
                     </execution>
