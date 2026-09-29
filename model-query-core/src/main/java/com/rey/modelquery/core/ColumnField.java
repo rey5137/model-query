@@ -105,7 +105,7 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
         return table;
     }
 
-    private static Class<?> boxed(Class<?> type) {
+    static Class<?> boxed(Class<?> type) {
         return WRAPPERS.getOrDefault(type, type);
     }
 

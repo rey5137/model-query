@@ -36,7 +36,8 @@ Spec: `api/10`, `api/11`, `api/12`, `api/13`. Model: `architect-review` required
 | M1.7 | `Agg`, `AggregateField`, `groupBy`, `having`, grouped build-time checks | AC-AGG-01..11, AC-QRY-07 `groupBy` row |
 
 M1.4 tests AC-QRY-03 and AC-QRY-04 on the built selection and mapping. Their paging and `export` halves need the
-executor and are owed by M2.3, which also calls the R-QRY-09 phase check on first execution.
+executor and are owed by M2.3, which also calls the R-QRY-09 phase check on first execution. Likewise M1.7 tests
+AC-AGG-09 at build time; that a grouped query with no `primaryKey` exports is owed by M2.6.
 
 **Exit:** every `AC-COL/QRY/FLT/AGG-*` covered by a named test; H2 SQL snapshots committed.
 
@@ -52,7 +53,7 @@ Spec: `engine/20`, `engine/21`. Model: `architect-review` required for the expor
 | M2.3 | Offset export: stable order, boundary dedupe, primary-key check | AC-PAG-01..04, AC-QRY-03/04 export halves |
 | M2.4 | Keyset paging: cursors, ties, NULL handling | AC-PAG-05..07 |
 | M2.5 | Primary-key-first paging with vendor clamping | AC-PAG-08, AC-PAG-09 |
-| M2.6 | Grouped export | AC-PAG-10, AC-PAG-11 |
+| M2.6 | Grouped export | AC-PAG-10, AC-PAG-11, AC-AGG-09 export half |
 
 **Exit:** TCK green on Tier-1 databases.
 

@@ -1,5 +1,7 @@
 package com.rey.modelquery.core;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -24,22 +26,18 @@ public final class ColumnSet<M> {
     /** A set of {@code columns}, in the given order; an empty set selects nothing (P-3). */
     @SafeVarargs
     public static <M> ColumnSet<M> of(SelectField<M, ?>... columns) {
-        return new ColumnSet<>(checked(columns, "columns"));
+        return new ColumnSet<>(append(new LinkedHashSet<>(), checked(columns, "columns")));
     }
 
     /** A copy with {@code extra} appended; columns already present keep their position. */
     @SafeVarargs
     public final ColumnSet<M> with(SelectField<M, ?>... extra) {
-        var result = new LinkedHashSet<>(columns);
-        result.addAll(checked(extra, "extra"));
-        return new ColumnSet<>(result);
+        return new ColumnSet<>(append(new LinkedHashSet<>(columns), checked(extra, "extra")));
     }
 
     /** A copy with the columns of {@code other} appended; columns already present keep their position. */
     public ColumnSet<M> with(ColumnSet<M> other) {
-        var result = new LinkedHashSet<>(columns);
-        result.addAll(Objects.requireNonNull(other, "other").columns);
-        return new ColumnSet<>(result);
+        return new ColumnSet<>(append(new LinkedHashSet<>(columns), Objects.requireNonNull(other, "other").columns));
     }
 
     /** A copy without {@code columns}. */
@@ -55,9 +53,27 @@ public final class ColumnSet<M> {
         return columns;
     }
 
-    private static <M> Set<SelectField<M, ?>> checked(SelectField<M, ?>[] columns, String name) {
+    /**
+     * {@code into} with {@code extra} appended. An {@code Agg.of} equal to one already present but defined by a
+     * different function throws {@code MQ1103} here, where keeping the first would silently drop it (R-AGG-02).
+     */
+    private static <M> Set<SelectField<M, ?>> append(
+            Set<SelectField<M, ?>> into, Collection<? extends SelectField<M, ?>> extra) {
+        for (SelectField<M, ?> column : extra) {
+            if (!into.add(column)) {
+                for (SelectField<M, ?> present : into) {
+                    if (AggregateField.conflict(present, column)) {
+                        throw AggregateField.redefined("ColumnSet", column);
+                    }
+                }
+            }
+        }
+        return into;
+    }
+
+    private static <M> List<SelectField<M, ?>> checked(SelectField<M, ?>[] columns, String name) {
         Objects.requireNonNull(columns, name);
-        var result = new LinkedHashSet<SelectField<M, ?>>();
+        var result = new ArrayList<SelectField<M, ?>>(columns.length);
         for (SelectField<M, ?> column : columns) {
             result.add(Objects.requireNonNull(column, name + " element"));
         }

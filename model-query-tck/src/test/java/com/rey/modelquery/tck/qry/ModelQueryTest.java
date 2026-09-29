@@ -4,6 +4,8 @@ import static jakarta.persistence.criteria.JoinType.INNER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.rey.modelquery.core.Agg;
+import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.BuiltQuery;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ColumnSet;
@@ -370,6 +372,28 @@ class ModelQueryTest {
                 assertThat(run(em, unfiltered, Phase.MODEL)).hasSize(TckFixture.ORDERS);
                 assertThat(run(em, filtered, Phase.MODEL)).isNotEmpty().hasSizeLessThan(TckFixture.ORDERS)
                         .allSatisfy(v -> assertThat(v.status()).isEqualTo("PAID"));
+            });
+        }
+    }
+
+    @TckTest
+    void ac_qry_07_without_group_by_the_query_is_not_grouped_and_an_aggregate_makes_it_one_group(TckDatabase db) {
+        AggregateField<View, Long> count = Agg.count(ROOT);
+        var plain = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(ColumnSet.of(ID, STATUS)).build();
+        // The count rides in the view's id.
+        RowMapper<View> counted = row -> new View(row.get(count), row.get(STATUS), null, null);
+        var single = ModelQuery.builder(ROOT, counted).columns(ColumnSet.of(count)).build();
+        var grouped = ModelQuery.builder(ROOT, counted).columns(ColumnSet.of(STATUS, count)).groupBy(STATUS).build();
+        try (SessionFactory sf = sessionFactory(db)) {
+            sf.inSession(em -> {
+                CriteriaBuilder cb = em.getCriteriaBuilder();
+                assertThat(plain.buildQuery(cb, Phase.MODEL).query().getGroupList()).isEmpty();
+                assertThat(run(em, plain, Phase.MODEL)).hasSize(TckFixture.ORDERS);
+                assertThat(single.buildQuery(cb, Phase.MODEL).query().getGroupList()).isEmpty();
+                assertThat(run(em, single, Phase.MODEL)).extracting(View::id).containsExactly((long) TckFixture.ORDERS);
+                assertThat(grouped.buildQuery(cb, Phase.MODEL).query().getGroupList()).hasSize(1);
+                assertThat(run(em, grouped, Phase.MODEL)).hasSize(4)
+                        .allSatisfy(v -> assertThat(v.id()).isEqualTo(TckFixture.ORDERS / 4L));
             });
         }
     }

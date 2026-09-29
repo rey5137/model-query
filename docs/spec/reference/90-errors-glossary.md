@@ -34,6 +34,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1302` | A column inside `exists(...)` is not on or below the given path | `api/12` R-FLT-11 |
 | `MQ1401` | A selected non-aggregate column is not in the group-by | `api/13` R-AGG-08 |
 | `MQ1402` | Keyset paging or primary-key-first on a grouped query | `api/13` R-AGG-10 |
+| `MQ1403` | `Agg.sum` or `Agg.sumAsLong` over a column whose SQL sum type differs from the declared result type | `api/13` R-AGG-03 |
 | `MQ1601` | A bulk write chose its rows with `where(...)` and no predicate is left (`Future`, M8) | `api/14` R-WRT-12 |
 | `MQ1602` | A column is assigned twice in one update (`Future`, M8) | `api/14` R-WRT-13 |
 | `MQ1603` | `set(column, null)`; NULL must be written with `setNull` (`Future`, M8) | `api/14` R-WRT-06 |

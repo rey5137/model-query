@@ -3,10 +3,13 @@ package com.rey.modelquery.core;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -40,13 +43,16 @@ public final class ModelQuery<E, K, M> {
     private final UnaryOperator<M> finisher;
     private final QueryCustomizer customizer;
     private final List<Filter> where;
+    private final List<ColumnField<M, ?, ?>> groupBy;
+    private final List<Filter> having;
     private final QuerySpec spec;
 
-    private ModelQuery(Builder<E, K, M> b) {
+    private ModelQuery(Builder<E, K, M> b, boolean grouped) {
         this.root = b.root;
         this.mapper = b.mapper;
         this.columns = b.columns;
-        this.primaryKey = b.primaryKey;
+        // A group has no row identity, so a grouped query runs without its key (R-AGG-09).
+        this.primaryKey = grouped ? null : b.primaryKey;
         this.orderBy = b.orderBy;
         this.keyset = b.keyset;
         this.primaryKeyFirst = b.primaryKeyFirst;
@@ -54,6 +60,8 @@ public final class ModelQuery<E, K, M> {
         this.finisher = b.finisher;
         this.customizer = b.customizer;
         this.where = b.where;
+        this.groupBy = b.groupBy;
+        this.having = b.having.filters();
         this.spec = new Spec(root.rootEntity(), List.copyOf(columns.columns()),
                 Optional.ofNullable(primaryKey), List.copyOf(orderBy), keyset);
     }
@@ -68,7 +76,7 @@ public final class ModelQuery<E, K, M> {
             throw new IllegalArgumentException("root must be a TableField.root(...), not a join");
         }
         return new Builder<>(root, Objects.requireNonNull(mapper, "mapper"), null, null, List.of(), false, null, null,
-                null, null, List.of());
+                null, null, List.of(), List.of(), HavingGroup.Clause.NONE);
     }
 
     /** The entity the query is rooted at. */
@@ -81,7 +89,7 @@ public final class ModelQuery<E, K, M> {
         return columns;
     }
 
-    /** The primary key, when defined. */
+    /** The primary key, when defined; always empty for a grouped query, which ignores one (R-AGG-09). */
     public Optional<PrimaryKey<M, K>> primaryKey() {
         return Optional.ofNullable(primaryKey);
     }
@@ -110,8 +118,8 @@ public final class ModelQuery<E, K, M> {
      * Resolves the statement of {@code phase} against {@code cb}. {@code MODEL} and {@code MODEL_BY_KEYS} select the
      * columns, plus the primary-key columns when the query needs them for paging ({@code keyset()} or
      * {@code primaryKeyFirst(...)}) and the {@code ColumnSet} omits them (R-QRY-04); {@code PRIMARY_KEY} selects the
-     * key columns only. The {@code where} predicate applies in every phase, and the customizer, if any, runs last. A
-     * new {@link JoinContext} is created per call.
+     * key columns only. The {@code where} predicate applies in every phase, then {@code groupBy} and {@code having},
+     * and the customizer, if any, runs last. A new {@link JoinContext} is created per call.
      *
      * @throws IllegalStateException for {@code PRIMARY_KEY} on a query without a primary key
      */
@@ -142,9 +150,16 @@ public final class ModelQuery<E, K, M> {
             query.orderBy(orders);
         }
         // Every phase carries the same predicate, so primary-key-first paging selects the rows MODEL would (R-QRY-09).
-        List<Predicate> predicates = FilterGroup.toPredicates(where, joins);
+        List<Predicate> predicates = ConditionGroup.toPredicates(where, joins);
         if (!predicates.isEmpty()) {
             query.where(predicates.toArray(Predicate[]::new));
+        }
+        if (!groupBy.isEmpty()) {
+            query.groupBy(groupBy.stream().<Expression<?>>map(column -> column.path(joins)).toList());
+        }
+        List<Predicate> groupPredicates = ConditionGroup.toPredicates(having, joins);
+        if (!groupPredicates.isEmpty()) {
+            query.having(groupPredicates.toArray(Predicate[]::new));
         }
         return new BuiltQuery<>(query, joins, selection, this::toModel);
     }
@@ -229,11 +244,14 @@ public final class ModelQuery<E, K, M> {
         private final UnaryOperator<M> finisher;
         private final QueryCustomizer customizer;
         private final List<Filter> where;
+        private final List<ColumnField<M, ?, ?>> groupBy;
+        private final HavingGroup.Clause having;
 
         private Builder(TableField<E, E> root, RowMapper<M> mapper, ColumnSet<M> columns,
                 PrimaryKey<M, K> primaryKey, List<OrderField<M, ?>> orderBy, boolean keyset,
                 PrimaryKeyFirst primaryKeyFirst, BiConsumer<M, Row> afterMap, UnaryOperator<M> finisher,
-                QueryCustomizer customizer, List<Filter> where) {
+                QueryCustomizer customizer, List<Filter> where, List<ColumnField<M, ?, ?>> groupBy,
+                HavingGroup.Clause having) {
             this.root = root;
             this.mapper = mapper;
             this.columns = columns;
@@ -245,18 +263,20 @@ public final class ModelQuery<E, K, M> {
             this.finisher = finisher;
             this.customizer = customizer;
             this.where = where;
+            this.groupBy = groupBy;
+            this.having = having;
         }
 
         /** The columns to select; required. */
         public Builder<E, K, M> columns(ColumnSet<M> columns) {
             return new Builder<>(root, mapper, Objects.requireNonNull(columns, "columns"), primaryKey, orderBy, keyset,
-                    primaryKeyFirst, afterMap, finisher, customizer, where);
+                    primaryKeyFirst, afterMap, finisher, customizer, where, groupBy, having);
         }
 
         /** The primary key; required for {@link #keyset()} and {@link #primaryKeyFirst}. */
         public <K2> Builder<E, K2, M> primaryKey(PrimaryKey<M, K2> primaryKey) {
             return new Builder<>(root, mapper, columns, Objects.requireNonNull(primaryKey, "primaryKey"), orderBy,
-                    keyset, primaryKeyFirst, afterMap, finisher, customizer, where);
+                    keyset, primaryKeyFirst, afterMap, finisher, customizer, where, groupBy, having);
         }
 
         /** The ordering keys, replacing any set before. */
@@ -267,20 +287,26 @@ public final class ModelQuery<E, K, M> {
                 copy.add(Objects.requireNonNull(order, "orderBy element"));
             }
             return new Builder<>(root, mapper, columns, primaryKey, List.copyOf(copy), keyset, primaryKeyFirst,
-                    afterMap, finisher, customizer, where);
+                    afterMap, finisher, customizer, where, groupBy, having);
         }
 
-        /** Allows keyset paging; needs a primary key ({@code MQ1201} at {@link #build()} otherwise). */
+        /**
+         * Allows keyset paging; needs a primary key and an ungrouped query ({@code MQ1201} and {@code MQ1402} at
+         * {@link #build()} otherwise).
+         */
         public Builder<E, K, M> keyset() {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, true, primaryKeyFirst, afterMap,
-                    finisher, customizer, where);
+                    finisher, customizer, where, groupBy, having);
         }
 
-        /** Allows two-step deep paging; needs a primary key ({@code MQ1201} at {@link #build()} otherwise). */
+        /**
+         * Allows two-step deep paging; needs a primary key and an ungrouped query ({@code MQ1201} and {@code MQ1402} at
+         * {@link #build()} otherwise).
+         */
         public Builder<E, K, M> primaryKeyFirst(PrimaryKeyFirst primaryKeyFirst) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset,
                     Objects.requireNonNull(primaryKeyFirst, "primaryKeyFirst"), afterMap, finisher, customizer,
-                    where);
+                    where, groupBy, having);
         }
 
         /**
@@ -290,19 +316,19 @@ public final class ModelQuery<E, K, M> {
          */
         public Builder<E, K, M> afterMap(BiConsumer<M, Row> afterMap) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst,
-                    Objects.requireNonNull(afterMap, "afterMap"), finisher, customizer, where);
+                    Objects.requireNonNull(afterMap, "afterMap"), finisher, customizer, where, groupBy, having);
         }
 
         /** Replaces each mapped model with {@code finisher}'s result, after {@code afterMap}; for records. */
         public Builder<E, K, M> finisher(UnaryOperator<M> finisher) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    Objects.requireNonNull(finisher, "finisher"), customizer, where);
+                    Objects.requireNonNull(finisher, "finisher"), customizer, where, groupBy, having);
         }
 
         /** Raw Criteria access for each phase; see {@link QueryCustomizer}. Replaces any customizer set before. */
         public Builder<E, K, M> customize(QueryCustomizer customizer) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, Objects.requireNonNull(customizer, "customizer"), where);
+                    finisher, Objects.requireNonNull(customizer, "customizer"), where, groupBy, having);
         }
 
         /**
@@ -312,27 +338,116 @@ public final class ModelQuery<E, K, M> {
          */
         public Builder<E, K, M> where(UnaryOperator<Filters<M>> filters) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, customizer, FilterGroup.collect(Objects.requireNonNull(filters, "filters")));
+                    finisher, customizer, FilterGroup.collect(Objects.requireNonNull(filters, "filters")), groupBy,
+                    having);
         }
 
         /**
-         * Builds the immutable query.
+         * Groups the query by the columns of {@code columns}, replacing any group-by set before. Passing the set the
+         * group keys are selected from keeps the two in step (R-AGG-05). Every selected column must be among them,
+         * else {@link #build()} throws {@code MQ1401}; an empty set leaves the query ungrouped (R-AGG-07).
+         *
+         * @throws IllegalArgumentException when {@code columns} holds an {@link AggregateField}, which cannot be a
+         *     group key
+         */
+        public Builder<E, K, M> groupBy(ColumnSet<M> columns) {
+            var keys = new ArrayList<ColumnField<M, ?, ?>>();
+            for (SelectField<M, ?> column : Objects.requireNonNull(columns, "columns").columns()) {
+                if (!(column instanceof ColumnField<M, ?, ?> key)) {
+                    throw new IllegalArgumentException("groupBy(...) takes columns, not the aggregate " + column);
+                }
+                keys.add(key);
+            }
+            return groupBy(keys);
+        }
+
+        /** Groups the query by {@code columns}, as {@link #groupBy(ColumnSet)} does (R-AGG-05). */
+        @SafeVarargs
+        public final Builder<E, K, M> groupBy(ColumnField<M, ?, ?>... columns) {
+            var keys = new ArrayList<ColumnField<M, ?, ?>>();
+            for (ColumnField<M, ?, ?> column : Objects.requireNonNull(columns, "columns")) {
+                keys.add(Objects.requireNonNull(column, "columns element"));
+            }
+            return groupBy(keys);
+        }
+
+        private Builder<E, K, M> groupBy(List<ColumnField<M, ?, ?>> keys) {
+            return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
+                    finisher, customizer, where, List.copyOf(new LinkedHashSet<>(keys)), having);
+        }
+
+        /**
+         * The {@code HAVING} predicate: {@code filters} receives an empty {@link Having}, the {@code where} DSL over
+         * aggregates, and every filter it adds is ANDed (R-AGG-06). It runs once, here, like {@link #where}. Replaces
+         * any predicate set before; a {@code having} that records a filter makes the query grouped.
+         */
+        public Builder<E, K, M> having(UnaryOperator<Having<M>> filters) {
+            return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
+                    finisher, customizer, where, groupBy,
+                    HavingGroup.collect(Objects.requireNonNull(filters, "filters")));
+        }
+
+        /**
+         * Builds the immutable query. A query is grouped when it has a group-by, selects an aggregate or has a
+         * {@code having} filter (R-AGG-07); a grouped query needs no primary key and ignores one (R-AGG-09).
          *
          * @throws ModelQueryDefinitionException {@code MQ1202} when {@link #columns} was not called
+         * @throws ModelQueryDefinitionException {@code MQ1402} for {@code keyset()} or {@code primaryKeyFirst(...)} on
+         *     a grouped query
          * @throws ModelQueryDefinitionException {@code MQ1201} for {@code keyset()} or {@code primaryKeyFirst(...)}
          *     without a primary key
+         * @throws ModelQueryDefinitionException {@code MQ1401} for a selected column missing from the group-by
+         * @throws ModelQueryDefinitionException {@code MQ1103} for two {@code Agg.of} fields sharing a name with
+         *     different expressions
          */
         public ModelQuery<E, K, M> build() {
             if (columns == null) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1202,
                         "columns(...) is required for a query on " + root.rootEntity().getSimpleName());
             }
-            if (primaryKey == null && (keyset || primaryKeyFirst != null)) {
+            String model = modelName(columns, root.rootEntity());
+            boolean grouped = !groupBy.isEmpty() || !having.filters().isEmpty()
+                    || columns.columns().stream().anyMatch(AggregateField.class::isInstance);
+            if (keyset || primaryKeyFirst != null) {
                 String used = keyset ? "keyset()" : "primaryKeyFirst(...)";
-                throw new ModelQueryDefinitionException(MqCode.MQ1201,
-                        modelName(columns, root.rootEntity()) + ": " + used + " requires primaryKey(...)");
+                if (grouped) {
+                    // Both need a unique per-row key, which a group does not have (R-AGG-10, D-7).
+                    throw new ModelQueryDefinitionException(MqCode.MQ1402, model + ": " + used
+                            + " is refused on a grouped query, since a group has no unique row key; use offset paging");
+                }
+                if (primaryKey == null) {
+                    throw new ModelQueryDefinitionException(MqCode.MQ1201,
+                            model + ": " + used + " requires primaryKey(...)");
+                }
             }
-            return new ModelQuery<>(this);
+            if (grouped) {
+                for (SelectField<M, ?> column : columns.columns()) {
+                    // MySQL would return an arbitrary value of the group; PostgreSQL would fail anonymously (R-AGG-08).
+                    if (column instanceof ColumnField<M, ?, ?> plain && !groupBy.contains(plain)) {
+                        throw new ModelQueryDefinitionException(MqCode.MQ1401,
+                                plain + ": selected but not in groupBy");
+                    }
+                }
+                if (primaryKey != null) {
+                    LOG.log(System.Logger.Level.DEBUG, "{0}: primaryKey(...) is ignored on a grouped query", model);
+                }
+            }
+            checkAggregates(model);
+            return new ModelQuery<>(this, grouped);
+        }
+
+        /** Two {@code Agg.of} fields sharing a name must be one definition wherever the query names them (R-AGG-02). */
+        private void checkAggregates(String model) {
+            var named = new ArrayList<SelectField<?, ?>>(columns.columns());
+            orderBy.forEach(order -> named.add(order.column()));
+            named.addAll(having.aggregates());
+            var first = new HashMap<SelectField<?, ?>, SelectField<?, ?>>();
+            for (SelectField<?, ?> field : named) {
+                SelectField<?, ?> seen = first.putIfAbsent(field, field);
+                if (seen != null && AggregateField.conflict(seen, field)) {
+                    throw AggregateField.redefined(model, field);
+                }
+            }
         }
 
         private static String modelName(ColumnSet<?> columns, Class<?> entity) {

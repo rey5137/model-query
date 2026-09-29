@@ -54,11 +54,15 @@ name with different expression instances throw `MQ1103` when the query is built.
 |---|---|---|
 | `count` / `countDistinct` | any | `Long` |
 | `sum` | `BigDecimal` / `Double` / `Long` | same type |
-| `sum` | `Integer` / `Short` | `Long` — `Agg.sum` on a 32-bit column is a compile error; use `sumAsLong` |
+| `sum` | `Integer` / `Short` | `Long` — `Agg.sum` on a 32-bit column throws `MQ1403` when it is called; use `sumAsLong` |
 | `avg` | any numeric | `Double` |
 | `min` / `max` | any comparable | same type |
 
 *(was R16)* Checked by the processor for generated models (`processor/32`) and at build time for hand-written ones.
+`Agg.sum` accepts `BigDecimal`, `Double` and `Long` columns; `Agg.sumAsLong` accepts `Integer`, `Short`, `Long` and
+`Byte` columns. Any other column throws `MQ1403` when the factory is called, since Java cannot overload on a type
+argument (D-25). For generated columns the processor (M4) reports the same mistake as a compile error
+(`processor/32` `MQ3205`).
 
 **R-AGG-04** `sum` over zero rows is `NULL`, not `0`. `Row.get` returns `null`, and a mapped field must be a boxed
 type; a primitive field for a `sum` column is a processor error `MQ3201`. A caller that wants `0` uses a
@@ -120,7 +124,7 @@ generated `GROUP_KEYS` `ColumnSet`, and `QProductSales.query()` comes pre-config
 | ID | Criterion |
 |---|---|
 | AC-AGG-01 | Every `Agg` function returns the R-AGG-03 type on every Tier-1 vendor. |
-| AC-AGG-02 | `Agg.sum` over an `Integer` column does not compile; `sumAsLong` does (R-AGG-03). |
+| AC-AGG-02 | `Agg.sum` over an `Integer` column throws `MQ1403` when called; `sumAsLong` accepts it (R-AGG-03). |
 | AC-AGG-03 | `sum` over zero matching rows reaches the model as `null`, not `0` (R-AGG-04). |
 | AC-AGG-04 | Two identical `Agg.sum(...)` constants render one selection and one `Row` key (R-AGG-01). |
 | AC-AGG-05 | Two `Agg.of` fields with the same name and different expressions throw `MQ1103` (R-AGG-02). |
