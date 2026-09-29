@@ -101,8 +101,10 @@ rewritten portably. The Javadoc states that rows where the group is UNKNOWN are 
 **R-FLT-06** `CONTAINS`, `STARTS_WITH` and `ENDS_WITH` escape `%`, `_` and the escape character in the value and render
 `ESCAPE '\'`, so a search for `50%` finds that literal text. `EXACT` passes the pattern through as given.
 
-**R-FLT-07** `likeIgnoreCase` renders `lower(col) LIKE lower(?)`. The user guide notes that this needs a functional
-index to be fast, and that case sensitivity otherwise follows collation (`vendor/40` §4).
+**R-FLT-07** `likeIgnoreCase` renders `lower(col) LIKE ?`; the value is lower-cased in Java with `Locale.ROOT` and
+bound (R-FLT-08, D-22). A database whose `lower()` folds only ASCII, such as PostgreSQL with C collation, can disagree
+on non-ASCII text. The user guide notes that this needs a functional index to be fast, and that case sensitivity
+otherwise follows collation (`vendor/40` §4).
 
 ## 5. Bind parameters and large sets
 

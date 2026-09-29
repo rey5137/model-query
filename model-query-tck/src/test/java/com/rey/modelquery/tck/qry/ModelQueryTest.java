@@ -21,6 +21,7 @@ import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
 import com.rey.modelquery.tck.harness.TckDatabase;
+import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
 import jakarta.persistence.EntityManager;
@@ -354,6 +355,65 @@ class ModelQueryTest {
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ1202))
                 .hasMessageContaining("MQ1202").hasMessageContaining("OrderEntity");
+    }
+
+    @TckTest
+    void ac_qry_07_without_where_the_query_has_no_predicate_and_reads_every_row(TckDatabase db) {
+        var base = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(ColumnSet.of(ID, STATUS)).orderBy(ID.asc());
+        var filtered = base.where(f -> f.eq(STATUS, "PAID")).build();
+        var unfiltered = base.build();
+        try (SessionFactory sf = sessionFactory(db)) {
+            sf.inSession(em -> {
+                CriteriaBuilder cb = em.getCriteriaBuilder();
+                assertThat(unfiltered.buildQuery(cb, Phase.MODEL).query().getRestriction()).isNull();
+                assertThat(filtered.buildQuery(cb, Phase.MODEL).query().getRestriction()).isNotNull();
+                assertThat(run(em, unfiltered, Phase.MODEL)).hasSize(TckFixture.ORDERS);
+                assertThat(run(em, filtered, Phase.MODEL)).isNotEmpty().hasSizeLessThan(TckFixture.ORDERS)
+                        .allSatisfy(v -> assertThat(v.status()).isEqualTo("PAID"));
+            });
+        }
+    }
+
+    @TckTest
+    void ac_qry_06_the_where_predicate_is_not_counted_as_a_customizer_predicate(TckDatabase db) {
+        QueryCustomizer noPredicate = (spec, joins, query, cb, phase) -> {};
+        QueryCustomizer onlyModel = (spec, joins, query, cb, phase) -> {
+            if (phase == Phase.MODEL) {
+                query.where(cb.and(query.getRestriction(),
+                        cb.isNotNull(query.getRoots().iterator().next().get("total"))));
+            }
+        };
+        List<String> warnings = new ArrayList<>();
+        Logger logger = Logger.getLogger(ModelQuery.class.getName());
+        Handler handler = new Handler() {
+            @Override
+            public void publish(LogRecord r) {
+                if (r.getLevel().intValue() >= Level.WARNING.intValue()) {
+                    warnings.add(new SimpleFormatter().formatMessage(r));
+                }
+            }
+
+            @Override
+            public void flush() {}
+
+            @Override
+            public void close() {}
+        };
+        logger.addHandler(handler);
+        try (SessionFactory sf = sessionFactory(db)) {
+            sf.inSession(em -> {
+                CriteriaBuilder cb = em.getCriteriaBuilder();
+                var filtered = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT).primaryKey(PrimaryKey.of(ID))
+                        .where(f -> f.eq(STATUS, "PAID"));
+                filtered.customize(noPredicate).build().checkPhases(cb);
+                assertThat(warnings).isEmpty();
+                filtered.customize(onlyModel).build().checkPhases(cb);
+            });
+        } finally {
+            logger.removeHandler(handler);
+        }
+        assertThat(warnings).hasSize(1);
+        assertThat(warnings.get(0)).contains("[MODEL]").contains("PRIMARY_KEY");
     }
 
     // ---- AC-COL-09
