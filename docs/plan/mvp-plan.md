@@ -30,10 +30,13 @@ Spec: `api/10`, `api/11`, `api/12`, `api/13`. Model: `architect-review` required
 | M1.1 | `TableField`, `JoinContext`, join keys, `as`, `on`, `withParent` | AC-COL-01..03 |
 | M1.2 | `SelectField`, `ColumnField`, type checking, `withTable`, `ColumnSet` | AC-COL-04, AC-COL-05 |
 | M1.3 | `Row`, `RowMapper`, `SetterMapper`, `OrderField`, null precedence | AC-COL-06, AC-COL-08 without `model-query-hibernate` |
-| M1.4 | `ModelQuery` builder, `PrimaryKey`, `afterMap`, `QueryCustomizer` | AC-QRY-01..07, AC-COL-09 |
-| M1.5 | `Filters`: comparison, sets, strings, nulls, `compare` | AC-FLT-01..08, AC-COL-07 |
+| M1.4 | `ModelQuery` builder, `PrimaryKey`, `afterMap`, `QueryCustomizer` | AC-QRY-01..07 at definition level (see note), AC-COL-09 |
+| M1.5 | `Filters`: comparison, sets, strings, nulls, `compare` | AC-FLT-01..08, AC-COL-07, AC-QRY-07 `where` row |
 | M1.6 | `Filters`: `or`/`not`/`when`/`apply`, `exists`, join resolution inside `or` | AC-FLT-09..11 |
-| M1.7 | `Agg`, `AggregateField`, `groupBy`, `having`, grouped build-time checks | AC-AGG-01..11 |
+| M1.7 | `Agg`, `AggregateField`, `groupBy`, `having`, grouped build-time checks | AC-AGG-01..11, AC-QRY-07 `groupBy` row |
+
+M1.4 tests AC-QRY-03 and AC-QRY-04 on the built selection and mapping. Their paging and `export` halves need the
+executor and are owed by M2.3, which also calls the R-QRY-09 phase check on first execution.
 
 **Exit:** every `AC-COL/QRY/FLT/AGG-*` covered by a named test; H2 SQL snapshots committed.
 
@@ -46,7 +49,7 @@ Spec: `engine/20`, `engine/21`. Model: `architect-review` required for the expor
 |---|---|---|
 | M2.1 | `ModelQueryExecutor.create`, `list`, `page`, `count` incl. grouped and collection-join counting | AC-EXE-01..05 |
 | M2.2 | `stream` with the closing contract and vendor preconditions | AC-EXE-06..09 |
-| M2.3 | Offset export: stable order, boundary dedupe, primary-key check | AC-PAG-01..04 |
+| M2.3 | Offset export: stable order, boundary dedupe, primary-key check | AC-PAG-01..04, AC-QRY-03/04 export halves |
 | M2.4 | Keyset paging: cursors, ties, NULL handling | AC-PAG-05..07 |
 | M2.5 | Primary-key-first paging with vendor clamping | AC-PAG-08, AC-PAG-09 |
 | M2.6 | Grouped export | AC-PAG-10, AC-PAG-11 |

@@ -29,6 +29,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1102` | `on(...)` used without `as(...)` | `api/10` R-COL-04 |
 | `MQ1103` | Two `Agg.of` fields share a name with different expressions | `api/13` R-AGG-02 |
 | `MQ1201` | `keyset()` or `primaryKeyFirst(...)` without a primary key | `api/11` R-QRY-03 |
+| `MQ1202` | `build()` without `columns` | `api/11` R-QRY-02 |
 | `MQ1301` | A value-form filter received `null` | `api/12` §1 |
 | `MQ1302` | A column inside `exists(...)` is not on or below the given path | `api/12` R-FLT-11 |
 | `MQ1401` | A selected non-aggregate column is not in the group-by | `api/13` R-AGG-08 |

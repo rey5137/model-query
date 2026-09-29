@@ -8,18 +8,18 @@ import org.hibernate.cfg.AvailableSettings;
 import org.hibernate.cfg.Configuration;
 
 /** Builds a Hibernate {@link SessionFactory} over a (proxied) DataSource for the fixture entities. */
-final class JoinTestSupport {
+public final class JoinTestSupport {
 
     private JoinTestSupport() {}
 
-    static SessionFactory sessionFactory(TckDatabase db) {
+    public static SessionFactory sessionFactory(TckDatabase db) {
         return build(new StandardServiceRegistryBuilder()
                 .applySetting(AvailableSettings.JAKARTA_JDBC_URL, db.jdbcUrl())
                 .applySetting(AvailableSettings.JAKARTA_JDBC_USER, db.username())
                 .applySetting(AvailableSettings.JAKARTA_JDBC_PASSWORD, db.password()));
     }
 
-    static SessionFactory sessionFactory(DataSource dataSource) {
+    public static SessionFactory sessionFactory(DataSource dataSource) {
         return build(new StandardServiceRegistryBuilder()
                 .applySetting(AvailableSettings.JAKARTA_NON_JTA_DATASOURCE, dataSource));
     }

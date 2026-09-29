@@ -97,6 +97,10 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
         return path(ctx);
     }
 
+    Class<M> model() {
+        return model;
+    }
+
     TableField<?, T> table() {
         return table;
     }

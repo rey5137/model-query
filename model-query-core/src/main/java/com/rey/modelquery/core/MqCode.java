@@ -16,7 +16,13 @@ public enum MqCode {
     MQ1101("Two table fields share a join key but carry different on(...) conditions"),
 
     /** {@code on(...)} used without {@code as(...)} (R-COL-04). */
-    MQ1102("on(...) requires an alias; add as(...)");
+    MQ1102("on(...) requires an alias; add as(...)"),
+
+    /** {@code keyset()} or {@code primaryKeyFirst(...)} without a primary key (R-QRY-03). */
+    MQ1201("keyset() and primaryKeyFirst(...) require a primary key"),
+
+    /** {@code build()} called without {@code columns(...)} (R-QRY-02). */
+    MQ1202("columns(...) is required");
 
     private final String defaultMessage;
 

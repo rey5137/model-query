@@ -95,6 +95,11 @@ public final class TableField<P, T> {
         return (From<?, T>) ctx.join(key, parentFrom, attribute, type, condition, describe());
     }
 
+    /** The entity of a root node, or {@code null} for a join. */
+    Class<T> rootEntity() {
+        return rootEntity;
+    }
+
     JoinKey key() {
         return key;
     }
