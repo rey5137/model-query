@@ -1,0 +1,1 @@
+select oe1_0.id,oe1_0.status,i1_0.quantity,i1_0.product_code,c1_0.country from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id join customers c1_0 on c1_0.id=oe1_0.customer_id where oe1_0.id=? order by i1_0.id

@@ -9,6 +9,9 @@ package com.rey.modelquery.core;
 @Incubating
 public enum MqCode {
 
+    /** A column's declared type does not match the entity attribute (R-COL-08). */
+    MQ1001("A column's declared type does not match the entity attribute"),
+
     /** Two {@code TableField}s share a join key but carry different {@code on(...)} conditions (R-COL-04). */
     MQ1101("Two table fields share a join key but carry different on(...) conditions"),
 

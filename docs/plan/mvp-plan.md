@@ -28,10 +28,10 @@ Spec: `api/10`, `api/11`, `api/12`, `api/13`. Model: `architect-review` required
 | Slice | Contents | Done when |
 |---|---|---|
 | M1.1 | `TableField`, `JoinContext`, join keys, `as`, `on`, `withParent` | AC-COL-01..03 |
-| M1.2 | `SelectField`, `ColumnField`, type checking, `withTable`, `ColumnSet` | AC-COL-04..07 |
-| M1.3 | `Row`, `RowMapper`, `SetterMapper`, `OrderField`, null precedence | AC-COL-08, AC-COL-09 |
-| M1.4 | `ModelQuery` builder, `PrimaryKey`, `afterMap`, `QueryCustomizer` | AC-QRY-01..07 |
-| M1.5 | `Filters`: comparison, sets, strings, nulls, `compare` | AC-FLT-01..08 |
+| M1.2 | `SelectField`, `ColumnField`, type checking, `withTable`, `ColumnSet` | AC-COL-04, AC-COL-05 |
+| M1.3 | `Row`, `RowMapper`, `SetterMapper`, `OrderField`, null precedence | AC-COL-06, AC-COL-08 |
+| M1.4 | `ModelQuery` builder, `PrimaryKey`, `afterMap`, `QueryCustomizer` | AC-QRY-01..07, AC-COL-09 |
+| M1.5 | `Filters`: comparison, sets, strings, nulls, `compare` | AC-FLT-01..08, AC-COL-07 |
 | M1.6 | `Filters`: `or`/`not`/`when`/`apply`, `exists`, join resolution inside `or` | AC-FLT-09..11 |
 | M1.7 | `Agg`, `AggregateField`, `groupBy`, `having`, grouped build-time checks | AC-AGG-01..11 |
 

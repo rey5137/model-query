@@ -125,6 +125,13 @@ fast through `Objects.requireNonNull` with the parameter's name. `MQ` codes stay
 Java but wrong for the model. Rejected: a catch-all "null argument" code (it would be raised from every method and tell
 the reader nothing the NPE doesn't). → `code-conventions` CC-ERR-01.
 
+**D-20 — A hand-written column's type must match its attribute exactly.**
+R-COL-08 compares `ColumnField.type` with `path.getJavaType()` after boxing primitives, and a `@Convert` attribute
+with its converted type. A supertype is rejected: a `Number` column over an `Integer` attribute throws `MQ1001`. The
+converter allow-list is empty until a real case needs an entry. Loosening the check later breaks no one; tightening it
+would. Rejected: accepting any assignable supertype (hides a wrong column until a value fails to map).
+→ `api/10` R-COL-08, AC-COL-04.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter
