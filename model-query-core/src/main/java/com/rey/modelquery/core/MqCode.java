@@ -78,6 +78,12 @@ public enum MqCode {
     /** {@code having(...)} on an ungrouped query (R-AGG-07). */
     MQ1407("having(...) needs a grouped query: a groupBy or a selected aggregate"),
 
+    /** A page size that is not positive, or a limit that is negative (R-EXE-06). */
+    MQ2001("A page size must be positive and a limit must not be negative"),
+
+    /** A negative offset (R-EXE-06). */
+    MQ2002("An offset must not be negative"),
+
     /** An operation needing a primary key on a query without one (R-QRY-03). */
     MQ2203("An operation needing a primary key ran on a query without one");
 
