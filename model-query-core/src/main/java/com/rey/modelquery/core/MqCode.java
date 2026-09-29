@@ -94,7 +94,8 @@ public enum MqCode {
     MQ2203("An operation needing a primary key ran on a query without one"),
 
     /** Key-based paging over a selection read through a to-many join (R-PAG-13). */
-    MQ2204("Offset export, keyset paging or the primary-key-first phase selected a column through a to-many join");
+    MQ2204("Offset export of an ungrouped query, keyset paging or the primary-key-first phase selected a column "
+            + "through a to-many join");
 
     private final String defaultMessage;
 

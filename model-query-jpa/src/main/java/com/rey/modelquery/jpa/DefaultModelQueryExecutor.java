@@ -33,6 +33,7 @@ import jakarta.persistence.criteria.Selection;
 import jakarta.persistence.metamodel.Attribute;
 import jakarta.persistence.metamodel.PluralAttribute;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -52,7 +53,8 @@ import java.util.stream.Stream;
  * The executor {@link ModelQueryExecutor#create} returns.
  *
  * @implSpec R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-05, R-EXE-06, R-EXE-07, R-EXE-09, R-QRY-09, R-PAG-01,
- *     R-PAG-02, R-PAG-03, R-PAG-04, R-PAG-05, R-PAG-06, R-PAG-07, R-PAG-08, R-PAG-09, R-PAG-10, R-PAG-13
+ *     R-PAG-02, R-PAG-03, R-PAG-04, R-PAG-05, R-PAG-06, R-PAG-07, R-PAG-08, R-PAG-09, R-PAG-10, R-PAG-11, R-PAG-12,
+ *     R-PAG-13, R-AGG-09
  */
 final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
@@ -172,21 +174,30 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(pageTransformer, "pageTransformer");
         Objects.requireNonNull(sink, "sink");
         checkPhasesOnce(q);
+        long limit = options.limit().maxRows().isPresent() ? options.limit().maxRows().getAsInt() : Long.MAX_VALUE;
         if (q.isGrouped()) {
-            throw new UnsupportedOperationException(q + ": grouped export is not implemented yet");
+            // A group has no row identity, so its group keys order and dedupe the pages in place of a primary key,
+            // which a grouped query never has; keyset() and primaryKeyFirst(...) were refused at build (MQ1402), so
+            // the export is offset-only (R-PAG-11, R-PAG-12, R-AGG-09). A group-key tuple is unique per result row
+            // even through a to-many join, so a grouped export skips the MQ2204 refusal (R-PAG-13).
+            BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
+            appendStableOrder(q, built);
+            return exportByOffset(q, built, row -> groupKeyOf(q, row), options.pageSize(), limit, pageTransformer,
+                    sink);
         }
         // A keyset query always has a primary key (MQ1201 at build time), so only offset export can fail here.
         PrimaryKey<M, ?> key = q.primaryKey().orElseThrow(() -> new ModelQueryExecutionException(MqCode.MQ2203,
                 q + ": offset export needs a primary key to order and dedupe its pages, and primaryKey(...) was not set"));
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
         refuseToManySelection(q, built, q.isKeyset() ? "keyset paging" : "offset export");
-        long limit = options.limit().maxRows().isPresent() ? options.limit().maxRows().getAsInt() : Long.MAX_VALUE;
         if (q.isKeyset()) {
             return exportByKeyset(q, built, key, options.pageSize(), limit, pageTransformer, sink);
         }
         appendStableOrder(q, built);
-        return exportByOffset(q, built, key, options.pageSize(), limit, pageTransformer, sink);
+        return exportByOffset(q, built, row -> keyOf(q, key, row), options.pageSize(), limit, pageTransformer,
+                sink);
     }
+
     /** Runs the R-QRY-09 phase check the first time any executor runs {@code q} (D-21). */
     private void checkPhasesOnce(ModelQuery<E, ?, ?> q) {
         if (!PHASES_CHECKED.contains(q)) {
@@ -344,10 +355,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     // ---- export
 
     /**
-     * The export loop of engine/21 §4 in offset mode; {@code built} is already in its stable order. A page past the
-     * {@code primaryKeyFirst} offset reads its keys first and only the fresh keys' rows (R-PAG-07).
+     * The export loop of engine/21 §4 in offset mode; {@code built} is already in its stable order, which
+     * {@code keyOfRow} identifies a row of: its primary key, or its group key tuple for a grouped query (R-PAG-11). A
+     * page past the {@code primaryKeyFirst} offset reads its keys first and only the fresh keys' rows (R-PAG-07).
      */
-    private <M, S> long exportByOffset(ModelQuery<E, ?, M> q, BuiltQuery<M> built, PrimaryKey<M, ?> key,
+    private <M, S> long exportByOffset(ModelQuery<E, ?, M> q, BuiltQuery<M> built, Function<Row, Object> keyOfRow,
             int pageSize, long limit, Function<List<M>, List<S>> pageTransformer, Consumer<S> sink) {
         long passed = 0;
         int offset = 0;
@@ -361,6 +373,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             // A key seen before is a row the stable order already delivered: across the boundary when rows shifted
             // between pages, or within the page when a predicate's to-many join repeats the root.
             if (primaryKeyFirst(q, offset)) {
+                // Only an ungrouped query with a primary key gets here (MQ1201, MQ1402), where keyOfRow reads that key.
+                PrimaryKey<M, ?> key = q.primaryKey().orElseThrow();
                 keyQuery = keyQuery == null ? keyQuery(q) : keyQuery;
                 List<Object> pageKeys = readKeys(q, key, keyQuery, offset, pageSize);
                 List<Object> freshKeys = new ArrayList<>(pageKeys.size());
@@ -378,7 +392,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 List<Tuple> rows = query.getResultList();
                 fresh = new ArrayList<>(rows.size());
                 for (Tuple tuple : rows) {
-                    Object rowKey = keyOf(q, key, built.selection().row(tuple));
+                    Object rowKey = keyOfRow.apply(built.selection().row(tuple));
                     if (keys.add(rowKey) && !previousKeys.contains(rowKey)) {
                         fresh.add(built.map(tuple));
                     }
@@ -482,6 +496,19 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             }
         }
         return values.length == 1 ? values[0] : List.of(values);
+    }
+
+    /**
+     * The row's group: its group-by values in {@code groupBy} order, unique per row of a grouped query (R-PAG-11). SQL
+     * groups NULLs together, so a NULL is a value of the tuple like any other; a whole-table aggregate's is empty.
+     */
+    private static <M> Object groupKeyOf(ModelQuery<?, ?, M> q, Row row) {
+        List<ColumnField<M, ?, ?>> groupBy = q.groupBy();
+        Object[] values = new Object[groupBy.size()];
+        for (int i = 0; i < values.length; i++) {
+            values[i] = row.get(groupBy.get(i));
+        }
+        return Arrays.asList(values);
     }
 
     /**

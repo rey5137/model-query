@@ -445,7 +445,7 @@ class OffsetExportTest {
     }
 
     @TckTest
-    void export_returns_the_items_passed_to_sink_and_skips_an_empty_page(TckDatabase db) {
+    void ac_pag_11_export_returns_the_items_passed_to_sink_and_skips_an_empty_page(TckDatabase db) {
         // The transformer drops every page but the first and expands that one: the sink count is what it returned.
         var byId = ITEM_ROWS.orderBy(ITEM_ID.asc()).build();
         List<Integer> pageSizes = new ArrayList<>();

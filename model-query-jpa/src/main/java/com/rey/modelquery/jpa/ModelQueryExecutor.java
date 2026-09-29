@@ -21,7 +21,7 @@ import java.util.stream.Stream;
  *
  * @param <E> the root entity type
  * @implSpec R-QRY-10, R-QRY-09, R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-07, R-EXE-09, R-PAG-01, R-PAG-02,
- *     R-PAG-03, R-PAG-07, R-PAG-08, R-PAG-09, R-PAG-10, R-PAG-13
+ *     R-PAG-03, R-PAG-07, R-PAG-08, R-PAG-09, R-PAG-10, R-PAG-11, R-PAG-12, R-PAG-13, R-AGG-09
  */
 @Incubating
 public interface ModelQueryExecutor<E> {
@@ -80,16 +80,19 @@ public interface ModelQueryExecutor<E> {
      * order closed by the primary key in the direction of its last order column (R-PAG-04); a NULL in a keyset
      * column needs an explicit {@code nullsFirst()} or {@code nullsLast()} (R-PAG-05). An offset page past the
      * {@code primaryKeyFirst(...)} threshold reads its primary keys first, then only the rows of keys not already
-     * exported (R-PAG-07). Each page's remaining models go whole to {@code pageTransformer}, and its items one at a
-     * time to {@code sink} until {@code options.limit()} is reached; neither is called for an empty page (R-PAG-09).
+     * exported (R-PAG-07). A grouped query visits every group exactly once, offset-paged in an order closed by its
+     * group keys, and dedupes on the group-key tuple; it needs no primary key and ignores one (R-PAG-11, R-PAG-12,
+     * R-AGG-09). Each page's remaining models go whole to {@code pageTransformer}, and its items one at a time to
+     * {@code sink} until {@code options.limit()} is reached; neither is called for an empty page (R-PAG-09).
      * {@code Limit.of(0)} exports nothing without querying.
      *
      * @param pageTransformer receives each page's models, to batch the caller's own lookups; returns the items to sink
      * @param sink receives the items one at a time
      * @return the number of items passed to {@code sink}, which differs from the rows read when
      *     {@code pageTransformer} expands or filters (R-PAG-10)
-     * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2203} for a query without a primary key,
-     *     and {@code MQ2204} for one selecting a column through a to-many join (R-PAG-13), both before any query runs;
+     * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2203} for an ungrouped query without a
+     *     primary key, and {@code MQ2204} for an ungrouped one selecting a column through a to-many join (R-PAG-13),
+     *     both before any query runs;
      *     {@code MQ2201} when a row's primary key is {@code null} (R-PAG-03); {@code MQ2202} when a keyset column
      *     without explicit null precedence is NULL (R-PAG-05)
      */

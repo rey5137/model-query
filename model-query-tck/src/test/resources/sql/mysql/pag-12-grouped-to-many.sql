@@ -1,0 +1,16 @@
+select oe1_0.id,sum(i1_0.quantity) from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by 1 order by sum(i1_0.quantity) desc,1 limit ?,?
+select oe1_0.id,sum(i1_0.quantity) from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by 1 order by sum(i1_0.quantity) desc,1 limit ?,?
+select oe1_0.id,sum(i1_0.quantity) from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by 1 order by sum(i1_0.quantity) desc,1 limit ?,?
+select oe1_0.id,sum(i1_0.quantity) from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by 1 order by sum(i1_0.quantity) desc,1 limit ?,?
+select oe1_0.id,sum(i1_0.quantity) from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by 1 order by sum(i1_0.quantity) desc,1 limit ?,?
+select oe1_0.id,sum(i1_0.quantity) from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by 1 order by sum(i1_0.quantity) desc,1 limit ?,?
+select oe1_0.id,sum(i1_0.quantity) from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by 1 order by sum(i1_0.quantity) desc,1 limit ?,?
+select oe1_0.id,sum(i1_0.quantity) from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by 1 order by sum(i1_0.quantity) desc,1 limit ?,?
+select i1_0.product_code,sum(i1_0.quantity) from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by 1 order by sum(i1_0.quantity) desc,1 limit ?,?
+select i1_0.product_code,sum(i1_0.quantity) from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by 1 order by sum(i1_0.quantity) desc,1 limit ?,?
+select i1_0.product_code,sum(i1_0.quantity) from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by 1 order by sum(i1_0.quantity) desc,1 limit ?,?
+select i1_0.product_code,sum(i1_0.quantity) from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by 1 order by sum(i1_0.quantity) desc,1 limit ?,?
+select i1_0.product_code,sum(i1_0.quantity) from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by 1 order by sum(i1_0.quantity) desc,1 limit ?,?
+select i1_0.product_code,sum(i1_0.quantity) from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by 1 order by sum(i1_0.quantity) desc,1 limit ?,?
+select i1_0.product_code,sum(i1_0.quantity) from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by 1 order by sum(i1_0.quantity) desc,1 limit ?,?
+select i1_0.product_code,sum(i1_0.quantity) from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id group by 1 order by sum(i1_0.quantity) desc,1 limit ?,?
