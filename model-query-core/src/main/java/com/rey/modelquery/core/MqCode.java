@@ -84,8 +84,8 @@ public enum MqCode {
     /** A negative offset (R-EXE-06). */
     MQ2002("An offset must not be negative"),
 
-    /** A row's primary key mapped to {@code null} during export (R-PAG-03). */
-    MQ2201("A row's primary key mapped to null during export"),
+    /** A row's primary key mapped to {@code null} during export or primary-key-first paging (R-PAG-03). */
+    MQ2201("A row's primary key mapped to null during export or primary-key-first paging"),
 
     /** A keyset column is NULL and has no explicit null precedence (R-PAG-05). */
     MQ2202("A keyset column is NULL and the column has no explicit null precedence"),

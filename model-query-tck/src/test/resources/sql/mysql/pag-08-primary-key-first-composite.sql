@@ -1,0 +1,2 @@
+select ckie1_0.tenant_id,ckie1_0.item_no from composite_key_items ckie1_0 where ckie1_0.label<>? or ckie1_0.label is null order by ckie1_0.label desc,1,2 limit ?,?
+select ckie1_0.tenant_id,ckie1_0.item_no,ckie1_0.label from composite_key_items ckie1_0 where (ckie1_0.label<>? or ckie1_0.label is null) and (ckie1_0.tenant_id=? and ckie1_0.item_no=? or ckie1_0.tenant_id=? and ckie1_0.item_no=? or ckie1_0.tenant_id=? and ckie1_0.item_no=? or ckie1_0.tenant_id=? and ckie1_0.item_no=?) order by 3 desc,1,2

@@ -43,6 +43,7 @@ public final class JoinTestSupport {
                 .addAnnotatedClass(OrderEntity.class)
                 .addAnnotatedClass(OrderItemEntity.class)
                 .addAnnotatedClass(NullableSortEntity.class)
+                .addAnnotatedClass(CompositeKeyItemEntity.class)
                 .buildSessionFactory(registry);
     }
 }

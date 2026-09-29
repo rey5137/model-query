@@ -21,7 +21,7 @@ import java.util.stream.Stream;
  *
  * @param <E> the root entity type
  * @implSpec R-QRY-10, R-QRY-09, R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-07, R-EXE-09, R-PAG-01, R-PAG-02,
- *     R-PAG-03, R-PAG-09, R-PAG-10, R-PAG-13
+ *     R-PAG-03, R-PAG-07, R-PAG-08, R-PAG-09, R-PAG-10, R-PAG-13
  */
 @Incubating
 public interface ModelQueryExecutor<E> {
@@ -42,7 +42,14 @@ public interface ModelQueryExecutor<E> {
 
     /**
      * Reads one page of {@code q}: an exact total, a {@code hasNext} probe, or the total alone (R-EXE-02). An invalid
-     * page never reaches here: {@link PageSpec} rejects it when built (R-EXE-06).
+     * page never reaches here: {@link PageSpec} rejects it when built (R-EXE-06). With {@code primaryKeyFirst(...)}, a
+     * page whose offset is above its threshold is read in two steps, the page's primary keys in the query's order and
+     * then the rows of those keys, in statements of at most the vendor's IN-list and bind-parameter limits; it holds
+     * the same rows in the same order as the one-step page (R-PAG-07, R-PAG-08).
+     *
+     * @throws com.rey.modelquery.core.ModelQueryExecutionException for a two-step page: {@code MQ2204} for a query
+     *     selecting a column through a to-many join, before any query runs (R-PAG-13), and {@code MQ2201} when a
+     *     row's primary key is {@code null} (R-PAG-03)
      */
     <M> Slice<M> page(ModelQuery<E, ?, M> q, PageSpec page, CountMode mode);
 
@@ -71,10 +78,11 @@ public interface ModelQueryExecutor<E> {
      * order a row can repeat only across a page boundary, or within a page through a to-many join used only by
      * predicates (R-PAG-02). A {@code keyset()} query reads each page after the last row of the one before, its
      * order closed by the primary key in the direction of its last order column (R-PAG-04); a NULL in a keyset
-     * column needs an explicit {@code nullsFirst()} or {@code nullsLast()} (R-PAG-05). Each page's remaining models
-     * go whole to
-     * {@code pageTransformer}, and its items one at a time to {@code sink} until {@code options.limit()} is reached;
-     * neither is called for an empty page (R-PAG-09). {@code Limit.of(0)} exports nothing without querying.
+     * column needs an explicit {@code nullsFirst()} or {@code nullsLast()} (R-PAG-05). An offset page past the
+     * {@code primaryKeyFirst(...)} threshold reads its primary keys first, then only the rows of keys not already
+     * exported (R-PAG-07). Each page's remaining models go whole to {@code pageTransformer}, and its items one at a
+     * time to {@code sink} until {@code options.limit()} is reached; neither is called for an empty page (R-PAG-09).
+     * {@code Limit.of(0)} exports nothing without querying.
      *
      * @param pageTransformer receives each page's models, to batch the caller's own lookups; returns the items to sink
      * @param sink receives the items one at a time

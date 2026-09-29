@@ -70,7 +70,11 @@ public final class SqlSnapshots {
         return actual;
     }
 
-    static List<String> capture(TckDatabase db, SqlWork work) {
+    /**
+     * Runs {@code work} and returns every statement it executed, normalized as a snapshot holds them, without
+     * comparing them to a file: for a test that counts or inspects statements too long to commit.
+     */
+    public static List<String> capture(TckDatabase db, SqlWork work) {
         List<String> captured = new ArrayList<>();
         DataSource proxy = ProxyDataSourceBuilder.create(new DriverManagerDataSource(db))
                 .afterQuery((execInfo, queries) -> queries.forEach(q -> captured.add(normalize(q.getQuery()))))

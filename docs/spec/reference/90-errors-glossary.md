@@ -64,7 +64,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ2001` | `pageSize` or `ExportOptions.pageSize` is not positive, or a `Limit` is negative | `engine/20` R-EXE-06 |
 | `MQ2002` | Negative offset | `engine/20` R-EXE-06 |
 | `MQ2101` | Streaming requires a transaction on this vendor | `engine/20` R-EXE-08 |
-| `MQ2201` | A row's primary key mapped to `null` during export | `engine/21` R-PAG-03 |
+| `MQ2201` | A row's primary key mapped to `null` during export or primary-key-first paging | `engine/21` R-PAG-03 |
 | `MQ2202` | A keyset column is NULL and the column has no explicit null precedence | `engine/21` R-PAG-05 |
 | `MQ2203` | An operation needing a primary key (offset export of an ungrouped query, the `PRIMARY_KEY` phase) on a query without one; a grouped query never has one (`api/13` R-AGG-09) | `api/11` R-QRY-03 |
 | `MQ2204` | Offset export, keyset paging or the primary-key-first phase over a selection read through a to-many join | `engine/21` R-PAG-13 |

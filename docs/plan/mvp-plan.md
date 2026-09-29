@@ -74,5 +74,8 @@ tested alongside `vendor/41` AC-PRF-02 and AC-PRF-03. Also decide whether M2.1's
 R-EXE-08 `checkStreamingPreconditions` and `applyStreaming` calls and the R-EXE-11 timeout, with AC-EXE-08 (the same
 case as `vendor/41` AC-PRF-04) and AC-EXE-09. And the engine half of `modelquery.keyset.null-keys=honour-null-precedence`
 (`engine/21` R-PAG-05): paging a `DEFAULT`-precedence keyset over its NULLs in the vendor's own position, read from
-`VendorProfile.defaultAscendingNullOrdering()`; M2.4 covers the default `fail`.
+`VendorProfile.defaultAscendingNullOrdering()`; M2.4 covers the default `fail`. And primary-key-first paging's step-2
+clamp (`engine/21` R-PAG-07): reading `VendorProfile.maxInListSize()` and `maxBindParameters()` in place of M2.5's
+lowest Tier-1 limits (D-32), with the `primary-key-first.batch-size` setting on `ModelQueryConfig` (`integration/50`,
+R-SPR-08) and a test of a batch above the vendor's IN limit made through that setting.
 
