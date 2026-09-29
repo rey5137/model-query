@@ -112,6 +112,19 @@ selected. Rejected: one `EXISTS` per joined predicate (simpler SQL, different ro
 (wrong under concurrency and under MySQL's snapshot reads). → `api/14` R-WRT-08, R-WRT-10, R-WRT-11, R-WRT-17,
 AC-WRT-07.
 
+**D-18 — `JoinContext` is created with a public factory, and `TableField.resolve` is public.**
+The executor in `jpa`, `QueryCustomizer` and custom predicates (`Filters.add`) all sit outside `core` yet need a
+per-query `JoinContext` and the `From` a `TableField` resolves to. `JoinContext.of(root, cb)` makes a context over the
+query's root; `resolve` returns the shared join for the field's join key. Both are `@Incubating` until 1.0. Rejected:
+an internal hook exposed only to `jpa` (more machinery, and users would still hand-build joins, bypassing R-COL-02).
+→ `api/10` R-COL-01, R-COL-02.
+
+**D-19 — A null argument is a `NullPointerException`, not an `MQnnnn`.**
+Passing null where the API does not accept it is a programming error, not an invalid query definition, so it fails
+fast through `Objects.requireNonNull` with the parameter's name. `MQ` codes stay for definitions that are well-formed
+Java but wrong for the model. Rejected: a catch-all "null argument" code (it would be raised from every method and tell
+the reader nothing the NPE doesn't). → `code-conventions` CC-ERR-01.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter

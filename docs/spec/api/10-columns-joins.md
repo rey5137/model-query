@@ -17,13 +17,13 @@ public final class TableField<P, T> {
     public TableField<P, T> as(String alias);                              // a separate join to the same path
     public TableField<P, T> on(BiFunction<From<?, T>, CriteriaBuilder, Predicate> condition);   // requires as(...)
     public TableField<P, T> withParent(TableField<?, P> newParent);        // keeps alias and ON condition
-    From<?, T> resolve(JoinContext ctx);
+    public From<?, T> resolve(JoinContext ctx);                            // for custom predicates and customizers
 }
 ```
 
 **R-COL-01** A `TableField` is a definition, not a join. It resolves to a Criteria `From` only through a
-`JoinContext`, which is created per query build (INV-9). The same constant may be used by any number of concurrent
-queries.
+`JoinContext`, which is created per query build with `JoinContext.of(root, cb)` (INV-9, D-18). The same constant may
+be used by any number of concurrent queries.
 
 **R-COL-02** `JoinContext` caches joins by **join key** — the parent's join key, the attribute, the `JoinType` and the
 alias (empty by default) — never by object identity. Two separate `TableField.join(ROOT, "customer", LEFT)` calls

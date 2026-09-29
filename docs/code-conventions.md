@@ -29,7 +29,8 @@ literals at call sites.
 ## 2. Exceptions and messages
 
 **CC-ERR-01** Library code throws only the exception types in `reference/90` §1, each carrying an `MqCode`. A bare
-`IllegalArgumentException`, `IllegalStateException` or `NullPointerException` escaping public API is a bug.
+`IllegalArgumentException`, `IllegalStateException` or `NullPointerException` escaping public API is a bug. The one
+exception is a `NullPointerException` from `Objects.requireNonNull` on a null argument, which names the parameter.
 
 **CC-ERR-02** A message names the model, the column or property, and both sides of a mismatch, in that order. It never
 requires the spec to be understood: `StockSummary.closingStock: selected but not in groupBy` is complete on its own.
