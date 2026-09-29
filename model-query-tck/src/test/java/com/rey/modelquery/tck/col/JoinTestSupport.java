@@ -32,6 +32,7 @@ final class JoinTestSupport {
                 .addAnnotatedClass(CustomerEntity.class)
                 .addAnnotatedClass(OrderEntity.class)
                 .addAnnotatedClass(OrderItemEntity.class)
+                .addAnnotatedClass(NullableSortEntity.class)
                 .buildSessionFactory(registry);
     }
 }

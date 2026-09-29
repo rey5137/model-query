@@ -29,7 +29,7 @@ Spec: `api/10`, `api/11`, `api/12`, `api/13`. Model: `architect-review` required
 |---|---|---|
 | M1.1 | `TableField`, `JoinContext`, join keys, `as`, `on`, `withParent` | AC-COL-01..03 |
 | M1.2 | `SelectField`, `ColumnField`, type checking, `withTable`, `ColumnSet` | AC-COL-04, AC-COL-05 |
-| M1.3 | `Row`, `RowMapper`, `SetterMapper`, `OrderField`, null precedence | AC-COL-06, AC-COL-08 |
+| M1.3 | `Row`, `RowMapper`, `SetterMapper`, `OrderField`, null precedence | AC-COL-06, AC-COL-08 without `model-query-hibernate` |
 | M1.4 | `ModelQuery` builder, `PrimaryKey`, `afterMap`, `QueryCustomizer` | AC-QRY-01..07, AC-COL-09 |
 | M1.5 | `Filters`: comparison, sets, strings, nulls, `compare` | AC-FLT-01..08, AC-COL-07 |
 | M1.6 | `Filters`: `or`/`not`/`when`/`apply`, `exists`, join resolution inside `or` | AC-FLT-09..11 |
@@ -57,4 +57,7 @@ Spec: `engine/20`, `engine/21`. Model: `architect-review` required for the expor
 
 Contents and exit criteria are in `delivery/62` §1. Slice breakdowns are written when the milestone starts, not before —
 a slice plan written three milestones early is guesswork.
+
+Carried into M3: AC-COL-08 with `model-query-hibernate` (`HibernateCriteriaBuilder#sort`), and skipping the null sort
+key when the `VendorProfile` default already matches (`api/10` R-COL-12). M1.3 covers the plain-JPA half.
 

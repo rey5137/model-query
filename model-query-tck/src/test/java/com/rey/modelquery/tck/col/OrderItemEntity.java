@@ -6,6 +6,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import java.math.BigDecimal;
 
 /** Fixture entity over {@code order_items}. */
 @Entity
@@ -18,6 +19,9 @@ public class OrderItemEntity {
     String productCode;
 
     int quantity;
+
+    @Column(name = "unit_price")
+    BigDecimal unitPrice;
 
     @ManyToOne
     @JoinColumn(name = "order_id")
