@@ -12,6 +12,9 @@ Scope (see ac-scope.json):
   * a criterion no milestone lists is "unscheduled": reported, never failing;
   * AC-REL-07 (R-REL-15): every MQnnnn literal in */src/main/**/*.java must be defined in docs/spec/reference/90-*.md,
     as a table row or inside a `MQaaaa`-`MQbbbb` range;
+  * AC-DIAG-05 (INV-10): the MQ3xxx codes in the processor/32 section 1 table, with no duplicate, equal the MQ3xxx
+    codes reference/90 lists, and the rows not tagged `Future` equal the constants of the processor's DiagnosticCode
+    enum; skipped when processor/32 does not exist;
   * a criterion in build_proven needs no named test (it is proven by the CI build itself), only a stated reason.
 
 Usage: ac_audit.py [--root DIR] [--spec DIR] [--scope FILE]
@@ -83,6 +86,34 @@ def uncatalogued_codes(root, spec_dir):
             if code not in known:
                 used.setdefault(code, path.relative_to(root).as_posix())
     return used
+
+
+DIAG_SPEC = Path("processor") / "32-diagnostics.md"
+DIAG_ENUM = Path("model-query-processor/src/main/java/com/rey/modelquery/processor/DiagnosticCode.java")
+ENUM_CONSTANT = re.compile(r"^\s*(MQ\d{4})\(", re.M)
+
+
+def diagnostic_mismatches(root, spec_dir):
+    """AC-DIAG-05: messages for the processor/32 section 1 codes against reference/90 and DiagnosticCode."""
+    path = spec_dir / DIAG_SPEC
+    if not path.is_file():
+        return []
+    rows = [line for line in path.read_text(encoding="utf-8").splitlines() if MQ_ROW.match(line)]
+    codes = [MQ_ROW.match(line).group(1) for line in rows]
+    live = {MQ_ROW.match(line).group(1) for line in rows if "`Future`" not in line}
+    twice = sorted({c for c in codes if codes.count(c) > 1})
+    problems = ["%s is listed twice in processor/32 section 1" % c for c in twice]
+    listed = {c for c in catalogued_codes(spec_dir) if c.startswith("MQ3")}
+    problems += ["%s is in processor/32 section 1 but not in reference/90" % c for c in sorted(set(codes) - listed)]
+    problems += ["%s is in reference/90 but not in processor/32 section 1" % c for c in sorted(listed - set(codes))]
+    enum = root / DIAG_ENUM
+    if enum.is_file():
+        declared = set(ENUM_CONSTANT.findall(enum.read_text(encoding="utf-8")))
+        problems += ["%s is a live code in processor/32 but not a DiagnosticCode constant" % c
+                     for c in sorted(live - declared)]
+        problems += ["%s is a DiagnosticCode constant but not a live code in processor/32" % c
+                     for c in sorted(declared - live)]
+    return problems
 
 
 def test_names(root):
@@ -176,6 +207,9 @@ def main(argv=None):
         failed = True
     for code, where in sorted(uncatalogued_codes(root, spec_dir).items()):
         print("FAIL %s is raised in %s but not defined in reference/90 (AC-REL-07)" % (code, where))
+        failed = True
+    for problem in diagnostic_mismatches(root, spec_dir):
+        print("FAIL %s (AC-DIAG-05)" % problem)
         failed = True
     for ac_id in missing:
         print("FAIL %s (%s) has no test named %s*" % (ac_id, criteria[ac_id]["file"], snake(ac_id)))

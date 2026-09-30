@@ -175,7 +175,8 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
                         definition.name()));
             } else if (!existing.joinType().equals(definition.joinType())) {
                 problems.add(new Problem(DiagnosticCode.MQ3012, where
-                        + (alias.isEmpty() ? "join '" + crossed + "'" : "alias '" + alias + "'") + " is "
+                        // An alias the user did not write (the collection's INNER one) is not named.
+                        + (definition.alias().isEmpty() ? "join '" + crossed + "'" : "alias '" + alias + "'") + " is "
                         + definition.joinType() + " here, " + existing.joinType() + " on " + existing.typedBy()));
                 return null;
             }

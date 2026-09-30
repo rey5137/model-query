@@ -311,6 +311,18 @@ class FilterColumnTest {
     }
 
     @Test
+    void ac_diag_01_mq3016_a_filter_column_ending_at_a_to_one_association_raises_no_warning() {
+        Compilation compilation = compileBasket("""
+                @QueryModel(root = BasketEntity.class)
+                @FilterColumn(name = "CUSTOMER_ENTITY", path = "customer")
+                public record BasketView(@PrimaryKey Long id) {}
+                """);
+
+        // Unlike a model column on a to-one association, a filter column is never selected: nothing to warn of.
+        assertThat(compilation).succeededWithoutWarnings();
+    }
+
+    @Test
     void ac_diag_01_mq3012_one_join_with_two_join_types() {
         Compilation compilation = compileBasket("""
                 @QueryModel(root = BasketEntity.class)
@@ -370,6 +382,19 @@ class FilterColumnTest {
 
         assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3012,
                 "BasketView @FilterColumn(QTY): alias 'linesInner' is LEFT here, INNER on SKU"));
+    }
+
+    @Test
+    void ac_diag_01_mq3012_the_generated_inner_alias_is_not_named_when_the_user_wrote_none() {
+        Compilation compilation = compileBasket("""
+                @QueryModel(root = BasketEntity.class)
+                @FilterColumn(name = "QTY", path = "lines.qty", joinType = JoinKind.LEFT, alias = "linesInner")
+                @FilterColumn(name = "SKU", path = "lines.sku", joinType = JoinKind.INNER)
+                public record BasketView(@PrimaryKey Long id) {}
+                """);
+
+        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3012,
+                "BasketView @FilterColumn(SKU): join 'lines' is INNER here, LEFT on QTY"));
     }
 
     @Test
