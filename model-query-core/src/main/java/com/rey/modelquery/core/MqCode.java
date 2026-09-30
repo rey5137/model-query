@@ -96,6 +96,9 @@ public enum MqCode {
     /** A negative offset (R-EXE-06). */
     MQ2002("An offset must not be negative"),
 
+    /** Streaming on a vendor whose driver buffers the whole result outside a transaction (R-EXE-08). */
+    MQ2101("Streaming requires a transaction on this vendor"),
+
     /** A row's primary key mapped to {@code null} during export or primary-key-first paging (R-PAG-03). */
     MQ2201("A row's primary key mapped to null during export or primary-key-first paging"),
 

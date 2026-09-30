@@ -259,7 +259,8 @@ export then drops rows). → `api/11` R-QRY-07, R-QRY-11, AC-QRY-10.
 `EntityManagerFactory`. What a query build may render by (IN-list and bind limits, the default null ordering, an
 optional native null-precedence renderer) reaches `core` as an immutable `RenderOptions`, passed to
 `ModelQuery.buildQuery(cb, phase, options)` and held by that build's `JoinContext`; `JoinContext.of(root, cb)` and
-`RenderOptions.portable()` carry the `OTHER` values. `ModelQueryConfig` moves to `jpa`, so `vendor(DatabaseVendor)` is
+`RenderOptions.portable()` carry the `OTHER` values. The resolver caches by the configured vendor and the MySQL
+streaming mode (`vendor/41` R-PRF-07). `ModelQueryConfig` moves to `jpa`, so `vendor(DatabaseVendor)` is
 type-safe. Dialect detection, the grouped count and native null precedence vary by persistence provider, not by
 database, so they are one `ProviderSupport` SPI in `jpa.spi`, separate from `VendorProfile`, which
 `model-query-hibernate` implements. One explicit vendor applies to every factory that shares the configuration, so M5

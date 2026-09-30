@@ -342,7 +342,7 @@ class ExecutionTest {
                 })
                 .columns(ColumnSet.of(ITEM_ORDER_ID, ITEM_PRODUCT))
                 .build();
-        withExecutor(db, executor -> {
+        withTransactionalExecutor(db, executor -> {
             // forEach, not count(): count() skips a SIZED stream's pipeline, which is what a buffered list would be
             long total = executor.stream(itemRows, Limit.unlimited(), rows -> {
                 rows.forEach(row -> {
@@ -368,7 +368,7 @@ class ExecutionTest {
 
     @TckTest
     void ac_exe_06_stream_applies_the_limit_and_keeps_the_order(TckDatabase db) {
-        withExecutor(db, executor -> {
+        withTransactionalExecutor(db, executor -> {
             List<Long> ids = executor.stream(ORDER_ROWS.build(), Limit.of(5),
                     rows -> rows.map(OrderRow::id).toList());
             assertThat(ids).containsExactly(1L, 2L, 3L, 4L, 5L);
@@ -389,29 +389,34 @@ class ExecutionTest {
             assertThat(ACTIVE.get()).as("control: closing the stream releases it").isZero();
 
             var rows = ORDER_ROWS.build();
-            sf.inSession(em -> {
-                ModelQueryExecutor<OrderEntity> executor =
-                        ModelQueryExecutor.create(em, OrderEntity.class, ModelQueryConfig.defaults());
-                // findFirst stops after one row of 5 000
-                Optional<OrderRow> first = executor.<OrderRow, Optional<OrderRow>>stream(rows, Limit.unlimited(), Stream::findFirst);
-                assertThat(first).isPresent();
-                assertThat(ACTIVE.get()).as("after findFirst").isZero();
-                // an exception thrown from body
-                assertThatThrownBy(() -> executor.stream(rows, Limit.unlimited(), s -> {
-                    s.limit(3).forEach(r -> {});
-                    throw new IllegalStateException("boom");
-                })).isInstanceOf(IllegalStateException.class).hasMessage("boom");
-                assertThat(ACTIVE.get()).as("after an exception").isZero();
-                // body that never touches the stream
-                String untouched = executor.stream(rows, Limit.unlimited(), s -> "untouched");
-                assertThat(untouched).isEqualTo("untouched");
-                assertThat(ACTIVE.get()).as("after ignoring the stream").isZero();
-                // a full pass
-                long all = executor.stream(rows, Limit.unlimited(), Stream::count);
-                assertThat(all).isEqualTo(TckFixture.ORDERS);
-                assertThat(ACTIVE.get()).as("after a full pass").isZero();
-            });
+            // One transaction per case, because PostgreSQL refuses to stream outside one (R-EXE-08); the pool's count
+            // is read after the commit, so it shows only a result set the stream left open.
+            // findFirst stops after one row of 5 000
+            Optional<OrderRow> first = inTransaction(sf, executor ->
+                    executor.<OrderRow, Optional<OrderRow>>stream(rows, Limit.unlimited(), Stream::findFirst));
+            assertThat(first).isPresent();
+            assertThat(ACTIVE.get()).as("after findFirst").isZero();
+            // an exception thrown from body
+            assertThatThrownBy(() -> inTransaction(sf, executor -> executor.stream(rows, Limit.unlimited(), s -> {
+                s.limit(3).forEach(r -> {});
+                throw new IllegalStateException("boom");
+            }))).isInstanceOf(IllegalStateException.class).hasMessage("boom");
+            assertThat(ACTIVE.get()).as("after an exception").isZero();
+            // body that never touches the stream
+            String untouched =
+                    inTransaction(sf, executor -> executor.stream(rows, Limit.unlimited(), s -> "untouched"));
+            assertThat(untouched).isEqualTo("untouched");
+            assertThat(ACTIVE.get()).as("after ignoring the stream").isZero();
+            // a full pass
+            long all = inTransaction(sf, executor -> executor.stream(rows, Limit.unlimited(), Stream::count));
+            assertThat(all).isEqualTo(TckFixture.ORDERS);
+            assertThat(ACTIVE.get()).as("after a full pass").isZero();
         }
+    }
+
+    private static <T> T inTransaction(SessionFactory sf, Function<ModelQueryExecutor<OrderEntity>, T> work) {
+        return sf.fromTransaction(
+                em -> work.apply(ModelQueryExecutor.create(em, OrderEntity.class, ModelQueryConfig.defaults())));
     }
 
     private static final AtomicInteger ACTIVE = new AtomicInteger();
@@ -449,6 +454,14 @@ class ExecutionTest {
 
     private static void withExecutor(TckDatabase db, Consumer<ModelQueryExecutor<OrderEntity>> work) {
         inSession(db, em -> work.accept(ModelQueryExecutor.create(em, OrderEntity.class, ModelQueryConfig.defaults())));
+    }
+
+    /** Like {@link #withExecutor(TckDatabase, Consumer)} inside a transaction, which PostgreSQL streaming needs. */
+    private static void withTransactionalExecutor(TckDatabase db, Consumer<ModelQueryExecutor<OrderEntity>> work) {
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
+            sf.inTransaction(em ->
+                    work.accept(ModelQueryExecutor.create(em, OrderEntity.class, ModelQueryConfig.defaults())));
+        }
     }
 
     private static void withExecutor(DataSource ds, Consumer<ModelQueryExecutor<OrderEntity>> work) {

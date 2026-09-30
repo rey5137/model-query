@@ -8,6 +8,7 @@ import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.jpa.spi.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import jakarta.persistence.Query;
 import java.time.Duration;
@@ -46,7 +47,7 @@ class VendorResolverTest {
     void r_vnd_06_an_unknown_product_name_resolves_to_the_other_profile() {
         assertThat(VendorResolver.vendorOf("Apache Derby")).isEqualTo(DatabaseVendor.OTHER);
         assertThat(VendorResolver.vendorOf(null)).isEqualTo(DatabaseVendor.OTHER);
-        assertThat(VendorResolver.profileFor(DatabaseVendor.OTHER, Map.of())).isSameAs(BuiltInProfile.OTHER);
+        assertThat(profileFor(DatabaseVendor.OTHER, Map.of())).isSameAs(BuiltInProfile.OTHER);
         // The names the Tier-1 and MariaDB drivers report.
         assertThat(VendorResolver.vendorOf("H2")).isEqualTo(DatabaseVendor.H2);
         assertThat(VendorResolver.vendorOf("PostgreSQL")).isEqualTo(DatabaseVendor.POSTGRESQL);
@@ -55,12 +56,23 @@ class VendorResolverTest {
     }
 
     @Test
+    void r_prf_07_the_streaming_mode_picks_the_mysql_profile_and_no_other() {
+        Map<DatabaseVendor, VendorProfile> none = Map.of();
+        assertThat(VendorResolver.profileFor(DatabaseVendor.MYSQL, MysqlStreamingMode.ROW_BY_ROW, none))
+                .isSameAs(BuiltInProfile.MYSQL);
+        assertThat(VendorResolver.profileFor(DatabaseVendor.MYSQL, MysqlStreamingMode.CURSOR_FETCH, none))
+                .isSameAs(BuiltInProfile.MYSQL_CURSOR_FETCH);
+        assertThat(VendorResolver.profileFor(DatabaseVendor.H2, MysqlStreamingMode.CURSOR_FETCH, none))
+                .isSameAs(BuiltInProfile.H2);
+    }
+
+    @Test
     void r_vnd_06_a_detected_vendor_without_a_profile_uses_the_other_one() {
         for (DatabaseVendor vendor : List.of(DatabaseVendor.MARIADB, DatabaseVendor.ORACLE, DatabaseVendor.SQLSERVER)) {
-            assertThat(VendorResolver.profileFor(vendor, Map.of())).as(vendor.name()).isSameAs(BuiltInProfile.OTHER);
+            assertThat(profileFor(vendor, Map.of())).as(vendor.name()).isSameAs(BuiltInProfile.OTHER);
         }
         var customOther = new CustomProfile(DatabaseVendor.OTHER);
-        assertThat(VendorResolver.profileFor(DatabaseVendor.ORACLE, Map.of(DatabaseVendor.OTHER, customOther)))
+        assertThat(profileFor(DatabaseVendor.ORACLE, Map.of(DatabaseVendor.OTHER, customOther)))
                 .isSameAs(customOther);
     }
 
@@ -68,8 +80,8 @@ class VendorResolverTest {
     void r_vnd_03_a_discovered_profile_takes_precedence_over_the_built_in_one() {
         var custom = new CustomProfile(DatabaseVendor.POSTGRESQL);
         var discovered = VendorResolver.byVendor(List.of(custom));
-        assertThat(VendorResolver.profileFor(DatabaseVendor.POSTGRESQL, discovered)).isSameAs(custom);
-        assertThat(VendorResolver.profileFor(DatabaseVendor.H2, discovered)).isSameAs(BuiltInProfile.H2);
+        assertThat(profileFor(DatabaseVendor.POSTGRESQL, discovered)).isSameAs(custom);
+        assertThat(profileFor(DatabaseVendor.H2, discovered)).isSameAs(BuiltInProfile.H2);
     }
 
     @Test
@@ -100,5 +112,9 @@ class VendorResolverTest {
         assertThat(profile.maxInListSize()).as(vendor + " IN list").isEqualTo(maxIn);
         assertThat(profile.maxBindParameters()).as(vendor + " binds").isEqualTo(maxBinds);
         assertThat(profile.defaultAscendingNullOrdering()).as(vendor + " NULLs").isEqualTo(nullOrdering);
+    }
+
+    private static VendorProfile profileFor(DatabaseVendor vendor, Map<DatabaseVendor, VendorProfile> discovered) {
+        return VendorResolver.profileFor(vendor, MysqlStreamingMode.ROW_BY_ROW, discovered);
     }
 }

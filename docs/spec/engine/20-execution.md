@@ -54,7 +54,8 @@ leak a JDBC result set (D-8).
 
 **R-EXE-08** The engine calls `VendorProfile.applyStreaming(query, fetchSize)` before execution and
 `checkStreamingPreconditions(em)` before that. On PostgreSQL, streaming outside a transaction fails fast with `MQ2101`
-rather than silently buffering the whole result in the driver (`vendor/41`).
+rather than silently buffering the whole result in the driver (`vendor/41`). The fetch size is one constant, 500 (the
+`OTHER` value), which only the profiles that stream with a cursor read.
 
 **R-EXE-09** An early exit from `body` — `findFirst`, a `break`, an exception — still closes the stream and releases the
 connection.
@@ -67,7 +68,8 @@ keyset `export` is the documented default, because it runs short queries per pag
 
 **R-EXE-11** A per-query timeout comes from `ModelQueryConfig` or `modelquery.query-timeout` and is applied through
 `VendorProfile.applyTimeout`. The profile documents its granularity: `jakarta.persistence.query.timeout` becomes
-`Statement.setQueryTimeout`, which has one-second granularity (`vendor/41`).
+`Statement.setQueryTimeout`, which has one-second granularity (`vendor/41`). `ModelQueryConfig.queryTimeout(Duration)`
+must be positive (`MQ4003`) and applies to every statement the executor runs; unset means none.
 
 ## 7. Acceptance criteria
 

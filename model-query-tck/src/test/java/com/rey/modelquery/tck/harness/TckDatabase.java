@@ -39,6 +39,12 @@ public final class TckDatabase {
         return password;
     }
 
+    /** This database with a JDBC URL property added, such as MySQL's {@code useCursorFetch=true}. */
+    public TckDatabase withJdbcUrlProperty(String name, String value) {
+        String separator = jdbcUrl.contains("?") ? "&" : "?";
+        return new TckDatabase(target, jdbcUrl + separator + name + "=" + value, username, password);
+    }
+
     /** A new connection; the caller closes it. */
     public Connection getConnection() throws SQLException {
         return DriverManager.getConnection(jdbcUrl, username, password);
