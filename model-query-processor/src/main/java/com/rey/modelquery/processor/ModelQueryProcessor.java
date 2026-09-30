@@ -37,9 +37,6 @@ public final class ModelQueryProcessor extends AbstractProcessor {
         var writer = new QModelWriter(types, metamodel, nestedModels);
         for (Element element : roundEnv.getElementsAnnotatedWith(QueryModel.class)) {
             var type = (TypeElement) element;
-            if (QueryModelReader.usesLaterFeature(type)) {
-                continue;
-            }
             ModelDefinition model = reader.read(type);
             if (model == null) {
                 continue;

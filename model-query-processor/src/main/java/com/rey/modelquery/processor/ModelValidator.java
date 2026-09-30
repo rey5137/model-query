@@ -1,7 +1,10 @@
 package com.rey.modelquery.processor;
 
+import com.rey.modelquery.annotations.Column;
 import com.rey.modelquery.annotations.QueryModel;
+import com.rey.modelquery.annotations.Transient;
 import com.rey.modelquery.processor.EntityMetamodel.Resolution;
+import com.rey.modelquery.processor.ModelDefinition.AggregateDefinition;
 import com.rey.modelquery.processor.ModelDefinition.FilterColumnDefinition;
 import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
@@ -28,12 +31,22 @@ import javax.lang.model.util.Types;
  * Checks a {@link ModelDefinition} against its entity and against what {@link QModelWriter} can emit. Every check
  * runs whatever the others found, so one compilation reports every independent problem (R-DIAG-03).
  *
- * @implSpec R-GEN-03, R-PROC-07, R-PROC-08, R-PROC-10, R-PROC-11, R-PROC-12, R-DIAG-01, R-DIAG-02, R-DIAG-03
+ * @implSpec R-GEN-03, R-PROC-05, R-PROC-07, R-PROC-08, R-PROC-10, R-PROC-11, R-PROC-12, R-PROC-16, R-DIAG-01,
+ *     R-DIAG-02, R-DIAG-03
  */
 final class ModelValidator {
 
     /** Constants every QModel may declare itself, which a field's constant must not take ({@code MQ3015}). */
     private static final Set<String> RESERVED = Set.of("ROOT", "ALL", "DEFAULT", "KEY", "MAPPER", "GROUP_KEYS");
+
+    private static final String LONG = "java.lang.Long";
+    private static final String DOUBLE = "java.lang.Double";
+    private static final String NUMBER = "java.lang.Number";
+    private static final String COMPARABLE = "java.lang.Comparable";
+    /** What {@code Agg.sum} sums to the column's own type (api/13 R-AGG-03). */
+    private static final Set<String> SUMMABLE = Set.of("java.math.BigDecimal", DOUBLE, LONG);
+    /** What {@code Agg.sumAsLong} sums; the database returns a {@code Long} (api/13 R-AGG-03). */
+    private static final Set<String> INTEGRAL = Set.of("java.lang.Integer", "java.lang.Short", "java.lang.Byte");
 
     private static final String LOMBOK_NO_ARGS = "lombok.NoArgsConstructor";
 
@@ -49,7 +62,8 @@ final class ModelValidator {
 
     void validate(ModelDefinition model, Diagnostics diagnostics) {
         checkShape(model, diagnostics);
-        if (model.keys().isEmpty()) {
+        // A group has no row identity, so a summary model needs no key (R-AGG-09).
+        if (model.keys().isEmpty() && model.aggregates().isEmpty()) {
             diagnostics.error(model.type(), DiagnosticCode.MQ3004,
                     model.name() + ": no @PrimaryKey; paging, export and @Join presence need one");
         }
@@ -71,10 +85,18 @@ final class ModelValidator {
         FilterLayout filters = FilterLayout.of(model, joined, metamodel);
         filters.problems().forEach(problem -> diagnostics.error(model.type(), problem.code(), problem.detail()));
         claimFilterTables(model, filters, constants, diagnostics);
-        for (ModelField field : model.columns()) {
+        checkGrouping(model, diagnostics);
+        for (ModelField field : model.fields()) {
+            if (!field.column() && field.aggregate() == null) {
+                continue;
+            }
             String where = model.name() + "." + field.name() + ": ";
-            checkAttribute(model, field, where, diagnostics);
-            if (model.isRecord() && field.type().getKind().isPrimitive() && !field.primaryKey()) {
+            if (field.aggregate() != null) {
+                checkAggregate(model, field, where, diagnostics);
+            } else {
+                checkAttribute(model, field, where, diagnostics);
+            }
+            if (field.column() && model.isRecord() && field.type().getKind().isPrimitive() && !field.primaryKey()) {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3009,
                         where + "primitive components can't be null when not selected; use "
                                 + display(types.boxedClass((PrimitiveType) field.type()).asType()));
@@ -110,6 +132,179 @@ final class ModelValidator {
                         model.name() + " " + column.definition().label() + ": ", diagnostics);
             }
         }
+    }
+
+    /**
+     * {@code MQ3204} for a {@code @GroupBy} on an {@code @Aggregate} or {@code @Join} field or an {@code @Aggregate}
+     * beside {@code @PrimaryKey}, {@code @Column}, {@code @Join} or {@code @Transient}, {@code MQ3207} for
+     * {@code singleGroup} with a {@code @GroupBy}, {@code MQ3203} for aggregates that no {@code @GroupBy} groups,
+     * unless the model says it is a whole-table total (R-PROC-05).
+     */
+    private static void checkGrouping(ModelDefinition model, Diagnostics diagnostics) {
+        for (ModelField field : model.fields()) {
+            if (field.groupBy() && (field.aggregate() != null || field.join() != null)) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3204, model.name() + "." + field.name()
+                        + ": @GroupBy can't be combined with " + (field.aggregate() != null ? "@Aggregate" : "@Join"));
+            }
+        }
+        for (ModelField field : model.fields()) {
+            for (String annotation : combinedWith(field)) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3204, model.name() + "." + field.name()
+                        + ": @Aggregate can't be combined with " + annotation);
+            }
+        }
+        if (model.singleGroup() && model.fields().stream().anyMatch(ModelField::groupBy)) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3207, model.name()
+                    + ": singleGroup = true can't be combined with @GroupBy fields; remove one");
+        }
+        if (!model.aggregates().isEmpty() && model.groupKeys().isEmpty() && !model.singleGroup()) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3203, model.name()
+                    + ": has @Aggregate fields but no @GroupBy; add one or set @QueryModel(singleGroup = true)");
+        }
+    }
+
+    /**
+     * {@code MQ3201} for a primitive field, {@code MQ3202} for a type that is not what the function returns,
+     * {@code MQ3205} for a {@code SUM} over a 32-bit attribute, {@code MQ3206} for {@code distinct} on any function
+     * but {@code COUNT}, {@code MQ3001} or {@code MQ3002} for an attribute the function cannot read (R-AGG-03,
+     * R-AGG-04). A primitive field is reported once, with the type the function returns.
+     */
+    private void checkAggregate(ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
+        AggregateDefinition aggregate = field.aggregate();
+        String fn = aggregate.fn();
+        if (!combinedWith(field).isEmpty()) {
+            return;
+        }
+        if (aggregate.distinct() && !fn.equals("COUNT")) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3206,
+                    where + "distinct only applies to COUNT, found " + fn);
+        }
+        TypeMirror fieldType = boxed(field.type());
+        Expected expected = expected(model, field, where, diagnostics);
+        if (field.type().getKind().isPrimitive()) {
+            String use = expected == null ? display(fieldType) : simpleName(expected.type());
+            diagnostics.error(field.element(), DiagnosticCode.MQ3201, where + (fn.equals("COUNT")
+                    ? "COUNT is NULL-safe only as an object; use " : fn + " is NULL over zero rows; use ")
+                    + use + ", not a primitive");
+        } else if (expected != null && !qualified(fieldType).equals(expected.type())) {
+            if (expected.thirtyTwoBit()) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3205, where + expected.subject()
+                        + " returns Long; declare the field as Long");
+            } else {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3202, where + expected.subject() + " returns "
+                        + simpleName(expected.type()) + ", field is " + display(fieldType));
+            }
+        }
+    }
+
+    /** What an aggregate returns: the qualified class, how a message names the call, and whether it sums 32 bits. */
+    private record Expected(String type, String subject, boolean thirtyTwoBit) {}
+
+    /**
+     * The result of {@code field}'s aggregate, or {@code null} with {@code MQ3001}, {@code MQ3002} or {@code MQ3202}
+     * when its attribute cannot be read by the function.
+     */
+    private Expected expected(ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
+        AggregateDefinition aggregate = field.aggregate();
+        String fn = aggregate.fn();
+        boolean count = fn.equals("COUNT");
+        if (count && aggregate.attribute().isEmpty() && !aggregate.distinct()) {
+            return new Expected(LONG, "COUNT", false);
+        }
+        if (aggregate.attribute().isEmpty()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3001, where + fn
+                    + (count ? " distinct" : "") + " needs an attribute to read; write @Aggregate(attribute)");
+            return null;
+        }
+        Resolution resolution = metamodel.resolve(model.root(), aggregate.attribute());
+        if (resolution.attribute() == null) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3001, where + resolution.problem());
+            return null;
+        }
+        EntityAttribute attribute = resolution.attribute();
+        if (attribute.kind() == EntityAttribute.Kind.TO_ONE || attribute.kind() == EntityAttribute.Kind.COLLECTION) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3002, where + "@Aggregate attribute '"
+                    + attribute.name() + "' is an association on " + model.root().getSimpleName()
+                    + "; aggregate a basic attribute");
+            return null;
+        }
+        TypeMirror source = boxed(attribute.type());
+        String sourceName = display(source);
+        String over = fn + " over " + sourceName;
+        switch (fn) {
+            case "COUNT" -> {
+                return new Expected(LONG, "COUNT", false);
+            }
+            case "SUM" -> {
+                if (isOneOf(source, SUMMABLE)) {
+                    return new Expected(qualified(source), over, false);
+                }
+                if (isOneOf(source, INTEGRAL)) {
+                    // Agg.sum refuses a 32-bit column; the field is a Long and the QModel sums it as one.
+                    return new Expected(LONG, over, true);
+                }
+                diagnostics.error(field.element(), DiagnosticCode.MQ3202, where + "SUM over " + sourceName
+                        + " is not supported; it sums BigDecimal, Double, Long, Integer, Short and Byte");
+            }
+            case "AVG" -> {
+                if (isSubtypeOf(source, NUMBER)) {
+                    return new Expected(DOUBLE, over, false);
+                }
+                diagnostics.error(field.element(), DiagnosticCode.MQ3202,
+                        where + "AVG over " + sourceName + " is not supported; it averages a numeric attribute");
+            }
+            default -> {
+                if (isSubtypeOf(source, COMPARABLE)) {
+                    return new Expected(qualified(source), over, false);
+                }
+                diagnostics.error(field.element(), DiagnosticCode.MQ3202, where + over
+                        + " is not supported; " + fn + " needs a Comparable attribute");
+            }
+        }
+        return null;
+    }
+
+    private static String simpleName(String qualified) {
+        return qualified.substring(qualified.lastIndexOf('.') + 1);
+    }
+
+    /** The annotations {@code @Aggregate} can't share a field with, as written on {@code field}. */
+    private static List<String> combinedWith(ModelField field) {
+        var found = new ArrayList<String>();
+        if (field.aggregate() == null) {
+            return found;
+        }
+        if (field.primaryKey()) {
+            found.add("@PrimaryKey");
+        }
+        if (field.element().getAnnotation(Column.class) != null) {
+            found.add("@Column");
+        }
+        if (field.join() != null) {
+            found.add("@Join");
+        }
+        if (field.element().getAnnotation(Transient.class) != null) {
+            found.add("@Transient");
+        }
+        return found;
+    }
+
+    /** The qualified name of {@code type}'s class, or {@code ""} when it is no class. */
+    private static String qualified(TypeMirror type) {
+        return type.getKind() == TypeKind.DECLARED
+                ? ((TypeElement) ((DeclaredType) type).asElement()).getQualifiedName().toString() : "";
+    }
+
+    private static boolean isOneOf(TypeMirror type, Set<String> classes) {
+        return classes.contains(qualified(type));
+    }
+
+    /** Whether {@code type} is, or extends or implements, the class named {@code name}, through its supertypes. */
+    private boolean isSubtypeOf(TypeMirror type, String name) {
+        if (qualified(type).equals(name)) {
+            return true;
+        }
+        return types.directSupertypes(type).stream().anyMatch(supertype -> isSubtypeOf(supertype, name));
     }
 
     /** Whether {@code name} may be written where Java takes a simple name: an identifier that is no keyword. */
@@ -176,6 +371,11 @@ final class ModelValidator {
         }
         if (nested == null) {
             return null;
+        }
+        if (!nested.aggregates().isEmpty()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3005, where + "@Join model " + nested.name()
+                    + " has @Aggregate fields; a summary model can't be joined");
+            joinable = false;
         }
         if (nested.keys().isEmpty()) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3006,

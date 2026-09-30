@@ -13,12 +13,13 @@ import javax.lang.model.type.TypeMirror;
  * @param root the entity named by {@code @QueryModel(root)}
  * @param generatedName the simple name of the QModel class, in the model's package
  * @param columnSets whether {@code ALL} and {@code DEFAULT} are generated
+ * @param singleGroup whether {@code @QueryModel(singleGroup)} declares aggregates with no {@code @GroupBy}
  * @param fields the model's fields or record components, in declaration order
  * @param filterColumns the model's {@code @FilterColumn}s, in declaration order
  */
 record ModelDefinition(
-        TypeElement type, TypeElement root, String generatedName, boolean columnSets, List<ModelField> fields,
-        List<FilterColumnDefinition> filterColumns) {
+        TypeElement type, TypeElement root, String generatedName, boolean columnSets, boolean singleGroup,
+        List<ModelField> fields, List<FilterColumnDefinition> filterColumns) {
 
     ModelDefinition {
         fields = List.copyOf(fields);
@@ -44,6 +45,16 @@ record ModelDefinition(
         return fields.stream().filter(field -> field.join() != null).toList();
     }
 
+    /** The {@code @Aggregate} fields, in declaration order. */
+    List<ModelField> aggregates() {
+        return fields.stream().filter(field -> field.aggregate() != null).toList();
+    }
+
+    /** The {@code @GroupBy} columns, in declaration order: the members of {@code GROUP_KEYS}. */
+    List<ModelField> groupKeys() {
+        return fields.stream().filter(field -> field.column() && field.groupBy()).toList();
+    }
+
     /** The {@code @PrimaryKey} columns, in declaration order. */
     List<ModelField> keys() {
         return fields.stream().filter(field -> field.column() && field.primaryKey()).toList();
@@ -53,18 +64,21 @@ record ModelDefinition(
      * One field of a class model, or one component of a record model, read from the record's field of the same name.
      *
      * @param element the field, which diagnostics are reported on
-     * @param column {@code false} for a {@code @Transient} or {@code @Join} field, which keeps its place in a
-     *     record's constructor
+     * @param column {@code false} for a {@code @Transient}, {@code @Join} or {@code @Aggregate} field, which keeps
+     *     its place in a record's constructor
      * @param attribute the entity attribute path the column reads, dotted through embedded values
      * @param constant the name of the generated column constant
      * @param primaryKey whether the field is a {@code @PrimaryKey}
      * @param excludedFromDefaults whether the field is left out of {@code DEFAULT}
      * @param converter the class named by {@code @Column(converter)}, or {@code null} for none
      * @param join what {@code @Join} says of the field, or {@code null} when it carries none
+     * @param aggregate what {@code @Aggregate} says of the field, or {@code null} when it carries none
+     * @param groupBy whether the field carries {@code @GroupBy}
      */
     record ModelField(
             VariableElement element, boolean column, String attribute, String constant, boolean primaryKey,
-            boolean excludedFromDefaults, TypeMirror converter, JoinDefinition join) {
+            boolean excludedFromDefaults, TypeMirror converter, JoinDefinition join,
+            AggregateDefinition aggregate, boolean groupBy) {
 
         String name() {
             return element.getSimpleName().toString();
@@ -86,6 +100,15 @@ record ModelDefinition(
      * @param nested {@code X} of a field declared {@code Optional<X>}, or {@code null} for any other type
      */
     record JoinDefinition(String attribute, String type, String prefix, String alias, TypeMirror nested) {}
+
+    /**
+     * An {@code @Aggregate} as written on its field.
+     *
+     * @param fn the function's name: {@code COUNT}, {@code SUM}, {@code AVG}, {@code MIN} or {@code MAX}
+     * @param attribute the entity attribute path the function reads; {@code ""} for a {@code COUNT} over the root
+     * @param distinct whether {@code distinct = true} was written
+     */
+    record AggregateDefinition(String fn, String attribute, boolean distinct) {}
 
     /**
      * A {@code @FilterColumn} as written on the model's type.

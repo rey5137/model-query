@@ -440,6 +440,22 @@ filter columns of a model it nests. Rejected: letting a filter column retype the
 a diagnostic for an unused `alias` on a root attribute.
 → `processor/30` R-PROC-11, R-PROC-12, R-PROC-13, `processor/32` `MQ3011`, `MQ3012`, `MQ3013`, `MQ3015`.
 
+**D-47 — What the processor accepts and rejects on a summary model.**
+`@Aggregate(distinct = true)` on `SUM`, `AVG`, `MIN` or `MAX` is `MQ3206`. `@QueryModel(singleGroup = true)` on a model
+with `@GroupBy` fields is `MQ3207`, reported on the model. A `@Join` whose nested model has an `@Aggregate` field is
+`MQ3005`. `@Aggregate` combined with `@PrimaryKey`, `@Column`, `@Join` or `@Transient` on one field is `MQ3204`; the
+reader no longer drops the aggregate beside `@Transient` or `@Join`. `@ExcludeFromDefaults` on an aggregate is ignored,
+with no diagnostic. A primitive `@Aggregate` field is `MQ3201` only, naming the type the function returns (`Long` for
+`COUNT`), and gets no `MQ3202` or `MQ3205`. An `@Aggregate` attribute that is an association is `MQ3002`, and the
+message asks for a basic attribute. As built: `COUNT` over an attribute with `distinct = false` counts the non-null
+values of that attribute. `SUM` over `Integer`, `Short` or `Byte` into a `Long` field uses `Agg.sumAsLong`; any other
+field type is `MQ3205`. `AVG` over a non-`Number` and `MIN` or `MAX` over a non-`Comparable` are `MQ3202`. A malformed
+`@Aggregate` attribute reports `MQ3001` (missing or unknown), `MQ3002` (association) or `MQ3202` (unsupported source
+type). A model with no `@PrimaryKey` emits no `KEY`, and its `query()` has no `primaryKey`. A grouped model with a
+`@PrimaryKey` applies `primaryKey(KEY).groupBy(GROUP_KEYS)`. `GROUP_KEYS` is emitted even with
+`generateColumnSets = false`. A `@GroupBy` field that raises `MQ3204` is left out of `GROUP_KEYS`.
+→ `processor/30` R-PROC-05, R-PROC-15, `processor/32` `MQ3005`, `MQ3201`, `MQ3204`, `MQ3206`, `MQ3207`.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter
