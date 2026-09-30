@@ -7,9 +7,11 @@ import com.rey.modelquery.annotations.FilterColumn;
 import com.rey.modelquery.annotations.FilterColumns;
 import com.rey.modelquery.annotations.GroupBy;
 import com.rey.modelquery.annotations.Join;
+import com.rey.modelquery.annotations.JoinKind;
 import com.rey.modelquery.annotations.PrimaryKey;
 import com.rey.modelquery.annotations.QueryModel;
 import com.rey.modelquery.annotations.Transient;
+import com.rey.modelquery.processor.ModelDefinition.FilterColumnDefinition;
 import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
 import java.lang.annotation.Annotation;
@@ -54,13 +56,10 @@ final class QueryModelReader {
     }
 
     /**
-     * Whether {@code type} uses an annotation whose generation is not built yet: {@code @FilterColumn} (M4.4),
-     * {@code @Aggregate} or {@code @GroupBy} (M4.5). Such a model is left alone rather than generated without them.
+     * Whether {@code type} uses an annotation whose generation is not built yet: {@code @Aggregate} or
+     * {@code @GroupBy} (M4.5). Such a model is left alone rather than generated without them.
      */
     static boolean usesLaterFeature(TypeElement type) {
-        if (type.getAnnotation(FilterColumn.class) != null || type.getAnnotation(FilterColumns.class) != null) {
-            return true;
-        }
         return ElementFilter.fieldsIn(type.getEnclosedElements()).stream()
                 .anyMatch(field -> field.getAnnotation(Aggregate.class) != null
                         || field.getAnnotation(GroupBy.class) != null);
@@ -105,7 +104,36 @@ final class QueryModelReader {
                     join));
         }
         return new ModelDefinition(
-                type, (TypeElement) rootType.asElement(), prefix + type.getSimpleName() + suffix, columnSets, fields);
+                type, (TypeElement) rootType.asElement(), prefix + type.getSimpleName() + suffix, columnSets, fields,
+                filterColumns(type));
+    }
+
+    /** The {@code @FilterColumn}s of {@code type}, written once or repeated inside a {@code @FilterColumns}. */
+    private static List<FilterColumnDefinition> filterColumns(TypeElement type) {
+        var mirrors = new ArrayList<AnnotationMirror>();
+        AnnotationMirror single = mirror(type, FilterColumn.class);
+        if (single != null) {
+            mirrors.add(single);
+        }
+        AnnotationMirror container = mirror(type, FilterColumns.class);
+        if (container != null && explicit(container, "value") instanceof List<?> repeated) {
+            for (Object value : repeated) {
+                mirrors.add((AnnotationMirror) ((AnnotationValue) value).getValue());
+            }
+        }
+        var columns = new ArrayList<FilterColumnDefinition>();
+        for (AnnotationMirror mirror : mirrors) {
+            // An enum constant is read as its element, and only when written: a collection needs it explicit.
+            Object joinType = explicit(mirror, "joinType");
+            columns.add(new FilterColumnDefinition(
+                    explicit(mirror, "name") instanceof String name ? name : "",
+                    explicit(mirror, "path") instanceof String path ? path : "",
+                    joinType instanceof Element constant ? constant.getSimpleName().toString() : JoinKind.LEFT.name(),
+                    joinType instanceof Element,
+                    explicit(mirror, "alias") instanceof String alias ? alias : "",
+                    converter(mirror)));
+        }
+        return columns;
     }
 
     /** A {@code @Transient} field is no join, whatever else it carries. */
@@ -134,7 +162,12 @@ final class QueryModelReader {
 
     /** The class named by {@code @Column(converter)}, or {@code null} when it is left at {@code void.class}. */
     private static TypeMirror converter(VariableElement field) {
-        return explicit(mirror(field, Column.class), CONVERTER) instanceof TypeMirror converter
+        return converter(mirror(field, Column.class));
+    }
+
+    /** The class {@code annotation} names as its {@code converter}, or {@code null} for {@code void.class}. */
+    private static TypeMirror converter(AnnotationMirror annotation) {
+        return explicit(annotation, CONVERTER) instanceof TypeMirror converter
                 && converter.getKind() != TypeKind.VOID ? converter : null;
     }
 

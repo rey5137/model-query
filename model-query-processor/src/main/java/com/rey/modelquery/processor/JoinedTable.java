@@ -16,13 +16,16 @@ import javax.lang.model.type.TypeMirror;
  *     {@code CUSTOMER}, a column {@code CUSTOMER_ID}
  * @param parent the prefix of the join this one hangs from, or {@code null} for a {@code @Join} of the model itself
  * @param path the fields that lead to the join, as a diagnostic names it: {@code customer.address}
+ * @param attributes the associations that lead to the join from the model's root, which a {@code @FilterColumn}
+ *     path is matched against: {@code customer.address}
  * @param parentEntity the entity the join starts at
  * @param entity the entity the join reaches
+ * @param joinType the JPA join type's name, as the {@code @Join} that makes the join declares it
  * @param columns the columns read through the join
  */
 record JoinedTable(
-        ModelField join, ModelDefinition nested, String prefix, String parent, String path,
-        TypeElement parentEntity, TypeElement entity, List<JoinedColumn> columns) {
+        ModelField join, ModelDefinition nested, String prefix, String parent, String path, String attributes,
+        TypeElement parentEntity, TypeElement entity, String joinType, List<JoinedColumn> columns) {
 
     JoinedTable {
         columns = List.copyOf(columns);

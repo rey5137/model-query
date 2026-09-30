@@ -51,7 +51,9 @@ final class NestedModels {
         String prefix = join.join().prefix();
         var tables = new ArrayList<JoinedTable>();
         tables.add(new JoinedTable(
-                join, nested, prefix, null, join.name(), model.root(), nested.root(), nested.columns().stream()
+                join, nested, prefix, null, join.name(), join.join().attribute(), model.root(), nested.root(),
+                join.join().type(),
+                nested.columns().stream()
                         .map(column -> new JoinedColumn(
                                 prefix + "_" + column.constant(), column.type(), join.name() + "." + column.name()))
                         .toList()));
@@ -59,7 +61,8 @@ final class NestedModels {
             tables.add(new JoinedTable(
                     join, nested, prefix + "_" + below.prefix(),
                     below.parent() == null ? prefix : prefix + "_" + below.parent(),
-                    join.name() + "." + below.path(), below.parentEntity(), below.entity(),
+                    join.name() + "." + below.path(), join.join().attribute() + "." + below.attributes(),
+                    below.parentEntity(), below.entity(), below.joinType(),
                     below.columns().stream()
                             .map(column -> new JoinedColumn(prefix + "_" + column.constant(), column.type(),
                                     join.name() + "." + column.path()))

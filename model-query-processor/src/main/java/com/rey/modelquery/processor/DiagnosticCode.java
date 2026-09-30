@@ -36,6 +36,15 @@ enum DiagnosticCode {
     /** A record model cannot be built through a canonical constructor of known types. */
     MQ3010("Record model is generic or has no usable canonical constructor"),
 
+    /** A {@code @FilterColumn} path does not resolve, or crosses a collection with no explicit join type. */
+    MQ3011("@FilterColumn path does not resolve, or crosses a collection with no explicit joinType"),
+
+    /** Two {@code @FilterColumn}s share an alias and a path prefix, and join it differently. */
+    MQ3012("@FilterColumns with the same alias and path prefix have different joinTypes"),
+
+    /** A {@code @FilterColumn} takes the name of another generated constant. */
+    MQ3013("@FilterColumn name clashes with a generated constant"),
+
     /** A converter is not a {@code ColumnConverter} between the field and the attribute, or cannot be obtained. */
     MQ3014("Converter does not fit the column, or has no INSTANCE and no visible no-arg constructor"),
 

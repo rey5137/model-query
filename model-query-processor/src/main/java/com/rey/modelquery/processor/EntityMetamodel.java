@@ -32,8 +32,8 @@ final class EntityMetamodel {
     private static final List<String> IDS = List.of(JPA + "Id", JPA + "EmbeddedId");
     private static final List<String> EMBEDDED = List.of(JPA + "Embedded", JPA + "EmbeddedId");
     private static final List<String> TO_ONE = List.of(JPA + "ManyToOne", JPA + "OneToOne");
-    private static final List<String> COLLECTION =
-            List.of(JPA + "OneToMany", JPA + "ManyToMany", JPA + "ElementCollection");
+    private static final List<String> TO_MANY = List.of(JPA + "OneToMany", JPA + "ManyToMany");
+    private static final String ELEMENT_COLLECTION = JPA + "ElementCollection";
     private static final String EMBEDDABLE = JPA + "Embeddable";
     private static final String TRANSIENT = JPA + "Transient";
 
@@ -58,32 +58,83 @@ final class EntityMetamodel {
      * @implSpec R-GEN-03
      */
     Resolution resolve(TypeElement root, String path) {
+        Walk walk = walk(root, path);
+        // Every step but the path's last is a segment the path goes through: all of them when the walk stopped early.
+        int through = walk.problem() == null ? walk.steps().size() - 1 : walk.steps().size();
+        for (Step step : walk.steps().subList(0, through)) {
+            if (step.attribute().kind() == EntityAttribute.Kind.TO_ONE
+                    || step.attribute().kind() == EntityAttribute.Kind.COLLECTION) {
+                return new Resolution(null, "'" + step.attribute().name() + "' on " + step.owner()
+                        + " is an association, so '" + path + "' needs @Join or @FilterColumn");
+            }
+        }
+        if (walk.problem() != null) {
+            return new Resolution(null, walk.problem());
+        }
+        return new Resolution(walk.steps().get(walk.steps().size() - 1).attribute(), null);
+    }
+
+    /**
+     * One segment of a path.
+     *
+     * @param owner the simple name of the type the segment was looked up on
+     * @param attribute the attribute the segment names
+     */
+    record Step(String owner, EntityAttribute attribute) {}
+
+    /**
+     * A path followed segment by segment, through embedded values and across associations.
+     *
+     * @param steps the segments that resolved, in order: all of them when {@code problem} is {@code null}
+     * @param problem why the segment after {@code steps} does not resolve, worded to follow {@code "Model.field: "}
+     */
+    record Walk(List<Step> steps, String problem) {}
+
+    /**
+     * Follows {@code path} from {@code root}, as a {@code @FilterColumn} may write it: a segment before the last is
+     * an embedded value or an association (R-PROC-10).
+     *
+     * @implSpec R-GEN-03
+     */
+    Walk walk(TypeElement root, String path) {
         String[] segments = path.split("\\.", -1);
         DeclaredType owner = (DeclaredType) root.asType();
         boolean property = false;
+        var steps = new ArrayList<Step>();
         for (int i = 0; ; i++) {
             List<DeclaredType> hierarchy = hierarchy(owner);
             property = defaultsToProperty(hierarchy, property);
             EntityAttribute found = attributes(hierarchy, property).get(segments[i]);
             String ownerName = owner.asElement().getSimpleName().toString();
             if (found == null) {
-                return new Resolution(null, "no attribute '" + segments[i] + "' on " + ownerName);
+                return new Walk(steps, "no attribute '" + segments[i] + "' on " + ownerName);
             }
+            steps.add(new Step(ownerName, found));
             if (i == segments.length - 1) {
-                return new Resolution(found, null);
+                return new Walk(steps, null);
             }
-            switch (found.kind()) {
-                case EMBEDDED -> owner = (DeclaredType) found.type();
-                case TO_ONE, COLLECTION -> {
-                    return new Resolution(null, "'" + segments[i] + "' on " + ownerName + " is an association, so '"
-                            + path + "' needs @Join or @FilterColumn");
-                }
-                default -> {
-                    return new Resolution(null, "'" + segments[i] + "' on " + ownerName
-                            + " is not an embedded value, so it has no attribute '" + segments[i + 1] + "'");
-                }
+            if (found.kind() == EntityAttribute.Kind.EMBEDDED) {
+                owner = (DeclaredType) found.type();
+            } else if (found.joinable()) {
+                owner = found.target();
+                // An entity's access type is its own: only an embeddable inherits its owner's.
+                property = false;
+            } else if (found.kind() == EntityAttribute.Kind.BASIC) {
+                return new Walk(steps, "'" + segments[i] + "' on " + ownerName
+                        + " is not an embedded value, so it has no attribute '" + segments[i + 1] + "'");
+            } else {
+                return new Walk(steps, "'" + segments[i] + "' on " + ownerName + " has no entity to join, so '"
+                        + path + "' can't go through it");
             }
         }
+    }
+
+    /** The collection associations of {@code root} itself, in declaration order (R-PROC-13). */
+    List<EntityAttribute> collections(TypeElement root) {
+        List<DeclaredType> hierarchy = hierarchy((DeclaredType) root.asType());
+        return attributes(hierarchy, defaultsToProperty(hierarchy, false)).values().stream()
+                .filter(attribute -> attribute.kind() == EntityAttribute.Kind.COLLECTION && attribute.joinable())
+                .toList();
     }
 
     /** {@code type} and its managed superclasses, topmost first, each with its type arguments applied. */
@@ -149,18 +200,29 @@ final class EntityMetamodel {
     }
 
     private EntityAttribute attribute(String name, TypeMirror type, Element member) {
-        EntityAttribute.Kind kind;
         if (hasAny(member, TO_ONE)) {
-            kind = EntityAttribute.Kind.TO_ONE;
-        } else if (hasAny(member, COLLECTION)) {
-            kind = EntityAttribute.Kind.COLLECTION;
-        } else if (type.getKind() == TypeKind.DECLARED && (hasAny(member, EMBEDDED)
-                || hasAny(((DeclaredType) type).asElement(), List.of(EMBEDDABLE)))) {
-            kind = EntityAttribute.Kind.EMBEDDED;
-        } else {
-            kind = EntityAttribute.Kind.BASIC;
+            return new EntityAttribute(name, type, EntityAttribute.Kind.TO_ONE, entity(type));
         }
-        return new EntityAttribute(name, type, kind);
+        if (hasAny(member, TO_MANY)) {
+            // The element of a Collection<E>, the value of a Map<K, E>.
+            List<? extends TypeMirror> arguments = type.getKind() == TypeKind.DECLARED
+                    ? ((DeclaredType) type).getTypeArguments() : List.of();
+            DeclaredType target = arguments.isEmpty() ? null : entity(arguments.get(arguments.size() - 1));
+            return new EntityAttribute(name, type, EntityAttribute.Kind.COLLECTION, target);
+        }
+        if (hasAny(member, List.of(ELEMENT_COLLECTION))) {
+            return new EntityAttribute(name, type, EntityAttribute.Kind.COLLECTION, null);
+        }
+        boolean embedded = type.getKind() == TypeKind.DECLARED && (hasAny(member, EMBEDDED)
+                || hasAny(((DeclaredType) type).asElement(), List.of(EMBEDDABLE)));
+        return new EntityAttribute(
+                name, type, embedded ? EntityAttribute.Kind.EMBEDDED : EntityAttribute.Kind.BASIC, null);
+    }
+
+    /** {@code type} as the entity an association reaches, or {@code null} when it names no class. */
+    private static DeclaredType entity(TypeMirror type) {
+        return type.getKind() == TypeKind.DECLARED && hasAny(((DeclaredType) type).asElement(), MANAGED)
+                ? (DeclaredType) type : null;
     }
 
     /** The property a getter exposes, or {@code null} when {@code method} is not a getter. */

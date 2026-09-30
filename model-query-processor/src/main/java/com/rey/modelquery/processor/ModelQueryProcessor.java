@@ -32,8 +32,9 @@ public final class ModelQueryProcessor extends AbstractProcessor {
         var types = processingEnv.getTypeUtils();
         var reader = new QueryModelReader(processingEnv.getOptions());
         var nestedModels = new NestedModels(reader);
-        var validator = new ModelValidator(types, new EntityMetamodel(types), nestedModels);
-        var writer = new QModelWriter(types, nestedModels);
+        var metamodel = new EntityMetamodel(types);
+        var validator = new ModelValidator(types, metamodel, nestedModels);
+        var writer = new QModelWriter(types, metamodel, nestedModels);
         for (Element element : roundEnv.getElementsAnnotatedWith(QueryModel.class)) {
             var type = (TypeElement) element;
             if (QueryModelReader.usesLaterFeature(type)) {

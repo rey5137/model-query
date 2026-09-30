@@ -310,7 +310,8 @@ class GenerationTest {
                 @Column(attribute = "customer.name") String customerName,
                 @Column(attribute = "payer.name") String payerName,
                 @Column(attribute = "items.id") Long itemId,
-                @Column(attribute = "related.id") Long relatedId"""));
+                @Column(attribute = "related.id") Long relatedId,
+                @Column(attribute = "customer.nme") String misspelt"""));
 
         assertThat(errors(compilation)).containsExactly(
                 DiagnosticCode.MQ3001.code() + ": OrderRow.customerName: 'customer' on OrderEntity is an association, "
@@ -320,7 +321,10 @@ class GenerationTest {
                 DiagnosticCode.MQ3001.code() + ": OrderRow.itemId: 'items' on OrderEntity is an association, "
                         + "so 'items.id' needs @Join or @FilterColumn",
                 DiagnosticCode.MQ3001.code() + ": OrderRow.relatedId: 'related' on OrderEntity is an association, "
-                        + "so 'related.id' needs @Join or @FilterColumn");
+                        + "so 'related.id' needs @Join or @FilterColumn",
+                // The association is what stops the path, whatever follows it.
+                DiagnosticCode.MQ3001.code() + ": OrderRow.misspelt: 'customer' on OrderEntity is an association, "
+                        + "so 'customer.nme' needs @Join or @FilterColumn");
     }
 
     @Test

@@ -18,6 +18,7 @@ import java.util.Locale;
 import java.util.Optional;
 import javax.annotation.processing.Generated;
 import javax.lang.model.element.Modifier;
+import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Types;
@@ -27,7 +28,7 @@ import javax.lang.model.util.Types;
  * not referenced, so the processor does not depend on {@code model-query-core}.
  *
  * @implSpec R-GEN-04, R-GEN-05, R-GEN-06, R-GEN-09, R-GEN-10, R-GEN-12, R-GEN-13, R-GEN-14, R-GEN-15, R-GEN-24,
- *     R-PROC-07, R-PROC-09
+ *     R-PROC-07, R-PROC-09, R-PROC-10, R-PROC-11, R-PROC-12, R-PROC-13
  */
 final class QModelWriter {
 
@@ -44,10 +45,12 @@ final class QModelWriter {
     private static final Modifier[] CONSTANT = {Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL};
 
     private final Types types;
+    private final EntityMetamodel metamodel;
     private final NestedModels nestedModels;
 
-    QModelWriter(Types types, NestedModels nestedModels) {
+    QModelWriter(Types types, EntityMetamodel metamodel, NestedModels nestedModels) {
         this.types = types;
+        this.metamodel = metamodel;
         this.nestedModels = nestedModels;
     }
 
@@ -74,29 +77,14 @@ final class QModelWriter {
         for (JoinedTable table : joined) {
             type.addField(joinedTable(table));
         }
+        FilterLayout filters = FilterLayout.of(model, joined, metamodel);
+        for (FilterLayout.Table table : filters.tables()) {
+            type.addField(filterTable(table));
+        }
         for (ModelField field : model.columns()) {
-            TypeName column = column(field.type());
-            FieldSpec.Builder constant = FieldSpec.builder(
-                    ParameterizedTypeName.get(COLUMN_FIELD, modelName, entity, column), field.constant(), CONSTANT);
-            ConverterType converter = field.converter() == null ? null : ConverterType.of(types, field.converter());
-            if (column instanceof ParameterizedTypeName
-                    || converter != null && column(converter.attribute()) instanceof ParameterizedTypeName) {
-                constant.addAnnotation(AnnotationSpec.builder(SuppressWarnings.class)
-                        .addMember("value", "$S", "unchecked")
-                        .build());
-            }
-            if (converter == null) {
-                constant.initializer("$T.of($T.class,$WROOT,$W$S,$W$L)",
-                        COLUMN_FIELD, modelName, field.attribute(), classOf(column));
-            } else {
-                // The column carries its converter, so Row.get and a filter both convert (R-PROC-07, D-37).
-                ClassName converterName = ClassName.get(converter.type());
-                constant.initializer("$T.of($T.class,$WROOT,$W$S,$W$L,$W$L,$W$L)", COLUMN_FIELD, modelName,
-                        field.attribute(), classOf(column), classOf(column(converter.attribute())),
-                        converter.hasInstance()
-                                ? CodeBlock.of("$T.INSTANCE", converterName) : CodeBlock.of("new $T()", converterName));
-            }
-            type.addField(constant.build());
+            type.addField(column(
+                    modelName, model.root(), field.constant(), "ROOT", field.attribute(), field.type(),
+                    field.converter()));
         }
         for (JoinedTable table : joined) {
             ClassName nested = generatedName(table.nested());
@@ -107,6 +95,12 @@ final class QModelWriter {
                                 nested, table.inNested(column.constant()), modelName, table.table())
                         .build());
             }
+        }
+        // A filter-only column has no field to map: it is in no ColumnSet and not in map(Row) (R-PROC-10).
+        for (FilterLayout.Column column : filters.columns()) {
+            type.addField(column(
+                    modelName, column.entity(), column.definition().name(), column.table(), column.attribute(),
+                    column.read().type(), column.definition().converter()));
         }
         if (model.columnSets()) {
             TypeName columnSet = ParameterizedTypeName.get(COLUMN_SET, modelName);
@@ -152,6 +146,51 @@ final class QModelWriter {
         return JavaFile.builder(generated.packageName(), type.build())
                 .indent("    ")
                 .skipJavaLangImports(true)
+                .build();
+    }
+
+    /**
+     * A column constant reading {@code attribute} on {@code table}. Its type is {@code type}, or what
+     * {@code converterClass} makes of the attribute when {@code type} is the attribute's own, as a filter column's is.
+     */
+    private FieldSpec column(
+            ClassName modelName, TypeElement entity, String constant, String table, String attribute,
+            TypeMirror type, TypeMirror converterClass) {
+        ConverterType converter = converterClass == null ? null : ConverterType.of(types, converterClass);
+        TypeName column = column(converter == null ? type : converter.model());
+        FieldSpec.Builder field = FieldSpec.builder(
+                ParameterizedTypeName.get(COLUMN_FIELD, modelName, ClassName.get(entity), column), constant, CONSTANT);
+        if (column instanceof ParameterizedTypeName
+                || converter != null && column(converter.attribute()) instanceof ParameterizedTypeName) {
+            field.addAnnotation(AnnotationSpec.builder(SuppressWarnings.class)
+                    .addMember("value", "$S", "unchecked")
+                    .build());
+        }
+        if (converter == null) {
+            return field.initializer("$T.of($T.class,$W$L,$W$S,$W$L)",
+                    COLUMN_FIELD, modelName, table, attribute, classOf(column)).build();
+        }
+        // The column carries its converter, so Row.get and a filter both convert (R-PROC-07, D-37).
+        ClassName converterName = ClassName.get(converter.type());
+        return field.initializer("$T.of($T.class,$W$L,$W$S,$W$L,$W$L,$W$L)", COLUMN_FIELD, modelName, table,
+                attribute, classOf(column), classOf(column(converter.attribute())),
+                converter.hasInstance()
+                        ? CodeBlock.of("$T.INSTANCE", converterName) : CodeBlock.of("new $T()", converterName))
+                .build();
+    }
+
+    /** A join no {@code @Join} declares: of a filter column's path, or of a collection of the root (R-PROC-13). */
+    private static FieldSpec filterTable(FilterLayout.Table table) {
+        ClassName parentEntity = ClassName.get(table.parentEntity());
+        ClassName entity = ClassName.get(table.entity());
+        CodeBlock.Builder initializer = CodeBlock.builder().add("$T.<$T, $T>join($L,$W$S,$W$T.$L)",
+                TABLE_FIELD, parentEntity, entity, table.parent(), table.attribute(), JOIN_TYPE, table.joinType());
+        if (!table.alias().isEmpty()) {
+            initializer.add("$Z.as($S)", table.alias());
+        }
+        return FieldSpec.builder(
+                        ParameterizedTypeName.get(TABLE_FIELD, parentEntity, entity), table.constant(), CONSTANT)
+                .initializer(initializer.build())
                 .build();
     }
 
