@@ -14,12 +14,15 @@ import javax.lang.model.type.TypeMirror;
  * @param generatedName the simple name of the QModel class, in the model's package
  * @param columnSets whether {@code ALL} and {@code DEFAULT} are generated
  * @param fields the model's fields or record components, in declaration order
+ * @param filterColumns the model's {@code @FilterColumn}s, in declaration order
  */
 record ModelDefinition(
-        TypeElement type, TypeElement root, String generatedName, boolean columnSets, List<ModelField> fields) {
+        TypeElement type, TypeElement root, String generatedName, boolean columnSets, List<ModelField> fields,
+        List<FilterColumnDefinition> filterColumns) {
 
     ModelDefinition {
         fields = List.copyOf(fields);
+        filterColumns = List.copyOf(filterColumns);
     }
 
     boolean isRecord() {
@@ -83,4 +86,25 @@ record ModelDefinition(
      * @param nested {@code X} of a field declared {@code Optional<X>}, or {@code null} for any other type
      */
     record JoinDefinition(String attribute, String type, String prefix, String alias, TypeMirror nested) {}
+
+    /**
+     * A {@code @FilterColumn} as written on the model's type.
+     *
+     * @param name the name of the generated column constant
+     * @param path the dotted attribute path from the root entity
+     * @param joinType the JPA join type's name for an association no {@code @Join} joins, {@code LEFT} or
+     *     {@code INNER}
+     * @param explicitJoinType whether {@code joinType} was written, which a path across a collection needs and
+     *     which alone can differ from the type of a {@code @Join} the path reuses
+     * @param alias the alias that puts the path on a join of its own; {@code ""} for none
+     * @param converter the class named by {@code converter}, or {@code null} for none
+     */
+    record FilterColumnDefinition(
+            String name, String path, String joinType, boolean explicitJoinType, String alias, TypeMirror converter) {
+
+        /** The column as a diagnostic names it, after the model's name: {@code @FilterColumn(CUSTOMER_COUNTRY)}. */
+        String label() {
+            return "@FilterColumn(" + name + ")";
+        }
+    }
 }

@@ -2,6 +2,7 @@ package com.rey.modelquery.processor;
 
 import com.rey.modelquery.annotations.QueryModel;
 import com.rey.modelquery.processor.EntityMetamodel.Resolution;
+import com.rey.modelquery.processor.ModelDefinition.FilterColumnDefinition;
 import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
 import java.util.ArrayList;
@@ -12,6 +13,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.lang.model.SourceVersion;
+import javax.lang.model.element.Element;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.ArrayType;
@@ -26,7 +28,7 @@ import javax.lang.model.util.Types;
  * Checks a {@link ModelDefinition} against its entity and against what {@link QModelWriter} can emit. Every check
  * runs whatever the others found, so one compilation reports every independent problem (R-DIAG-03).
  *
- * @implSpec R-GEN-03, R-PROC-07, R-PROC-08, R-DIAG-01, R-DIAG-02, R-DIAG-03
+ * @implSpec R-GEN-03, R-PROC-07, R-PROC-08, R-PROC-10, R-PROC-11, R-PROC-12, R-DIAG-01, R-DIAG-02, R-DIAG-03
  */
 final class ModelValidator {
 
@@ -54,13 +56,21 @@ final class ModelValidator {
         // What each constant is generated for, as a clash names it: a joined column first, so that a field taking its
         // name is the one reported.
         var constants = new HashMap<String, String>();
+        var joined = new ArrayList<JoinedTable>();
         for (ModelField join : model.joins()) {
             String where = model.name() + "." + join.name() + ": ";
             ModelDefinition nested = checkJoin(model, join, where, diagnostics);
             if (nested != null) {
-                claimJoined(nestedModels.tables(model, join, nested), constants, where, diagnostics);
+                List<JoinedTable> tables = nestedModels.tables(model, join, nested);
+                claimJoined(tables, constants, where, diagnostics);
+                joined.addAll(tables);
             }
         }
+        Set<String> ofJoins = Set.copyOf(constants.keySet());
+        // A filter path is laid out over the joins that can be generated: one that failed is reported above.
+        FilterLayout filters = FilterLayout.of(model, joined, metamodel);
+        filters.problems().forEach(problem -> diagnostics.error(model.type(), problem.code(), problem.detail()));
+        claimFilterTables(model, filters, constants, diagnostics);
         for (ModelField field : model.columns()) {
             String where = model.name() + "." + field.name() + ": ";
             checkAttribute(model, field, where, diagnostics);
@@ -76,7 +86,56 @@ final class ModelValidator {
             } else if (earlier != null) {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3015, where + "constant " + field.constant()
                         + " is also generated for " + earlier + "; rename the field"
-                        + (earlier.startsWith("field ") ? "" : " or set @Join(prefix)"));
+                        + (ofJoins.contains(field.constant()) ? " or set @Join(prefix)" : ""));
+            }
+        }
+        for (FilterColumnDefinition column : model.filterColumns()) {
+            String where = model.name() + " " + column.label() + ": ";
+            if (!isSimpleName(column.name())) {
+                diagnostics.error(model.type(), DiagnosticCode.MQ3013, where + "name '" + column.name()
+                        + "' can't be a constant's name; use a Java identifier");
+            } else if (RESERVED.contains(column.name())) {
+                diagnostics.error(model.type(), DiagnosticCode.MQ3013,
+                        where + "name is reserved by the generated class");
+            } else {
+                String earlier = constants.putIfAbsent(column.name(), "another @FilterColumn");
+                if (earlier != null) {
+                    diagnostics.error(model.type(), DiagnosticCode.MQ3013, where + "name already used by " + earlier);
+                }
+            }
+        }
+        for (FilterLayout.Column column : filters.columns()) {
+            if (column.definition().converter() != null) {
+                checkConverter(model, model.type(), column.definition().converter(), null, column.read(),
+                        model.name() + " " + column.definition().label() + ": ", diagnostics);
+            }
+        }
+    }
+
+    /** Whether {@code name} may be written where Java takes a simple name: an identifier that is no keyword. */
+    private static boolean isSimpleName(String name) {
+        return SourceVersion.isIdentifier(name) && !SourceVersion.isKeyword(name);
+    }
+
+    /**
+     * {@code MQ3015} for a join of a filter column, or of a collection of the root, whose constant is already
+     * generated for something else, or whose alias can't start that constant's name.
+     */
+    private static void claimFilterTables(
+            ModelDefinition model, FilterLayout filters, Map<String, String> constants, Diagnostics diagnostics) {
+        for (FilterLayout.Table table : filters.tables()) {
+            String where = model.name() + (table.typedBy() == null ? "" : " @FilterColumn(" + table.typedBy() + ")")
+                    + ": ";
+            if (!table.alias().isEmpty() && !isSimpleName(table.alias())) {
+                diagnostics.error(model.type(), DiagnosticCode.MQ3015, where + "alias '" + table.alias()
+                        + "' can't start the name of its join's constant; use a Java identifier");
+                continue;
+            }
+            String earlier = constants.putIfAbsent(table.constant(), table.description());
+            if (earlier != null) {
+                diagnostics.error(model.type(), DiagnosticCode.MQ3015, where + "constant " + table.constant() + " of "
+                        + table.description() + " is also generated for " + earlier
+                        + "; set another @Join(prefix) or @FilterColumn(alias)");
             }
         }
     }
@@ -100,7 +159,7 @@ final class ModelValidator {
                     where + display(join.nested()) + " is not a @QueryModel");
         }
         boolean joinable = nested != null;
-        if (!SourceVersion.isIdentifier(join.prefix())) {
+        if (!isSimpleName(join.prefix())) {
             // The prefix starts every constant of the join, so it must be one itself.
             diagnostics.error(field.element(), DiagnosticCode.MQ3015, where + "@Join(prefix = \"" + join.prefix()
                     + "\") can't start a constant's name; use a Java identifier such as "
@@ -251,7 +310,8 @@ final class ModelValidator {
             return;
         }
         if (field.converter() != null) {
-            if (!checkConverter(model, field, attribute, where, diagnostics)) {
+            if (!checkConverter(
+                    model, field.element(), field.converter(), field.type(), attribute, where, diagnostics)) {
                 return;
             }
         } else if (!types.isSameType(boxed(field.type()), boxed(attribute.type()))) {
@@ -275,35 +335,37 @@ final class ModelValidator {
     }
 
     /**
-     * {@code MQ3014} unless the field's converter is a {@code ColumnConverter} from the field's type to the
-     * attribute's that the QModel can obtain (R-PROC-07).
+     * {@code MQ3014} unless {@code converterClass} is a {@code ColumnConverter} to the attribute's type that the
+     * QModel can obtain, and one from {@code modelType} when a field holds the value; a filter column has no field,
+     * so it passes {@code null} and takes the converter's model type (R-PROC-07, R-PROC-10).
      */
     private boolean checkConverter(
-            ModelDefinition model, ModelField field, EntityAttribute attribute, String where,
-            Diagnostics diagnostics) {
-        String name = display(field.converter());
-        ConverterType converter = ConverterType.of(types, field.converter());
+            ModelDefinition model, Element element, TypeMirror converterClass, TypeMirror modelType,
+            EntityAttribute attribute, String where, Diagnostics diagnostics) {
+        String name = display(converterClass);
+        ConverterType converter = ConverterType.of(types, converterClass);
         if (converter == null) {
-            diagnostics.error(field.element(), DiagnosticCode.MQ3014, where + name + " is not a ColumnConverter<"
-                    + display(boxed(field.type())) + ", " + display(boxed(attribute.type())) + ">");
+            diagnostics.error(element, DiagnosticCode.MQ3014, where + name + " is not a ColumnConverter<"
+                    + (modelType == null ? "?" : display(boxed(modelType))) + ", "
+                    + display(boxed(attribute.type())) + ">");
             return false;
         }
         boolean fits = true;
         var expected = new ArrayList<String>();
-        if (!types.isSameType(converter.model(), boxed(field.type()))) {
-            expected.add("model type " + display(field.type()));
+        if (modelType != null && !types.isSameType(converter.model(), boxed(modelType))) {
+            expected.add("model type " + display(modelType));
         }
         if (!types.isSameType(converter.attribute(), boxed(attribute.type()))) {
             expected.add("entity attribute type " + display(attribute.type()));
         }
         if (!expected.isEmpty()) {
-            diagnostics.error(field.element(), DiagnosticCode.MQ3014, where + name + " converts "
+            diagnostics.error(element, DiagnosticCode.MQ3014, where + name + " converts "
                     + display(converter.model()) + " to " + display(converter.attribute()) + ", "
                     + String.join(", ", expected));
             fits = false;
         }
         if (!converter.hasInstance() && !converter.hasVisibleConstructor(model.type())) {
-            diagnostics.error(field.element(), DiagnosticCode.MQ3014, where + name
+            diagnostics.error(element, DiagnosticCode.MQ3014, where + name
                     + " needs a public static INSTANCE or a no-arg constructor visible to " + model.generatedName());
             fits = false;
         }

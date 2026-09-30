@@ -1,0 +1,2 @@
+select oe1_0.id,oe1_0.status,oe1_0.referrer_id,r1_0.id,r1_0.name,r1_0.country from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id where r1_0.vip=? order by 1
+select oe1_0.id,oe1_0.status,oe1_0.referrer_id,r1_0.id,r1_0.name,r1_0.country from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id left join customers c1_0 on c1_0.id=oe1_0.customer_id where r1_0.vip=? and c1_0.country=? order by 1

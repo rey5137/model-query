@@ -70,15 +70,21 @@ joins (`api/10` R-COL-03); an `alias` written on the annotation wins (D-45).
 the converter's model type.
 
 **R-PROC-11** Joins are shared: when a path prefix matches a `@Join`, that `TableField` is reused, so filtering and
-selecting the same association never joins it twice. Any other association on the path gets its own generated
-`TableField` (`<PREFIX>_TABLE`) with `joinType`, default `LEFT`.
+selecting the same association never joins it twice; of several `@Join`s on one attribute, a path with no `alias`
+reuses the first declared. Any other association on the path gets its own generated `TableField` (`<PREFIX>_TABLE`)
+with `joinType`, default `LEFT`. A reused join keeps its `@Join`'s type: a `joinType` written on the filter column
+that differs from it is `MQ3012`, and one left out never conflicts (D-46).
 
-**R-PROC-12** `alias` puts the whole path on a separate join. Filter columns sharing an alias share that join. Join
-`ON` conditions cannot be expressed in an annotation, because they are lambdas: declare that `TableField` by hand, or
-use `Filters.exists` with an inner group (`api/12` §7).
+**R-PROC-12** `alias` puts the whole path on a separate join. Filter columns sharing an alias share that join. An
+`alias` equal to the alias of a `@Join` on the path's first association, written or automatic (R-PROC-09), selects
+that `@Join`'s join instead of making another (D-46). Join `ON` conditions cannot be expressed in an annotation,
+because they are lambdas: declare that `TableField` by hand, or use `Filters.exists` with an inner group (`api/12`
+§7).
 
 **R-PROC-13** Every collection association on the root also gets a generated `TableField` constant (`ITEMS_TABLE`), so
-`Filters.exists(QOrderView.ITEMS_TABLE, …)` works with no hand-written join.
+`Filters.exists(QOrderView.ITEMS_TABLE, …)` works with no hand-written join. The constant is always `LEFT`: a filter
+path through the collection with no `alias` reuses it when its `joinType` is `LEFT`, and with `INNER` gets a table of
+its own, `ITEMS_INNER_TABLE` under the alias `itemsInner` (D-46).
 
 **R-PROC-14** A filter-only column may be used in `orderBy`. With keyset paging the engine selects it automatically
 (`engine/21` R-PAG-04).

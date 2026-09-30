@@ -412,6 +412,34 @@ can't be read by a processor, so it is not checked: the mapper assigns the field
 models whose source is a root element of the compilation (it fails the incremental build above).
 → `processor/30` R-PROC-09, `processor/31` R-GEN-04, R-GEN-14, `processor/32` `MQ3003`, `MQ3005`, `MQ3015`.
 
+**D-46 — Which join a `@FilterColumn` path is on, and what the processor generates for it.**
+A path with no `alias` reuses the first-declared `@Join` on its first association and the joins of that `@Join`'s
+nested model below it. An `alias` equal to the alias of a `@Join` on the path's first association, written or
+automatic (R-PROC-09), selects that `@Join` and the joins below it; any other alias is a join of its own, shared by
+the filter columns that carry it. A reused join keeps its `@Join`'s type: a `joinType` written on the filter column
+that differs from the type of any join it reuses is `MQ3012`, naming the filter column, its type, the `@Join` field
+and its type; a `joinType` left out never conflicts. A generated table is `<PATH>_TABLE`
+(`CUSTOMER_COUNTRY_TABLE`); below a reused join it is `<join prefix>_<SEGMENT>_TABLE`; an aliased path takes the
+alias's constant name for its first join (`lineB` → `LINE_B_TABLE`), only that join carries `.as(alias)`, and the
+joins below hang from it (`LINE_B_ORIGIN_TABLE`). `joinType` applies to every join the path generates, so two filter
+columns that share a generated join with different types are `MQ3012`. Every `@OneToMany` or `@ManyToMany` of the
+root declares `<ATTR>_TABLE`, always `LEFT`, which no filter column replaces or retypes: a path with no alias through
+the collection reuses it when its `joinType` is `LEFT`, and with `INNER` is laid out as if it carried the alias
+`<attr>Inner`, so it gets `<ATTR>_INNER_TABLE` with `.as("<attr>Inner")` and the two joins never merge; a filter
+column that writes that alias itself shares the join, and `MQ3012` applies. A field, a `@Join(prefix)` or another
+join that produces the name of one of these constants is `MQ3015`. An `@ElementCollection` gets no table constant,
+and a path through it is `MQ3011`, as is a path through an association inside an embedded value (a generated join
+takes one attribute of its parent) and a path that ends at a collection. A path crossing a collection needs a
+written `joinType` (`MQ3011`). A path that ends at a to-one association is accepted, with no `MQ3016`. A `converter`
+that does not convert to the attribute's type is `MQ3014`. `alias` and `joinType` on a path with no association are
+ignored, with no diagnostic. A filter `name`, a filter `alias` and a `@Join(prefix)` must be a legal Java simple
+name, so a keyword is refused like any other non-identifier: the name by `MQ3013`, the alias and the prefix by
+`MQ3015`. Every filter-column diagnostic is reported on the model's type. An outer model does not re-export the
+filter columns of a model it nests. Rejected: letting a filter column retype the collection's constant (an `INNER`
+`ITEMS_TABLE` changes what every other use of it joins); a warning for a `joinType` that repeats the `@Join`'s type;
+a diagnostic for an unused `alias` on a root attribute.
+→ `processor/30` R-PROC-11, R-PROC-12, R-PROC-13, `processor/32` `MQ3011`, `MQ3012`, `MQ3013`, `MQ3015`.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter

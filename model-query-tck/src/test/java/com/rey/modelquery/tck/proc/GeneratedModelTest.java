@@ -6,6 +6,7 @@ import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
+import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
 import com.rey.modelquery.tck.col.OrderItemEntity;
@@ -72,6 +73,161 @@ class GeneratedModelTest {
             assertThat(order.customer()).isPresent();
             assertThat(order.buyer()).isEqualTo(order.customer());
         });
+    }
+
+    @Test
+    void ac_proc_06_a_filter_path_under_a_join_reuses_it_and_any_other_path_joins_on_its_own() throws SQLException {
+        var selected = QOrderView.query()
+                .columns(QOrderView.ALL.with(QOrderView.REFERRER)).orderBy(QOrderView.ID.asc());
+        List<OrderView> vipReferrer = new ArrayList<>();
+        List<OrderView> german = new ArrayList<>();
+        List<String> sql = SqlSnapshots.assertMatches(DB, "proc-06-filter-column-joins",
+                ds -> withExecutor(ds, OrderEntity.class, executor -> {
+                    vipReferrer.addAll(executor.list(
+                            selected.where(f -> f.eq(QOrderView.REFERRER_VIP, true)).build(), Limit.unlimited()));
+                    german.addAll(executor.list(
+                            selected.where(f -> f.eq(QOrderView.REFERRER_VIP, true)
+                                    .eq(QOrderView.CUSTOMER_COUNTRY, "DE")).build(),
+                            Limit.unlimited()));
+                }));
+
+        // Selecting the referrer and filtering on it is one join; the customer, which no @Join reads, is another.
+        assertThat(sql).hasSize(2);
+        assertThat(sql.get(0).split(" join customers ", -1)).hasSize(2);
+        assertThat(sql.get(1).split(" join customers ", -1)).hasSize(3);
+        assertThat(vipReferrer)
+                .hasSize(count("SELECT COUNT(*) FROM orders o JOIN customers r ON r.id = o.referrer_id WHERE r.vip"))
+                .isNotEmpty()
+                .allSatisfy(order -> assertThat(order.getReferrer()).isPresent());
+        assertThat(german)
+                .hasSize(count("SELECT COUNT(*) FROM orders o JOIN customers r ON r.id = o.referrer_id "
+                        + "JOIN customers c ON c.id = o.customer_id WHERE r.vip AND c.country = 'DE'"))
+                .isNotEmpty();
+    }
+
+    @Test
+    void ac_proc_07_filter_columns_of_one_alias_share_a_join_and_another_alias_joins_again() throws SQLException {
+        var orders = QOrderView.query().columns(QOrderView.ALL).orderBy(QOrderView.ID.asc());
+        List<OrderView> sameLine = new ArrayList<>();
+        List<OrderView> twoLines = new ArrayList<>();
+        List<OrderView> neverOneLine = new ArrayList<>();
+        List<String> sql = SqlSnapshots.assertMatches(DB, "proc-07-filter-column-aliases",
+                ds -> withExecutor(ds, OrderEntity.class, executor -> {
+                    sameLine.addAll(executor.list(
+                            orders.where(f -> f.eq(QOrderView.LINE_CODE, "P007").eq(QOrderView.LINE_QUANTITY, 1))
+                                    .build(),
+                            Limit.unlimited()));
+                    twoLines.addAll(executor.list(
+                            orders.where(f -> f.eq(QOrderView.LINE_QUANTITY, 1).eq(QOrderView.OTHER_QUANTITY, 9))
+                                    .build(),
+                            Limit.unlimited()));
+                    neverOneLine.addAll(executor.list(
+                            orders.where(f -> f.eq(QOrderView.LINE_QUANTITY, 1).eq(QOrderView.LINE_QUANTITY, 9))
+                                    .build(),
+                            Limit.unlimited()));
+                }));
+
+        assertThat(sql).hasSize(3);
+        assertThat(sql.get(0).split(" join order_items ", -1)).hasSize(2);
+        assertThat(sql.get(1).split(" join order_items ", -1)).hasSize(3);
+        assertThat(sql.get(2).split(" join order_items ", -1)).hasSize(2);
+        // One alias is one item: both of its filters hold on the same row.
+        assertThat(sameLine)
+                .hasSize(count("SELECT COUNT(*) FROM order_items WHERE product_code = 'P007' AND quantity = 1"))
+                .isNotEmpty();
+        assertThat(neverOneLine).isEmpty();
+        // Two aliases are two items of the order, which no single item could be.
+        assertThat(twoLines)
+                .hasSize(count("SELECT COUNT(*) FROM order_items a JOIN order_items b ON b.order_id = a.order_id "
+                        + "WHERE a.quantity = 1 AND b.quantity = 9"))
+                .isNotEmpty();
+    }
+
+    @Test
+    void ac_proc_07_an_alias_that_is_a_joins_alias_filters_on_that_join() throws SQLException {
+        var buyers = QOrderBuyers.query()
+                .columns(QOrderBuyers.ALL.with(QOrderBuyers.CUSTOMER).with(QOrderBuyers.BUYER))
+                .where(f -> f.eq(QOrderBuyers.CUSTOMER_VIP, true).eq(QOrderBuyers.BUYER_VIP, true))
+                .orderBy(QOrderBuyers.ID.asc())
+                .build();
+        List<OrderBuyers> found = new ArrayList<>();
+        List<String> sql = SqlSnapshots.assertMatches(DB, "proc-07-filter-alias-selects-a-join",
+                ds -> withExecutor(ds, OrderEntity.class,
+                        executor -> found.addAll(executor.list(buyers, Limit.unlimited()))));
+
+        // The two @Joins and nothing more: each filter is on the join its alias names, the first for none.
+        assertThat(sql).singleElement().satisfies(
+                statement -> assertThat(statement.split(" join customers ", -1)).hasSize(3));
+        assertThat(found)
+                .hasSize(count("SELECT COUNT(*) FROM orders o JOIN customers c ON c.id = o.customer_id WHERE c.vip"))
+                .isNotEmpty();
+    }
+
+    @Test
+    void ac_proc_08_an_inner_filter_through_a_root_collection_leaves_its_table_left() throws SQLException {
+        var orders = QOrderView.query().columns(QOrderView.ALL).orderBy(QOrderView.ID.asc());
+        List<OrderView> onTheTable = new ArrayList<>();
+        List<OrderView> onItsOwnJoin = new ArrayList<>();
+        List<OrderView> onBoth = new ArrayList<>();
+        List<String> sql = SqlSnapshots.assertMatches(DB, "proc-08-inner-filter-beside-the-collection-table",
+                ds -> withExecutor(ds, OrderEntity.class, executor -> {
+                    onTheTable.addAll(executor.list(
+                            orders.where(f -> f.eq(QOrderView.ITEM_CODE, "P007")).build(), Limit.unlimited()));
+                    onItsOwnJoin.addAll(executor.list(
+                            orders.where(f -> f.eq(QOrderView.ITEM_QUANTITY, 1)).build(), Limit.unlimited()));
+                    onBoth.addAll(executor.list(
+                            orders.where(f -> f.eq(QOrderView.ITEM_CODE, "P007").eq(QOrderView.ITEM_QUANTITY, 9))
+                                    .build(),
+                            Limit.unlimited()));
+                }));
+
+        assertThat(sql).hasSize(3);
+        // ITEMS_TABLE is LEFT whatever a filter column asks for; the INNER path is another join, never merged.
+        assertThat(sql.get(0)).contains(" left join order_items ");
+        assertThat(sql.get(1)).contains(" join order_items ").doesNotContain(" left join ");
+        assertThat(sql.get(2)).contains(" left join order_items ");
+        assertThat(sql.get(2).split(" join order_items ", -1)).hasSize(3);
+        assertThat(onTheTable)
+                .hasSize(count("SELECT COUNT(*) FROM order_items WHERE product_code = 'P007'"))
+                .isNotEmpty();
+        assertThat(onItsOwnJoin)
+                .hasSize(count("SELECT COUNT(*) FROM order_items WHERE quantity = 1"))
+                .isNotEmpty();
+        assertThat(onBoth)
+                .hasSize(count("SELECT COUNT(*) FROM order_items a JOIN order_items b ON b.order_id = a.order_id "
+                        + "WHERE a.product_code = 'P007' AND b.quantity = 9"))
+                .isNotEmpty();
+    }
+
+    @Test
+    void ac_proc_08_the_generated_table_of_a_root_collection_is_usable_in_exists() throws SQLException {
+        var withItem = QOrderView.query()
+                .columns(QOrderView.ALL)
+                .where(f -> f.exists(QOrderView.ITEMS_TABLE, item -> item.eq(QOrderView.ITEM_CODE, "P007")))
+                .orderBy(QOrderView.ID.asc())
+                .build();
+        // A model that declares nothing for the collection still has its table.
+        var withOrders = QCustomerView.query()
+                .columns(QCustomerView.ALL)
+                .where(f -> f.exists(QCustomerView.ORDERS_TABLE))
+                .orderBy(QCustomerView.ID.asc())
+                .build();
+        List<OrderView> orders = new ArrayList<>();
+        List<CustomerView> customers = new ArrayList<>();
+        List<String> sql = SqlSnapshots.assertMatches(DB, "proc-08-exists-on-a-root-collection", ds -> {
+            withExecutor(ds, OrderEntity.class, executor -> orders.addAll(executor.list(withItem, Limit.unlimited())));
+            withExecutor(ds, CustomerEntity.class,
+                    executor -> customers.addAll(executor.list(withOrders, Limit.unlimited())));
+        });
+
+        assertThat(sql).hasSize(2)
+                .allSatisfy(statement -> assertThat(statement).contains("exists(").doesNotContain(" join "));
+        assertThat(orders)
+                .hasSize(count("SELECT COUNT(DISTINCT order_id) FROM order_items WHERE product_code = 'P007'"))
+                .isNotEmpty();
+        assertThat(customers)
+                .hasSize(count("SELECT COUNT(DISTINCT customer_id) FROM orders"))
+                .isNotEmpty();
     }
 
     @Test
