@@ -466,6 +466,15 @@ on a join the user gave no alias names the join by its path (`join 'lines' is IN
 generated `<attr>Inner` alias, which the user did not write.
 → `processor/32` R-DIAG-05, AC-DIAG-01, AC-DIAG-05.
 
+**D-49 — A grouped record model's key can't be primitive.**
+`MQ3009` exempts a primitive `@PrimaryKey` record component because an ungrouped query always selects the key. A
+grouped query doesn't (the key is selected like any other column, and only when it is a group key), so on
+a record with `@Aggregate` or `@GroupBy` fields a primitive `@PrimaryKey` is `MQ3009` as well: the generated
+constructor call would unbox `null`. A `@Join` to a summary model reports `MQ3005` alone, not `MQ3006` for the key a
+summary model never needs; an `@Aggregate` on a `@Join` field reports `MQ3204` alone, not `MQ3015` for the join's own
+prefix.
+→ `processor/32` `MQ3005`, `MQ3009`, `MQ3204`.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter

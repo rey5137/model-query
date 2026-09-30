@@ -210,6 +210,20 @@ class AggregateModelTest {
     }
 
     @Test
+    void ac_diag_01_mq3009_a_primitive_key_on_a_grouped_record_is_rejected() {
+        Compilation compilation = compileSummary("""
+                @QueryModel(root = SaleEntity.class)
+                public record SalesSummary(
+                        @PrimaryKey long id,
+                        @GroupBy String region,
+                        @Aggregate(fn = AggregateFunction.COUNT) Long lines) {}
+                """);
+
+        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3009,
+                "SalesSummary.id: primitive components can't be null when not selected; use Long"));
+    }
+
+    @Test
     void ac_diag_01_group_by_on_a_join_is_mq3204() {
         Compilation compilation = compileSummary("""
                 @QueryModel(root = SaleEntity.class)
