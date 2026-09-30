@@ -9,10 +9,14 @@ import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.MysqlStreamingMode;
+import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.jpa.spi.VendorProfile;
+import com.rey.modelquery.jpa.vendor.VendorResolver;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
 import com.rey.modelquery.tck.col.OrderItemEntity;
@@ -22,6 +26,7 @@ import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.harness.TckVendor;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
 import jakarta.persistence.QueryTimeoutException;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Root;
@@ -30,17 +35,20 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 import javax.sql.DataSource;
 import org.hibernate.Session;
 import org.hibernate.SessionFactory;
 
 /**
  * Streaming and the query timeout through the executor (engine/20 R-EXE-08, R-EXE-09; vendor/41 R-PRF-03..07,
- * R-PRF-07). The streaming tests prove the driver streams from what the connection does while the result is still
- * open, not from a heap measurement, which a garbage collection would make flaky. This package may name a vendor
- * (R-VND-04).
+ * R-PRF-07; api/11 R-QRY-15). The streaming tests prove the driver streams from what the connection does while the
+ * result is still open, not from a heap measurement, which a garbage collection would make flaky. This package may
+ * name a vendor (R-VND-04).
  */
 class StreamingAndTimeoutTest {
 
@@ -183,6 +191,74 @@ class StreamingAndTimeoutTest {
                 // 20 000 rows at the fetch size of 500 take 40 COM_STMT_FETCH round trips; a buffered one takes none.
                 assertThat(statusCounter(db, "Com_stmt_fetch") - before).isGreaterThanOrEqualTo(39);
             }
+        }
+    }
+
+    @TckTest
+    void ac_qry_14_stream_hands_the_configs_fetch_size_to_the_profile(TckDatabase db) {
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
+            VendorProfile resolved = VendorResolver.resolve(sf, Optional.empty(), MysqlStreamingMode.ROW_BY_ROW)
+                    .profile();
+            // A supplied profile serves the vendor ahead of the built-in one, so it sees what stream asks for (D-53).
+            assertThat(streamedFetchSizes(sf, resolved, ModelQueryConfig.defaults())).containsExactly(500);
+            assertThat(streamedFetchSizes(sf, resolved, ModelQueryConfig.defaults().streamFetchSize(250)))
+                    .containsExactly(250);
+        }
+    }
+
+    /** The fetch sizes {@code stream} hands a profile recording for {@code resolved}, supplied on {@code config}. */
+    private static List<Integer> streamedFetchSizes(SessionFactory sf, VendorProfile resolved,
+            ModelQueryConfig config) {
+        var recording = new RecordingProfile(resolved, new ArrayList<>());
+        ModelQueryConfig supplied = config.vendorProfiles(List.of(recording));
+        long rows = sf.fromTransaction(em -> ModelQueryExecutor.create(em, OrderEntity.class, supplied)
+                .stream(ITEM_ROWS, Limit.of(100), Stream::count));
+        assertThat(rows).isEqualTo(100);
+        return recording.fetchSizes();
+    }
+
+    /** {@code delegate} with the fetch size of every {@code applyStreaming} call recorded. */
+    private record RecordingProfile(VendorProfile delegate, List<Integer> fetchSizes) implements VendorProfile {
+
+        @Override
+        public DatabaseVendor vendor() {
+            return delegate.vendor();
+        }
+
+        @Override
+        public int maxInListSize() {
+            return delegate.maxInListSize();
+        }
+
+        @Override
+        public int maxBindParameters() {
+            return delegate.maxBindParameters();
+        }
+
+        @Override
+        public void applyStreaming(Query query, int fetchSize) {
+            fetchSizes.add(fetchSize);
+            delegate.applyStreaming(query, fetchSize);
+        }
+
+        @Override
+        public void checkStreamingPreconditions(EntityManager em) {
+            delegate.checkStreamingPreconditions(em);
+        }
+
+        @Override
+        public void applyTimeout(Query query, Duration timeout) {
+            delegate.applyTimeout(query, timeout);
+        }
+
+        @Override
+        public NullOrdering defaultAscendingNullOrdering() {
+            return delegate.defaultAscendingNullOrdering();
+        }
+
+        @Override
+        public boolean targetTableInSubquery() {
+            return delegate.targetTableInSubquery();
         }
     }
 

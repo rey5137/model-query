@@ -4,17 +4,22 @@ import com.rey.modelquery.core.Incubating;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.jpa.spi.VendorProfile;
 import java.time.Duration;
+import java.util.Collection;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 
 /**
- * The settings of a {@code ModelQueryExecutor}; later milestones add the remaining paging defaults here (R-SPR-08).
+ * The settings of a {@code ModelQueryExecutor}, each the plain-JPA equivalent of a Spring property (R-SPR-08).
  * Immutable: each setter returns a new configuration. One explicit vendor applies to every
  * {@code EntityManagerFactory} the configuration is used with (D-34).
  *
- * @implSpec R-QRY-10, R-VND-04, R-PAG-07, R-EXE-11, R-PRF-07, R-PAG-05
+ * @implSpec R-QRY-10, R-VND-04, R-PAG-07, R-EXE-11, R-PRF-07, R-PAG-05, R-QRY-15, R-VND-03, R-SPR-08
  */
 @Incubating
 public final class ModelQueryConfig {
@@ -22,27 +27,41 @@ public final class ModelQueryConfig {
     /** No batch size set: step 2 reads the whole page, within the profile's clamp (D-32). */
     private static final int WHOLE_PAGE = 0;
 
-    private static final ModelQueryConfig DEFAULTS =
-            new ModelQueryConfig(null, WHOLE_PAGE, null, MysqlStreamingMode.ROW_BY_ROW, KeysetNullKeys.FAIL);
+    private static final int DEFAULT_EXPORT_PAGE_SIZE = 1_000;
+
+    private static final int DEFAULT_STREAM_FETCH_SIZE = 500;
+
+    private static final ModelQueryConfig DEFAULTS = new ModelQueryConfig(null, WHOLE_PAGE, null,
+            MysqlStreamingMode.ROW_BY_ROW, KeysetNullKeys.FAIL, DEFAULT_EXPORT_PAGE_SIZE, DEFAULT_STREAM_FETCH_SIZE,
+            List.of());
 
     private final DatabaseVendor vendor;
     private final int primaryKeyFirstBatchSize;
     private final Duration queryTimeout;
     private final MysqlStreamingMode mysqlStreamingMode;
     private final KeysetNullKeys keysetNullKeys;
+    private final int exportPageSize;
+    private final int streamFetchSize;
+    /** The supplied profiles, at most one per vendor, in the order given. */
+    private final List<VendorProfile> vendorProfiles;
 
     private ModelQueryConfig(DatabaseVendor vendor, int primaryKeyFirstBatchSize, Duration queryTimeout,
-            MysqlStreamingMode mysqlStreamingMode, KeysetNullKeys keysetNullKeys) {
+            MysqlStreamingMode mysqlStreamingMode, KeysetNullKeys keysetNullKeys, int exportPageSize,
+            int streamFetchSize, List<VendorProfile> vendorProfiles) {
         this.vendor = vendor;
         this.primaryKeyFirstBatchSize = primaryKeyFirstBatchSize;
         this.queryTimeout = queryTimeout;
         this.mysqlStreamingMode = mysqlStreamingMode;
         this.keysetNullKeys = keysetNullKeys;
+        this.exportPageSize = exportPageSize;
+        this.streamFetchSize = streamFetchSize;
+        this.vendorProfiles = vendorProfiles;
     }
 
     /**
      * The configuration with every setting at its default: the vendor is detected, step 2 reads the whole page, no
-     * query timeout, MySQL streams row by row, a NULL keyset key without explicit precedence fails.
+     * query timeout, MySQL streams row by row, a NULL keyset key without explicit precedence fails, an export reads
+     * pages of 1000 rows, a stream fetches 500 rows at a time, and no profile is supplied.
      */
     public static ModelQueryConfig defaults() {
         return DEFAULTS;
@@ -51,7 +70,7 @@ public final class ModelQueryConfig {
     /** This configuration with the database vendor set explicitly, which skips detection entirely (R-VND-04). */
     public ModelQueryConfig vendor(DatabaseVendor vendor) {
         return new ModelQueryConfig(Objects.requireNonNull(vendor, "vendor"), primaryKeyFirstBatchSize, queryTimeout,
-                mysqlStreamingMode, keysetNullKeys);
+                mysqlStreamingMode, keysetNullKeys, exportPageSize, streamFetchSize, vendorProfiles);
     }
 
     /** The explicitly configured vendor, or empty when it is detected per {@code EntityManagerFactory}. */
@@ -70,7 +89,8 @@ public final class ModelQueryConfig {
             throw new ModelQueryConfigurationException(MqCode.MQ4003,
                     "primaryKeyFirstBatchSize " + batchSize + " is below one");
         }
-        return new ModelQueryConfig(vendor, batchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys);
+        return new ModelQueryConfig(vendor, batchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
+                exportPageSize, streamFetchSize, vendorProfiles);
     }
 
     /** The configured step-2 batch size, or empty when step 2 reads the whole page within the profile's clamp. */
@@ -89,7 +109,8 @@ public final class ModelQueryConfig {
         if (timeout.isNegative() || timeout.isZero()) {
             throw new ModelQueryConfigurationException(MqCode.MQ4003, "queryTimeout " + timeout + " is not positive");
         }
-        return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, timeout, mysqlStreamingMode, keysetNullKeys);
+        return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, timeout, mysqlStreamingMode, keysetNullKeys,
+                exportPageSize, streamFetchSize, vendorProfiles);
     }
 
     /** The configured query timeout, or empty when statements run without one. */
@@ -103,7 +124,7 @@ public final class ModelQueryConfig {
      */
     public ModelQueryConfig mysqlStreamingMode(MysqlStreamingMode mode) {
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout,
-                Objects.requireNonNull(mode, "mode"), keysetNullKeys);
+                Objects.requireNonNull(mode, "mode"), keysetNullKeys, exportPageSize, streamFetchSize, vendorProfiles);
     }
 
     /** The configured MySQL streaming mode, {@link MysqlStreamingMode#ROW_BY_ROW} unless set. */
@@ -117,11 +138,76 @@ public final class ModelQueryConfig {
      */
     public ModelQueryConfig keysetNullKeys(KeysetNullKeys nullKeys) {
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode,
-                Objects.requireNonNull(nullKeys, "nullKeys"));
+                Objects.requireNonNull(nullKeys, "nullKeys"), exportPageSize, streamFetchSize, vendorProfiles);
     }
 
     /** The configured keyset NULL handling, {@link KeysetNullKeys#FAIL} unless set. */
     public KeysetNullKeys keysetNullKeys() {
         return keysetNullKeys;
+    }
+
+    /**
+     * This configuration with the page size of an {@code export} whose {@code ExportOptions} leave it open, as
+     * {@code ExportOptions.defaults()} does ({@code modelquery.export.page-size}, R-QRY-15).
+     *
+     * @throws ModelQueryConfigurationException {@code MQ4003} when {@code pageSize} is below one
+     */
+    public ModelQueryConfig exportPageSize(int pageSize) {
+        if (pageSize < 1) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4003, "exportPageSize " + pageSize + " is below one");
+        }
+        return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
+                pageSize, streamFetchSize, vendorProfiles);
+    }
+
+    /** The page size of an export whose options leave it open, 1000 unless set. */
+    public int exportPageSize() {
+        return exportPageSize;
+    }
+
+    /**
+     * This configuration with the fetch size {@code stream} hands the profile, which MySQL row by row ignores
+     * ({@code modelquery.stream.fetch-size}, R-QRY-15, R-PRF-07).
+     *
+     * @throws ModelQueryConfigurationException {@code MQ4003} when {@code fetchSize} is below one
+     */
+    public ModelQueryConfig streamFetchSize(int fetchSize) {
+        if (fetchSize < 1) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4003, "streamFetchSize " + fetchSize + " is below one");
+        }
+        return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
+                exportPageSize, fetchSize, vendorProfiles);
+    }
+
+    /** The fetch size of {@code stream}, 500 unless set. */
+    public int streamFetchSize() {
+        return streamFetchSize;
+    }
+
+    /**
+     * This configuration with {@code profiles} in place of any supplied before. A supplied profile serves its vendor
+     * ahead of a {@code ServiceLoader} one, which serves it ahead of the built-in one; it decides its own streaming,
+     * whatever the MySQL streaming mode (R-VND-03, D-53).
+     *
+     * @throws ModelQueryConfigurationException {@code MQ4002} when two of {@code profiles} serve one vendor
+     */
+    public ModelQueryConfig vendorProfiles(Collection<? extends VendorProfile> profiles) {
+        List<VendorProfile> supplied = List.copyOf(Objects.requireNonNull(profiles, "profiles"));
+        Map<DatabaseVendor, VendorProfile> byVendor = new EnumMap<>(DatabaseVendor.class);
+        for (VendorProfile profile : supplied) {
+            VendorProfile other = byVendor.putIfAbsent(Objects.requireNonNull(profile.vendor(), "vendor"), profile);
+            if (other != null) {
+                throw new ModelQueryConfigurationException(MqCode.MQ4002, "VendorProfile for " + profile.vendor()
+                        + ": both " + other.getClass().getName() + " and " + profile.getClass().getName()
+                        + " are supplied on ModelQueryConfig.vendorProfiles(...); supply one");
+            }
+        }
+        return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
+                exportPageSize, streamFetchSize, supplied);
+    }
+
+    /** The supplied profiles, at most one per vendor, in the order given; empty unless set. */
+    public List<VendorProfile> vendorProfiles() {
+        return vendorProfiles;
     }
 }

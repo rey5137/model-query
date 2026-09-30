@@ -81,22 +81,22 @@ public interface ModelQueryExecutor<E> {
     <M, R> R stream(ModelQuery<E, ?, M> q, Limit limit, Function<Stream<M>, R> body);
 
     /**
-     * Visits every row of {@code q} exactly once, one page of {@code options.pageSize()} rows at a time, 1000 when the
-     * options leave the size open (R-QRY-15), with memory bounded by one page (INV-4). Offset pages are read in a
-     * stable order, the primary key appended to the query's order (R-PAG-01). A row whose key the previous page or the
-     * same page already held is dropped: with a stable order a row can repeat only across a page boundary, or within a
-     * page through a to-many join used only by predicates (R-PAG-02). A {@code keyset()} query reads each page after
-     * the last row of the one before, its order closed by the primary key in the direction of its last order column
-     * (R-PAG-04); it drops a key repeated within a page, and throws on a key of the page before, which only a cursor
-     * value that does not compare equal once bound, or a row whose keyset value moved after the cursor, can bring back
-     * (R-PAG-14); a {@code Float} or {@code Double} keyset column is refused at build (R-QRY-13). A NULL in a keyset
-     * column needs an explicit {@code nullsFirst()} or {@code nullsLast()} (R-PAG-05). An offset page past the {@code
-     * primaryKeyFirst(...)} threshold reads its primary keys first, then only the rows of keys not already exported
-     * (R-PAG-07). A grouped query visits every group exactly once, offset-paged in an order closed by its group keys,
-     * and dedupes on the group-key tuple; it needs no primary key and ignores one (R-PAG-11, R-PAG-12, R-AGG-09). Each
-     * page's remaining models go whole to {@code pageTransformer}, and its items one at a time to {@code sink} until
-     * {@code options.limit()} is reached; neither is called for an empty page (R-PAG-09). {@code Limit.of(0)} exports
-     * nothing without querying.
+     * Visits every row of {@code q} exactly once, one page of {@code options.pageSize()} rows at a time, {@code
+     * ModelQueryConfig.exportPageSize()} when the options leave the size open (R-QRY-15), with memory bounded by one
+     * page (INV-4). Offset pages are read in a stable order, the primary key appended to the query's order (R-PAG-01).
+     * A row whose key the previous page or the same page already held is dropped: with a stable order a row can repeat
+     * only across a page boundary, or within a page through a to-many join used only by predicates (R-PAG-02). A {@code
+     * keyset()} query reads each page after the last row of the one before, its order closed by the primary key in the
+     * direction of its last order column (R-PAG-04); it drops a key repeated within a page, and throws on a key of the
+     * page before, which only a cursor value that does not compare equal once bound, or a row whose keyset value moved
+     * after the cursor, can bring back (R-PAG-14); a {@code Float} or {@code Double} keyset column is refused at build
+     * (R-QRY-13). A NULL in a keyset column needs an explicit {@code nullsFirst()} or {@code nullsLast()} (R-PAG-05).
+     * An offset page past the {@code primaryKeyFirst(...)} threshold reads its primary keys first, then only the rows
+     * of keys not already exported (R-PAG-07). A grouped query visits every group exactly once, offset-paged in an
+     * order closed by its group keys, and dedupes on the group-key tuple; it needs no primary key and ignores one
+     * (R-PAG-11, R-PAG-12, R-AGG-09). Each page's remaining models go whole to {@code pageTransformer}, and its items
+     * one at a time to {@code sink} until {@code options.limit()} is reached; neither is called for an empty page
+     * (R-PAG-09). {@code Limit.of(0)} exports nothing without querying.
      *
      * @param pageTransformer receives each page's models, to batch the caller's own lookups; returns the items to sink
      * @param sink receives the items one at a time

@@ -73,12 +73,6 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private static final Set<ModelQuery<?, ?, ?>> PHASES_CHECKED =
             Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
 
-    /** The page size of an {@code export} whose options leave it open (R-QRY-15). */
-    private static final int EXPORT_PAGE_SIZE = 1_000;
-
-    /** The fetch size {@code stream} asks the profile for: the conservative {@code OTHER} value (R-VND-06). */
-    private static final int STREAM_FETCH_SIZE = 500;
-
     private final EntityManager em;
     private final Class<E> rootEntity;
     /** The profile and provider support of {@code em}'s factory, resolved once per factory (R-VND-02). */
@@ -91,6 +85,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private final Optional<Duration> queryTimeout;
     /** What keyset paging does with a NULL key ordered with {@code DEFAULT} precedence (R-PAG-05). */
     private final KeysetNullKeys keysetNullKeys;
+    /** The configured page size of an {@code export} whose options leave it open (R-QRY-15). */
+    private final int exportPageSize;
+    /** The configured fetch size {@code stream} hands the profile (R-QRY-15). */
+    private final int streamFetchSize;
     /**
      * Where the provider is configured to sort the NULLs of a bare order in both directions, or empty for the
      * database's default (R-PAG-05, D-36).
@@ -101,8 +99,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         this.em = Objects.requireNonNull(em, "em");
         this.rootEntity = Objects.requireNonNull(rootEntity, "rootEntity");
         Objects.requireNonNull(config, "config");
-        this.vendor = VendorResolver.resolve(em.getEntityManagerFactory(), config.vendor(),
-                config.mysqlStreamingMode());
+        this.vendor = VendorResolver.withSupplied(VendorResolver.resolve(em.getEntityManagerFactory(),
+                config.vendor(), config.mysqlStreamingMode()), config.vendorProfiles());
         VendorProfile profile = vendor.profile();
         this.providerNulls = vendor.providerSupport()
                 .flatMap(support -> support.defaultNullPrecedence(em.getEntityManagerFactory()));
@@ -114,6 +112,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         this.primaryKeyFirstBatchSize = config.primaryKeyFirstBatchSize();
         this.queryTimeout = config.queryTimeout();
         this.keysetNullKeys = config.keysetNullKeys();
+        this.exportPageSize = config.exportPageSize();
+        this.streamFetchSize = config.streamFetchSize();
     }
 
     @Override
@@ -141,10 +141,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
         TypedQuery<Tuple> query = limited(built, limit);
-        // Precondition first, so a refusal runs no statement; the fetch size is one constant, which only the profiles
-        // that stream by cursor read (R-EXE-08).
+        // Precondition first, so a refusal runs no statement; the configured fetch size is read only by the profiles
+        // that stream by cursor (R-EXE-08, R-QRY-15).
         vendor.profile().checkStreamingPreconditions(em);
-        vendor.profile().applyStreaming(query, STREAM_FETCH_SIZE);
+        vendor.profile().applyStreaming(query, streamFetchSize);
         // Rows are mapped one at a time as body pulls them; closing the mapped stream closes the result stream under
         // it, whether body returns, stops early or throws (R-EXE-07, R-EXE-09).
         try (Stream<Tuple> tuples = query.getResultStream(); Stream<M> models = tuples.map(built::map)) {
@@ -222,7 +222,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(sink, "sink");
         checkPhasesOnce(q);
         long limit = options.limit().maxRows().isPresent() ? options.limit().maxRows().getAsInt() : Long.MAX_VALUE;
-        int pageSize = options.pageSize().orElse(EXPORT_PAGE_SIZE);
+        int pageSize = options.pageSize().orElse(exportPageSize);
         if (q.isGrouped()) {
             // A group has no row identity, so its group keys order and dedupe the pages in place of a primary key,
             // which a grouped query never has; keyset() and primaryKeyFirst(...) were refused at build (MQ1402), so

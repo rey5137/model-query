@@ -503,7 +503,9 @@ definition's `orderBy`. → `api/11` R-QRY-14, `integration/50` R-SPR-04, R-SPR-
 ones; the starter passes its `VendorProfile` beans there, so `jpa` never sees Spring (INV-7) and a plain-JPA caller
 has the same hook (INV-8). The supplied profiles are applied after the per-factory cached detection, not added to its
 key. `exportPageSize` (1000) and `streamFetchSize` (500) join the config; `ExportOptions`' page size becomes optional
-so a call can leave it to the config, a breaking change to an `@Incubating` record.
+so a call can leave it to the config, a breaking change to an `@Incubating` record. The setter is
+`vendorProfiles(Collection<? extends VendorProfile>)`: a later call replaces the earlier set, and two profiles for one
+vendor throw `MQ4002` at the call. A supplied `OTHER` profile also serves a vendor that fell back to `OTHER`.
 → `vendor/40` R-VND-03, `api/11` R-QRY-15, `integration/50` R-SPR-08.
 
 **D-54 — One config, one executor per repository, the repository's own transaction manager.**

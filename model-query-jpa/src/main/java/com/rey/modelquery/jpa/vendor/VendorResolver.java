@@ -12,6 +12,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Collections;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -181,6 +182,33 @@ public final class VendorResolver {
         }
         return BuiltInProfile.of(vendor, mode)
                 .orElseGet(() -> discovered.getOrDefault(DatabaseVendor.OTHER, BuiltInProfile.OTHER));
+    }
+
+    /**
+     * {@code resolved} with the profile supplied on {@code ModelQueryConfig.vendorProfiles(...)} for its vendor, which
+     * wins over a discovered and a built-in one; when none serves the vendor and it fell back to {@code OTHER}'s
+     * profile, a supplied {@code OTHER} one serves it instead. Applied after the cached resolution and not part of its
+     * key, so the factory is detected and logged once whatever is supplied (R-VND-03, R-VND-06, D-53).
+     *
+     * @param supplied at most one profile per vendor, as {@code ModelQueryConfig} holds them
+     */
+    public static ResolvedVendor withSupplied(ResolvedVendor resolved, List<VendorProfile> supplied) {
+        Objects.requireNonNull(resolved, "resolved");
+        Objects.requireNonNull(supplied, "supplied");
+        DatabaseVendor vendor = resolved.detectedVendor();
+        boolean fellBack = resolved.profile().vendor() != vendor;
+        VendorProfile chosen = null;
+        for (VendorProfile profile : supplied) {
+            if (profile.vendor() == vendor) {
+                chosen = profile;
+                break;
+            }
+            if (fellBack && profile.vendor() == DatabaseVendor.OTHER) {
+                chosen = profile;
+            }
+        }
+        return chosen == null ? resolved : new ResolvedVendor(chosen, resolved.providerSupport().orElse(null), vendor,
+                resolved.source(), resolved.detail());
     }
 
     private static ResolvedVendor resolved(Map<DatabaseVendor, VendorProfile> profiles, MysqlStreamingMode mode,

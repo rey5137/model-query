@@ -50,7 +50,9 @@ import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.Test;
 
-/** Offset {@code export}: stable order, page-boundary dedupe, the primary-key check, the to-many refusal (engine/21). */
+/**
+ * Offset {@code export}: stable order, page-boundary dedupe, the primary-key check, the to-many refusal (engine/21).
+ */
 class OffsetExportTest {
 
     record ItemRow(Long id, String product) {}
@@ -125,6 +127,31 @@ class OffsetExportTest {
         assertThat(sql.get(0)).matches(".* order by \\S+ desc,\\S+ (?!desc).*");
         assertThat(customizerRuns.get(0)).isGreaterThan(customizerRuns.get(1));
         assertThat(customizerRuns.subList(1, 3)).containsExactly(1, 1);
+    }
+
+    // ---- AC-QRY-14
+
+    @TckTest
+    void ac_qry_14_default_export_options_read_pages_of_the_configs_export_page_size(TckDatabase db) {
+        var byId = ITEM_ROWS.build();
+        // 20 000 items: 20 pages of the default 1000, 5 of a configured 4000; a size on the options wins over both.
+        assertThat(exportedPageSizes(db, ModelQueryConfig.defaults(), byId, ExportOptions.defaults()))
+                .hasSize(20).containsOnly(1_000);
+        ModelQueryConfig config = ModelQueryConfig.defaults().exportPageSize(4_000);
+        assertThat(exportedPageSizes(db, config, byId, ExportOptions.defaults())).hasSize(5).containsOnly(4_000);
+        assertThat(exportedPageSizes(db, config, byId, ExportOptions.of(5_000))).hasSize(4).containsOnly(5_000);
+    }
+
+    private static List<Integer> exportedPageSizes(TckDatabase db, ModelQueryConfig config,
+            ModelQuery<OrderItemEntity, ?, ItemRow> q, ExportOptions options) {
+        List<Integer> pageSizes = new ArrayList<>();
+        List<Long> ids = new ArrayList<>();
+        withExecutor(db, OrderItemEntity.class, config, executor -> assertThat(executor.export(q, options, page -> {
+            pageSizes.add(page.size());
+            return page;
+        }, row -> ids.add(row.id()))).isEqualTo(TckFixture.ORDER_ITEMS));
+        assertEveryItemOnce(ids);
+        return pageSizes;
     }
 
     // ---- AC-PAG-01
@@ -504,7 +531,12 @@ class OffsetExportTest {
     }
 
     private static <E> void withExecutor(TckDatabase db, Class<E> root, Consumer<ModelQueryExecutor<E>> work) {
-        inSession(db, em -> work.accept(ModelQueryExecutor.create(em, root, ModelQueryConfig.defaults())));
+        withExecutor(db, root, ModelQueryConfig.defaults(), work);
+    }
+
+    private static <E> void withExecutor(TckDatabase db, Class<E> root, ModelQueryConfig config,
+            Consumer<ModelQueryExecutor<E>> work) {
+        inSession(db, em -> work.accept(ModelQueryExecutor.create(em, root, config)));
     }
 
     private static <E> void withExecutor(DataSource ds, Class<E> root, Consumer<ModelQueryExecutor<E>> work) {
