@@ -33,7 +33,8 @@ public record SortSpec(List<Key> keys) {
     /**
      * One ordering key: a property, a direction and a null precedence. Immutable.
      *
-     * @param property a selected column's attribute path from the root ({@code customer.name}), or its name; exact and
+     * @param property a selected column's property path, the model field names from the root model
+     *     ({@code customer.name}), else its attribute path from the root, or an aggregate's name; exact and
      *     case-sensitive
      * @param ascending {@code true} for ascending
      * @param nulls where NULLs sort

@@ -492,7 +492,9 @@ the mode through without branching. It returns `ModelPage<M>`, a Spring Data `Sl
 and `Integer getTotalPages()`, both `null` under `NO_COUNT`. Spring Data's `Page` was rejected as the return type:
 its `getTotalElements()` is a primitive `long`, so an unknown total must either throw, which breaks serialising the
 result, or be a number that reads as a total (INV-5). Keyset paging is not exposed through the repository;
-`Pageable.unpaged()` is `MQ2001`. → `integration/50` R-SPR-04, R-SPR-07.
+`Pageable.unpaged()` is `MQ2001`. `ModelPage` is a public interface, like `Page`, whose `map` keeps the totals; a page
+count beyond `int` throws `ArithmeticException` rather than wrapping, which needs over two billion pages.
+→ `integration/50` R-SPR-04, R-SPR-07.
 
 **D-52 — A per-call sort is a `core` feature over the selected columns.**
 `SortSpec` and `ModelQuery.orderedBy(SortSpec)` live in `core`, so plain JPA has what `Sort` gives Spring (INV-8). A

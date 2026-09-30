@@ -151,9 +151,10 @@ class ModelQueryRepositoryTest {
 
     /**
      * Runs {@code viaExecutor} on the plain-JPA executor and {@code viaRepository} on the repository, each over its
-     * own captured DataSource, and asserts both ran the same, non-empty SQL and gave the same result (R-SPR-01).
+     * own captured DataSource, asserts both ran the same, non-empty SQL and gave the same result (R-SPR-01), and
+     * returns that result.
      */
-    private static <X> void assertSameAsExecutor(TckDatabase db,
+    static <X> X assertSameAsExecutor(TckDatabase db,
             Function<ModelQueryExecutor<OrderEntity>, X> viaExecutor, Function<OrderRepository, X> viaRepository) {
         AtomicReference<X> expected = new AtomicReference<>();
         List<String> executorSql = SqlSnapshots.capture(db, ds -> {
@@ -169,6 +170,7 @@ class ModelQueryRepositoryTest {
 
         assertThat(repositorySql).isNotEmpty().isEqualTo(executorSql);
         assertThat(actual.get()).isEqualTo(expected.get());
+        return actual.get();
     }
 
     private static List<Long> exported(Function<List<Long>, Long> export) {
@@ -179,12 +181,12 @@ class ModelQueryRepositoryTest {
     }
 
     @FunctionalInterface
-    private interface RepositoryWork<X> {
+    interface RepositoryWork<X> {
         X run(OrderRepository repository, AnnotationConfigApplicationContext context);
     }
 
     /** Starts a Spring context of {@code configuration} over {@code dataSource}, runs {@code work}, and closes it. */
-    private static <X> X withRepository(DataSource dataSource, Class<?> configuration, RepositoryWork<X> work) {
+    static <X> X withRepository(DataSource dataSource, Class<?> configuration, RepositoryWork<X> work) {
         try (var context = new AnnotationConfigApplicationContext()) {
             context.registerBean("dataSource", DataSource.class, () -> dataSource);
             context.register(configuration);
