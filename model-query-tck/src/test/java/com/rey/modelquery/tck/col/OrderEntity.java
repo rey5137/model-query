@@ -1,7 +1,9 @@
 package com.rey.modelquery.tck.col;
 
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -41,8 +43,18 @@ public class OrderEntity {
     @JoinColumn(name = "referrer_id")
     CustomerEntity referrer;
 
+    // The referrer's key as a plain, nullable value: NULL on a row that a join to the order still matches.
+    @Column(name = "referrer_id", insertable = false, updatable = false)
+    Long referrerId;
+
     @OneToMany(mappedBy = "order")
     List<OrderItemEntity> items;
+
+    // A collection of basic values, for resolving paths only: no table is behind it, so it is never queried.
+    @ElementCollection
+    @CollectionTable(name = "order_tags", joinColumns = @JoinColumn(name = "order_id"))
+    @Column(name = "tag")
+    List<String> tags;
 
     // Columns mapped above, read again through embedded values (R-COL-08, D-41).
     @Embedded

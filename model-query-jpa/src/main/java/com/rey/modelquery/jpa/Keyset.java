@@ -97,7 +97,7 @@ final class Keyset<M> {
     }
 
     /**
-     * The row's keyset values, read from the {@code Row} (R-COL-11).
+     * The row's keyset values, read from the {@code Row} as attribute values, before any converter (R-COL-11).
      *
      * @throws ModelQueryExecutionException {@code MQ2202} when a column without explicit null precedence is NULL,
      *     unless it pages its NULLs by the database's known default (R-PAG-05)
@@ -107,7 +107,7 @@ final class Keyset<M> {
         for (int i = 0; i < values.length; i++) {
             Key<M> key = keys.get(i);
             OrderField<M, ?> order = key.order();
-            values[i] = row.get(order.column());
+            values[i] = row.raw(order.column());
             if (values[i] == null && key.refuseNull()) {
                 throw new ModelQueryExecutionException(MqCode.MQ2202, query + ": keyset column "
                         + order.column().name() + " is null in an exported row"

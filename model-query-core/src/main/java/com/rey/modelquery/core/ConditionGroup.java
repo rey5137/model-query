@@ -110,7 +110,7 @@ abstract class ConditionGroup<M, G> {
     // ---- equality and comparison
 
     final <C> G eq(SelectField<M, C> column, C value) {
-        C v = required(column, "eq", value);
+        C v = bound(column, required(column, "eq", value));
         return record(ctx -> Optional.of(ctx.cb().equal(column.expression(ctx), v)));
     }
 
@@ -119,7 +119,7 @@ abstract class ConditionGroup<M, G> {
     }
 
     final <C> G ne(SelectField<M, C> column, C value) {
-        C v = required(column, "ne", value);
+        C v = bound(column, required(column, "ne", value));
         return record(ctx -> {
             CriteriaBuilder cb = ctx.cb();
             Expression<C> expression = column.expression(ctx);
@@ -134,7 +134,7 @@ abstract class ConditionGroup<M, G> {
     }
 
     final <C extends Comparable<? super C>> G gt(SelectField<M, C> column, C value) {
-        C v = required(column, "gt", value);
+        C v = bound(column, required(column, "gt", value), Comparable.class, "gt");
         return record(ctx -> Optional.of(ctx.cb().greaterThan(column.expression(ctx), v)));
     }
 
@@ -143,7 +143,7 @@ abstract class ConditionGroup<M, G> {
     }
 
     final <C extends Comparable<? super C>> G gte(SelectField<M, C> column, C value) {
-        C v = required(column, "gte", value);
+        C v = bound(column, required(column, "gte", value), Comparable.class, "gte");
         return record(ctx -> Optional.of(ctx.cb().greaterThanOrEqualTo(column.expression(ctx), v)));
     }
 
@@ -152,7 +152,7 @@ abstract class ConditionGroup<M, G> {
     }
 
     final <C extends Comparable<? super C>> G lt(SelectField<M, C> column, C value) {
-        C v = required(column, "lt", value);
+        C v = bound(column, required(column, "lt", value), Comparable.class, "lt");
         return record(ctx -> Optional.of(ctx.cb().lessThan(column.expression(ctx), v)));
     }
 
@@ -161,7 +161,7 @@ abstract class ConditionGroup<M, G> {
     }
 
     final <C extends Comparable<? super C>> G lte(SelectField<M, C> column, C value) {
-        C v = required(column, "lte", value);
+        C v = bound(column, required(column, "lte", value), Comparable.class, "lte");
         return record(ctx -> Optional.of(ctx.cb().lessThanOrEqualTo(column.expression(ctx), v)));
     }
 
@@ -175,8 +175,8 @@ abstract class ConditionGroup<M, G> {
     }
 
     final <C extends Comparable<? super C>> G between(SelectField<M, C> column, C fromInclusive, C toInclusive) {
-        C from = required(column, "between", fromInclusive);
-        C to = required(column, "between", toInclusive);
+        C from = bound(column, required(column, "between", fromInclusive), Comparable.class, "between");
+        C to = bound(column, required(column, "between", toInclusive), Comparable.class, "between");
         return record(ctx -> Optional.of(ctx.cb().between(column.expression(ctx), from, to)));
     }
 
@@ -194,8 +194,10 @@ abstract class ConditionGroup<M, G> {
     private <C extends Comparable<? super C>> G bounds(
             SelectField<M, C> column, Optional<? extends C> from, Optional<? extends C> to, boolean toInclusive) {
         guard(column, "column");
-        C lower = Objects.requireNonNull(from, "fromInclusive").orElse(null);
-        C upper = Objects.requireNonNull(to, toInclusive ? "toInclusive" : "toExclusive").orElse(null);
+        requireAttribute(column, Comparable.class, "between");
+        C lower = boundOrNull(column, Objects.requireNonNull(from, "fromInclusive").orElse(null));
+        C upper = boundOrNull(column,
+                Objects.requireNonNull(to, toInclusive ? "toInclusive" : "toExclusive").orElse(null));
         if (lower == null && upper == null) {
             return self();
         }
@@ -255,7 +257,7 @@ abstract class ConditionGroup<M, G> {
     // ---- strings
 
     final G like(SelectField<M, String> column, String value, LikeMode mode) {
-        String pattern = pattern(required(column, "like", value), Objects.requireNonNull(mode, "mode"));
+        String pattern = pattern(bound(column, required(column, "like", value), String.class, "like"), Objects.requireNonNull(mode, "mode"));
         return record(ctx -> Optional.of(like(ctx.cb(), column.expression(ctx), pattern, mode)));
     }
 
@@ -271,7 +273,7 @@ abstract class ConditionGroup<M, G> {
 
     final G likeIgnoreCase(SelectField<M, String> column, String value, LikeMode mode) {
         Objects.requireNonNull(mode, "mode");
-        String pattern = lower(pattern(required(column, "likeIgnoreCase", value), mode));
+        String pattern = lower(pattern(bound(column, required(column, "likeIgnoreCase", value), String.class, "likeIgnoreCase"), mode));
         return record(ctx -> Optional.of(like(ctx.cb(), ctx.cb().lower(column.expression(ctx)), pattern, mode)));
     }
 
@@ -281,7 +283,7 @@ abstract class ConditionGroup<M, G> {
     }
 
     final G eqIgnoreCase(SelectField<M, String> column, String value) {
-        String v = lower(required(column, "eqIgnoreCase", value));
+        String v = lower(bound(column, required(column, "eqIgnoreCase", value), String.class, "eqIgnoreCase"));
         return record(ctx -> {
             CriteriaBuilder cb = ctx.cb();
             return Optional.of(cb.equal(cb.lower(column.expression(ctx)), v));
@@ -318,6 +320,13 @@ abstract class ConditionGroup<M, G> {
         guard(left, "left");
         Objects.requireNonNull(op, "op");
         guard(right, "right");
+        if ((converted(left) != null || converted(right) != null) && attributeType(left) != attributeType(right)) {
+            // The database compares attribute values, and no converter can be applied to a column (R-COL-14).
+            throw new ModelQueryDefinitionException(MqCode.MQ1001, String.format(
+                    "%s %s %s: the columns read attributes of type %s and %s, which a converter makes look alike; "
+                            + "compare columns of one attribute type", left, op, right,
+                    attributeType(left).getSimpleName(), attributeType(right).getSimpleName()));
+        }
         return record(ctx -> {
             CriteriaBuilder cb = ctx.cb();
             // Raw: the ordering operators need a Comparable bound that compare's signature leaves open (api/12 §1).
@@ -451,15 +460,64 @@ abstract class ConditionGroup<M, G> {
         return value;
     }
 
-    /** An immutable copy of {@code values}; the collection or any element being {@code null} throws MQ1301. */
-    private <C> List<C> elements(SelectField<M, ?> column, String operator, Collection<? extends C> values) {
-        for (C value : required(column, operator, values)) {
+    /**
+     * An immutable copy of {@code values}, each as the column binds it; the collection or any element being
+     * {@code null} throws MQ1301.
+     */
+    private <C> List<C> elements(SelectField<M, C> column, String operator, Collection<? extends C> values) {
+        var copy = new ArrayList<C>(required(column, operator, values).size());
+        for (C value : values) {
             if (value == null) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1301, column + ": " + operator
                         + "(...) received a null element; NULL is matched with isNull(...)");
             }
+            copy.add(bound(column, value));
         }
-        return List.copyOf(values);
+        return List.copyOf(copy);
+    }
+
+    /**
+     * The value a filter on {@code column} binds for {@code value}: the attribute value for a column with a
+     * {@link ColumnConverter}, converted once when the filter is recorded, else {@code value} itself (R-COL-14).
+     */
+    @SuppressWarnings("unchecked")
+    private static <C> C bound(SelectField<?, C> column, C value) {
+        // A converted column's path is of the attribute's type although typed by the model's (D-37), and the bound
+        // value is typed the same way, so the two still meet in one Criteria call.
+        return column instanceof ColumnField<?, ?, C> field ? (C) field.toAttribute(value) : value;
+    }
+
+    /** {@link #bound(SelectField, Object)} for an operator that needs the attribute to be a {@code needed}. */
+    private static <C> C bound(SelectField<?, C> column, C value, Class<?> needed, String operator) {
+        requireAttribute(column, needed, operator);
+        return bound(column, value);
+    }
+
+    /**
+     * Refuses {@code operator} on a converted column whose attribute is not a {@code needed}: the database applies
+     * the operator to attribute values, whatever the model's type is (R-COL-14).
+     */
+    private static void requireAttribute(SelectField<?, ?> column, Class<?> needed, String operator) {
+        ColumnField<?, ?, ?> field = converted(column);
+        if (field != null && !needed.isAssignableFrom(field.attributeType())) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1001, String.format(
+                    "%s: %s(...) needs a %s attribute, and the column's converter %s reads one of type %s",
+                    column, operator, needed.getSimpleName(), field.converterClass().getSimpleName(),
+                    field.attributeType().getSimpleName()));
+        }
+    }
+
+    /** {@code column} as a {@link ColumnField} with a {@link ColumnConverter}, or {@code null}. */
+    private static ColumnField<?, ?, ?> converted(SelectField<?, ?> column) {
+        return column instanceof ColumnField<?, ?, ?> field && field.isConverted() ? field : null;
+    }
+
+    private static Class<?> attributeType(SelectField<?, ?> column) {
+        return column instanceof ColumnField<?, ?, ?> field ? field.attributeType() : column.type();
+    }
+
+    private static <C> C boundOrNull(SelectField<?, C> column, C value) {
+        return value == null ? null : bound(column, value);
     }
 
     /**

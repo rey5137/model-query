@@ -12,6 +12,10 @@ import java.util.function.BiFunction;
  * (R-AGG-03): {@code count} is a {@code Long}, {@code avg} a {@code Double}, and {@code sum} over a 32-bit column
  * goes through {@link #sumAsLong}. Selecting an aggregate makes the query grouped (R-AGG-07).
  *
+ * <p>Every function over a column throws {@code MQ1408} for a column that has a {@link ColumnConverter}: the database
+ * aggregates attribute values, which the converter cannot be applied to. {@link #of} aggregates such an attribute
+ * (R-AGG-04).
+ *
  * @implSpec api/13 §1, R-AGG-03
  */
 @Incubating
@@ -107,7 +111,7 @@ public final class Agg {
      */
     private static <T extends ColumnField<?, ?, ?>> T summable(T column, List<Class<?>> types, String function,
             String instead) {
-        Objects.requireNonNull(column, "column");
+        unconverted(Objects.requireNonNull(column, "column"));
         if (!types.contains(column.type())) {
             throw new ModelQueryDefinitionException(MqCode.MQ1403, String.format(
                     "%s: Agg.%s does not take column type %s, only %s; %s", column, function,
@@ -118,6 +122,17 @@ public final class Agg {
 
     private static <M, C> AggregateField<M, C> over(AggregateField.Kind kind, ColumnField<M, ?, ?> column,
             Class<C> type, BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
+        unconverted(column);
         return new AggregateField<>(kind, column.table().key(), column.name(), "", type, expression);
+    }
+
+    /** Refuses a converted column with {@code MQ1408}, before any check of its type (R-AGG-04). */
+    private static void unconverted(ColumnField<?, ?, ?> column) {
+        if (column.isConverted()) {
+            // The database aggregates attribute values, which the converter cannot be applied to.
+            throw new ModelQueryDefinitionException(MqCode.MQ1408, column + ": an aggregate function does not take "
+                    + "a column that has a ColumnConverter, since the database computes over attribute values; "
+                    + "aggregate the attribute with Agg.of");
+        }
     }
 }

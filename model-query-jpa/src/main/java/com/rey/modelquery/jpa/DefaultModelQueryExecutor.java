@@ -557,7 +557,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * The row's primary key, read from the {@code Row} so it works for any model (R-PAG-03): the value of a
-     * single-column key, the list of values of a composite one.
+     * single-column key, the list of values of a composite one. Each is the attribute's value, before any converter,
+     * so two keys a converter maps to one model value stay two keys (R-COL-11).
      *
      * @throws ModelQueryExecutionException {@code MQ2201} when a key column is {@code null}
      */
@@ -565,7 +566,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         List<ColumnField<M, ?, ?>> columns = key.columns();
         Object[] values = new Object[columns.size()];
         for (int i = 0; i < values.length; i++) {
-            values[i] = row.get(columns.get(i));
+            values[i] = row.raw(columns.get(i));
             if (values[i] == null) {
                 // A null key cannot tell this row from another, so the boundary dedupe could drop or keep it wrongly,
                 // and step 2 of primary-key-first paging could not read the row back.
@@ -585,7 +586,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         List<ColumnField<M, ?, ?>> groupBy = q.groupBy();
         Object[] values = new Object[groupBy.size()];
         for (int i = 0; i < values.length; i++) {
-            values[i] = row.get(groupBy.get(i));
+            values[i] = row.raw(groupBy.get(i));
         }
         return Arrays.asList(values);
     }

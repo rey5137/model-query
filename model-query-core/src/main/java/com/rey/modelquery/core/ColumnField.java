@@ -9,6 +9,7 @@ import jakarta.persistence.metamodel.Attribute;
 import jakarta.persistence.metamodel.ManagedType;
 import jakarta.persistence.metamodel.PluralAttribute;
 import jakarta.persistence.metamodel.SingularAttribute;
+import jakarta.persistence.metamodel.Type;
 import java.util.Map;
 import java.util.Objects;
 
@@ -16,12 +17,16 @@ import java.util.Objects;
  * One column of a model: an entity attribute on a {@link TableField}, with the Java type it is read as. Immutable, so a
  * constant serves any number of concurrent queries (INV-9). A column need not map to a model field (R-COL-07).
  *
- * <p>Two columns are equal when they have the same model, table join key, attribute and type (CC-IMM-04).
+ * <p>A column built with a {@link ColumnConverter} has the model's type as its {@link #type()} and reads an attribute
+ * of another type: a {@link Row} converts what it read, and a value filter binds the converted value (R-COL-14).
+ *
+ * <p>Two columns are equal when they have the same model, table join key, attribute and type, and converters of the
+ * same class or none (CC-IMM-04).
  *
  * @param <M> the model the column belongs to
  * @param <T> the entity type of the table the column sits on
  * @param <C> the column's Java type
- * @implSpec R-COL-07, R-COL-08
+ * @implSpec R-COL-07, R-COL-08, R-COL-14
  */
 @Incubating
 public final class ColumnField<M, T, C> implements SelectField<M, C> {
@@ -41,15 +46,22 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
     private final TableField<?, T> table;
     private final String attribute;
     private final Class<C> type;
+    /** The entity attribute's type: {@link #type} itself unless the column has a converter. */
+    private final Class<?> attributeType;
+    /** Converts between {@link #type} and {@link #attributeType}, or {@code null}. */
+    private final ColumnConverter<C, Object> converter;
     /** Cached: a row looks every column up by it, once per row (R-COL-10). */
     private final int hash;
 
-    private ColumnField(Class<M> model, TableField<?, T> table, String attribute, Class<C> type) {
+    private ColumnField(Class<M> model, TableField<?, T> table, String attribute, Class<C> type,
+            Class<?> attributeType, ColumnConverter<C, Object> converter) {
         this.model = model;
         this.table = table;
         this.attribute = attribute;
         this.type = type;
-        this.hash = Objects.hash(model, table.key(), attribute, type);
+        this.attributeType = attributeType;
+        this.converter = converter;
+        this.hash = Objects.hash(model, table.key(), attribute, type, converterClass());
     }
 
     /**
@@ -61,20 +73,45 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
     @SuppressWarnings("unchecked")
     public static <M, T, C> ColumnField<M, T, C> of(
             Class<M> model, TableField<?, T> table, String attribute, Class<C> type) {
+        // Sound: int.class is a Class<Integer>, so its wrapper is still a Class<C>.
+        Class<C> boxed = (Class<C>) boxed(Objects.requireNonNull(type, "type"));
         return new ColumnField<>(
                 Objects.requireNonNull(model, "model"),
                 Objects.requireNonNull(table, "table"),
                 Objects.requireNonNull(attribute, "attribute"),
-                // Sound: int.class is a Class<Integer>, so its wrapper is still a Class<C>.
-                (Class<C>) boxed(Objects.requireNonNull(type, "type")));
+                boxed, boxed, null);
     }
 
     /**
-     * Resolves the column's path, joining its table through {@code ctx}.
+     * A converted column of {@code model}: it reads {@code attribute}, of type {@code attributeType}, on
+     * {@code table}, and its {@link #type()} is the model's {@code type}. A {@link Row} returns
+     * {@code converter.toModel} of a non-null value read, a value filter binds {@code converter.toAttribute} of its
+     * value, and {@link Row#raw} returns the attribute value as read (R-COL-14). An aggregate function does not take
+     * a converted column ({@code MQ1408}).
+     */
+    @SuppressWarnings("unchecked")
+    public static <M, T, C, F> ColumnField<M, T, C> of(
+            Class<M> model, TableField<?, T> table, String attribute, Class<C> type, Class<F> attributeType,
+            ColumnConverter<C, F> converter) {
+        return new ColumnField<>(
+                Objects.requireNonNull(model, "model"),
+                Objects.requireNonNull(table, "table"),
+                Objects.requireNonNull(attribute, "attribute"),
+                (Class<C>) boxed(Objects.requireNonNull(type, "type")),
+                boxed(Objects.requireNonNull(attributeType, "attributeType")),
+                // Sound: the converter is only given values checked to be of attributeType.
+                (ColumnConverter<C, Object>) Objects.requireNonNull(converter, "converter"));
+    }
+
+    /**
+     * Resolves the column's path, joining its table through {@code ctx}. On a converted column it is the attribute's
+     * path, of the attribute's type although typed as {@code Path<C>}: a custom predicate on it compares attribute
+     * values (D-37).
      *
      * @throws ModelQueryDefinitionException {@code MQ1001} when the entity attribute's type does not match
-     *     {@link #type()} (INV-3), {@code MQ1002} when the entity has no such attribute or a segment of a dotted
-     *     attribute crosses an association, {@code MQ1003} when the column sits on a root the query is not rooted at
+     *     {@link #type()}, or the attribute type of a converted column (INV-3), {@code MQ1002} when the entity has
+     *     no such attribute or a segment of a dotted attribute crosses an association, {@code MQ1003} when the column
+     *     sits on a root the query is not rooted at
      */
     public Path<C> path(JoinContext ctx) {
         From<?, T> from = table.resolve(Objects.requireNonNull(ctx, "ctx"), this);
@@ -91,10 +128,14 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
             }
         }
         Class<?> actual = path.getJavaType();
-        if (actual == null || boxed(actual) != type) {
+        if (actual == null || boxed(actual) != attributeType) {
             throw new ModelQueryDefinitionException(MqCode.MQ1001, String.format(
                     "%s.%s: declared %s, entity attribute %s.%s is %s",
-                    model.getSimpleName(), attribute, type.getSimpleName(), from.getJavaType().getSimpleName(),
+                    model.getSimpleName(), attribute,
+                    converter == null ? type.getSimpleName()
+                            : "attribute type " + attributeType.getSimpleName() + " for "
+                                    + converter.getClass().getSimpleName(),
+                    from.getJavaType().getSimpleName(),
                     attribute, actual == null ? "of unknown type" : actual.getSimpleName()));
         }
         return path;
@@ -109,6 +150,12 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
     private Path<C> embeddedPath(From<?, T> from) {
         String[] segments = attribute.split("\\.", -1);
         ManagedType<?> owner = managedType(from);
+        if (owner == null) {
+            // A join over a collection of basic values: its elements have no attribute to walk into.
+            throw new ModelQueryDefinitionException(MqCode.MQ1002, String.format(
+                    "%s.%s: %s is a basic value, so it has no attribute '%s'",
+                    model.getSimpleName(), attribute, from.getJavaType().getSimpleName(), segments[0]));
+        }
         Path<?> path = from;
         for (int i = 0; i < segments.length; i++) {
             String segment = segments[i];
@@ -142,20 +189,38 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
         return (Path<C>) path;
     }
 
-    /** The managed type {@code from} ranges over: the root's entity, or the type a join's attribute leads to. */
+    /**
+     * The managed type {@code from} ranges over: the root's entity, or the type a join's attribute leads to;
+     * {@code null} for a join over a collection of basic values.
+     */
     private static ManagedType<?> managedType(From<?, ?> from) {
         if (from instanceof Join<?, ?> join) {
             Attribute<?, ?> joined = join.getAttribute();
-            return (ManagedType<?>) (joined instanceof PluralAttribute<?, ?, ?> plural
+            Type<?> target = joined instanceof PluralAttribute<?, ?, ?> plural
                     ? plural.getElementType()
-                    : ((SingularAttribute<?, ?>) joined).getType());
+                    : ((SingularAttribute<?, ?>) joined).getType();
+            return target instanceof ManagedType<?> managed ? managed : null;
         }
         return ((Root<?>) from).getModel();
     }
 
-    /** The same attribute and type as a column of {@code model} on {@code table}, for re-rooting under a join. */
+    /**
+     * The same attribute, type and converter as a column of {@code model} on {@code table}, for re-rooting under a
+     * join.
+     */
     public <M2> ColumnField<M2, T, C> withTable(Class<M2> model, TableField<?, T> table) {
-        return of(model, table, attribute, type);
+        return new ColumnField<>(Objects.requireNonNull(model, "model"), Objects.requireNonNull(table, "table"),
+                attribute, type, attributeType, converter);
+    }
+
+    /**
+     * This column as a column of {@code model} under {@code join}: its table's root is replaced by {@code join}, the
+     * way a nested model's column sits in an outer model (D-38).
+     */
+    @SuppressWarnings("unchecked")
+    <M2> ColumnField<M2, ?, ?> under(Class<M2> model, TableField<?, ?> join) {
+        // Sound: re-rooting keeps the entity each node reaches.
+        return withTable(model, (TableField<?, T>) table.under(join));
     }
 
     @Override
@@ -183,6 +248,35 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
         return table;
     }
 
+    /** The entity attribute's type: {@link #type()} unless the column has a {@link ColumnConverter}. */
+    Class<?> attributeType() {
+        return attributeType;
+    }
+
+    /** Whether the column has a {@link ColumnConverter}. */
+    boolean isConverted() {
+        return converter != null;
+    }
+
+    /** The converter's class, which two equal columns share, or {@code null} without a converter (R-COL-14). */
+    Class<?> converterClass() {
+        return converter == null ? null : converter.getClass();
+    }
+
+    /** The model value of {@code raw}, a value read from this column's path; {@code null} stays {@code null}. */
+    C toModel(Object raw) {
+        if (raw == null) {
+            return null;
+        }
+        return type.cast(converter == null ? raw : converter.toModel(attributeType.cast(raw)));
+    }
+
+    /** The value a filter binds for {@code value}, which is not {@code null}: the attribute value when converted. */
+    Object toAttribute(C value) {
+        return converter == null ? value : Objects.requireNonNull(converter.toAttribute(value),
+                () -> this + ": " + converter.getClass().getSimpleName() + ".toAttribute returned null");
+    }
+
     static Class<?> boxed(Class<?> type) {
         return WRAPPERS.getOrDefault(type, type);
     }
@@ -193,7 +287,8 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
                 && model.equals(other.model)
                 && table.key().equals(other.table.key())
                 && attribute.equals(other.attribute)
-                && type.equals(other.type);
+                && type.equals(other.type)
+                && Objects.equals(converterClass(), other.converterClass());
     }
 
     @Override

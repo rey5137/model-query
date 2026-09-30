@@ -357,6 +357,24 @@ an association throws `MQ1002` too, since that needs a `TableField` (R-COL-01). 
 `@Embedded` or `@EmbeddedId` value generates (R-PROC-06, R-GEN-02). Rejected: a `TableField` per embeddable (an
 embeddable is not a join, and would enter the join key). → `api/10` R-COL-08, `processor/30` R-PROC-06.
 
+**D-42 — A converted column keeps attribute values wherever the database or the engine compares.**
+A value filter converts its value once, when the filter is recorded, and a converter returning `null` there is a
+`NullPointerException` naming the column. Keys, keyset cursors and group keys are read with `Row.raw`, so `MQ1206` and
+`MQ1207` check the attribute type, not the model type. `MQ1408` covers every column function, `countDistinct`
+included, and is checked before `MQ1403`. An operator the database cannot apply to the attribute throws `MQ1001` when
+the filter is recorded: `like`, `likeIgnoreCase` and `eqIgnoreCase` on an attribute that is not a `String`, an ordering
+operator on one that is not `Comparable`, and `compare` between two columns whose attribute types differ. Two columns
+are equal, and a scoped `Row` matches them, only when their converters are of the same class or both absent.
+Rejected: a new code for the operator mismatch (it is the declared-type mismatch `MQ1001` already names). →
+`api/10` R-COL-14, D-37.
+
+**D-43 — A presence key is selected for `ColumnSet` columns only, by the `presentBy` instance.**
+Only a column of the query's `ColumnSet` brings in the presence keys of the joins it is read through; an order-only
+or primary-key column does not, since no nested model is mapped from it. The keys are appended last in the selection.
+The key is found on the column's own `TableField`: a join with an equal key built without `presentBy` selects none,
+because the presence key is not part of the join's identity. Generated code declares each join once, so it always
+carries it. → `api/10` R-COL-15, D-38.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter
