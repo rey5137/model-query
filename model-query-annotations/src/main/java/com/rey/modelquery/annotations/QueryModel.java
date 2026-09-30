@@ -15,7 +15,7 @@ import java.lang.annotation.Target;
 public @interface QueryModel {
 
     /**
-     * The root JPA entity the model is read from.
+     * The root JPA entity the model is read from. It may be in the same compilation or on the classpath.
      *
      * @return the root entity class
      */
@@ -29,9 +29,25 @@ public @interface QueryModel {
     boolean generateColumnSets() default true;
 
     /**
-     * Prefix of the generated class name.
+     * Prefix of the generated class name. The {@code -Amodelquery.prefix=} processor option sets it for a whole
+     * compilation.
      *
      * @return the class name prefix
      */
     String prefix() default "Q";
+
+    /**
+     * Suffix of the generated class name. The {@code -Amodelquery.suffix=} processor option sets it for a whole
+     * compilation.
+     *
+     * @return the class name suffix
+     */
+    String suffix() default "";
+
+    /**
+     * Marks a model that has {@link Aggregate} fields and deliberately no {@link GroupBy} field: a whole-table total.
+     *
+     * @return {@code true} when the model is one group over the whole table
+     */
+    boolean singleGroup() default false;
 }

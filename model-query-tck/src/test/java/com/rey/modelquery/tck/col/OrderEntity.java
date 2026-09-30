@@ -2,6 +2,7 @@ package com.rey.modelquery.tck.col;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
@@ -42,4 +43,8 @@ public class OrderEntity {
 
     @OneToMany(mappedBy = "order")
     List<OrderItemEntity> items;
+
+    // Columns mapped above, read again through embedded values (R-COL-08, D-41).
+    @Embedded
+    OrderSummary summary;
 }

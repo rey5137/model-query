@@ -16,7 +16,8 @@ public final class TableField<P, T> {
     public static <P, T> TableField<P, T> join(TableField<?, P> parent, String attribute, JoinType type);
     public TableField<P, T> as(String alias);                              // a separate join to the same path
     public TableField<P, T> on(BiFunction<From<?, T>, CriteriaBuilder, Predicate> condition);   // requires as(...)
-    public TableField<P, T> withParent(TableField<?, P> newParent);        // keeps alias and ON condition
+    public TableField<P, T> withParent(TableField<?, P> newParent);        // keeps alias, ON condition and presence key
+    public TableField<P, T> presentBy(PrimaryKey<?, ?> key);               // the key that tells a match from a miss
     public From<?, T> resolve(JoinContext ctx);                            // for custom predicates and customizers
 }
 ```
@@ -29,6 +30,11 @@ be used by any number of concurrent queries. A context carries the build's `Rend
 **R-COL-02** `JoinContext` caches joins by **join key** — the parent's join key, the attribute, the `JoinType` and the
 alias (empty by default) — never by object identity. Two separate `TableField.join(ROOT, "customer", LEFT)` calls
 therefore produce one join.
+
+**R-COL-15** **A join may carry a presence key.** `presentBy(key)` names the primary key whose non-null value means
+the join matched a row. It is kept by `as`, `on` and `withParent`, is not part of the join key, and throws `MQ1104` on a
+root. The engine selects it with any column of the join (`api/11` R-QRY-04), and a nested model's mapper reads it to
+tell a LEFT-join miss from a match whose other columns are `NULL` (`processor/31` R-GEN-13, D-38).
 
 **R-COL-03** The join-sharing rules:
 
@@ -77,6 +83,8 @@ public sealed interface SelectField<M, C> permits ColumnField, AggregateField {
 ```java
 public final class ColumnField<M, T, C> implements SelectField<M, C> {
     public static <M, T, C> ColumnField<M, T, C> of(Class<M> model, TableField<?, T> table, String attribute, Class<C> type);
+    public static <M, T, C, F> ColumnField<M, T, C> of(Class<M> model, TableField<?, T> table, String attribute,
+            Class<C> type, Class<F> attributeType, ColumnConverter<C, F> converter);
     public Path<C> path(JoinContext ctx);
     public <M2> ColumnField<M2, T, C> withTable(Class<M2> model, TableField<?, T> table);   // re-root under a join
 }
@@ -90,7 +98,14 @@ reads the columns it knows, so a filter-only column never affects the result eve
 `ColumnField.type`, through a converter allow-list (D-20) — and throw `MQ1001` on a mismatch (INV-3). The same
 resolution throws `MQ1002` for an attribute, of a column or a join, that the entity does not have, and `MQ1003` for a
 column whose path starts at a root the query is not rooted at, which would otherwise read the query root's attribute of
-the same name.
+the same name. An attribute may be a dotted path through embedded values (`"address.city"`); a segment that is unknown
+or crosses an association throws `MQ1002` naming it (D-41).
+
+**R-COL-14** **A converted column.** A column built with a `ColumnConverter<C, F>` has the model type `C` as its type
+and reads an attribute of type `F`: `MQ1001` compares the attribute against `attributeType`, `Row.get` returns
+`toModel` of a non-null value, and a value filter binds `toAttribute` of its value. The converter is stateless and is
+never given `null`. `withTable` keeps it, and two columns are equal only when their converters are of the same class.
+`path(ctx)` is the attribute's path, so a custom predicate on it compares attribute values (D-37).
 
 ## 4. `ColumnSet` — an immutable named set
 
@@ -112,6 +127,7 @@ one caller and affect every later query (INV-9).
 ```java
 public interface Row {
     <C> C get(SelectField<?, C> column);              // null when the column is NULL or wasn't selected
+    Object raw(SelectField<?, ?> column);             // the value as read, before any ColumnConverter
     boolean isSelected(SelectField<?, ?> column);
     Row scoped(TableField<?, ?> join);                // view of a nested model's columns under a join
 }
@@ -129,7 +145,8 @@ cannot shift a mapping.
 
 **R-COL-11** Because a model is built from a complete row in one call, classes and records use the same engine.
 Primary keys, keyset cursors and export dedupe read from the `Row` before mapping, so a model needs no key accessor and
-no base class.
+no base class. They read `Row.raw`, the attribute value, so a converter that maps two attribute values to one model
+value cannot merge two keys or move a cursor (D-37).
 
 A hand-written record model passes a lambda: `row -> new OrderView(row.get(ID), row.get(STATUS), …)`. Generated
 mappers are `processor/31`.
@@ -176,3 +193,4 @@ default null ordering the persistence provider is configured with replaces the p
 | AC-COL-07 | A filter-only column filters correctly, adds no join when its filter is skipped, and never reaches the model (R-COL-07). |
 | AC-COL-08 | `nullsFirst()`/`nullsLast()` produce identical orderings on every Tier-1 vendor, with and without `model-query-hibernate` (R-COL-12). |
 | AC-COL-09 | A `ModelQuery` stored in a `static final` field is used concurrently by 8 threads with identical results (INV-9). |
+| AC-COL-10 | A column whose attribute is a dotted path through an embedded value selects and filters that value; an unknown segment, or one crossing an association, throws `MQ1002` naming the segment (R-COL-08, D-41). |

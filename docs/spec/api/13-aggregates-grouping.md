@@ -69,6 +69,8 @@ argument (D-25). For generated columns the processor (M4) reports the same mista
 **R-AGG-04** `sum` over zero rows is `NULL`, not `0`. `Row.get` returns `null`, and a mapped field must be a boxed
 type; a primitive field for a `sum` column is a processor error `MQ3201`. A caller that wants `0` uses a
 `ColumnConverter` or `Objects.requireNonNullElse` in the mapper — the engine never invents a value (INV-5).
+An aggregate function over a converted column throws `MQ1408`: the database aggregates attribute values, which the
+column's converter cannot be applied to (`api/10` R-COL-14). `Agg.of` is the way to aggregate such an attribute.
 
 ## 3. Grouping and `having`
 
@@ -110,7 +112,9 @@ that does not fit throws `MQ1406` at build time (D-28).
 
 **R-AGG-09** A grouped query needs no primary key (`api/11` R-QRY-03). The `engine/21` R-PAG-03 "primary key not
 selected" check is skipped, because a group has no row identity. When `primaryKey` is set on a grouped query it is
-ignored and logged once at `DEBUG`.
+ignored and logged once at `DEBUG`. No presence key is added either (`api/10` R-COL-15): a selected column under a
+`presentBy` join whose key columns are not all group keys throws `MQ1409` at `build()`, since the nested model would
+map as absent (D-38).
 
 **R-AGG-10** *(was R17)* A grouped query refuses keyset paging. `.keyset()` and `primaryKeyFirst(...)` throw `MQ1402`
 at build time naming the model: both need a unique per-row key, and R-PAG-04/05 cannot hold without one. Grouped reads

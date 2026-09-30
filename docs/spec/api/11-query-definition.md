@@ -40,7 +40,9 @@ throws `MQ1202`.
 
 **R-QRY-04** The primary-key columns are added to the selection automatically whenever they are needed. A caller never
 has to put them in a `ColumnSet` to make paging work. `MODEL` and `MODEL_BY_KEYS` therefore select the key of every
-ungrouped query that defines one, and every ordering and group key, whether or not the `ColumnSet` names them (D-29).
+ungrouped query that defines one, and every ordering and group key, whether or not the `ColumnSet` names them (D-29). On an ungrouped query they also select
+the presence key of each `presentBy` join a selected column is read through, and of every such join above it
+(`api/10` R-COL-15, D-38).
 
 **R-QRY-12** A primary-key column cannot have an array type (`byte[]`, for one). An array equals only itself, so the
 key read from one row never equals the same key read from another: export's page-boundary dedupe and primary-key-first
