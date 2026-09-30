@@ -86,6 +86,8 @@ final class ModelValidator {
         filters.problems().forEach(problem -> diagnostics.error(model.type(), problem.code(), problem.detail()));
         claimFilterTables(model, filters, constants, diagnostics);
         checkGrouping(model, diagnostics);
+        // Only an ungrouped query always selects the key: a grouped one selects it like any other column (D-49).
+        boolean ungrouped = model.aggregates().isEmpty() && model.groupKeys().isEmpty();
         for (ModelField field : model.fields()) {
             if (!field.column() && field.aggregate() == null) {
                 continue;
@@ -96,10 +98,14 @@ final class ModelValidator {
             } else {
                 checkAttribute(model, field, where, diagnostics);
             }
-            if (field.column() && model.isRecord() && field.type().getKind().isPrimitive() && !field.primaryKey()) {
+            if (field.column() && model.isRecord() && field.type().getKind().isPrimitive() && !(ungrouped && field.primaryKey())) {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3009,
                         where + "primitive components can't be null when not selected; use "
                                 + display(types.boxedClass((PrimitiveType) field.type()).asType()));
+            }
+            if (field.join() != null) {
+                // An @Aggregate on a @Join field is MQ3204; its constant is the join's own prefix, not a clash.
+                continue;
             }
             String earlier = constants.putIfAbsent(field.constant(), "field '" + field.name() + "'");
             if (RESERVED.contains(field.constant())) {
@@ -376,8 +382,7 @@ final class ModelValidator {
             diagnostics.error(field.element(), DiagnosticCode.MQ3005, where + "@Join model " + nested.name()
                     + " has @Aggregate fields; a summary model can't be joined");
             joinable = false;
-        }
-        if (nested.keys().isEmpty()) {
+        } else if (nested.keys().isEmpty()) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3006,
                     where + nested.name() + " needs a @PrimaryKey to be used in @Join");
             joinable = false;

@@ -18,7 +18,7 @@
 | `MQ3006` | Nested model has no `@PrimaryKey`, so presence cannot be decided | `OrderView.customer: CustomerView needs a @PrimaryKey to be used in @Join` |
 | `MQ3007` | Join cycle between nested models | `OrderView.customer → CustomerView.lastOrder → OrderView` |
 | `MQ3008` | Class model has no no-arg constructor visible from its package | `OrderView: needs a no-arg constructor for setter mapping` |
-| `MQ3009` | Record component is primitive and not `@PrimaryKey` | `OrderView.count: primitive components can't be null when not selected; use Integer` |
+| `MQ3009` | Record component is primitive and not `@PrimaryKey`; on a model with `@Aggregate` or `@GroupBy` fields, a primitive `@PrimaryKey` too (D-49) | `OrderView.count: primitive components can't be null when not selected; use Integer` |
 | `MQ3010` | Record has only a non-canonical constructor, or is generic | `OrderView: a generic record can't be mapped through its canonical constructor; remove the type parameters` |
 | `MQ3011` | `@FilterColumn` path does not resolve, or crosses a collection with no explicit `joinType` | `OrderView @FilterColumn(CUSTOMER_COUNTRY): no attribute 'contry' on CustomerEntity` |
 | `MQ3012` | Two `@FilterColumn`s with the same `alias` and path prefix but different `joinType`, or a `joinType` written on a `@FilterColumn` that differs from the type of the `@Join` its path reuses (D-46) | `OrderView @FilterColumn(SKU_B): alias 'itemB' is INNER here, LEFT on SKU_B_QTY` |

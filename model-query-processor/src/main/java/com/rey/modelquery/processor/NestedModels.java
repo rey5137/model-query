@@ -4,7 +4,9 @@ import com.rey.modelquery.annotations.QueryModel;
 import com.rey.modelquery.processor.JoinedTable.JoinedColumn;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
 
@@ -16,6 +18,7 @@ import javax.lang.model.type.DeclaredType;
 final class NestedModels {
 
     private final QueryModelReader reader;
+    private final Map<TypeElement, ModelDefinition> read = new HashMap<>();
 
     NestedModels(QueryModelReader reader) {
         this.reader = reader;
@@ -31,7 +34,7 @@ final class NestedModels {
             return null;
         }
         var type = (TypeElement) ((DeclaredType) join.join().nested()).asElement();
-        return type.getAnnotation(QueryModel.class) != null ? reader.read(type) : null;
+        return type.getAnnotation(QueryModel.class) != null ? read.computeIfAbsent(type, reader::read) : null;
     }
 
     /** Every join of {@code model}, its own and those below them; the joins must not form a cycle. */
