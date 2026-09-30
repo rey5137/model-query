@@ -6,6 +6,7 @@ import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchRule;
+import com.tngtech.archunit.lang.syntax.ArchRuleDefinition;
 import java.util.function.Function;
 import org.junit.jupiter.api.Test;
 
@@ -31,6 +32,7 @@ class LayeringTest {
     private static final LayeringRules BAD_RULES = new LayeringRules(FIXTURE_ROOT, true);
 
     private static final String F = FIXTURE_ROOT + ".";
+    private static final String HARNESS = "com.rey.modelquery.tck.harness.";
 
     /** The rule passes on real code and fails on the fixture, naming each expected bad class and forbidden target. */
     private static void proves(Function<LayeringRules, ArchRule> rule, String... expectedInMessage) {
@@ -116,5 +118,38 @@ class LayeringTest {
                 F + "core.BadCoreHibernate",
                 "org.hibernate.Session");
         proves(LayeringRules::jpaDoesNotImportHibernate, F + "jpa.BadJpaHibernate", "org.hibernate.SessionFactory");
+    }
+
+    /**
+     * No test class outside the harness knows which vendor it runs on (R-QA-03, AC-QA-02): the TCK sources are the
+     * same for every vendor, and only the snapshot directory chosen by {@code SqlSnapshots} differs.
+     */
+    private static ArchRule noVendorOutside(String... exemptPackages) {
+        String[] outside = new String[exemptPackages.length + 1];
+        outside[0] = "..tck.harness..";
+        System.arraycopy(exemptPackages, 0, outside, 1, exemptPackages.length);
+        return ArchRuleDefinition.noClasses()
+                .that()
+                .resideInAPackage("com.rey.modelquery.tck..")
+                .and()
+                .resideOutsideOfPackages(outside)
+                .should()
+                .dependOnClassesThat()
+                .haveFullyQualifiedName(HARNESS + "TckVendor")
+                .orShould()
+                .callMethod(HARNESS + "TckDatabase", "vendor")
+                .orShould()
+                .callMethod(HARNESS + "TckTarget", "vendor");
+    }
+
+    @Test
+    void ac_qa_02_onlyTheHarnessAndSnapshotDirectoryChoiceKnowTheVendor() {
+        JavaClasses tck = new ClassFileImporter().importPackages("com.rey.modelquery.tck");
+        // SqlSnapshots picks src/test/resources/sql/<vendor>/, the one difference R-QA-03 allows.
+        assertThatCode(() -> noVendorOutside("..tck.sql..").check(tck)).doesNotThrowAnyException();
+        // Not vacuous: without that exemption the rule finds SqlSnapshots.
+        assertThatCode(() -> noVendorOutside().check(tck))
+                .isInstanceOf(AssertionError.class)
+                .hasMessageContaining("com.rey.modelquery.tck.sql.SqlSnapshots");
     }
 }
