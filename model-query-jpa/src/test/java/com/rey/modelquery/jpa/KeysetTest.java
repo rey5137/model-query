@@ -10,6 +10,7 @@ import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.OrderField;
 import com.rey.modelquery.core.Phase;
@@ -17,12 +18,14 @@ import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowMapper;
 import com.rey.modelquery.core.TableField;
+import com.rey.modelquery.jpa.spi.KeysetNullKeys;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import org.hibernate.SessionFactory;
 import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
 import org.hibernate.cfg.AvailableSettings;
@@ -100,11 +103,16 @@ class KeysetTest {
         return column == A ? row.a() : column == B ? row.b() : row.c();
     }
 
-    /** The order Java puts two rows in: the query's keys, then the id in the direction of the last key (R-PAG-04). */
-    private static Comparator<Row3> orderOf(List<OrderField<Row3, ?>> order) {
+    /**
+     * The order Java puts two rows in: the query's keys, then the id in the direction of the last key (R-PAG-04). A
+     * {@code DEFAULT} column sorts its NULLs where {@code providerNulls} puts them in both directions, else where
+     * {@code ordering} puts them in its direction.
+     */
+    private static Comparator<Row3> orderOf(List<OrderField<Row3, ?>> order, NullOrdering ordering,
+            Optional<NullPrecedence> providerNulls) {
         Comparator<Row3> result = (x, y) -> 0;
         for (OrderField<Row3, ?> field : order) {
-            result = result.thenComparing(compare(field));
+            result = result.thenComparing(compare(field, nullsOf(field, ordering, providerNulls)));
         }
         if (order.stream().noneMatch(f -> f.column() == ID)) {
             Comparator<Row3> byId = Comparator.comparing(Row3::id);
@@ -113,14 +121,32 @@ class KeysetTest {
         return result;
     }
 
+    /**
+     * Where {@code field}'s NULLs sort: its explicit precedence, else the provider's configured {@code providerNulls}
+     * whatever the direction, else where {@code ordering} puts them in its direction, else {@code DEFAULT}.
+     */
+    private static NullPrecedence nullsOf(OrderField<Row3, ?> field, NullOrdering ordering,
+            Optional<NullPrecedence> providerNulls) {
+        if (field.nulls() != NullPrecedence.DEFAULT) {
+            return field.nulls();
+        }
+        if (providerNulls.isPresent()) {
+            return providerNulls.get();
+        }
+        if (ordering == NullOrdering.UNKNOWN) {
+            return NullPrecedence.DEFAULT;
+        }
+        return (ordering == NullOrdering.NULLS_FIRST) == field.ascending() ? NullPrecedence.FIRST : NullPrecedence.LAST;
+    }
+
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private static Comparator<Row3> compare(OrderField<Row3, ?> field) {
+    private static Comparator<Row3> compare(OrderField<Row3, ?> field, NullPrecedence nulls) {
         return (x, y) -> {
             Comparable vx = (Comparable) valueOf(x, (ColumnField<Row3, ?, ?>) field.column());
             Comparable vy = (Comparable) valueOf(y, (ColumnField<Row3, ?, ?>) field.column());
             if (vx == null || vy == null) {
                 // DEFAULT: the predicate takes a NULL to follow every value, like LAST (its rows are refused later).
-                boolean first = field.nulls() == NullPrecedence.FIRST;
+                boolean first = nulls == NullPrecedence.FIRST;
                 return vx == vy ? 0 : (vx == null) == first ? -1 : 1;
             }
             int c = vx.compareTo(vy);
@@ -171,10 +197,22 @@ class KeysetTest {
      * {@code inOrder}, they also come back in that order, which pins the tie-breaker's direction. NULL cursors under
      * DEFAULT precedence are skipped: the executor refuses them before a predicate is built.
      */
+    @SafeVarargs
     private static void checkEveryCursor(boolean inOrder, OrderField<Row3, ?>... order) {
+        checkEveryCursor(inOrder, NullOrdering.UNKNOWN, Optional.empty(), KeysetNullKeys.FAIL, order);
+    }
+
+    /**
+     * {@link #checkEveryCursor(boolean, OrderField[])} with the profile's {@code ordering}, the provider's
+     * {@code providerNulls} and {@code nullKeys}: a NULL cursor under DEFAULT precedence is skipped only where the
+     * keyset refuses it.
+     */
+    @SafeVarargs
+    private static void checkEveryCursor(boolean inOrder, NullOrdering ordering, Optional<NullPrecedence> providerNulls,
+            KeysetNullKeys nullKeys, OrderField<Row3, ?>... order) {
         var q = query(order);
-        Keyset<Row3> keyset = Keyset.of(q, q.primaryKey().orElseThrow());
-        Comparator<Row3> cmp = orderOf(q.orderBy());
+        Keyset<Row3> keyset = Keyset.of(q, q.primaryKey().orElseThrow(), ordering, providerNulls, nullKeys);
+        Comparator<Row3> cmp = orderOf(q.orderBy(), ordering, providerNulls);
         String name = q.orderBy().toString();
         if (inOrder) {
             assertThat(after(q, keyset, null)).as("first page of %s", name)
@@ -182,6 +220,8 @@ class KeysetTest {
         }
         for (Row3 cursor : rows) {
             boolean refused = q.orderBy().stream().anyMatch(f -> f.nulls() == NullPrecedence.DEFAULT
+                    && (nullKeys == KeysetNullKeys.FAIL
+                            || nullsOf(f, ordering, providerNulls) == NullPrecedence.DEFAULT)
                     && f.column() != ID && valueOf(cursor, (ColumnField<Row3, ?, ?>) f.column()) == null);
             if (refused) {
                 continue;
@@ -258,7 +298,7 @@ class KeysetTest {
     @Test
     void ac_qa_04_cursor_reads_every_key_and_refuses_a_null_without_explicit_precedence() {
         var q = query(A.asc().nullsFirst(), B.desc());
-        Keyset<Row3> keyset = Keyset.of(q, q.primaryKey().orElseThrow());
+        Keyset<Row3> keyset = keyset(q, NullOrdering.UNKNOWN, KeysetNullKeys.FAIL);
         assertThat(cursorRow(q, keyset, 1)).containsExactly(1, 10, 1L);
         // b is NULL in row 3 and has no explicit precedence.
         assertThatThrownBy(() -> cursorRow(q, keyset, 3))
@@ -269,7 +309,96 @@ class KeysetTest {
         assertThat(cursorRow(q, keyset, 7)).containsExactly(null, 10, 7L);
         // The id is a key column: never refused, and never NULL.
         var byId = query(ID.asc());
-        assertThat(cursorRow(byId, Keyset.of(byId, byId.primaryKey().orElseThrow()), 4)).containsExactly(4L);
+        assertThat(cursorRow(byId, keyset(byId, NullOrdering.UNKNOWN, KeysetNullKeys.FAIL), 4)).containsExactly(4L);
+    }
+
+    @Test
+    void ac_pag_07_a_default_precedence_predicate_leaves_out_the_nulls_the_database_sorts_first() {
+        // Under fail, a NULL the database sorts before the cursor was already read and refused, so the predicate
+        // needs no "or a is null" branch there (D-30); where it sorts NULLs last the branch stays.
+        for (NullOrdering ordering : List.of(NullOrdering.NULLS_FIRST, NullOrdering.NULLS_LAST)) {
+            checkEveryCursor(false, ordering, Optional.empty(), KeysetNullKeys.FAIL, A.asc());
+            checkEveryCursor(false, ordering, Optional.empty(), KeysetNullKeys.FAIL, A.desc());
+            checkEveryCursor(false, ordering, Optional.empty(), KeysetNullKeys.FAIL, A.asc(), B.desc());
+        }
+    }
+
+    @Test
+    void ac_prf_07_honour_null_precedence_pages_a_default_column_by_the_databases_null_ordering() {
+        // Every cursor, NULL or not, in both directions and under both ascending defaults: the rows after it are the
+        // rows the database's own null ordering puts after it (R-PAG-05, R-COL-13).
+        for (NullOrdering ordering : List.of(NullOrdering.NULLS_FIRST, NullOrdering.NULLS_LAST)) {
+            for (boolean ascA : List.of(true, false)) {
+                checkEveryCursor(false, ordering, Optional.empty(), KeysetNullKeys.HONOUR_NULL_PRECEDENCE, of(A, ascA,
+                        NullPrecedence.DEFAULT));
+                for (boolean ascB : List.of(true, false)) {
+                    checkEveryCursor(false, ordering, Optional.empty(), KeysetNullKeys.HONOUR_NULL_PRECEDENCE,
+                            of(A, ascA, NullPrecedence.DEFAULT), of(B, ascB, NullPrecedence.DEFAULT));
+                }
+            }
+        }
+    }
+
+    @Test
+    void ac_vnd_05_a_null_default_precedence_key_is_refused_under_an_unknown_null_ordering_even_when_honoured() {
+        // a is NULL in row 7.
+        var q = query(A.asc());
+        assertThat(cursorRow(q, keyset(q, NullOrdering.NULLS_FIRST, KeysetNullKeys.HONOUR_NULL_PRECEDENCE), 7))
+                .containsExactly(null, 7L);
+        assertThatThrownBy(() -> cursorRow(q, keyset(q, NullOrdering.UNKNOWN, KeysetNullKeys.HONOUR_NULL_PRECEDENCE),
+                7))
+                .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ2202))
+                .hasMessageContaining("keyset column a is null in an exported row and the database's null ordering "
+                        + "is unknown; order it with nullsFirst() or nullsLast()");
+        // Under fail a known ordering refuses it too, and says nothing of the ordering.
+        assertThatThrownBy(() -> cursorRow(q, keyset(q, NullOrdering.NULLS_FIRST, KeysetNullKeys.FAIL), 7))
+                .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ2202))
+                .hasMessageContaining("keyset column a is null in an exported row; order it with nullsFirst()");
+    }
+
+    @Test
+    void ac_prf_07_a_providers_default_null_ordering_places_the_nulls_at_that_end_in_both_directions() {
+        // Hibernate's default_null_ordering sorts the NULLs of a bare order FIRST or LAST whatever the direction, so
+        // it replaces the profile's ascending ordering and is not reversed for a descending column (D-36). Every
+        // profile ordering, UNKNOWN included, is overridden alike.
+        for (NullPrecedence providerNulls : EXPLICIT) {
+            for (NullOrdering ordering : NullOrdering.values()) {
+                for (KeysetNullKeys nullKeys : KeysetNullKeys.values()) {
+                    for (boolean ascA : List.of(true, false)) {
+                        checkEveryCursor(false, ordering, Optional.of(providerNulls), nullKeys,
+                                of(A, ascA, NullPrecedence.DEFAULT));
+                        checkEveryCursor(false, ordering, Optional.of(providerNulls), nullKeys,
+                                of(A, ascA, NullPrecedence.DEFAULT), of(B, !ascA, NullPrecedence.DEFAULT));
+                    }
+                }
+            }
+        }
+        // A NULL is paged under honour-null-precedence even where the profile's ordering is unknown, and refused
+        // under fail. A descending NULL cursor under LAST has only the NULLs of lower id after it, where a reversed
+        // LAST, or the profile's NULLS_LAST reversed, would put every value after it too.
+        var desc = query(A.desc());
+        assertThat(cursorRow(desc, keyset(desc, NullOrdering.UNKNOWN, Optional.of(NullPrecedence.LAST),
+                KeysetNullKeys.HONOUR_NULL_PRECEDENCE), 7)).containsExactly(null, 7L);
+        assertThatThrownBy(() -> cursorRow(desc, keyset(desc, NullOrdering.NULLS_LAST,
+                Optional.of(NullPrecedence.LAST), KeysetNullKeys.FAIL), 7))
+                .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ2202))
+                .hasMessageContaining("keyset column a is null in an exported row; order it with nullsFirst()");
+        Keyset<Row3> last = keyset(desc, NullOrdering.NULLS_LAST, Optional.of(NullPrecedence.LAST),
+                KeysetNullKeys.HONOUR_NULL_PRECEDENCE);
+        // a is NULL in rows 7, 8, 9 and 16, 17, 18.
+        assertThat(after(desc, last, new Object[] {null, 16L})).extracting(Row3::id).containsExactly(9L, 8L, 7L);
+    }
+
+    private static Keyset<Row3> keyset(ModelQuery<?, ?, Row3> q, NullOrdering ordering, KeysetNullKeys nullKeys) {
+        return keyset(q, ordering, Optional.empty(), nullKeys);
+    }
+
+    private static Keyset<Row3> keyset(ModelQuery<?, ?, Row3> q, NullOrdering ordering,
+            Optional<NullPrecedence> providerNulls, KeysetNullKeys nullKeys) {
+        return Keyset.of(q, q.primaryKey().orElseThrow(), ordering, providerNulls, nullKeys);
     }
 
     private static Object[] cursorRow(ModelQuery<KeysetRowEntity, Long, Row3> q, Keyset<Row3> keyset, long id) {

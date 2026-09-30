@@ -9,6 +9,8 @@ import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.NullOrdering;
+import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.OrderField;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.Phase;
@@ -17,6 +19,7 @@ import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.Slice;
+import com.rey.modelquery.jpa.spi.KeysetNullKeys;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.jpa.vendor.ResolvedVendor;
@@ -85,6 +88,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private final OptionalInt primaryKeyFirstBatchSize;
     /** The configured timeout for every statement, or empty for none (R-EXE-11). */
     private final Optional<Duration> queryTimeout;
+    /** What keyset paging does with a NULL key ordered with {@code DEFAULT} precedence (R-PAG-05). */
+    private final KeysetNullKeys keysetNullKeys;
+    /**
+     * Where the provider is configured to sort the NULLs of a bare order in both directions, or empty for the
+     * database's default (R-PAG-05, D-36).
+     */
+    private final Optional<NullPrecedence> providerNulls;
 
     DefaultModelQueryExecutor(EntityManager em, Class<E> rootEntity, ModelQueryConfig config) {
         this.em = Objects.requireNonNull(em, "em");
@@ -93,14 +103,19 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         this.vendor = VendorResolver.resolve(em.getEntityManagerFactory(), config.vendor(),
                 config.mysqlStreamingMode());
         VendorProfile profile = vendor.profile();
-        RenderOptions options = RenderOptions.of(
-                profile.maxInListSize(), profile.maxBindParameters(), profile.defaultAscendingNullOrdering());
+        this.providerNulls = vendor.providerSupport()
+                .flatMap(support -> support.defaultNullPrecedence(em.getEntityManagerFactory()));
+        // A provider configured with a default null ordering applies it to every bare order, so the database's
+        // default no longer says when a bare order gives an explicit precedence: none is left bare (R-COL-12, D-36).
+        RenderOptions options = RenderOptions.of(profile.maxInListSize(), profile.maxBindParameters(),
+                providerNulls.isPresent() ? NullOrdering.UNKNOWN : profile.defaultAscendingNullOrdering());
         this.renderOptions = vendor.providerSupport()
                 .flatMap(ProviderSupport::nullPrecedence)
                 .map(options::withNullPrecedenceRenderer)
                 .orElse(options);
         this.primaryKeyFirstBatchSize = config.primaryKeyFirstBatchSize();
         this.queryTimeout = config.queryTimeout();
+        this.keysetNullKeys = config.keysetNullKeys();
     }
 
     @Override
@@ -478,7 +493,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private <M, S> long exportByKeyset(ModelQuery<E, ?, M> q, BuiltQuery<M> first, PrimaryKey<M, ?> key,
             int pageSize, long limit, Function<List<M>, List<S>> pageTransformer, Consumer<S> sink) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
-        Keyset<M> keyset = Keyset.of(q, key);
+        Keyset<M> keyset = Keyset.of(q, key, renderOptions.defaultAscendingNullOrdering(), providerNulls,
+                keysetNullKeys);
         long passed = 0;
         BuiltQuery<M> built = first;
         // The last row's keyset values and the page's keys: the only state carried from page to page, bounded by one

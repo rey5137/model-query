@@ -159,7 +159,8 @@ public enum NullPrecedence { DEFAULT, FIRST, LAST }        // DEFAULT = whatever
   direction, nothing extra is rendered.
 
 **R-COL-13** Keyset paging on a nullable column with `DEFAULT` precedence uses
-`VendorProfile.defaultAscendingNullOrdering()`, and is refused when that is `UNKNOWN` (`engine/21` R-PAG-05).
+`VendorProfile.defaultAscendingNullOrdering()`, and is refused when that is `UNKNOWN` (`engine/21` R-PAG-05). A
+default null ordering the persistence provider is configured with replaces the profile's (D-36).
 
 ## 7. Acceptance criteria
 

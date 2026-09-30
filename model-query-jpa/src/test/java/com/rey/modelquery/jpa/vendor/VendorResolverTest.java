@@ -44,6 +44,14 @@ class VendorResolverTest {
     }
 
     @Test
+    void ac_vnd_05_an_unknown_product_name_yields_other_whose_null_ordering_is_unknown() {
+        // UNKNOWN is what makes a nullable keyset column refuse its NULLs under OTHER (tck NullOrderingTest).
+        VendorProfile other = profileFor(VendorResolver.vendorOf("Apache Derby"), Map.of());
+        assertThat(other.vendor()).isEqualTo(DatabaseVendor.OTHER);
+        assertThat(other.defaultAscendingNullOrdering()).isEqualTo(NullOrdering.UNKNOWN);
+    }
+
+    @Test
     void r_vnd_06_an_unknown_product_name_resolves_to_the_other_profile() {
         assertThat(VendorResolver.vendorOf("Apache Derby")).isEqualTo(DatabaseVendor.OTHER);
         assertThat(VendorResolver.vendorOf(null)).isEqualTo(DatabaseVendor.OTHER);

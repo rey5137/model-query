@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.jpa.spi.KeysetNullKeys;
 import com.rey.modelquery.jpa.spi.MysqlStreamingMode;
 import java.time.Duration;
 import java.util.OptionalInt;
@@ -66,5 +67,21 @@ class ModelQueryConfigTest {
         assertThat(config.vendor()).contains(DatabaseVendor.MYSQL);
         assertThat(config.queryTimeout()).contains(Duration.ofSeconds(1));
         assertThat(config.primaryKeyFirstBatchSize()).isEqualTo(OptionalInt.of(7));
+    }
+
+    @Test
+    void r_pag_05_keyset_null_keys_fail_unless_set_and_the_setter_keeps_the_other_settings() {
+        assertThat(ModelQueryConfig.defaults().keysetNullKeys()).isEqualTo(KeysetNullKeys.FAIL);
+        var config = ModelQueryConfig.defaults().vendor(DatabaseVendor.MYSQL).queryTimeout(Duration.ofSeconds(1))
+                .primaryKeyFirstBatchSize(7).mysqlStreamingMode(MysqlStreamingMode.CURSOR_FETCH)
+                .keysetNullKeys(KeysetNullKeys.HONOUR_NULL_PRECEDENCE);
+        assertThat(config.keysetNullKeys()).isEqualTo(KeysetNullKeys.HONOUR_NULL_PRECEDENCE);
+        assertThat(config.vendor()).contains(DatabaseVendor.MYSQL);
+        assertThat(config.queryTimeout()).contains(Duration.ofSeconds(1));
+        assertThat(config.primaryKeyFirstBatchSize()).isEqualTo(OptionalInt.of(7));
+        assertThat(config.mysqlStreamingMode()).isEqualTo(MysqlStreamingMode.CURSOR_FETCH);
+        assertThat(config.vendor(DatabaseVendor.H2).primaryKeyFirstBatchSize(3).queryTimeout(Duration.ofSeconds(2))
+                .mysqlStreamingMode(MysqlStreamingMode.ROW_BY_ROW).keysetNullKeys())
+                .isEqualTo(KeysetNullKeys.HONOUR_NULL_PRECEDENCE);
     }
 }

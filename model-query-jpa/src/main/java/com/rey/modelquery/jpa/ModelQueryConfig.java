@@ -4,6 +4,7 @@ import com.rey.modelquery.core.Incubating;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.jpa.spi.KeysetNullKeys;
 import com.rey.modelquery.jpa.spi.MysqlStreamingMode;
 import java.time.Duration;
 import java.util.Objects;
@@ -15,7 +16,7 @@ import java.util.OptionalInt;
  * Immutable: each setter returns a new configuration. One explicit vendor applies to every
  * {@code EntityManagerFactory} the configuration is used with (D-34).
  *
- * @implSpec R-QRY-10, R-VND-04, R-PAG-07, R-EXE-11, R-PRF-07
+ * @implSpec R-QRY-10, R-VND-04, R-PAG-07, R-EXE-11, R-PRF-07, R-PAG-05
  */
 @Incubating
 public final class ModelQueryConfig {
@@ -24,24 +25,26 @@ public final class ModelQueryConfig {
     private static final int WHOLE_PAGE = 0;
 
     private static final ModelQueryConfig DEFAULTS =
-            new ModelQueryConfig(null, WHOLE_PAGE, null, MysqlStreamingMode.ROW_BY_ROW);
+            new ModelQueryConfig(null, WHOLE_PAGE, null, MysqlStreamingMode.ROW_BY_ROW, KeysetNullKeys.FAIL);
 
     private final DatabaseVendor vendor;
     private final int primaryKeyFirstBatchSize;
     private final Duration queryTimeout;
     private final MysqlStreamingMode mysqlStreamingMode;
+    private final KeysetNullKeys keysetNullKeys;
 
     private ModelQueryConfig(DatabaseVendor vendor, int primaryKeyFirstBatchSize, Duration queryTimeout,
-            MysqlStreamingMode mysqlStreamingMode) {
+            MysqlStreamingMode mysqlStreamingMode, KeysetNullKeys keysetNullKeys) {
         this.vendor = vendor;
         this.primaryKeyFirstBatchSize = primaryKeyFirstBatchSize;
         this.queryTimeout = queryTimeout;
         this.mysqlStreamingMode = mysqlStreamingMode;
+        this.keysetNullKeys = keysetNullKeys;
     }
 
     /**
      * The configuration with every setting at its default: the vendor is detected, step 2 reads the whole page, no
-     * query timeout, MySQL streams row by row.
+     * query timeout, MySQL streams row by row, a NULL keyset key without explicit precedence fails.
      */
     public static ModelQueryConfig defaults() {
         return DEFAULTS;
@@ -50,7 +53,7 @@ public final class ModelQueryConfig {
     /** This configuration with the database vendor set explicitly, which skips detection entirely (R-VND-04). */
     public ModelQueryConfig vendor(DatabaseVendor vendor) {
         return new ModelQueryConfig(Objects.requireNonNull(vendor, "vendor"), primaryKeyFirstBatchSize, queryTimeout,
-                mysqlStreamingMode);
+                mysqlStreamingMode, keysetNullKeys);
     }
 
     /** The explicitly configured vendor, or empty when it is detected per {@code EntityManagerFactory}. */
@@ -69,7 +72,7 @@ public final class ModelQueryConfig {
             throw new ModelQueryConfigurationException(MqCode.MQ4003,
                     "primaryKeyFirstBatchSize " + batchSize + " is below one");
         }
-        return new ModelQueryConfig(vendor, batchSize, queryTimeout, mysqlStreamingMode);
+        return new ModelQueryConfig(vendor, batchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys);
     }
 
     /** The configured step-2 batch size, or empty when step 2 reads the whole page within the profile's clamp. */
@@ -88,7 +91,7 @@ public final class ModelQueryConfig {
         if (timeout.isNegative() || timeout.isZero()) {
             throw new ModelQueryConfigurationException(MqCode.MQ4003, "queryTimeout " + timeout + " is not positive");
         }
-        return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, timeout, mysqlStreamingMode);
+        return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, timeout, mysqlStreamingMode, keysetNullKeys);
     }
 
     /** The configured query timeout, or empty when statements run without one. */
@@ -102,11 +105,25 @@ public final class ModelQueryConfig {
      */
     public ModelQueryConfig mysqlStreamingMode(MysqlStreamingMode mode) {
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout,
-                Objects.requireNonNull(mode, "mode"));
+                Objects.requireNonNull(mode, "mode"), keysetNullKeys);
     }
 
     /** The configured MySQL streaming mode, {@link MysqlStreamingMode#ROW_BY_ROW} unless set. */
     public MysqlStreamingMode mysqlStreamingMode() {
         return mysqlStreamingMode;
+    }
+
+    /**
+     * This configuration with what keyset paging does with a NULL in a column ordered with {@code DEFAULT} null
+     * precedence ({@code modelquery.keyset.null-keys}, R-PAG-05).
+     */
+    public ModelQueryConfig keysetNullKeys(KeysetNullKeys nullKeys) {
+        return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode,
+                Objects.requireNonNull(nullKeys, "nullKeys"));
+    }
+
+    /** The configured keyset NULL handling, {@link KeysetNullKeys#FAIL} unless set. */
+    public KeysetNullKeys keysetNullKeys() {
+        return keysetNullKeys;
     }
 }
