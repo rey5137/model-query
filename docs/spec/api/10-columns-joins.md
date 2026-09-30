@@ -155,8 +155,9 @@ public enum NullPrecedence { DEFAULT, FIRST, LAST }        // DEFAULT = whatever
 - Without it — plain JPA 3.1 has no null precedence in `Order` — the engine prepends a sort key
   `CASE WHEN col IS NULL THEN 0 ELSE 1 END` (ASC for `FIRST`, DESC for `LAST`). Portable, but it prevents an index on
   `col` from serving the sort.
-- If the `VendorProfile` reports that the vendor's default already matches the requested precedence for that
-  direction, nothing extra is rendered.
+- Without it the key is rendered even where the vendor's default already matches the requested precedence: a bare
+  order would take a default null ordering the provider is configured with, which nothing reports there (D-36).
+  With it, Hibernate omits the clause where the dialect's default matches.
 
 **R-COL-13** Keyset paging on a nullable column with `DEFAULT` precedence uses
 `VendorProfile.defaultAscendingNullOrdering()`, and is refused when that is `UNKNOWN` (`engine/21` R-PAG-05). A

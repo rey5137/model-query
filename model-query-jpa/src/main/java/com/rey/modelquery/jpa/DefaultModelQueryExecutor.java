@@ -9,7 +9,6 @@ import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
-import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.OrderField;
 import com.rey.modelquery.core.PageSpec;
@@ -19,7 +18,6 @@ import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.Slice;
-import com.rey.modelquery.jpa.spi.KeysetNullKeys;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.jpa.vendor.ResolvedVendor;
@@ -105,10 +103,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         VendorProfile profile = vendor.profile();
         this.providerNulls = vendor.providerSupport()
                 .flatMap(support -> support.defaultNullPrecedence(em.getEntityManagerFactory()));
-        // A provider configured with a default null ordering applies it to every bare order, so the database's
-        // default no longer says when a bare order gives an explicit precedence: none is left bare (R-COL-12, D-36).
-        RenderOptions options = RenderOptions.of(profile.maxInListSize(), profile.maxBindParameters(),
-                providerNulls.isPresent() ? NullOrdering.UNKNOWN : profile.defaultAscendingNullOrdering());
+        RenderOptions options = RenderOptions.of(profile.maxInListSize(), profile.maxBindParameters());
         this.renderOptions = vendor.providerSupport()
                 .flatMap(ProviderSupport::nullPrecedence)
                 .map(options::withNullPrecedenceRenderer)
@@ -493,7 +488,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private <M, S> long exportByKeyset(ModelQuery<E, ?, M> q, BuiltQuery<M> first, PrimaryKey<M, ?> key,
             int pageSize, long limit, Function<List<M>, List<S>> pageTransformer, Consumer<S> sink) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
-        Keyset<M> keyset = Keyset.of(q, key, renderOptions.defaultAscendingNullOrdering(), providerNulls,
+        Keyset<M> keyset = Keyset.of(q, key, vendor.profile().defaultAscendingNullOrdering(), providerNulls,
                 keysetNullKeys);
         long passed = 0;
         BuiltQuery<M> built = first;
@@ -643,15 +638,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             }
             query.multiselect(keys);
         }
-        TypedQuery<Tuple> typed = create(query);
-        OptionalLong groups = vendor.providerSupport().map(p -> p.countGroups(typed)).orElse(OptionalLong.empty());
-        if (groups.isPresent()) {
-            return groups.getAsLong();
+        // The provider support only builds the count; it runs here, so the configured timeout applies (R-EXE-11).
+        Optional<CriteriaQuery<Long>> count = vendor.providerSupport().flatMap(p -> p.countQuery(query));
+        if (count.isPresent()) {
+            return create(count.get()).getSingleResult();
         }
         LOG.log(System.Logger.Level.WARNING, "count over the grouped query on {0} runs it and counts its rows in "
                 + "memory, because no ProviderSupport counts groups for this persistence provider; add "
                 + "model-query-hibernate for a count in the database (R-EXE-03)", rootEntity.getSimpleName());
-        return typed.getResultList().size();
+        return create(query).getResultList().size();
     }
 
     private static boolean hasToManyJoin(From<?, ?> from) {

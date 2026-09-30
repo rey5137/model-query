@@ -1,4 +1,4 @@
-package com.rey.modelquery.jpa.spi;
+package com.rey.modelquery.jpa;
 
 import com.rey.modelquery.core.Incubating;
 

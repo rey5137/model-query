@@ -216,7 +216,7 @@ it: where the database sorts NULLs after every value (PostgreSQL ascending, H2 a
 branch is `(a > :ka OR a IS NULL)`, every row read is checked, and the NULL is refused wherever the vendor sorts it,
 without consulting `VendorProfile`. Primary-key columns get no such branch (R-PAG-03 keeps them non-NULL). Rejected:
 checking only the cursor row (it silently drops the NULLs on those vendors); a count probe per export (an extra query).
-Since M3 the branch is dropped where `defaultAscendingNullOrdering()` puts the NULLs first in that direction (D-35).
+Under `fail` the branch stays whatever null ordering the profile or provider reports (D-35).
 → `engine/21` R-PAG-05, INV-5, AC-PAG-07.
 
 **D-31 — Keyset export drops repeated keys within a page, and throws on a key of the page before.**
@@ -256,14 +256,15 @@ export then drops rows). → `api/11` R-QRY-07, R-QRY-11, AC-QRY-10.
 
 **D-34 — Vendor facts reach `core` as vendor-neutral `RenderOptions`; provider behaviour is its own SPI.**
 `VendorProfile` and `DatabaseVendor` live in `jpa.spi`, and the executor resolves a profile once per
-`EntityManagerFactory`. What a query build may render by (IN-list and bind limits, the default null ordering, an
-optional native null-precedence renderer) reaches `core` as an immutable `RenderOptions`, passed to
+`EntityManagerFactory`. What a query build may render by (IN-list and bind limits, an optional native
+null-precedence renderer) reaches `core` as an immutable `RenderOptions`, passed to
 `ModelQuery.buildQuery(cb, phase, options)` and held by that build's `JoinContext`; `JoinContext.of(root, cb)` and
 `RenderOptions.portable()` carry the `OTHER` values. The resolver caches by the configured vendor and the MySQL
 streaming mode (`vendor/41` R-PRF-07). `ModelQueryConfig` moves to `jpa`, so `vendor(DatabaseVendor)` is
 type-safe. Dialect detection, the grouped count and native null precedence vary by persistence provider, not by
 database, so they are one `ProviderSupport` SPI in `jpa.spi`, separate from `VendorProfile`, which
-`model-query-hibernate` implements. One explicit vendor applies to every factory that shares the configuration, so M5
+`model-query-hibernate` implements. `ProviderSupport.countQuery` only builds the grouped count; the executor runs it,
+so the configured timeout applies (`engine/20` R-EXE-11). One explicit vendor applies to every factory that shares the configuration, so M5
 needs a configuration per factory. Rejected: profile facts on `ModelQuery` (a definition is shared and immutable,
 INV-9); a `ThreadLocal` (invisible, and wrong across threads); a `CriteriaBuilder` decorator (it wraps a whole provider
 interface, and code that unwraps the provider's own builder bypasses it); `VendorProfile` in `core` (a vendor name in
@@ -274,10 +275,13 @@ provider × database). → `vendor/40` §1, R-VND-03, R-VND-04, R-VND-06, `api/1
 Each keyset column's NULLs sort where its explicit precedence says, else where the profile's
 `defaultAscendingNullOrdering()` puts them in its direction (descending reverses it); the `ORDER BY` of a `DEFAULT`
 column stays bare, so the database sorts by that same default. Under `keyset.null-keys=fail` a NULL there still
-throws `MQ2202`, and D-30's `IS NULL` branch is kept only where the NULLs sort after the cursor. Under
+throws `MQ2202`. Under `fail`, every non-key `DEFAULT` column keeps D-30's `IS NULL` branch whatever the ordering, so
+a misreported ordering (H2 `DEFAULT_NULL_ORDERING`, an unreported provider default, a wrong profile) still ends in
+`MQ2202` rather than skipped rows. Under
 `honour-null-precedence` the column pages its NULLs by that ordering, as an explicit precedence would. Under an
 `UNKNOWN` ordering (`OTHER`) neither is possible, so a NULL there throws `MQ2202` when a page reads it, in either
-mode, with D-30's branch making sure it is read; "refused" in R-COL-13 and R-VND-06 is that error. Rejected: refusing
+mode, with D-30's branch making sure it is read; "refused" in R-COL-13 and R-VND-06 is that error. Rejected: dropping
+the branch where NULLs sort first (a wrong ordering fact loses rows silently in the default mode); refusing
 up front any keyset over a column the metamodel reports optional (the metamodel does not know a column's
 nullability, and a nullable column holding no NULLs pages correctly); a new `MQnnnn` for the `OTHER` case (it is the
 `MQ2202` condition, a NULL key without a known precedence). → `engine/21` R-PAG-05, `api/10` R-COL-13, `vendor/40`
@@ -286,8 +290,8 @@ R-VND-06, AC-PRF-07, AC-VND-05.
 **D-36 — A provider's configured default null ordering overrides the profile's for keyset NULLs.**
 A persistence provider can be configured to sort the NULLs of every order rendered without a null precedence, such as
 Hibernate's `hibernate.order_by.default_null_ordering`; a bare `ORDER BY` then no longer sorts by the database's
-default, so D-35's profile ordering would disagree with it: under `fail` the NULLs sorted last were skipped silently
-where the profile put them first, and under `honour-null-precedence` rows were paged out of order.
+default, so D-35's profile ordering would disagree with it: under `fail` the NULLs still end in `MQ2202` wherever they sort
+(D-35), and under `honour-null-precedence` rows were paged out of order.
 `ProviderSupport.defaultNullPrecedence(emf)` reports that setting as `FIRST` or `LAST`, and where it is set it replaces
 the profile's ordering for a `DEFAULT` keyset column in both directions, not reversed for a descending one, since the
 provider puts the NULLs at that end either way; this holds under `OTHER` too. The `ORDER BY` stays bare (D-35). An
@@ -329,6 +333,13 @@ vendor's IN-list limit. Should 0.x add (a) a per-page hook on `page` and `list` 
 (b) a declared to-many child with its own `ColumnSet`, loaded by the executor in batches on the parents' keys, reusing
 the primary-key-first step-2 batching and clamp (R-PAG-07, D-32)? Either is new public API, and (b) must keep memory
 bounded by one page (INV-4). → `api/11`, `engine/21`.
+
+**Q-9 — The fetch-size hint in the built-in profiles.** The built-in profiles stream by passing the
+`org.hibernate.fetchSize` hint, as `vendor/41` §2 mandates. That is provider behaviour inside a database profile,
+against D-34's split, and under another provider the hint is ignored, so streaming may buffer. Should the hint move
+to `ProviderSupport`? The resolver's warning on `hibernate.order_by.default_null_ordering` without
+`model-query-hibernate` (`vendor/40` R-VND-07) reads a second Hibernate name in `jpa`, by necessity: it fires only
+where no `ProviderSupport` exists to ask. → `vendor/41` §2, R-PRF-04, R-VND-07, D-34.
 
 ## 3. Risks
 

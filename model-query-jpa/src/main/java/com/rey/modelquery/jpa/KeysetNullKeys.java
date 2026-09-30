@@ -1,6 +1,7 @@
-package com.rey.modelquery.jpa.spi;
+package com.rey.modelquery.jpa;
 
 import com.rey.modelquery.core.Incubating;
+import com.rey.modelquery.jpa.spi.ProviderSupport;
 
 /**
  * What keyset paging does with a NULL in a column ordered with {@code DEFAULT} null precedence

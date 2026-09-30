@@ -18,6 +18,7 @@ import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
+import com.rey.modelquery.jpa.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
 import com.rey.modelquery.tck.col.JoinTestSupport;
@@ -78,7 +79,7 @@ class VendorLimitsTest {
     void ac_prf_02_an_in_list_at_just_below_and_just_above_the_limit_returns_identical_rows(TckDatabase db) {
         int limit;
         try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
-            limit = VendorResolver.resolve(sf, Optional.<DatabaseVendor>empty()).profile().maxInListSize();
+            limit = VendorResolver.resolve(sf, Optional.<DatabaseVendor>empty(), MysqlStreamingMode.ROW_BY_ROW).profile().maxInListSize();
         }
         assertThat(limit).isLessThan(TckFixture.ORDER_ITEMS);
         List<List<Long>> lists = List.of(ids(limit - 1), ids(limit), ids(limit + 1));

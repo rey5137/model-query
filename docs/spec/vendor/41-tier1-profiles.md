@@ -78,7 +78,8 @@ OR (a = :ka AND b = :kb AND id > :kid)
 
 **R-PRF-09** With `a.nullsLast()` and `ka = NULL`, the branches comparing `a` become `a IS NULL AND …`. With `ka` not
 null, an `OR a IS NULL` branch is added, because under NULLS LAST every NULL sorts after every non-null value. The
-mirror image applies to `nullsFirst()`.
+mirror image applies to `nullsFirst()`. A non-key `DEFAULT`-precedence column under `keyset.null-keys=fail` gets the
+same `OR a IS NULL` branch whatever the null ordering, so its NULLs are read and refused with `MQ2202` (D-30, D-35).
 
 **R-PRF-10** The TCK checks every combination — ASC/DESC × NULLS FIRST/LAST × null/non-null key — on every Tier-1
 database (`delivery/60`).

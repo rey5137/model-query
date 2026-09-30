@@ -4,8 +4,6 @@ import com.rey.modelquery.core.Incubating;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
-import com.rey.modelquery.jpa.spi.KeysetNullKeys;
-import com.rey.modelquery.jpa.spi.MysqlStreamingMode;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;

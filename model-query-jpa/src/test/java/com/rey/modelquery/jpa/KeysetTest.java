@@ -18,7 +18,6 @@ import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowMapper;
 import com.rey.modelquery.core.TableField;
-import com.rey.modelquery.jpa.spi.KeysetNullKeys;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaBuilder;
@@ -205,14 +204,17 @@ class KeysetTest {
     /**
      * {@link #checkEveryCursor(boolean, OrderField[])} with the profile's {@code ordering}, the provider's
      * {@code providerNulls} and {@code nullKeys}: a NULL cursor under DEFAULT precedence is skipped only where the
-     * keyset refuses it.
+     * keyset refuses it. Under {@code FAIL} the predicate takes a NULL of a DEFAULT column to follow every value
+     * whatever the ordering, so it is read and refused wherever the database really sorts it (D-35).
      */
     @SafeVarargs
     private static void checkEveryCursor(boolean inOrder, NullOrdering ordering, Optional<NullPrecedence> providerNulls,
             KeysetNullKeys nullKeys, OrderField<Row3, ?>... order) {
         var q = query(order);
         Keyset<Row3> keyset = Keyset.of(q, q.primaryKey().orElseThrow(), ordering, providerNulls, nullKeys);
-        Comparator<Row3> cmp = orderOf(q.orderBy(), ordering, providerNulls);
+        Comparator<Row3> cmp = nullKeys == KeysetNullKeys.FAIL
+                ? orderOf(q.orderBy(), NullOrdering.UNKNOWN, Optional.empty())
+                : orderOf(q.orderBy(), ordering, providerNulls);
         String name = q.orderBy().toString();
         if (inOrder) {
             assertThat(after(q, keyset, null)).as("first page of %s", name)
@@ -313,13 +315,26 @@ class KeysetTest {
     }
 
     @Test
-    void ac_pag_07_a_default_precedence_predicate_leaves_out_the_nulls_the_database_sorts_first() {
-        // Under fail, a NULL the database sorts before the cursor was already read and refused, so the predicate
-        // needs no "or a is null" branch there (D-30); where it sorts NULLs last the branch stays.
+    void ac_pag_07_a_default_precedence_predicate_keeps_the_null_branch_under_fail_whatever_the_ordering() {
+        // Under fail the "or a is null" branch stays even where the profile or the provider reports NULLs first: if
+        // that fact is wrong and the NULLs really sort last, they are still read and refused, not skipped (D-35).
         for (NullOrdering ordering : List.of(NullOrdering.NULLS_FIRST, NullOrdering.NULLS_LAST)) {
             checkEveryCursor(false, ordering, Optional.empty(), KeysetNullKeys.FAIL, A.asc());
             checkEveryCursor(false, ordering, Optional.empty(), KeysetNullKeys.FAIL, A.desc());
             checkEveryCursor(false, ordering, Optional.empty(), KeysetNullKeys.FAIL, A.asc(), B.desc());
+        }
+        // a is NULL in rows 7, 8, 9 and 16, 17, 18, and no value of a is above the highest one.
+        var asc = query(A.asc());
+        Row3 highest = rows.stream().filter(r -> r.a() != null).max(Comparator.comparing(Row3::a)
+                .thenComparing(Row3::id)).orElseThrow();
+        for (Optional<NullPrecedence> providerNulls : List.of(Optional.<NullPrecedence>empty(),
+                Optional.of(NullPrecedence.FIRST))) {
+            Keyset<Row3> reportedFirst = keyset(asc, NullOrdering.NULLS_FIRST, providerNulls, KeysetNullKeys.FAIL);
+            List<Row3> next = after(asc, reportedFirst, cursorOf(highest, asc));
+            assertThat(next).extracting(Row3::id).containsExactlyInAnyOrder(7L, 8L, 9L, 16L, 17L, 18L);
+            assertThatThrownBy(() -> cursorRow(asc, reportedFirst, next.get(0).id()))
+                    .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ2202));
         }
     }
 

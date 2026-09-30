@@ -38,7 +38,7 @@ public final class ModelQuery<E, K, M> {
 
     /** Options that never chunk nor refuse a list, for scratch builds whose SQL is never run. */
     private static final RenderOptions UNLIMITED =
-            RenderOptions.of(Integer.MAX_VALUE, Integer.MAX_VALUE, NullOrdering.UNKNOWN);
+            RenderOptions.of(Integer.MAX_VALUE, Integer.MAX_VALUE);
 
     private final TableField<E, E> root;
     private final RowMapper<M> mapper;

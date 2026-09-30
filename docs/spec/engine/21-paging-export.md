@@ -45,10 +45,13 @@ default. With explicit `nullsFirst()`/`nullsLast()` (`api/10` R-COL-12), the key
 `modelquery.keyset.null-keys=honour-null-precedence` (`ModelQueryConfig.keysetNullKeys`) makes that the default for a
 migrating codebase (`integration/50`): a column without explicit precedence pages its NULLs where the profile's
 `defaultAscendingNullOrdering()` puts them, and still throws `MQ2202` under `OTHER`, whose ordering is `UNKNOWN`
-(`api/10` R-COL-13, D-35). Where the persistence provider is configured with a default null ordering
+(`api/10` R-COL-13, D-35). Under the default `fail`, the predicate of such a column keeps its `OR a IS NULL` branch
+whatever ordering is reported, so a NULL is read and refused even where that ordering is wrong (D-30, D-35). Where the persistence provider is configured with a default null ordering
 (`ProviderSupport.defaultNullPrecedence`), that ordering replaces the profile's in both directions (D-36). Nothing reports it without the provider's module
 (`model-query-hibernate` for Hibernate's `hibernate.order_by.default_null_ordering`), so such an application adds that
-module or gives its nullable keyset columns explicit precedence; the user guide says so.
+module or gives its nullable keyset columns explicit precedence, which always renders its own sort key there
+(`api/10` R-COL-12); the user guide says so, and resolution warns when it sees the setting without the module
+(`vendor/40` R-VND-07).
 
 **R-PAG-06** Keyset predicates are generated as an OR-expansion over the order columns; the shape and the NULL branches
 are specified in `vendor/41` §5. Row-value comparison `(a,b) > (?,?)` is a possible later optimisation, not the default

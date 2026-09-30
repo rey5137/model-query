@@ -19,7 +19,7 @@ model-query/
 │                                    Row, RowMapper, ModelQuery, Filters, JoinContext, RenderOptions,
 │                                    SPI interfaces                               (jakarta.persistence-api)
 ├── model-query-jpa/                 executor, ModelQueryConfig, paging and export engine;          (core)
-│                                    jpa.spi: VendorProfile, ProviderSupport; jpa.vendor: built-in profiles
+│                                    jpa.spi: VendorProfile, ProviderSupport; jpa.vendor: built-in profiles (not API)
 ├── model-query-hibernate/           Hibernate 6.x extras: dialect detection, grouped count,
 │                                    null precedence                              (jpa + hibernate-core, optional)
 ├── model-query-processor/           annotation processor                          (annotations, JavaPoet shaded)
@@ -79,9 +79,11 @@ Conventional Commits.
 through the `rey5137` GitHub account. The Java package `com.rey.modelquery` intentionally differs from the `groupId`.
 
 **R-REL-10** Sub-packages follow the modules: `.core`, `.jpa`, `.hibernate`, `.processor`, `.spring.data`,
-`.spring.boot`.
+`.spring.boot`. `com.rey.modelquery.jpa.vendor` (the built-in profiles, `VendorResolver`, `ResolvedVendor`) is not
+API, whatever the visibility of its types: it may change in any release, and extensions go through `jpa.spi`.
 
-**R-REL-11** From 1.0, `japicmp` fails the build on a binary-incompatible change to a non-`@Incubating` type.
+**R-REL-11** From 1.0, `japicmp` fails the build on a binary-incompatible change to a non-`@Incubating` type outside the
+non-API packages (R-REL-10).
 
 ## 5. Licensing
 

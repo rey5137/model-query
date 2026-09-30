@@ -20,6 +20,7 @@ import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
+import com.rey.modelquery.jpa.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
 import com.rey.modelquery.tck.col.CompositeKeyItemEntity;
@@ -231,7 +232,7 @@ class PrimaryKeyFirstTest {
         // pass it though they fit one IN list: the page's keys are read back in two statements, not one.
         int maxBinds;
         try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
-            maxBinds = VendorResolver.resolve(sf, Optional.<DatabaseVendor>empty()).profile().maxBindParameters();
+            maxBinds = VendorResolver.resolve(sf, Optional.<DatabaseVendor>empty(), MysqlStreamingMode.ROW_BY_ROW).profile().maxBindParameters();
         }
         List<Long> ids = LongStream.rangeClosed(1, maxBinds - 5_000).boxed().toList();
         var listed = BY_PRODUCT.where(f -> f.in(ITEM_ID, ids));

@@ -4,9 +4,8 @@ import com.rey.modelquery.core.Incubating;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
 import jakarta.persistence.EntityManagerFactory;
-import jakarta.persistence.TypedQuery;
+import jakarta.persistence.criteria.CriteriaQuery;
 import java.util.Optional;
-import java.util.OptionalLong;
 
 /**
  * What a persistence provider can do better than portable JPA: detect the database without a connection, count
@@ -29,11 +28,12 @@ public interface ProviderSupport {
     }
 
     /**
-     * The number of rows {@code groupedQuery} returns, counted in the database, or empty when this implementation
-     * cannot count it; the executor then counts client-side (R-EXE-03).
+     * A query counting, in the database, the rows {@code groupedQuery} returns, or empty when this implementation
+     * cannot build one; the executor then counts client-side (R-EXE-03). The executor runs the returned query itself,
+     * so the configured query timeout applies to it (R-EXE-11).
      */
-    default OptionalLong countGroups(TypedQuery<?> groupedQuery) {
-        return OptionalLong.empty();
+    default Optional<CriteriaQuery<Long>> countQuery(CriteriaQuery<?> groupedQuery) {
+        return Optional.empty();
     }
 
     /** A native null-precedence renderer, or empty to render the portable form (R-COL-12). */
@@ -48,7 +48,6 @@ public interface ProviderSupport {
      * applies. Keyset paging places a {@code DEFAULT}-precedence column's NULLs by it instead of by the profile's
      * {@code defaultAscendingNullOrdering()} (R-PAG-05, D-36).
      */
-    @Incubating
     default Optional<NullPrecedence> defaultNullPrecedence(EntityManagerFactory emf) {
         return Optional.empty();
     }

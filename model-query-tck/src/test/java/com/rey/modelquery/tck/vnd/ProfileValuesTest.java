@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.NullOrdering;
+import com.rey.modelquery.jpa.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
@@ -126,7 +127,7 @@ class ProfileValuesTest {
     }
 
     private static VendorProfile profile(SessionFactory sf) {
-        return VendorResolver.resolve(sf, Optional.<DatabaseVendor>empty()).profile();
+        return VendorResolver.resolve(sf, Optional.<DatabaseVendor>empty(), MysqlStreamingMode.ROW_BY_ROW).profile();
     }
 
     /** {@code select count(*) ... where id in (?, ... n binds)} over plain JDBC: one statement, n binds. */

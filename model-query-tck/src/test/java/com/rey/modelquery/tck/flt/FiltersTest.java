@@ -10,7 +10,6 @@ import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.Filters;
 import com.rey.modelquery.core.LikeMode;
 import com.rey.modelquery.core.ModelQuery;
-import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.Op;
 import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.RenderOptions;
@@ -326,7 +325,7 @@ class FiltersTest {
     // ---- AC-FLT-08
 
     /** An IN-list limit small enough that a handful of values shows the chunks (R-FLT-09). */
-    private static final RenderOptions THREE_PER_LIST = RenderOptions.of(3, 100, NullOrdering.UNKNOWN);
+    private static final RenderOptions THREE_PER_LIST = RenderOptions.of(3, 100);
     private static final Pattern IN_LIST = Pattern.compile("\\bin \\(");
 
     @TckTest

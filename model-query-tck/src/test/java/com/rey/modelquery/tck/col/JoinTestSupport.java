@@ -1,11 +1,15 @@
 package com.rey.modelquery.tck.col;
 
+import com.rey.modelquery.jpa.ModelQueryConfig;
+import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import java.io.IOException;
 import java.lang.reflect.Proxy;
 import java.net.URL;
+import java.sql.Connection;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.function.Consumer;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
 import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
@@ -29,6 +33,11 @@ public final class JoinTestSupport {
      * the executor can read {@code DatabaseMetaData} without {@code model-query-hibernate} (R-VND-04).
      */
     public static DataSource dataSource(TckDatabase db) {
+        return dataSource(db, () -> { });
+    }
+
+    /** As {@link #dataSource(TckDatabase)}, running {@code onOpen} after each connection it opens. */
+    public static DataSource dataSource(TckDatabase db, Runnable onOpen) {
         return (DataSource) Proxy.newProxyInstance(JoinTestSupport.class.getClassLoader(),
                 new Class<?>[] {DataSource.class}, (proxy, method, args) -> {
                     if (method.getDeclaringClass() == Object.class) {
@@ -39,8 +48,26 @@ public final class JoinTestSupport {
                     if (!method.getName().equals("getConnection")) {
                         throw new UnsupportedOperationException(method.getName());
                     }
-                    return db.getConnection();
+                    Connection connection = db.getConnection();
+                    onOpen.run();
+                    return connection;
                 });
+    }
+
+    /**
+     * Closes {@code factory} after running {@code work} on an executor of it, which resolves with or without the
+     * Hibernate SPI; without it, the vendor is read from the factory's DataSource.
+     */
+    public static <E> void withExecutor(SessionFactory factory, boolean hibernate, Class<E> root,
+            ModelQueryConfig config, Consumer<ModelQueryExecutor<E>> work) {
+        try (SessionFactory sf = factory) {
+            Runnable run = () -> sf.inSession(em -> work.accept(ModelQueryExecutor.create(em, root, config)));
+            if (hibernate) {
+                run.run();
+            } else {
+                withoutServices(run);
+            }
+        }
     }
 
     public static SessionFactory sessionFactory(DataSource dataSource) {
