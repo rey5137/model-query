@@ -93,6 +93,36 @@ class VendorResolverTest {
     }
 
     @Test
+    void r_vnd_03_a_supplied_profile_takes_precedence_over_a_discovered_and_a_built_in_one() {
+        var discovered = new CustomProfile(DatabaseVendor.POSTGRESQL);
+        var supplied = new CustomProfile(DatabaseVendor.POSTGRESQL);
+        var suppliedOther = new CustomProfile(DatabaseVendor.OTHER);
+        ResolvedVendor postgres = resolved(DatabaseVendor.POSTGRESQL, Map.of(DatabaseVendor.POSTGRESQL, discovered));
+        assertThat(postgres.profile()).isSameAs(discovered);
+        ResolvedVendor withSupplied = VendorResolver.withSupplied(postgres, List.of(suppliedOther, supplied));
+        assertThat(withSupplied.profile()).isSameAs(supplied);
+        assertThat(withSupplied.detectedVendor()).isEqualTo(DatabaseVendor.POSTGRESQL);
+        assertThat(withSupplied.source()).isEqualTo(ResolvedVendor.Source.METADATA);
+        // A built-in profile serves H2, so a supplied OTHER one does not replace it; nothing supplied changes nothing.
+        ResolvedVendor h2 = resolved(DatabaseVendor.H2, Map.of());
+        assertThat(VendorResolver.withSupplied(h2, List.of(supplied, suppliedOther))).isSameAs(h2);
+        assertThat(VendorResolver.withSupplied(postgres, List.of())).isSameAs(postgres);
+    }
+
+    @Test
+    void r_vnd_06_a_supplied_other_profile_serves_a_vendor_that_fell_back_to_other() {
+        var discoveredOther = new CustomProfile(DatabaseVendor.OTHER);
+        var suppliedOther = new CustomProfile(DatabaseVendor.OTHER);
+        var suppliedOracle = new CustomProfile(DatabaseVendor.ORACLE);
+        ResolvedVendor oracle = resolved(DatabaseVendor.ORACLE, Map.of(DatabaseVendor.OTHER, discoveredOther));
+        assertThat(oracle.profile()).isSameAs(discoveredOther);
+        assertThat(VendorResolver.withSupplied(oracle, List.of(suppliedOther)).profile()).isSameAs(suppliedOther);
+        // One supplied for the vendor itself wins over a supplied OTHER one, whatever their order.
+        assertThat(VendorResolver.withSupplied(oracle, List.of(suppliedOther, suppliedOracle)).profile())
+                .isSameAs(suppliedOracle);
+    }
+
+    @Test
     void r_vnd_03_two_discovered_profiles_for_one_vendor_throw_mq4002() {
         var first = new CustomProfile(DatabaseVendor.MYSQL);
         var second = new CustomProfile(DatabaseVendor.MYSQL);
@@ -143,6 +173,11 @@ class VendorResolverTest {
                 });
         BuiltInProfile.H2.applyTimeout(query, timeout);
         return hint[0];
+    }
+
+    /** {@code vendor} as resolved from {@code DatabaseMetaData} with {@code discovered} on the class path. */
+    private static ResolvedVendor resolved(DatabaseVendor vendor, Map<DatabaseVendor, VendorProfile> discovered) {
+        return new ResolvedVendor(profileFor(vendor, discovered), null, vendor, ResolvedVendor.Source.METADATA, "");
     }
 
     private static VendorProfile profileFor(DatabaseVendor vendor, Map<DatabaseVendor, VendorProfile> discovered) {
