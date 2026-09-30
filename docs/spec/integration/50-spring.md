@@ -104,7 +104,7 @@ one vendor on every database (D-54).
 | AC-SPR-01 | Each repository method produces the same SQL and results as the plain-JPA executor (R-SPR-01). |
 | AC-SPR-02 | A Boot application with three datasources (H2, PostgreSQL, MySQL) resolves one profile per factory (R-SPR-02, `vendor/40` AC-VND-03). |
 | AC-SPR-03 | `stream` without an ambient transaction succeeds on PostgreSQL through the repository (R-SPR-03). |
-| AC-SPR-04 | `Sort` by a selected column's attribute path and by its name both work; `nullsFirst`/`nullsLast`/`nullsNative` map correctly (R-SPR-04, R-SPR-05). |
+| AC-SPR-04 | `Sort` by a selected column's property path (`customer.name`) and by its attribute path both work (D-55); `nullsFirst`/`nullsLast`/`nullsNative` map correctly (R-SPR-04, R-SPR-05). |
 | AC-SPR-05 | An unresolvable or ambiguous sort property, and `ignoreCase`, throw `MQ2301` naming the property (R-SPR-06). |
 | AC-SPR-06 | Under `NO_COUNT` the result's `getTotalElements()` and `getTotalPages()` are `null` and `hasNext()` is right; under `COUNT` they are exact (R-SPR-07). |
 | AC-SPR-07 | Every property in §3 is settable on `ModelQueryConfig` without Spring (R-SPR-08). |

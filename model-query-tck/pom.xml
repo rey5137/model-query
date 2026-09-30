@@ -46,6 +46,13 @@
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
+        <!-- The repository criteria (tck/spr) run ModelQueryRepository in a Spring context over the TCK databases. -->
+        <dependency>
+            <groupId>org.springframework.data</groupId>
+            <artifactId>spring-data-jpa</artifactId>
+            <version>${spring-data-jpa.version}</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>com.tngtech.archunit</groupId>
             <artifactId>archunit</artifactId>
