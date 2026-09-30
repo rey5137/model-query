@@ -31,8 +31,9 @@ public final class ModelQueryProcessor extends AbstractProcessor {
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
         var types = processingEnv.getTypeUtils();
         var reader = new QueryModelReader(processingEnv.getOptions());
-        var validator = new ModelValidator(types, new EntityMetamodel(types));
-        var writer = new QModelWriter(types);
+        var nestedModels = new NestedModels(reader);
+        var validator = new ModelValidator(types, new EntityMetamodel(types), nestedModels);
+        var writer = new QModelWriter(types, nestedModels);
         for (Element element : roundEnv.getElementsAnnotatedWith(QueryModel.class)) {
             var type = (TypeElement) element;
             if (QueryModelReader.usesLaterFeature(type)) {

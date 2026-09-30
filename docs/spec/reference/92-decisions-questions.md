@@ -338,7 +338,7 @@ fields and the nested QModel's name, and never looks the nested QModel up, so pr
 generated file has one originating element, its model's `TypeElement`, which is what Gradle's isolating mode requires;
 Gradle recompiles the outer model when the nested model it references changes. Gradle's incremental processing reads
 only `CLASS` or `RUNTIME` annotations, so every annotation moves from `SOURCE` to `CLASS` retention. A nested model
-that is on the classpath rather than in the compilation is refused by `MQ3005` for now (Q-10). Rejected: an
+that is on the classpath rather than in the compilation was refused by `MQ3005` at first; D-45 accepts it. Rejected: an
 aggregating processor (every model is reprocessed on any change); dropping the per-column constants for a run-time
 `withTable` over the nested `ALL` (the joined columns would lose their typed constants). Not yet verified under Gradle:
 staleness across two levels of nesting; if it shows, the registration falls back to aggregating.
@@ -391,6 +391,27 @@ javac checks the generated call, as it does a setter (R-GEN-11). A column whose 
 (`Map<String, String>`) is declared with its raw class cast to that type, since it has no class literal. Rejected: `MQ3002` by
 assignability (it would let through what `MQ1001` refuses). → `processor/30` R-PROC-04, `processor/32` §1.
 
+**D-45 — What an outer model declares for its joins, and where a nested model may come from.**
+An outer QModel declares every join under a `@Join`, not only the join itself: for `OrderView.customer →
+CustomerView.address` it has `CUSTOMER_TABLE`, `CUSTOMER_ADDRESS_TABLE =
+QCustomerView.ADDRESS_TABLE.withParent(CUSTOMER_TABLE)`, a column `<PREFIX>_<constant of the nested QModel>` for each
+column on either, and one `ColumnSet` per join (`CUSTOMER`, `CUSTOMER_ADDRESS`) holding that model's own columns.
+Every constant is read from the QModel of the `@Join`'s own nested model, which already declares the joins below it,
+so `Row.scoped` finds them where the nested mapper looks. The joined `ColumnSet`s follow `generateColumnSets`. When
+several `@Join`s read one attribute, each without an explicit `alias` takes its field name. A `@Join(attribute)` is
+one to-one association of the root itself; a dotted path is `MQ3003`. A join whose prefix is taken reports `MQ3015`
+once, on its first clashing constant. A `prefix` that is not a Java identifier is `MQ3015` too, since it can't start a
+constant's name. A to-one column with a converter is not warned of by `MQ3016`: the field holds the converter's value. A converter is taken from a public static `INSTANCE`, else built with a no-arg
+constructor the QModel's package can call. A nested model is any `@QueryModel` the compiler can read, a source of the
+compilation or a class on its classpath (Q-10): the outer model needs only the nested model's field names, types and
+`CLASS`-retained annotations, which a class file keeps, and an incremental build that recompiles the outer model alone
+sees the nested model as a class. The nested QModel must be on the classpath too, which it is when the nested
+model's module ran the processor; if not, javac reports the missing `Q` class. A class `@Join` field's initialiser
+can't be read by a processor, so it is not checked: the mapper assigns the field on every row. Rejected: one joined
+`ColumnSet` holding the columns of every level (selecting a customer would always join its address); accepting only
+models whose source is a root element of the compilation (it fails the incremental build above).
+→ `processor/30` R-PROC-09, `processor/31` R-GEN-04, R-GEN-14, `processor/32` `MQ3003`, `MQ3005`, `MQ3015`.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter
@@ -430,10 +451,7 @@ to `ProviderSupport`? The resolver's warning on `hibernate.order_by.default_null
 `model-query-hibernate` (`vendor/40` R-VND-07) reads a second Hibernate name in `jpa`, by necessity: it fires only
 where no `ProviderSupport` exists to ask. → `vendor/41` §2, R-PRF-04, R-VND-07, D-34.
 
-**Q-10 — A nested model from another module.** `@Join` on an `Optional<X>` whose `X` is compiled elsewhere is refused
-by `MQ3005` (D-39): the processor reads the nested model's fields from source, and a compiled class keeps neither
-parameter names reliably nor field initialisers. Should 0.x support it, by reading the `CLASS`-retained annotations of
-the compiled model, or by generating a descriptor the outer compilation reads? → `processor/31` R-GEN-04, D-39.
+**Q-10 — A nested model from another module.** Resolved by D-45.
 
 ## 3. Risks
 

@@ -14,7 +14,7 @@
 | `MQ3002` | Model type is not the entity attribute's type, a primitive counting as its wrapper, and no converter; or the attribute is a collection (D-44) | `OrderView.id: model type Integer, entity attribute type Long` |
 | `MQ3003` | `@Join` attribute is not a to-one association (a collection cannot be selected, `engine/21` R-PAG-13), or the nested model's `root` does not match the target | `OrderView.customer: CustomerView.root is AccountEntity, association targets CustomerEntity` |
 | `MQ3004` | Missing `@PrimaryKey`, on a model with no `@Aggregate` field | `OrderView: no @PrimaryKey; paging, export and @Join presence need one` |
-| `MQ3005` | `@Join` field is not `Optional<X>`, or `X` is not a `@QueryModel` in the same compilation (Q-10) | `OrderView.customer: @Join field must be Optional<CustomerView>, found CustomerView` |
+| `MQ3005` | `@Join` field is not `Optional<X>`, or `X` is not a `@QueryModel` (D-45) | `OrderView.customer: @Join field must be Optional<CustomerView>, found CustomerView` |
 | `MQ3006` | Nested model has no `@PrimaryKey`, so presence cannot be decided | `OrderView.customer: CustomerView needs a @PrimaryKey to be used in @Join` |
 | `MQ3007` | Join cycle between nested models | `OrderView.customer → CustomerView.lastOrder → OrderView` |
 | `MQ3008` | Class model has no no-arg constructor visible from its package | `OrderView: needs a no-arg constructor for setter mapping` |
@@ -24,8 +24,8 @@
 | `MQ3012` | Two `@FilterColumn`s with the same `alias` and path prefix but different `joinType` | `OrderView @FilterColumn(SKU_B): alias 'itemB' is INNER here, LEFT on SKU_B_QTY` |
 | `MQ3013` | `@FilterColumn` name clashes with a generated constant | `OrderView @FilterColumn(STATUS): name already used by field 'status'` |
 | `MQ3014` | `converter` is not a `ColumnConverter` between the field type and the attribute type, or has neither a public static `INSTANCE` nor a visible no-arg constructor | `OrderView.status: OrderStatusConverter converts OrderStatus to Integer, entity attribute type String` |
-| `MQ3015` | Two generated constants would have the same name, or a field's constant clashes with a reserved one (`ROOT`, `ALL`, `DEFAULT`, `KEY`, `MAPPER`, `GROUP_KEYS`) | `OrderView.customerId: constant CUSTOMER_ID is also generated for customer.id; rename the field or set @Join(prefix)` |
-| `MQ3016` | **Warning.** A column on a to-one association selects the whole entity (D-44) | `OrderView.customer: selects the whole CustomerEntity entity; use @Join with a query model of CustomerEntity to select only its columns` |
+| `MQ3015` | Two generated constants would have the same name, or a field's constant clashes with a reserved one (`ROOT`, `ALL`, `DEFAULT`, `KEY`, `MAPPER`, `GROUP_KEYS`), or a `@Join(prefix)` is not a Java identifier (D-45) | `OrderView.customerId: constant CUSTOMER_ID is also generated for customer.id; rename the field or set @Join(prefix)` |
+| `MQ3016` | **Warning.** A column on a to-one association selects the whole entity and has no converter (D-44, D-45) | `OrderView.customer: selects the whole CustomerEntity entity; use @Join with a query model of CustomerEntity to select only its columns` |
 | `MQ3201` | `@Aggregate` field is primitive | `ProductSales.revenue: SUM is NULL over zero rows; use BigDecimal, not a primitive` |
 | `MQ3202` | `@Aggregate` field type does not match the function's result type | `ProductSales.lines: COUNT returns Long, field is Integer` |
 | `MQ3203` | `@Aggregate` model has no `@GroupBy` field and is not `singleGroup` | `ProductSales: has @Aggregate fields but no @GroupBy; add one or set @QueryModel(singleGroup = true)` |
