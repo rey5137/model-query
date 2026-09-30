@@ -43,11 +43,21 @@ filter-only or absent from the chosen `ColumnSet`.
 default. With explicit `nullsFirst()`/`nullsLast()` (`api/10` R-COL-12), the keyset predicate adds the matching
 `IS NULL` branches and the `ORDER BY` renders explicit null precedence, so every vendor sorts the same way.
 `modelquery.keyset.null-keys=honour-null-precedence` makes that the default for a migrating codebase
-(`integration/50`).
+(`integration/50`); the setting is owed by M3 and not implemented yet, so until then `fail` is the only behaviour.
 
 **R-PAG-06** Keyset predicates are generated as an OR-expansion over the order columns; the shape and the NULL branches
 are specified in `vendor/41` §5. Row-value comparison `(a,b) > (?,?)` is a possible later optimisation, not the default
 (P-4).
+
+**R-PAG-14** **Keyset export refuses a repeated page.** Each keyset page starts strictly after the last row of the page
+before, so no key of that page can come back, unless the cursor did not survive being bound (a value that does not
+compare equal to the stored one; `Float` and `Double` keysets are refused at build for this, `api/11` R-QRY-13) or a
+row's keyset value changed between pages so that it now sorts after the cursor. The engine keeps the previous page's
+keys, bounded by one page (INV-4), and throws `MQ2205` naming the model when a row of the new page has one of them,
+before that page reaches `pageTransformer`. It throws rather than dedupes: the same causes can skip rows as well as
+repeat them, and a repeated tie group that fills a page would loop forever. A key repeated within one page is still
+dropped as in R-PAG-02 (D-31). A row that moves further than the next page is not caught; keyset export guarantees
+exactly-once only over rows whose keyset values do not change while it runs.
 
 ## 3. Primary-key-first deep paging
 
@@ -56,7 +66,15 @@ selects models `WHERE pk IN (...)`. The step-2 batch size is clamped to `VendorP
 `maxBindParameters()` (`vendor/41`).
 
 **R-PAG-08** Step 2 re-applies the query's order, because `IN` does not preserve the key order. Predicates must be
-identical in both steps; a `QueryCustomizer` that narrows only one phase is what `api/11` R-QRY-09 warns about.
+identical in both steps; a `QueryCustomizer` that narrows only one phase is what `api/11` R-QRY-09 warns about, and
+what R-PAG-15 refuses.
+
+**R-PAG-15** **Primary-key-first refuses phases that disagree.** When a customizer narrows some phases but not others
+(`api/11` R-QRY-09), step 1 pages rows step 2 does not return, or the reverse, and the offset an export shares between
+one-step and two-step pages shifts at the switch, skipping rows. On a query with `primaryKeyFirst(...)` the phase check
+of the first execution therefore throws `MQ2206` naming the model and the phases, before any query runs, whatever the
+method and the offset, since the check belongs to the definition, not to a request's values. It passes only once the
+phases agree, so every later execution throws too. Other queries keep the R-QRY-09 warning.
 
 ## 4. The export loop
 
@@ -66,7 +84,9 @@ One loop serves both modes:
 cursor = start (offset 0, or empty keyset)
 loop:
     rows = fetch(query + stable order + cursor predicate/offset, pageSize)
-    fresh = rows minus keys seen on previous page      # offset mode only
+    fresh = rows minus keys repeated within the page   # both modes (R-PAG-02)
+    offset: fresh -= keys of the previous page         # rows shifted across the boundary
+    keyset: a key of the previous page -> MQ2205       # the cursor did not round-trip (R-PAG-14)
     for item in pageTransformer(fresh): sink(item) until limit reached
     if rows.size < pageSize or limit reached: stop
     cursor = next(cursor, rows)                        # keyset: last row's key; offset: += rows.size
@@ -104,3 +124,5 @@ that could overlap pages, and R-PAG-11 makes it unreachable.
 | AC-PAG-10 | Grouped offset export over 20 000 rows visits every group exactly once, with duplicated order keys (R-PAG-11). |
 | AC-PAG-11 | `export` returns the count passed to `sink`, not the count read, when `pageTransformer` filters (R-PAG-10). |
 | AC-PAG-12 | Offset export of an ungrouped query, keyset paging and primary-key-first paging over a selection read through a to-many join throw `MQ2204` naming the join, without querying; the same export with the to-many join used only in a predicate succeeds, and so does a grouped export over it (R-PAG-13). |
+| AC-PAG-13 | A keyset export whose next page repeats a key of the page before, because a row's keyset value moved after the cursor between pages, throws `MQ2205` naming the model before that page reaches `pageTransformer`, on every Tier-1 vendor; a key repeated within one page is still dropped (R-PAG-14). |
+| AC-PAG-14 | On a query with `primaryKeyFirst(...)` whose customizer narrows only some phases, `page` and `export` throw `MQ2206` before any query runs; the same customizer without `primaryKeyFirst(...)` only warns (R-PAG-15). |

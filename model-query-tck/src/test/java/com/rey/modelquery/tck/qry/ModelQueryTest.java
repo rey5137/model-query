@@ -31,6 +31,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Selection;
 import java.lang.reflect.Method;
@@ -53,6 +54,7 @@ import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.Test;
 
@@ -648,6 +650,101 @@ class ModelQueryTest {
             }
         }
         throw new IllegalArgumentException("No top-level '" + token.trim() + "' in " + sql);
+    }
+
+    // ---- AC-QRY-10
+
+    @TckTest
+    void ac_qry_10_a_customizer_changing_the_order_or_the_grouping_throws_mq1205(TckDatabase db) {
+        QueryCustomizer addsGroupBy = (spec, joins, query, cb, phase) -> {
+            var groups = new ArrayList<Expression<?>>(query.getGroupList());
+            groups.add(query.getRoots().iterator().next().get("total"));
+            query.groupBy(groups);
+        };
+        QueryCustomizer reorders = (spec, joins, query, cb, phase) ->
+                query.orderBy(cb.desc(query.getRoots().iterator().next().get("total")));
+        QueryCustomizer reordersStepTwo = (spec, joins, query, cb, phase) -> {
+            if (phase == Phase.MODEL_BY_KEYS) {
+                reorders.customize(spec, joins, query, cb, phase);
+            }
+        };
+        QueryCustomizer keepsOrder = (spec, joins, query, cb, phase) -> {
+            query.orderBy(query.getOrderList());
+            query.groupBy(query.getGroupList());
+        };
+        AggregateField<View, Long> count = Agg.count(ROOT);
+        var byStatus = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(ColumnSet.of(STATUS, count)).groupBy(STATUS);
+        var keyed = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT).primaryKey(PrimaryKey.of(ID))
+                .orderBy(STATUS.asc());
+        var unkeyed = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT).orderBy(STATUS.asc());
+        try (SessionFactory sf = sessionFactory(db)) {
+            sf.inSession(em -> {
+                CriteriaBuilder cb = em.getCriteriaBuilder();
+                // A grouped query has no primary key, so only MODEL is checked, but it is checked (R-QRY-11).
+                assertMq1205(() -> byStatus.customize(addsGroupBy).build().checkPhases(cb), "GROUP BY", Phase.MODEL);
+                assertMq1205(() -> byStatus.customize(addsGroupBy).build().buildQuery(cb, Phase.MODEL), "GROUP BY",
+                        Phase.MODEL);
+                assertMq1205(() -> byStatus.customize(reorders).build().checkPhases(cb), "ORDER BY", Phase.MODEL);
+                assertMq1205(() -> unkeyed.customize(reorders).build().checkPhases(cb), "ORDER BY", Phase.MODEL);
+                assertMq1205(() -> keyed.keyset().customize(reorders).build().buildQuery(cb, Phase.PRIMARY_KEY),
+                        "ORDER BY", Phase.PRIMARY_KEY);
+                // A change in one phase only is found on first execution, before that phase ever runs.
+                assertMq1205(() -> keyed.customize(reordersStepTwo).build().checkPhases(cb), "ORDER BY",
+                        Phase.MODEL_BY_KEYS);
+                // Setting the order and grouping it received changes neither.
+                byStatus.customize(keepsOrder).build().checkPhases(cb);
+                keyed.customize(keepsOrder).build().checkPhases(cb);
+            });
+        }
+    }
+
+    private static void assertMq1205(ThrowingCallable call, String clause, Phase phase) {
+        assertThatThrownBy(call)
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1205))
+                .hasMessageStartingWith("MQ1205: View: the QueryCustomizer changed the " + clause + " of phase "
+                        + phase + ";");
+    }
+
+    // ---- AC-QRY-11
+
+    @Test
+    void ac_qry_11_a_primary_key_column_of_array_type_throws_mq1206() {
+        ColumnField<View, OrderEntity, byte[]> rawId = ColumnField.of(View.class, ROOT, "id", byte[].class);
+        var keyedByBytes = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT).primaryKey(PrimaryKey.of(rawId));
+        for (var builder : List.of(keyedByBytes, keyedByBytes.keyset(),
+                keyedByBytes.primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)))) {
+            assertThatThrownBy(builder::build)
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1206))
+                    .hasMessageStartingWith("MQ1206: View.id: a primary-key column of type byte[] cannot identify a "
+                            + "row");
+        }
+    }
+
+    // ---- AC-QRY-12
+
+    @Test
+    void ac_qry_12_a_keyset_over_a_float_or_double_column_throws_mq1207() {
+        // Resolved against no entity: the refusal is part of build(), before any database is involved.
+        ColumnField<View, OrderEntity, Double> doubleTotal = ColumnField.of(View.class, ROOT, "total", Double.class);
+        ColumnField<View, OrderEntity, Float> floatId = ColumnField.of(View.class, ROOT, "id", float.class);
+        var byTotal = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT).primaryKey(PrimaryKey.of(ID))
+                .orderBy(STATUS.asc(), doubleTotal.desc());
+        var keyedByFloat = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT).primaryKey(PrimaryKey.of(floatId))
+                .orderBy(STATUS.asc());
+        assertThatThrownBy(() -> byTotal.keyset().build())
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1207))
+                .hasMessageStartingWith("MQ1207: View.total: keyset() cannot page by a Double column");
+        // The appended primary-key tie-breaker is a keyset column too (R-PAG-04).
+        assertThatThrownBy(() -> keyedByFloat.keyset().build())
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1207))
+                .hasMessageStartingWith("MQ1207: View.id: keyset() cannot page by a Float column");
+        // Offset paging binds no cursor, so the same queries build without keyset().
+        assertThat(byTotal.build().isKeyset()).isFalse();
+        assertThat(keyedByFloat.build().isKeyset()).isFalse();
     }
 
     // ---- AC-COL-09

@@ -35,6 +35,9 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1202` | `build()` without `columns` | `api/11` R-QRY-02 |
 | `MQ1203` | `ModelQuery.builder` given a join instead of a root `TableField` | `api/11` R-QRY-02 |
 | `MQ1204` | `PrimaryKeyFirst.whenOffsetAbove` with a negative offset | `api/11` R-QRY-03 |
+| `MQ1205` | A `QueryCustomizer` changed the `ORDER BY` or `GROUP BY` of a phase | `api/11` R-QRY-11 |
+| `MQ1206` | A primary-key column of array type | `api/11` R-QRY-12 |
+| `MQ1207` | `keyset()` with a `Float` or `Double` order or primary-key column | `api/11` R-QRY-13 |
 | `MQ1301` | A value-form filter received `null` | `api/12` §1 |
 | `MQ1302` | A column or nested `exists(...)` path inside `exists(...)` is not on or below the given path | `api/12` R-FLT-11 |
 | `MQ1303` | A `Filters` or `Having` used after its operator returned, or while a nested operator runs | `api/12` §1, D-23 |
@@ -68,6 +71,8 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ2202` | A keyset column is NULL and the column has no explicit null precedence | `engine/21` R-PAG-05 |
 | `MQ2203` | An operation needing a primary key (offset export of an ungrouped query, the `PRIMARY_KEY` phase) on a query without one; a grouped query never has one (`api/13` R-AGG-09) | `api/11` R-QRY-03 |
 | `MQ2204` | Offset export of an ungrouped query, keyset paging or the primary-key-first phase over a selection read through a to-many join | `engine/21` R-PAG-13 |
+| `MQ2205` | A keyset export page holds a key of the page before: a cursor value did not survive being bound, or a row's keyset value moved after the cursor | `engine/21` R-PAG-14 |
+| `MQ2206` | A customizer narrows the phases of a query with `primaryKeyFirst(...)` differently | `engine/21` R-PAG-15 |
 | `MQ2301` | A `Sort` property resolves to neither an attribute path nor a known column | `integration/50` R-SPR-06 |
 | `MQ2501` | A bulk write, other than `commitEachChunk()`, ran without an active transaction (`Future`, M8) | `api/14` R-WRT-18 |
 | `MQ2502` | A per-chunk write failed; `ChunkedWriteException` carries the committed rows, the last committed key and the keys of a chunk in doubt (`Future`, M8) | `api/14` R-WRT-20 |

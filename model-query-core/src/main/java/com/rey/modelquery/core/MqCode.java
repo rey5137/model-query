@@ -42,6 +42,15 @@ public enum MqCode {
     /** {@code PrimaryKeyFirst.whenOffsetAbove} with a negative offset (R-QRY-03). */
     MQ1204("PrimaryKeyFirst.whenOffsetAbove(...) takes an offset that is not negative"),
 
+    /** A {@code QueryCustomizer} changed the ordering or the grouping of a phase (R-QRY-11, D-33). */
+    MQ1205("A QueryCustomizer changed the ordering or the grouping of a phase"),
+
+    /** A primary-key column of array type, which cannot identify a row (R-QRY-12). */
+    MQ1206("A primary-key column of array type cannot identify a row"),
+
+    /** {@code keyset()} with a {@code Float} or {@code Double} order or primary-key column (R-QRY-13). */
+    MQ1207("keyset() cannot page by a Float or Double column"),
+
     /** A value-form filter received {@code null} (api/12 §1). */
     MQ1301("A value-form filter received null; pass Optional.empty() to skip the filter"),
 
@@ -95,7 +104,13 @@ public enum MqCode {
 
     /** Key-based paging over a selection read through a to-many join (R-PAG-13). */
     MQ2204("Offset export of an ungrouped query, keyset paging or the primary-key-first phase selected a column "
-            + "through a to-many join");
+            + "through a to-many join"),
+
+    /** A keyset export page repeated a key of the page before (R-PAG-14, D-31). */
+    MQ2205("A keyset export page repeated a row of the page before"),
+
+    /** The customizer narrows the phases differently on a query with {@code primaryKeyFirst(...)} (R-PAG-15). */
+    MQ2206("The phases of a query with primaryKeyFirst(...) disagree on its rows");
 
     private final String defaultMessage;
 

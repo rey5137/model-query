@@ -42,6 +42,17 @@ throws `MQ1202`.
 has to put them in a `ColumnSet` to make paging work. `MODEL` and `MODEL_BY_KEYS` therefore select the key of every
 ungrouped query that defines one, and every ordering and group key, whether or not the `ColumnSet` names them (D-29).
 
+**R-QRY-12** A primary-key column cannot have an array type (`byte[]`, for one). An array equals only itself, so the
+key read from one row never equals the same key read from another: export's page-boundary dedupe and primary-key-first
+paging, which place rows by key, would drop every row without a word. `build()` with such a key column throws
+`MQ1206` naming the column.
+
+**R-QRY-13** `keyset()` refuses a `Float` or `Double` keyset column: an order column, or a primary-key column appended
+as the tie-breaker (`engine/21` R-PAG-04). A cursor on a binary floating-point value need not compare equal to the
+stored one once bound (MySQL binds a `Float` as a decimal literal): a value stored above its decimal form makes the
+next page repeat its tie group, and one stored below it makes the next page skip the rest of the group without a word.
+`build()` throws `MQ1207` naming the column. Order by an exact type such as `BigDecimal`, or export by offset.
+
 ## 3. `afterMap` and derived fields
 
 **R-QRY-05** `afterMap(BiConsumer<M, Row>)` runs once per row, after the `RowMapper`, and may read any selected column
@@ -61,8 +72,8 @@ public interface QueryCustomizer {
 public enum Phase { MODEL, PRIMARY_KEY, MODEL_BY_KEYS }
 ```
 
-**R-QRY-07** `QueryCustomizer` replaces subclassing hooks. It can add predicates, selections and group-by expressions
-for each phase the engine runs (P-6).
+**R-QRY-07** `QueryCustomizer` replaces subclassing hooks. It can add predicates, joins and selections for each phase
+the engine runs (P-6). It cannot change the ordering or the grouping (R-QRY-11).
 
 **R-QRY-08** A selection added by a customizer has no `SelectField` key, so it cannot be read back through `Row`. A
 value that must reach the model goes through a `ColumnField`, or an `AggregateField` for an aggregate. `Agg.of` is for
@@ -74,7 +85,16 @@ explicitly, because this is the trap the escape hatch sets.
 primary-key-first paging return rows the caller filtered out. The engine builds every phase with the same joins,
 predicate, grouping and ordering, and only the SELECT list differs (D-26). A customizer that adds a predicate or an
 INNER join in only some phases logs a warning naming the phases, once per `ModelQuery`, when it is first executed
-(D-21).
+(D-21). On a query with `primaryKeyFirst(...)` the mismatch skips rows, so it throws `MQ2206` instead
+(`engine/21` R-PAG-15).
+
+**R-QRY-11** A customizer never changes the ordering or the grouping. Paging and export order, dedupe and read cursors
+by the definition's `orderBy` and `groupBy` (`engine/21` R-PAG-01, R-PAG-04, R-PAG-11), so a group-by the customizer
+adds makes grouped export drop rows, and an order it changes makes keyset and offset pages skip rows. Every statement
+the engine builds, in every phase and for grouped queries too, compares the `ORDER BY` and `GROUP BY` lists
+(`CriteriaQuery.getOrderList()`, `getGroupList()`) before and after the customizer runs, and throws `MQ1205` naming the
+model and the phase when either differs (D-33). The engine's own tie-breakers are appended after the customizer, so
+they do not count.
 
 ## 5. Defaults when a part is absent
 
@@ -118,3 +138,6 @@ without Spring (INV-8). Semantics of each method are `engine/20`. The bulk `upda
 | AC-QRY-07 | Every row of §5 is covered by a test that omits exactly that part (R-QRY-02). |
 | AC-QRY-08 | `builder` on a join throws `MQ1203`; `whenOffsetAbove` with a negative offset throws `MQ1204`; the `PRIMARY_KEY` phase of a query without a primary key throws `MQ2203` (R-QRY-02, R-QRY-03). |
 | AC-QRY-09 | Every phase of a query with a primary key renders the same joins, predicate and ordering, including a nullable join made only by the selection, and returns the same keys in the same order (R-QRY-09, D-26). |
+| AC-QRY-10 | A customizer that adds a `GROUP BY` or changes the `ORDER BY` throws `MQ1205` naming the model and the phase, on a grouped query and on one without a primary key too (R-QRY-11). |
+| AC-QRY-11 | `build()` with a primary-key column of array type throws `MQ1206` naming the column (R-QRY-12). |
+| AC-QRY-12 | `build()` of a `keyset()` query ordered by a `Float` or `Double` column, or keyed by one, throws `MQ1207` naming the column; the same query without `keyset()` builds (R-QRY-13). |
