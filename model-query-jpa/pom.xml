@@ -47,6 +47,22 @@
                     </execution>
                 </executions>
             </plugin>
+            <!-- AC-QA-04 (R-QA-10): mutation testing of the keyset predicate builder. Not bound to a phase, so the
+                 normal build stays fast; CI runs org.pitest:pitest-maven:mutationCoverage (job "mutation"). -->
+            <plugin>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-maven</artifactId>
+                <configuration>
+                    <skip>false</skip>
+                    <targetClasses>
+                        <param>com.rey.modelquery.jpa.Keyset*</param>
+                    </targetClasses>
+                    <targetTests>
+                        <param>com.rey.modelquery.jpa.*Test</param>
+                    </targetTests>
+                    <mutationThreshold>100</mutationThreshold>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>

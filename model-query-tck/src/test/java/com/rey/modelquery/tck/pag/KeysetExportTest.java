@@ -163,6 +163,29 @@ class KeysetExportTest {
         assertThat(ids).containsExactlyElementsOf(LongStream.rangeClosed(1, 1_234).boxed().toList());
     }
 
+    // ---- AC-QA-03
+
+    @TckTest
+    void ac_qa_03_keyset_export_without_the_tie_breaker_would_lose_rows_tied_across_a_page_boundary(TckDatabase db) {
+        // R-QA-07: every row of P001 shares one order value and the pages of 7 never hold them all, so a cursor built
+        // from the order column alone (no appended primary key) skips or repeats rows. The whole export is checked,
+        // as a multiset of primary keys, in both directions of the last order column.
+        List<Long> expected = new ArrayList<>();
+        inSession(db, em -> expected.addAll(em.createQuery("select i.id from OrderItemEntity i"
+                + " where i.productCode = 'P001'", Long.class).getResultList()));
+        assertThat(expected).hasSize(TckFixture.ORDER_ITEMS / 50);
+        for (boolean ascending : List.of(true, false)) {
+            var tied = ITEM_ROWS.where(f -> f.eq(ITEM_PRODUCT, Optional.of("P001")))
+                    .orderBy(ascending ? ITEM_PRODUCT.asc() : ITEM_PRODUCT.desc())
+                    .build();
+            List<Long> visited = new ArrayList<>();
+            withExecutor(db, OrderItemEntity.class, executor -> assertThat(
+                    executor.export(tied, ExportOptions.of(7), page -> page, row -> visited.add(row.id())))
+                    .isEqualTo(expected.size()));
+            assertThat(visited).as(ascending ? "asc" : "desc").containsExactlyInAnyOrderElementsOf(expected);
+        }
+    }
+
     // ---- AC-PAG-06
 
     @TckTest

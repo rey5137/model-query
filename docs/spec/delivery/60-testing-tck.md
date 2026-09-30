@@ -8,9 +8,9 @@
 
 ## 1. Unit tests per module
 
-**R-QA-01** `core`: join resolution, column sets, keyset predicate trees, filter rendering. Tests run against
-Hibernate's `CriteriaBuilder` over an in-memory H2 metamodel. JPA internals are never mocked — a mock cannot tell you
-that a predicate tree is wrong.
+**R-QA-01** `core`: join resolution, column sets, filter rendering. `jpa`: keyset predicate trees (`Keyset`). Tests run
+against Hibernate's `CriteriaBuilder` over an in-memory H2 metamodel. JPA internals are never mocked — a mock cannot
+tell you that a predicate tree is wrong.
 
 **R-QA-02** `processor`: a `compile-testing` case per diagnostic (`processor/32` R-DIAG-05), plus golden files for the
 generated sources (`processor/31` AC-GEN-01).
@@ -61,8 +61,8 @@ layering (INV-7), and SQL-snapshot diff.
 **R-QA-09** Nightly: the full matrix — PostgreSQL 14–17, MySQL 8.0/8.4, Hibernate 6.6 and latest 7.x, JDK 17/21/25 —
 plus any Tier-2/3 profiles present.
 
-**R-QA-10** Also in CI: JaCoCo coverage, mutation testing (PIT) on the `core` keyset and paging code, dependency and CVE
-scanning, and from 1.0 `japicmp` binary-compatibility checks (`delivery/61`).
+**R-QA-10** Also in CI: JaCoCo coverage, mutation testing (PIT) on the `jpa` keyset predicate builder (`Keyset`),
+dependency and CVE scanning, and from 1.0 `japicmp` binary-compatibility checks (`delivery/61`).
 
 **R-QA-11** A PR that changes a rule id must change the tests naming it in the same commit; an `AC-*` with no test is a
 CI failure (the AC audit). A criterion tagged `Future` — in its row, or by its file's status line — is exempt until
