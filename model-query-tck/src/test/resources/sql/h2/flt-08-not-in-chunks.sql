@@ -1,0 +1,2 @@
+select nse1_0.id,nse1_0.sort_int,nse1_0.sort_text,nse1_0.sort_ts from nullable_sort_rows nse1_0 where nse1_0.sort_int not in (?,?,?) and nse1_0.sort_int not in (?,?,?) and nse1_0.sort_int not in (?,?,?) and nse1_0.sort_int not in (?) or nse1_0.sort_int is null order by 1
+select nse1_0.id,nse1_0.sort_int,nse1_0.sort_text,nse1_0.sort_ts from nullable_sort_rows nse1_0 where nse1_0.sort_int not in (?,?,?,?,?,?,?,?,?,?) or nse1_0.sort_int is null order by 1

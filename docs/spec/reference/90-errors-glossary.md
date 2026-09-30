@@ -43,6 +43,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1303` | A `Filters` or `Having` used after its operator returned, or while a nested operator runs | `api/12` §1, D-23 |
 | `MQ1304` | `exists(...)` given a root instead of a join path | `api/12` R-FLT-11 |
 | `MQ1305` | A `Filters.add` predicate returned `null` | `api/12` §1, D-24 |
+| `MQ1306` | One `in` or `notIn` filter has more values than `maxBindParameters()` | `api/12` R-FLT-09 |
 | `MQ1401` | A selected non-aggregate column is not in the group-by | `api/13` R-AGG-08 |
 | `MQ1402` | Keyset paging or primary-key-first on a grouped query | `api/13` R-AGG-10 |
 | `MQ1403` | `Agg.sum` or `Agg.sumAsLong` over a column whose SQL sum type differs from the declared result type | `api/13` R-AGG-03 |
@@ -91,7 +92,7 @@ models, `MQ3301`–`MQ3307` for update models (`Future`, M8). Codes are not repe
 |---|---|---|
 | `MQ4001` | `modelquery.vendor` names an unknown vendor | `vendor/40` R-VND-04 |
 | `MQ4002` | Two `VendorProfile`s registered for the same vendor with no precedence rule | `vendor/40` R-VND-03 |
-| `MQ4003` | A property value is outside its allowed range | `integration/50` §3 |
+| `MQ4003` | A property value, or its `ModelQueryConfig` setting, is outside its allowed range | `integration/50` §3 |
 | `MQ4004` | `commitEachChunk()` with no `ChunkTransactions` configured, or none that serves the write's `EntityManagerFactory` (`Future`, M8) | `api/14` R-WRT-19 |
 
 ## 6. Glossary

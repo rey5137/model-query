@@ -44,6 +44,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.WeakHashMap;
@@ -63,14 +64,6 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private static final System.Logger LOG = System.getLogger(DefaultModelQueryExecutor.class.getName());
 
     /**
-     * The most keys, and bind parameters, one {@code MODEL_BY_KEYS} statement takes: the lowest of the Tier-1 limits
-     * in vendor/41 §2, until the clamp reads {@code VendorProfile.maxInListSize()} and {@code maxBindParameters()}
-     * (R-PAG-07, D-32).
-     */
-    private static final int MAX_IN_LIST_SIZE = 10_000;
-    private static final int MAX_BIND_PARAMETERS = 65_535;
-
-    /**
      * The queries whose phases were checked, by identity. Static, because the check is once per {@code ModelQuery}
      * whichever executor runs it first (D-21); weak, so a query built per request does not stay reachable.
      */
@@ -83,6 +76,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private final ResolvedVendor vendor;
     /** The profile's facts as every query build of this executor renders by (D-34). */
     private final RenderOptions renderOptions;
+    /** The configured most keys per step-2 statement, or empty for the whole page within the clamp (R-PAG-07). */
+    private final OptionalInt primaryKeyFirstBatchSize;
 
     DefaultModelQueryExecutor(EntityManager em, Class<E> rootEntity, ModelQueryConfig config) {
         this.em = Objects.requireNonNull(em, "em");
@@ -96,6 +91,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 .flatMap(ProviderSupport::nullPrecedence)
                 .map(options::withNullPrecedenceRenderer)
                 .orElse(options);
+        this.primaryKeyFirstBatchSize = config.primaryKeyFirstBatchSize();
     }
 
     @Override
@@ -334,17 +330,20 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private record Found<M>(BuiltQuery<M> built, Tuple tuple) {}
 
     /**
-     * The most keys one step-2 statement takes: within the IN-list limit, and within the bind-parameter limit once
-     * the statement's own binds are bound, at one bind per key column (R-PAG-07, D-32). At least one, so a query that
-     * alone passes the bind limit fails in the database as its one-step page would. It compiles a statement without
-     * running it, so a caller computes it once per {@code page} or {@code export} call.
+     * The most keys one step-2 statement takes: the configured batch size, if any, within the profile's IN-list
+     * limit, and within its bind-parameter limit once the statement's own binds are bound, at one bind per key column
+     * (R-PAG-07, D-32). At least one, so a query that alone passes the bind limit fails in the database as its
+     * one-step page would. It compiles a statement without running it, so a caller computes it once per {@code page}
+     * or {@code export} call.
      */
     private <M> int keyBatchSize(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> key) {
         // The statement's own binds, the query's values and the customizer's, before any key is added. JPA reports a
         // literal the provider binds as a parameter of the query; one it renders inline takes no bind.
         int ownBinds = em.createQuery(q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL_BY_KEYS, renderOptions).query())
                 .getParameters().size();
-        return Math.max(1, Math.min(MAX_IN_LIST_SIZE, (MAX_BIND_PARAMETERS - ownBinds) / key.columns().size()));
+        int clamp = Math.min(renderOptions.maxInListSize(),
+                (renderOptions.maxBindParameters() - ownBinds) / key.columns().size());
+        return Math.max(1, Math.min(primaryKeyFirstBatchSize.orElse(Integer.MAX_VALUE), clamp));
     }
 
     /** {@code key IN (keys)}; a composite key is an OR of per-key conjunctions, since JPA has no row-value IN (P-4). */

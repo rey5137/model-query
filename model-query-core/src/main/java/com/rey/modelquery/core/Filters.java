@@ -82,7 +82,9 @@ public interface Filters<M> {
 
     /**
      * {@code column IN (values)}. An empty collection matches no row, because an empty selection means "none of
-     * these" (R-FLT-02); pass {@code Optional.empty()} to skip. A {@code null} element throws {@code MQ1301}.
+     * these" (R-FLT-02); pass {@code Optional.empty()} to skip. A {@code null} element throws {@code MQ1301}. A list
+     * longer than the database's IN-list limit renders as an OR of {@code IN} chunks; one with more values than a
+     * statement binds throws {@code MQ1306} when the query is built (R-FLT-09).
      */
     <C> Filters<M> in(ColumnField<M, ?, C> column, Collection<? extends C> values);
 
@@ -91,7 +93,8 @@ public interface Filters<M> {
 
     /**
      * {@code column NOT IN (values) OR column IS NULL}: NULL rows match (R-FLT-04). An empty collection matches every
-     * row (R-FLT-02). A {@code null} element throws {@code MQ1301}.
+     * row (R-FLT-02). A {@code null} element throws {@code MQ1301}. A long list renders as an AND of {@code NOT IN}
+     * chunks, still ORed with {@code IS NULL}, and throws {@code MQ1306} as {@code in} does (R-FLT-09).
      */
     <C> Filters<M> notIn(ColumnField<M, ?, C> column, Collection<? extends C> values);
 

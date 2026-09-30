@@ -62,8 +62,9 @@ exactly-once only over rows whose keyset values do not change while it runs.
 ## 3. Primary-key-first deep paging
 
 **R-PAG-07** *(was R12)* For a deep offset, step 1 selects only the primary keys in the query's order, and step 2
-selects models `WHERE pk IN (...)`. The step-2 batch size is clamped to `VendorProfile.maxInListSize()` and
-`maxBindParameters()` (`vendor/41`).
+selects models `WHERE pk IN (...)`. The step-2 batch is `ModelQueryConfig.primaryKeyFirstBatchSize(...)`, or the
+whole page when that is unset, clamped to `VendorProfile.maxInListSize()` keys and to `maxBindParameters()` less the
+statement's own binds (`vendor/41`, D-32); a batch over the clamp is read in several statements.
 
 **R-PAG-08** Step 2 re-applies the query's order, because `IN` does not preserve the key order. Predicates must be
 identical in both steps; a `QueryCustomizer` that narrows only one phase is what `api/11` R-QRY-09 warns about, and

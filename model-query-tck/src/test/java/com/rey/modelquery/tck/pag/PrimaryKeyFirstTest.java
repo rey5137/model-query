@@ -20,6 +20,8 @@ import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
+import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.jpa.vendor.VendorResolver;
 import com.rey.modelquery.tck.col.CompositeKeyItemEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.NullableSortEntity;
@@ -225,9 +227,13 @@ class PrimaryKeyFirstTest {
 
     @TckTest
     void ac_pag_09_a_step_two_batch_leaves_room_for_the_querys_own_bind_parameters(TckDatabase db) {
-        // The query binds 60 000 values of its own, so 9 000 keys on top would pass PostgreSQL's 65 535 binds
-        // (vendor/41 §2) though they fit one IN list: the page's keys are read back in two statements, not one.
-        List<Long> ids = LongStream.rangeClosed(1, 60_000).boxed().toList();
+        // The query binds all but 5 000 of the database's own bind limit (vendor/41 §2), so 9 000 keys on top would
+        // pass it though they fit one IN list: the page's keys are read back in two statements, not one.
+        int maxBinds;
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
+            maxBinds = VendorResolver.resolve(sf, Optional.<DatabaseVendor>empty()).profile().maxBindParameters();
+        }
+        List<Long> ids = LongStream.rangeClosed(1, maxBinds - 5_000).boxed().toList();
         var listed = BY_PRODUCT.where(f -> f.in(ITEM_ID, ids));
         var twoStep = listed.primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
         var deep = new PageSpec(1_000, 8_999);

@@ -10,8 +10,10 @@ import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.Filters;
 import com.rey.modelquery.core.LikeMode;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.Op;
 import com.rey.modelquery.core.Phase;
+import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.core.RowMapper;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.tck.col.CustomerEntity;
@@ -29,6 +31,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
@@ -320,6 +323,62 @@ class FiltersTest {
         }
     }
 
+    // ---- AC-FLT-08
+
+    /** An IN-list limit small enough that a handful of values shows the chunks (R-FLT-09). */
+    private static final RenderOptions THREE_PER_LIST = RenderOptions.of(3, 100, NullOrdering.UNKNOWN);
+    private static final Pattern IN_LIST = Pattern.compile("\\bin \\(");
+
+    @TckTest
+    void ac_flt_08_an_in_list_above_the_limit_is_split_and_returns_the_same_rows_as_an_unsplit_one(TckDatabase db) {
+        // Seven values, one of them no order's id: chunks of 3, 3 and 1.
+        List<Long> ids = List.of(13L, 2L, 7L, 3L, 999_999L, 11L, 5L);
+        var q = ORDER_QUERY.where(f -> f.in(ID, ids)).build();
+        List<List<O>> results = new ArrayList<>();
+        List<String> sql = SqlSnapshots.assertMatches(db, "flt-08-in-chunks", ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+                sf.inSession(em -> {
+                    results.add(run(em, q, THREE_PER_LIST));
+                    results.add(run(em, q, portable()));
+                });
+            }
+        });
+        assertThat(inLists(sql.get(0))).isEqualTo(3);
+        assertThat(inLists(sql.get(1))).isEqualTo(1);
+        assertThat(results.get(0)).isEqualTo(results.get(1));
+        assertThat(results.get(0)).extracting(O::id).containsExactly(2L, 3L, 5L, 7L, 11L, 13L);
+    }
+
+    @TckTest
+    void ac_flt_08_not_in_above_the_limit_is_an_and_of_chunks_that_still_keeps_null_rows(TckDatabase db) {
+        // Ten of sortInt's 50 values, in chunks of 3, 3, 3 and 1; every fifth row's sortInt is NULL.
+        List<Integer> excluded = List.of(1, 2, 3, 4, 6, 7, 8, 9, 11, 12);
+        var q = NULLABLE_QUERY.where(f -> f.notIn(N_INT, excluded)).build();
+        List<List<N>> results = new ArrayList<>();
+        List<String> sql = SqlSnapshots.assertMatches(db, "flt-08-not-in-chunks", ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+                sf.inSession(em -> {
+                    results.add(run(em, q, THREE_PER_LIST));
+                    results.add(run(em, q, portable()));
+                });
+            }
+        });
+        assertThat(inLists(sql.get(0))).isEqualTo(4);
+        assertThat(inLists(sql.get(1))).isEqualTo(1);
+        List<N> split = results.get(0);
+        assertThat(split).isEqualTo(results.get(1));
+        assertThat(split).noneMatch(n -> n.sortInt() != null && excluded.contains(n.sortInt()));
+        assertThat(split.stream().filter(n -> n.sortInt() == null).count())
+                .isEqualTo(TckFixture.NULLABLE_SORT_ROWS / 5);
+        // No excluded value is a multiple of 5, where NULLs fall, so each holds 1 in 50 rows.
+        int perValue = TckFixture.NULLABLE_SORT_ROWS / 50;
+        assertThat(split).hasSize(TckFixture.NULLABLE_SORT_ROWS - excluded.size() * perValue);
+    }
+
+    private static long inLists(String statement) {
+        return IN_LIST.matcher(statement.toLowerCase(Locale.ROOT)).results().count();
+    }
+
     // ---- AC-FLT-07
 
     @TckTest
@@ -403,7 +462,11 @@ class FiltersTest {
     }
 
     private static <V> List<V> run(EntityManager em, ModelQuery<?, ?, V> query) {
-        BuiltQuery<V> built = query.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable());
+        return run(em, query, portable());
+    }
+
+    private static <V> List<V> run(EntityManager em, ModelQuery<?, ?, V> query, RenderOptions options) {
+        BuiltQuery<V> built = query.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, options);
         return em.createQuery(built.query()).getResultList().stream().map(built::map).toList();
     }
 }

@@ -86,7 +86,7 @@ database (`delivery/60`).
 |---|---|
 | AC-PRF-01 | Every value in §2 is asserted against the running database, not just against the profile constant (R-PRF-11). |
 | AC-PRF-02 | An `IN` list at, just below and just above `maxInListSize()` returns identical rows (R-PRF-11, `api/12` R-FLT-09). |
-| AC-PRF-03 | A statement needing more binds than `maxBindParameters()` is split rather than failing (R-PRF-11, `api/12` R-FLT-09, `engine/21` R-PAG-07). |
+| AC-PRF-03 | A primary-key-first step-2 batch needing more binds than `maxBindParameters()` is split into several statements, in order, rather than failing; one filter's list that alone needs more throws `MQ1306` (R-PRF-11, `api/12` R-FLT-09, `engine/21` R-PAG-07, R-PAG-08). |
 | AC-PRF-04 | PostgreSQL streaming without a transaction throws `MQ2101`; inside one it streams with bounded heap (R-PRF-03). |
 | AC-PRF-05 | Both MySQL streaming modes stream 20 000 rows with bounded heap (R-PRF-07). |
 | AC-PRF-06 | `defaultAscendingNullOrdering()` matches the database's observed ordering on every Tier-1 version (R-PRF-08). |
