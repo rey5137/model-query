@@ -66,6 +66,9 @@ public enum MqCode {
     /** A {@code Filters.add} predicate returned {@code null} (D-24). */
     MQ1305("A Filters.add(...) predicate returned null; skip it explicitly with when(...)"),
 
+    /** One {@code in} or {@code notIn} filter has more values than one statement binds (R-FLT-09). */
+    MQ1306("An in(...) or notIn(...) filter has more values than one statement can bind"),
+
     /** A selected non-aggregate column is not in the group-by (R-AGG-08). */
     MQ1401("A selected non-aggregate column is not in the group-by"),
 
@@ -113,7 +116,10 @@ public enum MqCode {
     MQ2206("The phases of a query with primaryKeyFirst(...) disagree on its rows"),
 
     /** Two {@code VendorProfile}s registered for the same vendor with no precedence rule (R-VND-03). */
-    MQ4002("Two VendorProfiles are registered for the same vendor");
+    MQ4002("Two VendorProfiles are registered for the same vendor"),
+
+    /** A configuration value is outside its allowed range (integration/50 §3). */
+    MQ4003("A configuration value is outside its allowed range");
 
     private final String defaultMessage;
 

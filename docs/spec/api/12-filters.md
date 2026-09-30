@@ -112,8 +112,15 @@ otherwise follows collation (`vendor/40` §4).
 
 **R-FLT-08** Every value is a bind parameter. The engine never inlines a value into SQL, for any operator.
 
-**R-FLT-09** Lists longer than `VendorProfile.maxInListSize()` render as `col IN (…) OR col IN (…)`, and `notIn` as an
-AND of `NOT IN` chunks. Chunking also respects `maxBindParameters()` (`vendor/41`).
+**R-FLT-09** Lists longer than `VendorProfile.maxInListSize()` render as `col IN (…) OR col IN (…)`, in chunks of at
+most that many values in the given order, and `notIn` as an AND of `NOT IN` chunks, ORed once with `col IS NULL` so
+NULLs still match (R-FLT-04). An empty list keeps its R-FLT-02 meaning. One filter's values cannot be split across
+statements, so a list with more values than `maxBindParameters()` throws `MQ1306` naming the column when the query is
+built, rather than failing in the database. The check is per filter: a statement whose filters only together pass the
+limit still fails in the database. Only primary-key-first step 2 spreads its keys over several statements
+(`engine/21` R-PAG-07). The engine counts one bind per value; a provider that pads IN lists, such as Hibernate with
+`hibernate.query.in_clause_parameter_padding`, binds up to the next power of two, which a profile's limits must leave
+room for (`vendor/41`).
 
 ## 6. Joins created inside `or` and `not`
 

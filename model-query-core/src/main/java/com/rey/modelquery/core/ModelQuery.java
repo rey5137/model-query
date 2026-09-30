@@ -36,6 +36,10 @@ public final class ModelQuery<E, K, M> {
 
     private static final System.Logger LOG = System.getLogger(ModelQuery.class.getName());
 
+    /** Options that never chunk nor refuse a list, for scratch builds whose SQL is never run. */
+    private static final RenderOptions UNLIMITED =
+            RenderOptions.of(Integer.MAX_VALUE, Integer.MAX_VALUE, NullOrdering.UNKNOWN);
+
     private final TableField<E, E> root;
     private final RowMapper<M> mapper;
     private final ColumnSet<M> columns;
@@ -253,8 +257,9 @@ public final class ModelQuery<E, K, M> {
         List<Phase> with = new ArrayList<>();
         List<Phase> without = new ArrayList<>();
         for (Phase phase : phases) {
-            // Which phases a customizer narrows does not depend on the database, so the scratch renders portably.
-            BuiltQuery<M> scratch = assemble(cb, phase, RenderOptions.portable());
+            // Which phases a customizer narrows does not depend on the database, so the scratch renders without
+            // limits: the portable ones would refuse a long in(...) the resolved profile accepts (MQ1306).
+            BuiltQuery<M> scratch = assemble(cb, phase, UNLIMITED);
             Predicate own = scratch.query().getRestriction();
             int joined = narrowingJoins(scratch.query());
             customize(scratch, cb, phase);

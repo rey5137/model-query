@@ -221,7 +221,10 @@ abstract class ConditionGroup<M, G> {
             // An empty selection means "none of these" (R-FLT-02); nothing to resolve, so no join either.
             return record(ctx -> Optional.of(ctx.cb().disjunction()));
         }
-        return record(ctx -> Optional.of(column.expression(ctx).in(copy)));
+        return record(ctx -> {
+            List<Predicate> chunks = inChunks(column, "in", column.expression(ctx), copy, ctx.renderOptions());
+            return Optional.of(chunks.size() == 1 ? chunks.get(0) : ctx.cb().or(chunks.toArray(Predicate[]::new)));
+        });
     }
 
     final <C> G in(SelectField<M, C> column, Optional<? extends Collection<? extends C>> values) {
@@ -237,7 +240,11 @@ abstract class ConditionGroup<M, G> {
         return record(ctx -> {
             CriteriaBuilder cb = ctx.cb();
             Expression<C> expression = column.expression(ctx);
-            return Optional.of(cb.or(cb.not(expression.in(copy)), cb.isNull(expression))); // NULLs match (R-FLT-04)
+            List<Predicate> notIn = inChunks(column, "notIn", expression, copy, ctx.renderOptions()).stream()
+                    .map(cb::not)
+                    .toList();
+            // NULL is unknown in every chunk, so it is ORed in once, outside their AND: NULLs match (R-FLT-04).
+            return Optional.of(cb.or(and(cb, notIn), cb.isNull(expression)));
         });
     }
 
@@ -453,6 +460,27 @@ abstract class ConditionGroup<M, G> {
             }
         }
         return List.copyOf(values);
+    }
+
+    /**
+     * {@code expression IN} each run of at most {@code maxInListSize()} of {@code values}, in order (R-FLT-09). One
+     * filter's values cannot be split across statements, so more of them than one statement binds throws
+     * {@code MQ1306} here rather than failing in the database.
+     */
+    private static <C> List<Predicate> inChunks(SelectField<?, C> column, String operator, Expression<C> expression,
+            List<C> values, RenderOptions options) {
+        if (values.size() > options.maxBindParameters()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1306, column + ": " + operator + "(...) received "
+                    + values.size() + " values, more than the " + options.maxBindParameters()
+                    + " bind parameters one statement takes");
+        }
+        int size = options.maxInListSize();
+        var chunks = new ArrayList<Predicate>();
+        for (int from = 0, to; from < values.size(); from = to) {
+            to = from + Math.min(size, values.size() - from); // never from + size, which overflows a huge limit
+            chunks.add(expression.in(values.subList(from, to)));
+        }
+        return chunks;
     }
 
     /** The {@code LIKE} pattern for {@code mode}; every mode but {@code EXACT} escapes the value (R-FLT-06). */
