@@ -1,5 +1,6 @@
 package com.rey.modelquery.tck.flt;
 
+import static com.rey.modelquery.core.RenderOptions.portable;
 import static jakarta.persistence.criteria.JoinType.INNER;
 import static jakarta.persistence.criteria.JoinType.LEFT;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -197,7 +198,8 @@ class FilterCompositionTest {
             ModelQuery<OrderEntity, Object, O> skipped = ORDER_QUERY.where(f -> f
                     .exists(ITEMS, i -> i.eq(PRODUCT, NONE))
                     .notExists(ITEMS, i -> i.eq(PRODUCT, NONE))).build();
-            assertThat(skipped.buildQuery(em.getCriteriaBuilder(), Phase.MODEL).query().getRestriction()).isNull();
+            assertThat(skipped.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable()).query().getRestriction())
+                    .isNull();
             results.add(ids(em, skipped));
             results.add(ids(em, ORDER_QUERY.where(f -> f.exists(ITEMS))));
         }));
@@ -389,7 +391,7 @@ class FilterCompositionTest {
     @TckTest
     void ac_flt_02_a_custom_predicate_returning_null_throws_mq1305_when_the_query_is_built(TckDatabase db) {
         var query = ORDER_QUERY.where(f -> f.eq(STATUS, "PAID").add((ctx, cb) -> null)).build();
-        inSession(db, em -> assertThatThrownBy(() -> query.buildQuery(em.getCriteriaBuilder(), Phase.MODEL))
+        inSession(db, em -> assertThatThrownBy(() -> query.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable()))
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ1305))
                 .hasMessageContaining("add(...)"));
@@ -400,7 +402,7 @@ class FilterCompositionTest {
     /** {@code count(root)}, or {@code count(distinct root)}, over the query's own joins and predicate. */
     private static long count(EntityManager em, ModelQuery.Builder<?, ?, ?> query, boolean distinct) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
-        CriteriaQuery<Tuple> criteria = query.build().buildQuery(cb, Phase.MODEL).query();
+        CriteriaQuery<Tuple> criteria = query.build().buildQuery(cb, Phase.MODEL, portable()).query();
         Root<?> root = criteria.getRoots().iterator().next();
         criteria.multiselect(distinct ? cb.countDistinct(root) : cb.count(root)).orderBy(List.of());
         return em.createQuery(criteria).getSingleResult().get(0, Long.class);
@@ -471,7 +473,7 @@ class FilterCompositionTest {
     }
 
     private static <V> List<V> run(EntityManager em, ModelQuery<?, ?, V> query) {
-        BuiltQuery<V> built = query.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
+        BuiltQuery<V> built = query.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable());
         return em.createQuery(built.query()).getResultList().stream().map(built::map).toList();
     }
 }

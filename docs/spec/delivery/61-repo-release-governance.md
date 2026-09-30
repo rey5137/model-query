@@ -16,9 +16,10 @@ model-query/
 ├── model-query-bom/                 version alignment
 ├── model-query-annotations/         @QueryModel and friends                      (no deps)
 ├── model-query-core/                TableField, SelectField, ColumnField, AggregateField, ColumnSet,
-│                                    Row, RowMapper, ModelQuery, Filters, JoinContext, SPI interfaces
-│                                                                                 (jakarta.persistence-api)
-├── model-query-jpa/                 executor, paging and export engine, built-in VendorProfiles   (core)
+│                                    Row, RowMapper, ModelQuery, Filters, JoinContext, RenderOptions,
+│                                    SPI interfaces                               (jakarta.persistence-api)
+├── model-query-jpa/                 executor, ModelQueryConfig, paging and export engine;          (core)
+│                                    jpa.spi: VendorProfile, ProviderSupport; jpa.vendor: built-in profiles
 ├── model-query-hibernate/           Hibernate 6.x extras: dialect detection, grouped count,
 │                                    null precedence                              (jpa + hibernate-core, optional)
 ├── model-query-processor/           annotation processor                          (annotations, JavaPoet shaded)

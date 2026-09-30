@@ -29,8 +29,8 @@ skipped.
 
 **R-EXE-03** *(was R6)* `count` over a **grouped** query counts groups, not rows:
 `select count(*) from (<grouped query>)`, run through Hibernate's `SelectionQuery#getResultCount()` when
-`model-query-hibernate` is present. The portable fallback counts rows client-side and logs a warning, because a
-correct-but-slow total is better than a wrong one (INV-5).
+`model-query-hibernate` is present, as its `ProviderSupport#countGroups` (D-34). The portable fallback counts rows
+client-side and logs a warning, because a correct-but-slow total is better than a wrong one (INV-5).
 
 **R-EXE-04** *(was R7)* `count` is not inflated by collection joins. After predicates are built, the engine inspects
 `root.getJoins()` recursively and uses `count(distinct root)` only when a to-many join exists. A query using

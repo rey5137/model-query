@@ -118,6 +118,26 @@ final class LayeringRules {
     }
 
     /**
+     * Only profiles and vendor detection name a {@code DatabaseVendor} (INV-6, R-VND-01): {@code jpa.spi},
+     * {@code jpa.vendor}, the configuration that sets one explicitly and the Hibernate provider support that maps a
+     * dialect to one.
+     */
+    ArchRule databaseVendorOnlyInProfilesAndDetection() {
+        return noClasses()
+                .that()
+                .resideOutsideOfPackages(pkg("jpa.spi"), pkg("jpa.vendor"))
+                .and()
+                .doNotHaveFullyQualifiedName(root + ".jpa.ModelQueryConfig")
+                .and()
+                .doNotHaveFullyQualifiedName(root + ".hibernate.HibernateProviderSupport")
+                .should()
+                .dependOnClassesThat()
+                .haveFullyQualifiedName(root + ".jpa.spi.DatabaseVendor")
+                .as("only profiles and vendor detection name a DatabaseVendor")
+                .allowEmptyShould(allowEmptyShould);
+    }
+
+    /**
      * The one-way order {@code annotations <- core <- jpa <- (hibernate, spring)}, with {@code processor} depending
      * only on {@code annotations}. No module may depend on a module that is later in the order or beside it.
      */

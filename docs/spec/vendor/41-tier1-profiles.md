@@ -35,6 +35,8 @@ as community-supported. It never gates a release.
 | Target table in an `UPDATE`/`DELETE` sub-query (`Future`, M8) | yes | yes | **no** (error 1093): joined filters run key-first (`api/14` R-WRT-11) |
 | Row-value keyset `(a,b) > (?,?)` | supported | supported | supported — a possible later optimisation; the default stays the portable OR-expansion |
 
+**R-PRF-11** The built-in H2, PostgreSQL and MySQL profiles carry the values in this table (`vendor/40` R-VND-03).
+
 **R-PRF-03** `checkStreamingPreconditions` on PostgreSQL fails fast outside a transaction with `MQ2101`
 (`engine/20` R-EXE-08). The Spring module opens a read-only transaction automatically, so this is mainly a plain-JPA
 guard.
@@ -82,9 +84,9 @@ database (`delivery/60`).
 
 | ID | Criterion |
 |---|---|
-| AC-PRF-01 | Every value in §2 is asserted against the running database, not just against the profile constant (R-PRF-02). |
-| AC-PRF-02 | An `IN` list at, just below and just above `maxInListSize()` returns identical rows (R-PRF-02, `api/12` R-FLT-09). |
-| AC-PRF-03 | A statement needing more binds than `maxBindParameters()` is split rather than failing (R-PRF-02). |
+| AC-PRF-01 | Every value in §2 is asserted against the running database, not just against the profile constant (R-PRF-11). |
+| AC-PRF-02 | An `IN` list at, just below and just above `maxInListSize()` returns identical rows (R-PRF-11, `api/12` R-FLT-09). |
+| AC-PRF-03 | A statement needing more binds than `maxBindParameters()` is split rather than failing (R-PRF-11, `api/12` R-FLT-09, `engine/21` R-PAG-07). |
 | AC-PRF-04 | PostgreSQL streaming without a transaction throws `MQ2101`; inside one it streams with bounded heap (R-PRF-03). |
 | AC-PRF-05 | Both MySQL streaming modes stream 20 000 rows with bounded heap (R-PRF-07). |
 | AC-PRF-06 | `defaultAscendingNullOrdering()` matches the database's observed ordering on every Tier-1 version (R-PRF-08). |

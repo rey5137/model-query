@@ -1,5 +1,6 @@
 package com.rey.modelquery.tck.flt;
 
+import static com.rey.modelquery.core.RenderOptions.portable;
 import static jakarta.persistence.criteria.JoinType.INNER;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -268,7 +269,8 @@ class FiltersTest {
                 List<Long> present = run(em, base.where(c.present())).stream().map(id).toList();
                 assertThat(present).as(c.name() + ": Optional form").isEqualTo(value);
                 ModelQuery<E, Object, V> skipped = base.where(c.empty()).build();
-                assertThat(skipped.buildQuery(em.getCriteriaBuilder(), Phase.MODEL).query().getRestriction())
+                assertThat(skipped.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable()).query()
+                                .getRestriction())
                         .as(c.name() + ": empty Optional renders no predicate").isNull();
                 assertThat(run(em, skipped).stream().map(id).toList()).as(c.name() + ": empty Optional")
                         .isEqualTo(allIds);
@@ -376,7 +378,7 @@ class FiltersTest {
                     // Skipped: the customer join is never resolved, so the SQL reads orders alone.
                     ModelQuery<OrderEntity, Object, Id> skipped =
                             query.where(f -> f.eq(country, Optional.empty())).build();
-                    assertThat(skipped.buildQuery(em.getCriteriaBuilder(), Phase.MODEL).query().getRoots())
+                    assertThat(skipped.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable()).query().getRoots())
                             .allSatisfy(r -> assertThat(r.getJoins()).isEmpty());
                     results.add(run(em, skipped));
                     // Even when selected, the model has no field for it and is unchanged.
@@ -401,7 +403,7 @@ class FiltersTest {
     }
 
     private static <V> List<V> run(EntityManager em, ModelQuery<?, ?, V> query) {
-        BuiltQuery<V> built = query.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
+        BuiltQuery<V> built = query.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable());
         return em.createQuery(built.query()).getResultList().stream().map(built::map).toList();
     }
 }

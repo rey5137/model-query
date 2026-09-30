@@ -120,6 +120,12 @@ class LayeringTest {
         proves(LayeringRules::jpaDoesNotImportHibernate, F + "jpa.BadJpaHibernate", "org.hibernate.SessionFactory");
     }
 
+    @Test
+    void ac_vnd_01_onlyProfilesAndDetectionNameADatabaseVendor() {
+        proves(LayeringRules::databaseVendorOnlyInProfilesAndDetection, F + "jpa.BadVendorCheck",
+                F + "jpa.spi.DatabaseVendor");
+    }
+
     /**
      * No test class outside the harness knows which vendor it runs on (R-QA-03, AC-QA-02): the TCK sources are the
      * same for every vendor, and only the snapshot directory chosen by {@code SqlSnapshots} differs.
@@ -145,8 +151,9 @@ class LayeringTest {
     @Test
     void ac_qa_02_onlyTheHarnessAndSnapshotDirectoryChoiceKnowTheVendor() {
         JavaClasses tck = new ClassFileImporter().importPackages("com.rey.modelquery.tck");
-        // SqlSnapshots picks src/test/resources/sql/<vendor>/, the one difference R-QA-03 allows.
-        assertThatCode(() -> noVendorOutside("..tck.sql..").check(tck)).doesNotThrowAnyException();
+        // SqlSnapshots picks src/test/resources/sql/<vendor>/, the one difference R-QA-03 allows; the vendor tests
+        // expect each database's own profile, the difference R-VND-04 and vendor/41 §2 allow.
+        assertThatCode(() -> noVendorOutside("..tck.sql..", "..tck.vnd..").check(tck)).doesNotThrowAnyException();
         // Not vacuous: without that exemption the rule finds SqlSnapshots.
         assertThatCode(() -> noVendorOutside().check(tck))
                 .isInstanceOf(AssertionError.class)

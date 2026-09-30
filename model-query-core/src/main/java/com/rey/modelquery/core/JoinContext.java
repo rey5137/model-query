@@ -37,6 +37,8 @@ public final class JoinContext {
     private final JoinKey rootKey;
     /** In an {@code exists}, its path and the path's parents up to {@link #root}: always INNER there. */
     private final Set<JoinKey> required;
+    /** The database facts this build renders by; the same object in every nested {@code exists}. */
+    private final RenderOptions renderOptions;
     private final Map<JoinKey, Resolved> joins = new HashMap<>();
     /** The key each join was cached under, which is not the declared key when its type was changed. */
     private final Map<From<?, ?>, JoinKey> keys = new IdentityHashMap<>();
@@ -47,23 +49,24 @@ public final class JoinContext {
     private From<?, ?> existsFrom;
     private int leftJoining;
 
-    private JoinContext(
-            From<?, ?> root, CriteriaBuilder cb, CommonAbstractCriteria query, JoinKey rootKey, Set<JoinKey> required) {
+    private JoinContext(From<?, ?> root, CriteriaBuilder cb, CommonAbstractCriteria query, JoinKey rootKey,
+            Set<JoinKey> required, RenderOptions renderOptions) {
         this.root = root;
         this.cb = cb;
         this.query = query;
         this.rootKey = rootKey;
         this.required = required;
+        this.renderOptions = renderOptions;
     }
 
-    /** A context over {@code root}, the query's root table. */
+    /** A context over {@code root}, the query's root table, rendering with {@link RenderOptions#portable()}. */
     public static JoinContext of(Root<?> root, CriteriaBuilder cb) {
-        return new JoinContext(root, cb, null, null, Set.of());
+        return new JoinContext(root, cb, null, null, Set.of(), RenderOptions.portable());
     }
 
     /** A context over the root of {@code query}, which can also render {@code exists} sub-queries. */
-    static JoinContext of(Root<?> root, CriteriaBuilder cb, CommonAbstractCriteria query) {
-        return new JoinContext(root, cb, query, null, Set.of());
+    static JoinContext of(Root<?> root, CriteriaBuilder cb, CommonAbstractCriteria query, RenderOptions options) {
+        return new JoinContext(root, cb, query, null, Set.of(), options);
     }
 
     From<?, ?> root() {
@@ -76,6 +79,10 @@ public final class JoinContext {
 
     CriteriaBuilder cb() {
         return cb;
+    }
+
+    RenderOptions renderOptions() {
+        return renderOptions;
     }
 
     /**
@@ -105,9 +112,9 @@ public final class JoinContext {
         }
         Subquery<Integer> sub = query.subquery(Integer.class);
         JoinContext ctx = existsPath == null
-                ? new JoinContext(sub.correlate((Root) root), cb, sub, null, path.keysUpTo(null))
+                ? new JoinContext(sub.correlate((Root) root), cb, sub, null, path.keysUpTo(null), renderOptions)
                 : new JoinContext(sub.correlate((Join) existsFrom), cb, sub, existsPath.key(),
-                        path.keysUpTo(existsPath.key()));
+                        path.keysUpTo(existsPath.key()), renderOptions);
         ctx.existsPath = path;
         ctx.existsFrom = path.resolve(ctx);
         sub.select(cb.literal(1));

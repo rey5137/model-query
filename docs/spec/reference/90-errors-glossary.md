@@ -113,6 +113,8 @@ models, `MQ3301`–`MQ3307` for update models (`Future`, M8). Codes are not repe
 | **Slice** | A page plus its metadata: number, size, `hasNext`, and a total if one was counted. |
 | **Export** | A bounded-memory walk over every row or group, in pages. |
 | **Profile** | A `VendorProfile`: every database-specific behaviour, in one object. |
+| **Provider support** | A `ProviderSupport`: what a persistence provider does better than portable JPA (dialect detection, grouped count, native null precedence). Varies by provider, not by database (D-34). |
+| **Render options** | `RenderOptions`: the vendor-neutral facts about the database that a query build renders by, made from the profile (D-34). |
 | **QModel** | The generated companion class (`QOrderView`) holding a model's constants. |
 | **Update model** | A class or record annotated `@UpdateModel` listing the attributes a bulk update may write. Holds no data (`Future`, M8). |
 | **Change set** | A generated, mutable `Changes<M>` recording which columns were set, so "set to NULL" and "not set" differ (`Future`, M8). |

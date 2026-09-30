@@ -11,13 +11,13 @@ import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
-import com.rey.modelquery.core.ModelQueryConfig;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.core.TableField;
+import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
@@ -28,12 +28,8 @@ import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
 import jakarta.persistence.EntityManager;
-import java.io.IOException;
 import java.math.BigDecimal;
-import java.net.URL;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -220,7 +216,7 @@ class ExecutionTest {
         List<String> warnings = new ArrayList<>();
         List<String> sql = SqlSnapshots.assertMatches(db, "exe-03-grouped-count-portable", ds -> {
             try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
-                sf.inSession(em -> withoutServices(() -> {
+                sf.inSession(em -> JoinTestSupport.withoutServices(() -> {
                     ModelQueryExecutor<OrderEntity> executor =
                             ModelQueryExecutor.create(em, OrderEntity.class, ModelQueryConfig.defaults());
                     warnings.addAll(capturingWarnings(() -> {
@@ -468,24 +464,6 @@ class ExecutionTest {
     private static void inSession(DataSource ds, Consumer<EntityManager> work) {
         try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
             sf.inSession(work::accept);
-        }
-    }
-
-    /** Runs {@code work} where no {@code ServiceLoader} service file is visible: the executor as without add-ons. */
-    private static void withoutServices(Runnable work) {
-        Thread thread = Thread.currentThread();
-        ClassLoader original = thread.getContextClassLoader();
-        thread.setContextClassLoader(new ClassLoader(original) {
-            @Override
-            public Enumeration<URL> getResources(String name) throws IOException {
-                return name.startsWith("META-INF/services/") ? Collections.emptyEnumeration()
-                        : super.getResources(name);
-            }
-        });
-        try {
-            work.run();
-        } finally {
-            thread.setContextClassLoader(original);
         }
     }
 

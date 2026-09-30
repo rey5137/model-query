@@ -254,6 +254,21 @@ changed. Rejected: appending the customizer's expressions to the tie-breaker (th
 cannot be read from the `Row` to dedupe or build a cursor, R-QRY-08); allowing an added `GROUP BY` as before (grouped
 export then drops rows). → `api/11` R-QRY-07, R-QRY-11, AC-QRY-10.
 
+**D-34 — Vendor facts reach `core` as vendor-neutral `RenderOptions`; provider behaviour is its own SPI.**
+`VendorProfile` and `DatabaseVendor` live in `jpa.spi`, and the executor resolves a profile once per
+`EntityManagerFactory`. What a query build may render by (IN-list and bind limits, the default null ordering, an
+optional native null-precedence renderer) reaches `core` as an immutable `RenderOptions`, passed to
+`ModelQuery.buildQuery(cb, phase, options)` and held by that build's `JoinContext`; `JoinContext.of(root, cb)` and
+`RenderOptions.portable()` carry the `OTHER` values. `ModelQueryConfig` moves to `jpa`, so `vendor(DatabaseVendor)` is
+type-safe. Dialect detection, the grouped count and native null precedence vary by persistence provider, not by
+database, so they are one `ProviderSupport` SPI in `jpa.spi`, separate from `VendorProfile`, which
+`model-query-hibernate` implements. One explicit vendor applies to every factory that shares the configuration, so M5
+needs a configuration per factory. Rejected: profile facts on `ModelQuery` (a definition is shared and immutable,
+INV-9); a `ThreadLocal` (invisible, and wrong across threads); a `CriteriaBuilder` decorator (it wraps a whole provider
+interface, and code that unwraps the provider's own builder bypasses it); `VendorProfile` in `core` (a vendor name in
+`core`, INV-6); `vendor(String)` (a typo compiles); folding `GroupedCountStrategy` into `VendorProfile` (one profile per
+provider × database). → `vendor/40` §1, R-VND-03, R-VND-04, R-VND-06, `api/11` R-QRY-10, `engine/20` R-EXE-03.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter

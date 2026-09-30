@@ -1,6 +1,10 @@
 package com.rey.modelquery.tck.col;
 
 import com.rey.modelquery.tck.harness.TckDatabase;
+import java.io.IOException;
+import java.net.URL;
+import java.util.Collections;
+import java.util.Enumeration;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
 import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
@@ -32,6 +36,24 @@ public final class JoinTestSupport {
         return build(new StandardServiceRegistryBuilder()
                 .applySetting(AvailableSettings.JAKARTA_NON_JTA_DATASOURCE, dataSource)
                 .applySetting(AvailableSettings.CONNECTION_HANDLING, "DELAYED_ACQUISITION_AND_RELEASE_AFTER_STATEMENT"));
+    }
+
+    /** Runs {@code work} where no {@code ServiceLoader} service file is visible: the executor as without add-ons. */
+    public static void withoutServices(Runnable work) {
+        Thread thread = Thread.currentThread();
+        ClassLoader original = thread.getContextClassLoader();
+        thread.setContextClassLoader(new ClassLoader(original) {
+            @Override
+            public Enumeration<URL> getResources(String name) throws IOException {
+                return name.startsWith("META-INF/services/") ? Collections.emptyEnumeration()
+                        : super.getResources(name);
+            }
+        });
+        try {
+            work.run();
+        } finally {
+            thread.setContextClassLoader(original);
+        }
     }
 
     private static SessionFactory build(StandardServiceRegistryBuilder builder) {

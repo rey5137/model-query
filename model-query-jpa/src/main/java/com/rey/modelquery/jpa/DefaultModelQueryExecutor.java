@@ -7,17 +7,20 @@ import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.JoinContext;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
-import com.rey.modelquery.core.ModelQueryConfig;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.OrderField;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.Slice;
-import com.rey.modelquery.jpa.spi.GroupedCountStrategy;
+import com.rey.modelquery.jpa.spi.ProviderSupport;
+import com.rey.modelquery.jpa.spi.VendorProfile;
+import com.rey.modelquery.jpa.vendor.ResolvedVendor;
+import com.rey.modelquery.jpa.vendor.VendorResolver;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.TypedQuery;
@@ -42,7 +45,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.OptionalLong;
-import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.function.Consumer;
@@ -77,15 +79,23 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     private final EntityManager em;
     private final Class<E> rootEntity;
-    private final List<GroupedCountStrategy> groupedCounters;
+    /** The profile and provider support of {@code em}'s factory, resolved once per factory (R-VND-02). */
+    private final ResolvedVendor vendor;
+    /** The profile's facts as every query build of this executor renders by (D-34). */
+    private final RenderOptions renderOptions;
 
     DefaultModelQueryExecutor(EntityManager em, Class<E> rootEntity, ModelQueryConfig config) {
         this.em = Objects.requireNonNull(em, "em");
         this.rootEntity = Objects.requireNonNull(rootEntity, "rootEntity");
         Objects.requireNonNull(config, "config");
-        var found = new ArrayList<GroupedCountStrategy>();
-        ServiceLoader.load(GroupedCountStrategy.class).forEach(found::add);
-        this.groupedCounters = List.copyOf(found);
+        this.vendor = VendorResolver.resolve(em.getEntityManagerFactory(), config.vendor());
+        VendorProfile profile = vendor.profile();
+        RenderOptions options = RenderOptions.of(
+                profile.maxInListSize(), profile.maxBindParameters(), profile.defaultAscendingNullOrdering());
+        this.renderOptions = vendor.providerSupport()
+                .flatMap(ProviderSupport::nullPrecedence)
+                .map(options::withNullPrecedenceRenderer)
+                .orElse(options);
     }
 
     @Override
@@ -96,7 +106,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         if (zeroLimit(limit)) {
             return List.of(); // no statement runs for a zero limit (R-EXE-06)
         }
-        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
+        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
         return mapAll(limited(built, limit), built);
     }
 
@@ -111,7 +121,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 return body.apply(none); // no statement runs for a zero limit (R-EXE-06)
             }
         }
-        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
+        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
         TypedQuery<Tuple> query = limited(built, limit);
         // Rows are mapped one at a time as body pulls them; closing the mapped stream closes the result stream under
         // it, whether body returns, stops early or throws (R-EXE-07, R-EXE-09).
@@ -141,7 +151,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         int size = page.pageSize();
         if (mode != CountMode.ONLY_COUNT && primaryKeyFirst(q, offset)) {
             // Before the count too, so a refused page runs no query at all (R-PAG-13).
-            refuseToManySelection(q, q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL_BY_KEYS),
+            refuseToManySelection(q, q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL_BY_KEYS, renderOptions),
                     "primary-key-first paging");
         }
         switch (mode) {
@@ -188,7 +198,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             // which a grouped query never has; keyset() and primaryKeyFirst(...) were refused at build (MQ1402), so
             // the export is offset-only (R-PAG-11, R-PAG-12, R-AGG-09). A group-key tuple is unique per result row
             // even through a to-many join, so a grouped export skips the MQ2204 refusal (R-PAG-13).
-            BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
+            BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
             appendStableOrder(q, built);
             return exportByOffset(q, built, null, row -> groupKeyOf(q, row), options.pageSize(), limit, pageTransformer,
                     sink);
@@ -197,7 +207,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         PrimaryKey<M, ?> key = q.primaryKey().orElseThrow(() -> new ModelQueryExecutionException(MqCode.MQ2203,
                 q + ": offset export needs a primary key to order and dedupe its pages, and primaryKey(...) was "
                         + "not set"));
-        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
+        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
         refuseToManySelection(q, built, q.isKeyset() ? "keyset paging" : "offset export");
         if (q.isKeyset()) {
             return exportByKeyset(q, built, key, options.pageSize(), limit, pageTransformer, sink);
@@ -226,7 +236,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             // The batch size compiles a statement, so an empty key page skips it.
             return keys.isEmpty() ? List.of() : readByKeys(q, key, keys, keyBatchSize(q, key));
         }
-        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
+        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
         appendStableOrder(q, built);
         TypedQuery<Tuple> query = em.createQuery(built.query());
         query.setFirstResult(offset);
@@ -266,7 +276,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /** The {@code PRIMARY_KEY} statement, in the stable order the one-step read uses (R-PAG-01). */
     private <M> BuiltQuery<M> keyQuery(ModelQuery<E, ?, M> q) {
-        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.PRIMARY_KEY);
+        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.PRIMARY_KEY, renderOptions);
         appendStableOrder(q, built);
         return built;
     }
@@ -301,7 +311,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Map<Object, Found<M>> found = new HashMap<>();
         for (int from = 0; from < distinct.size(); from += batch) {
             List<Object> batchKeys = distinct.subList(from, Math.min(distinct.size(), from + batch));
-            BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL_BY_KEYS);
+            BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL_BY_KEYS, renderOptions);
             Predicate byKey = keyIn(key, batchKeys, built.joins(), cb);
             Predicate own = built.query().getRestriction();
             built.query().where(own == null ? byKey : cb.and(own, byKey));
@@ -332,7 +342,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private <M> int keyBatchSize(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> key) {
         // The statement's own binds, the query's values and the customizer's, before any key is added. JPA reports a
         // literal the provider binds as a parameter of the query; one it renders inline takes no bind.
-        int ownBinds = em.createQuery(q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL_BY_KEYS).query())
+        int ownBinds = em.createQuery(q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL_BY_KEYS, renderOptions).query())
                 .getParameters().size();
         return Math.max(1, Math.min(MAX_IN_LIST_SIZE, (MAX_BIND_PARAMETERS - ownBinds) / key.columns().size()));
     }
@@ -458,7 +468,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Set<Object> previousKeys = Set.of();
         while (passed < limit) {
             if (cursor != null) {
-                built = q.buildQuery(cb, Phase.MODEL);
+                built = q.buildQuery(cb, Phase.MODEL, renderOptions);
                 Predicate after = keyset.after(cursor, built.joins(), cb);
                 Predicate own = built.query().getRestriction();
                 built.query().where(own == null ? after : cb.and(own, after));
@@ -572,7 +582,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     private <M> long countRows(ModelQuery<E, ?, M> q) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
-        BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL);
+        BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL, renderOptions);
         CriteriaQuery<Tuple> query = built.query();
         query.orderBy(List.<Order>of()); // the count needs no order (R-EXE-05)
         if (q.isGrouped()) {
@@ -587,7 +597,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return ((Number) em.createQuery(query).getSingleResult().get(0)).longValue();
     }
 
-    /** {@code count(*)} over the groups: in the database when a strategy serves the provider, else client-side. */
+    /** {@code count(*)} over the groups: in the database when the provider support can, else client-side. */
     private <M> long countGroups(ModelQuery<E, ?, M> q, BuiltQuery<M> built) {
         CriteriaQuery<Tuple> query = built.query();
         if (!q.groupBy().isEmpty()) {
@@ -599,14 +609,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             query.multiselect(keys);
         }
         TypedQuery<Tuple> typed = em.createQuery(query);
-        for (GroupedCountStrategy strategy : groupedCounters) {
-            OptionalLong groups = strategy.countGroups(typed);
-            if (groups.isPresent()) {
-                return groups.getAsLong();
-            }
+        OptionalLong groups = vendor.providerSupport().map(p -> p.countGroups(typed)).orElse(OptionalLong.empty());
+        if (groups.isPresent()) {
+            return groups.getAsLong();
         }
         LOG.log(System.Logger.Level.WARNING, "count over the grouped query on {0} runs it and counts its rows in "
-                + "memory, because no GroupedCountStrategy serves this persistence provider; add "
+                + "memory, because no ProviderSupport counts groups for this persistence provider; add "
                 + "model-query-hibernate for a count in the database (R-EXE-03)", rootEntity.getSimpleName());
         return typed.getResultList().size();
     }
