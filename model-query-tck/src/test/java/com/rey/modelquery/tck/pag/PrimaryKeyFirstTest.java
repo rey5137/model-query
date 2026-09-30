@@ -13,8 +13,10 @@ import com.rey.modelquery.core.ModelQueryConfig;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.PageSpec;
+import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.PrimaryKeyFirst;
+import com.rey.modelquery.core.QueryCustomizer;
 import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
@@ -34,6 +36,7 @@ import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.stream.LongStream;
 import javax.sql.DataSource;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.hibernate.SessionFactory;
 
 /** Primary-key-first deep paging: keys first, then the rows of those keys in batches (engine/21 §3). */
@@ -289,6 +292,42 @@ class PrimaryKeyFirstTest {
         // A page within the threshold reads in one step, and page accepts the shape there (R-PAG-13).
         withExecutor(db, OrderEntity.class, executor -> assertThat(
                 executor.page(selected, PageSpec.of(1, 100), CountMode.NO_COUNT).content()).hasSize(100));
+    }
+
+    // ---- AC-PAG-14
+
+    @TckTest
+    void ac_pag_14_primary_key_first_over_phases_that_disagree_throws_mq2206_before_any_query(TckDatabase db) {
+        // Step 1 would page every order and step 2 read back only the PAID ones, so pages past the threshold would
+        // come back short and an export would skip rows at the switch (R-PAG-15).
+        QueryCustomizer onlyModel = (spec, joins, query, cb, phase) -> {
+            if (phase == Phase.MODEL) {
+                query.where(cb.equal(query.getRoots().iterator().next().get("status"), "PAID"));
+            }
+        };
+        var twoStep = ORDER_ROWS.customize(onlyModel).primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(100)).build();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, OrderEntity.class, executor -> {
+            // Within the threshold too: the check belongs to the definition, not to the page asked for.
+            for (PageSpec page : List.of(PageSpec.of(0, 50), PageSpec.of(5, 50))) {
+                assertMq2206(() -> executor.page(twoStep, page, CountMode.COUNT));
+            }
+            assertMq2206(() -> executor.export(twoStep, ExportOptions.of(50), rows -> rows, row -> {}));
+        }));
+        assertThat(sql).as("refused before any query runs, every time").isEmpty();
+        // Without primaryKeyFirst(...) the same customizer only warns (R-QRY-09), and the export runs.
+        var oneStep = ORDER_ROWS.customize(onlyModel).build();
+        List<OrderRow> rows = new ArrayList<>();
+        withExecutor(db, OrderEntity.class,
+                executor -> executor.export(oneStep, ExportOptions.of(500), page -> page, rows::add));
+        assertThat(rows).hasSize(TckFixture.ORDERS / 4).allMatch(row -> row.status().equals("PAID"));
+    }
+
+    private static void assertMq2206(ThrowingCallable call) {
+        assertThatThrownBy(call)
+                .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ2206))
+                .hasMessageStartingWith("MQ2206: OrderRow: the QueryCustomizer adds a predicate or an INNER join only "
+                        + "in phase(s) [MODEL], not in [PRIMARY_KEY, MODEL_BY_KEYS]");
     }
 
     // ---- support

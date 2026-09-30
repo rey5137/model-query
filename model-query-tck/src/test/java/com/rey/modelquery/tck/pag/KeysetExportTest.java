@@ -389,6 +389,51 @@ class KeysetExportTest {
         }
     }
 
+    // ---- AC-PAG-13
+
+    @TckTest
+    void ac_pag_13_a_keyset_page_repeating_a_key_of_the_page_before_throws_mq2205(TckDatabase db) {
+        // The 400 items of P001 by quantity, in pages of 250: while page 1 is transformed, its first row's quantity
+        // moves from 1 to 9, after the cursor, so page 2, which holds every row left, reads that row again. The
+        // export runs in a transaction that sees its own update on every vendor, and rolls back to leave the fixture
+        // as seeded (R-PAG-14).
+        var p001 = ITEM_ROWS.where(f -> f.eq(ITEM_PRODUCT, Optional.of("P001"))).orderBy(ITEM_QUANTITY.asc()).build();
+        List<List<ItemRow>> pages = new ArrayList<>();
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
+            sf.inSession(em -> {
+                em.getTransaction().begin();
+                try {
+                    ModelQueryExecutor<OrderItemEntity> executor =
+                            ModelQueryExecutor.create(em, OrderItemEntity.class, ModelQueryConfig.defaults());
+                    assertThatThrownBy(() -> executor.export(p001, ExportOptions.of(250), page -> {
+                        pages.add(page);
+                        if (pages.size() == 1) {
+                            assertThat(page.get(0).quantity()).isEqualTo(1);
+                            em.createNativeQuery("UPDATE order_items SET quantity = 9 WHERE id = :id")
+                                    .setParameter("id", page.get(0).id())
+                                    .executeUpdate();
+                        }
+                        return page;
+                    }, row -> {}))
+                            .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                                    e -> assertThat(e.code()).isEqualTo(MqCode.MQ2205))
+                            .hasMessageStartingWith(MqCode.MQ2205.code() + ": ItemRow:");
+                } finally {
+                    em.getTransaction().rollback();
+                }
+            });
+        }
+        assertThat(pages).as("page 2 never reaches pageTransformer").hasSize(1);
+        assertThat(pages.get(0)).hasSize(250);
+        // A key a predicate's to-many join repeats within a page is still dropped, not refused: each order holding
+        // P001 holds it four times, so pages of 3 split the repeats of one order across a boundary (R-PAG-02).
+        var withItem = ORDER_ROWS.where(f -> f.eq(ORDER_ITEM_PRODUCT, Optional.of("P001"))).build();
+        List<Long> orders = new ArrayList<>();
+        withExecutor(db, OrderEntity.class, executor -> executor.export(withItem, ExportOptions.of(3), page -> page,
+                row -> orders.add(row.id())));
+        assertThat(orders).isNotEmpty().doesNotHaveDuplicates();
+    }
+
     // ---- support
 
     private static List<SortRow> jdbc(TckDatabase db) {

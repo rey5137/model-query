@@ -54,7 +54,7 @@ import java.util.stream.Stream;
  *
  * @implSpec R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-05, R-EXE-06, R-EXE-07, R-EXE-09, R-QRY-09, R-PAG-01,
  *     R-PAG-02, R-PAG-03, R-PAG-04, R-PAG-05, R-PAG-06, R-PAG-07, R-PAG-08, R-PAG-09, R-PAG-10, R-PAG-11, R-PAG-12,
- *     R-PAG-13, R-AGG-09
+ *     R-PAG-13, R-PAG-14, R-AGG-09
  */
 final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
@@ -93,13 +93,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(limit, "limit");
         checkPhasesOnce(q);
-        if (limit.maxRows().isPresent() && limit.maxRows().getAsInt() == 0) {
+        if (zeroLimit(limit)) {
             return List.of(); // no statement runs for a zero limit (R-EXE-06)
         }
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
-        TypedQuery<Tuple> query = em.createQuery(built.query());
-        limit.maxRows().ifPresent(query::setMaxResults);
-        return mapAll(query, built);
+        return mapAll(limited(built, limit), built);
     }
 
     @Override
@@ -108,19 +106,29 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(limit, "limit");
         Objects.requireNonNull(body, "body");
         checkPhasesOnce(q);
-        if (limit.maxRows().isPresent() && limit.maxRows().getAsInt() == 0) {
+        if (zeroLimit(limit)) {
             try (Stream<M> none = Stream.empty()) {
                 return body.apply(none); // no statement runs for a zero limit (R-EXE-06)
             }
         }
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
-        TypedQuery<Tuple> query = em.createQuery(built.query());
-        limit.maxRows().ifPresent(query::setMaxResults);
+        TypedQuery<Tuple> query = limited(built, limit);
         // Rows are mapped one at a time as body pulls them; closing the mapped stream closes the result stream under
         // it, whether body returns, stops early or throws (R-EXE-07, R-EXE-09).
         try (Stream<Tuple> tuples = query.getResultStream(); Stream<M> models = tuples.map(built::map)) {
             return body.apply(models);
         }
+    }
+
+    private static boolean zeroLimit(Limit limit) {
+        return limit.maxRows().isPresent() && limit.maxRows().getAsInt() == 0;
+    }
+
+    /** {@code built}'s statement, capped at {@code limit}'s rows if it has any. */
+    private <M> TypedQuery<Tuple> limited(BuiltQuery<M> built, Limit limit) {
+        TypedQuery<Tuple> query = em.createQuery(built.query());
+        limit.maxRows().ifPresent(query::setMaxResults);
+        return query;
     }
 
     @Override
@@ -182,19 +190,20 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             // even through a to-many join, so a grouped export skips the MQ2204 refusal (R-PAG-13).
             BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
             appendStableOrder(q, built);
-            return exportByOffset(q, built, row -> groupKeyOf(q, row), options.pageSize(), limit, pageTransformer,
+            return exportByOffset(q, built, null, row -> groupKeyOf(q, row), options.pageSize(), limit, pageTransformer,
                     sink);
         }
         // A keyset query always has a primary key (MQ1201 at build time), so only offset export can fail here.
         PrimaryKey<M, ?> key = q.primaryKey().orElseThrow(() -> new ModelQueryExecutionException(MqCode.MQ2203,
-                q + ": offset export needs a primary key to order and dedupe its pages, and primaryKey(...) was not set"));
+                q + ": offset export needs a primary key to order and dedupe its pages, and primaryKey(...) was "
+                        + "not set"));
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
         refuseToManySelection(q, built, q.isKeyset() ? "keyset paging" : "offset export");
         if (q.isKeyset()) {
             return exportByKeyset(q, built, key, options.pageSize(), limit, pageTransformer, sink);
         }
         appendStableOrder(q, built);
-        return exportByOffset(q, built, row -> keyOf(q, key, row), options.pageSize(), limit, pageTransformer,
+        return exportByOffset(q, built, key, row -> keyOf(q, key, row), options.pageSize(), limit, pageTransformer,
                 sink);
     }
 
@@ -213,7 +222,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             PrimaryKey<M, ?> key = q.primaryKey().orElseThrow(); // primaryKeyFirst(...) needs one (MQ1201)
             // Read the page's keys in the stable order, then their rows: the same rows as the one-step page, a key
             // read twice through a predicate's to-many join included.
-            return readByKeys(q, key, readKeys(q, key, keyQuery(q), offset, maxRows));
+            List<Object> keys = readKeys(q, key, keyQuery(q), offset, maxRows);
+            // The batch size compiles a statement, so an empty key page skips it.
+            return keys.isEmpty() ? List.of() : readByKeys(q, key, keys, keyBatchSize(q, key));
         }
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
         appendStableOrder(q, built);
@@ -276,21 +287,17 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * Step 2: the models of {@code keys}, one per position in {@code keys}, in that order. Each statement takes at
-     * most {@link #keyBatchSize} keys, with the query's own predicate and order (R-PAG-07, R-PAG-08). {@code IN}
+     * most {@code batch} keys, with the query's own predicate and order (R-PAG-07, R-PAG-08). {@code IN}
      * keeps neither the step-1 order nor the order across statements, so rows are placed by their key's position. A
      * key whose row no longer matches between the two steps is skipped.
      */
-    private <M> List<M> readByKeys(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> key, List<Object> keys) {
+    private <M> List<M> readByKeys(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> key, List<Object> keys, int batch) {
         if (keys.isEmpty()) {
             return List.of();
         }
         CriteriaBuilder cb = em.getCriteriaBuilder();
         // A predicate's to-many join repeats a key in step 1; its row is read once and placed at every position.
         List<Object> distinct = List.copyOf(new LinkedHashSet<>(keys));
-        // The statement's own binds, the query's values and the customizer's, before any key is added. JPA reports a
-        // literal the provider binds as a parameter of the query; one it renders inline takes no bind.
-        int ownBinds = em.createQuery(q.buildQuery(cb, Phase.MODEL_BY_KEYS).query()).getParameters().size();
-        int batch = keyBatchSize(key, ownBinds);
         Map<Object, Found<M>> found = new HashMap<>();
         for (int from = 0; from < distinct.size(); from += batch) {
             List<Object> batchKeys = distinct.subList(from, Math.min(distinct.size(), from + batch));
@@ -318,10 +325,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * The most keys one step-2 statement takes: within the IN-list limit, and within the bind-parameter limit once
-     * the statement's own {@code ownBinds} are bound, at one bind per key column (R-PAG-07, D-32). At least one, so a
-     * query that alone passes the bind limit fails in the database as its one-step page would.
+     * the statement's own binds are bound, at one bind per key column (R-PAG-07, D-32). At least one, so a query that
+     * alone passes the bind limit fails in the database as its one-step page would. It compiles a statement without
+     * running it, so a caller computes it once per {@code page} or {@code export} call.
      */
-    private static int keyBatchSize(PrimaryKey<?, ?> key, int ownBinds) {
+    private <M> int keyBatchSize(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> key) {
+        // The statement's own binds, the query's values and the customizer's, before any key is added. JPA reports a
+        // literal the provider binds as a parameter of the query; one it renders inline takes no bind.
+        int ownBinds = em.createQuery(q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL_BY_KEYS).query())
+                .getParameters().size();
         return Math.max(1, Math.min(MAX_IN_LIST_SIZE, (MAX_BIND_PARAMETERS - ownBinds) / key.columns().size()));
     }
 
@@ -355,35 +367,49 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     // ---- export
 
     /**
-     * The export loop of engine/21 §4 in offset mode; {@code built} is already in its stable order, which
-     * {@code keyOfRow} identifies a row of: its primary key, or its group key tuple for a grouped query (R-PAG-11). A
-     * page past the {@code primaryKeyFirst} offset reads its keys first and only the fresh keys' rows (R-PAG-07).
+     * Whether {@code rowKey} is new to the export: a key seen before is a row the stable order already delivered,
+     * across the boundary when rows shifted between pages, or within the page when a predicate's to-many join repeats
+     * the root. Records it in {@code pageKeys}.
      */
-    private <M, S> long exportByOffset(ModelQuery<E, ?, M> q, BuiltQuery<M> built, Function<Row, Object> keyOfRow,
-            int pageSize, long limit, Function<List<M>, List<S>> pageTransformer, Consumer<S> sink) {
+    private static boolean isFresh(Set<Object> pageKeys, Set<Object> previousKeys, Object rowKey) {
+        return pageKeys.add(rowKey) && !previousKeys.contains(rowKey);
+    }
+
+    /**
+     * The export loop of engine/21 §4 in offset mode; {@code built} is already in its stable order, which
+     * {@code keyOfRow} identifies a row of: its primary key, or its group key tuple for a grouped query (R-PAG-11),
+     * for which {@code key} is {@code null}. A page past the {@code primaryKeyFirst} offset reads its keys first and
+     * only the fresh keys' rows (R-PAG-07).
+     */
+    private <M, S> long exportByOffset(ModelQuery<E, ?, M> q, BuiltQuery<M> built, PrimaryKey<M, ?> key,
+            Function<Row, Object> keyOfRow, int pageSize, long limit, Function<List<M>, List<S>> pageTransformer,
+            Consumer<S> sink) {
         long passed = 0;
         int offset = 0;
         BuiltQuery<M> keyQuery = null;
+        int batch = 0; // computed on the first non-empty key page
         // The only state carried from page to page, so memory stays bounded by one page (R-PAG-02, INV-4).
         Set<Object> previousKeys = Set.of();
         while (passed < limit) {
             Set<Object> keys = new HashSet<>();
             List<M> fresh;
             int read;
-            // A key seen before is a row the stable order already delivered: across the boundary when rows shifted
-            // between pages, or within the page when a predicate's to-many join repeats the root.
             if (primaryKeyFirst(q, offset)) {
-                // Only an ungrouped query with a primary key gets here (MQ1201, MQ1402), where keyOfRow reads that key.
-                PrimaryKey<M, ?> key = q.primaryKey().orElseThrow();
-                keyQuery = keyQuery == null ? keyQuery(q) : keyQuery;
+                // Only an ungrouped query with a primary key gets here (MQ1201, MQ1402), so key is set.
+                if (keyQuery == null) {
+                    keyQuery = keyQuery(q);
+                }
                 List<Object> pageKeys = readKeys(q, key, keyQuery, offset, pageSize);
                 List<Object> freshKeys = new ArrayList<>(pageKeys.size());
                 for (Object rowKey : pageKeys) {
-                    if (keys.add(rowKey) && !previousKeys.contains(rowKey)) {
+                    if (isFresh(keys, previousKeys, rowKey)) {
                         freshKeys.add(rowKey);
                     }
                 }
-                fresh = readByKeys(q, key, freshKeys); // only the fresh keys' rows are read (R-PAG-07)
+                if (batch == 0 && !freshKeys.isEmpty()) {
+                    batch = keyBatchSize(q, key);
+                }
+                fresh = readByKeys(q, key, freshKeys, batch); // only the fresh keys' rows are read (R-PAG-07)
                 read = pageKeys.size();
             } else {
                 TypedQuery<Tuple> query = em.createQuery(built.query());
@@ -393,7 +419,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 fresh = new ArrayList<>(rows.size());
                 for (Tuple tuple : rows) {
                     Object rowKey = keyOfRow.apply(built.selection().row(tuple));
-                    if (keys.add(rowKey) && !previousKeys.contains(rowKey)) {
+                    if (isFresh(keys, previousKeys, rowKey)) {
                         fresh.add(built.map(tuple));
                     }
                 }
@@ -406,7 +432,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             previousKeys = keys;
             if (offset > Integer.MAX_VALUE - read) {
                 throw new ModelQueryExecutionException(MqCode.MQ2002, q + ": offset export went past "
-                        + Integer.MAX_VALUE + " rows, the largest offset JPA takes; use keyset() for a result this large");
+                        + Integer.MAX_VALUE + " rows, the largest offset JPA takes; use keyset() for a result this "
+                        + "large");
             }
             offset += read;
         }
@@ -416,7 +443,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     /**
      * The export loop of engine/21 §4 in keyset mode: each page is the rows after the last row of the page before, so
      * no offset is skipped and no page overlaps the last (R-PAG-04, R-PAG-06). {@code first} is the unrestricted first
-     * page's statement; each later page is built afresh with the keyset predicate added to the query's own.
+     * page's statement; each later page is built afresh with the keyset predicate added to the query's own. A page
+     * holding a key of the page before throws {@code MQ2205} (R-PAG-14).
      */
     private <M, S> long exportByKeyset(ModelQuery<E, ?, M> q, BuiltQuery<M> first, PrimaryKey<M, ?> key,
             int pageSize, long limit, Function<List<M>, List<S>> pageTransformer, Consumer<S> sink) {
@@ -424,8 +452,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Keyset<M> keyset = Keyset.of(q, key);
         long passed = 0;
         BuiltQuery<M> built = first;
-        // The last row's keyset values: the only state carried from page to page (INV-4).
+        // The last row's keyset values and the page's keys: the only state carried from page to page, bounded by one
+        // page (INV-4).
         Object[] cursor = null;
+        Set<Object> previousKeys = Set.of();
         while (passed < limit) {
             if (cursor != null) {
                 built = q.buildQuery(cb, Phase.MODEL);
@@ -442,10 +472,18 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             for (Tuple tuple : rows) {
                 Row row = built.selection().row(tuple);
                 Object rowKey = keyOf(q, key, row);
+                if (previousKeys.contains(rowKey)) {
+                    // A cursor value did not compare equal to the stored one once bound, or the row's keyset value
+                    // moved after the cursor between pages. Either can skip rows too, and a repeated tie group that
+                    // fills a page would loop, so this throws rather than dedupes (R-PAG-14, D-31).
+                    throw new ModelQueryExecutionException(MqCode.MQ2205, q + ": a keyset export page repeated a row "
+                            + "of the page before: a cursor value did not survive being bound, or a row's keyset "
+                            + "value changed during the export");
+                }
                 // Read from every row, not only the last, so a NULL key is refused wherever the page holds it.
                 cursor = keyset.cursor(row);
                 // Equal keys sort together and the cursor is past them all, so a key repeats only within a page,
-                // when a predicate's to-many join repeats the root (R-PAG-02).
+                // when a predicate's to-many join repeats the root, and that repeat is dropped (R-PAG-02).
                 if (keys.add(rowKey)) {
                     fresh.add(built.map(tuple));
                 }
@@ -454,6 +492,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             if (rows.size() < pageSize) {
                 break;
             }
+            previousKeys = keys;
         }
         return passed;
     }

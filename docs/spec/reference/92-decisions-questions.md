@@ -219,11 +219,18 @@ checking only the cursor row (it silently drops the NULLs on those vendors); a c
 M3 may drop the branch where `defaultAscendingNullOrdering()` puts the NULLs first. → `engine/21` R-PAG-05, INV-5,
 AC-PAG-07.
 
-**D-31 — Keyset export drops repeated keys within a page only.**
+**D-31 — Keyset export drops repeated keys within a page, and throws on a key of the page before.**
 Each keyset page starts strictly after the last row of the page before, in an order closed by the primary key
-(R-PAG-04), so no row can reach two pages. A key can still repeat inside one page through a to-many join used only by
-predicates, and that repeat is dropped as in offset mode. No key set is kept across pages. Rejected: offset mode's
-cross-boundary dedupe (bookkeeping with nothing to catch). → `engine/21` R-PAG-02, R-PAG-04, AC-PAG-05.
+(R-PAG-04), so no row should reach two pages. A key can still repeat inside one page through a to-many join used only
+by predicates, and that repeat is dropped as in offset mode. *Amended at the M2 gate:* a cursor value that does not
+compare equal to the stored one once bound (a MySQL `FLOAT` bound as a decimal), or a row whose keyset value moves
+after the cursor between pages, brings a key of the page before back, forever when a repeated tie group fills a page.
+So the previous page's keys are kept, bounded by one page (INV-4), and a row of the new page holding one throws
+`MQ2205`. `Float` and `Double` keysets are refused at build (`MQ1207`, R-QRY-13), since a value stored below its
+bound form skips rows with no repeat to catch. Rejected: offset mode's cross-boundary dedupe (the same causes can skip
+rows as well as repeat them, and a dedupe would hide both, or loop on a full tie group); no key set across pages (the
+original decision, which let the repeat pass silently). → `api/11` R-QRY-13, `engine/21` R-PAG-02, R-PAG-04, R-PAG-14,
+AC-PAG-05, AC-PAG-13.
 
 **D-32 — Primary-key-first paging places rows by key, clamped to the lowest Tier-1 limits until M3.**
 `page` and offset `export` read a page past the `whenOffsetAbove` threshold key-first; export reads back only the keys
@@ -236,6 +243,16 @@ from `VendorProfile` follows the same rule. With no `primary-key-first.batch-siz
 is otherwise the whole page. Rejected: concatenating the batches in statement order (a row changing between the two
 steps breaks it); a hidden default batch of 1 000 (it would leave the vendor clamp untested until the setting exists). →
 `engine/21` R-PAG-03, R-PAG-07, R-PAG-08, AC-PAG-08, AC-PAG-09.
+
+**D-33 — A customizer never changes ordering or grouping.**
+The executor takes its paging keys from the definition, not from the Criteria query: the stable-order tie-breaker and
+the keyset cursor from `orderBy` and the primary key, the grouped dedupe key from `groupBy` (R-PAG-01, R-PAG-04,
+R-PAG-11). A group-by a customizer adds splits groups the dedupe cannot tell apart, and an order it changes pages by
+an order the cursor does not follow; both lose rows silently. So every statement compares its `ORDER BY` and
+`GROUP BY` before and after the customizer, in every phase and on grouped queries too, and throws `MQ1205` when either
+changed. Rejected: appending the customizer's expressions to the tie-breaker (they have no `SelectField`, so they
+cannot be read from the `Row` to dedupe or build a cursor, R-QRY-08); allowing an added `GROUP BY` as before (grouped
+export then drops rows). → `api/11` R-QRY-07, R-QRY-11, AC-QRY-10.
 
 ## 2. Open questions
 

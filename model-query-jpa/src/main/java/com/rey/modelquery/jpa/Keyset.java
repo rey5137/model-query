@@ -31,12 +31,10 @@ final class Keyset<M> {
 
     private final ModelQuery<?, ?, M> query;
     private final List<Key<M>> keys;
-    private final int ordered;
 
     private Keyset(ModelQuery<?, ?, M> query, List<Key<M>> keys) {
         this.query = query;
         this.keys = List.copyOf(keys);
-        this.ordered = query.orderBy().size();
     }
 
     /**
@@ -60,6 +58,7 @@ final class Keyset<M> {
 
     /** Appends the primary-key tie-breakers to {@code built}'s order, which already holds the query's own. */
     void appendOrder(BuiltQuery<M> built, CriteriaBuilder cb) {
+        int ordered = query.orderBy().size();
         if (keys.size() == ordered) {
             return;
         }
@@ -79,9 +78,10 @@ final class Keyset<M> {
     Object[] cursor(Row row) {
         Object[] values = new Object[keys.size()];
         for (int i = 0; i < values.length; i++) {
-            OrderField<M, ?> order = keys.get(i).order();
+            Key<M> key = keys.get(i);
+            OrderField<M, ?> order = key.order();
             values[i] = row.get(order.column());
-            if (values[i] == null && order.nulls() == NullPrecedence.DEFAULT && !keys.get(i).keyColumn()) {
+            if (values[i] == null && order.nulls() == NullPrecedence.DEFAULT && !key.keyColumn()) {
                 // Where the database sorts this NULL is its own choice, so no predicate can page past it portably.
                 throw new ModelQueryExecutionException(MqCode.MQ2202, query + ": keyset column "
                         + order.column().name() + " is null in an exported row; order it with nullsFirst() or "
@@ -113,6 +113,7 @@ final class Keyset<M> {
     }
 
     /** The values of {@code key}'s column that sort after {@code value}, or {@code null} when none does. */
+    @SuppressWarnings("rawtypes")
     private static Predicate beyond(Key<?> key, Expression<?> column, Object value, CriteriaBuilder cb) {
         NullPrecedence nulls = key.order().nulls();
         if (value == null) {
@@ -120,7 +121,9 @@ final class Keyset<M> {
             // a NULL, under LAST nothing does.
             return nulls == NullPrecedence.FIRST ? cb.isNotNull(column) : null;
         }
-        Predicate past = key.order().ascending() ? greaterThan(cb, column, value) : lessThan(cb, column, value);
+        Predicate past = key.order().ascending()
+                ? cb.greaterThan(comparable(column), (Comparable) value)
+                : cb.lessThan(comparable(column), (Comparable) value);
         // Under LAST every NULL follows every value. Under DEFAULT a NULL is refused when read, and this branch makes
         // sure it is read wherever the database sorts it, instead of being skipped silently (INV-5, D-30).
         boolean nullsFollow = nulls == NullPrecedence.LAST || nulls == NullPrecedence.DEFAULT && !key.keyColumn();
@@ -128,12 +131,7 @@ final class Keyset<M> {
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private static Predicate greaterThan(CriteriaBuilder cb, Expression<?> column, Object value) {
-        return cb.greaterThan((Expression<Comparable>) column, (Comparable) value);
-    }
-
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    private static Predicate lessThan(CriteriaBuilder cb, Expression<?> column, Object value) {
-        return cb.lessThan((Expression<Comparable>) column, (Comparable) value);
+    private static Expression<Comparable> comparable(Expression<?> column) {
+        return (Expression<Comparable>) column;
     }
 }

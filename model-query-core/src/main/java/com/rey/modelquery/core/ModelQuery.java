@@ -153,15 +153,36 @@ public final class ModelQuery<E, K, M> {
      * is created per call.
      *
      * @throws ModelQueryExecutionException {@code MQ2203} for {@code PRIMARY_KEY} on a query without a primary key
+     * @throws ModelQueryDefinitionException {@code MQ1205} when the customizer changed the ordering or the grouping
      */
     public BuiltQuery<M> buildQuery(CriteriaBuilder cb, Phase phase) {
         Objects.requireNonNull(cb, "cb");
         Objects.requireNonNull(phase, "phase");
         BuiltQuery<M> built = assemble(cb, phase);
         if (customizer != null) {
-            customizer.customize(spec, built.joins(), built.query(), cb, phase);
+            customize(built, cb, phase);
         }
         return built;
+    }
+
+    /**
+     * Runs the customizer on {@code built}, which must leave its ordering and grouping as they are: the executor
+     * orders, dedupes and reads cursors by the definition's {@code orderBy} and {@code groupBy}, so a change it
+     * cannot see makes paging skip or repeat rows (R-QRY-11, D-33).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1205} when the customizer changed the ordering or the grouping
+     */
+    private void customize(BuiltQuery<M> built, CriteriaBuilder cb, Phase phase) {
+        CriteriaQuery<Tuple> query = built.query();
+        List<Order> orders = List.copyOf(query.getOrderList());
+        List<Expression<?>> groups = List.copyOf(query.getGroupList());
+        customizer.customize(spec, built.joins(), query, cb, phase);
+        boolean reordered = !orders.equals(query.getOrderList());
+        if (reordered || !groups.equals(query.getGroupList())) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1205, modelName() + ": the QueryCustomizer changed the "
+                    + (reordered ? "ORDER BY" : "GROUP BY") + " of phase " + phase + "; order and group the query "
+                    + "with orderBy(...) and groupBy(...), which paging and export follow");
+        }
     }
 
     /** Selection, predicate, grouping and ordering of {@code phase}, before any customizer runs. */
@@ -207,27 +228,44 @@ public final class ModelQuery<E, K, M> {
     }
 
     /**
-     * Logs a warning for a customizer that narrows some phases but not all of them, by adding a predicate or a join
-     * other than LEFT (R-QRY-09). It runs the customizer once per phase on a scratch query built as
-     * {@link #buildQuery} builds it, and compares the predicate and the joins before and after, so the query's own
-     * {@code where} and joins do not count. Call it once per ModelQuery, on first execution (D-21).
+     * Checks a customizer that narrows some phases but not all of them, by adding a predicate or a join other than
+     * LEFT (R-QRY-09): it logs a warning, or throws on a query with {@code primaryKeyFirst(...)}, whose pages past
+     * the threshold would then skip rows (R-PAG-15). It runs the customizer once per phase the query can run on a
+     * scratch query built as {@link #buildQuery} builds it, and compares the predicate and the joins before and
+     * after, so the query's own {@code where} and joins do not count. Call it once per ModelQuery, on first execution
+     * (D-21).
+     *
+     * @throws ModelQueryExecutionException {@code MQ2206} when the phases disagree on a query with
+     *     {@code primaryKeyFirst(...)}
+     * @throws ModelQueryDefinitionException {@code MQ1205} when the customizer changes the ordering or the grouping
+     *     of any phase
      */
     public void checkPhases(CriteriaBuilder cb) {
         Objects.requireNonNull(cb, "cb");
-        if (customizer == null || primaryKey == null) {
-            return; // without a primary key only the MODEL phase runs, so there is nothing to keep consistent
+        if (customizer == null) {
+            return;
         }
+        // Without a primary key, as on every grouped query, only MODEL runs: no other phase has to agree with it, but
+        // its ordering and grouping are still checked (R-QRY-11).
+        List<Phase> phases = primaryKey == null ? List.of(Phase.MODEL) : List.of(Phase.values());
         List<Phase> with = new ArrayList<>();
         List<Phase> without = new ArrayList<>();
-        for (Phase phase : Phase.values()) {
+        for (Phase phase : phases) {
             BuiltQuery<M> scratch = assemble(cb, phase);
             Predicate own = scratch.query().getRestriction();
             int joined = narrowingJoins(scratch.query());
-            customizer.customize(spec, scratch.joins(), scratch.query(), cb, phase);
+            customize(scratch, cb, phase);
             boolean narrowed = scratch.query().getRestriction() != own || narrowingJoins(scratch.query()) != joined;
             (narrowed ? with : without).add(phase);
         }
         if (!with.isEmpty() && !without.isEmpty()) {
+            if (primaryKeyFirst != null) {
+                // Step 1 would page rows step 2 does not return, or the reverse, and the offset the pages share
+                // shifts at the switch to key-first reads (R-PAG-15).
+                throw new ModelQueryExecutionException(MqCode.MQ2206, modelName() + ": the QueryCustomizer adds a "
+                        + "predicate or an INNER join only in phase(s) " + with + ", not in " + without + "; "
+                        + "primaryKeyFirst(...) needs every phase to select the same rows");
+            }
             LOG.log(System.Logger.Level.WARNING,
                     "QueryCustomizer on {0} adds a predicate or an INNER join only in phase(s) {1}, not in {2}; "
                             + "primary-key-first paging would return rows the phases disagree on",
@@ -466,6 +504,9 @@ public final class ModelQuery<E, K, M> {
          *     a grouped query
          * @throws ModelQueryDefinitionException {@code MQ1201} for {@code keyset()} or {@code primaryKeyFirst(...)}
          *     without a primary key
+         * @throws ModelQueryDefinitionException {@code MQ1206} for a primary-key column of array type
+         * @throws ModelQueryDefinitionException {@code MQ1207} for {@code keyset()} with a {@code Float} or
+         *     {@code Double} order or primary-key column
          * @throws ModelQueryDefinitionException {@code MQ1401} for a selected column missing from the group-by
          * @throws ModelQueryDefinitionException {@code MQ1406} for an ordering key that does not fit the grouping
          * @throws ModelQueryDefinitionException {@code MQ1103} for two {@code Agg.of} fields sharing a name with
@@ -496,6 +537,9 @@ public final class ModelQuery<E, K, M> {
                             model + ": " + used + " requires primaryKey(...)");
                 }
             }
+            if (primaryKey != null) {
+                checkKeyTypes(keyset);
+            }
             if (grouped) {
                 for (SelectField<M, ?> column : columns.columns()) {
                     // MySQL would return an arbitrary value of the group; PostgreSQL would fail anonymously (R-AGG-08).
@@ -511,6 +555,37 @@ public final class ModelQuery<E, K, M> {
             checkOrder(model, grouped);
             checkAggregates(model);
             return new ModelQuery<>(this, grouped);
+        }
+
+        /**
+         * No primary-key column is an array: an array equals only itself, so a key read from one row never equals the
+         * same key read from another, and dedupe and primary-key-first paging would drop every row (R-QRY-12). With
+         * {@code keyset}, no order column or primary-key tie-breaker is a {@code Float} or {@code Double} either: a
+         * cursor on one may not compare equal to the stored value once bound, so the next page repeats or skips the
+         * rest of its tie group (R-QRY-13).
+         */
+        private void checkKeyTypes(boolean keyset) {
+            for (ColumnField<M, ?, ?> column : primaryKey.columns()) {
+                if (column.type().isArray()) {
+                    throw new ModelQueryDefinitionException(MqCode.MQ1206, column + ": a primary-key column of type "
+                            + column.type().getSimpleName() + " cannot identify a row, since an array equals only "
+                            + "itself; key the query by a column of a value type");
+                }
+            }
+            if (keyset) {
+                for (OrderField<M, ?> order : orderBy) {
+                    checkExactType(order.column());
+                }
+                primaryKey.columns().forEach(this::checkExactType);
+            }
+        }
+
+        private void checkExactType(SelectField<M, ?> column) {
+            if (column.type() == Float.class || column.type() == Double.class) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1207, column + ": keyset() cannot page by a "
+                        + column.type().getSimpleName() + " column, whose cursor value need not compare equal to "
+                        + "the stored one; order by an exact type such as BigDecimal, or export by offset");
+            }
         }
 
         /** Each ordering key fits the grouping: a group key or an aggregate if grouped, else no aggregate (D-28). */
