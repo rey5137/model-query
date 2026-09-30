@@ -89,10 +89,11 @@ final class QModelWriter {
         for (FilterLayout.Table table : filters.tables()) {
             type.addField(filterTable(table));
         }
+        // A column is named after its field, so a sort names it as the model does (D-55).
         for (ModelField field : model.columns()) {
             type.addField(column(
                     modelName, model.root(), field.constant(), "ROOT", field.attribute(), field.type(),
-                    field.converter()));
+                    field.converter(), field.name()));
         }
         // Aggregates are in no column set, or every query of the model would be grouped (R-PROC-17).
         for (ModelField field : model.aggregates()) {
@@ -112,7 +113,7 @@ final class QModelWriter {
         for (FilterLayout.Column column : filters.columns()) {
             type.addField(column(
                     modelName, column.entity(), column.definition().name(), column.table(), column.attribute(),
-                    column.read().type(), column.definition().converter()));
+                    column.read().type(), column.definition().converter(), null));
         }
         if (model.columnSets()) {
             TypeName columnSet = ParameterizedTypeName.get(COLUMN_SET, modelName);
@@ -172,12 +173,14 @@ final class QModelWriter {
     }
 
     /**
-     * A column constant reading {@code attribute} on {@code table}. Its type is {@code type}, or what
-     * {@code converterClass} makes of the attribute when {@code type} is the attribute's own, as a filter column's is.
+     * A column constant reading {@code attribute} on {@code table}, named {@code property} unless it is {@code null}.
+     * Its type is {@code type}, or what {@code converterClass} makes of the attribute when {@code type} is the
+     * attribute's own, as a filter column's is.
      */
     private FieldSpec column(
             ClassName modelName, TypeElement entity, String constant, String table, String attribute,
-            TypeMirror type, TypeMirror converterClass) {
+            TypeMirror type, TypeMirror converterClass, String property) {
+        CodeBlock named = property == null ? CodeBlock.of("") : CodeBlock.of("$Z.named($S)", property);
         ConverterType converter = converterClass == null ? null : ConverterType.of(types, converterClass);
         TypeName column = column(converter == null ? type : converter.model());
         FieldSpec.Builder field = FieldSpec.builder(
@@ -189,15 +192,16 @@ final class QModelWriter {
                     .build());
         }
         if (converter == null) {
-            return field.initializer("$T.of($T.class,$W$L,$W$S,$W$L)",
-                    COLUMN_FIELD, modelName, table, attribute, classOf(column)).build();
+            return field.initializer("$T.of($T.class,$W$L,$W$S,$W$L)$L",
+                    COLUMN_FIELD, modelName, table, attribute, classOf(column), named).build();
         }
         // The column carries its converter, so Row.get and a filter both convert (R-PROC-07, D-37).
         ClassName converterName = ClassName.get(converter.type());
-        return field.initializer("$T.of($T.class,$W$L,$W$S,$W$L,$W$L,$W$L)", COLUMN_FIELD, modelName, table,
+        return field.initializer("$T.of($T.class,$W$L,$W$S,$W$L,$W$L,$W$L)$L", COLUMN_FIELD, modelName, table,
                 attribute, classOf(column), classOf(column(converter.attribute())),
                 converter.hasInstance()
-                        ? CodeBlock.of("$T.INSTANCE", converterName) : CodeBlock.of("new $T()", converterName))
+                        ? CodeBlock.of("$T.INSTANCE", converterName) : CodeBlock.of("new $T()", converterName),
+                named)
                 .build();
     }
 
@@ -303,7 +307,10 @@ final class QModelWriter {
                 absent, OPTIONAL, OPTIONAL, qModel, scope(field));
     }
 
-    /** A {@code @Join} of the model itself, or a join of its nested model moved under one (R-GEN-13, R-GEN-14). */
+    /**
+     * A {@code @Join} of the model itself, or a join of its nested model moved under one, which keeps the property
+     * the nested model's QModel names it by (R-GEN-13, R-GEN-14).
+     */
     private static FieldSpec joinedTable(JoinedTable table) {
         ClassName nested = generatedName(table.nested());
         ClassName parentEntity = ClassName.get(table.parentEntity());
@@ -320,8 +327,11 @@ final class QModelWriter {
         if (!join.alias().isEmpty()) {
             initializer.add("$Z.as($S)", join.alias());
         }
-        // The nested model's key decides whether the join matched a row (D-38).
-        return constant.initializer(initializer.add("$Z.presentBy($T.KEY)", nested).build()).build();
+        // The nested model's key decides whether the join matched a row (D-38), and the join is named after its
+        // field, so a sort names a column under it as the model does (D-55).
+        return constant.initializer(initializer.add("$Z.presentBy($T.KEY)", nested)
+                .add("$Z.named($S)", table.join().name())
+                .build()).build();
     }
 
     private static ClassName generatedName(ModelDefinition model) {

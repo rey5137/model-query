@@ -516,6 +516,16 @@ logged where the starter builds the config bean, once per context. `modelquery.p
 default of its own: unset means the whole page, as `engine/21` R-PAG-07 says. → `integration/50` R-SPR-03, R-SPR-09,
 R-SPR-13.
 
+**D-55 — A sort property is the model's property path.** A client sorts by the names it sees in the model, not by
+entity attributes. A generated column carries its model field name as its property, and a generated `@Join` table
+its join field name, so a joined column's property path is `customer.name` even when the nested field reads
+`@Column(attribute = "fullName")`, and two `@Join`s on one attribute sort apart (`billing.city`, `shipping.city`).
+`orderedBy` matches the property path first, then the attribute path from the root; a bare attribute name no longer
+matches a joined column, which could pick the wrong one silently. A hand-written column has no property unless given
+one with `named(String)`, which returns a copy (INV-9), and a table likewise. The property is the Java field name,
+not a Jackson rename, and it is not part of `equals`/`hashCode`, so the SQL does not change. Aggregates still match
+by their name. → `api/11` R-QRY-14.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter

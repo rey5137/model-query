@@ -14,16 +14,16 @@ public final class QOrderSummary {
     public static final TableField<OrderEntity, OrderEntity> ROOT = TableField.root(OrderEntity.class);
 
     public static final ColumnField<OrderSummary, OrderEntity, Long> ID = ColumnField.of(OrderSummary.class,
-            ROOT, "id", Long.class);
+            ROOT, "id", Long.class).named("id");
 
     public static final ColumnField<OrderSummary, OrderEntity, String> STATUS = ColumnField.of(OrderSummary.class,
-            ROOT, "status", String.class);
+            ROOT, "status", String.class).named("status");
 
     public static final ColumnField<OrderSummary, OrderEntity, String> CITY = ColumnField.of(OrderSummary.class,
-            ROOT, "address.city", String.class);
+            ROOT, "address.city", String.class).named("city");
 
     public static final ColumnField<OrderSummary, OrderEntity, String> NOTES = ColumnField.of(OrderSummary.class,
-            ROOT, "notes", String.class);
+            ROOT, "notes", String.class).named("notes");
 
     public static final ColumnSet<OrderSummary> ALL = ColumnSet.of(ID, STATUS, CITY, NOTES);
 

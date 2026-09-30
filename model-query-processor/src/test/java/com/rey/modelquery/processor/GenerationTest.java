@@ -9,10 +9,15 @@ import static com.rey.modelquery.processor.ProcessorHarness.generatedFlat;
 import static com.rey.modelquery.processor.ProcessorHarness.resource;
 import static com.rey.modelquery.processor.ProcessorHarness.source;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.google.testing.compile.Compilation;
+import com.rey.modelquery.core.ColumnSet;
+import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.RowMapper;
 import com.rey.modelquery.core.SelectField;
+import com.rey.modelquery.core.SortSpec;
+import com.rey.modelquery.core.SortSpec.Key;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.net.URL;
@@ -100,6 +105,47 @@ class GenerationTest {
     }
 
     @Test
+    void ac_qry_13_a_generated_model_sorts_by_property_paths_through_a_renamed_field_and_two_joins()
+            throws Exception {
+        // The nested field "contact" reads the attribute "email", and two @Joins read the one attribute "customer".
+        Compilation compilation = compile(invoiceSources(ShopSources.customerView("""
+                    @com.rey.modelquery.annotations.Column(attribute = "email")
+                    String contact;
+
+                    public void setContact(String contact) {
+                        this.contact = contact;
+                    }
+                """)));
+        assertThat(compilation).succeededWithoutWarnings();
+        Class<?> qModel = ProcessorHarness.classes(compilation).loadClass("shop.QInvoiceView");
+        ModelQuery<?, ?, ?> query = selectingAll(qModel, "ALL", "CUSTOMER", "BUYER", "CUSTOMER_COUNTRY");
+
+        var sorted = query.orderedBy(SortSpec.of(Key.desc("customer.contact"), Key.asc("payer.contact"),
+                Key.asc("customer.country.code"), Key.asc("status")));
+
+        assertThat(new ArrayList<Object>(sorted.orderBy())).containsExactly(column(qModel, "CUSTOMER_CONTACT").desc(),
+                column(qModel, "BUYER_CONTACT").asc(), column(qModel, "CUSTOMER_COUNTRY_CODE").asc(),
+                column(qModel, "STATUS").asc());
+        // The attribute path of both joins' column names both, and a bare name no joined column.
+        assertThatThrownBy(() -> query.orderedBy(SortSpec.of(Key.asc("customer.email"))))
+                .hasMessageStartingWith("MQ2301: InvoiceView: sort property 'customer.email' names more than one "
+                        + "selected column: [customer.contact, payer.contact]");
+        assertThatThrownBy(() -> query.orderedBy(SortSpec.of(Key.asc("contact"))))
+                .hasMessageStartingWith("MQ2301: InvoiceView: sort property 'contact' names no selected column");
+    }
+
+    /** The query of {@code qModel} selecting its column sets named {@code sets}. */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static ModelQuery<?, ?, ?> selectingAll(Class<?> qModel, String... sets)
+            throws ReflectiveOperationException {
+        ColumnSet columns = (ColumnSet) qModel.getField(sets[0]).get(null);
+        for (int i = 1; i < sets.length; i++) {
+            columns = columns.with((ColumnSet) qModel.getField(sets[i]).get(null));
+        }
+        return ((ModelQuery.Builder) qModel.getMethod("query").invoke(null)).columns(columns).build();
+    }
+
+    @Test
     void ac_proc_04_a_converter_without_an_instance_is_constructed_and_bridges_a_parameterized_attribute() {
         Compilation compilation = compile(
                 source("tags.TagEntity", """
@@ -149,7 +195,7 @@ class GenerationTest {
         assertThat(generatedFlat(compilation, "tags.QTagRow")).contains(
                 "@SuppressWarnings(\"unchecked\") public static final ColumnField<TagRow, TagEntity, String> TAGS = "
                         + "ColumnField.of(TagRow.class, ROOT, \"tags\", String.class, "
-                        + "(Class<List<String>>) (Class<?>) List.class, new Joined());");
+                        + "(Class<List<String>>) (Class<?>) List.class, new Joined()) .named(\"tags\");");
     }
 
     @Test
