@@ -123,7 +123,7 @@ class FilterColumnTest {
         // The joins are the @Join's own: neither is declared a second time.
         assertThat(generated.split("join\\(", -1)).hasSize(1 + 3);
         assertThat(generated).contains("CUSTOMER_TABLE = TableField.<BasketEntity, CustomerEntity>join(ROOT, "
-                + "\"customer\", JoinType.LEFT).presentBy(QCustomerView.KEY);")
+                + "\"customer\", JoinType.LEFT).presentBy(QCustomerView.KEY).named(\"customer\");")
                 .contains("CUSTOMER_COUNTRY_TABLE = QCustomerView.COUNTRY_TABLE.withParent(CUSTOMER_TABLE);");
     }
 

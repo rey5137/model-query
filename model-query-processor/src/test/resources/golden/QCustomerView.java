@@ -16,13 +16,13 @@ public final class QCustomerView {
     public static final TableField<CustomerEntity, CustomerEntity> ROOT = TableField.root(CustomerEntity.class);
 
     public static final TableField<CustomerEntity, CountryEntity> COUNTRY_TABLE = TableField.<CustomerEntity, CountryEntity>join(ROOT,
-            "country", JoinType.LEFT).presentBy(QCountryView.KEY);
+            "country", JoinType.LEFT).presentBy(QCountryView.KEY).named("country");
 
     public static final ColumnField<CustomerView, CustomerEntity, Long> ID = ColumnField.of(CustomerView.class,
-            ROOT, "id", Long.class);
+            ROOT, "id", Long.class).named("id");
 
     public static final ColumnField<CustomerView, CustomerEntity, String> NAME = ColumnField.of(CustomerView.class,
-            ROOT, "name", String.class);
+            ROOT, "name", String.class).named("name");
 
     public static final ColumnField<CustomerView, CountryEntity, String> COUNTRY_CODE = QCountryView.CODE.withTable(CustomerView.class,
             COUNTRY_TABLE);

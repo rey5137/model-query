@@ -16,6 +16,8 @@ class OrderedByTest {
 
     static final class Customer {}
 
+    static final class Address {}
+
     static final class OrderView {}
 
     private static final TableField<Order, Order> ROOT = TableField.root(Order.class);
@@ -34,6 +36,20 @@ class OrderedByTest {
             ColumnField.of(OrderView.class, CUSTOMER, "name", String.class);
     private static final ColumnField<OrderView, Customer, String> REFERRER_NAME =
             ColumnField.of(OrderView.class, REFERRER, "name", String.class);
+    // As a QModel declares them: each join and column named after its model field (D-55).
+    private static final TableField<Order, Customer> BUYER = CUSTOMER.named("customer");
+    private static final TableField<Order, Address> BILLING =
+            TableField.<Order, Address>join(ROOT, "address", LEFT).as("billing").named("billing");
+    private static final TableField<Order, Address> SHIPPING =
+            TableField.<Order, Address>join(ROOT, "address", LEFT).as("shipping").named("shipping");
+    private static final ColumnField<OrderView, Order, String> STATE =
+            ColumnField.of(OrderView.class, ROOT, "orderStatus", String.class).named("state");
+    private static final ColumnField<OrderView, Customer, String> BUYER_NAME =
+            ColumnField.of(OrderView.class, BUYER, "fullName", String.class).named("name");
+    private static final ColumnField<OrderView, Address, String> BILLING_CITY =
+            ColumnField.of(OrderView.class, BILLING, "city", String.class).named("city");
+    private static final ColumnField<OrderView, Address, String> SHIPPING_CITY =
+            ColumnField.of(OrderView.class, SHIPPING, "city", String.class).named("city");
     private static final AggregateField<OrderView, Long> ORDERS = Agg.<OrderView>count(ROOT).as("orders");
 
     private static ModelQuery.Builder<Order, Long, OrderView> selecting(SelectField<OrderView, ?>... columns) {
@@ -52,20 +68,127 @@ class OrderedByTest {
     }
 
     @Test
-    void ac_qry_13_a_property_matches_a_selected_column_by_its_name() {
-        var query = selecting(STATUS, CUSTOMER_NAME).build();
+    void ac_qry_13_a_bare_name_matches_the_root_column_only() {
+        // "name" is the root column's path and the attribute of all three columns.
+        var query = selecting(CUSTOMER_NAME, NAME, REFERRER_NAME).build();
 
         var sorted = query.orderedBy(SortSpec.of(Key.asc("name").nulls(NullPrecedence.LAST)));
 
-        assertThat(sorted.orderBy()).containsExactly(CUSTOMER_NAME.asc().nullsLast());
+        assertThat(sorted.orderBy()).containsExactly(NAME.asc().nullsLast());
     }
 
     @Test
-    void ac_qry_13_a_path_match_wins_over_a_name_match() {
-        // "name" is the root column's path and the name of all three columns.
-        var query = selecting(CUSTOMER_NAME, NAME, REFERRER_NAME).build();
+    void ac_qry_13_a_bare_name_of_a_joined_column_throws_mq2301() {
+        var query = selecting(STATUS, CUSTOMER_NAME, BUYER_NAME).build();
 
-        assertThat(query.orderedBy(SortSpec.of(Key.asc("name"))).orderBy()).containsExactly(NAME.asc());
+        // The attribute of a hand-written joined column, and the property of a named one: neither is a path.
+        for (String property : List.of("name", "fullName")) {
+            assertThatThrownBy(() -> query.orderedBy(SortSpec.of(Key.asc(property))))
+                    .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ2301))
+                    .hasMessage("MQ2301: OrderView: sort property '" + property + "' names no selected column or "
+                            + "aggregate; a sort property is a selected column's property path or attribute path "
+                            + "from the root, or an aggregate's name, exact and case-sensitive");
+        }
+    }
+
+    @Test
+    void ac_qry_13_a_property_matches_a_root_or_joined_column_by_its_property_path() {
+        var query = selecting(STATUS, STATE, BUYER_NAME).build();
+
+        var sorted = query.orderedBy(SortSpec.of(Key.desc("customer.name"), Key.asc("state")));
+
+        assertThat(sorted.orderBy()).containsExactly(BUYER_NAME.desc(), STATE.asc());
+    }
+
+    @Test
+    void ac_qry_13_a_renamed_field_matches_by_its_property_path_and_by_its_attribute_path() {
+        // The nested field "name" reads the attribute "fullName", and the root field "state" reads "orderStatus".
+        var query = selecting(STATE, BUYER_NAME).build();
+
+        assertThat(query.orderedBy(SortSpec.of(Key.asc("customer.fullName"), Key.desc("orderStatus"))).orderBy())
+                .containsExactly(BUYER_NAME.asc(), STATE.desc());
+        assertThat(query.orderedBy(SortSpec.of(Key.asc("customer.name"), Key.desc("state"))).orderBy())
+                .containsExactly(BUYER_NAME.asc(), STATE.desc());
+    }
+
+    @Test
+    void ac_qry_13_a_property_path_match_wins_over_an_attribute_path_match() {
+        // "status" is STATE's property path and STATUS's attribute path.
+        ColumnField<OrderView, Order, String> renamed =
+                ColumnField.of(OrderView.class, ROOT, "orderStatus", String.class).named("status");
+        var query = selecting(STATUS, renamed).build();
+
+        assertThat(query.orderedBy(SortSpec.of(Key.asc("status"))).orderBy()).containsExactly(renamed.asc());
+    }
+
+    @Test
+    void ac_qry_13_two_joins_of_one_attribute_sort_apart_by_their_property_paths() {
+        var query = selecting(STATUS, BILLING_CITY, SHIPPING_CITY).build();
+
+        var sorted = query.orderedBy(SortSpec.of(Key.asc("shipping.city"), Key.desc("billing.city")));
+
+        assertThat(sorted.orderBy()).containsExactly(SHIPPING_CITY.asc(), BILLING_CITY.desc());
+        // Their attribute path is one, so it names both.
+        assertThatThrownBy(() -> query.orderedBy(SortSpec.of(Key.asc("address.city"))))
+                .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ2301))
+                .hasMessage("MQ2301: OrderView: sort property 'address.city' names more than one selected column: "
+                        + "[billing.city, shipping.city]; name one by its property path");
+    }
+
+    @Test
+    void ac_qry_13_a_column_without_a_property_matches_by_its_attribute_path_only() {
+        // A named column on a join without a property, and an unnamed column on a named join, have no property path.
+        ColumnField<OrderView, Customer, String> nick =
+                ColumnField.of(OrderView.class, REFERRER, "nickname", String.class).named("nick");
+        ColumnField<OrderView, Customer, String> email =
+                ColumnField.of(OrderView.class, BUYER, "email", String.class);
+        var query = selecting(STATUS, nick, email).build();
+
+        assertThat(query.orderedBy(SortSpec.of(Key.asc("referrer.nickname"), Key.asc("customer.email"))).orderBy())
+                .containsExactly(nick.asc(), email.asc());
+        for (String property : List.of("referrer.nick", "nick")) {
+            assertThatThrownBy(() -> query.orderedBy(SortSpec.of(Key.asc(property))))
+                    .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ2301))
+                    .hasMessageStartingWith("MQ2301: OrderView: sort property '" + property + "' names no selected");
+        }
+    }
+
+    @Test
+    void ac_qry_13_named_returns_a_copy_equal_to_the_original() {
+        var named = STATUS.named("state");
+
+        assertThat(named).isNotSameAs(STATUS).isEqualTo(STATUS).hasSameHashCodeAs(STATUS);
+        assertThat(STATUS.propertyPath()).isNull();
+        assertThat(named.propertyPath()).isEqualTo("state");
+        assertThat(named.named("other").propertyPath()).isEqualTo("other");
+        assertThat(named.propertyPath()).isEqualTo("state");
+
+        assertThat(BUYER).isNotSameAs(CUSTOMER);
+        assertThat(BUYER.key()).isEqualTo(CUSTOMER.key());
+        assertThat(CUSTOMER.propertyPath()).isNull();
+        assertThat(BUYER.propertyPath()).isEqualTo("customer");
+        assertThat(BUYER_NAME).isEqualTo(ColumnField.of(OrderView.class, CUSTOMER, "fullName", String.class));
+    }
+
+    @Test
+    void ac_qry_13_every_copy_of_a_named_join_or_column_keeps_its_property() {
+        TableField<Order, Customer> aliased = BUYER.as("buyer").on((from, cb) -> cb.conjunction());
+        // A nested model's own join, on its own root: a root's property is never part of a path.
+        var address = TableField.<Customer, Address>join(TableField.root(Customer.class).named("ignored"), "address",
+                LEFT).named("address");
+
+        assertThat(aliased.propertyPath()).isEqualTo("customer");
+        assertThat(BUYER.presentBy(PrimaryKey.of(ID)).propertyPath()).isEqualTo("customer");
+        // A nested model's column re-rooted under the join, the way a QModel declares it (D-38).
+        assertThat(address.withParent(BUYER).propertyPath()).isEqualTo("customer.address");
+        assertThat(address.propertyPath()).isEqualTo("address");
+        var city = ColumnField.of(Customer.class, address, "city", String.class).named("city");
+        assertThat(city.withTable(OrderView.class, address.withParent(BUYER)).propertyPath())
+                .isEqualTo("customer.address.city");
+        assertThat(city.under(OrderView.class, BUYER).propertyPath()).isEqualTo("customer.address.city");
     }
 
     @Test
@@ -78,20 +201,23 @@ class OrderedByTest {
                     .isInstanceOfSatisfying(ModelQueryExecutionException.class,
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ2301))
                     .hasMessage("MQ2301: OrderView: sort property '" + property + "' names no selected column or "
-                            + "aggregate; a sort property is a selected column's attribute path from the root, or "
-                            + "its name, exact and case-sensitive");
+                            + "aggregate; a sort property is a selected column's property path or attribute path "
+                            + "from the root, or an aggregate's name, exact and case-sensitive");
         }
     }
 
     @Test
     void ac_qry_13_an_ambiguous_property_throws_mq2301_naming_the_candidates() {
-        var query = selecting(STATUS, CUSTOMER_NAME, REFERRER_NAME).build();
+        // Two columns named alike: their property path wins over STATUS's attribute path, and names both.
+        ColumnField<OrderView, Order, String> code =
+                ColumnField.of(OrderView.class, ROOT, "code", String.class).named("status");
+        var query = selecting(STATUS, STATE.named("status"), code).build();
 
-        assertThatThrownBy(() -> query.orderedBy(SortSpec.of(Key.asc("status"), Key.asc("name"))))
+        assertThatThrownBy(() -> query.orderedBy(SortSpec.of(Key.asc("status"))))
                 .isInstanceOfSatisfying(ModelQueryExecutionException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ2301))
-                .hasMessage("MQ2301: OrderView: sort property 'name' names more than one selected column: "
-                        + "[customer.name, referrer.name]; name one by its attribute path");
+                .hasMessage("MQ2301: OrderView: sort property 'status' names more than one selected column: "
+                        + "[status, status]; name one by its property path");
     }
 
     @Test

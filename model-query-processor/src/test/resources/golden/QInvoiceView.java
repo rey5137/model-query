@@ -16,20 +16,22 @@ public final class QInvoiceView {
     public static final TableField<InvoiceEntity, InvoiceEntity> ROOT = TableField.root(InvoiceEntity.class);
 
     public static final TableField<InvoiceEntity, CustomerEntity> CUSTOMER_TABLE = TableField.<InvoiceEntity, CustomerEntity>join(ROOT,
-            "customer", JoinType.LEFT).as("customer").presentBy(QCustomerView.KEY);
+            "customer", JoinType.LEFT).as("customer").presentBy(QCustomerView.KEY)
+            .named("customer");
 
     public static final TableField<CustomerEntity, CountryEntity> CUSTOMER_COUNTRY_TABLE = QCustomerView.COUNTRY_TABLE.withParent(CUSTOMER_TABLE);
 
     public static final TableField<InvoiceEntity, CustomerEntity> BUYER_TABLE = TableField.<InvoiceEntity, CustomerEntity>join(ROOT,
-            "customer", JoinType.INNER).as("payer").presentBy(QCustomerView.KEY);
+            "customer", JoinType.INNER).as("payer").presentBy(QCustomerView.KEY).named("payer");
 
     public static final TableField<CustomerEntity, CountryEntity> BUYER_COUNTRY_TABLE = QCustomerView.COUNTRY_TABLE.withParent(BUYER_TABLE);
 
     public static final ColumnField<InvoiceView, InvoiceEntity, Long> ID = ColumnField.of(InvoiceView.class,
-            ROOT, "id", Long.class);
+            ROOT, "id", Long.class).named("id");
 
     public static final ColumnField<InvoiceView, InvoiceEntity, InvoiceStatus> STATUS = ColumnField.of(InvoiceView.class,
-            ROOT, "status", InvoiceStatus.class, String.class, InvoiceStatus.Converter.INSTANCE);
+            ROOT, "status", InvoiceStatus.class, String.class, InvoiceStatus.Converter.INSTANCE)
+            .named("status");
 
     public static final ColumnField<InvoiceView, CustomerEntity, Long> CUSTOMER_ID = QCustomerView.ID.withTable(InvoiceView.class,
             CUSTOMER_TABLE);

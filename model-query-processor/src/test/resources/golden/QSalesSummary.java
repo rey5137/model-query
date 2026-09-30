@@ -17,10 +17,10 @@ public final class QSalesSummary {
     public static final TableField<SaleEntity, SaleEntity> ROOT = TableField.root(SaleEntity.class);
 
     public static final ColumnField<SalesSummary, SaleEntity, String> REGION = ColumnField.of(SalesSummary.class,
-            ROOT, "region", String.class);
+            ROOT, "region", String.class).named("region");
 
     public static final ColumnField<SalesSummary, SaleEntity, String> PRODUCT = ColumnField.of(SalesSummary.class,
-            ROOT, "product", String.class);
+            ROOT, "product", String.class).named("product");
 
     public static final AggregateField<SalesSummary, Long> LINES = Agg.count(ROOT);
 

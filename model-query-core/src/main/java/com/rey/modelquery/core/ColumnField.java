@@ -20,13 +20,16 @@ import java.util.Objects;
  * <p>A column built with a {@link ColumnConverter} has the model's type as its {@link #type()} and reads an attribute
  * of another type: a {@link Row} converts what it read, and a value filter binds the converted value (R-COL-14).
  *
+ * <p>A column may carry a property: the name of the model field it fills, which a sort property is matched against
+ * (R-QRY-14). A generated column has one; a hand-written column has none unless given one by {@link #named}.
+ *
  * <p>Two columns are equal when they have the same model, table join key, attribute and type, and converters of the
- * same class or none (CC-IMM-04).
+ * same class or none (CC-IMM-04); the property is not part of it.
  *
  * @param <M> the model the column belongs to
  * @param <T> the entity type of the table the column sits on
  * @param <C> the column's Java type
- * @implSpec R-COL-07, R-COL-08, R-COL-14
+ * @implSpec R-COL-07, R-COL-08, R-COL-14, D-55
  */
 @Incubating
 public final class ColumnField<M, T, C> implements SelectField<M, C> {
@@ -50,17 +53,20 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
     private final Class<?> attributeType;
     /** Converts between {@link #type} and {@link #attributeType}, or {@code null}. */
     private final ColumnConverter<C, Object> converter;
+    /** The model field the column fills, or {@code null}; not part of {@link #equals}. */
+    private final String property;
     /** Cached: a row looks every column up by it, once per row (R-COL-10). */
     private final int hash;
 
     private ColumnField(Class<M> model, TableField<?, T> table, String attribute, Class<C> type,
-            Class<?> attributeType, ColumnConverter<C, Object> converter) {
+            Class<?> attributeType, ColumnConverter<C, Object> converter, String property) {
         this.model = model;
         this.table = table;
         this.attribute = attribute;
         this.type = type;
         this.attributeType = attributeType;
         this.converter = converter;
+        this.property = property;
         this.hash = Objects.hash(model, table.key(), attribute, type, converterClass());
     }
 
@@ -79,7 +85,7 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
                 Objects.requireNonNull(model, "model"),
                 Objects.requireNonNull(table, "table"),
                 Objects.requireNonNull(attribute, "attribute"),
-                boxed, boxed, null);
+                boxed, boxed, null, null);
     }
 
     /**
@@ -100,7 +106,8 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
                 (Class<C>) boxed(Objects.requireNonNull(type, "type")),
                 boxed(Objects.requireNonNull(attributeType, "attributeType")),
                 // Sound: the converter is only given values checked to be of attributeType.
-                (ColumnConverter<C, Object>) Objects.requireNonNull(converter, "converter"));
+                (ColumnConverter<C, Object>) Objects.requireNonNull(converter, "converter"),
+                null);
     }
 
     /**
@@ -205,12 +212,22 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
     }
 
     /**
-     * The same attribute, type and converter as a column of {@code model} on {@code table}, for re-rooting under a
-     * join.
+     * This column with {@code property} as the name of the model field it fills, which a sort property is matched
+     * against (R-QRY-14). The column is otherwise the same, and equal to this one: the property is not part of
+     * {@link #equals}.
+     */
+    public ColumnField<M, T, C> named(String property) {
+        return new ColumnField<>(model, table, attribute, type, attributeType, converter,
+                Objects.requireNonNull(property, "property"));
+    }
+
+    /**
+     * The same attribute, type, converter and property as a column of {@code model} on {@code table}, for
+     * re-rooting under a join.
      */
     public <M2> ColumnField<M2, T, C> withTable(Class<M2> model, TableField<?, T> table) {
         return new ColumnField<>(Objects.requireNonNull(model, "model"), Objects.requireNonNull(table, "table"),
-                attribute, type, attributeType, converter);
+                attribute, type, attributeType, converter, property);
     }
 
     /**
@@ -241,12 +258,25 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
     }
 
     /**
-     * The attribute path from the query's root: {@link #name()} for a root column, {@code customer.name} for a
-     * column of a joined table. It is what a sort property is matched against first (R-QRY-14).
+     * The attribute path from the query's root: {@link #name()} for a root column, {@code customer.fullName} for a
+     * column of a joined table. A sort property is matched against it after the property path (R-QRY-14).
      */
     String path() {
         String above = table.path();
         return above.isEmpty() ? attribute : above + "." + attribute;
+    }
+
+    /**
+     * The model field names from the query's root: the property for a root column, {@code customer.name} for a
+     * column named {@code name} of a join named {@code customer}; {@code null} when the column or a join on the way
+     * has no property. A sort property is matched against it first (R-QRY-14, D-55).
+     */
+    String propertyPath() {
+        String above = table.propertyPath();
+        if (property == null || above == null) {
+            return null;
+        }
+        return above.isEmpty() ? property : above + "." + property;
     }
 
     Class<M> model() {
