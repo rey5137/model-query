@@ -216,8 +216,8 @@ it: where the database sorts NULLs after every value (PostgreSQL ascending, H2 a
 branch is `(a > :ka OR a IS NULL)`, every row read is checked, and the NULL is refused wherever the vendor sorts it,
 without consulting `VendorProfile`. Primary-key columns get no such branch (R-PAG-03 keeps them non-NULL). Rejected:
 checking only the cursor row (it silently drops the NULLs on those vendors); a count probe per export (an extra query).
-M3 may drop the branch where `defaultAscendingNullOrdering()` puts the NULLs first. → `engine/21` R-PAG-05, INV-5,
-AC-PAG-07.
+Since M3 the branch is dropped where `defaultAscendingNullOrdering()` puts the NULLs first in that direction (D-35).
+→ `engine/21` R-PAG-05, INV-5, AC-PAG-07.
 
 **D-31 — Keyset export drops repeated keys within a page, and throws on a key of the page before.**
 Each keyset page starts strictly after the last row of the page before, in an order closed by the primary key
@@ -269,6 +269,34 @@ INV-9); a `ThreadLocal` (invisible, and wrong across threads); a `CriteriaBuilde
 interface, and code that unwraps the provider's own builder bypasses it); `VendorProfile` in `core` (a vendor name in
 `core`, INV-6); `vendor(String)` (a typo compiles); folding `GroupedCountStrategy` into `VendorProfile` (one profile per
 provider × database). → `vendor/40` §1, R-VND-03, R-VND-04, R-VND-06, `api/11` R-QRY-10, `engine/20` R-EXE-03.
+
+**D-35 — A `DEFAULT`-precedence keyset column takes the profile's null ordering, and an unknown one refuses on read.**
+Each keyset column's NULLs sort where its explicit precedence says, else where the profile's
+`defaultAscendingNullOrdering()` puts them in its direction (descending reverses it); the `ORDER BY` of a `DEFAULT`
+column stays bare, so the database sorts by that same default. Under `keyset.null-keys=fail` a NULL there still
+throws `MQ2202`, and D-30's `IS NULL` branch is kept only where the NULLs sort after the cursor. Under
+`honour-null-precedence` the column pages its NULLs by that ordering, as an explicit precedence would. Under an
+`UNKNOWN` ordering (`OTHER`) neither is possible, so a NULL there throws `MQ2202` when a page reads it, in either
+mode, with D-30's branch making sure it is read; "refused" in R-COL-13 and R-VND-06 is that error. Rejected: refusing
+up front any keyset over a column the metamodel reports optional (the metamodel does not know a column's
+nullability, and a nullable column holding no NULLs pages correctly); a new `MQnnnn` for the `OTHER` case (it is the
+`MQ2202` condition, a NULL key without a known precedence). → `engine/21` R-PAG-05, `api/10` R-COL-13, `vendor/40`
+R-VND-06, AC-PRF-07, AC-VND-05.
+
+**D-36 — A provider's configured default null ordering overrides the profile's for keyset NULLs.**
+A persistence provider can be configured to sort the NULLs of every order rendered without a null precedence, such as
+Hibernate's `hibernate.order_by.default_null_ordering`; a bare `ORDER BY` then no longer sorts by the database's
+default, so D-35's profile ordering would disagree with it: under `fail` the NULLs sorted last were skipped silently
+where the profile put them first, and under `honour-null-precedence` rows were paged out of order.
+`ProviderSupport.defaultNullPrecedence(emf)` reports that setting as `FIRST` or `LAST`, and where it is set it replaces
+the profile's ordering for a `DEFAULT` keyset column in both directions, not reversed for a descending one, since the
+provider puts the NULLs at that end either way; this holds under `OTHER` too. The `ORDER BY` stays bare (D-35). An
+explicit precedence is then never left bare where only the profile's default matches (R-COL-12), since the provider
+would re-sort it. Rejected: rendering every keyset column with an explicit precedence (it changes the SQL of every
+keyset export for a setting few use); reading the setting in `model-query-jpa` (INV-7). Without
+`model-query-hibernate`, nothing reports the setting; that is a documented limitation rather than a refusal of every
+Hibernate factory without the module, and the remedy is the module or an explicit precedence. → `engine/21` R-PAG-05, `api/10` R-COL-12, R-COL-13, `vendor/40`
+§1, AC-PRF-07.
 
 ## 2. Open questions
 

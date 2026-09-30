@@ -2,6 +2,7 @@ package com.rey.modelquery.tck.col;
 
 import com.rey.modelquery.tck.harness.TckDatabase;
 import java.io.IOException;
+import java.lang.reflect.Proxy;
 import java.net.URL;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -23,9 +24,40 @@ public final class JoinTestSupport {
                 .applySetting(AvailableSettings.JAKARTA_JDBC_PASSWORD, db.password()));
     }
 
+    /**
+     * A DataSource over {@code db} that opens a connection per call. A factory built on it names its DataSource, so
+     * the executor can read {@code DatabaseMetaData} without {@code model-query-hibernate} (R-VND-04).
+     */
+    public static DataSource dataSource(TckDatabase db) {
+        return (DataSource) Proxy.newProxyInstance(JoinTestSupport.class.getClassLoader(),
+                new Class<?>[] {DataSource.class}, (proxy, method, args) -> {
+                    if (method.getDeclaringClass() == Object.class) {
+                        return method.getName().equals("toString") ? "DataSource of " + db
+                                : method.getName().equals("hashCode") ? System.identityHashCode(proxy)
+                                : proxy == args[0];
+                    }
+                    if (!method.getName().equals("getConnection")) {
+                        throw new UnsupportedOperationException(method.getName());
+                    }
+                    return db.getConnection();
+                });
+    }
+
     public static SessionFactory sessionFactory(DataSource dataSource) {
         return build(new StandardServiceRegistryBuilder()
                 .applySetting(AvailableSettings.JAKARTA_NON_JTA_DATASOURCE, dataSource));
+    }
+
+    /**
+     * Like {@link #sessionFactory(TckDatabase)}, with Hibernate's {@code hibernate.order_by.default_null_ordering} set
+     * to {@code nullOrdering}, which Hibernate applies to every order rendered without a null precedence.
+     */
+    public static SessionFactory sessionFactory(TckDatabase db, String nullOrdering) {
+        return build(new StandardServiceRegistryBuilder()
+                .applySetting(AvailableSettings.JAKARTA_JDBC_URL, db.jdbcUrl())
+                .applySetting(AvailableSettings.JAKARTA_JDBC_USER, db.username())
+                .applySetting(AvailableSettings.JAKARTA_JDBC_PASSWORD, db.password())
+                .applySetting(AvailableSettings.DEFAULT_NULL_ORDERING, nullOrdering));
     }
 
     /**

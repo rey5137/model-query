@@ -6,28 +6,36 @@ import com.rey.modelquery.core.JoinContext;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.OrderField;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
+import com.rey.modelquery.jpa.spi.KeysetNullKeys;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Predicate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * The keyset of an ungrouped query: its order closed by the primary key, the cursor read from a row, and the
  * predicate selecting the rows after a cursor. Immutable.
  *
  * @param <M> the model
- * @implSpec R-PAG-04, R-PAG-05, R-PAG-06, R-PRF-09
+ * @implSpec R-PAG-04, R-PAG-05, R-PAG-06, R-PRF-09, R-COL-13
  */
 final class Keyset<M> {
 
-    /** One keyset column; {@code keyColumn} for a primary-key column, which R-PAG-03 already keeps non-NULL. */
-    private record Key<M>(OrderField<M, ?> order, boolean keyColumn) {}
+    /**
+     * One keyset column; {@code keyColumn} for a primary-key column, which R-PAG-03 already keeps non-NULL.
+     * {@code nulls} is where its NULLs sort: the explicit precedence, else for a non-key column the provider's
+     * configured default or the database's default in its direction, and {@code DEFAULT} where neither is known.
+     * {@code refuseNull} when a NULL in it throws {@code MQ2202}.
+     */
+    private record Key<M>(OrderField<M, ?> order, boolean keyColumn, NullPrecedence nulls, boolean refuseNull) {}
 
     private final ModelQuery<?, ?, M> query;
     private final List<Key<M>> keys;
@@ -39,21 +47,40 @@ final class Keyset<M> {
 
     /**
      * The query's order, then every primary-key column it does not already order by, in the direction of its last
-     * order column, so no two rows share a cursor (R-PAG-04).
+     * order column, so no two rows share a cursor (R-PAG-04). A {@code DEFAULT}-precedence column's NULLs sort where
+     * {@code providerNulls} puts them in both directions when the provider is configured with a default null ordering,
+     * else where the profile's {@code defaultOrdering} puts them in its direction; {@code nullKeys} says whether it
+     * pages its NULLs there (R-PAG-05, R-COL-13, D-35, D-36).
      */
-    static <M> Keyset<M> of(ModelQuery<?, ?, M> q, PrimaryKey<M, ?> key) {
+    static <M> Keyset<M> of(ModelQuery<?, ?, M> q, PrimaryKey<M, ?> key, NullOrdering defaultOrdering,
+            Optional<NullPrecedence> providerNulls, KeysetNullKeys nullKeys) {
         List<Key<M>> keys = new ArrayList<>();
         boolean ascending = true;
         for (OrderField<M, ?> order : q.orderBy()) {
-            keys.add(new Key<>(order, key.columns().contains(order.column())));
+            keys.add(key(order, key.columns().contains(order.column()), defaultOrdering, providerNulls, nullKeys));
             ascending = order.ascending();
         }
         for (ColumnField<M, ?, ?> column : key.columns()) {
             if (q.orderBy().stream().noneMatch(order -> order.column().equals(column))) {
-                keys.add(new Key<>(new OrderField<>(column, ascending, NullPrecedence.DEFAULT), true));
+                keys.add(new Key<>(new OrderField<>(column, ascending, NullPrecedence.DEFAULT), true,
+                        NullPrecedence.DEFAULT, false));
             }
         }
         return new Keyset<>(q, keys);
+    }
+
+    private static <M> Key<M> key(OrderField<M, ?> order, boolean keyColumn, NullOrdering defaultOrdering,
+            Optional<NullPrecedence> providerNulls, KeysetNullKeys nullKeys) {
+        if (keyColumn || order.nulls() != NullPrecedence.DEFAULT) {
+            return new Key<>(order, keyColumn, order.nulls(), false);
+        }
+        // The provider's configured default sorts a bare order the same way in both directions; the database's
+        // default is ascending, and descending order reverses it.
+        NullPrecedence nulls = providerNulls.orElseGet(() -> defaultOrdering == NullOrdering.UNKNOWN
+                ? NullPrecedence.DEFAULT
+                : (defaultOrdering == NullOrdering.NULLS_FIRST) == order.ascending()
+                        ? NullPrecedence.FIRST : NullPrecedence.LAST);
+        return new Key<>(order, false, nulls, nullKeys == KeysetNullKeys.FAIL || nulls == NullPrecedence.DEFAULT);
     }
 
     /** Appends the primary-key tie-breakers to {@code built}'s order, which already holds the query's own. */
@@ -73,7 +100,8 @@ final class Keyset<M> {
     /**
      * The row's keyset values, read from the {@code Row} (R-COL-11).
      *
-     * @throws ModelQueryExecutionException {@code MQ2202} when a column without explicit null precedence is NULL
+     * @throws ModelQueryExecutionException {@code MQ2202} when a column without explicit null precedence is NULL,
+     *     unless it pages its NULLs by the database's known default (R-PAG-05)
      */
     Object[] cursor(Row row) {
         Object[] values = new Object[keys.size()];
@@ -81,11 +109,11 @@ final class Keyset<M> {
             Key<M> key = keys.get(i);
             OrderField<M, ?> order = key.order();
             values[i] = row.get(order.column());
-            if (values[i] == null && order.nulls() == NullPrecedence.DEFAULT && !key.keyColumn()) {
-                // Where the database sorts this NULL is its own choice, so no predicate can page past it portably.
+            if (values[i] == null && key.refuseNull()) {
                 throw new ModelQueryExecutionException(MqCode.MQ2202, query + ": keyset column "
-                        + order.column().name() + " is null in an exported row; order it with nullsFirst() or "
-                        + "nullsLast() so the next page can be found after it");
+                        + order.column().name() + " is null in an exported row"
+                        + (key.nulls() == NullPrecedence.DEFAULT ? " and the database's null ordering is unknown" : "")
+                        + "; order it with nullsFirst() or nullsLast() so the next page can be found after it");
             }
         }
         return values;
@@ -115,17 +143,18 @@ final class Keyset<M> {
     /** The values of {@code key}'s column that sort after {@code value}, or {@code null} when none does. */
     @SuppressWarnings("rawtypes")
     private static Predicate beyond(Key<?> key, Expression<?> column, Object value, CriteriaBuilder cb) {
-        NullPrecedence nulls = key.order().nulls();
+        NullPrecedence nulls = key.nulls();
         if (value == null) {
-            // Only an explicit precedence reaches here (cursor() refuses the rest): under FIRST every value follows
-            // a NULL, under LAST nothing does.
+            // Only a known precedence reaches here (cursor() refuses the rest): under FIRST every value follows a
+            // NULL, under LAST nothing does.
             return nulls == NullPrecedence.FIRST ? cb.isNotNull(column) : null;
         }
         Predicate past = key.order().ascending()
                 ? cb.greaterThan(comparable(column), (Comparable) value)
                 : cb.lessThan(comparable(column), (Comparable) value);
-        // Under LAST every NULL follows every value. Under DEFAULT a NULL is refused when read, and this branch makes
-        // sure it is read wherever the database sorts it, instead of being skipped silently (INV-5, D-30).
+        // Under LAST every NULL follows every value. Under DEFAULT the database's order is unknown and a NULL is
+        // refused when read, and this branch makes sure it is read wherever the database sorts it, instead of being
+        // skipped silently (INV-5, D-30).
         boolean nullsFollow = nulls == NullPrecedence.LAST || nulls == NullPrecedence.DEFAULT && !key.keyColumn();
         return nullsFollow ? cb.or(past, cb.isNull(column)) : past;
     }

@@ -5,6 +5,7 @@ import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Order;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * One ordering key: a selection, a direction and a null precedence. Immutable; the {@code nulls} methods return
@@ -42,10 +43,12 @@ public record OrderField<M, C>(SelectField<M, C> column, boolean ascending, Null
     }
 
     /**
-     * The portable JPA rendering: for {@code FIRST} or {@code LAST} a leading {@code CASE WHEN col IS NULL THEN 0 ELSE
-     * 1 END} key, ascending for {@code FIRST} and descending for {@code LAST}, then the column itself. {@code DEFAULT}
-     * renders the column alone. Plain JPA 3.1 {@code Order} has no null precedence, so this is the path used without
-     * {@code model-query-hibernate}.
+     * The JPA rendering, by {@code ctx}'s {@link RenderOptions}: {@code DEFAULT} renders the column alone; otherwise
+     * the provider's native null-precedence renderer, if any, which renders no null clause where the dialect's default
+     * already matches; otherwise the column alone where the database's default already gives this precedence in this
+     * direction; otherwise the portable form, a leading {@code CASE WHEN col IS NULL THEN 0 ELSE 1 END} key,
+     * ascending for {@code FIRST} and descending for {@code LAST}, then the column itself. Plain JPA 3.1 {@code Order}
+     * has no null precedence, so the portable form is the path without {@code model-query-hibernate}.
      *
      * @implSpec R-COL-12
      */
@@ -55,10 +58,31 @@ public record OrderField<M, C>(SelectField<M, C> column, boolean ascending, Null
         if (nulls == NullPrecedence.DEFAULT) {
             return List.of(own);
         }
+        RenderOptions options = ctx.renderOptions();
+        // The provider's renderer first, even where the profile's default matches: it omits the clause itself where
+        // the dialect already sorts so, and a bare order would take any default null ordering the provider is
+        // configured with instead of this precedence, which the keyset predicate relies on (R-PAG-05).
+        Optional<Order> nativeOrder = options.nullPrecedenceRenderer()
+                .flatMap(renderer -> renderer.order(cb, expression, ascending, nulls));
+        if (nativeOrder.isPresent()) {
+            return List.of(nativeOrder.get());
+        }
+        if (nulls == defaultPrecedence(options.defaultAscendingNullOrdering())) {
+            return List.of(own);
+        }
         Expression<Integer> nullKey = cb.<Integer>selectCase()
                 .when(cb.isNull(expression), 0)
                 .otherwise(1);
         Order first = nulls == NullPrecedence.FIRST ? cb.asc(nullKey) : cb.desc(nullKey);
         return List.of(first, own);
+    }
+
+    /** Where the database puts NULLs in this direction with no null clause; {@code DEFAULT} when unknown. */
+    private NullPrecedence defaultPrecedence(NullOrdering ascendingDefault) {
+        if (ascendingDefault == NullOrdering.UNKNOWN) {
+            return NullPrecedence.DEFAULT;
+        }
+        // Descending order reverses the ascending default.
+        return (ascendingDefault == NullOrdering.NULLS_FIRST) == ascending ? NullPrecedence.FIRST : NullPrecedence.LAST;
     }
 }

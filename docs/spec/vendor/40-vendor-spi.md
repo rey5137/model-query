@@ -33,8 +33,8 @@ public interface VendorProfile {
 `VendorProfile` and `DatabaseVendor` are in `com.rey.modelquery.jpa.spi`; `NullOrdering` is in `core`, because it names
 no vendor. The built-in profiles and the resolver are in `com.rey.modelquery.jpa.vendor`. `core` sees a profile only as
 the vendor-neutral `RenderOptions` the executor passes to each query build. What varies by persistence provider rather
-than by database (dialect detection, the grouped count, native null precedence) is the separate `ProviderSupport` SPI
-in `jpa.spi`, which `model-query-hibernate` implements (D-34).
+than by database (dialect detection, the grouped count, native null precedence, a configured default null ordering)
+is the separate `ProviderSupport` SPI in `jpa.spi`, which `model-query-hibernate` implements (D-34, D-36).
 
 **R-VND-01** Every vendor-specific behaviour the engine needs is a method here. No vendor name and no
 `if (vendor == …)` exists anywhere else (INV-6). A new behaviour is a new method with a default, never a cast to a
