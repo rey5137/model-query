@@ -80,7 +80,10 @@ enum BuiltInProfile implements VendorProfile {
 
     @Override
     public void applyTimeout(Query query, Duration timeout) {
-        query.setHint(TIMEOUT_HINT, timeout.toMillis());
+        // Whole seconds, rounded up (R-PRF-05): Hibernate rounds the millisecond hint to the nearest second, which
+        // turns a sub-second timeout into none. An Integer, because Hibernate rejects a Long value for the hint.
+        long seconds = (timeout.toMillis() + 999) / 1000;
+        query.setHint(TIMEOUT_HINT, (int) Math.min(Integer.MAX_VALUE / 1000, seconds) * 1000);
     }
 
     @Override
