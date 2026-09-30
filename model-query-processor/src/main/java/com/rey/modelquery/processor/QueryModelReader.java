@@ -10,11 +10,13 @@ import com.rey.modelquery.annotations.Join;
 import com.rey.modelquery.annotations.PrimaryKey;
 import com.rey.modelquery.annotations.QueryModel;
 import com.rey.modelquery.annotations.Transient;
+import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
 import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.Element;
@@ -43,6 +45,7 @@ final class QueryModelReader {
     private static final String SUFFIX = "suffix";
     private static final String GENERATE_COLUMN_SETS = "generateColumnSets";
     private static final String CONVERTER = "converter";
+    private static final String OPTIONAL = "java.util.Optional";
 
     private final Map<String, String> options;
 
@@ -51,26 +54,16 @@ final class QueryModelReader {
     }
 
     /**
-     * Whether {@code type} uses an annotation whose generation is not built yet: a converter or {@code @Join}
-     * (M4.3), {@code @FilterColumn} (M4.4), {@code @Aggregate} or {@code @GroupBy} (M4.5). Such a model is left
-     * alone rather than generated without them.
+     * Whether {@code type} uses an annotation whose generation is not built yet: {@code @FilterColumn} (M4.4),
+     * {@code @Aggregate} or {@code @GroupBy} (M4.5). Such a model is left alone rather than generated without them.
      */
     static boolean usesLaterFeature(TypeElement type) {
         if (type.getAnnotation(FilterColumn.class) != null || type.getAnnotation(FilterColumns.class) != null) {
             return true;
         }
-        for (VariableElement field : ElementFilter.fieldsIn(type.getEnclosedElements())) {
-            if (field.getAnnotation(Join.class) != null || field.getAnnotation(Aggregate.class) != null
-                    || field.getAnnotation(GroupBy.class) != null) {
-                return true;
-            }
-            AnnotationMirror column = mirror(field, Column.class);
-            if (column != null && explicit(column, CONVERTER) instanceof TypeMirror converter
-                    && converter.getKind() != TypeKind.VOID) {
-                return true;
-            }
-        }
-        return false;
+        return ElementFilter.fieldsIn(type.getEnclosedElements()).stream()
+                .anyMatch(field -> field.getAnnotation(Aggregate.class) != null
+                        || field.getAnnotation(GroupBy.class) != null);
     }
 
     /**
@@ -89,23 +82,60 @@ final class QueryModelReader {
                 ? set : options.getOrDefault(SUFFIX_OPTION, "");
         boolean columnSets = !Boolean.FALSE.equals(explicit(queryModel, GENERATE_COLUMN_SETS));
 
+        List<VariableElement> declared = ElementFilter.fieldsIn(type.getEnclosedElements()).stream()
+                .filter(field -> !field.getModifiers().contains(Modifier.STATIC))
+                .toList();
+        // Two @Joins on one attribute are two joins, told apart by their field names (R-PROC-09).
+        Map<String, Long> joinsPerAttribute = declared.stream()
+                .filter(QueryModelReader::isJoin)
+                .collect(Collectors.groupingBy(QueryModelReader::joinAttribute, Collectors.counting()));
         var fields = new ArrayList<ModelField>();
-        for (VariableElement field : ElementFilter.fieldsIn(type.getEnclosedElements())) {
-            if (field.getModifiers().contains(Modifier.STATIC)) {
-                continue;
-            }
+        for (VariableElement field : declared) {
             Column column = field.getAnnotation(Column.class);
             String name = field.getSimpleName().toString();
+            JoinDefinition join = isJoin(field) ? join(field, joinsPerAttribute.get(joinAttribute(field)) > 1) : null;
             fields.add(new ModelField(
                     field,
-                    field.getAnnotation(Transient.class) == null,
+                    field.getAnnotation(Transient.class) == null && join == null,
                     column == null || column.attribute().isEmpty() ? name : column.attribute(),
                     constantName(name),
                     field.getAnnotation(PrimaryKey.class) != null,
-                    field.getAnnotation(ExcludeFromDefaults.class) != null));
+                    field.getAnnotation(ExcludeFromDefaults.class) != null,
+                    column == null ? null : converter(field),
+                    join));
         }
         return new ModelDefinition(
                 type, (TypeElement) rootType.asElement(), prefix + type.getSimpleName() + suffix, columnSets, fields);
+    }
+
+    /** A {@code @Transient} field is no join, whatever else it carries. */
+    private static boolean isJoin(VariableElement field) {
+        return field.getAnnotation(Join.class) != null && field.getAnnotation(Transient.class) == null;
+    }
+
+    private static String joinAttribute(VariableElement field) {
+        String attribute = field.getAnnotation(Join.class).attribute();
+        return attribute.isEmpty() ? field.getSimpleName().toString() : attribute;
+    }
+
+    private static JoinDefinition join(VariableElement field, boolean sharesAttribute) {
+        Join join = field.getAnnotation(Join.class);
+        String name = field.getSimpleName().toString();
+        String alias = join.alias().isEmpty() && sharesAttribute ? name : join.alias();
+        TypeMirror nested = null;
+        if (field.asType() instanceof DeclaredType optional && optional.getTypeArguments().size() == 1
+                && ((TypeElement) optional.asElement()).getQualifiedName().contentEquals(OPTIONAL)
+                && optional.getTypeArguments().get(0).getKind() == TypeKind.DECLARED) {
+            nested = optional.getTypeArguments().get(0);
+        }
+        return new JoinDefinition(joinAttribute(field), join.type().name(),
+                join.prefix().isEmpty() ? constantName(name) : join.prefix(), alias, nested);
+    }
+
+    /** The class named by {@code @Column(converter)}, or {@code null} when it is left at {@code void.class}. */
+    private static TypeMirror converter(VariableElement field) {
+        return explicit(mirror(field, Column.class), CONVERTER) instanceof TypeMirror converter
+                && converter.getKind() != TypeKind.VOID ? converter : null;
     }
 
     /** {@code customerId} as {@code CUSTOMER_ID}: an underscore at each lower-to-upper step and after an acronym. */
@@ -126,7 +156,7 @@ final class QueryModelReader {
         return name.toString();
     }
 
-    private static AnnotationMirror mirror(Element element, Class<? extends Annotation> annotation) {
+    static AnnotationMirror mirror(Element element, Class<? extends Annotation> annotation) {
         for (AnnotationMirror mirror : element.getAnnotationMirrors()) {
             if (((TypeElement) mirror.getAnnotationType().asElement())
                     .getQualifiedName().contentEquals(annotation.getCanonicalName())) {

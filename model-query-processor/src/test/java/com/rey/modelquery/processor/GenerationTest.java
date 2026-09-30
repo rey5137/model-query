@@ -22,11 +22,12 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.stream.Stream;
 import javax.lang.model.element.ElementKind;
 import javax.tools.JavaFileObject;
 import org.junit.jupiter.api.Test;
 
-/** What the processor generates for flat class and record models ({@code processor/30}, {@code processor/31}). */
+/** What the processor generates for class, record and nested models ({@code processor/30}, {@code processor/31}). */
 class GenerationTest {
 
     private static final String MODEL_IMPORTS = """
@@ -57,6 +58,98 @@ class GenerationTest {
 
         assertThat(compilation).succeededWithoutWarnings();
         assertThat(generated(compilation, "shop.QOrderSummary")).isEqualTo(resource("golden/QOrderSummary.java"));
+    }
+
+    /** {@link ShopSources#INVOICE_SOURCES} with the pair of models that nest: the outer one and {@code nested}. */
+    private static JavaFileObject[] invoiceSources(JavaFileObject nested) {
+        return Stream.concat(Stream.of(ShopSources.INVOICE_SOURCES), Stream.of(nested, ShopSources.INVOICE_VIEW))
+                .toArray(JavaFileObject[]::new);
+    }
+
+    @Test
+    void ac_gen_01_nested_pair_matches_its_golden_files() {
+        Compilation compilation = compile(invoiceSources(ShopSources.CUSTOMER_VIEW));
+
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(generated(compilation, "shop.QInvoiceView")).isEqualTo(resource("golden/QInvoiceView.java"));
+        assertThat(generated(compilation, "shop.QCustomerView")).isEqualTo(resource("golden/QCustomerView.java"));
+    }
+
+    @Test
+    void ac_gen_03_a_column_added_to_the_nested_model_joins_the_outer_column_set() {
+        Compilation before = compile(invoiceSources(ShopSources.CUSTOMER_VIEW));
+        // Only the nested model changes: the outer model's source is the same object in both compilations.
+        Compilation after = compile(invoiceSources(ShopSources.customerView("""
+                    String email;
+
+                    public void setEmail(String email) {
+                        this.email = email;
+                    }
+                """)));
+
+        assertThat(after).succeededWithoutWarnings();
+        assertThat(generatedFlat(before, "shop.QInvoiceView"))
+                .contains("ColumnSet<InvoiceView> CUSTOMER = ColumnSet.of(CUSTOMER_ID, CUSTOMER_NAME);")
+                .doesNotContain("EMAIL");
+        assertThat(generatedFlat(after, "shop.QInvoiceView"))
+                .contains("ColumnField<InvoiceView, CustomerEntity, String> CUSTOMER_EMAIL = "
+                        + "QCustomerView.EMAIL.withTable(InvoiceView.class, CUSTOMER_TABLE);")
+                .contains("ColumnSet<InvoiceView> CUSTOMER = ColumnSet.of(CUSTOMER_ID, CUSTOMER_NAME, "
+                        + "CUSTOMER_EMAIL);")
+                .contains("ColumnSet<InvoiceView> BUYER = ColumnSet.of(BUYER_ID, BUYER_NAME, BUYER_EMAIL);");
+    }
+
+    @Test
+    void ac_proc_04_a_converter_without_an_instance_is_constructed_and_bridges_a_parameterized_attribute() {
+        Compilation compilation = compile(
+                source("tags.TagEntity", """
+                        package tags;
+
+                        import jakarta.persistence.Entity;
+                        import jakarta.persistence.Id;
+                        import java.util.List;
+
+                        @Entity
+                        public class TagEntity {
+                            @Id
+                            Long id;
+                            List<String> tags;
+                        }
+                        """),
+                source("tags.Joined", """
+                        package tags;
+
+                        import com.rey.modelquery.core.ColumnConverter;
+                        import java.util.List;
+
+                        class Joined implements ColumnConverter<String, List<String>> {
+                            @Override
+                            public String toModel(List<String> attribute) {
+                                return String.join(",", attribute);
+                            }
+
+                            @Override
+                            public List<String> toAttribute(String model) {
+                                return List.of(model.split(","));
+                            }
+                        }
+                        """),
+                source("tags.TagRow", """
+                        package tags;
+
+                        import com.rey.modelquery.annotations.Column;
+                        import com.rey.modelquery.annotations.PrimaryKey;
+                        import com.rey.modelquery.annotations.QueryModel;
+
+                        @QueryModel(root = TagEntity.class)
+                        public record TagRow(@PrimaryKey Long id, @Column(converter = Joined.class) String tags) {}
+                        """));
+
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(generatedFlat(compilation, "tags.QTagRow")).contains(
+                "@SuppressWarnings(\"unchecked\") public static final ColumnField<TagRow, TagEntity, String> TAGS = "
+                        + "ColumnField.of(TagRow.class, ROOT, \"tags\", String.class, "
+                        + "(Class<List<String>>) (Class<?>) List.class, new Joined());");
     }
 
     @Test
@@ -151,6 +244,63 @@ class GenerationTest {
                 .contains("ColumnField<OrderRow, OrderEntity, CustomerEntity> CUSTOMER = ColumnField.of("
                         + "OrderRow.class, ROOT, \"customer\", CustomerEntity.class)")
                 .contains("ColumnField<OrderRow, OrderEntity, CustomerEntity> PAYER");
+    }
+
+    @Test
+    void ac_gen_02_a_converted_to_one_column_is_not_warned_of() {
+        Compilation compilation = compile(
+                source("models.CustomerName", """
+                        package models;
+
+                        import com.rey.modelquery.core.ColumnConverter;
+                        import com.rey.modelquery.processor.fixture.CustomerEntity;
+
+                        class CustomerName implements ColumnConverter<String, CustomerEntity> {
+                            @Override
+                            public String toModel(CustomerEntity attribute) {
+                                return attribute.toString();
+                            }
+
+                            @Override
+                            public CustomerEntity toAttribute(String model) {
+                                throw new UnsupportedOperationException();
+                            }
+                        }
+                        """),
+                model("OrderRow", "OrderEntity",
+                        "@PrimaryKey Long id, @Column(converter = CustomerName.class) String customer"));
+
+        // D-45: the field holds the converter's value, so MQ3016's advice to use @Join does not apply.
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(generatedFlat(compilation, "models.QOrderRow"))
+                .contains("ColumnField<OrderRow, OrderEntity, String> CUSTOMER = ColumnField.of(");
+    }
+
+    @Test
+    void ac_gen_03_a_nested_model_may_be_read_from_the_classpath() {
+        // This module compiles with the processor off, so the fixture's QModel is generated here from a copy of its
+        // source, then compiled beside the outer model while CustomerSummary itself comes from the classpath.
+        String fixture = "com.rey.modelquery.processor.fixture.";
+        String nestedQModel = generated(compile(source(fixture + "CustomerSummary", """
+                package com.rey.modelquery.processor.fixture;
+
+                import com.rey.modelquery.annotations.PrimaryKey;
+                import com.rey.modelquery.annotations.QueryModel;
+
+                @QueryModel(root = CustomerEntity.class)
+                public record CustomerSummary(@PrimaryKey Long id, String name) {}
+                """)), fixture + "QCustomerSummary");
+
+        Compilation compilation = compile(
+                source(fixture + "QCustomerSummary", nestedQModel),
+                model("OrderRow", "OrderEntity", "@PrimaryKey Long id, "
+                        + "@com.rey.modelquery.annotations.Join java.util.Optional<CustomerSummary> customer"));
+
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(generatedFlat(compilation, "models.QOrderRow"))
+                .contains(".presentBy(QCustomerSummary.KEY)")
+                .contains("ColumnField<OrderRow, CustomerEntity, String> CUSTOMER_NAME = "
+                        + "QCustomerSummary.NAME.withTable(OrderRow.class, CUSTOMER_TABLE)");
     }
 
     @Test
@@ -345,6 +495,7 @@ class GenerationTest {
                         import jakarta.persistence.Entity;
                         import jakarta.persistence.Id;
                         import java.util.Map;
+import java.util.stream.Stream;
 
                         @Entity
                         public class OddEntity {
@@ -360,6 +511,7 @@ class GenerationTest {
                         import com.rey.modelquery.annotations.PrimaryKey;
                         import com.rey.modelquery.annotations.QueryModel;
                         import java.util.Map;
+import java.util.stream.Stream;
 
                         @QueryModel(root = OddEntity.class)
                         public record OddView(@PrimaryKey Long id, Map<String, String> labels, String a$b) {}

@@ -14,7 +14,7 @@ nested models, and incremental-build behaviour.
 public final class QOrderView {
     public static final TableField<OrderEntity, OrderEntity> ROOT = TableField.root(OrderEntity.class);
     public static final TableField<OrderEntity, CustomerEntity> CUSTOMER_TABLE =
-            TableField.join(ROOT, "customer", JoinType.LEFT).presentBy(QCustomerView.KEY);
+            TableField.<OrderEntity, CustomerEntity>join(ROOT, "customer", JoinType.LEFT).presentBy(QCustomerView.KEY);
 
     public static final ColumnField<OrderView, OrderEntity, Long> ID =
             ColumnField.of(OrderView.class, ROOT, "id", Long.class);
@@ -70,7 +70,8 @@ literal the processor could not validate is a diagnostic, never a guess (INV-3).
 **R-GEN-04** A joined `ColumnSet` is derived from the nested model (`CustomerView`), so a column added to
 `CustomerView` appears in `QOrderView.CUSTOMER` with no list to update by hand. The processor reads the nested model's
 own fields and refers to its QModel by name only, so the order in which models are processed does not matter (D-39).
-A nested model is mapped through its `MAPPER`, which is public, so it may live in another package.
+A nested model is mapped through its `MAPPER`, which is public, so it may live in another package, and it may be a
+source of the compilation or a compiled class on its classpath, provided its QModel is there too (D-45).
 
 **R-GEN-05** One model produces exactly one file, whose only originating element is that model's type, and the
 processor is registered as an **isolating** incremental processor for Gradle (D-39). JavaPoet is shaded into the
@@ -125,7 +126,8 @@ its other selected columns are `NULL`.
 
 **R-GEN-14** Nesting composes. `OrderView.customer → CustomerView.address` yields `Optional<CustomerView>` containing
 `Optional<AddressView>`; classes and records may be nested in each other freely, because each QModel's `map(Row)` builds
-its own model.
+its own model. The outer QModel declares the joins below its `@Join` too, each with its columns and
+`ColumnSet` (`CUSTOMER_ADDRESS_TABLE`, `CUSTOMER_ADDRESS_CITY`, `CUSTOMER_ADDRESS`), read from the nested QModel (D-45).
 
 **R-GEN-15** The generated mapper always assigns a `@Join` field, to `Optional.empty()` or `Optional.of(...)`, so even a
 class field with no initialiser is never `null` after mapping.

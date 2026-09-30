@@ -56,11 +56,12 @@ converter that is not a bijection is documented as filter-unsafe (`api/10` R-COL
 
 ## 4. `@Join` and nested models
 
-**R-PROC-08** A `@Join` field or component is always `Optional<NestedModel>`, and a class field is initialised to
-`Optional.empty()`. Semantics — empty means "no data", presence follows the joined primary key — are `processor/31` §4.
+**R-PROC-08** A `@Join` field or component is always `Optional<NestedModel>`. The generated mapper assigns it on every
+row, so a mapped model never holds `null` there; a class model that is also built by hand should initialise the field
+to `Optional.empty()`, which the processor can't check (D-45). Semantics — empty means "no data", presence follows the joined primary key — are `processor/31` §4.
 
 **R-PROC-09** Two `@Join`s on the same attribute get the field name as their alias automatically, so they become two
-joins (`api/10` R-COL-03).
+joins (`api/10` R-COL-03); an `alias` written on the annotation wins (D-45).
 
 ## 5. `@FilterColumn`
 

@@ -1,0 +1,1 @@
+select oe1_0.id,c1_0.id,c1_0.name,c1_0.country,c2_0.id,c2_0.name,c2_0.country from orders oe1_0 left join customers c1_0 on c1_0.id=oe1_0.customer_id left join customers c2_0 on c2_0.id=oe1_0.customer_id order by 1 fetch first ? rows only
