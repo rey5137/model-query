@@ -480,7 +480,10 @@ prefix.
 `<E, ID> extends JpaRepository`. `ModelQueryRepositoryFactoryBean` extends `JpaRepositoryFactoryBean` and adds the
 fragment's implementation when the repository interface extends it. A base class would collide with a user's own
 `repositoryBaseClass`, and the base interface forced `JpaRepository` and an `ID` no method used. The starter swaps
-bean definitions whose class is exactly `JpaRepositoryFactoryBean` for it, which keeps Boot's own registrar.
+bean definitions whose class is exactly `JpaRepositoryFactoryBean` for it, which keeps Boot's own registrar. Spring
+Data's exception translation applies to the fragment as to any repository method: a provider exception reaches the
+caller as a `DataAccessException`, while `MQnnnn` exceptions pass through unchanged. That is Spring's behaviour for
+every repository, not a semantic the library adds (INV-8).
 → `integration/50` §1, R-SPR-02, R-SPR-12.
 
 **D-51 — One paging method, whose total is `null` when not counted.**
