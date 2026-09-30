@@ -21,8 +21,16 @@ import java.util.Objects;
 @Incubating
 public final class RowSelection {
 
-    /** A selected column's path, attribute and type: what a scoped {@link Row} matches a nested model's column by. */
-    private record PathKey(JoinKey table, String attribute, Class<?> type) {}
+    /**
+     * A selected column's path, attribute, type and converter class: what a scoped {@link Row} matches a nested
+     * model's column by.
+     */
+    private record PathKey(JoinKey table, String attribute, Class<?> type, Class<?> converter) {
+
+        PathKey(JoinKey table, ColumnField<?, ?, ?> column) {
+            this(table, column.name(), column.type(), column.converterClass());
+        }
+    }
 
     private final Map<SelectField<?, ?>, String> aliases;
     private final Map<PathKey, String> byPath;
@@ -32,7 +40,7 @@ public final class RowSelection {
         var paths = new HashMap<PathKey, String>();
         aliases.forEach((column, alias) -> {
             if (column instanceof ColumnField<?, ?, ?> field) {
-                paths.putIfAbsent(new PathKey(field.table().key(), field.name(), field.type()), alias);
+                paths.putIfAbsent(new PathKey(field.table().key(), field), alias);
             }
         });
         this.byPath = Map.copyOf(paths);
@@ -65,8 +73,14 @@ public final class RowSelection {
 
         @Override
         public <C> C get(SelectField<?, C> column) {
+            Object raw = raw(column);
+            return column instanceof ColumnField<?, ?, C> field ? field.toModel(raw) : column.type().cast(raw);
+        }
+
+        @Override
+        public Object raw(SelectField<?, ?> column) {
             String alias = alias(column);
-            return alias == null ? null : column.type().cast(tuple.get(alias));
+            return alias == null ? null : tuple.get(alias);
         }
 
         @Override
@@ -91,7 +105,7 @@ public final class RowSelection {
             }
             // The whole chain of join keys is re-rooted, so a column on a join below the nested root matches that
             // join's column, not the same attribute on the scope itself.
-            return byPath.get(new PathKey(wanted.table().key().reroot(scope), wanted.name(), wanted.type()));
+            return byPath.get(new PathKey(wanted.table().key().reroot(scope), wanted));
         }
     }
 }

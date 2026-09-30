@@ -142,6 +142,14 @@ class EmbeddedPathTest {
         });
     }
 
+    @TckTest
+    void ac_col_10_a_dotted_path_on_a_join_over_basic_values_throws_mq1002(TckDatabase db) {
+        TableField<OrderEntity, String> tags = TableField.join(ROOT, "tags", INNER);
+        var intoBasic = ColumnField.of(OrderView.class, tags, "value.length", Integer.class);
+        inContext(db, (root, ctx) -> assertMq1002(() -> intoBasic.path(ctx),
+                "MQ1002: OrderView.value.length: String is a basic value, so it has no attribute 'value'"));
+    }
+
     private static void inContext(TckDatabase db, BiConsumer<Root<OrderEntity>, JoinContext> work) {
         try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
             sf.inSession(em -> {

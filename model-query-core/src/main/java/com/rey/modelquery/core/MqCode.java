@@ -27,8 +27,8 @@ public enum MqCode {
     /** Two {@code Agg.of} fields share a name with different expressions (R-AGG-02). */
     MQ1103("Two Agg.of fields share a name with different expressions"),
 
-    /** {@code as(...)} or {@code on(...)} on a root {@code TableField} (R-COL-03, R-COL-04). */
-    MQ1104("as(...) and on(...) apply to a join, not to a root"),
+    /** {@code as(...)}, {@code on(...)} or {@code presentBy(...)} on a root {@code TableField} (R-COL-03, R-COL-04). */
+    MQ1104("as(...), on(...) and presentBy(...) apply to a join, not to a root"),
 
     /** {@code keyset()} or {@code primaryKeyFirst(...)} without a primary key (R-QRY-03). */
     MQ1201("keyset() and primaryKeyFirst(...) require a primary key"),
@@ -89,6 +89,12 @@ public enum MqCode {
 
     /** {@code having(...)} on an ungrouped query (R-AGG-07). */
     MQ1407("having(...) needs a grouped query: a groupBy or a selected aggregate"),
+
+    /** An aggregate function over a column that has a {@code ColumnConverter} (R-AGG-04). */
+    MQ1408("An aggregate function does not take a column that has a ColumnConverter"),
+
+    /** A grouped query selects a column under a {@code presentBy} join whose key is not grouped by (R-AGG-09). */
+    MQ1409("A grouped query selects a column under a presentBy join whose key columns are not all group keys"),
 
     /** A page size that is not positive, or a limit that is negative (R-EXE-06). */
     MQ2001("A page size must be positive and a limit must not be negative"),

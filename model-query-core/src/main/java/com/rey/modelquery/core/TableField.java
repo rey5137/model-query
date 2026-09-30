@@ -26,6 +26,8 @@ public final class TableField<P, T> {
     private final JoinType type;
     private final String alias;
     private final BiFunction<From<?, T>, CriteriaBuilder, Predicate> condition;
+    /** The key whose non-null value means this join matched a row, or {@code null}; not part of {@link #key}. */
+    private final PrimaryKey<?, ?> presenceKey;
     private final JoinKey key;
 
     private TableField(
@@ -34,13 +36,15 @@ public final class TableField<P, T> {
             String attribute,
             JoinType type,
             String alias,
-            BiFunction<From<?, T>, CriteriaBuilder, Predicate> condition) {
+            BiFunction<From<?, T>, CriteriaBuilder, Predicate> condition,
+            PrimaryKey<?, ?> presenceKey) {
         this.rootEntity = rootEntity;
         this.parent = parent;
         this.attribute = attribute;
         this.type = type;
         this.alias = alias;
         this.condition = condition;
+        this.presenceKey = presenceKey;
         this.key = rootEntity != null
                 ? JoinKey.root(rootEntity)
                 : new JoinKey(parent.key, attribute, type, alias);
@@ -48,7 +52,7 @@ public final class TableField<P, T> {
 
     /** The query's root table. */
     public static <T> TableField<T, T> root(Class<T> entity) {
-        return new TableField<>(Objects.requireNonNull(entity, "entity"), null, null, null, "", null);
+        return new TableField<>(Objects.requireNonNull(entity, "entity"), null, null, null, "", null, null);
     }
 
     /** A join from {@code parent} along {@code attribute}. */
@@ -59,6 +63,7 @@ public final class TableField<P, T> {
                 Objects.requireNonNull(attribute, "attribute"),
                 Objects.requireNonNull(type, "type"),
                 "",
+                null,
                 null);
     }
 
@@ -70,7 +75,7 @@ public final class TableField<P, T> {
     public TableField<P, T> as(String alias) {
         Objects.requireNonNull(alias, "alias");
         requireJoin("as(...)");
-        return new TableField<>(rootEntity, parent, attribute, type, alias, condition);
+        return new TableField<>(rootEntity, parent, attribute, type, alias, condition, presenceKey);
     }
 
     /**
@@ -81,16 +86,34 @@ public final class TableField<P, T> {
     public TableField<P, T> on(BiFunction<From<?, T>, CriteriaBuilder, Predicate> condition) {
         Objects.requireNonNull(condition, "condition");
         requireJoin("on(...)");
-        return new TableField<>(rootEntity, parent, attribute, type, alias, condition);
+        return new TableField<>(rootEntity, parent, attribute, type, alias, condition, presenceKey);
     }
 
-    /** The same node under a different parent, keeping alias and {@code ON} condition; a root is returned as is. */
+    /**
+     * Names the key whose non-null value means this join matched a row: the primary key of the model read through
+     * the join, declared on that model's own root. An ungrouped query that selects a column of the join also selects
+     * the key, re-rooted under the join, so a mapper reading it through {@link Row#scoped} tells a LEFT-join miss from
+     * a match whose other columns are {@code NULL}. It is kept by {@link #as}, {@link #on} and {@link #withParent},
+     * and is not part of the join's identity (R-COL-15).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1104} on a root, which is not a join
+     */
+    public TableField<P, T> presentBy(PrimaryKey<?, ?> key) {
+        Objects.requireNonNull(key, "key");
+        requireJoin("presentBy(...)");
+        return new TableField<>(rootEntity, parent, attribute, type, alias, condition, key);
+    }
+
+    /**
+     * The same node under a different parent, keeping alias, {@code ON} condition and presence key; a root is
+     * returned as is.
+     */
     public TableField<P, T> withParent(TableField<?, P> newParent) {
         if (rootEntity != null) {
             return this; // a root has no parent to replace
         }
         return new TableField<>(
-                null, Objects.requireNonNull(newParent, "newParent"), attribute, type, alias, condition);
+                null, Objects.requireNonNull(newParent, "newParent"), attribute, type, alias, condition, presenceKey);
     }
 
     /**
@@ -134,6 +157,23 @@ public final class TableField<P, T> {
 
     JoinKey key() {
         return key;
+    }
+
+    /** The parent node, or {@code null} for a root. */
+    TableField<?, P> parent() {
+        return parent;
+    }
+
+    /** The key named by {@link #presentBy}, or {@code null}. */
+    PrimaryKey<?, ?> presenceKey() {
+        return presenceKey;
+    }
+
+    /** This path with its root replaced by {@code join}, as {@link JoinKey#reroot} re-roots its key. */
+    @SuppressWarnings("unchecked")
+    TableField<?, T> under(TableField<?, ?> join) {
+        // Sound for a path of the model read through join: its root is the entity join reaches.
+        return rootEntity != null ? (TableField<?, T>) join : withParent((TableField<?, P>) parent.under(join));
     }
 
     /** Whether this node is {@code ancestor} or sits below it, comparing join keys (CC-IMM-04). */

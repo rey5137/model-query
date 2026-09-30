@@ -152,7 +152,8 @@ public final class ModelQuery<E, K, M> {
      * Resolves the statement of {@code phase} against {@code cb}. Every phase has the same joins, predicate, grouping
      * and ordering, and only the SELECT list differs (R-QRY-09, D-26). {@code MODEL} and {@code MODEL_BY_KEYS} select
      * the columns plus, where the {@code ColumnSet} omits them, the primary-key columns of an ungrouped query, every
-     * ordering key and every group key, so an executor can read them from the row (R-QRY-04, D-29);
+     * ordering key and every group key, so an executor can read them from the row (R-QRY-04, D-29), and on an
+     * ungrouped query the presence key of each {@code presentBy} join a column is read through (D-38);
      * {@code PRIMARY_KEY} selects the key columns only. The customizer, if any, runs last. A new {@link JoinContext}
      * is created per call and carries {@code options}, the facts about the target database the build renders by
      * ({@link RenderOptions#portable()} when unknown, D-34).
@@ -299,9 +300,11 @@ public final class ModelQuery<E, K, M> {
     }
 
     /**
-     * What {@code MODEL} and {@code MODEL_BY_KEYS} select: the columns, the primary key of an ungrouped query, and
-     * every ordering and group key. None of the additions changes which rows return, and their joins are made anyway;
-     * selecting them lets an executor read a row's key, cursor and group from the row (R-QRY-04, D-29).
+     * What {@code MODEL} and {@code MODEL_BY_KEYS} select: the columns, the primary key of an ungrouped query,
+     * every ordering and group key, and on an ungrouped query the presence key of each {@code presentBy} join a column
+     * of the {@code ColumnSet} is read through. None of the additions changes which rows return, and their joins are
+     * made anyway; selecting them lets an executor read a row's key, cursor and group from the row, and a mapper tell
+     * a join that missed from one that matched (R-QRY-04, D-29, D-38).
      */
     private List<SelectField<M, ?>> selected() {
         var result = new ArrayList<SelectField<M, ?>>(columns.columns());
@@ -310,7 +313,32 @@ public final class ModelQuery<E, K, M> {
         }
         orderBy.forEach(order -> result.add(order.column()));
         result.addAll(groupBy);
+        if (!grouped) {
+            // Last, and once each: a RowSelection keeps a column at its first position (R-QRY-04).
+            for (SelectField<M, ?> column : columns.columns()) {
+                if (column instanceof ColumnField<M, ?, ?> plain) {
+                    result.addAll(presenceKeys(plain));
+                }
+            }
+        }
         return result;
+    }
+
+    /**
+     * The presence keys {@code column} is read through: the key columns of its own join and of every join above it
+     * that names one with {@code presentBy}, each re-rooted under its join as a column of the column's model
+     * (R-COL-15, D-38). No join is added by selecting them, since the column's own path already makes each.
+     */
+    private static <M> List<ColumnField<M, ?, ?>> presenceKeys(ColumnField<M, ?, ?> column) {
+        var keys = new ArrayList<ColumnField<M, ?, ?>>();
+        for (TableField<?, ?> join = column.table(); join != null; join = join.parent()) {
+            if (join.presenceKey() != null) {
+                for (ColumnField<?, ?, ?> key : join.presenceKey().columns()) {
+                    keys.add(key.under(column.model(), join));
+                }
+            }
+        }
+        return keys;
     }
 
     private M toModel(Row row) {
@@ -516,6 +544,8 @@ public final class ModelQuery<E, K, M> {
          * @throws ModelQueryDefinitionException {@code MQ1207} for {@code keyset()} with a {@code Float} or
          *     {@code Double} order or primary-key column
          * @throws ModelQueryDefinitionException {@code MQ1401} for a selected column missing from the group-by
+         * @throws ModelQueryDefinitionException {@code MQ1409} for a grouped query selecting a column under a
+         *     {@code presentBy} join whose key columns are not all group keys
          * @throws ModelQueryDefinitionException {@code MQ1406} for an ordering key that does not fit the grouping
          * @throws ModelQueryDefinitionException {@code MQ1103} for two {@code Agg.of} fields sharing a name with
          *     different expressions
@@ -559,6 +589,7 @@ public final class ModelQuery<E, K, M> {
                 if (primaryKey != null) {
                     LOG.log(System.Logger.Level.DEBUG, "{0}: primaryKey(...) is ignored on a grouped query", model);
                 }
+                checkPresenceKeys();
             }
             checkOrder(model, grouped);
             checkAggregates(model);
@@ -574,10 +605,11 @@ public final class ModelQuery<E, K, M> {
          */
         private void checkKeyTypes(boolean keyset) {
             for (ColumnField<M, ?, ?> column : primaryKey.columns()) {
-                if (column.type().isArray()) {
+                // The key is read as the attribute's value, whatever a converter makes of it (R-COL-11).
+                if (column.attributeType().isArray()) {
                     throw new ModelQueryDefinitionException(MqCode.MQ1206, column + ": a primary-key column of type "
-                            + column.type().getSimpleName() + " cannot identify a row, since an array equals only "
-                            + "itself; key the query by a column of a value type");
+                            + column.attributeType().getSimpleName() + " cannot identify a row, since an array "
+                            + "equals only itself; key the query by a column of a value type");
                 }
             }
             if (keyset) {
@@ -589,10 +621,31 @@ public final class ModelQuery<E, K, M> {
         }
 
         private void checkExactType(SelectField<M, ?> column) {
-            if (column.type() == Float.class || column.type() == Double.class) {
+            // The cursor is the attribute's value, whatever a converter makes of it (R-COL-11).
+            Class<?> type = column instanceof ColumnField<M, ?, ?> plain ? plain.attributeType() : column.type();
+            if (type == Float.class || type == Double.class) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1207, column + ": keyset() cannot page by a "
-                        + column.type().getSimpleName() + " column, whose cursor value need not compare equal to "
+                        + type.getSimpleName() + " column, whose cursor value need not compare equal to "
                         + "the stored one; order by an exact type such as BigDecimal, or export by offset");
+            }
+        }
+
+        /**
+         * A grouped query adds no presence key, so every key column of a {@code presentBy} join a selected column is
+         * read through must be a group key: otherwise the nested model would map as absent (R-AGG-09, D-38).
+         */
+        private void checkPresenceKeys() {
+            for (SelectField<M, ?> column : columns.columns()) {
+                if (column instanceof ColumnField<M, ?, ?> plain) {
+                    for (ColumnField<M, ?, ?> key : presenceKeys(plain)) {
+                        if (!groupBy.contains(key)) {
+                            throw new ModelQueryDefinitionException(MqCode.MQ1409, plain + ": selected on a grouped "
+                                    + "query under the presentBy " + key.table().describe() + ", whose key column "
+                                    + key.name() + " is not in groupBy; a grouped query adds no presence key, so "
+                                    + "group by the key or select the column through a join without presentBy");
+                        }
+                    }
+                }
             }
         }
 
