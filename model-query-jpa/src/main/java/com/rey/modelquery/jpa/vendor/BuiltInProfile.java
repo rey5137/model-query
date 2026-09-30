@@ -1,8 +1,12 @@
 package com.rey.modelquery.jpa.vendor;
 
+import com.rey.modelquery.core.ModelQueryExecutionException;
+import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.jpa.spi.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.VendorProfile;
+import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import java.time.Duration;
 import java.util.Optional;
@@ -11,22 +15,34 @@ import java.util.Optional;
  * The built-in profiles: a fixed table of the Tier-1 values in vendor/41 §2 and the conservative {@code OTHER}
  * values. A {@code ServiceLoader}-discovered profile for the same vendor takes precedence (R-VND-03).
  *
- * @implSpec R-PRF-11, R-PRF-08, R-VND-06
+ * @implSpec R-PRF-11, R-PRF-08, R-PRF-03, R-PRF-07, R-VND-06
  */
 enum BuiltInProfile implements VendorProfile {
 
     H2(DatabaseVendor.H2, 10_000, 100_000, NullOrdering.NULLS_FIRST),
 
-    // The driver uses a cursor only with autocommit off; checkStreamingPreconditions says so from M3.4 (R-PRF-03).
-    POSTGRESQL(DatabaseVendor.POSTGRESQL, 10_000, 65_535, NullOrdering.NULLS_LAST),
+    // The driver uses a cursor only with autocommit off, so streaming outside a transaction would buffer (R-PRF-03).
+    POSTGRESQL(DatabaseVendor.POSTGRESQL, 10_000, 65_535, NullOrdering.NULLS_LAST) {
+        @Override
+        public void checkStreamingPreconditions(EntityManager em) {
+            if (!em.isJoinedToTransaction()) {
+                throw new ModelQueryExecutionException(MqCode.MQ2101, "PostgreSQL streams with a cursor only inside "
+                        + "a transaction, and none is active on this EntityManager; wrap the call in a transaction "
+                        + "(read-only is enough) or use keyset export (R-PRF-03)");
+            }
+        }
+    },
 
+    /** The default {@link MysqlStreamingMode#ROW_BY_ROW}: Connector/J streams only at {@code Integer.MIN_VALUE}. */
     MYSQL(DatabaseVendor.MYSQL, 10_000, 65_535, NullOrdering.NULLS_FIRST) {
         @Override
         public void applyStreaming(Query query, int fetchSize) {
-            // Connector/J streams row by row only at Integer.MIN_VALUE; cursor-fetch mode is R-PRF-07's setting.
             query.setHint(FETCH_SIZE_HINT, Integer.MIN_VALUE);
         }
     },
+
+    /** {@link MysqlStreamingMode#CURSOR_FETCH}: a positive fetch size, which needs {@code useCursorFetch=true}. */
+    MYSQL_CURSOR_FETCH(DatabaseVendor.MYSQL, 10_000, 65_535, NullOrdering.NULLS_FIRST),
 
     OTHER(DatabaseVendor.OTHER, 1_000, 2_000, NullOrdering.UNKNOWN);
 
@@ -48,8 +64,14 @@ enum BuiltInProfile implements VendorProfile {
         this.defaultAscendingNullOrdering = nullOrdering;
     }
 
-    /** The built-in profile of {@code vendor}, or empty for a vendor without one. */
-    static Optional<VendorProfile> of(DatabaseVendor vendor) {
+    /**
+     * The built-in profile of {@code vendor}, or empty for a vendor without one. {@code mode} only picks between the
+     * two MySQL profiles, fixed here once and never per query (R-PRF-07).
+     */
+    static Optional<VendorProfile> of(DatabaseVendor vendor, MysqlStreamingMode mode) {
+        if (vendor == DatabaseVendor.MYSQL && mode == MysqlStreamingMode.CURSOR_FETCH) {
+            return Optional.of(MYSQL_CURSOR_FETCH);
+        }
         for (BuiltInProfile profile : values()) {
             if (profile.vendor == vendor) {
                 return Optional.of(profile);

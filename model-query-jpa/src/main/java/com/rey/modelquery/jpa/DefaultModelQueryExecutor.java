@@ -35,6 +35,7 @@ import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Selection;
 import jakarta.persistence.metamodel.Attribute;
 import jakarta.persistence.metamodel.PluralAttribute;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -44,6 +45,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -57,7 +59,7 @@ import java.util.stream.Stream;
  *
  * @implSpec R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-05, R-EXE-06, R-EXE-07, R-EXE-09, R-QRY-09, R-PAG-01,
  *     R-PAG-02, R-PAG-03, R-PAG-04, R-PAG-05, R-PAG-06, R-PAG-07, R-PAG-08, R-PAG-09, R-PAG-10, R-PAG-11, R-PAG-12,
- *     R-PAG-13, R-PAG-14, R-AGG-09
+ *     R-PAG-13, R-PAG-14, R-AGG-09, R-EXE-08, R-EXE-11
  */
 final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
@@ -70,6 +72,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private static final Set<ModelQuery<?, ?, ?>> PHASES_CHECKED =
             Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
 
+    /** The fetch size {@code stream} asks the profile for: the conservative {@code OTHER} value (R-VND-06). */
+    private static final int STREAM_FETCH_SIZE = 500;
+
     private final EntityManager em;
     private final Class<E> rootEntity;
     /** The profile and provider support of {@code em}'s factory, resolved once per factory (R-VND-02). */
@@ -78,12 +83,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private final RenderOptions renderOptions;
     /** The configured most keys per step-2 statement, or empty for the whole page within the clamp (R-PAG-07). */
     private final OptionalInt primaryKeyFirstBatchSize;
+    /** The configured timeout for every statement, or empty for none (R-EXE-11). */
+    private final Optional<Duration> queryTimeout;
 
     DefaultModelQueryExecutor(EntityManager em, Class<E> rootEntity, ModelQueryConfig config) {
         this.em = Objects.requireNonNull(em, "em");
         this.rootEntity = Objects.requireNonNull(rootEntity, "rootEntity");
         Objects.requireNonNull(config, "config");
-        this.vendor = VendorResolver.resolve(em.getEntityManagerFactory(), config.vendor());
+        this.vendor = VendorResolver.resolve(em.getEntityManagerFactory(), config.vendor(),
+                config.mysqlStreamingMode());
         VendorProfile profile = vendor.profile();
         RenderOptions options = RenderOptions.of(
                 profile.maxInListSize(), profile.maxBindParameters(), profile.defaultAscendingNullOrdering());
@@ -92,6 +100,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 .map(options::withNullPrecedenceRenderer)
                 .orElse(options);
         this.primaryKeyFirstBatchSize = config.primaryKeyFirstBatchSize();
+        this.queryTimeout = config.queryTimeout();
     }
 
     @Override
@@ -119,6 +128,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
         TypedQuery<Tuple> query = limited(built, limit);
+        // Precondition first, so a refusal runs no statement; the fetch size is one constant, which only the profiles
+        // that stream by cursor read (R-EXE-08).
+        vendor.profile().checkStreamingPreconditions(em);
+        vendor.profile().applyStreaming(query, STREAM_FETCH_SIZE);
         // Rows are mapped one at a time as body pulls them; closing the mapped stream closes the result stream under
         // it, whether body returns, stops early or throws (R-EXE-07, R-EXE-09).
         try (Stream<Tuple> tuples = query.getResultStream(); Stream<M> models = tuples.map(built::map)) {
@@ -130,9 +143,16 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return limit.maxRows().isPresent() && limit.maxRows().getAsInt() == 0;
     }
 
+    /** A statement of {@code query} with the configured timeout applied through the profile (R-EXE-11). */
+    private <T> TypedQuery<T> create(CriteriaQuery<T> query) {
+        TypedQuery<T> typed = em.createQuery(query);
+        queryTimeout.ifPresent(timeout -> vendor.profile().applyTimeout(typed, timeout));
+        return typed;
+    }
+
     /** {@code built}'s statement, capped at {@code limit}'s rows if it has any. */
     private <M> TypedQuery<Tuple> limited(BuiltQuery<M> built, Limit limit) {
-        TypedQuery<Tuple> query = em.createQuery(built.query());
+        TypedQuery<Tuple> query = create(built.query());
         limit.maxRows().ifPresent(query::setMaxResults);
         return query;
     }
@@ -234,7 +254,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
         appendStableOrder(q, built);
-        TypedQuery<Tuple> query = em.createQuery(built.query());
+        TypedQuery<Tuple> query = create(built.query());
         query.setFirstResult(offset);
         query.setMaxResults(maxRows);
         return mapAll(query, built);
@@ -280,7 +300,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     /** Step 1: the primary keys of {@code maxRows} rows from {@code offset}, in {@code keyQuery}'s order. */
     private <M> List<Object> readKeys(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> key, BuiltQuery<M> keyQuery,
             int offset, int maxRows) {
-        TypedQuery<Tuple> query = em.createQuery(keyQuery.query());
+        TypedQuery<Tuple> query = create(keyQuery.query());
         query.setFirstResult(offset);
         query.setMaxResults(maxRows);
         List<Tuple> rows = query.getResultList();
@@ -312,7 +332,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             Predicate own = built.query().getRestriction();
             built.query().where(own == null ? byKey : cb.and(own, byKey));
             appendStableOrder(q, built);
-            for (Tuple tuple : em.createQuery(built.query()).getResultList()) {
+            for (Tuple tuple : create(built.query()).getResultList()) {
                 found.putIfAbsent(keyOf(q, key, built.selection().row(tuple)), new Found<>(built, tuple));
             }
         }
@@ -421,7 +441,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 fresh = readByKeys(q, key, freshKeys, batch); // only the fresh keys' rows are read (R-PAG-07)
                 read = pageKeys.size();
             } else {
-                TypedQuery<Tuple> query = em.createQuery(built.query());
+                TypedQuery<Tuple> query = create(built.query());
                 query.setFirstResult(offset);
                 query.setMaxResults(pageSize);
                 List<Tuple> rows = query.getResultList();
@@ -473,7 +493,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 built.query().where(own == null ? after : cb.and(own, after));
             }
             keyset.appendOrder(built, cb);
-            TypedQuery<Tuple> query = em.createQuery(built.query());
+            TypedQuery<Tuple> query = create(built.query());
             query.setMaxResults(pageSize);
             List<Tuple> rows = query.getResultList();
             Set<Object> keys = new HashSet<>();
@@ -593,7 +613,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 .anyMatch(selection -> toManyJoin(selection) != null);
         Expression<Long> count = hasToManyJoin(root) && !readThroughToMany ? cb.countDistinct(root) : cb.count(root);
         query.multiselect(count);
-        return ((Number) em.createQuery(query).getSingleResult().get(0)).longValue();
+        return ((Number) create(query).getSingleResult().get(0)).longValue();
     }
 
     /** {@code count(*)} over the groups: in the database when the provider support can, else client-side. */
@@ -607,7 +627,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             }
             query.multiselect(keys);
         }
-        TypedQuery<Tuple> typed = em.createQuery(query);
+        TypedQuery<Tuple> typed = create(query);
         OptionalLong groups = vendor.providerSupport().map(p -> p.countGroups(typed)).orElse(OptionalLong.empty());
         if (groups.isPresent()) {
             return groups.getAsLong();

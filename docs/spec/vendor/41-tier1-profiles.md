@@ -55,7 +55,10 @@ the vendor notes page.
 ## 3. `modelquery.mysql.streaming-mode`
 
 **R-PRF-07** `row-by-row` (default) or `cursor-fetch`. The profile reads it once at construction; it is never decided per
-query.
+query. `ModelQueryConfig.mysqlStreamingMode(...)` picks the built-in MySQL profile, and the resolver caches by it as well
+as by the vendor, so two configurations on one factory get their own profile (`reference/92` D-34). `cursor-fetch` needs
+`useCursorFetch=true` on the JDBC URL, which the library cannot set; without it Connector/J ignores the fetch size and
+buffers. A `ServiceLoader` profile decides its own streaming and ignores the mode.
 
 ## 4. NULL ordering defaults
 

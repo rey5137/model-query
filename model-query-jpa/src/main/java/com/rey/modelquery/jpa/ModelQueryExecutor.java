@@ -75,6 +75,8 @@ public interface ModelQueryExecutor<E> {
      * default for very large ones (R-EXE-10).
      *
      * @param body reads the stream and returns the result; it must not let the stream escape
+     * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2101} on PostgreSQL outside a
+     *     transaction, before any statement runs (R-EXE-08)
      */
     <M, R> R stream(ModelQuery<E, ?, M> q, Limit limit, Function<Stream<M>, R> body);
 

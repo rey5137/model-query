@@ -6,6 +6,7 @@ import com.rey.modelquery.hibernate.HibernateProviderSupport;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.jpa.spi.MysqlStreamingMode;
 import com.rey.modelquery.jpa.vendor.ResolvedVendor;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
 import com.rey.modelquery.tck.col.JoinTestSupport;
@@ -85,6 +86,14 @@ class VendorResolutionTest {
             assertThat(VendorResolver.resolve(sf, DETECT)).isSameAs(VendorResolver.resolve(sf, DETECT));
         }
         assertThat(infos).singleElement().asString().contains("H2", "PROVIDER");
+    }
+
+    @Test
+    void ac_vnd_03_a_factory_on_another_database_is_resolved_once_whatever_the_mysql_streaming_mode() {
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(database(TckVendor.H2))) {
+            assertThat(VendorResolver.resolve(sf, DETECT, MysqlStreamingMode.CURSOR_FETCH))
+                    .isSameAs(VendorResolver.resolve(sf, DETECT));
+        }
     }
 
     @Test

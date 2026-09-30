@@ -4,6 +4,7 @@ import com.rey.modelquery.core.Incubating;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.jpa.spi.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import jakarta.persistence.EntityManagerFactory;
@@ -24,7 +25,7 @@ import javax.sql.DataSource;
  * factory, and logs the result once (R-VND-02, R-VND-07). Both are found with {@code ServiceLoader} on the thread's
  * context class loader.
  *
- * @implSpec R-VND-02, R-VND-03, R-VND-04, R-VND-05, R-VND-06, R-VND-07
+ * @implSpec R-VND-02, R-VND-03, R-VND-04, R-VND-05, R-VND-06, R-VND-07, R-PRF-07
  */
 @Incubating
 public final class VendorResolver {
@@ -38,8 +39,12 @@ public final class VendorResolver {
      * By factory, then by configured vendor, so an explicit vendor always wins over an earlier detection (R-VND-04).
      * Weak, so a closed factory is not kept reachable; a value never references its factory.
      */
-    private static final Map<EntityManagerFactory, Map<Optional<DatabaseVendor>, ResolvedVendor>> RESOLVED =
+    private static final Map<EntityManagerFactory, Map<Settings, ResolvedVendor>> RESOLVED =
             Collections.synchronizedMap(new WeakHashMap<>());
+
+    /** What a resolution depends on besides the factory: the profile is fixed by both (R-PRF-07, D-34). */
+    private record Settings(Optional<DatabaseVendor> configured, MysqlStreamingMode mysqlStreamingMode) {
+    }
 
     private VendorResolver() {
     }
@@ -55,19 +60,38 @@ public final class VendorResolver {
      * @throws ModelQueryConfigurationException {@code MQ4002} when two discovered profiles serve one vendor
      */
     public static ResolvedVendor resolve(EntityManagerFactory emf, Optional<DatabaseVendor> configured) {
+        return resolve(emf, configured, MysqlStreamingMode.ROW_BY_ROW);
+    }
+
+    /**
+     * Like {@link #resolve(EntityManagerFactory, Optional)}, with the MySQL streaming mode the built-in MySQL profile
+     * is built for; each mode is resolved and cached separately, so two configurations on one factory get their own
+     * profile (R-PRF-07). A discovered profile decides its own streaming and ignores the mode.
+     */
+    public static ResolvedVendor resolve(EntityManagerFactory emf, Optional<DatabaseVendor> configured,
+            MysqlStreamingMode mysqlStreamingMode) {
         Objects.requireNonNull(emf, "emf");
         Objects.requireNonNull(configured, "configured");
-        Map<Optional<DatabaseVendor>, ResolvedVendor> byConfig =
-                RESOLVED.computeIfAbsent(emf, factory -> new ConcurrentHashMap<>());
-        ResolvedVendor known = byConfig.get(configured);
+        Objects.requireNonNull(mysqlStreamingMode, "mysqlStreamingMode");
+        if (mysqlStreamingMode != MysqlStreamingMode.ROW_BY_ROW) {
+            // The mode picks only between MySQL profiles, so any other database reuses the default resolution: it is
+            // detected and logged once per factory whatever the mode (R-VND-05, R-VND-07).
+            ResolvedVendor base = resolve(emf, configured, MysqlStreamingMode.ROW_BY_ROW);
+            if (base.detectedVendor() != DatabaseVendor.MYSQL) {
+                return base;
+            }
+        }
+        Settings settings = new Settings(configured, mysqlStreamingMode);
+        Map<Settings, ResolvedVendor> byConfig = RESOLVED.computeIfAbsent(emf, factory -> new ConcurrentHashMap<>());
+        ResolvedVendor known = byConfig.get(settings);
         if (known != null) {
             return known;
         }
         // Detected outside the lock, so a slow DatabaseMetaData read blocks no other factory; a racing thread's
         // result is dropped and only the winner logs.
-        ResolvedVendor fresh = resolve(emf, configured, ServiceLoader.load(ProviderSupport.class),
+        ResolvedVendor fresh = resolve(emf, settings, ServiceLoader.load(ProviderSupport.class),
                 ServiceLoader.load(VendorProfile.class));
-        ResolvedVendor winner = byConfig.putIfAbsent(configured, fresh);
+        ResolvedVendor winner = byConfig.putIfAbsent(settings, fresh);
         if (winner != null) {
             return winner;
         }
@@ -75,8 +99,10 @@ public final class VendorResolver {
         return fresh;
     }
 
-    private static ResolvedVendor resolve(EntityManagerFactory emf, Optional<DatabaseVendor> configured,
+    private static ResolvedVendor resolve(EntityManagerFactory emf, Settings settings,
             Iterable<ProviderSupport> providers, Iterable<VendorProfile> discovered) {
+        Optional<DatabaseVendor> configured = settings.configured();
+        MysqlStreamingMode mode = settings.mysqlStreamingMode();
         ProviderSupport provider = null;
         for (ProviderSupport candidate : providers) {
             if (candidate.supports(emf)) {
@@ -86,24 +112,24 @@ public final class VendorResolver {
         }
         Map<DatabaseVendor, VendorProfile> profiles = byVendor(discovered);
         if (configured.isPresent()) {
-            return resolved(profiles, provider, configured.get(), ResolvedVendor.Source.CONFIG, "");
+            return resolved(profiles, mode, provider, configured.get(), ResolvedVendor.Source.CONFIG, "");
         }
         Optional<DatabaseVendor> detected = provider == null ? Optional.empty() : provider.detectVendor(emf);
         if (detected.isPresent()) {
-            return resolved(profiles, provider, detected.get(), ResolvedVendor.Source.PROVIDER, "");
+            return resolved(profiles, mode, provider, detected.get(), ResolvedVendor.Source.PROVIDER, "");
         }
         if (!(emf.getProperties().get(NON_JTA_DATA_SOURCE) instanceof DataSource dataSource)) {
-            return resolved(profiles, provider, DatabaseVendor.OTHER, ResolvedVendor.Source.NONE, "no provider "
+            return resolved(profiles, mode, provider, DatabaseVendor.OTHER, ResolvedVendor.Source.NONE, "no provider "
                     + "support detected the database and the factory has no " + NON_JTA_DATA_SOURCE);
         }
         String productName;
         try (Connection connection = dataSource.getConnection()) {
             productName = connection.getMetaData().getDatabaseProductName();
         } catch (SQLException e) {
-            return resolved(profiles, provider, DatabaseVendor.OTHER, ResolvedVendor.Source.NONE,
+            return resolved(profiles, mode, provider, DatabaseVendor.OTHER, ResolvedVendor.Source.NONE,
                     "reading DatabaseMetaData failed: " + e);
         }
-        return resolved(profiles, provider, vendorOf(productName), ResolvedVendor.Source.METADATA,
+        return resolved(profiles, mode, provider, vendorOf(productName), ResolvedVendor.Source.METADATA,
                 "product name " + productName);
     }
 
@@ -143,18 +169,19 @@ public final class VendorResolver {
      * The profile of {@code vendor}: a discovered one over the built-in one, else {@code OTHER}'s, since a vendor
      * without a profile is served conservatively (R-VND-03, R-VND-06).
      */
-    static VendorProfile profileFor(DatabaseVendor vendor, Map<DatabaseVendor, VendorProfile> discovered) {
+    static VendorProfile profileFor(DatabaseVendor vendor, MysqlStreamingMode mode,
+            Map<DatabaseVendor, VendorProfile> discovered) {
         VendorProfile profile = discovered.get(vendor);
         if (profile != null) {
             return profile;
         }
-        return BuiltInProfile.of(vendor)
+        return BuiltInProfile.of(vendor, mode)
                 .orElseGet(() -> discovered.getOrDefault(DatabaseVendor.OTHER, BuiltInProfile.OTHER));
     }
 
-    private static ResolvedVendor resolved(Map<DatabaseVendor, VendorProfile> profiles, ProviderSupport provider,
-            DatabaseVendor vendor, ResolvedVendor.Source source, String detail) {
-        return new ResolvedVendor(profileFor(vendor, profiles), provider, vendor, source, detail);
+    private static ResolvedVendor resolved(Map<DatabaseVendor, VendorProfile> profiles, MysqlStreamingMode mode,
+            ProviderSupport provider, DatabaseVendor vendor, ResolvedVendor.Source source, String detail) {
+        return new ResolvedVendor(profileFor(vendor, mode, profiles), provider, vendor, source, detail);
     }
 
     private static void log(ResolvedVendor resolved) {
