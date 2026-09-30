@@ -49,7 +49,8 @@ source tree.
 - `jakarta.validation` is an optional dependency of `jpa` only, used by `@ValidChanges` (`Future`, M8; `api/14`
   R-WRT-22). Generated change sets reference it only when it is on the model module's classpath.
 - `processor` depends only on `annotations` and shaded JavaPoet.
-- No Lombok anywhere in the library. Consumers may use Lombok on their models (`processor/31` R-GEN-10).
+- No Lombok in anything the library ships. The processor's tests alone take it, in `test` scope, to compile models
+  beside it (D-40). Consumers may use Lombok on their models (`processor/31` R-GEN-10).
 
 ## 3. Branches, reviews, commits
 

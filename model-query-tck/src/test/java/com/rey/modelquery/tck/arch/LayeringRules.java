@@ -83,6 +83,20 @@ final class LayeringRules {
     }
 
     /**
+     * {@code annotations} depends only on the JDK ({@code java.*}), so a model can be annotated in a module that has
+     * neither JPA nor the engine (processor/30 R-PROC-01).
+     */
+    ArchRule annotationsDependOnlyOnJdk() {
+        return classes()
+                .that()
+                .resideInAPackage(pkg("annotations"))
+                .should()
+                .onlyDependOnClassesThat(resideInAnyPackage(pkg("annotations"), "java.."))
+                .as("annotations depends only on the JDK")
+                .allowEmptyShould(allowEmptyShould);
+    }
+
+    /**
      * {@code processor} depends only on {@code annotations}, the JDK ({@code java.*} and the JDK's annotation
      * processing packages) and (shaded) JavaPoet. Other {@code javax.*} packages are third-party and not allowed.
      */

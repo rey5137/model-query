@@ -72,6 +72,8 @@
         <assertj.version>3.27.7</assertj.version>
         <archunit.version>1.5.1</archunit.version>
         <compile-testing.version>0.23.0</compile-testing.version>
+        <!-- Test scope of model-query-processor only (D-40); banned everywhere else by the enforcer below. -->
+        <lombok.version>1.18.46</lombok.version>
         <testcontainers.version>2.0.5</testcontainers.version>
         <h2.version>2.5.252</h2.version>
         <postgresql.version>42.7.13</postgresql.version>
@@ -209,7 +211,8 @@
                                     <version>[17,)</version>
                                 </requireJavaVersion>
                                 <!-- No Lombok anywhere in the library (delivery/61 R-REL-03). Its annotations are
-                                     source-retained, so ArchUnit cannot see them: this is the primary guard. -->
+                                     source-retained, so ArchUnit cannot see them: this is the primary guard.
+                                     model-query-processor alone re-admits it, in test scope (D-40). -->
                                 <bannedDependencies>
                                     <excludes>
                                         <exclude>org.projectlombok:*</exclude>

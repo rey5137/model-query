@@ -14,11 +14,13 @@ nested models, and incremental-build behaviour.
 public final class QOrderView {
     public static final TableField<OrderEntity, OrderEntity> ROOT = TableField.root(OrderEntity.class);
     public static final TableField<OrderEntity, CustomerEntity> CUSTOMER_TABLE =
-            TableField.join(ROOT, "customer", JoinType.LEFT);
+            TableField.join(ROOT, "customer", JoinType.LEFT).presentBy(QCustomerView.KEY);
 
     public static final ColumnField<OrderView, OrderEntity, Long> ID =
             ColumnField.of(OrderView.class, ROOT, "id", Long.class);
-    public static final ColumnField<OrderView, OrderEntity, String> STATUS = …;
+    // @Column(converter = OrderStatusConverter.class): the entity attribute is a String
+    public static final ColumnField<OrderView, OrderEntity, OrderStatus> STATUS =
+            ColumnField.of(OrderView.class, ROOT, "status", OrderStatus.class, String.class, OrderStatusConverter.INSTANCE);
     public static final ColumnField<OrderView, OrderEntity, BigDecimal> TOTAL = …;
 
     public static final ColumnField<OrderView, CustomerEntity, Long> CUSTOMER_ID =
@@ -33,21 +35,23 @@ public final class QOrderView {
     public static final ColumnSet<OrderView> DEFAULT  = ALL.without(/* @ExcludeFromDefaults */);
     public static final ColumnSet<OrderView> CUSTOMER = ColumnSet.of(CUSTOMER_ID, CUSTOMER_NAME);
 
+    public static final PrimaryKey<OrderView, Long> KEY = PrimaryKey.of(ID);
     public static final RowMapper<OrderView> MAPPER = QOrderView::map;
 
     public static ModelQuery.Builder<OrderEntity, Long, OrderView> query() {
-        return ModelQuery.builder(ROOT, MAPPER).primaryKey(PrimaryKey.of(ID));
+        return ModelQuery.builder(ROOT, MAPPER).primaryKey(KEY);
     }
 
-    static OrderView map(Row row) {
+    private static OrderView map(Row row) {
+        Row customer = row.scoped(CUSTOMER_TABLE);
         return new OrderView(
                 row.get(ID),
-                OrderStatusConverter.INSTANCE.toModel(row.get(STATUS)),
+                row.get(STATUS),                       // converted by the column
                 row.get(TOTAL),
                 row.get(CREATED_AT),
-                row.get(CUSTOMER_ID) == null
+                customer.get(QCustomerView.ID) == null
                         ? Optional.empty()
-                        : Optional.of(QCustomerView.map(row.scoped(CUSTOMER_TABLE))));
+                        : Optional.of(QCustomerView.MAPPER.map(customer)));
     }
 
     private QOrderView() {}
@@ -63,11 +67,17 @@ classpath. It does not consume `hibernate-jpamodelgen` output, so processor orde
 **R-GEN-03** Attribute names are emitted as string literals that the processor validated against the metamodel. A
 literal the processor could not validate is a diagnostic, never a guess (INV-3).
 
-**R-GEN-04** A joined `ColumnSet` is derived from the nested model's QModel (`QCustomerView`), so a column added to
-`CustomerView` appears in `QOrderView.CUSTOMER` with no list to update by hand.
+**R-GEN-04** A joined `ColumnSet` is derived from the nested model (`CustomerView`), so a column added to
+`CustomerView` appears in `QOrderView.CUSTOMER` with no list to update by hand. The processor reads the nested model's
+own fields and refers to its QModel by name only, so the order in which models are processed does not matter (D-39).
+A nested model is mapped through its `MAPPER`, which is public, so it may live in another package.
 
-**R-GEN-05** One model produces exactly one file, and the processor is registered as an **isolating** incremental
-processor for Gradle. JavaPoet is shaded into the processor jar (INV-7).
+**R-GEN-05** One model produces exactly one file, whose only originating element is that model's type, and the
+processor is registered as an **isolating** incremental processor for Gradle (D-39). JavaPoet is shaded into the
+processor jar (INV-7).
+
+**R-GEN-24** Every QModel with a `@PrimaryKey` declares `KEY`, a `PrimaryKey` over its key columns
+(`PrimaryKey.composite` for several), which `query()` and an outer model's `presentBy` both use.
 
 ## 2. Records
 
@@ -88,7 +98,8 @@ QModel's package.
 OrderView m = new OrderView();
 if (row.isSelected(ID)) m.setId(row.get(ID));
 …
-m.setCustomer(row.get(CUSTOMER_ID) == null ? Optional.empty() : Optional.of(QCustomerView.map(row.scoped(CUSTOMER_TABLE))));
+Row customer = row.scoped(CUSTOMER_TABLE);
+m.setCustomer(customer.get(QCustomerView.ID) == null ? Optional.empty() : Optional.of(QCustomerView.MAPPER.map(customer)));
 return m;
 ```
 
@@ -105,8 +116,10 @@ Lombok's naming rules: a `Boolean isX` field gets `setIsX`, a primitive `boolean
 were selected, or when a LEFT join found no matching row. It is never `null`, and never a nested model whose every field
 is `null`.
 
-**R-GEN-13** **Presence follows the joined primary key.** When any column of a join is selected, the engine also selects
-that join's `@PrimaryKey` columns — as `engine/21` R-PAG-03 does for the root. A LEFT-join miss makes every joined column
+**R-GEN-13** **Presence follows the joined primary key.** The generated join carries the nested model's `KEY`
+(`presentBy`, `api/10` R-COL-15), so when any column of a join is selected, the engine also selects
+that join's `@PrimaryKey` columns — as `engine/21` R-PAG-03 does for the root. A composite key is present when any
+of its components is non-null. A LEFT-join miss makes every joined column
 `NULL`, so the nested model stays empty; a matched row has a non-null key, so the nested model is present even when all
 its other selected columns are `NULL`.
 
@@ -211,7 +224,7 @@ are never copied to the change set. A field whose generated members would clash 
 | AC-GEN-05 | Lombok on and off both compile, including `Boolean isX` and `boolean isX` (R-GEN-10). |
 | AC-GEN-06 | A LEFT-join miss yields `Optional.empty()`; a match whose non-key columns are all NULL yields a present model (R-GEN-12, R-GEN-13). |
 | AC-GEN-07 | Two-level nesting maps correctly with a class nested in a record and vice versa (R-GEN-14). |
-| AC-GEN-08 | A second compilation with one model changed regenerates only that model's file (R-GEN-05). |
+| AC-GEN-08 | Each generated file has exactly one originating element, its model's type, and the processor's registration names it isolating, so a changed model regenerates its own file and those of models nesting it (R-GEN-05). |
 | AC-GEN-09 | The processor jar contains no unshaded JavaPoet package (R-GEN-05). |
 | AC-GEN-10 | (`Future`, M8) Golden files pin `QOrderPatch` and `OrderPatchChanges` for a record and a class update model, with a converter, a to-one by id and a composite key (R-GEN-19). |
 | AC-GEN-11 | (`Future`, M8) `generateChanges = true` adds `changes()`, `update(...)` and `from(...)` covering root non-key columns only; a query model gets `delete()` exactly when its `@PrimaryKey` is the root entity's id (R-GEN-21, R-GEN-22). |

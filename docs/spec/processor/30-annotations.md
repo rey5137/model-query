@@ -10,22 +10,25 @@
 
 | Annotation | Target | Purpose |
 |---|---|---|
-| `@QueryModel(root = X.class, generateColumnSets = true, prefix = "Q", singleGroup = false, generateChanges = false)` | model class or record | Enables generation |
+| `@QueryModel(root = X.class, generateColumnSets = true, prefix = "Q", suffix = "", singleGroup = false, generateChanges = false)` | model class or record | Enables generation |
 | `@UpdateModel(root = X.class, prefix = "Q")` | class or record | `Future` (M8): the attributes a bulk update may write; generates columns and a change set (§7) |
 | `@PrimaryKey` | field or record component | Primary-key column(s); composite keys supported |
 | `@Column(attribute = "...", converter = Foo.class)` | field or component | Rename the attribute or convert the value (`ColumnConverter<C, F>`) |
 | `@Join(attribute = "...", type = LEFT, prefix = "CUSTOMER", alias = "")` | `Optional<NestedModel>` field or component | Join the association and reuse the nested model's QModel columns |
 | `@FilterColumn(name = "...", path = "...", joinType = LEFT, alias = "", converter = Foo.class)` | model type (repeatable) | A filter-only column: a `ColumnField` constant with no model field, left out of every generated `ColumnSet` and of `map(Row)` |
+| `@FilterColumns` | model type | The container that makes `@FilterColumn` repeatable; never written by hand |
 | `@Aggregate(fn = SUM, attribute = "...", distinct = false)` | field or component | An `AggregateField` constant, mapped into this field (`api/13`) |
 | `@GroupBy` | field or component | The column joins the generated `GROUP_KEYS` set and the query's group-by |
 | `@ExcludeFromDefaults` | field or component | Leave the column out of `DEFAULT` (heavy BLOB/TEXT columns) |
 | `@Transient` | field or component | Not a column |
 
 **R-PROC-01** The annotations module has no dependencies beyond the JDK (INV-7), so a model can be annotated in a module
-that does not depend on JPA or on the engine.
+that does not depend on JPA or on the engine. Join types and aggregate functions are therefore its own enums, `JoinKind`
+(`INNER`, `LEFT`) and `AggregateFunction`, not `jakarta.persistence.criteria.JoinType`.
 
-**R-PROC-02** Every annotation is `RetentionPolicy.SOURCE` except `@QueryModel` and `@UpdateModel` (`Future`, M8),
-which are `CLASS` so tooling can find generated pairs.
+**R-PROC-02** Every annotation is `RetentionPolicy.CLASS`: Gradle's incremental annotation processing reads only
+`CLASS` and `RUNTIME` annotations (`processor/31` R-GEN-05, D-39), and tooling can find generated pairs. None is
+`RUNTIME`, so nothing is read reflectively.
 
 ## 2. `@QueryModel`
 
@@ -41,12 +44,14 @@ whole-table total. Without it, that combination is a diagnostic (`processor/32` 
 
 ## 3. `@Column` and converters
 
-**R-PROC-06** `attribute` is a dotted path from `root` only when it stays inside `@Embedded` values; crossing an
-association needs `@Join` or `@FilterColumn`.
+**R-PROC-06** `attribute` is a dotted path from `root` only when it stays inside `@Embedded` or `@EmbeddedId` values
+(`api/10` R-COL-08, D-41); crossing an association needs `@Join` or `@FilterColumn`.
 
 **R-PROC-07** A `ColumnConverter<C, F>` converts between the model type `C` and the entity attribute type `F`. It must
-be stateless and have a no-arg constructor or an `INSTANCE` field. The generated mapper calls it; filters call it in the
-other direction, so a converter that is not a bijection is documented as filter-unsafe.
+be stateless and have a public static `INSTANCE` field or a visible no-arg constructor, else `MQ3014`. `converter` is
+declared as `Class<?>`, default `void.class`, because `ColumnConverter` is a `core` type (R-PROC-01, D-37). The
+generated column carries the converter: `Row.get` applies it, and filters apply it in the other direction, so a
+converter that is not a bijection is documented as filter-unsafe (`api/10` R-COL-14).
 
 ## 4. `@Join` and nested models
 

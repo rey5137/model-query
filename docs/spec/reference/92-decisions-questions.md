@@ -302,6 +302,61 @@ keyset export for a setting few use); reading the setting in `model-query-jpa` (
 Hibernate factory without the module, and the remedy is the module or an explicit precedence. → `engine/21` R-PAG-05, `api/10` R-COL-12, R-COL-13, `vendor/40`
 §1, AC-PRF-07.
 
+**D-37 — A column carries its converter; `ColumnConverter` lives in `core`.**
+`ColumnConverter<C, F>` (`toModel(F)`, `toAttribute(C)`, never called with `null`) is a `core` type, and
+`ColumnField.of(model, table, attribute, type, attributeType, converter)` builds a converted column whose `type()` stays
+the model type `C`. `Row.get` converts what it read, value filters bind `toAttribute(value)`, and `MQ1001` compares the
+entity attribute against `attributeType`. `Row.raw(column)` returns the value before conversion; the executor reads
+primary keys and keyset cursors through it, so a converter that is not a bijection cannot change which rows a page
+holds (INV-5). An aggregate function over a converted column throws `MQ1408`, since the database computes over `F`.
+The annotation names the converter as `Class<?> converter() default void.class`, which keeps the annotations module on
+the JDK alone (INV-7); the processor checks the class by name and reports `MQ3014` when it is not a
+`ColumnConverter<fieldType, attributeType>` or has neither a public static `INSTANCE` nor a visible no-arg constructor.
+Rejected: converting in the generated mapper only (a filter on the column could not convert, R-PROC-07); the interface
+in `annotations` (`core` would then depend on it, or the type would be duplicated). `ColumnField.path(ctx)` on a
+converted column is a path of type `F` typed as `Path<C>`; a custom predicate on it compares attribute values.
+→ `api/10` §3, §5, R-COL-08, R-COL-14, `api/13` R-AGG-04, `processor/30` R-PROC-07, `processor/31` §1.
+
+**D-38 — A join carries its presence key, and the engine selects it.**
+`TableField.presentBy(PrimaryKey)` names the key whose non-null value means the join matched. It survives `as`, `on`
+and `withParent`, is not part of the join key, and throws `MQ1104` on a root. When a column of such a join is selected
+on an ungrouped query, the model phases also select the presence key of that join and of every `presentBy` join above
+it, re-rooted onto the column's model. No join is added, since the column's own join is already made (D-26). A
+generated QModel declares `KEY`, and an outer model declares its join as
+`TableField.join(ROOT, "customer", LEFT).presentBy(QCustomerView.KEY)`; the mapper reads the key through
+`row.scoped(CUSTOMER_TABLE)` and maps the nested model when any key component is non-null. A grouped query adds no key
+(R-AGG-09): selecting a column under a `presentBy` join whose key columns are not all group keys throws `MQ1409` at
+`build()`, rather than mapping a nested model that reads as absent. Rejected: the outer mapper testing a column the
+caller happened to select (a match whose selected columns are all `NULL` would read as a miss, R-GEN-13); the
+generator adding the key to every joined `ColumnSet` (a hand-built `ColumnSet.of(CUSTOMER_NAME)` would lose it).
+A customizer that applies `DISTINCT` sees the added key columns in the selection; the user guide says so.
+→ `api/10` §1, R-COL-15, `api/11` R-QRY-04, `api/13` R-AGG-09, `processor/31` §1, R-GEN-09, R-GEN-13, D-29.
+
+**D-39 — The processor is isolating, and every annotation is `CLASS`-retained.**
+The per-column constants of a nested model stay (R-GEN-04). The processor computes them from the nested model's own
+fields and the nested QModel's name, and never looks the nested QModel up, so processing order does not matter. Each
+generated file has one originating element, its model's `TypeElement`, which is what Gradle's isolating mode requires;
+Gradle recompiles the outer model when the nested model it references changes. Gradle's incremental processing reads
+only `CLASS` or `RUNTIME` annotations, so every annotation moves from `SOURCE` to `CLASS` retention. A nested model
+that is on the classpath rather than in the compilation is refused by `MQ3005` for now (Q-10). Rejected: an
+aggregating processor (every model is reprocessed on any change); dropping the per-column constants for a run-time
+`withTable` over the nested `ALL` (the joined columns would lose their typed constants). Not yet verified under Gradle:
+staleness across two levels of nesting; if it shows, the registration falls back to aggregating.
+→ `processor/30` R-PROC-02, `processor/31` R-GEN-04, R-GEN-05, AC-GEN-08, `processor/32` `MQ3005`.
+
+**D-40 — Lombok is a test dependency of the processor only.**
+`model-query-processor` takes `org.projectlombok:lombok` in `test` scope, so the compile-testing suite can run the
+processor beside Lombok (R-GEN-10, R-DIAG-05). The build's ban on Lombok stays for every other module and for every
+non-test scope of this one; nothing shipped depends on it. Rejected: hand-written stand-ins for Lombok's output (they
+would not exercise processor ordering, which is the point of AC-GEN-05). → `delivery/61` R-REL-03, AC-GEN-05.
+
+**D-41 — A column's attribute may be a dotted path through embedded values.**
+`ColumnField.of(..., "address.city", ...)` resolves each segment in turn from the column's table. Every segment but the
+last must be an embedded attribute; a segment that is unknown throws `MQ1002` naming the segment, and one that crosses
+an association throws `MQ1002` too, since that needs a `TableField` (R-COL-01). This is what `@Column(attribute)` on an
+`@Embedded` or `@EmbeddedId` value generates (R-PROC-06, R-GEN-02). Rejected: a `TableField` per embeddable (an
+embeddable is not a join, and would enter the join key). → `api/10` R-COL-08, `processor/30` R-PROC-06.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter
@@ -340,6 +395,11 @@ against D-34's split, and under another provider the hint is ignored, so streami
 to `ProviderSupport`? The resolver's warning on `hibernate.order_by.default_null_ordering` without
 `model-query-hibernate` (`vendor/40` R-VND-07) reads a second Hibernate name in `jpa`, by necessity: it fires only
 where no `ProviderSupport` exists to ask. → `vendor/41` §2, R-PRF-04, R-VND-07, D-34.
+
+**Q-10 — A nested model from another module.** `@Join` on an `Optional<X>` whose `X` is compiled elsewhere is refused
+by `MQ3005` (D-39): the processor reads the nested model's fields from source, and a compiled class keeps neither
+parameter names reliably nor field initialisers. Should 0.x support it, by reading the `CLASS`-retained annotations of
+the compiled model, or by generating a descriptor the outer compilation reads? → `processor/31` R-GEN-04, D-39.
 
 ## 3. Risks
 

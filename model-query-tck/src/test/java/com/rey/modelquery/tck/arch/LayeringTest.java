@@ -87,6 +87,16 @@ class LayeringTest {
     }
 
     @Test
+    void ac_proc_01_annotationsDependOnlyOnTheJdk() {
+        proves(
+                LayeringRules::annotationsDependOnlyOnJdk,
+                F + "annotations.BadAnnotations",
+                F + "core.GoodCore",
+                F + "annotations.BadAnnotationsThirdParty",
+                "javax.inject.fixturestub.Stub");
+    }
+
+    @Test
     void ac_rel_02_processorDependsOnlyOnAnnotationsAndJavaPoet() {
         proves(
                 LayeringRules::processorDependsOnlyOnAnnotationsAndJavaPoet,

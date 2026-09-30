@@ -30,7 +30,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1101` | Two `TableField`s share a join key but carry different `on(...)` conditions | `api/10` R-COL-04 |
 | `MQ1102` | `on(...)` used without `as(...)` | `api/10` R-COL-04 |
 | `MQ1103` | Two `Agg.of` fields share a name with different expressions | `api/13` R-AGG-02 |
-| `MQ1104` | `as(...)` or `on(...)` on a root `TableField`, which is not a join | `api/10` R-COL-03, R-COL-04 |
+| `MQ1104` | `as(...)`, `on(...)` or `presentBy(...)` on a root `TableField`, which is not a join | `api/10` R-COL-03, R-COL-04 |
 | `MQ1201` | `keyset()` or `primaryKeyFirst(...)` without a primary key | `api/11` R-QRY-03 |
 | `MQ1202` | `build()` without `columns` | `api/11` R-QRY-02 |
 | `MQ1203` | `ModelQuery.builder` given a join instead of a root `TableField` | `api/11` R-QRY-02 |
@@ -51,6 +51,8 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1405` | An `Agg.of` expression returned `null`, or an expression whose Java type is not the declared type | `api/13` R-AGG-02 |
 | `MQ1406` | An `orderBy` key that does not fit the grouping: a non-group-key column on a grouped query, or an aggregate on an ungrouped one | `api/13` R-AGG-08 |
 | `MQ1407` | `having(...)` on an ungrouped query, one with neither a `groupBy` nor a selected aggregate | `api/13` R-AGG-07 |
+| `MQ1408` | An aggregate function over a column that has a `ColumnConverter` | `api/13` R-AGG-04 |
+| `MQ1409` | A grouped query selects a column under a `presentBy` join whose key columns are not all group keys | `api/13` R-AGG-09 |
 | `MQ1601` | A bulk write chose its rows with `where(...)` and no predicate is left (`Future`, M8) | `api/14` R-WRT-12 |
 | `MQ1602` | A column is assigned twice in one update (`Future`, M8) | `api/14` R-WRT-13 |
 | `MQ1603` | `set(column, null)`; NULL must be written with `setNull` (`Future`, M8) | `api/14` R-WRT-06 |
@@ -83,7 +85,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 
 ## 4. `MQ3xxx` — annotation processing
 
-Catalogued with messages in `processor/32` §1: `MQ3001`–`MQ3013` for structural checks, `MQ3201`–`MQ3205` for aggregate
+Catalogued with messages in `processor/32` §1: `MQ3001`–`MQ3015` for structural checks, `MQ3201`–`MQ3205` for aggregate
 models, `MQ3301`–`MQ3307` for update models (`Future`, M8). Codes are not repeated here to keep one owner.
 
 ## 5. `MQ4xxx` — configuration

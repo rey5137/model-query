@@ -32,10 +32,53 @@
             <version>${compile-testing.version}</version>
             <scope>test</scope>
         </dependency>
+        <!-- Generated code is compiled in tests against the types it references; none of this is shaded or shipped. -->
+        <dependency>
+            <groupId>io.github.rey5137</groupId>
+            <artifactId>model-query-core</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.persistence</groupId>
+            <artifactId>jakarta.persistence-api</artifactId>
+            <version>${jakarta-persistence.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!-- The tests run the processor beside Lombok (D-40, processor/31 R-GEN-10). -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>${lombok.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>enforce</id>
+                        <configuration>
+                            <rules>
+                                <!-- Merged into the root rule: Lombok stays banned here, except in test scope
+                                     (D-40). -->
+                                <bannedDependencies>
+                                    <excludes>
+                                        <exclude>org.projectlombok:*</exclude>
+                                    </excludes>
+                                    <includes>
+                                        <include>org.projectlombok:lombok:*:*:test</include>
+                                    </includes>
+                                </bannedDependencies>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
