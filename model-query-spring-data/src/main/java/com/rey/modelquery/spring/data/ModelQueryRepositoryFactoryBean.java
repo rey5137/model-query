@@ -5,6 +5,7 @@ import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import java.util.Objects;
 import java.util.function.Supplier;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.beans.factory.annotation.BeanFactoryAnnotationUtils;
@@ -23,7 +24,8 @@ import org.springframework.util.function.SingletonSupplier;
  * extending it, set through {@code @EnableJpaRepositories(repositoryFactoryBeanClass = ...)} (R-SPR-02, D-50). The
  * implementation's executor runs on the {@code EntityManager} Spring Data gives this repository, so the vendor profile
  * is resolved per {@code EntityManagerFactory}, with the context's {@code ModelQueryConfig} bean, or
- * {@link ModelQueryConfig#defaults()} when there is none (R-SPR-13). {@code stream} runs in a transaction of the
+ * {@link ModelQueryConfig#defaults()} when there is none, passed through the context's {@link ModelQueryConfigurer}
+ * bean when there is one (R-SPR-13). {@code stream} runs in a transaction of the
  * {@code transactionManagerRef} of the repository's {@code @EnableJpaRepositories} (R-SPR-03, D-54).
  *
  * @param <T>  the repository type
@@ -94,9 +96,16 @@ public class ModelQueryRepositoryFactoryBean<T extends Repository<S, ID>, S, ID>
     private <E> ModelQueryRepositoryFragment<E> fragment(Class<E> rootEntity) {
         ModelQueryConfig config = beanFactory.getBeanProvider(ModelQueryConfig.class)
                 .getIfAvailable(ModelQueryConfig::defaults);
+        ModelQueryConfigurer configurer = beanFactory.getBeanProvider(ModelQueryConfigurer.class).getIfAvailable();
+        if (configurer != null) {
+            config = Objects.requireNonNull(configurer.configure(config, entityManager.getEntityManagerFactory()),
+                    () -> "ModelQueryConfigurer " + configurer.getClass().getName() + " returned null for "
+                            + repositoryInterface.getName() + "; return the shared config to keep it");
+        }
+        ModelQueryConfig resolved = config;
         String name = transactionManagerName;
         Supplier<ModelQueryExecutor<E>> executor =
-                SingletonSupplier.of(() -> ModelQueryExecutor.create(entityManager, rootEntity, config));
+                SingletonSupplier.of(() -> ModelQueryExecutor.create(entityManager, rootEntity, resolved));
         if (!lazyInit) {
             // Resolves the vendor now, as the repository itself is created now; a lazy repository (bootstrap mode
             // LAZY or DEFERRED) leaves it to the first call, so its EntityManagerFactory is not waited on here.

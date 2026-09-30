@@ -9,6 +9,7 @@ import java.time.Duration;
 import java.util.Collection;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -71,6 +72,28 @@ public final class ModelQueryConfig {
     public ModelQueryConfig vendor(DatabaseVendor vendor) {
         return new ModelQueryConfig(Objects.requireNonNull(vendor, "vendor"), primaryKeyFirstBatchSize, queryTimeout,
                 mysqlStreamingMode, keysetNullKeys, exportPageSize, streamFetchSize, vendorProfiles);
+    }
+
+    /**
+     * This configuration with the vendor named by {@code name}, matched to a vendor's name ignoring case, {@code -} and
+     * {@code _}, so {@code sql-server}, {@code SQL_SERVER} and {@code sqlserver} are the same vendor (D-57). For
+     * settings read as text, such as a Spring property, which must not name the vendor type (INV-6).
+     *
+     * @throws ModelQueryConfigurationException {@code MQ4001} when {@code name} matches no vendor
+     */
+    public ModelQueryConfig vendor(String name) {
+        String wanted = normalisedVendorName(Objects.requireNonNull(name, "name"));
+        for (DatabaseVendor candidate : DatabaseVendor.values()) {
+            if (normalisedVendorName(candidate.name()).equals(wanted)) {
+                return vendor(candidate);
+            }
+        }
+        throw new ModelQueryConfigurationException(MqCode.MQ4001,
+                "vendor '" + name + "' is not one of " + List.of(DatabaseVendor.values()));
+    }
+
+    private static String normalisedVendorName(String name) {
+        return name.replace("-", "").replace("_", "").toUpperCase(Locale.ROOT);
     }
 
     /** The explicitly configured vendor, or empty when it is detected per {@code EntityManagerFactory}. */

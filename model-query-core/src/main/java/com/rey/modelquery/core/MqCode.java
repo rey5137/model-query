@@ -127,11 +127,20 @@ public enum MqCode {
     /** A sort property names no selected column or aggregate, or more than one (R-QRY-14, D-52). */
     MQ2301("A sort property resolves to no selected column or to more than one"),
 
+    /** {@code modelquery.vendor} names an unknown vendor (R-VND-04). */
+    MQ4001("modelquery.vendor names an unknown vendor"),
+
     /** Two {@code VendorProfile}s registered for the same vendor with no precedence rule (R-VND-03). */
     MQ4002("Two VendorProfiles are registered for the same vendor"),
 
     /** A configuration value is outside its allowed range (integration/50 §3). */
-    MQ4003("A configuration value is outside its allowed range");
+    MQ4003("A configuration value is outside its allowed range"),
+
+    /**
+     * {@code modelquery.vendor} is set with more than one {@code EntityManagerFactory} and no
+     * {@code ModelQueryConfigurer} (R-SPR-13, D-54).
+     */
+    MQ4005("modelquery.vendor is set with several EntityManagerFactory beans and no ModelQueryConfigurer");
 
     private final String defaultMessage;
 

@@ -145,6 +145,17 @@ class ModelQueryConfigTest {
     }
 
     @Test
+    void r_vnd_04_a_vendor_named_as_text_ignores_case_dashes_and_underscores_and_an_unknown_name_throws_mq4001() {
+        assertThat(ModelQueryConfig.defaults().vendor("sql-server").vendor()).contains(DatabaseVendor.SQLSERVER);
+        assertThat(ModelQueryConfig.defaults().vendor("SqlServer").vendor()).contains(DatabaseVendor.SQLSERVER);
+        assertThat(ModelQueryConfig.defaults().vendor("postgresql").vendor()).contains(DatabaseVendor.POSTGRESQL);
+        assertThatThrownBy(() -> ModelQueryConfig.defaults().vendor("oracle9"))
+                .isInstanceOfSatisfying(ModelQueryConfigurationException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ4001))
+                .hasMessageContaining("oracle9");
+    }
+
+    @Test
     void r_vnd_03_no_profile_is_supplied_by_default_and_two_supplied_for_one_vendor_throw_mq4002() {
         assertThat(ModelQueryConfig.defaults().vendorProfiles()).isEmpty();
         var h2 = new StubProfile(DatabaseVendor.H2);
