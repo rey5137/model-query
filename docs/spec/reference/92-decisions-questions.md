@@ -533,6 +533,17 @@ one with `named(String)`, which returns a copy (INV-9), and a table likewise. Th
 not a Jackson rename, and it is not part of `equals`/`hashCode`, so the SQL does not change. Aggregates still match
 by their name. → `api/11` R-QRY-14.
 
+**D-56 — `ModelQueryConfigurer` takes the shared config and the factory.** It lives in `model-query-spring-data`,
+next to the factory bean that calls it: `@FunctionalInterface ModelQueryConfig configure(ModelQueryConfig shared,
+EntityManagerFactory factory)`, called once per repository factory bean with the factory of the repository's
+`EntityManager`; returning `shared` keeps it, and `null` is refused. A context has at most one configurer bean, so the
+choice per factory sits in one place; a second fails startup like any non-unique bean. → `integration/50` R-SPR-13.
+
+**D-57 — A vendor named as text is parsed in `jpa`.** `ModelQueryConfig.vendor(String name)` matches a
+`DatabaseVendor` name ignoring case, `-` and `_` (`sql-server`, `SQL_SERVER` and `sqlserver` are one vendor) and throws
+`MQ4001` for an unknown name. The Spring starter passes `modelquery.vendor` through it, so the starter never names the
+vendor type and INV-6's layering rule stays as it is. → `vendor/40` R-VND-04, `integration/50` §3.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter
