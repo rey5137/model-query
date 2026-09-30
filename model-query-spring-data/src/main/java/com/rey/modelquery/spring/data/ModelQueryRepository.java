@@ -1,14 +1,18 @@
 package com.rey.modelquery.spring.data;
 
+import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Incubating;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.PageSpec;
+import com.rey.modelquery.core.SortSpec;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Stream;
+import org.springframework.data.domain.Pageable;
 
 /**
  * A repository fragment that runs model queries rooted at the repository's entity: a repository extends it next to
@@ -22,6 +26,20 @@ import java.util.stream.Stream;
  */
 @Incubating
 public interface ModelQueryRepository<E> {
+
+    /**
+     * {@link ModelQueryExecutor#page(ModelQuery, PageSpec, CountMode)} at {@code pageable}'s offset and size; a
+     * sorted {@code pageable} first replaces {@code q}'s {@code orderBy} through
+     * {@link ModelQuery#orderedBy(SortSpec)}, and an unsorted one keeps it (R-SPR-04, R-SPR-05). The totals are
+     * {@code null} under {@link CountMode#NO_COUNT} (R-SPR-07). Keyset paging is not offered here (D-51).
+     *
+     * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2001} for {@link Pageable#unpaged()},
+     *     {@code MQ2002} for an offset beyond {@code int}, and {@code MQ2301} naming a sort property that matches no
+     *     selected column or more than one, or that asks {@code ignoreCase()} (R-SPR-06), before any query runs
+     * @throws com.rey.modelquery.core.ModelQueryDefinitionException {@code MQ1207} or {@code MQ1406} when the sorted
+     *     copy fails the checks of {@code build()} ({@link ModelQuery#orderedBy(SortSpec)})
+     */
+    <M> ModelPage<M> findPage(ModelQuery<E, ?, M> q, Pageable pageable, CountMode mode);
 
     /** {@link ModelQueryExecutor#list(ModelQuery, Limit)}. */
     <M> List<M> findAll(ModelQuery<E, ?, M> q, Limit limit);

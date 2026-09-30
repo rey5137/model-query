@@ -1,14 +1,19 @@
 package com.rey.modelquery.spring.data;
 
+import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.PageSpec;
+import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
+import org.springframework.data.domain.Pageable;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionOperations;
@@ -19,7 +24,7 @@ import org.springframework.util.function.SingletonSupplier;
  * The implementation of {@link ModelQueryRepository} over one executor. Not named {@code ModelQueryRepositoryImpl},
  * which Spring Data would detect as a custom implementation in a scanned package.
  *
- * @implSpec R-SPR-01, R-SPR-03
+ * @implSpec R-SPR-01, R-SPR-03, R-SPR-04, R-SPR-07
  */
 final class ModelQueryRepositoryFragment<E> implements ModelQueryRepository<E> {
 
@@ -42,6 +47,18 @@ final class ModelQueryRepositoryFragment<E> implements ModelQueryRepository<E> {
         template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
         template.setReadOnly(true);
         return template;
+    }
+
+    @Override
+    public <M> ModelPage<M> findPage(ModelQuery<E, ?, M> q, Pageable pageable, CountMode mode) {
+        Objects.requireNonNull(q, "q");
+        Objects.requireNonNull(pageable, "pageable");
+        Objects.requireNonNull(mode, "mode");
+        PageSpec page = SpringPaging.pageSpec(pageable);
+        ModelQuery<E, ?, M> sorted = q.orderedBy(SpringPaging.sortSpec(pageable.getSort()));
+        Slice<M> slice = executor.get().page(sorted, page, mode);
+        Long total = slice.total().isPresent() ? slice.total().getAsLong() : null;
+        return new DefaultModelPage<>(slice.content(), pageable, slice.hasNext(), total);
     }
 
     @Override
