@@ -73,6 +73,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private static final Set<ModelQuery<?, ?, ?>> PHASES_CHECKED =
             Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
 
+    /** The page size of an {@code export} whose options leave it open (R-QRY-15). */
+    private static final int EXPORT_PAGE_SIZE = 1_000;
+
     /** The fetch size {@code stream} asks the profile for: the conservative {@code OTHER} value (R-VND-06). */
     private static final int STREAM_FETCH_SIZE = 500;
 
@@ -219,6 +222,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(sink, "sink");
         checkPhasesOnce(q);
         long limit = options.limit().maxRows().isPresent() ? options.limit().maxRows().getAsInt() : Long.MAX_VALUE;
+        int pageSize = options.pageSize().orElse(EXPORT_PAGE_SIZE);
         if (q.isGrouped()) {
             // A group has no row identity, so its group keys order and dedupe the pages in place of a primary key,
             // which a grouped query never has; keyset() and primaryKeyFirst(...) were refused at build (MQ1402), so
@@ -226,7 +230,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             // even through a to-many join, so a grouped export skips the MQ2204 refusal (R-PAG-13).
             BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
             appendStableOrder(q, built);
-            return exportByOffset(q, built, null, row -> groupKeyOf(q, row), options.pageSize(), limit, pageTransformer,
+            return exportByOffset(q, built, null, row -> groupKeyOf(q, row), pageSize, limit, pageTransformer,
                     sink);
         }
         // A keyset query always has a primary key (MQ1201 at build time), so only offset export can fail here.
@@ -236,18 +240,20 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
         refuseToManySelection(q, built, q.isKeyset() ? "keyset paging" : "offset export");
         if (q.isKeyset()) {
-            return exportByKeyset(q, built, key, options.pageSize(), limit, pageTransformer, sink);
+            return exportByKeyset(q, built, key, pageSize, limit, pageTransformer, sink);
         }
         appendStableOrder(q, built);
-        return exportByOffset(q, built, key, row -> keyOf(q, key, row), options.pageSize(), limit, pageTransformer,
+        return exportByOffset(q, built, key, row -> keyOf(q, key, row), pageSize, limit, pageTransformer,
                 sink);
     }
 
     /** Runs the R-QRY-09 phase check the first time any executor runs {@code q} (D-21). */
     private void checkPhasesOnce(ModelQuery<E, ?, ?> q) {
-        if (!PHASES_CHECKED.contains(q)) {
+        // An orderedBy copy is covered by the check of its definition, so a per-request sort does not repeat it.
+        ModelQuery<E, ?, ?> definition = q.definition();
+        if (!PHASES_CHECKED.contains(definition)) {
             q.checkPhases(em.getCriteriaBuilder());
-            PHASES_CHECKED.add(q); // only once it passed, so a check that threw runs again next time
+            PHASES_CHECKED.add(definition); // only once it passed, so a check that threw runs again next time
         }
     }
 

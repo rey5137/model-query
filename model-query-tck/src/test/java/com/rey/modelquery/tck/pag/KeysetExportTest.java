@@ -154,12 +154,13 @@ class KeysetExportTest {
         var byId = ITEM_ROWS.orderBy(ITEM_ID.asc()).build();
         List<String> sql = SqlSnapshots.assertMatches(db, "pag-05-keyset-zero-limit", ds -> withExecutor(ds,
                 OrderItemEntity.class, executor -> assertThat(executor.export(byId,
-                        new ExportOptions(100, Limit.of(0)), page -> page, row -> {})).isZero()));
+                        ExportOptions.of(100).withLimit(Limit.of(0)), page -> page, row -> {})).isZero()));
         assertThat(sql).isEmpty();
 
         List<Long> ids = new ArrayList<>();
         withExecutor(db, OrderItemEntity.class, executor -> assertThat(executor.export(byId,
-                new ExportOptions(500, Limit.of(1_234)), page -> page, row -> ids.add(row.id()))).isEqualTo(1_234));
+                ExportOptions.of(500).withLimit(Limit.of(1_234)), page -> page, row -> ids.add(row.id())))
+                .isEqualTo(1_234));
         assertThat(ids).containsExactlyElementsOf(LongStream.rangeClosed(1, 1_234).boxed().toList());
     }
 

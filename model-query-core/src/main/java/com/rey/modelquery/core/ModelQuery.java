@@ -60,8 +60,14 @@ public final class ModelQuery<E, K, M> {
     private final RowSelection modelSelection;
     private final RowSelection keySelection;
     private final Function<Row, M> mapping = this::toModel;
+    /** The builder this query was built from, which {@link #orderedBy} re-orders and builds again. */
+    private final Builder<E, K, M> builder;
+    /** The query {@code build()} returned: this one, or the one this is an {@link #orderedBy} copy of. */
+    private final ModelQuery<E, K, M> definition;
 
-    private ModelQuery(Builder<E, K, M> b, boolean grouped) {
+    private ModelQuery(Builder<E, K, M> b, boolean grouped, ModelQuery<E, K, M> definition) {
+        this.builder = b;
+        this.definition = definition == null ? this : definition;
         this.root = b.root;
         this.mapper = b.mapper;
         this.columns = b.columns;
@@ -119,6 +125,75 @@ public final class ModelQuery<E, K, M> {
     /** The ordering keys, in order, as a list that throws on mutation. */
     public List<OrderField<M, ?>> orderBy() {
         return orderBy;
+    }
+
+    /**
+     * A copy of this query ordered by {@code sort} instead of its own {@code orderBy}, for a sort chosen per call on
+     * a definition held in a {@code static final} field; this query when {@code sort} has no key. Each property names
+     * one of the selected {@link #columns()}, never an attribute the query does not select: first by the column's
+     * attribute path from the root ({@code customer.name}; the attribute itself for a root column), then by
+     * {@link SelectField#name()}, which is how an aggregate is named. Matching is exact and case-sensitive, and a
+     * path match wins over a name match. The copy passes the checks of {@link Builder#build()}, and an executor
+     * still closes its order with the primary key or the group keys (R-PAG-01).
+     *
+     * @throws ModelQueryExecutionException {@code MQ2301} for a property matching no selected column, or more than
+     *     one
+     * @throws ModelQueryDefinitionException {@code MQ1207} for a {@code Float} or {@code Double} key on a keyset
+     *     query, and {@code MQ1406} for a key that does not fit the grouping, as {@link Builder#build()} throws them
+     * @implSpec R-QRY-14, D-52
+     */
+    @Incubating
+    public ModelQuery<E, K, M> orderedBy(SortSpec sort) {
+        Objects.requireNonNull(sort, "sort");
+        if (sort.keys().isEmpty()) {
+            return this;
+        }
+        var resolved = new ArrayList<OrderField<M, ?>>();
+        for (SortSpec.Key key : sort.keys()) {
+            resolved.add(new OrderField<>(resolve(key.property()), key.ascending(), key.nulls()));
+        }
+        return builder.ordered(List.copyOf(resolved)).build(definition);
+    }
+
+    /** The one selected column {@code property} names, by path before name (R-QRY-14). */
+    private SelectField<M, ?> resolve(String property) {
+        var byPath = new LinkedHashSet<SelectField<M, ?>>();
+        var byName = new LinkedHashSet<SelectField<M, ?>>();
+        for (SelectField<M, ?> column : columns.columns()) {
+            if (column instanceof ColumnField<M, ?, ?> plain && plain.path().equals(property)) {
+                byPath.add(column);
+            }
+            if (column.name().equals(property)) {
+                byName.add(column);
+            }
+        }
+        var matches = byPath.isEmpty() ? byName : byPath;
+        if (matches.size() == 1) {
+            return matches.iterator().next();
+        }
+        if (matches.isEmpty()) {
+            throw new ModelQueryExecutionException(MqCode.MQ2301, modelName() + ": sort property '" + property
+                    + "' names no selected column or aggregate; a sort property is a selected column's attribute "
+                    + "path from the root, or its name, exact and case-sensitive");
+        }
+        List<String> candidates = matches.stream()
+                .map(column -> column instanceof ColumnField<M, ?, ?> plain ? plain.path() : column.name())
+                .toList();
+        throw new ModelQueryExecutionException(MqCode.MQ2301, modelName() + ": sort property '" + property
+                + "' names more than one selected column: " + candidates + "; name one by its attribute path");
+    }
+
+    /**
+     * The query whose phase check covers this one: the query {@link Builder#build()} returned, which is this query
+     * unless it is an {@link #orderedBy} copy. A copy differs from it in its ordering alone, which a customizer
+     * cannot change (R-QRY-11), so an executor runs {@link #checkPhases} once per definition and not once per copy
+     * (D-21).
+     *
+     * @implSpec R-QRY-14
+     */
+    @Incubating
+    public ModelQuery<E, K, M> definition() {
+        return definition;
     }
 
     /** Whether keyset paging is allowed. */
@@ -551,6 +626,17 @@ public final class ModelQuery<E, K, M> {
          *     different expressions
          */
         public ModelQuery<E, K, M> build() {
+            return build(null);
+        }
+
+        /** This builder with {@code orderBy}, an immutable list, as its ordering keys. */
+        private Builder<E, K, M> ordered(List<OrderField<M, ?>> orderBy) {
+            return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
+                    finisher, customizer, where, groupBy, having);
+        }
+
+        /** Checks and builds; {@code definition} is the query this one is a re-ordered copy of, or null. */
+        private ModelQuery<E, K, M> build(ModelQuery<E, K, M> definition) {
             if (columns == null) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1202,
                         "columns(...) is required for a query on " + root.rootEntity().getSimpleName());
@@ -593,7 +679,7 @@ public final class ModelQuery<E, K, M> {
             }
             checkOrder(model, grouped);
             checkAggregates(model);
-            return new ModelQuery<>(this, grouped);
+            return new ModelQuery<>(this, grouped, definition);
         }
 
         /**

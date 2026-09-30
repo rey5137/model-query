@@ -102,7 +102,29 @@ and `MQ3301`..`MQ3307` are `Future` (M8).
 
 **Exit:** compile-testing suite green; `samples/plain-jpa` uses only generated QModels.
 
-## 6. M5–M8
+## 6. M5 — Spring
+
+Spec: `integration/50`, `vendor/40` R-VND-03 (AC-VND-06), `api/11` R-QRY-14, R-QRY-15. Model: the `architect-review`
+is done; its outcome is D-50 (fragment repository), D-51 (one paging method, total `null` when not counted), D-52 (per-call sort
+in `core`), D-53 (profiles and defaults on `ModelQueryConfig`) and D-54 (per-factory binding, the `stream`
+transaction).
+
+| Slice | Contents | Done when |
+|---|---|---|
+| M5.0 | `model-query-core`: `SortSpec` and `ModelQuery.orderedBy`, resolving a property against the selected columns by path then name, `MQ2301`; `ExportOptions` with an optional page size (D-52, D-53) | AC-QRY-13 |
+| M5.1 | `model-query-jpa`: `exportPageSize` and `streamFetchSize` on `ModelQueryConfig`, applied by the executor; `vendorProfiles(...)` ahead of the `ServiceLoader` profiles (R-VND-03, D-53) | AC-QRY-14, AC-SPR-07 |
+| M5.2 | `model-query-spring-data`: the `ModelQueryRepository` fragment without `findPage`, its implementation over `ModelQueryExecutor`, `ModelQueryRepositoryFactoryBean`; `stream` in a read-only transaction (R-SPR-01..03, R-SPR-12) | AC-SPR-01, AC-SPR-03 |
+| M5.3 | `findPage`: `Pageable` and `Sort` adapters to `PageSpec` and `SortSpec`, null handling, `MQ2301`, `ModelPage` with a `null` total under `NO_COUNT` (R-SPR-04..07) | AC-SPR-04..06 |
+| M5.4 | `model-query-spring-boot-starter`: `modelquery.*` properties read into `ModelQueryConfig`, the factory bean set for the default `@EnableJpaRepositories`, `VendorProfile` beans passed to the config, `ModelQueryConfigurer` and `MQ4005`, the startup `WARN` of R-SPR-09 | AC-SPR-08, AC-SPR-10, AC-VND-06 |
+| M5.5 | `samples/spring-boot`: one application with three datasources (H2, PostgreSQL, MySQL), one profile per factory, run against Testcontainers; `M5` added to the audit's started scope | AC-SPR-02 |
+
+`update`, `delete`, `ChunkTransactions` (R-SPR-10, R-SPR-11), the two `bulk-write` properties and AC-SPR-09 are `Future`
+(M8).
+
+**Exit:** the Boot sample green on H2, PostgreSQL and MySQL; `integration/50` and AC-VND-06 covered, except `Future`
+criteria.
+
+## 7. M6–M8
 
 Contents and exit criteria are in `delivery/62` §1. Slice breakdowns are written when the milestone starts, not before —
 a slice plan written three milestones early is guesswork.

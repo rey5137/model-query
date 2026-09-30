@@ -475,6 +475,47 @@ summary model never needs; an `@Aggregate` on a `@Join` field reports `MQ3204` a
 prefix.
 → `processor/32` `MQ3005`, `MQ3009`, `MQ3204`.
 
+**D-50 — The Spring repository is a fragment.**
+`ModelQueryRepository<E>` is a fragment interface a repository extends next to `JpaRepository`, not a base interface
+`<E, ID> extends JpaRepository`. `ModelQueryRepositoryFactoryBean` extends `JpaRepositoryFactoryBean` and adds the
+fragment's implementation when the repository interface extends it. A base class would collide with a user's own
+`repositoryBaseClass`, and the base interface forced `JpaRepository` and an `ID` no method used. The starter swaps
+bean definitions whose class is exactly `JpaRepositoryFactoryBean` for it, which keeps Boot's own registrar.
+→ `integration/50` §1, R-SPR-02, R-SPR-12.
+
+**D-51 — One paging method, whose total is `null` when not counted.**
+`findPage(q, pageable, CountMode)` stays one method, so a caller whose client chooses whether it wants totals passes
+the mode through without branching. It returns `ModelPage<M>`, a Spring Data `Slice` with `Long getTotalElements()`
+and `Integer getTotalPages()`, both `null` under `NO_COUNT`. Spring Data's `Page` was rejected as the return type:
+its `getTotalElements()` is a primitive `long`, so an unknown total must either throw, which breaks serialising the
+result, or be a number that reads as a total (INV-5). Keyset paging is not exposed through the repository;
+`Pageable.unpaged()` is `MQ2001`. → `integration/50` R-SPR-04, R-SPR-07.
+
+**D-52 — A per-call sort is a `core` feature over the selected columns.**
+`SortSpec` and `ModelQuery.orderedBy(SortSpec)` live in `core`, so plain JPA has what `Sort` gives Spring (INV-8). A
+sort property names a column the query selects, by root-relative attribute path first and then by name; it never
+names an unselected root attribute, which would need an implicit join, could page over a to-many path, and is refused
+by PostgreSQL under `DISTINCT`. No match, two matches and `ignoreCase` are all `MQ2301`. A sorted `Sort` replaces the
+definition's `orderBy`. → `api/11` R-QRY-14, `integration/50` R-SPR-04, R-SPR-06.
+
+**D-53 — Supplied profiles and the two defaults sit on `ModelQueryConfig`.**
+`ModelQueryConfig.vendorProfiles(...)` takes profiles that win over `ServiceLoader` ones, which win over the built-in
+ones; the starter passes its `VendorProfile` beans there, so `jpa` never sees Spring (INV-7) and a plain-JPA caller
+has the same hook (INV-8). The supplied profiles are applied after the per-factory cached detection, not added to its
+key. `exportPageSize` (1000) and `streamFetchSize` (500) join the config; `ExportOptions`' page size becomes optional
+so a call can leave it to the config, a breaking change to an `@Incubating` record.
+→ `vendor/40` R-VND-03, `api/11` R-QRY-15, `integration/50` R-SPR-08.
+
+**D-54 — One config, one executor per repository, the repository's own transaction manager.**
+One `ModelQueryConfig` bean is shared; each repository builds its executor on the `EntityManager` Spring Data gives
+it, so vendor resolution stays per factory. A `ModelQueryConfigurer` bean may vary the config per factory, and
+`modelquery.vendor` with several factories and no configurer is `MQ4005`. `stream` runs in a read-only
+`TransactionTemplate` on the `transactionManagerRef` of the repository's `@EnableJpaRepositories`, not through
+`@Transactional` on the interface, which `enableDefaultTransactions = false` would disable. The R-SPR-09 warning is
+logged where the starter builds the config bean, once per context. `modelquery.primary-key-first.batch-size` has no
+default of its own: unset means the whole page, as `engine/21` R-PAG-07 says. → `integration/50` R-SPR-03, R-SPR-09,
+R-SPR-13.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter
