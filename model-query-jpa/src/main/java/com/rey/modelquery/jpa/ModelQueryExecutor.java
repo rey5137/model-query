@@ -5,7 +5,6 @@ import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Incubating;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
-import com.rey.modelquery.core.ModelQueryConfig;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.Slice;
 import jakarta.persistence.EntityManager;
@@ -15,7 +14,7 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 
 /**
- * Runs model queries against a JPA {@code EntityManager}. An executor holds no state beyond its
+ * Runs model queries against a JPA {@code EntityManager}. An executor holds no mutable state beyond its
  * {@code EntityManager}, so it is as thread-safe as that is. The first execution of a {@code ModelQuery}, by any
  * executor, checks that its customizer narrows every phase alike (R-QRY-09, D-21); on a query with
  * {@code primaryKeyFirst(...)} a mismatch throws {@code MQ2206} before any query runs, whatever the method (R-PAG-15).
@@ -31,7 +30,11 @@ public interface ModelQueryExecutor<E> {
 
     /**
      * An executor over {@code em} for queries rooted at {@code rootEntity}; enough to use the library without Spring
-     * (INV-8).
+     * (INV-8). The vendor profile of {@code em}'s factory is resolved on the first call for that factory and reused
+     * after (R-VND-02).
+     *
+     * @throws com.rey.modelquery.core.ModelQueryConfigurationException {@code MQ4002} when two discovered
+     *     {@code VendorProfile}s serve one vendor
      */
     static <E> ModelQueryExecutor<E> create(EntityManager em, Class<E> rootEntity, ModelQueryConfig config) {
         return new DefaultModelQueryExecutor<>(em, rootEntity, config);

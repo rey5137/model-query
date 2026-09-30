@@ -110,7 +110,10 @@ public enum MqCode {
     MQ2205("A keyset export page repeated a row of the page before"),
 
     /** The customizer narrows the phases differently on a query with {@code primaryKeyFirst(...)} (R-PAG-15). */
-    MQ2206("The phases of a query with primaryKeyFirst(...) disagree on its rows");
+    MQ2206("The phases of a query with primaryKeyFirst(...) disagree on its rows"),
+
+    /** Two {@code VendorProfile}s registered for the same vendor with no precedence rule (R-VND-03). */
+    MQ4002("Two VendorProfiles are registered for the same vendor");
 
     private final String defaultMessage;
 

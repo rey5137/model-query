@@ -23,7 +23,8 @@ public final class TableField<P, T> {
 
 **R-COL-01** A `TableField` is a definition, not a join. It resolves to a Criteria `From` only through a
 `JoinContext`, which is created per query build with `JoinContext.of(root, cb)` (INV-9, D-18). The same constant may
-be used by any number of concurrent queries.
+be used by any number of concurrent queries. A context carries the build's `RenderOptions`: `JoinContext.of` uses
+`RenderOptions.portable()`, and `ModelQuery.buildQuery(cb, phase, options)` the executor's (D-34).
 
 **R-COL-02** `JoinContext` caches joins by **join key** — the parent's join key, the attribute, the `JoinType` and the
 alias (empty by default) — never by object identity. Two separate `TableField.join(ROOT, "customer", LEFT)` calls

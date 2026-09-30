@@ -23,8 +23,9 @@ literals at call sites.
 | Diagnostic codes (`reference/90`) | `enum MqCode` with `code()` and the default message | `core` (processor codes: `processor`) |
 | Vendor limits and behaviour | methods on `VendorProfile` | `jpa` profiles |
 | Property keys (`integration/50` §3) | `public static final` beside `ModelQueryProperties` | `spring-boot-starter` |
-| Config defaults | `ModelQueryConfig.Defaults` | `core` |
-| `LikeMode`, `Op`, `CountMode`, `NullPrecedence`, `Phase`, `DatabaseVendor` | `enum` | `core` |
+| Config defaults | `ModelQueryConfig.defaults()` | `jpa` |
+| `LikeMode`, `Op`, `CountMode`, `NullPrecedence`, `NullOrdering`, `Phase` | `enum` | `core` |
+| `DatabaseVendor` | `enum` | `jpa.spi` (D-34) |
 
 ## 2. Exceptions and messages
 

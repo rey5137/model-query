@@ -1,5 +1,6 @@
 package com.rey.modelquery.tck.qry;
 
+import static com.rey.modelquery.core.RenderOptions.portable;
 import static jakarta.persistence.criteria.JoinType.INNER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -112,7 +113,7 @@ class ModelQueryTest {
             .build();
 
     private static <M> List<M> run(EntityManager em, ModelQuery<?, ?, M> q, Phase phase) {
-        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), phase);
+        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), phase, portable());
         return em.createQuery(built.query()).getResultList().stream().map(built::map).toList();
     }
 
@@ -189,7 +190,7 @@ class ModelQueryTest {
                 sf.inSession(em -> {
                     result[0] = run(em, paged, Phase.MODEL);
                     result[1] = run(em, unpaged, Phase.MODEL);
-                    BuiltQuery<View> keys = paged.buildQuery(em.getCriteriaBuilder(), Phase.PRIMARY_KEY);
+                    BuiltQuery<View> keys = paged.buildQuery(em.getCriteriaBuilder(), Phase.PRIMARY_KEY, portable());
                     em.createQuery(keys.query()).getResultList().forEach(t -> keyOnly.add(t.get("c0", Long.class)));
                 });
             }
@@ -254,7 +255,7 @@ class ModelQueryTest {
                 .build();
         try (SessionFactory sf = sessionFactory(db)) {
             sf.inSession(em -> {
-                BuiltQuery<View> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
+                BuiltQuery<View> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable());
                 List<Tuple> tuples = em.createQuery(built.query()).getResultList();
                 assertThat(tuples).isNotEmpty();
                 for (Tuple t : tuples) {
@@ -341,23 +342,23 @@ class ModelQueryTest {
                 var minimal = ModelQuery.builder(ROOT, counting).columns(ColumnSet.of(ID, STATUS)).build();
 
                 // orderBy: unordered.
-                assertThat(minimal.buildQuery(cb, Phase.MODEL).query().getOrderList()).isEmpty();
+                assertThat(minimal.buildQuery(cb, Phase.MODEL, portable()).query().getOrderList()).isEmpty();
                 // primaryKey: allowed for list/page/count shapes; nothing is added to the selection.
                 assertThat(minimal.primaryKey()).isEmpty();
-                assertThat(minimal.buildQuery(cb, Phase.MODEL).query().getSelection().getCompoundSelectionItems())
-                        .hasSize(2);
-                assertThatThrownBy(() -> minimal.buildQuery(cb, Phase.PRIMARY_KEY))
+                assertThat(minimal.buildQuery(cb, Phase.MODEL, portable()).query().getSelection()
+                        .getCompoundSelectionItems()).hasSize(2);
+                assertThatThrownBy(() -> minimal.buildQuery(cb, Phase.PRIMARY_KEY, portable()))
                         .isInstanceOfSatisfying(ModelQueryExecutionException.class,
                                 e -> assertThat(e.code()).isEqualTo(MqCode.MQ2203));
                 // groupBy: not grouped.
-                assertThat(minimal.buildQuery(cb, Phase.MODEL).query().getGroupList()).isEmpty();
+                assertThat(minimal.buildQuery(cb, Phase.MODEL, portable()).query().getGroupList()).isEmpty();
                 // keyset() and primaryKeyFirst: offset mode, never two-step.
                 assertThat(minimal.isKeyset()).isFalse();
                 assertThat(minimal.primaryKeyFirst()).isEmpty();
                 // where: no predicate.
-                assertThat(minimal.buildQuery(cb, Phase.MODEL).query().getRestriction()).isNull();
+                assertThat(minimal.buildQuery(cb, Phase.MODEL, portable()).query().getRestriction()).isNull();
                 // afterMap: the mapper's result is returned as is.
-                BuiltQuery<View> built = minimal.buildQuery(cb, Phase.MODEL);
+                BuiltQuery<View> built = minimal.buildQuery(cb, Phase.MODEL, portable());
                 List<Tuple> tuples = em.createQuery(built.query()).getResultList();
                 List<View> views = tuples.stream().map(built::map).toList();
                 assertThat(views).hasSize(tuples.size());
@@ -380,8 +381,8 @@ class ModelQueryTest {
         try (SessionFactory sf = sessionFactory(db)) {
             sf.inSession(em -> {
                 CriteriaBuilder cb = em.getCriteriaBuilder();
-                assertThat(unfiltered.buildQuery(cb, Phase.MODEL).query().getRestriction()).isNull();
-                assertThat(filtered.buildQuery(cb, Phase.MODEL).query().getRestriction()).isNotNull();
+                assertThat(unfiltered.buildQuery(cb, Phase.MODEL, portable()).query().getRestriction()).isNull();
+                assertThat(filtered.buildQuery(cb, Phase.MODEL, portable()).query().getRestriction()).isNotNull();
                 assertThat(run(em, unfiltered, Phase.MODEL)).hasSize(TckFixture.ORDERS);
                 assertThat(run(em, filtered, Phase.MODEL)).isNotEmpty().hasSizeLessThan(TckFixture.ORDERS)
                         .allSatisfy(v -> assertThat(v.status()).isEqualTo("PAID"));
@@ -409,11 +410,11 @@ class ModelQueryTest {
                 assertThat(grouped.groupBy()).containsExactly(STATUS);
                 assertThat(grouped.spec().groupBy()).containsExactly(STATUS);
                 assertThat(grouped.spec().isGrouped()).isTrue();
-                assertThat(plain.buildQuery(cb, Phase.MODEL).query().getGroupList()).isEmpty();
+                assertThat(plain.buildQuery(cb, Phase.MODEL, portable()).query().getGroupList()).isEmpty();
                 assertThat(run(em, plain, Phase.MODEL)).hasSize(TckFixture.ORDERS);
-                assertThat(single.buildQuery(cb, Phase.MODEL).query().getGroupList()).isEmpty();
+                assertThat(single.buildQuery(cb, Phase.MODEL, portable()).query().getGroupList()).isEmpty();
                 assertThat(run(em, single, Phase.MODEL)).extracting(View::id).containsExactly((long) TckFixture.ORDERS);
-                assertThat(grouped.buildQuery(cb, Phase.MODEL).query().getGroupList()).hasSize(1);
+                assertThat(grouped.buildQuery(cb, Phase.MODEL, portable()).query().getGroupList()).hasSize(1);
                 assertThat(run(em, grouped, Phase.MODEL)).hasSize(4)
                         .allSatisfy(v -> assertThat(v.id()).isEqualTo(TckFixture.ORDERS / 4L));
             });
@@ -540,12 +541,12 @@ class ModelQueryTest {
         try (SessionFactory sf = sessionFactory(db)) {
             sf.inSession(em -> {
                 CriteriaBuilder cb = em.getCriteriaBuilder();
-                assertThatThrownBy(() -> noKey.buildQuery(cb, Phase.PRIMARY_KEY))
+                assertThatThrownBy(() -> noKey.buildQuery(cb, Phase.PRIMARY_KEY, portable()))
                         .isInstanceOfSatisfying(ModelQueryExecutionException.class,
                                 e -> assertThat(e.code()).isEqualTo(MqCode.MQ2203))
                         .hasMessage("MQ2203: View: phase PRIMARY_KEY needs a primary key, and primaryKey(...) was "
                                 + "not set");
-                assertThatThrownBy(() -> grouped.buildQuery(cb, Phase.PRIMARY_KEY))
+                assertThatThrownBy(() -> grouped.buildQuery(cb, Phase.PRIMARY_KEY, portable()))
                         .isInstanceOfSatisfying(ModelQueryExecutionException.class,
                                 e -> assertThat(e.code()).isEqualTo(MqCode.MQ2203))
                         .hasMessageContaining("a grouped query has none");
@@ -576,7 +577,7 @@ class ModelQueryTest {
                 sf.inSession(em -> queries.forEach(q -> {
                     Map<Phase, List<Long>> byPhase = new EnumMap<>(Phase.class);
                     for (Phase phase : Phase.values()) {
-                        BuiltQuery<View> built = q.buildQuery(em.getCriteriaBuilder(), phase);
+                        BuiltQuery<View> built = q.buildQuery(em.getCriteriaBuilder(), phase, portable());
                         byPhase.put(phase, em.createQuery(built.query()).getResultList().stream()
                                 .map(t -> built.selection().row(t).get(ID)).toList());
                     }
@@ -682,11 +683,12 @@ class ModelQueryTest {
                 CriteriaBuilder cb = em.getCriteriaBuilder();
                 // A grouped query has no primary key, so only MODEL is checked, but it is checked (R-QRY-11).
                 assertMq1205(() -> byStatus.customize(addsGroupBy).build().checkPhases(cb), "GROUP BY", Phase.MODEL);
-                assertMq1205(() -> byStatus.customize(addsGroupBy).build().buildQuery(cb, Phase.MODEL), "GROUP BY",
-                        Phase.MODEL);
+                assertMq1205(() -> byStatus.customize(addsGroupBy).build().buildQuery(cb, Phase.MODEL, portable()),
+                        "GROUP BY", Phase.MODEL);
                 assertMq1205(() -> byStatus.customize(reorders).build().checkPhases(cb), "ORDER BY", Phase.MODEL);
                 assertMq1205(() -> unkeyed.customize(reorders).build().checkPhases(cb), "ORDER BY", Phase.MODEL);
-                assertMq1205(() -> keyed.keyset().customize(reorders).build().buildQuery(cb, Phase.PRIMARY_KEY),
+                assertMq1205(
+                        () -> keyed.keyset().customize(reorders).build().buildQuery(cb, Phase.PRIMARY_KEY, portable()),
                         "ORDER BY", Phase.PRIMARY_KEY);
                 // A change in one phase only is found on first execution, before that phase ever runs.
                 assertMq1205(() -> keyed.customize(reordersStepTwo).build().checkPhases(cb), "ORDER BY",

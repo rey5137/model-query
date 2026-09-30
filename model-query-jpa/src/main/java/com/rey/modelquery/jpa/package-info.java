@@ -1,4 +1,4 @@
 /**
- * Query executor, paging and export engine and built-in vendor profiles for plain JPA.
+ * Query executor, paging and export engine and its configuration for plain JPA.
  */
 package com.rey.modelquery.jpa;

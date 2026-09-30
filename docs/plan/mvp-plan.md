@@ -61,21 +61,27 @@ AC-EXE-10, owed by M2.1).
 
 **Exit:** TCK green on Tier-1 databases.
 
-## 4. M3–M8
+## 4. M3 — Vendors
+
+Spec: `vendor/40`, `vendor/41`, plus the vendor halves carried from M1 and M2 (`api/10` R-COL-12/13, `api/12` R-FLT-09,
+`engine/20` R-EXE-08/11, `engine/21` R-PAG-05/07). Model: `architect-review` required for the `VendorProfile` surface
+and for how vendor limits and null ordering reach `core` without a vendor name there (INV-6, INV-7), decided in M3.1
+before any profile is written.
+
+| Slice | Contents | Done when |
+|---|---|---|
+| M3.1 | `VendorProfile`, `DatabaseVendor`, `NullOrdering`; the H2, PostgreSQL, MySQL and `OTHER` profiles with the `vendor/41` §2 values; `ServiceLoader` discovery; resolution once per `EntityManagerFactory` (explicit config, Hibernate dialect, `DatabaseMetaData`) with the `INFO` log; the ArchUnit rule; the executor holds the resolved profile. Decides the mechanism by which limits and null ordering reach `core`, and whether `GroupedCountStrategy` folds into `VendorProfile` | AC-VND-01..04 |
+| M3.2 | Each Tier-1 profile value asserted against the running database, on every Tier-1 version under the full matrix | AC-PRF-01, AC-PRF-06 |
+| M3.3 | Vendor limits: `IN`/`NOT IN` chunking in `core` by `maxInListSize()` and `maxBindParameters()`; primary-key-first's step-2 clamp read from the profile in place of D-32's constants; `primary-key-first.batch-size` on `ModelQueryConfig` | AC-FLT-08, AC-PRF-02, AC-PRF-03 |
+| M3.4 | Streaming and timeouts: `checkStreamingPreconditions` (`MQ2101`) and `applyStreaming` in `stream`; `mysql.streaming-mode`; `query-timeout` on `ModelQueryConfig` through `applyTimeout` | AC-EXE-08, AC-EXE-09, AC-PRF-04, AC-PRF-05, AC-PRF-08 |
+| M3.5 | Null precedence through profiles: `HibernateCriteriaBuilder#sort` in `model-query-hibernate`; no null sort key when the vendor default already matches; `keyset.null-keys=honour-null-precedence` on `ModelQueryConfig` and its engine half, refused under `OTHER` | AC-COL-08, AC-PRF-07, AC-VND-05 |
+
+AC-VND-06 (a Spring-registered profile bean overrides the `ServiceLoader` one) needs the Spring module and is owed by
+M5. AC-VND-07 is `Future` (M8).
+
+**Exit:** TCK green on the full nightly matrix.
+
+## 5. M4–M8
 
 Contents and exit criteria are in `delivery/62` §1. Slice breakdowns are written when the milestone starts, not before —
 a slice plan written three milestones early is guesswork.
-
-Carried into M3: AC-COL-08 with `model-query-hibernate` (`HibernateCriteriaBuilder#sort`), and skipping the null sort
-key when the `VendorProfile` default already matches (`api/10` R-COL-12). M1.3 covers the plain-JPA half. Also AC-FLT-08
-(`api/12` R-FLT-09): `IN`-list splitting, with the vendor limits reaching `core` through a mechanism decided in M3,
-tested alongside `vendor/41` AC-PRF-02 and AC-PRF-03. Also decide whether M2.1's `jpa.spi.GroupedCountStrategy`
-(R-EXE-03's Hibernate count, found through `ServiceLoader`) folds into `VendorProfile`. And `stream`'s vendor hooks: the
-R-EXE-08 `checkStreamingPreconditions` and `applyStreaming` calls and the R-EXE-11 timeout, with AC-EXE-08 (the same
-case as `vendor/41` AC-PRF-04) and AC-EXE-09. And the engine half of `modelquery.keyset.null-keys=honour-null-precedence`
-(`engine/21` R-PAG-05): paging a `DEFAULT`-precedence keyset over its NULLs in the vendor's own position, read from
-`VendorProfile.defaultAscendingNullOrdering()`; M2.4 covers the default `fail`. And primary-key-first paging's step-2
-clamp (`engine/21` R-PAG-07): reading `VendorProfile.maxInListSize()` and `maxBindParameters()` in place of M2.5's
-lowest Tier-1 limits (D-32), with the `primary-key-first.batch-size` setting on `ModelQueryConfig` (`integration/50`,
-R-SPR-08) and a test of a batch above the vendor's IN limit made through that setting.
-

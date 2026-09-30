@@ -1,5 +1,6 @@
 package com.rey.modelquery.jpa;
 
+import static com.rey.modelquery.core.RenderOptions.portable;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -152,7 +153,7 @@ class KeysetTest {
     private static List<Row3> after(ModelQuery<KeysetRowEntity, Long, Row3> q, Keyset<Row3> keyset, Object[] cursor) {
         try (EntityManager em = sessions.createEntityManager()) {
             CriteriaBuilder cb = em.getCriteriaBuilder();
-            BuiltQuery<Row3> built = q.buildQuery(cb, Phase.MODEL);
+            BuiltQuery<Row3> built = q.buildQuery(cb, Phase.MODEL, portable());
             if (cursor != null) {
                 built.query().where(keyset.after(cursor, built.joins(), cb));
             }
@@ -273,7 +274,7 @@ class KeysetTest {
 
     private static Object[] cursorRow(ModelQuery<KeysetRowEntity, Long, Row3> q, Keyset<Row3> keyset, long id) {
         try (EntityManager em = sessions.createEntityManager()) {
-            BuiltQuery<Row3> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
+            BuiltQuery<Row3> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable());
             for (Tuple tuple : em.createQuery(built.query()).getResultList()) {
                 Row row = built.selection().row(tuple);
                 if (row.get(ID) == id) {

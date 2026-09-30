@@ -1,5 +1,6 @@
 package com.rey.modelquery.tck.agg;
 
+import static com.rey.modelquery.core.RenderOptions.portable;
 import static jakarta.persistence.criteria.JoinType.INNER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -252,7 +253,7 @@ class AggregatesTest {
         var twice = TOTALS.columns(ColumnSet.of(first, again)).build();
         List<Row> rows = new ArrayList<>();
         SqlSnapshots.assertMatches(db, "agg-04-identical-sums", ds -> inSession(ds, em -> {
-            assertThat(once.buildQuery(em.getCriteriaBuilder(), Phase.MODEL).query().getSelection()
+            assertThat(once.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable()).query().getSelection()
                     .getCompoundSelectionItems()).hasSize(1);
             rows.addAll(rows(em, once));
             rows.addAll(rows(em, twice));
@@ -300,11 +301,11 @@ class AggregatesTest {
         var returnsNull = TOTALS.columns(ColumnSet.of(none)).build();
         var wrongType = TOTALS.columns(ColumnSet.of(mistyped)).build();
         inSession(db, em -> {
-            assertThatThrownBy(() -> returnsNull.buildQuery(em.getCriteriaBuilder(), Phase.MODEL))
+            assertThatThrownBy(() -> returnsNull.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable()))
                     .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ1405))
                     .hasMessage("MQ1405: Agg.of(\"none\") returned no expression");
-            assertThatThrownBy(() -> wrongType.buildQuery(em.getCriteriaBuilder(), Phase.MODEL))
+            assertThatThrownBy(() -> wrongType.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable()))
                     .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ1405))
                     .hasMessage("MQ1405: Agg.of(\"mistyped\"): declared Long, the expression is BigDecimal");
@@ -528,9 +529,9 @@ class AggregatesTest {
         List<List<Totals>> results = new ArrayList<>();
         inSession(db, em -> {
             // The key is not selected: selecting it would split every group into its rows.
-            assertThat(keyed.buildQuery(em.getCriteriaBuilder(), Phase.MODEL).query().getSelection()
+            assertThat(keyed.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable()).query().getSelection()
                     .getCompoundSelectionItems()).hasSize(2);
-            assertThatThrownBy(() -> keyed.buildQuery(em.getCriteriaBuilder(), Phase.PRIMARY_KEY))
+            assertThatThrownBy(() -> keyed.buildQuery(em.getCriteriaBuilder(), Phase.PRIMARY_KEY, portable()))
                     .isInstanceOfSatisfying(ModelQueryExecutionException.class,
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ2203));
             results.add(run(em, keyless));
@@ -546,8 +547,8 @@ class AggregatesTest {
         var whole = TOTALS.columns(ColumnSet.of(SUM_TOTAL, COUNT));
         List<List<Totals>> results = new ArrayList<>();
         SqlSnapshots.assertMatches(db, "agg-10-single-group", ds -> inSession(ds, em -> {
-            assertThat(whole.build().buildQuery(em.getCriteriaBuilder(), Phase.MODEL).query().getGroupList())
-                    .isEmpty();
+            assertThat(whole.build().buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable()).query()
+                    .getGroupList()).isEmpty();
             results.add(run(em, whole.build()));
             results.add(run(em, whole.where(f -> f.eq(STATUS, "PAID")).build()));
             results.add(run(em, whole.where(f -> f.eq(STATUS, "NO SUCH STATUS")).build()));
@@ -672,12 +673,12 @@ class AggregatesTest {
     // ---- helpers
 
     private static <V> List<V> run(EntityManager em, ModelQuery<?, ?, V> query) {
-        BuiltQuery<V> built = query.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
+        BuiltQuery<V> built = query.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable());
         return em.createQuery(built.query()).getResultList().stream().map(built::map).toList();
     }
 
     private static List<Row> rows(EntityManager em, ModelQuery<?, ?, ?> query) {
-        BuiltQuery<?> built = query.buildQuery(em.getCriteriaBuilder(), Phase.MODEL);
+        BuiltQuery<?> built = query.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable());
         return em.createQuery(built.query()).getResultList().stream().map(built.selection()::row).toList();
     }
 

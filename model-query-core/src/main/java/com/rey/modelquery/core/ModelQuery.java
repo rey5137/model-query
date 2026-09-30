@@ -150,15 +150,17 @@ public final class ModelQuery<E, K, M> {
      * the columns plus, where the {@code ColumnSet} omits them, the primary-key columns of an ungrouped query, every
      * ordering key and every group key, so an executor can read them from the row (R-QRY-04, D-29);
      * {@code PRIMARY_KEY} selects the key columns only. The customizer, if any, runs last. A new {@link JoinContext}
-     * is created per call.
+     * is created per call and carries {@code options}, the facts about the target database the build renders by
+     * ({@link RenderOptions#portable()} when unknown, D-34).
      *
      * @throws ModelQueryExecutionException {@code MQ2203} for {@code PRIMARY_KEY} on a query without a primary key
      * @throws ModelQueryDefinitionException {@code MQ1205} when the customizer changed the ordering or the grouping
      */
-    public BuiltQuery<M> buildQuery(CriteriaBuilder cb, Phase phase) {
+    public BuiltQuery<M> buildQuery(CriteriaBuilder cb, Phase phase, RenderOptions options) {
         Objects.requireNonNull(cb, "cb");
         Objects.requireNonNull(phase, "phase");
-        BuiltQuery<M> built = assemble(cb, phase);
+        Objects.requireNonNull(options, "options");
+        BuiltQuery<M> built = assemble(cb, phase, options);
         if (customizer != null) {
             customize(built, cb, phase);
         }
@@ -186,14 +188,14 @@ public final class ModelQuery<E, K, M> {
     }
 
     /** Selection, predicate, grouping and ordering of {@code phase}, before any customizer runs. */
-    private BuiltQuery<M> assemble(CriteriaBuilder cb, Phase phase) {
+    private BuiltQuery<M> assemble(CriteriaBuilder cb, Phase phase, RenderOptions options) {
         if (phase == Phase.PRIMARY_KEY && primaryKey == null) {
             throw new ModelQueryExecutionException(MqCode.MQ2203, modelName() + ": phase PRIMARY_KEY needs a primary "
                     + "key, and " + (grouped ? "a grouped query has none (R-AGG-09)" : "primaryKey(...) was not set"));
         }
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root<E> from = query.from(root.rootEntity());
-        JoinContext joins = JoinContext.of(from, cb, query);
+        JoinContext joins = JoinContext.of(from, cb, query, options);
         // Joins resolve in one order in every phase: selection, ordering and grouping first, then every filter
         // outside or/not, then those inside. An or(...) then finds the INNER join the rest of the query needs and
         // reuses it, instead of joining the path LEFT and leaving the rest to join it again (R-FLT-10, D-26).
@@ -251,7 +253,8 @@ public final class ModelQuery<E, K, M> {
         List<Phase> with = new ArrayList<>();
         List<Phase> without = new ArrayList<>();
         for (Phase phase : phases) {
-            BuiltQuery<M> scratch = assemble(cb, phase);
+            // Which phases a customizer narrows does not depend on the database, so the scratch renders portably.
+            BuiltQuery<M> scratch = assemble(cb, phase, RenderOptions.portable());
             Predicate own = scratch.query().getRestriction();
             int joined = narrowingJoins(scratch.query());
             customize(scratch, cb, phase);

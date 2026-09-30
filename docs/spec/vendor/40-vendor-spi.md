@@ -30,14 +30,22 @@ public interface VendorProfile {
 }
 ```
 
+`VendorProfile` and `DatabaseVendor` are in `com.rey.modelquery.jpa.spi`; `NullOrdering` is in `core`, because it names
+no vendor. The built-in profiles and the resolver are in `com.rey.modelquery.jpa.vendor`. `core` sees a profile only as
+the vendor-neutral `RenderOptions` the executor passes to each query build. What varies by persistence provider rather
+than by database (dialect detection, the grouped count, native null precedence) is the separate `ProviderSupport` SPI
+in `jpa.spi`, which `model-query-hibernate` implements (D-34).
+
 **R-VND-01** Every vendor-specific behaviour the engine needs is a method here. No vendor name and no
 `if (vendor == …)` exists anywhere else (INV-6). A new behaviour is a new method with a default, never a cast to a
 concrete profile.
 
 **R-VND-02** A profile is stateless and thread-safe, and is resolved once per `EntityManagerFactory`.
 
-**R-VND-03** Profiles are discovered with `ServiceLoader`. Spring users may also register one as a bean, which takes
-precedence over a `ServiceLoader`-provided profile for the same vendor (`integration/50`).
+**R-VND-03** Profiles are discovered with `ServiceLoader`. The built-in H2, PostgreSQL, MySQL and `OTHER` profiles are
+a fixed table in `jpa`, not service registrations, and a discovered profile takes precedence over the built-in one for
+its vendor. Two discovered profiles for one vendor throw `MQ4002`. Spring users may also register one as a bean, which
+takes precedence over a `ServiceLoader`-provided profile for the same vendor (`integration/50`).
 
 **R-VND-11** `targetTableInSubquery()` (`Future`, M8) says whether an `UPDATE` or `DELETE` may read its own table in
 a sub-query. When it is false, a bulk write whose rendering needs such a sub-query runs key-first (`api/14` R-WRT-11).
@@ -50,17 +58,26 @@ stays safe (R-VND-01). It is a capability, not a rendering hook, because the eng
 
 **R-VND-04** Resolution order:
 
-1. An explicit `ModelQueryConfig.vendor(...)` or the `modelquery.vendor` property.
-2. With `model-query-hibernate` present: `SessionFactoryImplementor#getJdbcServices().getDialect()`, mapped by dialect
-   class. This needs no connection and is per `EntityManagerFactory`, so an application with several datasources on
-   different databases resolves each correctly.
-3. Otherwise `DatabaseMetaData#getDatabaseProductName()`, read once per `EntityManagerFactory` and cached.
+1. An explicit `ModelQueryConfig.vendor(DatabaseVendor)` or the `modelquery.vendor` property. Nothing is detected.
+2. With a `ProviderSupport` serving the factory, as `model-query-hibernate` does:
+   `SessionFactoryImplementor#getJdbcServices().getDialect()`, mapped by dialect class, most specific first (MariaDB's
+   dialect extends MySQL's). This needs no connection and is per `EntityManagerFactory`, so an application with
+   several datasources on different databases resolves each correctly.
+3. Otherwise `DatabaseMetaData#getDatabaseProductName()`, read once per `EntityManagerFactory` on a connection from
+   the factory's `jakarta.persistence.nonJtaDataSource` property: `H2`, `PostgreSQL`, `MySQL` and `MariaDB` name their
+   vendor, any other name is `OTHER`. A factory without that property, or whose `DataSource` fails, resolves to
+   `OTHER` and logs a `WARN`.
+
+The result is cached weakly per factory and configured vendor, so detection runs once per factory and an explicit
+vendor always wins over an earlier detection.
 
 **R-VND-05** Detection never runs per query, and never opens a connection when step 1 or 2 answered.
 
 **R-VND-06** An unrecognised database resolves to the `OTHER` profile, which is deliberately conservative: fetch size
-500, JPA timeout, IN list 1 000, bind parameters 2 000, null ordering `UNKNOWN`, no target table in sub-queries (R-VND-11). Keyset paging on a nullable column
-without explicit null precedence is refused under `OTHER` (`engine/21` R-PAG-05, `api/10` R-COL-13).
+500, JPA timeout, IN list 1 000, bind parameters 2 000, null ordering `UNKNOWN`, no target table in sub-queries
+(R-VND-11). A recognised vendor with no profile (MariaDB, Oracle, SQL Server until theirs exist) uses the `OTHER`
+profile too, and the resolution log names the vendor detected. Keyset paging on a nullable column without explicit
+null precedence is refused under `OTHER` (`engine/21` R-PAG-05, `api/10` R-COL-13).
 
 **R-VND-07** The resolved profile is logged once at `INFO` with how it was resolved, because a wrong profile produces
 correct-looking results with the wrong limits.
