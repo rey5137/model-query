@@ -76,7 +76,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ2204` | Offset export of an ungrouped query, keyset paging or the primary-key-first phase over a selection read through a to-many join | `engine/21` R-PAG-13 |
 | `MQ2205` | A keyset export page holds a key of the page before: a cursor value did not survive being bound, or a row's keyset value moved after the cursor | `engine/21` R-PAG-14 |
 | `MQ2206` | A customizer narrows the phases of a query with `primaryKeyFirst(...)` differently | `engine/21` R-PAG-15 |
-| `MQ2301` | A `Sort` property resolves to neither an attribute path nor a known column | `integration/50` R-SPR-06 |
+| `MQ2301` | A sort property resolves to no selected column or to more than one, or asks for `ignoreCase` | `api/11` R-QRY-14, `integration/50` R-SPR-06 |
 | `MQ2501` | A bulk write, other than `commitEachChunk()`, ran without an active transaction (`Future`, M8) | `api/14` R-WRT-18 |
 | `MQ2502` | A per-chunk write failed; `ChunkedWriteException` carries the committed rows, the last committed key and the keys of a chunk in doubt (`Future`, M8) | `api/14` R-WRT-20 |
 
@@ -95,6 +95,7 @@ models, `MQ3301`–`MQ3307` for update models (`Future`, M8). Codes are not repe
 | `MQ4001` | `modelquery.vendor` names an unknown vendor | `vendor/40` R-VND-04 |
 | `MQ4002` | Two `VendorProfile`s registered for the same vendor with no precedence rule | `vendor/40` R-VND-03 |
 | `MQ4003` | A property value, or its `ModelQueryConfig` setting, is outside its allowed range | `integration/50` §3 |
+| `MQ4005` | `modelquery.vendor` set with more than one `EntityManagerFactory` and no `ModelQueryConfigurer` | `integration/50` R-SPR-13 |
 | `MQ4004` | `commitEachChunk()` with no `ChunkTransactions` configured, or none that serves the write's `EntityManagerFactory` (`Future`, M8) | `api/14` R-WRT-19 |
 
 ## 6. Glossary

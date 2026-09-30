@@ -44,8 +44,10 @@ concrete profile.
 
 **R-VND-03** Profiles are discovered with `ServiceLoader`. The built-in H2, PostgreSQL, MySQL and `OTHER` profiles are
 a fixed table in `jpa`, not service registrations, and a discovered profile takes precedence over the built-in one for
-its vendor. Two discovered profiles for one vendor throw `MQ4002`. Spring users may also register one as a bean, which
-takes precedence over a `ServiceLoader`-provided profile for the same vendor (`integration/50`).
+its vendor. Two discovered profiles for one vendor throw `MQ4002`. A caller may also supply profiles on
+`ModelQueryConfig.vendorProfiles(...)`, which take precedence over a `ServiceLoader`-provided profile for the same
+vendor; two supplied for one vendor throw `MQ4002`. The Spring starter passes every `VendorProfile` bean there
+(`integration/50`, D-53).
 
 **R-VND-11** `targetTableInSubquery()` (`Future`, M8) says whether an `UPDATE` or `DELETE` may read its own table in
 a sub-query. When it is false, a bulk write whose rendering needs such a sub-query runs key-first (`api/14` R-WRT-11).

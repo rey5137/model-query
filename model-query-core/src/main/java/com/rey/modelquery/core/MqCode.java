@@ -124,6 +124,9 @@ public enum MqCode {
     /** The customizer narrows the phases differently on a query with {@code primaryKeyFirst(...)} (R-PAG-15). */
     MQ2206("The phases of a query with primaryKeyFirst(...) disagree on its rows"),
 
+    /** A sort property names no selected column or aggregate, or more than one (R-QRY-14, D-52). */
+    MQ2301("A sort property resolves to no selected column or to more than one"),
+
     /** Two {@code VendorProfile}s registered for the same vendor with no precedence rule (R-VND-03). */
     MQ4002("Two VendorProfiles are registered for the same vendor"),
 

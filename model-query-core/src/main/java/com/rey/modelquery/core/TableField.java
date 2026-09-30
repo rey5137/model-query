@@ -164,6 +164,18 @@ public final class TableField<P, T> {
         return parent;
     }
 
+    /**
+     * The attributes joined from the root to this node, dotted: empty for a root, {@code customer.address} for a
+     * join below a join. An alias and an {@code on} condition are not part of it (R-QRY-14).
+     */
+    String path() {
+        if (parent == null) {
+            return "";
+        }
+        String above = parent.path();
+        return above.isEmpty() ? attribute : above + "." + attribute;
+    }
+
     /** The key named by {@link #presentBy}, or {@code null}. */
     PrimaryKey<?, ?> presenceKey() {
         return presenceKey;

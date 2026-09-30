@@ -240,6 +240,15 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
         return path(ctx);
     }
 
+    /**
+     * The attribute path from the query's root: {@link #name()} for a root column, {@code customer.name} for a
+     * column of a joined table. It is what a sort property is matched against first (R-QRY-14).
+     */
+    String path() {
+        String above = table.path();
+        return above.isEmpty() ? attribute : above + "." + attribute;
+    }
+
     Class<M> model() {
         return model;
     }

@@ -110,6 +110,18 @@ they do not count.
 | `afterMap` | The `RowMapper`'s result is returned as is. |
 | `where` | No predicate. `count` then counts the whole table. |
 
+**R-QRY-14** `ModelQuery.orderedBy(SortSpec)` returns a copy of the definition ordered by the spec's keys, each a
+property name, a direction and a `NullPrecedence`; an empty spec returns the definition unchanged. A property names
+one of the query's selected columns or aggregates, never an attribute the query doesn't select: first by the column's
+attribute path from the root (`customer.name`), then by its name. Matching is exact and case-sensitive. A property
+matching none, or more than one, throws `MQ2301` naming it (INV-5). The copy passes the same checks as `build()`
+(`MQ1207`, `MQ1406`), and the engine still appends the primary key or the group keys (`engine/21` R-PAG-01). This is
+how a sort chosen per request reaches a `static final` definition (INV-9, D-52).
+
+**R-QRY-15** `ExportOptions` carries an optional page size: `ExportOptions.defaults()` leaves it to
+`ModelQueryConfig.exportPageSize()` (default 1000), `ExportOptions.of(int)` sets it. `stream` always uses
+`ModelQueryConfig.streamFetchSize()` (default 500). Either config value below 1 is `MQ4003` (D-53).
+
 ## 6. Executor surface
 
 ```java
@@ -144,3 +156,5 @@ its facts to every build as `RenderOptions` (D-34). Semantics of each method are
 | AC-QRY-10 | A customizer that adds a `GROUP BY` or changes the `ORDER BY` throws `MQ1205` naming the model and the phase, on a grouped query and on one without a primary key too (R-QRY-11). |
 | AC-QRY-11 | `build()` with a primary-key column of array type throws `MQ1206` naming the column (R-QRY-12). |
 | AC-QRY-12 | `build()` of a `keyset()` query ordered by a `Float` or `Double` column, or keyed by one, throws `MQ1207` naming the column; the same query without `keyset()` builds (R-QRY-13). |
+| AC-QRY-13 | `orderedBy` sorts by a selected column's path and by its name; an unknown or ambiguous property throws `MQ2301` (R-QRY-14). |
+| AC-QRY-14 | `ExportOptions.defaults()` exports with the config's page size, and `stream` uses the config's fetch size (R-QRY-15). |

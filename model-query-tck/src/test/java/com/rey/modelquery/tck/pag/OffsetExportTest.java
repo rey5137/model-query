@@ -18,6 +18,7 @@ import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.QueryCustomizer;
 import com.rey.modelquery.core.RowMapper;
 import com.rey.modelquery.core.Slice;
+import com.rey.modelquery.core.SortSpec;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
@@ -33,6 +34,7 @@ import jakarta.persistence.EntityManager;
 import java.lang.ref.WeakReference;
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -92,6 +94,38 @@ class OffsetExportTest {
             .builder(ORDERS, row -> new OrderRow(row.get(ORDER_ID), row.get(ORDER_STATUS)))
             .columns(ColumnSet.of(ORDER_ID, ORDER_STATUS))
             .primaryKey(PrimaryKey.of(ORDER_ID));
+
+    // ---- AC-QRY-13
+
+    @TckTest
+    void ac_qry_13_ordered_by_replaces_the_order_and_offset_paging_still_appends_the_primary_key(TckDatabase db) {
+        AtomicInteger customized = new AtomicInteger();
+        var definition = ORDER_ROWS.orderBy(ORDER_ID.desc())
+                .customize((spec, joins, query, cb, phase) -> customized.incrementAndGet())
+                .build();
+        var byStatus = definition.orderedBy(SortSpec.of(SortSpec.Key.desc("status")));
+        List<OrderRow> rows = new ArrayList<>();
+        List<Integer> customizerRuns = new ArrayList<>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, OrderEntity.class, executor -> {
+            assertThat(executor.export(byStatus, ExportOptions.of(700), page -> page, rows::add))
+                    .isEqualTo(TckFixture.ORDERS);
+            customizerRuns.add(customized.getAndSet(0));
+            // A second copy and the definition itself: the phase check ran for the definition, once (D-21).
+            executor.list(definition.orderedBy(SortSpec.of(SortSpec.Key.asc("id"))), Limit.of(1));
+            customizerRuns.add(customized.getAndSet(0));
+            executor.list(definition, Limit.of(1));
+            customizerRuns.add(customized.getAndSet(0));
+        }));
+
+        // The few statuses tie on every page, so the rows come back once each only in an order the key closes.
+        assertThat(rows).extracting(OrderRow::id).doesNotHaveDuplicates();
+        assertThat(rows).isSortedAccordingTo(Comparator.comparing(OrderRow::status).reversed()
+                .thenComparing(OrderRow::id));
+        // The definition's "id desc" is gone: the spec's key, then the primary key the executor appends, ascending.
+        assertThat(sql.get(0)).matches(".* order by \\S+ desc,\\S+ (?!desc).*");
+        assertThat(customizerRuns.get(0)).isGreaterThan(customizerRuns.get(1));
+        assertThat(customizerRuns.subList(1, 3)).containsExactly(1, 1);
+    }
 
     // ---- AC-PAG-01
 
@@ -405,7 +439,7 @@ class OffsetExportTest {
         List<String> warnings = modelQueryWarnings(() -> withExecutor(db, OrderEntity.class, executor -> {
             executor.list(first, Limit.of(1));
             executor.count(first);
-            executor.export(first, new ExportOptions(10, Limit.of(10)), page -> page, row -> {});
+            executor.export(first, ExportOptions.of(10).withLimit(Limit.of(10)), page -> page, row -> {});
             withExecutor(db, OrderEntity.class, other -> other.list(first, Limit.of(1)));
             executor.list(second, Limit.of(1));
         }));
@@ -422,7 +456,7 @@ class OffsetExportTest {
                     .isInstanceOfSatisfying(ModelQueryExecutionException.class,
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ2001))
                     .hasMessageStartingWith(MqCode.MQ2001.code() + ":");
-            assertThatThrownBy(() -> new ExportOptions(size, Limit.unlimited()))
+            assertThatThrownBy(() -> ExportOptions.of(size))
                     .isInstanceOfSatisfying(ModelQueryExecutionException.class,
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ2001));
         }
@@ -434,13 +468,15 @@ class OffsetExportTest {
         List<Long> none = new ArrayList<>();
         List<String> sql = SqlSnapshots.assertMatches(db, "pag-zero-limit", ds -> withExecutor(ds,
                 OrderItemEntity.class, executor -> assertThat(executor.export(byId,
-                        new ExportOptions(100, Limit.of(0)), page -> page, row -> none.add(row.id()))).isZero()));
+                        ExportOptions.of(100).withLimit(Limit.of(0)), page -> page, row -> none.add(row.id())))
+                        .isZero()));
         assertThat(sql).isEmpty();
         assertThat(none).isEmpty();
 
         List<Long> ids = new ArrayList<>();
         withExecutor(db, OrderItemEntity.class, executor -> assertThat(executor.export(byId,
-                new ExportOptions(500, Limit.of(1_234)), page -> page, row -> ids.add(row.id()))).isEqualTo(1_234));
+                ExportOptions.of(500).withLimit(Limit.of(1_234)), page -> page, row -> ids.add(row.id())))
+                .isEqualTo(1_234));
         assertThat(ids).containsExactlyElementsOf(LongStream.rangeClosed(1, 1_234).boxed().toList());
     }
 
