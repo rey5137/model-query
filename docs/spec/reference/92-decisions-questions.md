@@ -375,6 +375,22 @@ The key is found on the column's own `TableField`: a join with an equal key buil
 because the presence key is not part of the join's identity. Generated code declares each join once, so it always
 carries it. → `api/10` R-COL-15, D-38.
 
+**D-44 — What the processor's flat-column checks accept, and how a QModel is named.**
+`MQ3002` compares the model field's type with the entity attribute's type for identity, a primitive counting as its
+wrapper: the engine makes the same comparison at first use (`MQ1001`, R-COL-08), so a merely assignable type
+(`Number` over a `Long` attribute) would compile and then fail. A column on a to-one association is a column of the
+target entity's type, as a hand-written one is, and is reported as the warning `MQ3016`: a read model should hold a
+nested model through `@Join`, not a managed entity, but the engine accepts the column, so the processor does too. A column on a collection attribute is `MQ3002`, since a collection
+cannot be selected (`engine/21` R-PAG-13). A dotted `@Column(attribute)` whose segment crosses an association, or
+walks into a basic value, is `MQ3001` naming the segment, mirroring `MQ1002` (D-41). A `prefix` or `suffix` written on
+`@QueryModel` wins over `-Amodelquery.prefix=` / `-Amodelquery.suffix=`, which win over the defaults: the option sets
+a project's convention and the annotation is the exception to it. Diagnostics on a record are reported on the
+component's field, which carries the component's annotations and its source position. `MQ3008` is not checked on a
+class carrying Lombok's `@NoArgsConstructor`: ordered before Lombok, the processor cannot see that constructor, so
+javac checks the generated call, as it does a setter (R-GEN-11). A column whose type has type arguments
+(`Map<String, String>`) is declared with its raw class cast to that type, since it has no class literal. Rejected: `MQ3002` by
+assignability (it would let through what `MQ1001` refuses). → `processor/30` R-PROC-04, `processor/32` §1.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter

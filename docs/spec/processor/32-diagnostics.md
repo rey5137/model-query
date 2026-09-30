@@ -10,8 +10,8 @@
 
 | Code | Check | Example message |
 |---|---|---|
-| `MQ3001` | Unknown attribute | `OrderView.totl: no attribute 'totl' on OrderEntity` |
-| `MQ3002` | Model type not assignable from the entity type and no converter | `OrderView.id: model type Integer, entity attribute type Long` |
+| `MQ3001` | Unknown attribute, or a dotted `@Column(attribute)` that leaves embedded values (D-44) | `OrderView.totl: no attribute 'totl' on OrderEntity` |
+| `MQ3002` | Model type is not the entity attribute's type, a primitive counting as its wrapper, and no converter; or the attribute is a collection (D-44) | `OrderView.id: model type Integer, entity attribute type Long` |
 | `MQ3003` | `@Join` attribute is not a to-one association (a collection cannot be selected, `engine/21` R-PAG-13), or the nested model's `root` does not match the target | `OrderView.customer: CustomerView.root is AccountEntity, association targets CustomerEntity` |
 | `MQ3004` | Missing `@PrimaryKey`, on a model with no `@Aggregate` field | `OrderView: no @PrimaryKey; paging, export and @Join presence need one` |
 | `MQ3005` | `@Join` field is not `Optional<X>`, or `X` is not a `@QueryModel` in the same compilation (Q-10) | `OrderView.customer: @Join field must be Optional<CustomerView>, found CustomerView` |
@@ -19,12 +19,13 @@
 | `MQ3007` | Join cycle between nested models | `OrderView.customer → CustomerView.lastOrder → OrderView` |
 | `MQ3008` | Class model has no no-arg constructor visible from its package | `OrderView: needs a no-arg constructor for setter mapping` |
 | `MQ3009` | Record component is primitive and not `@PrimaryKey` | `OrderView.count: primitive components can't be null when not selected; use Integer` |
-| `MQ3010` | Record has only a non-canonical constructor, or is generic | … |
+| `MQ3010` | Record has only a non-canonical constructor, or is generic | `OrderView: a generic record can't be mapped through its canonical constructor; remove the type parameters` |
 | `MQ3011` | `@FilterColumn` path does not resolve, or crosses a collection with no explicit `joinType` | `OrderView @FilterColumn(CUSTOMER_COUNTRY): no attribute 'contry' on CustomerEntity` |
 | `MQ3012` | Two `@FilterColumn`s with the same `alias` and path prefix but different `joinType` | `OrderView @FilterColumn(SKU_B): alias 'itemB' is INNER here, LEFT on SKU_B_QTY` |
 | `MQ3013` | `@FilterColumn` name clashes with a generated constant | `OrderView @FilterColumn(STATUS): name already used by field 'status'` |
 | `MQ3014` | `converter` is not a `ColumnConverter` between the field type and the attribute type, or has neither a public static `INSTANCE` nor a visible no-arg constructor | `OrderView.status: OrderStatusConverter converts OrderStatus to Integer, entity attribute type String` |
 | `MQ3015` | Two generated constants would have the same name, or a field's constant clashes with a reserved one (`ROOT`, `ALL`, `DEFAULT`, `KEY`, `MAPPER`, `GROUP_KEYS`) | `OrderView.customerId: constant CUSTOMER_ID is also generated for customer.id; rename the field or set @Join(prefix)` |
+| `MQ3016` | **Warning.** A column on a to-one association selects the whole entity (D-44) | `OrderView.customer: selects the whole CustomerEntity entity; use @Join with a query model of CustomerEntity to select only its columns` |
 | `MQ3201` | `@Aggregate` field is primitive | `ProductSales.revenue: SUM is NULL over zero rows; use BigDecimal, not a primitive` |
 | `MQ3202` | `@Aggregate` field type does not match the function's result type | `ProductSales.lines: COUNT returns Long, field is Integer` |
 | `MQ3203` | `@Aggregate` model has no `@GroupBy` field and is not `singleGroup` | `ProductSales: has @Aggregate fields but no @GroupBy; add one or set @QueryModel(singleGroup = true)` |
@@ -41,8 +42,8 @@
 **R-DIAG-01** A message names the model, the field or annotation, and both sides of a mismatch. It never asks the user
 to read the spec to understand what happened.
 
-**R-DIAG-02** Every check reports as an `ERROR` on the annotated element, so the IDE underlines the field rather than the
-generated file.
+**R-DIAG-02** Every check reports as an `ERROR` on the annotated element, so the IDE underlines the field rather than
+the generated file. `MQ3016` alone is a `WARNING`: the model is still generated.
 
 **R-DIAG-03** The processor reports **every** independent problem in one pass. A model that failed one check still
 produces the remaining diagnostics for its other fields; it does not produce a QModel.
