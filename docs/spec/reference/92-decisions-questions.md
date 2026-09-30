@@ -456,6 +456,16 @@ type). A model with no `@PrimaryKey` emits no `KEY`, and its `query()` has no `p
 `generateColumnSets = false`. A `@GroupBy` field that raises `MQ3204` is left out of `GROUP_KEYS`.
 → `processor/30` R-PROC-05, R-PROC-15, `processor/32` `MQ3005`, `MQ3201`, `MQ3204`, `MQ3206`, `MQ3207`.
 
+**D-48 — The diagnostic matrix covers the live codes.**
+`processor/32` R-DIAG-05 and AC-DIAG-01 cover each row of §1 not tagged `Future`: `MQ3001`–`MQ3016` and
+`MQ3201`–`MQ3207`. `MQ3301`–`MQ3307` have no check before M8, which extends the matrix; AC-DIAG-05 (checked by the AC
+audit) still lists them, so `reference/90` and §1 never drift, and also checks the live rows against the constants of
+the processor's `DiagnosticCode`. The matrix runs each code with Lombok's processor off and on, for a class and a
+record where both can raise it: `MQ3008` is a class check, `MQ3009` and `MQ3010` are record checks. An `MQ3012` raised
+on a join the user gave no alias names the join by its path (`join 'lines' is INNER here, LEFT on QTY`), never the
+generated `<attr>Inner` alias, which the user did not write.
+→ `processor/32` R-DIAG-05, AC-DIAG-01, AC-DIAG-05.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter

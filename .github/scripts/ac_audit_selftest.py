@@ -99,10 +99,40 @@ def ac_rel_07_code_missing_from_reference_90_fails():
     assert run(["M0"], ["ac_aaa_01_x", "ac_aaa_02_y"], code="MQ1999") == 1
 
 
+def diag(section1, catalogue, enum=None):
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        (root / "docs" / "spec" / "processor").mkdir(parents=True)
+        (root / "docs" / "spec" / "reference").mkdir()
+        (root / "docs" / "spec" / "processor" / "32-diagnostics.md").write_text(section1, encoding="utf-8")
+        (root / "docs" / "spec" / "reference" / "90-errors.md").write_text(catalogue, encoding="utf-8")
+        if enum is not None:
+            path = root / ac_audit.DIAG_ENUM
+            path.parent.mkdir(parents=True)
+            path.write_text("enum DiagnosticCode {\n" + enum + ";\n}\n", encoding="utf-8")
+        return ac_audit.diagnostic_mismatches(root, root / "docs" / "spec")
+
+
+ROWS = "| `MQ3001` | a |\n| `MQ3002` | b |\n| `MQ3301` | c (`Future`, M8) |\n"
+RANGES = "`MQ3001`\u2013`MQ3002`, `MQ3301`\u2013`MQ3301`\n"
+
+
+def ac_diag_05_matching_spec_and_enum_pass():
+    assert diag(ROWS, RANGES, '  MQ3001("a"),\n  MQ3002("b")') == []
+
+
+def ac_diag_05_gap_duplicate_and_missing_constant_fail():
+    assert diag(ROWS, "`MQ3001`\u2013`MQ3002`\n")  # MQ3301 not catalogued
+    assert diag(ROWS, RANGES + "`MQ3003`\u2013`MQ3003`\n")  # catalogued but not in section 1
+    assert diag(ROWS + "| `MQ3001` | again |\n", RANGES)  # duplicate row
+    assert diag(ROWS, RANGES, '  MQ3001("a")')  # MQ3002 has no constant
+    assert diag(ROWS, RANGES, '  MQ3001("a"),\n  MQ3002("b"),\n  MQ3301("c")')  # Future code has a constant
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in sorted(globals().items()):
-        if name.startswith(("ac_qa_01_", "ac_rel_07_")) and callable(fn):
+        if name.startswith(("ac_qa_01_", "ac_rel_07_", "ac_diag_05_")) and callable(fn):
             try:
                 fn()
                 print("ok   " + name)

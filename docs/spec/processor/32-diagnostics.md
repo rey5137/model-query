@@ -55,8 +55,9 @@ the original case and takes a new code for the new one.
 
 ## 2. Testing
 
-**R-DIAG-05** Every row of §1 has a `compile-testing` case asserting the code and the message, with Lombok on and off,
-for a class and a record where both are possible.
+**R-DIAG-05** Every row of §1 not tagged `Future` has a `compile-testing` case asserting the code and the message,
+with Lombok on and off, for a class and a record where both are possible (D-48). A `Future` row gets its case when
+its milestone builds the check.
 
 ## 3. What is deliberately not a diagnostic
 
@@ -70,7 +71,7 @@ processor (`processor/31` R-GEN-11). javac reports it against the generated `map
 
 | ID | Criterion |
 |---|---|
-| AC-DIAG-01 | Each code in §1 has a compile-testing case asserting code and message text (R-DIAG-05). |
+| AC-DIAG-01 | Each code in §1 not tagged `Future` has a compile-testing case asserting code and message text (R-DIAG-05, D-48). |
 | AC-DIAG-02 | A model with three independent errors reports three diagnostics in one compilation (R-DIAG-03). |
 | AC-DIAG-03 | Diagnostics are attached to the annotated element, verified through the diagnostic's element (R-DIAG-02). |
 | AC-DIAG-04 | A model with any error produces no QModel file (R-DIAG-03). |
