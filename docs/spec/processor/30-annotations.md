@@ -36,7 +36,8 @@ that does not depend on JPA or on the engine. Join types and aggregate functions
 (`processor/31` R-GEN-01).
 
 **R-PROC-04** `prefix` and `suffix` (also settable as `-Amodelquery.prefix=` / `-Amodelquery.suffix=`) name the
-generated class. A project also using Querydsl on the same classes should change one of them, although a collision is
+generated class. A value written on the annotation wins over the option, which wins over the default (D-44). A
+project also using Querydsl on the same classes should change one of them, although a collision is
 unlikely: Querydsl generates for entities, this processor generates for models.
 
 **R-PROC-05** `singleGroup = true` marks a model that has `@Aggregate` fields and deliberately no `@GroupBy` field — a

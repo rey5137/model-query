@@ -5,7 +5,6 @@ import static com.google.testing.compile.Compiler.javac;
 
 import com.google.testing.compile.Compilation;
 import com.google.testing.compile.JavaFileObjects;
-import javax.annotation.processing.Processor;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -14,17 +13,10 @@ import org.junit.jupiter.api.Test;
  */
 class LombokCoexistenceSmokeTest {
 
-    /** Lombok's processor, which its jar hides from the classpath: loaded by name, as {@code javac} discovers it. */
-    private static Processor lombok() throws ReflectiveOperationException {
-        return (Processor) Class.forName("lombok.launch.AnnotationProcessorHider$AnnotationProcessor")
-                .getDeclaredConstructor()
-                .newInstance();
-    }
-
     @Test
-    void aLombokClassCompilesBesideTheProcessorAndGetsItsAccessors() throws ReflectiveOperationException {
+    void aLombokClassCompilesBesideTheProcessorAndGetsItsAccessors() {
         Compilation compilation = javac()
-                .withProcessors(lombok(), new ModelQueryProcessor())
+                .withProcessors(ProcessorHarness.lombok(), new ModelQueryProcessor())
                 .compile(
                         JavaFileObjects.forSourceLines(
                                 "smoke.Person",
