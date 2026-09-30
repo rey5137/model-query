@@ -16,6 +16,7 @@ import com.rey.modelquery.tck.harness.TckDatabases;
 import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTarget;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -301,6 +302,57 @@ class GeneratedModelTest {
         });
         assertThat(items).anyMatch(item -> item.order().orElseThrow().getReferrer().isPresent())
                 .anyMatch(item -> item.order().orElseThrow().getReferrer().isEmpty());
+    }
+
+    @Test
+    void ac_proc_09_a_summary_model_query_is_grouped_by_its_group_keys() throws SQLException {
+        var summary = QStatusSummary.query()
+                .columns(QStatusSummary.GROUP_KEYS.with(
+                        QStatusSummary.ORDERS, QStatusSummary.REVENUE, QStatusSummary.FIRST_PLACED))
+                .orderBy(QStatusSummary.STATUS.asc())
+                .build();
+        List<StatusSummary> rows = new ArrayList<>();
+        List<String> sql = SqlSnapshots.assertMatches(DB, "proc-09-summary-model-grouped",
+                ds -> withExecutor(ds, OrderEntity.class,
+                        executor -> rows.addAll(executor.list(summary, Limit.unlimited()))));
+
+        assertThat(sql).singleElement().satisfies(statement -> assertThat(statement).contains(" group by "));
+        assertThat(rows).hasSize(count("SELECT COUNT(DISTINCT status) FROM orders")).isNotEmpty();
+        assertThat(rows).extracting(StatusSummary::status).isSorted().doesNotHaveDuplicates();
+        assertThat(rows.stream().mapToLong(StatusSummary::orders).sum()).isEqualTo(TckFixture.ORDERS);
+        assertThat(rows).allSatisfy(row -> {
+            assertThat(row.orders()).isEqualTo(
+                    count("SELECT COUNT(*) FROM orders WHERE status = '" + row.status() + "'"));
+            assertThat(row.revenue()).isEqualByComparingTo(decimal(
+                    "SELECT SUM(total) FROM orders WHERE status = '" + row.status() + "'"));
+            assertThat(row.firstPlaced()).isNotNull();
+        });
+    }
+
+    @Test
+    void ac_proc_10_a_single_group_model_query_returns_one_row_with_no_group_by_and_no_key() throws SQLException {
+        var totals = QOrderTotals.query()
+                .columns(ColumnSet.of(QOrderTotals.ORDERS, QOrderTotals.REVENUE))
+                .build();
+        List<OrderTotals> rows = new ArrayList<>();
+        List<String> sql = SqlSnapshots.assertMatches(DB, "proc-10-summary-model-single-group",
+                ds -> withExecutor(ds, OrderEntity.class,
+                        executor -> rows.addAll(executor.list(totals, Limit.unlimited()))));
+
+        assertThat(sql).singleElement().satisfies(statement -> assertThat(statement).doesNotContain(" group by "));
+        assertThat(rows).singleElement().satisfies(row -> {
+            assertThat(row.orders()).isEqualTo(TckFixture.ORDERS);
+            assertThat(row.revenue()).isEqualByComparingTo(decimal("SELECT SUM(total) FROM orders"));
+        });
+        assertThat(totals.primaryKey()).isEmpty();
+    }
+
+    private static BigDecimal decimal(String sql) throws SQLException {
+        try (Connection connection = DB.getConnection(); Statement statement = connection.createStatement();
+                ResultSet rows = statement.executeQuery(sql)) {
+            rows.next();
+            return rows.getBigDecimal(1);
+        }
     }
 
     private static int count(String sql) throws SQLException {

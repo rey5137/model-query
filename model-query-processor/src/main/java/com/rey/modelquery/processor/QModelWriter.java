@@ -1,6 +1,7 @@
 package com.rey.modelquery.processor;
 
 import com.rey.modelquery.processor.JoinedTable.JoinedColumn;
+import com.rey.modelquery.processor.ModelDefinition.AggregateDefinition;
 import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
 import com.squareup.javapoet.AnnotationSpec;
@@ -27,14 +28,17 @@ import javax.lang.model.util.Types;
  * Emits the QModel source of a validated {@link ModelDefinition} (spec processor/31 §1). The engine's types are named,
  * not referenced, so the processor does not depend on {@code model-query-core}.
  *
- * @implSpec R-GEN-04, R-GEN-05, R-GEN-06, R-GEN-09, R-GEN-10, R-GEN-12, R-GEN-13, R-GEN-14, R-GEN-15, R-GEN-24,
- *     R-PROC-07, R-PROC-09, R-PROC-10, R-PROC-11, R-PROC-12, R-PROC-13
+ * @implSpec R-GEN-04, R-GEN-05, R-GEN-06, R-GEN-09, R-GEN-10, R-GEN-12, R-GEN-13, R-GEN-14, R-GEN-15, R-GEN-17,
+ *     R-GEN-18, R-GEN-24, R-PROC-07, R-PROC-09, R-PROC-10, R-PROC-11, R-PROC-12, R-PROC-13, R-PROC-15,
+ *     R-PROC-16, R-PROC-17
  */
 final class QModelWriter {
 
     private static final String CORE = "com.rey.modelquery.core";
     private static final ClassName TABLE_FIELD = ClassName.get(CORE, "TableField");
     private static final ClassName COLUMN_FIELD = ClassName.get(CORE, "ColumnField");
+    private static final ClassName AGG = ClassName.get(CORE, "Agg");
+    private static final ClassName AGGREGATE_FIELD = ClassName.get(CORE, "AggregateField");
     private static final ClassName COLUMN_SET = ClassName.get(CORE, "ColumnSet");
     private static final ClassName PRIMARY_KEY = ClassName.get(CORE, "PrimaryKey");
     private static final ClassName ROW_MAPPER = ClassName.get(CORE, "RowMapper");
@@ -63,6 +67,10 @@ final class QModelWriter {
         // A composite key reads as the list of its column values (PrimaryKey.composite).
         TypeName keyType = keys.size() == 1
                 ? column(keys.get(0).type()) : ParameterizedTypeName.get(List.class, Object.class);
+        // A whole-table aggregate has no row identity, so its query() sets no key (R-GEN-18).
+        boolean keyed = !keys.isEmpty() && !model.singleGroup();
+        List<ModelField> groupKeys = model.groupKeys();
+        boolean grouped = !groupKeys.isEmpty() && !model.singleGroup();
 
         TypeSpec.Builder type = TypeSpec.classBuilder(generated)
                 .addOriginatingElement(model.type())
@@ -85,6 +93,10 @@ final class QModelWriter {
             type.addField(column(
                     modelName, model.root(), field.constant(), "ROOT", field.attribute(), field.type(),
                     field.converter()));
+        }
+        // Aggregates are in no column set, or every query of the model would be grouped (R-PROC-17).
+        for (ModelField field : model.aggregates()) {
+            type.addField(aggregate(modelName, model, field));
         }
         for (JoinedTable table : joined) {
             ClassName nested = generatedName(table.nested());
@@ -121,17 +133,27 @@ final class QModelWriter {
                         .build());
             }
         }
-        type.addField(FieldSpec.builder(ParameterizedTypeName.get(PRIMARY_KEY, modelName, keyType), "KEY", CONSTANT)
-                .initializer(keys.size() == 1 ? "$T.of($L)" : "$T.composite($L)", PRIMARY_KEY, constants(keys))
-                .build());
+        if (!groupKeys.isEmpty()) {
+            type.addField(FieldSpec.builder(ParameterizedTypeName.get(COLUMN_SET, modelName), "GROUP_KEYS", CONSTANT)
+                    .initializer("$T.of($L)", COLUMN_SET, constants(groupKeys))
+                    .build());
+        }
+        // A summary model may have no key: a group has none (R-AGG-09).
+        if (!keys.isEmpty()) {
+            type.addField(FieldSpec.builder(ParameterizedTypeName.get(PRIMARY_KEY, modelName, keyType), "KEY", CONSTANT)
+                    .initializer(keys.size() == 1 ? "$T.of($L)" : "$T.composite($L)", PRIMARY_KEY, constants(keys))
+                    .build());
+        }
         type.addField(FieldSpec.builder(ParameterizedTypeName.get(ROW_MAPPER, modelName), "MAPPER", CONSTANT)
                 .initializer("$T::map", generated)
                 .build());
         type.addMethod(MethodSpec.constructorBuilder().addModifiers(Modifier.PRIVATE).build());
         type.addMethod(MethodSpec.methodBuilder("query")
                 .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
-                .returns(ParameterizedTypeName.get(MODEL_QUERY.nestedClass("Builder"), entity, keyType, modelName))
-                .addStatement("return $T.builder(ROOT, MAPPER).primaryKey(KEY)", MODEL_QUERY)
+                .returns(ParameterizedTypeName.get(
+                        MODEL_QUERY.nestedClass("Builder"), entity, keyed ? keyType : TypeName.OBJECT, modelName))
+                .addStatement("return $T.builder(ROOT, MAPPER)$L$L", MODEL_QUERY,
+                        keyed ? ".primaryKey(KEY)" : "", grouped ? ".groupBy(GROUP_KEYS)" : "")
                 .build());
         MethodSpec.Builder map = MethodSpec.methodBuilder("map")
                 .addModifiers(Modifier.PRIVATE, Modifier.STATIC)
@@ -179,6 +201,35 @@ final class QModelWriter {
                 .build();
     }
 
+    /**
+     * The constant of an {@code @Aggregate} field, over a column built in place from its attribute: the aggregate is
+     * keyed by that column, so it equals the same function written by hand (api/13 R-AGG-01).
+     */
+    private FieldSpec aggregate(ClassName modelName, ModelDefinition model, ModelField field) {
+        AggregateDefinition aggregate = field.aggregate();
+        TypeName result = column(field.type());
+        FieldSpec.Builder constant = FieldSpec.builder(
+                ParameterizedTypeName.get(AGGREGATE_FIELD, modelName, result), field.constant(), CONSTANT);
+        if (aggregate.attribute().isEmpty() && aggregate.fn().equals("COUNT")) {
+            return constant.initializer("$T.count(ROOT)", AGG).build();
+        }
+        TypeMirror attributeType = metamodel.resolve(model.root(), aggregate.attribute()).attribute().type();
+        CodeBlock source = CodeBlock.of("$T.of($T.class,$WROOT,$W$S,$W$L)", COLUMN_FIELD, modelName,
+                aggregate.attribute(), classOf(column(attributeType)));
+        String function = switch (aggregate.fn()) {
+            case "COUNT" -> aggregate.distinct() ? "countDistinct" : null;
+            case "SUM" -> column(attributeType).toString().matches("java\\.lang\\.(Integer|Short|Byte)")
+                    ? "sumAsLong" : "sum";
+            default -> aggregate.fn().toLowerCase(Locale.ROOT);
+        };
+        if (function == null) {
+            // Agg has no count(column), so it counts the column's non-null values as an expression of its own.
+            return constant.initializer("$T.of($S, $T.class,$W(ctx, cb) -> cb.count($Z$L.path(ctx)))",
+                    AGG, field.constant(), Long.class, source).build();
+        }
+        return constant.initializer("$T.$L($Z$L)", AGG, function, source).build();
+    }
+
     /** A join no {@code @Join} declares: of a filter column's path, or of a collection of the root (R-PROC-13). */
     private static FieldSpec filterTable(FilterLayout.Table table) {
         ClassName parentEntity = ClassName.get(table.parentEntity());
@@ -198,7 +249,7 @@ final class QModelWriter {
     private void mapRecord(ModelDefinition model, ClassName modelName, MethodSpec.Builder map) {
         scopeJoins(model, map);
         CodeBlock arguments = model.fields().stream()
-                .map(field -> field.join() != null ? nested(field) : field.column()
+                .map(field -> field.join() != null ? nested(field) : field.column() || field.aggregate() != null
                         ? CodeBlock.of("row.get($L)", field.constant()) : CodeBlock.of(unset(field.type())))
                 .collect(CodeBlock.joining(",$W"));
         map.addStatement("return new $T($L)", modelName, arguments);
@@ -210,7 +261,10 @@ final class QModelWriter {
      */
     private void mapClass(ModelDefinition model, ClassName modelName, MethodSpec.Builder map) {
         map.addStatement("$T m = new $T()", modelName, modelName);
-        for (ModelField field : model.columns()) {
+        for (ModelField field : model.fields()) {
+            if (!field.column() && field.aggregate() == null) {
+                continue;
+            }
             map.beginControlFlow("if (row.isSelected($L))", field.constant())
                     .addStatement("m.$L(row.get($L))", setter(field), field.constant())
                     .endControlFlow();

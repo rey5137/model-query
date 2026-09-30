@@ -11,6 +11,7 @@ import com.rey.modelquery.annotations.JoinKind;
 import com.rey.modelquery.annotations.PrimaryKey;
 import com.rey.modelquery.annotations.QueryModel;
 import com.rey.modelquery.annotations.Transient;
+import com.rey.modelquery.processor.ModelDefinition.AggregateDefinition;
 import com.rey.modelquery.processor.ModelDefinition.FilterColumnDefinition;
 import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
@@ -46,6 +47,7 @@ final class QueryModelReader {
     private static final String PREFIX = "prefix";
     private static final String SUFFIX = "suffix";
     private static final String GENERATE_COLUMN_SETS = "generateColumnSets";
+    private static final String SINGLE_GROUP = "singleGroup";
     private static final String CONVERTER = "converter";
     private static final String OPTIONAL = "java.util.Optional";
 
@@ -53,16 +55,6 @@ final class QueryModelReader {
 
     QueryModelReader(Map<String, String> options) {
         this.options = options;
-    }
-
-    /**
-     * Whether {@code type} uses an annotation whose generation is not built yet: {@code @Aggregate} or
-     * {@code @GroupBy} (M4.5). Such a model is left alone rather than generated without them.
-     */
-    static boolean usesLaterFeature(TypeElement type) {
-        return ElementFilter.fieldsIn(type.getEnclosedElements()).stream()
-                .anyMatch(field -> field.getAnnotation(Aggregate.class) != null
-                        || field.getAnnotation(GroupBy.class) != null);
     }
 
     /**
@@ -80,6 +72,7 @@ final class QueryModelReader {
         String suffix = explicit(queryModel, SUFFIX) instanceof String set
                 ? set : options.getOrDefault(SUFFIX_OPTION, "");
         boolean columnSets = !Boolean.FALSE.equals(explicit(queryModel, GENERATE_COLUMN_SETS));
+        boolean singleGroup = Boolean.TRUE.equals(explicit(queryModel, SINGLE_GROUP));
 
         List<VariableElement> declared = ElementFilter.fieldsIn(type.getEnclosedElements()).stream()
                 .filter(field -> !field.getModifiers().contains(Modifier.STATIC))
@@ -93,19 +86,35 @@ final class QueryModelReader {
             Column column = field.getAnnotation(Column.class);
             String name = field.getSimpleName().toString();
             JoinDefinition join = isJoin(field) ? join(field, joinsPerAttribute.get(joinAttribute(field)) > 1) : null;
+            // Read even beside @Transient or @Join, so that the validator reports the pair (MQ3204).
+            AggregateDefinition aggregate = aggregate(field);
             fields.add(new ModelField(
                     field,
-                    field.getAnnotation(Transient.class) == null && join == null,
+                    field.getAnnotation(Transient.class) == null && join == null && aggregate == null,
                     column == null || column.attribute().isEmpty() ? name : column.attribute(),
                     constantName(name),
                     field.getAnnotation(PrimaryKey.class) != null,
                     field.getAnnotation(ExcludeFromDefaults.class) != null,
                     column == null ? null : converter(field),
-                    join));
+                    join,
+                    aggregate,
+                    field.getAnnotation(GroupBy.class) != null));
         }
         return new ModelDefinition(
-                type, (TypeElement) rootType.asElement(), prefix + type.getSimpleName() + suffix, columnSets, fields,
-                filterColumns(type));
+                type, (TypeElement) rootType.asElement(), prefix + type.getSimpleName() + suffix, columnSets,
+                singleGroup, fields, filterColumns(type));
+    }
+
+    /** What {@code @Aggregate} says of {@code field}, or {@code null} when it carries none. */
+    private static AggregateDefinition aggregate(VariableElement field) {
+        AnnotationMirror mirror = mirror(field, Aggregate.class);
+        if (mirror == null) {
+            return null;
+        }
+        return new AggregateDefinition(
+                explicit(mirror, "fn") instanceof Element fn ? fn.getSimpleName().toString() : "",
+                explicit(mirror, "attribute") instanceof String attribute ? attribute : "",
+                Boolean.TRUE.equals(explicit(mirror, "distinct")));
     }
 
     /** The {@code @FilterColumn}s of {@code type}, written once or repeated inside a {@code @FilterColumns}. */

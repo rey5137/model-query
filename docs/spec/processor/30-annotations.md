@@ -41,7 +41,8 @@ project also using Querydsl on the same classes should change one of them, altho
 unlikely: Querydsl generates for entities, this processor generates for models.
 
 **R-PROC-05** `singleGroup = true` marks a model that has `@Aggregate` fields and deliberately no `@GroupBy` field — a
-whole-table total. Without it, that combination is a diagnostic (`processor/32` `MQ3203`).
+whole-table total. Without it, that combination is a diagnostic (`processor/32` `MQ3203`). `singleGroup = true` on a
+model that has `@GroupBy` fields is `MQ3207` (D-47).
 
 ## 3. `@Column` and converters
 
@@ -92,7 +93,9 @@ its own, `ITEMS_INNER_TABLE` under the alias `itemsInner` (D-46).
 ## 6. `@Aggregate` and `@GroupBy`
 
 **R-PROC-15** `@Aggregate` generates one `AggregateField` constant and maps it into its field. `fn` is `COUNT`, `SUM`,
-`AVG`, `MIN` or `MAX`; `attribute` is omitted for `COUNT` over the root; `distinct = true` yields `countDistinct`.
+`AVG`, `MIN` or `MAX`; `attribute` is omitted for `COUNT` over the root; `distinct = true` yields `countDistinct`
+and is `MQ3206` on any other function. An `@Aggregate` field can't also carry `@PrimaryKey`, `@Column`, `@Join` or
+`@Transient` (`MQ3204`), and a model with an `@Aggregate` field can't be a `@Join` target (`MQ3005`) (D-47).
 
 **R-PROC-16** `@GroupBy` fields, in declaration order, form the generated `GROUP_KEYS` `ColumnSet`, and
 `Q<Model>.query()` is pre-configured with `groupBy(GROUP_KEYS)`. `@GroupBy` cannot be combined with `@Aggregate` or

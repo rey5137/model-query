@@ -50,7 +50,31 @@ enum DiagnosticCode {
 
     /** Two generated constants share a name, or one takes a reserved name. */
     MQ3015("Generated constant name is already taken"),
-    MQ3016("Column selects a whole entity; a warning");
+    MQ3016("Column selects a whole entity; a warning"),
+
+    /** An {@code @Aggregate} field is primitive, though an aggregate can be {@code NULL}. */
+    MQ3201("@Aggregate field is primitive"),
+
+    /** An {@code @Aggregate} field's type is not the function's result type. */
+    MQ3202("@Aggregate field type does not match the function's result type"),
+
+    /** A model with {@code @Aggregate} fields has no {@code @GroupBy} field and is not {@code singleGroup}. */
+    MQ3203("@Aggregate model has no @GroupBy field and is not singleGroup"),
+
+    /**
+     * {@code @GroupBy} is combined with {@code @Aggregate} or {@code @Join}, or {@code @Aggregate} with
+     * {@code @PrimaryKey}, {@code @Column}, {@code @Join} or {@code @Transient}.
+     */
+    MQ3204("@GroupBy or @Aggregate combined with an annotation it can't share a field with"),
+
+    /** {@code SUM} over a 32-bit attribute, which the database returns as a {@code Long}. */
+    MQ3205("@Aggregate(fn = SUM) over a 32-bit attribute"),
+
+    /** {@code @Aggregate(distinct = true)} on a function other than {@code COUNT}. */
+    MQ3206("@Aggregate(distinct = true) on a function other than COUNT"),
+
+    /** {@code @QueryModel(singleGroup = true)} on a model that has {@code @GroupBy} fields. */
+    MQ3207("singleGroup combined with @GroupBy fields");
 
     private final String defaultMessage;
 

@@ -85,7 +85,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 
 ## 4. `MQ3xxx` — annotation processing
 
-Catalogued with messages in `processor/32` §1: `MQ3001`–`MQ3016` for structural checks, `MQ3201`–`MQ3205` for aggregate
+Catalogued with messages in `processor/32` §1: `MQ3001`–`MQ3016` for structural checks, `MQ3201`–`MQ3207` for aggregate
 models, `MQ3301`–`MQ3307` for update models (`Future`, M8). Codes are not repeated here to keep one owner.
 
 ## 5. `MQ4xxx` — configuration
