@@ -3,8 +3,8 @@ package com.rey.modelquery.jpa.vendor;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullOrdering;
+import com.rey.modelquery.jpa.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
-import com.rey.modelquery.jpa.spi.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
@@ -104,8 +104,10 @@ enum BuiltInProfile implements VendorProfile {
     public void applyTimeout(Query query, Duration timeout) {
         // Whole seconds, rounded up (R-PRF-05): Hibernate rounds the millisecond hint to the nearest second, which
         // turns a sub-second timeout into none. An Integer, because Hibernate rejects a Long value for the hint.
-        long seconds = (timeout.toMillis() + 999) / 1000;
-        query.setHint(TIMEOUT_HINT, (int) Math.min(Integer.MAX_VALUE / 1000, seconds) * 1000);
+        // From the seconds, not toMillis(): that is zero below a millisecond and overflows for a huge duration.
+        long seconds = Math.min(Integer.MAX_VALUE / 1000 - 1, timeout.toSeconds())
+                + (timeout.toNanosPart() > 0 ? 1 : 0);
+        query.setHint(TIMEOUT_HINT, (int) seconds * 1000);
     }
 
     @Override

@@ -66,7 +66,8 @@ stays safe (R-VND-01). It is a capability, not a rendering hook, because the eng
 3. Otherwise `DatabaseMetaData#getDatabaseProductName()`, read once per `EntityManagerFactory` on a connection from
    the factory's `jakarta.persistence.nonJtaDataSource` property: `H2`, `PostgreSQL`, `MySQL` and `MariaDB` name their
    vendor, any other name is `OTHER`. A factory without that property, or whose `DataSource` fails, resolves to
-   `OTHER` and logs a `WARN`.
+   `OTHER` and logs a `WARN`. A factory whose metadata read fails stays `OTHER` for the factory's lifetime: the
+   result is cached, not retried.
 
 The result is cached weakly per factory and configured vendor, so detection runs once per factory and an explicit
 vendor always wins over an earlier detection.
@@ -80,7 +81,9 @@ profile too, and the resolution log names the vendor detected. Keyset paging on 
 null precedence is refused under `OTHER` (`engine/21` R-PAG-05, `api/10` R-COL-13).
 
 **R-VND-07** The resolved profile is logged once at `INFO` with how it was resolved, because a wrong profile produces
-correct-looking results with the wrong limits.
+correct-looking results with the wrong limits. When no `ProviderSupport` serves the factory and its properties carry
+`hibernate.order_by.default_null_ordering` set to anything but `none`, resolution also logs a `WARN` once: the setting
+is not honoured without `model-query-hibernate` (`engine/21` R-PAG-05, D-36, Q-9).
 
 ## 3. Keyset predicate contract
 
@@ -97,6 +100,10 @@ inherits correct keyset behaviour without writing SQL.
 - JSON, array and enum column types follow the entity mapping.
 - Boolean storage and date/time precision follow Hibernate and the JDBC driver; time zones follow
   `hibernate.jdbc.time_zone`.
+- H2's default null ordering must be kept. With `DEFAULT_NULL_ORDERING` set to anything else, Hibernate's H2 dialect,
+  which assumes NULLs sort smallest, leaves an explicit `nullsFirst()`/`nullsLast()` bare where it is needed, so NULLs
+  are misplaced and keyset paging may skip them even with explicit precedence. It is not detectable without a
+  connection (R-VND-05).
 
 **R-VND-10** A behaviour in this list is never silently emulated. If a use case needs uniformity, it asks for it
 explicitly (`likeIgnoreCase`, `nullsFirst`), and the library renders it the same way everywhere (`api/12` R-FLT-07,

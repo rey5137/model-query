@@ -7,8 +7,8 @@ import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.RenderOptions;
+import com.rey.modelquery.jpa.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
-import com.rey.modelquery.jpa.spi.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import jakarta.persistence.Query;
 import java.time.Duration;
@@ -109,7 +109,7 @@ class VendorResolverTest {
         assertProfile(BuiltInProfile.MYSQL, DatabaseVendor.MYSQL, 10_000, 65_535, NullOrdering.NULLS_FIRST);
         RenderOptions portable = RenderOptions.portable();
         assertProfile(BuiltInProfile.OTHER, DatabaseVendor.OTHER, portable.maxInListSize(),
-                portable.maxBindParameters(), portable.defaultAscendingNullOrdering());
+                portable.maxBindParameters(), NullOrdering.UNKNOWN);
         assertThat(portable.nullPrecedenceRenderer()).isEmpty();
         assertThat(BuiltInProfile.values()).noneMatch(VendorProfile::targetTableInSubquery);
     }
@@ -120,6 +120,29 @@ class VendorResolverTest {
         assertThat(profile.maxInListSize()).as(vendor + " IN list").isEqualTo(maxIn);
         assertThat(profile.maxBindParameters()).as(vendor + " binds").isEqualTo(maxBinds);
         assertThat(profile.defaultAscendingNullOrdering()).as(vendor + " NULLs").isEqualTo(nullOrdering);
+    }
+
+    @Test
+    void r_prf_05_the_timeout_is_whole_seconds_rounded_up_and_never_zero() {
+        assertThat(timeoutHint(Duration.ofNanos(1))).isEqualTo(1000);
+        assertThat(timeoutHint(Duration.ofMillis(1))).isEqualTo(1000);
+        assertThat(timeoutHint(Duration.ofSeconds(2))).isEqualTo(2000);
+        assertThat(timeoutHint(Duration.ofMillis(2001))).isEqualTo(3000);
+        assertThat(timeoutHint(Duration.ofSeconds(Long.MAX_VALUE, 1))).isEqualTo(Integer.MAX_VALUE / 1000 * 1000);
+    }
+
+    /** The value the built-in profiles set the timeout hint to for {@code timeout}. */
+    private static Object timeoutHint(Duration timeout) {
+        Object[] hint = new Object[1];
+        Query query = (Query) java.lang.reflect.Proxy.newProxyInstance(VendorResolverTest.class.getClassLoader(),
+                new Class<?>[] {Query.class}, (proxy, method, args) -> {
+                    assertThat(method.getName()).isEqualTo("setHint");
+                    assertThat(args[0]).isEqualTo(BuiltInProfile.TIMEOUT_HINT);
+                    hint[0] = args[1];
+                    return proxy;
+                });
+        BuiltInProfile.H2.applyTimeout(query, timeout);
+        return hint[0];
     }
 
     private static VendorProfile profileFor(DatabaseVendor vendor, Map<DatabaseVendor, VendorProfile> discovered) {

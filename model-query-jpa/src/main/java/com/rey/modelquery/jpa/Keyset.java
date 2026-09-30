@@ -11,7 +11,6 @@ import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.OrderField;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
-import com.rey.modelquery.jpa.spi.KeysetNullKeys;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Order;
@@ -30,12 +29,12 @@ import java.util.Optional;
 final class Keyset<M> {
 
     /**
-     * One keyset column; {@code keyColumn} for a primary-key column, which R-PAG-03 already keeps non-NULL.
-     * {@code nulls} is where its NULLs sort: the explicit precedence, else for a non-key column the provider's
-     * configured default or the database's default in its direction, and {@code DEFAULT} where neither is known.
-     * {@code refuseNull} when a NULL in it throws {@code MQ2202}.
+     * One keyset column. {@code nulls} is where its NULLs sort: the explicit precedence, else for a non-key column
+     * the provider's configured default or the database's default in its direction, and {@code DEFAULT} where
+     * neither is known, or for a primary-key column, which R-PAG-03 already keeps non-NULL. {@code refuseNull} when
+     * a NULL in it throws {@code MQ2202}.
      */
-    private record Key<M>(OrderField<M, ?> order, boolean keyColumn, NullPrecedence nulls, boolean refuseNull) {}
+    private record Key<M>(OrderField<M, ?> order, NullPrecedence nulls, boolean refuseNull) {}
 
     private final ModelQuery<?, ?, M> query;
     private final List<Key<M>> keys;
@@ -62,7 +61,7 @@ final class Keyset<M> {
         }
         for (ColumnField<M, ?, ?> column : key.columns()) {
             if (q.orderBy().stream().noneMatch(order -> order.column().equals(column))) {
-                keys.add(new Key<>(new OrderField<>(column, ascending, NullPrecedence.DEFAULT), true,
+                keys.add(new Key<>(new OrderField<>(column, ascending, NullPrecedence.DEFAULT),
                         NullPrecedence.DEFAULT, false));
             }
         }
@@ -72,7 +71,7 @@ final class Keyset<M> {
     private static <M> Key<M> key(OrderField<M, ?> order, boolean keyColumn, NullOrdering defaultOrdering,
             Optional<NullPrecedence> providerNulls, KeysetNullKeys nullKeys) {
         if (keyColumn || order.nulls() != NullPrecedence.DEFAULT) {
-            return new Key<>(order, keyColumn, order.nulls(), false);
+            return new Key<>(order, order.nulls(), false);
         }
         // The provider's configured default sorts a bare order the same way in both directions; the database's
         // default is ascending, and descending order reverses it.
@@ -80,7 +79,7 @@ final class Keyset<M> {
                 ? NullPrecedence.DEFAULT
                 : (defaultOrdering == NullOrdering.NULLS_FIRST) == order.ascending()
                         ? NullPrecedence.FIRST : NullPrecedence.LAST);
-        return new Key<>(order, false, nulls, nullKeys == KeysetNullKeys.FAIL || nulls == NullPrecedence.DEFAULT);
+        return new Key<>(order, nulls, nullKeys == KeysetNullKeys.FAIL || nulls == NullPrecedence.DEFAULT);
     }
 
     /** Appends the primary-key tie-breakers to {@code built}'s order, which already holds the query's own. */
@@ -152,10 +151,10 @@ final class Keyset<M> {
         Predicate past = key.order().ascending()
                 ? cb.greaterThan(comparable(column), (Comparable) value)
                 : cb.lessThan(comparable(column), (Comparable) value);
-        // Under LAST every NULL follows every value. Under DEFAULT the database's order is unknown and a NULL is
-        // refused when read, and this branch makes sure it is read wherever the database sorts it, instead of being
-        // skipped silently (INV-5, D-30).
-        boolean nullsFollow = nulls == NullPrecedence.LAST || nulls == NullPrecedence.DEFAULT && !key.keyColumn();
+        // Under LAST every NULL follows every value. A column that refuses its NULLs keeps the branch whatever the
+        // ordering, known or not: it makes sure a NULL is read, and so refused, wherever the database really sorts
+        // it, instead of being skipped silently when the reported ordering is wrong (INV-5, D-30, D-35).
+        boolean nullsFollow = nulls == NullPrecedence.LAST || key.refuseNull();
         return nullsFollow ? cb.or(past, cb.isNull(column)) : past;
     }
 

@@ -12,7 +12,7 @@ import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
-import com.rey.modelquery.jpa.spi.MysqlStreamingMode;
+import com.rey.modelquery.jpa.MysqlStreamingMode;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
 import com.rey.modelquery.tck.col.OrderItemEntity;
@@ -64,6 +64,19 @@ class StreamingAndTimeoutTest {
     private static final ModelQuery<OrderEntity, ?, ItemRow> NEVER_FINISHES = ModelQuery
             .builder(ORDERS, row -> new ItemRow(row.get(ORDER_ID), row.get(PRODUCT)))
             .columns(ColumnSet.of(ORDER_ID, PRODUCT))
+            .customize((spec, joins, query, cb, phase) -> {
+                Root<OrderItemEntity> a = query.from(OrderItemEntity.class);
+                Root<OrderItemEntity> b = query.from(OrderItemEntity.class);
+                Expression<Long> sum = cb.sum(cb.sum(a.<Long>get("id"), b.<Long>get("id")), 0L);
+                query.where(cb.lt(sum, 0L));
+            })
+            .build();
+
+    /** {@link #NEVER_FINISHES}, grouped, so its count is the provider support's count query (R-EXE-03). */
+    private static final ModelQuery<OrderEntity, ?, ItemRow> NEVER_FINISHES_GROUPED = ModelQuery
+            .builder(ORDERS, row -> new ItemRow(row.get(ORDER_ID), row.get(PRODUCT)))
+            .columns(ColumnSet.of(ORDER_ID, PRODUCT))
+            .groupBy(ORDER_ID, PRODUCT)
             .customize((spec, joins, query, cb, phase) -> {
                 Root<OrderItemEntity> a = query.from(OrderItemEntity.class);
                 Root<OrderItemEntity> b = query.from(OrderItemEntity.class);
@@ -180,6 +193,18 @@ class StreamingAndTimeoutTest {
             long start = System.nanoTime();
             assertThatThrownBy(() -> sf.inSession(em -> ModelQueryExecutor.create(em, OrderEntity.class, config)
                     .list(NEVER_FINISHES, Limit.of(10)))).isInstanceOf(QueryTimeoutException.class);
+            assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(15));
+        }
+    }
+
+    @TckTest
+    void ac_exe_09_the_timeout_also_cancels_a_grouped_count(TckDatabase db) {
+        // The grouped count is built by the provider support and run by the executor, so the timeout reaches it.
+        ModelQueryConfig config = ModelQueryConfig.defaults().queryTimeout(Duration.ofSeconds(1));
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
+            long start = System.nanoTime();
+            assertThatThrownBy(() -> sf.inSession(em -> ModelQueryExecutor.create(em, OrderEntity.class, config)
+                    .count(NEVER_FINISHES_GROUPED))).isInstanceOf(QueryTimeoutException.class);
             assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(15));
         }
     }

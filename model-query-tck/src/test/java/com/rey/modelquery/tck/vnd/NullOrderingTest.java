@@ -13,10 +13,10 @@ import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.OrderField;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.TableField;
+import com.rey.modelquery.jpa.KeysetNullKeys;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
-import com.rey.modelquery.jpa.spi.KeysetNullKeys;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.NullableSortEntity;
 import com.rey.modelquery.tck.harness.TckDatabase;
@@ -101,18 +101,21 @@ class NullOrderingTest {
             TckDatabase db) {
         // Hibernate applies hibernate.order_by.default_null_ordering to an order rendered without a null precedence,
         // so a precedence that matches the vendor's default must still reach Hibernate as that precedence, or the
-        // ORDER BY and the keyset predicate disagree and the NULLs are skipped.
+        // ORDER BY and the keyset predicate disagree and the NULLs are skipped. Without model-query-hibernate the
+        // setting is unreported, so the precedence always renders its own sort key (R-COL-12).
         List<SortRow> all = jdbc(db);
         for (String nullOrdering : List.of("first", "last")) {
-            withExecutor(JoinTestSupport.sessionFactory(db, nullOrdering), true, ModelQueryConfig.defaults(),
-                    executor -> {
-                        for (boolean ascending : List.of(true, false)) {
-                            for (NullPrecedence nulls : List.of(NullPrecedence.FIRST, NullPrecedence.LAST)) {
-                                checkEveryRowOnce(executor, all, COLUMNS.get(0), ascending, nulls,
-                                        "default_null_ordering " + nullOrdering);
+            for (boolean hibernate : List.of(true, false)) {
+                withExecutor(JoinTestSupport.sessionFactory(db, nullOrdering), hibernate, ModelQueryConfig.defaults(),
+                        executor -> {
+                            for (boolean ascending : List.of(true, false)) {
+                                for (NullPrecedence nulls : List.of(NullPrecedence.FIRST, NullPrecedence.LAST)) {
+                                    checkEveryRowOnce(executor, all, COLUMNS.get(0), ascending, nulls,
+                                            "default_null_ordering " + nullOrdering + ", hibernate " + hibernate);
+                                }
                             }
-                        }
-                    });
+                        });
+            }
         }
     }
 
@@ -158,16 +161,21 @@ class NullOrderingTest {
             TckDatabase db) {
         // Under fail the NULLs of a DEFAULT column are refused wherever Hibernate's default_null_ordering sorts them:
         // the rows exported before the MQ2202 are exactly the first rows of that order, so none is skipped silently.
+        // Without model-query-hibernate nothing reports that setting and the profile's ordering is wrong for it (H2
+        // and MySQL report NULLs first where "last" sorts them last); the NULLs are refused all the same (D-35).
         List<SortRow> all = jdbc(db);
-        for (String nullOrdering : List.of("first", "last")) {
-            withExecutor(JoinTestSupport.sessionFactory(db, nullOrdering), true, ModelQueryConfig.defaults(),
-                    executor -> {
+        ModelQueryConfig configured =
+                ModelQueryConfig.defaults().vendor(DatabaseVendor.valueOf(db.vendor().name()));
+        for (String nullOrdering : List.of("first", "last", "first-unreported", "last-unreported")) {
+            boolean reported = !nullOrdering.endsWith("-unreported");
+            withExecutor(JoinTestSupport.sessionFactory(db, nullOrdering.replace("-unreported", "")), reported,
+                    reported ? ModelQueryConfig.defaults() : configured, executor -> {
                         for (boolean ascending : List.of(true, false)) {
                             Comparator<Integer> values = ascending ? Comparator.naturalOrder()
                                     : Comparator.reverseOrder();
                             Comparator<SortRow> byId = Comparator.comparing(SortRow::id);
                             List<Long> expected = all.stream()
-                                    .sorted(Comparator.comparing(SortRow::sortInt, nullOrdering.equals("first")
+                                    .sorted(Comparator.comparing(SortRow::sortInt, nullOrdering.startsWith("first")
                                                     ? Comparator.nullsFirst(values) : Comparator.nullsLast(values))
                                             .thenComparing(ascending ? byId : byId.reversed()))
                                     .map(SortRow::id).toList();
@@ -295,15 +303,7 @@ class NullOrderingTest {
 
     private static void withExecutor(SessionFactory factory, boolean hibernate, ModelQueryConfig config,
             Consumer<ModelQueryExecutor<NullableSortEntity>> work) {
-        try (SessionFactory sf = factory) {
-            Runnable run = () -> sf.inSession(em -> work.accept(
-                    ModelQueryExecutor.create(em, NullableSortEntity.class, config)));
-            if (hibernate) {
-                run.run();
-            } else {
-                JoinTestSupport.withoutServices(run);
-            }
-        }
+        JoinTestSupport.withExecutor(factory, hibernate, NullableSortEntity.class, config, work);
     }
 
     private static List<SortRow> jdbc(TckDatabase db) {

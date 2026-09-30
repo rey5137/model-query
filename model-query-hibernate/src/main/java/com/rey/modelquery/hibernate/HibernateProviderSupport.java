@@ -7,12 +7,11 @@ import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceException;
-import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Order;
 import java.util.Optional;
-import java.util.OptionalLong;
 import org.hibernate.dialect.Dialect;
 import org.hibernate.dialect.H2Dialect;
 import org.hibernate.dialect.MariaDBDialect;
@@ -23,12 +22,12 @@ import org.hibernate.dialect.SQLServerDialect;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.query.SortDirection;
 import org.hibernate.query.criteria.HibernateCriteriaBuilder;
+import org.hibernate.query.criteria.JpaCriteriaQuery;
 import org.hibernate.query.criteria.JpaExpression;
-import org.hibernate.query.SelectionQuery;
 
 /**
  * Hibernate's {@link ProviderSupport}: the vendor from the dialect, without a connection, and the grouped count with
- * {@code SelectionQuery#getResultCount()}, which renders {@code select count(*) from (<grouped query>)}, null
+ * {@code JpaCriteriaQuery#createCountQuery()}, which renders {@code select count(*) from (<grouped query>)}, null
  * precedence with {@code HibernateCriteriaBuilder#sort}, which the dialect renders natively or emulates, and the
  * configured {@code hibernate.order_by.default_null_ordering}. Registered with {@code ServiceLoader}.
  *
@@ -66,14 +65,11 @@ public final class HibernateProviderSupport implements ProviderSupport {
     }
 
     @Override
-    public OptionalLong countGroups(TypedQuery<?> groupedQuery) {
-        SelectionQuery<?> selection;
-        try {
-            selection = groupedQuery.unwrap(SelectionQuery.class);
-        } catch (PersistenceException notHibernate) {
-            return OptionalLong.empty(); // another provider: the executor counts client-side
-        }
-        return OptionalLong.of(selection.getResultCount());
+    public Optional<CriteriaQuery<Long>> countQuery(CriteriaQuery<?> groupedQuery) {
+        // Another provider's query: the executor counts client-side.
+        return groupedQuery instanceof JpaCriteriaQuery<?> grouped
+                ? Optional.of(grouped.createCountQuery())
+                : Optional.empty();
     }
 
     @Override

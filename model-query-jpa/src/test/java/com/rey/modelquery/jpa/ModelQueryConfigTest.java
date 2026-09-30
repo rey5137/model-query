@@ -6,8 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
-import com.rey.modelquery.jpa.spi.KeysetNullKeys;
-import com.rey.modelquery.jpa.spi.MysqlStreamingMode;
 import java.time.Duration;
 import java.util.OptionalInt;
 import org.junit.jupiter.api.Test;

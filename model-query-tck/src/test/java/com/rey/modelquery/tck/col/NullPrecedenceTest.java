@@ -74,8 +74,7 @@ class NullPrecedenceTest {
 
     @TckTest
     void ac_col_08_nulls_first_and_last_order_identically_with_and_without_model_query_hibernate(TckDatabase db) {
-        // Through the executor each order renders by the profile: no null clause where the vendor's default already
-        // matches, else HibernateCriteriaBuilder#sort with model-query-hibernate, else the portable CASE key.
+        // Through the executor: HibernateCriteriaBuilder#sort with model-query-hibernate, else the portable CASE key.
         List<Sort> all = jdbc(db);
         for (boolean hibernate : List.of(true, false)) {
             withExecutor(db, hibernate, executor -> {
@@ -87,10 +86,11 @@ class NullPrecedenceTest {
     }
 
     @TckTest
-    void ac_col_08_the_profile_renders_no_null_key_where_the_vendor_default_already_matches(TckDatabase db) {
-        // Per vendor, with then without model-query-hibernate: asc/desc x nulls first/last on sort_int. A matching
-        // default renders the column alone in both; otherwise Hibernate renders or emulates the precedence, and
-        // plain JPA prepends the CASE key.
+    void ac_col_08_only_model_query_hibernate_renders_no_null_key_where_the_vendor_default_matches(TckDatabase db) {
+        // Per vendor, with then without model-query-hibernate: asc/desc x nulls first/last on sort_int. Hibernate
+        // renders the column alone where the dialect's default matches, else renders or emulates the precedence;
+        // plain JPA always prepends the CASE key, since a bare order would take a default null ordering the provider
+        // is configured with.
         List<String> sql = SqlSnapshots.assertMatches(db, "col-08-null-precedence-profile", ds -> {
             for (boolean hibernate : List.of(true, false)) {
                 withExecutor(ds, hibernate, executor -> {
@@ -102,9 +102,9 @@ class NullPrecedenceTest {
             }
         });
         assertThat(sql).hasSize(8);
-        // Each vendor's default matches exactly one precedence per direction, so two of the four orders render the
-        // column alone, with and without Hibernate.
-        assertThat(sql.subList(4, 8)).filteredOn(s -> s.contains("case when")).hasSize(2);
+        // Each vendor's default matches exactly one precedence per direction, so with Hibernate two of the four
+        // orders render the column alone.
+        assertThat(sql.subList(4, 8)).filteredOn(s -> s.contains("case when")).hasSize(4);
         assertThat(sql.subList(0, 4)).filteredOn(s -> s.contains(" nulls ") || s.contains("case when")).hasSize(2);
     }
 
@@ -149,15 +149,7 @@ class NullPrecedenceTest {
 
     private static void withExecutor(SessionFactory factory, boolean hibernate,
             Consumer<ModelQueryExecutor<NullableSortEntity>> work) {
-        try (SessionFactory sf = factory) {
-            Runnable run = () -> sf.inSession(em -> work.accept(
-                    ModelQueryExecutor.create(em, NullableSortEntity.class, ModelQueryConfig.defaults())));
-            if (hibernate) {
-                run.run();
-            } else {
-                JoinTestSupport.withoutServices(run);
-            }
-        }
+        JoinTestSupport.withExecutor(factory, hibernate, NullableSortEntity.class, ModelQueryConfig.defaults(), work);
     }
 
     private static <C extends Comparable<? super C>> void check(CriteriaBuilder cb,

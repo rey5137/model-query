@@ -11,7 +11,6 @@ import com.rey.modelquery.core.OrderField;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
-import com.rey.modelquery.jpa.spi.KeysetNullKeys;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;

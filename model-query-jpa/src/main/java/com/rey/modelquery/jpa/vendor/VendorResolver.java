@@ -3,8 +3,8 @@ package com.rey.modelquery.jpa.vendor;
 import com.rey.modelquery.core.Incubating;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.jpa.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
-import com.rey.modelquery.jpa.spi.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import jakarta.persistence.EntityManagerFactory;
@@ -33,6 +33,9 @@ public final class VendorResolver {
     /** The factory property holding the non-JTA {@code DataSource}, read for {@code DatabaseMetaData}. */
     static final String NON_JTA_DATA_SOURCE = "jakarta.persistence.nonJtaDataSource";
 
+    /** The one provider setting read by name: where it is set, no {@code ProviderSupport} is there to ask (Q-9). */
+    static final String HIBERNATE_DEFAULT_NULL_ORDERING = "hibernate.order_by.default_null_ordering";
+
     private static final System.Logger LOG = System.getLogger(VendorResolver.class.getName());
 
     /**
@@ -54,19 +57,13 @@ public final class VendorResolver {
      * {@code configured} vendor, detection is skipped (R-VND-04 step 1); otherwise the provider support detects the
      * vendor without a connection, else {@code DatabaseMetaData} is read once through the factory's
      * {@code jakarta.persistence.nonJtaDataSource}, else the vendor is {@code OTHER}. The first resolution of a factory
-     * with the same {@code configured} is reused.
+     * with the same {@code configured} and {@code mysqlStreamingMode} is reused: each mode is resolved and cached
+     * separately, so two configurations on one factory get their own profile (R-PRF-07). A discovered profile decides
+     * its own streaming and ignores the mode.
      *
      * @param configured the explicitly configured vendor, or empty to detect it
+     * @param mysqlStreamingMode the streaming mode the built-in MySQL profile is built for
      * @throws ModelQueryConfigurationException {@code MQ4002} when two discovered profiles serve one vendor
-     */
-    public static ResolvedVendor resolve(EntityManagerFactory emf, Optional<DatabaseVendor> configured) {
-        return resolve(emf, configured, MysqlStreamingMode.ROW_BY_ROW);
-    }
-
-    /**
-     * Like {@link #resolve(EntityManagerFactory, Optional)}, with the MySQL streaming mode the built-in MySQL profile
-     * is built for; each mode is resolved and cached separately, so two configurations on one factory get their own
-     * profile (R-PRF-07). A discovered profile decides its own streaming and ignores the mode.
      */
     public static ResolvedVendor resolve(EntityManagerFactory emf, Optional<DatabaseVendor> configured,
             MysqlStreamingMode mysqlStreamingMode) {
@@ -74,12 +71,18 @@ public final class VendorResolver {
         Objects.requireNonNull(configured, "configured");
         Objects.requireNonNull(mysqlStreamingMode, "mysqlStreamingMode");
         if (mysqlStreamingMode != MysqlStreamingMode.ROW_BY_ROW) {
-            // The mode picks only between MySQL profiles, so any other database reuses the default resolution: it is
-            // detected and logged once per factory whatever the mode (R-VND-05, R-VND-07).
+            // The mode picks only between MySQL profiles, so the factory is detected and logged once, by the default
+            // resolution, whatever the mode (R-VND-05, R-VND-07); a MySQL one only swaps the profile.
             ResolvedVendor base = resolve(emf, configured, MysqlStreamingMode.ROW_BY_ROW);
             if (base.detectedVendor() != DatabaseVendor.MYSQL) {
                 return base;
             }
+            return RESOLVED.get(emf).computeIfAbsent(new Settings(configured, mysqlStreamingMode),
+                    settings -> new ResolvedVendor(
+                            profileFor(DatabaseVendor.MYSQL, mysqlStreamingMode,
+                                    byVendor(ServiceLoader.load(VendorProfile.class))),
+                            base.providerSupport().orElse(null), base.detectedVendor(), base.source(),
+                            base.detail()));
         }
         Settings settings = new Settings(configured, mysqlStreamingMode);
         Map<Settings, ResolvedVendor> byConfig = RESOLVED.computeIfAbsent(emf, factory -> new ConcurrentHashMap<>());
@@ -89,20 +92,21 @@ public final class VendorResolver {
         }
         // Detected outside the lock, so a slow DatabaseMetaData read blocks no other factory; a racing thread's
         // result is dropped and only the winner logs.
-        ResolvedVendor fresh = resolve(emf, settings, ServiceLoader.load(ProviderSupport.class),
+        ResolvedVendor fresh = detect(emf, configured, ServiceLoader.load(ProviderSupport.class),
                 ServiceLoader.load(VendorProfile.class));
         ResolvedVendor winner = byConfig.putIfAbsent(settings, fresh);
         if (winner != null) {
             return winner;
         }
         log(fresh);
+        warnOfUnreportedNullOrdering(emf, fresh);
         return fresh;
     }
 
-    private static ResolvedVendor resolve(EntityManagerFactory emf, Settings settings,
+    /** The resolution under the default streaming mode, which every other mode is derived from. */
+    private static ResolvedVendor detect(EntityManagerFactory emf, Optional<DatabaseVendor> configured,
             Iterable<ProviderSupport> providers, Iterable<VendorProfile> discovered) {
-        Optional<DatabaseVendor> configured = settings.configured();
-        MysqlStreamingMode mode = settings.mysqlStreamingMode();
+        MysqlStreamingMode mode = MysqlStreamingMode.ROW_BY_ROW;
         ProviderSupport provider = null;
         for (ProviderSupport candidate : providers) {
             if (candidate.supports(emf)) {
@@ -201,7 +205,29 @@ public final class VendorResolver {
                 describe(profile), provider, fallback);
     }
 
-    /** A built-in profile by its name, since MySQL's is an anonymous class; any other by its class. */
+    /**
+     * Warns when nothing serves the factory's provider and its properties carry Hibernate's default null ordering:
+     * a bare order then sorts its NULLs by a setting this library is not told of (R-VND-07, D-36).
+     */
+    private static void warnOfUnreportedNullOrdering(EntityManagerFactory emf, ResolvedVendor resolved) {
+        if (resolved.providerSupport().isPresent()) {
+            return;
+        }
+        Object ordering;
+        try {
+            ordering = emf.getProperties().get(HIBERNATE_DEFAULT_NULL_ORDERING);
+        } catch (RuntimeException unreadable) {
+            return;
+        }
+        if (ordering != null && !"none".equalsIgnoreCase(ordering.toString())) {
+            LOG.log(System.Logger.Level.WARNING, "model-query does not honour {0}={1} without model-query-hibernate: "
+                    + "keyset paging over a nullable column ordered without nullsFirst() or nullsLast() assumes the "
+                    + "database default; add model-query-hibernate (R-PAG-05, D-36)",
+                    HIBERNATE_DEFAULT_NULL_ORDERING, ordering);
+        }
+    }
+
+    /** A built-in profile by its name, since a constant with a body is an anonymous class; any other by its class. */
     private static String describe(VendorProfile profile) {
         return profile instanceof BuiltInProfile builtIn ? "built-in " + builtIn.name() : profile.getClass().getName();
     }
