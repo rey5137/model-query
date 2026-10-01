@@ -797,6 +797,41 @@ and a `Date` bound against a `java.sql.Date` truncates); loosening the filter ge
 and `orderBy` on unordered converters (breaks 0.1 users who sort by a stored code). → `api/10` R-COL-14, `api/13`
 R-AGG-04, `processor/30` R-PROC-07, R-PROC-15, `reference/90` `MQ1408`, D-20, D-37.
 
+**D-85 — The 1.0 freeze, by type.** At 1.0 every annotation is frozen except `UpdateModel` and
+`QueryModel.generateChanges`. In `core` every public type is frozen except the bulk-write types (`ModelUpdate`,
+`ModelDelete`, `Changes`, `Assignment`, `ChunkOptions`, `ChunkedWriteException`, `PersistenceContextMode`) and
+`NullPrecedenceRenderer`, which the incubating SPI returns. In `jpa`, `ModelQueryExecutor`, `ModelQueryConfig`,
+`KeysetNullKeys`, `MysqlStreamingMode` and `DatabaseVendor` are frozen and their bulk-write members stay `@Incubating`;
+`VendorProfile`, `ProviderSupport`, `ChunkTransactions`, `ValidChanges`, `ValidChangesValidator` and
+`HibernateProviderSupport` stay `@Incubating` (Q-9, Q-12, D-78). The Spring types are frozen, with
+`ModelQueryRepository.update`/`delete` and the bulk-write properties `@Incubating`; the starter's property keys are API.
+The generated `changes()`, `update(...)` and `delete()` carry `@Incubating`. Rule: every type generated code links
+against is frozen. `Filters` and `Having` become `sealed`, so a new operator can be an abstract method. Bulk writes
+freeze in a 1.x minor once one minor ships with no change to them. Deferred as additive: a `TableField.join` taking the
+target class, and a common `ModelQueryException` superclass. → `delivery/61` R-REL-07, R-REL-11, D-59.
+
+**D-86 — `@EngineFacing` may mark a type (amends D-72).** `BuiltQuery`, `RowSelection` and `RenderOptions` carry it at
+type level, and `JoinContext.of` and `OrderField.toOrders` at method level; `japicmp` excludes both. A selection's shape
+can then change, for example one alias per selected path, without breaking anything. → R-REL-10, R-REL-11, D-72.
+
+**D-87 — `or` takes two or three branches, or a list.** An interface method cannot be `@SafeVarargs`, so the generic
+varargs `or` warned `unchecked generic array creation` at every call and failed under `-Werror`. `Filters` and `Having`
+take `or(a, b)`, `or(a, b, c)` and `or(List)`, so an `or` with fewer than two branches does not compile (P-2).
+Rejected: keeping varargs with a documented `@SuppressWarnings` (every caller pays). → `api/12`, `api/13`.
+
+**D-88 — `PageSpec` and `ExportOptions` are final classes; `SetterMapper.bind` takes the mapper's model.** A record's
+public canonical constructor made `new PageSpec(2, 20)` an offset while `PageSpec.of(2, 20)` is a page number, and a
+frozen record cannot gain a component, while export options will grow. Both become final classes with factories:
+`PageSpec.of(page, size)` and `PageSpec.ofOffset(offset, size)`; `ExportOptions` keeps `defaults()`, `of(int)` and
+`withLimit`. `SetterMapper.bind` takes `SelectField<M, C>`: another model's column compiled and set `null` on every
+row. → R-EXE-02, R-PAG-09, R-COL-11.
+
+**D-89 — Ordered converters freeze; `@Aggregate.converter` waits.** `OrderedColumnConverter` and the two built-in
+converters freeze at 1.0, because generated code links their `INSTANCE`. `DateTimestampConverter.toModel` returning a
+`Timestamp` typed as `Date`, with its asymmetric `equals`, is part of the contract. A `converter` element on
+`@Aggregate`, legal for MIN and MAX only, is additive and comes after 1.0; until then a named ordered converter goes
+through a hand-written `Agg.min` or `max`. → R-COL-14, R-AGG-04, R-PROC-07, D-84.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
