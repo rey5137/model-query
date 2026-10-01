@@ -17,30 +17,32 @@ public interface ModelQueryRepository<E> {
     long count(ModelQuery<E, ?, ?> q);
     <M, R> R stream(ModelQuery<E, ?, M> q, Limit limit, Function<Stream<M>, R> body);
     <M, S> long export(ModelQuery<E, ?, M> q, ExportOptions options, Function<List<M>, List<S>> t, Consumer<S> sink);
-    long update(ModelUpdate<E, ?> u);                // Future (M8), transactional per R-SPR-10
-    long delete(ModelDelete<E, ?> d);                // Future (M8), transactional per R-SPR-10
+    long update(ModelUpdate<E, ?> u);                // Future (M6), transactional per R-SPR-10
+    long delete(ModelDelete<E, ?> d);                // Future (M6), transactional per R-SPR-10
 }
 
 interface OrderRepository extends JpaRepository<OrderEntity, Long>, ModelQueryRepository<OrderEntity> {}
 ```
 
 **R-SPR-12** `ModelQueryRepository<E>` is a repository fragment, not a base interface: a repository extends it next to
-`JpaRepository` or any other Spring Data interface, and keeps its own `repositoryBaseClass` (D-50). `Slice` and `Pageable`
+`JpaRepository` or any other Spring Data interface, and keeps its own `repositoryBaseClass` (D-50). Its `E` is the
+repository's domain type: a repository of `Book` declaring `ModelQueryRepository<Author>` fails startup with `MQ4007`. `Slice` and `Pageable`
 in this file are Spring Data's types; `Limit` and `ExportOptions` are `core`'s.
 
 **R-SPR-01** Every method delegates to `ModelQueryExecutor` and adds no semantics of its own (INV-8). A behaviour that
 only works under Spring is a bug.
 
 **R-SPR-02** `ModelQueryRepositoryFactoryBean` is set through
-`@EnableJpaRepositories(repositoryFactoryBeanClass = …)`. The starter configures it for the default
-`@EnableJpaRepositories` automatically. A repository extending `ModelQueryRepository` without the factory bean fails
+`@EnableJpaRepositories(repositoryFactoryBeanClass = …)`. The starter swaps it in for every repository registered
+with exactly `JpaRepositoryFactoryBean`, Boot's own and any `@EnableJpaRepositories` that names no factory bean class,
+and leaves a repository with a factory bean class of its own alone (D-50). A repository extending `ModelQueryRepository` without the factory bean fails
 at startup, as any repository with an unimplemented method does.
 
 **R-SPR-03** `stream(...)` opens a read-only transaction when none is active, which PostgreSQL needs for cursor
 streaming (`vendor/41` R-PRF-03), and joins an active one. The transaction ends when `stream` returns, and `body`
 runs inside it. It comes from the transaction manager of the repository's own `@EnableJpaRepositories` (D-54).
 
-**R-SPR-10** `update(...)` and `delete(...)` (`Future`, M8) join the current transaction or open one, like the modifying
+**R-SPR-10** `update(...)` and `delete(...)` (`Future`, M6) join the current transaction or open one, like the modifying
 methods of `SimpleJpaRepository`, except for a `commitEachChunk()` write, which opens none, because each chunk commits
 on its own (`api/14` R-WRT-19). Because that depends on the argument, the methods are not annotated `@Transactional`;
 they use a `TransactionTemplate` (`PROPAGATION_REQUIRED`) unless the write is `commitEachChunk()`. Change sets bind from
@@ -57,19 +59,24 @@ This is the plain-JPA callback with a Spring default, not a Spring-only feature 
 
 **R-SPR-04** A `Pageable` converts to a `PageSpec` and its `Sort` to a `SortSpec`, applied with
 `ModelQuery.orderedBy` (`api/11` R-QRY-14), so the same sort is available without Spring (INV-8). A sorted `Sort`
-replaces the definition's `orderBy`; an unsorted one keeps it. `Pageable.unpaged()` is `MQ2001`.
+replaces the definition's `orderBy`; an unsorted one keeps it, and the result's `getSort()` then reports unsorted
+although the definition's own `orderBy` applies. `Pageable.unpaged()` is `MQ2001`.
 
 **R-SPR-05** `Sort.Order.nullsFirst()`/`nullsLast()`/`nullsNative()` map to `NullPrecedence.FIRST`/`LAST`/`DEFAULT`
 (`api/10` R-COL-12).
 
-**R-SPR-06** A sort property that does not resolve to exactly one selected column throws `MQ2301` naming the
-property, rather than being silently dropped (INV-5). So does `Sort.Order.ignoreCase()`, which the engine can't
-honour (`api/11` R-QRY-14).
+**R-SPR-06** A sort property that does not resolve to exactly one selected column, on every matching tier, throws
+`MQ2301` naming the property, rather than being silently dropped (INV-5). So does `Sort.Order.ignoreCase()`, which the
+engine can't honour, a sort on an ungrouped definition without a primary key, which has no tie-breaker, and a sorted
+copy that fails the checks of `build()`, with that failure as the cause (`api/11` R-QRY-14, D-58).
 
 **R-SPR-07** `findPage` returns a `ModelPage<M>`, a Spring Data `Slice` that adds `Long getTotalElements()` and
 `Integer getTotalPages()`. Both are the exact values when `CountMode` counted (`COUNT`, `ONLY_COUNT`) and `null` under
 `NO_COUNT`; a total is never fabricated from the current page. A caller passes the mode through and returns the
-result as is. It is not a Spring Data `Page`, whose total is a primitive `long` and can't be unknown (D-51).
+result as is. It is not a Spring Data `Page`, whose total is a primitive `long` and can't be unknown (D-51). Because
+the totals are `null` under `NO_COUNT`, unboxing them throws, so a caller serializes a DTO of its own rather than the
+page. A counted page's COUNT and content run as separate statements and are one snapshot only when the caller holds a
+transaction.
 
 ## 3. Properties
 
@@ -82,8 +89,8 @@ result as is. It is not a Spring Data `Page`, whose total is a primitive `long` 
 | `modelquery.mysql.streaming-mode` | `row-by-row` | or `cursor-fetch` (`vendor/41` R-PRF-07) |
 | `modelquery.query-timeout` | none | Default per-query timeout |
 | `modelquery.keyset.null-keys` | `fail` | `fail` or `honour-null-precedence` (`engine/21` R-PAG-05) |
-| `modelquery.bulk-write.persistence-context` | `clear` | `Future` (M8): `clear` or `keep` after a bulk write (`api/14` R-WRT-15) |
-| `modelquery.bulk-write.chunk-size` | 1000 | `Future` (M8): default size for `chunked(...)`, clamped per vendor (`api/14` R-WRT-17) |
+| `modelquery.bulk-write.persistence-context` | `clear` | `Future` (M6): `clear` or `keep` after a bulk write (`api/14` R-WRT-15) |
+| `modelquery.bulk-write.chunk-size` | 1000 | `Future` (M6): default size for `chunked(...)`, clamped per vendor (`api/14` R-WRT-17) |
 
 **R-SPR-08** Every property has a plain-JPA equivalent on `ModelQueryConfig`; the starter only reads properties into it
 (INV-8).
@@ -95,7 +102,9 @@ migration aid with the failure it re-enables, and logged at `WARN` once on start
 `EntityManager` of its own factory, so a profile is still resolved per factory (`vendor/40` R-VND-02). A
 `ModelQueryConfigurer` bean may return a different config for a given factory. `modelquery.vendor` set in a context
 with more than one `EntityManagerFactory` and no `ModelQueryConfigurer` fails startup with `MQ4005`: it would force
-one vendor on every database (D-54).
+one vendor on every database (D-54). A `ModelQueryConfig` bean of the application's own replaces the starter's, so
+startup fails with `MQ4006`, naming what it drops, when a `VendorProfile` bean is not among its supplied profiles or a
+`modelquery.*` property is set: a `ModelQueryConfigurer` adjusts the starter's config instead.
 
 ## 4. Acceptance criteria
 
@@ -105,9 +114,11 @@ one vendor on every database (D-54).
 | AC-SPR-02 | A Boot application with three datasources (H2, PostgreSQL, MySQL) resolves one profile per factory (R-SPR-02, `vendor/40` AC-VND-03). |
 | AC-SPR-03 | `stream` without an ambient transaction succeeds on PostgreSQL through the repository (R-SPR-03). |
 | AC-SPR-04 | `Sort` by a selected column's property path (`customer.name`) and by its attribute path both work (D-55); `nullsFirst`/`nullsLast`/`nullsNative` map correctly (R-SPR-04, R-SPR-05). |
-| AC-SPR-05 | An unresolvable or ambiguous sort property, and `ignoreCase`, throw `MQ2301` naming the property (R-SPR-06). |
+| AC-SPR-05 | An unresolvable or ambiguous sort property, one naming different columns on two tiers, `ignoreCase`, and a sort on an ungrouped query without a primary key throw `MQ2301` naming the property or the reason (R-SPR-06). |
 | AC-SPR-06 | Under `NO_COUNT` the result's `getTotalElements()` and `getTotalPages()` are `null` and `hasNext()` is right; under `COUNT` they are exact (R-SPR-07). |
 | AC-SPR-07 | Every property in §3 is settable on `ModelQueryConfig` without Spring (R-SPR-08). |
 | AC-SPR-08 | `modelquery.keyset.null-keys=honour-null-precedence` logs one startup warning (R-SPR-09). |
 | AC-SPR-10 | `modelquery.vendor` with two factories and no `ModelQueryConfigurer` fails startup with `MQ4005` (R-SPR-13). |
-| AC-SPR-09 | (`Future`, M8) `update`/`delete` without an ambient transaction succeed through the repository; `commitEachChunk` commits each chunk separately on the primary and on a secondary datasource of the multi-datasource sample, and a failed third chunk leaves the first two committed (R-SPR-10, R-SPR-11). |
+| AC-SPR-11 | A `ModelQueryConfig` bean of the application with a `modelquery.*` property set, or without a `VendorProfile` bean among its profiles, fails startup with `MQ4006`; one holding every profile bean starts (R-SPR-13). |
+| AC-SPR-12 | A repository declaring `ModelQueryRepository` of an entity other than its domain type fails startup with `MQ4007` (R-SPR-12). |
+| AC-SPR-09 | (`Future`, M6) `update`/`delete` without an ambient transaction succeed through the repository; `commitEachChunk` commits each chunk separately on the primary and on a secondary datasource of the multi-datasource sample, and a failed third chunk leaves the first two committed (R-SPR-10, R-SPR-11). |

@@ -1,5 +1,6 @@
 package com.rey.modelquery.spring.boot;
 
+import com.rey.modelquery.core.Incubating;
 import com.rey.modelquery.jpa.KeysetNullKeys;
 import com.rey.modelquery.jpa.MysqlStreamingMode;
 import java.time.Duration;
@@ -11,6 +12,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * @implSpec R-SPR-08
  */
+@Incubating
 @ConfigurationProperties("modelquery")
 public class ModelQueryProperties {
 

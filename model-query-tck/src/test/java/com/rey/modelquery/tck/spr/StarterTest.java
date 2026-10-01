@@ -18,6 +18,7 @@ import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.spring.boot.ModelQueryAutoConfiguration;
 import com.rey.modelquery.spring.data.ModelQueryConfigurer;
+import com.rey.modelquery.spring.data.ModelQueryRepository;
 import com.rey.modelquery.spring.data.ModelQueryRepositoryFactoryBean;
 import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
@@ -100,8 +101,38 @@ class StarterTest {
     @Test
     void r_spr_08_a_config_bean_of_the_application_wins() {
         ModelQueryConfig own = ModelQueryConfig.defaults().exportPageSize(7);
-        configOnly.withBean(ModelQueryConfig.class, () -> own).withPropertyValues("modelquery.export.page-size=200")
+        configOnly.withBean(ModelQueryConfig.class, () -> own)
                 .run(context -> assertThat(context.getBean(ModelQueryConfig.class)).isSameAs(own));
+    }
+
+    // ---- AC-SPR-11
+
+    @Test
+    void ac_spr_11_a_config_bean_of_the_application_with_a_modelquery_property_fails_startup_with_mq4006() {
+        ModelQueryConfig own = ModelQueryConfig.defaults().exportPageSize(7);
+        configOnly.withBean(ModelQueryConfig.class, () -> own).withPropertyValues("modelquery.export.page-size=200")
+                .run(context -> {
+                    assertThat(rootCode(context.getStartupFailure())).isEqualTo(MqCode.MQ4006);
+                    assertThat(context.getStartupFailure()).hasMessageContaining("property modelquery.export.page-size");
+                });
+    }
+
+    @Test
+    void ac_spr_11_a_config_bean_of_the_application_without_a_profile_bean_fails_startup_with_mq4006() {
+        configOnly.withBean(ModelQueryConfig.class, ModelQueryConfig::defaults)
+                .withBean(VendorProfile.class, () -> new BeanProfile(new ArrayList<>()))
+                .run(context -> {
+                    assertThat(rootCode(context.getStartupFailure())).isEqualTo(MqCode.MQ4006);
+                    assertThat(context.getStartupFailure()).hasMessageContaining("VendorProfile bean " + BeanProfile.class.getName());
+                });
+    }
+
+    @Test
+    void ac_spr_11_a_config_bean_of_the_application_holding_the_profile_beans_starts() {
+        BeanProfile profile = new BeanProfile(new ArrayList<>());
+        configOnly.withBean(VendorProfile.class, () -> profile)
+                .withBean(ModelQueryConfig.class, () -> ModelQueryConfig.defaults().vendorProfiles(List.of(profile)))
+                .run(context -> assertThat(context).hasNotFailed());
     }
 
     @Test
@@ -199,6 +230,18 @@ class StarterTest {
                         .hasMessageContaining("ModelQueryConfigurer").hasMessageContaining("returned null"));
     }
 
+    // ---- AC-SPR-12
+
+    @Test
+    void ac_spr_12_a_repository_declaring_another_entity_fails_startup_with_mq4007() {
+        configOnly.withUserConfiguration(MismatchedJpa.class).run(context -> {
+            assertThat(rootCode(context.getStartupFailure())).isEqualTo(MqCode.MQ4007);
+            assertThat(context.getStartupFailure()).rootCause().hasMessageContaining(
+                    "ModelQueryRepository<" + CustomerEntity.class.getName() + "> on a repository of "
+                            + OrderEntity.class.getName());
+        });
+    }
+
     // ---- AC-VND-06
 
     @Test
@@ -294,6 +337,9 @@ class StarterTest {
     /** A repository with no model-query fragment, for a factory bean class of the application's own. */
     interface PlainRepository extends JpaRepository<OrderEntity, Long> {}
 
+    /** A repository of one entity declaring the model-query fragment of another (R-SPR-12). */
+    interface MismatchedRepository extends JpaRepository<OrderEntity, Long>, ModelQueryRepository<CustomerEntity> {}
+
     /** The application's own factory bean class. */
     public static class OwnFactoryBean<T extends org.springframework.data.repository.Repository<S, I>, S, I>
             extends JpaRepositoryFactoryBean<T, S, I> {
@@ -332,14 +378,21 @@ class StarterTest {
 
     @Configuration(proxyBeanMethods = false)
     @EnableJpaRepositories(basePackageClasses = StarterTest.class, considerNestedRepositories = true,
-            excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE, classes = PlainRepository.class))
+            excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE,
+                    classes = { PlainRepository.class, MismatchedRepository.class }))
     static class DefaultJpa extends Jpa {}
 
     @Configuration(proxyBeanMethods = false)
     @EnableJpaRepositories(basePackageClasses = StarterTest.class, considerNestedRepositories = true,
             repositoryFactoryBeanClass = OwnFactoryBean.class,
-            excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE, classes = OrderRepository.class))
+            excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE,
+                    classes = { OrderRepository.class, MismatchedRepository.class }))
     static class CustomFactoryBeanJpa extends Jpa {}
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableJpaRepositories(basePackageClasses = StarterTest.class, considerNestedRepositories = true,
+            includeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE, classes = MismatchedRepository.class))
+    static class MismatchedJpa extends Jpa {}
 
     /** A second factory over the same database, which makes the context a multi-factory one. */
     @Configuration(proxyBeanMethods = false)

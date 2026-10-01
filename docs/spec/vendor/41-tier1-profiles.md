@@ -32,7 +32,7 @@ as community-supported. It never gates a release.
 | Max bind parameters | 100 000 | 65 535 | 65 535 |
 | NULLs in ASC order | first | **last** | first |
 | Explicit `NULLS FIRST/LAST` | native | native | emulated by Hibernate (`ISNULL(col)` sort) |
-| Target table in an `UPDATE`/`DELETE` sub-query (`Future`, M8) | yes | yes | **no** (error 1093): joined filters run key-first (`api/14` R-WRT-11) |
+| Target table in an `UPDATE`/`DELETE` sub-query (`Future`, M6) | yes | yes | **no** (error 1093): joined filters run key-first (`api/14` R-WRT-11) |
 | Row-value keyset `(a,b) > (?,?)` | supported | supported | supported — a possible later optimisation; the default stays the portable OR-expansion |
 
 **R-PRF-11** The built-in H2, PostgreSQL and MySQL profiles carry the values in this table (`vendor/40` R-VND-03).

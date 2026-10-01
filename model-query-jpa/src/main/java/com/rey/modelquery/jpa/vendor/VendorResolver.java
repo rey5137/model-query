@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.ServiceLoader;
+import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.sql.DataSource;
@@ -44,6 +45,13 @@ public final class VendorResolver {
      * Weak, so a closed factory is not kept reachable; a value never references its factory.
      */
     private static final Map<EntityManagerFactory, Map<Settings, ResolvedVendor>> RESOLVED =
+            Collections.synchronizedMap(new WeakHashMap<>());
+
+    /**
+     * By factory, the supplied profile classes already logged as replacing a resolved profile, so each is logged once
+     * per factory however many executors are built (R-VND-07, D-53). Weak, like {@link #RESOLVED}.
+     */
+    private static final Map<EntityManagerFactory, Set<Class<?>>> LOGGED_SUPPLIED =
             Collections.synchronizedMap(new WeakHashMap<>());
 
     /** What a resolution depends on besides the factory: the profile is fixed by both (R-PRF-07, D-34). */
@@ -188,11 +196,31 @@ public final class VendorResolver {
      * {@code resolved} with the profile supplied on {@code ModelQueryConfig.vendorProfiles(...)} for its vendor, which
      * wins over a discovered and a built-in one; when none serves the vendor and it fell back to {@code OTHER}'s
      * profile, a supplied {@code OTHER} one serves it instead. Applied after the cached resolution and not part of its
-     * key, so the factory is detected and logged once whatever is supplied (R-VND-03, R-VND-06, D-53).
+     * key, so the factory is detected and logged once whatever is supplied; a supplied profile that replaces the
+     * resolved one is logged at {@code INFO} once per factory and profile class, naming both (R-VND-03, R-VND-06,
+     * R-VND-07, D-53).
      *
      * @param supplied at most one profile per vendor, as {@code ModelQueryConfig} holds them
      */
-    public static ResolvedVendor withSupplied(ResolvedVendor resolved, List<VendorProfile> supplied) {
+    public static ResolvedVendor withSupplied(EntityManagerFactory emf, ResolvedVendor resolved,
+            List<VendorProfile> supplied) {
+        Objects.requireNonNull(emf, "emf");
+        ResolvedVendor chosen = withSupplied(resolved, supplied);
+        if (chosen != resolved && LOGGED_SUPPLIED.computeIfAbsent(emf, factory -> ConcurrentHashMap.newKeySet())
+                .add(chosen.profile().getClass())) {
+            LOG.log(System.Logger.Level.INFO, "model-query uses the supplied profile {0} for vendor {1}, in place of "
+                    + "the resolved profile {2} (R-VND-03, R-VND-07)", describe(chosen.profile()),
+                    resolved.detectedVendor(), describe(resolved.profile()));
+        }
+        return chosen;
+    }
+
+    /**
+     * {@link #withSupplied(EntityManagerFactory, ResolvedVendor, List)} without its log line.
+     *
+     * @param supplied at most one profile per vendor, as {@code ModelQueryConfig} holds them
+     */
+    static ResolvedVendor withSupplied(ResolvedVendor resolved, List<VendorProfile> supplied) {
         Objects.requireNonNull(resolved, "resolved");
         Objects.requireNonNull(supplied, "supplied");
         DatabaseVendor vendor = resolved.detectedVendor();

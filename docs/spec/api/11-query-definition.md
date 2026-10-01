@@ -116,10 +116,13 @@ one of the query's selected columns or aggregates, never an attribute the query 
 property path, the model field names from the root model (`customer.name` for field `name` of the nested model under
 the `@Join` field `customer`), then by its attribute path from the root; an aggregate matches by its name. A bare
 attribute name never matches a joined column. A column without a property (hand-written, not given one with
-`named(String)`) matches by attribute path only (D-55). Matching is exact and case-sensitive. A property
-matching none, or more than one, throws `MQ2301` naming it (INV-5). The copy passes the same checks as `build()`
-(`MQ1207`, `MQ1406`), and the engine still appends the primary key or the group keys (`engine/21` R-PAG-01). This is
-how a sort chosen per request reaches a `static final` definition (INV-9, D-52).
+`named(String)`) matches by attribute path only (D-55). Matching is exact and case-sensitive, and every tier is
+tried: a property matching no column, or different columns on one tier or on different tiers, throws `MQ2301` naming it
+and every candidate with the tier it matched (INV-5); one column matched on two tiers is not ambiguous. The engine
+still appends the primary key or the group keys (`engine/21` R-PAG-01), so an ungrouped definition without a primary
+key, which has no tie-breaker, refuses a non-empty spec with `MQ2301`. The copy passes the same checks as `build()`;
+a failure there (`MQ1207`) is rethrown as `MQ2301` with it as the cause, because the sort comes from the request
+(D-58). This is how a sort chosen per request reaches a `static final` definition (INV-9, D-52).
 
 **R-QRY-15** `ExportOptions` carries an optional page size: `ExportOptions.defaults()` leaves it to
 `ModelQueryConfig.exportPageSize()` (default 1000), `ExportOptions.of(int)` sets it. `stream` always uses
@@ -141,7 +144,7 @@ public interface ModelQueryExecutor<E> {
 **R-QRY-10** `ModelQueryExecutor.create(EntityManager, Class<E>, ModelQueryConfig)`, both in `com.rey.modelquery.jpa`,
 is enough to use the library without Spring (INV-8). The executor resolves the factory's `VendorProfile` once and passes
 its facts to every build as `RenderOptions` (D-34). Semantics of each method are `engine/20`. The bulk `update` and
-`delete` methods are `api/14` §8 (`Future`, M8).
+`delete` methods are `api/14` §8 (`Future`, M6).
 
 ## 7. Acceptance criteria
 
@@ -159,5 +162,5 @@ its facts to every build as `RenderOptions` (D-34). Semantics of each method are
 | AC-QRY-10 | A customizer that adds a `GROUP BY` or changes the `ORDER BY` throws `MQ1205` naming the model and the phase, on a grouped query and on one without a primary key too (R-QRY-11). |
 | AC-QRY-11 | `build()` with a primary-key column of array type throws `MQ1206` naming the column (R-QRY-12). |
 | AC-QRY-12 | `build()` of a `keyset()` query ordered by a `Float` or `Double` column, or keyed by one, throws `MQ1207` naming the column; the same query without `keyset()` builds (R-QRY-13). |
-| AC-QRY-13 | `orderedBy` sorts by a selected column's property path, by its attribute path and by an aggregate's name, including a renamed nested field and two `@Join`s on one attribute; a bare name of a joined column, an unknown or an ambiguous property throws `MQ2301` (R-QRY-14). |
+| AC-QRY-13 | `orderedBy` sorts by a selected column's property path, by its attribute path and by an aggregate's name, including a renamed nested field and two `@Join`s on one attribute; a bare name of a joined column, an unknown or an ambiguous property, a property naming different columns on two tiers, a sort on an ungrouped query without a primary key, and a sorted copy `build()` refuses (as the cause) throw `MQ2301` (R-QRY-14). |
 | AC-QRY-14 | `ExportOptions.defaults()` exports with the config's page size, and `stream` uses the config's fetch size (R-QRY-15). |

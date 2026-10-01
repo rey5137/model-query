@@ -82,7 +82,7 @@ dropped: queries stay read-only, and the persistence context is flushed before a
 never left stale (`api/14` R-WRT-15). Change sets exist because "only the fields the client sent" is the common PATCH
 case and cannot be expressed with one `set(...)` per field. Rejected: entity-level writes (they duplicate JPA) and an
 "ignore nulls" copy (it makes clearing a field impossible). Accepted into the plan by rey5137/model-query#5 before the
-RFC process existed; `Future` (M8) until built. → INV-1, `api/14`, `processor/31` §6.
+RFC process existed; `Future` (M6) until built. → INV-1, `api/14`, `processor/31` §6.
 
 **D-15 — Change sets validate set fields only, against the update model's constraints.**
 Copying `@NotNull` onto a change set would reject every PATCH that omits the field, because an unset field is `null`
@@ -458,7 +458,7 @@ type). A model with no `@PrimaryKey` emits no `KEY`, and its `query()` has no `p
 
 **D-48 — The diagnostic matrix covers the live codes.**
 `processor/32` R-DIAG-05 and AC-DIAG-01 cover each row of §1 not tagged `Future`: `MQ3001`–`MQ3016` and
-`MQ3201`–`MQ3207`. `MQ3301`–`MQ3307` have no check before M8, which extends the matrix; AC-DIAG-05 (checked by the AC
+`MQ3201`–`MQ3207`. `MQ3301`–`MQ3307` have no check before M6, which extends the matrix; AC-DIAG-05 (checked by the AC
 audit) still lists them, so `reference/90` and §1 never drift, and also checks the live rows against the constants of
 the processor's `DiagnosticCode`. The matrix runs each code with Lombok's processor off and on, for a class and a
 record where both can raise it: `MQ3008` is a class check, `MQ3009` and `MQ3010` are record checks. An `MQ3012` raised
@@ -498,7 +498,8 @@ count beyond `int` throws `ArithmeticException` rather than wrapping, which need
 
 **D-52 — A per-call sort is a `core` feature over the selected columns.**
 `SortSpec` and `ModelQuery.orderedBy(SortSpec)` live in `core`, so plain JPA has what `Sort` gives Spring (INV-8). A
-sort property names a column the query selects, by root-relative attribute path first and then by name; it never
+sort property names a column the query selects, by root-relative attribute path first and then by name (superseded
+by D-55 and D-58: property path, attribute path and aggregate name, every tier tried); it never
 names an unselected root attribute, which would need an implicit join, could page over a to-many path, and is refused
 by PostgreSQL under `DISTINCT`. No match, two matches and `ignoreCase` are all `MQ2301`. A sorted `Sort` replaces the
 definition's `orderBy`. → `api/11` R-QRY-14, `integration/50` R-SPR-04, R-SPR-06.
@@ -511,6 +512,7 @@ key. `exportPageSize` (1000) and `streamFetchSize` (500) join the config; `Expor
 so a call can leave it to the config, a breaking change to an `@Incubating` record. The setter is
 `vendorProfiles(Collection<? extends VendorProfile>)`: a later call replaces the earlier set, and two profiles for one
 vendor throw `MQ4002` at the call. A supplied `OTHER` profile also serves a vendor that fell back to `OTHER`.
+A supplied profile that replaces the resolved one is logged at `INFO` once per factory and profile class, naming both.
 → `vendor/40` R-VND-03, `api/11` R-QRY-15, `integration/50` R-SPR-08.
 
 **D-54 — One config, one executor per repository, the repository's own transaction manager.**
@@ -520,8 +522,9 @@ it, so vendor resolution stays per factory. A `ModelQueryConfigurer` bean may va
 `TransactionTemplate` on the `transactionManagerRef` of the repository's `@EnableJpaRepositories`, not through
 `@Transactional` on the interface, which `enableDefaultTransactions = false` would disable. The R-SPR-09 warning is
 logged where the starter builds the config bean, once per context. `modelquery.primary-key-first.batch-size` has no
-default of its own: unset means the whole page, as `engine/21` R-PAG-07 says. → `integration/50` R-SPR-03, R-SPR-09,
-R-SPR-13.
+default of its own: unset means the whole page, as `engine/21` R-PAG-07 says. A `ModelQueryConfig` bean of the
+application that would drop a `VendorProfile` bean or a set `modelquery.*` property fails startup with `MQ4006`.
+→ `integration/50` R-SPR-03, R-SPR-09, R-SPR-13.
 
 **D-55 — A sort property is the model's property path.** A client sorts by the names it sees in the model, not by
 entity attributes. A generated column carries its model field name as its property, and a generated `@Join` table
@@ -543,6 +546,18 @@ choice per factory sits in one place; a second fails startup like any non-unique
 `DatabaseVendor` name ignoring case, `-` and `_` (`sql-server`, `SQL_SERVER` and `sqlserver` are one vendor) and throws
 `MQ4001` for an unknown name. The Spring starter passes `modelquery.vendor` through it, so the starter never names the
 vendor type and INV-6's layering rule stays as it is. → `vendor/40` R-VND-04, `integration/50` §3.
+
+**D-58 — A sort that `orderedBy` can't honour is a request failure.** A sort property that matches different columns
+on different tiers (property path, attribute path, aggregate name) is ambiguous: `MQ2301` listing every candidate
+with the tier it matched; one column matched on two tiers is not. A sort failure that `orderedBy` detects is always a
+`ModelQueryExecutionException` `MQ2301`, with the build failure as cause, because the sort comes from the request.
+`orderedBy` refuses an ungrouped definition without a primary key, which has no tie-breaker for a client sort.
+→ `api/11` R-QRY-14, `integration/50` R-SPR-06.
+
+**D-59 — Bulk writes come before the first release.** The bulk-write milestone moves ahead of 0.1.0 and is renumbered:
+M6 is bulk writes (`api/14`), M7 is 0.1.0, M8 is hardening to 1.0.0. The first release ships the read API and
+filter-driven bulk updates and deletes together, both `@Incubating` until the M8 API review. Writes still load no
+entity (INV-1). → `delivery/62` §1 R-RDM-01, §2 R-RDM-03, `api/14`.
 
 ## 2. Open questions
 
@@ -595,7 +610,7 @@ where no `ProviderSupport` exists to ask. → `vendor/41` §2, R-PRF-04, R-VND-0
 | MySQL row-by-row streaming holds the connection for a whole export | Documented; keyset `export` is the recommended default for large exports. |
 | `Optional` fields on models are unusual (not `Serializable`, need Jackson `jdk8`) | Documented. Only `@Join` fields use `Optional`; plain columns stay plain types. |
 | `CASE WHEN … IS NULL` null-precedence fallback defeats index use | Used only without `model-query-hibernate`, and only when the requested precedence differs from the vendor default. |
-| API churn before 1.0 | `@Incubating`, `0.x` versions, an explicit API review at M7, `japicmp` from 1.0. |
+| API churn before 1.0 | `@Incubating`, `0.x` versions, an explicit API review at M8, `japicmp` from 1.0. |
 | Scope creep toward a general SQL builder | P-5 and `delivery/62` R-RDM-03. `QueryCustomizer`, `Agg.of`, `Filters.add` and, for bulk updates, `setExpression` are the only escape hatches, and each is documented as one. |
 | Bulk writes surprise users who expect entity semantics (listeners, cascades, Envers and Bean Validation don't run) | Stated in the Javadoc of every write method and in the user guide. Flush and clear by default (`api/14` R-WRT-15), version increment by default (R-WRT-16). Clearing also detaches unrelated managed entities, whose later changes are then silently not written; stated in the same Javadoc, and `KEEP` is the alternative. The TCK pins down what the provider does for join tables and element collections. |
 | A change set bound from a request lets clients write fields they shouldn't (mass assignment) | An update model lists exactly the writable fields, so the user guide recommends one per endpoint. `generateChanges` on a query model is documented as for internal use (`processor/30` R-PROC-19). |

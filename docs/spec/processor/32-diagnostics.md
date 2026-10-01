@@ -33,13 +33,13 @@
 | `MQ3205` | `@Aggregate(fn = SUM)` over a 32-bit attribute | `ProductSales.units: SUM over Integer returns Long; declare the field as Long` |
 | `MQ3206` | `@Aggregate(distinct = true)` on `SUM`, `AVG`, `MIN` or `MAX` (D-47) | `ProductSales.revenue: distinct only applies to COUNT, found SUM` |
 | `MQ3207` | `@QueryModel(singleGroup = true)` on a model that has `@GroupBy` fields (D-47) | `ProductSales: singleGroup = true can't be combined with @GroupBy fields; remove one` |
-| `MQ3301` | Update-model field maps through a join or a collection (`Future`, M8) | `OrderPatch.customerName: update models can only write attributes of OrderEntity; 'customer.name' needs a join` |
-| `MQ3302` | `@Join`, `@Aggregate` or `@GroupBy` on an update model (`Future`, M8) | `OrderPatch.customer: @Join isn't allowed on @UpdateModel; write the foreign key with @Column(attribute = "customer") Long customerId` |
-| `MQ3303` | Update-model field maps to the primary key without `@PrimaryKey`, or to the `@Version` attribute (`Future`, M8) | `OrderPatch.version: the @Version attribute is managed by the engine (keepVersion, expectVersion)` |
-| `MQ3304` | Update-model field maps to an attribute that can't be written: `updatable = false`, or the inverse (`mappedBy`) side of a to-one (`Future`, M8) | `OrderPatch.createdAt: OrderEntity.createdAt is @Column(updatable = false)` |
-| `MQ3305` | To-one attribute written by id with the wrong id type (`Future`, M8) | `OrderPatch.customerId: CustomerEntity's id is Long, found String` |
-| `MQ3306` | `@PrimaryKey` on an update model, or a query model with `generateChanges = true`, is not the root entity's id (`Future`, M8) | `OrderPatch.orderNo: @PrimaryKey must be OrderEntity's id 'id'; bulk writes key on the entity id` |
-| `MQ3307` | Update-model field generates a change-set member that clashes with `Changes<M>` (`Future`, M8) | `OrderPatch.empty: generates isEmpty(), which clashes with Changes.isEmpty(); rename the field` |
+| `MQ3301` | Update-model field maps through a join or a collection (`Future`, M6) | `OrderPatch.customerName: update models can only write attributes of OrderEntity; 'customer.name' needs a join` |
+| `MQ3302` | `@Join`, `@Aggregate` or `@GroupBy` on an update model (`Future`, M6) | `OrderPatch.customer: @Join isn't allowed on @UpdateModel; write the foreign key with @Column(attribute = "customer") Long customerId` |
+| `MQ3303` | Update-model field maps to the primary key without `@PrimaryKey`, or to the `@Version` attribute (`Future`, M6) | `OrderPatch.version: the @Version attribute is managed by the engine (keepVersion, expectVersion)` |
+| `MQ3304` | Update-model field maps to an attribute that can't be written: `updatable = false`, or the inverse (`mappedBy`) side of a to-one (`Future`, M6) | `OrderPatch.createdAt: OrderEntity.createdAt is @Column(updatable = false)` |
+| `MQ3305` | To-one attribute written by id with the wrong id type (`Future`, M6) | `OrderPatch.customerId: CustomerEntity's id is Long, found String` |
+| `MQ3306` | `@PrimaryKey` on an update model, or a query model with `generateChanges = true`, is not the root entity's id (`Future`, M6) | `OrderPatch.orderNo: @PrimaryKey must be OrderEntity's id 'id'; bulk writes key on the entity id` |
+| `MQ3307` | Update-model field generates a change-set member that clashes with `Changes<M>` (`Future`, M6) | `OrderPatch.empty: generates isEmpty(), which clashes with Changes.isEmpty(); rename the field` |
 
 **R-DIAG-01** A message names the model, the field or annotation, and both sides of a mismatch. It never asks the user
 to read the spec to understand what happened.

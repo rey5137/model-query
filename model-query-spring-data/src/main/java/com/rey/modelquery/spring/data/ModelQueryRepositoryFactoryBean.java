@@ -1,6 +1,8 @@
 package com.rey.modelquery.spring.data;
 
 import com.rey.modelquery.core.Incubating;
+import com.rey.modelquery.core.ModelQueryConfigurationException;
+import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import jakarta.persistence.EntityManager;
@@ -116,11 +118,22 @@ public class ModelQueryRepositoryFactoryBean<T extends Repository<S, ID>, S, ID>
                         name));
     }
 
-    /** The {@code E} of {@code ModelQueryRepository<E>}, or the repository's domain type when it is raw. */
+    /**
+     * The repository's domain type, which the {@code E} of {@code ModelQueryRepository<E>} must be, unless it is raw.
+     *
+     * @throws ModelQueryConfigurationException {@code MQ4007} when {@code E} is another type (R-SPR-12)
+     */
     private Class<?> rootEntity() {
+        Class<?> domainType = AbstractRepositoryMetadata.getMetadata(repositoryInterface).getDomainType();
         Class<?> declared = ResolvableType.forClass(repositoryInterface).as(ModelQueryRepository.class)
                 .resolveGeneric(0);
-        return declared != null ? declared
-                : AbstractRepositoryMetadata.getMetadata(repositoryInterface).getDomainType();
+        if (declared != null && declared != domainType) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4007, repositoryInterface.getName()
+                    + " declares ModelQueryRepository<" + declared.getName() + "> on a repository of "
+                    + domainType.getName() + "; a repository queries its own domain type, so declare "
+                    + "ModelQueryRepository<" + domainType.getSimpleName() + "> or give the queries a repository of "
+                    + declared.getSimpleName());
+        }
+        return domainType;
     }
 }

@@ -34,10 +34,10 @@ public interface ModelQueryRepository<E> {
      * {@code null} under {@link CountMode#NO_COUNT} (R-SPR-07). Keyset paging is not offered here (D-51).
      *
      * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2001} for {@link Pageable#unpaged()},
-     *     {@code MQ2002} for an offset beyond {@code int}, and {@code MQ2301} naming a sort property that matches no
-     *     selected column or more than one, or that asks {@code ignoreCase()} (R-SPR-06), before any query runs
-     * @throws com.rey.modelquery.core.ModelQueryDefinitionException {@code MQ1207} or {@code MQ1406} when the sorted
-     *     copy fails the checks of {@code build()} ({@link ModelQuery#orderedBy(SortSpec)})
+     *     {@code MQ2002} for an offset beyond {@code int}, and {@code MQ2301} before any query runs: for a sort
+     *     property that matches no selected column or different ones, or that asks {@code ignoreCase()}, for a sort
+     *     on an ungrouped query without a primary key, and, with the build failure as cause, for a sorted copy that
+     *     fails the checks of {@code build()} (R-SPR-06, {@link ModelQuery#orderedBy(SortSpec)})
      */
     <M> ModelPage<M> findPage(ModelQuery<E, ?, M> q, Pageable pageable, CountMode mode);
 

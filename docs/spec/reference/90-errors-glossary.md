@@ -53,15 +53,15 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1407` | `having(...)` on an ungrouped query, one with neither a `groupBy` nor a selected aggregate | `api/13` R-AGG-07 |
 | `MQ1408` | An aggregate function over a column that has a `ColumnConverter` | `api/13` R-AGG-04 |
 | `MQ1409` | A grouped query selects a column under a `presentBy` join whose key columns are not all group keys | `api/13` R-AGG-09 |
-| `MQ1601` | A bulk write chose its rows with `where(...)` and no predicate is left (`Future`, M8) | `api/14` R-WRT-12 |
-| `MQ1602` | A column is assigned twice in one update (`Future`, M8) | `api/14` R-WRT-13 |
-| `MQ1603` | `set(column, null)`; NULL must be written with `setNull` (`Future`, M8) | `api/14` R-WRT-06 |
-| `MQ1604` | An assigned column is not on the update's root (a self-referencing join) (`Future`, M8) | `api/14` R-WRT-06 |
-| `MQ1605` | A primary-key or `@Version` column is assigned (`Future`, M8) | `api/14` R-WRT-13 |
-| `MQ1606` | `expectVersion` without `whereKey`, on a root with no `@Version`, or with `keepVersion` and nothing to write (`Future`, M8) | `api/14` R-WRT-16, R-WRT-07 |
-| `MQ1607` | `Changes.from(...)` names a column that is not writable (`Future`, M8) | `api/14` R-WRT-04 |
-| `MQ1608` | A bulk write's `@PrimaryKey` is not the root entity's id (`Future`, M8) | `api/14` R-WRT-08 |
-| `MQ1609` | `setExpression` on a column with a converter (`Future`, M8) | `api/14` R-WRT-14 |
+| `MQ1601` | A bulk write chose its rows with `where(...)` and no predicate is left (`Future`, M6) | `api/14` R-WRT-12 |
+| `MQ1602` | A column is assigned twice in one update (`Future`, M6) | `api/14` R-WRT-13 |
+| `MQ1603` | `set(column, null)`; NULL must be written with `setNull` (`Future`, M6) | `api/14` R-WRT-06 |
+| `MQ1604` | An assigned column is not on the update's root (a self-referencing join) (`Future`, M6) | `api/14` R-WRT-06 |
+| `MQ1605` | A primary-key or `@Version` column is assigned (`Future`, M6) | `api/14` R-WRT-13 |
+| `MQ1606` | `expectVersion` without `whereKey`, on a root with no `@Version`, or with `keepVersion` and nothing to write (`Future`, M6) | `api/14` R-WRT-16, R-WRT-07 |
+| `MQ1607` | `Changes.from(...)` names a column that is not writable (`Future`, M6) | `api/14` R-WRT-04 |
+| `MQ1608` | A bulk write's `@PrimaryKey` is not the root entity's id (`Future`, M6) | `api/14` R-WRT-08 |
+| `MQ1609` | `setExpression` on a column with a converter (`Future`, M6) | `api/14` R-WRT-14 |
 
 ## 3. `MQ2xxx` — execution
 
@@ -76,9 +76,9 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ2204` | Offset export of an ungrouped query, keyset paging or the primary-key-first phase over a selection read through a to-many join | `engine/21` R-PAG-13 |
 | `MQ2205` | A keyset export page holds a key of the page before: a cursor value did not survive being bound, or a row's keyset value moved after the cursor | `engine/21` R-PAG-14 |
 | `MQ2206` | A customizer narrows the phases of a query with `primaryKeyFirst(...)` differently | `engine/21` R-PAG-15 |
-| `MQ2301` | A sort property resolves to no selected column or to more than one, or asks for `ignoreCase` | `api/11` R-QRY-14, `integration/50` R-SPR-06 |
-| `MQ2501` | A bulk write, other than `commitEachChunk()`, ran without an active transaction (`Future`, M8) | `api/14` R-WRT-18 |
-| `MQ2502` | A per-chunk write failed; `ChunkedWriteException` carries the committed rows, the last committed key and the keys of a chunk in doubt (`Future`, M8) | `api/14` R-WRT-20 |
+| `MQ2301` | A sort property resolves to no selected column or to more than one (on any tier), or asks for `ignoreCase`; a sort on an ungrouped query without a primary key; a sorted copy that fails `build()`, as the cause | `api/11` R-QRY-14, `integration/50` R-SPR-06 |
+| `MQ2501` | A bulk write, other than `commitEachChunk()`, ran without an active transaction (`Future`, M6) | `api/14` R-WRT-18 |
+| `MQ2502` | A per-chunk write failed; `ChunkedWriteException` carries the committed rows, the last committed key and the keys of a chunk in doubt (`Future`, M6) | `api/14` R-WRT-20 |
 
 **R-ERR-04** One JPA exception is thrown deliberately instead of a library type: `OptimisticLockException` when an
 `expectVersion` update affects no rows (`api/14` R-WRT-16), because callers already handle it for entity writes.
@@ -86,7 +86,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 ## 4. `MQ3xxx` — annotation processing
 
 Catalogued with messages in `processor/32` §1: `MQ3001`–`MQ3016` for structural checks, `MQ3201`–`MQ3207` for aggregate
-models, `MQ3301`–`MQ3307` for update models (`Future`, M8). Codes are not repeated here to keep one owner.
+models, `MQ3301`–`MQ3307` for update models (`Future`, M6). Codes are not repeated here to keep one owner.
 
 ## 5. `MQ4xxx` — configuration
 
@@ -96,7 +96,9 @@ models, `MQ3301`–`MQ3307` for update models (`Future`, M8). Codes are not repe
 | `MQ4002` | Two `VendorProfile`s registered for the same vendor with no precedence rule | `vendor/40` R-VND-03 |
 | `MQ4003` | A property value, or its `ModelQueryConfig` setting, is outside its allowed range | `integration/50` §3 |
 | `MQ4005` | `modelquery.vendor` set with more than one `EntityManagerFactory` and no `ModelQueryConfigurer` | `integration/50` R-SPR-13 |
-| `MQ4004` | `commitEachChunk()` with no `ChunkTransactions` configured, or none that serves the write's `EntityManagerFactory` (`Future`, M8) | `api/14` R-WRT-19 |
+| `MQ4006` | A `ModelQueryConfig` bean of the application drops a `VendorProfile` bean or a set `modelquery.*` property | `integration/50` R-SPR-13 |
+| `MQ4007` | A repository declares `ModelQueryRepository` of an entity other than its domain type | `integration/50` R-SPR-12 |
+| `MQ4004` | `commitEachChunk()` with no `ChunkTransactions` configured, or none that serves the write's `EntityManagerFactory` (`Future`, M6) | `api/14` R-WRT-19 |
 
 ## 6. Glossary
 
@@ -120,9 +122,9 @@ models, `MQ3301`–`MQ3307` for update models (`Future`, M8). Codes are not repe
 | **Provider support** | A `ProviderSupport`: what a persistence provider does better than portable JPA (dialect detection, grouped count, native null precedence). Varies by provider, not by database (D-34). |
 | **Render options** | `RenderOptions`: the vendor-neutral facts about the database that a query build renders by, made from the profile (D-34). |
 | **QModel** | The generated companion class (`QOrderView`) holding a model's constants. |
-| **Update model** | A class or record annotated `@UpdateModel` listing the attributes a bulk update may write. Holds no data (`Future`, M8). |
-| **Change set** | A generated, mutable `Changes<M>` recording which columns were set, so "set to NULL" and "not set" differ (`Future`, M8). |
-| **Bulk write** | A `ModelUpdate` or `ModelDelete`: one statement, or a chunked series, over the rows a filter matches (`Future`, M8). |
+| **Update model** | A class or record annotated `@UpdateModel` listing the attributes a bulk update may write. Holds no data (`Future`, M6). |
+| **Change set** | A generated, mutable `Changes<M>` recording which columns were set, so "set to NULL" and "not set" differ (`Future`, M6). |
+| **Bulk write** | A `ModelUpdate` or `ModelDelete`: one statement, or a chunked series, over the rows a filter matches (`Future`, M6). |
 
 **R-ERR-03** Code and spec use these words and not synonyms: *column* not *field* for a `ColumnField`, *model* not *dto*
 or *view object*, *selectable* not *expression*, *group* not *bucket*, *profile* not *dialect* (`dialect` means
