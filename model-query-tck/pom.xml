@@ -19,6 +19,7 @@
         <!-- Not published -->
         <maven.source.skip>true</maven.source.skip>
         <maven.javadoc.skip>true</maven.javadoc.skip>
+        <japicmp.skip>true</japicmp.skip>
     </properties>
 
     <dependencies>

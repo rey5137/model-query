@@ -110,6 +110,13 @@
         <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
         <central-publishing-maven-plugin.version>0.11.0</central-publishing-maven-plugin.version>
         <versions-maven-plugin.version>2.22.0</versions-maven-plugin.version>
+        <japicmp.version>0.26.2</japicmp.version>
+
+        <!-- API compatibility check (R-REL-11, AC-REL-06). Unset until 1.0.0 is released; then set japicmp.baseline
+             to that version and japicmp.skip to false (or pass -Djapicmp.baseline=<version>, which switches the
+             check on by itself). The excluded non-API (R-REL-10) is listed once, in the plugin below. -->
+        <japicmp.baseline></japicmp.baseline>
+        <japicmp.skip>true</japicmp.skip>
     </properties>
 
     <!-- Test dependencies shared by every module. Test scope is never passed on to users. -->
@@ -271,10 +278,59 @@
                     </execution>
                 </executions>
             </plugin>
+            <plugin>
+                <groupId>com.github.siom79.japicmp</groupId>
+                <artifactId>japicmp-maven-plugin</artifactId>
+                <version>${japicmp.version}</version>
+                <configuration>
+                    <skip>${japicmp.skip}</skip>
+                    <oldVersion>
+                        <dependency>
+                            <groupId>${project.groupId}</groupId>
+                            <artifactId>${project.artifactId}</artifactId>
+                            <version>${japicmp.baseline}</version>
+                            <type>jar</type>
+                        </dependency>
+                    </oldVersion>
+                    <parameter>
+                        <breakBuildOnBinaryIncompatibleModifications>true</breakBuildOnBinaryIncompatibleModifications>
+                        <breakBuildOnSourceIncompatibleModifications>true</breakBuildOnSourceIncompatibleModifications>
+                        <onlyModified>true</onlyModified>
+                        <!-- R-REL-10: not API, at type and at member level. The same list is read by
+                             model-query-core's JapicmpExclusionsTest (AC-REL-06). -->
+                        <excludes>
+                            <exclude>@com.rey.modelquery.annotations.Incubating</exclude>
+                            <exclude>@com.rey.modelquery.core.EngineFacing</exclude>
+                            <exclude>com.rey.modelquery.jpa.vendor.*</exclude>
+                        </excludes>
+                    </parameter>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>api-compatibility</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>cmp</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 
     <profiles>
+        <!-- -Djapicmp.baseline=<version> switches the API compatibility check on. -->
+        <profile>
+            <id>japicmp-baseline</id>
+            <activation>
+                <property>
+                    <name>japicmp.baseline</name>
+                </property>
+            </activation>
+            <properties>
+                <japicmp.skip>false</japicmp.skip>
+            </properties>
+        </profile>
         <!-- Activated by the release workflow: ./mvnw -Prelease deploy -->
         <profile>
             <id>release</id>

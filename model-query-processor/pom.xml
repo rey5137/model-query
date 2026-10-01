@@ -15,6 +15,10 @@
     <name>Model Query Processor</name>
     <description>Annotation processor that generates QModel classes</description>
 
+    <properties>
+        <japicmp.skip>true</japicmp.skip>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>io.github.rey5137</groupId>

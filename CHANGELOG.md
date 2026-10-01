@@ -7,6 +7,9 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 ## [Unreleased]
 
 ### Added
+- `japicmp` runs in `verify` against the baseline release named by `japicmp.baseline`, and fails the build on a
+  binary- or source-incompatible change to API; it is skipped while no baseline is set, and ignores `@Incubating`,
+  `@EngineFacing` and `jpa.vendor`.
 - The user guide is published to GitHub Pages from main.
 - `MQ1307`: a statement whose binds only together pass the vendor's `maxBindParameters()` is refused before it runs,
   rather than failing in the database (#6). On a keyset export page or key-first round after a cursor, the message

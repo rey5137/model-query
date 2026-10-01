@@ -26,6 +26,13 @@
             <artifactId>jakarta.persistence-api</artifactId>
             <version>${jakarta-persistence.version}</version>
         </dependency>
+        <!-- Test scope: JapicmpExclusionsTest runs japicmp over a fixture (AC-REL-06). -->
+        <dependency>
+            <groupId>com.github.siom79.japicmp</groupId>
+            <artifactId>japicmp</artifactId>
+            <version>${japicmp.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
     <build>
         <plugins>

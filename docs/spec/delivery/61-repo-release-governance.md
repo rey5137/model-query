@@ -92,6 +92,9 @@ release: the types `BuiltQuery`, `RowSelection` and `RenderOptions`, the methods
 
 **R-REL-11** From 1.0, `japicmp` fails the build on a binary-incompatible change to API: a type outside the non-API
 packages that is neither `@Incubating` nor `@EngineFacing`, or a member of such a type that is neither (R-REL-10).
+The root pom's `japicmp.baseline` names the release compared against; while it is unset the check is skipped, and
+`-Djapicmp.baseline=<version>` runs it once. The processor is not compared: its surface is the annotations and the generated
+code's shape, and its jar bundles a relocated JavaPoet.
 
 ## 5. Licensing
 
