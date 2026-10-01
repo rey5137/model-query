@@ -26,17 +26,17 @@ model-query/
 ├── model-query-spring-data/         ModelQueryRepository + factory, Page/Pageable/Sort adapters
 ├── model-query-spring-boot-starter/ auto-configuration, properties, SPI beans
 ├── model-query-tck/                 Testcontainers suite per vendor
-├── samples/{plain-jpa,spring-boot-multi-datasource}/
+├── samples/{plain-jpa,spring-boot}/
 ├── rfc/                             README.md, 0000-template.md, accepted RFCs
-├── docs/{spec,plan}/  docs/code-conventions.md
+├── docs/{spec,plan,site}/  docs/code-conventions.md
 └── .github/{workflows,ISSUE_TEMPLATE,pull_request_template.md,dependabot.yml}
 ```
 
 **R-REL-01** A new module needs a real API or dependency boundary and an update to SPEC.md §5 and INV-7's order. A
 directory alone is never a reason.
 
-**R-REL-02** Grows later, not in 0.1: an `editors/` module, a `model-query-quarkus` extension, and a published docs site
-source tree.
+**R-REL-02** Grows later, not in 0.1: an `editors/` module, a `model-query-quarkus` extension, and publishing the docs
+site. Its source tree ships in 0.1 and CI builds it (D-76).
 
 ## 2. Dependency rules (INV-7)
 
