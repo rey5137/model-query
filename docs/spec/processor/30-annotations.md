@@ -38,7 +38,11 @@ that does not depend on JPA or on the engine. Join types and aggregate functions
 **R-PROC-04** `prefix` and `suffix` (also settable as `-Amodelquery.prefix=` / `-Amodelquery.suffix=`) name the
 generated class. A value written on the annotation wins over the option, which wins over the default (D-44). A
 project also using Querydsl on the same classes should change one of them, although a collision is
-unlikely: Querydsl generates for entities, this processor generates for models.
+unlikely: Querydsl generates for entities, this processor generates for models. A nested model read from the
+classpath (D-45) is named by its own annotation, else by the option of the compilation that reads it, not of the one
+that generated it; so a module built with a different `-Amodelquery.prefix` or `-Amodelquery.suffix` from its
+consumers' ends in javac's missing-class error. The user guide says to keep one value across modules, or to set it on
+the nested model's annotation.
 
 **R-PROC-05** `singleGroup = true` marks a model that has `@Aggregate` fields and deliberately no `@GroupBy` field — a
 whole-table total. Without it, that combination is a diagnostic (`processor/32` `MQ3203`). `singleGroup = true` on a

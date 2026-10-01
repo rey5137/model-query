@@ -10,3 +10,7 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 - Specification tree under `docs/spec/`, with the routing index at `docs/spec/SPEC.md`.
 - Working plan at `docs/plan/mvp-plan.md` and code conventions at `docs/code-conventions.md`.
 - RFC process for public API changes (`rfc/`).
+
+### Changed
+- **Breaking:** `ExportOptions.pageSize` is an `OptionalInt`; `ExportOptions.defaults()` leaves the page size to
+  `ModelQueryConfig.exportPageSize` (1000 by default). Callers of `ExportOptions.of(int)` are unaffected (D-53).

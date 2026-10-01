@@ -600,6 +600,13 @@ where no `ProviderSupport` exists to ask. → `vendor/41` §2, R-PRF-04, R-VND-0
 
 **Q-10 — A nested model from another module.** Resolved by D-45.
 
+**Q-11 — Processor diagnostics hidden or missing (left from the M4 gate).** Two diagnostics wait for another to be
+fixed, against R-DIAG-03: an `MQ3015` prefix clash is not reported while the clashing `@Join` fails its own check, and
+an `MQ3014` is not reported while its path does not resolve. A model whose `root` is a type another processor generates
+in the same round is skipped with no diagnostic and no QModel. Open: report the hidden codes in the same pass, and
+defer such a model to a later round (reporting it if the type never appears), or document the gaps. → `processor/32`
+R-DIAG-03.
+
 ## 3. Risks
 
 | Risk | Mitigation |

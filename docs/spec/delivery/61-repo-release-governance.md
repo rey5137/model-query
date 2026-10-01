@@ -74,7 +74,9 @@ annotated `@Incubating`.
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from
-Conventional Commits.
+Conventional Commits. A commit that breaks an `@Incubating` type is still marked breaking (`!` and a
+`BREAKING CHANGE:` footer), so the generated changelog lists it. A break that reached `main` unmarked is entered in
+`CHANGELOG.md` by hand: `ExportOptions.pageSize` became an `OptionalInt` in `9ce0c10` (D-53).
 
 **R-REL-09** Coordinates: `groupId` `io.github.rey5137`, artifacts `model-query-*`. The namespace is verified on Central
 through the `rey5137` GitHub account. The Java package `com.rey.modelquery` intentionally differs from the `groupId`.

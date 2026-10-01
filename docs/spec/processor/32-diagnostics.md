@@ -45,7 +45,8 @@
 to read the spec to understand what happened.
 
 **R-DIAG-02** Every check reports as an `ERROR` on the annotated element, so the IDE underlines the field rather than
-the generated file. `MQ3016` alone is a `WARNING`: the model is still generated.
+the generated file. `MQ3016` alone is a `WARNING`: the model is still generated. The user guide shows the `@Join` form its message
+points to, which selects the nested model's columns instead of the whole entity (D-44, D-45).
 
 **R-DIAG-03** The processor reports **every** independent problem in one pass. A model that failed one check still
 produces the remaining diagnostics for its other fields; it does not produce a QModel.
