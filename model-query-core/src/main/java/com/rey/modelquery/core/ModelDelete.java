@@ -1,6 +1,12 @@
 package com.rey.modelquery.core;
 
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaDelete;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.metamodel.Metamodel;
 import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
 import java.util.function.UnaryOperator;
 
@@ -14,7 +20,7 @@ import java.util.function.UnaryOperator;
  *
  * @param <E> the root entity
  * @param <M> the model whose key and filter columns the delete uses
- * @implSpec R-WRT-09, D-60
+ * @implSpec R-WRT-09, R-WRT-10, R-WRT-12, D-60, D-61, D-63
  */
 @Incubating
 public final class ModelDelete<E, M> {
@@ -43,6 +49,42 @@ public final class ModelDelete<E, M> {
     /** The entity the delete removes rows of. */
     public Class<E> rootEntity() {
         return definition.root().rootEntity();
+    }
+
+    /** Whether the delete runs no statement: its {@code whereKeys} received no key (R-WRT-12). */
+    public boolean writesNothing() {
+        List<Object> keys = definition.rows().keys();
+        return keys != null && keys.isEmpty();
+    }
+
+    /**
+     * Checks the definition against {@code metamodel}, which {@code build()} cannot see (INV-7). An executor calls it
+     * on the definition's first execution per {@code EntityManagerFactory}, before any statement (D-61).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1608} when the primary key does not name exactly the root
+     *     entity's id attributes
+     */
+    public void checkMetamodel(Metamodel metamodel) {
+        WriteRendering.checkKey(metamodel.entity(rootEntity()), definition.root(), definition.primaryKey(),
+                definition.primaryKey().columns().get(0).model().getSimpleName());
+    }
+
+    /**
+     * Renders the delete against {@code cb}: one {@code CriteriaDelete} choosing the keys, then the {@code where}
+     * tree, on the root when it needs no join and else whole in one {@code EXISTS} over a second root correlated by
+     * the key columns (R-WRT-10).
+     */
+    public CriteriaDelete<E> buildWrite(CriteriaBuilder cb, RenderOptions options) {
+        Objects.requireNonNull(cb, "cb");
+        Objects.requireNonNull(options, "options");
+        CriteriaDelete<E> delete = cb.createCriteriaDelete(rootEntity());
+        Root<E> from = delete.from(rootEntity());
+        List<Predicate> where = WriteRendering.rows(definition.rows(), definition.primaryKey(), delete, from, cb,
+                options);
+        if (!where.isEmpty()) {
+            delete.where(where.toArray(Predicate[]::new));
+        }
+        return delete;
     }
 
     /** Everything a stage holds; each stage call returns a copy with one part changed. */

@@ -1,13 +1,27 @@
 package com.rey.modelquery.core;
 
 import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaUpdate;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Path;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.metamodel.Attribute;
+import jakarta.persistence.metamodel.EntityType;
+import jakarta.persistence.metamodel.Metamodel;
+import jakarta.persistence.metamodel.SingularAttribute;
+import java.math.BigInteger;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.UnaryOperator;
@@ -21,7 +35,7 @@ import java.util.function.UnaryOperator;
  *
  * @param <E> the root entity
  * @param <M> the update model
- * @implSpec R-WRT-05, D-60
+ * @implSpec R-WRT-05, R-WRT-07, R-WRT-10, R-WRT-13, R-WRT-14, R-WRT-16, D-60, D-61, D-63
  */
 @Incubating
 public final class ModelUpdate<E, M> {
@@ -55,6 +69,208 @@ public final class ModelUpdate<E, M> {
     /** The columns written, in the order assigned, as a list that throws on mutation. */
     public List<Assignment<M, ?>> assignments() {
         return definition.assignments();
+    }
+
+    /** The version {@code expectVersion} expects the row to have, or empty without it (R-WRT-16). */
+    public Optional<Object> expectedVersion() {
+        return Optional.ofNullable(definition.expectedVersion());
+    }
+
+    /**
+     * Whether the update runs no statement: it assigns nothing and expects no version (R-WRT-07), or its
+     * {@code whereKeys} received no key (R-WRT-12).
+     */
+    public boolean writesNothing() {
+        List<Object> keys = definition.rows().keys();
+        return keys != null && keys.isEmpty()
+                || definition.assignments().isEmpty() && definition.expectedVersion() == null;
+    }
+
+    /**
+     * Checks the definition against {@code metamodel}, which {@code build()} cannot see (INV-7). An executor calls it
+     * on the definition's first execution per {@code EntityManagerFactory}, before any statement (D-61).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1608} when the primary key does not name exactly the root
+     *     entity's id attributes, {@code MQ1605} when a column writes an id or the {@code @Version} attribute,
+     *     {@code MQ1606} for {@code expectVersion} on a root with no {@code @Version} attribute or with a value of
+     *     another type
+     */
+    public void checkMetamodel(Metamodel metamodel) {
+        EntityType<E> entity = metamodel.entity(rootEntity());
+        WriteRendering.checkKey(entity, definition.root(), definition.primaryKey(), modelName());
+        WriteRendering.checkAssignable(entity, definition.assignments());
+        expectedVersionAttribute(entity);
+    }
+
+    /**
+     * Renders the update against {@code cb}: one {@code CriteriaUpdate} whose {@code SET} holds the
+     * {@code setExpression} assignments first, then the others in the order assigned, then the version increment
+     * unless {@code keepVersion()} (R-WRT-13, R-WRT-16). A value passes through its column's converter and is bound;
+     * a to-one attribute written by id binds what {@code references} returns for the target entity and the id,
+     * which an executor makes {@code EntityManager#getReference} so no row is loaded (R-WRT-14). The rows are chosen
+     * as {@link ModelDelete#buildWrite} chooses them (R-WRT-10), with {@code AND version = ?} for
+     * {@code expectVersion}.
+     *
+     * @param references the reference to bind for a target entity type and an id
+     * @throws ModelQueryDefinitionException {@code MQ1001} for a to-one column whose type is not the target's id
+     *     type, and the codes of {@link #checkMetamodel} that rendering meets
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public CriteriaUpdate<E> buildWrite(CriteriaBuilder cb, RenderOptions options,
+            BiFunction<Class<?>, Object, ?> references) {
+        Objects.requireNonNull(cb, "cb");
+        Objects.requireNonNull(options, "options");
+        Objects.requireNonNull(references, "references");
+        Class<E> type = rootEntity();
+        CriteriaUpdate<E> update = cb.createCriteriaUpdate(type);
+        Root<E> from = update.from(type);
+        JoinContext ctx = JoinContext.of(from, cb, update, options);
+        EntityType<E> entity = from.getModel();
+        // Expressions first, so one reading a column a plain assignment writes sees the old value on MySQL too.
+        for (Assignment<M, ?> assignment : definition.assignments()) {
+            if (assignment instanceof Assignment.Expression expression) {
+                Path path = expression.column().path(ctx);
+                setTo(update, path, (Expression) expression.expression().apply(path, cb));
+            }
+        }
+        for (Assignment<M, ?> assignment : definition.assignments()) {
+            if (!(assignment instanceof Assignment.Expression)) {
+                assign(update, from, ctx, entity, assignment, cb, references);
+            }
+        }
+        if (!definition.keepVersion()) {
+            WriteRendering.version(entity).ifPresent(version -> {
+                Path path = from.get(version.getName());
+                Object next = nextVersion(path, cb);
+                if (next instanceof Expression expression) {
+                    setTo(update, path, expression);
+                } else {
+                    setValue(update, path, next);
+                }
+            });
+        }
+        var where = new ArrayList<>(WriteRendering.rows(definition.rows(), definition.primaryKey(), update, from, cb,
+                options));
+        SingularAttribute<?, ?> version = expectedVersionAttribute(entity);
+        if (version != null) {
+            where.add(cb.equal(from.get(version.getName()), definition.expectedVersion()));
+        }
+        if (!where.isEmpty()) {
+            update.where(where.toArray(Predicate[]::new));
+        }
+        return update;
+    }
+
+    /** One value or NULL assignment; a to-one attribute written by id binds a reference to the target (R-WRT-14). */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static <E> void assign(CriteriaUpdate<E> update, Root<E> from, JoinContext ctx, EntityType<E> entity,
+            Assignment<?, ?> assignment, CriteriaBuilder cb, BiFunction<Class<?>, Object, ?> references) {
+        ColumnField column = assignment.column();
+        EntityType<?> target = toOneTarget(entity, column.name());
+        Path path;
+        if (target == null) {
+            path = column.path(ctx);
+        } else {
+            Class<?> idType = ColumnField.boxed(target.getIdType().getJavaType());
+            if (idType != column.attributeType()) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1001, column + ": writes the to-one "
+                        + entity.getJavaType().getSimpleName() + "." + column.name() + " by id, whose type is "
+                        + idType.getSimpleName() + ", not " + column.attributeType().getSimpleName());
+            }
+            path = from.get(column.name());
+        }
+        if (assignment instanceof Assignment.Value value) {
+            Object attribute = column.toAttribute(value.value());
+            setValue(update, path, target == null ? attribute : references.apply(target.getJavaType(), attribute));
+        } else {
+            setTo(update, path, cb.nullLiteral(path.getJavaType()));
+        }
+    }
+
+    private static <Y> void setTo(CriteriaUpdate<?> update, Path<Y> path, Expression<? extends Y> value) {
+        update.set(path, value);
+    }
+
+    /** Binds {@code value}, which the provider checks against the path's type. */
+    @SuppressWarnings("unchecked")
+    private static <Y> void setValue(CriteriaUpdate<?> update, Path<Y> path, Object value) {
+        update.set(path, (Y) value);
+    }
+
+    /** The entity a root attribute named {@code name} leads to when it is a to-one association, else {@code null}. */
+    private static EntityType<?> toOneTarget(EntityType<?> entity, String name) {
+        if (name.indexOf('.') >= 0) {
+            return null;
+        }
+        Attribute<?, ?> attribute;
+        try {
+            attribute = entity.getAttribute(name);
+        } catch (IllegalArgumentException e) {
+            return null; // the column's own path reports MQ1002
+        }
+        return attribute instanceof SingularAttribute<?, ?> singular && singular.isAssociation()
+                && singular.getType() instanceof EntityType<?> target ? target : null;
+    }
+
+    /** {@code version + 1}, or the current time for a timestamp version (R-WRT-16). */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static Object nextVersion(Path path, CriteriaBuilder cb) {
+        Class<?> type = ColumnField.boxed(path.getJavaType());
+        if (type == Integer.class) {
+            return cb.sum(path, 1);
+        }
+        if (type == Long.class) {
+            return cb.sum(path, 1L);
+        }
+        if (type == Short.class) {
+            return cb.sum(path, (short) 1);
+        }
+        if (type == BigInteger.class) {
+            return cb.sum(path, BigInteger.ONE);
+        }
+        if (type == Instant.class) {
+            return Instant.now();
+        }
+        if (type == LocalDateTime.class) {
+            return LocalDateTime.now();
+        }
+        if (type == OffsetDateTime.class) {
+            return OffsetDateTime.now();
+        }
+        if (type == Timestamp.class) {
+            return new Timestamp(System.currentTimeMillis());
+        }
+        if (type == Date.class) {
+            return new Date();
+        }
+        throw new IllegalStateException("@Version of type " + type.getName() + " is not supported by bulk updates");
+    }
+
+    /**
+     * The {@code @Version} attribute {@code expectVersion} compares, or {@code null} without {@code expectVersion}.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1606} for a root with no {@code @Version} attribute, or a
+     *     value of another type
+     */
+    private SingularAttribute<?, ?> expectedVersionAttribute(EntityType<E> entity) {
+        Object expected = definition.expectedVersion();
+        if (expected == null) {
+            return null;
+        }
+        SingularAttribute<?, ?> version = WriteRendering.version(entity).orElseThrow(() ->
+                new ModelQueryDefinitionException(MqCode.MQ1606, modelName() + ": expectVersion(...) on "
+                        + entity.getJavaType().getSimpleName() + ", which has no @Version attribute"));
+        Class<?> type = ColumnField.boxed(version.getJavaType());
+        if (!type.isInstance(expected)) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1606, modelName() + ": expectVersion(...) received a "
+                    + expected.getClass().getSimpleName() + ", but " + entity.getJavaType().getSimpleName() + "."
+                    + version.getName() + " is " + type.getSimpleName());
+        }
+        return version;
+    }
+
+    private String modelName() {
+        return definition.primaryKey().columns().get(0).model().getSimpleName();
     }
 
     /** Everything a stage holds; each stage call returns a copy with one part changed. */

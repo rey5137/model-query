@@ -6,6 +6,7 @@ import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.JoinContext;
 import com.rey.modelquery.core.Limit;
+import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
@@ -17,6 +18,7 @@ import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.SelectField;
+import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.jpa.spi.VendorProfile;
@@ -24,6 +26,8 @@ import com.rey.modelquery.jpa.vendor.ResolvedVendor;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.OptimisticLockException;
+import jakarta.persistence.Query;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
@@ -36,6 +40,7 @@ import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Selection;
 import jakarta.persistence.metamodel.Attribute;
+import jakarta.persistence.metamodel.Metamodel;
 import jakarta.persistence.metamodel.PluralAttribute;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -61,7 +66,7 @@ import java.util.stream.Stream;
  *
  * @implSpec R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-05, R-EXE-06, R-EXE-07, R-EXE-09, R-QRY-09, R-PAG-01,
  *     R-PAG-02, R-PAG-03, R-PAG-04, R-PAG-05, R-PAG-06, R-PAG-07, R-PAG-08, R-PAG-09, R-PAG-10, R-PAG-11, R-PAG-12,
- *     R-PAG-13, R-PAG-14, R-AGG-09, R-EXE-08, R-EXE-11
+ *     R-PAG-13, R-PAG-14, R-AGG-09, R-EXE-08, R-EXE-11, R-WRT-07, R-WRT-14, R-WRT-16, R-WRT-23, D-61
  */
 final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
@@ -73,6 +78,14 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      */
     private static final Set<ModelQuery<?, ?, ?>> PHASES_CHECKED =
             Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
+
+    /**
+     * The write definitions whose metamodel checks passed, per factory (D-61): a definition is checked once for each
+     * factory it runs on, since another factory may map the root differently. Weak on both levels, so neither a
+     * closed factory nor a definition built per request stays reachable.
+     */
+    private static final Map<EntityManagerFactory, Set<Object>> WRITES_CHECKED =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     private final EntityManager em;
     private final Class<E> rootEntity;
@@ -247,6 +260,48 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         appendStableOrder(q, built);
         return exportByOffset(q, built, key, row -> keyOf(q, key, row), pageSize, limit, pageTransformer,
                 sink);
+    }
+
+    @Override
+    public long update(ModelUpdate<E, ?> u) {
+        Objects.requireNonNull(u, "u");
+        checkWriteOnce(u, u::checkMetamodel);
+        if (u.writesNothing()) {
+            return 0;
+        }
+        int written = execute(em.createQuery(u.buildWrite(em.getCriteriaBuilder(), renderOptions,
+                (target, id) -> em.getReference(target, id))));
+        if (written == 0 && u.expectedVersion().isPresent()) {
+            throw new OptimisticLockException(rootEntity.getSimpleName() + ": no row was written with version "
+                    + u.expectedVersion().get() + "; its version moved, or it no longer exists or matches");
+        }
+        return written;
+    }
+
+    @Override
+    public long delete(ModelDelete<E, ?> d) {
+        Objects.requireNonNull(d, "d");
+        checkWriteOnce(d, d::checkMetamodel);
+        if (d.writesNothing()) {
+            return 0;
+        }
+        return execute(em.createQuery(d.buildWrite(em.getCriteriaBuilder(), renderOptions)));
+    }
+
+    /** Runs a write statement with the configured timeout applied through the profile (R-EXE-11). */
+    private int execute(Query statement) {
+        queryTimeout.ifPresent(timeout -> vendor.profile().applyTimeout(statement, timeout));
+        return statement.executeUpdate();
+    }
+
+    /** Runs {@code check} the first time {@code definition} runs on this executor's factory, before any statement. */
+    private void checkWriteOnce(Object definition, Consumer<Metamodel> check) {
+        Set<Object> checked = WRITES_CHECKED.computeIfAbsent(em.getEntityManagerFactory(),
+                factory -> Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>())));
+        if (!checked.contains(definition)) {
+            check.accept(em.getMetamodel());
+            checked.add(definition); // only once it passed, so a check that threw runs again next time
+        }
     }
 
     /** Runs the R-QRY-09 phase check the first time any executor runs {@code q} (D-21). */

@@ -117,6 +117,9 @@ public enum MqCode {
      */
     MQ1606("expectVersion(...) cannot apply to this update"),
 
+    /** A bulk write's {@code @PrimaryKey} is not the root entity's id, checked on first execution (R-WRT-08, D-61). */
+    MQ1608("A bulk write's primary key does not name exactly the root entity's id attributes"),
+
     /** {@code setExpression} on a column with a {@code ColumnConverter} (R-WRT-14). */
     MQ1609("setExpression(...) does not take a column that has a ColumnConverter"),
 

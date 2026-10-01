@@ -4,7 +4,9 @@ import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Incubating;
 import com.rey.modelquery.core.Limit;
+import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.Slice;
 import jakarta.persistence.EntityManager;
@@ -23,7 +25,7 @@ import java.util.stream.Stream;
  * @param <E> the root entity type
  * @implSpec R-QRY-10, R-QRY-09, R-QRY-11, R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-07, R-EXE-09, R-PAG-01,
  *     R-PAG-02, R-PAG-03, R-PAG-07, R-PAG-08, R-PAG-09, R-PAG-10, R-PAG-11, R-PAG-12, R-PAG-13, R-PAG-14, R-PAG-15,
- *     R-AGG-09
+ *     R-AGG-09, R-WRT-01, R-WRT-07, R-WRT-16, R-WRT-23, D-61
  */
 @Incubating
 public interface ModelQueryExecutor<E> {
@@ -112,4 +114,32 @@ public interface ModelQueryExecutor<E> {
      */
     <M, S> long export(ModelQuery<E, ?, M> q, ExportOptions options,
             Function<List<M>, List<S>> pageTransformer, Consumer<S> sink);
+
+    /**
+     * Writes {@code u}'s assignments to the rows it chooses, in one {@code CriteriaUpdate}, and returns the rows
+     * affected. It loads no entity and runs no lifecycle callback, cascade, Bean Validation or Envers audit: those
+     * stay with JPA entity writes (R-WRT-01). An update that assigns nothing and expects no version, or whose
+     * {@code whereKeys} received no key, runs no SQL and returns 0 (R-WRT-07). The first execution of a definition
+     * per {@code EntityManagerFactory} checks it against the JPA metamodel, before any statement (D-61).
+     *
+     * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution: {@code MQ1608} when the
+     *     definition's primary key is not the root entity's id, {@code MQ1605} when a column writes an id or the
+     *     {@code @Version} attribute, {@code MQ1606} for {@code expectVersion} on a root with no {@code @Version}
+     *     attribute or with a value of another type
+     * @throws jakarta.persistence.OptimisticLockException when {@code expectVersion} was given and no row was
+     *     written: the row's version moved, or the row no longer matches (R-WRT-16)
+     */
+    long update(ModelUpdate<E, ?> u);
+
+    /**
+     * Deletes the rows {@code d} chooses, in one {@code CriteriaDelete}, and returns the rows affected. It loads no
+     * entity and runs no lifecycle callback, cascade, Bean Validation or Envers audit: those stay with JPA entity
+     * writes (R-WRT-01). A delete whose {@code whereKeys} received no key runs no SQL and returns 0 (R-WRT-12). The
+     * first execution of a definition per {@code EntityManagerFactory} checks it against the JPA metamodel, before any
+     * statement (D-61).
+     *
+     * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution: {@code MQ1608} when the
+     *     definition's primary key is not the root entity's id
+     */
+    long delete(ModelDelete<E, ?> d);
 }

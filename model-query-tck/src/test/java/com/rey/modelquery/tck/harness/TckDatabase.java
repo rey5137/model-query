@@ -3,6 +3,7 @@ package com.rey.modelquery.tck.harness;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import org.junit.jupiter.api.Assumptions;
 
 /** A started, schema-created and seeded database. Connections are plain JDBC; M1 layers JPA on top. */
 public final class TckDatabase {
@@ -43,6 +44,15 @@ public final class TckDatabase {
     public TckDatabase withJdbcUrlProperty(String name, String value) {
         String separator = jdbcUrl.contains("?") ? "&" : "?";
         return new TckDatabase(target, jdbcUrl + separator + name + "=" + value, username, password);
+    }
+
+    /**
+     * Skips the calling test where the database cannot read a write's target table in a sub-query (MySQL, error
+     * 1093). The engine writes key-first there (spec api/14 R-WRT-11), which lands in M6.4; remove this then.
+     */
+    public void assumeTargetTableInSubquery() {
+        Assumptions.assumeTrue(target.vendor() != TckVendor.MYSQL,
+                "a write reading its target table in a sub-query runs key-first on " + target + " from M6.4");
     }
 
     /** A new connection; the caller closes it. */

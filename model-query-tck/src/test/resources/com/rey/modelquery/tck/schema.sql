@@ -15,6 +15,7 @@ CREATE TABLE orders (
     total       DECIMAL(12,2) NOT NULL,
     placed_at   TIMESTAMP NOT NULL,
     referrer_id BIGINT NULL,
+    version     INT DEFAULT 0 NOT NULL,
     CONSTRAINT fk_orders_customer FOREIGN KEY (customer_id) REFERENCES customers (id),
     CONSTRAINT fk_orders_referrer FOREIGN KEY (referrer_id) REFERENCES customers (id)
 );

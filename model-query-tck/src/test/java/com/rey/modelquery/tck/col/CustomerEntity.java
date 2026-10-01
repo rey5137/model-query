@@ -16,6 +16,7 @@ public class CustomerEntity {
     Long id;
 
     String name;
+    String email;
     String country;
 
     boolean vip;

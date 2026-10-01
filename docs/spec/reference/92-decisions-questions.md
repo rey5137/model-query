@@ -609,6 +609,17 @@ checked before the `EXISTS` correlation. → `api/14` R-WRT-08, §5, `engine/21`
 `MQ2001`. `startAfter` is typed in M6.5, on a stage that knows `K`. `M6` joins the audit's started scope at M6.11, as
 `M5` did at its last slice. → `api/14` R-WRT-12, R-WRT-16, R-WRT-17.
 
+**D-65 — M6.2 write rendering surface.** `ModelUpdate` and `ModelDelete` gain the engine-facing methods `jpa` calls,
+as `ModelQuery` has `buildQuery` and `checkPhases`: `checkMetamodel(Metamodel)` (the D-61 checks, memoised by the
+executor per factory, weakly on both levels), `writesNothing()` (R-WRT-07, R-WRT-12), and `buildWrite(cb, options)`,
+which on `ModelUpdate` also takes a `BiFunction<Class<?>, Object, ?>` the executor makes `EntityManager#getReference`,
+so `core` binds a to-one by id without touching an `EntityManager` (R-WRT-14); `ModelUpdate.expectedVersion()` lets
+the executor throw `OptimisticLockException`. Whether the tree needs a join is learned by rendering it into the
+`EXISTS` sub-query first: a filter is a lambda with no structure to walk, and a tree that made no join renders again on
+the statement's root. A tree that made a join renders whole in the `EXISTS` even when no predicate is left, since an
+INNER join narrows the read too. A numeric `@Version` renders `version + 1`; a timestamp one binds the JVM's current
+time. The TCK's `orders` gains a `version` column. → `api/14` R-WRT-10, R-WRT-14, R-WRT-16, D-61, D-63.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter

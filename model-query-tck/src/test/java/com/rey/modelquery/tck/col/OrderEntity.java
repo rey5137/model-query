@@ -11,6 +11,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -46,6 +47,10 @@ public class OrderEntity {
     // The referrer's key as a plain, nullable value: NULL on a row that a join to the order still matches.
     @Column(name = "referrer_id", insertable = false, updatable = false)
     Long referrerId;
+
+    // Bulk updates increment it (api/14 R-WRT-16); the seed leaves it at its default, 0.
+    @Version
+    Integer version;
 
     @OneToMany(mappedBy = "order")
     List<OrderItemEntity> items;
