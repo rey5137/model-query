@@ -12,6 +12,7 @@ import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullOrdering;
+import com.rey.modelquery.core.PersistenceContextMode;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ChunkTransactions;
@@ -97,6 +98,8 @@ class StarterTest {
             assertThat(config.queryTimeout()).isEmpty();
             assertThat(config.keysetNullKeys()).isEqualTo(KeysetNullKeys.FAIL);
             assertThat(config.mysqlStreamingMode()).isEqualTo(MysqlStreamingMode.ROW_BY_ROW);
+            assertThat(config.persistenceContextMode()).isEqualTo(PersistenceContextMode.CLEAR);
+            assertThat(config.bulkWriteChunkSize()).isEqualTo(ModelQueryConfig.defaults().bulkWriteChunkSize());
         });
     }
 
@@ -105,7 +108,8 @@ class StarterTest {
         configOnly.withPropertyValues("modelquery.vendor=sql-server", "modelquery.export.page-size=200",
                 "modelquery.primary-key-first.batch-size=50", "modelquery.stream.fetch-size=70",
                 "modelquery.mysql.streaming-mode=cursor-fetch", "modelquery.query-timeout=30s",
-                "modelquery.keyset.null-keys=honour-null-precedence").run(context -> {
+                "modelquery.keyset.null-keys=honour-null-precedence", "modelquery.bulk-write.persistence-context=keep",
+                "modelquery.bulk-write.chunk-size=250").run(context -> {
                     ModelQueryConfig config = context.getBean(ModelQueryConfig.class);
                     assertThat(config.vendor()).contains(DatabaseVendor.SQLSERVER);
                     assertThat(config.exportPageSize()).isEqualTo(200);
@@ -114,6 +118,8 @@ class StarterTest {
                     assertThat(config.mysqlStreamingMode()).isEqualTo(MysqlStreamingMode.CURSOR_FETCH);
                     assertThat(config.queryTimeout()).contains(Duration.ofSeconds(30));
                     assertThat(config.keysetNullKeys()).isEqualTo(KeysetNullKeys.HONOUR_NULL_PRECEDENCE);
+                    assertThat(config.persistenceContextMode()).isEqualTo(PersistenceContextMode.KEEP);
+                    assertThat(config.bulkWriteChunkSize()).isEqualTo(250);
                 });
     }
 
@@ -134,6 +140,22 @@ class StarterTest {
                     assertThat(rootCode(context.getStartupFailure())).isEqualTo(MqCode.MQ4006);
                     assertThat(context.getStartupFailure())
                             .hasMessageContaining("property modelquery.export.page-size");
+                });
+    }
+
+    @Test
+    void ac_spr_11_a_config_bean_of_the_application_with_a_bulk_write_property_fails_startup_with_mq4006() {
+        configOnly.withBean(ModelQueryConfig.class, ModelQueryConfig::defaults)
+                .withPropertyValues("modelquery.bulk-write.chunk-size=250").run(context -> {
+                    assertThat(rootCode(context.getStartupFailure())).isEqualTo(MqCode.MQ4006);
+                    assertThat(context.getStartupFailure())
+                            .hasMessageContaining("property modelquery.bulk-write.chunk-size");
+                });
+        configOnly.withBean(ModelQueryConfig.class, ModelQueryConfig::defaults)
+                .withPropertyValues("modelquery.bulk-write.persistence-context=keep").run(context -> {
+                    assertThat(rootCode(context.getStartupFailure())).isEqualTo(MqCode.MQ4006);
+                    assertThat(context.getStartupFailure())
+                            .hasMessageContaining("property modelquery.bulk-write.persistence-context");
                 });
     }
 
@@ -165,6 +187,8 @@ class StarterTest {
     @Test
     void r_spr_08_an_out_of_range_size_fails_startup_with_mq4003() {
         configOnly.withPropertyValues("modelquery.export.page-size=0").run(context -> assertThat(
+                rootCode(context.getStartupFailure())).isEqualTo(MqCode.MQ4003));
+        configOnly.withPropertyValues("modelquery.bulk-write.chunk-size=0").run(context -> assertThat(
                 rootCode(context.getStartupFailure())).isEqualTo(MqCode.MQ4003));
         configOnly.withPropertyValues("modelquery.query-timeout=0s").run(context -> assertThat(
                 rootCode(context.getStartupFailure())).isEqualTo(MqCode.MQ4003));

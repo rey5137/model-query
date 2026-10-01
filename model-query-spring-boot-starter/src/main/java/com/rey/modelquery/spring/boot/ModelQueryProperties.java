@@ -1,6 +1,7 @@
 package com.rey.modelquery.spring.boot;
 
 import com.rey.modelquery.core.Incubating;
+import com.rey.modelquery.core.PersistenceContextMode;
 import com.rey.modelquery.jpa.KeysetNullKeys;
 import com.rey.modelquery.jpa.MysqlStreamingMode;
 import java.time.Duration;
@@ -8,9 +9,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * The {@code modelquery.*} properties of integration/50 §3; an unset one leaves the {@code ModelQueryConfig} default.
- * The bulk-write properties arrive with the write API (M8).
  *
- * @implSpec R-SPR-08
+ * @implSpec R-SPR-08, R-SPR-13
  */
 @Incubating
 @ConfigurationProperties("modelquery")
@@ -23,6 +23,7 @@ public class ModelQueryProperties {
     private final Stream stream = new Stream();
     private final Mysql mysql = new Mysql();
     private final Keyset keyset = new Keyset();
+    private final BulkWrite bulkWrite = new BulkWrite();
 
     /** The vendor name that overrides detection, matched ignoring case, {@code -} and {@code _}. */
     public String getVendor() {
@@ -59,6 +60,10 @@ public class ModelQueryProperties {
 
     public Keyset getKeyset() {
         return keyset;
+    }
+
+    public BulkWrite getBulkWrite() {
+        return bulkWrite;
     }
 
     /** {@code modelquery.export.*}. */
@@ -123,6 +128,28 @@ public class ModelQueryProperties {
 
         public void setNullKeys(KeysetNullKeys nullKeys) {
             this.nullKeys = nullKeys;
+        }
+    }
+
+    /** {@code modelquery.bulk-write.*} ({@code api/14} R-WRT-15, R-WRT-17, D-62). */
+    public static class BulkWrite {
+        private PersistenceContextMode persistenceContext;
+        private Integer chunkSize;
+
+        public PersistenceContextMode getPersistenceContext() {
+            return persistenceContext;
+        }
+
+        public void setPersistenceContext(PersistenceContextMode persistenceContext) {
+            this.persistenceContext = persistenceContext;
+        }
+
+        public Integer getChunkSize() {
+            return chunkSize;
+        }
+
+        public void setChunkSize(Integer chunkSize) {
+            this.chunkSize = chunkSize;
         }
     }
 }

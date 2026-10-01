@@ -89,8 +89,8 @@ transaction.
 | `modelquery.mysql.streaming-mode` | `row-by-row` | or `cursor-fetch` (`vendor/41` R-PRF-07) |
 | `modelquery.query-timeout` | none | Default per-query timeout |
 | `modelquery.keyset.null-keys` | `fail` | `fail` or `honour-null-precedence` (`engine/21` R-PAG-05) |
-| `modelquery.bulk-write.persistence-context` | `clear` | `Future` (M6): `clear` or `keep` after a bulk write (`api/14` R-WRT-15) |
-| `modelquery.bulk-write.chunk-size` | 1000 | `Future` (M6): default size for `chunked(...)`, clamped per vendor (`api/14` R-WRT-17) |
+| `modelquery.bulk-write.persistence-context` | `clear` | `clear` or `keep` after a bulk write (`api/14` R-WRT-15) |
+| `modelquery.bulk-write.chunk-size` | 1000 | default size for `chunked(...)`, clamped per vendor (`api/14` R-WRT-17) |
 
 **R-SPR-08** Every property has a plain-JPA equivalent on `ModelQueryConfig`; the starter only reads properties into it
 (INV-8).

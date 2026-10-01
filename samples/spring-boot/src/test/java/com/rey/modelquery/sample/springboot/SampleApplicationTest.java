@@ -2,7 +2,12 @@ package com.rey.modelquery.sample.springboot;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.entry;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ChunkedWriteException;
 import com.rey.modelquery.core.CountMode;
@@ -42,7 +47,11 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.validation.beanvalidation.LocalValidatorFactoryBean;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 
@@ -157,6 +166,50 @@ class SampleApplicationTest {
             assertFailedThirdChunkKeepsTheFirstTwo(context, "postgresDataSource", "films", () -> films.delete(
                     QFilmView.delete().where(f -> f.gt(QFilmView.ID, 0L)).chunked(EACH_CHUNK_OF_TWO).build()));
         }
+    }
+
+    @Test
+    void ac_wrt_16_the_patch_endpoint_writes_set_fields_only_and_reports_each_constraint_as_a_field_error()
+            throws Exception {
+        try (ConfigurableApplicationContext context = startSample(List.of())) {
+            var books = context.getBean(BookRepository.class);
+            books.save(new BookEntity(1L, "Original", 1990));
+            var validator = new LocalValidatorFactoryBean();
+            validator.afterPropertiesSet();
+            MockMvc mvc = MockMvcBuilders.standaloneSetup(context.getBean("bookController"))
+                    .setValidator(validator).build();
+            var jdbc = new JdbcTemplate(context.getBean("h2DataSource", DataSource.class));
+
+            // A field left out of the body passes its @NotNull and keeps its value; a set field is written.
+            mvc.perform(patch("/books/1").contentType(MediaType.APPLICATION_JSON).content("{\"released\": 2001}"))
+                    .andExpect(status().isNoContent());
+            assertThat(jdbc.queryForMap("select title, released from books where id = 1"))
+                    .containsEntry("TITLE", "Original").containsEntry("RELEASED", 2001);
+
+            // A field sent as null fails @NotNull, a set one over its limit fails @Size/@Max; nothing is written.
+            assertThat(errors(mvc, "{\"title\": null}")).containsExactly(entry("title", "must not be null"));
+            assertThat(errors(mvc, "{\"title\": \"a title that is far too long\", \"released\": 3000}"))
+                    .containsOnly(entry("title", "size must be between 1 and 20"),
+                            entry("released", "must be less than or equal to 2100"));
+            assertThat(jdbc.queryForMap("select title, released from books where id = 1"))
+                    .containsEntry("TITLE", "Original").containsEntry("RELEASED", 2001);
+
+            // A value containing an expression is data: it is stored as sent, and never evaluated (R-WRT-21).
+            mvc.perform(patch("/books/1").contentType(MediaType.APPLICATION_JSON).content("{\"title\": \"${1+1}\"}"))
+                    .andExpect(status().isNoContent());
+            assertThat(jdbc.queryForObject("select title from books where id = 1", String.class)).isEqualTo("${1+1}");
+            mvc.perform(patch("/books/1").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andExpect(status().isNoContent());
+            mvc.perform(patch("/books/99").contentType(MediaType.APPLICATION_JSON).content("{\"released\": 1}"))
+                    .andExpect(status().isNotFound());
+        }
+    }
+
+    /** The field errors a PATCH of {@code body} to book 1 answers with a 400. */
+    private static Map<String, Object> errors(MockMvc mvc, String body) throws Exception {
+        String json = mvc.perform(patch("/books/1").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadRequest()).andReturn().getResponse().getContentAsString();
+        return new ObjectMapper().readValue(json, new TypeReference<>() {});
     }
 
     /**

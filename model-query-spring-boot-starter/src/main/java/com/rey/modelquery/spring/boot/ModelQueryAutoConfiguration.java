@@ -120,6 +120,9 @@ public class ModelQueryAutoConfiguration {
                 ModelQueryConfig::primaryKeyFirstBatchSize);
         config = ifSet(config, properties.getStream().getFetchSize(), ModelQueryConfig::streamFetchSize);
         config = ifSet(config, properties.getMysql().getStreamingMode(), ModelQueryConfig::mysqlStreamingMode);
+        config = ifSet(config, properties.getBulkWrite().getPersistenceContext(),
+                ModelQueryConfig::persistenceContextMode);
+        config = ifSet(config, properties.getBulkWrite().getChunkSize(), ModelQueryConfig::bulkWriteChunkSize);
         if (properties.getKeyset().getNullKeys() != null) {
             config = config.keysetNullKeys(properties.getKeyset().getNullKeys());
             if (properties.getKeyset().getNullKeys() == KeysetNullKeys.HONOUR_NULL_PRECEDENCE) {
