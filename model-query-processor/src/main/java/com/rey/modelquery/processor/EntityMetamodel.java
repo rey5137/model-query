@@ -1,8 +1,8 @@
 package com.rey.modelquery.processor;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -39,6 +39,9 @@ final class EntityMetamodel {
     private static final String ELEMENT_COLLECTION = JPA + "ElementCollection";
     private static final String EMBEDDABLE = JPA + "Embeddable";
     private static final String TRANSIENT = JPA + "Transient";
+    private static final String VERSION = JPA + "Version";
+    private static final String ID_CLASS = JPA + "IdClass";
+    private static final List<String> COLUMNS = List.of(JPA + "Column", JPA + "JoinColumn");
 
     private final Types types;
 
@@ -50,9 +53,11 @@ final class EntityMetamodel {
      * Where a column's attribute path ends, or why it does not resolve.
      *
      * @param attribute the attribute the path ends at, or {@code null} when it does not resolve
+     * @param owner the simple name of the type that declares {@code attribute}: the root, or an embeddable
      * @param problem what is wrong with the path, worded to follow {@code "Model.field: "}; {@code null} when resolved
+     * @param association whether the path does not resolve because a segment before its last is an association
      */
-    record Resolution(EntityAttribute attribute, String problem) {}
+    record Resolution(EntityAttribute attribute, String owner, String problem, boolean association) {}
 
     /**
      * Resolves {@code path} from {@code root}. Every segment but the last must be an embedded value: a column's path
@@ -67,14 +72,15 @@ final class EntityMetamodel {
         for (Step step : walk.steps().subList(0, through)) {
             if (step.attribute().kind() == EntityAttribute.Kind.TO_ONE
                     || step.attribute().kind() == EntityAttribute.Kind.COLLECTION) {
-                return new Resolution(null, "'" + step.attribute().name() + "' on " + step.owner()
-                        + " is an association, so '" + path + "' needs @Join or @FilterColumn");
+                return new Resolution(null, null, "'" + step.attribute().name() + "' on " + step.owner()
+                        + " is an association, so '" + path + "' needs @Join or @FilterColumn", true);
             }
         }
         if (walk.problem() != null) {
-            return new Resolution(null, walk.problem());
+            return new Resolution(null, null, walk.problem(), false);
         }
-        return new Resolution(walk.steps().get(walk.steps().size() - 1).attribute(), null);
+        Step last = walk.steps().get(walk.steps().size() - 1);
+        return new Resolution(last.attribute(), last.owner(), null, false);
     }
 
     /**
@@ -133,17 +139,50 @@ final class EntityMetamodel {
     }
 
     /**
-     * Whether {@code paths} names exactly the id of {@code root}: its {@code @Id} attribute, its {@code @IdClass}
-     * attributes, its {@code @EmbeddedId} or that id's components, as the engine checks a bulk write's key on first
-     * execution ({@code MQ1608}, api/14 R-WRT-08).
+     * The id of an entity, as a bulk write keys on it (api/14 R-WRT-08).
+     *
+     * @param attributes its {@code @Id} attributes, its {@code @IdClass} attributes included, or its
+     *     {@code @EmbeddedId}
+     * @param components the {@code @EmbeddedId}'s components as dotted paths, {@code id.warehouseId}; empty for
+     *     any other id
+     * @param type the id's type as {@code getReference} takes it: the one attribute's, else the {@code @IdClass};
+     *     {@code null} when the entity declares neither
+     */
+    record Id(Set<String> attributes, Set<String> components, TypeMirror type) {
+
+        /** Whether {@code paths} names exactly this id, as {@code MQ1608} compares a bulk write's key. */
+        boolean is(Set<String> paths) {
+            return paths.equals(attributes) || !components.isEmpty() && paths.equals(components);
+        }
+
+        /** Whether {@code path} names this id or one of its parts. */
+        boolean covers(String path) {
+            return attributes.contains(path) || components.contains(path);
+        }
+
+        /** The id as a diagnostic names it: {@code 'id'}, or {@code 'warehouseId', 'productId'}. */
+        String label() {
+            return attributes.stream().sorted().map(name -> "'" + name + "'").collect(Collectors.joining(", "));
+        }
+    }
+
+    /**
+     * The id of {@code root}: its {@code @Id} attributes, its {@code @IdClass} attributes, its {@code @EmbeddedId}
+     * and that id's components, as the engine checks a bulk write's key on first execution ({@code MQ1608}).
      *
      * @implSpec R-GEN-22
      */
-    boolean isId(TypeElement root, Set<String> paths) {
+    Id id(TypeElement root) {
         List<DeclaredType> hierarchy = hierarchy((DeclaredType) root.asType());
         boolean property = defaultsToProperty(hierarchy, false);
-        var ids = new HashSet<String>();
+        var ids = new LinkedHashSet<String>();
+        TypeMirror idClass = null;
         for (DeclaredType type : hierarchy) {
+            for (AnnotationMirror mirror : type.asElement().getAnnotationMirrors()) {
+                if (isNamed(mirror, ID_CLASS)) {
+                    idClass = (TypeMirror) value(mirror, "value");
+                }
+            }
             for (Element member : type.asElement().getEnclosedElements()) {
                 if (hasAny(member, IDS)) {
                     ids.add(member.getKind() == ElementKind.METHOD
@@ -151,18 +190,17 @@ final class EntityMetamodel {
                 }
             }
         }
-        if (paths.equals(ids)) {
-            return true;
-        }
-        EntityAttribute id = ids.size() == 1 ? attributes(hierarchy, property).get(ids.iterator().next()) : null;
+        Map<String, EntityAttribute> attributes = attributes(hierarchy, property);
+        EntityAttribute id = ids.size() == 1 ? attributes.get(ids.iterator().next()) : null;
+        TypeMirror type = idClass != null ? idClass : id == null ? null : id.type();
         if (id == null || id.kind() != EntityAttribute.Kind.EMBEDDED) {
-            return false;
+            return new Id(Set.copyOf(ids), Set.of(), type);
         }
         List<DeclaredType> embeddable = hierarchy((DeclaredType) id.type());
         Set<String> components = attributes(embeddable, defaultsToProperty(embeddable, property)).keySet().stream()
                 .map(component -> id.name() + "." + component)
                 .collect(Collectors.toSet());
-        return paths.equals(components);
+        return new Id(Set.copyOf(ids), components, type);
     }
 
     /** The collection associations of {@code root} itself, in declaration order (R-PROC-13). */
@@ -236,23 +274,36 @@ final class EntityMetamodel {
     }
 
     private EntityAttribute attribute(String name, TypeMirror type, Element member) {
+        boolean version = hasAny(member, List.of(VERSION));
+        boolean updatable = member.getAnnotationMirrors().stream()
+                .noneMatch(mirror -> COLUMNS.stream().anyMatch(column -> isNamed(mirror, column))
+                        && Boolean.FALSE.equals(value(mirror, "updatable")));
         if (hasAny(member, TO_ONE)) {
-            return new EntityAttribute(name, type, EntityAttribute.Kind.TO_ONE, entity(type));
+            String mappedBy = member.getAnnotationMirrors().stream()
+                    .filter(mirror -> TO_ONE.stream().anyMatch(toOne -> isNamed(mirror, toOne)))
+                    .map(mirror -> value(mirror, "mappedBy"))
+                    .filter(value -> value instanceof String named && !named.isEmpty())
+                    .map(String.class::cast)
+                    .findFirst().orElse(null);
+            return new EntityAttribute(
+                    name, type, EntityAttribute.Kind.TO_ONE, entity(type), version, updatable, mappedBy);
         }
         if (hasAny(member, TO_MANY)) {
             // The element of a Collection<E>, the value of a Map<K, E>.
             List<? extends TypeMirror> arguments = type.getKind() == TypeKind.DECLARED
                     ? ((DeclaredType) type).getTypeArguments() : List.of();
             DeclaredType target = arguments.isEmpty() ? null : entity(arguments.get(arguments.size() - 1));
-            return new EntityAttribute(name, type, EntityAttribute.Kind.COLLECTION, target);
+            return new EntityAttribute(
+                    name, type, EntityAttribute.Kind.COLLECTION, target, version, updatable, null);
         }
         if (hasAny(member, List.of(ELEMENT_COLLECTION))) {
-            return new EntityAttribute(name, type, EntityAttribute.Kind.COLLECTION, null);
+            return new EntityAttribute(
+                    name, type, EntityAttribute.Kind.COLLECTION, null, version, updatable, null);
         }
         boolean embedded = type.getKind() == TypeKind.DECLARED && (hasAny(member, EMBEDDED)
                 || hasAny(((DeclaredType) type).asElement(), List.of(EMBEDDABLE)));
-        return new EntityAttribute(
-                name, type, embedded ? EntityAttribute.Kind.EMBEDDED : EntityAttribute.Kind.BASIC, null);
+        return new EntityAttribute(name, type, embedded ? EntityAttribute.Kind.EMBEDDED : EntityAttribute.Kind.BASIC,
+                null, version, updatable, null);
     }
 
     /** {@code type} as the entity an association reaches, or {@code null} when it names no class. */
@@ -308,6 +359,14 @@ final class EntityMetamodel {
             }
         }
         return false;
+    }
+
+    /** The value written for {@code mirror}'s member {@code name}, or {@code null} when it takes its default. */
+    private static Object value(AnnotationMirror mirror, String name) {
+        return mirror.getElementValues().entrySet().stream()
+                .filter(entry -> entry.getKey().getSimpleName().contentEquals(name))
+                .map(entry -> entry.getValue().getValue())
+                .findFirst().orElse(null);
     }
 
     private static boolean isNamed(AnnotationMirror mirror, String qualifiedName) {

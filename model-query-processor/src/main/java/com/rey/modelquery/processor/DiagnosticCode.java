@@ -74,7 +74,28 @@ enum DiagnosticCode {
     MQ3206("@Aggregate(distinct = true) on a function other than COUNT"),
 
     /** {@code @QueryModel(singleGroup = true)} on a model that has {@code @GroupBy} fields. */
-    MQ3207("singleGroup combined with @GroupBy fields");
+    MQ3207("singleGroup combined with @GroupBy fields"),
+
+    /** An update-model field maps through an association, or to a collection. */
+    MQ3301("Update-model field maps through a join or a collection"),
+
+    /** {@code @Join}, {@code @Aggregate} or {@code @GroupBy} on an update model, which only writes root columns. */
+    MQ3302("@Join, @Aggregate or @GroupBy on an update model"),
+
+    /** An update-model field writes the id without {@code @PrimaryKey}, or writes the {@code @Version}. */
+    MQ3303("Update-model field maps to the primary key without @PrimaryKey, or to the @Version attribute"),
+
+    /** An update-model field maps to an attribute that is {@code updatable = false} or the inverse of a to-one. */
+    MQ3304("Update-model field maps to an attribute that can't be written"),
+
+    /** A to-one written by id from a field whose type is not the target's id type. */
+    MQ3305("To-one attribute written by id with the wrong id type"),
+
+    /** The {@code @PrimaryKey} of an update model, or of a query model with {@code generateChanges}, is not the id. */
+    MQ3306("@PrimaryKey of an update model or a generateChanges query model is not the root entity's id"),
+
+    /** A field whose change-set members clash with those of {@code Changes<M>}. */
+    MQ3307("Update-model field generates a change-set member that clashes with Changes");
 
     private final String defaultMessage;
 

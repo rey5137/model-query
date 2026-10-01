@@ -24,7 +24,8 @@ import org.junit.jupiter.params.provider.MethodSource;
  * <p>Exclusions: {@code MQ3008} needs a class (a record's canonical constructor is never absent); {@code MQ3009} and
  * {@code MQ3010} are record checks (a class has no components, and a generic class is allowed). Every other code is
  * raised for both shapes. Lombok adds accessors and constructors to class models only, so on a record its runs
- * repeat the plain ones with Lombok's processor in the chain. {@code MQ3301}..{@code MQ3307} have no check yet (M8).
+ * repeat the plain ones with Lombok's processor in the chain. The update-model codes {@code MQ3301}..{@code MQ3307}
+ * raise on an {@code @UpdateModel}, and {@code MQ3306} on a {@code generateChanges} query model too.
  */
 class DiagnosticMatrixTest {
 
@@ -54,6 +55,7 @@ class DiagnosticMatrixTest {
                 import com.rey.modelquery.annotations.JoinKind;
                 import com.rey.modelquery.annotations.PrimaryKey;
                 import com.rey.modelquery.annotations.QueryModel;
+                import com.rey.modelquery.annotations.UpdateModel;
                 import com.rey.modelquery.processor.fixture.CustomerEntity;
                 import com.rey.modelquery.processor.fixture.ItemEntity;
                 import com.rey.modelquery.processor.fixture.OrderEntity;
@@ -122,6 +124,42 @@ class DiagnosticMatrixTest {
                 BigDecimal amount;
                 Integer units;
                 Double weight;
+            }
+            """);
+
+    private static final String PATCH = "@UpdateModel(root = TicketEntity.class)";
+
+    /** An entity with what an update model can't write: a version, a read-only column and an inverse to-one. */
+    private static final JavaFileObject TICKET_ENTITY = source("models.TicketEntity", """
+            package models;
+
+            import com.rey.modelquery.processor.fixture.CustomerEntity;
+            import com.rey.modelquery.processor.fixture.ItemEntity;
+            import com.rey.modelquery.processor.fixture.OrderEntity;
+            import jakarta.persistence.Column;
+            import jakarta.persistence.Entity;
+            import jakarta.persistence.Id;
+            import jakarta.persistence.ManyToOne;
+            import jakarta.persistence.OneToMany;
+            import jakarta.persistence.OneToOne;
+            import jakarta.persistence.Version;
+            import java.util.List;
+
+            @Entity
+            public class TicketEntity {
+                @Id
+                Long id;
+                String code;
+                @Version
+                Long version;
+                @Column(updatable = false)
+                String createdBy;
+                @ManyToOne
+                CustomerEntity customer;
+                @OneToOne(mappedBy = "ticket")
+                OrderEntity order;
+                @OneToMany
+                List<ItemEntity> items;
             }
             """);
 
@@ -297,7 +335,57 @@ class DiagnosticMatrixTest {
                     with(SALE_ENTITY, c.model("SalesSummary", SINGLE, "@GroupBy String region",
                             COUNT + " Long lines")),
                     "MQ3207: SalesSummary: singleGroup = true can't be combined with @GroupBy fields; remove "
-                            + "one")));
+                            + "one")),
+            of("MQ3301", c -> fails(
+                    with(TICKET_ENTITY, c.model("TicketPatch", PATCH, ID,
+                            "@Column(attribute = \"customer.name\") String customerName",
+                            "@Column(attribute = \"items\") String items")),
+                    "MQ3301: TicketPatch.customerName: update models can only write attributes of TicketEntity; "
+                            + "'customer.name' needs a join",
+                    "MQ3301: TicketPatch.items: update models can only write attributes of TicketEntity; 'items' "
+                            + "is a collection")),
+            of("MQ3302", c -> fails(
+                    with(TICKET_ENTITY, c.customerView(), c.model("TicketPatch", PATCH, ID,
+                            "@Join Optional<CustomerView> customer", COUNT + " Long lines", "@GroupBy String code")),
+                    "MQ3302: TicketPatch.customer: @Join isn't allowed on @UpdateModel; write the foreign key with "
+                            + "@Column(attribute = \"customer\") Long customerId",
+                    "MQ3302: TicketPatch.lines: @Aggregate isn't allowed on @UpdateModel; an update writes columns, "
+                            + "not groups",
+                    "MQ3302: TicketPatch.code: @GroupBy isn't allowed on @UpdateModel; an update writes columns, "
+                            + "not groups")),
+            of("MQ3303", c -> fails(
+                    with(TICKET_ENTITY, c.model("TicketPatch", PATCH, ID, "Long version",
+                            "@Column(attribute = \"id\") Long ticketId")),
+                    "MQ3303: TicketPatch.version: the @Version attribute is managed by the engine (keepVersion, "
+                            + "expectVersion)",
+                    "MQ3303: TicketPatch.ticketId: 'id' is TicketEntity's id, which an update can't write; mark the "
+                            + "field @PrimaryKey to key on it")),
+            of("MQ3304", c -> fails(
+                    with(TICKET_ENTITY, c.model("TicketPatch", PATCH, ID, "String createdBy",
+                            "@Column(attribute = \"order\") Long orderId")),
+                    "MQ3304: TicketPatch.createdBy: TicketEntity.createdBy is @Column(updatable = false)",
+                    "MQ3304: TicketPatch.orderId: TicketEntity.order is the inverse side of a to-one (mappedBy = "
+                            + "\"ticket\"); write it from the owning side")),
+            of("MQ3305", c -> fails(
+                    with(TICKET_ENTITY, c.model("TicketPatch", PATCH, ID,
+                            "@Column(attribute = \"customer\") String customerId")),
+                    "MQ3305: TicketPatch.customerId: CustomerEntity's id is Long, found String")),
+            of("MQ3306", c -> fails(
+                    with(TICKET_ENTITY, c.model("TicketPatch", PATCH, "@PrimaryKey String code"),
+                            c.model("TicketView", "@QueryModel(root = TicketEntity.class, generateChanges = true)",
+                                    "@PrimaryKey String code", "String createdBy")),
+                    "MQ3306: TicketPatch.code: @PrimaryKey must be TicketEntity's id 'id'; bulk writes key on the "
+                            + "entity id",
+                    "MQ3306: TicketView.code: @PrimaryKey must be TicketEntity's id 'id'; bulk writes key on the "
+                            + "entity id")),
+            of("MQ3307", c -> fails(
+                    with(TICKET_ENTITY, c.model("TicketPatch", PATCH, ID,
+                            "@Column(attribute = \"code\") String empty",
+                            "@Column(attribute = \"code\") String unset")),
+                    "MQ3307: TicketPatch.empty: generates getEmpty() and setEmpty(...), which clash with "
+                            + "Changes.isEmpty() as property 'empty'; rename the field",
+                    "MQ3307: TicketPatch.unset: generates unset(String), which clashes with Changes.unset(...); "
+                            + "rename the field")));
 
     static Stream<Arguments> matrix() {
         var runs = new ArrayList<Arguments>();

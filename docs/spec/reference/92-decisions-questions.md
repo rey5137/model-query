@@ -675,6 +675,18 @@ also drops the held value. `from(...)` reads a class model through Lombok-named 
 has a key. The processor's tests bind a change set with Jackson in test scope. → `processor/30` R-PROC-04, R-PROC-18,
 `processor/31` R-GEN-19..R-GEN-22, `api/14` R-WRT-03.
 
+**D-70 — M6.7 update-model diagnostics.** `MQ3301`–`MQ3307` are live. On an `@UpdateModel`, `@Join`, `@Aggregate` and
+`@GroupBy` raise `MQ3302` and take no other check, and a keyless model is `MQ3004` even with an `@Aggregate`.
+`MQ3303`, `MQ3304` and `MQ3305` are update-model checks only: a `generateChanges` query model reads a `@Version` or an
+`updatable = false` column as any query model does, and `MQ1605` guards it at run time. `MQ3304`'s `updatable = false`
+is read from `@Column` and `@JoinColumn`, not from `@AttributeOverride`. `MQ3305` compares the boxed field type with
+the target's id type as `getReference` takes it (the `@IdClass` for a composite id), as `MQ1001` does at run time; a
+converted to-one keeps the `MQ3014` check. `MQ3306` applies to both kinds of model with a change set, and to a keyless
+`generateChanges` summary model. `MQ3307` names the clashes a generated change set can have: a field named `isEmpty`,
+`isSet`, `unset` or `assignments`, whose fluent setter overloads that member, and a field named `empty`, whose
+`getEmpty()`/`setEmpty(...)` pair names the property `Changes.isEmpty()` reads as; the change set has no `isX`
+getter (D-69), so `processor/32`'s example names the pair. → `processor/32` §1, `processor/31` R-GEN-19..R-GEN-23.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter

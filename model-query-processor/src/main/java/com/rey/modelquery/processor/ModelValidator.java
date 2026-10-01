@@ -56,11 +56,13 @@ final class ModelValidator {
     private final Types types;
     private final EntityMetamodel metamodel;
     private final NestedModels nestedModels;
+    private final WriteChecks writeChecks;
 
     ModelValidator(Types types, EntityMetamodel metamodel, NestedModels nestedModels) {
         this.types = types;
         this.metamodel = metamodel;
         this.nestedModels = nestedModels;
+        this.writeChecks = new WriteChecks(types, metamodel);
     }
 
     void validate(ModelDefinition model, Diagnostics diagnostics) {
@@ -69,8 +71,14 @@ final class ModelValidator {
             checkShape(model, diagnostics);
         }
         Set<String> reserved = model.updateModel() ? RESERVED_BY_UPDATE : RESERVED;
-        // A group has no row identity, so a summary model needs no key (R-AGG-09).
-        if (model.keys().isEmpty() && model.aggregates().isEmpty()) {
+        if (model.updateModel()) {
+            writeChecks.checkUpdateOnly(model, diagnostics);
+        }
+        if (model.changes()) {
+            writeChecks.checkModel(model, diagnostics);
+        }
+        // A group has no row identity, so a summary model needs no key (R-AGG-09); an update model has no groups.
+        if (model.keys().isEmpty() && (model.updateModel() || model.aggregates().isEmpty())) {
             diagnostics.error(model.type(), DiagnosticCode.MQ3004, model.name() + (model.updateModel()
                     ? ": no @PrimaryKey; update(...) and delete() choose rows by the entity id"
                     : ": no @PrimaryKey; paging, export and @Join presence need one"));
@@ -79,7 +87,8 @@ final class ModelValidator {
         // name is the one reported.
         var constants = new HashMap<String, String>();
         var joined = new ArrayList<JoinedTable>();
-        for (ModelField join : model.joins()) {
+        // An update model's @Join is MQ3302, and joins nothing.
+        for (ModelField join : model.updateModel() ? List.<ModelField>of() : model.joins()) {
             String where = model.name() + "." + join.name() + ": ";
             ModelDefinition nested = checkJoin(model, join, where, diagnostics);
             if (nested != null) {
@@ -93,7 +102,9 @@ final class ModelValidator {
         FilterLayout filters = FilterLayout.of(model, joined, metamodel);
         filters.problems().forEach(problem -> diagnostics.error(model.type(), problem.code(), problem.detail()));
         claimFilterTables(model, filters, constants, diagnostics);
-        checkGrouping(model, diagnostics);
+        if (!model.updateModel()) {
+            checkGrouping(model, diagnostics);
+        }
         // Only an ungrouped query always selects the key: a grouped one selects it like any other column (D-49).
         boolean ungrouped = model.aggregates().isEmpty() && model.groupKeys().isEmpty();
         for (ModelField field : model.fields()) {
@@ -102,7 +113,9 @@ final class ModelValidator {
             }
             String where = model.name() + "." + field.name() + ": ";
             if (field.aggregate() != null) {
-                checkAggregate(model, field, where, diagnostics);
+                if (!model.updateModel()) {
+                    checkAggregate(model, field, where, diagnostics);
+                }
             } else {
                 checkAttribute(model, field, where, diagnostics);
             }
@@ -512,15 +525,14 @@ final class ModelValidator {
      */
     private void checkAttribute(ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
         Resolution resolution = metamodel.resolve(model.root(), field.attribute());
+        if (model.updateModel() && !writeChecks.checkColumn(model, field, resolution, where, diagnostics)) {
+            return;
+        }
         if (resolution.attribute() == null) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3001, where + resolution.problem());
             return;
         }
         EntityAttribute attribute = resolution.attribute();
-        // An update model writes a to-one by id, so the field holds the target's id, not the target (R-GEN-19).
-        if (model.updateModel() && attribute.kind() == EntityAttribute.Kind.TO_ONE && field.converter() == null) {
-            return;
-        }
         if (attribute.kind() == EntityAttribute.Kind.COLLECTION) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3002, where + "model type " + display(field.type())
                     + ", entity attribute '" + attribute.name()
@@ -595,7 +607,7 @@ final class ModelValidator {
     }
 
     /** {@code type} as a message shows it: simple names, with type arguments. */
-    private static String display(TypeMirror type) {
+    static String display(TypeMirror type) {
         if (type.getKind() == TypeKind.DECLARED) {
             var declared = (DeclaredType) type;
             String name = declared.asElement().getSimpleName().toString();

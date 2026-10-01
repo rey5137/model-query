@@ -219,7 +219,7 @@ final class QModelWriter {
                     .build());
         }
         Set<String> keyAttributes = keys.stream().map(ModelField::attribute).collect(Collectors.toSet());
-        if (model.updateModel() || metamodel.isId(model.root(), keyAttributes)) {
+        if (model.updateModel() || metamodel.id(model.root()).is(keyAttributes)) {
             type.addMethod(MethodSpec.methodBuilder("delete")
                     .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
                     .returns(ParameterizedTypeName.get(MODEL_DELETE.nestedClass("Builder"), entity, keyType, modelName))
