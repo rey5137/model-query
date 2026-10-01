@@ -1,6 +1,5 @@
 package com.rey.modelquery.core;
 
-import com.rey.modelquery.annotations.Incubating;
 import java.sql.Timestamp;
 import java.time.Instant;
 
@@ -10,7 +9,6 @@ import java.time.Instant;
  *
  * @implSpec R-COL-14, D-84
  */
-@Incubating
 public final class InstantTimestampConverter implements OrderedColumnConverter<Instant, Timestamp> {
 
     /** The one instance; the converter is stateless. */

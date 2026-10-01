@@ -1,7 +1,7 @@
 package com.rey.modelquery.core;
 
-import com.rey.modelquery.annotations.Incubating;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.UnaryOperator;
 
@@ -17,8 +17,7 @@ import java.util.function.UnaryOperator;
  * @param <M> the model the query maps to
  * @implSpec R-AGG-06
  */
-@Incubating
-public interface Having<M> {
+public sealed interface Having<M> permits HavingGroup {
 
     /** {@code aggregate = value}. */
     <C> Having<M> eq(AggregateField<M, C> aggregate, C value);
@@ -110,8 +109,14 @@ public interface Having<M> {
     /** {@code left op right}, aggregate against aggregate, with plain SQL comparison semantics. */
     <C> Having<M> compare(AggregateField<M, C> left, Op op, AggregateField<M, C> right);
 
-    /** {@code (branch1) OR (branch2) ...}, skipped as {@link Filters#or} is (R-FLT-01). */
-    Having<M> or(UnaryOperator<Having<M>>... branches);
+    /** {@code (first) OR (second)}, skipped as {@link Filters#or(UnaryOperator, UnaryOperator)} is (R-FLT-01). */
+    Having<M> or(UnaryOperator<Having<M>> first, UnaryOperator<Having<M>> second);
+
+    /** {@code (first) OR (second) OR (third)}, skipped as the two-branch {@code or} is (R-FLT-01). */
+    Having<M> or(UnaryOperator<Having<M>> first, UnaryOperator<Having<M>> second, UnaryOperator<Having<M>> third);
+
+    /** {@code (branch1) OR (branch2) ...} over a list, as {@link Filters#or(List)} renders it (R-FLT-01). */
+    Having<M> or(List<? extends UnaryOperator<Having<M>>> branches);
 
     /** {@code NOT (group)}, plain SQL negation, skipped when every filter in the group was skipped (R-FLT-01). */
     Having<M> not(UnaryOperator<Having<M>> group);

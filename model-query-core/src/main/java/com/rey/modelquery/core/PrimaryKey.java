@@ -1,6 +1,5 @@
 package com.rey.modelquery.core;
 
-import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
@@ -15,7 +14,6 @@ import java.util.Objects;
  * @param <K> the key's Java type; {@code List<Object>} (component values, in declaration order) for a composite key
  * @implSpec R-QRY-03, R-QRY-04
  */
-@Incubating
 public final class PrimaryKey<M, K> {
 
     private final List<ColumnField<M, ?, ?>> columns;

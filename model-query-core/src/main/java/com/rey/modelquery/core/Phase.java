@@ -1,6 +1,5 @@
 package com.rey.modelquery.core;
 
-import com.rey.modelquery.annotations.Incubating;
 
 /**
  * The statement a {@link QueryCustomizer} is being applied to. A query runs one to three statements: {@code MODEL}
@@ -9,7 +8,6 @@ import com.rey.modelquery.annotations.Incubating;
  *
  * @implSpec R-QRY-07
  */
-@Incubating
 public enum Phase {
     /** The statement that selects the model's columns. */
     MODEL,

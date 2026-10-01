@@ -194,7 +194,7 @@ class ModelUpdateTest {
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ1601))
                 .hasMessage("MQ1601: OrderPatch: where(...) left no predicate, since every filter was skipped; all() "
                         + "writes every row");
-        assertThatThrownBy(() -> delete().where(f -> f.or(o -> o.eq(STATUS, Optional.empty()))).build())
+        assertThatThrownBy(() -> delete().where(f -> f.or(List.of(o -> o.eq(STATUS, Optional.empty())))).build())
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ1601));
         assertThat(update().set(STATUS, "PAID").all().build().rootEntity()).isEqualTo(Order.class);

@@ -7,11 +7,11 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Marks a public method that only an executor calls. It is not API: it may change in any release, and {@code japicmp}
- * excludes it (D-72).
+ * Marks a public type or method that only an executor uses. It is not API: it may change in any release, and
+ * {@code japicmp} excludes it (D-72, D-86).
  */
 @Documented
 @Retention(RetentionPolicy.CLASS)
-@Target(ElementType.METHOD)
+@Target({ElementType.TYPE, ElementType.METHOD})
 public @interface EngineFacing {
 }

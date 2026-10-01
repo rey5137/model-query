@@ -1,5 +1,6 @@
 package shop;
 
+import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelDelete;
@@ -92,6 +93,7 @@ public final class QInvoiceView {
                 : Optional.of(QCustomerView.MAPPER.map(payer)));
     }
 
+    @Incubating
     public static ModelDelete.Builder<InvoiceEntity, Long, InvoiceView> delete() {
         return ModelDelete.builder(ROOT).primaryKey(KEY);
     }

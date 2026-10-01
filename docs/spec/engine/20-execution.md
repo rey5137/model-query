@@ -14,7 +14,9 @@ without touching the database. `Limit.unlimited()` applies no `maxResults`.
 
 ## 2. `page`
 
-**R-EXE-02** *(was R8)* `page(q, pageSpec, mode)` returns a `Slice<M>` that is well-formed in every mode:
+**R-EXE-02** *(was R8)* `page(q, pageSpec, mode)` returns a `Slice<M>` that is well-formed in every mode. A `PageSpec`
+is built by `PageSpec.of(pageNumber, pageSize)` or `PageSpec.ofOffset(offset, pageSize)` and has no public
+constructor, so a page number cannot be read as an offset (D-88).
 
 | `CountMode` | Behaviour |
 |---|---|

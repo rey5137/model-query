@@ -120,9 +120,9 @@ class StatementBindLimitTest {
         var keyset = over.keyset().build();
         withExecutor(executor -> {
             List<ThrowingCallable> reads = List.of(
-                    () -> executor.page(offset, new PageSpec(0, 2), CountMode.NO_COUNT),
-                    () -> executor.page(offset, new PageSpec(0, 2), CountMode.ONLY_COUNT),
-                    () -> executor.page(keyset, new PageSpec(0, 2), CountMode.NO_COUNT),
+                    () -> executor.page(offset, PageSpec.ofOffset(0, 2), CountMode.NO_COUNT),
+                    () -> executor.page(offset, PageSpec.ofOffset(0, 2), CountMode.ONLY_COUNT),
+                    () -> executor.page(keyset, PageSpec.ofOffset(0, 2), CountMode.NO_COUNT),
                     () -> executor.stream(offset, Limit.unlimited(), Stream::count),
                     () -> executor.export(offset, ExportOptions.of(2), page -> page, row -> { }),
                     () -> executor.export(keyset, ExportOptions.of(2), page -> page, row -> { }));

@@ -154,7 +154,9 @@ Primary keys, keyset cursors and export dedupe read from the `Row` before mappin
 no base class. They read `Row.raw`, the attribute value, so a converter that maps two attribute values to one model
 value cannot merge two keys or move a cursor (D-37).
 
-A hand-written record model passes a lambda: `row -> new OrderView(row.get(ID), row.get(STATUS), …)`. Generated
+A hand-written record model passes a lambda: `row -> new OrderView(row.get(ID), row.get(STATUS), …)`. A class model
+may use `RowMapper.setters(factory)`, whose `bind` takes a `SelectField<M, C>` of the mapper's own model: another
+model's column is never selected, so it would set `null` on every row, and it does not compile (D-88). Generated
 mappers are `processor/31`.
 
 ## 6. `OrderField` and null precedence

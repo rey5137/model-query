@@ -1,13 +1,11 @@
 package com.rey.modelquery.core;
 
-import com.rey.modelquery.annotations.Incubating;
 
 /**
  * Raised for an {@code MQ4xxx} failure: a configuration or vendor resolution that cannot be used.
  *
  * @implSpec R-ERR-01
  */
-@Incubating
 public class ModelQueryConfigurationException extends RuntimeException {
 
     private static final long serialVersionUID = 1L;

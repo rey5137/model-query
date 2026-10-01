@@ -1,13 +1,11 @@
 package com.rey.modelquery.core;
 
-import com.rey.modelquery.annotations.Incubating;
 
 /**
  * How a {@link Filters#like} value becomes a {@code LIKE} pattern.
  *
  * @implSpec R-FLT-06
  */
-@Incubating
 public enum LikeMode {
     /** The value is the pattern, passed through as given: its {@code %} and {@code _} are wildcards. */
     EXACT,

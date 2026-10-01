@@ -85,7 +85,8 @@ class HavingGroupTest {
         });
         assertThat(recorded.filters()).hasSize(1);
         FilterGroupTest.assertMq1303(() -> leaked.get(0).gt(SUM, 3L), "only valid inside its having(...) operator");
-        FilterGroupTest.assertMq1303(() -> HavingGroup.<Summary>collect(h -> h.or(a -> h.gt(SUM, 1L))), "nested");
+        FilterGroupTest.assertMq1303(() -> HavingGroup.<Summary>collect(h -> h.or(List.of(a -> h.gt(SUM, 1L)))),
+                "nested");
     }
 
     @Test

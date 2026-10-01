@@ -3,17 +3,8 @@ package com.rey.modelquery.core;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
-import java.net.URI;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
-import javax.tools.Diagnostic;
-import javax.tools.DiagnosticCollector;
-import javax.tools.JavaCompiler;
-import javax.tools.JavaFileObject;
-import javax.tools.SimpleJavaFileObject;
-import javax.tools.StandardJavaFileManager;
-import javax.tools.ToolProvider;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -22,6 +13,26 @@ import org.junit.jupiter.api.io.TempDir;
  * D-60, D-68).
  */
 class WriteStagesCompileTest {
+
+    private static final List<String> MEMBERS = List.of(
+            "    static final class Entity {}",
+            "    static final class Other {}",
+            "    record Model() {}",
+            "    static final TableField<Entity, Entity> ROOT = TableField.root(Entity.class);",
+            "    static final TableField<Entity, Other> OTHER = TableField.join(ROOT, \"other\",",
+            "            jakarta.persistence.criteria.JoinType.LEFT);",
+            "    static final ColumnField<Model, Entity, Long> ID = ColumnField.of(Model.class, ROOT, \"id\",",
+            "            Long.class);",
+            "    static final ColumnField<Model, Entity, String> STATUS = ColumnField.of(Model.class, ROOT,",
+            "            \"status\", String.class);",
+            "    static final ColumnField<Model, Entity, String> NOTE = ColumnField.of(Model.class, ROOT,",
+            "            \"note\", String.class);",
+            "    static final ColumnField<Model, Other, String> OTHER_NAME = ColumnField.of(Model.class, OTHER,",
+            "            \"name\", String.class);",
+            "    static final ModelUpdate.Builder<Entity, Long, Model> UPDATE =",
+            "            ModelUpdate.builder(ROOT).primaryKey(PrimaryKey.of(ID));",
+            "    static final ModelDelete.Builder<Entity, Long, Model> DELETE =",
+            "            ModelDelete.builder(ROOT).primaryKey(PrimaryKey.of(ID));");
 
     @Test
     void ac_wrt_08_the_documented_stage_orders_compile(@TempDir Path out) throws IOException {
@@ -84,54 +95,6 @@ class WriteStagesCompileTest {
 
     /** Compiles a write whose builder is continued by {@code call}, and returns the errors on that line. */
     private static List<String> compile(Path out, String call) throws IOException {
-        String source = String.join("\n",
-                "package probe;",
-                "import com.rey.modelquery.core.*;",
-                "import java.util.List;",
-                "class Probe {",
-                "    static final class Entity {}",
-                "    static final class Other {}",
-                "    record Model() {}",
-                "    static final TableField<Entity, Entity> ROOT = TableField.root(Entity.class);",
-                "    static final TableField<Entity, Other> OTHER = TableField.join(ROOT, \"other\",",
-                "            jakarta.persistence.criteria.JoinType.LEFT);",
-                "    static final ColumnField<Model, Entity, Long> ID = ColumnField.of(Model.class, ROOT, \"id\",",
-                "            Long.class);",
-                "    static final ColumnField<Model, Entity, String> STATUS = ColumnField.of(Model.class, ROOT,",
-                "            \"status\", String.class);",
-                "    static final ColumnField<Model, Entity, String> NOTE = ColumnField.of(Model.class, ROOT,",
-                "            \"note\", String.class);",
-                "    static final ColumnField<Model, Other, String> OTHER_NAME = ColumnField.of(Model.class, OTHER,",
-                "            \"name\", String.class);",
-                "    static final ModelUpdate.Builder<Entity, Long, Model> UPDATE =",
-                "            ModelUpdate.builder(ROOT).primaryKey(PrimaryKey.of(ID));",
-                "    static final ModelDelete.Builder<Entity, Long, Model> DELETE =",
-                "            ModelDelete.builder(ROOT).primaryKey(PrimaryKey.of(ID));",
-                "    static final Object PROBE = " + call + ";",
-                "}");
-        long probeLine = 23;
-        JavaCompiler javac = ToolProvider.getSystemJavaCompiler();
-        var diagnostics = new DiagnosticCollector<JavaFileObject>();
-        var file = new SimpleJavaFileObject(URI.create("string:///probe/Probe.java"), JavaFileObject.Kind.SOURCE) {
-            @Override
-            public CharSequence getCharContent(boolean ignoreEncodingErrors) {
-                return source;
-            }
-        };
-        try (StandardJavaFileManager files = javac.getStandardFileManager(diagnostics, null, null)) {
-            List<String> options = List.of("-proc:none", "-d", out.toString(),
-                    "-classpath", System.getProperty("java.class.path"));
-            boolean compiled = javac.getTask(null, files, diagnostics, options, null, List.of(file)).call();
-            List<String> errors = new ArrayList<>();
-            for (Diagnostic<? extends JavaFileObject> d : diagnostics.getDiagnostics()) {
-                if (d.getKind() == Diagnostic.Kind.ERROR) {
-                    // Any error elsewhere means the probe itself is broken, not the call under test.
-                    assertThat(d.getLineNumber()).as(d.toString()).isEqualTo(probeLine);
-                    errors.add(d.getMessage(null));
-                }
-            }
-            assertThat(compiled).isEqualTo(errors.isEmpty());
-            return errors;
-        }
+        return CompileProbe.problems(out, MEMBERS, call);
     }
 }

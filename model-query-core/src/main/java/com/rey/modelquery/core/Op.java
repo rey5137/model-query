@@ -1,13 +1,11 @@
 package com.rey.modelquery.core;
 
-import com.rey.modelquery.annotations.Incubating;
 
 /**
  * A comparison between two columns, for {@link Filters#compare}.
  *
  * @implSpec api/12 §1
  */
-@Incubating
 public enum Op {
     /** {@code left = right}. */
     EQ,

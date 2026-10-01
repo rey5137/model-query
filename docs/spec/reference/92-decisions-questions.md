@@ -707,11 +707,11 @@ ArchUnit checks. `hibernate-validator` and `tomcat-embed-el` are test-scope only
 → `api/14` R-WRT-21, R-WRT-22, `processor/31` R-GEN-23, `delivery/61` R-REL-03.
 
 **D-72 — Engine-facing members.** Members of public `core` types that only an executor calls carry `@EngineFacing`
-(`core`, class retention, methods only): `ModelQuery.buildQuery` and `checkPhases`, and on `ModelUpdate` and
-`ModelDelete` `checkMetamodel`, `writesNothing`, every `buildWrite` and `buildKeySelect` overload,
-`readsTargetInSubquery`, `distinctKeys`, `startAfter` and `modelKey`. Like `jpa.vendor` (R-REL-10) they may change in
-any release; `japicmp` excludes them. This makes D-67's `readsTargetInSubquery` boolean non-API. → `delivery/61`
-R-REL-10, R-REL-11.
+(`core`, class retention, methods only; D-86 lets it mark a type too): `ModelQuery.buildQuery` and `checkPhases`,
+and on `ModelUpdate` and `ModelDelete` `checkMetamodel`, `writesNothing`, every `buildWrite` and `buildKeySelect`
+overload, `readsTargetInSubquery`, `distinctKeys`, `startAfter` and `modelKey`. Like `jpa.vendor` (R-REL-10) they may
+change in any release; `japicmp` excludes them. This makes D-67's `readsTargetInSubquery` boolean non-API. →
+`delivery/61` R-REL-10, R-REL-11.
 
 **D-73 — `lastCommittedKey()` of a keyed write (amends D-68).** For a `whereKey`/`whereKeys` write,
 `lastCommittedKey()` is the last key of the last committed run in the order given, after deduplication. Every key up
@@ -816,8 +816,8 @@ can then change, for example one alias per selected path, without breaking anyth
 
 **D-87 — `or` takes two or three branches, or a list.** An interface method cannot be `@SafeVarargs`, so the generic
 varargs `or` warned `unchecked generic array creation` at every call and failed under `-Werror`. `Filters` and `Having`
-take `or(a, b)`, `or(a, b, c)` and `or(List)`, so an `or` with fewer than two branches does not compile (P-2).
-Rejected: keeping varargs with a documented `@SuppressWarnings` (every caller pays). → `api/12`, `api/13`.
+take `or(a, b)`, `or(a, b, c)` and `or(List)`, so a written-out `or` with fewer than two branches does not compile
+(P-2); a built list follows R-FLT-01 (empty is skipped, one branch is that branch). Rejected: keeping varargs with a documented `@SuppressWarnings` (every caller pays). → `api/12`, `api/13`.
 
 **D-88 — `PageSpec` and `ExportOptions` are final classes; `SetterMapper.bind` takes the mapper's model.** A record's
 public canonical constructor made `new PageSpec(2, 20)` an offset while `PageSpec.of(2, 20)` is a page number, and a

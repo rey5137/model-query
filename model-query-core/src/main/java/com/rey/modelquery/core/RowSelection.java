@@ -1,6 +1,5 @@
 package com.rey.modelquery.core;
 
-import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.Selection;
 import java.util.ArrayList;
@@ -19,7 +18,7 @@ import java.util.Objects;
  *
  * @implSpec R-COL-10
  */
-@Incubating
+@EngineFacing
 public final class RowSelection {
 
     /**

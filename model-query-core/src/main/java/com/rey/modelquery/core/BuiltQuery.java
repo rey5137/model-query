@@ -1,6 +1,5 @@
 package com.rey.modelquery.core;
 
-import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaQuery;
 import java.util.Objects;
@@ -14,7 +13,7 @@ import java.util.function.Function;
  * @param <M> the model type
  * @implSpec R-QRY-01
  */
-@Incubating
+@EngineFacing
 public final class BuiltQuery<M> {
 
     private final CriteriaQuery<Tuple> query;

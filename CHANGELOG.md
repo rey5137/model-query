@@ -20,6 +20,29 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
   a field read through it.
 
 ### Changed
+- The 1.0 API freeze (D-85): `@Incubating` is removed from every annotation but `@UpdateModel` and
+  `QueryModel.generateChanges`, from every `core` type but the bulk-write types (`ModelUpdate`, `ModelDelete`,
+  `Changes`, `Assignment`, `ChunkOptions`, `ChunkedWriteException`, `PersistenceContextMode`) and
+  `NullPrecedenceRenderer`, from `ModelQueryExecutor`, `ModelQueryConfig`, `KeysetNullKeys`, `MysqlStreamingMode` and
+  `DatabaseVendor`, and from the Spring types. The bulk-write members of the frozen types (`ModelQueryExecutor` and
+  `ModelQueryRepository` `update`/`delete`, the `ModelQueryConfig` write settings, `ModelQueryProperties.getBulkWrite`)
+  and the generated `changes()`, `update(...)` and `delete()` are `@Incubating`, as are `VendorProfile`,
+  `ProviderSupport`, `ChunkTransactions`, `ValidChanges`, `ValidChangesValidator` and `HibernateProviderSupport`.
+  Incubating API may still break in a minor release.
+- `@EngineFacing` may mark a type: `BuiltQuery`, `RowSelection` and `RenderOptions` carry it, as do `JoinContext.of`
+  and `OrderField.toOrders`. They are not API and may change in any release (D-86).
+- **Breaking:** `Filters` and `Having` are `sealed`, so they cannot be implemented outside `core` (D-85).
+- **Breaking:** `Filters.or` and `Having.or` take two or three branches, or a `List` of them, in place of varargs, so a
+  call no longer warns `unchecked generic array creation` and an `or` of one branch does not compile. An `or` whose
+  branches are built at run time, or a one-branch `or` kept as is, takes the list (D-87).
+- **Breaking:** `PageSpec` is a final class with no public constructor: `PageSpec.of(pageNumber, pageSize)` as before,
+  and `PageSpec.ofOffset(offset, pageSize)` in place of `new PageSpec(offset, pageSize)` (D-88).
+- **Breaking:** `ExportOptions` is a final class with no public constructor; `defaults()`, `of(int)`, `withLimit` and
+  the `pageSize()` and `limit()` accessors are unchanged (D-88).
+- **Breaking:** `SetterMapper.bind` takes a `SelectField<M, C>` of the mapper's own model; another model's column,
+  which set `null` on every row, no longer compiles (D-88).
+- `DateTimestampConverter` documents that the `Date` it reads is a `Timestamp`, whose `equals` is asymmetric with a
+  plain `Date` (D-89).
 - Primary-key-first step-2 batches and bulk-write key chunks hold at most the largest power of two of keys within the
   vendor's limits, so IN-list padding cannot pass them (#6).
 

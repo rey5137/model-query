@@ -24,7 +24,6 @@ import java.util.OptionalInt;
  * @implSpec R-QRY-10, R-VND-04, R-PAG-07, R-EXE-11, R-PRF-07, R-PAG-05, R-QRY-15, R-VND-03, R-SPR-08, R-WRT-15,
  *     R-WRT-17, R-WRT-19
  */
-@Incubating
 public final class ModelQueryConfig {
 
     /** No batch size set: step 2 reads the whole page, within the profile's clamp (D-32). */
@@ -263,6 +262,7 @@ public final class ModelQueryConfig {
      * later change to any of them is silently not written; {@link PersistenceContextMode#KEEP} leaves the root's
      * entities managed but stale.
      */
+    @Incubating
     public ModelQueryConfig persistenceContextMode(PersistenceContextMode mode) {
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
                 exportPageSize, streamFetchSize, vendorProfiles, Objects.requireNonNull(mode, "mode"),
@@ -270,6 +270,7 @@ public final class ModelQueryConfig {
     }
 
     /** What a bulk write does to the persistence context, {@link PersistenceContextMode#CLEAR} unless set. */
+    @Incubating
     public PersistenceContextMode persistenceContextMode() {
         return persistenceContextMode;
     }
@@ -281,6 +282,7 @@ public final class ModelQueryConfig {
      *
      * @throws ModelQueryConfigurationException {@code MQ4003} when {@code chunkSize} is below one
      */
+    @Incubating
     public ModelQueryConfig bulkWriteChunkSize(int chunkSize) {
         if (chunkSize < 1) {
             throw new ModelQueryConfigurationException(MqCode.MQ4003, "bulkWriteChunkSize " + chunkSize
@@ -291,6 +293,7 @@ public final class ModelQueryConfig {
     }
 
     /** The keys per chunk of a write whose options leave the size open, 1000 unless set. */
+    @Incubating
     public int bulkWriteChunkSize() {
         return bulkWriteChunkSize;
     }
@@ -299,6 +302,7 @@ public final class ModelQueryConfig {
      * This configuration with the callback that runs each chunk of a {@code commitEachChunk()} write in a new
      * transaction (R-WRT-19, D-62). Without one, such a write throws {@code MQ4004} before any statement.
      */
+    @Incubating
     public ModelQueryConfig chunkTransactions(ChunkTransactions transactions) {
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
                 exportPageSize, streamFetchSize, vendorProfiles, persistenceContextMode, bulkWriteChunkSize,
@@ -306,6 +310,7 @@ public final class ModelQueryConfig {
     }
 
     /** The callback running each chunk of a {@code commitEachChunk()} write; empty unless set. */
+    @Incubating
     public Optional<ChunkTransactions> chunkTransactions() {
         return Optional.ofNullable(chunkTransactions);
     }

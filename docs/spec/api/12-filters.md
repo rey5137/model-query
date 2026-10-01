@@ -51,7 +51,9 @@ public interface Filters<M> {
     <C> Filters<M> compare(ColumnField<M, ?, C> left, Op op, ColumnField<M, ?, C> right);   // EQ, NE, LT, LTE, GT, GTE
 
     // Composition
-    Filters<M> or(UnaryOperator<Filters<M>>... branches);    // each branch is an AND group
+    Filters<M> or(UnaryOperator<Filters<M>> a, UnaryOperator<Filters<M>> b);    // each branch is an AND group
+    Filters<M> or(UnaryOperator<Filters<M>> a, UnaryOperator<Filters<M>> b, UnaryOperator<Filters<M>> c);
+    Filters<M> or(List<? extends UnaryOperator<Filters<M>>> branches);           // built at run time (D-87)
     Filters<M> not(UnaryOperator<Filters<M>> group);
     Filters<M> when(boolean condition, UnaryOperator<Filters<M>> group);
     Filters<M> apply(UnaryOperator<Filters<M>> fragment);    // reuse a shared fragment, e.g. NOT_DELETED
@@ -80,7 +82,8 @@ public interface Filters<M> {
 
 **R-FLT-01** **Skipping is local.** A skipped filter disappears from its group. An `or(...)` branch whose filters were
 all skipped is dropped. If every branch was dropped, the whole `or` is skipped rather than becoming `FALSE` and
-matching nothing. The same holds for `not`, and for `exists` with an inner group: when all its inner filters were
+matching nothing; an `or(List)` with an empty list is such an `or`, and one with a single branch is that branch's
+group. The same holds for `not`, and for `exists` with an inner group: when all its inner filters were
 skipped, the `exists` is skipped too. Use `exists(path)` to ask for "has at least one" explicitly.
 
 **R-FLT-02** **Empty collections are not "skip".** `in(col, List.of())` renders `FALSE` and `notIn(col, List.of())`

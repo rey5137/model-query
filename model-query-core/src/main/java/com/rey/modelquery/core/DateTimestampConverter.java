@@ -1,6 +1,5 @@
 package com.rey.modelquery.core;
 
-import com.rey.modelquery.annotations.Incubating;
 import java.sql.Timestamp;
 import java.util.Date;
 
@@ -10,9 +9,13 @@ import java.util.Date;
  * an {@code eq}, {@code gt} or {@code lte} against a stored value with microseconds is exact. {@link #toAttribute}
  * keeps a {@code Timestamp} as it is and converts any other {@code Date} by its milliseconds.
  *
- * @implSpec R-COL-14, D-84
+ * <p>Because the value read is a {@code Timestamp} typed as a {@code Date}, it carries {@code Timestamp}'s asymmetric
+ * {@code equals}: for a plain {@code Date date} of the same instant, {@code ts.equals(date)} is {@code false} while
+ * {@code date.equals(ts)} is {@code true}. Compare by {@link Date#getTime()} or {@link Date#toInstant()}. This is part
+ * of the contract (D-89).
+ *
+ * @implSpec R-COL-14, D-84, D-89
  */
-@Incubating
 public final class DateTimestampConverter implements OrderedColumnConverter<Date, Timestamp> {
 
     /** The one instance; the converter is stateless. */

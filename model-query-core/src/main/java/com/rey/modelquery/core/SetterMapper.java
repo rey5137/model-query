@@ -1,6 +1,5 @@
 package com.rey.modelquery.core;
 
-import com.rey.modelquery.annotations.Incubating;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -15,7 +14,6 @@ import java.util.function.Supplier;
  * @param <M> the model type
  * @implSpec R-COL-11
  */
-@Incubating
 public final class SetterMapper<M> implements RowMapper<M> {
 
     private record Binding<M, C>(SelectField<?, C> column, BiConsumer<M, ? super C> setter) {
@@ -36,8 +34,11 @@ public final class SetterMapper<M> implements RowMapper<M> {
         return new SetterMapper<>(factory, List.of());
     }
 
-    /** A copy that also sets {@code column}'s value through {@code setter}. */
-    public <C> SetterMapper<M> bind(SelectField<?, C> column, BiConsumer<M, ? super C> setter) {
+    /**
+     * A copy that also sets {@code column}'s value through {@code setter}. The column belongs to this mapper's model,
+     * so another model's column, which no query of this model selects, does not compile (D-88).
+     */
+    public <C> SetterMapper<M> bind(SelectField<M, C> column, BiConsumer<M, ? super C> setter) {
         var next = new ArrayList<Binding<M, ?>>(bindings);
         next.add(new Binding<>(Objects.requireNonNull(column, "column"), Objects.requireNonNull(setter, "setter")));
         return new SetterMapper<>(factory, List.copyOf(next));

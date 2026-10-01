@@ -1,6 +1,5 @@
 package com.rey.modelquery.spring.boot;
 
-import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.jpa.ChunkTransactions;
@@ -45,7 +44,6 @@ import org.springframework.transaction.PlatformTransactionManager;
  *
  * @implSpec R-SPR-02, R-SPR-08, R-SPR-09, R-SPR-11, R-SPR-13, R-VND-03
  */
-@Incubating
 @AutoConfiguration
 @ConditionalOnClass({ JpaRepositoryFactoryBean.class, EntityManagerFactory.class })
 @EnableConfigurationProperties(ModelQueryProperties.class)

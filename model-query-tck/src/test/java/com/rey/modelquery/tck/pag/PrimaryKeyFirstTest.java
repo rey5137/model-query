@@ -207,7 +207,7 @@ class PrimaryKeyFirstTest {
         var twoStep = BY_PRODUCT.orderBy(ITEM_PRODUCT.desc())
                 .primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0))
                 .build();
-        var deep = new PageSpec(4_321, ABOVE_THE_IN_LIMIT);
+        var deep = PageSpec.ofOffset(4_321, ABOVE_THE_IN_LIMIT);
         List<Slice<ItemRow>> slices = new ArrayList<>();
         List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, OrderItemEntity.class,
                 executor -> slices.add(executor.page(twoStep, deep, CountMode.NO_COUNT))));
@@ -239,7 +239,7 @@ class PrimaryKeyFirstTest {
         List<Long> ids = LongStream.rangeClosed(1, maxBinds - 5_000).boxed().toList();
         var listed = BY_PRODUCT.where(f -> f.in(ITEM_ID, ids));
         var twoStep = listed.primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
-        var deep = new PageSpec(1_000, 8_999);
+        var deep = PageSpec.ofOffset(1_000, 8_999);
         List<Slice<ItemRow>> slices = new ArrayList<>();
         List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, OrderItemEntity.class,
                 executor -> slices.add(executor.page(twoStep, deep, CountMode.NO_COUNT))));

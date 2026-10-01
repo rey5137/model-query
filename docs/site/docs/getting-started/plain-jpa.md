@@ -81,7 +81,7 @@ var paid = QOrderView.query()
         .orderBy(QOrderView.ID.asc())
         .build();
 
-Slice<OrderView> page = executor.page(paid, new PageSpec(0, 20), CountMode.COUNT);
+Slice<OrderView> page = executor.page(paid, PageSpec.of(0, 20), CountMode.COUNT);
 ```
 
 A `ModelQuery` is immutable, so you can keep it in a `static final` field and share it. The executor is created once

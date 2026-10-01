@@ -156,6 +156,18 @@ class FilterGroupTest {
     }
 
     @Test
+    void ac_flt_03_an_or_list_or_three_branches_drop_skipped_branches_as_two_branches_do() {
+        Optional<String> none = Optional.empty();
+        assertThat(FilterGroup.<OrderView>collect(f -> f.or(List.of()))).isEmpty();
+        assertThat(FilterGroup.<OrderView>collect(f -> f.or(List.of(a -> a.eq(STATUS, none))))).isEmpty();
+        assertThat(FilterGroup.<OrderView>collect(f -> f.or(List.of(a -> a.eq(STATUS, "PAID"))))).hasSize(1);
+        assertThat(FilterGroup.<OrderView>collect(f -> f.or(a -> a.eq(STATUS, none), b -> b,
+                c -> c.eq(STATUS, none)))).isEmpty();
+        assertThat(FilterGroup.<OrderView>collect(f -> f.or(a -> a.eq(STATUS, none), b -> b.eq(STATUS, "PAID"),
+                c -> c.eq(STATUS, none)))).hasSize(1);
+    }
+
+    @Test
     void ac_flt_03_not_when_and_apply_skip_like_or() {
         Optional<String> none = Optional.empty();
         UnaryOperator<Filters<OrderView>> paid = g -> g.eq(STATUS, "PAID");
@@ -174,17 +186,17 @@ class FilterGroupTest {
     @Test
     void ac_flt_03_a_branch_adding_to_the_enclosing_filters_throws_instead_of_anding() {
         for (UnaryOperator<Filters<OrderView>> misuse : List.<UnaryOperator<Filters<OrderView>>>of(
-                f -> f.or(a -> f.eq(STATUS, "PAID")),
+                f -> f.or(List.of(a -> f.eq(STATUS, "PAID"))),
                 f -> f.not(g -> f.eq(STATUS, "PAID")),
                 f -> f.apply(g -> f.eq(STATUS, "PAID")),
                 f -> f.exists(ITEMS, i -> f.eq(STATUS, "PAID")))) {
             assertMq1303(() -> FilterGroup.collect(misuse), "nested");
         }
         List<Filters<OrderView>> leaked = new ArrayList<>();
-        FilterGroup.<OrderView>collect(f -> f.or(a -> {
+        FilterGroup.<OrderView>collect(f -> f.or(List.of(a -> {
             leaked.add(a);
             return a.eq(STATUS, "PAID");
-        }));
+        })));
         assertMq1303(() -> leaked.get(0).eq(STATUS, "NEW"), "only valid inside");
     }
 

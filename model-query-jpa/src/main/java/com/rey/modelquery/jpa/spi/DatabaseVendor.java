@@ -1,13 +1,11 @@
 package com.rey.modelquery.jpa.spi;
 
-import com.rey.modelquery.annotations.Incubating;
 
 /**
  * The databases a {@link VendorProfile} can serve. Only profiles and vendor detection name a constant (INV-6).
  *
  * @implSpec R-VND-01
  */
-@Incubating
 public enum DatabaseVendor {
     H2,
     POSTGRESQL,

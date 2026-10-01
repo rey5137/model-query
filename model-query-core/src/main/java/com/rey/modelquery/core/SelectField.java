@@ -1,6 +1,5 @@
 package com.rey.modelquery.core;
 
-import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.Expression;
 
 /**
@@ -11,7 +10,6 @@ import jakarta.persistence.criteria.Expression;
  * @param <C> the selected value's Java type
  * @implSpec R-COL-06, D-3
  */
-@Incubating
 public sealed interface SelectField<M, C> permits ColumnField, AggregateField {
 
     /** The Java type of the selected value. */

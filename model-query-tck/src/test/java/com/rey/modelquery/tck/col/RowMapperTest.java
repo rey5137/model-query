@@ -58,32 +58,32 @@ class RowMapperTest {
     private static final TableField<CustomerEntity, CustomerEntity> CUSTOMER_ROOT =
             TableField.root(CustomerEntity.class);
 
-    private static final ColumnField<OrderView, OrderItemEntity, Long> ITEM_ID =
-            ColumnField.of(OrderView.class, ITEMS, "id", Long.class);
-    private static final ColumnField<OrderView, OrderEntity, String> STATUS =
-            ColumnField.of(OrderView.class, ROOT, "status", String.class);
-    private static final ColumnField<OrderView, OrderEntity, OrderStatus> STATUS_CODE =
-            ColumnField.of(OrderView.class, ROOT, "statusCode", OrderStatus.class);
-    private static final ColumnField<OrderView, OrderEntity, BigDecimal> TOTAL =
-            ColumnField.of(OrderView.class, ROOT, "total", BigDecimal.class);
-    private static final ColumnField<OrderView, OrderEntity, LocalDateTime> PLACED_AT =
-            ColumnField.of(OrderView.class, ROOT, "placedAt", LocalDateTime.class);
+    private static final ColumnField<ClassModel, OrderItemEntity, Long> ITEM_ID =
+            ColumnField.of(ClassModel.class, ITEMS, "id", Long.class);
+    private static final ColumnField<ClassModel, OrderEntity, String> STATUS =
+            ColumnField.of(ClassModel.class, ROOT, "status", String.class);
+    private static final ColumnField<ClassModel, OrderEntity, OrderStatus> STATUS_CODE =
+            ColumnField.of(ClassModel.class, ROOT, "statusCode", OrderStatus.class);
+    private static final ColumnField<ClassModel, OrderEntity, BigDecimal> TOTAL =
+            ColumnField.of(ClassModel.class, ROOT, "total", BigDecimal.class);
+    private static final ColumnField<ClassModel, OrderEntity, LocalDateTime> PLACED_AT =
+            ColumnField.of(ClassModel.class, ROOT, "placedAt", LocalDateTime.class);
     // Declared with the primitive type: a column reads it as its wrapper.
-    private static final ColumnField<OrderView, CustomerEntity, Boolean> VIP =
-            ColumnField.of(OrderView.class, CUSTOMER, "vip", boolean.class);
-    private static final ColumnField<OrderView, CustomerEntity, String> CUSTOMER_NAME =
-            ColumnField.of(OrderView.class, CUSTOMER, "name", String.class);
-    private static final ColumnField<OrderView, CustomerEntity, LocalDateTime> CUSTOMER_CREATED_AT =
-            ColumnField.of(OrderView.class, CUSTOMER, "createdAt", LocalDateTime.class);
-    private static final ColumnField<OrderView, OrderItemEntity, Integer> QUANTITY =
-            ColumnField.of(OrderView.class, ITEMS, "quantity", int.class);
-    private static final ColumnField<OrderView, OrderItemEntity, BigDecimal> UNIT_PRICE =
-            ColumnField.of(OrderView.class, ITEMS, "unitPrice", BigDecimal.class);
+    private static final ColumnField<ClassModel, CustomerEntity, Boolean> VIP =
+            ColumnField.of(ClassModel.class, CUSTOMER, "vip", boolean.class);
+    private static final ColumnField<ClassModel, CustomerEntity, String> CUSTOMER_NAME =
+            ColumnField.of(ClassModel.class, CUSTOMER, "name", String.class);
+    private static final ColumnField<ClassModel, CustomerEntity, LocalDateTime> CUSTOMER_CREATED_AT =
+            ColumnField.of(ClassModel.class, CUSTOMER, "createdAt", LocalDateTime.class);
+    private static final ColumnField<ClassModel, OrderItemEntity, Integer> QUANTITY =
+            ColumnField.of(ClassModel.class, ITEMS, "quantity", int.class);
+    private static final ColumnField<ClassModel, OrderItemEntity, BigDecimal> UNIT_PRICE =
+            ColumnField.of(ClassModel.class, ITEMS, "unitPrice", BigDecimal.class);
     // A column that is defined but never selected.
-    private static final ColumnField<OrderView, OrderEntity, Long> ORDER_ID =
-            ColumnField.of(OrderView.class, ROOT, "id", Long.class);
+    private static final ColumnField<ClassModel, OrderEntity, Long> ORDER_ID =
+            ColumnField.of(ClassModel.class, ROOT, "id", Long.class);
 
-    private static final List<SelectField<OrderView, ?>> SELECTED = List.of(ITEM_ID, STATUS, STATUS_CODE, TOTAL,
+    private static final List<SelectField<ClassModel, ?>> SELECTED = List.of(ITEM_ID, STATUS, STATUS_CODE, TOTAL,
             PLACED_AT, VIP, CUSTOMER_NAME, CUSTOMER_CREATED_AT, QUANTITY, UNIT_PRICE);
 
     private static final RowMapper<ClassModel> CLASS_MAPPER = RowMapper.setters(ClassModel::new)

@@ -1,9 +1,9 @@
 package com.rey.modelquery.core;
 
-import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Predicate;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.UnaryOperator;
@@ -25,8 +25,7 @@ import java.util.function.UnaryOperator;
  *
  * @implSpec api/12 §1, R-FLT-01..08, R-FLT-10, R-FLT-11, R-FLT-13, R-FLT-14
  */
-@Incubating
-public interface Filters<M> {
+public sealed interface Filters<M> permits FilterGroup {
 
     /** {@code column = value}. */
     <C> Filters<M> eq(ColumnField<M, ?, C> column, C value);
@@ -145,9 +144,20 @@ public interface Filters<M> {
      * {@code (branch1) OR (branch2) ...}, each branch an AND group. A branch whose filters were all skipped is dropped,
      * and with every branch dropped the {@code or} is skipped rather than matching nothing (R-FLT-01). A join first
      * needed inside a branch is LEFT, so a row without the joined row can still match another branch; a path joined
-     * INNER elsewhere in the query keeps that join (R-FLT-10).
+     * INNER elsewhere in the query keeps that join (R-FLT-10). Two or three branches take this overload or the next;
+     * a branch list built at run time takes {@link #or(List)}.
      */
-    Filters<M> or(UnaryOperator<Filters<M>>... branches);
+    Filters<M> or(UnaryOperator<Filters<M>> first, UnaryOperator<Filters<M>> second);
+
+    /** {@code (first) OR (second) OR (third)}, as {@link #or(UnaryOperator, UnaryOperator)} renders it. */
+    Filters<M> or(UnaryOperator<Filters<M>> first, UnaryOperator<Filters<M>> second, UnaryOperator<Filters<M>> third);
+
+    /**
+     * {@code (branch1) OR (branch2) ...} over a list, each branch dropped or kept as
+     * {@link #or(UnaryOperator, UnaryOperator)} does. An empty list is an {@code or} whose branches were all dropped,
+     * so it is skipped (R-FLT-01); a single branch is that branch's AND group.
+     */
+    Filters<M> or(List<? extends UnaryOperator<Filters<M>>> branches);
 
     /**
      * {@code NOT (group)}, plain SQL negation (R-FLT-05): a row where the group is UNKNOWN, because a column it reads

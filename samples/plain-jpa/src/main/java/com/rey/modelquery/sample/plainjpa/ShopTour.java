@@ -71,7 +71,7 @@ public final class ShopTour {
                 .where(f -> f.eq(QOrderView.STATUS, "PAID"))
                 .orderBy(QOrderView.ID.asc())
                 .build();
-        Slice<OrderView> paidPage = executor.page(paid, new PageSpec(0, 2), CountMode.COUNT);
+        Slice<OrderView> paidPage = executor.page(paid, PageSpec.of(0, 2), CountMode.COUNT);
 
         // The orders with a keyboard among their items, through the generated table of the collection.
         var withKeyboard = QOrderView.query()

@@ -26,7 +26,6 @@ import org.springframework.data.domain.Pageable;
  * @param <E> the root entity type, the repository's domain type
  * @implSpec R-SPR-01, R-SPR-02, R-SPR-03, R-SPR-10, R-SPR-12
  */
-@Incubating
 public interface ModelQueryRepository<E> {
 
     /**
@@ -66,8 +65,10 @@ public interface ModelQueryRepository<E> {
      * {@code commitEachChunk()} write opens none: each of its chunks commits on its own through the config's
      * {@code ChunkTransactions}, so it is meant to be called outside a transaction (R-SPR-10, R-WRT-19).
      */
+    @Incubating
     long update(ModelUpdate<E, ?> u);
 
     /** {@link ModelQueryExecutor#delete(ModelDelete)}, in a transaction as {@link #update} runs (R-SPR-10). */
+    @Incubating
     long delete(ModelDelete<E, ?> d);
 }

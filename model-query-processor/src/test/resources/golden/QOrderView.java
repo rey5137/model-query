@@ -1,5 +1,6 @@
 package shop;
 
+import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelDelete;
@@ -72,6 +73,7 @@ public final class QOrderView {
         return m;
     }
 
+    @Incubating
     public static ModelDelete.Builder<OrderEntity, Long, OrderView> delete() {
         return ModelDelete.builder(ROOT).primaryKey(KEY);
     }

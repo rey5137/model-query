@@ -12,7 +12,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * @implSpec R-SPR-08, R-SPR-13
  */
-@Incubating
 @ConfigurationProperties("modelquery")
 public class ModelQueryProperties {
 
@@ -62,6 +61,7 @@ public class ModelQueryProperties {
         return keyset;
     }
 
+    @Incubating
     public BulkWrite getBulkWrite() {
         return bulkWrite;
     }
@@ -132,6 +132,7 @@ public class ModelQueryProperties {
     }
 
     /** {@code modelquery.bulk-write.*} ({@code api/14} R-WRT-15, R-WRT-17, D-62). */
+    @Incubating
     public static class BulkWrite {
         private PersistenceContextMode persistenceContext;
         private Integer chunkSize;

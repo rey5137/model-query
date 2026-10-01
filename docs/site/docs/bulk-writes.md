@@ -1,9 +1,11 @@
 # Bulk writes
 
 !!! warning "Incubating"
-    Bulk updates and deletes are annotated `@Incubating` in 0.1.0. They are complete and tested, but their API may
-    change in a minor release until it has been through the 1.0 API review. The `modelquery.bulk-write.*` properties
-    and the `ModelQueryProperties` class carry the same marker.
+    Bulk updates and deletes are annotated `@Incubating`. They are complete and tested, but their API may still
+    change in a minor release; it freezes in a 1.x minor once one minor ships with no change to it. The executor's
+    and repository's `update` and `delete`, the bulk-write settings on `ModelQueryConfig`, the
+    `modelquery.bulk-write.*` properties and the generated `changes()`, `update(...)` and `delete()` carry the same
+    marker.
 
 A bulk write is "change the rows these filters match". It is rendered as one JPA `CriteriaUpdate` or
 `CriteriaDelete`, or as a series of them in chunks. It reuses the [`Filters`](queries.md) DSL, the same join

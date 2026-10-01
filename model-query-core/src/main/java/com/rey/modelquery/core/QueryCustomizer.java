@@ -1,6 +1,5 @@
 package com.rey.modelquery.core;
 
-import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 
@@ -33,7 +32,6 @@ import jakarta.persistence.criteria.CriteriaQuery;
  *
  * @implSpec R-QRY-07, R-QRY-08, R-QRY-09, R-QRY-11
  */
-@Incubating
 @FunctionalInterface
 public interface QueryCustomizer {
 

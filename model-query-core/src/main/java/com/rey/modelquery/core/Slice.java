@@ -1,6 +1,5 @@
 package com.rey.modelquery.core;
 
-import com.rey.modelquery.annotations.Incubating;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -19,7 +18,6 @@ import java.util.OptionalLong;
  * @param <M> the model type
  * @implSpec R-EXE-02
  */
-@Incubating
 public record Slice<M>(List<M> content, int pageNumber, int pageSize, boolean hasNext, OptionalLong total) {
 
     /** Copies {@code content}, so the slice cannot change after it is built. */

@@ -73,7 +73,7 @@ The available filters:
 | Strings | `like`, `likeIgnoreCase`, `eqIgnoreCase`, with a `LikeMode` of `EXACT`, `CONTAINS`, `STARTS_WITH` or `ENDS_WITH` |
 | Nulls | `isNull`, `isNotNull`, and a tri-state `isNull(column, Optional<Boolean>)` |
 | Column against column | `compare(left, Op, right)` |
-| Composition | `or`, `not`, `when`, `apply` (reuse a shared fragment) |
+| Composition | `or` (two or three branches, or a `List` of them), `not`, `when`, `apply` (reuse a shared fragment) |
 | Sub-queries | `exists`, `notExists` |
 | Escape hatch | `add((joinContext, criteriaBuilder) -> predicate)` |
 

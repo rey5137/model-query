@@ -1,5 +1,6 @@
 package patch;
 
+import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.Changes;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ModelDelete;
@@ -28,16 +29,19 @@ public final class QStockPatch {
     private QStockPatch() {
     }
 
+    @Incubating
     public static StockPatchChanges changes() {
         return new StockPatchChanges();
     }
 
+    @Incubating
     public static ModelUpdate.Builder<StockEntity, List<Object>, StockPatch> update(
             Changes<StockPatch> changes) {
         return ModelUpdate.builder(ROOT).primaryKey(PrimaryKey.composite(WAREHOUSE_ID,
                 PRODUCT_ID)).set(changes);
     }
 
+    @Incubating
     public static ModelDelete.Builder<StockEntity, List<Object>, StockPatch> delete() {
         return ModelDelete.builder(ROOT).primaryKey(PrimaryKey.composite(WAREHOUSE_ID, PRODUCT_ID));
     }

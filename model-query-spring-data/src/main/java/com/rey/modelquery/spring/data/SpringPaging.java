@@ -35,7 +35,7 @@ final class SpringPaging {
             throw new ModelQueryExecutionException(MqCode.MQ2002, "page " + pageable.getPageNumber() + " of size "
                     + pageable.getPageSize() + " has offset " + offset + ", which is above " + Integer.MAX_VALUE);
         }
-        return new PageSpec((int) offset, pageable.getPageSize());
+        return PageSpec.ofOffset((int) offset, pageable.getPageSize());
     }
 
     /**

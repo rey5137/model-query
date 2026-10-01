@@ -208,6 +208,7 @@ model's getters or record accessors (`api/14` R-WRT-04).
 **R-GEN-22** `QOrderView.delete()` is generated for every query model whose `@PrimaryKey` is the root entity's id,
 since a delete writes no columns. A query model whose key is not the id (a unique column on a view, say) gets no
 `delete()`; on an `@UpdateModel`, or with `generateChanges = true`, such a key is `MQ3306` (`api/14` R-WRT-08).
+The generated `changes()`, `update(changes)` and `delete()` carry `@Incubating`, as the bulk-write API does (D-85).
 
 **R-GEN-23** A generated change set is annotated `@ValidChanges(OrderPatch.class)`, naming the model whose field
 constraints apply (`api/14` R-WRT-21), when `@ValidChanges` and `jakarta.validation.Constraint` both resolve on the

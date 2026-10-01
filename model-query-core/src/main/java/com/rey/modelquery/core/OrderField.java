@@ -1,6 +1,5 @@
 package com.rey.modelquery.core;
 
-import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Order;
@@ -19,7 +18,6 @@ import java.util.Optional;
  * @param <C> the selection's Java type
  * @implSpec R-COL-12
  */
-@Incubating
 public record OrderField<M, C>(SelectField<M, C> column, boolean ascending, NullPrecedence nulls) {
 
     /** Validates the components. */
@@ -54,6 +52,7 @@ public record OrderField<M, C>(SelectField<M, C> column, boolean ascending, Null
      *
      * @implSpec R-COL-12
      */
+    @EngineFacing
     public List<Order> toOrders(JoinContext ctx, CriteriaBuilder cb) {
         Expression<C> expression = column.expression(Objects.requireNonNull(ctx, "ctx"));
         Order own = ascending ? cb.asc(expression) : cb.desc(expression);

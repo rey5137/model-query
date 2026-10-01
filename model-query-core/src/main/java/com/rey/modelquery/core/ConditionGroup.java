@@ -4,6 +4,7 @@ import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Predicate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
@@ -345,8 +346,15 @@ abstract class ConditionGroup<M, G> {
 
     // ---- composition: public here, since these signatures take G and so implement the builder's own
 
-    @SafeVarargs
-    public final G or(UnaryOperator<G>... branches) {
+    public final G or(UnaryOperator<G> first, UnaryOperator<G> second) {
+        return or(Arrays.asList(first, second));
+    }
+
+    public final G or(UnaryOperator<G> first, UnaryOperator<G> second, UnaryOperator<G> third) {
+        return or(Arrays.asList(first, second, third));
+    }
+
+    public final G or(List<? extends UnaryOperator<G>> branches) {
         checkOpen();
         var groups = new ArrayList<List<Filter>>();
         for (UnaryOperator<G> branch : Objects.requireNonNull(branches, "branches")) {

@@ -132,7 +132,7 @@ class VendorLimitsTest {
         // 500 binds are left, and step 2 reads the keys 256 at a time, the largest power of two within them.
         var listed = BY_PRODUCT.where(f -> f.in(ITEM_ID, ids(1_500)));
         var twoStep = listed.primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
-        var deep = new PageSpec(100, OTHER_IN_LIST - 1);
+        var deep = PageSpec.ofOffset(100, OTHER_IN_LIST - 1);
         List<Slice<ItemRow>> slices = new ArrayList<>();
         List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, OTHER,
                 executor -> slices.add(executor.page(twoStep, deep, CountMode.NO_COUNT))));
@@ -168,7 +168,7 @@ class VendorLimitsTest {
                     .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ1307));
             var twoStep = aboveLimit.primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
-            assertThatThrownBy(() -> executor.page(twoStep, new PageSpec(10, 100), CountMode.NO_COUNT))
+            assertThatThrownBy(() -> executor.page(twoStep, PageSpec.ofOffset(10, 100), CountMode.NO_COUNT))
                     .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ1307));
         });
@@ -204,7 +204,7 @@ class VendorLimitsTest {
         var twoStep = BY_PRODUCT.primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
         // 2 500 keys, with the hasNext probe: 300 a statement is nine statements; 5 000 is clamped to OTHER's 1 000
         // keys, rounded down to 512, the largest power of two within it, so five statements.
-        var deep = new PageSpec(1_234, 2_499);
+        var deep = PageSpec.ofOffset(1_234, 2_499);
         List<Slice<ItemRow>> slices = new ArrayList<>();
         List<String> small = SqlSnapshots.capture(db, ds -> withExecutor(ds, OTHER.primaryKeyFirstBatchSize(300),
                 executor -> slices.add(executor.page(twoStep, deep, CountMode.NO_COUNT))));

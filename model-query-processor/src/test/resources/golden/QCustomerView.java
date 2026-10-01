@@ -1,5 +1,6 @@
 package shop;
 
+import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelDelete;
@@ -62,6 +63,7 @@ public final class QCustomerView {
         return m;
     }
 
+    @Incubating
     public static ModelDelete.Builder<CustomerEntity, Long, CustomerView> delete() {
         return ModelDelete.builder(ROOT).primaryKey(KEY);
     }

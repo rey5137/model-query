@@ -3,8 +3,8 @@
 ## `page` and `CountMode`
 
 `executor.page(query, pageSpec, mode)` returns a `Slice<M>` with `content()`, `pageNumber()`, `pageSize()`,
-`hasNext()` and an optional `total()`. Build the page spec with `new PageSpec(offset, pageSize)` or
-`PageSpec.of(pageNumber, pageSize)`.
+`hasNext()` and an optional `total()`. Build the page spec with `PageSpec.of(pageNumber, pageSize)`, or with
+`PageSpec.ofOffset(offset, pageSize)` for an offset that is not a multiple of the page size.
 
 | `CountMode` | Behaviour |
 |---|---|

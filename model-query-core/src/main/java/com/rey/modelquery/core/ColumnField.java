@@ -1,6 +1,5 @@
 package com.rey.modelquery.core;
 
-import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Join;
@@ -33,7 +32,6 @@ import java.util.Optional;
  * @param <C> the column's Java type
  * @implSpec R-COL-07, R-COL-08, R-COL-14, D-55
  */
-@Incubating
 public final class ColumnField<M, T, C> implements SelectField<M, C> {
 
     // A primitive attribute is read as its wrapper, so the two are the same column type (R-COL-08).

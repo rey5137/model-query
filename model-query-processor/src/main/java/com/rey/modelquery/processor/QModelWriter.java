@@ -49,6 +49,7 @@ final class QModelWriter {
     private static final ClassName MODEL_UPDATE = ClassName.get(CORE, "ModelUpdate");
     private static final ClassName MODEL_DELETE = ClassName.get(CORE, "ModelDelete");
     private static final ClassName CHANGES = ClassName.get(CORE, "Changes");
+    private static final ClassName INCUBATING = ClassName.get("com.rey.modelquery.annotations", "Incubating");
     private static final ClassName JOIN_TYPE = ClassName.get("jakarta.persistence.criteria", "JoinType");
     private static final ClassName OPTIONAL = ClassName.get(Optional.class);
     private static final Modifier[] CONSTANT = {Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL};
@@ -198,7 +199,7 @@ final class QModelWriter {
     /**
      * {@code changes()} and {@code update(changes)} when the model has a change set, and {@code delete()} for an
      * update model and for a query model keyed by its root entity's id, since a delete writes no columns (R-GEN-21,
-     * R-GEN-22).
+     * R-GEN-22). All three are {@code @Incubating}, since the bulk-write API they return is (D-85).
      */
     private void writes(
             ModelDefinition model, ClassName modelName, ClassName entity, TypeName keyType, TypeSpec.Builder type) {
@@ -209,11 +210,13 @@ final class QModelWriter {
         if (model.changes()) {
             ClassName changes = ClassName.get(modelName.packageName(), model.changesName());
             type.addMethod(MethodSpec.methodBuilder("changes")
+                    .addAnnotation(INCUBATING)
                     .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
                     .returns(changes)
                     .addStatement("return new $T()", changes)
                     .build());
             type.addMethod(MethodSpec.methodBuilder("update")
+                    .addAnnotation(INCUBATING)
                     .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
                     .returns(ParameterizedTypeName.get(MODEL_UPDATE.nestedClass("Builder"), entity, keyType, modelName))
                     .addParameter(ParameterizedTypeName.get(CHANGES, modelName), "changes")
@@ -223,6 +226,7 @@ final class QModelWriter {
         Set<String> keyAttributes = keys.stream().map(ModelField::attribute).collect(Collectors.toSet());
         if (model.updateModel() || metamodel.id(model.root()).is(keyAttributes)) {
             type.addMethod(MethodSpec.methodBuilder("delete")
+                    .addAnnotation(INCUBATING)
                     .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
                     .returns(ParameterizedTypeName.get(MODEL_DELETE.nestedClass("Builder"), entity, keyType, modelName))
                     .addStatement("return $T.builder(ROOT).primaryKey($L)", MODEL_DELETE, key)

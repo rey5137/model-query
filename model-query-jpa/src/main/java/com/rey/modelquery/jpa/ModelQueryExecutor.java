@@ -28,7 +28,6 @@ import java.util.stream.Stream;
  *     R-AGG-09, R-WRT-01, R-WRT-07, R-WRT-08, R-WRT-15, R-WRT-16, R-WRT-17, R-WRT-18, R-WRT-19, R-WRT-20,
  *     R-WRT-23, D-61
  */
-@Incubating
 public interface ModelQueryExecutor<E> {
 
     /**
@@ -169,6 +168,7 @@ public interface ModelQueryExecutor<E> {
      * @throws jakarta.persistence.OptimisticLockException when {@code expectVersion} was given and no row was
      *     written: the row's version moved, or the row no longer matches (R-WRT-16)
      */
+    @Incubating
     long update(ModelUpdate<E, ?> u);
 
     /**
@@ -193,5 +193,6 @@ public interface ModelQueryExecutor<E> {
      * @throws com.rey.modelquery.core.ModelQueryConfigurationException {@code MQ4004}, before any statement, as
      *     {@link #update} throws it (R-WRT-19)
      */
+    @Incubating
     long delete(ModelDelete<E, ?> d);
 }

@@ -14,6 +14,6 @@ public final class QuickStart {
                 .where(f -> f.eq(QOrderView.STATUS, "PAID"))
                 .orderBy(QOrderView.ID.asc())
                 .build();
-        return executor.page(query, new PageSpec(0, 2), CountMode.COUNT);
+        return executor.page(query, PageSpec.of(0, 2), CountMode.COUNT);
     }
 }

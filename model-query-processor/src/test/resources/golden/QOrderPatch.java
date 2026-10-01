@@ -1,5 +1,6 @@
 package patch;
 
+import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.Changes;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ModelDelete;
@@ -42,15 +43,18 @@ public final class QOrderPatch {
     private QOrderPatch() {
     }
 
+    @Incubating
     public static OrderPatchChanges changes() {
         return new OrderPatchChanges();
     }
 
+    @Incubating
     public static ModelUpdate.Builder<OrderEntity, Long, OrderPatch> update(
             Changes<OrderPatch> changes) {
         return ModelUpdate.builder(ROOT).primaryKey(PrimaryKey.of(ID)).set(changes);
     }
 
+    @Incubating
     public static ModelDelete.Builder<OrderEntity, Long, OrderPatch> delete() {
         return ModelDelete.builder(ROOT).primaryKey(PrimaryKey.of(ID));
     }

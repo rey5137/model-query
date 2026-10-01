@@ -1,6 +1,5 @@
 package com.rey.modelquery.spring.data;
 
-import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.jpa.ModelQueryConfig;
@@ -35,7 +34,6 @@ import org.springframework.util.function.SingletonSupplier;
  * @param <ID> the domain type's id type
  * @implSpec R-SPR-02, R-SPR-03, R-SPR-10, R-SPR-12, R-SPR-13
  */
-@Incubating
 public class ModelQueryRepositoryFactoryBean<T extends Repository<S, ID>, S, ID>
         extends JpaRepositoryFactoryBean<T, S, ID> {
 

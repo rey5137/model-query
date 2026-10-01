@@ -141,7 +141,7 @@ class ExecutionTest {
             assertThat(beyond.content()).isEmpty();
             assertThat(beyond.hasNext()).isFalse();
             // 250 rows remain from the last page's offset, so a page of 249 there has one more row to report.
-            assertThat(executor.page(NEW_ORDERS, new PageSpec(total - 250, 249), CountMode.NO_COUNT).hasNext())
+            assertThat(executor.page(NEW_ORDERS, PageSpec.ofOffset(total - 250, 249), CountMode.NO_COUNT).hasNext())
                     .isTrue();
         });
     }
@@ -299,7 +299,7 @@ class ExecutionTest {
                         .isInstanceOfSatisfying(ModelQueryExecutionException.class,
                                 e -> assertThat(e.code()).isEqualTo(MqCode.MQ2001))
                         .hasMessageStartingWith(MqCode.MQ2001.code() + ":");
-                assertThatThrownBy(() -> executor.page(NEW_ORDERS, new PageSpec(0, size), CountMode.NO_COUNT))
+                assertThatThrownBy(() -> executor.page(NEW_ORDERS, PageSpec.ofOffset(0, size), CountMode.NO_COUNT))
                         .isInstanceOfSatisfying(ModelQueryExecutionException.class,
                                 e -> assertThat(e.code()).isEqualTo(MqCode.MQ2001));
             }
@@ -312,7 +312,7 @@ class ExecutionTest {
     @TckTest
     void ac_exe_05_a_negative_offset_throws_mq2002(TckDatabase db) {
         List<String> sql = SqlSnapshots.assertMatches(db, "exe-05-negative-offset", ds -> withExecutor(ds, executor -> {
-            assertThatThrownBy(() -> executor.page(NEW_ORDERS, new PageSpec(-1, 10), CountMode.COUNT))
+            assertThatThrownBy(() -> executor.page(NEW_ORDERS, PageSpec.ofOffset(-1, 10), CountMode.COUNT))
                     .isInstanceOfSatisfying(ModelQueryExecutionException.class,
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ2002))
                     .hasMessageStartingWith(MqCode.MQ2002.code() + ":");

@@ -69,8 +69,10 @@ committed with the code that changed them.
 
 ## 4. Versions and releases
 
-**R-REL-07** SemVer. `0.x` while the API can still change; `1.0.0` freezes it. Anything that may change before 1.0 is
-annotated `@Incubating`.
+**R-REL-07** SemVer. `0.x` while the API can still change; `1.0.0` freezes it. Anything that may still change after
+1.0 is annotated `@Incubating`, on a type or on a member of an otherwise frozen type (the bulk-write members of
+`ModelQueryExecutor`, say). Incubating API may break in a minor release; the commit is still marked breaking with `!`
+(R-REL-08). The freeze, type by type, is D-85.
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from
@@ -84,11 +86,12 @@ through the `rey5137` GitHub account. The Java package `com.rey.modelquery` inte
 **R-REL-10** Sub-packages follow the modules: `.core`, `.jpa`, `.hibernate`, `.processor`, `.spring.data`,
 `.spring.boot`. `com.rey.modelquery.jpa.vendor` (the built-in profiles, `VendorResolver`, `ResolvedVendor`) is not
 API, whatever the visibility of its types: it may change in any release, and extensions go through `jpa.spi`. A
-method marked `@EngineFacing` (`core`; only an executor calls it) is not API either, and may change in any release
-(D-72).
+type or method marked `@EngineFacing` (`core`; only an executor uses it) is not API either, and may change in any
+release: the types `BuiltQuery`, `RowSelection` and `RenderOptions`, the methods `JoinContext.of`,
+`OrderField.toOrders` and those D-72 lists (D-72, D-86).
 
-**R-REL-11** From 1.0, `japicmp` fails the build on a binary-incompatible change to a non-`@Incubating` type outside the
-non-API packages, and to a member that is not `@EngineFacing` (R-REL-10).
+**R-REL-11** From 1.0, `japicmp` fails the build on a binary-incompatible change to API: a type outside the non-API
+packages that is neither `@Incubating` nor `@EngineFacing`, or a member of such a type that is neither (R-REL-10).
 
 ## 5. Licensing
 

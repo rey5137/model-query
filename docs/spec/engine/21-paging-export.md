@@ -103,7 +103,8 @@ loop:
 ```
 
 **R-PAG-09** `pageTransformer` receives whole pages so a caller can batch its own lookups; `sink` receives one item at
-a time. Neither is called for an empty page.
+a time. Neither is called for an empty page. The loop's options are an `ExportOptions`, a final class built by
+`defaults()` or `of(pageSize)` and narrowed by `withLimit`, so a new option is additive (D-88).
 
 **R-PAG-10** The export returns the number of items passed to `sink`, which may differ from the number of rows read when
 `pageTransformer` expands or filters.
