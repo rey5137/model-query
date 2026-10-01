@@ -16,6 +16,7 @@ import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.TableField;
+import com.rey.modelquery.tck.flt.FiltersTest.Fixture;
 import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.NullableSortEntity;
@@ -47,15 +48,15 @@ class FilterCompositionTest {
 
     record O(Long id) {}
 
-    private static final TableField<OrderEntity, OrderEntity> ORDERS = TableField.root(OrderEntity.class);
+    static final TableField<OrderEntity, OrderEntity> ORDERS = TableField.root(OrderEntity.class);
     private static final TableField<OrderEntity, CustomerEntity> CUSTOMER = TableField.join(ORDERS, "customer", INNER);
     private static final TableField<OrderEntity, OrderItemEntity> ITEMS = TableField.join(ORDERS, "items", INNER);
     private static final TableField<OrderEntity, OrderItemEntity> ITEMS_B = ITEMS.as("b");
     private static final TableField<OrderEntity, OrderItemEntity> ITEMS_BIG =
             ITEMS.as("big").on((i, cb) -> cb.ge(i.<Integer>get("quantity"), 8));
 
-    private static final ColumnField<O, OrderEntity, Long> ID = ColumnField.of(O.class, ORDERS, "id", Long.class);
-    private static final ColumnField<O, OrderEntity, String> STATUS =
+    static final ColumnField<O, OrderEntity, Long> ID = ColumnField.of(O.class, ORDERS, "id", Long.class);
+    static final ColumnField<O, OrderEntity, String> STATUS =
             ColumnField.of(O.class, ORDERS, "status", String.class);
     private static final ColumnField<O, OrderEntity, BigDecimal> TOTAL =
             ColumnField.of(O.class, ORDERS, "total", BigDecimal.class);
@@ -72,7 +73,7 @@ class FilterCompositionTest {
     private static final ColumnField<O, OrderItemEntity, String> PRODUCT_BIG =
             ColumnField.of(O.class, ITEMS_BIG, "productCode", String.class);
 
-    private static final ModelQuery.Builder<OrderEntity, Object, O> ORDER_QUERY =
+    static final ModelQuery.Builder<OrderEntity, Object, O> ORDER_QUERY =
             ModelQuery.builder(ORDERS, row -> new O(row.get(ID))).columns(ColumnSet.of(ID)).orderBy(ID.asc());
 
     /** A shared fragment, as a caller would keep one. */
@@ -82,7 +83,7 @@ class FilterCompositionTest {
 
     record C(Long id) {}
 
-    private static final TableField<CustomerEntity, CustomerEntity> CUSTOMERS = TableField.root(CustomerEntity.class);
+    static final TableField<CustomerEntity, CustomerEntity> CUSTOMERS = TableField.root(CustomerEntity.class);
     private static final TableField<CustomerEntity, OrderEntity> ORDERS_LEFT =
             TableField.join(CUSTOMERS, "orders", LEFT);
     private static final TableField<CustomerEntity, OrderEntity> ORDERS_INNER =
@@ -95,9 +96,9 @@ class FilterCompositionTest {
             TableField.<OrderEntity, OrderItemEntity>join(ORDERS_INNER, "items", LEFT)
                     .as("none").on((i, cb) -> cb.ge(i.<Integer>get("quantity"), 100));
 
-    private static final ColumnField<C, CustomerEntity, Long> C_ID =
+    static final ColumnField<C, CustomerEntity, Long> C_ID =
             ColumnField.of(C.class, CUSTOMERS, "id", Long.class);
-    private static final ColumnField<C, CustomerEntity, String> C_NAME =
+    static final ColumnField<C, CustomerEntity, String> C_NAME =
             ColumnField.of(C.class, CUSTOMERS, "name", String.class);
     private static final ColumnField<C, OrderEntity, String> LEFT_STATUS =
             ColumnField.of(C.class, ORDERS_LEFT, "status", String.class);
@@ -110,7 +111,7 @@ class FilterCompositionTest {
     private static final ColumnField<C, OrderItemEntity, Integer> ORDER_QUANTITY =
             ColumnField.of(C.class, ORDER_ITEMS, "quantity", Integer.class);
 
-    private static final ModelQuery.Builder<CustomerEntity, Object, C> CUSTOMER_QUERY =
+    static final ModelQuery.Builder<CustomerEntity, Object, C> CUSTOMER_QUERY =
             ModelQuery.builder(CUSTOMERS, row -> new C(row.get(C_ID))).columns(ColumnSet.of(C_ID))
                     .orderBy(C_ID.asc());
 
@@ -118,13 +119,13 @@ class FilterCompositionTest {
 
     record N(Long id, Integer sortInt) {}
 
-    private static final TableField<NullableSortEntity, NullableSortEntity> NULLABLE =
+    static final TableField<NullableSortEntity, NullableSortEntity> NULLABLE =
             TableField.root(NullableSortEntity.class);
-    private static final ColumnField<N, NullableSortEntity, Long> N_ID =
+    static final ColumnField<N, NullableSortEntity, Long> N_ID =
             ColumnField.of(N.class, NULLABLE, "id", Long.class);
-    private static final ColumnField<N, NullableSortEntity, Integer> N_INT =
+    static final ColumnField<N, NullableSortEntity, Integer> N_INT =
             ColumnField.of(N.class, NULLABLE, "sortInt", Integer.class);
-    private static final ModelQuery.Builder<NullableSortEntity, Object, N> NULLABLE_QUERY =
+    static final ModelQuery.Builder<NullableSortEntity, Object, N> NULLABLE_QUERY =
             ModelQuery.builder(NULLABLE, row -> new N(row.get(N_ID), row.get(N_INT)))
                     .columns(ColumnSet.of(N_ID, N_INT)).orderBy(N_ID.asc());
 
@@ -132,25 +133,116 @@ class FilterCompositionTest {
     private static final BigDecimal T500 = new BigDecimal("500.00");
     private static final BigDecimal T900 = new BigDecimal("900.00");
     /** Rows inserted inside a rolled-back transaction start here, above every fixture id. */
-    private static final long EXTRA = 900_001L;
+    static final long EXTRA = 900_001L;
+
+    // ---- the fixtures, which the write/read parity check also runs (api/14 AC-WRT-07)
+
+    private static final UnaryOperator<Filters<O>> PAID = f -> f.eq(STATUS, "PAID");
+    private static final UnaryOperator<Filters<O>> PAID_AND_SKIPPED_OR = f -> PAID.apply(f)
+            .or(a -> a.eq(STATUS, NONE), b -> b.like(CUSTOMER_NAME, NONE, LikeMode.CONTAINS));
+    private static final UnaryOperator<Filters<O>> OR_ONE_BRANCH_SKIPPED =
+            f -> f.or(a -> a.eq(STATUS, Optional.of("PAID")), b -> b.eq(CUSTOMER_NAME, NONE));
+    private static final UnaryOperator<Filters<O>> PAID_OR_BIG_NEW =
+            f -> f.or(a -> a.eq(STATUS, "PAID"), b -> b.eq(STATUS, "NEW").gt(TOTAL, T500));
+    private static final UnaryOperator<Filters<O>> NOT_SKIPPED = f -> f.not(g -> g.eq(STATUS, NONE));
+    private static final UnaryOperator<Filters<O>> NOT_BIG_PAID = f -> f.not(g -> g.eq(STATUS, "PAID").gt(TOTAL, T500));
+    private static final UnaryOperator<Filters<O>> WHEN_FALSE = f -> f.when(false, g -> g.eq(STATUS, "PAID"));
+    private static final UnaryOperator<Filters<O>> WHEN_TRUE = f -> f.when(true, g -> g.eq(STATUS, "PAID"));
+    private static final UnaryOperator<Filters<O>> APPLY_NOT_CANCELLED = f -> f.apply(NOT_CANCELLED);
+    private static final UnaryOperator<Filters<N>> NOT_SEVEN = f -> f.not(g -> g.eq(N_INT, 7));
+    private static final UnaryOperator<Filters<O>> EXISTS_SKIPPED = f -> f
+            .exists(ITEMS, i -> i.eq(PRODUCT, NONE))
+            .notExists(ITEMS, i -> i.eq(PRODUCT, NONE));
+    private static final UnaryOperator<Filters<O>> EXISTS_ITEMS = f -> f.exists(ITEMS);
+    private static final UnaryOperator<Filters<O>> NO_ITEM = f -> f.notExists(ITEMS, i -> i.gte(QUANTITY, 1));
+    private static final UnaryOperator<Filters<C>> PAID_OR_LONELY_LEFT = f -> f.gte(C_ID, EXTRA)
+            .or(a -> a.eq(LEFT_STATUS, "PAID"), b -> b.eq(C_NAME, "Lonely"));
+    /** Declared INNER, but first needed inside the or: resolved as LEFT (R-FLT-10). */
+    private static final UnaryOperator<Filters<C>> PAID_OR_LONELY_INNER = f -> f.gte(C_ID, EXTRA)
+            .or(a -> a.eq(INNER_STATUS, "PAID"), b -> b.eq(C_NAME, "Lonely"));
+    /** The same path is needed INNER outside the or, even though the or comes first: that join is reused. */
+    private static final UnaryOperator<Filters<C>> INNER_ELSEWHERE = f -> f.gte(C_ID, EXTRA)
+            .or(a -> a.eq(INNER_STATUS, "PAID"), b -> b.eq(C_NAME, "Lonely"))
+            .ne(INNER_STATUS, "CANCELLED");
+    /** Plain SQL NOT over a LEFT join: a customer with no order is UNKNOWN under it, so it is excluded. */
+    private static final UnaryOperator<Filters<C>> NOT_PAID_LEFT =
+            f -> f.gte(C_ID, EXTRA).not(g -> g.eq(LEFT_STATUS, "PAID"));
+    private static final UnaryOperator<Filters<O>> EXISTS_P007_BIG =
+            f -> f.exists(ITEMS, i -> i.eq(PRODUCT, "P007").gte(QUANTITY, 8));
+    private static final UnaryOperator<Filters<O>> EXISTS_ALIASED_P007_BIG =
+            f -> f.exists(ITEMS_B, i -> i.eq(PRODUCT_B, "P007").gte(QUANTITY_B, 8));
+    private static final UnaryOperator<Filters<O>> EXISTS_ON_P007 =
+            f -> f.exists(ITEMS_BIG, i -> i.eq(PRODUCT_BIG, "P007"));
+    /** Inside an or, and next to an outer join to the same path: the sub-query keeps its own join. */
+    private static final UnaryOperator<Filters<O>> P007_AND_EXISTS_IN_OR = f -> f.eq(PRODUCT, "P007")
+            .or(a -> a.exists(ITEMS_B, i -> i.gte(QUANTITY_B, 5)), b -> b.eq(STATUS, "PAID"));
+    /** A LEFT join below the path keeps its on(...): it matches no item, so every order has a NULL there. */
+    private static final UnaryOperator<Filters<C>> NO_ITEM_BELOW_PATH =
+            f -> f.exists(ORDERS_INNER, o -> o.isNull(NO_ITEM_ID));
+    private static final UnaryOperator<Filters<C>> AN_ITEM_BELOW_PATH =
+            f -> f.exists(ORDERS_INNER, o -> o.isNotNull(NO_ITEM_ID));
+    private static final UnaryOperator<Filters<C>> NESTED_EXISTS = f -> f.exists(ORDERS_INNER,
+            o -> o.gt(ORDER_TOTAL, T900).exists(ORDER_ITEMS, i -> i.eq(ORDER_QUANTITY, 9)));
+    private static final BigDecimal T950 = new BigDecimal("950.00");
+    private static final UnaryOperator<Filters<C>> NESTED_EXISTS_SAME_PATH = f -> f.exists(ORDERS_INNER,
+            o -> o.gt(ORDER_TOTAL, T900).exists(ORDERS_INNER, same -> same.lt(ORDER_TOTAL, T950)));
+    private static final UnaryOperator<Filters<O>> P007_VIA_EXISTS =
+            f -> f.exists(ITEMS, i -> i.eq(PRODUCT, "P007").gte(QUANTITY, 3));
+    private static final UnaryOperator<Filters<O>> P007_VIA_JOIN = f -> f.eq(PRODUCT, "P007").gte(QUANTITY, 3);
+    private static final UnaryOperator<Filters<O>> CUSTOM_PREDICATES = f -> f
+            .gt(TOTAL, T500)
+            .add((ctx, cb) -> cb.equal(CUSTOMER.resolve(ctx).get("country"), "VN"))
+            .add((ctx, cb) -> cb.lessThan(CUSTOMER_NAME.path(ctx), "Customer 0100"));
+    private static final UnaryOperator<Filters<C>> CUSTOM_PREDICATE_IN_OR = f -> f.gte(C_ID, EXTRA)
+            .or(a -> a.add((ctx, cb) -> cb.equal(INNER_STATUS.path(ctx), "PAID")), b -> b.eq(C_NAME, "Lonely"));
+
+    static List<Fixture<O>> orderFixtures() {
+        return List.of(new Fixture<>("paid and a skipped or", PAID_AND_SKIPPED_OR),
+                new Fixture<>("or, one branch skipped", OR_ONE_BRANCH_SKIPPED),
+                new Fixture<>("or of a value and a group", PAID_OR_BIG_NEW),
+                new Fixture<>("not, skipped", NOT_SKIPPED), new Fixture<>("not of a group", NOT_BIG_PAID),
+                new Fixture<>("when false", WHEN_FALSE), new Fixture<>("when true", WHEN_TRUE),
+                new Fixture<>("apply", APPLY_NOT_CANCELLED), new Fixture<>("exists, skipped", EXISTS_SKIPPED),
+                new Fixture<>("exists(path)", EXISTS_ITEMS), new Fixture<>("notExists", NO_ITEM),
+                new Fixture<>("exists", EXISTS_P007_BIG),
+                new Fixture<>("exists over an alias", EXISTS_ALIASED_P007_BIG),
+                new Fixture<>("exists over on(...)", EXISTS_ON_P007),
+                new Fixture<>("exists in an or next to a to-many join", P007_AND_EXISTS_IN_OR),
+                new Fixture<>("exists for a count", P007_VIA_EXISTS),
+                new Fixture<>("a to-many join for a count", P007_VIA_JOIN),
+                new Fixture<>("custom predicates", CUSTOM_PREDICATES));
+    }
+
+    /** The customer fixtures; the ones from {@link #EXTRA} read the rows of {@link #insertLeftJoinRows}. */
+    static List<Fixture<C>> customerFixtures() {
+        return List.of(new Fixture<>("or over a LEFT join", PAID_OR_LONELY_LEFT),
+                new Fixture<>("or over an INNER join resolved LEFT", PAID_OR_LONELY_INNER),
+                new Fixture<>("or over a join needed INNER elsewhere", INNER_ELSEWHERE),
+                new Fixture<>("not over a LEFT join", NOT_PAID_LEFT),
+                new Fixture<>("a custom predicate in an or", CUSTOM_PREDICATE_IN_OR),
+                new Fixture<>("isNull below an exists path", NO_ITEM_BELOW_PATH),
+                new Fixture<>("isNotNull below an exists path", AN_ITEM_BELOW_PATH),
+                new Fixture<>("nested exists", NESTED_EXISTS),
+                new Fixture<>("nested exists on the same path", NESTED_EXISTS_SAME_PATH));
+    }
+
+    static List<Fixture<N>> nullableFixtures() {
+        return List.of(new Fixture<>("not over NULLs", NOT_SEVEN));
+    }
 
     // ---- AC-FLT-03
 
     @TckTest
     void ac_flt_03_an_or_whose_every_branch_was_skipped_returns_the_same_rows_as_the_query_without_it(
             TckDatabase db) {
-        UnaryOperator<Filters<O>> paid = f -> f.eq(STATUS, "PAID");
         List<List<Long>> results = new ArrayList<>();
         SqlSnapshots.assertMatches(db, "flt-03-skipped-or", ds -> inSession(ds, em -> {
-            results.add(ids(em, ORDER_QUERY.where(paid)));
+            results.add(ids(em, ORDER_QUERY.where(PAID)));
             // Every branch skipped, one of them over a join: the or leaves no trace in the SQL.
-            results.add(ids(em, ORDER_QUERY.where(f -> paid.apply(f)
-                    .or(a -> a.eq(STATUS, NONE), b -> b.like(CUSTOMER_NAME, NONE, LikeMode.CONTAINS)))));
+            results.add(ids(em, ORDER_QUERY.where(PAID_AND_SKIPPED_OR)));
             // One branch skipped: it is dropped, and the other stands alone.
-            results.add(ids(em, ORDER_QUERY.where(f -> f.or(a -> a.eq(STATUS, Optional.of("PAID")),
-                    b -> b.eq(CUSTOMER_NAME, NONE)))));
-            results.add(ids(em, ORDER_QUERY.where(f -> f.or(a -> a.eq(STATUS, "PAID"),
-                    b -> b.eq(STATUS, "NEW").gt(TOTAL, T500)))));
+            results.add(ids(em, ORDER_QUERY.where(OR_ONE_BRANCH_SKIPPED)));
+            results.add(ids(em, ORDER_QUERY.where(PAID_OR_BIG_NEW)));
         }));
         List<Long> expectedPaid = jpql(db, "where o.status = 'PAID'");
         assertThat(expectedPaid).isNotEmpty().hasSizeLessThan(TckFixture.ORDERS);
@@ -167,12 +259,12 @@ class FilterCompositionTest {
         List<List<Long>> results = new ArrayList<>();
         List<List<N>> nullable = new ArrayList<>();
         SqlSnapshots.assertMatches(db, "flt-03-not-when-apply", ds -> inSession(ds, em -> {
-            results.add(ids(em, ORDER_QUERY.where(f -> f.not(g -> g.eq(STATUS, NONE)))));
-            results.add(ids(em, ORDER_QUERY.where(f -> f.not(g -> g.eq(STATUS, "PAID").gt(TOTAL, T500)))));
-            results.add(ids(em, ORDER_QUERY.where(f -> f.when(false, g -> g.eq(STATUS, "PAID")))));
-            results.add(ids(em, ORDER_QUERY.where(f -> f.when(true, g -> g.eq(STATUS, "PAID")))));
-            results.add(ids(em, ORDER_QUERY.where(f -> f.apply(NOT_CANCELLED))));
-            nullable.add(run(em, NULLABLE_QUERY.where(f -> f.not(g -> g.eq(N_INT, 7)))));
+            results.add(ids(em, ORDER_QUERY.where(NOT_SKIPPED)));
+            results.add(ids(em, ORDER_QUERY.where(NOT_BIG_PAID)));
+            results.add(ids(em, ORDER_QUERY.where(WHEN_FALSE)));
+            results.add(ids(em, ORDER_QUERY.where(WHEN_TRUE)));
+            results.add(ids(em, ORDER_QUERY.where(APPLY_NOT_CANCELLED)));
+            nullable.add(run(em, NULLABLE_QUERY.where(NOT_SEVEN)));
             nullable.add(run(em, NULLABLE_QUERY.where(f -> f.ne(N_INT, 7))));
         }));
         List<Long> all = jpql(db, "");
@@ -195,13 +287,11 @@ class FilterCompositionTest {
     void ac_flt_04_exists_with_every_inner_filter_skipped_is_skipped_and_exists_path_still_renders(TckDatabase db) {
         List<List<Long>> results = new ArrayList<>();
         SqlSnapshots.assertMatches(db, "flt-04-exists-skipped", ds -> inSession(ds, em -> {
-            ModelQuery<OrderEntity, Object, O> skipped = ORDER_QUERY.where(f -> f
-                    .exists(ITEMS, i -> i.eq(PRODUCT, NONE))
-                    .notExists(ITEMS, i -> i.eq(PRODUCT, NONE))).build();
+            ModelQuery<OrderEntity, Object, O> skipped = ORDER_QUERY.where(EXISTS_SKIPPED).build();
             assertThat(skipped.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable()).query().getRestriction())
                     .isNull();
             results.add(ids(em, skipped));
-            results.add(ids(em, ORDER_QUERY.where(f -> f.exists(ITEMS))));
+            results.add(ids(em, ORDER_QUERY.where(EXISTS_ITEMS)));
         }));
         assertThat(results.get(0)).hasSize(TckFixture.ORDERS);
         assertThat(results.get(1)).hasSize(TckFixture.ORDERS);
@@ -211,10 +301,9 @@ class FilterCompositionTest {
             insertCustomer(em, EXTRA, "Extra");
             insertOrder(em, EXTRA, EXTRA, "NEW");
             assertThat(ids(em, ORDER_QUERY)).contains(EXTRA);
-            assertThat(ids(em, ORDER_QUERY.where(f -> f.exists(ITEMS)))).hasSize(TckFixture.ORDERS)
+            assertThat(ids(em, ORDER_QUERY.where(EXISTS_ITEMS))).hasSize(TckFixture.ORDERS)
                     .doesNotContain(EXTRA);
-            assertThat(ids(em, ORDER_QUERY.where(f -> f.notExists(ITEMS, i -> i.gte(QUANTITY, 1)))))
-                    .containsExactly(EXTRA);
+            assertThat(ids(em, ORDER_QUERY.where(NO_ITEM))).containsExactly(EXTRA);
         });
     }
 
@@ -222,38 +311,27 @@ class FilterCompositionTest {
 
     @TckTest
     void ac_flt_09_an_or_branch_over_a_left_joined_column_keeps_rows_that_have_no_joined_row(TckDatabase db) {
-        UnaryOperator<Filters<C>> paidOrLonelyLeft = f -> f.gte(C_ID, EXTRA)
-                .or(a -> a.eq(LEFT_STATUS, "PAID"), b -> b.eq(C_NAME, "Lonely"));
-        // Declared INNER, but first needed inside the or: resolved as LEFT (R-FLT-10).
-        UnaryOperator<Filters<C>> paidOrLonelyInner = f -> f.gte(C_ID, EXTRA)
-                .or(a -> a.eq(INNER_STATUS, "PAID"), b -> b.eq(C_NAME, "Lonely"));
-        // The same path is needed INNER outside the or, even though the or comes first: that join is reused.
-        UnaryOperator<Filters<C>> innerElsewhere = f -> f.gte(C_ID, EXTRA)
-                .or(a -> a.eq(INNER_STATUS, "PAID"), b -> b.eq(C_NAME, "Lonely"))
-                .ne(INNER_STATUS, "CANCELLED");
         var selectingInner = CUSTOMER_QUERY.columns(ColumnSet.of(C_ID, INNER_STATUS));
         List<ModelQuery.Builder<CustomerEntity, Object, C>> queries = List.of(
-                CUSTOMER_QUERY.where(paidOrLonelyLeft),
-                CUSTOMER_QUERY.where(paidOrLonelyInner),
-                CUSTOMER_QUERY.where(innerElsewhere),
-                selectingInner.where(paidOrLonelyInner));
+                CUSTOMER_QUERY.where(PAID_OR_LONELY_LEFT),
+                CUSTOMER_QUERY.where(PAID_OR_LONELY_INNER),
+                CUSTOMER_QUERY.where(INNER_ELSEWHERE),
+                selectingInner.where(PAID_OR_LONELY_INNER));
         SqlSnapshots.assertMatches(db, "flt-09-left-join-in-or", ds -> inSession(ds, em -> queries.forEach(q -> {
             List<C> none = run(em, q);
             assertThat(none).isEmpty();
         })));
         inRolledBack(db, em -> {
-            insertCustomer(em, EXTRA, "Lonely");         // no order, matches the name branch
-            insertCustomer(em, EXTRA + 1, "Quiet");      // no order, matches nothing
-            insertCustomer(em, EXTRA + 2, "Buyer");      // a PAID order
-            insertCustomer(em, EXTRA + 3, "Browser");    // a NEW order only
-            insertOrder(em, EXTRA, EXTRA + 2, "PAID");
-            insertOrder(em, EXTRA + 1, EXTRA + 3, "NEW");
+            insertLeftJoinRows(em);
             List<List<Long>> ids = queries.stream().map(q -> run(em, q).stream().map(C::id).toList()).toList();
             assertThat(ids.get(0)).containsExactly(EXTRA, EXTRA + 2);
             assertThat(ids.get(1)).containsExactly(EXTRA, EXTRA + 2);
             // Those rows are already required by the INNER join, so no branch can bring them back.
             assertThat(ids.get(2)).containsExactly(EXTRA + 2);
             assertThat(ids.get(3)).containsExactly(EXTRA + 2);
+            // Plain SQL NOT: a customer with no order is NULL on the LEFT join, so it is excluded as Buyer is.
+            assertThat(run(em, CUSTOMER_QUERY.where(NOT_PAID_LEFT)).stream().map(C::id).toList())
+                    .containsExactly(EXTRA + 3);
         });
     }
 
@@ -264,17 +342,12 @@ class FilterCompositionTest {
         List<List<Long>> results = new ArrayList<>();
         List<List<C>> belowPath = new ArrayList<>();
         SqlSnapshots.assertMatches(db, "flt-10-exists-alias", ds -> inSession(ds, em -> {
-            results.add(ids(em, ORDER_QUERY.where(f -> f.exists(ITEMS, i -> i.eq(PRODUCT, "P007").gte(QUANTITY, 8)))));
-            results.add(ids(em, ORDER_QUERY.where(f -> f.exists(ITEMS_B,
-                    i -> i.eq(PRODUCT_B, "P007").gte(QUANTITY_B, 8)))));
-            results.add(ids(em, ORDER_QUERY.where(f -> f.exists(ITEMS_BIG, i -> i.eq(PRODUCT_BIG, "P007")))));
-            // Inside an or, and next to an outer join to the same path: the sub-query keeps its own join.
-            results.add(ids(em, ORDER_QUERY.columns(ColumnSet.of(ID, PRODUCT)).where(f -> f.eq(PRODUCT, "P007")
-                    .or(a -> a.exists(ITEMS_B, i -> i.gte(QUANTITY_B, 5)), b -> b.eq(STATUS, "PAID")))));
-            // A LEFT join below the path keeps its on(...) in the sub-query: it matches no item, so every order
-            // has a NULL there.
-            belowPath.add(run(em, CUSTOMER_QUERY.where(f -> f.exists(ORDERS_INNER, o -> o.isNull(NO_ITEM_ID)))));
-            belowPath.add(run(em, CUSTOMER_QUERY.where(f -> f.exists(ORDERS_INNER, o -> o.isNotNull(NO_ITEM_ID)))));
+            results.add(ids(em, ORDER_QUERY.where(EXISTS_P007_BIG)));
+            results.add(ids(em, ORDER_QUERY.where(EXISTS_ALIASED_P007_BIG)));
+            results.add(ids(em, ORDER_QUERY.where(EXISTS_ON_P007)));
+            results.add(ids(em, ORDER_QUERY.columns(ColumnSet.of(ID, PRODUCT)).where(P007_AND_EXISTS_IN_OR)));
+            belowPath.add(run(em, CUSTOMER_QUERY.where(NO_ITEM_BELOW_PATH)));
+            belowPath.add(run(em, CUSTOMER_QUERY.where(AN_ITEM_BELOW_PATH)));
         }));
         assertThat(belowPath.get(0)).hasSize(TckFixture.CUSTOMERS);
         assertThat(belowPath.get(1)).isEmpty();
@@ -294,9 +367,7 @@ class FilterCompositionTest {
     void ac_flt_10_a_nested_exists_correlates_to_the_enclosing_exists_path(TckDatabase db) {
         List<Long> nested = new ArrayList<>();
         SqlSnapshots.assertMatches(db, "flt-10-nested-exists", ds -> inSession(ds, em -> nested.addAll(
-                run(em, CUSTOMER_QUERY.where(f -> f.exists(ORDERS_INNER, o -> o.gt(ORDER_TOTAL, T900)
-                        .exists(ORDER_ITEMS, i -> i.eq(ORDER_QUANTITY, 9)))))
-                        .stream().map(C::id).toList())));
+                run(em, CUSTOMER_QUERY.where(NESTED_EXISTS)).stream().map(C::id).toList())));
         List<Long> expected = new ArrayList<>();
         List<Long> anyOrder = new ArrayList<>();
         inSession(db, em -> {
@@ -315,12 +386,9 @@ class FilterCompositionTest {
 
     @TckTest
     void ac_flt_10_a_nested_exists_on_the_same_path_correlates_to_the_same_child_row(TckDatabase db) {
-        BigDecimal t950 = new BigDecimal("950.00");
         List<Long> nested = new ArrayList<>();
         SqlSnapshots.assertMatches(db, "flt-10-nested-exists-same-path", ds -> inSession(ds, em -> nested.addAll(
-                run(em, CUSTOMER_QUERY.where(f -> f.exists(ORDERS_INNER, o -> o.gt(ORDER_TOTAL, T900)
-                        .exists(ORDERS_INNER, same -> same.lt(ORDER_TOTAL, t950)))))
-                        .stream().map(C::id).toList())));
+                run(em, CUSTOMER_QUERY.where(NESTED_EXISTS_SAME_PATH)).stream().map(C::id).toList())));
         List<Long> sameRow = new ArrayList<>();
         List<Long> anyRow = new ArrayList<>();
         inSession(db, em -> {
@@ -341,8 +409,8 @@ class FilterCompositionTest {
     @TckTest
     void ac_flt_11_count_over_exists_equals_distinct_count_over_the_equivalent_join(TckDatabase db) {
         // The executor's count is M2.1; the counts are built here the way R-EXE-04 describes, from the built query.
-        var viaExists = ORDER_QUERY.where(f -> f.exists(ITEMS, i -> i.eq(PRODUCT, "P007").gte(QUANTITY, 3)));
-        var viaJoin = ORDER_QUERY.where(f -> f.eq(PRODUCT, "P007").gte(QUANTITY, 3));
+        var viaExists = ORDER_QUERY.where(P007_VIA_EXISTS);
+        var viaJoin = ORDER_QUERY.where(P007_VIA_JOIN);
         long[] counts = new long[3];
         SqlSnapshots.assertMatches(db, "flt-11-exists-count", ds -> inSession(ds, em -> {
             counts[0] = count(em, viaExists, false);
@@ -365,18 +433,14 @@ class FilterCompositionTest {
     void d_24_a_custom_predicate_is_anded_with_the_other_filters_and_shares_the_query_joins(TckDatabase db) {
         List<List<Long>> results = new ArrayList<>();
         SqlSnapshots.assertMatches(db, "flt-add-custom-predicate", ds -> inSession(ds, em -> results.add(ids(em,
-                ORDER_QUERY.columns(ColumnSet.of(ID, CUSTOMER_NAME)).where(f -> f
-                        .gt(TOTAL, T500)
-                        .add((ctx, cb) -> cb.equal(CUSTOMER.resolve(ctx).get("country"), "VN"))
-                        .add((ctx, cb) -> cb.lessThan(CUSTOMER_NAME.path(ctx), "Customer 0100")))))));
+                ORDER_QUERY.columns(ColumnSet.of(ID, CUSTOMER_NAME)).where(CUSTOM_PREDICATES)))));
         assertThat(results.get(0)).isNotEmpty().isEqualTo(jpql(db,
                 "where o.total > 500 and o.customer.country = 'VN' and o.customer.name < 'Customer 0100'"));
     }
 
     @TckTest
     void ac_flt_09_a_custom_predicate_inside_an_or_branch_resolves_its_join_as_left(TckDatabase db) {
-        var query = CUSTOMER_QUERY.where(f -> f.gte(C_ID, EXTRA)
-                .or(a -> a.add((ctx, cb) -> cb.equal(INNER_STATUS.path(ctx), "PAID")), b -> b.eq(C_NAME, "Lonely")));
+        var query = CUSTOMER_QUERY.where(CUSTOM_PREDICATE_IN_OR);
         SqlSnapshots.assertMatches(db, "flt-add-custom-in-or", ds -> inSession(ds, em ->
                 assertThat(run(em, query)).isEmpty()));
         inRolledBack(db, em -> {
@@ -413,6 +477,16 @@ class FilterCompositionTest {
         inSession(db, em -> ids.addAll(em.createQuery("select o.id from OrderEntity o " + where + " order by o.id",
                 Long.class).getResultList()));
         return ids;
+    }
+
+    /** Customers from {@link #EXTRA} with no order, a PAID order and a NEW one; neither order has an item. */
+    static void insertLeftJoinRows(EntityManager em) {
+        insertCustomer(em, EXTRA, "Lonely");         // no order, matches the name branch
+        insertCustomer(em, EXTRA + 1, "Quiet");      // no order, matches nothing
+        insertCustomer(em, EXTRA + 2, "Buyer");      // a PAID order
+        insertCustomer(em, EXTRA + 3, "Browser");    // a NEW order only
+        insertOrder(em, EXTRA, EXTRA + 2, "PAID");
+        insertOrder(em, EXTRA + 1, EXTRA + 3, "NEW");
     }
 
     private static void insertCustomer(EntityManager em, long id, String name) {

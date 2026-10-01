@@ -46,11 +46,11 @@ class FiltersTest {
 
     record O(Long id, String status, BigDecimal total, LocalDateTime placedAt, String customerName) {}
 
-    private static final TableField<OrderEntity, OrderEntity> ORDERS = TableField.root(OrderEntity.class);
+    static final TableField<OrderEntity, OrderEntity> ORDERS = TableField.root(OrderEntity.class);
     private static final TableField<OrderEntity, CustomerEntity> CUSTOMER = TableField.join(ORDERS, "customer", INNER);
 
-    private static final ColumnField<O, OrderEntity, Long> ID = ColumnField.of(O.class, ORDERS, "id", Long.class);
-    private static final ColumnField<O, OrderEntity, String> STATUS =
+    static final ColumnField<O, OrderEntity, Long> ID = ColumnField.of(O.class, ORDERS, "id", Long.class);
+    static final ColumnField<O, OrderEntity, String> STATUS =
             ColumnField.of(O.class, ORDERS, "status", String.class);
     private static final ColumnField<O, OrderEntity, OrderStatus> STATUS_CODE =
             ColumnField.of(O.class, ORDERS, "statusCode", OrderStatus.class);
@@ -66,7 +66,7 @@ class FiltersTest {
 
     private static final RowMapper<O> O_MAPPER = row -> new O(row.get(ID), row.get(STATUS), row.get(TOTAL),
             row.get(PLACED_AT), row.get(CUSTOMER_NAME));
-    private static final ModelQuery.Builder<OrderEntity, Object, O> ORDER_QUERY = ModelQuery.builder(ORDERS, O_MAPPER)
+    static final ModelQuery.Builder<OrderEntity, Object, O> ORDER_QUERY = ModelQuery.builder(ORDERS, O_MAPPER)
             .columns(ColumnSet.of(ID, STATUS, TOTAL, PLACED_AT, CUSTOMER_NAME))
             .orderBy(ID.asc());
 
@@ -74,13 +74,13 @@ class FiltersTest {
 
     record I(Long id, Long orderId) {}
 
-    private static final TableField<OrderItemEntity, OrderItemEntity> ITEMS = TableField.root(OrderItemEntity.class);
+    static final TableField<OrderItemEntity, OrderItemEntity> ITEMS = TableField.root(OrderItemEntity.class);
     private static final TableField<OrderItemEntity, OrderEntity> ITEM_ORDER = TableField.join(ITEMS, "order", INNER);
-    private static final ColumnField<I, OrderItemEntity, Long> ITEM_ID =
+    static final ColumnField<I, OrderItemEntity, Long> ITEM_ID =
             ColumnField.of(I.class, ITEMS, "id", Long.class);
     private static final ColumnField<I, OrderEntity, Long> ITEM_ORDER_ID =
             ColumnField.of(I.class, ITEM_ORDER, "id", Long.class);
-    private static final ModelQuery.Builder<OrderItemEntity, Object, I> ITEM_QUERY =
+    static final ModelQuery.Builder<OrderItemEntity, Object, I> ITEM_QUERY =
             ModelQuery.builder(ITEMS, row -> new I(row.get(ITEM_ID), row.get(ITEM_ORDER_ID)))
                     .columns(ColumnSet.of(ITEM_ID, ITEM_ORDER_ID))
                     .orderBy(ITEM_ID.asc());
@@ -89,17 +89,17 @@ class FiltersTest {
 
     record N(Long id, Integer sortInt, String sortText, LocalDateTime sortTs) {}
 
-    private static final TableField<NullableSortEntity, NullableSortEntity> NULLABLE =
+    static final TableField<NullableSortEntity, NullableSortEntity> NULLABLE =
             TableField.root(NullableSortEntity.class);
-    private static final ColumnField<N, NullableSortEntity, Long> N_ID =
+    static final ColumnField<N, NullableSortEntity, Long> N_ID =
             ColumnField.of(N.class, NULLABLE, "id", Long.class);
-    private static final ColumnField<N, NullableSortEntity, Integer> N_INT =
+    static final ColumnField<N, NullableSortEntity, Integer> N_INT =
             ColumnField.of(N.class, NULLABLE, "sortInt", Integer.class);
-    private static final ColumnField<N, NullableSortEntity, String> N_TEXT =
+    static final ColumnField<N, NullableSortEntity, String> N_TEXT =
             ColumnField.of(N.class, NULLABLE, "sortText", String.class);
     private static final ColumnField<N, NullableSortEntity, LocalDateTime> N_TS =
             ColumnField.of(N.class, NULLABLE, "sortTs", LocalDateTime.class);
-    private static final ModelQuery.Builder<NullableSortEntity, Object, N> NULLABLE_QUERY =
+    static final ModelQuery.Builder<NullableSortEntity, Object, N> NULLABLE_QUERY =
             ModelQuery.builder(NULLABLE, row -> new N(row.get(N_ID), row.get(N_INT), row.get(N_TEXT), row.get(N_TS)))
                     .columns(ColumnSet.of(N_ID, N_INT, N_TEXT, N_TS))
                     .orderBy(N_ID.asc());
@@ -120,7 +120,65 @@ class FiltersTest {
         }
     }
 
-    private static List<Case<O>> orderCases() {
+    /** A named filter of this group, which the write/read parity check also runs (api/14 AC-WRT-07). */
+    record Fixture<V>(String name, UnaryOperator<Filters<V>> where) {}
+
+    static final UnaryOperator<Filters<O>> EMPTY_IN = f -> f.in(STATUS, List.of());
+    static final UnaryOperator<Filters<O>> EMPTY_NOT_IN = f -> f.notIn(STATUS, List.of());
+    static final UnaryOperator<Filters<N>> NE_SEVEN = f -> f.ne(N_INT, 7);
+    static final UnaryOperator<Filters<N>> NOT_IN_T01 = f -> f.notIn(N_TEXT, List.of("t01"));
+    /** The strict SQL meaning of {@link #NE_SEVEN}. */
+    static final UnaryOperator<Filters<N>> STRICT_NE_SEVEN = f -> f.ne(N_INT, 7).isNotNull(N_INT);
+    /** Seven values, one of them no order's id. */
+    static final List<Long> SPLIT_IDS = List.of(13L, 2L, 7L, 3L, 999_999L, 11L, 5L);
+    static final UnaryOperator<Filters<O>> IN_SPLIT_IDS = f -> f.in(ID, SPLIT_IDS);
+    /** Ten of sortInt's 50 values; none is a multiple of 5, where NULLs fall. */
+    static final List<Integer> SPLIT_EXCLUDED = List.of(1, 2, 3, 4, 6, 7, 8, 9, 11, 12);
+    static final UnaryOperator<Filters<N>> NOT_IN_SPLIT_EXCLUDED = f -> f.notIn(N_INT, SPLIT_EXCLUDED);
+    /** The first id of the rows {@link #insertLikeRows} adds. */
+    static final long LIKE_FIRST = 900_001L;
+    private static final List<String> LIKE_TEXTS = List.of("50%off", "50xoff", "a_b", "axb", "c\\d", "cd", "A_B");
+
+    /** The order filters of the tests after AC-FLT-01. */
+    static List<Fixture<O>> orderFixtures() {
+        return List.of(new Fixture<>("empty in", EMPTY_IN), new Fixture<>("empty notIn", EMPTY_NOT_IN),
+                new Fixture<>("in above the IN-list limit", IN_SPLIT_IDS));
+    }
+
+    /** The nullable-row filters of the tests after AC-FLT-01; the LIKE ones need {@link #insertLikeRows}. */
+    static List<Fixture<N>> nullableFixtures() {
+        var fixtures = new ArrayList<Fixture<N>>(List.of(new Fixture<>("ne keeps NULLs", NE_SEVEN),
+                new Fixture<>("notIn keeps NULLs", NOT_IN_T01), new Fixture<>("strict ne", STRICT_NE_SEVEN),
+                new Fixture<>("notIn above the IN-list limit", NOT_IN_SPLIT_EXCLUDED)));
+        fixtures.addAll(likeFixtures());
+        return fixtures;
+    }
+
+    /** LIKE over {@code %}, {@code _} and {@code \}, each over the rows of {@link #insertLikeRows} only. */
+    static List<Fixture<N>> likeFixtures() {
+        return List.<Fixture<N>>of(
+                        new Fixture<>("like %", f -> f.like(N_TEXT, "50%", LikeMode.CONTAINS)),
+                        new Fixture<>("like _ at the start", f -> f.like(N_TEXT, "a_", LikeMode.STARTS_WITH)),
+                        new Fixture<>("like _ at the end", f -> f.like(N_TEXT, "_b", LikeMode.ENDS_WITH)),
+                        new Fixture<>("like \\", f -> f.like(N_TEXT, "c\\d", LikeMode.CONTAINS)),
+                        new Fixture<>("likeIgnoreCase _", f -> f.likeIgnoreCase(N_TEXT, "a_B", LikeMode.CONTAINS)),
+                        new Fixture<>("like EXACT", f -> f.like(N_TEXT, "a_b", LikeMode.EXACT)))
+                .stream()
+                .map(like -> new Fixture<N>(like.name(), f -> like.where().apply(f.gte(N_ID, LIKE_FIRST))))
+                .toList();
+    }
+
+    /** Adds rows from {@link #LIKE_FIRST} whose text holds LIKE's wildcards and the escape character. */
+    static void insertLikeRows(EntityManager em) {
+        for (int i = 0; i < LIKE_TEXTS.size(); i++) {
+            em.createNativeQuery("insert into nullable_sort_rows (id, sort_text) values (?, ?)")
+                    .setParameter(1, LIKE_FIRST + i)
+                    .setParameter(2, LIKE_TEXTS.get(i))
+                    .executeUpdate();
+        }
+    }
+
+    static List<Case<O>> orderCases() {
         BigDecimal t500 = new BigDecimal("500.00");
         BigDecimal t100 = new BigDecimal("100.00");
         BigDecimal t200 = new BigDecimal("200.00");
@@ -201,7 +259,7 @@ class FiltersTest {
                         f -> f.eqIgnoreCase(STATUS, Optional.empty()), o -> o.status().equals("PAID")));
     }
 
-    private static List<Case<I>> itemCases() {
+    static List<Case<I>> itemCases() {
         var cases = new ArrayList<Case<I>>();
         for (Op op : Op.values()) {
             Predicate<I> expected = switch (op) {
@@ -217,7 +275,7 @@ class FiltersTest {
         return cases;
     }
 
-    private static List<Case<N>> nullableCases() {
+    static List<Case<N>> nullableCases() {
         LocalDateTime ts = BASE.plusDays(7);
         return List.of(
                 Case.<N>of("isNull", f -> f.isNull(N_INT), f -> f.isNull(N_INT, Optional.of(true)),
@@ -288,8 +346,8 @@ class FiltersTest {
         SqlSnapshots.assertMatches(db, "flt-05-empty-sets", ds -> {
             try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
                 sf.inSession(em -> {
-                    results.add(run(em, ORDER_QUERY.where(f -> f.in(STATUS, List.of()))));
-                    results.add(run(em, ORDER_QUERY.where(f -> f.notIn(STATUS, List.of()))));
+                    results.add(run(em, ORDER_QUERY.where(EMPTY_IN)));
+                    results.add(run(em, ORDER_QUERY.where(EMPTY_NOT_IN)));
                 });
             }
         });
@@ -309,13 +367,13 @@ class FiltersTest {
                 assertThat(nullInts).isPositive();
                 assertThat(nullTexts).isPositive();
 
-                List<N> ne = run(em, NULLABLE_QUERY.where(f -> f.ne(N_INT, 7)));
+                List<N> ne = run(em, NULLABLE_QUERY.where(NE_SEVEN));
                 assertThat(ne.stream().filter(n -> n.sortInt() == null).count()).isEqualTo(nullInts);
-                List<N> notIn = run(em, NULLABLE_QUERY.where(f -> f.notIn(N_TEXT, List.of("t01"))));
+                List<N> notIn = run(em, NULLABLE_QUERY.where(NOT_IN_T01));
                 assertThat(notIn.stream().filter(n -> n.sortText() == null).count()).isEqualTo(nullTexts);
 
                 // The strict SQL meaning is one isNotNull away.
-                List<N> strict = run(em, NULLABLE_QUERY.where(f -> f.ne(N_INT, 7).isNotNull(N_INT)));
+                List<N> strict = run(em, NULLABLE_QUERY.where(STRICT_NE_SEVEN));
                 assertThat(strict).hasSize(ne.size() - (int) nullInts).allSatisfy(n -> assertThat(n.sortInt())
                         .isNotNull().isNotEqualTo(7));
             });
@@ -330,9 +388,8 @@ class FiltersTest {
 
     @TckTest
     void ac_flt_08_an_in_list_above_the_limit_is_split_and_returns_the_same_rows_as_an_unsplit_one(TckDatabase db) {
-        // Seven values, one of them no order's id: chunks of 3, 3 and 1.
-        List<Long> ids = List.of(13L, 2L, 7L, 3L, 999_999L, 11L, 5L);
-        var q = ORDER_QUERY.where(f -> f.in(ID, ids)).build();
+        // Seven values: chunks of 3, 3 and 1.
+        var q = ORDER_QUERY.where(IN_SPLIT_IDS).build();
         List<List<O>> results = new ArrayList<>();
         List<String> sql = SqlSnapshots.assertMatches(db, "flt-08-in-chunks", ds -> {
             try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
@@ -350,9 +407,9 @@ class FiltersTest {
 
     @TckTest
     void ac_flt_08_not_in_above_the_limit_is_an_and_of_chunks_that_still_keeps_null_rows(TckDatabase db) {
-        // Ten of sortInt's 50 values, in chunks of 3, 3, 3 and 1; every fifth row's sortInt is NULL.
-        List<Integer> excluded = List.of(1, 2, 3, 4, 6, 7, 8, 9, 11, 12);
-        var q = NULLABLE_QUERY.where(f -> f.notIn(N_INT, excluded)).build();
+        // Ten values, in chunks of 3, 3, 3 and 1; every fifth row's sortInt is NULL.
+        List<Integer> excluded = SPLIT_EXCLUDED;
+        var q = NULLABLE_QUERY.where(NOT_IN_SPLIT_EXCLUDED).build();
         List<List<N>> results = new ArrayList<>();
         List<String> sql = SqlSnapshots.assertMatches(db, "flt-08-not-in-chunks", ds -> {
             try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
@@ -382,33 +439,19 @@ class FiltersTest {
 
     @TckTest
     void ac_flt_07_like_matches_percent_underscore_and_backslash_literally(TckDatabase db) {
-        long first = 900_001L;
-        List<String> texts = List.of("50%off", "50xoff", "a_b", "axb", "c\\d", "cd", "A_B");
+        // In likeFixtures() order; EXACT passes the pattern through, wildcards included.
+        List<List<String>> expected = List.of(List.of("50%off"), List.of("a_b"), List.of("a_b"), List.of("c\\d"),
+                List.of("a_b", "A_B"), List.of("a_b", "axb"));
         try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
             sf.inSession(em -> {
                 em.getTransaction().begin();
                 try {
-                    for (int i = 0; i < texts.size(); i++) {
-                        em.createNativeQuery("insert into nullable_sort_rows (id, sort_text) values (?, ?)")
-                                .setParameter(1, first + i)
-                                .setParameter(2, texts.get(i))
-                                .executeUpdate();
+                    insertLikeRows(em);
+                    List<Fixture<N>> likes = likeFixtures();
+                    for (int i = 0; i < likes.size(); i++) {
+                        assertThat(run(em, NULLABLE_QUERY.where(likes.get(i).where())).stream().map(N::sortText))
+                                .as(likes.get(i).name()).containsExactlyElementsOf(expected.get(i));
                     }
-                    Function<UnaryOperator<Filters<N>>, List<String>> matching = filter -> run(em,
-                            NULLABLE_QUERY.where(f -> filter.apply(f.gte(N_ID, first))))
-                            .stream().map(N::sortText).toList();
-
-                    assertThat(matching.apply(f -> f.like(N_TEXT, "50%", LikeMode.CONTAINS))).containsExactly("50%off");
-                    assertThat(matching.apply(f -> f.like(N_TEXT, "a_", LikeMode.STARTS_WITH)))
-                            .containsExactly("a_b");
-                    assertThat(matching.apply(f -> f.like(N_TEXT, "_b", LikeMode.ENDS_WITH))).containsExactly("a_b");
-                    assertThat(matching.apply(f -> f.like(N_TEXT, "c\\d", LikeMode.CONTAINS)))
-                            .containsExactly("c\\d");
-                    assertThat(matching.apply(f -> f.likeIgnoreCase(N_TEXT, "a_B", LikeMode.CONTAINS)))
-                            .containsExactly("a_b", "A_B");
-                    // EXACT passes the pattern through, wildcards included.
-                    assertThat(matching.apply(f -> f.like(N_TEXT, "a_b", LikeMode.EXACT)))
-                            .containsExactly("a_b", "axb");
                 } finally {
                     em.getTransaction().rollback();
                 }

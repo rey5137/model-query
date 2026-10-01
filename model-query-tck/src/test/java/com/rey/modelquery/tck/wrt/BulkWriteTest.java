@@ -625,6 +625,30 @@ class BulkWriteTest {
         assertThat(written[0]).isEqualTo(expected.size());
     }
 
+    // ---- AC-WRT-08
+
+    @TckTest
+    void ac_wrt_08_all_writes_every_row_and_a_where_whose_every_filter_was_skipped_throws_mq1601(TckDatabase db) {
+        assertThatThrownBy(() -> UPDATE.primaryKey(PrimaryKey.of(ID)).set(STATUS, "MARKED")
+                        .where(f -> f.eq(STATUS, Optional.empty())).build())
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1601));
+        var update = UPDATE.primaryKey(PrimaryKey.of(ID)).set(STATUS, "MARKED").all().build();
+        var marked = new ArrayList<Long>();
+        long[] counts = new long[2];
+
+        List<String> sql = SqlSnapshots.capture(db, ds -> inRolledBackTransaction(ds, em -> {
+            counts[0] = em.createQuery("select count(o) from OrderEntity o", Long.class).getSingleResult();
+            counts[1] = orders(em).update(update);
+            marked.addAll(markedIds(em));
+        }));
+
+        assertThat(counts[0]).isPositive();
+        assertThat(counts[1]).isEqualTo(counts[0]);
+        assertThat(marked).hasSize((int) counts[0]);
+        assertThat(writes(sql, "update")).singleElement().asString().doesNotContain(" where ");
+    }
+
     // ---- AC-WRT-09
 
     @TckTest
