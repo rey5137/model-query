@@ -27,6 +27,12 @@ jobs:
       - name: Set version from tag
         run: ./mvnw -B -ntp versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false -DprocessAllModules
 
+      # AC-REL-05: the tag commit's time becomes project.build.outputTimestamp, so a rebuild of the tag is identical.
+      - name: Set build timestamp from the tag commit
+        run: >
+          ./mvnw -B -ntp versions:set-property -Dproperty=project.build.outputTimestamp
+          -DnewVersion="$(git log -1 --format=%cI)" -DgenerateBackupPoms=false
+
       - name: Build, sign and publish to Maven Central
         run: ./mvnw -B -ntp -Prelease deploy
         env:
