@@ -35,7 +35,7 @@ import java.util.function.UnaryOperator;
  *
  * @param <E> the root entity
  * @param <M> the update model
- * @implSpec R-WRT-05, R-WRT-07, R-WRT-08, R-WRT-10, R-WRT-13, R-WRT-14, R-WRT-15, R-WRT-16, D-60, D-61, D-62,
+ * @implSpec R-WRT-05, R-WRT-07, R-WRT-08, R-WRT-10, R-WRT-11, R-WRT-13, R-WRT-14, R-WRT-15, R-WRT-16, D-60, D-61, D-62,
  *     D-63
  */
 @Incubating
@@ -118,7 +118,7 @@ public final class ModelUpdate<E, M> {
      */
     public CriteriaUpdate<E> buildWrite(CriteriaBuilder cb, RenderOptions options,
             BiFunction<Class<?>, Object, ?> references) {
-        return render(cb, options, references, null);
+        return render(cb, options, references, WriteRendering.keysToRender(distinctKeys().orElse(null), null), false);
     }
 
     /**
@@ -132,7 +132,77 @@ public final class ModelUpdate<E, M> {
      */
     public CriteriaUpdate<E> buildWrite(CriteriaBuilder cb, RenderOptions options,
             BiFunction<Class<?>, Object, ?> references, List<?> chunk) {
-        return render(cb, options, references, Objects.requireNonNull(chunk, "chunk"));
+        Objects.requireNonNull(chunk, "chunk");
+        return render(cb, options, references, WriteRendering.keysToRender(distinctKeys().orElse(null), chunk), false);
+    }
+
+    /**
+     * Renders one round of a key-first or chunked update: {@code key IN (keys)}, the keys a
+     * {@link #buildKeySelect key select} chose, and the {@code where} tree as
+     * {@link #buildWrite(CriteriaBuilder, RenderOptions, BiFunction)} renders it, or with {@code rootTermsOnly} only
+     * its root terms, the top-level {@code AND} terms that need no join and no sub-query, with
+     * {@code AND version = ?} for {@code expectVersion}. Re-applying them means a row that stopped matching on its
+     * own columns since the key select is not written; a change to a joined row in between is not re-checked
+     * (R-WRT-11, R-WRT-17, D-63).
+     *
+     * @param keys attribute-value keys, as a key select's rows hold them
+     * @throws IllegalArgumentException for empty {@code keys}
+     */
+    public CriteriaUpdate<E> buildWrite(CriteriaBuilder cb, RenderOptions options,
+            BiFunction<Class<?>, Object, ?> references, List<?> keys, boolean rootTermsOnly) {
+        return render(cb, options, references, WriteRendering.selectedKeys(Objects.requireNonNull(keys, "keys")),
+                rootTermsOnly);
+    }
+
+    /**
+     * Renders the key select of a key-first or chunked update: the {@link #primaryKey()} columns of the rows the
+     * update chooses, {@code whereKey} or {@code whereKeys} and the {@code where} tree rendered as a read renders
+     * them, joins included, with no order. An executor adds the keyset order, the cursor, the row limit and any lock;
+     * the returned query maps no model (R-WRT-11, R-WRT-17, D-63).
+     */
+    public BuiltQuery<M> buildKeySelect(CriteriaBuilder cb, RenderOptions options) {
+        return keySelect(cb, options, WriteRendering.keysToRender(distinctKeys().orElse(null), null));
+    }
+
+    /**
+     * Renders the key select as {@link #buildKeySelect(CriteriaBuilder, RenderOptions)} does, choosing among the
+     * keys of {@code chunk} only, a run of {@link #distinctKeys()} (R-WRT-08, D-63).
+     *
+     * @throws IllegalArgumentException for an empty {@code chunk}, or on an update without {@code whereKey} or
+     *     {@code whereKeys}
+     */
+    public BuiltQuery<M> buildKeySelect(CriteriaBuilder cb, RenderOptions options, List<?> chunk) {
+        Objects.requireNonNull(chunk, "chunk");
+        return keySelect(cb, options, WriteRendering.keysToRender(distinctKeys().orElse(null), chunk));
+    }
+
+    /**
+     * Whether the statement {@link #buildWrite(CriteriaBuilder, RenderOptions, BiFunction)} renders reads the root's
+     * table in a sub-query: the {@code where} tree needs a join (R-WRT-10), or an {@code exists(...)} path leads back
+     * to the root entity type. Where the database refuses that, an executor runs the update key-first (R-WRT-11,
+     * R-VND-11).
+     */
+    public boolean readsTargetInSubquery(CriteriaBuilder cb, RenderOptions options) {
+        Objects.requireNonNull(cb, "cb");
+        Objects.requireNonNull(options, "options");
+        return WriteRendering.readsTargetInSubquery(definition.rows().where(), rootEntity(), cb, options);
+    }
+
+    /** The primary key the update chooses rows by, whose columns a key select reads (D-63). */
+    public PrimaryKey<M, ?> primaryKey() {
+        return definition.primaryKey();
+    }
+
+    /** The update's {@code chunked(...)} options, or empty without them (R-WRT-11, R-WRT-17). */
+    public Optional<ChunkOptions> chunkOptions() {
+        return Optional.ofNullable(definition.chunkOptions());
+    }
+
+    private BuiltQuery<M> keySelect(CriteriaBuilder cb, RenderOptions options, List<Object> keys) {
+        Objects.requireNonNull(cb, "cb");
+        Objects.requireNonNull(options, "options");
+        return WriteRendering.keySelect(keys, definition.rows().where(), definition.primaryKey(), rootEntity(), cb,
+                options, modelName());
     }
 
     /**
@@ -155,11 +225,10 @@ public final class ModelUpdate<E, M> {
 
     @SuppressWarnings({"unchecked", "rawtypes"})
     private CriteriaUpdate<E> render(CriteriaBuilder cb, RenderOptions options,
-            BiFunction<Class<?>, Object, ?> references, List<?> chunk) {
+            BiFunction<Class<?>, Object, ?> references, List<Object> keys, boolean rootTermsOnly) {
         Objects.requireNonNull(cb, "cb");
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(references, "references");
-        List<Object> keys = WriteRendering.keysToRender(distinctKeys().orElse(null), chunk);
         Class<E> type = rootEntity();
         CriteriaUpdate<E> update = cb.createCriteriaUpdate(type);
         Root<E> from = update.from(type);
@@ -189,7 +258,7 @@ public final class ModelUpdate<E, M> {
             });
         }
         var where = new ArrayList<>(WriteRendering.rows(keys, definition.rows().where(), definition.primaryKey(),
-                update, from, cb, options));
+                update, from, cb, options, rootTermsOnly));
         SingularAttribute<?, ?> version = expectedVersionAttribute(entity);
         if (version != null) {
             where.add(cb.equal(from.get(version.getName()), definition.expectedVersion()));

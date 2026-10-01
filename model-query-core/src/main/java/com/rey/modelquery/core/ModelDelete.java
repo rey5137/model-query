@@ -21,7 +21,7 @@ import java.util.function.UnaryOperator;
  *
  * @param <E> the root entity
  * @param <M> the model whose key and filter columns the delete uses
- * @implSpec R-WRT-08, R-WRT-09, R-WRT-10, R-WRT-12, R-WRT-15, D-60, D-61, D-62, D-63
+ * @implSpec R-WRT-08, R-WRT-09, R-WRT-10, R-WRT-11, R-WRT-12, R-WRT-15, D-60, D-61, D-62, D-63
  */
 @Incubating
 public final class ModelDelete<E, M> {
@@ -67,7 +67,7 @@ public final class ModelDelete<E, M> {
      */
     public void checkMetamodel(Metamodel metamodel) {
         WriteRendering.checkKey(metamodel.entity(rootEntity()), definition.root(), definition.primaryKey(),
-                definition.primaryKey().columns().get(0).model().getSimpleName());
+                modelName());
     }
 
     /**
@@ -76,7 +76,7 @@ public final class ModelDelete<E, M> {
      * the key columns (R-WRT-10).
      */
     public CriteriaDelete<E> buildWrite(CriteriaBuilder cb, RenderOptions options) {
-        return render(cb, options, null);
+        return render(cb, options, WriteRendering.keysToRender(distinctKeys().orElse(null), null), false);
     }
 
     /**
@@ -89,7 +89,67 @@ public final class ModelDelete<E, M> {
      *     {@code whereKeys}
      */
     public CriteriaDelete<E> buildWrite(CriteriaBuilder cb, RenderOptions options, List<?> chunk) {
-        return render(cb, options, Objects.requireNonNull(chunk, "chunk"));
+        Objects.requireNonNull(chunk, "chunk");
+        return render(cb, options, WriteRendering.keysToRender(distinctKeys().orElse(null), chunk), false);
+    }
+
+    /**
+     * Renders one round of a key-first or chunked delete: {@code key IN (keys)}, the keys a
+     * {@link #buildKeySelect key select} chose, and the {@code where} tree as {@link #buildWrite(CriteriaBuilder,
+     * RenderOptions)} renders it, or with {@code rootTermsOnly} only its root terms, the top-level {@code AND} terms
+     * that need no join and no sub-query. Re-applying them means a row that stopped matching on its own columns since
+     * the key select is not deleted; a change to a joined row in between is not re-checked (R-WRT-11, R-WRT-17,
+     * D-63).
+     *
+     * @param keys attribute-value keys, as a key select's rows hold them
+     * @throws IllegalArgumentException for empty {@code keys}
+     */
+    public CriteriaDelete<E> buildWrite(CriteriaBuilder cb, RenderOptions options, List<?> keys,
+            boolean rootTermsOnly) {
+        return render(cb, options, WriteRendering.selectedKeys(Objects.requireNonNull(keys, "keys")), rootTermsOnly);
+    }
+
+    /**
+     * Renders the key select of a key-first or chunked delete: the {@link #primaryKey()} columns of the rows the
+     * delete chooses, {@code whereKey} or {@code whereKeys} and the {@code where} tree rendered as a read renders
+     * them, joins included, with no order. An executor adds the keyset order, the cursor, the row limit and any lock;
+     * the returned query maps no model (R-WRT-11, R-WRT-17, D-63).
+     */
+    public BuiltQuery<M> buildKeySelect(CriteriaBuilder cb, RenderOptions options) {
+        return keySelect(cb, options, WriteRendering.keysToRender(distinctKeys().orElse(null), null));
+    }
+
+    /**
+     * Renders the key select as {@link #buildKeySelect(CriteriaBuilder, RenderOptions)} does, choosing among the
+     * keys of {@code chunk} only, a run of {@link #distinctKeys()} (R-WRT-08, D-63).
+     *
+     * @throws IllegalArgumentException for an empty {@code chunk}, or on a delete without {@code whereKey} or
+     *     {@code whereKeys}
+     */
+    public BuiltQuery<M> buildKeySelect(CriteriaBuilder cb, RenderOptions options, List<?> chunk) {
+        Objects.requireNonNull(chunk, "chunk");
+        return keySelect(cb, options, WriteRendering.keysToRender(distinctKeys().orElse(null), chunk));
+    }
+
+    /**
+     * Whether the statement {@link #buildWrite(CriteriaBuilder, RenderOptions)} renders reads the root's table in a
+     * sub-query: the {@code where} tree needs a join (R-WRT-10), or an {@code exists(...)} path leads back to the
+     * root entity type. Where the database refuses that, an executor runs the delete key-first (R-WRT-11, R-VND-11).
+     */
+    public boolean readsTargetInSubquery(CriteriaBuilder cb, RenderOptions options) {
+        Objects.requireNonNull(cb, "cb");
+        Objects.requireNonNull(options, "options");
+        return WriteRendering.readsTargetInSubquery(definition.rows().where(), rootEntity(), cb, options);
+    }
+
+    /** The primary key the delete chooses rows by, whose columns a key select reads (D-63). */
+    public PrimaryKey<M, ?> primaryKey() {
+        return definition.primaryKey();
+    }
+
+    /** The delete's {@code chunked(...)} options, or empty without them (R-WRT-11, R-WRT-17). */
+    public Optional<ChunkOptions> chunkOptions() {
+        return Optional.ofNullable(definition.chunkOptions());
     }
 
     /**
@@ -110,14 +170,25 @@ public final class ModelDelete<E, M> {
         return Optional.ofNullable(definition.persistenceContext());
     }
 
-    private CriteriaDelete<E> render(CriteriaBuilder cb, RenderOptions options, List<?> chunk) {
+    private BuiltQuery<M> keySelect(CriteriaBuilder cb, RenderOptions options, List<Object> keys) {
         Objects.requireNonNull(cb, "cb");
         Objects.requireNonNull(options, "options");
-        List<Object> keys = WriteRendering.keysToRender(distinctKeys().orElse(null), chunk);
+        return WriteRendering.keySelect(keys, definition.rows().where(), definition.primaryKey(), rootEntity(), cb,
+                options, modelName());
+    }
+
+    private String modelName() {
+        return definition.primaryKey().columns().get(0).model().getSimpleName();
+    }
+
+    private CriteriaDelete<E> render(CriteriaBuilder cb, RenderOptions options, List<Object> keys,
+            boolean rootTermsOnly) {
+        Objects.requireNonNull(cb, "cb");
+        Objects.requireNonNull(options, "options");
         CriteriaDelete<E> delete = cb.createCriteriaDelete(rootEntity());
         Root<E> from = delete.from(rootEntity());
         List<Predicate> where = WriteRendering.rows(keys, definition.rows().where(), definition.primaryKey(), delete,
-                from, cb, options);
+                from, cb, options, rootTermsOnly);
         if (!where.isEmpty()) {
             delete.where(where.toArray(Predicate[]::new));
         }

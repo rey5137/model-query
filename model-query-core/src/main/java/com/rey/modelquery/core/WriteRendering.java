@@ -1,7 +1,9 @@
 package com.rey.modelquery.core;
 
+import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
@@ -23,7 +25,7 @@ import java.util.Set;
  * What {@link ModelUpdate} and {@link ModelDelete} share: the predicate choosing a write's rows, and the checks of a
  * write definition against the JPA metamodel that {@code build()} cannot run (INV-7, D-61). Stateless.
  *
- * @implSpec R-WRT-08, R-WRT-10, R-WRT-13, D-61, D-63
+ * @implSpec R-WRT-08, R-WRT-10, R-WRT-11, R-WRT-13, D-61, D-63
  */
 final class WriteRendering {
 
@@ -64,18 +66,28 @@ final class WriteRendering {
      * {@code keys} is {@code null}, then the {@code where} tree. A tree that needs no join renders on the root
      * itself; one that needs any join renders whole inside one {@code EXISTS} over a second root of the entity,
      * correlated by the key columns, since a bulk statement has no joins and splitting the tree per predicate would
-     * change what {@code not} and {@code or} mean (R-WRT-10).
+     * change what {@code not} and {@code or} mean (R-WRT-10). With {@code rootTermsOnly}, only the tree's root terms
+     * render, as a key-first write re-applies them (R-WRT-11).
      *
      * @param keys attribute-value keys, as {@link #distinctKeys} returns them, or {@code null} for no key predicate
      */
     static <E, M> List<Predicate> rows(List<Object> keys, List<Filter> where, PrimaryKey<M, ?> key,
-            CommonAbstractCriteria statement, Root<E> root, CriteriaBuilder cb, RenderOptions options) {
+            CommonAbstractCriteria statement, Root<E> root, CriteriaBuilder cb, RenderOptions options,
+            boolean rootTermsOnly) {
         JoinContext ctx = JoinContext.of(root, cb, statement, options);
         var predicates = new ArrayList<Predicate>();
         if (keys != null) {
             predicates.add(keyIn(key, keys, ctx, cb));
         }
         if (where.isEmpty()) {
+            return predicates;
+        }
+        if (rootTermsOnly) {
+            for (Filter term : where) {
+                if (!probe(List.of(term), statement, root.getModel().getJavaType(), cb, options).joinsOrNests()) {
+                    predicates.addAll(ConditionGroup.toPredicates(List.of(term), ctx));
+                }
+            }
             return predicates;
         }
         Subquery<Integer> sub = statement.subquery(Integer.class);
@@ -99,6 +111,65 @@ final class WriteRendering {
     }
 
     /**
+     * Whether the statement {@link #rows} renders for {@code where} reads {@code entity}'s table in a sub-query: the
+     * tree needs a join, so renders in an {@code EXISTS} over the entity (R-WRT-10), or an {@code exists(...)} path
+     * joins the entity, a type of its hierarchy or one sharing it (R-WRT-11). Rendered into a scratch query, since a
+     * filter is a lambda with no structure to walk (D-65).
+     */
+    static boolean readsTargetInSubquery(List<Filter> where, Class<?> entity, CriteriaBuilder cb,
+            RenderOptions options) {
+        if (where.isEmpty()) {
+            return false;
+        }
+        Probe probe = probe(where, cb.createQuery(), entity, cb, options);
+        return probe.joined() || probe.ctx().existsReads(entity);
+    }
+
+    /**
+     * The key select of a key-first or chunked write: the primary-key columns of {@code entity}'s rows that
+     * {@code key IN (keys)}, unless {@code keys} is {@code null}, and the {@code where} tree choose, the tree rendered
+     * as a read renders it, joins included, with no order (R-WRT-11, R-WRT-17, D-63).
+     */
+    static <E, M> BuiltQuery<M> keySelect(List<Object> keys, List<Filter> where, PrimaryKey<M, ?> key,
+            Class<E> entity, CriteriaBuilder cb, RenderOptions options, String model) {
+        CriteriaQuery<Tuple> query = cb.createTupleQuery();
+        Root<E> from = query.from(entity);
+        JoinContext joins = JoinContext.of(from, cb, query, options);
+        RowSelection selection = RowSelection.of(key.columns());
+        query.multiselect(selection.selections(joins));
+        var predicates = new ArrayList<Predicate>();
+        if (keys != null) {
+            predicates.add(keyIn(key, keys, joins, cb));
+        }
+        predicates.addAll(ConditionGroup.toPredicates(where, joins));
+        if (!predicates.isEmpty()) {
+            query.where(predicates.toArray(Predicate[]::new));
+        }
+        return new BuiltQuery<>(query, joins, selection, row -> {
+            throw new UnsupportedOperationException(model + ": a key select maps no model; read its keys");
+        });
+    }
+
+    /** {@code where} rendered over a second root of {@code entity} in a sub-query of {@code statement}. */
+    private static Probe probe(List<Filter> where, CommonAbstractCriteria statement, Class<?> entity,
+            CriteriaBuilder cb, RenderOptions options) {
+        Subquery<Integer> sub = statement.subquery(Integer.class);
+        Root<?> inner = sub.from(entity);
+        JoinContext ctx = JoinContext.of(inner, cb, sub, options);
+        ConditionGroup.toPredicates(where, ctx);
+        return new Probe(!inner.getJoins().isEmpty(), ctx);
+    }
+
+    /** What rendering a tree into a scratch sub-query showed: whether it joined, and its join context. */
+    private record Probe(boolean joined, JoinContext ctx) {
+
+        /** Whether the tree needs a join or a sub-query, so is not a root term (R-WRT-11). */
+        boolean joinsOrNests() {
+            return joined || ctx.renderedExists();
+        }
+    }
+
+    /**
      * The keys to render: all of the definition's distinct keys when {@code chunk} is {@code null}, else
      * {@code chunk}, which must be a non-empty run of them; {@code null} when the definition chose its rows without
      * keys.
@@ -115,6 +186,19 @@ final class WriteRendering {
                     : "a chunk of keys is never empty, since an empty one would leave the rows unchosen");
         }
         return List.copyOf(chunk);
+    }
+
+    /**
+     * {@code keys}, the keys a key select chose, to render in place of the definition's own (R-WRT-11, D-63).
+     *
+     * @throws IllegalArgumentException for empty {@code keys}, which would leave the rows unchosen
+     */
+    static List<Object> selectedKeys(List<?> keys) {
+        if (keys.isEmpty()) {
+            throw new IllegalArgumentException("a run of selected keys is never empty, since an empty one would leave "
+                    + "the rows unchosen");
+        }
+        return List.copyOf(keys);
     }
 
     /**

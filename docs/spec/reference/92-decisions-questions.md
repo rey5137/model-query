@@ -631,6 +631,19 @@ transaction still throws. The flush runs only for a write that runs a statement 
 the clear and the eviction run in it, so a failed statement leaves no stale entity. → `api/14` R-WRT-08, R-WRT-15,
 R-WRT-18, D-62, D-63.
 
+**D-67 — M6.4 key-first surface.** `ModelUpdate` and `ModelDelete` gain `readsTargetInSubquery(cb, options)`,
+`buildKeySelect(cb, options)` and an overload over a run of `distinctKeys()`, a `buildWrite` overload over the keys a
+key select chose with a `boolean rootTermsOnly` shape, `primaryKey()` and `chunkOptions()`. The key select is a
+`BuiltQuery` whose `map` throws, since it maps no model. A top-level `where` term is a root term when, rendered alone
+into a scratch sub-query, it makes no join and no `exists`; `JoinContext` records the types each `exists` joins, and
+an `exists` reads the target when one of them shares the root's type hierarchy. The metamodel shows a root's
+hierarchy but not its strategy, so `jpa` treats every hierarchy as `SINGLE_TABLE` or `JOINED`: key-first is always
+correct. The clamp counts the binds of the whole-tree statement, an upper bound of both the root-terms write and the
+key select. A key-first `whereKeys` write selects once per run of its distinct keys, with no cursor. A key select that
+repeats a key of the round before throws `MQ2205`, as R-PAG-14 does. `lockKeys()` applies on the key-first path now;
+`chunked` sizes and chunking where the database could write in one statement are M6.5's. → `api/14` R-WRT-11,
+R-WRT-17, `vendor/40` R-VND-11, D-63.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter

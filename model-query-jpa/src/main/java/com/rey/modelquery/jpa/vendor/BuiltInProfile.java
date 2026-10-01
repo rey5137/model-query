@@ -15,11 +15,16 @@ import java.util.Optional;
  * The built-in profiles: a fixed table of the Tier-1 values in vendor/41 §2 and the conservative {@code OTHER}
  * values. A {@code ServiceLoader}-discovered profile for the same vendor takes precedence (R-VND-03).
  *
- * @implSpec R-PRF-11, R-PRF-08, R-PRF-03, R-PRF-07, R-VND-06
+ * @implSpec R-PRF-11, R-PRF-08, R-PRF-03, R-PRF-07, R-VND-06, R-VND-11
  */
 enum BuiltInProfile implements VendorProfile {
 
-    H2(DatabaseVendor.H2, 10_000, 100_000, NullOrdering.NULLS_FIRST),
+    H2(DatabaseVendor.H2, 10_000, 100_000, NullOrdering.NULLS_FIRST) {
+        @Override
+        public boolean targetTableInSubquery() {
+            return true;
+        }
+    },
 
     // The driver uses a cursor only with autocommit off, so streaming outside a transaction would buffer (R-PRF-03).
     POSTGRESQL(DatabaseVendor.POSTGRESQL, 10_000, 65_535, NullOrdering.NULLS_LAST) {
@@ -31,9 +36,18 @@ enum BuiltInProfile implements VendorProfile {
                         + "(read-only is enough) or use keyset export (R-PRF-03)");
             }
         }
+
+        @Override
+        public boolean targetTableInSubquery() {
+            return true;
+        }
     },
 
-    /** The default {@link MysqlStreamingMode#ROW_BY_ROW}: Connector/J streams only at {@code Integer.MIN_VALUE}. */
+    /**
+     * The default {@link MysqlStreamingMode#ROW_BY_ROW}: Connector/J streams only at {@code Integer.MIN_VALUE}. MySQL
+     * refuses a write reading its own table in a sub-query (error 1093), so keeps the default
+     * {@link #targetTableInSubquery()}.
+     */
     MYSQL(DatabaseVendor.MYSQL, 10_000, 65_535, NullOrdering.NULLS_FIRST) {
         @Override
         public void applyStreaming(Query query, int fetchSize) {

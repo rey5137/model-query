@@ -141,7 +141,17 @@ class VendorResolverTest {
         assertProfile(BuiltInProfile.OTHER, DatabaseVendor.OTHER, portable.maxInListSize(),
                 portable.maxBindParameters(), NullOrdering.UNKNOWN);
         assertThat(portable.nullPrecedenceRenderer()).isEmpty();
-        assertThat(BuiltInProfile.values()).noneMatch(VendorProfile::targetTableInSubquery);
+    }
+
+    @Test
+    void ac_vnd_07_only_h2_and_postgresql_write_reading_their_own_table_and_a_profile_that_does_not_say_never_does() {
+        // The TCK's ProfileValuesTest checks the Tier-1 values against each database.
+        assertThat(BuiltInProfile.H2.targetTableInSubquery()).isTrue();
+        assertThat(BuiltInProfile.POSTGRESQL.targetTableInSubquery()).isTrue();
+        assertThat(BuiltInProfile.MYSQL.targetTableInSubquery()).isFalse();
+        assertThat(BuiltInProfile.MYSQL_CURSOR_FETCH.targetTableInSubquery()).isFalse();
+        assertThat(BuiltInProfile.OTHER.targetTableInSubquery()).isFalse();
+        assertThat(new CustomProfile(DatabaseVendor.H2).targetTableInSubquery()).isFalse();
     }
 
     private static void assertProfile(

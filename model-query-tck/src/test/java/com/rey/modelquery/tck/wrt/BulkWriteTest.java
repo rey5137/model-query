@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.Assignment;
 import com.rey.modelquery.core.Changes;
+import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ColumnConverter;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ColumnSet;
@@ -18,12 +19,16 @@ import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.PersistenceContextMode;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
+import com.rey.modelquery.jpa.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.jpa.spi.VendorProfile;
+import com.rey.modelquery.jpa.vendor.VendorResolver;
 import com.rey.modelquery.tck.col.CompositeKeyItemEntity;
 import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
@@ -38,26 +43,40 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.FlushModeType;
 import jakarta.persistence.OptimisticLockException;
+import jakarta.persistence.Query;
+import jakarta.persistence.TypedQuery;
+import jakarta.persistence.criteria.CriteriaQuery;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 import java.util.stream.LongStream;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
+import org.junit.jupiter.api.Assumptions;
 import org.hibernate.exception.ConstraintViolationException;
 
 /**
  * Bulk updates and deletes rendered as one statement, or one per run of keys (spec api/14 R-WRT-07, R-WRT-08,
- * R-WRT-10, R-WRT-13, R-WRT-14, R-WRT-15, R-WRT-16, R-WRT-18, D-61, D-62, D-63). Every write runs in a transaction
- * that is rolled back, so the shared fixture stays as seeded. A write whose tree needs a join reads its target table
- * in a sub-query, which MySQL refuses; those run on H2 and PostgreSQL until MySQL's key-first path lands (M6.4).
+ * R-WRT-10, R-WRT-11, R-WRT-13, R-WRT-14, R-WRT-15, R-WRT-16, R-WRT-18, D-61, D-62, D-63). Every write runs in a
+ * transaction that is rolled back, so the shared fixture stays as seeded. A write that reads its target table in a
+ * sub-query runs as one statement where the profile allows it and key-first elsewhere, MySQL among the Tier-1
+ * databases (R-WRT-11).
  */
 class BulkWriteTest {
 
@@ -126,6 +145,16 @@ class BulkWriteTest {
             ColumnField.of(OrderPatch.class, REFERRER, "country", String.class);
 
     private static final ModelUpdate.Start<OrderEntity> UPDATE = ModelUpdate.builder(ORDERS);
+    /** The orders of an order's customer: an {@code exists(...)} over it reads the orders table again. */
+    private static final TableField<CustomerEntity, OrderEntity> CUSTOMER_ORDERS =
+            TableField.join(CUSTOMER, "orders", INNER);
+    private static final ColumnField<OrderPatch, OrderEntity, String> CUSTOMER_ORDER_STATUS =
+            ColumnField.of(OrderPatch.class, CUSTOMER_ORDERS, "status", String.class);
+    private static final TableField<OrderEntity, OrderItemEntity> ORDER_ITEMS =
+            TableField.join(ORDERS, "items", INNER);
+    private static final ColumnField<OrderPatch, OrderItemEntity, Integer> ITEM_QUANTITY =
+            ColumnField.of(OrderPatch.class, ORDER_ITEMS, "quantity", Integer.class);
+
 
     private static final TableField<CustomerEntity, CustomerEntity> CUSTOMERS = TableField.root(CustomerEntity.class);
     private static final ColumnField<CustomerPatch, CustomerEntity, Long> CUSTOMER_ID =
@@ -146,6 +175,38 @@ class BulkWriteTest {
 
     /** The {@code OTHER} profile: 1 000 values per IN list and 2 000 binds per statement (R-VND-06). */
     private static final ModelQueryConfig OTHER = ModelQueryConfig.defaults().vendor(DatabaseVendor.OTHER);
+
+    /**
+     * An {@code OTHER} profile taking 7 values per IN list: it cannot read the target table in a sub-query, so a
+     * joined write runs key-first, in rounds of 7 keys (R-WRT-11, D-63).
+     */
+    private static final ModelQueryConfig SEVEN_KEYS = OTHER.vendorProfiles(List.of(new VendorProfile() {
+        @Override
+        public DatabaseVendor vendor() {
+            return DatabaseVendor.OTHER;
+        }
+
+        @Override
+        public int maxInListSize() {
+            return 7;
+        }
+
+        @Override
+        public int maxBindParameters() {
+            return 2_000;
+        }
+
+        @Override
+        public void applyStreaming(Query query, int fetchSize) {}
+
+        @Override
+        public void applyTimeout(Query query, Duration timeout) {}
+
+        @Override
+        public NullOrdering defaultAscendingNullOrdering() {
+            return NullOrdering.UNKNOWN;
+        }
+    }));
 
     private static final TableField<OrderItemEntity, OrderItemEntity> ITEMS = TableField.root(OrderItemEntity.class);
     private static final TableField<OrderItemEntity, OrderEntity> ITEM_ORDER = TableField.join(ITEMS, "order", INNER);
@@ -344,11 +405,10 @@ class BulkWriteTest {
         assertThat(sql).noneMatch(statement -> statement.startsWith("update") || statement.startsWith("delete"));
     }
 
-    // ---- AC-WRT-07 (one statement on H2 and PostgreSQL; the parity over every Filters fixture is M6.4's)
+    // ---- AC-WRT-07 (one statement on H2 and PostgreSQL, key-first on MySQL; chunked: M6.5)
 
     @TckTest
     void ac_wrt_07_a_joined_where_renders_whole_in_one_exists_and_writes_the_rows_the_read_returns(TckDatabase db) {
-        db.assumeTargetTableInSubquery();
         // not(...) over a LEFT-joined column: an order with no referrer is excluded by the read, so by the write too.
         UnaryOperator<Filters<OrderPatch>> where = f -> f
                 .eq(CUSTOMER_COUNTRY, "VN")
@@ -376,7 +436,6 @@ class BulkWriteTest {
 
     @TckTest
     void ac_wrt_07_a_joined_delete_renders_one_exists_and_deletes_the_rows_the_read_returns(TckDatabase db) {
-        db.assumeTargetTableInSubquery();
         UnaryOperator<Filters<ItemPatch>> where = f -> f.eq(ITEM_ORDER_STATUS, "CANCELLED").lte(ITEM_ID, 400L);
         var read = ModelQuery.builder(ITEMS, row -> new ItemPatch(row.get(ITEM_ID)))
                 .columns(ColumnSet.of(ITEM_ID)).primaryKey(PrimaryKey.of(ITEM_ID)).where(where).build();
@@ -398,6 +457,172 @@ class BulkWriteTest {
         assertThat(expected).isNotEmpty();
         assertThat(deleted[0]).isEqualTo(expected.size());
         assertThat(left).hasSize(400 - expected.size()).doesNotContainAnyElementsOf(expected);
+    }
+
+    @TckTest
+    void ac_wrt_07_an_exists_path_back_to_the_root_entity_writes_the_rows_the_read_returns(TckDatabase db) {
+        // The sub-query reads orders again, through the customer: one statement where the database allows it, else
+        // key-first.
+        UnaryOperator<Filters<OrderPatch>> where = f -> f
+                .exists(CUSTOMER_ORDERS, g -> g.eq(CUSTOMER_ORDER_STATUS, "CANCELLED"))
+                .lt(ID, 300L);
+        assertWritesTheRowsTheReadReturns(db, "wrt-07-exists-back-to-root", ModelQueryConfig.defaults(), where);
+    }
+
+    @TckTest
+    void ac_wrt_07_an_exists_path_away_from_the_root_runs_as_one_statement_on_every_vendor(TckDatabase db) {
+        UnaryOperator<Filters<OrderPatch>> where = f -> f.exists(ORDER_ITEMS, g -> g.eq(ITEM_QUANTITY, 9)).lt(ID, 300L);
+        List<String> sql = assertWritesTheRowsTheReadReturns(db, "wrt-07-exists-away-from-root",
+                ModelQueryConfig.defaults(), where);
+
+        assertThat(sql).hasSize(2).last().asString().startsWith("select");
+    }
+
+    @TckTest
+    void ac_wrt_07_key_first_selects_keys_in_rounds_of_the_clamp_and_writes_the_rows_the_read_returns(
+            TckDatabase db) {
+        // OTHER cannot read the target table in a sub-query, and this profile takes 7 values per IN list.
+        UnaryOperator<Filters<OrderPatch>> where = f -> f
+                .eq(CUSTOMER_COUNTRY, "VN")
+                .not(g -> g.eq(REFERRER_COUNTRY, "VN"))
+                .lt(ID, 600L);
+        List<Long> expected = readIds(db, where);
+        var update = UPDATE.primaryKey(PrimaryKey.of(ID)).set(STATUS, "MARKED").where(where).build();
+        var marked = new ArrayList<Long>();
+        long[] written = new long[1];
+
+        List<String> sql = SqlSnapshots.capture(db, ds -> inRolledBackTransaction(ds, em -> {
+            written[0] = ModelQueryExecutor.create(em, OrderEntity.class, SEVEN_KEYS).update(update);
+            marked.addAll(markedIds(em));
+        }));
+
+        assertThat(expected).hasSizeGreaterThan(7);
+        assertThat(written[0]).isEqualTo(expected.size());
+        assertThat(marked).containsExactlyInAnyOrderElementsOf(expected);
+        // Rounds stop on a select returning fewer than 7 keys; each write takes one round's keys, root terms only.
+        assertThat(keySelects(sql)).hasSize(expected.size() / 7 + 1);
+        List<String> updates = writes(sql, "update");
+        assertThat(updates).hasSize((expected.size() + 6) / 7).allSatisfy(statement -> assertThat(statement)
+                .doesNotContain("exists").doesNotContain("customers"));
+        assertThat(updates).extracting(BulkWriteTest::binds).first().isEqualTo(7L + 3);
+    }
+
+    @TckTest
+    void ac_wrt_07_key_first_where_keys_with_a_joined_where_writes_only_the_keys_the_read_returns(TckDatabase db) {
+        List<Long> keys = new ArrayList<>(LongStream.rangeClosed(1, 60).boxed().toList());
+        keys.addAll(LongStream.rangeClosed(1, 10).boxed().toList());
+        List<Long> expected = readIds(db, f -> f.in(ID, keys).eq(CUSTOMER_COUNTRY, "VN"));
+        var update = UPDATE.primaryKey(PrimaryKey.of(ID)).set(STATUS, "MARKED").whereKeys(keys)
+                .where(f -> f.eq(CUSTOMER_COUNTRY, "VN")).build();
+        var marked = new ArrayList<Long>();
+        long[] written = new long[1];
+
+        List<String> sql = SqlSnapshots.capture(db, ds -> inRolledBackTransaction(ds, em -> {
+            written[0] = ModelQueryExecutor.create(em, OrderEntity.class, SEVEN_KEYS).update(update);
+            marked.addAll(markedIds(em));
+        }));
+
+        assertThat(expected).isNotEmpty();
+        assertThat(written[0]).isEqualTo(expected.size());
+        assertThat(marked).containsExactlyInAnyOrderElementsOf(expected);
+        // 60 distinct keys in runs of 7: one key select per run, one write per run that selected a key.
+        assertThat(keySelects(sql)).hasSize(9);
+        assertThat(writes(sql, "update")).hasSizeLessThanOrEqualTo(9)
+                .allSatisfy(statement -> assertThat(statement).doesNotContain("customers"));
+    }
+
+    @TckTest
+    void r_wrt_17_a_key_select_repeating_a_key_of_the_round_before_throws_mq2205(TckDatabase db) {
+        var update = UPDATE.primaryKey(PrimaryKey.of(ID)).set(STATUS, "MARKED")
+                .where(f -> f.eq(CUSTOMER_COUNTRY, "VN")).build();
+        List<Object> firstRound = new ArrayList<>();
+
+        inRolledBackTransaction(JoinTestSupport.dataSource(db), em -> {
+            // Every key select after the first returns the first one's rows, as a cursor that did not survive being
+            // bound would.
+            EntityManager replaying = intercepting(em, rows -> {
+                if (firstRound.isEmpty()) {
+                    firstRound.addAll(rows);
+                    return rows;
+                }
+                return firstRound;
+            });
+            assertThatThrownBy(() -> ModelQueryExecutor.create(replaying, OrderEntity.class, SEVEN_KEYS)
+                    .update(update))
+                    .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ2205));
+        });
+        assertThat(firstRound).hasSize(7);
+    }
+
+    // ---- AC-WRT-18 (where the database cannot read the target table in a sub-query, so a joined write is key-first)
+
+    @TckTest
+    void ac_wrt_18_a_row_that_stops_matching_on_a_root_column_after_the_key_select_is_not_written(TckDatabase db)
+            throws SQLException {
+        assumeKeyFirst(db);
+        UnaryOperator<Filters<OrderPatch>> where = f -> f.eq(CUSTOMER_COUNTRY, "VN").eq(STATUS, "SHIPPED").lt(ID, 400L);
+        List<Long> expected = readIds(db, where);
+        long moved = expected.get(0);
+        var update = UPDATE.primaryKey(PrimaryKey.of(ID)).set(STATUS, "MARKED").where(where).build();
+        var marked = new ArrayList<Long>();
+        long[] written = new long[1];
+        List<Long> paid = new ArrayList<>();
+
+        try {
+            inRolledBackTransaction(JoinTestSupport.dataSource(db), em -> {
+                // Another transaction moves a selected row off the root term between the key select and the write.
+                EntityManager racing = intercepting(em, rows -> {
+                    setStatus(db, moved, "PAID");
+                    return rows;
+                });
+                written[0] = orders(racing).update(update);
+                marked.addAll(markedIds(em));
+            });
+            // Read afterwards: under MySQL's repeatable read the write's own transaction still sees its snapshot.
+            inRolledBackTransaction(JoinTestSupport.dataSource(db), em -> paid.addAll(em.createQuery(
+                    "select o.id from OrderEntity o where o.status = 'PAID' and o.id = " + moved, Long.class)
+                    .getResultList()));
+        } finally {
+            setStatus(db, moved, "SHIPPED");
+        }
+
+        assertThat(expected).hasSizeGreaterThan(1);
+        assertThat(written[0]).isEqualTo(expected.size() - 1);
+        assertThat(marked).containsExactlyInAnyOrderElementsOf(expected.subList(1, expected.size()));
+        assertThat(paid).containsExactly(moved);
+    }
+
+    @TckTest
+    void ac_wrt_18_with_lock_keys_a_concurrent_change_to_a_selected_row_waits_for_the_write(TckDatabase db)
+            throws Exception {
+        assumeKeyFirst(db);
+        UnaryOperator<Filters<OrderPatch>> where = f -> f.eq(CUSTOMER_COUNTRY, "VN").lt(ID, 400L);
+        List<Long> expected = readIds(db, where);
+        var update = UPDATE.primaryKey(PrimaryKey.of(ID)).set(STATUS, "MARKED").where(where)
+                .chunked(ChunkOptions.defaultSize().lockKeys()).build();
+        long[] written = new long[1];
+        boolean[] waited = new boolean[1];
+        List<CompletableFuture<Void>> change = new ArrayList<>();
+
+        inRolledBackTransaction(JoinTestSupport.dataSource(db), em -> {
+            EntityManager locking = intercepting(em, rows -> {
+                change.add(CompletableFuture.runAsync(() -> touchTotal(db, expected.get(0))));
+                try {
+                    change.get(0).get(500, TimeUnit.MILLISECONDS);
+                } catch (TimeoutException e) {
+                    waited[0] = true;
+                } catch (InterruptedException | ExecutionException e) {
+                    throw new IllegalStateException(e);
+                }
+                return rows;
+            });
+            written[0] = orders(locking).update(update);
+        });
+
+        assertThat(waited[0]).as("the concurrent change waited for the write's transaction").isTrue();
+        change.get(0).get(30, TimeUnit.SECONDS);
+        assertThat(written[0]).isEqualTo(expected.size());
     }
 
     // ---- AC-WRT-09
@@ -611,6 +836,93 @@ class BulkWriteTest {
 
     private static ModelQueryExecutor<CustomerEntity> customers(EntityManager em) {
         return ModelQueryExecutor.create(em, CustomerEntity.class, ModelQueryConfig.defaults());
+    }
+
+    /**
+     * Updates the orders {@code where} chooses to {@code MARKED} in a rolled-back transaction under {@code config},
+     * asserting the statements against snapshot {@code name} and the orders marked against the ones the matching read
+     * returns (AC-WRT-07); returns the statements.
+     */
+    private static List<String> assertWritesTheRowsTheReadReturns(TckDatabase db, String name, ModelQueryConfig config,
+            UnaryOperator<Filters<OrderPatch>> where) {
+        List<Long> expected = readIds(db, where);
+        var update = UPDATE.primaryKey(PrimaryKey.of(ID)).set(STATUS, "MARKED").where(where).build();
+        var marked = new ArrayList<Long>();
+        long[] written = new long[1];
+
+        List<String> sql = SqlSnapshots.assertMatches(db, name, ds -> inRolledBackTransaction(ds, em -> {
+            written[0] = ModelQueryExecutor.create(em, OrderEntity.class, config).update(update);
+            marked.addAll(markedIds(em));
+        }));
+
+        assertThat(expected).isNotEmpty();
+        assertThat(written[0]).isEqualTo(expected.size());
+        assertThat(marked).containsExactlyInAnyOrderElementsOf(expected);
+        return sql;
+    }
+
+    /** The ids of the orders {@code where} chooses, as the read path returns them. */
+    private static List<Long> readIds(TckDatabase db, UnaryOperator<Filters<OrderPatch>> where) {
+        var read = ModelQuery.builder(ORDERS, row -> new OrderPatch(row.get(ID)))
+                .columns(ColumnSet.of(ID)).primaryKey(PrimaryKey.of(ID)).where(where).build();
+        var ids = new ArrayList<Long>();
+        inRolledBackTransaction(JoinTestSupport.dataSource(db), em ->
+                orders(em).list(read, Limit.unlimited()).forEach(order -> ids.add(order.id())));
+        return ids;
+    }
+
+    private static List<Long> markedIds(EntityManager em) {
+        return em.createQuery("select o.id from OrderEntity o where o.status = 'MARKED'", Long.class).getResultList();
+    }
+
+    /** The key selects of {@code sql}: its selects that join, as a key select over a joined tree does. */
+    private static List<String> keySelects(List<String> sql) {
+        return sql.stream().filter(statement -> statement.startsWith("select") && statement.contains(" join "))
+                .toList();
+    }
+
+    /** Skips the calling test where the database can read a write's target table in a sub-query (R-VND-11). */
+    private static void assumeKeyFirst(TckDatabase db) {
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
+            Assumptions.assumeFalse(VendorResolver.resolve(sf, Optional.empty(), MysqlStreamingMode.ROW_BY_ROW)
+                    .profile().targetTableInSubquery(), "key-first runs where a write cannot read its own table");
+        }
+    }
+
+    /** Commits {@code status} for order {@code id} on a connection of its own. */
+    private static void setStatus(TckDatabase db, long id, String status) {
+        execute(db, "update orders set status = '" + status + "' where id = " + id);
+    }
+
+    /** Writes order {@code id}'s total unchanged on a connection of its own, which waits for any lock on the row. */
+    private static void touchTotal(TckDatabase db, long id) {
+        execute(db, "update orders set total = total where id = " + id);
+    }
+
+    private static void execute(TckDatabase db, String sql) {
+        try (Connection c = db.getConnection(); Statement statement = c.createStatement()) {
+            statement.executeUpdate(sql);
+        } catch (SQLException e) {
+            throw new IllegalStateException(sql, e);
+        }
+    }
+
+    /**
+     * {@code em}, whose Criteria queries return their rows through {@code onRows}, so a test can act between a key
+     * select and the write, or change what the select returned.
+     */
+    @SuppressWarnings("unchecked")
+    private static EntityManager intercepting(EntityManager em, UnaryOperator<List<Object>> onRows) {
+        return proxy(EntityManager.class, (method, args) -> {
+            Object result = method.invoke(em, args);
+            if (!method.getName().equals("createQuery") || !(args[0] instanceof CriteriaQuery<?>)) {
+                return result;
+            }
+            TypedQuery<Object> query = (TypedQuery<Object>) result;
+            return proxy(TypedQuery.class, (queryMethod, queryArgs) -> queryMethod.getName().equals("getResultList")
+                    ? onRows.apply(query.getResultList())
+                    : queryMethod.invoke(query, queryArgs));
+        });
     }
 
     /** Every order's version, by id. */

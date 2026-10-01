@@ -1,6 +1,7 @@
 package com.rey.modelquery.jpa;
 
 import com.rey.modelquery.core.BuiltQuery;
+import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
@@ -41,6 +42,8 @@ import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Selection;
 import jakarta.persistence.metamodel.Attribute;
+import jakarta.persistence.metamodel.EntityType;
+import jakarta.persistence.metamodel.IdentifiableType;
 import jakarta.persistence.metamodel.Metamodel;
 import jakarta.persistence.metamodel.PluralAttribute;
 import java.time.Duration;
@@ -60,7 +63,9 @@ import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.function.Consumer;
 import java.util.function.BiFunction;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
@@ -280,16 +285,27 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         if (u.writesNothing()) {
             return 0;
         }
-        CriteriaBuilder cb = em.getCriteriaBuilder();
-        BiFunction<Class<?>, Object, ?> references = em::getReference;
-        long written = write(u.persistenceContext(), u.distinctKeys(),
-                () -> em.createQuery(u.buildWrite(cb, renderOptions, references)),
-                chunk -> em.createQuery(u.buildWrite(cb, renderOptions, references, chunk)));
+        long written = updateRows(u);
         if (written == 0 && u.expectedVersion().isPresent()) {
             throw new OptimisticLockException(rootEntity.getSimpleName() + ": no row was written with version "
                     + u.expectedVersion().get() + "; its version moved, or it no longer exists or matches");
         }
         return written;
+    }
+
+    private <M> long updateRows(ModelUpdate<E, M> u) {
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        BiFunction<Class<?>, Object, ?> references = em::getReference;
+        Supplier<Query> whole = () -> em.createQuery(u.buildWrite(cb, renderOptions, references));
+        Function<List<Object>, Query> byKeys = chunk -> em.createQuery(u.buildWrite(cb, renderOptions, references,
+                chunk));
+        if (!keyFirst(() -> u.readsTargetInSubquery(cb, renderOptions))) {
+            return write(u.persistenceContext(), () -> direct(u.distinctKeys(), whole, byKeys));
+        }
+        var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), u.primaryKey(), u.distinctKeys(),
+                run -> run == null ? u.buildKeySelect(cb, renderOptions) : u.buildKeySelect(cb, renderOptions, run),
+                keys -> em.createQuery(u.buildWrite(cb, renderOptions, references, keys, true)));
+        return write(u.persistenceContext(), () -> keyFirst(keyed, whole, byKeys, u.chunkOptions(), cb));
     }
 
     @Override
@@ -300,10 +316,43 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         if (d.writesNothing()) {
             return 0;
         }
+        return deleteRows(d);
+    }
+
+    private <M> long deleteRows(ModelDelete<E, M> d) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
-        return write(d.persistenceContext(), d.distinctKeys(),
-                () -> em.createQuery(d.buildWrite(cb, renderOptions)),
-                chunk -> em.createQuery(d.buildWrite(cb, renderOptions, chunk)));
+        Supplier<Query> whole = () -> em.createQuery(d.buildWrite(cb, renderOptions));
+        Function<List<Object>, Query> byKeys = chunk -> em.createQuery(d.buildWrite(cb, renderOptions, chunk));
+        if (!keyFirst(() -> d.readsTargetInSubquery(cb, renderOptions))) {
+            return write(d.persistenceContext(), () -> direct(d.distinctKeys(), whole, byKeys));
+        }
+        var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), d.primaryKey(), d.distinctKeys(),
+                run -> run == null ? d.buildKeySelect(cb, renderOptions) : d.buildKeySelect(cb, renderOptions, run),
+                keys -> em.createQuery(d.buildWrite(cb, renderOptions, keys, true)));
+        return write(d.persistenceContext(), () -> keyFirst(keyed, whole, byKeys, d.chunkOptions(), cb));
+    }
+
+    /**
+     * Whether a write runs key-first: the profile says the database cannot read a write's target table in a
+     * sub-query, and the write's rendering would, through its tree ({@code readsTarget}) or because the root shares
+     * its table hierarchy with another entity (R-WRT-11, R-VND-11). The metamodel shows the hierarchy but not its
+     * inheritance strategy, so every hierarchy counts: key-first is always correct, only slower.
+     */
+    private boolean keyFirst(BooleanSupplier readsTarget) {
+        return !vendor.profile().targetTableInSubquery() && (inHierarchy() || readsTarget.getAsBoolean());
+    }
+
+    /** Whether the root has an entity supertype or subtype in the metamodel. */
+    private boolean inHierarchy() {
+        Metamodel metamodel = em.getMetamodel();
+        for (IdentifiableType<?> type = metamodel.entity(rootEntity).getSupertype(); type != null;
+                type = type.getSupertype()) {
+            if (type instanceof EntityType<?>) {
+                return true;
+            }
+        }
+        return metamodel.getEntities().stream().map(EntityType::getJavaType)
+                .anyMatch(type -> type != rootEntity && rootEntity.isAssignableFrom(type));
     }
 
     /**
@@ -319,34 +368,57 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * Runs one write: flushes the pending entity changes first, so they are written and not overwritten afterwards,
-     * then the {@code whole} statement, or with {@code keys} the {@code byKeys} statements over runs of the keys sized
-     * to the profile's limits, counting each statement's own binds, {@code SET} values included, and sums the rows
-     * affected (R-WRT-08, R-WRT-15, D-63). Afterwards, whether or not it threw, clears the persistence context unless
-     * the write's own mode, else the configured one, is {@code KEEP}, and evicts the root from the second-level cache
-     * (D-62).
+     * then {@code statements}, and returns the rows they affected (R-WRT-15). Afterwards, whether or not it threw,
+     * clears the persistence context unless the write's own mode, else the configured one, is {@code KEEP}, and evicts
+     * the root from the second-level cache (D-62).
      */
-    private long write(Optional<PersistenceContextMode> ownMode, Optional<List<Object>> keys, Supplier<Query> whole,
-            Function<List<Object>, Query> byKeys) {
+    private long write(Optional<PersistenceContextMode> ownMode, LongSupplier statements) {
         if (em.isJoinedToTransaction()) {
             em.flush();
         }
         try {
-            if (keys.isEmpty()) {
-                return execute(whole.get());
-            }
-            List<Object> all = keys.get();
-            int chunk = all.size() == 1 ? 1 : keyChunkSize(byKeys.apply(all.subList(0, 1)), all.get(0));
-            long written = 0;
-            for (int from = 0; from < all.size(); from += chunk) {
-                written += execute(byKeys.apply(all.subList(from, Math.min(all.size(), from + chunk))));
-            }
-            return written;
+            return statements.getAsLong();
         } finally {
             if (ownMode.orElse(persistenceContextMode) == PersistenceContextMode.CLEAR) {
                 em.clear();
             }
             em.getEntityManagerFactory().getCache().evict(rootEntity);
         }
+    }
+
+    /**
+     * The {@code whole} statement, or with {@code keys} the {@code byKeys} statements over runs of the keys sized to
+     * the profile's limits, counting each statement's own binds, {@code SET} values included; returns the summed rows
+     * affected (R-WRT-08, D-63).
+     */
+    private long direct(Optional<List<Object>> keys, Supplier<Query> whole, Function<List<Object>, Query> byKeys) {
+        if (keys.isEmpty()) {
+            return execute(whole.get());
+        }
+        List<Object> all = keys.get();
+        int chunk = all.size() == 1 ? 1 : keyChunkSize(byKeys.apply(all.subList(0, 1)), all.get(0));
+        long written = 0;
+        for (int from = 0; from < all.size(); from += chunk) {
+            written += execute(byKeys.apply(all.subList(from, Math.min(all.size(), from + chunk))));
+        }
+        return written;
+    }
+
+    /**
+     * Runs {@code keyed} key-first through the keyset loop, at the profile's clamp, with the keys selected under a
+     * lock when its {@code chunked(...)} options say {@code lockKeys()} (R-WRT-11, D-63). The clamp counts the binds
+     * of the {@code whole} statement, or of {@code byKeys} over one key, less that key's: the whole tree's binds are
+     * at least those of the root terms the write keeps and of the tree the key select renders, so neither passes the
+     * limit.
+     */
+    private <M> long keyFirst(KeysetWrite.Keyed<M> keyed, Supplier<Query> whole, Function<List<Object>, Query> byKeys,
+            Optional<ChunkOptions> chunk, CriteriaBuilder cb) {
+        int n = keyed.distinctKeys()
+                .map(all -> all.size() == 1 ? 1 : keyChunkSize(byKeys.apply(all.subList(0, 1)), all.get(0)))
+                .orElseGet(() -> keyLimits.clamp(whole.get().getParameters().size(), keyed.key().columns().size(),
+                        OptionalInt.empty()));
+        return new KeysetWrite(cb, this::create, this::execute)
+                .run(keyed, n, chunk.map(ChunkOptions::locksKeys).orElse(false));
     }
 
     /**

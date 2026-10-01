@@ -10,6 +10,7 @@ import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,25 +49,44 @@ public final class JoinContext {
     private TableField<?, ?> existsPath;
     private From<?, ?> existsFrom;
     private int leftJoining;
+    /**
+     * The types every {@code exists} sub-query of this build joined, nested ones included: shared with each nested
+     * context, so a bulk write learns whether a sub-query reads its own table (R-WRT-11).
+     */
+    private final Set<Class<?>> existsJoined;
 
     private JoinContext(From<?, ?> root, CriteriaBuilder cb, CommonAbstractCriteria query, JoinKey rootKey,
-            Set<JoinKey> required, RenderOptions renderOptions) {
+            Set<JoinKey> required, RenderOptions renderOptions, Set<Class<?>> existsJoined) {
         this.root = root;
         this.cb = cb;
         this.query = query;
         this.rootKey = rootKey;
         this.required = required;
         this.renderOptions = renderOptions;
+        this.existsJoined = existsJoined;
     }
 
     /** A context over {@code root}, the query's root table, rendering with {@link RenderOptions#portable()}. */
     public static JoinContext of(Root<?> root, CriteriaBuilder cb) {
-        return new JoinContext(root, cb, null, null, Set.of(), RenderOptions.portable());
+        return new JoinContext(root, cb, null, null, Set.of(), RenderOptions.portable(), new HashSet<>());
     }
 
     /** A context over the root of {@code query}, which can also render {@code exists} sub-queries. */
     static JoinContext of(Root<?> root, CriteriaBuilder cb, CommonAbstractCriteria query, RenderOptions options) {
-        return new JoinContext(root, cb, query, null, Set.of(), options);
+        return new JoinContext(root, cb, query, null, Set.of(), options, new HashSet<>());
+    }
+
+    /** Whether an {@code exists} sub-query of this build rendered so far, at any depth (R-WRT-11). */
+    boolean renderedExists() {
+        return !existsJoined.isEmpty(); // an exists always joins its path
+    }
+
+    /**
+     * Whether an {@code exists} sub-query of this build joined {@code entity}, a type of its hierarchy or one sharing
+     * it, so reads the table of a bulk write on {@code entity} (R-WRT-11).
+     */
+    boolean existsReads(Class<?> entity) {
+        return existsJoined.stream().anyMatch(type -> type.isAssignableFrom(entity) || entity.isAssignableFrom(type));
     }
 
     From<?, ?> root() {
@@ -112,9 +132,10 @@ public final class JoinContext {
         }
         Subquery<Integer> sub = query.subquery(Integer.class);
         JoinContext ctx = existsPath == null
-                ? new JoinContext(sub.correlate((Root) root), cb, sub, null, path.keysUpTo(null), renderOptions)
+                ? new JoinContext(sub.correlate((Root) root), cb, sub, null, path.keysUpTo(null), renderOptions,
+                        existsJoined)
                 : new JoinContext(sub.correlate((Join) existsFrom), cb, sub, existsPath.key(),
-                        path.keysUpTo(existsPath.key()), renderOptions);
+                        path.keysUpTo(existsPath.key()), renderOptions, existsJoined);
         ctx.existsPath = path;
         ctx.existsFrom = path.resolve(ctx);
         sub.select(cb.literal(1));
@@ -166,6 +187,9 @@ public final class JoinContext {
         }
         joins.put(cacheKey, new Resolved(join, condition));
         keys.put(join, cacheKey);
+        if (existsPath != null) {
+            existsJoined.add(join.getJavaType());
+        }
         return join;
     }
 

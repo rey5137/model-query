@@ -39,8 +39,11 @@ public interface VendorProfile {
     NullOrdering defaultAscendingNullOrdering();
 
     /**
-     * Whether an {@code UPDATE} or {@code DELETE} may read its own table in a sub-query ({@code Future}, M8).
-     * {@code false} is always correct and only slower.
+     * Whether an {@code UPDATE} or {@code DELETE} may read its own table in a sub-query. Where it may not, a bulk write
+     * whose rendering reads it runs key-first: it selects the matching keys, then writes them with the root
+     * predicates re-applied (api/14 R-WRT-11). {@code false}, the default, is always correct and only slower, so a
+     * profile written before it stays safe. A capability, not a rendering hook: the engine renders every predicate
+     * itself (R-VND-11).
      */
     default boolean targetTableInSubquery() {
         return false;

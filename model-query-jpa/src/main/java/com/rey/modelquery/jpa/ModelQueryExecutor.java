@@ -124,6 +124,16 @@ public interface ModelQueryExecutor<E> {
      * first execution of a definition per {@code EntityManagerFactory} checks it against the JPA metamodel, before any
      * statement (D-61).
      *
+     * <p>Where the profile's {@code targetTableInSubquery()} is false (MySQL) and the update would read its own table
+     * in a sub-query, through a {@code where} that needs a join, an {@code exists(...)} path back to the root entity
+     * type, or a root in an inheritance hierarchy, it runs key-first: it selects the matching keys in key order with
+     * the query engine, then writes them in runs sized to the vendor's limits with only the root predicates
+     * re-applied, the top-level {@code AND} terms that need no join and no sub-query. A row that stopped matching on
+     * its own columns in between is not written; a change to a joined row in between is not re-checked. With
+     * {@code chunked(ChunkOptions...lockKeys())} the keys are selected with {@code PESSIMISTIC_WRITE}, so a
+     * concurrent change to a selected row waits for the write, and on MySQL the select reads current rows rather than
+     * the transaction's snapshot (R-WRT-11).
+     *
      * <p>Pending entity changes are flushed first. Afterwards the persistence context is cleared, unless the write's
      * {@code persistenceContext(...)}, else {@link ModelQueryConfig#persistenceContextMode}, is {@code KEEP}, and the
      * root entity is evicted from the second-level cache (R-WRT-15). Clearing detaches every managed entity, not only
@@ -135,7 +145,8 @@ public interface ModelQueryExecutor<E> {
      *     {@code @Version} attribute, {@code MQ1606} for {@code expectVersion} on a root with no {@code @Version}
      *     attribute or with a value of another type
      * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2501}, before any statement, when the
-     *     {@code EntityManager} is not joined to a transaction (R-WRT-18)
+     *     {@code EntityManager} is not joined to a transaction (R-WRT-18); key-first, {@code MQ2205} when a key select
+     *     returns a key the round before already wrote (R-WRT-17)
      * @throws jakarta.persistence.OptimisticLockException when {@code expectVersion} was given and no row was
      *     written: the row's version moved, or the row no longer matches (R-WRT-16)
      */
@@ -148,13 +159,14 @@ public interface ModelQueryExecutor<E> {
      * to the vendor's limits, and returns the summed count (R-WRT-08). A delete whose {@code whereKeys} received no key
      * runs no SQL and returns 0 (R-WRT-12). The first execution of a definition per {@code EntityManagerFactory} checks
      * it against the JPA metamodel, before any statement (D-61). The persistence context and the second-level cache are
-     * handled as {@link #update} handles them (R-WRT-15); a row a foreign key protects surfaces the provider's
-     * constraint exception (R-WRT-18).
+     * handled as {@link #update} handles them (R-WRT-15), and so is a delete that runs key-first (R-WRT-11); a row a
+     * foreign key protects surfaces the provider's constraint exception (R-WRT-18).
      *
      * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution: {@code MQ1608} when the
      *     definition's primary key is not the root entity's id
      * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2501}, before any statement, when the
-     *     {@code EntityManager} is not joined to a transaction (R-WRT-18)
+     *     {@code EntityManager} is not joined to a transaction (R-WRT-18); key-first, {@code MQ2205} when a key select
+     *     returns a key the round before already wrote (R-WRT-17)
      */
     long delete(ModelDelete<E, ?> d);
 }

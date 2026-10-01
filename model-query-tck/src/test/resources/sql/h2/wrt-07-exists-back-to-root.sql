@@ -1,0 +1,2 @@
+update orders oe1_0 set status=?,version=(oe1_0.version+cast(? as integer)) where exists(select 1 from customers c1_0 join orders o1_0 on c1_0.id=o1_0.customer_id where o1_0.status=? and c1_0.id=oe1_0.customer_id) and oe1_0.id<?
+select oe1_0.id from orders oe1_0 where oe1_0.status='MARKED'

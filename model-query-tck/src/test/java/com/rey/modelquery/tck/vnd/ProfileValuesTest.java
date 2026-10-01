@@ -121,6 +121,21 @@ class ProfileValuesTest {
         }
     }
 
+    @TckTest
+    void ac_vnd_07_target_table_in_subquery_matches_whether_the_database_lets_a_write_read_its_own_table(TckDatabase db)
+            throws SQLException {
+        boolean expected;
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
+            expected = profile(sf).targetTableInSubquery();
+        }
+        String exists = " where exists (select 1 from nullable_sort_rows n2 where n2.id = nullable_sort_rows.id"
+                + " and n2.sort_int = -1)";
+        assertThat(acceptsOwnTable(db, "update nullable_sort_rows set sort_int = sort_int" + exists))
+                .as("UPDATE reading its own table").isEqualTo(expected);
+        assertThat(acceptsOwnTable(db, "delete from nullable_sort_rows" + exists))
+                .as("DELETE reading its own table").isEqualTo(expected);
+    }
+
     private static List<Integer> ordered(SessionFactory sf, String order) {
         return sf.fromSession(em -> em.createQuery(HQL_ALL + " order by e.sortInt " + order + ", e.id", Integer.class)
                 .getResultList());
@@ -141,6 +156,25 @@ class ProfileValuesTest {
             try (ResultSet rs = ps.executeQuery()) {
                 rs.next();
                 return rs.getLong(1);
+            }
+        }
+    }
+
+    /**
+     * Whether the database runs {@code sql}, a write reading its own table in a sub-query, in a transaction rolled
+     * back: false only for the refusal MySQL reports as error 1093, any other failure failing the test.
+     */
+    private static boolean acceptsOwnTable(TckDatabase db, String sql) throws SQLException {
+        try (Connection c = db.getConnection()) {
+            c.setAutoCommit(false);
+            try (PreparedStatement ps = c.prepareStatement(sql)) {
+                ps.executeUpdate();
+                return true;
+            } catch (SQLException e) {
+                assertThat(e.getErrorCode()).as("the refusal of a write reading its own table: %s", e).isEqualTo(1093);
+                return false;
+            } finally {
+                c.rollback();
             }
         }
     }

@@ -74,7 +74,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ2202` | A keyset column is NULL and the column has no explicit null precedence | `engine/21` R-PAG-05 |
 | `MQ2203` | An operation needing a primary key (offset export of an ungrouped query, the `PRIMARY_KEY` phase) on a query without one; a grouped query never has one (`api/13` R-AGG-09) | `api/11` R-QRY-03 |
 | `MQ2204` | Offset export of an ungrouped query, keyset paging or the primary-key-first phase over a selection read through a to-many join | `engine/21` R-PAG-13 |
-| `MQ2205` | A keyset export page holds a key of the page before: a cursor value did not survive being bound, or a row's keyset value moved after the cursor | `engine/21` R-PAG-14 |
+| `MQ2205` | A keyset export page holds a key of the page before: a cursor value did not survive being bound, or a row's keyset value moved after the cursor; or a bulk write's key select returns a key the round before wrote | `engine/21` R-PAG-14, `api/14` R-WRT-17 |
 | `MQ2206` | A customizer narrows the phases of a query with `primaryKeyFirst(...)` differently | `engine/21` R-PAG-15 |
 | `MQ2301` | A sort property resolves to no selected column or to more than one (on any tier), or asks for `ignoreCase`; a sort on an ungrouped query without a primary key; a sorted copy that fails `build()`, as the cause | `api/11` R-QRY-14, `integration/50` R-SPR-06 |
 | `MQ2501` | A bulk write, other than `commitEachChunk()`, ran without an active transaction (`Future`, M6) | `api/14` R-WRT-18 |
