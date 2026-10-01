@@ -1,0 +1,86 @@
+# Models and QModels
+
+A **model** is the shape of a result: a plain class or a record you write. A **QModel** is the class the annotation
+processor generates from it (`QOrderView` for `OrderView`), holding typed constants you build queries from.
+
+## Writing a model
+
+Annotate the type with `@QueryModel` and name the JPA entity it reads from. A field maps to the entity attribute of
+the same name.
+
+```java
+@QueryModel(root = OrderEntity.class)
+public record OrderView(
+        @PrimaryKey Long id,
+        String status,
+        BigDecimal total,
+        @Join Optional<CustomerView> customer) {}
+```
+
+| Annotation | Use |
+|---|---|
+| `@QueryModel(root = ...)` | Marks a model and names its root entity. `prefix` and `suffix` rename the generated class; `singleGroup` and `generateChanges` are covered below. |
+| `@PrimaryKey` | The entity id. Paging, export and nested-model presence read it. Required on a model without aggregates. |
+| `@Column(attribute = ..., converter = ...)` | Maps a field to a differently named attribute, or one inside an embedded value, or converts between the model type and the attribute type. |
+| `@Join` | A nested model read through a to-one association. The field must be an `Optional` of another `@QueryModel`; it is empty when a LEFT join found nothing. |
+| `@FilterColumn(name, path, ...)` | Adds a filter-only constant for an attribute path (`customer.country`) that the model does not select. |
+| `@ExcludeFromDefaults` | Leaves a heavy column (a BLOB, a long text) out of the generated default column set. |
+| `@Transient` | Keeps a field out of the mapping. |
+| `@GroupBy`, `@Aggregate` | Turn a model into a grouped result; see [Grouped queries](grouped-queries.md). |
+| `@UpdateModel(root = ...)` | Declares the attributes a bulk update may write; see [Bulk writes](bulk-writes.md). |
+
+A class model needs a no-argument constructor visible from its package and setters. Record components that are
+primitive are only allowed on the primary key of a plain model; use the boxed type elsewhere, because a column can be
+NULL.
+
+## What the processor generates
+
+For `OrderView` you get `QOrderView` with:
+
+- a `ColumnField` constant per field (`ID`, `STATUS`, `TOTAL`), and per joined column (`CUSTOMER_NAME`);
+- a `ColumnSet` named `ALL` with the model's own columns, `DEFAULT` (the same minus `@ExcludeFromDefaults`), and one set
+  per `@Join` (`CUSTOMER`);
+- a constant per `@FilterColumn`, and a `TableField` for every collection association on the root (`ITEMS_TABLE`),
+  which you use with `Filters.exists`;
+- `ROOT`, `KEY` (the primary key) and `MAPPER`;
+- `query()`, a pre-configured `ModelQuery` builder, and `delete()`.
+
+```java
+var q = QOrderView.query()
+        .columns(QOrderView.ALL.with(QOrderView.CUSTOMER))
+        .where(f -> f.eq(QOrderView.CUSTOMER_COUNTRY, "DE"))
+        .orderBy(QOrderView.CUSTOMER_NAME.asc().nullsFirst(), QOrderView.ID.desc())
+        .build();
+```
+
+A `ColumnSet` is immutable: `with(...)` and `without(...)` return copies, so a shared constant cannot be changed by
+one caller and affect another.
+
+## Joins
+
+A `@Join` nested model is read through a join the library creates for you. Selecting, filtering and ordering on the
+same path use exactly one join. Two `@Join`s on the same attribute become two joins, each aliased by its field name.
+
+A filter-only column that crosses a collection needs an explicit `joinType` on its `@FilterColumn`, because joining a
+collection multiplies rows; prefer `Filters.exists` for "has a child matching X".
+
+## Hand-written columns
+
+You rarely need to, but a `ColumnField` can be written by hand, for example for a column the server sets:
+
+```java
+static final ColumnField<OrderPatch, OrderEntity, Instant> UPDATED_AT =
+        ColumnField.of(OrderPatch.class, QOrderPatch.ROOT, "updatedAt", Instant.class);
+```
+
+## Keep the prefix consistent
+
+The default class name is `Q` plus the model name. If you change `prefix` or `suffix` through the
+`-Amodelquery.prefix=` / `-Amodelquery.suffix=` processor options, use the same value in every module that reads a
+nested model across module boundaries, or set it on the nested model's own annotation.
+
+## Compile-time checks
+
+The processor checks your models when you compile: an unknown attribute, a type that does not match the entity, a
+missing primary key, a `@Join` that is not an `Optional` of a model, and so on. Failures are reported as `MQ3xxx`
+errors; see [Diagnostics](diagnostics.md).

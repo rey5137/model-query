@@ -1,0 +1,43 @@
+site_name: Model Query
+site_description: Typed, projection-first queries on top of JPA.
+repo_url: https://github.com/rey5137/model-query
+docs_dir: docs
+# Built in CI to catch broken links; nothing deploys it. Kept under target/ so it stays out of git.
+site_dir: ../../target/docs-site
+strict: true
+
+theme:
+  name: material
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+    absolute_links: warn
+  links:
+    not_found: warn
+    absolute_links: warn
+    unrecognized_links: warn
+    anchors: warn
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Without Spring: getting-started/plain-jpa.md
+      - With Spring Boot: getting-started/spring-boot.md
+  - Models and QModels: models.md
+  - Queries and Filters: queries.md
+  - Paging and export: paging-export.md
+  - Grouped queries: grouped-queries.md
+  - Bulk writes (incubating): bulk-writes.md
+  - Spring Data and the starter: spring.md
+  - Vendor notes: vendors.md
+  - Diagnostics: diagnostics.md
