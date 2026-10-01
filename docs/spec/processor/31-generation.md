@@ -161,11 +161,11 @@ public final class QOrderPatch {
 
     public static OrderPatchChanges changes() { return new OrderPatchChanges(); }
 
-    public static ModelUpdate.Builder<OrderEntity, OrderPatch> update(Changes<OrderPatch> changes) {
+    public static ModelUpdate.Builder<OrderEntity, Long, OrderPatch> update(Changes<OrderPatch> changes) {
         return ModelUpdate.builder(ROOT).primaryKey(PrimaryKey.of(ID)).set(changes);
     }
 
-    public static ModelDelete.Builder<OrderEntity, OrderPatch> delete() {
+    public static ModelDelete.Builder<OrderEntity, Long, OrderPatch> delete() {
         return ModelDelete.builder(ROOT).primaryKey(PrimaryKey.of(ID));
     }
 
@@ -189,7 +189,7 @@ public final class OrderPatchChanges implements Changes<OrderPatch> {
     @Override public OrderPatchChanges unset(ColumnField<OrderPatch, ?, ?> column) { … }
     @Override public boolean isEmpty() { return set.isEmpty(); }
     @Override public List<Assignment<OrderPatch, ?>> assignments() {
-        // set columns only, in declaration order; converters applied
+        // set columns only, in declaration order, as model values: the engine converts once (D-37, D-60)
     }
 }
 ```

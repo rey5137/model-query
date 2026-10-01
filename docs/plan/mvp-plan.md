@@ -125,7 +125,39 @@ transaction).
 **Exit:** the Boot sample green on H2, PostgreSQL and MySQL; `integration/50` and AC-VND-06 covered, except `Future`
 criteria.
 
-## 7. M6–M8
+## 7. M6 — Bulk writes
+
+Spec: `api/14`, `processor/30` R-PROC-18, R-PROC-19, `processor/31` §6, `processor/32` `MQ3301`–`MQ3307`, `vendor/40`
+R-VND-11, `integration/50` R-SPR-10, R-SPR-11 and the `bulk-write` properties, `reference/90` `MQ1601`–`MQ1609`,
+`MQ2501`, `MQ2502`, `MQ4004`. Every new public type is `@Incubating` (D-59). Model: `architect-review` required before
+M6.1. It covers the public shapes, the `VendorProfile` method and bulk-write correctness. Questions:
+(a) the staged builder types that make `where(...).all()` fail to compile (R-WRT-12), and the generics of `Changes<M>`
+and `Assignment`;
+(b) where `MQ1608` is checked, since `build()` in `core` sees no metamodel;
+(c) where the `PersistenceContextMode` and default chunk-size settings live, since the spec names only the starter
+properties;
+(d) how the key-first path and the chunk loop reuse the export keyset, the R-PAG-07 clamp and composite OR-expansion
+(R-WRT-11, R-WRT-17).
+Record each answer as a `D-n`.
+
+| Slice | Contents | Done when |
+|---|---|---|
+| M6.1 | `model-query-core`: `Changes<M>`, `Assignment` (sealed: value, null, expression), `ModelUpdate`, `ModelDelete` and their staged builders (D-60: `Start` → `primaryKey` → assignments → one row choice → `Options`), `set`/`setNull`/`setExpression`, `keepVersion`/`expectVersion`, `PersistenceContextMode`, `ChunkOptions` (D-62); the build-time checks `MQ1601`–`MQ1604`, the key part of `MQ1605`, `MQ1606`'s `keepVersion` case, `MQ1609`, `MQ1203` for a join root | AC-WRT-04, AC-WRT-08, the `build()` part of AC-WRT-05 |
+| M6.2 | `model-query-jpa`: `ModelQueryExecutor.update`/`delete`; `core` write rendering (`buildWrite`, D-63) to one `CriteriaUpdate`/`CriteriaDelete`: no-join tree direct, joined tree in one correlated `EXISTS` over the root (R-WRT-10); first-execution metamodel checks per factory (D-61): `MQ1608`, metamodel `MQ1605`, `MQ1606`; converters and to-one by `getReference` (R-WRT-14); version increment and `expectVersion` (R-WRT-16); `setExpression` ordering (R-WRT-13). Tests on H2 and PostgreSQL only until M6.4 | AC-WRT-01, AC-WRT-05, AC-WRT-09, AC-WRT-11, AC-WRT-19 |
+| M6.3 | Refactor first, no behaviour change: `Keyset.ofKey(PrimaryKey)`, `Keys` helper with the pure clamp (D-63). Then `whereKey(s)` with composite keys, dedup and splitting to the vendor's limits counting the write's own binds (R-WRT-08); `MQ2501` (R-WRT-18); flush before, `CLEAR`/`KEEP` after in a `finally` with `ModelQueryConfig.persistenceContextMode`, second-level cache eviction (R-WRT-15, D-62) | AC-WRT-06, AC-WRT-10, AC-WRT-13 |
+| M6.4 | The shared keyset write loop (D-63): `buildKeySelect`, stop on the selected-key count, repeated key throws; `VendorProfile.targetTableInSubquery()` (default `false`; H2/PostgreSQL `true`); key-first path with root predicates re-applied, `lockKeys()` (R-WRT-11); M6.2's tests on MySQL | AC-VND-07, AC-WRT-18 |
+| M6.5 | Chunked mode on the M6.4 loop: `chunked(ChunkOptions)`, `ModelQueryConfig.bulkWriteChunkSize`, composite OR-expansion, clamp (R-WRT-17); `commitEachChunk`, `ChunkTransactions` on `ModelQueryConfig` with `checkServes`, `MQ4004` before the flush (R-WRT-19, D-62); `ChunkedWriteException` `MQ2502`, `startAfter`, `inDoubtKeys` as model keys (R-WRT-20) | AC-WRT-12, AC-WRT-14, AC-WRT-15 |
+| M6.6 | `model-query-annotations` and processor: `@UpdateModel`, `generateChanges`; generated `QOrderPatch` (returning `Builder<E,K,M>`, D-60), `OrderPatchChanges` (model values in `assignments()`) (fluent and JavaBean setters, `isSet`/`unset`/`assignments`), `changes()`, `update(...)`, `from(...)`, `delete()` (R-GEN-19..22); `MQ1607` | AC-GEN-10, AC-GEN-11, AC-WRT-02, AC-WRT-03 |
+| M6.7 | Processor diagnostics `MQ3301`–`MQ3307` with compile-testing cases; the AC-DIAG-05 matrix extended | `processor/32` `MQ33xx` cases |
+| M6.8 | `@ValidChanges` and its validator in `model-query-jpa` behind optional `jakarta.validation`; processor emits it only when both resolve (R-WRT-21, R-WRT-22, R-GEN-23) | AC-WRT-17, AC-GEN-12, AC-WRT-16 except the Spring part |
+| M6.9 | TCK bulk-write group: AC-WRT-01..19 on every Tier-1 vendor, and write/read parity over every Filters fixture as one statement, key-first and chunked | AC-WRT-07, `delivery/60` bulk-write group green |
+| M6.10 | `model-query-spring-data`: `update`/`delete` on the repository via `TransactionTemplate` except `commitEachChunk` (R-SPR-10); starter `ChunkTransactions` per factory with `checkServes`, `MQ4004` (R-SPR-11); the `MQ4006` startup check (D-54) covers the `ChunkTransactions` bean | AC-SPR-09 |
+| M6.11 | Starter `modelquery.bulk-write.*` properties, checked at startup like the others (`MQ4006`, D-54); Spring Boot sample PATCH endpoint with `@Valid @RequestBody` field errors; `M6` added to the audit's started scope | AC-WRT-16 Spring part, `delivery/62` M6 sample criterion |
+
+**Exit:** `api/14` covered, TCK bulk-write group green on H2, PostgreSQL and MySQL, AC-VND-07, AC-SPR-09,
+AC-GEN-10..12, the `MQ33xx` compile-testing cases, and a PATCH endpoint in the Spring Boot sample.
+
+## 8. M7–M8
 
 Contents and exit criteria are in `delivery/62` §1. Slice breakdowns are written when the milestone starts, not before —
 a slice plan written three milestones early is guesswork.

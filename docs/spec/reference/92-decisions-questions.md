@@ -559,6 +559,56 @@ M6 is bulk writes (`api/14`), M7 is 0.1.0, M8 is hardening to 1.0.0. The first r
 filter-driven bulk updates and deletes together, both `@Incubating` until the M8 API review. Writes still load no
 entity (INV-1). → `delivery/62` §1 R-RDM-01, §2 R-RDM-03, `api/14`.
 
+**D-60 — Write builders are staged.** `ModelUpdate.builder(TableField<E,E> root)` returns `Start<E>`, whose
+`primaryKey(PrimaryKey<M,K>)` returns `Builder<E,K,M>`; each call returns a new immutable stage, like
+`ModelQuery.Builder`. `Builder` takes the assignments (`set(Changes<M>)`, `set(column, value)` with `null` refused as
+`MQ1603`, `setNull`, `setExpression`), then exactly one row choice: `whereKey(K)` → `Keyed` (adds one `where`, then
+`expectVersion`), `whereKeys(Collection<? extends K>)` → `Narrowable` (adds one `where`), `where(...)` or `all()` →
+`Options`. `Options` holds `keepVersion`, `chunked`, `persistenceContext` and `build()`. A second `where`, `where` with
+`all()`, and `expectVersion` without `whereKey` don't compile, so `MQ1606`'s "without `whereKey`" case is gone; a write
+`where` never replaces an earlier one, which would widen it silently. `ModelDelete` has the same stages without the
+assignments, `keepVersion` and `expectVersion`. `Assignment<M,C>` is a sealed interface of three records (value, null,
+expression) built by `Assignment.of` and `Assignment.ofNull`; `Changes<M>` exposes `assignments()`, `isSet`, `unset`
+and `isEmpty`, and its values are model values: the engine applies converters once (D-37). `MQ1604` is a column whose
+`table()` is not the root. → `api/14` §2, R-WRT-16, AC-WRT-11, `processor/31` §6, `reference/90`.
+
+**D-61 — Metamodel checks run on a definition's first execution.** `build()` sees no metamodel (INV-7), and reading
+annotations would miss `orm.xml` and `@EmbeddedId` mappings. `jpa` checks each write definition once per
+`EntityManagerFactory`, before any statement and before the flush: `MQ1608`, the metamodel parts of `MQ1605`, `MQ1606`
+for a root with no `@Version`, and the `expectVersion` value's type. A failure is a `ModelQueryDefinitionException`.
+The memo is keyed per factory, not static. The processor reports `MQ3306` earlier where it can. → `api/14` R-WRT-08,
+R-WRT-13, R-WRT-16.
+
+**D-62 — Where bulk-write settings live.** `PersistenceContextMode { CLEAR, KEEP }` is in `core`; a write's own
+`persistenceContext(...)` wins over `ModelQueryConfig.persistenceContextMode`, which defaults to `CLEAR`. `ChunkOptions`
+is a record whose size is an `OptionalInt` (as `ExportOptions`, D-53): `size(n)` sets it, `defaultSize()` leaves it to
+`ModelQueryConfig.bulkWriteChunkSize` (default 1000); it also carries `commitEachChunk`, `lockKeys` and `startAfter`,
+so `lockKeys` is reachable only through `chunked`. `ChunkTransactions` is in `jpa`, set by
+`ModelQueryConfig.chunkTransactions(...)`, and gains `default void checkServes(EntityManagerFactory)` so `MQ4004` is
+thrown before the flush. The executor captures these at construction (INV-8, D-56). Clearing and eviction run in a
+`finally`. → `api/14` R-WRT-19, `integration/50` R-SPR-10, R-SPR-11.
+
+**D-63 — Key-first and chunked writes share one keyset loop.** `Keyset.ofKey(PrimaryKey)` carries the ordered column
+count and a label instead of a `ModelQuery`; `keyIn`, `keyOf` and the IN-list clamp move to a `Keys` helper with a pure
+`clamp(int ownBinds, int keyColumns, OptionalInt configured)` that counts the write statement's own binds, SET values
+included. Rendering stays in `core` (`buildWrite` with a whole-tree or root-terms shape, `buildKeySelect`,
+`readsTargetInSubquery()`); `jpa` adds the vendor and inheritance checks. Each round selects keys with the write's own
+predicate, then writes `pk IN (…)` with the tree or root terms; key-first without `chunked` is the same loop at the
+vendor clamp. The loop stops on the number of keys selected, not rows affected, and a round that repeats a key throws,
+as R-PAG-14 does; termination relies on `MQ1605`. `whereKeys` deduplicates and converts its keys, then splits them by
+the clamp; the keys never enter the filter tree, so `MQ1306` can't fire. Each distinct key is written once.
+`startAfter`, the last committed key and `inDoubtKeys()` are model keys (`K`, the type `whereKey` takes). `MQ1608` is
+checked before the `EXISTS` correlation. → `api/14` R-WRT-08, §5, `engine/21` R-PAG-07.
+
+**D-64 — M6.1 builder details.** `ModelUpdate.builder` and `ModelDelete.builder` refuse a join root with `MQ1203`, as
+`ModelQuery.builder` does, so `MQ1604`'s root comparison can't be bypassed through a self-referencing join.
+`notIn(col, List.of())` is an explicit predicate matching every row, not "no predicate", so it never throws `MQ1601`.
+`MQ1602` and `MQ1605` compare attribute names, so two hand-written columns over one attribute count as assigned twice.
+`expectVersion` comes before `keepVersion`, which returns the plain `Options` stage. `ChunkOptions` keeps the spec's
+`commitEachChunk()`/`lockKeys()` and names its components `commitsEachChunk`/`locksKeys`; a bad size throws
+`MQ2001`. `startAfter` is typed in M6.5, on a stage that knows `K`. `M6` joins the audit's started scope at M6.11, as
+`M5` did at its last slice. → `api/14` R-WRT-12, R-WRT-16, R-WRT-17.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter

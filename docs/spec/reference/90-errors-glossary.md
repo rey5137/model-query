@@ -33,7 +33,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1104` | `as(...)`, `on(...)` or `presentBy(...)` on a root `TableField`, which is not a join | `api/10` R-COL-03, R-COL-04 |
 | `MQ1201` | `keyset()` or `primaryKeyFirst(...)` without a primary key | `api/11` R-QRY-03 |
 | `MQ1202` | `build()` without `columns` | `api/11` R-QRY-02 |
-| `MQ1203` | `ModelQuery.builder` given a join instead of a root `TableField` | `api/11` R-QRY-02 |
+| `MQ1203` | `ModelQuery.builder`, `ModelUpdate.builder` or `ModelDelete.builder` given a join instead of a root `TableField` | `api/11` R-QRY-02, `api/14` R-WRT-12 |
 | `MQ1204` | `PrimaryKeyFirst.whenOffsetAbove` with a negative offset | `api/11` R-QRY-03 |
 | `MQ1205` | A `QueryCustomizer` changed the `ORDER BY` or `GROUP BY` of a phase | `api/11` R-QRY-11 |
 | `MQ1206` | A primary-key column of array type | `api/11` R-QRY-12 |
@@ -57,17 +57,17 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1602` | A column is assigned twice in one update (`Future`, M6) | `api/14` R-WRT-13 |
 | `MQ1603` | `set(column, null)`; NULL must be written with `setNull` (`Future`, M6) | `api/14` R-WRT-06 |
 | `MQ1604` | An assigned column is not on the update's root (a self-referencing join) (`Future`, M6) | `api/14` R-WRT-06 |
-| `MQ1605` | A primary-key or `@Version` column is assigned (`Future`, M6) | `api/14` R-WRT-13 |
-| `MQ1606` | `expectVersion` without `whereKey`, on a root with no `@Version`, or with `keepVersion` and nothing to write (`Future`, M6) | `api/14` R-WRT-16, R-WRT-07 |
+| `MQ1605` | A primary-key or `@Version` column is assigned; checked at `build()` for the definition's key, else on first execution (`Future`, M6) | `api/14` R-WRT-13 |
+| `MQ1606` | `expectVersion` on a root with no `@Version` or with a value of the wrong type (on first execution), or with `keepVersion` and nothing to write (at `build()`) (`Future`, M6) | `api/14` R-WRT-16, R-WRT-07, D-60, D-61 |
 | `MQ1607` | `Changes.from(...)` names a column that is not writable (`Future`, M6) | `api/14` R-WRT-04 |
-| `MQ1608` | A bulk write's `@PrimaryKey` is not the root entity's id (`Future`, M6) | `api/14` R-WRT-08 |
+| `MQ1608` | A bulk write's `@PrimaryKey` is not the root entity's id; checked on first execution, before the flush (`Future`, M6) | `api/14` R-WRT-08, D-61 |
 | `MQ1609` | `setExpression` on a column with a converter (`Future`, M6) | `api/14` R-WRT-14 |
 
 ## 3. `MQ2xxx` — execution
 
 | Code | Meaning | Owner |
 |---|---|---|
-| `MQ2001` | `pageSize` or `ExportOptions.pageSize` is not positive, or a `Limit` is negative | `engine/20` R-EXE-06 |
+| `MQ2001` | `pageSize`, `ExportOptions.pageSize` or `ChunkOptions.size` is not positive, or a `Limit` is negative | `engine/20` R-EXE-06 |
 | `MQ2002` | Negative offset | `engine/20` R-EXE-06 |
 | `MQ2101` | Streaming requires a transaction on this vendor | `engine/20` R-EXE-08 |
 | `MQ2201` | A row's primary key mapped to `null` during export or primary-key-first paging | `engine/21` R-PAG-03 |

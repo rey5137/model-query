@@ -68,12 +68,15 @@ void patch(@PathVariable long id, @RequestBody OrderPatchChanges changes) {
 static final ColumnField<OrderPatch, OrderEntity, Instant> UPDATED_AT =
         ColumnField.of(OrderPatch.class, QOrderPatch.ROOT, "updatedAt", Instant.class);
 
-ModelUpdate<OrderEntity, OrderPatch> u = QOrderPatch.update(changes)   // or ModelUpdate.builder(QOrderPatch.ROOT)
+// QOrderPatch.update(changes) is ModelUpdate.builder(QOrderPatch.ROOT).primaryKey(QOrderPatch.PK).set(changes).
+// Each stage returns a new immutable builder; the order is assignments, one row choice, options (D-60).
+ModelUpdate<OrderEntity, OrderPatch> u = QOrderPatch.update(changes)
         .set(UPDATED_AT, now)                              // extra assignment
         .setNull(QOrderPatch.NOTE)                         // NULL must be explicit
         .setExpression(QOrderPatch.TOTAL, (path, cb) -> cb.prod(path, rate))   // escape hatch
         .where(f -> f.lt(QOrderPatch.CREATED_AT, cutoff)
-                     .eq(QOrderPatch.CUSTOMER_COUNTRY, country))   // joined: the tree renders in one EXISTS (R-WRT-10)
+                     .eq(QOrderPatch.CUSTOMER_COUNTRY, country))   // joined: the tree renders in one EXISTS (R-WRT-10);
+                                                                   // a second where, or all(), doesn't compile
         .keepVersion()                                     // opt out of the version increment (R-WRT-16)
         .chunked(ChunkOptions.size(1_000))                 // optional: key-first chunks (R-WRT-17)
         .build();
@@ -103,10 +106,12 @@ and increments the version, so a stale version still throws; with `keepVersion` 
 `Changes#isEmpty()` first.
 
 **R-WRT-08** `whereKey(key)` and `whereKeys(keys)` filter by the root entity's id, single or composite. A definition's
-`@PrimaryKey` must name exactly the id attributes of the JPA metamodel, else `build()` throws `MQ1608` (the processor
-reports `MQ3306` earlier when it can see the entity): a key that is not the id could match several rows. `whereKeys`
-splits a long list across statements to the vendor's limits (`engine/21` R-PAG-07), counting one bind parameter per
-key component, and returns the summed count.
+`@PrimaryKey` must name exactly the id attributes of the JPA metamodel, else the definition's first execution throws
+`MQ1608` before any statement, the flush included (`build()` sees no metamodel, INV-7; the processor reports `MQ3306`
+earlier when it can see the entity; D-61): a key that is not the id could match several rows. `whereKeys` drops
+duplicate keys, so each distinct key is written once, then splits the list across statements to the vendor's limits
+(`engine/21` R-PAG-07), counting one bind parameter per key component plus the statement's own binds, `SET` values
+included, and returns the summed count (D-63).
 
 ## 4. Delete definition
 
@@ -148,12 +153,15 @@ which combine with `AND`, or with `all()`, which excludes both: `all()` returns 
 `where` nor `whereKey(s)` returns one with `all()`, so `where(...).all()` does not compile (P-2). If no predicate is
 left after skipping empty `Optional`s (`api/12` R-FLT-01), `build()` throws `MQ1601`; `all()` is the only way to write
 every row. `whereKeys` with an empty collection affects nothing and runs no SQL; it never counts as "no predicate".
-`in(col, List.of())` still renders `FALSE` and affects nothing (`api/12` R-FLT-02).
+`in(col, List.of())` still renders `FALSE` and affects nothing (`api/12` R-FLT-02); `notIn(col, List.of())` is an
+explicit predicate that matches every row and never throws `MQ1601` (D-64). The builders take a root `TableField`;
+a join throws `MQ1203`.
 
 **R-WRT-13** **Only what was set is written.** The `SET` clause holds exactly the columns marked in the change set plus
 the explicit `set`/`setNull`/`setExpression` calls. "Set to NULL" writes NULL; "not set" writes nothing. A column
 assigned twice throws `MQ1602` at `build()`. Primary-key columns and the `@Version` attribute are never assignable; a
-hand-written column naming one throws `MQ1605`. A column the server sets, such as an audit timestamp, stays out of any
+hand-written column naming one throws `MQ1605`, at `build()` when it is a column of the definition's `@PrimaryKey`,
+otherwise on the definition's first execution, before any statement, from the JPA metamodel (D-61). A column the server sets, such as an audit timestamp, stays out of any
 update model bound from a request and is assigned with a hand-written `ColumnField` (`api/10` §3); otherwise a client
 that sends it turns a normal request into `MQ1602`. `setExpression` assignments render first, then the others in
 declaration order, so an expression reading a column that a plain assignment writes sees the old value on every
@@ -179,15 +187,19 @@ so. Either way the engine evicts the root entity from the second-level cache wit
 
 **R-WRT-16** **Bulk updates respect optimistic locking.** When the root has a `@Version` attribute, every update renders
 `version = version + 1` (or the current timestamp for a timestamp version) unless `keepVersion()` is set.
-`expectVersion(v)` adds `AND version = ?`; it needs `whereKey` and a root with a `@Version` attribute, else `MQ1606`.
+`expectVersion(v)` adds `AND version = ?`. It is offered only after `whereKey`, so without one it doesn't compile
+(D-60); on a root with no `@Version` attribute, or with a value of the wrong type, the definition's first execution
+throws `MQ1606` before any statement (D-61).
 Zero affected rows then throws JPA's `OptimisticLockException`.
 
 **R-WRT-17** **Chunked writes write no row twice and terminate.** Keyset over the root id: select the next `n` matching
 keys `WHERE <tree> AND pk > :last ORDER BY pk` (a composite id uses the OR-expansion of `vendor/41` §5), write
-`WHERE pk IN (…) AND <tree>` (the root predicates only where R-WRT-11 applies), and repeat until a chunk is short. The
+`WHERE pk IN (…) AND <tree>` (the root predicates only where R-WRT-11 applies), and repeat until a key select returns fewer than `n` keys, counted from the select, never from the rows the write
+affected. A key select that returns a key an earlier chunk already wrote throws, as R-PAG-14 does. The
 cursor only moves forward, so an update that leaves rows matching cannot loop, and a delete never re-reads what it
 removed. A row that matches for the whole call is written exactly once; a row whose match changes during the call, by
-another transaction, may or may not be written. The chunk size is clamped to the vendor's limits as in R-WRT-08.
+another transaction, may or may not be written. The chunk size is clamped to the vendor's limits as in R-WRT-08. A key-first write without `chunked` (R-WRT-11) runs the
+same loop with `n` at that clamp (D-63).
 
 ## 6. Transactions
 
@@ -203,12 +215,15 @@ library never starts a transaction itself: it calls the `ChunkTransactions` call
 public interface ChunkTransactions {
     // open an EntityManager on emf in a new transaction, run the chunk, commit, close, return its result
     <T> T inNewTransaction(EntityManagerFactory emf, Function<EntityManager, T> chunk);
+
+    // throw if this callback cannot serve emf; called before the flush (D-62)
+    default void checkServes(EntityManagerFactory emf) {}
 }
 ```
 
 passing the executor's own `EntityManagerFactory`, so one callback serves every datasource. A chunk's key select and its
 write both run on the callback's `EntityManager`. `commitEachChunk()` with no callback, or with one that cannot serve
-that factory, throws `MQ4004` before any statement runs. The Spring starter provides one (`integration/50` R-SPR-11); a
+that factory (`checkServes` throws), throws `MQ4004` before any statement runs, the flush included. The Spring starter provides one (`integration/50` R-SPR-11); a
 plain-JPA caller writes their own, usually `begin`/`commit` on a resource-local `EntityManager` (INV-8, D-16). The
 caller's `EntityManager` is flushed first when it is in a transaction (R-WRT-15); there, the row locks that flush takes
 are held until that transaction ends, and a chunk writing one of those rows waits on them until the lock timeout.
@@ -219,7 +234,8 @@ cause, even when the first chunk fails. It carries `committedRows()` and `lastCo
 committed), and `inDoubtKeys()`: when the commit of a chunk itself failed, that chunk's outcome is unknown, its rows are
 not counted, and this lists its keys; otherwise it is empty. Committed chunks stay committed,
 and the message says so, because a caller who assumed atomicity would otherwise misread the table's state (INV-5).
-`ChunkOptions.startAfter(key)` resumes after `lastCommittedKey()`. Re-running the whole write is safe only when it is
+`lastCommittedKey()`, `inDoubtKeys()` and `ChunkOptions.startAfter(key)` use the model key, the type `whereKey` takes
+(D-63). `ChunkOptions.startAfter(key)` resumes after `lastCommittedKey()`. Re-running the whole write is safe only when it is
 idempotent: `total * 1.1` would apply again to rows already committed. The same holds for resuming after an in-doubt
 chunk, which may in fact have committed: a non-idempotent caller checks `inDoubtKeys()` against the table first, and
 resumes after the last of them if the chunk did commit. The Javadoc says both.
@@ -263,12 +279,12 @@ public interface ModelQueryExecutor<E> {
 | AC-WRT-03 | `from(model, columns)` copies NULLs; a non-writable column in `columns` throws `MQ1607` (R-WRT-04). |
 | AC-WRT-04 | `set` on a self-referencing join throws `MQ1604`; `set(col, null)` throws `MQ1603`; a column assigned twice throws `MQ1602` (R-WRT-06, R-WRT-13). |
 | AC-WRT-05 | An empty change set runs no SQL and returns 0; with `expectVersion` it runs and a stale version throws `OptimisticLockException`; with `keepVersion` as well `build()` throws `MQ1606`. Changing a change set after `set(...)` leaves the built update unchanged (R-WRT-05, R-WRT-07). |
-| AC-WRT-06 | `whereKeys` with more keys than the vendor's limits, single and composite, updates every key once; `whereKeys` with no keys runs no SQL; a `@PrimaryKey` that is not the entity id throws `MQ1608` (R-WRT-08). |
+| AC-WRT-06 | `whereKeys` with more keys than the vendor's limits, single and composite, updates every key once; `whereKeys` with no keys runs no SQL; duplicate keys are written once; a `@PrimaryKey` that is not the entity id throws `MQ1608` on first execution, before the flush (R-WRT-08). |
 | AC-WRT-07 | For every fixture of the TCK Filters group, including `not` and `or` over a LEFT-joined column whose association is missing, the keys a write affects equal the keys the matching read returns: as one statement on H2 and PostgreSQL, key-first on MySQL, and chunked on all three (R-WRT-10, R-WRT-11, R-WRT-17). |
 | AC-WRT-08 | A write with every filter skipped throws `MQ1601`; `all()` writes every row; `where(...).all()` does not compile (R-WRT-12). |
 | AC-WRT-09 | Converters apply to assigned values, and a to-one set by id loads no row; `setExpression` on a converted column throws `MQ1609` (R-WRT-14). |
 | AC-WRT-10 | Pending entity changes are flushed first inside a transaction, and a `commitEachChunk()` write outside one runs without flushing; the persistence context is cleared by default and kept with `KEEP`; the root's second-level cache entries are evicted (R-WRT-15). |
-| AC-WRT-11 | Updates increment the version; `keepVersion` does not; an `expectVersion` mismatch throws `OptimisticLockException`; `expectVersion` without `whereKey`, or on a root with no `@Version`, throws `MQ1606` (R-WRT-16). |
+| AC-WRT-11 | Updates increment the version; `keepVersion` does not; an `expectVersion` mismatch throws `OptimisticLockException`; `expectVersion` on a root with no `@Version` throws `MQ1606` on first execution, before any statement; `expectVersion` without `whereKey` doesn't compile (R-WRT-16, D-60, D-61). |
 | AC-WRT-12 | A chunked update that leaves rows matching terminates and touches each row once; a chunked delete crosses the vendor's IN limits, single and composite key (R-WRT-17). |
 | AC-WRT-13 | A write with no transaction throws `MQ2501`; a delete blocked by a foreign key surfaces the provider's constraint exception (R-WRT-18). |
 | AC-WRT-14 | `commitEachChunk()` with no `ChunkTransactions` throws `MQ4004` and runs no SQL; with a plain-JPA resource-local callback each chunk commits separately (R-WRT-19). |

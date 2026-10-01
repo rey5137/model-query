@@ -37,7 +37,7 @@ public enum MqCode {
     MQ1202("columns(...) is required"),
 
     /** {@code ModelQuery.builder} given a join instead of a root {@code TableField} (R-QRY-02). */
-    MQ1203("ModelQuery.builder(...) takes a root TableField, not a join"),
+    MQ1203("ModelQuery, ModelUpdate and ModelDelete builders take a root TableField, not a join"),
 
     /** {@code PrimaryKeyFirst.whenOffsetAbove} with a negative offset (R-QRY-03). */
     MQ1204("PrimaryKeyFirst.whenOffsetAbove(...) takes an offset that is not negative"),
@@ -96,8 +96,32 @@ public enum MqCode {
     /** A grouped query selects a column under a {@code presentBy} join whose key is not grouped by (R-AGG-09). */
     MQ1409("A grouped query selects a column under a presentBy join whose key columns are not all group keys"),
 
+    /** A bulk write chose its rows with {@code where(...)} and no predicate is left (R-WRT-12). */
+    MQ1601("A bulk write's where(...) left no predicate; all() is the only way to write every row"),
+
+    /** A column is assigned twice in one update (R-WRT-13). */
+    MQ1602("A column is assigned twice in one update"),
+
+    /** {@code set(column, null)}; NULL is written with {@code setNull} (R-WRT-06). */
+    MQ1603("set(column, null) is refused; write NULL with setNull(...) or a change set"),
+
+    /** An assigned column is not on the update's root, as through a self-referencing join (R-WRT-06). */
+    MQ1604("An assigned column is not on the update's root"),
+
+    /** A primary-key or {@code @Version} column is assigned (R-WRT-13, D-61). */
+    MQ1605("A primary-key or @Version column is not assignable"),
+
+    /**
+     * {@code expectVersion} with {@code keepVersion} and nothing to write, or, on first execution, on a root with no
+     * {@code @Version} or with a value of the wrong type (R-WRT-07, R-WRT-16, D-61).
+     */
+    MQ1606("expectVersion(...) cannot apply to this update"),
+
+    /** {@code setExpression} on a column with a {@code ColumnConverter} (R-WRT-14). */
+    MQ1609("setExpression(...) does not take a column that has a ColumnConverter"),
+
     /** A page size that is not positive, or a limit that is negative (R-EXE-06). */
-    MQ2001("A page size must be positive and a limit must not be negative"),
+    MQ2001("A page or chunk size must be positive and a limit must not be negative"),
 
     /** A negative offset (R-EXE-06). */
     MQ2002("An offset must not be negative"),
