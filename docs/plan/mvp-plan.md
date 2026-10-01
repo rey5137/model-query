@@ -177,13 +177,14 @@ after the gate, never a slice's.
 and the `CHANGELOG.md` `0.1.0` section is ready, so the user can push the `v0.1.0` tag. Q-1 (artifact prefix) and Q-3
 (minimum Hibernate) are raised at the gate: the coordinates and the Hibernate floor become public with this release.
 
-## 9. M8 — Hardening → 1.0.0
+## 9. M8 — Hardening → 0.2.0
 
 Spec: `delivery/62` §1 M8; `delivery/61` R-REL-07, R-REL-10, R-REL-11, AC-REL-06; `vendor/41` AC-PRF-02, AC-PRF-03;
 `api/12` R-FLT-09, AC-FLT-08; `engine/21` R-PAG-07; `integration/50` R-SPR-02, D-50; D-59 (bulk writes `@Incubating`
 until this review); D-81 (MariaDB after 1.0); D-82. Early-adopter feedback is issues #6 and #7 (#7 closed against
 D-37) and a private trial (the starter swap, M8.2; `Date` values on `Timestamp` columns, M8.4–M8.5, D-84). RFCs 0001–0003 stay out of M8: they are additive `@Incubating` work after 1.0. Model: `architect-review` at the
-gate (public API shape, paging correctness). Tagging `v1.0.0` is the user's step after the gate, never
+gate (public API shape, paging correctness). M8 ships as 0.2.0, not 1.0.0 (D-90): the API changes stay, nothing is
+frozen yet, and D-85–D-89 become the plan for the 1.0 freeze. Tagging `v0.2.0` is the user's step after the gate, never
 a slice's.
 
 | Slice | Contents | Done when |
@@ -197,6 +198,8 @@ a slice's.
 | M8.7 | Apply M8.6: signature changes (marked `!`), `@Incubating` removed from the frozen types, CHANGELOG entries | build and TCK green |
 | M8.8 | `japicmp` in the parent: excludes `@Incubating`, `jpa.vendor` and `@EngineFacing` (R-REL-10); skipped while no baseline version is set; a fixture that removes a public method of a frozen type fails the check | AC-REL-06 |
 | M8.9 | 1.0.0 prep: `CHANGELOG.md` `1.0.0` section, docs site updated for frozen vs `@Incubating` types, `M8` added to the audit's started scope | AC audit green with M8 started |
+| M8.10 | 0.2.0 instead of 1.0.0 (D-90): `@Incubating` put back on every type and member M8.7 unmarked (the API changes of M8.7 stay); D-85–D-89 reworded as the planned 1.0 freeze; D-91 records Q-2 (row-by-row stays the MySQL default), D-78 (Hibernate 6.6+ for 0.2, a Hibernate 7 CI leg before deciding), `or(List)` below two branches (R-FLT-01) and `@Aggregate.converter` (deferred, additive); CHANGELOG section, README, docs site and stability page say 0.2.0; `JapicmpExclusionsTest` still proves a removed method of a non-`@Incubating` type fails | build and TCK green; AC audit green |
+| M8.11 | Duplicate alias: a model selecting two `ColumnField`s over the same entity attribute (e.g. an `Instant` and a `Date` view of one `Timestamp`) runs on every path (`list`, `page`, keyset, `count`, `export`, aggregates) instead of failing in Hibernate | a TCK case selecting one attribute twice, read and keyset-paged, green on Tier 1 |
 
-**Exit:** AC-REL-06 passes in CI, the API review's decisions are applied, and the `1.0.0`
-CHANGELOG section is ready, so the user can push the `v1.0.0` tag.
+**Exit:** AC-REL-06 passes in CI (skipped until a 1.0 baseline exists), the API review's signature changes are applied,
+and the `0.2.0` CHANGELOG section is ready, so the user can push the `v0.2.0` tag.
