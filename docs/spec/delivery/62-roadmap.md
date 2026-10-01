@@ -19,7 +19,7 @@
 | **M5: Spring** | `spring-data` module, starter, properties | Boot sample with several datasources on H2, PostgreSQL and MySQL. `integration/50` and AC-VND-06 covered, except `Future` criteria |
 | **M6: Bulk writes** | `ModelUpdate`, `ModelDelete`, `Changes`, `@UpdateModel` and `generateChanges`, executor and repository methods, chunked mode, `VendorProfile.targetTableInSubquery` | `api/14` covered, TCK bulk-write group green on Tier-1 databases, AC-VND-07, AC-SPR-09, AC-GEN-10..12 and the `MQ33xx` compile-testing cases; the Spring Boot sample has a PATCH endpoint |
 | **M7: 0.1.0** | Docs site, samples, Maven Central publishing | First public release; AC-REL-04, AC-REL-05 |
-| **M8: Hardening → 1.0.0** | Early-adopter feedback, API review, `japicmp` baseline, MariaDB Tier 2 | API frozen; AC-REL-06 |
+| **M8: Hardening → 1.0.0** | Early-adopter feedback, API review, `japicmp` baseline (MariaDB Tier 2 moved after 1.0, D-81) | API frozen; AC-REL-06 |
 
 **R-RDM-01** M3 and M4 may run in parallel after M2. M6 follows M5, so the first release (M7) ships bulk writes
 next to the read API; their API is `@Incubating` until the M8 API review, which covers it before 1.0.0 (D-59).

@@ -179,22 +179,24 @@ and the `CHANGELOG.md` `0.1.0` section is ready, so the user can push the `v0.1.
 
 ## 9. M8 — Hardening → 1.0.0
 
-Spec: `delivery/62` §1 M8; `delivery/61` R-REL-07, R-REL-10, R-REL-11, AC-REL-06; `vendor/41` §1–2 (Tier 2), AC-PRF-02,
-AC-PRF-03, AC-PRF-06, AC-PRF-07; `api/12` R-FLT-09, AC-FLT-08; `engine/21` R-PAG-07; `processor/30` R-PROC-07,
-AC-PROC-04; `processor/31` §1; D-59 (bulk writes `@Incubating` until this review). Early-adopter feedback is issues #6
-and #7 (#7 closed against D-37). RFCs 0001–0003 stay out of M8: they are additive `@Incubating` work after 1.0. Model: `architect-review` at the
-gate (public API shape, `VendorProfile`, paging correctness). Tagging `v1.0.0` is the user's step after the gate, never
+Spec: `delivery/62` §1 M8; `delivery/61` R-REL-07, R-REL-10, R-REL-11, AC-REL-06; `vendor/41` AC-PRF-02, AC-PRF-03;
+`api/12` R-FLT-09, AC-FLT-08; `engine/21` R-PAG-07; `integration/50` R-SPR-02, D-50; D-59 (bulk writes `@Incubating`
+until this review); D-81 (MariaDB after 1.0); D-82. Early-adopter feedback is issues #6 and #7 (#7 closed against
+D-37) and a private trial (the starter swap, M8.2; `Date` values on `Timestamp` columns, M8.4–M8.5, D-84). RFCs 0001–0003 stay out of M8: they are additive `@Incubating` work after 1.0. Model: `architect-review` at the
+gate (public API shape, paging correctness). Tagging `v1.0.0` is the user's step after the gate, never
 a slice's.
 
 | Slice | Contents | Done when |
 |---|---|---|
 | M8.1 | Issue #6: R-FLT-09 keeps `IN … OR IN …` for `maxInListSize()` only; a user statement whose binds exceed `maxBindParameters()` is refused before execution with a new code (in `reference/90` first); only library-built key lists (R-PAG-07 step 2) are split across statements, chunked at the largest power of two within the budget; AC-PRF-02/03 reworded and re-cited to R-FLT-09 and the new rule | reworded AC-PRF-03 green on Tier 1 |
-| M8.2 | Dropped: issue #7 was already settled by D-37. The generated column is model-typed, `Row.get` converts, value filters bind `toAttribute`, and `processor/31` §1, R-PROC-07 and AC-PROC-04 agree | — |
-| M8.3 | MariaDB Tier 2: profile values in `vendor/41` §2, a `VendorProfile` behind the existing detection, TCK containers for 10.11 and 11.x in the nightly matrix only, the vendor-notes page | AC-PRF-06, AC-PRF-07 green on MariaDB in the nightly run |
-| M8.4 | API review: an `architect-review` of every public type, deciding per type frozen at 1.0 or still `@Incubating` (bulk writes per D-59, `jpa.spi`), and every signature to change before the freeze; recorded as `D-n`. Review only, no code | every public type has a recorded decision |
-| M8.5 | Apply M8.4: signature changes (marked `!`), `@Incubating` removed from the frozen types, CHANGELOG entries | build and TCK green |
-| M8.6 | `japicmp` in the parent: excludes `@Incubating`, `jpa.vendor` and `@EngineFacing` (R-REL-10); skipped while no baseline version is set; a fixture that removes a public method of a frozen type fails the check | AC-REL-06 |
-| M8.7 | 1.0.0 prep: `CHANGELOG.md` `1.0.0` section, docs site updated for frozen vs `@Incubating` types and MariaDB, `vendor/41` Tier 2 no longer "(next)", `M8` added to the audit's started scope | AC audit green with M8 started |
+| M8.2 | Starter: the repository factory bean swap (R-SPR-02, D-50) re-registers each swapped definition (copy with `ModelQueryRepositoryFactoryBean`, then remove and register under the same name) instead of calling `setBeanClassName`, so a merged definition or an early `JpaRepositoryFactoryBean` instance cached by an earlier type check is dropped; recorded as D-83 | a context test where a post-processor type-checks the repositories before the swap fails before the fix and passes after, with `findPage` working |
+| M8.3 | `MQ1307` names the keyset cursor's binds: a keyset page, an export page or a key-first round that carries a cursor (a page or round after the first, or a write's `startAfter`) and passes the bind limit says how many of its binds the cursor adds and that its own filters must drop that many; no bind reserve (D-82) | a test of each path at the limit asserts the message |
+| M8.4 | Ordered converters in `core` (D-84): `OrderedColumnConverter<C, F> extends ColumnConverter<C, F>` (strictly order-preserving both ways, so injective); built-in ordered converters `Instant`↔`Timestamp` and `Date`↔`Timestamp` (the `Date` is the `Timestamp` itself, so no precision is lost); `Agg.min`/`max`/`countDistinct` accept a column whose converter is ordered and convert the result with `toModel`, others keep `MQ1408`; `sum`/`avg` keep `MQ1408`; R-COL-14, R-AGG-04 and the `MQ1408` row updated | a `Timestamp` attribute read, filtered (`eq`, `gt`, `lte`, `between`, with sub-millisecond stored values), sorted, keyset-paged and `min`/`max`/`countDistinct`-aggregated through each built-in, green on Tier 1 |
+| M8.5 | Processor picks a built-in converter (D-84): a model field of `Instant` or `Date` over a `Timestamp` attribute, with no `converter` given, generates the column with the built-in instead of `MQ3xxx` type mismatch; `@Aggregate` `min`/`max`/`countDistinct` over an ordered-converter field is accepted; R-PROC-07 and `processor/32` updated | compile-testing cases for both pairs and an aggregate over each; a sample model filters a `Timestamp` column with a `Date` |
+| M8.6 | API review: an `architect-review` of every public type, deciding per type frozen at 1.0 or still `@Incubating` (bulk writes per D-59, `jpa.spi`), and every signature to change before the freeze; recorded as `D-n`. Review only, no code | every public type has a recorded decision |
+| M8.7 | Apply M8.6: signature changes (marked `!`), `@Incubating` removed from the frozen types, CHANGELOG entries | build and TCK green |
+| M8.8 | `japicmp` in the parent: excludes `@Incubating`, `jpa.vendor` and `@EngineFacing` (R-REL-10); skipped while no baseline version is set; a fixture that removes a public method of a frozen type fails the check | AC-REL-06 |
+| M8.9 | 1.0.0 prep: `CHANGELOG.md` `1.0.0` section, docs site updated for frozen vs `@Incubating` types, `M8` added to the audit's started scope | AC audit green with M8 started |
 
-**Exit:** AC-REL-06 passes in CI, the API review's decisions are applied, MariaDB is green nightly, and the `1.0.0`
+**Exit:** AC-REL-06 passes in CI, the API review's decisions are applied, and the `1.0.0`
 CHANGELOG section is ready, so the user can push the `v1.0.0` tag.

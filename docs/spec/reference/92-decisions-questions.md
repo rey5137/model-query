@@ -757,6 +757,44 @@ across statements (its rows would be merged in memory, and its order, limit and 
 `core` as the tree renders (a `QueryCustomizer`'s binds are invisible there). → `api/12` R-FLT-09, `api/14` R-WRT-08,
 `engine/21` R-PAG-07, `vendor/41` R-PRF-11, AC-PRF-03.
 
+**D-81 — MariaDB Tier 2 moves after 1.0.** M8 ships no MariaDB profile, containers or vendor-notes page; MariaDB stays
+the next Tier 2 vendor. A profile is additive, so adding it after the API freeze breaks no one. → `delivery/62` §1,
+`vendor/41` §1.
+
+**D-82 — A keyset cursor's binds are not reserved under the bind limit; `MQ1307` names them.** A keyset page, an export
+page or a key-first round that starts after a cursor binds the cursor's values on top of the query's own, so a query
+whose own binds sit within a few of `maxBindParameters()` can pass its first page or round and be refused on a later
+one (after a `commitEachChunk` round has committed). The refusal says how many of the statement's binds the cursor adds
+and that the query's own filters must drop that many. Rejected: lowering every clamp by the key's column count, which
+shrinks every chunk for a case only a query at the limit reaches. → `api/12` R-FLT-09, `engine/21` R-PAG-07, D-80.
+
+**D-83 — The factory bean swap re-registers each definition instead of mutating it.** A repository whose type another
+post-processor checked before the swap ran (the JPA repositories auto-configuration's missing-bean scan, a framework)
+has a merged definition and an early `JpaRepositoryFactoryBean` instance cached, and changing the registered
+definition's class name reaches neither: the repository was built without the `ModelQueryRepository` fragment and
+startup failed with `No property 'findPage' found`. The swap copies each definition with
+`ModelQueryRepositoryFactoryBean`, removes it and registers the copy under the same name, which drops both caches.
+Rejected: mutating in place (the cached merged definition and early instance survive); making the swap
+`PriorityOrdered` alone (another post-processor or a framework can still type-check first). → `integration/50` R-SPR-02,
+AC-SPR-13, D-50.
+
+**D-84 — Ordered converters; built-in `Instant` and `Date` over a `Timestamp` attribute.** An
+`OrderedColumnConverter<C, F>` promises `a < b` exactly when `toModel(a) < toModel(b)`, and the same for `toAttribute`:
+it preserves order both ways, so it is also injective. For such a column the database's `min`, `max` and
+`countDistinct` over `F`, with `toModel` applied to the result, equal the same aggregate over the model values, so
+`Agg` accepts them; `sum` and `avg` keep `MQ1408`, as does every aggregate over a converter that is not ordered.
+`core` ships two ordered converters: `Instant`↔`Timestamp` (`Timestamp.from`/`toInstant`, nanoseconds kept) and
+`Date`↔`Timestamp`, whose `toModel` returns the `Timestamp` itself typed as `Date`, so no sub-millisecond digits are lost
+and an `eq`, `gt` or `lte` against a stored value with microseconds is exact. The processor uses one when a model field's
+type and its `Timestamp` attribute form one of these pairs and no `converter` is named. `LocalDateTime` is not a
+built-in: through the JVM time zone it is not order-preserving across a daylight-saving change. Range filters and
+`orderBy` on a converter that is not ordered stay allowed: they compare stored values, which is well defined, and keyset
+cursors read `Row.raw`, so no row is lost (D-37). Rejected: `Date` filter overloads (permanent API for one type family,
+and a `Date` bound against a `java.sql.Date` truncates); loosening the filter generics (any value type compiles); a
+`default boolean ordered()` on `ColumnConverter` (the processor cannot see it at compile time); refusing range filters
+and `orderBy` on unordered converters (breaks 0.1 users who sort by a stored code). → `api/10` R-COL-14, `api/13`
+R-AGG-04, `processor/30` R-PROC-07, `reference/90` `MQ1408`, D-20, D-37.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

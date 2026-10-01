@@ -14,7 +14,7 @@ and the keyset predicate shape they all share.
 | 1 | H2 | 2.2+, native mode | every PR |
 | 1 | PostgreSQL | 14, 15, 16, 17 | every PR (Testcontainers) |
 | 1 | MySQL | 8.0, 8.4 | every PR (Testcontainers) |
-| 2 (next) | MariaDB | 10.11, 11.x | nightly, after Tier 1 is stable |
+| 2 (after 1.0, D-81) | MariaDB | 10.11, 11.x | nightly, after Tier 1 is stable |
 | 3 (community) | Oracle, SQL Server, others | — | profile contributions welcome, run nightly when present |
 
 **R-PRF-01** A Tier-1 release requires the whole TCK to pass on every Tier-1 version listed here (`delivery/60`).
