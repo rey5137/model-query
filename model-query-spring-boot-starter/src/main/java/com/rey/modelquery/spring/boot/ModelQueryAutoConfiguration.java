@@ -3,6 +3,7 @@ package com.rey.modelquery.spring.boot;
 import com.rey.modelquery.core.Incubating;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.jpa.ChunkTransactions;
 import com.rey.modelquery.jpa.KeysetNullKeys;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.spi.VendorProfile;
@@ -33,13 +34,15 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
 import org.springframework.core.type.MethodMetadata;
 import org.springframework.data.jpa.repository.support.JpaRepositoryFactoryBean;
+import org.springframework.transaction.PlatformTransactionManager;
 
 /**
  * Auto-configuration for Model Query: reads {@code modelquery.*} into the context's one {@link ModelQueryConfig}, hands
- * it the {@link VendorProfile} beans, and makes the default Spring Data JPA repositories use
- * {@link ModelQueryRepositoryFactoryBean}. It adds no behaviour of its own (INV-8).
+ * it the {@link VendorProfile} beans and the {@link ChunkTransactions} bean, registering one that commits each chunk
+ * on the write's own {@code JpaTransactionManager} unless the application defines its own, and makes the default
+ * Spring Data JPA repositories use {@link ModelQueryRepositoryFactoryBean}. It adds no behaviour of its own (INV-8).
  *
- * @implSpec R-SPR-02, R-SPR-08, R-SPR-09, R-SPR-13, R-VND-03
+ * @implSpec R-SPR-02, R-SPR-08, R-SPR-09, R-SPR-11, R-SPR-13, R-VND-03
  */
 @Incubating
 @AutoConfiguration
@@ -78,6 +81,17 @@ public class ModelQueryAutoConfiguration {
     }
 
     /**
+     * Runs each chunk of a {@code commitEachChunk()} write in a new transaction of the {@code JpaTransactionManager}
+     * bound to the write's {@code EntityManagerFactory}, unless the application defines a {@link ChunkTransactions}
+     * bean of its own (R-SPR-11).
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    ChunkTransactions modelQueryChunkTransactions(ObjectProvider<PlatformTransactionManager> transactionManagers) {
+        return new SpringChunkTransactions(transactionManagers);
+    }
+
+    /**
      * The one config every repository's executor starts from, unless the application defines its own (D-54).
      *
      * @throws ModelQueryConfigurationException {@code MQ4001} for an unknown {@code modelquery.vendor}, {@code MQ4003}
@@ -87,8 +101,10 @@ public class ModelQueryAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     ModelQueryConfig modelQueryConfig(ModelQueryProperties properties, ObjectProvider<VendorProfile> profiles,
-            ObjectProvider<ModelQueryConfigurer> configurer, ConfigurableListableBeanFactory beanFactory) {
+            ObjectProvider<ModelQueryConfigurer> configurer, ObjectProvider<ChunkTransactions> chunkTransactions,
+            ConfigurableListableBeanFactory beanFactory) {
         ModelQueryConfig config = ModelQueryConfig.defaults().vendorProfiles(profiles.orderedStream().toList());
+        config = ifSet(config, chunkTransactions.getIfAvailable(), ModelQueryConfig::chunkTransactions);
         if (properties.getVendor() != null) {
             if (beanFactory.getBeanNamesForType(EntityManagerFactory.class).length > 1
                     && configurer.getIfAvailable() == null) {
@@ -123,18 +139,21 @@ public class ModelQueryAutoConfiguration {
 
     /**
      * Refuses a {@link ModelQueryConfig} bean of the application's own that would silently drop what the starter
-     * reads: a {@link VendorProfile} bean the config does not hold, or a {@code modelquery.*} property, which only the
-     * starter's own config reads (R-SPR-13, D-54).
+     * reads: a {@link VendorProfile} bean the config does not hold, a {@link ChunkTransactions} bean of the
+     * application's own it does not hold, or a {@code modelquery.*} property, which only the starter's own config
+     * reads (R-SPR-11, R-SPR-13, D-54).
      *
      * @throws ModelQueryConfigurationException {@code MQ4006} on startup, naming what the config drops
      */
     @Bean
-    SmartInitializingSingleton modelQueryConfigCheck(ObjectProvider<VendorProfile> profiles, Environment environment,
+    SmartInitializingSingleton modelQueryConfigCheck(ObjectProvider<VendorProfile> profiles,
+            ObjectProvider<ChunkTransactions> chunkTransactions, Environment environment,
             ConfigurableListableBeanFactory beanFactory) {
         return () -> {
             for (String name : beanFactory.getBeanNamesForType(ModelQueryConfig.class, false, false)) {
                 if (!isOwn(beanFactory, name)) {
-                    checkOwnConfig(name, beanFactory.getBean(name, ModelQueryConfig.class), profiles, environment);
+                    checkOwnConfig(name, beanFactory.getBean(name, ModelQueryConfig.class), profiles,
+                            chunkTransactions, environment);
                 }
             }
         };
@@ -151,11 +170,17 @@ public class ModelQueryAutoConfiguration {
     }
 
     private static void checkOwnConfig(String name, ModelQueryConfig config, ObjectProvider<VendorProfile> profiles,
-            Environment environment) {
+            ObjectProvider<ChunkTransactions> chunkTransactions, Environment environment) {
         List<String> dropped = new ArrayList<>();
         profiles.orderedStream()
                 .filter(profile -> config.vendorProfiles().stream().noneMatch(held -> held == profile))
                 .forEach(profile -> dropped.add("VendorProfile bean " + profile.getClass().getName()));
+        // The starter's own callback is a default, not something the application asked for, so dropping it is not
+        // refused: such a config's commitEachChunk() writes throw MQ4004 instead.
+        chunkTransactions.orderedStream()
+                .filter(callback -> !(callback instanceof SpringChunkTransactions))
+                .filter(callback -> config.chunkTransactions().orElse(null) != callback)
+                .forEach(callback -> dropped.add("ChunkTransactions bean " + callback.getClass().getName()));
         for (ConfigurationPropertySource source : ConfigurationPropertySources.get(environment)) {
             if (source instanceof IterableConfigurationPropertySource iterable) {
                 iterable.filter(PREFIX::isAncestorOf).stream()

@@ -1,14 +1,18 @@
 package com.rey.modelquery.spring.data;
 
+import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Limit;
+import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -24,28 +28,30 @@ import org.springframework.util.function.SingletonSupplier;
  * The implementation of {@link ModelQueryRepository} over one executor. Not named {@code ModelQueryRepositoryImpl},
  * which Spring Data would detect as a custom implementation in a scanned package.
  *
- * @implSpec R-SPR-01, R-SPR-03, R-SPR-04, R-SPR-07
+ * @implSpec R-SPR-01, R-SPR-03, R-SPR-04, R-SPR-07, R-SPR-10
  */
 final class ModelQueryRepositoryFragment<E> implements ModelQueryRepository<E> {
 
     /** Built at startup, or on the first call when the repository is initialised lazily. */
     private final Supplier<ModelQueryExecutor<E>> executor;
     /**
-     * Resolved on the first {@code stream}, not at startup, so the transaction manager need not exist yet when the
-     * repository is created.
+     * Resolved on the first {@code stream}, {@code update} or {@code delete}, not at startup, so the transaction
+     * manager need not exist yet when the repository is created.
      */
     private final Supplier<TransactionOperations> readOnlyTransactions;
+    private final Supplier<TransactionOperations> writeTransactions;
 
     ModelQueryRepositoryFragment(Supplier<ModelQueryExecutor<E>> executor,
             Supplier<PlatformTransactionManager> transactions) {
         this.executor = executor;
-        this.readOnlyTransactions = SingletonSupplier.of(() -> readOnly(transactions.get()));
+        this.readOnlyTransactions = SingletonSupplier.of(() -> required(transactions.get(), true));
+        this.writeTransactions = SingletonSupplier.of(() -> required(transactions.get(), false));
     }
 
-    private static TransactionOperations readOnly(PlatformTransactionManager transactionManager) {
+    private static TransactionOperations required(PlatformTransactionManager transactionManager, boolean readOnly) {
         TransactionTemplate template = new TransactionTemplate(transactionManager);
         template.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRED);
-        template.setReadOnly(true);
+        template.setReadOnly(readOnly);
         return template;
     }
 
@@ -82,5 +88,28 @@ final class ModelQueryRepositoryFragment<E> implements ModelQueryRepository<E> {
     public <M, S> long export(ModelQuery<E, ?, M> q, ExportOptions options,
             Function<List<M>, List<S>> pageTransformer, Consumer<S> sink) {
         return executor.get().export(q, options, pageTransformer, sink);
+    }
+
+    @Override
+    public long update(ModelUpdate<E, ?> u) {
+        Objects.requireNonNull(u, "u");
+        return write(u.chunkOptions(), () -> executor.get().update(u));
+    }
+
+    @Override
+    public long delete(ModelDelete<E, ?> d) {
+        Objects.requireNonNull(d, "d");
+        return write(d.chunkOptions(), () -> executor.get().delete(d));
+    }
+
+    /**
+     * Runs {@code write} in a transaction joined or opened on the repository's manager, unless {@code chunk} commits
+     * each chunk: that write opens none, since each chunk commits on its own (R-SPR-10, R-WRT-19).
+     */
+    private long write(Optional<ChunkOptions> chunk, Supplier<Long> write) {
+        if (chunk.map(ChunkOptions::commitsEachChunk).orElse(false)) {
+            return write.get();
+        }
+        return Objects.requireNonNull(writeTransactions.get().execute(status -> write.get()));
     }
 }

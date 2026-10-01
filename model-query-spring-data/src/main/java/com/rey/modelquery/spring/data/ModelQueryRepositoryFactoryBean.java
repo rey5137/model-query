@@ -27,13 +27,13 @@ import org.springframework.util.function.SingletonSupplier;
  * implementation's executor runs on the {@code EntityManager} Spring Data gives this repository, so the vendor profile
  * is resolved per {@code EntityManagerFactory}, with the context's {@code ModelQueryConfig} bean, or
  * {@link ModelQueryConfig#defaults()} when there is none, passed through the context's {@link ModelQueryConfigurer}
- * bean when there is one (R-SPR-13). {@code stream} runs in a transaction of the
- * {@code transactionManagerRef} of the repository's {@code @EnableJpaRepositories} (R-SPR-03, D-54).
+ * bean when there is one (R-SPR-13). {@code stream}, {@code update} and {@code delete} run in a transaction of the
+ * {@code transactionManagerRef} of the repository's {@code @EnableJpaRepositories} (R-SPR-03, R-SPR-10, D-54).
  *
  * @param <T>  the repository type
  * @param <S>  the repository's domain type
  * @param <ID> the domain type's id type
- * @implSpec R-SPR-02, R-SPR-03, R-SPR-12, R-SPR-13
+ * @implSpec R-SPR-02, R-SPR-03, R-SPR-10, R-SPR-12, R-SPR-13
  */
 @Incubating
 public class ModelQueryRepositoryFactoryBean<T extends Repository<S, ID>, S, ID>

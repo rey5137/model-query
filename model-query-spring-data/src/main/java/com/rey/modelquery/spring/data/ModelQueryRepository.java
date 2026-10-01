@@ -4,7 +4,9 @@ import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Incubating;
 import com.rey.modelquery.core.Limit;
+import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.SortSpec;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
@@ -22,7 +24,7 @@ import org.springframework.data.domain.Pageable;
  * (R-SPR-01, INV-8).
  *
  * @param <E> the root entity type, the repository's domain type
- * @implSpec R-SPR-01, R-SPR-02, R-SPR-03, R-SPR-12
+ * @implSpec R-SPR-01, R-SPR-02, R-SPR-03, R-SPR-10, R-SPR-12
  */
 @Incubating
 public interface ModelQueryRepository<E> {
@@ -57,4 +59,15 @@ public interface ModelQueryRepository<E> {
     /** {@link ModelQueryExecutor#export(ModelQuery, ExportOptions, Function, Consumer)}. */
     <M, S> long export(ModelQuery<E, ?, M> q, ExportOptions options, Function<List<M>, List<S>> pageTransformer,
             Consumer<S> sink);
+
+    /**
+     * {@link ModelQueryExecutor#update(ModelUpdate)} in a transaction of the repository's own transaction manager,
+     * joined when one is active and opened otherwise, as the modifying methods of {@code SimpleJpaRepository} run. A
+     * {@code commitEachChunk()} write opens none: each of its chunks commits on its own through the config's
+     * {@code ChunkTransactions}, so it is meant to be called outside a transaction (R-SPR-10, R-WRT-19).
+     */
+    long update(ModelUpdate<E, ?> u);
+
+    /** {@link ModelQueryExecutor#delete(ModelDelete)}, in a transaction as {@link #update} runs (R-SPR-10). */
+    long delete(ModelDelete<E, ?> d);
 }

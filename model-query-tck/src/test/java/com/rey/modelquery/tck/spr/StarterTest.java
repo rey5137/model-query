@@ -3,14 +3,18 @@ package com.rey.modelquery.tck.spr;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.rey.modelquery.core.ChunkOptions;
+import com.rey.modelquery.core.ChunkedWriteException;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ColumnSet;
+import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.TableField;
+import com.rey.modelquery.jpa.ChunkTransactions;
 import com.rey.modelquery.jpa.KeysetNullKeys;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.MysqlStreamingMode;
@@ -25,12 +29,15 @@ import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
 import com.rey.modelquery.tck.harness.TckDatabases;
 import com.rey.modelquery.tck.harness.TckTarget;
+import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Query;
+import java.sql.Timestamp;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -46,6 +53,7 @@ import org.springframework.context.annotation.FilterType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.data.jpa.repository.support.JpaRepositoryFactoryBean;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
@@ -61,10 +69,21 @@ class StarterTest {
     private static final ModelQuery<OrderEntity, ?, Long> ORDER_IDS = ModelQuery.builder(ORDERS, row -> row.get(ID))
             .columns(ColumnSet.of(ID)).primaryKey(PrimaryKey.of(ID)).orderBy(ID.asc()).build();
 
+    /** The ids above which a test inserts customers and orders of its own, and removes them again. */
+    private static final long TEMPORARY = 100_000;
+    private static final TableField<CustomerEntity, CustomerEntity> CUSTOMERS = TableField.root(CustomerEntity.class);
+    private static final ColumnField<Long, CustomerEntity, Long> CUSTOMER_ID =
+            ColumnField.of(Long.class, CUSTOMERS, "id", Long.class);
+    private static final ModelDelete<CustomerEntity, Long> DELETE_TEMPORARY_CUSTOMERS_EACH_CHUNK = ModelDelete
+            .builder(CUSTOMERS).primaryKey(PrimaryKey.of(CUSTOMER_ID)).where(f -> f.gt(CUSTOMER_ID, TEMPORARY))
+            .chunked(ChunkOptions.size(2).commitEachChunk()).build();
+
     private final ApplicationContextRunner configOnly =
             new ApplicationContextRunner().withConfiguration(AutoConfigurations.of(ModelQueryAutoConfiguration.class));
 
     private final ApplicationContextRunner withRepositories = configOnly.withUserConfiguration(DefaultJpa.class);
+
+    private final ApplicationContextRunner withCustomers = configOnly.withUserConfiguration(CustomerJpa.class);
 
     // ---- properties into the config (R-SPR-08)
 
@@ -113,7 +132,8 @@ class StarterTest {
         configOnly.withBean(ModelQueryConfig.class, () -> own).withPropertyValues("modelquery.export.page-size=200")
                 .run(context -> {
                     assertThat(rootCode(context.getStartupFailure())).isEqualTo(MqCode.MQ4006);
-                    assertThat(context.getStartupFailure()).hasMessageContaining("property modelquery.export.page-size");
+                    assertThat(context.getStartupFailure())
+                            .hasMessageContaining("property modelquery.export.page-size");
                 });
     }
 
@@ -123,7 +143,8 @@ class StarterTest {
                 .withBean(VendorProfile.class, () -> new BeanProfile(new ArrayList<>()))
                 .run(context -> {
                     assertThat(rootCode(context.getStartupFailure())).isEqualTo(MqCode.MQ4006);
-                    assertThat(context.getStartupFailure()).hasMessageContaining("VendorProfile bean " + BeanProfile.class.getName());
+                    assertThat(context.getStartupFailure())
+                            .hasMessageContaining("VendorProfile bean " + BeanProfile.class.getName());
                 });
     }
 
@@ -262,7 +283,117 @@ class StarterTest {
                 .run(context -> assertThat(rootCode(context.getStartupFailure())).isEqualTo(MqCode.MQ4002));
     }
 
+    // ---- AC-SPR-09
+
+    @Test
+    void ac_spr_09_the_starters_chunk_transactions_commits_each_chunk_and_a_failed_third_keeps_the_first_two() {
+        withCustomers.run(context -> {
+            assertThat(context.getBean(ModelQueryConfig.class).chunkTransactions())
+                    .containsSame(context.getBean(ChunkTransactions.class));
+            JdbcTemplate jdbc = new JdbcTemplate(context.getBean(DataSource.class));
+            try {
+                insertTemporaryCustomers(jdbc, 6);
+                // An order of the fifth customer: the third chunk's delete breaks its foreign key.
+                jdbc.update("insert into orders (id, customer_id, status, total, placed_at) values (?, ?, 'NEW', 0, ?)",
+                        TEMPORARY + 1, TEMPORARY + 5, Timestamp.valueOf("2020-01-01 00:00:00"));
+
+                assertThatThrownBy(() -> context.getBean(CustomerRepository.class)
+                        .delete(DELETE_TEMPORARY_CUSTOMERS_EACH_CHUNK))
+                        .isInstanceOfSatisfying(ChunkedWriteException.class, failure -> {
+                            assertThat(failure.code()).isEqualTo(MqCode.MQ2502);
+                            assertThat(failure.committedRows()).isEqualTo(4);
+                            assertThat(failure.lastCommittedKey()).contains(TEMPORARY + 4);
+                            assertThat(failure.inDoubtKeys()).isEmpty();
+                        });
+                assertThat(temporaryCustomers(jdbc)).containsExactly(TEMPORARY + 5, TEMPORARY + 6);
+            } finally {
+                jdbc.update("delete from orders where id > " + TEMPORARY);
+                jdbc.update("delete from customers where id > " + TEMPORARY);
+            }
+        });
+    }
+
+    @Test
+    void ac_spr_09_a_factory_with_no_jpa_transaction_manager_is_refused_with_mq4004() {
+        withRepositories.withUserConfiguration(SecondFactory.class).run(context -> {
+            EntityManagerFactory second = context.getBean("secondEntityManagerFactory", EntityManagerFactory.class);
+            assertThatThrownBy(() -> context.getBean(ChunkTransactions.class).checkServes(second))
+                    .isInstanceOfSatisfying(ModelQueryConfigurationException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ4004))
+                    .hasMessageContaining("none is bound");
+        });
+    }
+
+    @Test
+    void ac_spr_09_two_jpa_transaction_managers_on_one_factory_fail_a_commit_each_chunk_write_with_mq4004() {
+        // Finds the context's one EntityManagerFactory on its own, as the repository's manager is bound to it.
+        withCustomers.withBean("otherTransactionManager", JpaTransactionManager.class, JpaTransactionManager::new)
+                .run(context -> {
+                    assertThatThrownBy(() -> context.getBean(CustomerRepository.class)
+                            .delete(DELETE_TEMPORARY_CUSTOMERS_EACH_CHUNK))
+                            .isInstanceOfSatisfying(ModelQueryConfigurationException.class,
+                                    e -> assertThat(e.code()).isEqualTo(MqCode.MQ4004))
+                            .hasMessageContaining("2 are bound");
+                });
+    }
+
+    @Test
+    void ac_spr_09_a_chunk_transactions_bean_of_the_application_replaces_the_starters() {
+        ChunkTransactions own = new NoChunks();
+        configOnly.withBean(ChunkTransactions.class, () -> own).run(context -> {
+            assertThat(context).getBeans(ChunkTransactions.class).hasSize(1);
+            assertThat(context.getBean(ModelQueryConfig.class).chunkTransactions()).containsSame(own);
+        });
+    }
+
+    @Test
+    void ac_spr_11_a_config_bean_of_the_application_without_the_chunk_transactions_bean_fails_startup_with_mq4006() {
+        configOnly.withBean(ModelQueryConfig.class, ModelQueryConfig::defaults)
+                .withBean(ChunkTransactions.class, NoChunks::new)
+                .run(context -> {
+                    assertThat(rootCode(context.getStartupFailure())).isEqualTo(MqCode.MQ4006);
+                    assertThat(context.getStartupFailure())
+                            .hasMessageContaining("ChunkTransactions bean " + NoChunks.class.getName());
+                });
+    }
+
+    @Test
+    void ac_spr_11_a_config_bean_of_the_application_holding_the_chunk_transactions_bean_starts() {
+        ChunkTransactions own = new NoChunks();
+        configOnly.withBean(ChunkTransactions.class, () -> own)
+                .withBean(ModelQueryConfig.class, () -> ModelQueryConfig.defaults().chunkTransactions(own))
+                .run(context -> assertThat(context).hasNotFailed());
+    }
+
+    @Test
+    void ac_spr_11_a_config_bean_of_the_application_may_leave_out_the_starters_chunk_transactions() {
+        configOnly.withBean(ModelQueryConfig.class, ModelQueryConfig::defaults)
+                .run(context -> assertThat(context).hasNotFailed());
+    }
+
     // ---- support
+
+    /** A callback of the application's own, never run. */
+    static final class NoChunks implements ChunkTransactions {
+        @Override
+        public <T> T inNewTransaction(EntityManagerFactory emf,
+                Function<EntityManager, T> chunk) {
+            throw new UnsupportedOperationException("not run");
+        }
+    }
+
+    /** Commits {@code count} customers above {@link #TEMPORARY}. */
+    static void insertTemporaryCustomers(JdbcTemplate jdbc, int count) {
+        for (long id = TEMPORARY + 1; id <= TEMPORARY + count; id++) {
+            jdbc.update("insert into customers (id, name, email, country, vip, created_at)"
+                    + " values (?, ?, ?, 'VN', ?, ?)", id, "Temporary " + id, id + "@test", false,
+                    Timestamp.valueOf("2020-01-01 00:00:00"));
+        }
+    }
+
+    static List<Long> temporaryCustomers(JdbcTemplate jdbc) {
+        return jdbc.queryForList("select id from customers where id > " + TEMPORARY + " order by id", Long.class);
+    }
 
     private static MqCode rootCode(Throwable failure) {
         Throwable cause = failure;
@@ -379,14 +510,19 @@ class StarterTest {
     @Configuration(proxyBeanMethods = false)
     @EnableJpaRepositories(basePackageClasses = StarterTest.class, considerNestedRepositories = true,
             excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE,
-                    classes = { PlainRepository.class, MismatchedRepository.class }))
+                    classes = { PlainRepository.class, CustomerRepository.class, MismatchedRepository.class }))
     static class DefaultJpa extends Jpa {}
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableJpaRepositories(basePackageClasses = StarterTest.class,
+            includeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE, classes = CustomerRepository.class))
+    static class CustomerJpa extends Jpa {}
 
     @Configuration(proxyBeanMethods = false)
     @EnableJpaRepositories(basePackageClasses = StarterTest.class, considerNestedRepositories = true,
             repositoryFactoryBeanClass = OwnFactoryBean.class,
             excludeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE,
-                    classes = { OrderRepository.class, MismatchedRepository.class }))
+                    classes = { OrderRepository.class, CustomerRepository.class, MismatchedRepository.class }))
     static class CustomFactoryBeanJpa extends Jpa {}
 
     @Configuration(proxyBeanMethods = false)

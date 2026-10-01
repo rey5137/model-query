@@ -2,13 +2,18 @@ package com.rey.modelquery.tck.spr;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ExportOptions;
+import com.rey.modelquery.core.Filters;
 import com.rey.modelquery.core.Limit;
+import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.TableField;
+import com.rey.modelquery.jpa.ChunkTransactions;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.spring.data.ModelQueryRepositoryFactoryBean;
@@ -19,20 +24,24 @@ import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
+import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import java.math.BigDecimal;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.EntityManagerFactoryUtils;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
@@ -68,6 +77,17 @@ class ModelQueryRepositoryTest {
             .build();
 
     private static final String TRANSACTIONS = "orderTransactions";
+
+    /** The ids above which a test inserts orders of its own, and removes them again. */
+    private static final long TEMPORARY = 100_000;
+    private static final UnaryOperator<Filters<OrderRow>> TEMPORARY_ORDERS = f -> f.gt(ID, TEMPORARY);
+    private static final ModelUpdate<OrderEntity, OrderRow> PAY_TEMPORARY_ORDERS = ModelUpdate.builder(ORDERS)
+            .primaryKey(PrimaryKey.of(ID)).set(STATUS, "PAID").where(TEMPORARY_ORDERS).build();
+    private static final TableField<CustomerEntity, CustomerEntity> CUSTOMERS = TableField.root(CustomerEntity.class);
+    private static final ColumnField<Long, CustomerEntity, Long> CUSTOMER_ID =
+            ColumnField.of(Long.class, CUSTOMERS, "id", Long.class);
+    private static final ModelDelete<CustomerEntity, Long> DELETE_TEMPORARY_CUSTOMERS = ModelDelete.builder(CUSTOMERS)
+            .primaryKey(PrimaryKey.of(CUSTOMER_ID)).where(f -> f.gt(CUSTOMER_ID, TEMPORARY)).build();
 
     // ---- AC-SPR-01
 
@@ -139,7 +159,116 @@ class ModelQueryRepositoryTest {
         assertThat(streamed).isEqualTo(new StreamedIn(TckFixture.ORDERS / 2, true, false, "outer"));
     }
 
+    // ---- AC-SPR-09
+
+    @TckTest
+    void ac_spr_09_update_and_delete_without_a_transaction_open_one_on_the_repositorys_manager(TckDatabase db) {
+        DataSource dataSource = JoinTestSupport.dataSource(db);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        try {
+            insertTemporaryOrders(jdbc, 3);
+            StarterTest.insertTemporaryCustomers(jdbc, 2);
+            // The default-named manager throws when used, so these succeed only on the repository's own.
+            withRepository(dataSource, DefaultTransactions.class, (repository, context) -> {
+                assertThat(repository.update(PAY_TEMPORARY_ORDERS)).isEqualTo(3);
+                assertThat(statuses(jdbc)).containsExactly("PAID", "PAID", "PAID");
+                assertThat(context.getBean(CustomerRepository.class).delete(DELETE_TEMPORARY_CUSTOMERS))
+                        .isEqualTo(2);
+                return null;
+            });
+
+            assertThat(StarterTest.temporaryCustomers(jdbc)).isEmpty();
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+        } finally {
+            jdbc.update("delete from orders where id > " + TEMPORARY);
+            jdbc.update("delete from customers where id > " + TEMPORARY);
+        }
+    }
+
+    @TckTest
+    void ac_spr_09_update_joins_an_active_transaction(TckDatabase db) {
+        DataSource dataSource = JoinTestSupport.dataSource(db);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        try {
+            insertTemporaryOrders(jdbc, 3);
+            long written = withRepository(dataSource, DefaultTransactions.class, (repository, context) -> {
+                TransactionTemplate outer =
+                        new TransactionTemplate(context.getBean(TRANSACTIONS, PlatformTransactionManager.class));
+                return outer.execute(status -> {
+                    status.setRollbackOnly();
+                    return repository.update(PAY_TEMPORARY_ORDERS);
+                });
+            });
+
+            // The outer transaction rolled back, and the update with it.
+            assertThat(written).isEqualTo(3);
+            assertThat(statuses(jdbc)).containsExactly("NEW", "NEW", "NEW");
+        } finally {
+            jdbc.update("delete from orders where id > " + TEMPORARY);
+        }
+    }
+
+    @TckTest
+    void ac_spr_09_a_commit_each_chunk_update_opens_no_transaction_and_commits_through_the_callback(
+            TckDatabase db) {
+        DataSource dataSource = JoinTestSupport.dataSource(db);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        var update = ModelUpdate.builder(ORDERS).primaryKey(PrimaryKey.of(ID)).set(STATUS, "PAID")
+                .where(TEMPORARY_ORDERS).chunked(ChunkOptions.size(2).commitEachChunk()).build();
+        try {
+            insertTemporaryOrders(jdbc, 5);
+            RecordingChunks.ACTIVE.clear();
+            long written = withRepository(dataSource, ChunkedTransactions.class,
+                    (repository, context) -> repository.update(update));
+
+            assertThat(written).isEqualTo(5);
+            assertThat(statuses(jdbc)).containsOnly("PAID").hasSize(5);
+            // Three chunks of at most two keys, and the last one finding none left, none inside a Spring transaction.
+            assertThat(RecordingChunks.ACTIVE).containsExactly(false, false, false);
+        } finally {
+            jdbc.update("delete from orders where id > " + TEMPORARY);
+        }
+    }
+
     // ---- support
+
+    /** Commits {@code count} orders of customer 1 above {@link #TEMPORARY}, with status {@code NEW}. */
+    private static void insertTemporaryOrders(JdbcTemplate jdbc, int count) {
+        for (long id = TEMPORARY + 1; id <= TEMPORARY + count; id++) {
+            jdbc.update("insert into orders (id, customer_id, status, total, placed_at) values (?, 1, 'NEW', 0, ?)",
+                    id, Timestamp.valueOf("2020-01-01 00:00:00"));
+        }
+    }
+
+    private static List<String> statuses(JdbcTemplate jdbc) {
+        return jdbc.queryForList("select status from orders where id > " + TEMPORARY + " order by id", String.class);
+    }
+
+    /**
+     * A plain-JPA callback, a resource-local {@code EntityManager} per chunk, that records whether a Spring
+     * transaction was active when each chunk began.
+     */
+    static final class RecordingChunks implements ChunkTransactions {
+
+        static final List<Boolean> ACTIVE = new ArrayList<>();
+
+        @Override
+        public <T> T inNewTransaction(EntityManagerFactory emf, Function<EntityManager, T> chunk) {
+            ACTIVE.add(TransactionSynchronizationManager.isActualTransactionActive());
+            EntityManager em = emf.createEntityManager();
+            try {
+                em.getTransaction().begin();
+                T result = chunk.apply(em);
+                em.getTransaction().commit();
+                return result;
+            } finally {
+                if (em.getTransaction().isActive()) {
+                    em.getTransaction().rollback();
+                }
+                em.close();
+            }
+        }
+    }
 
     private static StreamedIn streamNewOrders(OrderRepository repository) {
         return repository.stream(NEW_ORDERS, Limit.unlimited(), rows -> new StreamedIn(
@@ -247,4 +376,15 @@ class ModelQueryRepositoryTest {
             transactionManagerRef = TRANSACTIONS, repositoryFactoryBeanClass = ModelQueryRepositoryFactoryBean.class,
             enableDefaultTransactions = false)
     static class NoDefaultTransactions extends JpaBeans {}
+
+    @Configuration(proxyBeanMethods = false)
+    @EnableJpaRepositories(basePackageClasses = OrderRepository.class, entityManagerFactoryRef = "orderEntities",
+            transactionManagerRef = TRANSACTIONS, repositoryFactoryBeanClass = ModelQueryRepositoryFactoryBean.class)
+    static class ChunkedTransactions extends JpaBeans {
+
+        @Bean
+        ModelQueryConfig modelQueryConfig() {
+            return ModelQueryConfig.defaults().chunkTransactions(new RecordingChunks());
+        }
+    }
 }
