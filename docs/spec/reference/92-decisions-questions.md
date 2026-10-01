@@ -733,17 +733,24 @@ nothing deploys it: publishing the site (GitHub Pages or elsewhere) is what grow
 disk, `samples/plain-jpa` and `samples/spring-boot`; the Spring Boot sample covers several datasources and the PATCH
 endpoint. → `delivery/61` R-REL-02, R-REL-13, `delivery/62` M7, SPEC.md §4.
 
+**D-77 — Artifact coordinates (resolves Q-1).** The artifacts keep the `model-query-` prefix under
+`io.github.rey5137`: `model-query-core`, `model-query-jpa`, `model-query-bom` and so on. Once 0.1.0 is published, a
+rename would need relocation POMs for every published module, and a shorter prefix buys little. → `delivery/61`
+R-REL-09.
+
+**D-78 — Minimum Hibernate version (resolves Q-3).** 0.1 supports Hibernate 6.6 and later, built and tested against
+Hibernate 6.6 with Spring Boot 3.4. Targeting Hibernate 7 only would exclude Spring Boot 3.x users; whether 1.0 moves to
+Hibernate 7 is decided before 1.0. → `delivery/61`.
+
 ## 2. Open questions
 
-**Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter
-artifact prefix wanted before 1.0, while renaming is still cheap? → `delivery/61` R-REL-09.
+**Q-1 — Project name and coordinates.** Resolved by D-77.
 
 **Q-2 — MySQL streaming default.** `row-by-row` is faster but blocks other statements on the connection until the
 result is read; `useCursorFetch` does not. The current default is `row-by-row` with the caveat documented. Should the
 default flip? → `vendor/41` R-PRF-04, R-PRF-07.
 
-**Q-3 — Minimum Hibernate version.** Is 6.6 right, or should the library target Hibernate 7 only, given Spring Boot 4?
-Targeting 7 only drops the `model-query-hibernate` compatibility matrix but excludes Boot 3.x users. → `delivery/61`.
+**Q-3 — Minimum Hibernate version.** Resolved by D-78.
 
 **Q-4 — Cursor serialisation.** `0.1-reserved` mentions a `Cursor` format for passing a keyset position to a client.
 Should 0.1 ship an opaque encoded form (so a REST API can page without exposing column values), or leave it to callers?
