@@ -20,11 +20,11 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * The keyset of an ungrouped query: its order closed by the primary key, the cursor read from a row, and the
- * predicate selecting the rows after a cursor. Immutable.
+ * The keyset of an ungrouped query, or of a primary key alone: its order closed by the primary key, the cursor read
+ * from a row, and the predicate selecting the rows after a cursor. Immutable.
  *
  * @param <M> the model
- * @implSpec R-PAG-04, R-PAG-05, R-PAG-06, R-PRF-09, R-COL-13
+ * @implSpec R-PAG-04, R-PAG-05, R-PAG-06, R-PRF-09, R-COL-13, D-63
  */
 final class Keyset<M> {
 
@@ -36,11 +36,15 @@ final class Keyset<M> {
      */
     private record Key<M>(OrderField<M, ?> order, NullPrecedence nulls, boolean refuseNull) {}
 
-    private final ModelQuery<?, ?, M> query;
+    /** How many of {@code keys} are the query's own order, ahead of the primary-key tie-breakers. */
+    private final int ordered;
+    /** What the keyset belongs to, for messages. */
+    private final Object label;
     private final List<Key<M>> keys;
 
-    private Keyset(ModelQuery<?, ?, M> query, List<Key<M>> keys) {
-        this.query = query;
+    private Keyset(int ordered, Object label, List<Key<M>> keys) {
+        this.ordered = ordered;
+        this.label = label;
         this.keys = List.copyOf(keys);
     }
 
@@ -65,7 +69,19 @@ final class Keyset<M> {
                         NullPrecedence.DEFAULT, false));
             }
         }
-        return new Keyset<>(q, keys);
+        return new Keyset<>(q.orderBy().size(), q, keys);
+    }
+
+    /**
+     * The keyset of {@code key} alone, ascending in its column order, as a write's key loop pages by (D-63). A
+     * primary-key column is never NULL (R-PAG-03), so no column refuses one.
+     */
+    static <M> Keyset<M> ofKey(PrimaryKey<M, ?> key) {
+        List<Key<M>> keys = new ArrayList<>();
+        for (ColumnField<M, ?, ?> column : key.columns()) {
+            keys.add(new Key<>(new OrderField<>(column, true, NullPrecedence.DEFAULT), NullPrecedence.DEFAULT, false));
+        }
+        return new Keyset<>(0, "primary key " + key.columns(), keys);
     }
 
     private static <M> Key<M> key(OrderField<M, ?> order, boolean keyColumn, NullOrdering defaultOrdering,
@@ -84,7 +100,6 @@ final class Keyset<M> {
 
     /** Appends the primary-key tie-breakers to {@code built}'s order, which already holds the query's own. */
     void appendOrder(BuiltQuery<M> built, CriteriaBuilder cb) {
-        int ordered = query.orderBy().size();
         if (keys.size() == ordered) {
             return;
         }
@@ -109,7 +124,7 @@ final class Keyset<M> {
             OrderField<M, ?> order = key.order();
             values[i] = row.raw(order.column());
             if (values[i] == null && key.refuseNull()) {
-                throw new ModelQueryExecutionException(MqCode.MQ2202, query + ": keyset column "
+                throw new ModelQueryExecutionException(MqCode.MQ2202, label + ": keyset column "
                         + order.column().name() + " is null in an exported row"
                         + (key.nulls() == NullPrecedence.DEFAULT ? " and the database's null ordering is unknown" : "")
                         + "; order it with nullsFirst() or nullsLast() so the next page can be found after it");

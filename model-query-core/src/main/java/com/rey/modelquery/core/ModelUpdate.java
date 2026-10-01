@@ -35,7 +35,8 @@ import java.util.function.UnaryOperator;
  *
  * @param <E> the root entity
  * @param <M> the update model
- * @implSpec R-WRT-05, R-WRT-07, R-WRT-10, R-WRT-13, R-WRT-14, R-WRT-16, D-60, D-61, D-63
+ * @implSpec R-WRT-05, R-WRT-07, R-WRT-08, R-WRT-10, R-WRT-13, R-WRT-14, R-WRT-15, R-WRT-16, D-60, D-61, D-62,
+ *     D-63
  */
 @Incubating
 public final class ModelUpdate<E, M> {
@@ -115,12 +116,50 @@ public final class ModelUpdate<E, M> {
      * @throws ModelQueryDefinitionException {@code MQ1001} for a to-one column whose type is not the target's id
      *     type, and the codes of {@link #checkMetamodel} that rendering meets
      */
-    @SuppressWarnings({"unchecked", "rawtypes"})
     public CriteriaUpdate<E> buildWrite(CriteriaBuilder cb, RenderOptions options,
             BiFunction<Class<?>, Object, ?> references) {
+        return render(cb, options, references, null);
+    }
+
+    /**
+     * Renders the update as {@link #buildWrite(CriteriaBuilder, RenderOptions, BiFunction)} does, choosing only the
+     * keys of {@code chunk}, a run of {@link #distinctKeys()}: an executor splits the keys across statements to the
+     * vendor's limits (R-WRT-08, D-63).
+     *
+     * @param chunk attribute-value keys, as {@link #distinctKeys()} returns them
+     * @throws IllegalArgumentException for an empty {@code chunk}, or on an update without {@code whereKey} or
+     *     {@code whereKeys}
+     */
+    public CriteriaUpdate<E> buildWrite(CriteriaBuilder cb, RenderOptions options,
+            BiFunction<Class<?>, Object, ?> references, List<?> chunk) {
+        return render(cb, options, references, Objects.requireNonNull(chunk, "chunk"));
+    }
+
+    /**
+     * The distinct keys of {@code whereKey} or {@code whereKeys}, each converted to its attribute value (a list of
+     * component values for a composite key), in first-seen order; empty when the rows were chosen without keys. Each
+     * distinct key is written once (R-WRT-08, D-63).
+     *
+     * @throws IllegalArgumentException for a composite key with the wrong number of components
+     */
+    public Optional<List<Object>> distinctKeys() {
+        List<Object> keys = definition.rows().keys();
+        return keys == null ? Optional.empty()
+                : Optional.of(WriteRendering.distinctKeys(definition.primaryKey(), keys));
+    }
+
+    /** The write's own {@code persistenceContext(...)}, which wins over the executor's configured mode (D-62). */
+    public Optional<PersistenceContextMode> persistenceContext() {
+        return Optional.ofNullable(definition.persistenceContext());
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private CriteriaUpdate<E> render(CriteriaBuilder cb, RenderOptions options,
+            BiFunction<Class<?>, Object, ?> references, List<?> chunk) {
         Objects.requireNonNull(cb, "cb");
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(references, "references");
+        List<Object> keys = WriteRendering.keysToRender(distinctKeys().orElse(null), chunk);
         Class<E> type = rootEntity();
         CriteriaUpdate<E> update = cb.createCriteriaUpdate(type);
         Root<E> from = update.from(type);
@@ -149,8 +188,8 @@ public final class ModelUpdate<E, M> {
                 }
             });
         }
-        var where = new ArrayList<>(WriteRendering.rows(definition.rows(), definition.primaryKey(), update, from, cb,
-                options));
+        var where = new ArrayList<>(WriteRendering.rows(keys, definition.rows().where(), definition.primaryKey(),
+                update, from, cb, options));
         SingularAttribute<?, ?> version = expectedVersionAttribute(entity);
         if (version != null) {
             where.add(cb.equal(from.get(version.getName()), definition.expectedVersion()));

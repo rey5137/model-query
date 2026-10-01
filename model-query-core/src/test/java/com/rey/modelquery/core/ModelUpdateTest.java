@@ -204,6 +204,32 @@ class ModelUpdateTest {
         assertThatCode(() -> delete().whereKeys(List.of()).build()).doesNotThrowAnyException();
     }
 
+    // ---- AC-WRT-06
+
+    @Test
+    void ac_wrt_06_where_keys_writes_each_distinct_converted_key_once_in_first_seen_order() {
+        var flags = ModelUpdate.builder(ROOT).primaryKey(PrimaryKey.of(FLAGGED)).set(STATUS, "PAID")
+                .whereKeys(List.of(true, false, true)).build();
+        var composite = ModelDelete.builder(ROOT).primaryKey(PrimaryKey.composite(ID, FLAGGED))
+                .whereKeys(List.of(List.of(2L, false), List.of(1L, true), List.of(2L, false))).build();
+
+        assertThat(flags.distinctKeys()).contains(List.of("Y", "N"));
+        assertThat(composite.distinctKeys()).contains(List.of(List.of(2L, "N"), List.of(1L, "Y")));
+        assertThat(update().set(STATUS, "PAID").where(f -> f.eq(NOTE, "x")).build().distinctKeys()).isEmpty();
+        assertThatThrownBy(() -> ModelDelete.builder(ROOT).primaryKey(PrimaryKey.composite(ID, FLAGGED))
+                .whereKeys(List.of(List.of(1L))).build().distinctKeys())
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // ---- AC-WRT-10
+
+    @Test
+    void ac_wrt_10_a_write_own_persistence_context_mode_is_empty_unless_set() {
+        assertThat(update().set(STATUS, "PAID").whereKey(1L).build().persistenceContext()).isEmpty();
+        assertThat(delete().whereKey(1L).persistenceContext(PersistenceContextMode.KEEP).build()
+                .persistenceContext()).contains(PersistenceContextMode.KEEP);
+    }
+
     // ---- AC-WRT-09
 
     @Test

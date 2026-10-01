@@ -620,6 +620,17 @@ the statement's root. A tree that made a join renders whole in the `EXISTS` even
 INNER join narrows the read too. A numeric `@Version` renders `version + 1`; a timestamp one binds the JVM's current
 time. The TCK's `orders` gains a `version` column. → `api/14` R-WRT-10, R-WRT-14, R-WRT-16, D-61, D-63.
 
+**D-66 — M6.3 key splitting and persistence-context surface.** `ModelUpdate` and `ModelDelete` gain
+`distinctKeys()` (the keys of `whereKey`/`whereKeys` converted to attribute values, a list per composite key,
+deduplicated in first-seen order, so two model keys a converter maps to one value are one key), a `buildWrite`
+overload taking a non-empty run of those keys, and `persistenceContext()`. The executor counts a write's own binds from
+the statement rendered over its first key, less that key's binds, so `SET` values and a bound `version + 1` count
+(`Keys.clamp`), and renders one statement per run. `ModelQueryConfig.persistenceContextMode(...)` holds the default.
+`MQ2501` is checked after the metamodel checks and before the no-op shortcut, so a `whereKeys` with no key outside a
+transaction still throws. The flush runs only for a write that runs a statement and stays outside the `finally`;
+the clear and the eviction run in it, so a failed statement leaves no stale entity. → `api/14` R-WRT-08, R-WRT-15,
+R-WRT-18, D-62, D-63.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter

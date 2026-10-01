@@ -25,7 +25,7 @@ import java.util.stream.Stream;
  * @param <E> the root entity type
  * @implSpec R-QRY-10, R-QRY-09, R-QRY-11, R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-07, R-EXE-09, R-PAG-01,
  *     R-PAG-02, R-PAG-03, R-PAG-07, R-PAG-08, R-PAG-09, R-PAG-10, R-PAG-11, R-PAG-12, R-PAG-13, R-PAG-14, R-PAG-15,
- *     R-AGG-09, R-WRT-01, R-WRT-07, R-WRT-16, R-WRT-23, D-61
+ *     R-AGG-09, R-WRT-01, R-WRT-07, R-WRT-08, R-WRT-15, R-WRT-16, R-WRT-18, R-WRT-23, D-61
  */
 @Incubating
 public interface ModelQueryExecutor<E> {
@@ -116,30 +116,45 @@ public interface ModelQueryExecutor<E> {
             Function<List<M>, List<S>> pageTransformer, Consumer<S> sink);
 
     /**
-     * Writes {@code u}'s assignments to the rows it chooses, in one {@code CriteriaUpdate}, and returns the rows
-     * affected. It loads no entity and runs no lifecycle callback, cascade, Bean Validation or Envers audit: those
-     * stay with JPA entity writes (R-WRT-01). An update that assigns nothing and expects no version, or whose
-     * {@code whereKeys} received no key, runs no SQL and returns 0 (R-WRT-07). The first execution of a definition
-     * per {@code EntityManagerFactory} checks it against the JPA metamodel, before any statement (D-61).
+     * Writes {@code u}'s assignments to the rows it chooses, in one {@code CriteriaUpdate} per run of keys, and returns
+     * the rows affected. It loads no entity and runs no lifecycle callback, cascade, Bean Validation or Envers audit:
+     * those stay with JPA entity writes (R-WRT-01). {@code whereKeys} writes each distinct key once, splitting the keys
+     * across statements to the vendor's limits, and returns the summed count (R-WRT-08). An update that assigns nothing
+     * and expects no version, or whose {@code whereKeys} received no key, runs no SQL and returns 0 (R-WRT-07). The
+     * first execution of a definition per {@code EntityManagerFactory} checks it against the JPA metamodel, before any
+     * statement (D-61).
+     *
+     * <p>Pending entity changes are flushed first. Afterwards the persistence context is cleared, unless the write's
+     * {@code persistenceContext(...)}, else {@link ModelQueryConfig#persistenceContextMode}, is {@code KEEP}, and the
+     * root entity is evicted from the second-level cache (R-WRT-15). Clearing detaches every managed entity, not only
+     * the root's, so a later change to any of them is silently not written; with {@code KEEP} the root's entities
+     * stay managed but stale.
      *
      * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution: {@code MQ1608} when the
      *     definition's primary key is not the root entity's id, {@code MQ1605} when a column writes an id or the
      *     {@code @Version} attribute, {@code MQ1606} for {@code expectVersion} on a root with no {@code @Version}
      *     attribute or with a value of another type
+     * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2501}, before any statement, when the
+     *     {@code EntityManager} is not joined to a transaction (R-WRT-18)
      * @throws jakarta.persistence.OptimisticLockException when {@code expectVersion} was given and no row was
      *     written: the row's version moved, or the row no longer matches (R-WRT-16)
      */
     long update(ModelUpdate<E, ?> u);
 
     /**
-     * Deletes the rows {@code d} chooses, in one {@code CriteriaDelete}, and returns the rows affected. It loads no
-     * entity and runs no lifecycle callback, cascade, Bean Validation or Envers audit: those stay with JPA entity
-     * writes (R-WRT-01). A delete whose {@code whereKeys} received no key runs no SQL and returns 0 (R-WRT-12). The
-     * first execution of a definition per {@code EntityManagerFactory} checks it against the JPA metamodel, before any
-     * statement (D-61).
+     * Deletes the rows {@code d} chooses, in one {@code CriteriaDelete} per run of keys, and returns the rows affected.
+     * It loads no entity and runs no lifecycle callback, cascade, Bean Validation or Envers audit: those stay with JPA
+     * entity writes (R-WRT-01). {@code whereKeys} deletes each distinct key once, splitting the keys across statements
+     * to the vendor's limits, and returns the summed count (R-WRT-08). A delete whose {@code whereKeys} received no key
+     * runs no SQL and returns 0 (R-WRT-12). The first execution of a definition per {@code EntityManagerFactory} checks
+     * it against the JPA metamodel, before any statement (D-61). The persistence context and the second-level cache are
+     * handled as {@link #update} handles them (R-WRT-15); a row a foreign key protects surfaces the provider's
+     * constraint exception (R-WRT-18).
      *
      * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution: {@code MQ1608} when the
      *     definition's primary key is not the root entity's id
+     * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2501}, before any statement, when the
+     *     {@code EntityManager} is not joined to a transaction (R-WRT-18)
      */
     long delete(ModelDelete<E, ?> d);
 }

@@ -154,6 +154,9 @@ public enum MqCode {
     /** A sort property names no selected column or aggregate, or more than one (R-QRY-14, D-52). */
     MQ2301("A sort property resolves to no selected column or to more than one"),
 
+    /** A bulk write ran without an active transaction (R-WRT-18). */
+    MQ2501("A bulk write needs an active transaction"),
+
     /** {@code modelquery.vendor} names an unknown vendor (R-VND-04). */
     MQ4001("modelquery.vendor names an unknown vendor"),
 

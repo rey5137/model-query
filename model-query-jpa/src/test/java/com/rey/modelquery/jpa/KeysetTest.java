@@ -407,6 +407,20 @@ class KeysetTest {
         assertThat(after(desc, last, new Object[] {null, 16L})).extracting(Row3::id).containsExactly(9L, 8L, 7L);
     }
 
+    @Test
+    void ac_qa_04_a_key_only_keyset_orders_by_the_key_ascending_and_selects_the_keys_after_the_cursor() {
+        // No order of its own: the key alone orders and pages, as a write's key loop does (D-63).
+        var q = ModelQuery.builder(ROOT, MAPPER).columns(ColumnSet.of(ID, A, B, C)).primaryKey(PrimaryKey.of(ID))
+                .build();
+        Keyset<Row3> keyset = Keyset.ofKey(q.primaryKey().orElseThrow());
+        List<Long> ids = rows.stream().map(Row3::id).sorted().toList();
+        assertThat(after(q, keyset, null)).extracting(Row3::id).isEqualTo(ids);
+        assertThat(after(q, keyset, new Object[] {5L})).extracting(Row3::id)
+                .isEqualTo(ids.stream().filter(id -> id > 5L).toList());
+        // a is NULL in row 7, but it is not a key column, so the cursor is the id alone.
+        assertThat(cursorRow(q, keyset, 7)).containsExactly(7L);
+    }
+
     private static Keyset<Row3> keyset(ModelQuery<?, ?, Row3> q, NullOrdering ordering, KeysetNullKeys nullKeys) {
         return keyset(q, ordering, Optional.empty(), nullKeys);
     }

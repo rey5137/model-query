@@ -8,6 +8,7 @@ import jakarta.persistence.metamodel.Metamodel;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.UnaryOperator;
 
 /**
@@ -20,7 +21,7 @@ import java.util.function.UnaryOperator;
  *
  * @param <E> the root entity
  * @param <M> the model whose key and filter columns the delete uses
- * @implSpec R-WRT-09, R-WRT-10, R-WRT-12, D-60, D-61, D-63
+ * @implSpec R-WRT-08, R-WRT-09, R-WRT-10, R-WRT-12, R-WRT-15, D-60, D-61, D-62, D-63
  */
 @Incubating
 public final class ModelDelete<E, M> {
@@ -75,12 +76,48 @@ public final class ModelDelete<E, M> {
      * the key columns (R-WRT-10).
      */
     public CriteriaDelete<E> buildWrite(CriteriaBuilder cb, RenderOptions options) {
+        return render(cb, options, null);
+    }
+
+    /**
+     * Renders the delete as {@link #buildWrite(CriteriaBuilder, RenderOptions)} does, choosing only the keys of
+     * {@code chunk}, a run of {@link #distinctKeys()}: an executor splits the keys across statements to the vendor's
+     * limits (R-WRT-08, D-63).
+     *
+     * @param chunk attribute-value keys, as {@link #distinctKeys()} returns them
+     * @throws IllegalArgumentException for an empty {@code chunk}, or on a delete without {@code whereKey} or
+     *     {@code whereKeys}
+     */
+    public CriteriaDelete<E> buildWrite(CriteriaBuilder cb, RenderOptions options, List<?> chunk) {
+        return render(cb, options, Objects.requireNonNull(chunk, "chunk"));
+    }
+
+    /**
+     * The distinct keys of {@code whereKey} or {@code whereKeys}, each converted to its attribute value (a list of
+     * component values for a composite key), in first-seen order; empty when the rows were chosen without keys. Each
+     * distinct key is deleted once (R-WRT-08, D-63).
+     *
+     * @throws IllegalArgumentException for a composite key with the wrong number of components
+     */
+    public Optional<List<Object>> distinctKeys() {
+        List<Object> keys = definition.rows().keys();
+        return keys == null ? Optional.empty()
+                : Optional.of(WriteRendering.distinctKeys(definition.primaryKey(), keys));
+    }
+
+    /** The write's own {@code persistenceContext(...)}, which wins over the executor's configured mode (D-62). */
+    public Optional<PersistenceContextMode> persistenceContext() {
+        return Optional.ofNullable(definition.persistenceContext());
+    }
+
+    private CriteriaDelete<E> render(CriteriaBuilder cb, RenderOptions options, List<?> chunk) {
         Objects.requireNonNull(cb, "cb");
         Objects.requireNonNull(options, "options");
+        List<Object> keys = WriteRendering.keysToRender(distinctKeys().orElse(null), chunk);
         CriteriaDelete<E> delete = cb.createCriteriaDelete(rootEntity());
         Root<E> from = delete.from(rootEntity());
-        List<Predicate> where = WriteRendering.rows(definition.rows(), definition.primaryKey(), delete, from, cb,
-                options);
+        List<Predicate> where = WriteRendering.rows(keys, definition.rows().where(), definition.primaryKey(), delete,
+                from, cb, options);
         if (!where.isEmpty()) {
             delete.where(where.toArray(Predicate[]::new));
         }

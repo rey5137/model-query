@@ -15,12 +15,16 @@ import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
+import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.PersistenceContextMode;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
+import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.tck.col.CompositeKeyItemEntity;
 import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
@@ -29,8 +33,14 @@ import com.rey.modelquery.tck.col.OrderStatus;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
+import jakarta.persistence.Cache;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.FlushModeType;
 import jakarta.persistence.OptimisticLockException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -38,14 +48,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
+import java.util.stream.LongStream;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
+import org.hibernate.exception.ConstraintViolationException;
 
 /**
- * Bulk updates and deletes rendered as one statement (spec api/14 R-WRT-07, R-WRT-10, R-WRT-13, R-WRT-14,
- * R-WRT-16, D-61). Every write runs in a transaction that is rolled back, so the shared fixture stays as seeded. A
- * write whose tree needs a join reads its target table in a sub-query, which MySQL refuses; those run on H2 and
- * PostgreSQL until MySQL's key-first path lands (M6.4).
+ * Bulk updates and deletes rendered as one statement, or one per run of keys (spec api/14 R-WRT-07, R-WRT-08,
+ * R-WRT-10, R-WRT-13, R-WRT-14, R-WRT-15, R-WRT-16, R-WRT-18, D-61, D-62, D-63). Every write runs in a transaction
+ * that is rolled back, so the shared fixture stays as seeded. A write whose tree needs a join reads its target table
+ * in a sub-query, which MySQL refuses; those run on H2 and PostgreSQL until MySQL's key-first path lands (M6.4).
  */
 class BulkWriteTest {
 
@@ -55,6 +67,8 @@ class BulkWriteTest {
     record CustomerPatch(Long id) {}
 
     record ItemPatch(Long id) {}
+
+    record TenantItemPatch(Integer tenantId, Integer itemNo) {}
 
     /** {@code #42} in the model, {@code 42} in the entity. */
     static final class RefConverter implements ColumnConverter<String, Long> {
@@ -120,6 +134,18 @@ class BulkWriteTest {
             ColumnField.of(CustomerPatch.class, CUSTOMERS, "name", String.class);
     private static final ColumnField<CustomerPatch, CustomerEntity, String> EMAIL =
             ColumnField.of(CustomerPatch.class, CUSTOMERS, "email", String.class);
+
+    private static final TableField<CompositeKeyItemEntity, CompositeKeyItemEntity> TENANT_ITEMS =
+            TableField.root(CompositeKeyItemEntity.class);
+    private static final ColumnField<TenantItemPatch, CompositeKeyItemEntity, Integer> TENANT_ID =
+            ColumnField.of(TenantItemPatch.class, TENANT_ITEMS, "tenantId", Integer.class);
+    private static final ColumnField<TenantItemPatch, CompositeKeyItemEntity, Integer> ITEM_NO =
+            ColumnField.of(TenantItemPatch.class, TENANT_ITEMS, "itemNo", Integer.class);
+    private static final ColumnField<TenantItemPatch, CompositeKeyItemEntity, String> LABEL =
+            ColumnField.of(TenantItemPatch.class, TENANT_ITEMS, "label", String.class);
+
+    /** The {@code OTHER} profile: 1 000 values per IN list and 2 000 binds per statement (R-VND-06). */
+    private static final ModelQueryConfig OTHER = ModelQueryConfig.defaults().vendor(DatabaseVendor.OTHER);
 
     private static final TableField<OrderItemEntity, OrderItemEntity> ITEMS = TableField.root(OrderItemEntity.class);
     private static final TableField<OrderItemEntity, OrderEntity> ITEM_ORDER = TableField.join(ITEMS, "order", INNER);
@@ -226,7 +252,77 @@ class BulkWriteTest {
         assertThat(versions).containsExactly(1);
     }
 
-    // ---- AC-WRT-06 (MQ1608 only; key splitting and duplicates are M6.3's)
+    // ---- AC-WRT-06
+
+    @TckTest
+    void ac_wrt_06_where_keys_past_the_in_list_limit_updates_every_distinct_key_once(TckDatabase db) {
+        // 2 500 distinct keys, the first 100 given twice: three statements under OTHER's 1 000-value IN lists.
+        List<Long> keys = new ArrayList<>(LongStream.rangeClosed(1, 2_500).boxed().toList());
+        keys.addAll(LongStream.rangeClosed(1, 100).boxed().toList());
+        var update = UPDATE.primaryKey(PrimaryKey.of(ID)).set(STATUS, "KEYED").whereKeys(keys).build();
+        var before = new LinkedHashMap<Long, Integer>();
+        var after = new LinkedHashMap<Long, Integer>();
+        long[] written = new long[1];
+
+        List<String> sql = SqlSnapshots.capture(db, ds -> inRolledBackTransaction(ds, em -> {
+            before.putAll(versions(em));
+            written[0] = ModelQueryExecutor.create(em, OrderEntity.class, OTHER).update(update);
+            after.putAll(versions(em));
+        }));
+
+        assertThat(written[0]).isEqualTo(2_500);
+        assertThat(writes(sql, "update")).extracting(BulkWriteTest::binds).containsExactly(1_002L, 1_002L, 502L);
+        before.forEach((id, version) -> assertThat(after.get(id)).as("version of order %d", id)
+                .isEqualTo(id <= 2_500 ? version + 1 : version));
+    }
+
+    @TckTest
+    void ac_wrt_06_composite_where_keys_count_the_statement_own_binds_and_update_every_distinct_key_once(
+            TckDatabase db) {
+        // 1 999 distinct keys of two binds each, the first 50 given twice. The SET value takes one of OTHER's 2 000
+        // binds, so a statement takes 999 keys, not 1 000: three statements, not two.
+        List<List<Object>> keys = new ArrayList<>();
+        for (int i = 0; i < 1_999; i++) {
+            keys.add(List.of(i / 100 + 1, i % 100 + 1));
+        }
+        keys.addAll(keys.subList(0, 50));
+        var update = ModelUpdate.builder(TENANT_ITEMS).primaryKey(PrimaryKey.composite(TENANT_ID, ITEM_NO))
+                .set(LABEL, "KEYED").whereKeys(keys).build();
+        long[] written = new long[1];
+        var labelled = new ArrayList<Object[]>();
+
+        List<String> sql = SqlSnapshots.capture(db, ds -> inRolledBackTransaction(ds, em -> {
+            written[0] = ModelQueryExecutor.create(em, CompositeKeyItemEntity.class, OTHER).update(update);
+            labelled.addAll(em.createQuery("select i.tenantId, i.itemNo from CompositeKeyItemEntity i"
+                    + " where i.label = 'KEYED'", Object[].class).getResultList());
+        }));
+
+        assertThat(written[0]).isEqualTo(1_999);
+        assertThat(writes(sql, "update")).extracting(BulkWriteTest::binds).containsExactly(1_999L, 1_999L, 3L);
+        // Every item but the last, (20, 100).
+        assertThat(labelled).hasSize(1_999).noneMatch(row -> row[0].equals(20) && row[1].equals(100));
+    }
+
+    @TckTest
+    void ac_wrt_06_where_keys_with_no_keys_runs_no_sql_and_a_duplicate_key_is_deleted_once(TckDatabase db) {
+        var noUpdate = UPDATE.primaryKey(PrimaryKey.of(ID)).set(STATUS, "NONE").whereKeys(List.of()).build();
+        var noDelete = ModelDelete.builder(ORDERS).primaryKey(PrimaryKey.of(ID)).whereKeys(List.of()).build();
+        var twice = ModelDelete.builder(TENANT_ITEMS).primaryKey(PrimaryKey.composite(TENANT_ID, ITEM_NO))
+                .whereKeys(List.of(List.of(3, 7), List.of(3, 8), List.of(3, 7))).build();
+        long[] written = new long[3];
+
+        List<String> none = SqlSnapshots.capture(db, ds -> inRolledBackTransaction(ds, em -> {
+            written[0] = orders(em).update(noUpdate);
+            written[1] = orders(em).delete(noDelete);
+        }));
+        List<String> sql = SqlSnapshots.capture(db, ds -> inRolledBackTransaction(ds, em -> written[2] =
+                ModelQueryExecutor.create(em, CompositeKeyItemEntity.class, ModelQueryConfig.defaults())
+                        .delete(twice)));
+
+        assertThat(none).isEmpty();
+        assertThat(written).containsExactly(0, 0, 2);
+        assertThat(writes(sql, "delete")).extracting(BulkWriteTest::binds).containsExactly(4L);
+    }
 
     @TckTest
     void ac_wrt_06_a_primary_key_that_is_not_the_entity_id_throws_mq1608_before_any_statement(TckDatabase db) {
@@ -234,6 +330,9 @@ class BulkWriteTest {
         var delete = ModelDelete.builder(ORDERS).primaryKey(PrimaryKey.of(STATUS)).whereKey("NEW").build();
 
         List<String> sql = SqlSnapshots.capture(db, ds -> inRolledBackTransaction(ds, em -> {
+            // A pending change the flush would write: the check comes before the flush.
+            em.setFlushMode(FlushModeType.COMMIT);
+            em.find(CustomerEntity.class, 7L).rename("Pending");
             assertThatThrownBy(() -> orders(em).update(update))
                     .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ1608));
@@ -242,7 +341,7 @@ class BulkWriteTest {
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ1608));
         }));
 
-        assertThat(sql).isEmpty();
+        assertThat(sql).noneMatch(statement -> statement.startsWith("update") || statement.startsWith("delete"));
     }
 
     // ---- AC-WRT-07 (one statement on H2 and PostgreSQL; the parity over every Filters fixture is M6.4's)
@@ -369,6 +468,120 @@ class BulkWriteTest {
         assertThat(sql).isEmpty();
     }
 
+    // ---- AC-WRT-10 (a commitEachChunk() write outside a transaction is M6.5's)
+
+    @TckTest
+    void ac_wrt_10_pending_changes_are_flushed_first_and_the_persistence_context_is_cleared_by_default(
+            TckDatabase db) {
+        var update = ModelUpdate.builder(CUSTOMERS).primaryKey(PrimaryKey.of(CUSTOMER_ID)).set(EMAIL, "new@test")
+                .whereKey(7L).build();
+        var stored = new ArrayList<Object[]>();
+        boolean[] managed = new boolean[1];
+
+        List<String> sql = SqlSnapshots.capture(db, ds -> inRolledBackTransaction(ds, em -> {
+            // Nothing flushes the pending rename but the write itself.
+            em.setFlushMode(FlushModeType.COMMIT);
+            CustomerEntity customer = em.find(CustomerEntity.class, 7L);
+            customer.rename("Flushed");
+            customers(em).update(update);
+            managed[0] = em.contains(customer);
+            stored.add(em.createQuery("select c.name, c.email from CustomerEntity c where c.id = 7", Object[].class)
+                    .getSingleResult());
+        }));
+
+        List<String> updates = writes(sql, "update");
+        assertThat(updates).hasSize(2);
+        assertThat(updates.get(0)).contains("name=?");
+        assertThat(updates.get(1)).contains("email=?").doesNotContain("name=?");
+        assertThat(managed[0]).isFalse();
+        assertThat(stored.get(0)).containsExactly("Flushed", "new@test");
+    }
+
+    @TckTest
+    void ac_wrt_10_keep_leaves_the_persistence_context_and_a_write_own_mode_wins_over_the_configured_one(
+            TckDatabase db) {
+        ModelUpdate.Options<CustomerEntity, Long, CustomerPatch> rename = ModelUpdate.builder(CUSTOMERS)
+                .primaryKey(PrimaryKey.of(CUSTOMER_ID)).set(EMAIL, "kept@test").whereKey(7L);
+        ModelQueryConfig keep = ModelQueryConfig.defaults().persistenceContextMode(PersistenceContextMode.KEEP);
+        var managed = new ArrayList<Boolean>();
+
+        inRolledBackTransaction(JoinTestSupport.dataSource(db), em -> {
+            CustomerEntity customer = em.find(CustomerEntity.class, 7L);
+            ModelQueryExecutor.create(em, CustomerEntity.class, keep).update(rename.build());
+            managed.add(em.contains(customer));
+            ModelQueryExecutor.create(em, CustomerEntity.class, keep)
+                    .update(rename.persistenceContext(PersistenceContextMode.CLEAR).build());
+            managed.add(em.contains(customer));
+            customer = em.find(CustomerEntity.class, 7L);
+            customers(em).update(rename.persistenceContext(PersistenceContextMode.KEEP).build());
+            managed.add(em.contains(customer));
+        });
+
+        assertThat(managed).containsExactly(true, false, true);
+    }
+
+    @TckTest
+    void ac_wrt_10_the_root_is_evicted_from_the_second_level_cache_after_a_write_and_after_a_failed_one(
+            TckDatabase db) {
+        var update = ModelUpdate.builder(CUSTOMERS).primaryKey(PrimaryKey.of(CUSTOMER_ID)).set(NAME, "x")
+                .whereKey(7L).build();
+        // Customer 1 has orders, whose foreign key refuses the delete.
+        var delete = ModelDelete.builder(CUSTOMERS).primaryKey(PrimaryKey.of(CUSTOMER_ID)).whereKey(1L).build();
+        var evicted = new ArrayList<Object>();
+
+        inRolledBackTransaction(JoinTestSupport.dataSource(db), em -> {
+            EntityManager recording = recordingEvictions(em, evicted);
+            customers(recording).update(update);
+            assertThat(evicted).containsExactly(CustomerEntity.class);
+            assertThatThrownBy(() -> customers(recording).delete(delete))
+                    .isInstanceOf(ConstraintViolationException.class);
+        });
+
+        assertThat(evicted).containsExactly(CustomerEntity.class, CustomerEntity.class);
+    }
+
+    // ---- AC-WRT-13
+
+    @TckTest
+    void ac_wrt_13_a_write_with_no_transaction_throws_mq2501_before_any_statement(TckDatabase db) {
+        var update = ModelUpdate.builder(CUSTOMERS).primaryKey(PrimaryKey.of(CUSTOMER_ID)).set(NAME, "x")
+                .whereKey(7L).build();
+        var delete = ModelDelete.builder(CUSTOMERS).primaryKey(PrimaryKey.of(CUSTOMER_ID)).whereKey(7L).build();
+
+        List<String> sql = SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory factory = JoinTestSupport.sessionFactory(ds)) {
+                factory.inSession(em -> {
+                    assertThatThrownBy(() -> customers(em).update(update))
+                            .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                                    e -> assertThat(e.code()).isEqualTo(MqCode.MQ2501))
+                            .hasMessageContaining("bulk update");
+                    assertThatThrownBy(() -> customers(em).delete(delete))
+                            .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                                    e -> assertThat(e.code()).isEqualTo(MqCode.MQ2501))
+                            .hasMessageContaining("bulk delete");
+                });
+            }
+        });
+
+        assertThat(sql).isEmpty();
+    }
+
+    @TckTest
+    void ac_wrt_13_a_delete_blocked_by_a_foreign_key_surfaces_the_provider_constraint_exception(TckDatabase db) {
+        var delete = ModelDelete.builder(CUSTOMERS).primaryKey(PrimaryKey.of(CUSTOMER_ID)).whereKey(1L).build();
+        boolean[] managed = new boolean[1];
+
+        inRolledBackTransaction(JoinTestSupport.dataSource(db), em -> {
+            CustomerEntity customer = em.find(CustomerEntity.class, 2L);
+            assertThatThrownBy(() -> customers(em).delete(delete))
+                    .isInstanceOf(ConstraintViolationException.class);
+            // The persistence context is cleared even so (D-62).
+            managed[0] = em.contains(customer);
+        });
+
+        assertThat(managed[0]).isFalse();
+    }
+
     // ---- AC-WRT-19
 
     @TckTest
@@ -398,6 +611,56 @@ class BulkWriteTest {
 
     private static ModelQueryExecutor<CustomerEntity> customers(EntityManager em) {
         return ModelQueryExecutor.create(em, CustomerEntity.class, ModelQueryConfig.defaults());
+    }
+
+    /** Every order's version, by id. */
+    private static Map<Long, Integer> versions(EntityManager em) {
+        var versions = new LinkedHashMap<Long, Integer>();
+        em.createQuery("select o.id, o.version from OrderEntity o", Object[].class).getResultList()
+                .forEach(row -> versions.put((Long) row[0], (Integer) row[1]));
+        return versions;
+    }
+
+    /** The statements of {@code sql} that start with {@code verb}. */
+    private static List<String> writes(List<String> sql, String verb) {
+        return sql.stream().filter(statement -> statement.startsWith(verb)).toList();
+    }
+
+    /** The bind parameters of {@code statement}. */
+    private static long binds(String statement) {
+        return statement.chars().filter(c -> c == '?').count();
+    }
+
+    /** {@code em}, whose factory's second-level cache records each entity type evicted into {@code evicted}. */
+    private static EntityManager recordingEvictions(EntityManager em, List<Object> evicted) {
+        EntityManagerFactory factory = em.getEntityManagerFactory();
+        Cache cache = factory.getCache();
+        Cache recordingCache = proxy(Cache.class, (method, args) -> {
+            if (method.getName().equals("evict") && args.length == 1) {
+                evicted.add(args[0]);
+            }
+            return method.invoke(cache, args);
+        });
+        EntityManagerFactory recordingFactory = proxy(EntityManagerFactory.class, (method, args) ->
+                method.getName().equals("getCache") ? recordingCache : method.invoke(factory, args));
+        return proxy(EntityManager.class, (method, args) ->
+                method.getName().equals("getEntityManagerFactory") ? recordingFactory : method.invoke(em, args));
+    }
+
+    /** A call on a {@link #proxy}. */
+    private interface Call {
+        Object invoke(Method method, Object[] args) throws ReflectiveOperationException;
+    }
+
+    /** A {@code type} whose every call goes to {@code call}, rethrowing what the target threw. */
+    private static <T> T proxy(Class<T> type, Call call) {
+        return type.cast(Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type}, (self, method, args) -> {
+            try {
+                return call.invoke(method, args == null ? new Object[0] : args);
+            } catch (InvocationTargetException e) {
+                throw e.getCause();
+            }
+        }));
     }
 
     private static StoredOrder stored(EntityManager em, long id) {

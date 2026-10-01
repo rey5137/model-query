@@ -2,6 +2,7 @@ package com.rey.modelquery.core;
 
 import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
@@ -10,7 +11,10 @@ import jakarta.persistence.metamodel.EmbeddableType;
 import jakarta.persistence.metamodel.EntityType;
 import jakarta.persistence.metamodel.SingularAttribute;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -26,66 +30,110 @@ final class WriteRendering {
     private WriteRendering() {}
 
     /**
-     * The predicates choosing {@code rows} of {@code root}, the statement's root: the keys, then the {@code where}
-     * tree. A tree that needs no join renders on the root itself; one that needs any join renders whole inside one
-     * {@code EXISTS} over a second root of the entity, correlated by the key columns, since a bulk statement has no
-     * joins and splitting the tree per predicate would change what {@code not} and {@code or} mean (R-WRT-10).
+     * The distinct keys of {@code modelKeys}, each converted to its attribute value through its column's converter (a
+     * list of component values for a composite key), in first-seen order: two keys that convert to one attribute
+     * value write one row, so they are one key (R-WRT-08, D-63).
+     *
+     * @throws IllegalArgumentException for a composite key with the wrong number of components
      */
-    static <E, M> List<Predicate> rows(WriteRows rows, PrimaryKey<M, ?> key, CommonAbstractCriteria statement,
-            Root<E> root, CriteriaBuilder cb, RenderOptions options) {
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    static <M> List<Object> distinctKeys(PrimaryKey<M, ?> key, List<Object> modelKeys) {
+        List<ColumnField<M, ?, ?>> columns = key.columns();
+        var distinct = new LinkedHashSet<Object>();
+        for (Object modelKey : modelKeys) {
+            if (columns.size() == 1) {
+                distinct.add(((ColumnField) columns.get(0)).toAttribute(modelKey));
+                continue;
+            }
+            List<?> values = (List<?>) modelKey;
+            if (values.size() != columns.size()) {
+                throw new IllegalArgumentException("a key of " + columns.size() + " components has "
+                        + values.size() + ": " + values);
+            }
+            Object[] attributes = new Object[columns.size()];
+            for (int c = 0; c < attributes.length; c++) {
+                attributes[c] = ((ColumnField) columns.get(c)).toAttribute(values.get(c));
+            }
+            distinct.add(Arrays.asList(attributes));
+        }
+        return Collections.unmodifiableList(new ArrayList<>(distinct));
+    }
+
+    /**
+     * The predicates choosing the rows of {@code root}, the statement's root: {@code key IN (keys)} unless
+     * {@code keys} is {@code null}, then the {@code where} tree. A tree that needs no join renders on the root
+     * itself; one that needs any join renders whole inside one {@code EXISTS} over a second root of the entity,
+     * correlated by the key columns, since a bulk statement has no joins and splitting the tree per predicate would
+     * change what {@code not} and {@code or} mean (R-WRT-10).
+     *
+     * @param keys attribute-value keys, as {@link #distinctKeys} returns them, or {@code null} for no key predicate
+     */
+    static <E, M> List<Predicate> rows(List<Object> keys, List<Filter> where, PrimaryKey<M, ?> key,
+            CommonAbstractCriteria statement, Root<E> root, CriteriaBuilder cb, RenderOptions options) {
         JoinContext ctx = JoinContext.of(root, cb, statement, options);
         var predicates = new ArrayList<Predicate>();
-        if (rows.keys() != null) {
-            predicates.add(keyIn(key, rows.keys(), ctx, cb));
+        if (keys != null) {
+            predicates.add(keyIn(key, keys, ctx, cb));
         }
-        if (rows.where().isEmpty()) {
+        if (where.isEmpty()) {
             return predicates;
         }
         Subquery<Integer> sub = statement.subquery(Integer.class);
         Root<E> inner = sub.from(root.getModel().getJavaType());
         JoinContext innerCtx = JoinContext.of(inner, cb, sub, options);
-        List<Predicate> tree = ConditionGroup.toPredicates(rows.where(), innerCtx);
+        List<Predicate> tree = ConditionGroup.toPredicates(where, innerCtx);
         if (inner.getJoins().isEmpty()) {
             // Rendered again on the statement's root; the sub-query is dropped unused.
-            predicates.addAll(ConditionGroup.toPredicates(rows.where(), ctx));
+            predicates.addAll(ConditionGroup.toPredicates(where, ctx));
         } else {
             // Even with no predicate left: an INNER join the tree made narrows the rows, as it does on a read.
-            var where = new ArrayList<Predicate>();
+            var correlated = new ArrayList<Predicate>();
             for (ColumnField<M, ?, ?> column : key.columns()) {
-                where.add(cb.equal(column.path(innerCtx), column.path(ctx)));
+                correlated.add(cb.equal(column.path(innerCtx), column.path(ctx)));
             }
-            where.addAll(tree);
-            sub.select(cb.literal(1)).where(where.toArray(Predicate[]::new));
+            correlated.addAll(tree);
+            sub.select(cb.literal(1)).where(correlated.toArray(Predicate[]::new));
             predicates.add(cb.exists(sub));
         }
         return predicates;
     }
 
     /**
-     * {@code key IN (keys)} over model keys, each converted to its attribute value; a composite key is an OR of
-     * per-key conjunctions, since JPA has no row-value IN (P-4).
+     * The keys to render: all of the definition's distinct keys when {@code chunk} is {@code null}, else
+     * {@code chunk}, which must be a non-empty run of them; {@code null} when the definition chose its rows without
+     * keys.
+     *
+     * @throws IllegalArgumentException for a {@code chunk} that is empty or given to a definition without keys
+     */
+    static List<Object> keysToRender(List<Object> distinct, List<?> chunk) {
+        if (chunk == null) {
+            return distinct;
+        }
+        if (distinct == null || chunk.isEmpty()) {
+            throw new IllegalArgumentException(distinct == null
+                    ? "a write without whereKey or whereKeys takes no keys"
+                    : "a chunk of keys is never empty, since an empty one would leave the rows unchosen");
+        }
+        return List.copyOf(chunk);
+    }
+
+    /**
+     * {@code key IN (keys)} over attribute-value keys; a composite key is an OR of per-key conjunctions, since JPA
+     * has no row-value IN (P-4).
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
     private static <M> Predicate keyIn(PrimaryKey<M, ?> key, List<Object> keys, JoinContext ctx, CriteriaBuilder cb) {
         List<ColumnField<M, ?, ?>> columns = key.columns();
         if (columns.size() == 1) {
-            ColumnField column = columns.get(0);
-            if (keys.size() == 1) {
-                return cb.equal(column.path(ctx), column.toAttribute(keys.get(0)));
-            }
-            return column.path(ctx).in(keys.stream().map(column::toAttribute).toList());
+            Path path = columns.get(0).path(ctx);
+            return keys.size() == 1 ? cb.equal(path, keys.get(0)) : path.in(keys);
         }
         Predicate[] each = new Predicate[keys.size()];
         for (int i = 0; i < each.length; i++) {
             List<?> values = (List<?>) keys.get(i);
-            if (values.size() != columns.size()) {
-                throw new IllegalArgumentException("a key of " + columns.size() + " components has "
-                        + values.size() + ": " + values);
-            }
             Predicate[] equal = new Predicate[columns.size()];
             for (int c = 0; c < equal.length; c++) {
-                ColumnField column = columns.get(c);
-                equal[c] = cb.equal(column.path(ctx), column.toAttribute(values.get(c)));
+                equal[c] = cb.equal(columns.get(c).path(ctx), values.get(c));
             }
             each[i] = cb.and(equal);
         }

@@ -13,6 +13,7 @@ import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.OrderField;
 import com.rey.modelquery.core.PageSpec;
+import com.rey.modelquery.core.PersistenceContextMode;
 import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.RenderOptions;
@@ -58,7 +59,9 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.function.Consumer;
+import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 /**
@@ -66,7 +69,8 @@ import java.util.stream.Stream;
  *
  * @implSpec R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-05, R-EXE-06, R-EXE-07, R-EXE-09, R-QRY-09, R-PAG-01,
  *     R-PAG-02, R-PAG-03, R-PAG-04, R-PAG-05, R-PAG-06, R-PAG-07, R-PAG-08, R-PAG-09, R-PAG-10, R-PAG-11, R-PAG-12,
- *     R-PAG-13, R-PAG-14, R-AGG-09, R-EXE-08, R-EXE-11, R-WRT-07, R-WRT-14, R-WRT-16, R-WRT-23, D-61
+ *     R-PAG-13, R-PAG-14, R-AGG-09, R-EXE-08, R-EXE-11, R-WRT-07, R-WRT-08, R-WRT-14, R-WRT-15, R-WRT-16, R-WRT-18,
+ *     R-WRT-23, D-61, D-62, D-63
  */
 final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
@@ -93,6 +97,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private final ResolvedVendor vendor;
     /** The profile's facts as every query build of this executor renders by (D-34). */
     private final RenderOptions renderOptions;
+    /** The profile's IN-list and bind-parameter limits, as key-based reads and writes clamp to them (D-63). */
+    private final Keys keyLimits;
     /** The configured most keys per step-2 statement, or empty for the whole page within the clamp (R-PAG-07). */
     private final OptionalInt primaryKeyFirstBatchSize;
     /** The configured timeout for every statement, or empty for none (R-EXE-11). */
@@ -108,6 +114,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * database's default (R-PAG-05, D-36).
      */
     private final Optional<NullPrecedence> providerNulls;
+    /** What a bulk write does to the persistence context unless it sets its own mode (R-WRT-15, D-62). */
+    private final PersistenceContextMode persistenceContextMode;
 
     DefaultModelQueryExecutor(EntityManager em, Class<E> rootEntity, ModelQueryConfig config) {
         this.em = Objects.requireNonNull(em, "em");
@@ -124,11 +132,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 .flatMap(ProviderSupport::nullPrecedence)
                 .map(options::withNullPrecedenceRenderer)
                 .orElse(options);
+        this.keyLimits = new Keys(profile.maxInListSize(), profile.maxBindParameters());
         this.primaryKeyFirstBatchSize = config.primaryKeyFirstBatchSize();
         this.queryTimeout = config.queryTimeout();
         this.keysetNullKeys = config.keysetNullKeys();
         this.exportPageSize = config.exportPageSize();
         this.streamFetchSize = config.streamFetchSize();
+        this.persistenceContextMode = config.persistenceContextMode();
     }
 
     @Override
@@ -258,7 +268,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             return exportByKeyset(q, built, key, pageSize, limit, pageTransformer, sink);
         }
         appendStableOrder(q, built);
-        return exportByOffset(q, built, key, row -> keyOf(q, key, row), pageSize, limit, pageTransformer,
+        return exportByOffset(q, built, key, row -> Keys.keyOf(q, key, row), pageSize, limit, pageTransformer,
                 sink);
     }
 
@@ -266,11 +276,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     public long update(ModelUpdate<E, ?> u) {
         Objects.requireNonNull(u, "u");
         checkWriteOnce(u, u::checkMetamodel);
+        requireTransaction("update");
         if (u.writesNothing()) {
             return 0;
         }
-        int written = execute(em.createQuery(u.buildWrite(em.getCriteriaBuilder(), renderOptions,
-                (target, id) -> em.getReference(target, id))));
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        BiFunction<Class<?>, Object, ?> references = em::getReference;
+        long written = write(u.persistenceContext(), u.distinctKeys(),
+                () -> em.createQuery(u.buildWrite(cb, renderOptions, references)),
+                chunk -> em.createQuery(u.buildWrite(cb, renderOptions, references, chunk)));
         if (written == 0 && u.expectedVersion().isPresent()) {
             throw new OptimisticLockException(rootEntity.getSimpleName() + ": no row was written with version "
                     + u.expectedVersion().get() + "; its version moved, or it no longer exists or matches");
@@ -282,10 +296,67 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     public long delete(ModelDelete<E, ?> d) {
         Objects.requireNonNull(d, "d");
         checkWriteOnce(d, d::checkMetamodel);
+        requireTransaction("delete");
         if (d.writesNothing()) {
             return 0;
         }
-        return execute(em.createQuery(d.buildWrite(em.getCriteriaBuilder(), renderOptions)));
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        return write(d.persistenceContext(), d.distinctKeys(),
+                () -> em.createQuery(d.buildWrite(cb, renderOptions)),
+                chunk -> em.createQuery(d.buildWrite(cb, renderOptions, chunk)));
+    }
+
+    /**
+     * Throws {@code MQ2501} naming {@code operation} when {@code em} is not joined to a transaction, before any
+     * statement, instead of the provider's {@code TransactionRequiredException} at the end (R-WRT-18).
+     */
+    private void requireTransaction(String operation) {
+        if (!em.isJoinedToTransaction()) {
+            throw new ModelQueryExecutionException(MqCode.MQ2501, rootEntity.getSimpleName() + ": a bulk " + operation
+                    + " needs an active transaction, and the EntityManager is not joined to one");
+        }
+    }
+
+    /**
+     * Runs one write: flushes the pending entity changes first, so they are written and not overwritten afterwards,
+     * then the {@code whole} statement, or with {@code keys} the {@code byKeys} statements over runs of the keys sized
+     * to the profile's limits, counting each statement's own binds, {@code SET} values included, and sums the rows
+     * affected (R-WRT-08, R-WRT-15, D-63). Afterwards, whether or not it threw, clears the persistence context unless
+     * the write's own mode, else the configured one, is {@code KEEP}, and evicts the root from the second-level cache
+     * (D-62).
+     */
+    private long write(Optional<PersistenceContextMode> ownMode, Optional<List<Object>> keys, Supplier<Query> whole,
+            Function<List<Object>, Query> byKeys) {
+        if (em.isJoinedToTransaction()) {
+            em.flush();
+        }
+        try {
+            if (keys.isEmpty()) {
+                return execute(whole.get());
+            }
+            List<Object> all = keys.get();
+            int chunk = all.size() == 1 ? 1 : keyChunkSize(byKeys.apply(all.subList(0, 1)), all.get(0));
+            long written = 0;
+            for (int from = 0; from < all.size(); from += chunk) {
+                written += execute(byKeys.apply(all.subList(from, Math.min(all.size(), from + chunk))));
+            }
+            return written;
+        } finally {
+            if (ownMode.orElse(persistenceContextMode) == PersistenceContextMode.CLEAR) {
+                em.clear();
+            }
+            em.getEntityManagerFactory().getCache().evict(rootEntity);
+        }
+    }
+
+    /**
+     * The most keys one write statement takes, from {@code oneKey}, the statement over a single key: its binds less
+     * the key's own are the statement's (D-63).
+     */
+    private int keyChunkSize(Query oneKey, Object key) {
+        int keyColumns = key instanceof List<?> components ? components.size() : 1;
+        int ownBinds = Math.max(0, oneKey.getParameters().size() - keyColumns);
+        return keyLimits.clamp(ownBinds, keyColumns, OptionalInt.empty());
     }
 
     /** Runs a write statement with the configured timeout applied through the profile (R-EXE-11). */
@@ -379,7 +450,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         List<Tuple> rows = query.getResultList();
         List<Object> keys = new ArrayList<>(rows.size());
         for (Tuple tuple : rows) {
-            keys.add(keyOf(q, key, keyQuery.selection().row(tuple)));
+            keys.add(Keys.keyOf(q, key, keyQuery.selection().row(tuple)));
         }
         return keys;
     }
@@ -401,12 +472,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         for (int from = 0; from < distinct.size(); from += batch) {
             List<Object> batchKeys = distinct.subList(from, Math.min(distinct.size(), from + batch));
             BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL_BY_KEYS, renderOptions);
-            Predicate byKey = keyIn(key, batchKeys, built.joins(), cb);
+            Predicate byKey = Keys.keyIn(key, batchKeys, built.joins(), cb);
             Predicate own = built.query().getRestriction();
             built.query().where(own == null ? byKey : cb.and(own, byKey));
             appendStableOrder(q, built);
             for (Tuple tuple : create(built.query()).getResultList()) {
-                found.putIfAbsent(keyOf(q, key, built.selection().row(tuple)), new Found<>(built, tuple));
+                found.putIfAbsent(Keys.keyOf(q, key, built.selection().row(tuple)), new Found<>(built, tuple));
             }
         }
         List<M> models = new ArrayList<>(keys.size());
@@ -434,27 +505,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         // literal the provider binds as a parameter of the query; one it renders inline takes no bind.
         int ownBinds = em.createQuery(q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL_BY_KEYS, renderOptions).query())
                 .getParameters().size();
-        int clamp = Math.min(renderOptions.maxInListSize(),
-                (renderOptions.maxBindParameters() - ownBinds) / key.columns().size());
-        return Math.max(1, Math.min(primaryKeyFirstBatchSize.orElse(Integer.MAX_VALUE), clamp));
-    }
-
-    /** {@code key IN (keys)}; a composite key is an OR of per-key conjunctions, since JPA has no row-value IN (P-4). */
-    private static <M> Predicate keyIn(PrimaryKey<M, ?> key, List<Object> keys, JoinContext joins, CriteriaBuilder cb) {
-        List<ColumnField<M, ?, ?>> columns = key.columns();
-        if (columns.size() == 1) {
-            return columns.get(0).path(joins).in(keys);
-        }
-        Predicate[] each = new Predicate[keys.size()];
-        for (int i = 0; i < each.length; i++) {
-            List<?> values = (List<?>) keys.get(i);
-            Predicate[] equal = new Predicate[columns.size()];
-            for (int c = 0; c < equal.length; c++) {
-                equal[c] = cb.equal(columns.get(c).path(joins), values.get(c));
-            }
-            each[i] = cb.and(equal);
-        }
-        return cb.or(each);
+        return keyLimits.clamp(ownBinds, key.columns().size(), primaryKeyFirstBatchSize);
     }
 
     private static <M> List<M> mapAll(TypedQuery<Tuple> query, BuiltQuery<M> built) {
@@ -574,7 +625,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             List<M> fresh = new ArrayList<>(rows.size());
             for (Tuple tuple : rows) {
                 Row row = built.selection().row(tuple);
-                Object rowKey = keyOf(q, key, row);
+                Object rowKey = Keys.keyOf(q, key, row);
                 if (previousKeys.contains(rowKey)) {
                     // A cursor value did not compare equal to the stored one once bound, or the row's keyset value
                     // moved after the cursor between pages. Either can skip rows too, and a repeated tie group that
@@ -616,29 +667,6 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             total++;
         }
         return total;
-    }
-
-    /**
-     * The row's primary key, read from the {@code Row} so it works for any model (R-PAG-03): the value of a
-     * single-column key, the list of values of a composite one. Each is the attribute's value, before any converter,
-     * so two keys a converter maps to one model value stay two keys (R-COL-11).
-     *
-     * @throws ModelQueryExecutionException {@code MQ2201} when a key column is {@code null}
-     */
-    private static <M> Object keyOf(ModelQuery<?, ?, M> q, PrimaryKey<M, ?> key, Row row) {
-        List<ColumnField<M, ?, ?>> columns = key.columns();
-        Object[] values = new Object[columns.size()];
-        for (int i = 0; i < values.length; i++) {
-            values[i] = row.raw(columns.get(i));
-            if (values[i] == null) {
-                // A null key cannot tell this row from another, so the boundary dedupe could drop or keep it wrongly,
-                // and step 2 of primary-key-first paging could not read the row back.
-                throw new ModelQueryExecutionException(MqCode.MQ2201, q + ": primary-key column "
-                        + columns.get(i).name() + " is null in a row; export and primary-key-first paging need a key "
-                        + "that identifies every row");
-            }
-        }
-        return values.length == 1 ? values[0] : List.of(values);
     }
 
     /**

@@ -3,6 +3,7 @@ package com.rey.modelquery.jpa;
 import com.rey.modelquery.core.Incubating;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.PersistenceContextMode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import java.time.Duration;
@@ -20,7 +21,7 @@ import java.util.OptionalInt;
  * Immutable: each setter returns a new configuration. One explicit vendor applies to every
  * {@code EntityManagerFactory} the configuration is used with (D-34).
  *
- * @implSpec R-QRY-10, R-VND-04, R-PAG-07, R-EXE-11, R-PRF-07, R-PAG-05, R-QRY-15, R-VND-03, R-SPR-08
+ * @implSpec R-QRY-10, R-VND-04, R-PAG-07, R-EXE-11, R-PRF-07, R-PAG-05, R-QRY-15, R-VND-03, R-SPR-08, R-WRT-15
  */
 @Incubating
 public final class ModelQueryConfig {
@@ -34,7 +35,7 @@ public final class ModelQueryConfig {
 
     private static final ModelQueryConfig DEFAULTS = new ModelQueryConfig(null, WHOLE_PAGE, null,
             MysqlStreamingMode.ROW_BY_ROW, KeysetNullKeys.FAIL, DEFAULT_EXPORT_PAGE_SIZE, DEFAULT_STREAM_FETCH_SIZE,
-            List.of());
+            List.of(), PersistenceContextMode.CLEAR);
 
     private final DatabaseVendor vendor;
     private final int primaryKeyFirstBatchSize;
@@ -45,10 +46,12 @@ public final class ModelQueryConfig {
     private final int streamFetchSize;
     /** The supplied profiles, at most one per vendor, in the order given. */
     private final List<VendorProfile> vendorProfiles;
+    /** What a bulk write does to the persistence context when the write sets no mode of its own (D-62). */
+    private final PersistenceContextMode persistenceContextMode;
 
     private ModelQueryConfig(DatabaseVendor vendor, int primaryKeyFirstBatchSize, Duration queryTimeout,
             MysqlStreamingMode mysqlStreamingMode, KeysetNullKeys keysetNullKeys, int exportPageSize,
-            int streamFetchSize, List<VendorProfile> vendorProfiles) {
+            int streamFetchSize, List<VendorProfile> vendorProfiles, PersistenceContextMode persistenceContextMode) {
         this.vendor = vendor;
         this.primaryKeyFirstBatchSize = primaryKeyFirstBatchSize;
         this.queryTimeout = queryTimeout;
@@ -57,12 +60,14 @@ public final class ModelQueryConfig {
         this.exportPageSize = exportPageSize;
         this.streamFetchSize = streamFetchSize;
         this.vendorProfiles = vendorProfiles;
+        this.persistenceContextMode = persistenceContextMode;
     }
 
     /**
      * The configuration with every setting at its default: the vendor is detected, step 2 reads the whole page, no
      * query timeout, MySQL streams row by row, a NULL keyset key without explicit precedence fails, an export reads
-     * pages of 1000 rows, a stream fetches 500 rows at a time, and no profile is supplied.
+     * pages of 1000 rows, a stream fetches 500 rows at a time, no profile is supplied, and a bulk write clears the
+     * persistence context.
      */
     public static ModelQueryConfig defaults() {
         return DEFAULTS;
@@ -71,7 +76,8 @@ public final class ModelQueryConfig {
     /** This configuration with the database vendor set explicitly, which skips detection entirely (R-VND-04). */
     public ModelQueryConfig vendor(DatabaseVendor vendor) {
         return new ModelQueryConfig(Objects.requireNonNull(vendor, "vendor"), primaryKeyFirstBatchSize, queryTimeout,
-                mysqlStreamingMode, keysetNullKeys, exportPageSize, streamFetchSize, vendorProfiles);
+                mysqlStreamingMode, keysetNullKeys, exportPageSize, streamFetchSize, vendorProfiles,
+                persistenceContextMode);
     }
 
     /**
@@ -113,7 +119,8 @@ public final class ModelQueryConfig {
                     "primaryKeyFirstBatchSize " + batchSize + " is below one");
         }
         return new ModelQueryConfig(vendor, batchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
-                exportPageSize, streamFetchSize, vendorProfiles);
+                exportPageSize, streamFetchSize, vendorProfiles,
+                persistenceContextMode);
     }
 
     /** The configured step-2 batch size, or empty when step 2 reads the whole page within the profile's clamp. */
@@ -133,7 +140,8 @@ public final class ModelQueryConfig {
             throw new ModelQueryConfigurationException(MqCode.MQ4003, "queryTimeout " + timeout + " is not positive");
         }
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, timeout, mysqlStreamingMode, keysetNullKeys,
-                exportPageSize, streamFetchSize, vendorProfiles);
+                exportPageSize, streamFetchSize, vendorProfiles,
+                persistenceContextMode);
     }
 
     /** The configured query timeout, or empty when statements run without one. */
@@ -147,7 +155,8 @@ public final class ModelQueryConfig {
      */
     public ModelQueryConfig mysqlStreamingMode(MysqlStreamingMode mode) {
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout,
-                Objects.requireNonNull(mode, "mode"), keysetNullKeys, exportPageSize, streamFetchSize, vendorProfiles);
+                Objects.requireNonNull(mode, "mode"), keysetNullKeys, exportPageSize, streamFetchSize, vendorProfiles,
+                persistenceContextMode);
     }
 
     /** The configured MySQL streaming mode, {@link MysqlStreamingMode#ROW_BY_ROW} unless set. */
@@ -161,7 +170,8 @@ public final class ModelQueryConfig {
      */
     public ModelQueryConfig keysetNullKeys(KeysetNullKeys nullKeys) {
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode,
-                Objects.requireNonNull(nullKeys, "nullKeys"), exportPageSize, streamFetchSize, vendorProfiles);
+                Objects.requireNonNull(nullKeys, "nullKeys"), exportPageSize, streamFetchSize, vendorProfiles,
+                persistenceContextMode);
     }
 
     /** The configured keyset NULL handling, {@link KeysetNullKeys#FAIL} unless set. */
@@ -180,7 +190,8 @@ public final class ModelQueryConfig {
             throw new ModelQueryConfigurationException(MqCode.MQ4003, "exportPageSize " + pageSize + " is below one");
         }
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
-                pageSize, streamFetchSize, vendorProfiles);
+                pageSize, streamFetchSize, vendorProfiles,
+                persistenceContextMode);
     }
 
     /** The page size of an export whose options leave it open, 1000 unless set. */
@@ -199,7 +210,7 @@ public final class ModelQueryConfig {
             throw new ModelQueryConfigurationException(MqCode.MQ4003, "streamFetchSize " + fetchSize + " is below one");
         }
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
-                exportPageSize, fetchSize, vendorProfiles);
+                exportPageSize, fetchSize, vendorProfiles, persistenceContextMode);
     }
 
     /** The fetch size of {@code stream}, 500 unless set. */
@@ -226,11 +237,28 @@ public final class ModelQueryConfig {
             }
         }
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
-                exportPageSize, streamFetchSize, supplied);
+                exportPageSize, streamFetchSize, supplied, persistenceContextMode);
     }
 
     /** The supplied profiles, at most one per vendor, in the order given; empty unless set. */
     public List<VendorProfile> vendorProfiles() {
         return vendorProfiles;
+    }
+
+    /**
+     * This configuration with what a bulk write does to the persistence context after its last statement, unless the
+     * write sets {@code persistenceContext(...)} itself ({@code modelquery.bulk-write.persistence-context}, R-WRT-15,
+     * D-62). {@link PersistenceContextMode#CLEAR} detaches every managed entity, not only the written root's, so a
+     * later change to any of them is silently not written; {@link PersistenceContextMode#KEEP} leaves the root's
+     * entities managed but stale.
+     */
+    public ModelQueryConfig persistenceContextMode(PersistenceContextMode mode) {
+        return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
+                exportPageSize, streamFetchSize, vendorProfiles, Objects.requireNonNull(mode, "mode"));
+    }
+
+    /** What a bulk write does to the persistence context, {@link PersistenceContextMode#CLEAR} unless set. */
+    public PersistenceContextMode persistenceContextMode() {
+        return persistenceContextMode;
     }
 }
