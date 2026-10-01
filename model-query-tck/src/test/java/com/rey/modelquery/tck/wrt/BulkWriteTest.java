@@ -862,7 +862,7 @@ class BulkWriteTest {
     }
 
     /** The ids of the orders {@code where} chooses, as the read path returns them. */
-    private static List<Long> readIds(TckDatabase db, UnaryOperator<Filters<OrderPatch>> where) {
+    static List<Long> readIds(TckDatabase db, UnaryOperator<Filters<OrderPatch>> where) {
         var read = ModelQuery.builder(ORDERS, row -> new OrderPatch(row.get(ID)))
                 .columns(ColumnSet.of(ID)).primaryKey(PrimaryKey.of(ID)).where(where).build();
         var ids = new ArrayList<Long>();
@@ -871,7 +871,7 @@ class BulkWriteTest {
         return ids;
     }
 
-    private static List<Long> markedIds(EntityManager em) {
+    static List<Long> markedIds(EntityManager em) {
         return em.createQuery("select o.id from OrderEntity o where o.status = 'MARKED'", Long.class).getResultList();
     }
 
@@ -899,7 +899,7 @@ class BulkWriteTest {
         execute(db, "update orders set total = total where id = " + id);
     }
 
-    private static void execute(TckDatabase db, String sql) {
+    static void execute(TckDatabase db, String sql) {
         try (Connection c = db.getConnection(); Statement statement = c.createStatement()) {
             statement.executeUpdate(sql);
         } catch (SQLException e) {
@@ -926,7 +926,7 @@ class BulkWriteTest {
     }
 
     /** Every order's version, by id. */
-    private static Map<Long, Integer> versions(EntityManager em) {
+    static Map<Long, Integer> versions(EntityManager em) {
         var versions = new LinkedHashMap<Long, Integer>();
         em.createQuery("select o.id, o.version from OrderEntity o", Object[].class).getResultList()
                 .forEach(row -> versions.put((Long) row[0], (Integer) row[1]));
@@ -934,12 +934,12 @@ class BulkWriteTest {
     }
 
     /** The statements of {@code sql} that start with {@code verb}. */
-    private static List<String> writes(List<String> sql, String verb) {
+    static List<String> writes(List<String> sql, String verb) {
         return sql.stream().filter(statement -> statement.startsWith(verb)).toList();
     }
 
     /** The bind parameters of {@code statement}. */
-    private static long binds(String statement) {
+    static long binds(String statement) {
         return statement.chars().filter(c -> c == '?').count();
     }
 
@@ -982,7 +982,7 @@ class BulkWriteTest {
     }
 
     /** Runs {@code work} in a transaction over {@code ds} and rolls it back, so the fixture stays as seeded. */
-    private static void inRolledBackTransaction(DataSource ds, Consumer<EntityManager> work) {
+    static void inRolledBackTransaction(DataSource ds, Consumer<EntityManager> work) {
         try (SessionFactory factory = JoinTestSupport.sessionFactory(ds)) {
             factory.inSession(em -> {
                 em.getTransaction().begin();

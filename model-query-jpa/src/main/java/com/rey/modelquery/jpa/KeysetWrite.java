@@ -1,10 +1,13 @@
 package com.rey.modelquery.jpa;
 
 import com.rey.modelquery.core.BuiltQuery;
+import com.rey.modelquery.core.ChunkedWriteException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.Query;
 import jakarta.persistence.Tuple;
@@ -15,19 +18,24 @@ import jakarta.persistence.criteria.Predicate;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.ToIntFunction;
+import java.util.function.UnaryOperator;
 
 /**
  * The keyset loop that key-first and chunked bulk writes share (D-63). Each round selects the keys the write chooses,
  * then writes exactly those keys: over the definition's own keys a run at a time, else the next {@code n} keys in key
- * order after the last round's. It stops on the number of rows a select returned, never on the rows a write affected,
- * so an update that leaves its rows matching cannot loop, and a delete never re-reads what it removed; the cursor
- * only moves forward because a write never assigns a key column ({@code MQ1605}). Holds no state between runs.
+ * order after the last round's, or after the write's {@code startAfter} key. It stops on the number of rows a select
+ * returned, never on the rows a write affected, so an update that leaves its rows matching cannot loop, and a delete
+ * never re-reads what it removed; the cursor only moves forward because a write never assigns a key column
+ * ({@code MQ1605}). With {@code commitEachChunk()} each round, its key select and its write, runs in a new transaction
+ * of the configured {@link ChunkTransactions}. Holds no state between runs.
  *
- * @implSpec R-WRT-11, R-WRT-17, R-PAG-14, D-63
+ * @implSpec R-WRT-11, R-WRT-17, R-WRT-19, R-WRT-20, R-PAG-14, D-63
  */
 final class KeysetWrite {
 
@@ -39,25 +47,38 @@ final class KeysetWrite {
      * @param distinctKeys the definition's distinct keys, or empty when it chose its rows without keys
      * @param keySelect the key select over a run of {@code distinctKeys}, or over every row the definition chooses
      *     for {@code null}
-     * @param write the write over a non-empty run of the keys a key select chose
+     * @param write the write, on the given {@code EntityManager}, over a non-empty run of the keys a key select chose
+     * @param startAfter the attribute-value key the first key select starts after, or empty to start at the first
+     * @param modelKey the model key of an attribute-value key, as {@link ChunkedWriteException} reports keys
      * @param <M> the model whose key columns the key select reads
      */
     record Keyed<M>(Object label, PrimaryKey<M, ?> key, Optional<List<Object>> distinctKeys,
-            Function<List<Object>, BuiltQuery<M>> keySelect, Function<List<Object>, Query> write) {}
+            Function<List<Object>, BuiltQuery<M>> keySelect, BiFunction<EntityManager, List<Object>, Query> write,
+            Optional<Object> startAfter, UnaryOperator<Object> modelKey) {}
 
     private final CriteriaBuilder cb;
-    private final Function<CriteriaQuery<Tuple>, TypedQuery<Tuple>> select;
+    private final BiFunction<EntityManager, CriteriaQuery<Tuple>, TypedQuery<Tuple>> select;
     private final ToIntFunction<Query> execute;
+    private final EntityManager caller;
+    /** Runs each round in a new transaction on {@link #emf}, or {@code null} to run them all on the caller's. */
+    private final ChunkTransactions transactions;
+    private final EntityManagerFactory emf;
 
     /**
-     * @param select creates a key select's query, with the configured timeout applied
+     * @param select creates a key select's query on the given {@code EntityManager}, with the configured timeout
+     *     applied
      * @param execute runs a write statement, with the configured timeout applied, and returns the rows it affected
+     * @param caller the caller's {@code EntityManager}, which every round runs on without {@code transactions}
+     * @param transactions runs each round in a new transaction, for {@code commitEachChunk()}, or {@code null}
      */
-    KeysetWrite(CriteriaBuilder cb, Function<CriteriaQuery<Tuple>, TypedQuery<Tuple>> select,
-            ToIntFunction<Query> execute) {
+    KeysetWrite(CriteriaBuilder cb, BiFunction<EntityManager, CriteriaQuery<Tuple>, TypedQuery<Tuple>> select,
+            ToIntFunction<Query> execute, EntityManager caller, ChunkTransactions transactions) {
         this.cb = cb;
         this.select = select;
         this.execute = execute;
+        this.caller = caller;
+        this.transactions = transactions;
+        this.emf = caller.getEntityManagerFactory();
     }
 
     /**
@@ -66,48 +87,59 @@ final class KeysetWrite {
      * selected row waits for the write (R-WRT-11).
      *
      * @throws ModelQueryExecutionException {@code MQ2205} when a key select returns a key the round before it wrote
+     * @throws ChunkedWriteException {@code MQ2502} when a round fails with {@code commitEachChunk()}: the rounds
+     *     before it stay committed (R-WRT-20)
      */
     <M> long run(Keyed<M> write, int n, boolean lockKeys) {
+        var rounds = new Rounds<>(write);
         if (write.distinctKeys().isPresent()) {
             List<Object> all = write.distinctKeys().get();
-            long written = 0;
             for (int from = 0; from < all.size(); from += n) {
-                // The run bounds the keys, so the select needs no limit and no cursor.
-                BuiltQuery<M> built = write.keySelect().apply(all.subList(from, Math.min(all.size(), from + n)));
-                written += writeKeys(write, keysOf(write, built, rows(built, 0, lockKeys), Set.of()));
+                List<Object> run = all.subList(from, Math.min(all.size(), from + n));
+                rounds.run(on -> {
+                    // The run bounds the keys, so the select needs no limit and no cursor.
+                    BuiltQuery<M> built = write.keySelect().apply(run);
+                    List<Tuple> rows = rows(on, built, 0, lockKeys);
+                    List<Object> keys = keysOf(write, built, rows, Set.of());
+                    return new Round(keys, rows.size(), null, writeKeys(on, write, keys));
+                });
             }
-            return written;
+            return rounds.written;
         }
         Keyset<M> keyset = Keyset.ofKey(write.key());
-        long written = 0;
         // The last key selected and the round's keys: the only state carried from round to round, bounded by n.
-        Object[] cursor = null;
+        Object[] cursor = write.startAfter().map(KeysetWrite::cursorOf).orElse(null);
         Set<Object> previous = Set.of();
         while (true) {
-            BuiltQuery<M> built = write.keySelect().apply(null);
-            if (cursor != null) {
-                Predicate after = keyset.after(cursor, built.joins(), cb);
-                Predicate own = built.query().getRestriction();
-                built.query().where(own == null ? after : cb.and(own, after));
+            Object[] after = cursor;
+            Set<Object> before = previous;
+            Round round = rounds.run(on -> {
+                BuiltQuery<M> built = write.keySelect().apply(null);
+                if (after != null) {
+                    Predicate past = keyset.after(after, built.joins(), cb);
+                    Predicate own = built.query().getRestriction();
+                    built.query().where(own == null ? past : cb.and(own, past));
+                }
+                keyset.appendOrder(built, cb);
+                List<Tuple> rows = rows(on, built, n, lockKeys);
+                if (rows.isEmpty()) {
+                    return Round.NONE;
+                }
+                List<Object> keys = keysOf(write, built, rows, before);
+                Object[] next = keyset.cursor(built.selection().row(rows.get(rows.size() - 1)));
+                return new Round(keys, rows.size(), next, writeKeys(on, write, keys));
+            });
+            if (round.selected() < n) {
+                return rounds.written;
             }
-            keyset.appendOrder(built, cb);
-            List<Tuple> rows = rows(built, n, lockKeys);
-            if (rows.isEmpty()) {
-                return written;
-            }
-            Set<Object> keys = keysOf(write, built, rows, previous);
-            cursor = keyset.cursor(built.selection().row(rows.get(rows.size() - 1)));
-            written += writeKeys(write, keys);
-            if (rows.size() < n) {
-                return written;
-            }
-            previous = keys;
+            cursor = round.next();
+            previous = Set.copyOf(round.keys());
         }
     }
 
     /** The rows of {@code built}, at most {@code max} unless it is zero, locked with {@code lockKeys}. */
-    private List<Tuple> rows(BuiltQuery<?> built, int max, boolean lockKeys) {
-        TypedQuery<Tuple> query = select.apply(built.query());
+    private List<Tuple> rows(EntityManager on, BuiltQuery<?> built, int max, boolean lockKeys) {
+        TypedQuery<Tuple> query = select.apply(on, built.query());
         if (max > 0) {
             query.setMaxResults(max);
         }
@@ -124,7 +156,7 @@ final class KeysetWrite {
      * @throws ModelQueryExecutionException {@code MQ2205} for a key of {@code previous}, the round before: a cursor
      *     value did not survive being bound, which can skip rows as well as repeat them (R-PAG-14)
      */
-    private static <M> Set<Object> keysOf(Keyed<M> write, BuiltQuery<M> built, List<Tuple> rows,
+    private static <M> List<Object> keysOf(Keyed<M> write, BuiltQuery<M> built, List<Tuple> rows,
             Set<Object> previous) {
         Set<Object> keys = new LinkedHashSet<>();
         for (Tuple tuple : rows) {
@@ -137,10 +169,82 @@ final class KeysetWrite {
             }
             keys.add(key);
         }
-        return keys;
+        return new ArrayList<>(keys);
     }
 
-    private <M> long writeKeys(Keyed<M> write, Set<Object> keys) {
-        return keys.isEmpty() ? 0 : execute.applyAsInt(write.write().apply(new ArrayList<>(keys)));
+    private <M> long writeKeys(EntityManager on, Keyed<M> write, List<Object> keys) {
+        return keys.isEmpty() ? 0 : execute.applyAsInt(write.write().apply(on, keys));
+    }
+
+    /** A cursor of the key values of {@code attributeKey}, as {@link Keys#keyOf} returns a key. */
+    private static Object[] cursorOf(Object attributeKey) {
+        return attributeKey instanceof List<?> components ? components.toArray() : new Object[] {attributeKey};
+    }
+
+    /**
+     * What one round selected and wrote.
+     *
+     * @param keys the distinct keys selected, in the select's order
+     * @param selected the rows the key select returned, a repeated key included
+     * @param next the cursor after the round's last key, or {@code null} for a round over a run of keys
+     * @param written the rows the write affected
+     */
+    private record Round(List<Object> keys, int selected, Object[] next, long written) {
+
+        static final Round NONE = new Round(List.of(), 0, null, 0);
+    }
+
+    /**
+     * The rounds of one run: each on the caller's {@code EntityManager}, or with {@code commitEachChunk()} each in a
+     * new transaction, counting what the committed ones wrote (R-WRT-19, R-WRT-20).
+     */
+    private final class Rounds<M> {
+
+        private final Keyed<M> write;
+        private long written;
+        private int committed;
+        /** The last key of the last committed round that selected any, as an attribute value. */
+        private Object lastKey;
+
+        Rounds(Keyed<M> write) {
+            this.write = write;
+        }
+
+        Round run(Function<EntityManager, Round> body) {
+            if (transactions == null) {
+                Round round = body.apply(caller);
+                written += round.written();
+                return round;
+            }
+            Round[] ran = new Round[1];
+            try {
+                transactions.inNewTransaction(emf, on -> ran[0] = body.apply(on));
+            } catch (RuntimeException e) {
+                throw failed(ran[0], e);
+            }
+            Round round = Objects.requireNonNull(ran[0], "ChunkTransactions.inNewTransaction did not run the chunk");
+            written += round.written();
+            committed++;
+            if (!round.keys().isEmpty()) {
+                lastKey = round.keys().get(round.keys().size() - 1);
+            }
+            return round;
+        }
+
+        /**
+         * The exception for a chunk that threw {@code cause}: when the chunk itself ran, {@code ran}, its commit
+         * failed, so whether its keys were written is unknown; otherwise it rolled back.
+         */
+        private ChunkedWriteException failed(Round ran, RuntimeException cause) {
+            List<Object> inDoubt = ran == null ? List.of() : ran.keys().stream().map(write.modelKey()).toList();
+            Object last = lastKey == null ? null : write.modelKey().apply(lastKey);
+            String detail = write.label() + ": chunk " + (committed + 1) + " of a bulk write committing each chunk "
+                    + "failed; the " + committed + " chunks before it stay committed, " + written + " rows"
+                    + (last == null ? "" : ", up to key " + last)
+                    + (inDoubt.isEmpty() ? ", and the failed chunk rolled back"
+                            : ", and the failed chunk's commit threw, so whether its " + inDoubt.size()
+                                    + " keys were written is unknown: " + inDoubt);
+            return new ChunkedWriteException(detail, written, last, inDoubt, cause);
+        }
     }
 }

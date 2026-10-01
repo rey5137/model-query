@@ -25,7 +25,8 @@ import java.util.stream.Stream;
  * @param <E> the root entity type
  * @implSpec R-QRY-10, R-QRY-09, R-QRY-11, R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-07, R-EXE-09, R-PAG-01,
  *     R-PAG-02, R-PAG-03, R-PAG-07, R-PAG-08, R-PAG-09, R-PAG-10, R-PAG-11, R-PAG-12, R-PAG-13, R-PAG-14, R-PAG-15,
- *     R-AGG-09, R-WRT-01, R-WRT-07, R-WRT-08, R-WRT-15, R-WRT-16, R-WRT-18, R-WRT-23, D-61
+ *     R-AGG-09, R-WRT-01, R-WRT-07, R-WRT-08, R-WRT-15, R-WRT-16, R-WRT-17, R-WRT-18, R-WRT-19, R-WRT-20,
+ *     R-WRT-23, D-61
  */
 @Incubating
 public interface ModelQueryExecutor<E> {
@@ -134,19 +135,36 @@ public interface ModelQueryExecutor<E> {
      * concurrent change to a selected row waits for the write, and on MySQL the select reads current rows rather than
      * the transaction's snapshot (R-WRT-11).
      *
-     * <p>Pending entity changes are flushed first. Afterwards the persistence context is cleared, unless the write's
-     * {@code persistenceContext(...)}, else {@link ModelQueryConfig#persistenceContextMode}, is {@code KEEP}, and the
-     * root entity is evicted from the second-level cache (R-WRT-15). Clearing detaches every managed entity, not only
-     * the root's, so a later change to any of them is silently not written; with {@code KEEP} the root's entities
-     * stay managed but stale.
+     * <p>With {@code chunked(...)} it runs in rounds on every vendor: each selects the next keys in key order, after
+     * the last round's or the {@code startAfter} key, and writes them, re-applying the whole {@code where} tree, or
+     * only its root predicates where it would run key-first. A round takes the options' size, else
+     * {@link ModelQueryConfig#bulkWriteChunkSize()}, within the vendor's limits less the statement's own binds. The
+     * rounds stop on a key select returning fewer keys than that, so an update that leaves its rows matching
+     * terminates and writes each row once (R-WRT-17). They run in the caller's transaction, unless the options say
+     * {@code commitEachChunk()}: then each round, its key select and its write, runs in a new transaction through
+     * {@link ModelQueryConfig#chunkTransactions()}, with no transaction needed on the caller's {@code EntityManager},
+     * and the rounds committed before a failed one stay committed (R-WRT-19, R-WRT-20).
+     *
+     * <p>Pending entity changes are flushed first, when the {@code EntityManager} is joined to a transaction.
+     * Afterwards the persistence context is cleared, unless the write's {@code persistenceContext(...)}, else
+     * {@link ModelQueryConfig#persistenceContextMode}, is {@code KEEP}, and the root entity is evicted from the
+     * second-level cache (R-WRT-15). Clearing detaches every managed entity, not only the root's, so a later change
+     * to any of them is silently not written; with {@code KEEP} the root's entities stay managed but stale.
      *
      * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution: {@code MQ1608} when the
      *     definition's primary key is not the root entity's id, {@code MQ1605} when a column writes an id or the
      *     {@code @Version} attribute, {@code MQ1606} for {@code expectVersion} on a root with no {@code @Version}
      *     attribute or with a value of another type
      * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2501}, before any statement, when the
-     *     {@code EntityManager} is not joined to a transaction (R-WRT-18); key-first, {@code MQ2205} when a key select
-     *     returns a key the round before already wrote (R-WRT-17)
+     *     {@code EntityManager} is not joined to a transaction and the write is not {@code commitEachChunk()}
+     *     (R-WRT-18); key-first or chunked, {@code MQ2205} when a key select returns a key the round before already
+     *     wrote (R-WRT-17)
+     * @throws com.rey.modelquery.core.ChunkedWriteException {@code MQ2502} when a round of a
+     *     {@code commitEachChunk()} write fails, carrying the committed rows, the last committed key and the keys of a
+     *     round whose commit failed (R-WRT-20)
+     * @throws com.rey.modelquery.core.ModelQueryConfigurationException {@code MQ4004}, before any statement, the
+     *     flush included, for {@code commitEachChunk()} with no {@link ChunkTransactions} or one that cannot serve
+     *     the {@code EntityManager}'s factory (R-WRT-19)
      * @throws jakarta.persistence.OptimisticLockException when {@code expectVersion} was given and no row was
      *     written: the row's version moved, or the row no longer matches (R-WRT-16)
      */
@@ -159,14 +177,20 @@ public interface ModelQueryExecutor<E> {
      * to the vendor's limits, and returns the summed count (R-WRT-08). A delete whose {@code whereKeys} received no key
      * runs no SQL and returns 0 (R-WRT-12). The first execution of a definition per {@code EntityManagerFactory} checks
      * it against the JPA metamodel, before any statement (D-61). The persistence context and the second-level cache are
-     * handled as {@link #update} handles them (R-WRT-15), and so is a delete that runs key-first (R-WRT-11); a row a
-     * foreign key protects surfaces the provider's constraint exception (R-WRT-18).
+     * handled as {@link #update} handles them (R-WRT-15), and so is a delete that runs key-first (R-WRT-11) or
+     * chunked (R-WRT-17, R-WRT-19); a row a foreign key protects surfaces the provider's constraint exception
+     * (R-WRT-18), as the cause of {@code MQ2502} with {@code commitEachChunk()}.
      *
      * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution: {@code MQ1608} when the
      *     definition's primary key is not the root entity's id
      * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2501}, before any statement, when the
-     *     {@code EntityManager} is not joined to a transaction (R-WRT-18); key-first, {@code MQ2205} when a key select
-     *     returns a key the round before already wrote (R-WRT-17)
+     *     {@code EntityManager} is not joined to a transaction and the delete is not {@code commitEachChunk()}
+     *     (R-WRT-18); key-first or chunked, {@code MQ2205} when a key select returns a key the round before already
+     *     wrote (R-WRT-17)
+     * @throws com.rey.modelquery.core.ChunkedWriteException {@code MQ2502} when a round of a
+     *     {@code commitEachChunk()} delete fails (R-WRT-20)
+     * @throws com.rey.modelquery.core.ModelQueryConfigurationException {@code MQ4004}, before any statement, as
+     *     {@link #update} throws it (R-WRT-19)
      */
     long delete(ModelDelete<E, ?> d);
 }

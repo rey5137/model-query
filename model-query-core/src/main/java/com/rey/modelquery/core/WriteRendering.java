@@ -62,6 +62,24 @@ final class WriteRendering {
     }
 
     /**
+     * The model key of {@code attributeKey}, a key as {@link #distinctKeys} or a key select returns it, converted back
+     * through each column's converter; a composite key's is the list of its components' model values (R-WRT-20,
+     * D-63).
+     */
+    static <M> Object modelKey(PrimaryKey<M, ?> key, Object attributeKey) {
+        List<ColumnField<M, ?, ?>> columns = key.columns();
+        if (columns.size() == 1) {
+            return columns.get(0).toModel(attributeKey);
+        }
+        List<?> values = (List<?>) attributeKey;
+        Object[] model = new Object[columns.size()];
+        for (int c = 0; c < model.length; c++) {
+            model[c] = columns.get(c).toModel(values.get(c));
+        }
+        return List.of(model);
+    }
+
+    /**
      * The predicates choosing the rows of {@code root}, the statement's root: {@code key IN (keys)} unless
      * {@code keys} is {@code null}, then the {@code where} tree. A tree that needs no join renders on the root
      * itself; one that needs any join renders whole inside one {@code EXISTS} over a second root of the entity,

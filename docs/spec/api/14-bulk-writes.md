@@ -234,8 +234,9 @@ cause, even when the first chunk fails. It carries `committedRows()` and `lastCo
 committed), and `inDoubtKeys()`: when the commit of a chunk itself failed, that chunk's outcome is unknown, its rows are
 not counted, and this lists its keys; otherwise it is empty. Committed chunks stay committed,
 and the message says so, because a caller who assumed atomicity would otherwise misread the table's state (INV-5).
-`lastCommittedKey()`, `inDoubtKeys()` and `ChunkOptions.startAfter(key)` use the model key, the type `whereKey` takes
-(D-63). `ChunkOptions.startAfter(key)` resumes after `lastCommittedKey()`. Re-running the whole write is safe only when it is
+`lastCommittedKey()`, `inDoubtKeys()` and the `startAfter` key use the model key, the type `whereKey` takes
+(D-63). `chunked(options, startAfter)`, offered after `where` or `all()`, resumes after `lastCommittedKey()` (D-68).
+Re-running the whole write is safe only when it is
 idempotent: `total * 1.1` would apply again to rows already committed. The same holds for resuming after an in-doubt
 chunk, which may in fact have committed: a non-idempotent caller checks `inDoubtKeys()` against the table first, and
 resumes after the last of them if the chunk did commit. The Javadoc says both.

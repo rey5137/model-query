@@ -21,7 +21,8 @@ import java.util.OptionalInt;
  * Immutable: each setter returns a new configuration. One explicit vendor applies to every
  * {@code EntityManagerFactory} the configuration is used with (D-34).
  *
- * @implSpec R-QRY-10, R-VND-04, R-PAG-07, R-EXE-11, R-PRF-07, R-PAG-05, R-QRY-15, R-VND-03, R-SPR-08, R-WRT-15
+ * @implSpec R-QRY-10, R-VND-04, R-PAG-07, R-EXE-11, R-PRF-07, R-PAG-05, R-QRY-15, R-VND-03, R-SPR-08, R-WRT-15,
+ *     R-WRT-17, R-WRT-19
  */
 @Incubating
 public final class ModelQueryConfig {
@@ -33,9 +34,11 @@ public final class ModelQueryConfig {
 
     private static final int DEFAULT_STREAM_FETCH_SIZE = 500;
 
+    private static final int DEFAULT_BULK_WRITE_CHUNK_SIZE = 1_000;
+
     private static final ModelQueryConfig DEFAULTS = new ModelQueryConfig(null, WHOLE_PAGE, null,
             MysqlStreamingMode.ROW_BY_ROW, KeysetNullKeys.FAIL, DEFAULT_EXPORT_PAGE_SIZE, DEFAULT_STREAM_FETCH_SIZE,
-            List.of(), PersistenceContextMode.CLEAR);
+            List.of(), PersistenceContextMode.CLEAR, DEFAULT_BULK_WRITE_CHUNK_SIZE, null);
 
     private final DatabaseVendor vendor;
     private final int primaryKeyFirstBatchSize;
@@ -48,10 +51,14 @@ public final class ModelQueryConfig {
     private final List<VendorProfile> vendorProfiles;
     /** What a bulk write does to the persistence context when the write sets no mode of its own (D-62). */
     private final PersistenceContextMode persistenceContextMode;
+    private final int bulkWriteChunkSize;
+    /** The callback running each chunk of a {@code commitEachChunk()} write, or {@code null} for none (R-WRT-19). */
+    private final ChunkTransactions chunkTransactions;
 
     private ModelQueryConfig(DatabaseVendor vendor, int primaryKeyFirstBatchSize, Duration queryTimeout,
             MysqlStreamingMode mysqlStreamingMode, KeysetNullKeys keysetNullKeys, int exportPageSize,
-            int streamFetchSize, List<VendorProfile> vendorProfiles, PersistenceContextMode persistenceContextMode) {
+            int streamFetchSize, List<VendorProfile> vendorProfiles, PersistenceContextMode persistenceContextMode,
+            int bulkWriteChunkSize, ChunkTransactions chunkTransactions) {
         this.vendor = vendor;
         this.primaryKeyFirstBatchSize = primaryKeyFirstBatchSize;
         this.queryTimeout = queryTimeout;
@@ -61,13 +68,15 @@ public final class ModelQueryConfig {
         this.streamFetchSize = streamFetchSize;
         this.vendorProfiles = vendorProfiles;
         this.persistenceContextMode = persistenceContextMode;
+        this.bulkWriteChunkSize = bulkWriteChunkSize;
+        this.chunkTransactions = chunkTransactions;
     }
 
     /**
      * The configuration with every setting at its default: the vendor is detected, step 2 reads the whole page, no
      * query timeout, MySQL streams row by row, a NULL keyset key without explicit precedence fails, an export reads
-     * pages of 1000 rows, a stream fetches 500 rows at a time, no profile is supplied, and a bulk write clears the
-     * persistence context.
+     * pages of 1000 rows, a stream fetches 500 rows at a time, no profile is supplied, a bulk write clears the
+     * persistence context, a chunked write selects 1000 keys per chunk, and no {@code ChunkTransactions} is set.
      */
     public static ModelQueryConfig defaults() {
         return DEFAULTS;
@@ -77,7 +86,7 @@ public final class ModelQueryConfig {
     public ModelQueryConfig vendor(DatabaseVendor vendor) {
         return new ModelQueryConfig(Objects.requireNonNull(vendor, "vendor"), primaryKeyFirstBatchSize, queryTimeout,
                 mysqlStreamingMode, keysetNullKeys, exportPageSize, streamFetchSize, vendorProfiles,
-                persistenceContextMode);
+                persistenceContextMode, bulkWriteChunkSize, chunkTransactions);
     }
 
     /**
@@ -120,7 +129,7 @@ public final class ModelQueryConfig {
         }
         return new ModelQueryConfig(vendor, batchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
                 exportPageSize, streamFetchSize, vendorProfiles,
-                persistenceContextMode);
+                persistenceContextMode, bulkWriteChunkSize, chunkTransactions);
     }
 
     /** The configured step-2 batch size, or empty when step 2 reads the whole page within the profile's clamp. */
@@ -141,7 +150,7 @@ public final class ModelQueryConfig {
         }
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, timeout, mysqlStreamingMode, keysetNullKeys,
                 exportPageSize, streamFetchSize, vendorProfiles,
-                persistenceContextMode);
+                persistenceContextMode, bulkWriteChunkSize, chunkTransactions);
     }
 
     /** The configured query timeout, or empty when statements run without one. */
@@ -156,7 +165,7 @@ public final class ModelQueryConfig {
     public ModelQueryConfig mysqlStreamingMode(MysqlStreamingMode mode) {
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout,
                 Objects.requireNonNull(mode, "mode"), keysetNullKeys, exportPageSize, streamFetchSize, vendorProfiles,
-                persistenceContextMode);
+                persistenceContextMode, bulkWriteChunkSize, chunkTransactions);
     }
 
     /** The configured MySQL streaming mode, {@link MysqlStreamingMode#ROW_BY_ROW} unless set. */
@@ -171,7 +180,7 @@ public final class ModelQueryConfig {
     public ModelQueryConfig keysetNullKeys(KeysetNullKeys nullKeys) {
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode,
                 Objects.requireNonNull(nullKeys, "nullKeys"), exportPageSize, streamFetchSize, vendorProfiles,
-                persistenceContextMode);
+                persistenceContextMode, bulkWriteChunkSize, chunkTransactions);
     }
 
     /** The configured keyset NULL handling, {@link KeysetNullKeys#FAIL} unless set. */
@@ -191,7 +200,7 @@ public final class ModelQueryConfig {
         }
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
                 pageSize, streamFetchSize, vendorProfiles,
-                persistenceContextMode);
+                persistenceContextMode, bulkWriteChunkSize, chunkTransactions);
     }
 
     /** The page size of an export whose options leave it open, 1000 unless set. */
@@ -210,7 +219,8 @@ public final class ModelQueryConfig {
             throw new ModelQueryConfigurationException(MqCode.MQ4003, "streamFetchSize " + fetchSize + " is below one");
         }
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
-                exportPageSize, fetchSize, vendorProfiles, persistenceContextMode);
+                exportPageSize, fetchSize, vendorProfiles, persistenceContextMode, bulkWriteChunkSize,
+                chunkTransactions);
     }
 
     /** The fetch size of {@code stream}, 500 unless set. */
@@ -237,7 +247,8 @@ public final class ModelQueryConfig {
             }
         }
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
-                exportPageSize, streamFetchSize, supplied, persistenceContextMode);
+                exportPageSize, streamFetchSize, supplied, persistenceContextMode, bulkWriteChunkSize,
+                chunkTransactions);
     }
 
     /** The supplied profiles, at most one per vendor, in the order given; empty unless set. */
@@ -254,11 +265,48 @@ public final class ModelQueryConfig {
      */
     public ModelQueryConfig persistenceContextMode(PersistenceContextMode mode) {
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
-                exportPageSize, streamFetchSize, vendorProfiles, Objects.requireNonNull(mode, "mode"));
+                exportPageSize, streamFetchSize, vendorProfiles, Objects.requireNonNull(mode, "mode"),
+                bulkWriteChunkSize, chunkTransactions);
     }
 
     /** What a bulk write does to the persistence context, {@link PersistenceContextMode#CLEAR} unless set. */
     public PersistenceContextMode persistenceContextMode() {
         return persistenceContextMode;
+    }
+
+    /**
+     * This configuration with the keys per chunk of a write whose {@code ChunkOptions} leave the size open, as
+     * {@code ChunkOptions.defaultSize()} does ({@code modelquery.bulk-write.chunk-size}, R-WRT-17, D-62). The
+     * profile's IN-list and bind-parameter clamp still applies.
+     *
+     * @throws ModelQueryConfigurationException {@code MQ4003} when {@code chunkSize} is below one
+     */
+    public ModelQueryConfig bulkWriteChunkSize(int chunkSize) {
+        if (chunkSize < 1) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4003, "bulkWriteChunkSize " + chunkSize
+                    + " is below one");
+        }
+        return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
+                exportPageSize, streamFetchSize, vendorProfiles, persistenceContextMode, chunkSize, chunkTransactions);
+    }
+
+    /** The keys per chunk of a write whose options leave the size open, 1000 unless set. */
+    public int bulkWriteChunkSize() {
+        return bulkWriteChunkSize;
+    }
+
+    /**
+     * This configuration with the callback that runs each chunk of a {@code commitEachChunk()} write in a new
+     * transaction (R-WRT-19, D-62). Without one, such a write throws {@code MQ4004} before any statement.
+     */
+    public ModelQueryConfig chunkTransactions(ChunkTransactions transactions) {
+        return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
+                exportPageSize, streamFetchSize, vendorProfiles, persistenceContextMode, bulkWriteChunkSize,
+                Objects.requireNonNull(transactions, "transactions"));
+    }
+
+    /** The callback running each chunk of a {@code commitEachChunk()} write; empty unless set. */
+    public Optional<ChunkTransactions> chunkTransactions() {
+        return Optional.ofNullable(chunkTransactions);
     }
 }

@@ -153,6 +153,26 @@ public final class ModelDelete<E, M> {
     }
 
     /**
+     * The key of {@code chunked(options, startAfter)} converted to its attribute value (a list of component values
+     * for a composite key), or empty without one: a chunked delete's first key select starts after it (R-WRT-20).
+     *
+     * @throws IllegalArgumentException for a composite key with the wrong number of components
+     */
+    public Optional<Object> startAfter() {
+        Object key = definition.startAfter();
+        return key == null ? Optional.empty()
+                : Optional.of(WriteRendering.distinctKeys(definition.primaryKey(), List.of(key)).get(0));
+    }
+
+    /**
+     * The model key, the type {@code whereKey} takes, of {@code attributeKey}, a key as a key select returns it:
+     * {@link ChunkedWriteException} reports its keys so (R-WRT-20, D-63).
+     */
+    public Object modelKey(Object attributeKey) {
+        return WriteRendering.modelKey(definition.primaryKey(), Objects.requireNonNull(attributeKey, "attributeKey"));
+    }
+
+    /**
      * The distinct keys of {@code whereKey} or {@code whereKeys}, each converted to its attribute value (a list of
      * component values for a composite key), in first-seen order; empty when the rows were chosen without keys. Each
      * distinct key is deleted once (R-WRT-08, D-63).
@@ -201,18 +221,19 @@ public final class ModelDelete<E, M> {
             PrimaryKey<M, K> primaryKey,
             WriteRows rows,
             ChunkOptions chunkOptions,
-            PersistenceContextMode persistenceContext) {
+            PersistenceContextMode persistenceContext,
+            Object startAfter) {
 
         Draft<E, K, M> rows(WriteRows rows) {
-            return new Draft<>(root, primaryKey, rows, chunkOptions, persistenceContext);
+            return new Draft<>(root, primaryKey, rows, chunkOptions, persistenceContext, startAfter);
         }
 
-        Draft<E, K, M> chunk(ChunkOptions options) {
-            return new Draft<>(root, primaryKey, rows, options, persistenceContext);
+        Draft<E, K, M> chunk(ChunkOptions options, Object after) {
+            return new Draft<>(root, primaryKey, rows, options, persistenceContext, after);
         }
 
         Draft<E, K, M> mode(PersistenceContextMode mode) {
-            return new Draft<>(root, primaryKey, rows, chunkOptions, mode);
+            return new Draft<>(root, primaryKey, rows, chunkOptions, mode, startAfter);
         }
     }
 
@@ -233,7 +254,7 @@ public final class ModelDelete<E, M> {
         /** The model's key, which {@code whereKey} and {@code whereKeys} take values of (R-WRT-08). */
         public <K, M> Builder<E, K, M> primaryKey(PrimaryKey<M, K> primaryKey) {
             return new Builder<>(new Draft<>(root, Objects.requireNonNull(primaryKey, "primaryKey"), null, null,
-                    null));
+                    null, null));
         }
     }
 
@@ -273,14 +294,14 @@ public final class ModelDelete<E, M> {
          * {@link Options#build()} throws {@code MQ1601}; {@link #all()} is the only way to delete every row
          * (R-WRT-12).
          */
-        public Options<E, K, M> where(UnaryOperator<Filters<M>> filters) {
-            return new Options<>(draft.rows(WriteRows.where(FilterGroup.collect(
+        public Resumable<E, K, M> where(UnaryOperator<Filters<M>> filters) {
+            return new Resumable<>(draft.rows(WriteRows.where(FilterGroup.collect(
                     Objects.requireNonNull(filters, "filters")))));
         }
 
         /** Deletes every row; no {@code where} follows (R-WRT-12). */
-        public Options<E, K, M> all() {
-            return new Options<>(draft.rows(WriteRows.everyRow()));
+        public Resumable<E, K, M> all() {
+            return new Resumable<>(draft.rows(WriteRows.everyRow()));
         }
     }
 
@@ -292,7 +313,7 @@ public final class ModelDelete<E, M> {
      * @param <M> the model
      */
     @Incubating
-    public static sealed class Options<E, K, M> permits Narrowable {
+    public static sealed class Options<E, K, M> permits Narrowable, Resumable {
 
         final Draft<E, K, M> draft;
 
@@ -300,9 +321,13 @@ public final class ModelDelete<E, M> {
             this.draft = draft;
         }
 
-        /** Deletes in key-first chunks, as {@code options} states (R-WRT-17). */
+        /**
+         * Deletes in chunks, as {@code options} states: each selects the next keys in key order, then deletes them, so
+         * a delete never re-reads what it removed (R-WRT-17). With {@code commitEachChunk()} each chunk commits on its
+         * own (R-WRT-19, R-WRT-20).
+         */
         public Options<E, K, M> chunked(ChunkOptions options) {
-            return new Options<>(draft.chunk(Objects.requireNonNull(options, "options")));
+            return new Options<>(draft.chunk(Objects.requireNonNull(options, "options"), null));
         }
 
         /** What the delete does to the persistence context afterwards, over the executor's configured mode (D-62). */
@@ -340,6 +365,42 @@ public final class ModelDelete<E, M> {
         public Options<E, K, M> where(UnaryOperator<Filters<M>> filters) {
             return new Options<>(draft.rows(draft.rows().and(FilterGroup.collect(
                     Objects.requireNonNull(filters, "filters")))));
+        }
+    }
+
+    /**
+     * The options stage of a delete that chose its rows by {@code where} or {@code all()}, whose chunks run in key
+     * order, so a chunked delete can resume after a key.
+     *
+     * @param <E> the root entity
+     * @param <K> the primary-key type
+     * @param <M> the model
+     */
+    @Incubating
+    public static final class Resumable<E, K, M> extends Options<E, K, M> {
+
+        private Resumable(Draft<E, K, M> draft) {
+            super(draft);
+        }
+
+        @Override
+        public Resumable<E, K, M> chunked(ChunkOptions options) {
+            return new Resumable<>(draft.chunk(Objects.requireNonNull(options, "options"), null));
+        }
+
+        /**
+         * Deletes in chunks as {@link #chunked(ChunkOptions)} does, starting after {@code startAfter}: only rows whose
+         * key comes after it in key order are deleted. Given a {@link ChunkedWriteException#lastCommittedKey()}, it
+         * resumes the delete that threw (R-WRT-20, D-63).
+         */
+        public Resumable<E, K, M> chunked(ChunkOptions options, K startAfter) {
+            return new Resumable<>(draft.chunk(Objects.requireNonNull(options, "options"),
+                    Objects.requireNonNull(startAfter, "startAfter")));
+        }
+
+        @Override
+        public Resumable<E, K, M> persistenceContext(PersistenceContextMode mode) {
+            return new Resumable<>(draft.mode(Objects.requireNonNull(mode, "mode")));
         }
     }
 }

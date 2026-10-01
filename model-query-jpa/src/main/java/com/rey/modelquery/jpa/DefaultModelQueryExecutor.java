@@ -9,6 +9,7 @@ import com.rey.modelquery.core.JoinContext;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullPrecedence;
@@ -74,8 +75,8 @@ import java.util.stream.Stream;
  *
  * @implSpec R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-05, R-EXE-06, R-EXE-07, R-EXE-09, R-QRY-09, R-PAG-01,
  *     R-PAG-02, R-PAG-03, R-PAG-04, R-PAG-05, R-PAG-06, R-PAG-07, R-PAG-08, R-PAG-09, R-PAG-10, R-PAG-11, R-PAG-12,
- *     R-PAG-13, R-PAG-14, R-AGG-09, R-EXE-08, R-EXE-11, R-WRT-07, R-WRT-08, R-WRT-14, R-WRT-15, R-WRT-16, R-WRT-18,
- *     R-WRT-23, D-61, D-62, D-63
+ *     R-PAG-13, R-PAG-14, R-AGG-09, R-EXE-08, R-EXE-11, R-WRT-07, R-WRT-08, R-WRT-14, R-WRT-15, R-WRT-16, R-WRT-17,
+ *     R-WRT-18, R-WRT-19, R-WRT-20, R-WRT-23, D-61, D-62, D-63
  */
 final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
@@ -121,6 +122,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private final Optional<NullPrecedence> providerNulls;
     /** What a bulk write does to the persistence context unless it sets its own mode (R-WRT-15, D-62). */
     private final PersistenceContextMode persistenceContextMode;
+    /** The configured keys per chunk of a chunked write whose options leave the size open (R-WRT-17, D-62). */
+    private final int bulkWriteChunkSize;
+    /** The configured callback for {@code commitEachChunk()}, or {@code null} for none (R-WRT-19, D-62). */
+    private final ChunkTransactions chunkTransactions;
 
     DefaultModelQueryExecutor(EntityManager em, Class<E> rootEntity, ModelQueryConfig config) {
         this.em = Objects.requireNonNull(em, "em");
@@ -144,6 +149,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         this.exportPageSize = config.exportPageSize();
         this.streamFetchSize = config.streamFetchSize();
         this.persistenceContextMode = config.persistenceContextMode();
+        this.bulkWriteChunkSize = config.bulkWriteChunkSize();
+        this.chunkTransactions = config.chunkTransactions().orElse(null);
     }
 
     @Override
@@ -188,7 +195,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /** A statement of {@code query} with the configured timeout applied through the profile (R-EXE-11). */
     private <T> TypedQuery<T> create(CriteriaQuery<T> query) {
-        TypedQuery<T> typed = em.createQuery(query);
+        return create(em, query);
+    }
+
+    /** A statement of {@code query} on {@code on}, a chunk's own {@code EntityManager} or the caller's. */
+    private <T> TypedQuery<T> create(EntityManager on, CriteriaQuery<T> query) {
+        TypedQuery<T> typed = on.createQuery(query);
         queryTimeout.ifPresent(timeout -> vendor.profile().applyTimeout(typed, timeout));
         return typed;
     }
@@ -281,7 +293,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     public long update(ModelUpdate<E, ?> u) {
         Objects.requireNonNull(u, "u");
         checkWriteOnce(u, u::checkMetamodel);
-        requireTransaction("update");
+        requireTransaction("update", u.chunkOptions());
         if (u.writesNothing()) {
             return 0;
         }
@@ -299,20 +311,22 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Supplier<Query> whole = () -> em.createQuery(u.buildWrite(cb, renderOptions, references));
         Function<List<Object>, Query> byKeys = chunk -> em.createQuery(u.buildWrite(cb, renderOptions, references,
                 chunk));
-        if (!keyFirst(() -> u.readsTargetInSubquery(cb, renderOptions))) {
+        boolean rootTermsOnly = keyFirst(() -> u.readsTargetInSubquery(cb, renderOptions));
+        if (!rootTermsOnly && u.chunkOptions().isEmpty()) {
             return write(u.persistenceContext(), () -> direct(u.distinctKeys(), whole, byKeys));
         }
         var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), u.primaryKey(), u.distinctKeys(),
                 run -> run == null ? u.buildKeySelect(cb, renderOptions) : u.buildKeySelect(cb, renderOptions, run),
-                keys -> em.createQuery(u.buildWrite(cb, renderOptions, references, keys, true)));
-        return write(u.persistenceContext(), () -> keyFirst(keyed, whole, byKeys, u.chunkOptions(), cb));
+                (on, keys) -> on.createQuery(u.buildWrite(cb, renderOptions, on::getReference, keys, rootTermsOnly)),
+                u.startAfter(), u::modelKey);
+        return write(u.persistenceContext(), () -> keyset(keyed, whole, byKeys, u.chunkOptions(), cb));
     }
 
     @Override
     public long delete(ModelDelete<E, ?> d) {
         Objects.requireNonNull(d, "d");
         checkWriteOnce(d, d::checkMetamodel);
-        requireTransaction("delete");
+        requireTransaction("delete", d.chunkOptions());
         if (d.writesNothing()) {
             return 0;
         }
@@ -323,13 +337,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         CriteriaBuilder cb = em.getCriteriaBuilder();
         Supplier<Query> whole = () -> em.createQuery(d.buildWrite(cb, renderOptions));
         Function<List<Object>, Query> byKeys = chunk -> em.createQuery(d.buildWrite(cb, renderOptions, chunk));
-        if (!keyFirst(() -> d.readsTargetInSubquery(cb, renderOptions))) {
+        boolean rootTermsOnly = keyFirst(() -> d.readsTargetInSubquery(cb, renderOptions));
+        if (!rootTermsOnly && d.chunkOptions().isEmpty()) {
             return write(d.persistenceContext(), () -> direct(d.distinctKeys(), whole, byKeys));
         }
         var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), d.primaryKey(), d.distinctKeys(),
                 run -> run == null ? d.buildKeySelect(cb, renderOptions) : d.buildKeySelect(cb, renderOptions, run),
-                keys -> em.createQuery(d.buildWrite(cb, renderOptions, keys, true)));
-        return write(d.persistenceContext(), () -> keyFirst(keyed, whole, byKeys, d.chunkOptions(), cb));
+                (on, keys) -> on.createQuery(d.buildWrite(cb, renderOptions, keys, rootTermsOnly)),
+                d.startAfter(), d::modelKey);
+        return write(d.persistenceContext(), () -> keyset(keyed, whole, byKeys, d.chunkOptions(), cb));
     }
 
     /**
@@ -357,12 +373,37 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * Throws {@code MQ2501} naming {@code operation} when {@code em} is not joined to a transaction, before any
-     * statement, instead of the provider's {@code TransactionRequiredException} at the end (R-WRT-18).
+     * statement, instead of the provider's {@code TransactionRequiredException} at the end (R-WRT-18). A write whose
+     * {@code chunk} options commit each chunk needs no transaction but a {@link ChunkTransactions} that serves the
+     * factory, else it throws {@code MQ4004} before any statement, the flush included (R-WRT-19, D-62).
      */
-    private void requireTransaction(String operation) {
+    private void requireTransaction(String operation, Optional<ChunkOptions> chunk) {
+        if (chunk.map(ChunkOptions::commitsEachChunk).orElse(false)) {
+            requireChunkTransactions(operation);
+            return;
+        }
         if (!em.isJoinedToTransaction()) {
             throw new ModelQueryExecutionException(MqCode.MQ2501, rootEntity.getSimpleName() + ": a bulk " + operation
                     + " needs an active transaction, and the EntityManager is not joined to one");
+        }
+    }
+
+    private void requireChunkTransactions(String operation) {
+        String write = rootEntity.getSimpleName() + ": a bulk " + operation + " with commitEachChunk()";
+        if (chunkTransactions == null) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4004, write + " runs each chunk through a "
+                    + "ChunkTransactions, and none is set on ModelQueryConfig.chunkTransactions(...)");
+        }
+        try {
+            chunkTransactions.checkServes(em.getEntityManagerFactory());
+        } catch (RuntimeException e) {
+            if (e instanceof ModelQueryConfigurationException configuration
+                    && configuration.code() == MqCode.MQ4004) {
+                throw configuration;
+            }
+            throw new ModelQueryConfigurationException(MqCode.MQ4004, write + ": the configured "
+                    + chunkTransactions.getClass().getName() + " cannot serve this EntityManagerFactory: "
+                    + e.getMessage(), e);
         }
     }
 
@@ -396,7 +437,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             return execute(whole.get());
         }
         List<Object> all = keys.get();
-        int chunk = all.size() == 1 ? 1 : keyChunkSize(byKeys.apply(all.subList(0, 1)), all.get(0));
+        int chunk = all.size() == 1 ? 1 : keyChunkSize(byKeys.apply(all.subList(0, 1)), all.get(0),
+                OptionalInt.empty());
         long written = 0;
         for (int from = 0; from < all.size(); from += chunk) {
             written += execute(byKeys.apply(all.subList(from, Math.min(all.size(), from + chunk))));
@@ -405,30 +447,35 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     }
 
     /**
-     * Runs {@code keyed} key-first through the keyset loop, at the profile's clamp, with the keys selected under a
-     * lock when its {@code chunked(...)} options say {@code lockKeys()} (R-WRT-11, D-63). The clamp counts the binds
-     * of the {@code whole} statement, or of {@code byKeys} over one key, less that key's: the whole tree's binds are
-     * at least those of the root terms the write keeps and of the tree the key select renders, so neither passes the
-     * limit.
+     * Runs {@code keyed} through the keyset loop, key-first or chunked: in rounds of the {@code chunk} size, else the
+     * configured {@code bulkWriteChunkSize} for a chunked write, else the profile's clamp, always within the clamp;
+     * with the keys selected under a lock when the options say {@code lockKeys()}, and each round in a new
+     * transaction when they say {@code commitEachChunk()} (R-WRT-11, R-WRT-17, R-WRT-19, D-63). The clamp counts
+     * the binds of the {@code whole} statement, or of {@code byKeys} over one key, less that key's: the whole tree's
+     * binds are at least those of the root terms the write keeps and of the tree the key select renders, so neither
+     * passes the limit.
      */
-    private <M> long keyFirst(KeysetWrite.Keyed<M> keyed, Supplier<Query> whole, Function<List<Object>, Query> byKeys,
+    private <M> long keyset(KeysetWrite.Keyed<M> keyed, Supplier<Query> whole, Function<List<Object>, Query> byKeys,
             Optional<ChunkOptions> chunk, CriteriaBuilder cb) {
+        OptionalInt size = chunk.isEmpty() ? OptionalInt.empty()
+                : OptionalInt.of(chunk.get().size().orElse(bulkWriteChunkSize));
         int n = keyed.distinctKeys()
-                .map(all -> all.size() == 1 ? 1 : keyChunkSize(byKeys.apply(all.subList(0, 1)), all.get(0)))
+                .map(all -> all.size() == 1 ? 1 : keyChunkSize(byKeys.apply(all.subList(0, 1)), all.get(0), size))
                 .orElseGet(() -> keyLimits.clamp(whole.get().getParameters().size(), keyed.key().columns().size(),
-                        OptionalInt.empty()));
-        return new KeysetWrite(cb, this::create, this::execute)
+                        size));
+        boolean perChunk = chunk.map(ChunkOptions::commitsEachChunk).orElse(false);
+        return new KeysetWrite(cb, this::create, this::execute, em, perChunk ? chunkTransactions : null)
                 .run(keyed, n, chunk.map(ChunkOptions::locksKeys).orElse(false));
     }
 
     /**
-     * The most keys one write statement takes, from {@code oneKey}, the statement over a single key: its binds less
-     * the key's own are the statement's (D-63).
+     * The most keys one write statement takes, {@code configured} if any, from {@code oneKey}, the statement over a
+     * single key: its binds less the key's own are the statement's (D-63).
      */
-    private int keyChunkSize(Query oneKey, Object key) {
+    private int keyChunkSize(Query oneKey, Object key, OptionalInt configured) {
         int keyColumns = key instanceof List<?> components ? components.size() : 1;
         int ownBinds = Math.max(0, oneKey.getParameters().size() - keyColumns);
-        return keyLimits.clamp(ownBinds, keyColumns, OptionalInt.empty());
+        return keyLimits.clamp(ownBinds, keyColumns, configured);
     }
 
     /** Runs a write statement with the configured timeout applied through the profile (R-EXE-11). */

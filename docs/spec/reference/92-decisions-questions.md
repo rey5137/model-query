@@ -582,9 +582,9 @@ R-WRT-13, R-WRT-16.
 **D-62 — Where bulk-write settings live.** `PersistenceContextMode { CLEAR, KEEP }` is in `core`; a write's own
 `persistenceContext(...)` wins over `ModelQueryConfig.persistenceContextMode`, which defaults to `CLEAR`. `ChunkOptions`
 is a record whose size is an `OptionalInt` (as `ExportOptions`, D-53): `size(n)` sets it, `defaultSize()` leaves it to
-`ModelQueryConfig.bulkWriteChunkSize` (default 1000); it also carries `commitEachChunk`, `lockKeys` and `startAfter`,
-so `lockKeys` is reachable only through `chunked`. `ChunkTransactions` is in `jpa`, set by
-`ModelQueryConfig.chunkTransactions(...)`, and gains `default void checkServes(EntityManagerFactory)` so `MQ4004` is
+`ModelQueryConfig.bulkWriteChunkSize` (default 1000); it also carries `commitEachChunk` and `lockKeys`,
+so `lockKeys` is reachable only through `chunked`; `startAfter` is on the builder's `chunked` stage instead (D-68).
+`ChunkTransactions` is in `jpa`, set by `ModelQueryConfig.chunkTransactions(...)`, and gains `default void checkServes(EntityManagerFactory)` so `MQ4004` is
 thrown before the flush. The executor captures these at construction (INV-8, D-56). Clearing and eviction run in a
 `finally`. → `api/14` R-WRT-19, `integration/50` R-SPR-10, R-SPR-11.
 
@@ -643,6 +643,24 @@ key select. A key-first `whereKeys` write selects once per run of its distinct k
 repeats a key of the round before throws `MQ2205`, as R-PAG-14 does. `lockKeys()` applies on the key-first path now;
 `chunked` sizes and chunking where the database could write in one statement are M6.5's. → `api/14` R-WRT-11,
 R-WRT-17, `vendor/40` R-VND-11, D-63.
+
+**D-68 — M6.5 chunked surface.** `startAfter` is not a `ChunkOptions` component, which cannot know `K` (D-64): a
+write that chose its rows by `where` or `all()` reaches a `Resumable` options stage, whose `chunked(ChunkOptions, K
+startAfter)` overload takes it and whose other options return `Resumable`, so the order of the options is free. A
+`whereKey` or `whereKeys` write gets none, since it writes its keys in runs in the order given, not in key order; it
+may still `commitEachChunk()`, and its `lastCommittedKey()` is the last key of the last committed run as that run's key
+select returned it. Every chunked write runs the M6.4 loop, on a vendor that could write in one statement too,
+re-applying the whole tree there and the root terms where the write runs key-first; a round takes the options' size,
+else `bulkWriteChunkSize`, within `Keys.clamp` of the whole-tree statement's binds. Each `commitEachChunk()` round, key
+select and write, runs in one `inNewTransaction`: queries are built with the caller's `CriteriaBuilder` and created on
+the chunk's `EntityManager`, whose `getReference` binds a to-one by id. A round whose callback throws after the round
+itself returned is in doubt, its commit having failed; one that threw inside it rolled back. Any exception of a round,
+`MQ2205` included, becomes `MQ2502`. `ChunkedWriteException` extends `ModelQueryExecutionException` and holds its keys
+as `Object`, since an exception cannot be generic; `ModelUpdate` and `ModelDelete` gain `startAfter()` and
+`modelKey(Object)` for the executor. `MQ4004` is checked where `MQ2501` is, after the metamodel checks and before the
+no-op shortcut; a `checkServes` that throws `MQ4004` itself passes through, and anything else it throws becomes the
+cause of one, through a new `ModelQueryConfigurationException(code, detail, cause)`. → `api/14` R-WRT-17, R-WRT-19,
+R-WRT-20, D-62, D-64.
 
 ## 2. Open questions
 

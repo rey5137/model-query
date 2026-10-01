@@ -8,10 +8,13 @@ import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.VendorProfile;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Query;
 import java.time.Duration;
 import java.util.List;
 import java.util.OptionalInt;
+import java.util.function.Function;
 import org.junit.jupiter.api.Test;
 
 class ModelQueryConfigTest {
@@ -142,6 +145,33 @@ class ModelQueryConfigTest {
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ4003))
                     .hasMessage(MqCode.MQ4003.code() + ": streamFetchSize " + size + " is below one");
         }
+    }
+
+    @Test
+    void r_wrt_17_the_bulk_write_chunk_size_defaults_to_1000_and_below_one_throws_mq4003() {
+        ModelQueryConfig sized = ModelQueryConfig.defaults().bulkWriteChunkSize(7).exportPageSize(5);
+        assertThat(ModelQueryConfig.defaults().bulkWriteChunkSize()).isEqualTo(1_000);
+        assertThat(sized.bulkWriteChunkSize()).isEqualTo(7);
+        assertThat(sized.exportPageSize()).isEqualTo(5);
+        for (int size : new int[] {0, -1}) {
+            assertThatThrownBy(() -> ModelQueryConfig.defaults().bulkWriteChunkSize(size))
+                    .isInstanceOfSatisfying(ModelQueryConfigurationException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ4003))
+                    .hasMessage(MqCode.MQ4003.code() + ": bulkWriteChunkSize " + size + " is below one");
+        }
+    }
+
+    @Test
+    void r_wrt_19_no_chunk_transactions_are_set_by_default_and_the_other_setters_keep_them() {
+        ChunkTransactions transactions = new ChunkTransactions() {
+            @Override
+            public <T> T inNewTransaction(EntityManagerFactory emf, Function<EntityManager, T> chunk) {
+                throw new UnsupportedOperationException();
+            }
+        };
+        assertThat(ModelQueryConfig.defaults().chunkTransactions()).isEmpty();
+        assertThat(ModelQueryConfig.defaults().chunkTransactions(transactions).queryTimeout(Duration.ofSeconds(4))
+                .bulkWriteChunkSize(3).chunkTransactions()).containsSame(transactions);
     }
 
     @Test

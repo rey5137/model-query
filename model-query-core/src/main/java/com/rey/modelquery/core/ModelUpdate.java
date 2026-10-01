@@ -198,6 +198,26 @@ public final class ModelUpdate<E, M> {
         return Optional.ofNullable(definition.chunkOptions());
     }
 
+    /**
+     * The key of {@code chunked(options, startAfter)} converted to its attribute value (a list of component values
+     * for a composite key), or empty without one: a chunked write's first key select starts after it (R-WRT-20).
+     *
+     * @throws IllegalArgumentException for a composite key with the wrong number of components
+     */
+    public Optional<Object> startAfter() {
+        Object key = definition.startAfter();
+        return key == null ? Optional.empty()
+                : Optional.of(WriteRendering.distinctKeys(definition.primaryKey(), List.of(key)).get(0));
+    }
+
+    /**
+     * The model key, the type {@code whereKey} takes, of {@code attributeKey}, a key as a key select returns it:
+     * {@link ChunkedWriteException} reports its keys so (R-WRT-20, D-63).
+     */
+    public Object modelKey(Object attributeKey) {
+        return WriteRendering.modelKey(definition.primaryKey(), Objects.requireNonNull(attributeKey, "attributeKey"));
+    }
+
     private BuiltQuery<M> keySelect(CriteriaBuilder cb, RenderOptions options, List<Object> keys) {
         Objects.requireNonNull(cb, "cb");
         Objects.requireNonNull(options, "options");
@@ -390,37 +410,39 @@ public final class ModelUpdate<E, M> {
             Object expectedVersion,
             boolean keepVersion,
             ChunkOptions chunkOptions,
-            PersistenceContextMode persistenceContext) {
+            PersistenceContextMode persistenceContext,
+            Object startAfter) {
 
         Draft<E, K, M> assign(List<Assignment<M, ?>> more) {
             var all = new ArrayList<>(assignments);
             all.addAll(more);
             return new Draft<>(root, primaryKey, List.copyOf(all), rows, expectedVersion, keepVersion, chunkOptions,
-                    persistenceContext);
+                    persistenceContext, startAfter);
         }
 
         Draft<E, K, M> rows(WriteRows rows) {
             return new Draft<>(root, primaryKey, assignments, rows, expectedVersion, keepVersion, chunkOptions,
-                    persistenceContext);
+                    persistenceContext, startAfter);
         }
 
         Draft<E, K, M> expect(Object version) {
             return new Draft<>(root, primaryKey, assignments, rows, version, keepVersion, chunkOptions,
-                    persistenceContext);
+                    persistenceContext, startAfter);
         }
 
         Draft<E, K, M> keep() {
             return new Draft<>(root, primaryKey, assignments, rows, expectedVersion, true, chunkOptions,
-                    persistenceContext);
+                    persistenceContext, startAfter);
         }
 
-        Draft<E, K, M> chunk(ChunkOptions options) {
+        Draft<E, K, M> chunk(ChunkOptions options, Object after) {
             return new Draft<>(root, primaryKey, assignments, rows, expectedVersion, keepVersion, options,
-                    persistenceContext);
+                    persistenceContext, after);
         }
 
         Draft<E, K, M> mode(PersistenceContextMode mode) {
-            return new Draft<>(root, primaryKey, assignments, rows, expectedVersion, keepVersion, chunkOptions, mode);
+            return new Draft<>(root, primaryKey, assignments, rows, expectedVersion, keepVersion, chunkOptions, mode,
+                    startAfter);
         }
 
         /**
@@ -484,7 +506,7 @@ public final class ModelUpdate<E, M> {
         /** The update model's key, which {@code whereKey} and {@code whereKeys} take values of (R-WRT-08). */
         public <K, M> Builder<E, K, M> primaryKey(PrimaryKey<M, K> primaryKey) {
             return new Builder<>(new Draft<>(root, Objects.requireNonNull(primaryKey, "primaryKey"), List.of(), null,
-                    null, false, null, null));
+                    null, false, null, null, null));
         }
     }
 
@@ -564,14 +586,14 @@ public final class ModelUpdate<E, M> {
          * ANDed. It runs once, here, as {@link ModelQuery.Builder#where} does. If every filter is skipped,
          * {@link Options#build()} throws {@code MQ1601}; {@link #all()} is the only way to write every row (R-WRT-12).
          */
-        public Options<E, K, M> where(UnaryOperator<Filters<M>> filters) {
-            return new Options<>(draft.rows(WriteRows.where(FilterGroup.collect(
+        public Resumable<E, K, M> where(UnaryOperator<Filters<M>> filters) {
+            return new Resumable<>(draft.rows(WriteRows.where(FilterGroup.collect(
                     Objects.requireNonNull(filters, "filters")))));
         }
 
         /** Writes every row; no {@code where} follows (R-WRT-12). */
-        public Options<E, K, M> all() {
-            return new Options<>(draft.rows(WriteRows.everyRow()));
+        public Resumable<E, K, M> all() {
+            return new Resumable<>(draft.rows(WriteRows.everyRow()));
         }
     }
 
@@ -583,7 +605,7 @@ public final class ModelUpdate<E, M> {
      * @param <M> the update model
      */
     @Incubating
-    public static sealed class Options<E, K, M> permits Versioned, Narrowable {
+    public static sealed class Options<E, K, M> permits Versioned, Narrowable, Resumable {
 
         final Draft<E, K, M> draft;
 
@@ -596,9 +618,13 @@ public final class ModelUpdate<E, M> {
             return new Options<>(draft.keep());
         }
 
-        /** Writes in key-first chunks, as {@code options} states (R-WRT-17). */
+        /**
+         * Writes in chunks, as {@code options} states: each selects the next keys in key order, then writes them, so
+         * no row is written twice and an update that leaves its rows matching terminates (R-WRT-17). With
+         * {@code commitEachChunk()} each chunk commits on its own (R-WRT-19, R-WRT-20).
+         */
         public Options<E, K, M> chunked(ChunkOptions options) {
-            return new Options<>(draft.chunk(Objects.requireNonNull(options, "options")));
+            return new Options<>(draft.chunk(Objects.requireNonNull(options, "options"), null));
         }
 
         /** What the write does to the persistence context afterwards, over the executor's configured mode (D-62). */
@@ -684,6 +710,48 @@ public final class ModelUpdate<E, M> {
         public Options<E, K, M> where(UnaryOperator<Filters<M>> filters) {
             return new Options<>(draft.rows(draft.rows().and(FilterGroup.collect(
                     Objects.requireNonNull(filters, "filters")))));
+        }
+    }
+
+    /**
+     * The options stage of an update that chose its rows by {@code where} or {@code all()}, whose chunks run in key
+     * order, so a chunked write can resume after a key.
+     *
+     * @param <E> the root entity
+     * @param <K> the primary-key type
+     * @param <M> the update model
+     */
+    @Incubating
+    public static final class Resumable<E, K, M> extends Options<E, K, M> {
+
+        private Resumable(Draft<E, K, M> draft) {
+            super(draft);
+        }
+
+        @Override
+        public Resumable<E, K, M> keepVersion() {
+            return new Resumable<>(draft.keep());
+        }
+
+        @Override
+        public Resumable<E, K, M> chunked(ChunkOptions options) {
+            return new Resumable<>(draft.chunk(Objects.requireNonNull(options, "options"), null));
+        }
+
+        /**
+         * Writes in chunks as {@link #chunked(ChunkOptions)} does, starting after {@code startAfter}: only rows whose
+         * key comes after it in key order are written. Given a {@link ChunkedWriteException#lastCommittedKey()}, it
+         * resumes the write that threw; that is safe after an in-doubt chunk only once its keys were checked
+         * (R-WRT-20, D-63).
+         */
+        public Resumable<E, K, M> chunked(ChunkOptions options, K startAfter) {
+            return new Resumable<>(draft.chunk(Objects.requireNonNull(options, "options"),
+                    Objects.requireNonNull(startAfter, "startAfter")));
+        }
+
+        @Override
+        public Resumable<E, K, M> persistenceContext(PersistenceContextMode mode) {
+            return new Resumable<>(draft.mode(Objects.requireNonNull(mode, "mode")));
         }
     }
 }

@@ -157,6 +157,9 @@ public enum MqCode {
     /** A bulk write ran without an active transaction (R-WRT-18). */
     MQ2501("A bulk write needs an active transaction"),
 
+    /** A per-chunk write failed; earlier chunks stay committed (R-WRT-20). */
+    MQ2502("A per-chunk write failed"),
+
     /** {@code modelquery.vendor} names an unknown vendor (R-VND-04). */
     MQ4001("modelquery.vendor names an unknown vendor"),
 
@@ -165,6 +168,9 @@ public enum MqCode {
 
     /** A configuration value is outside its allowed range (integration/50 §3). */
     MQ4003("A configuration value is outside its allowed range"),
+
+    /** {@code commitEachChunk()} with no {@code ChunkTransactions}, or none that serves the factory (R-WRT-19). */
+    MQ4004("commitEachChunk() needs a ChunkTransactions that serves the EntityManagerFactory"),
 
     /**
      * {@code modelquery.vendor} is set with more than one {@code EntityManagerFactory} and no

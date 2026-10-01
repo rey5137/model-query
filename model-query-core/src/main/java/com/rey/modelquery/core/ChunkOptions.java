@@ -5,7 +5,8 @@ import java.util.OptionalInt;
 
 /**
  * How a chunked bulk write runs: the keys selected per chunk, whether each chunk commits on its own, and whether the
- * key select locks the rows it reads. Immutable.
+ * key select locks the rows it reads. Immutable. The key to resume after is given with them, on the write's builder,
+ * which knows the key's type (D-64).
  *
  * @param size the keys per chunk, positive when present; empty leaves it to the executor's configured default; either
  *     way clamped to the vendor's limits
@@ -48,7 +49,10 @@ public record ChunkOptions(OptionalInt size, boolean commitsEachChunk, boolean l
     /**
      * A copy that runs each chunk in a new transaction, through the configured {@code ChunkTransactions}, which keeps
      * locks and undo logs short at the cost of atomicity: chunks already committed stay committed when a later one
-     * fails. Meant to run outside a transaction, since rows the caller's flush locked wait until it ends.
+     * fails, and a failed chunk throws {@link ChunkedWriteException} ({@code MQ2502}). Meant to run outside a
+     * transaction, since rows the caller's flush locked wait until it ends. With no {@code ChunkTransactions}
+     * configured, or one that cannot serve the write's factory, the write throws {@code MQ4004} before any statement
+     * (R-WRT-19, R-WRT-20).
      */
     public ChunkOptions commitEachChunk() {
         return new ChunkOptions(size, true, locksKeys);

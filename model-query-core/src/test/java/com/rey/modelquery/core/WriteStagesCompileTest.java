@@ -17,7 +17,10 @@ import javax.tools.ToolProvider;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/** The staged write builders reject a wrong order at compile time (spec api/14 R-WRT-06, R-WRT-12, R-WRT-16, D-60). */
+/**
+ * The staged write builders reject a wrong order at compile time (spec api/14 R-WRT-06, R-WRT-12, R-WRT-16, R-WRT-20,
+ * D-60, D-68).
+ */
 class WriteStagesCompileTest {
 
     @Test
@@ -61,6 +64,22 @@ class WriteStagesCompileTest {
         assertThat(compile(out, "UPDATE.whereKeys(List.of(1L)).expectVersion(3L).build()")).isNotEmpty();
         assertThat(compile(out, "UPDATE.all().expectVersion(3L).build()")).isNotEmpty();
         assertThat(compile(out, "DELETE.whereKey(1L).expectVersion(3L).build()")).isNotEmpty();
+    }
+
+    @Test
+    void ac_wrt_15_start_after_takes_the_key_type_after_where_or_all_in_any_option_order(@TempDir Path out)
+            throws IOException {
+        assertThat(compile(out, "UPDATE.set(STATUS, \"PAID\").where(f -> f.eq(STATUS, \"NEW\")).keepVersion()"
+                + ".chunked(ChunkOptions.size(10).commitEachChunk(), 42L)"
+                + ".persistenceContext(PersistenceContextMode.KEEP).build()")).isEmpty();
+        assertThat(compile(out, "DELETE.all().persistenceContext(PersistenceContextMode.KEEP)"
+                + ".chunked(ChunkOptions.defaultSize(), 42L).build()")).isEmpty();
+        assertThat(compile(out, "UPDATE.all().chunked(ChunkOptions.defaultSize(), \"42\").build()")).isNotEmpty();
+        assertThat(compile(out, "UPDATE.whereKeys(List.of(1L)).chunked(ChunkOptions.defaultSize(), 1L).build()"))
+                .isNotEmpty();
+        assertThat(compile(out, "UPDATE.whereKey(1L).chunked(ChunkOptions.defaultSize(), 1L).build()")).isNotEmpty();
+        assertThat(compile(out, "DELETE.whereKeys(List.of(1L)).chunked(ChunkOptions.defaultSize(), 1L).build()"))
+                .isNotEmpty();
     }
 
     /** Compiles a write whose builder is continued by {@code call}, and returns the errors on that line. */
