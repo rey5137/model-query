@@ -23,27 +23,35 @@
         <spring-framework.version>6.2.15</spring-framework.version>
     </properties>
 
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.github.rey5137</groupId>
+                <artifactId>model-query-bom</artifactId>
+                <version>${project.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>io.github.rey5137</groupId>
             <artifactId>model-query-spring-boot-starter</artifactId>
-            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>io.github.rey5137</groupId>
             <artifactId>model-query-hibernate</artifactId>
-            <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>io.github.rey5137</groupId>
             <artifactId>model-query-annotations</artifactId>
-            <version>${project.version}</version>
         </dependency>
         <!-- Listed so the reactor builds the processor first; it runs from annotationProcessorPaths -->
         <dependency>
             <groupId>io.github.rey5137</groupId>
             <artifactId>model-query-processor</artifactId>
-            <version>${project.version}</version>
             <scope>provided</scope>
             <optional>true</optional>
         </dependency>
