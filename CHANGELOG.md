@@ -15,6 +15,10 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 - Primary-key-first step-2 batches and bulk-write key chunks hold at most the largest power of two of keys within the
   vendor's limits, so IN-list padding cannot pass them (#6).
 
+### Fixed
+- The starter's repository factory bean swap re-registers each definition, so a repository type-checked before the swap
+  no longer starts without `findPage`.
+
 ## [0.1.0] - 2026-10-01
 
 First release.

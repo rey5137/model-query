@@ -35,8 +35,10 @@ only works under Spring is a bug.
 **R-SPR-02** `ModelQueryRepositoryFactoryBean` is set through
 `@EnableJpaRepositories(repositoryFactoryBeanClass = …)`. The starter swaps it in for every repository registered
 with exactly `JpaRepositoryFactoryBean`, Boot's own and any `@EnableJpaRepositories` that names no factory bean class,
-and leaves a repository with a factory bean class of its own alone (D-50). A repository extending `ModelQueryRepository` without the factory bean fails
-at startup, as any repository with an unimplemented method does.
+and leaves a repository with a factory bean class of its own alone (D-50). It re-registers each swapped definition
+rather than mutating it, so a repository type-checked before the swap is still built with it (D-83). A repository
+extending `ModelQueryRepository` without the factory bean fails at startup, as any repository with an unimplemented
+method does.
 
 **R-SPR-03** `stream(...)` opens a read-only transaction when none is active, which PostgreSQL needs for cursor
 streaming (`vendor/41` R-PRF-03), and joins an active one. The transaction ends when `stream` returns, and `body`
@@ -122,5 +124,6 @@ holds, or a `modelquery.*` property is set. The starter's own `ChunkTransactions
 | AC-SPR-08 | `modelquery.keyset.null-keys=honour-null-precedence` logs one startup warning (R-SPR-09). |
 | AC-SPR-10 | `modelquery.vendor` with two factories and no `ModelQueryConfigurer` fails startup with `MQ4005` (R-SPR-13). |
 | AC-SPR-11 | A `ModelQueryConfig` bean of the application with a `modelquery.*` property set, or without a `VendorProfile` bean among its profiles, fails startup with `MQ4006`; one holding every profile bean starts (R-SPR-13). |
+| AC-SPR-13 | A post-processor that type-checks the repositories before the swap leaves them built with `ModelQueryRepositoryFactoryBean`: the context starts and `findPage` works (R-SPR-02, D-83). |
 | AC-SPR-12 | A repository declaring `ModelQueryRepository` of an entity other than its domain type fails startup with `MQ4007` (R-SPR-12). |
 | AC-SPR-09 | (`Future`, M6) `update`/`delete` without an ambient transaction succeed through the repository; `commitEachChunk` commits each chunk separately on the primary and on a secondary datasource of the multi-datasource sample, and a failed third chunk leaves the first two committed (R-SPR-10, R-SPR-11). |

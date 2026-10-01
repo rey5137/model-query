@@ -7,6 +7,7 @@ import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ChunkedWriteException;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ColumnSet;
+import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
@@ -45,15 +46,22 @@ import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.beans.factory.support.BeanDefinitionRegistry;
+import org.springframework.beans.factory.support.BeanDefinitionRegistryPostProcessor;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan.Filter;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.FilterType;
+import org.springframework.core.Ordered;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.data.jpa.repository.support.JpaRepositoryFactoryBean;
+import org.springframework.data.repository.Repository;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
@@ -232,6 +240,20 @@ class StarterTest {
             assertThat(context.getBeanNamesForType(PlainRepository.class)).singleElement()
                     .satisfies(name -> assertThat(context.getBeanFactory().getBeanDefinition(name).getBeanClassName())
                             .isEqualTo(OwnFactoryBean.class.getName()));
+        });
+    }
+
+    // ---- AC-SPR-13
+
+    @Test
+    void ac_spr_13_a_repository_type_checked_before_the_swap_still_gets_the_model_query_factory_bean() {
+        withRepositories.withUserConfiguration(EarlyTypeCheck.class).run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context.getBeanFactory().getMergedBeanDefinition("orderRepository").getBeanClassName())
+                    .isEqualTo(ModelQueryRepositoryFactoryBean.class.getName());
+            assertThat(context.getBean(OrderRepository.class).count(ORDER_IDS)).isPositive();
+            assertThat(context.getBean(OrderRepository.class).findPage(ORDER_IDS, PageRequest.of(0, 2),
+                    CountMode.COUNT).getContent()).hasSize(2);
         });
     }
 
@@ -553,6 +575,39 @@ class StarterTest {
     @EnableJpaRepositories(basePackageClasses = StarterTest.class, considerNestedRepositories = true,
             includeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE, classes = MismatchedRepository.class))
     static class MismatchedJpa extends Jpa {}
+
+    /**
+     * Type-checks every repository after the registrar ran and before the starter's swap, caching a merged definition
+     * and an early factory bean instance of the stock class, as another post-processor or a framework can (D-83).
+     */
+    @Configuration(proxyBeanMethods = false)
+    static class EarlyTypeCheck {
+
+        @Bean
+        static BeanDefinitionRegistryPostProcessor earlyTypeCheck() {
+            return new EarlyTypeCheckProcessor();
+        }
+    }
+
+    static final class EarlyTypeCheckProcessor implements BeanDefinitionRegistryPostProcessor, Ordered {
+
+        @Override
+        public void postProcessBeanDefinitionRegistry(BeanDefinitionRegistry registry) {
+            var beanFactory = (DefaultListableBeanFactory) registry;
+            for (String name : beanFactory.getBeanNamesForType(Repository.class)) {
+                beanFactory.getMergedBeanDefinition(name);
+                beanFactory.getType(name);
+            }
+        }
+
+        @Override
+        public void postProcessBeanFactory(ConfigurableListableBeanFactory beanFactory) {}
+
+        @Override
+        public int getOrder() {
+            return 0;
+        }
+    }
 
     /** A second factory over the same database, which makes the context a multi-factory one. */
     @Configuration(proxyBeanMethods = false)

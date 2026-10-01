@@ -22,6 +22,7 @@ import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.beans.factory.support.BeanDefinitionRegistryPostProcessor;
+import org.springframework.beans.factory.support.GenericBeanDefinition;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -57,7 +58,10 @@ public class ModelQueryAutoConfiguration {
     /**
      * Swaps the repositories registered with the stock {@code JpaRepositoryFactoryBean} to
      * {@link ModelQueryRepositoryFactoryBean}, keeping Boot's own repository registrar; a repository with a factory
-     * bean class of its own is left alone (R-SPR-02, D-50).
+     * bean class of its own is left alone (R-SPR-02, D-50). Each swapped definition is copied and re-registered under
+     * its name rather than changed in place, so a repository another post-processor type-checked first, which left
+     * a merged definition and an early stock factory bean cached, is still built with the model-query factory bean
+     * (D-83).
      */
     @Bean
     static BeanDefinitionRegistryPostProcessor modelQueryRepositoryFactoryBeanSwap() {
@@ -65,10 +69,13 @@ public class ModelQueryAutoConfiguration {
             @Override
             public void postProcessBeanDefinitionRegistry(BeanDefinitionRegistry registry) {
                 String stock = JpaRepositoryFactoryBean.class.getName();
-                for (String name : registry.getBeanDefinitionNames()) {
+                for (String name : registry.getBeanDefinitionNames().clone()) {
                     BeanDefinition definition = registry.getBeanDefinition(name);
                     if (stock.equals(definition.getBeanClassName())) {
-                        definition.setBeanClassName(ModelQueryRepositoryFactoryBean.class.getName());
+                        GenericBeanDefinition swapped = new GenericBeanDefinition(definition);
+                        swapped.setBeanClassName(ModelQueryRepositoryFactoryBean.class.getName());
+                        registry.removeBeanDefinition(name);
+                        registry.registerBeanDefinition(name, swapped);
                     }
                 }
             }
