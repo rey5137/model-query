@@ -53,6 +53,7 @@
         <module>model-query-spring-boot-starter</module>
         <module>model-query-tck</module>
         <module>samples/plain-jpa</module>
+        <module>samples/spring-boot</module>
     </modules>
 
     <properties>

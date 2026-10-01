@@ -1,6 +1,6 @@
 {
   "_comment": "Scope for ac_audit.py (delivery/60 R-QA-11). A milestone's criteria are enforced once it is listed in 'started'. 'files' are spec paths (relative to docs/spec, without .md) taken from the 'Exit criteria' column of delivery/62 section 1; 'ids' name individual criteria the plan assigns to the milestone. Criteria in no milestone are reported as unscheduled and do not fail the audit.",
-  "started": ["M0", "M1", "M2", "M3", "M4"],
+  "started": ["M0", "M1", "M2", "M3", "M4", "M5"],
   "milestones": {
     "M0": { "ids": ["AC-REL-01", "AC-REL-02", "AC-REL-03", "AC-REL-07", "AC-QA-01", "AC-QA-05"] },
     "M1": { "files": ["api/10-columns-joins", "api/11-query-definition", "api/12-filters", "api/13-aggregates-grouping"] },
