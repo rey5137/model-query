@@ -12,7 +12,6 @@ gives correct-looking results with the wrong limits.
 | 1 | H2 | 2.2+, native mode | every pull request |
 | 1 | PostgreSQL | 14, 15, 16, 17 | every pull request (Testcontainers) |
 | 1 | MySQL | 8.0, 8.4 | every pull request (Testcontainers) |
-| 2 (next) | MariaDB | 10.11, 11.x | after Tier 1 is stable |
 | 3 (community) | Oracle, SQL Server, others | | profile contributions welcome |
 
 A Tier-1 release needs the whole compatibility suite to pass on every Tier-1 version. A Tier-3 profile is
@@ -44,7 +43,7 @@ several statements, each holding the largest power of two of keys within the lim
 3. Otherwise `DatabaseMetaData#getDatabaseProductName()`, read once per factory from the factory's
    `jakarta.persistence.nonJtaDataSource` property.
 
-An unrecognised database, or a recognised one without a profile (MariaDB, Oracle, SQL Server for now), resolves to the
+An unrecognised database, or a recognised one without a profile (MariaDB, Oracle, SQL Server), resolves to the
 `OTHER` profile. It is deliberately conservative: fetch size 500, `IN` lists of 1 000, 2 000 bind parameters, unknown
 null ordering and no target table in sub-queries. Under `OTHER`, keyset paging over a nullable column without explicit
 null precedence is refused. If your database is one of the Tier-1 vendors but resolves to `OTHER`, add

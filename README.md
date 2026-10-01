@@ -10,10 +10,11 @@ Typed, projection-first queries on top of JPA.
 - An annotation processor that generates those definitions as `QModel` classes.
 - A query engine for list, page, count, stream and large exports (offset or keyset paging).
 - Bulk update and delete driven by the same filters, with generated change sets that write only the fields that were
-  set (planned, M8).
+  set (`@Incubating`).
 - Vendor-aware behaviour for **H2, PostgreSQL and MySQL**, behind an SPI other databases can implement.
 
-> **Status: 0.1.0.** The public API may change in any `0.x` release. The user guide is at
+> **Status: 1.0.0.** The public API is frozen except what is marked `@Incubating`
+> ([API stability](docs/site/docs/stability.md)). The user guide is at
 > <https://rey5137.github.io/model-query/> (source under [`docs/site/docs/`](docs/site/docs/index.md)); the Javadoc is on
 > [javadoc.io](https://javadoc.io/doc/io.github.rey5137/model-query-core).
 

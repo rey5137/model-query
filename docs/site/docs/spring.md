@@ -51,7 +51,7 @@ snapshot only when you hold a transaction.
 ## Properties
 
 Every property has a plain-JPA equivalent on `ModelQueryConfig`; the starter only reads properties into it. The
-property keys are API; the `modelquery.bulk-write.*` properties are `@Incubating`, as bulk writes are.
+property keys are API (frozen at 1.0); the `modelquery.bulk-write.*` properties are `@Incubating`, as bulk writes are.
 
 | Property | Default | `ModelQueryConfig` method | Meaning |
 |---|---|---|---|

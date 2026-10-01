@@ -6,6 +6,29 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
+## [1.0.0] - Unreleased
+
+The API is frozen from this release, except what is marked `@Incubating` (D-85).
+
+### Upgrading from 0.1
+
+Breaking changes, each under Changed below:
+
+- `Filters` and `Having` are sealed (D-85).
+- `Filters.or` and `Having.or` take two or three branches or a `List`, not varargs (D-87).
+- `PageSpec` and `ExportOptions` have no public constructor; use `PageSpec.of` or `PageSpec.ofOffset` (D-88).
+- `SetterMapper.bind` takes a column of the mapper's own model (D-88).
+- A statement whose binds pass the vendor's limit throws `MQ1307` before it runs (D-80).
+
+Behaviour to know when moving from hand-written Criteria code:
+
+- `LikeMode.CONTAINS`, `STARTS_WITH` and `ENDS_WITH` escape `%`, `_` and the escape character in the value, so a `%`
+  in user input is no longer a wildcard. `EXACT` passes the pattern through as given.
+- Offset paging and export append the primary key to the order you give as a tie-breaker, so rows with equal sort
+  values come back in a stable order; keyset paging appends it as the last keyset column.
+- An `Optional<Date>` filter on a `Timestamp` column compiles when the model field is a `Date`, through the built-in
+  converter (D-84).
+
 ### Added
 - `japicmp` runs in `verify` against the baseline release named by `japicmp.baseline`, and fails the build on a
   binary- or source-incompatible change to API; it is skipped while no baseline is set, and ignores `@Incubating`,

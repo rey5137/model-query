@@ -10,7 +10,7 @@ selects exactly those columns, applies your filters, and maps rows straight into
 - **A `Filters` DSL** where an empty `Optional` skips a filter, values are always bind parameters, and negation includes
   NULLs.
 - **Grouped queries** with typed aggregates and `having`.
-- **Bulk updates and deletes** driven by the same filters (`@Incubating` in 0.1).
+- **Bulk updates and deletes** driven by the same filters (`@Incubating`; see [API stability](stability.md)).
 - **Vendor-aware behaviour** for H2, PostgreSQL and MySQL, behind an SPI other databases can implement.
 - **Spring Data and Spring Boot** integration that adds no behaviour of its own: everything also works with a plain
   `EntityManager`.
