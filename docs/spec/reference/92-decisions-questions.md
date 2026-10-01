@@ -662,6 +662,19 @@ no-op shortcut; a `checkServes` that throws `MQ4004` itself passes through, and 
 cause of one, through a new `ModelQueryConfigurationException(code, detail, cause)`. → `api/14` R-WRT-17, R-WRT-19,
 R-WRT-20, D-62, D-64.
 
+**D-69 — M6.6 generated update models.** `@UpdateModel` has `root` and `prefix` only; the `-Amodelquery.prefix` and
+`-Amodelquery.suffix` options name its class as they name a query model's, and a change set is always `<Model>Changes`,
+neither prefixed nor suffixed. An update model's class holds `ROOT`, its filter joins and its column constants,
+`changes()`, `update(changes)` and `delete()`, naming its key in place: no `KEY`, column set, `MAPPER` or `query()`,
+since it is never read into or instantiated, so neither `MQ3008` nor `MQ3009` applies and only `ROOT` is a reserved
+constant. A change set holds each field boxed, so a primitive field can be set to NULL; `isSet` and `unset` match a
+column by `equals`, a column the change set does not write is never set and unsetting it does nothing, and `unset`
+also drops the held value. `from(...)` reads a class model through Lombok-named getters (`isX` for a primitive
+`boolean`). A query model gets `delete()` when its key attributes are exactly the root's `@Id`, `@IdClass` attributes,
+`@EmbeddedId` or that id's components, the comparison `MQ1608` makes, and `changes()` and `update(...)` only when it
+has a key. The processor's tests bind a change set with Jackson in test scope. → `processor/30` R-PROC-04, R-PROC-18,
+`processor/31` R-GEN-19..R-GEN-22, `api/14` R-WRT-03.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter

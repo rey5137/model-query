@@ -50,4 +50,13 @@ public @interface QueryModel {
      * @return {@code true} when the model is one group over the whole table
      */
     boolean singleGroup() default false;
+
+    /**
+     * Whether to also generate a change set over the model's root, non-key columns, with {@code changes()},
+     * {@code update(...)} and the change set's {@code from(model, columns)}. Meant for internal use: a change set
+     * bound from a request can write every root column of the model. Incubating: the shape may change before 1.0.
+     *
+     * @return {@code true} to generate a change set
+     */
+    boolean generateChanges() default false;
 }

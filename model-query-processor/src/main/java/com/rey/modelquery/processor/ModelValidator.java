@@ -39,6 +39,9 @@ final class ModelValidator {
     /** Constants every QModel may declare itself, which a field's constant must not take ({@code MQ3015}). */
     private static final Set<String> RESERVED = Set.of("ROOT", "ALL", "DEFAULT", "KEY", "MAPPER", "GROUP_KEYS");
 
+    /** The only constant an update model's generated class declares itself (R-GEN-19). */
+    private static final Set<String> RESERVED_BY_UPDATE = Set.of("ROOT");
+
     private static final String LONG = "java.lang.Long";
     private static final String DOUBLE = "java.lang.Double";
     private static final String NUMBER = "java.lang.Number";
@@ -61,11 +64,16 @@ final class ModelValidator {
     }
 
     void validate(ModelDefinition model, Diagnostics diagnostics) {
-        checkShape(model, diagnostics);
+        // An update model is only read, never instantiated, so neither its shape nor its primitives matter.
+        if (!model.updateModel()) {
+            checkShape(model, diagnostics);
+        }
+        Set<String> reserved = model.updateModel() ? RESERVED_BY_UPDATE : RESERVED;
         // A group has no row identity, so a summary model needs no key (R-AGG-09).
         if (model.keys().isEmpty() && model.aggregates().isEmpty()) {
-            diagnostics.error(model.type(), DiagnosticCode.MQ3004,
-                    model.name() + ": no @PrimaryKey; paging, export and @Join presence need one");
+            diagnostics.error(model.type(), DiagnosticCode.MQ3004, model.name() + (model.updateModel()
+                    ? ": no @PrimaryKey; update(...) and delete() choose rows by the entity id"
+                    : ": no @PrimaryKey; paging, export and @Join presence need one"));
         }
         // What each constant is generated for, as a clash names it: a joined column first, so that a field taking its
         // name is the one reported.
@@ -98,7 +106,8 @@ final class ModelValidator {
             } else {
                 checkAttribute(model, field, where, diagnostics);
             }
-            if (field.column() && model.isRecord() && field.type().getKind().isPrimitive() && !(ungrouped && field.primaryKey())) {
+            if (field.column() && model.isRecord() && !model.updateModel() && field.type().getKind().isPrimitive()
+                    && !(ungrouped && field.primaryKey())) {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3009,
                         where + "primitive components can't be null when not selected; use "
                                 + display(types.boxedClass((PrimitiveType) field.type()).asType()));
@@ -108,7 +117,7 @@ final class ModelValidator {
                 continue;
             }
             String earlier = constants.putIfAbsent(field.constant(), "field '" + field.name() + "'");
-            if (RESERVED.contains(field.constant())) {
+            if (reserved.contains(field.constant())) {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3015, where + "constant " + field.constant()
                         + " is reserved by the generated class; rename the field");
             } else if (earlier != null) {
@@ -122,7 +131,7 @@ final class ModelValidator {
             if (!isSimpleName(column.name())) {
                 diagnostics.error(model.type(), DiagnosticCode.MQ3013, where + "name '" + column.name()
                         + "' can't be a constant's name; use a Java identifier");
-            } else if (RESERVED.contains(column.name())) {
+            } else if (reserved.contains(column.name())) {
                 diagnostics.error(model.type(), DiagnosticCode.MQ3013,
                         where + "name is reserved by the generated class");
             } else {
@@ -508,6 +517,10 @@ final class ModelValidator {
             return;
         }
         EntityAttribute attribute = resolution.attribute();
+        // An update model writes a to-one by id, so the field holds the target's id, not the target (R-GEN-19).
+        if (model.updateModel() && attribute.kind() == EntityAttribute.Kind.TO_ONE && field.converter() == null) {
+            return;
+        }
         if (attribute.kind() == EntityAttribute.Kind.COLLECTION) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3002, where + "model type " + display(field.type())
                     + ", entity attribute '" + attribute.name()

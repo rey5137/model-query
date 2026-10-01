@@ -49,7 +49,9 @@ class AnnotationsModuleTest {
     void everyAnnotationIsClassRetained() throws Exception {
         List<Class<?>> types = annotationTypes();
 
-        assertThat(types).contains(QueryModel.class, FilterColumns.class, Transient.class).hasSize(10);
+        assertThat(types)
+                .contains(QueryModel.class, UpdateModel.class, FilterColumns.class, Transient.class)
+                .hasSize(11);
         assertThat(types).allSatisfy(type -> assertThat(type.getAnnotation(Retention.class))
                 .as("@Retention of %s", type.getSimpleName())
                 .isNotNull()

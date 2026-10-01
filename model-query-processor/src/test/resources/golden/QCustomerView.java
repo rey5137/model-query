@@ -2,6 +2,7 @@ package shop;
 
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ColumnSet;
+import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
@@ -59,5 +60,9 @@ public final class QCustomerView {
         m.setCountry(country.get(QCountryView.CODE) == null ? Optional.empty()
                 : Optional.of(QCountryView.MAPPER.map(country)));
         return m;
+    }
+
+    public static ModelDelete.Builder<CustomerEntity, Long, CustomerView> delete() {
+        return ModelDelete.builder(ROOT).primaryKey(KEY);
     }
 }

@@ -11,6 +11,7 @@ import com.rey.modelquery.annotations.JoinKind;
 import com.rey.modelquery.annotations.PrimaryKey;
 import com.rey.modelquery.annotations.QueryModel;
 import com.rey.modelquery.annotations.Transient;
+import com.rey.modelquery.annotations.UpdateModel;
 import com.rey.modelquery.processor.ModelDefinition.AggregateDefinition;
 import com.rey.modelquery.processor.ModelDefinition.FilterColumnDefinition;
 import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
@@ -32,7 +33,8 @@ import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.ElementFilter;
 
 /**
- * Reads a {@code @QueryModel} type into a {@link ModelDefinition}. It checks nothing: {@link ModelValidator} does.
+ * Reads a {@code @QueryModel} or {@code @UpdateModel} type into a {@link ModelDefinition}. It checks nothing:
+ * {@link ModelValidator} does.
  */
 final class QueryModelReader {
 
@@ -48,6 +50,7 @@ final class QueryModelReader {
     private static final String SUFFIX = "suffix";
     private static final String GENERATE_COLUMN_SETS = "generateColumnSets";
     private static final String SINGLE_GROUP = "singleGroup";
+    private static final String GENERATE_CHANGES = "generateChanges";
     private static final String CONVERTER = "converter";
     private static final String OPTIONAL = "java.util.Optional";
 
@@ -62,17 +65,27 @@ final class QueryModelReader {
      * reports on its own.
      */
     ModelDefinition read(TypeElement type) {
-        AnnotationMirror queryModel = mirror(type, QueryModel.class);
-        if (!(explicit(queryModel, ROOT) instanceof DeclaredType rootType) || rootType.getKind() != TypeKind.DECLARED) {
+        return read(type, mirror(type, QueryModel.class), false);
+    }
+
+    /** Reads the {@code @UpdateModel} {@code type}, or returns {@code null} as {@link #read} does. */
+    ModelDefinition readUpdate(TypeElement type) {
+        return read(type, mirror(type, UpdateModel.class), true);
+    }
+
+    private ModelDefinition read(TypeElement type, AnnotationMirror annotation, boolean updateModel) {
+        if (!(explicit(annotation, ROOT) instanceof DeclaredType rootType) || rootType.getKind() != TypeKind.DECLARED) {
             return null;
         }
         // A name set on the annotation wins over the compilation-wide option, which wins over the default (D-44).
-        String prefix = explicit(queryModel, PREFIX) instanceof String set
+        // An update model has no suffix member, so the option alone sets it (D-69).
+        String prefix = explicit(annotation, PREFIX) instanceof String set
                 ? set : options.getOrDefault(PREFIX_OPTION, DEFAULT_PREFIX);
-        String suffix = explicit(queryModel, SUFFIX) instanceof String set
+        String suffix = explicit(annotation, SUFFIX) instanceof String set
                 ? set : options.getOrDefault(SUFFIX_OPTION, "");
-        boolean columnSets = !Boolean.FALSE.equals(explicit(queryModel, GENERATE_COLUMN_SETS));
-        boolean singleGroup = Boolean.TRUE.equals(explicit(queryModel, SINGLE_GROUP));
+        boolean columnSets = !updateModel && !Boolean.FALSE.equals(explicit(annotation, GENERATE_COLUMN_SETS));
+        boolean singleGroup = Boolean.TRUE.equals(explicit(annotation, SINGLE_GROUP));
+        boolean generateChanges = Boolean.TRUE.equals(explicit(annotation, GENERATE_CHANGES));
 
         List<VariableElement> declared = ElementFilter.fieldsIn(type.getEnclosedElements()).stream()
                 .filter(field -> !field.getModifiers().contains(Modifier.STATIC))
@@ -102,7 +115,7 @@ final class QueryModelReader {
         }
         return new ModelDefinition(
                 type, (TypeElement) rootType.asElement(), prefix + type.getSimpleName() + suffix, columnSets,
-                singleGroup, fields, filterColumns(type));
+                singleGroup, fields, filterColumns(type), updateModel, generateChanges);
     }
 
     /** What {@code @Aggregate} says of {@code field}, or {@code null} when it carries none. */

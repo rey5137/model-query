@@ -117,6 +117,12 @@ public enum MqCode {
      */
     MQ1606("expectVersion(...) cannot apply to this update"),
 
+    /**
+     * A generated change set's {@code from(model, columns)} names a column the change set does not write: a key, a
+     * joined or filter-only column, or an aggregate (R-WRT-04).
+     */
+    MQ1607("Changes.from(...) names a column that is not writable"),
+
     /** A bulk write's {@code @PrimaryKey} is not the root entity's id, checked on first execution (R-WRT-08, D-61). */
     MQ1608("A bulk write's primary key does not name exactly the root entity's id attributes"),
 

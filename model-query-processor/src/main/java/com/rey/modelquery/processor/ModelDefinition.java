@@ -7,7 +7,8 @@ import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeMirror;
 
 /**
- * A {@code @QueryModel} type as written, before any check: what the validation and emission steps both read.
+ * A {@code @QueryModel} or {@code @UpdateModel} type as written, before any check: what the validation and emission
+ * steps both read.
  *
  * @param type the model class or record
  * @param root the entity named by {@code @QueryModel(root)}
@@ -16,10 +17,13 @@ import javax.lang.model.type.TypeMirror;
  * @param singleGroup whether {@code @QueryModel(singleGroup)} declares aggregates with no {@code @GroupBy}
  * @param fields the model's fields or record components, in declaration order
  * @param filterColumns the model's {@code @FilterColumn}s, in declaration order
+ * @param updateModel whether the type is an {@code @UpdateModel}, which is only read and never instantiated
+ * @param generateChanges whether {@code @QueryModel(generateChanges)} asks for a change set
  */
 record ModelDefinition(
         TypeElement type, TypeElement root, String generatedName, boolean columnSets, boolean singleGroup,
-        List<ModelField> fields, List<FilterColumnDefinition> filterColumns) {
+        List<ModelField> fields, List<FilterColumnDefinition> filterColumns, boolean updateModel,
+        boolean generateChanges) {
 
     ModelDefinition {
         fields = List.copyOf(fields);
@@ -38,6 +42,24 @@ record ModelDefinition(
     /** The fields that are columns, in declaration order. */
     List<ModelField> columns() {
         return fields.stream().filter(ModelField::column).toList();
+    }
+
+    /** Whether a change set is generated: always for an update model, on request for a query model (R-GEN-21). */
+    boolean changes() {
+        return updateModel || generateChanges;
+    }
+
+    /** The change set's simple name, in the model's package: {@code OrderPatchChanges}. */
+    String changesName() {
+        return name() + "Changes";
+    }
+
+    /**
+     * The columns a change set writes, in declaration order: the non-key columns, every one of which is on the root,
+     * since a column's path never crosses an association (R-GEN-19, R-PROC-19).
+     */
+    List<ModelField> writable() {
+        return fields.stream().filter(field -> field.column() && !field.primaryKey()).toList();
     }
 
     /** The {@code @Join} fields, in declaration order. */

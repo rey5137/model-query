@@ -1,6 +1,7 @@
 package com.rey.modelquery.processor;
 
 import com.rey.modelquery.annotations.QueryModel;
+import com.rey.modelquery.annotations.UpdateModel;
 import java.io.IOException;
 import java.util.Set;
 import javax.annotation.processing.AbstractProcessor;
@@ -13,12 +14,12 @@ import javax.lang.model.element.TypeElement;
 import javax.tools.Diagnostic;
 
 /**
- * Generates a QModel class for every type annotated with {@code @QueryModel}: each model is read, validated and, when
- * it has no error, written to one file of its own.
+ * Generates a QModel class for every type annotated with {@code @QueryModel} or {@code @UpdateModel}: each model is
+ * read, validated and, when it has no error, written to one file of its own, beside its change set when it has one.
  *
- * @implSpec R-GEN-01, R-GEN-05, R-DIAG-03
+ * @implSpec R-GEN-01, R-GEN-05, R-GEN-19, R-GEN-21, R-DIAG-03
  */
-@SupportedAnnotationTypes("com.rey.modelquery.annotations.QueryModel")
+@SupportedAnnotationTypes({"com.rey.modelquery.annotations.QueryModel", "com.rey.modelquery.annotations.UpdateModel"})
 @SupportedOptions({QueryModelReader.PREFIX_OPTION, QueryModelReader.SUFFIX_OPTION})
 public final class ModelQueryProcessor extends AbstractProcessor {
 
@@ -35,24 +36,36 @@ public final class ModelQueryProcessor extends AbstractProcessor {
         var metamodel = new EntityMetamodel(types);
         var validator = new ModelValidator(types, metamodel, nestedModels);
         var writer = new QModelWriter(types, metamodel, nestedModels);
+        var changesWriter = new ChangesWriter(types);
         for (Element element : roundEnv.getElementsAnnotatedWith(QueryModel.class)) {
-            var type = (TypeElement) element;
-            ModelDefinition model = reader.read(type);
-            if (model == null) {
-                continue;
-            }
-            var diagnostics = new Diagnostics(processingEnv.getMessager());
-            validator.validate(model, diagnostics);
-            if (diagnostics.hasErrors()) {
-                continue;
-            }
-            try {
-                writer.write(model).writeTo(processingEnv.getFiler());
-            } catch (IOException e) {
-                processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR,
-                        model.name() + ": could not write " + model.generatedName() + ": " + e.getMessage(), type);
-            }
+            generate(reader.read((TypeElement) element), validator, writer, changesWriter);
+        }
+        for (Element element : roundEnv.getElementsAnnotatedWith(UpdateModel.class)) {
+            generate(reader.readUpdate((TypeElement) element), validator, writer, changesWriter);
         }
         return false;
+    }
+
+    private void generate(
+            ModelDefinition model, ModelValidator validator, QModelWriter writer, ChangesWriter changesWriter) {
+        if (model == null) {
+            return;
+        }
+        var diagnostics = new Diagnostics(processingEnv.getMessager());
+        validator.validate(model, diagnostics);
+        if (diagnostics.hasErrors()) {
+            return;
+        }
+        String file = model.generatedName();
+        try {
+            writer.write(model).writeTo(processingEnv.getFiler());
+            if (model.changes()) {
+                file = model.changesName();
+                changesWriter.write(model).writeTo(processingEnv.getFiler());
+            }
+        } catch (IOException e) {
+            processingEnv.getMessager().printMessage(Diagnostic.Kind.ERROR,
+                    model.name() + ": could not write " + file + ": " + e.getMessage(), model.type());
+        }
     }
 }

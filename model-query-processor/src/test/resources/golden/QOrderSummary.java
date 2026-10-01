@@ -2,6 +2,7 @@ package shop;
 
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ColumnSet;
+import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
@@ -42,5 +43,9 @@ public final class QOrderSummary {
 
     private static OrderSummary map(Row row) {
         return new OrderSummary(row.get(ID), row.get(STATUS), row.get(CITY), row.get(NOTES), null);
+    }
+
+    public static ModelDelete.Builder<OrderEntity, Long, OrderSummary> delete() {
+        return ModelDelete.builder(ROOT).primaryKey(KEY);
     }
 }

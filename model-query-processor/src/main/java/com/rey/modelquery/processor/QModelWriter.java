@@ -17,6 +17,8 @@ import com.squareup.javapoet.WildcardTypeName;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import javax.annotation.processing.Generated;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
@@ -29,8 +31,8 @@ import javax.lang.model.util.Types;
  * not referenced, so the processor does not depend on {@code model-query-core}.
  *
  * @implSpec R-GEN-04, R-GEN-05, R-GEN-06, R-GEN-09, R-GEN-10, R-GEN-12, R-GEN-13, R-GEN-14, R-GEN-15, R-GEN-17,
- *     R-GEN-18, R-GEN-24, R-PROC-07, R-PROC-09, R-PROC-10, R-PROC-11, R-PROC-12, R-PROC-13, R-PROC-15,
- *     R-PROC-16, R-PROC-17
+ *     R-GEN-18, R-GEN-19, R-GEN-21, R-GEN-22, R-GEN-24, R-PROC-07, R-PROC-09, R-PROC-10, R-PROC-11, R-PROC-12,
+ *     R-PROC-13, R-PROC-15, R-PROC-16, R-PROC-17
  */
 final class QModelWriter {
 
@@ -44,6 +46,9 @@ final class QModelWriter {
     private static final ClassName ROW_MAPPER = ClassName.get(CORE, "RowMapper");
     private static final ClassName ROW = ClassName.get(CORE, "Row");
     private static final ClassName MODEL_QUERY = ClassName.get(CORE, "ModelQuery");
+    private static final ClassName MODEL_UPDATE = ClassName.get(CORE, "ModelUpdate");
+    private static final ClassName MODEL_DELETE = ClassName.get(CORE, "ModelDelete");
+    private static final ClassName CHANGES = ClassName.get(CORE, "Changes");
     private static final ClassName JOIN_TYPE = ClassName.get("jakarta.persistence.criteria", "JoinType");
     private static final ClassName OPTIONAL = ClassName.get(Optional.class);
     private static final Modifier[] CONSTANT = {Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL};
@@ -58,8 +63,12 @@ final class QModelWriter {
         this.nestedModels = nestedModels;
     }
 
-    /** The QModel file of {@code model}, whose only originating element is the model's type (R-GEN-05). */
+    /**
+     * The QModel file of {@code model}, whose only originating element is the model's type (R-GEN-05). An update
+     * model's has its columns and write methods only: it is never read into (R-GEN-19).
+     */
     JavaFile write(ModelDefinition model) {
+        boolean update = model.updateModel();
         ClassName modelName = ClassName.get(model.type());
         ClassName entity = ClassName.get(model.root());
         ClassName generated = ClassName.get(modelName.packageName(), model.generatedName());
@@ -69,7 +78,7 @@ final class QModelWriter {
                 ? column(keys.get(0).type()) : ParameterizedTypeName.get(List.class, Object.class);
         // A whole-table aggregate has no row identity, so its query() sets no key (R-GEN-18).
         boolean keyed = !keys.isEmpty() && !model.singleGroup();
-        List<ModelField> groupKeys = model.groupKeys();
+        List<ModelField> groupKeys = update ? List.of() : model.groupKeys();
         boolean grouped = !groupKeys.isEmpty() && !model.singleGroup();
 
         TypeSpec.Builder type = TypeSpec.classBuilder(generated)
@@ -81,7 +90,7 @@ final class QModelWriter {
                 .addField(FieldSpec.builder(ParameterizedTypeName.get(TABLE_FIELD, entity, entity), "ROOT", CONSTANT)
                         .initializer("$T.root($T.class)", TABLE_FIELD, entity)
                         .build());
-        List<JoinedTable> joined = nestedModels.tables(model);
+        List<JoinedTable> joined = update ? List.of() : nestedModels.tables(model);
         for (JoinedTable table : joined) {
             type.addField(joinedTable(table));
         }
@@ -96,7 +105,7 @@ final class QModelWriter {
                     field.converter(), field.name()));
         }
         // Aggregates are in no column set, or every query of the model would be grouped (R-PROC-17).
-        for (ModelField field : model.aggregates()) {
+        for (ModelField field : update ? List.<ModelField>of() : model.aggregates()) {
             type.addField(aggregate(modelName, model, field));
         }
         for (JoinedTable table : joined) {
@@ -139,11 +148,16 @@ final class QModelWriter {
                     .initializer("$T.of($L)", COLUMN_SET, constants(groupKeys))
                     .build());
         }
-        // A summary model may have no key: a group has none (R-AGG-09).
-        if (!keys.isEmpty()) {
+        // A summary model may have no key: a group has none (R-AGG-09). An update model names its key in place.
+        if (!keys.isEmpty() && !update) {
             type.addField(FieldSpec.builder(ParameterizedTypeName.get(PRIMARY_KEY, modelName, keyType), "KEY", CONSTANT)
                     .initializer(keys.size() == 1 ? "$T.of($L)" : "$T.composite($L)", PRIMARY_KEY, constants(keys))
                     .build());
+        }
+        if (update) {
+            writes(model, modelName, entity, keyType, type);
+            type.addMethod(MethodSpec.constructorBuilder().addModifiers(Modifier.PRIVATE).build());
+            return file(generated, type);
         }
         type.addField(FieldSpec.builder(ParameterizedTypeName.get(ROW_MAPPER, modelName), "MAPPER", CONSTANT)
                 .initializer("$T::map", generated)
@@ -166,10 +180,52 @@ final class QModelWriter {
             mapClass(model, modelName, map);
         }
         type.addMethod(map.build());
+        if (keyed) {
+            writes(model, modelName, entity, keyType, type);
+        }
+        return file(generated, type);
+    }
+
+    private static JavaFile file(ClassName generated, TypeSpec.Builder type) {
         return JavaFile.builder(generated.packageName(), type.build())
                 .indent("    ")
                 .skipJavaLangImports(true)
                 .build();
+    }
+
+    /**
+     * {@code changes()} and {@code update(changes)} when the model has a change set, and {@code delete()} for an
+     * update model and for a query model keyed by its root entity's id, since a delete writes no columns (R-GEN-21,
+     * R-GEN-22).
+     */
+    private void writes(
+            ModelDefinition model, ClassName modelName, ClassName entity, TypeName keyType, TypeSpec.Builder type) {
+        List<ModelField> keys = model.keys();
+        // A query model's KEY is there to reuse; an update model names its key in place (R-GEN-19).
+        CodeBlock key = !model.updateModel() ? CodeBlock.of("KEY")
+                : CodeBlock.of(keys.size() == 1 ? "$T.of($L)" : "$T.composite($L)", PRIMARY_KEY, constants(keys));
+        if (model.changes()) {
+            ClassName changes = ClassName.get(modelName.packageName(), model.changesName());
+            type.addMethod(MethodSpec.methodBuilder("changes")
+                    .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+                    .returns(changes)
+                    .addStatement("return new $T()", changes)
+                    .build());
+            type.addMethod(MethodSpec.methodBuilder("update")
+                    .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+                    .returns(ParameterizedTypeName.get(MODEL_UPDATE.nestedClass("Builder"), entity, keyType, modelName))
+                    .addParameter(ParameterizedTypeName.get(CHANGES, modelName), "changes")
+                    .addStatement("return $T.builder(ROOT).primaryKey($L).set(changes)", MODEL_UPDATE, key)
+                    .build());
+        }
+        Set<String> keyAttributes = keys.stream().map(ModelField::attribute).collect(Collectors.toSet());
+        if (model.updateModel() || metamodel.isId(model.root(), keyAttributes)) {
+            type.addMethod(MethodSpec.methodBuilder("delete")
+                    .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+                    .returns(ParameterizedTypeName.get(MODEL_DELETE.nestedClass("Builder"), entity, keyType, modelName))
+                    .addStatement("return $T.builder(ROOT).primaryKey($L)", MODEL_DELETE, key)
+                    .build());
+        }
     }
 
     /**

@@ -2,6 +2,7 @@ package shop;
 
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ColumnSet;
+import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
@@ -89,5 +90,9 @@ public final class QInvoiceView {
                 ? Optional.empty() : Optional.of(QCustomerView.MAPPER.map(customer)),
                 payer.get(QCustomerView.ID) == null ? Optional.empty()
                 : Optional.of(QCustomerView.MAPPER.map(payer)));
+    }
+
+    public static ModelDelete.Builder<InvoiceEntity, Long, InvoiceView> delete() {
+        return ModelDelete.builder(ROOT).primaryKey(KEY);
     }
 }

@@ -1,9 +1,12 @@
 package com.rey.modelquery.processor;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
@@ -127,6 +130,39 @@ final class EntityMetamodel {
                         + path + "' can't go through it");
             }
         }
+    }
+
+    /**
+     * Whether {@code paths} names exactly the id of {@code root}: its {@code @Id} attribute, its {@code @IdClass}
+     * attributes, its {@code @EmbeddedId} or that id's components, as the engine checks a bulk write's key on first
+     * execution ({@code MQ1608}, api/14 R-WRT-08).
+     *
+     * @implSpec R-GEN-22
+     */
+    boolean isId(TypeElement root, Set<String> paths) {
+        List<DeclaredType> hierarchy = hierarchy((DeclaredType) root.asType());
+        boolean property = defaultsToProperty(hierarchy, false);
+        var ids = new HashSet<String>();
+        for (DeclaredType type : hierarchy) {
+            for (Element member : type.asElement().getEnclosedElements()) {
+                if (hasAny(member, IDS)) {
+                    ids.add(member.getKind() == ElementKind.METHOD
+                            ? propertyName((ExecutableElement) member) : member.getSimpleName().toString());
+                }
+            }
+        }
+        if (paths.equals(ids)) {
+            return true;
+        }
+        EntityAttribute id = ids.size() == 1 ? attributes(hierarchy, property).get(ids.iterator().next()) : null;
+        if (id == null || id.kind() != EntityAttribute.Kind.EMBEDDED) {
+            return false;
+        }
+        List<DeclaredType> embeddable = hierarchy((DeclaredType) id.type());
+        Set<String> components = attributes(embeddable, defaultsToProperty(embeddable, property)).keySet().stream()
+                .map(component -> id.name() + "." + component)
+                .collect(Collectors.toSet());
+        return paths.equals(components);
     }
 
     /** The collection associations of {@code root} itself, in declaration order (R-PROC-13). */

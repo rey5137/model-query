@@ -2,6 +2,7 @@ package shop;
 
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ColumnSet;
+import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
@@ -69,5 +70,9 @@ public final class QOrderView {
             m.setPaid(row.get(PAID));
         }
         return m;
+    }
+
+    public static ModelDelete.Builder<OrderEntity, Long, OrderView> delete() {
+        return ModelDelete.builder(ROOT).primaryKey(KEY);
     }
 }
