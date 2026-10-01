@@ -361,6 +361,7 @@
                             <excludeArtifacts>
                                 <artifact>model-query-tck</artifact>
                                 <artifact>model-query-sample-plain-jpa</artifact>
+                                <artifact>model-query-sample-spring-boot</artifact>
                             </excludeArtifacts>
                         </configuration>
                     </plugin>

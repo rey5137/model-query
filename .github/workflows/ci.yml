@@ -41,7 +41,7 @@ jobs:
       - run: python3 .github/scripts/ac_audit.py
 
   release-check:
-    name: Release build (sources, javadoc, shading)
+    name: Release dry run (AC-REL-04)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -50,7 +50,12 @@ jobs:
           distribution: temurin
           java-version: 17
           cache: maven
-      - run: ./mvnw -B -ntp -Prelease -Dgpg.skip -DskipTests verify
+      # AC-REL-04 dry run: sign with a throwaway key generated here (no passphrase), skip the upload to Central, then
+      # check every published module has signed main, -sources and -javadoc jars and that the BOM lists them all
+      - name: Generate a throwaway signing key
+        run: gpg --batch --passphrase '' --quick-gen-key 'release dry run <dry-run@example.invalid>' rsa3072 sign 1d
+      - run: ./mvnw -B -ntp -Prelease -DskipTests -DskipPublishing=true deploy
+      - run: python3 .github/scripts/release_dry_run_check.py
 
   reproducible:
     name: Reproducible build (AC-REL-05)
