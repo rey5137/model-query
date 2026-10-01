@@ -8,6 +8,12 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ### Added
 - The user guide is published to GitHub Pages from main.
+- `MQ1307`: a statement whose binds only together pass the vendor's `maxBindParameters()` is refused before it runs,
+  rather than failing in the database (#6).
+
+### Changed
+- Primary-key-first step-2 batches and bulk-write key chunks hold at most the largest power of two of keys within the
+  vendor's limits, so IN-list padding cannot pass them (#6).
 
 ## [0.1.0] - 2026-10-01
 

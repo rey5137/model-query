@@ -92,8 +92,10 @@ The available filters:
 - **`likeIgnoreCase` lower-cases the column**, so it needs a functional index to be fast. Without it, case
   sensitivity follows the column's collation; see [Vendor notes](vendors.md).
 - **Every value is a bind parameter.** The library never inlines a value into SQL.
-- **Long `IN` lists are split** into chunks of the vendor's limit. One filter with more values than the vendor's bind
-  parameter limit fails with `MQ1306` when the query is built instead of failing in the database.
+- **Long `IN` lists are split** into chunks of the vendor's limit, within one statement. A query's own statement is
+  never split across statements, so one filter with more values than the vendor's bind parameter limit fails with
+  `MQ1306` when the query is built, and filters that only together pass it fail with `MQ1307` before the statement
+  runs, instead of failing in the database.
 - **A join first needed inside `or` or `not` is a LEFT join**, so one branch cannot remove rows another branch should
   match.
 

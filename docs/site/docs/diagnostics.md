@@ -35,6 +35,7 @@ Messages say what to change, for example `OrderView.totl: no attribute 'totl' on
 | `MQ1304` | `exists(...)` given a root instead of a join path. |
 | `MQ1305` | A Filters.add predicate returned `null`. |
 | `MQ1306` | One `in` or `notIn` filter has more values than `maxBindParameters()`. |
+| `MQ1307` | A statement binds more values than `maxBindParameters()` together; narrow its filters. |
 | `MQ1401` | Grouped query: selected non-aggregate column is not in the group-by. |
 | `MQ1402` | Grouped query: keyset paging or primary-key-first not allowed. |
 | `MQ1403` | Grouped query: Agg.sum or Agg.sumAsLong over a column whose SQL sum type differs from the result type. |

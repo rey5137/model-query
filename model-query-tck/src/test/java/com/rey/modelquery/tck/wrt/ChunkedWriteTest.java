@@ -198,17 +198,19 @@ class ChunkedWriteTest {
             left[0] = em.createQuery("select count(i) from OrderItemEntity i", Long.class).getSingleResult();
         }));
 
-        // Every Tier-1 profile takes 10 000 values per IN list: two full rounds, then a select returning no key.
+        // Every Tier-1 profile takes 10 000 values per IN list, so rounds of 8 192 keys, the largest power of two
+        // within it: two full rounds, then one of the 3 616 keys left.
         assertThat(written[0]).isEqualTo(TckFixture.ORDER_ITEMS);
         assertThat(left[0]).isZero();
         assertThat(keySelects(sql)).hasSize(3);
-        assertThat(writes(sql, "delete")).extracting(BulkWriteTest::binds).containsExactly(10_000L, 10_000L);
+        assertThat(writes(sql, "delete")).extracting(BulkWriteTest::binds).containsExactly(8_192L, 8_192L, 3_616L);
     }
 
     @TckTest
     void ac_wrt_12_a_chunked_composite_delete_counts_its_own_binds_against_the_vendor_bind_limit(TckDatabase db) {
-        // 15 binds a statement: the tenant bound takes one, so a statement takes (15 - 1) / 2 = 7 two-column keys.
-        var config = ModelQueryConfig.defaults().vendorProfiles(List.of(limited(db, 1_000, 15)));
+        // 16 binds a statement: the tenant bound takes one, so a statement takes (16 - 1) / 2 = 7 two-column keys,
+        // rounded down to 4; without counting that bind it would take 8.
+        var config = ModelQueryConfig.defaults().vendorProfiles(List.of(limited(db, 1_000, 16)));
         var delete = ModelDelete.builder(TENANT_ITEMS).primaryKey(PrimaryKey.composite(TENANT_ID, ITEM_NO))
                 .where(f -> f.lt(TENANT_ID, 3)).chunked(ChunkOptions.size(1_000)).build();
         long[] written = new long[1];
@@ -223,9 +225,8 @@ class ChunkedWriteTest {
         assertThat(written[0]).isEqualTo(200);
         assertThat(left.get(0)).containsExactly(3, (long) TckFixture.COMPOSITE_KEY_ITEMS - 200);
         List<String> deletes = writes(sql, "delete");
-        assertThat(deletes).hasSize(29);
-        assertThat(deletes.subList(0, 28)).extracting(BulkWriteTest::binds).containsOnly(15L);
-        assertThat(binds(deletes.get(28))).isEqualTo(4 * 2 + 1);
+        assertThat(deletes).hasSize(50);
+        assertThat(deletes).extracting(BulkWriteTest::binds).containsOnly(4 * 2 + 1L);
     }
 
     @TckTest

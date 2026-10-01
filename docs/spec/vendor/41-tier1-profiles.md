@@ -39,7 +39,9 @@ as community-supported. It never gates a release.
 
 The clamp counts `Query.getParameters()`, which holds one parameter for an embeddable-valued key or a composite-FK to-one
 SET value though each takes several JDBC binds, so it can under-count; on a limit-bound vendor that fails loudly at the
-database, and reads under `engine/21` R-PAG-07 share it.
+database, and reads under `engine/21` R-PAG-07 share it. The clamp is the largest power of two within the limits, so a
+provider that pads IN lists to the next power of two stays within them, and the same count refuses a query's own
+statement over `maxBindParameters()` with `MQ1307` (`api/12` R-FLT-09, D-80).
 
 **R-PRF-03** `checkStreamingPreconditions` on PostgreSQL fails fast outside a transaction with `MQ2101`
 (`engine/20` R-EXE-08). The Spring module opens a read-only transaction automatically, so this is mainly a plain-JPA
@@ -94,7 +96,7 @@ database (`delivery/60`).
 |---|---|
 | AC-PRF-01 | Every value in §2 is asserted against the running database, not just against the profile constant (R-PRF-11). |
 | AC-PRF-02 | An `IN` list at, just below and just above `maxInListSize()` returns identical rows (R-PRF-11, `api/12` R-FLT-09). |
-| AC-PRF-03 | A primary-key-first step-2 batch needing more binds than `maxBindParameters()` is split into several statements, in order, rather than failing; one filter's list that alone needs more throws `MQ1306` (R-PRF-11, `api/12` R-FLT-09, `engine/21` R-PAG-07, R-PAG-08). |
+| AC-PRF-03 | A library-built key list needing more binds than `maxBindParameters()`, a primary-key-first step-2 batch, is split into several statements of at most a power-of-two size each and returns the same rows in order; a query's own statement over the limit is refused before it runs, with `MQ1306` when one filter's list alone passes it and `MQ1307` when several filters only together do (R-PRF-11, `api/12` R-FLT-09, `engine/21` R-PAG-07, R-PAG-08, D-80). |
 | AC-PRF-04 | PostgreSQL streaming without a transaction throws `MQ2101`; inside one it streams with bounded heap (R-PRF-03). |
 | AC-PRF-05 | Both MySQL streaming modes stream 20 000 rows with bounded heap (R-PRF-07). |
 | AC-PRF-06 | `defaultAscendingNullOrdering()` matches the database's observed ordering on every Tier-1 version (R-PRF-08). |

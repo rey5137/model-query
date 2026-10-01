@@ -79,7 +79,8 @@ class VendorLimitsTest {
     void ac_prf_02_an_in_list_at_just_below_and_just_above_the_limit_returns_identical_rows(TckDatabase db) {
         int limit;
         try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
-            limit = VendorResolver.resolve(sf, Optional.<DatabaseVendor>empty(), MysqlStreamingMode.ROW_BY_ROW).profile().maxInListSize();
+            limit = VendorResolver.resolve(sf, Optional.<DatabaseVendor>empty(), MysqlStreamingMode.ROW_BY_ROW)
+                    .profile().maxInListSize();
         }
         assertThat(limit).isLessThan(TckFixture.ORDER_ITEMS);
         List<List<Long>> lists = List.of(ids(limit - 1), ids(limit), ids(limit + 1));
@@ -125,17 +126,20 @@ class VendorLimitsTest {
     // ---- AC-PRF-03
 
     @TckTest
-    void ac_prf_03_a_step_two_batch_needing_more_binds_than_the_limit_is_split_and_stays_ordered(TckDatabase db) {
+    void ac_prf_03_a_step_two_batch_needing_more_binds_than_the_limit_is_split_in_powers_of_two_and_stays_ordered(
+            TckDatabase db) {
         // The query binds 1 500 values of its own, so the page's 1 000 keys fit one IN list but not the 2 000 binds:
-        // step 2 reads them 500 at a time.
+        // 500 binds are left, and step 2 reads the keys 256 at a time, the largest power of two within them.
         var listed = BY_PRODUCT.where(f -> f.in(ITEM_ID, ids(1_500)));
         var twoStep = listed.primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
         var deep = new PageSpec(100, OTHER_IN_LIST - 1);
         List<Slice<ItemRow>> slices = new ArrayList<>();
         List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, OTHER,
                 executor -> slices.add(executor.page(twoStep, deep, CountMode.NO_COUNT))));
-        assertThat(sql).as("the key statement and two step-2 statements").hasSize(3);
+        assertThat(sql).as("the key statement and four step-2 statements").hasSize(5);
         assertThat(sql).allSatisfy(statement -> assertThat(placeholders(statement)).isLessThanOrEqualTo(OTHER_BINDS));
+        assertThat(sql.subList(1, sql.size())).extracting(statement -> placeholders(statement) - 1_500)
+                .containsExactly(256L, 256L, 256L, 232L);
         Slice<ItemRow> slice = slices.get(0);
         withExecutor(db, OTHER, executor -> {
             Slice<ItemRow> expected = executor.page(listed.build(), deep, CountMode.NO_COUNT);
@@ -143,6 +147,31 @@ class VendorLimitsTest {
             assertThat(slice.hasNext()).isEqualTo(expected.hasNext()).isTrue();
         });
         assertThat(slice.content()).isSortedAccordingTo(PRODUCT_DESC_THEN_ID);
+    }
+
+    @TckTest
+    void ac_prf_03_filters_that_only_together_need_more_binds_than_the_limit_throw_mq1307(TckDatabase db) {
+        // 1 500 ids and 500 absent ones: 2 000 binds run; one more absent id is refused, though no list alone is over.
+        List<Long> absent = LongStream.rangeClosed(1, 501).map(id -> -id).boxed().toList();
+        var atLimit = BY_ID.where(f -> f.in(ITEM_ID, ids(1_500)).notIn(ITEM_ID, absent.subList(0, 500))).build();
+        var aboveLimit = BY_ID.where(f -> f.in(ITEM_ID, ids(1_500)).notIn(ITEM_ID, absent));
+        withExecutor(db, OTHER, executor -> {
+            assertThat(executor.list(atLimit, Limit.unlimited())).extracting(ItemRow::id).isEqualTo(ids(1_500));
+            assertThat(executor.count(atLimit)).isEqualTo(1_500);
+            assertThatThrownBy(() -> executor.list(aboveLimit.build(), Limit.unlimited()))
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1307))
+                    .hasMessage(MqCode.MQ1307.code() + ": ItemRow: a statement binds 2001 values, more than the "
+                            + "2000 bind parameters one statement takes; narrow its filters, since a query's own "
+                            + "statement is never split across statements");
+            assertThatThrownBy(() -> executor.count(aboveLimit.build()))
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1307));
+            var twoStep = aboveLimit.primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
+            assertThatThrownBy(() -> executor.page(twoStep, new PageSpec(10, 100), CountMode.NO_COUNT))
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1307));
+        });
     }
 
     @TckTest
@@ -173,7 +202,8 @@ class VendorLimitsTest {
             TckDatabase db) {
         var plain = BY_PRODUCT.build();
         var twoStep = BY_PRODUCT.primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
-        // 2 500 keys, with the hasNext probe: 300 a statement is nine statements; 5 000 is clamped to OTHER's 1 000.
+        // 2 500 keys, with the hasNext probe: 300 a statement is nine statements; 5 000 is clamped to OTHER's 1 000
+        // keys, rounded down to 512, the largest power of two within it, so five statements.
         var deep = new PageSpec(1_234, 2_499);
         List<Slice<ItemRow>> slices = new ArrayList<>();
         List<String> small = SqlSnapshots.capture(db, ds -> withExecutor(ds, OTHER.primaryKeyFirstBatchSize(300),
@@ -181,9 +211,9 @@ class VendorLimitsTest {
         List<String> large = SqlSnapshots.capture(db, ds -> withExecutor(ds, OTHER.primaryKeyFirstBatchSize(5_000),
                 executor -> slices.add(executor.page(twoStep, deep, CountMode.NO_COUNT))));
         assertThat(small).as("the key statement and nine step-2 statements").hasSize(10);
-        assertThat(large).as("the key statement and three step-2 statements").hasSize(4);
-        assertThat(large.subList(1, large.size())).allSatisfy(statement -> assertThat(placeholders(statement))
-                .isLessThanOrEqualTo(OTHER_IN_LIST));
+        assertThat(large).as("the key statement and five step-2 statements").hasSize(6);
+        assertThat(large.subList(1, large.size())).extracting(VendorLimitsTest::placeholders)
+                .containsExactly(512L, 512L, 512L, 512L, 452L);
         withExecutor(db, OTHER, executor -> {
             List<ItemRow> expected = executor.page(plain, deep, CountMode.NO_COUNT).content();
             assertThat(expected).hasSize(2_499).isSortedAccordingTo(PRODUCT_DESC_THEN_ID);

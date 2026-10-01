@@ -746,6 +746,17 @@ Hibernate 7 is decided before 1.0. → `delivery/61`.
 `https://rey5137.github.io/model-query/` from `main` by `.github/workflows/docs.yml`, so it tracks the latest main rather
 than a release; versioned docs per release grow later. CI still builds it strictly on every PR. → `delivery/61` R-REL-02.
 
+**D-80 — A statement over the bind limit is refused; key chunks are powers of two (issue #6).** R-FLT-09 splits a long
+`IN` list within one statement only, by `maxInListSize()`. A query's own statement (`list`, `page`, `count`, `stream`,
+step 1, an export page, a write) whose JPA-reported parameters exceed `maxBindParameters()` throws `MQ1307` before it
+runs, while one filter's list over the limit keeps `MQ1306`, which names the column. Only library-built key lists, the
+primary-key-first step-2 batch and the bulk-write key chunks, are split across statements; their clamp is the largest
+power of two within the IN-list and bind budget, so a provider's IN-list padding cannot pass it, and a configured batch
+or chunk size below it is kept, since padding it stays within that power of two. Rejected: splitting a user's statement
+across statements (its rows would be merged in memory, and its order, limit and count would break); counting binds in
+`core` as the tree renders (a `QueryCustomizer`'s binds are invisible there). → `api/12` R-FLT-09, `api/14` R-WRT-08,
+`engine/21` R-PAG-07, `vendor/41` R-PRF-11, AC-PRF-03.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

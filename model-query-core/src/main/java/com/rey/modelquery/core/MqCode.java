@@ -71,6 +71,9 @@ public enum MqCode {
     /** One {@code in} or {@code notIn} filter has more values than one statement binds (R-FLT-09). */
     MQ1306("An in(...) or notIn(...) filter has more values than one statement can bind"),
 
+    /** A statement binds more values than one statement takes, though no one filter does (R-FLT-09, D-80). */
+    MQ1307("A statement binds more values than one statement can bind; narrow its filters"),
+
     /** A selected non-aggregate column is not in the group-by (R-AGG-08). */
     MQ1401("A selected non-aggregate column is not in the group-by"),
 

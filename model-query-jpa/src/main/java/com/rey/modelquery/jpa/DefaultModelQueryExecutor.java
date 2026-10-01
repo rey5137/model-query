@@ -10,6 +10,7 @@ import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
+import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullPrecedence;
@@ -162,7 +163,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             return List.of(); // no statement runs for a zero limit (R-EXE-06)
         }
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
-        return mapAll(limited(built, limit), built);
+        return mapAll(limited(q, built, limit), built);
     }
 
     @Override
@@ -177,7 +178,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             }
         }
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
-        TypedQuery<Tuple> query = limited(built, limit);
+        TypedQuery<Tuple> query = limited(q, built, limit);
         // Precondition first, so a refusal runs no statement; the configured fetch size is read only by the profiles
         // that stream by cursor (R-EXE-08, R-QRY-15).
         vendor.profile().checkStreamingPreconditions(em);
@@ -193,21 +194,40 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return limit.maxRows().isPresent() && limit.maxRows().getAsInt() == 0;
     }
 
-    /** A statement of {@code query} with the configured timeout applied through the profile (R-EXE-11). */
-    private <T> TypedQuery<T> create(CriteriaQuery<T> query) {
-        return create(em, query);
+    /**
+     * A statement of {@code query} for {@code label}, the model or entity a refusal names, within the bind limit and
+     * with the configured timeout applied through the profile (R-FLT-09, R-EXE-11).
+     */
+    private <T> TypedQuery<T> create(Object label, CriteriaQuery<T> query) {
+        return create(label, em, query);
     }
 
     /** A statement of {@code query} on {@code on}, a chunk's own {@code EntityManager} or the caller's. */
-    private <T> TypedQuery<T> create(EntityManager on, CriteriaQuery<T> query) {
-        TypedQuery<T> typed = on.createQuery(query);
+    private <T> TypedQuery<T> create(Object label, EntityManager on, CriteriaQuery<T> query) {
+        TypedQuery<T> typed = withinBindLimit(label, on.createQuery(query));
         queryTimeout.ifPresent(timeout -> vendor.profile().applyTimeout(typed, timeout));
         return typed;
     }
 
-    /** {@code built}'s statement, capped at {@code limit}'s rows if it has any. */
-    private <M> TypedQuery<Tuple> limited(BuiltQuery<M> built, Limit limit) {
-        TypedQuery<Tuple> query = create(built.query());
+    /**
+     * {@code statement}, unless the query parameters JPA reports for it pass the profile's bind limit: a query's own
+     * statement is never split across statements, so it throws {@code MQ1307} before it runs rather than failing in
+     * the database (R-FLT-09, D-80). Library-built key lists are clamped below the limit (D-32, D-63), so only the
+     * query's own binds can pass it.
+     */
+    private <Q extends Query> Q withinBindLimit(Object label, Q statement) {
+        int binds = statement.getParameters().size();
+        if (binds > renderOptions.maxBindParameters()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1307, label + ": a statement binds " + binds
+                    + " values, more than the " + renderOptions.maxBindParameters() + " bind parameters one statement "
+                    + "takes; narrow its filters, since a query's own statement is never split across statements");
+        }
+        return statement;
+    }
+
+    /** {@code built}'s statement for {@code q}, capped at {@code limit}'s rows if it has any. */
+    private <M> TypedQuery<Tuple> limited(ModelQuery<E, ?, M> q, BuiltQuery<M> built, Limit limit) {
+        TypedQuery<Tuple> query = create(q, built.query());
         limit.maxRows().ifPresent(query::setMaxResults);
         return query;
     }
@@ -464,8 +484,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 .orElseGet(() -> keyLimits.clamp(whole.get().getParameters().size(), keyed.key().columns().size(),
                         size));
         boolean perChunk = chunk.map(ChunkOptions::commitsEachChunk).orElse(false);
-        return new KeysetWrite(cb, this::create, this::execute, em, perChunk ? chunkTransactions : null)
-                .run(keyed, n, chunk.map(ChunkOptions::locksKeys).orElse(false));
+        return new KeysetWrite(cb, (on, query) -> create(rootEntity.getSimpleName(), on, query), this::execute, em,
+                perChunk ? chunkTransactions : null).run(keyed, n, chunk.map(ChunkOptions::locksKeys).orElse(false));
     }
 
     /**
@@ -478,8 +498,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return keyLimits.clamp(ownBinds, keyColumns, configured);
     }
 
-    /** Runs a write statement with the configured timeout applied through the profile (R-EXE-11). */
+    /**
+     * Runs a write statement within the bind limit, with the configured timeout applied through the profile
+     * (R-FLT-09, R-EXE-11).
+     */
     private int execute(Query statement) {
+        withinBindLimit(rootEntity.getSimpleName(), statement);
         queryTimeout.ifPresent(timeout -> vendor.profile().applyTimeout(statement, timeout));
         return statement.executeUpdate();
     }
@@ -517,7 +541,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
         appendStableOrder(q, built);
-        TypedQuery<Tuple> query = create(built.query());
+        TypedQuery<Tuple> query = create(q, built.query());
         query.setFirstResult(offset);
         query.setMaxResults(maxRows);
         return mapAll(query, built);
@@ -563,7 +587,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     /** Step 1: the primary keys of {@code maxRows} rows from {@code offset}, in {@code keyQuery}'s order. */
     private <M> List<Object> readKeys(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> key, BuiltQuery<M> keyQuery,
             int offset, int maxRows) {
-        TypedQuery<Tuple> query = create(keyQuery.query());
+        TypedQuery<Tuple> query = create(q, keyQuery.query());
         query.setFirstResult(offset);
         query.setMaxResults(maxRows);
         List<Tuple> rows = query.getResultList();
@@ -595,7 +619,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             Predicate own = built.query().getRestriction();
             built.query().where(own == null ? byKey : cb.and(own, byKey));
             appendStableOrder(q, built);
-            for (Tuple tuple : create(built.query()).getResultList()) {
+            for (Tuple tuple : create(q, built.query()).getResultList()) {
                 found.putIfAbsent(Keys.keyOf(q, key, built.selection().row(tuple)), new Found<>(built, tuple));
             }
         }
@@ -613,11 +637,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private record Found<M>(BuiltQuery<M> built, Tuple tuple) {}
 
     /**
-     * The most keys one step-2 statement takes: the configured batch size, if any, within the profile's IN-list
-     * limit, and within its bind-parameter limit once the statement's own binds are bound, at one bind per key column
-     * (R-PAG-07, D-32). At least one, so a query that alone passes the bind limit fails in the database as its
-     * one-step page would. It compiles a statement without running it, so a caller computes it once per {@code page}
-     * or {@code export} call.
+     * The most keys one step-2 statement takes: the configured batch size, if any, within the largest power of two
+     * that fits the profile's IN-list limit and its bind-parameter limit once the statement's own binds are bound, at
+     * one bind per key column (R-PAG-07, D-32, D-80). At least one, so a query that alone passes the bind limit is
+     * refused with {@code MQ1307} as its one-step page would be. It compiles a statement without running it, so a
+     * caller computes it once per {@code page} or {@code export} call.
      */
     private <M> int keyBatchSize(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> key) {
         // The statement's own binds, the query's values and the customizer's, before any key is added. JPA reports a
@@ -684,7 +708,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 fresh = readByKeys(q, key, freshKeys, batch); // only the fresh keys' rows are read (R-PAG-07)
                 read = pageKeys.size();
             } else {
-                TypedQuery<Tuple> query = create(built.query());
+                TypedQuery<Tuple> query = create(q, built.query());
                 query.setFirstResult(offset);
                 query.setMaxResults(pageSize);
                 List<Tuple> rows = query.getResultList();
@@ -737,7 +761,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 built.query().where(own == null ? after : cb.and(own, after));
             }
             keyset.appendOrder(built, cb);
-            TypedQuery<Tuple> query = create(built.query());
+            TypedQuery<Tuple> query = create(q, built.query());
             query.setMaxResults(pageSize);
             List<Tuple> rows = query.getResultList();
             Set<Object> keys = new HashSet<>();
@@ -835,7 +859,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 .anyMatch(selection -> toManyJoin(selection) != null);
         Expression<Long> count = hasToManyJoin(root) && !readThroughToMany ? cb.countDistinct(root) : cb.count(root);
         query.multiselect(count);
-        return ((Number) create(query).getSingleResult().get(0)).longValue();
+        return ((Number) create(q, query).getSingleResult().get(0)).longValue();
     }
 
     /** {@code count(*)} over the groups: in the database when the provider support can, else client-side. */
@@ -852,12 +876,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         // The provider support only builds the count; it runs here, so the configured timeout applies (R-EXE-11).
         Optional<CriteriaQuery<Long>> count = vendor.providerSupport().flatMap(p -> p.countQuery(query));
         if (count.isPresent()) {
-            return create(count.get()).getSingleResult();
+            return create(q, count.get()).getSingleResult();
         }
         LOG.log(System.Logger.Level.WARNING, "count over the grouped query on {0} runs it and counts its rows in "
                 + "memory, because no ProviderSupport counts groups for this persistence provider; add "
                 + "model-query-hibernate for a count in the database (R-EXE-03)", rootEntity.getSimpleName());
-        return create(query).getResultList().size();
+        return create(q, query).getResultList().size();
     }
 
     private static boolean hasToManyJoin(From<?, ?> from) {

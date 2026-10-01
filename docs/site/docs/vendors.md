@@ -31,7 +31,10 @@ community-supported and never gates a release.
 | Target table in an `UPDATE`/`DELETE` sub-query | yes | yes | **no** (error 1093); joined filters run key-first |
 
 Longer `IN` lists are split into chunks automatically. One filter with more values than the bind-parameter limit fails
-with `MQ1306` when the query is built.
+with `MQ1306` when the query is built, and a statement whose values only together pass it fails with `MQ1307` before it
+runs. Only the key lists the library builds itself, for primary-key-first paging and bulk writes, are spread over
+several statements, each holding the largest power of two of keys within the limits, so Hibernate's
+`hibernate.query.in_clause_parameter_padding` cannot push one over.
 
 ## How the vendor is detected
 

@@ -111,7 +111,7 @@ and increments the version, so a stale version still throws; with `keepVersion` 
 earlier when it can see the entity; D-61): a key that is not the id could match several rows. `whereKeys` drops
 duplicate keys, so each distinct key is written once, then splits the list across statements to the vendor's limits
 (`engine/21` R-PAG-07), counting one bind parameter per key component plus the statement's own binds, `SET` values
-included, and returns the summed count (D-63).
+included, at most the largest power of two of keys within them, and returns the summed count (D-63, D-80).
 
 ## 4. Delete definition
 

@@ -229,10 +229,12 @@ class PrimaryKeyFirstTest {
     @TckTest
     void ac_pag_09_a_step_two_batch_leaves_room_for_the_querys_own_bind_parameters(TckDatabase db) {
         // The query binds all but 5 000 of the database's own bind limit (vendor/41 §2), so 9 000 keys on top would
-        // pass it though they fit one IN list: the page's keys are read back in two statements, not one.
+        // pass it though they fit one IN list: the page's keys are read back 4 096 at a time, the largest power of two
+        // within the 5 000 left, in three statements, where the IN-list limit alone would take 8 192, in two.
         int maxBinds;
         try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
-            maxBinds = VendorResolver.resolve(sf, Optional.<DatabaseVendor>empty(), MysqlStreamingMode.ROW_BY_ROW).profile().maxBindParameters();
+            maxBinds = VendorResolver.resolve(sf, Optional.<DatabaseVendor>empty(), MysqlStreamingMode.ROW_BY_ROW)
+                    .profile().maxBindParameters();
         }
         List<Long> ids = LongStream.rangeClosed(1, maxBinds - 5_000).boxed().toList();
         var listed = BY_PRODUCT.where(f -> f.in(ITEM_ID, ids));
@@ -241,7 +243,9 @@ class PrimaryKeyFirstTest {
         List<Slice<ItemRow>> slices = new ArrayList<>();
         List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, OrderItemEntity.class,
                 executor -> slices.add(executor.page(twoStep, deep, CountMode.NO_COUNT))));
-        assertThat(sql).as("the key statement and two step-2 statements").hasSize(3);
+        assertThat(sql).as("the key statement and three step-2 statements").hasSize(4);
+        assertThat(sql.subList(1, sql.size())).extracting(statement -> placeholders(statement) - ids.size())
+                .containsExactly(4_096L, 4_096L, 808L);
         withExecutor(db, OrderItemEntity.class, executor -> assertThat(slices.get(0).content()).hasSize(8_999)
                 .isEqualTo(executor.page(listed.build(), deep, CountMode.NO_COUNT).content()));
     }

@@ -65,6 +65,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
+import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
@@ -176,9 +177,12 @@ class BulkWriteTest {
     /** The {@code OTHER} profile: 1 000 values per IN list and 2 000 binds per statement (R-VND-06). */
     private static final ModelQueryConfig OTHER = ModelQueryConfig.defaults().vendor(DatabaseVendor.OTHER);
 
+    /** The clamp under {@link #SEVEN_KEYS}: the largest power of two within its 7 values per IN list (D-80). */
+    private static final int ROUND = 4;
+
     /**
      * An {@code OTHER} profile taking 7 values per IN list: it cannot read the target table in a sub-query, so a
-     * joined write runs key-first, in rounds of 7 keys (R-WRT-11, D-63).
+     * joined write runs key-first, in rounds of {@link #ROUND} keys (R-WRT-11, D-63).
      */
     private static final ModelQueryConfig SEVEN_KEYS = OTHER.vendorProfiles(List.of(new VendorProfile() {
         @Override
@@ -317,7 +321,8 @@ class BulkWriteTest {
 
     @TckTest
     void ac_wrt_06_where_keys_past_the_in_list_limit_updates_every_distinct_key_once(TckDatabase db) {
-        // 2 500 distinct keys, the first 100 given twice: three statements under OTHER's 1 000-value IN lists.
+        // 2 500 distinct keys, the first 100 given twice: five statements of at most 512 keys, the largest power of two
+        // within OTHER's 1 000-value IN lists.
         List<Long> keys = new ArrayList<>(LongStream.rangeClosed(1, 2_500).boxed().toList());
         keys.addAll(LongStream.rangeClosed(1, 100).boxed().toList());
         var update = UPDATE.primaryKey(PrimaryKey.of(ID)).set(STATUS, "KEYED").whereKeys(keys).build();
@@ -332,7 +337,8 @@ class BulkWriteTest {
         }));
 
         assertThat(written[0]).isEqualTo(2_500);
-        assertThat(writes(sql, "update")).extracting(BulkWriteTest::binds).containsExactly(1_002L, 1_002L, 502L);
+        assertThat(writes(sql, "update")).extracting(BulkWriteTest::binds)
+                .containsExactly(514L, 514L, 514L, 514L, 454L);
         before.forEach((id, version) -> assertThat(after.get(id)).as("version of order %d", id)
                 .isEqualTo(id <= 2_500 ? version + 1 : version));
     }
@@ -340,15 +346,17 @@ class BulkWriteTest {
     @TckTest
     void ac_wrt_06_composite_where_keys_count_the_statement_own_binds_and_update_every_distinct_key_once(
             TckDatabase db) {
-        // 1 999 distinct keys of two binds each, the first 50 given twice. The SET value takes one of OTHER's 2 000
-        // binds, so a statement takes 999 keys, not 1 000: three statements, not two.
+        // 1 999 distinct keys of two binds each, the first 50 given twice. The SET value and a notIn of 999 absent
+        // item numbers take 1 000 of OTHER's 2 000 binds, so a statement takes 500 keys, rounded down to 256, not
+        // the 512 of an empty statement: eight statements, not four.
+        List<Integer> absent = IntStream.rangeClosed(1, 999).map(no -> -no).boxed().toList();
         List<List<Object>> keys = new ArrayList<>();
         for (int i = 0; i < 1_999; i++) {
             keys.add(List.of(i / 100 + 1, i % 100 + 1));
         }
         keys.addAll(keys.subList(0, 50));
         var update = ModelUpdate.builder(TENANT_ITEMS).primaryKey(PrimaryKey.composite(TENANT_ID, ITEM_NO))
-                .set(LABEL, "KEYED").whereKeys(keys).build();
+                .set(LABEL, "KEYED").whereKeys(keys).where(f -> f.notIn(ITEM_NO, absent)).build();
         long[] written = new long[1];
         var labelled = new ArrayList<Object[]>();
 
@@ -359,7 +367,8 @@ class BulkWriteTest {
         }));
 
         assertThat(written[0]).isEqualTo(1_999);
-        assertThat(writes(sql, "update")).extracting(BulkWriteTest::binds).containsExactly(1_999L, 1_999L, 3L);
+        assertThat(writes(sql, "update")).extracting(BulkWriteTest::binds)
+                .containsExactly(1_512L, 1_512L, 1_512L, 1_512L, 1_512L, 1_512L, 1_512L, 1_414L);
         // Every item but the last, (20, 100).
         assertThat(labelled).hasSize(1_999).noneMatch(row -> row[0].equals(20) && row[1].equals(100));
     }
@@ -481,7 +490,8 @@ class BulkWriteTest {
     @TckTest
     void ac_wrt_07_key_first_selects_keys_in_rounds_of_the_clamp_and_writes_the_rows_the_read_returns(
             TckDatabase db) {
-        // OTHER cannot read the target table in a sub-query, and this profile takes 7 values per IN list.
+        // OTHER cannot read the target table in a sub-query, and this profile takes 7 values per IN list, so rounds
+        // of 4 keys.
         UnaryOperator<Filters<OrderPatch>> where = f -> f
                 .eq(CUSTOMER_COUNTRY, "VN")
                 .not(g -> g.eq(REFERRER_COUNTRY, "VN"))
@@ -496,15 +506,15 @@ class BulkWriteTest {
             marked.addAll(markedIds(em));
         }));
 
-        assertThat(expected).hasSizeGreaterThan(7);
+        assertThat(expected).hasSizeGreaterThan(ROUND);
         assertThat(written[0]).isEqualTo(expected.size());
         assertThat(marked).containsExactlyInAnyOrderElementsOf(expected);
-        // Rounds stop on a select returning fewer than 7 keys; each write takes one round's keys, root terms only.
-        assertThat(keySelects(sql)).hasSize(expected.size() / 7 + 1);
+        // Rounds stop on a select returning fewer than 4 keys; each write takes one round's keys, root terms only.
+        assertThat(keySelects(sql)).hasSize(expected.size() / ROUND + 1);
         List<String> updates = writes(sql, "update");
-        assertThat(updates).hasSize((expected.size() + 6) / 7).allSatisfy(statement -> assertThat(statement)
+        assertThat(updates).hasSize((expected.size() + ROUND - 1) / ROUND).allSatisfy(statement -> assertThat(statement)
                 .doesNotContain("exists").doesNotContain("customers"));
-        assertThat(updates).extracting(BulkWriteTest::binds).first().isEqualTo(7L + 3);
+        assertThat(updates).extracting(BulkWriteTest::binds).first().isEqualTo(ROUND + 3L);
     }
 
     @TckTest
@@ -525,9 +535,9 @@ class BulkWriteTest {
         assertThat(expected).isNotEmpty();
         assertThat(written[0]).isEqualTo(expected.size());
         assertThat(marked).containsExactlyInAnyOrderElementsOf(expected);
-        // 60 distinct keys in runs of 7: one key select per run, one write per run that selected a key.
-        assertThat(keySelects(sql)).hasSize(9);
-        assertThat(writes(sql, "update")).hasSizeLessThanOrEqualTo(9)
+        // 60 distinct keys in runs of 4: one key select per run, one write per run that selected a key.
+        assertThat(keySelects(sql)).hasSize(15);
+        assertThat(writes(sql, "update")).hasSizeLessThanOrEqualTo(15)
                 .allSatisfy(statement -> assertThat(statement).doesNotContain("customers"));
     }
 
@@ -552,7 +562,7 @@ class BulkWriteTest {
                     .isInstanceOfSatisfying(ModelQueryExecutionException.class,
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ2205));
         });
-        assertThat(firstRound).hasSize(7);
+        assertThat(firstRound).hasSize(ROUND);
     }
 
     // ---- AC-WRT-18 (where the database cannot read the target table in a sub-query, so a joined write is key-first)

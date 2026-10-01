@@ -26,14 +26,15 @@ final class Keys {
     }
 
     /**
-     * The most keys one statement takes: {@code configured}, if any, within the IN-list limit, and within the
-     * bind-parameter limit once the statement's {@code ownBinds} are bound, at one bind per key column (R-PAG-07,
-     * R-WRT-08, D-32). At least one, so a statement that alone passes the bind limit fails in the database as it
-     * would unsplit.
+     * The most keys one statement takes: {@code configured}, if any, within the largest power of two that fits the
+     * IN-list limit and the bind-parameter limit once the statement's {@code ownBinds} are bound, at one bind per key
+     * column (R-PAG-07, R-WRT-08, D-32, D-80). A provider that pads an IN list to the next power of two so stays
+     * within the limits, a configured size below the clamp included. At least one, so a statement that alone passes
+     * the bind limit is refused with {@code MQ1307} as it would be unsplit.
      */
     int clamp(int ownBinds, int keyColumns, OptionalInt configured) {
-        int clamp = Math.min(maxInListSize, (maxBindParameters - ownBinds) / keyColumns);
-        return Math.max(1, Math.min(configured.orElse(Integer.MAX_VALUE), clamp));
+        int clamp = Math.max(1, Math.min(maxInListSize, (maxBindParameters - ownBinds) / keyColumns));
+        return Math.max(1, Math.min(configured.orElse(Integer.MAX_VALUE), Integer.highestOneBit(clamp)));
     }
 
     /**
