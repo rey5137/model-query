@@ -358,6 +358,8 @@
                             <publishingServerId>central</publishingServerId>
                             <autoPublish>true</autoPublish>
                             <waitUntil>published</waitUntil>
+                            <!-- Central can take over the default 30 minutes to publish; 0.1.0 did (seconds) -->
+                            <waitMaxTime>7200</waitMaxTime>
                             <excludeArtifacts>
                                 <artifact>model-query-tck</artifact>
                                 <artifact>model-query-sample-plain-jpa</artifact>

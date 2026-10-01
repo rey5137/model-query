@@ -13,8 +13,9 @@ Typed, projection-first queries on top of JPA.
   set (planned, M8).
 - Vendor-aware behaviour for **H2, PostgreSQL and MySQL**, behind an SPI other databases can implement.
 
-> **Status: pre-release (0.1.0).** The public API may change in any `0.x` release. The user guide is the docs site
-> under [`docs/site/docs/`](docs/site/docs/index.md); it is built in CI and not deployed.
+> **Status: 0.1.0.** The public API may change in any `0.x` release. The user guide is at
+> <https://rey5137.github.io/model-query/> (source under [`docs/site/docs/`](docs/site/docs/index.md)); the Javadoc is on
+> [javadoc.io](https://javadoc.io/doc/io.github.rey5137/model-query-core).
 
 ## Example
 

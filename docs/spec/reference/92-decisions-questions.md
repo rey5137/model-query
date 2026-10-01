@@ -742,6 +742,10 @@ R-REL-09.
 Hibernate 6.6 with Spring Boot 3.4. Targeting Hibernate 7 only would exclude Spring Boot 3.x users; whether 1.0 moves to
 Hibernate 7 is decided before 1.0. → `delivery/61`.
 
+**D-79 — Publishing the docs site (amends D-76).** After 0.1.0, the docs site is published to GitHub Pages at
+`https://rey5137.github.io/model-query/` from `main` by `.github/workflows/docs.yml`, so it tracks the latest main rather
+than a release; versioned docs per release grow later. CI still builds it strictly on every PR. → `delivery/61` R-REL-02.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
