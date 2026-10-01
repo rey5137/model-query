@@ -17,7 +17,7 @@ import javax.tools.Diagnostic;
  * Generates a QModel class for every type annotated with {@code @QueryModel} or {@code @UpdateModel}: each model is
  * read, validated and, when it has no error, written to one file of its own, beside its change set when it has one.
  *
- * @implSpec R-GEN-01, R-GEN-05, R-GEN-19, R-GEN-21, R-DIAG-03
+ * @implSpec R-GEN-01, R-GEN-05, R-GEN-19, R-GEN-21, R-GEN-23, R-DIAG-03
  */
 @SupportedAnnotationTypes({"com.rey.modelquery.annotations.QueryModel", "com.rey.modelquery.annotations.UpdateModel"})
 @SupportedOptions({QueryModelReader.PREFIX_OPTION, QueryModelReader.SUFFIX_OPTION})
@@ -36,7 +36,10 @@ public final class ModelQueryProcessor extends AbstractProcessor {
         var metamodel = new EntityMetamodel(types);
         var validator = new ModelValidator(types, metamodel, nestedModels);
         var writer = new QModelWriter(types, metamodel, nestedModels);
-        var changesWriter = new ChangesWriter(types);
+        var elements = processingEnv.getElementUtils();
+        // A model module without Bean Validation, or without model-query-jpa, compiles and references neither.
+        var changesWriter = new ChangesWriter(types, elements.getTypeElement(ChangesWriter.VALID_CHANGES) != null
+                && elements.getTypeElement(ChangesWriter.CONSTRAINT) != null);
         for (Element element : roundEnv.getElementsAnnotatedWith(QueryModel.class)) {
             generate(reader.read((TypeElement) element), validator, writer, changesWriter);
         }

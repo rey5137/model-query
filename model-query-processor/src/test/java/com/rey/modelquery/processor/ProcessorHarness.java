@@ -7,11 +7,13 @@ import com.google.testing.compile.JavaFileObjects;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.TableField;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,6 +62,18 @@ final class ProcessorHarness {
     /** Compiles {@code sources} with the processor alone; the test classpath is the compile classpath. */
     static Compilation compile(JavaFileObject... sources) {
         return javac().withProcessors(new ModelQueryProcessor()).compile(sources);
+    }
+
+    /**
+     * Compiles {@code sources} with the processor over the test classpath less each entry whose path contains
+     * {@code excluded}, as a model module without that dependency would.
+     */
+    static Compilation compileWithout(String excluded, JavaFileObject... sources) {
+        List<File> classpath = Arrays.stream(System.getProperty("java.class.path").split(File.pathSeparator))
+                .filter(entry -> !entry.contains(excluded))
+                .map(File::new)
+                .toList();
+        return javac().withProcessors(new ModelQueryProcessor()).withClasspath(classpath).compile(sources);
     }
 
     /** The error messages of {@code compilation}, in the order reported. */

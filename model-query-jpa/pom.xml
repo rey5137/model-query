@@ -21,10 +21,29 @@
             <artifactId>model-query-core</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- Only @ValidChanges and its validator use it; without it nothing is validated (api/14 R-WRT-22). -->
+        <dependency>
+            <groupId>jakarta.validation</groupId>
+            <artifactId>jakarta.validation-api</artifactId>
+            <version>${jakarta-validation.version}</version>
+            <optional>true</optional>
+        </dependency>
         <dependency>
             <groupId>org.hibernate.orm</groupId>
             <artifactId>hibernate-core</artifactId>
             <version>${hibernate.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.hibernate.validator</groupId>
+            <artifactId>hibernate-validator</artifactId>
+            <version>${hibernate-validator.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tomcat.embed</groupId>
+            <artifactId>tomcat-embed-el</artifactId>
+            <version>${tomcat-embed-el.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>

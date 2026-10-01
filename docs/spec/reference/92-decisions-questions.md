@@ -687,6 +687,19 @@ converted to-one keeps the `MQ3014` check. `MQ3306` applies to both kinds of mod
 `getEmpty()`/`setEmpty(...)` pair names the property `Changes.isEmpty()` reads as; the change set has no `isX`
 getter (D-69), so `processor/32`'s example names the pair. → `processor/32` §1, `processor/31` R-GEN-19..R-GEN-23.
 
+**D-71 — M6.8 `@ValidChanges`.** A change set's validator finds each set column's model field through a new public
+`ColumnField.property()`, an `Optional<String>` of the name `named(...)` gave it, which is not `name()`: `customerId`
+for the attribute `customer`, `city` for `address.city`. A column with no property, which only a hand-written change
+set has, and an expression assignment are not checked; a NULL assignment is checked as `null`. `@ValidChanges` and
+`ValidChangesValidator` are `@Incubating` public types of `com.rey.modelquery.jpa`; the annotation's `groups` are the
+groups the field constraints are checked in, and its `message` is never reported, since every violation is re-reported
+on its field. The validator checks fields with a `Validator` of the default `ValidatorFactory`, built once on first
+use, so a model module needs no configuration; wiring a container's own `Validator` in is left to the Spring starter.
+The processor emits the annotation when `Elements.getTypeElement` finds both `com.rey.modelquery.jpa.ValidChanges` and
+`jakarta.validation.Constraint`. Within `jpa`, only the `ValidChanges*` classes import `jakarta.validation`, which
+ArchUnit checks. `hibernate-validator` and `tomcat-embed-el` are test-scope only, in `jpa` and `processor`.
+→ `api/14` R-WRT-21, R-WRT-22, `processor/31` R-GEN-23, `delivery/61` R-REL-03.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter

@@ -12,6 +12,7 @@ import jakarta.persistence.metamodel.SingularAttribute;
 import jakarta.persistence.metamodel.Type;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * One column of a model: an entity attribute on a {@link TableField}, with the Java type it is read as. Immutable, so a
@@ -219,6 +220,17 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
     public ColumnField<M, T, C> named(String property) {
         return new ColumnField<>(model, table, attribute, type, attributeType, converter,
                 Objects.requireNonNull(property, "property"));
+    }
+
+    /**
+     * The name of the model field the column fills, as given to {@link #named}; empty for a column with none. It is
+     * the model's own field name, which may differ from {@link #name()}: {@code customerId} for {@code customer},
+     * {@code city} for {@code address.city}. A change set's validation looks the field's constraints up by it.
+     *
+     * @implSpec D-55, R-WRT-21, D-71
+     */
+    public Optional<String> property() {
+        return Optional.ofNullable(property);
     }
 
     /**

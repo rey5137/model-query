@@ -68,17 +68,21 @@ final class LayeringRules {
                 .allowEmptyShould(allowEmptyShould);
     }
 
-    /** {@code jakarta.validation} is used by {@code jpa} only. */
-    ArchRule onlyJpaImportsJakartaValidation() {
+    /**
+     * {@code jakarta.validation} is used only by {@code jpa}'s {@code @ValidChanges} and its validator, so the rest of
+     * the engine runs without it (api/14 R-WRT-22).
+     */
+    ArchRule onlyValidChangesImportsJakartaValidation() {
+        String validChanges = root + ".jpa.ValidChanges";
         return noClasses()
                 .that()
-                .resideOutsideOfPackage(pkg("jpa"))
-                .and()
                 .resideInAPackage(root + "..")
+                .and(describe("are not @ValidChanges or its validator",
+                        c -> !c.getFullName().startsWith(validChanges)))
                 .should()
                 .dependOnClassesThat()
                 .resideInAPackage("jakarta.validation..")
-                .as("only jpa imports jakarta.validation")
+                .as("only @ValidChanges and its validator import jakarta.validation")
                 .allowEmptyShould(allowEmptyShould);
     }
 

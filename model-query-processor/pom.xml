@@ -45,6 +45,32 @@
             <version>${jakarta-persistence.version}</version>
             <scope>test</scope>
         </dependency>
+        <!-- A generated change set is annotated @ValidChanges when it and Bean Validation resolve, and validated with a
+             provider (processor/31 R-GEN-23, api/14 R-WRT-21). -->
+        <dependency>
+            <groupId>io.github.rey5137</groupId>
+            <artifactId>model-query-jpa</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.validation</groupId>
+            <artifactId>jakarta.validation-api</artifactId>
+            <version>${jakarta-validation.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.hibernate.validator</groupId>
+            <artifactId>hibernate-validator</artifactId>
+            <version>${hibernate-validator.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.tomcat.embed</groupId>
+            <artifactId>tomcat-embed-el</artifactId>
+            <version>${tomcat-embed-el.version}</version>
+            <scope>test</scope>
+        </dependency>
         <!-- A generated change set binds from a request body with no Jackson dependency of its own
              (api/14 R-WRT-03, AC-WRT-02). -->
         <dependency>

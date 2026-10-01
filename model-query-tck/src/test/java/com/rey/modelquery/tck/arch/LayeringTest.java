@@ -79,11 +79,14 @@ class LayeringTest {
     }
 
     @Test
-    void ac_rel_02_onlyJpaImportsJakartaValidation() {
+    void ac_rel_02_onlyValidChangesImportsJakartaValidation() {
         proves(
-                LayeringRules::onlyJpaImportsJakartaValidation,
+                LayeringRules::onlyValidChangesImportsJakartaValidation,
                 F + "hibernate.BadValidationImport",
+                F + "jpa.BadJpaValidationImport",
                 "jakarta.validation.fixturestub.Stub");
+        assertThatCode(() -> BAD_RULES.onlyValidChangesImportsJakartaValidation().check(BAD))
+                .hasMessageNotContaining(F + "jpa.ValidChangesValidator");
     }
 
     @Test

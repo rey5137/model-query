@@ -3,6 +3,7 @@ package patch;
 import com.rey.modelquery.core.Assignment;
 import com.rey.modelquery.core.Changes;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.jpa.ValidChanges;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collections;
@@ -10,6 +11,7 @@ import java.util.List;
 import javax.annotation.processing.Generated;
 
 @Generated("com.rey.modelquery.processor.ModelQueryProcessor")
+@ValidChanges(StockPatch.class)
 public final class StockPatchChanges implements Changes<StockPatch> {
     private final BitSet set = new BitSet();
 

@@ -27,9 +27,16 @@ import javax.lang.model.util.Types;
  * (spec processor/31 §6). The change set is a mutable value builder, never a constant (R-GEN-20): one bit per
  * writable column records that its setter was called, so NULL and "not set" stay apart (api/14 R-WRT-02).
  *
- * @implSpec R-GEN-19, R-GEN-20, R-GEN-21, R-WRT-02, R-WRT-03, R-WRT-04
+ * <p>When Bean Validation and {@code @ValidChanges} both resolve, the change set is annotated {@code @ValidChanges}
+ * naming its model; the model's own constraint annotations are never copied onto it (R-GEN-23).
+ *
+ * @implSpec R-GEN-19, R-GEN-20, R-GEN-21, R-GEN-23, R-WRT-02, R-WRT-03, R-WRT-04
  */
 final class ChangesWriter {
+
+    /** The class-level constraint a change set carries when it and {@link #CONSTRAINT} resolve (api/14 R-WRT-22). */
+    static final String VALID_CHANGES = "com.rey.modelquery.jpa.ValidChanges";
+    static final String CONSTRAINT = "jakarta.validation.Constraint";
 
     private static final String CORE = "com.rey.modelquery.core";
     private static final ClassName CHANGES = ClassName.get(CORE, "Changes");
@@ -42,9 +49,12 @@ final class ChangesWriter {
     private static final WildcardTypeName ANY = WildcardTypeName.subtypeOf(Object.class);
 
     private final Types types;
+    private final boolean validChanges;
 
-    ChangesWriter(Types types) {
+    /** @param validChanges whether {@link #VALID_CHANGES} and {@link #CONSTRAINT} resolve on the classpath */
+    ChangesWriter(Types types, boolean validChanges) {
         this.types = types;
+        this.validChanges = validChanges;
     }
 
     /** The change-set file of {@code model}, whose only originating element is the model's type (R-GEN-05). */
@@ -69,6 +79,11 @@ final class ChangesWriter {
                 .addField(FieldSpec.builder(BitSet.class, bits, Modifier.PRIVATE, Modifier.FINAL)
                         .initializer("new $T()", BitSet.class)
                         .build());
+        if (validChanges) {
+            type.addAnnotation(AnnotationSpec.builder(ClassName.bestGuess(VALID_CHANGES))
+                    .addMember("value", "$T.class", modelName)
+                    .build());
+        }
         for (ModelField field : writable) {
             type.addField(boxed(field.type()), field.name(), Modifier.PRIVATE);
         }

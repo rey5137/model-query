@@ -3,6 +3,7 @@ package patch;
 import com.rey.modelquery.core.Assignment;
 import com.rey.modelquery.core.Changes;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.jpa.ValidChanges;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -11,6 +12,7 @@ import java.util.List;
 import javax.annotation.processing.Generated;
 
 @Generated("com.rey.modelquery.processor.ModelQueryProcessor")
+@ValidChanges(OrderPatch.class)
 public final class OrderPatchChanges implements Changes<OrderPatch> {
     private final BitSet set = new BitSet();
 
