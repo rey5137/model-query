@@ -60,6 +60,9 @@
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <!-- AC-REL-05: fixes the timestamp inside every jar and the javadoc. release.yml overwrites it with the tag
+             commit's time (versions:set-property), so two builds of one tag are byte-identical. -->
+        <project.build.outputTimestamp>2026-01-01T00:00:00Z</project.build.outputTimestamp>
 
         <!-- Runtime -->
         <jakarta-persistence.version>3.1.0</jakarta-persistence.version>
@@ -95,6 +98,12 @@
         <pitest-maven.version>1.30.0</pitest-maven.version>
         <pitest-junit5-plugin.version>1.2.3</pitest-junit5-plugin.version>
         <maven-jar-plugin.version>3.5.1</maven-jar-plugin.version>
+        <!-- The plugins Maven binds by default; pinned for AC-REL-05 (requirePluginVersions). -->
+        <maven-clean-plugin.version>3.2.0</maven-clean-plugin.version>
+        <maven-resources-plugin.version>3.3.1</maven-resources-plugin.version>
+        <maven-install-plugin.version>3.1.2</maven-install-plugin.version>
+        <maven-deploy-plugin.version>3.1.2</maven-deploy-plugin.version>
+        <maven-site-plugin.version>3.12.1</maven-site-plugin.version>
         <maven-shade-plugin.version>3.6.2</maven-shade-plugin.version>
         <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
         <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
@@ -150,6 +159,31 @@
                             <version>${pitest-junit5-plugin.version}</version>
                         </dependency>
                     </dependencies>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-clean-plugin</artifactId>
+                    <version>${maven-clean-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-resources-plugin</artifactId>
+                    <version>${maven-resources-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-install-plugin</artifactId>
+                    <version>${maven-install-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-deploy-plugin</artifactId>
+                    <version>${maven-deploy-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-site-plugin</artifactId>
+                    <version>${maven-site-plugin.version}</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
@@ -218,6 +252,12 @@
                                 <requireJavaVersion>
                                     <version>[17,)</version>
                                 </requireJavaVersion>
+                                <!-- AC-REL-05: every plugin Maven binds is pinned, so a build does not drift. -->
+                                <requirePluginVersions>
+                                    <banLatest>true</banLatest>
+                                    <banRelease>true</banRelease>
+                                    <banSnapshots>true</banSnapshots>
+                                </requirePluginVersions>
                                 <!-- No Lombok anywhere in the library (delivery/61 R-REL-03). Its annotations are
                                      source-retained, so ArchUnit cannot see them: this is the primary guard.
                                      model-query-processor alone re-admits it, in test scope (D-40). -->
@@ -259,6 +299,8 @@
                         <version>${maven-javadoc-plugin.version}</version>
                         <configuration>
                             <doclint>all,-missing</doclint>
+                            <!-- AC-REL-05: no generation date in the HTML. -->
+                            <notimestamp>true</notimestamp>
                             <!-- The JDK's own block tags; javadoc knows them only when declared. -->
                             <tags>
                                 <tag>
