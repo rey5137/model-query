@@ -12,6 +12,7 @@ import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -135,15 +136,17 @@ public final class ModelQuery<E, K, M> {
      * model under the {@code @Join} field {@code customer}), then by its attribute path from the root
      * ({@code customer.fullName}; the attribute itself for a root column), then by an aggregate's
      * {@link SelectField#name()}. A bare attribute name never matches a joined column, and a column without a
-     * property ({@link ColumnField#named}) matches by attribute path only. Matching is exact and case-sensitive, and
-     * an earlier match wins over a later one. The copy passes the checks of {@link Builder#build()}, and an executor
-     * still closes its order with the primary key or the group keys (R-PAG-01).
+     * property ({@link ColumnField#named}) matches by attribute path only. Matching is exact and case-sensitive; a
+     * property that names different columns on different tiers is ambiguous, and one column matched on two tiers is
+     * not. The copy passes the checks of {@link Builder#build()}, and an executor still closes its order with the
+     * primary key or the group keys (R-PAG-01), so an ungrouped query without a primary key, which has nothing to
+     * close it with, takes no sort. Every failure is {@code MQ2301}, because the sort comes from the request (D-58).
      *
-     * @throws ModelQueryExecutionException {@code MQ2301} for a property matching no selected column, or more than
-     *     one
-     * @throws ModelQueryDefinitionException {@code MQ1207} for a {@code Float} or {@code Double} key on a keyset
-     *     query, and {@code MQ1406} for a key that does not fit the grouping, as {@link Builder#build()} throws them
-     * @implSpec R-QRY-14, D-52, D-55
+     * @throws ModelQueryExecutionException {@code MQ2301} for a property matching no selected column, or different
+     *     columns; for an ungrouped query without a primary key; and, with the build failure as cause, for a sort
+     *     {@link Builder#build()} refuses ({@code MQ1207} for a {@code Float} or {@code Double} key on a keyset
+     *     query, {@code MQ1406} for a key that does not fit the grouping)
+     * @implSpec R-QRY-14, D-52, D-55, D-58
      */
     @Incubating
     public ModelQuery<E, K, M> orderedBy(SortSpec sort) {
@@ -151,52 +154,68 @@ public final class ModelQuery<E, K, M> {
         if (sort.keys().isEmpty()) {
             return this;
         }
+        if (!grouped && primaryKey == null) {
+            throw new ModelQueryExecutionException(MqCode.MQ2301, modelName() + ": an ungrouped query without a "
+                    + "primary key takes no sort, because no key closes its order and its pages could repeat or skip "
+                    + "rows; give the definition a primaryKey(...)");
+        }
         var resolved = new ArrayList<OrderField<M, ?>>();
         for (SortSpec.Key key : sort.keys()) {
             resolved.add(new OrderField<>(resolve(key.property()), key.ascending(), key.nulls()));
         }
-        return builder.ordered(List.copyOf(resolved)).build(definition);
+        try {
+            return builder.ordered(List.copyOf(resolved)).build(definition);
+        } catch (ModelQueryDefinitionException e) {
+            throw new ModelQueryExecutionException(MqCode.MQ2301, modelName() + ": sort by "
+                    + sort.keys().stream().map(SortSpec.Key::property).toList() + " does not fit the query: "
+                    + e.getMessage(), e);
+        }
     }
 
     /**
-     * The one selected column {@code property} names: by property path, then attribute path, then aggregate name
-     * (R-QRY-14, D-55).
+     * The one selected column {@code property} names, matched on every tier: property path, attribute path and
+     * aggregate name (R-QRY-14, D-55, D-58).
      */
     private SelectField<M, ?> resolve(String property) {
-        var byProperty = new LinkedHashSet<SelectField<M, ?>>();
-        var byPath = new LinkedHashSet<SelectField<M, ?>>();
-        var byName = new LinkedHashSet<SelectField<M, ?>>();
+        var matches = new LinkedHashMap<SelectField<M, ?>, List<String>>();
         for (SelectField<M, ?> column : columns.columns()) {
             if (column instanceof ColumnField<M, ?, ?> plain) {
                 if (property.equals(plain.propertyPath())) {
-                    byProperty.add(column);
+                    matches.computeIfAbsent(column, c -> new ArrayList<>()).add("property path");
                 }
                 if (plain.path().equals(property)) {
-                    byPath.add(column);
+                    matches.computeIfAbsent(column, c -> new ArrayList<>()).add("attribute path");
                 }
             } else if (column.name().equals(property)) {
-                byName.add(column);
+                matches.computeIfAbsent(column, c -> new ArrayList<>()).add("aggregate name");
             }
         }
-        var matches = !byProperty.isEmpty() ? byProperty : !byPath.isEmpty() ? byPath : byName;
         if (matches.size() == 1) {
-            return matches.iterator().next();
+            return matches.keySet().iterator().next();
         }
         if (matches.isEmpty()) {
             throw new ModelQueryExecutionException(MqCode.MQ2301, modelName() + ": sort property '" + property
                     + "' names no selected column or aggregate; a sort property is a selected column's property "
                     + "path or attribute path from the root, or an aggregate's name, exact and case-sensitive");
         }
-        List<String> candidates = matches.stream().map(ModelQuery::sortName).toList();
+        List<String> candidates = matches.entrySet().stream()
+                .map(match -> candidateName(match.getKey()) + " (" + String.join(", ", match.getValue()) + ")")
+                .toList();
         throw new ModelQueryExecutionException(MqCode.MQ2301, modelName() + ": sort property '" + property
-                + "' names more than one selected column: " + candidates + "; name one by its property path");
+                + "' names more than one selected column: " + candidates
+                + "; name one by a path no other selected column has");
     }
 
-    /** What a sort names {@code column} by: its property path when it has one, else its attribute path or name. */
-    private static String sortName(SelectField<?, ?> column) {
+    /**
+     * What a sort can name {@code column} by: its attribute path, preceded by its property path when that differs, or
+     * an aggregate's name.
+     */
+    private static String candidateName(SelectField<?, ?> column) {
         if (column instanceof ColumnField<?, ?, ?> plain) {
             String propertyPath = plain.propertyPath();
-            return propertyPath != null ? propertyPath : plain.path();
+            return propertyPath == null || propertyPath.equals(plain.path())
+                    ? plain.path()
+                    : propertyPath + " reading " + plain.path();
         }
         return column.name();
     }

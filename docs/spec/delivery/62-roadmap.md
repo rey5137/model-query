@@ -17,13 +17,13 @@
 | **M3: Vendors** | Tier-1 `VendorProfile`s, detection, `model-query-hibernate` (grouped count, null precedence) | TCK green on the full nightly matrix. `vendor/40..41` covered, except `Future` criteria and AC-VND-06, which needs Spring and is owed by M5 |
 | **M4: Processor** | Annotations, processor, diagnostics, for class and record models, including `@Aggregate`/`@GroupBy` | compile-testing suite green; samples use only generated QModels. `processor/30..32` covered, except `Future` criteria |
 | **M5: Spring** | `spring-data` module, starter, properties | Boot sample with several datasources on H2, PostgreSQL and MySQL. `integration/50` and AC-VND-06 covered, except `Future` criteria |
-| **M6: 0.1.0** | Docs site, samples, Maven Central publishing | First public release; AC-REL-04, AC-REL-05 |
-| **M7: Hardening → 1.0.0** | Early-adopter feedback, API review, `japicmp` baseline, MariaDB Tier 2 | API frozen; AC-REL-06 |
-| **M8: Bulk writes** | `ModelUpdate`, `ModelDelete`, `Changes`, `@UpdateModel` and `generateChanges`, executor and repository methods, chunked mode, `VendorProfile.targetTableInSubquery` | `api/14` covered, TCK bulk-write group green on Tier-1 databases, AC-VND-07, AC-SPR-09, AC-GEN-10..12 and the `MQ33xx` compile-testing cases; the Spring Boot sample has a PATCH endpoint |
+| **M6: Bulk writes** | `ModelUpdate`, `ModelDelete`, `Changes`, `@UpdateModel` and `generateChanges`, executor and repository methods, chunked mode, `VendorProfile.targetTableInSubquery` | `api/14` covered, TCK bulk-write group green on Tier-1 databases, AC-VND-07, AC-SPR-09, AC-GEN-10..12 and the `MQ33xx` compile-testing cases; the Spring Boot sample has a PATCH endpoint |
+| **M7: 0.1.0** | Docs site, samples, Maven Central publishing | First public release; AC-REL-04, AC-REL-05 |
+| **M8: Hardening → 1.0.0** | Early-adopter feedback, API review, `japicmp` baseline, MariaDB Tier 2 | API frozen; AC-REL-06 |
 
-**R-RDM-01** M3 and M4 may run in parallel after M2. M8 starts after M6, so the first release ships the read API, and
-runs alongside M7; its API is `@Incubating` until the M7 API review, which covers it before 1.0.0. Nothing else runs in
-parallel.
+**R-RDM-01** M3 and M4 may run in parallel after M2. M6 follows M5, so the first release (M7) ships bulk writes
+next to the read API; their API is `@Incubating` until the M8 API review, which covers it before 1.0.0 (D-59).
+Nothing else runs in parallel.
 
 **R-RDM-02** A milestone is done when every acceptance criterion its "Exit criteria" column names has a passing test
 (`delivery/60` R-QA-11) — not when the code exists. A criterion tagged `Future` belongs to the milestone that
@@ -35,7 +35,8 @@ milestone claims it.
 
 **R-RDM-03** Deliberately out of scope for 0.1, and not to be half-built:
 
-- Writes, entity loading, anything that touches the persistence context (INV-1). Bulk writes come in M8 (`api/14`).
+- Entity loading and entity writes, anything that touches the persistence context (INV-1). Filter-driven bulk writes
+  (`api/14`) are in 0.1 from M6 and load no entity.
 - A general SQL builder, raw SQL fragments beyond `Agg.of` and `Filters.add` (P-5).
 - Window functions, `ROLLUP`/`CUBE`, sub-query selections.
 - Keyset paging over grouped queries (`api/13` R-AGG-10).

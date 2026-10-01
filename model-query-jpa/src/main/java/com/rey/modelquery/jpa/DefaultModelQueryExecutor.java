@@ -23,6 +23,7 @@ import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.jpa.vendor.ResolvedVendor;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
@@ -99,8 +100,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         this.em = Objects.requireNonNull(em, "em");
         this.rootEntity = Objects.requireNonNull(rootEntity, "rootEntity");
         Objects.requireNonNull(config, "config");
-        this.vendor = VendorResolver.withSupplied(VendorResolver.resolve(em.getEntityManagerFactory(),
-                config.vendor(), config.mysqlStreamingMode()), config.vendorProfiles());
+        EntityManagerFactory emf = em.getEntityManagerFactory();
+        this.vendor = VendorResolver.withSupplied(emf, VendorResolver.resolve(emf, config.vendor(),
+                config.mysqlStreamingMode()), config.vendorProfiles());
         VendorProfile profile = vendor.profile();
         this.providerNulls = vendor.providerSupport()
                 .flatMap(support -> support.defaultNullPrecedence(em.getEntityManagerFactory()));

@@ -7,6 +7,7 @@ import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.jpa.vendor.ResolvedVendor;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
 import com.rey.modelquery.tck.col.JoinTestSupport;
@@ -84,6 +85,23 @@ class VendorResolutionTest {
             assertThat(VendorResolver.resolve(sf, DETECT, MysqlStreamingMode.ROW_BY_ROW)).isSameAs(VendorResolver.resolve(sf, DETECT, MysqlStreamingMode.ROW_BY_ROW));
         }
         assertThat(infos).singleElement().asString().contains("H2", "PROVIDER");
+    }
+
+    @Test
+    void ac_vnd_03_a_supplied_profile_is_logged_once_per_factory_naming_the_profile_it_replaces() {
+        List<String> infos = new ArrayList<>();
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(database(TckVendor.H2))) {
+            VendorProfile builtIn = VendorResolver.resolve(sf, DETECT, MysqlStreamingMode.ROW_BY_ROW).profile();
+            VendorProfile supplied = (VendorProfile) Proxy.newProxyInstance(VendorProfile.class.getClassLoader(),
+                    new Class<?>[] {VendorProfile.class}, (proxy, method, args) -> method.invoke(builtIn, args));
+            ModelQueryConfig config = ModelQueryConfig.defaults().vendorProfiles(List.of(supplied));
+            capturingResolverLog(Level.INFO, infos, () -> {
+                sf.inSession(em -> ModelQueryExecutor.create(em, OrderEntity.class, config));
+                sf.inSession(em -> ModelQueryExecutor.create(em, OrderEntity.class, config));
+            });
+            assertThat(infos).singleElement().asString()
+                    .contains("supplied profile " + supplied.getClass().getName(), "H2", "built-in H2");
+        }
     }
 
     @Test

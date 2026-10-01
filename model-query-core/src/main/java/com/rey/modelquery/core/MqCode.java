@@ -140,7 +140,18 @@ public enum MqCode {
      * {@code modelquery.vendor} is set with more than one {@code EntityManagerFactory} and no
      * {@code ModelQueryConfigurer} (R-SPR-13, D-54).
      */
-    MQ4005("modelquery.vendor is set with several EntityManagerFactory beans and no ModelQueryConfigurer");
+    MQ4005("modelquery.vendor is set with several EntityManagerFactory beans and no ModelQueryConfigurer"),
+
+    /**
+     * A {@code ModelQueryConfig} bean of the application's own drops a {@code VendorProfile} bean or a
+     * {@code modelquery.*} property (R-SPR-13, D-54).
+     */
+    MQ4006("A ModelQueryConfig bean of the application drops a VendorProfile bean or a modelquery.* property"),
+
+    /**
+     * A repository declares {@code ModelQueryRepository} for an entity other than its own domain type (R-SPR-12).
+     */
+    MQ4007("A repository's ModelQueryRepository entity is not the repository's domain type");
 
     private final String defaultMessage;
 

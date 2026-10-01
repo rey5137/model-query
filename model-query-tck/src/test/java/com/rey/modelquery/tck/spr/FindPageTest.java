@@ -170,6 +170,31 @@ class FindPageTest {
     }
 
     @TckTest
+    void ac_spr_05_a_property_naming_different_columns_on_two_tiers_throws_mq2301_naming_both(TckDatabase db) {
+        // "total" is the property path of a column reading status, and TOTAL's attribute path (D-58).
+        var renamed = ColumnField.of(OrderRow.class, ORDERS, "status", String.class).named("total");
+        var q = ModelQuery.builder(ORDERS, row -> new OrderRow(row.get(ID), row.get(renamed), row.get(TOTAL)))
+                .columns(ColumnSet.of(ID, renamed, TOTAL))
+                .primaryKey(PrimaryKey.of(ID))
+                .build();
+
+        assertRefusedBeforeAnyQuery(db, q, PageRequest.of(0, 10, Sort.by("total")), MqCode.MQ2301,
+                "'total' names more than one selected column: [total reading status (property path), "
+                        + "total (attribute path)]");
+    }
+
+    @TckTest
+    void ac_spr_05_a_sort_on_an_ungrouped_query_without_a_primary_key_throws_mq2301(TckDatabase db) {
+        var q = ModelQuery.builder(ORDERS, row -> new OrderRow(row.get(ID), row.get(STATUS), row.get(TOTAL)))
+                .columns(ColumnSet.of(ID, STATUS, TOTAL))
+                .orderBy(ID.desc())
+                .build();
+
+        assertRefusedBeforeAnyQuery(db, q, PageRequest.of(0, 10, Sort.by("status")), MqCode.MQ2301,
+                "an ungrouped query without a primary key takes no sort");
+    }
+
+    @TckTest
     void ac_spr_05_an_ignore_case_order_throws_mq2301_naming_its_property(TckDatabase db) {
         assertRefusedBeforeAnyQuery(db, BUYER_ROWS,
                 PageRequest.of(0, 10, Sort.by(Order.asc("buyer.name").ignoreCase())), MqCode.MQ2301,

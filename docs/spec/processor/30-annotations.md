@@ -11,7 +11,7 @@
 | Annotation | Target | Purpose |
 |---|---|---|
 | `@QueryModel(root = X.class, generateColumnSets = true, prefix = "Q", suffix = "", singleGroup = false, generateChanges = false)` | model class or record | Enables generation |
-| `@UpdateModel(root = X.class, prefix = "Q")` | class or record | `Future` (M8): the attributes a bulk update may write; generates columns and a change set (§7) |
+| `@UpdateModel(root = X.class, prefix = "Q")` | class or record | `Future` (M6): the attributes a bulk update may write; generates columns and a change set (§7) |
 | `@PrimaryKey` | field or record component | Primary-key column(s); composite keys supported |
 | `@Column(attribute = "...", converter = Foo.class)` | field or component | Rename the attribute or convert the value (`ColumnConverter<C, F>`) |
 | `@Join(attribute = "...", type = LEFT, prefix = "CUSTOMER", alias = "")` | `Optional<NestedModel>` field or component | Join the association and reuse the nested model's QModel columns |
@@ -103,7 +103,7 @@ and is `MQ3206` on any other function. An `@Aggregate` field can't also carry `@
 
 **R-PROC-17** Aggregates are in no generated `ColumnSet` (`api/13` R-AGG-12).
 
-## 7. Update models — `Future` (M8)
+## 7. Update models — `Future` (M6)
 
 **R-PROC-18** `@UpdateModel(root = …)` declares the root-entity attributes a bulk update may write (`api/14` §2). The
 type is only read by the processor and never instantiated. It accepts `@PrimaryKey`, `@Column` (including a to-one

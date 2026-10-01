@@ -6,7 +6,7 @@ no entity loading, no persistence context, no N+1 — and runs the query as a pa
 millions of rows with bounded memory, on H2, PostgreSQL and MySQL alike.
 
 > **Model Query is a read path built on JPA Criteria, not a replacement for JPA and not a general SQL builder.** Its
-> only writes are filter-driven bulk updates and deletes (M8), which load no entity.
+> only writes are filter-driven bulk updates and deletes (M6), which load no entity.
 
 - **Implementation:** Java 17, Maven multi-module, `jakarta.persistence` 3.1+, Hibernate 6.6+ optional extras.
 - **Surface (0.1):** `TableField`, `ColumnField`, `AggregateField`, `ColumnSet`, `ModelQuery`, `Filters`, `Row`,
@@ -84,7 +84,7 @@ These hold for the life of the library. A change that breaks one is an architect
 | **INV-6** | **Vendor differences live only behind `VendorProfile`.** No `if (vendor == MYSQL)` outside a profile, and no vendor name in `core` (`vendor/40`). |
 | **INV-7** | **Dependencies flow one way:** `annotations` ← `core` ← `jpa` ← (`hibernate`, `spring-data`) ← `spring-boot-starter`, with `processor` depending only on `annotations`. `core` imports only `jakarta.persistence` and the JDK; `jpa` never imports `org.hibernate` (`delivery/61`). |
 | **INV-8** | **Framework-optional.** Every feature is reachable with a plain `EntityManager`. Spring is a convenience layer, never a requirement. |
-| **INV-9** | **Definitions are immutable and thread-safe.** `TableField`, `ColumnField`, `AggregateField`, `ColumnSet`, `OrderField`, `ModelQuery`, and from M8 `ModelUpdate` and `ModelDelete`, can be `static final`. Per-query state lives only in `JoinContext`, created per build. |
+| **INV-9** | **Definitions are immutable and thread-safe.** `TableField`, `ColumnField`, `AggregateField`, `ColumnSet`, `OrderField`, `ModelQuery`, and from M6 `ModelUpdate` and `ModelDelete`, can be `static final`. Per-query state lives only in `JoinContext`, created per build. |
 | **INV-10** | **Diagnostic codes are stable:** once released, an `MQnnnn` code is never reused for a different meaning. |
 
 ## 3. Design principles
@@ -114,7 +114,7 @@ These hold for the life of the library. A change that breaks one is an architect
 | Vendors | H2, PostgreSQL, MySQL (Tier 1) | `DatabaseVendor` entries for MariaDB, Oracle, SQL Server | Tier-2 MariaDB profile, community profiles |
 | Processor | `@QueryModel`, `@PrimaryKey`, `@Column`, `@Join`, `@FilterColumn`, `@Aggregate`, `@GroupBy`, `@ExcludeFromDefaults`, `@Transient` | — | generating from an existing JPA metamodel, IDE plugin |
 | Integration | Spring Data repository, Boot starter, `modelquery.*` properties | remote-store properties | Quarkus / Micronaut extensions |
-| Writes | — | — | bulk `update`/`delete`, change sets, `@UpdateModel` (M8, `api/14`) |
+| Writes | — | — | bulk `update`/`delete`, change sets, `@UpdateModel` (M6, `api/14`) |
 
 Full milestone list and exclusions: `delivery/62`.
 
@@ -131,7 +131,7 @@ Full milestone list and exclusions: `delivery/62`.
 | Auto-configuration and properties | `model-query-spring-boot-starter` | `integration/50` | 0.1 |
 | Vendor conformance suite | `model-query-tck` | `delivery/60` | 0.1 |
 | Version alignment | `model-query-bom` | `delivery/61` | 0.1 |
-| Bulk writes: `ModelUpdate`, `ModelDelete`, `Changes`, `ChunkTransactions`; `@ValidChanges` | `model-query-core`; `model-query-jpa` | `api/14` | Future (M8) |
+| Bulk writes: `ModelUpdate`, `ModelDelete`, `Changes`, `ChunkTransactions`; `@ValidChanges` | `model-query-core`; `model-query-jpa` | `api/14` | Future (M6) |
 | Samples | `samples/plain-jpa`, `samples/spring-boot-multi-datasource` | `delivery/62` | 0.1 |
 
 ## 6. Architecture decisions (summary)
@@ -178,7 +178,7 @@ docs/spec/
     11-query-definition.md        ModelQuery builder, primary keys, afterMap, QueryCustomizer, executor surface
     12-filters.md                 Filters DSL, skip semantics, or/not/exists, escaping, IN splitting
     13-aggregates-grouping.md     Agg, AggregateField, groupBy, having, grouped-query rules
-    14-bulk-writes.md             ModelUpdate, ModelDelete, change sets, bulk-write correctness (Future, M8)
+    14-bulk-writes.md             ModelUpdate, ModelDelete, change sets, bulk-write correctness (Future, M6)
   engine/
     20-execution.md               list, page, count, stream: counting rules, limits, connection lifetime
     21-paging-export.md           offset, keyset, primary-key-first, the export loop, grouped export

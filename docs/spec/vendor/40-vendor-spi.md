@@ -26,7 +26,7 @@ public interface VendorProfile {
 
     NullOrdering defaultAscendingNullOrdering();               // NULLS_FIRST, NULLS_LAST, UNKNOWN
 
-    default boolean targetTableInSubquery() { return false; }  // Future (M8): may UPDATE/DELETE read their own table
+    default boolean targetTableInSubquery() { return false; }  // Future (M6): may UPDATE/DELETE read their own table
 }
 ```
 
@@ -49,9 +49,9 @@ its vendor. Two discovered profiles for one vendor throw `MQ4002`. A caller may 
 vendor; two supplied for one vendor throw `MQ4002`. The Spring starter passes every `VendorProfile` bean there
 (`integration/50`, D-53).
 
-**R-VND-11** `targetTableInSubquery()` (`Future`, M8) says whether an `UPDATE` or `DELETE` may read its own table in
+**R-VND-11** `targetTableInSubquery()` (`Future`, M6) says whether an `UPDATE` or `DELETE` may read its own table in
 a sub-query. When it is false, a bulk write whose rendering needs such a sub-query runs key-first (`api/14` R-WRT-11).
-It defaults to `false`, which is always correct and only slower, so a profile written before M8 keeps compiling and
+It defaults to `false`, which is always correct and only slower, so a profile written before M6 keeps compiling and
 stays safe (R-VND-01). It is a capability, not a rendering hook, because the engine renders every predicate itself
 (R-VND-08, P-5). Tier-1 values are in `vendor/41` §2; otherwise `true` for Oracle, SQL Server and MariaDB 10.3.1+, and
 `false` for `OTHER`.
@@ -121,4 +121,4 @@ explicitly (`likeIgnoreCase`, `nullsFirst`), and the library renders it the same
 | AC-VND-04 | Detection opens no connection when the vendor is configured explicitly or a dialect is available (R-VND-05). |
 | AC-VND-05 | An unknown `DatabaseMetaData` product name yields `OTHER`, and a nullable-column keyset under `OTHER` is refused (R-VND-06). |
 | AC-VND-06 | A Spring-registered profile bean overrides the `ServiceLoader` one (R-VND-03). |
-| AC-VND-07 | (`Future`, M8) `targetTableInSubquery()` is true for H2 and PostgreSQL and false for MySQL and `OTHER`, verified against each container (R-VND-11). |
+| AC-VND-07 | (`Future`, M6) `targetTableInSubquery()` is true for H2 and PostgreSQL and false for MySQL and `OTHER`, verified against each container (R-VND-11). |

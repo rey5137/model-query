@@ -129,7 +129,8 @@ class GenerationTest {
         // The attribute path of both joins' column names both, and a bare name no joined column.
         assertThatThrownBy(() -> query.orderedBy(SortSpec.of(Key.asc("customer.email"))))
                 .hasMessageStartingWith("MQ2301: InvoiceView: sort property 'customer.email' names more than one "
-                        + "selected column: [customer.contact, payer.contact]");
+                        + "selected column: [customer.contact reading customer.email (attribute path), payer.contact "
+                        + "reading customer.email (attribute path)]");
         assertThatThrownBy(() -> query.orderedBy(SortSpec.of(Key.asc("contact"))))
                 .hasMessageStartingWith("MQ2301: InvoiceView: sort property 'contact' names no selected column");
     }

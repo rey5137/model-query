@@ -8,9 +8,9 @@
     "M3": { "files": ["vendor/40-vendor-spi", "vendor/41-tier1-profiles"], "ids": ["AC-EXE-08", "AC-EXE-09", "AC-FLT-08"] },
     "M4": { "files": ["processor/30-annotations", "processor/31-generation", "processor/32-diagnostics"] },
     "M5": { "files": ["integration/50-spring"], "ids": ["AC-VND-06"] },
-    "M6": { "ids": ["AC-REL-04", "AC-REL-05"] },
-    "M7": { "ids": ["AC-REL-06"] },
-    "M8": { "files": ["api/14-bulk-writes"] }
+    "M6": { "files": ["api/14-bulk-writes"] },
+    "M7": { "ids": ["AC-REL-04", "AC-REL-05"] },
+    "M8": { "ids": ["AC-REL-06"] }
   },
   "build_proven": {
     "AC-REL-01": "The build produces exactly the modules in delivery/61 section 1 and 'mvnw verify' is green: proven by the CI build job, which fails otherwise.",

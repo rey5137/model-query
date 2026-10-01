@@ -2,8 +2,8 @@
 
 **Covers:** `ModelUpdate`, `ModelDelete`, change sets (`Changes<M>`), how a bulk write renders and runs, and the
 executor's `update`/`delete`.
-**Read when:** working on M8, or deciding whether a write belongs in this library at all.
-**Owns:** `R-WRT-*`, `AC-WRT-*`. **Status: `Future` (M8, after 0.1.0).** `@Incubating` until the M7 API review. Update
+**Read when:** working on M6, or deciding whether a write belongs in this library at all.
+**Owns:** `R-WRT-*`, `AC-WRT-*`. **Status: `Future` (M6, before 0.1.0).** `@Incubating` until the M8 API review. Update
 models are generated as in `processor/31` §6; the reasoning is D-14 and D-17.
 
 ---

@@ -113,13 +113,26 @@ class OrderedByTest {
     }
 
     @Test
-    void ac_qry_13_a_property_path_match_wins_over_an_attribute_path_match() {
-        // "status" is STATE's property path and STATUS's attribute path.
+    void ac_qry_13_a_property_naming_different_columns_on_two_tiers_throws_mq2301() {
+        // "status" is the renamed column's property path and STATUS's attribute path (D-58).
         ColumnField<OrderView, Order, String> renamed =
                 ColumnField.of(OrderView.class, ROOT, "orderStatus", String.class).named("status");
         var query = selecting(STATUS, renamed).build();
 
-        assertThat(query.orderedBy(SortSpec.of(Key.asc("status"))).orderBy()).containsExactly(renamed.asc());
+        assertThatThrownBy(() -> query.orderedBy(SortSpec.of(Key.asc("status"))))
+                .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ2301))
+                .hasMessage("MQ2301: OrderView: sort property 'status' names more than one selected column: "
+                        + "[status (attribute path), status reading orderStatus (property path)]; name one by a "
+                        + "path no other selected column has");
+    }
+
+    @Test
+    void ac_qry_13_one_column_matched_on_two_tiers_is_not_ambiguous() {
+        var named = STATUS.named("status");
+        var query = selecting(named, CUSTOMER_NAME).build();
+
+        assertThat(query.orderedBy(SortSpec.of(Key.desc("status"))).orderBy()).containsExactly(named.desc());
     }
 
     @Test
@@ -134,7 +147,8 @@ class OrderedByTest {
                 .isInstanceOfSatisfying(ModelQueryExecutionException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ2301))
                 .hasMessage("MQ2301: OrderView: sort property 'address.city' names more than one selected column: "
-                        + "[billing.city, shipping.city]; name one by its property path");
+                        + "[billing.city reading address.city (attribute path), shipping.city reading address.city "
+                        + "(attribute path)]; name one by a path no other selected column has");
     }
 
     @Test
@@ -208,7 +222,7 @@ class OrderedByTest {
 
     @Test
     void ac_qry_13_an_ambiguous_property_throws_mq2301_naming_the_candidates() {
-        // Two columns named alike: their property path wins over STATUS's attribute path, and names both.
+        // Two columns named alike, and STATUS, whose attribute path is the same name.
         ColumnField<OrderView, Order, String> code =
                 ColumnField.of(OrderView.class, ROOT, "code", String.class).named("status");
         var query = selecting(STATUS, STATE.named("status"), code).build();
@@ -217,7 +231,8 @@ class OrderedByTest {
                 .isInstanceOfSatisfying(ModelQueryExecutionException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ2301))
                 .hasMessage("MQ2301: OrderView: sort property 'status' names more than one selected column: "
-                        + "[status, status]; name one by its property path");
+                        + "[status (attribute path), status reading orderStatus (property path), status reading "
+                        + "code (property path)]; name one by a path no other selected column has");
     }
 
     @Test
@@ -230,7 +245,7 @@ class OrderedByTest {
                 .isInstanceOfSatisfying(ModelQueryExecutionException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ2301))
                 .hasMessageStartingWith("MQ2301: OrderView: sort property 'customer.name' names more than one "
-                        + "selected column: [customer.name, customer.name]");
+                        + "selected column: [customer.name (attribute path), customer.name (attribute path)]");
     }
 
     @Test
@@ -284,15 +299,34 @@ class OrderedByTest {
     }
 
     @Test
-    void ac_qry_13_a_keyset_copy_sorted_by_a_double_column_throws_mq1207() {
+    void ac_qry_13_a_keyset_copy_sorted_by_a_double_column_throws_mq2301_caused_by_mq1207() {
         var query = selecting(STATUS, WEIGHT).orderBy(STATUS.asc()).keyset().build();
 
+        // The sort comes from the request, so the build failure is an execution failure (D-58).
         assertThatThrownBy(() -> query.orderedBy(SortSpec.of(Key.asc("weight"))))
+                .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ2301))
+                .hasMessageStartingWith("MQ2301: OrderView: sort by [weight] does not fit the query: MQ1207: "
+                        + "OrderView.weight: keyset() cannot page by a Double column")
+                .cause()
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
-                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1207))
-                .hasMessageStartingWith("MQ1207: OrderView.weight: keyset() cannot page by a Double column");
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1207));
         // Without keyset() the same sort is an offset order, which a Double column can be.
         assertThat(selecting(STATUS, WEIGHT).build().orderedBy(SortSpec.of(Key.asc("weight"))).orderBy())
                 .containsExactly(WEIGHT.asc());
+    }
+
+    @Test
+    void ac_qry_13_an_ungrouped_query_without_a_primary_key_takes_no_sort() {
+        var query = ModelQuery.builder(ROOT, row -> new OrderView())
+                .columns(ColumnSet.of(STATUS))
+                .orderBy(STATUS.asc())
+                .build();
+
+        assertThatThrownBy(() -> query.orderedBy(SortSpec.of(Key.desc("status"))))
+                .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ2301))
+                .hasMessageStartingWith("MQ2301: OrderView: an ungrouped query without a primary key takes no sort");
+        assertThat(query.orderedBy(SortSpec.unsorted())).isSameAs(query);
     }
 }

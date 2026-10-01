@@ -77,7 +77,7 @@ before any profile is written.
 | M3.5 | Null precedence through profiles: `HibernateCriteriaBuilder#sort` in `model-query-hibernate`; no null sort key when the vendor default already matches; `keyset.null-keys=honour-null-precedence` on `ModelQueryConfig` and its engine half, refused under `OTHER` | AC-COL-08, AC-PRF-07, AC-VND-05 |
 
 AC-VND-06 (a Spring-registered profile bean overrides the `ServiceLoader` one) needs the Spring module and is owed by
-M5. AC-VND-07 is `Future` (M8).
+M5. AC-VND-07 is `Future` (M6).
 
 **Exit:** TCK green on the full nightly matrix.
 
@@ -98,7 +98,7 @@ retention), D-40 (Lombok in the processor's tests only), D-41 (dotted paths thro
 | M4.6 | The diagnostic matrix completed (each code with Lombok on and off, class and record where both apply) and checked against `reference/90`; `samples/plain-jpa` moved to generated QModels only | AC-DIAG-01, AC-DIAG-05 |
 
 The generated-code criteria run on H2 only: what a QModel renders is already covered per vendor by the TCK. AC-GEN-10..12
-and `MQ3301`..`MQ3307` are `Future` (M8).
+and `MQ3301`..`MQ3307` are `Future` (M6).
 
 **Exit:** compile-testing suite green; `samples/plain-jpa` uses only generated QModels.
 
@@ -111,7 +111,7 @@ transaction).
 
 | Slice | Contents | Done when |
 |---|---|---|
-| M5.0 | `model-query-core`: `SortSpec` and `ModelQuery.orderedBy`, resolving a property against the selected columns by path then name, `MQ2301`; `ExportOptions` with an optional page size (D-52, D-53) | AC-QRY-13 |
+| M5.0 | `model-query-core`: `SortSpec` and `ModelQuery.orderedBy`, resolving a property against the selected columns, `MQ2301` (matching rules now D-55 and D-58); `ExportOptions` with an optional page size (D-52, D-53) | AC-QRY-13 |
 | M5.0b | Sort by model property path: a property on generated columns and `@Join` tables, `named(String)` on `ColumnField` and `TableField`, `orderedBy` matching property path then attribute path, no bare-name match for joined columns (D-55) | AC-QRY-13 |
 | M5.1 | `model-query-jpa`: `exportPageSize` and `streamFetchSize` on `ModelQueryConfig`, applied by the executor; `vendorProfiles(...)` ahead of the `ServiceLoader` profiles (R-VND-03, D-53) | AC-QRY-14, AC-SPR-07 |
 | M5.2 | `model-query-spring-data`: the `ModelQueryRepository` fragment without `findPage`, its implementation over `ModelQueryExecutor`, `ModelQueryRepositoryFactoryBean`; `stream` in a read-only transaction (R-SPR-01..03, R-SPR-12) | AC-SPR-01, AC-SPR-03 |
@@ -120,7 +120,7 @@ transaction).
 | M5.5 | `samples/spring-boot`: one application with three datasources (H2, PostgreSQL, MySQL), one profile per factory, run against Testcontainers; `M5` added to the audit's started scope | AC-SPR-02 |
 
 `update`, `delete`, `ChunkTransactions` (R-SPR-10, R-SPR-11), the two `bulk-write` properties and AC-SPR-09 are `Future`
-(M8).
+(M6).
 
 **Exit:** the Boot sample green on H2, PostgreSQL and MySQL; `integration/50` and AC-VND-06 covered, except `Future`
 criteria.
