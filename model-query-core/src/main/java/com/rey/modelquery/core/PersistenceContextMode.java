@@ -1,5 +1,7 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
+
 /**
  * What a bulk write does to the persistence context after its last statement. A bulk write bypasses managed entities,
  * so either way some of them no longer match the table.

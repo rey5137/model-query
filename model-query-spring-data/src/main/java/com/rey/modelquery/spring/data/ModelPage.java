@@ -1,7 +1,7 @@
 package com.rey.modelquery.spring.data;
 
+import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.CountMode;
-import com.rey.modelquery.core.Incubating;
 import java.util.function.Function;
 import org.springframework.data.domain.Slice;
 

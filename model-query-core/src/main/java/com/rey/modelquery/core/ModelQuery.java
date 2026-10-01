@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -273,6 +274,7 @@ public final class ModelQuery<E, K, M> {
      * @throws ModelQueryExecutionException {@code MQ2203} for {@code PRIMARY_KEY} on a query without a primary key
      * @throws ModelQueryDefinitionException {@code MQ1205} when the customizer changed the ordering or the grouping
      */
+    @EngineFacing
     public BuiltQuery<M> buildQuery(CriteriaBuilder cb, Phase phase, RenderOptions options) {
         Objects.requireNonNull(cb, "cb");
         Objects.requireNonNull(phase, "phase");
@@ -359,6 +361,7 @@ public final class ModelQuery<E, K, M> {
      * @throws ModelQueryDefinitionException {@code MQ1205} when the customizer changes the ordering or the grouping
      *     of any phase
      */
+    @EngineFacing
     public void checkPhases(CriteriaBuilder cb) {
         Objects.requireNonNull(cb, "cb");
         if (customizer == null) {

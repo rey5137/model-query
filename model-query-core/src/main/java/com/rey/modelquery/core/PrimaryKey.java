@@ -1,5 +1,9 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.Path;
+import jakarta.persistence.criteria.Predicate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -41,5 +45,30 @@ public final class PrimaryKey<M, K> {
     /** The key columns in order, as a list that throws on mutation. */
     public List<ColumnField<M, ?, ?>> columns() {
         return columns;
+    }
+
+    /**
+     * {@code key IN (keys)} over attribute-value keys, as {@link #columns()} paths in {@code ctx}; a composite key is
+     * an OR of per-key conjunctions, since JPA has no row-value IN (P-4). With {@code collapseSingle}, one key renders
+     * as an equality, with no {@code OR} around one conjunction, as a write does; without it, as a one-element
+     * {@code IN}, as a read by keys does.
+     */
+    @EngineFacing
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public Predicate in(List<Object> keys, JoinContext ctx, CriteriaBuilder cb, boolean collapseSingle) {
+        if (columns.size() == 1) {
+            Path path = columns.get(0).path(ctx);
+            return collapseSingle && keys.size() == 1 ? cb.equal(path, keys.get(0)) : path.in(keys);
+        }
+        Predicate[] each = new Predicate[keys.size()];
+        for (int i = 0; i < each.length; i++) {
+            List<?> values = (List<?>) keys.get(i);
+            Predicate[] equal = new Predicate[columns.size()];
+            for (int c = 0; c < equal.length; c++) {
+                equal[c] = cb.equal(columns.get(c).path(ctx), values.get(c));
+            }
+            each[i] = cb.and(equal);
+        }
+        return collapseSingle && each.length == 1 ? each[0] : cb.or(each);
     }
 }

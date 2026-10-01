@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import java.util.Collection;
 import java.util.Optional;
 import java.util.function.UnaryOperator;

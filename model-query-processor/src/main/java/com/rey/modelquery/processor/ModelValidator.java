@@ -603,7 +603,7 @@ final class ModelValidator {
     }
 
     private TypeMirror boxed(TypeMirror type) {
-        return type.getKind().isPrimitive() ? types.boxedClass((PrimitiveType) type).asType() : type;
+        return ProcessorTypes.boxed(types, type);
     }
 
     /** {@code type} as a message shows it: simple names, with type arguments. */

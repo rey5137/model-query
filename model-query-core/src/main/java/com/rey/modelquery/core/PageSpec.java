@@ -1,5 +1,7 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
+
 /**
  * Which page to read: the number of rows to skip and the page size. Immutable.
  *

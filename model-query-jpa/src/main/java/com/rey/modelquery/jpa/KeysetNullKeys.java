@@ -1,6 +1,6 @@
 package com.rey.modelquery.jpa;
 
-import com.rey.modelquery.core.Incubating;
+import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 
 /**

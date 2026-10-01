@@ -1,6 +1,6 @@
 package com.rey.modelquery.jpa.spi;
 
-import com.rey.modelquery.core.Incubating;
+import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
 import jakarta.persistence.EntityManagerFactory;

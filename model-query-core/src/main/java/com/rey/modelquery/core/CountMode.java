@@ -1,5 +1,7 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
+
 /**
  * Whether {@code page} counts the rows behind the page, and whether it reads them at all.
  *

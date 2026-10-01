@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.Expression;
 
 /**

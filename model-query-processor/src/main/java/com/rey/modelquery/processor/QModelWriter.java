@@ -419,8 +419,7 @@ final class QModelWriter {
 
     /** A column's value type: {@code type}, boxed, since a column that is not selected reads as null. */
     private TypeName column(TypeMirror type) {
-        return TypeName.get(type.getKind().isPrimitive() ? types.boxedClass(types.getPrimitiveType(type.getKind()))
-                .asType() : type);
+        return TypeName.get(ProcessorTypes.boxed(types, type));
     }
 
     /** The class literal of {@code type}. */

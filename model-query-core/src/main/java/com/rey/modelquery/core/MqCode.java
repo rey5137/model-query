@@ -1,5 +1,7 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
+
 /**
  * Registry of {@code MQnnnn} codes raised by the library (spec reference/90). A code's meaning is fixed once released
  * (INV-10); each constant carries its default message.
@@ -113,9 +115,10 @@ public enum MqCode {
 
     /**
      * {@code expectVersion} with {@code keepVersion} and nothing to write, or, on first execution, on a root with no
-     * {@code @Version} or with a value of the wrong type (R-WRT-07, R-WRT-16, D-61).
+     * {@code @Version} or with a value of the wrong type, or a {@code @Version} of a type a bulk update cannot
+     * increment unless {@code keepVersion} (R-WRT-07, R-WRT-16, D-61).
      */
-    MQ1606("expectVersion(...) cannot apply to this update"),
+    MQ1606("expectVersion(...) or the @Version attribute cannot apply to this update"),
 
     /**
      * A generated change set's {@code from(model, columns)} names a column the change set does not write: a key, a

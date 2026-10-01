@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.lang.model.element.TypeElement;
-import javax.lang.model.type.PrimitiveType;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Types;
 
@@ -59,8 +58,7 @@ final class WriteChecks {
     private String foreignKey(ModelDefinition model, ModelField join) {
         String attribute = join.join().attribute();
         Resolution resolution = metamodel.resolve(model.root(), attribute);
-        TypeMirror id = resolution.attribute() == null || resolution.attribute().target() == null ? null
-                : metamodel.id((TypeElement) resolution.attribute().target().asElement()).type();
+        TypeMirror id = resolution.attribute() == null ? null : targetIdType(resolution.attribute());
         return "@Column(attribute = \"" + attribute + "\") " + (id == null ? "" : ModelValidator.display(id) + " ")
                 + join.name() + "Id";
     }
@@ -153,8 +151,7 @@ final class WriteChecks {
             return true;
         }
         // A to-one is written by id, so the field holds the target's id, not the target (R-GEN-19).
-        TypeMirror id = attribute.target() == null ? null
-                : metamodel.id((TypeElement) attribute.target().asElement()).type();
+        TypeMirror id = targetIdType(attribute);
         if (id != null && !types.isSameType(boxed(field.type()), boxed(id))) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3305,
                     where + attribute.target().asElement().getSimpleName() + "'s id is "
@@ -163,7 +160,13 @@ final class WriteChecks {
         return false;
     }
 
+    /** The id type of the entity a to-one or collection {@code attribute} targets, or {@code null} without one. */
+    private TypeMirror targetIdType(EntityAttribute attribute) {
+        return attribute.target() == null ? null
+                : metamodel.id((TypeElement) attribute.target().asElement()).type();
+    }
+
     private TypeMirror boxed(TypeMirror type) {
-        return type.getKind().isPrimitive() ? types.boxedClass((PrimitiveType) type).asType() : type;
+        return ProcessorTypes.boxed(types, type);
     }
 }

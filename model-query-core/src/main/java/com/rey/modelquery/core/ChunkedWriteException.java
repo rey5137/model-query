@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -16,7 +17,11 @@ import java.util.Optional;
  * doubt, which may in fact have committed: a caller whose write is not idempotent checks {@link #inDoubtKeys()}
  * against the table first, and resumes after the last of them if that chunk did commit.
  *
- * @implSpec R-WRT-20, D-63
+ * <p>For a {@code whereKey} or {@code whereKeys} write, {@link #lastCommittedKey()} is the last key of the last
+ * committed run in the order given, after deduplication: every key up to and including it, in that order, was written
+ * or matched no row.
+ *
+ * @implSpec R-WRT-20, D-63, D-73
  */
 @Incubating
 public class ChunkedWriteException extends ModelQueryExecutionException {
@@ -48,7 +53,10 @@ public class ChunkedWriteException extends ModelQueryExecutionException {
         return committedRows;
     }
 
-    /** The last key the last committed chunk wrote, to resume after; empty when no chunk committed. */
+    /**
+     * The last key the last committed chunk wrote, to resume after; empty when no chunk committed. For a
+     * {@code whereKey} or {@code whereKeys} write, the last key of the last committed run in the order given.
+     */
     public Optional<Object> lastCommittedKey() {
         return Optional.ofNullable(lastCommittedKey);
     }

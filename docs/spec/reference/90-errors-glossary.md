@@ -58,7 +58,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1603` | `set(column, null)`; NULL must be written with `setNull` | `api/14` R-WRT-06 |
 | `MQ1604` | An assigned column is not on the update's root (a self-referencing join) | `api/14` R-WRT-06 |
 | `MQ1605` | A primary-key or `@Version` column is assigned; checked at `build()` for the definition's key, else on first execution | `api/14` R-WRT-13 |
-| `MQ1606` | `expectVersion` on a root with no `@Version` or with a value of the wrong type (on first execution), or with `keepVersion` and nothing to write (at `build()`) | `api/14` R-WRT-16, R-WRT-07, D-60, D-61 |
+| `MQ1606` | `expectVersion` on a root with no `@Version` or with a value of the wrong type, or a `@Version` of a type a bulk update cannot increment unless `keepVersion` (on first execution), or `expectVersion` with `keepVersion` and nothing to write (at `build()`) | `api/14` R-WRT-16, R-WRT-07, D-60, D-61 |
 | `MQ1607` | `Changes.from(...)` names a column that is not writable | `api/14` R-WRT-04 |
 | `MQ1608` | A bulk write's `@PrimaryKey` is not the root entity's id; checked on first execution, before the flush | `api/14` R-WRT-08, D-61 |
 | `MQ1609` | `setExpression` on a column with a converter | `api/14` R-WRT-14 |
@@ -96,7 +96,7 @@ models, `MQ3301`–`MQ3307` for update models. Codes are not repeated here to ke
 | `MQ4002` | Two `VendorProfile`s registered for the same vendor with no precedence rule | `vendor/40` R-VND-03 |
 | `MQ4003` | A property value, or its `ModelQueryConfig` setting, is outside its allowed range | `integration/50` §3 |
 | `MQ4005` | `modelquery.vendor` set with more than one `EntityManagerFactory` and no `ModelQueryConfigurer` | `integration/50` R-SPR-13 |
-| `MQ4006` | A `ModelQueryConfig` bean of the application drops a `VendorProfile` bean or a set `modelquery.*` property | `integration/50` R-SPR-13 |
+| `MQ4006` | A `ModelQueryConfig` bean of the application drops a `VendorProfile` or `ChunkTransactions` bean, or a set `modelquery.*` property | `integration/50` R-SPR-13 |
 | `MQ4007` | A repository declares `ModelQueryRepository` of an entity other than its domain type | `integration/50` R-SPR-12 |
 | `MQ4004` | `commitEachChunk()` with no `ChunkTransactions` configured, or none that serves the write's `EntityManagerFactory` | `api/14` R-WRT-19 |
 

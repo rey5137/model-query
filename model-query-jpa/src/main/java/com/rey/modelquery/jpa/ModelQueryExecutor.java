@@ -1,8 +1,8 @@
 package com.rey.modelquery.jpa;
 
+import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
-import com.rey.modelquery.core.Incubating;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
@@ -154,7 +154,8 @@ public interface ModelQueryExecutor<E> {
      * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution: {@code MQ1608} when the
      *     definition's primary key is not the root entity's id, {@code MQ1605} when a column writes an id or the
      *     {@code @Version} attribute, {@code MQ1606} for {@code expectVersion} on a root with no {@code @Version}
-     *     attribute or with a value of another type
+     *     attribute or with a value of another type, and for an update of a root whose {@code @Version} type cannot
+     *     be incremented, unless {@code keepVersion()}, {@code MQ1001} for a to-one column of the wrong id type
      * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2501}, before any statement, when the
      *     {@code EntityManager} is not joined to a transaction and the write is not {@code commitEachChunk()}
      *     (R-WRT-18); key-first or chunked, {@code MQ2205} when a key select returns a key the round before already

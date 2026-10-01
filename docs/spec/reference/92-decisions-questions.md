@@ -523,7 +523,7 @@ it, so vendor resolution stays per factory. A `ModelQueryConfigurer` bean may va
 `@Transactional` on the interface, which `enableDefaultTransactions = false` would disable. The R-SPR-09 warning is
 logged where the starter builds the config bean, once per context. `modelquery.primary-key-first.batch-size` has no
 default of its own: unset means the whole page, as `engine/21` R-PAG-07 says. A `ModelQueryConfig` bean of the
-application that would drop a `VendorProfile` bean or a set `modelquery.*` property fails startup with `MQ4006`.
+application that would drop a `VendorProfile` bean or a set `modelquery.*` property fails startup with `MQ4006` (see D-74).
 → `integration/50` R-SPR-03, R-SPR-09, R-SPR-13.
 
 **D-55 — A sort property is the model's property path.** A client sorts by the names it sees in the model, not by
@@ -557,7 +557,7 @@ with the tier it matched; one column matched on two tiers is not. A sort failure
 **D-59 — Bulk writes come before the first release.** The bulk-write milestone moves ahead of 0.1.0 and is renumbered:
 M6 is bulk writes (`api/14`), M7 is 0.1.0, M8 is hardening to 1.0.0. The first release ships the read API and
 filter-driven bulk updates and deletes together, both `@Incubating` until the M8 API review. Writes still load no
-entity (INV-1). → `delivery/62` §1 R-RDM-01, §2 R-RDM-03, `api/14`.
+entity (INV-1). → `delivery/62` §1 R-RDM-01, §2 R-RDM-03, `api/14`, see D-75.
 
 **D-60 — Write builders are staged.** `ModelUpdate.builder(TableField<E,E> root)` returns `Start<E>`, whose
 `primaryKey(PrimaryKey<M,K>)` returns `Builder<E,K,M>`; each call returns a new immutable stage, like
@@ -575,7 +575,9 @@ and `isEmpty`, and its values are model values: the engine applies converters on
 **D-61 — Metamodel checks run on a definition's first execution.** `build()` sees no metamodel (INV-7), and reading
 annotations would miss `orm.xml` and `@EmbeddedId` mappings. `jpa` checks each write definition once per
 `EntityManagerFactory`, before any statement and before the flush: `MQ1608`, the metamodel parts of `MQ1605`, `MQ1606`
-for a root with no `@Version`, and the `expectVersion` value's type. A failure is a `ModelQueryDefinitionException`.
+for a root with no `@Version`, the `expectVersion` value's type and a `@Version` of a type a bulk update cannot
+increment (unless `keepVersion()`), and `MQ1001` for a to-one column whose type is not the target's id type. A
+failure is a `ModelQueryDefinitionException`.
 The memo is keyed per factory, not static. The processor reports `MQ3306` earlier where it can. → `api/14` R-WRT-08,
 R-WRT-13, R-WRT-16.
 
@@ -629,7 +631,9 @@ the statement rendered over its first key, less that key's binds, so `SET` value
 `MQ2501` is checked after the metamodel checks and before the no-op shortcut, so a `whereKeys` with no key outside a
 transaction still throws. The flush runs only for a write that runs a statement and stays outside the `finally`;
 the clear and the eviction run in it, so a failed statement leaves no stale entity. → `api/14` R-WRT-08, R-WRT-15,
-R-WRT-18, D-62, D-63.
+R-WRT-18, D-62, D-63. `build()` does the key conversion, the null check and the deduplication once, and stores the
+result with each composite key copied, so `distinctKeys()` and `startAfter()` return stored values and a caller's list
+changed after `build()` leaves the definition alone (INV-9); a wrong arity or a null key fails at `build()`.
 
 **D-67 — M6.4 key-first surface.** `ModelUpdate` and `ModelDelete` gain `readsTargetInSubquery(cb, options)`,
 `buildKeySelect(cb, options)` and an overload over a run of `distinctKeys()`, a `buildWrite` overload over the keys a
@@ -700,6 +704,29 @@ The processor emits the annotation when `Elements.getTypeElement` finds both `co
 ArchUnit checks. `hibernate-validator` and `tomcat-embed-el` are test-scope only, in `jpa` and `processor`.
 → `api/14` R-WRT-21, R-WRT-22, `processor/31` R-GEN-23, `delivery/61` R-REL-03.
 
+**D-72 — Engine-facing members.** Members of public `core` types that only an executor calls carry `@EngineFacing`
+(`core`, class retention, methods only): `ModelQuery.buildQuery` and `checkPhases`, and on `ModelUpdate` and
+`ModelDelete` `checkMetamodel`, `writesNothing`, every `buildWrite` and `buildKeySelect` overload,
+`readsTargetInSubquery`, `distinctKeys`, `startAfter` and `modelKey`. Like `jpa.vendor` (R-REL-10) they may change in
+any release; `japicmp` excludes them. This makes D-67's `readsTargetInSubquery` boolean non-API. → `delivery/61`
+R-REL-10, R-REL-11.
+
+**D-73 — `lastCommittedKey()` of a keyed write (amends D-68).** For a `whereKey`/`whereKeys` write,
+`lastCommittedKey()` is the last key of the last committed run in the order given, after deduplication. Every key up
+to and including it, in that order, was written or matched no row. A run's key select has no `ORDER BY`, so the order
+it returned is not one a caller can resume in, and a run that matched nothing still passed its keys. The `where` path
+keeps the keyset order. → `api/14` R-WRT-20.
+
+**D-74 — What `MQ4006` refuses.** `MQ4006` refuses dropped application intent: an application-defined
+`VendorProfile` or `ChunkTransactions` bean that the application's own `ModelQueryConfig` does not hold, or a set
+`modelquery.*` property. The starter's own default `ChunkTransactions` is not counted, and such a config's
+`commitEachChunk()` writes throw `MQ4004` before any statement. → `integration/50` R-SPR-11, R-SPR-13, D-54.
+
+**D-75 — `Incubating` lives in `annotations`.** `Incubating` lives in `annotations`, so `@UpdateModel` and
+`generateChanges` can carry it and japicmp excludes them like every other incubating member. `core` depends on
+`annotations`, as INV-7's order already allows; R-REL-03 lets `core` import it. The annotation has CLASS retention,
+so users never reference it. → `delivery/61` R-REL-03, R-REL-07, D-59.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter
@@ -747,6 +774,11 @@ an `MQ3014` is not reported while its path does not resolve. A model whose `root
 in the same round is skipped with no diagnostic and no QModel. Open: report the hidden codes in the same pass, and
 defer such a model to a later round (reporting it if the type never appears), or document the gaps. → `processor/32`
 R-DIAG-03.
+
+**Q-12 — Detecting two entities mapped to one table.** A bulk write whose sub-query reads a second entity mapped to
+the root's table is not detected (JPA exposes no table names, INV-7), so MySQL fails with error 1093 where the write
+should have run key-first. Should `VendorProfile` or a jpa provider hook report an entity's table so that `jpa` can
+detect it? → `api/14` R-WRT-11.
 
 ## 3. Risks
 

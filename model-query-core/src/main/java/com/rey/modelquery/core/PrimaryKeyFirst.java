@@ -1,5 +1,7 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
+
 /**
  * When offset paging reads primary keys first and the rows by those keys second. Immutable.
  *

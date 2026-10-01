@@ -1,5 +1,7 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
+
 /**
  * Raised for an {@code MQ2xxx} failure: a query that is well defined but cannot run the operation asked of it.
  *

@@ -31,14 +31,17 @@ final class LayeringRules {
         return root + "." + module + "..";
     }
 
-    /** {@code core} imports only {@code jakarta.persistence.*} and the JDK ({@code java.*}; no {@code javax.*}). */
+    /**
+     * {@code core} imports only {@code jakarta.persistence.*}, {@code annotations} and the JDK ({@code java.*}; no
+     * {@code javax.*}).
+     */
     ArchRule coreImportsOnlyJakartaPersistenceAndJdk() {
         return classes()
                 .that()
                 .resideInAPackage(pkg("core"))
                 .should()
-                .onlyDependOnClassesThat(resideInAnyPackage(pkg("core"), "java..", "jakarta.persistence.."))
-                .as("core imports only jakarta.persistence and the JDK")
+                .onlyDependOnClassesThat(resideInAnyPackage(pkg("core"), pkg("annotations"), "java..", "jakarta.persistence.."))
+                .as("core imports only jakarta.persistence, annotations and the JDK")
                 .allowEmptyShould(allowEmptyShould);
     }
 

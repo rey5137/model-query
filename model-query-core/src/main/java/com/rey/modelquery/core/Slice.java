@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;

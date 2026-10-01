@@ -42,7 +42,7 @@ source tree.
 
 **R-REL-03** Enforced with ArchUnit in the build:
 
-- `core` imports only `jakarta.persistence.*` and the JDK.
+- `core` imports only `jakarta.persistence.*`, `com.rey.modelquery.annotations` and the JDK.
 - `jpa` does not import `org.hibernate.*`. Hibernate features are found with `ServiceLoader` and have a portable
   fallback.
 - Only `spring-*` modules import `org.springframework.*`.
@@ -83,10 +83,12 @@ through the `rey5137` GitHub account. The Java package `com.rey.modelquery` inte
 
 **R-REL-10** Sub-packages follow the modules: `.core`, `.jpa`, `.hibernate`, `.processor`, `.spring.data`,
 `.spring.boot`. `com.rey.modelquery.jpa.vendor` (the built-in profiles, `VendorResolver`, `ResolvedVendor`) is not
-API, whatever the visibility of its types: it may change in any release, and extensions go through `jpa.spi`.
+API, whatever the visibility of its types: it may change in any release, and extensions go through `jpa.spi`. A
+method marked `@EngineFacing` (`core`; only an executor calls it) is not API either, and may change in any release
+(D-72).
 
 **R-REL-11** From 1.0, `japicmp` fails the build on a binary-incompatible change to a non-`@Incubating` type outside the
-non-API packages (R-REL-10).
+non-API packages, and to a member that is not `@EngineFacing` (R-REL-10).
 
 ## 5. Licensing
 

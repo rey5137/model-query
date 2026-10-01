@@ -9,9 +9,9 @@ import java.lang.annotation.Target;
 /**
  * Marks a class or record listing the root-entity attributes a bulk update may write. The processor generates its
  * column constants with {@code update(...)} and {@code delete()}, and a change set named after the model with a
- * {@code Changes} suffix. The type is only read by the processor and never instantiated. Incubating: the shape may
- * change before 1.0.
+ * {@code Changes} suffix. The type is only read by the processor and never instantiated.
  */
+@Incubating
 @Documented
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.CLASS)

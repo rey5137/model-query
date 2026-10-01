@@ -150,7 +150,7 @@ final class ChangesWriter {
                         ASSIGNMENT)
                 .build());
         if (!model.updateModel()) {
-            type.addMethod(from(model, modelName, qModel, changes, writable));
+            type.addMethod(from(model, writable));
         }
         return JavaFile.builder(packageName, type.build())
                 .indent("    ")
@@ -162,9 +162,10 @@ final class ChangesWriter {
      * {@code from(model, columns)}: copies each named column from the model's getter or record accessor, NULLs
      * included, and throws {@code MQ1607} for a column the change set does not write (R-GEN-21, api/14 R-WRT-04).
      */
-    private static MethodSpec from(
-            ModelDefinition model, ClassName modelName, ClassName qModel, ClassName changes,
-            List<ModelField> writable) {
+    private static MethodSpec from(ModelDefinition model, List<ModelField> writable) {
+        ClassName modelName = ClassName.get(model.type());
+        ClassName qModel = ClassName.get(modelName.packageName(), model.generatedName());
+        ClassName changes = ClassName.get(modelName.packageName(), model.changesName());
         MethodSpec.Builder from = MethodSpec.methodBuilder("from")
                 .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
                 .returns(changes)
@@ -222,7 +223,6 @@ final class ChangesWriter {
 
     /** A change-set value's type: the field's, boxed, since every column may be set to NULL. */
     private TypeName boxed(TypeMirror type) {
-        return TypeName.get(type.getKind().isPrimitive() ? types.boxedClass(types.getPrimitiveType(type.getKind()))
-                .asType() : type);
+        return TypeName.get(ProcessorTypes.boxed(types, type));
     }
 }

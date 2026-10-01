@@ -100,9 +100,10 @@ final class KeysetWrite {
                     // The run bounds the keys, so the select needs no limit and no cursor.
                     BuiltQuery<M> built = write.keySelect().apply(run);
                     List<Tuple> rows = rows(on, built, 0, lockKeys);
-                    List<Object> keys = keysOf(write, built, rows, Set.of());
-                    return new Round(keys, rows.size(), null, writeKeys(on, write, keys));
-                });
+                    Set<Object> distinct = keysOf(write, built, rows, Set.of());
+                    List<Object> keys = new ArrayList<>(distinct);
+                    return new Round(keys, distinct, rows.size(), null, writeKeys(on, write, keys));
+                }, run.get(run.size() - 1));
             }
             return rounds.written;
         }
@@ -125,15 +126,16 @@ final class KeysetWrite {
                 if (rows.isEmpty()) {
                     return Round.NONE;
                 }
-                List<Object> keys = keysOf(write, built, rows, before);
+                Set<Object> distinct = keysOf(write, built, rows, before);
+                List<Object> keys = new ArrayList<>(distinct);
                 Object[] next = keyset.cursor(built.selection().row(rows.get(rows.size() - 1)));
-                return new Round(keys, rows.size(), next, writeKeys(on, write, keys));
+                return new Round(keys, distinct, rows.size(), next, writeKeys(on, write, keys));
             });
             if (round.selected() < n) {
                 return rounds.written;
             }
             cursor = round.next();
-            previous = Set.copyOf(round.keys());
+            previous = round.keySet();
         }
     }
 
@@ -156,7 +158,7 @@ final class KeysetWrite {
      * @throws ModelQueryExecutionException {@code MQ2205} for a key of {@code previous}, the round before: a cursor
      *     value did not survive being bound, which can skip rows as well as repeat them (R-PAG-14)
      */
-    private static <M> List<Object> keysOf(Keyed<M> write, BuiltQuery<M> built, List<Tuple> rows,
+    private static <M> Set<Object> keysOf(Keyed<M> write, BuiltQuery<M> built, List<Tuple> rows,
             Set<Object> previous) {
         Set<Object> keys = new LinkedHashSet<>();
         for (Tuple tuple : rows) {
@@ -169,7 +171,7 @@ final class KeysetWrite {
             }
             keys.add(key);
         }
-        return new ArrayList<>(keys);
+        return keys;
     }
 
     private <M> long writeKeys(EntityManager on, Keyed<M> write, List<Object> keys) {
@@ -185,13 +187,14 @@ final class KeysetWrite {
      * What one round selected and wrote.
      *
      * @param keys the distinct keys selected, in the select's order
+     * @param keySet the same keys, which the next round checks its own against; not changed after the round
      * @param selected the rows the key select returned, a repeated key included
      * @param next the cursor after the round's last key, or {@code null} for a round over a run of keys
      * @param written the rows the write affected
      */
-    private record Round(List<Object> keys, int selected, Object[] next, long written) {
+    private record Round(List<Object> keys, Set<Object> keySet, int selected, Object[] next, long written) {
 
-        static final Round NONE = new Round(List.of(), 0, null, 0);
+        static final Round NONE = new Round(List.of(), Set.of(), 0, null, 0);
     }
 
     /**
@@ -211,6 +214,15 @@ final class KeysetWrite {
         }
 
         Round run(Function<EntityManager, Round> body) {
+            return run(body, null);
+        }
+
+        /**
+         * Runs a round, then records {@code lastOfRun} as the last committed key when it is not {@code null}: a run of
+         * the caller's keys is written in the order given, so its last key, not the last the select returned, is
+         * where to resume, and a run that matched no row still passed its keys (D-73).
+         */
+        Round run(Function<EntityManager, Round> body, Object lastOfRun) {
             if (transactions == null) {
                 Round round = body.apply(caller);
                 written += round.written();
@@ -222,10 +234,16 @@ final class KeysetWrite {
             } catch (RuntimeException e) {
                 throw failed(ran[0], e);
             }
-            Round round = Objects.requireNonNull(ran[0], "ChunkTransactions.inNewTransaction did not run the chunk");
+            if (ran[0] == null) {
+                throw failed(null, new IllegalStateException(
+                        "ChunkTransactions.inNewTransaction returned without running the chunk"));
+            }
+            Round round = ran[0];
             written += round.written();
             committed++;
-            if (!round.keys().isEmpty()) {
+            if (lastOfRun != null) {
+                lastKey = lastOfRun;
+            } else if (!round.keys().isEmpty()) {
                 lastKey = round.keys().get(round.keys().size() - 1);
             }
             return round;

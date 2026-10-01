@@ -1,8 +1,8 @@
 package com.rey.modelquery.spring.data;
 
+import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
-import com.rey.modelquery.core.Incubating;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;

@@ -9,7 +9,8 @@ import java.util.Objects;
  * The rows a bulk write chooses: by key, with {@code where} filters ANDed, or every row. Immutable; the staged
  * builders allow one row choice and at most one {@code where} (D-60).
  *
- * @param keys the model keys of {@code whereKey} or {@code whereKeys}, or {@code null} when the write chose none
+ * @param keys the model keys of {@code whereKey} or {@code whereKeys}, or {@code null} when the write chose none;
+ *     the attribute keys, distinct, once the definition is built
  * @param where the filters a {@code where} recorded, ANDed; empty without one
  * @param all whether {@code all()} chose every row
  */
@@ -24,11 +25,13 @@ record WriteRows(List<Object> keys, List<Filter> where, boolean all) {
 
     /** The given keys, as {@code whereKeys} takes them; an empty collection affects nothing (R-WRT-12). */
     static WriteRows keys(Collection<?> keys) {
-        var copy = new ArrayList<Object>();
-        for (Object key : Objects.requireNonNull(keys, "keys")) {
-            copy.add(Objects.requireNonNull(key, "keys element"));
-        }
-        return new WriteRows(List.copyOf(copy), List.of(), false);
+        Objects.requireNonNull(keys, "keys").forEach(key -> Objects.requireNonNull(key, "keys element"));
+        return new WriteRows(List.copyOf(keys), List.of(), false);
+    }
+
+    /** These rows with their keys replaced, as {@code build()} converts and deduplicates them (D-66). */
+    WriteRows withKeys(List<Object> converted) {
+        return new WriteRows(converted, where, all);
     }
 
     /** The rows {@code where} matches. */

@@ -1,6 +1,6 @@
 package com.rey.modelquery.jpa;
 
-import com.rey.modelquery.core.Incubating;
+import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import java.util.function.Function;

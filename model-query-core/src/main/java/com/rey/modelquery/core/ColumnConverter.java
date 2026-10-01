@@ -1,5 +1,7 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
+
 /**
  * Converts between the type a model holds and the type of the entity attribute a {@link ColumnField} reads. The column
  * carries it: {@link Row#get} returns {@link #toModel} of what was read, and a value filter binds {@link #toAttribute}

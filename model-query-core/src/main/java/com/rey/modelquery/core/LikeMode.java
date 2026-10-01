@@ -1,5 +1,7 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
+
 /**
  * How a {@link Filters#like} value becomes a {@code LIKE} pattern.
  *

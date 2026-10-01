@@ -146,7 +146,9 @@ select the matching keys with the query engine, then write `WHERE pk IN (…) AN
 R-WRT-08. The root predicates are the top-level `AND` terms that need no join and no sub-query; re-applying them means
 a row that stopped matching on its own columns between the two steps is not written. A change to a joined row in
 between is not re-checked; `ChunkOptions.lockKeys()` selects the keys with `LockModeType.PESSIMISTIC_WRITE`, which on
-MySQL also makes the select read current rows rather than the transaction's snapshot. The Javadoc states both.
+MySQL also makes the select read current rows rather than the transaction's snapshot. The Javadoc states both. Two entities
+mapped to one table are not detected, since JPA exposes no table names (INV-7): the sub-query then reads the target
+table undetected, and MySQL fails loudly with error 1093 (Q-12).
 
 **R-WRT-12** **No accidental full-table writes.** A builder chooses its rows with `where(...)` and `whereKey(s)(...)`,
 which combine with `AND`, or with `all()`, which excludes both: `all()` returns a stage with no `where`, and neither
@@ -188,14 +190,15 @@ so. Either way the engine evicts the root entity from the second-level cache wit
 **R-WRT-16** **Bulk updates respect optimistic locking.** When the root has a `@Version` attribute, every update renders
 `version = version + 1` (or the current timestamp for a timestamp version) unless `keepVersion()` is set.
 `expectVersion(v)` adds `AND version = ?`. It is offered only after `whereKey`, so without one it doesn't compile
-(D-60); on a root with no `@Version` attribute, or with a value of the wrong type, the definition's first execution
-throws `MQ1606` before any statement (D-61).
+(D-60); on a root with no `@Version` attribute, or with a value of the wrong type, or (without `keepVersion()`) with a
+`@Version` of a type an update cannot increment, the definition's first execution throws `MQ1606` before any statement
+(D-61).
 Zero affected rows then throws JPA's `OptimisticLockException`.
 
 **R-WRT-17** **Chunked writes write no row twice and terminate.** Keyset over the root id: select the next `n` matching
 keys `WHERE <tree> AND pk > :last ORDER BY pk` (a composite id uses the OR-expansion of `vendor/41` §5), write
 `WHERE pk IN (…) AND <tree>` (the root predicates only where R-WRT-11 applies), and repeat until a key select returns fewer than `n` keys, counted from the select, never from the rows the write
-affected. A key select that returns a key an earlier chunk already wrote throws, as R-PAG-14 does. The
+affected. A key select that returns a key the round before it wrote throws, as R-PAG-14 does (`MQ2205`). The
 cursor only moves forward, so an update that leaves rows matching cannot loop, and a delete never re-reads what it
 removed. A row that matches for the whole call is written exactly once; a row whose match changes during the call, by
 another transaction, may or may not be written. The chunk size is clamped to the vendor's limits as in R-WRT-08. A key-first write without `chunked` (R-WRT-11) runs the
@@ -235,7 +238,9 @@ committed), and `inDoubtKeys()`: when the commit of a chunk itself failed, that 
 not counted, and this lists its keys; otherwise it is empty. Committed chunks stay committed,
 and the message says so, because a caller who assumed atomicity would otherwise misread the table's state (INV-5).
 `lastCommittedKey()`, `inDoubtKeys()` and the `startAfter` key use the model key, the type `whereKey` takes
-(D-63). `chunked(options, startAfter)`, offered after `where` or `all()`, resumes after `lastCommittedKey()` (D-68).
+(D-63). `chunked(options, startAfter)`, offered after `where` or `all()`, resumes after `lastCommittedKey()` (D-68). For
+a `whereKey` or `whereKeys` write, `lastCommittedKey()` is the last key of the last committed run in the order given,
+after deduplication: every key up to and including it, in that order, was written or matched no row (D-73).
 Re-running the whole write is safe only when it is
 idempotent: `total * 1.1` would apply again to rows already committed. The same holds for resuming after an in-doubt
 chunk, which may in fact have committed: a non-idempotent caller checks `inDoubtKeys()` against the table first, and

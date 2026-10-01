@@ -52,7 +52,8 @@ request bodies with no extra configuration (`api/14` R-WRT-03).
 `JpaTransactionManager` bound to that factory (once per factory, then cached), and runs the chunk in a
 `TransactionTemplate` with `REQUIRES_NEW` on it, on that factory's transactional `EntityManager`. So
 `ChunkOptions.commitEachChunk()` works with no configuration and with several datasources (`api/14` R-WRT-19). No
-matching transaction manager, or more than one, throws `MQ4004`. A user-defined `ChunkTransactions` bean replaces it.
+matching transaction manager, or more than one, throws `MQ4004`. A user-defined `ChunkTransactions` bean replaces it. An application's own `ModelQueryConfig` does not receive it
+implicitly; it injects the `ChunkTransactions` bean and passes it to `chunkTransactions(...)`.
 This is the plain-JPA callback with a Spring default, not a Spring-only feature (R-SPR-01).
 
 ## 2. `Pageable` and `Sort`
@@ -103,8 +104,9 @@ migration aid with the failure it re-enables, and logged at `WARN` once on start
 `ModelQueryConfigurer` bean may return a different config for a given factory. `modelquery.vendor` set in a context
 with more than one `EntityManagerFactory` and no `ModelQueryConfigurer` fails startup with `MQ4005`: it would force
 one vendor on every database (D-54). A `ModelQueryConfig` bean of the application's own replaces the starter's, so
-startup fails with `MQ4006`, naming what it drops, when a `VendorProfile` bean is not among its supplied profiles or a
-`modelquery.*` property is set: a `ModelQueryConfigurer` adjusts the starter's config instead.
+startup fails with `MQ4006`, naming what it drops, when a `VendorProfile` or `ChunkTransactions` bean is not the one it
+holds, or a `modelquery.*` property is set. The starter's own `ChunkTransactions` is not counted: such a config's
+`commitEachChunk()` writes throw `MQ4004` (D-74). A `ModelQueryConfigurer` adjusts the starter's config instead.
 
 ## 4. Acceptance criteria
 

@@ -54,9 +54,10 @@ public @interface QueryModel {
     /**
      * Whether to also generate a change set over the model's root, non-key columns, with {@code changes()},
      * {@code update(...)} and the change set's {@code from(model, columns)}. Meant for internal use: a change set
-     * bound from a request can write every root column of the model. Incubating: the shape may change before 1.0.
+     * bound from a request can write every root column of the model.
      *
      * @return {@code true} to generate a change set
      */
+    @Incubating
     boolean generateChanges() default false;
 }

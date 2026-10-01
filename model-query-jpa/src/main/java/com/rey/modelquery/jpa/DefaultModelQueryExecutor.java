@@ -591,7 +591,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         for (int from = 0; from < distinct.size(); from += batch) {
             List<Object> batchKeys = distinct.subList(from, Math.min(distinct.size(), from + batch));
             BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL_BY_KEYS, renderOptions);
-            Predicate byKey = Keys.keyIn(key, batchKeys, built.joins(), cb);
+            Predicate byKey = key.in(batchKeys, built.joins(), cb, false);
             Predicate own = built.query().getRestriction();
             built.query().where(own == null ? byKey : cb.and(own, byKey));
             appendStableOrder(q, built);

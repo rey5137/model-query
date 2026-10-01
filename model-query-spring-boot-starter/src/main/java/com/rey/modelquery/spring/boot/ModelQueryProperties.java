@@ -1,6 +1,6 @@
 package com.rey.modelquery.spring.boot;
 
-import com.rey.modelquery.core.Incubating;
+import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.PersistenceContextMode;
 import com.rey.modelquery.jpa.KeysetNullKeys;
 import com.rey.modelquery.jpa.MysqlStreamingMode;

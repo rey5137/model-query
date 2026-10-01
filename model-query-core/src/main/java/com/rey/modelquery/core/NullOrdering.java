@@ -1,5 +1,7 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
+
 /**
  * Where a database puts NULLs in ascending order when the query says nothing. Vendor-neutral: it is what a profile
  * reports, not which vendor reports it (R-VND-08, R-PRF-08).

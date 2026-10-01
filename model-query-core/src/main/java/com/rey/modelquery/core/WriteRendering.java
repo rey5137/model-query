@@ -4,7 +4,6 @@ import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
-import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
@@ -34,7 +33,8 @@ final class WriteRendering {
     /**
      * The distinct keys of {@code modelKeys}, each converted to its attribute value through its column's converter (a
      * list of component values for a composite key), in first-seen order: two keys that convert to one attribute
-     * value write one row, so they are one key (R-WRT-08, D-63).
+     * value write one row, so they are one key (R-WRT-08, D-63). The result and each composite key are copies, so a
+     * caller's list changed later leaves them alone (INV-9).
      *
      * @throws IllegalArgumentException for a composite key with the wrong number of components
      */
@@ -56,7 +56,7 @@ final class WriteRendering {
             for (int c = 0; c < attributes.length; c++) {
                 attributes[c] = ((ColumnField) columns.get(c)).toAttribute(values.get(c));
             }
-            distinct.add(Arrays.asList(attributes));
+            distinct.add(Collections.unmodifiableList(Arrays.asList(attributes)));
         }
         return Collections.unmodifiableList(new ArrayList<>(distinct));
     }
@@ -95,7 +95,7 @@ final class WriteRendering {
         JoinContext ctx = JoinContext.of(root, cb, statement, options);
         var predicates = new ArrayList<Predicate>();
         if (keys != null) {
-            predicates.add(keyIn(key, keys, ctx, cb));
+            predicates.add(key.in(keys, ctx, cb, true));
         }
         if (where.isEmpty()) {
             return predicates;
@@ -157,7 +157,7 @@ final class WriteRendering {
         query.multiselect(selection.selections(joins));
         var predicates = new ArrayList<Predicate>();
         if (keys != null) {
-            predicates.add(keyIn(key, keys, joins, cb));
+            predicates.add(key.in(keys, joins, cb, true));
         }
         predicates.addAll(ConditionGroup.toPredicates(where, joins));
         if (!predicates.isEmpty()) {
@@ -217,29 +217,6 @@ final class WriteRendering {
                     + "the rows unchosen");
         }
         return List.copyOf(keys);
-    }
-
-    /**
-     * {@code key IN (keys)} over attribute-value keys; a composite key is an OR of per-key conjunctions, since JPA
-     * has no row-value IN (P-4).
-     */
-    @SuppressWarnings({"unchecked", "rawtypes"})
-    private static <M> Predicate keyIn(PrimaryKey<M, ?> key, List<Object> keys, JoinContext ctx, CriteriaBuilder cb) {
-        List<ColumnField<M, ?, ?>> columns = key.columns();
-        if (columns.size() == 1) {
-            Path path = columns.get(0).path(ctx);
-            return keys.size() == 1 ? cb.equal(path, keys.get(0)) : path.in(keys);
-        }
-        Predicate[] each = new Predicate[keys.size()];
-        for (int i = 0; i < each.length; i++) {
-            List<?> values = (List<?>) keys.get(i);
-            Predicate[] equal = new Predicate[columns.size()];
-            for (int c = 0; c < equal.length; c++) {
-                equal[c] = cb.equal(columns.get(c).path(ctx), values.get(c));
-            }
-            each[i] = cb.and(equal);
-        }
-        return each.length == 1 ? each[0] : cb.or(each);
     }
 
     /**

@@ -1,6 +1,6 @@
 package com.rey.modelquery.jpa.spi;
 
-import com.rey.modelquery.core.Incubating;
+import com.rey.modelquery.annotations.Incubating;
 
 /**
  * The databases a {@link VendorProfile} can serve. Only profiles and vendor detection name a constant (INV-6).

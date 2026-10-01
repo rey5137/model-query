@@ -41,6 +41,9 @@
 | `MQ3306` | `@PrimaryKey` on an update model, or a query model with `generateChanges = true`, is not the root entity's id | `OrderPatch.orderNo: @PrimaryKey must be OrderEntity's id 'id'; bulk writes key on the entity id` |
 | `MQ3307` | Update-model field generates a change-set member that clashes with `Changes<M>` | `OrderPatch.empty: generates getEmpty() and setEmpty(...), which clash with Changes.isEmpty() as property 'empty'; rename the field` |
 
+The `MQ3304` check on `updatable = false` is best-effort: it reads `@Column` and `@JoinColumn`, not `@AttributeOverride` or
+orm.xml (D-70).
+
 **R-DIAG-01** A message names the model, the field or annotation, and both sides of a mismatch. It never asks the user
 to read the spec to understand what happened.
 

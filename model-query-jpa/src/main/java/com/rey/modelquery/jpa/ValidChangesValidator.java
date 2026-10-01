@@ -1,8 +1,8 @@
 package com.rey.modelquery.jpa;
 
+import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.Assignment;
 import com.rey.modelquery.core.Changes;
-import com.rey.modelquery.core.Incubating;
 import jakarta.validation.ConstraintValidator;
 import jakarta.validation.ConstraintValidatorContext;
 import jakarta.validation.ConstraintViolation;

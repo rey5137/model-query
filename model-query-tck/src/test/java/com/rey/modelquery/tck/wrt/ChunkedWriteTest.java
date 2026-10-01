@@ -57,6 +57,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -271,6 +272,28 @@ class ChunkedWriteTest {
         boolean wholeTree = builtIn(db).targetTableInSubquery();
         assertThat(writes(sql, "update")).hasSize((expected.size() + 6) / 7)
                 .allSatisfy(statement -> assertThat(statement.contains("exists")).isEqualTo(wholeTree));
+    }
+
+    @TckTest
+    void ac_wrt_18_a_chunked_lock_keys_write_over_a_left_joined_tree_locks_and_writes_on_every_vendor(TckDatabase db) {
+        UnaryOperator<Filters<OrderPatch>> where = f -> f
+                .eq(CUSTOMER_COUNTRY, "VN")
+                .not(g -> g.eq(REFERRER_COUNTRY, "VN"))
+                .lt(ID, 600L);
+        List<Long> expected = readIds(db, where);
+        var update = ModelUpdate.builder(ORDERS).primaryKey(PrimaryKey.of(ID)).set(STATUS, "MARKED").where(where)
+                .chunked(ChunkOptions.size(7).lockKeys()).build();
+        var marked = new ArrayList<Long>();
+        long[] written = new long[1];
+
+        inRolledBackTransaction(JoinTestSupport.dataSource(db), em -> {
+            written[0] = ModelQueryExecutor.create(em, OrderEntity.class, ModelQueryConfig.defaults()).update(update);
+            marked.addAll(markedIds(em));
+        });
+
+        assertThat(expected).hasSizeGreaterThan(7);
+        assertThat(written[0]).isEqualTo(expected.size());
+        assertThat(marked).containsExactlyInAnyOrderElementsOf(expected);
     }
 
     // ---- AC-WRT-10, commitEachChunk
@@ -489,6 +512,87 @@ class ChunkedWriteTest {
             assertThat(failure[0].lastCommittedKey()).contains("#100010");
             assertThat(failure[0].inDoubtKeys()).containsExactlyElementsOf(
                     range(TEMPORARY + 11, TEMPORARY + 20).stream().map(id -> "#" + id).toList());
+        } finally {
+            removeTemporaryRows(db);
+        }
+    }
+
+    @TckTest
+    void ac_wrt_15_a_where_keys_write_reports_the_last_key_of_the_last_committed_run_in_the_order_given(
+            TckDatabase db) {
+        // Descending: the database may return a run's keys in any order, the caller's last key is what resumes.
+        List<String> keys = range(TEMPORARY + 1, TEMPORARY + 30).stream()
+                .sorted(Comparator.reverseOrder()).map(id -> "#" + id).toList();
+        var delete = ModelDelete.builder(CUSTOMERS).primaryKey(PrimaryKey.of(CUSTOMER_REF)).whereKeys(keys)
+                .chunked(ChunkOptions.size(10).commitEachChunk()).build();
+        var config = ModelQueryConfig.defaults().chunkTransactions(new ResourceLocal());
+        ChunkedWriteException[] failure = new ChunkedWriteException[1];
+
+        try {
+            insertCustomers(db, TEMPORARY + 1, TEMPORARY + 30);
+            // The third run holds customers 10 down to 1: the delete of customer 5 breaks its foreign key.
+            insertOrder(db, TEMPORARY + 1, TEMPORARY + 5);
+            withoutTransaction(JoinTestSupport.dataSource(db), em -> failure[0] = catchChunked(() ->
+                    customers(em, config).delete(delete)));
+
+            assertThat(failure[0].code()).isEqualTo(MqCode.MQ2502);
+            assertThat(failure[0].committedRows()).isEqualTo(20);
+            assertThat(failure[0].lastCommittedKey()).contains("#100011");
+            assertThat(temporaryCustomers(db)).containsExactlyElementsOf(range(TEMPORARY + 1, TEMPORARY + 10));
+        } finally {
+            removeTemporaryRows(db);
+        }
+    }
+
+    @TckTest
+    void ac_wrt_15_a_where_keys_run_that_matched_no_row_still_moves_the_last_committed_key(TckDatabase db) {
+        var keys = new ArrayList<String>();
+        range(TEMPORARY + 1, TEMPORARY + 10).forEach(id -> keys.add("#" + id));
+        // The second run names ten customers that do not exist.
+        range(TEMPORARY + 101, TEMPORARY + 110).forEach(id -> keys.add("#" + id));
+        range(TEMPORARY + 11, TEMPORARY + 20).forEach(id -> keys.add("#" + id));
+        var delete = ModelDelete.builder(CUSTOMERS).primaryKey(PrimaryKey.of(CUSTOMER_REF)).whereKeys(keys)
+                .chunked(ChunkOptions.size(10).commitEachChunk()).build();
+        var config = ModelQueryConfig.defaults().chunkTransactions(new ResourceLocal());
+        ChunkedWriteException[] failure = new ChunkedWriteException[1];
+
+        try {
+            insertCustomers(db, TEMPORARY + 1, TEMPORARY + 20);
+            insertOrder(db, TEMPORARY + 1, TEMPORARY + 15);
+            withoutTransaction(JoinTestSupport.dataSource(db), em -> failure[0] = catchChunked(() ->
+                    customers(em, config).delete(delete)));
+
+            assertThat(failure[0].committedRows()).isEqualTo(10);
+            assertThat(failure[0].lastCommittedKey()).contains("#100110");
+            assertThat(temporaryCustomers(db)).containsExactlyElementsOf(range(TEMPORARY + 11, TEMPORARY + 20));
+        } finally {
+            removeTemporaryRows(db);
+        }
+    }
+
+    @TckTest
+    void ac_wrt_15_a_chunk_transactions_that_skips_the_chunk_throws_mq2502_with_the_committed_rows(TckDatabase db) {
+        var delete = ModelDelete.builder(CUSTOMERS).primaryKey(PrimaryKey.of(CUSTOMER_REF))
+                .where(TEMPORARY_CUSTOMERS).chunked(ChunkOptions.size(10).commitEachChunk()).build();
+        var skippingSecond = new ResourceLocal() {
+            @Override
+            public <T> T inNewTransaction(EntityManagerFactory emf, Function<EntityManager, T> chunk) {
+                return chunks == 1 ? null : super.inNewTransaction(emf, chunk);
+            }
+        };
+        var config = ModelQueryConfig.defaults().chunkTransactions(skippingSecond);
+        ChunkedWriteException[] failure = new ChunkedWriteException[1];
+
+        try {
+            insertCustomers(db, TEMPORARY + 1, TEMPORARY + 30);
+            withoutTransaction(JoinTestSupport.dataSource(db), em -> failure[0] = catchChunked(() ->
+                    customers(em, config).delete(delete)));
+
+            assertThat(failure[0].code()).isEqualTo(MqCode.MQ2502);
+            assertThat(failure[0]).hasCauseInstanceOf(IllegalStateException.class);
+            assertThat(failure[0].committedRows()).isEqualTo(10);
+            assertThat(failure[0].lastCommittedKey()).contains("#100010");
+            assertThat(failure[0].inDoubtKeys()).isEmpty();
         } finally {
             removeTemporaryRows(db);
         }

@@ -1,5 +1,7 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
+
 /**
  * The statement a {@link QueryCustomizer} is being applied to. A query runs one to three statements: {@code MODEL}
  * reads the rows, {@code PRIMARY_KEY} reads only the primary keys of a page, and {@code MODEL_BY_KEYS} reads the rows

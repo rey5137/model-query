@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaUpdate;
 import jakarta.persistence.criteria.Expression;
@@ -41,6 +42,10 @@ import java.util.function.UnaryOperator;
 @Incubating
 public final class ModelUpdate<E, M> {
 
+    /** The {@code @Version} types a bulk update increments (R-WRT-16); {@link #nextVersion} handles each. */
+    private static final Set<Class<?>> VERSION_TYPES = Set.of(Integer.class, Long.class, Short.class,
+            BigInteger.class, Instant.class, LocalDateTime.class, OffsetDateTime.class, Timestamp.class, Date.class);
+
     private final Draft<E, ?, M> definition;
 
     private ModelUpdate(Draft<E, ?, M> definition) {
@@ -81,6 +86,7 @@ public final class ModelUpdate<E, M> {
      * Whether the update runs no statement: it assigns nothing and expects no version (R-WRT-07), or its
      * {@code whereKeys} received no key (R-WRT-12).
      */
+    @EngineFacing
     public boolean writesNothing() {
         List<Object> keys = definition.rows().keys();
         return keys != null && keys.isEmpty()
@@ -94,13 +100,34 @@ public final class ModelUpdate<E, M> {
      * @throws ModelQueryDefinitionException {@code MQ1608} when the primary key does not name exactly the root
      *     entity's id attributes, {@code MQ1605} when a column writes an id or the {@code @Version} attribute,
      *     {@code MQ1606} for {@code expectVersion} on a root with no {@code @Version} attribute or with a value of
-     *     another type
+     *     another type, and for a {@code @Version} of a type a bulk update cannot increment, unless
+     *     {@code keepVersion()}, {@code MQ1001} for a to-one column whose type is not the target's id type
      */
+    @EngineFacing
     public void checkMetamodel(Metamodel metamodel) {
         EntityType<E> entity = metamodel.entity(rootEntity());
         WriteRendering.checkKey(entity, definition.root(), definition.primaryKey(), modelName());
         WriteRendering.checkAssignable(entity, definition.assignments());
-        expectedVersionAttribute(entity);
+        for (Assignment<M, ?> assignment : definition.assignments()) {
+            if (!(assignment instanceof Assignment.Expression)) {
+                EntityType<?> target = toOneTarget(entity, assignment.column().name());
+                if (target != null) {
+                    checkToOneId(entity, assignment.column(), target);
+                }
+            }
+        }
+        if (!definition.keepVersion()) {
+            WriteRendering.version(entity).ifPresent(version -> {
+                Class<?> type = ColumnField.boxed(version.getJavaType());
+                if (!VERSION_TYPES.contains(type)) {
+                    throw new ModelQueryDefinitionException(MqCode.MQ1606, modelName() + ": "
+                            + entity.getJavaType().getSimpleName() + "." + version.getName() + " is a "
+                            + type.getSimpleName() + " @Version, which a bulk update cannot increment; "
+                            + "keepVersion() leaves it alone");
+                }
+            });
+        }
+        expectedVersionAttribute(entity, WriteRendering.version(entity));
     }
 
     /**
@@ -113,9 +140,9 @@ public final class ModelUpdate<E, M> {
      * {@code expectVersion}.
      *
      * @param references the reference to bind for a target entity type and an id
-     * @throws ModelQueryDefinitionException {@code MQ1001} for a to-one column whose type is not the target's id
-     *     type, and the codes of {@link #checkMetamodel} that rendering meets
+     * @throws ModelQueryDefinitionException the codes of {@link #checkMetamodel}, which an executor has run already
      */
+    @EngineFacing
     public CriteriaUpdate<E> buildWrite(CriteriaBuilder cb, RenderOptions options,
             BiFunction<Class<?>, Object, ?> references) {
         return render(cb, options, references, WriteRendering.keysToRender(distinctKeys().orElse(null), null), false);
@@ -130,6 +157,7 @@ public final class ModelUpdate<E, M> {
      * @throws IllegalArgumentException for an empty {@code chunk}, or on an update without {@code whereKey} or
      *     {@code whereKeys}
      */
+    @EngineFacing
     public CriteriaUpdate<E> buildWrite(CriteriaBuilder cb, RenderOptions options,
             BiFunction<Class<?>, Object, ?> references, List<?> chunk) {
         Objects.requireNonNull(chunk, "chunk");
@@ -148,6 +176,7 @@ public final class ModelUpdate<E, M> {
      * @param keys attribute-value keys, as a key select's rows hold them
      * @throws IllegalArgumentException for empty {@code keys}
      */
+    @EngineFacing
     public CriteriaUpdate<E> buildWrite(CriteriaBuilder cb, RenderOptions options,
             BiFunction<Class<?>, Object, ?> references, List<?> keys, boolean rootTermsOnly) {
         return render(cb, options, references, WriteRendering.selectedKeys(Objects.requireNonNull(keys, "keys")),
@@ -160,6 +189,7 @@ public final class ModelUpdate<E, M> {
      * them, joins included, with no order. An executor adds the keyset order, the cursor, the row limit and any lock;
      * the returned query maps no model (R-WRT-11, R-WRT-17, D-63).
      */
+    @EngineFacing
     public BuiltQuery<M> buildKeySelect(CriteriaBuilder cb, RenderOptions options) {
         return keySelect(cb, options, WriteRendering.keysToRender(distinctKeys().orElse(null), null));
     }
@@ -171,6 +201,7 @@ public final class ModelUpdate<E, M> {
      * @throws IllegalArgumentException for an empty {@code chunk}, or on an update without {@code whereKey} or
      *     {@code whereKeys}
      */
+    @EngineFacing
     public BuiltQuery<M> buildKeySelect(CriteriaBuilder cb, RenderOptions options, List<?> chunk) {
         Objects.requireNonNull(chunk, "chunk");
         return keySelect(cb, options, WriteRendering.keysToRender(distinctKeys().orElse(null), chunk));
@@ -182,6 +213,7 @@ public final class ModelUpdate<E, M> {
      * to the root entity type. Where the database refuses that, an executor runs the update key-first (R-WRT-11,
      * R-VND-11).
      */
+    @EngineFacing
     public boolean readsTargetInSubquery(CriteriaBuilder cb, RenderOptions options) {
         Objects.requireNonNull(cb, "cb");
         Objects.requireNonNull(options, "options");
@@ -201,19 +233,18 @@ public final class ModelUpdate<E, M> {
     /**
      * The key of {@code chunked(options, startAfter)} converted to its attribute value (a list of component values
      * for a composite key), or empty without one: a chunked write's first key select starts after it (R-WRT-20).
-     *
-     * @throws IllegalArgumentException for a composite key with the wrong number of components
+     * Converted when the definition was built.
      */
+    @EngineFacing
     public Optional<Object> startAfter() {
-        Object key = definition.startAfter();
-        return key == null ? Optional.empty()
-                : Optional.of(WriteRendering.distinctKeys(definition.primaryKey(), List.of(key)).get(0));
+        return Optional.ofNullable(definition.startAfter());
     }
 
     /**
      * The model key, the type {@code whereKey} takes, of {@code attributeKey}, a key as a key select returns it:
      * {@link ChunkedWriteException} reports its keys so (R-WRT-20, D-63).
      */
+    @EngineFacing
     public Object modelKey(Object attributeKey) {
         return WriteRendering.modelKey(definition.primaryKey(), Objects.requireNonNull(attributeKey, "attributeKey"));
     }
@@ -228,14 +259,12 @@ public final class ModelUpdate<E, M> {
     /**
      * The distinct keys of {@code whereKey} or {@code whereKeys}, each converted to its attribute value (a list of
      * component values for a composite key), in first-seen order; empty when the rows were chosen without keys. Each
-     * distinct key is written once (R-WRT-08, D-63).
-     *
-     * @throws IllegalArgumentException for a composite key with the wrong number of components
+     * distinct key is written once. Converted, deduplicated and copied when the definition was built (R-WRT-08, D-63,
+     * D-66).
      */
+    @EngineFacing
     public Optional<List<Object>> distinctKeys() {
-        List<Object> keys = definition.rows().keys();
-        return keys == null ? Optional.empty()
-                : Optional.of(WriteRendering.distinctKeys(definition.primaryKey(), keys));
+        return Optional.ofNullable(definition.rows().keys());
     }
 
     /** The write's own {@code persistenceContext(...)}, which wins over the executor's configured mode (D-62). */
@@ -266,8 +295,9 @@ public final class ModelUpdate<E, M> {
                 assign(update, from, ctx, entity, assignment, cb, references);
             }
         }
+        Optional<SingularAttribute<?, ?>> versionAttribute = WriteRendering.version(entity);
         if (!definition.keepVersion()) {
-            WriteRendering.version(entity).ifPresent(version -> {
+            versionAttribute.ifPresent(version -> {
                 Path path = from.get(version.getName());
                 Object next = nextVersion(path, cb);
                 if (next instanceof Expression expression) {
@@ -277,9 +307,9 @@ public final class ModelUpdate<E, M> {
                 }
             });
         }
-        var where = new ArrayList<>(WriteRendering.rows(keys, definition.rows().where(), definition.primaryKey(),
-                update, from, cb, options, rootTermsOnly));
-        SingularAttribute<?, ?> version = expectedVersionAttribute(entity);
+        var where = WriteRendering.rows(keys, definition.rows().where(), definition.primaryKey(),
+                update, from, cb, options, rootTermsOnly);
+        SingularAttribute<?, ?> version = expectedVersionAttribute(entity, versionAttribute);
         if (version != null) {
             where.add(cb.equal(from.get(version.getName()), definition.expectedVersion()));
         }
@@ -287,6 +317,16 @@ public final class ModelUpdate<E, M> {
             update.where(where.toArray(Predicate[]::new));
         }
         return update;
+    }
+
+    /** @throws ModelQueryDefinitionException {@code MQ1001} when the column's type is not the target's id type */
+    private static void checkToOneId(EntityType<?> entity, ColumnField<?, ?, ?> column, EntityType<?> target) {
+        Class<?> idType = ColumnField.boxed(target.getIdType().getJavaType());
+        if (idType != column.attributeType()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1001, column + ": writes the to-one "
+                    + entity.getJavaType().getSimpleName() + "." + column.name() + " by id, whose type is "
+                    + idType.getSimpleName() + ", not " + column.attributeType().getSimpleName());
+        }
     }
 
     /** One value or NULL assignment; a to-one attribute written by id binds a reference to the target (R-WRT-14). */
@@ -299,12 +339,7 @@ public final class ModelUpdate<E, M> {
         if (target == null) {
             path = column.path(ctx);
         } else {
-            Class<?> idType = ColumnField.boxed(target.getIdType().getJavaType());
-            if (idType != column.attributeType()) {
-                throw new ModelQueryDefinitionException(MqCode.MQ1001, column + ": writes the to-one "
-                        + entity.getJavaType().getSimpleName() + "." + column.name() + " by id, whose type is "
-                        + idType.getSimpleName() + ", not " + column.attributeType().getSimpleName());
-            }
+            checkToOneId(entity, column, target); // an executor ran it in checkMetamodel already
             path = from.get(column.name());
         }
         if (assignment instanceof Assignment.Value value) {
@@ -371,6 +406,7 @@ public final class ModelUpdate<E, M> {
         if (type == Date.class) {
             return new Date();
         }
+        // Unreachable once checkMetamodel ran (MQ1606), which an executor does before any statement.
         throw new IllegalStateException("@Version of type " + type.getName() + " is not supported by bulk updates");
     }
 
@@ -380,12 +416,13 @@ public final class ModelUpdate<E, M> {
      * @throws ModelQueryDefinitionException {@code MQ1606} for a root with no {@code @Version} attribute, or a
      *     value of another type
      */
-    private SingularAttribute<?, ?> expectedVersionAttribute(EntityType<E> entity) {
+    private SingularAttribute<?, ?> expectedVersionAttribute(EntityType<E> entity,
+            Optional<SingularAttribute<?, ?>> versionAttribute) {
         Object expected = definition.expectedVersion();
         if (expected == null) {
             return null;
         }
-        SingularAttribute<?, ?> version = WriteRendering.version(entity).orElseThrow(() ->
+        SingularAttribute<?, ?> version = versionAttribute.orElseThrow(() ->
                 new ModelQueryDefinitionException(MqCode.MQ1606, modelName() + ": expectVersion(...) on "
                         + entity.getJavaType().getSimpleName() + ", which has no @Version attribute"));
         Class<?> type = ColumnField.boxed(version.getJavaType());
@@ -446,6 +483,21 @@ public final class ModelUpdate<E, M> {
         }
 
         /**
+         * This draft with its keys converted to attribute values, deduplicated and copied, so the definition keeps
+         * what {@code build()} saw whatever the caller does with its lists afterwards (INV-9, D-66).
+         *
+         * @throws IllegalArgumentException for a composite key with the wrong number of components
+         */
+        Draft<E, K, M> canonical() {
+            WriteRows chosen = rows.keys() == null ? rows
+                    : rows.withKeys(WriteRendering.distinctKeys(primaryKey, rows.keys()));
+            Object after = startAfter == null ? null
+                    : WriteRendering.distinctKeys(primaryKey, List.of(startAfter)).get(0);
+            return new Draft<>(root, primaryKey, assignments, chosen, expectedVersion, keepVersion, chunkOptions,
+                    persistenceContext, after);
+        }
+
+        /**
          * Checks and builds.
          *
          * @throws ModelQueryDefinitionException {@code MQ1601}, {@code MQ1602}, {@code MQ1604}, {@code MQ1605},
@@ -485,7 +537,7 @@ public final class ModelUpdate<E, M> {
                 throw new ModelQueryDefinitionException(MqCode.MQ1606, model + ": expectVersion(...) with "
                         + "keepVersion() and nothing to write; check Changes#isEmpty() before updating");
             }
-            return new ModelUpdate<>(this);
+            return new ModelUpdate<>(canonical());
         }
     }
 
@@ -633,8 +685,9 @@ public final class ModelUpdate<E, M> {
         }
 
         /**
-         * Checks the definition and returns it.
+         * Checks the definition and returns it, its keys converted, deduplicated and copied (D-66).
          *
+         * @throws IllegalArgumentException for a composite key with the wrong number of components
          * @throws ModelQueryDefinitionException {@code MQ1601} when the rows were chosen by a {@code where} whose
          *     every filter was skipped, {@code MQ1602} for a column assigned twice, {@code MQ1604} for a column not
          *     on the root, as through a self-referencing join, {@code MQ1605} for a column of the primary key,

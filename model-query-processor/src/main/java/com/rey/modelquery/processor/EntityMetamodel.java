@@ -1,6 +1,7 @@
 package com.rey.modelquery.processor;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -44,6 +45,7 @@ final class EntityMetamodel {
     private static final List<String> COLUMNS = List.of(JPA + "Column", JPA + "JoinColumn");
 
     private final Types types;
+    private final Map<TypeElement, Id> idCache = new HashMap<>();
 
     EntityMetamodel(Types types) {
         this.types = types;
@@ -167,12 +169,22 @@ final class EntityMetamodel {
     }
 
     /**
-     * The id of {@code root}: its {@code @Id} attributes, its {@code @IdClass} attributes, its {@code @EmbeddedId}
+     * The id of {@code root}, read once per instance (one processing round): its {@code @Id} attributes, its {@code @IdClass} attributes, its {@code @EmbeddedId}
      * and that id's components, as the engine checks a bulk write's key on first execution ({@code MQ1608}).
      *
      * @implSpec R-GEN-22
      */
     Id id(TypeElement root) {
+        Id known = idCache.get(root);
+        if (known != null) {
+            return known;
+        }
+        Id id = readId(root);
+        idCache.put(root, id);
+        return id;
+    }
+
+    private Id readId(TypeElement root) {
         List<DeclaredType> hierarchy = hierarchy((DeclaredType) root.asType());
         boolean property = defaultsToProperty(hierarchy, false);
         var ids = new LinkedHashSet<String>();

@@ -1,13 +1,10 @@
 package com.rey.modelquery.jpa;
 
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.JoinContext;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
-import jakarta.persistence.criteria.CriteriaBuilder;
-import jakarta.persistence.criteria.Predicate;
 import java.util.List;
 import java.util.OptionalInt;
 
@@ -37,24 +34,6 @@ final class Keys {
     int clamp(int ownBinds, int keyColumns, OptionalInt configured) {
         int clamp = Math.min(maxInListSize, (maxBindParameters - ownBinds) / keyColumns);
         return Math.max(1, Math.min(configured.orElse(Integer.MAX_VALUE), clamp));
-    }
-
-    /** {@code key IN (keys)}; a composite key is an OR of per-key conjunctions, since JPA has no row-value IN (P-4). */
-    static <M> Predicate keyIn(PrimaryKey<M, ?> key, List<Object> keys, JoinContext joins, CriteriaBuilder cb) {
-        List<ColumnField<M, ?, ?>> columns = key.columns();
-        if (columns.size() == 1) {
-            return columns.get(0).path(joins).in(keys);
-        }
-        Predicate[] each = new Predicate[keys.size()];
-        for (int i = 0; i < each.length; i++) {
-            List<?> values = (List<?>) keys.get(i);
-            Predicate[] equal = new Predicate[columns.size()];
-            for (int c = 0; c < equal.length; c++) {
-                equal[c] = cb.equal(columns.get(c).path(joins), values.get(c));
-            }
-            each[i] = cb.and(equal);
-        }
-        return cb.or(each);
     }
 
     /**

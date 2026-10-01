@@ -37,6 +37,10 @@ as community-supported. It never gates a release.
 
 **R-PRF-11** The built-in H2, PostgreSQL and MySQL profiles carry the values in this table (`vendor/40` R-VND-03).
 
+The clamp counts `Query.getParameters()`, which holds one parameter for an embeddable-valued key or a composite-FK to-one
+SET value though each takes several JDBC binds, so it can under-count; on a limit-bound vendor that fails loudly at the
+database, and reads under `engine/21` R-PAG-07 share it.
+
 **R-PRF-03** `checkStreamingPreconditions` on PostgreSQL fails fast outside a transaction with `MQ2101`
 (`engine/20` R-EXE-08). The Spring module opens a read-only transaction automatically, so this is mainly a plain-JPA
 guard.

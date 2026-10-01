@@ -5,10 +5,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import jakarta.persistence.metamodel.Attribute;
+import jakarta.persistence.metamodel.EntityType;
+import jakarta.persistence.metamodel.Metamodel;
+import jakarta.persistence.metamodel.SingularAttribute;
+import jakarta.persistence.metamodel.Type;
+import java.lang.reflect.Proxy;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /** Bulk-write definitions checked at build(), before any Criteria query exists (spec api/14 R-WRT-05..R-WRT-14). */
@@ -217,8 +225,94 @@ class ModelUpdateTest {
         assertThat(composite.distinctKeys()).contains(List.of(List.of(2L, "N"), List.of(1L, "Y")));
         assertThat(update().set(STATUS, "PAID").where(f -> f.eq(NOTE, "x")).build().distinctKeys()).isEmpty();
         assertThatThrownBy(() -> ModelDelete.builder(ROOT).primaryKey(PrimaryKey.composite(ID, FLAGGED))
-                .whereKeys(List.of(List.of(1L))).build().distinctKeys())
+                .whereKeys(List.of(List.of(1L))).build())
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void ac_wrt_06_keys_are_converted_and_copied_at_build_so_a_caller_list_changed_later_leaves_them_alone() {
+        var key = new ArrayList<Object>(List.of(2L, false));
+        var keys = new ArrayList<List<Object>>(List.of(List.of(1L, true), key));
+        var after = new ArrayList<Object>(List.of(1L, true));
+        var key2 = new ArrayList<Object>(List.of(9L, true));
+        var composite = PrimaryKey.composite(ID, FLAGGED);
+        var update = ModelUpdate.builder(ROOT).primaryKey(composite).set(STATUS, "PAID").whereKeys(keys).build();
+        var resumed = ModelUpdate.builder(ROOT).primaryKey(composite).set(STATUS, "PAID").all()
+                .chunked(ChunkOptions.size(10), after).build();
+        var delete = ModelDelete.builder(ROOT).primaryKey(composite).whereKey(key2).build();
+
+        key.set(0, 99L);
+        keys.add(List.of(3L, true));
+        after.set(0, 77L);
+        key2.set(0, 88L);
+
+        assertThat(update.distinctKeys()).contains(List.of(List.of(1L, "Y"), List.of(2L, "N")));
+        assertThat(resumed.startAfter()).contains(List.of(1L, "Y"));
+        assertThat(delete.distinctKeys()).contains(List.of(List.of(9L, "Y")));
+        assertThat(update.distinctKeys().get()).isSameAs(update.distinctKeys().get());
+        assertThatThrownBy(() -> update.distinctKeys().get().add(1)).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> ((List<Object>) update.distinctKeys().get().get(0)).set(0, 5L))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    // ---- AC-WRT-11, AC-WRT-09: the metamodel checks that an executor runs before any statement (D-61)
+
+    /** A metamodel of one entity {@code Order}: a {@code Long} id, a {@code version} of {@code versionType}, a to-one. */
+    private static Metamodel orderMetamodel(Class<?> versionType, Class<?> parentIdType) {
+        var id = fake(SingularAttribute.class, Map.of("getName", "id", "isId", true, "getJavaType", Long.class));
+        var version = fake(SingularAttribute.class,
+                Map.of("getName", "version", "isVersion", true, "getJavaType", versionType));
+        Type<?> idType = fake(Type.class, Map.of("getJavaType", parentIdType));
+        EntityType<?> parentType = fake(EntityType.class, Map.of("getIdType", idType));
+        var parent = fake(SingularAttribute.class,
+                Map.of("getName", "parent", "isAssociation", true, "getType", parentType));
+        var plain = fake(SingularAttribute.class, Map.of("getName", "status"));
+        var order = fake(EntityType.class, Map.of("getJavaType", Order.class, "hasSingleIdAttribute", true,
+                "hasVersionAttribute", true, "getSingularAttributes", Set.of(id, version),
+                "getAttribute", (java.util.function.Function<Object[], Object>) args ->
+                        args[0].equals("parent") ? parent : (Attribute<?, ?>) plain));
+        return fake(Metamodel.class, Map.of("entity", order));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T fake(Class<T> type, Map<String, Object> results) {
+        return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type}, (proxy, method, args) -> {
+            Object result = results.get(method.getName());
+            if (result instanceof java.util.function.Function<?, ?> function) {
+                return ((java.util.function.Function<Object[], Object>) function).apply(args);
+            }
+            if (result == null && method.getReturnType() == boolean.class) {
+                return false;
+            }
+            return result;
+        });
+    }
+
+    @Test
+    void ac_wrt_11_a_version_type_an_update_cannot_increment_throws_mq1606_in_check_metamodel_unless_keep_version() {
+        var metamodel = orderMetamodel(String.class, Long.class);
+        var increments = update().set(STATUS, "PAID").whereKey(1L).build();
+        var keeps = update().set(STATUS, "PAID").whereKey(1L).keepVersion().build();
+
+        assertThatThrownBy(() -> increments.checkMetamodel(metamodel))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1606))
+                .hasMessageContaining("Order.version is a String @Version");
+        assertThatCode(() -> keeps.checkMetamodel(metamodel)).doesNotThrowAnyException();
+        assertThatCode(() -> update().set(STATUS, "PAID").whereKey(1L).build()
+                .checkMetamodel(orderMetamodel(Integer.class, Long.class))).doesNotThrowAnyException();
+    }
+
+    @Test
+    void ac_wrt_09_a_to_one_column_of_the_wrong_id_type_throws_mq1001_in_check_metamodel() {
+        var parent = ColumnField.of(OrderPatch.class, ROOT, "parent", Long.class);
+        var built = update().set(parent, 5L).whereKey(1L).keepVersion().build();
+
+        assertThatThrownBy(() -> built.checkMetamodel(orderMetamodel(Integer.class, String.class)))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1001));
+        assertThatCode(() -> built.checkMetamodel(orderMetamodel(Integer.class, Long.class)))
+                .doesNotThrowAnyException();
     }
 
     // ---- AC-WRT-10
