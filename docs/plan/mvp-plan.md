@@ -157,7 +157,27 @@ Record each answer as a `D-n`.
 **Exit:** `api/14` covered, TCK bulk-write group green on H2, PostgreSQL and MySQL, AC-VND-07, AC-SPR-09,
 AC-GEN-10..12, the `MQ33xx` compile-testing cases, and a PATCH endpoint in the Spring Boot sample.
 
-## 8. M7–M8
+## 8. M7 — 0.1.0
 
-Contents and exit criteria are in `delivery/62` §1. Slice breakdowns are written when the milestone starts, not before —
-a slice plan written three milestones early is guesswork.
+Spec: `delivery/61` R-REL-02, R-REL-07..R-REL-09, R-REL-12, R-REL-13, AC-REL-04, AC-REL-05; `delivery/62` §1 M7, §3;
+`vendor/40` R-VND-09 (the vendor notes page); D-76 (docs site built in CI, not deployed; samples keep their names on
+disk). Already there from M0: `release.yml` (`v*` tag → Central), the `release` profile (sources, javadoc, GPG,
+`central-publishing-maven-plugin`), the BOM, CI's `release-check` job, `CHANGELOG.md`. Model: no `architect-review`;
+M7 changes no public API, `INV-*`, module boundary or `VendorProfile`. Publishing the `v0.1.0` tag is the user's step
+after the gate, never a slice's.
+
+| Slice | Contents | Done when |
+|---|---|---|
+| M7.1 | Reproducible build: `project.build.outputTimestamp` in the parent, set by `versions:set` in `release.yml` alongside the version; every build plugin's version pinned (enforcer `requirePluginVersions`); a script under `.github/scripts/` that builds the `release` profile twice into separate local repos and compares the published artifacts' SHA-256, run by a CI job | AC-REL-05 |
+| M7.2 | Release dry run: `samples/spring-boot` added to `excludeArtifacts` next to the other sample; a dry-run path for the `release` profile (`-Dcentral.skipPublishing`, signing with a throwaway key generated in the job) and a check script that every published module has a signed main, `-sources` and `-javadoc` jar, that the BOM lists exactly the published modules, and that no sample or the TCK is published. CI's `release-check` job runs it | AC-REL-04 |
+| M7.3 | Docs site source (D-76): MkDocs under `docs/site` with `mkdocs.yml`, a pinned `requirements.txt`, and a strict build in CI. Pages: getting started (no Spring, then Spring Boot), models and QModels, queries and `Filters`, paging and export, grouped queries, bulk writes (`@Incubating`), Spring Data and the starter's properties, vendor notes (R-VND-09: the Tier-1 table and each profile's caveats, the MySQL streaming default from Q-2), diagnostics (pointing at the `MQnnnn` codes). Content comes from `api/*`, `engine/*`, `vendor/*`, `integration/*`, written for users; `docs/spec` itself is not published (R-REL-13) | `mkdocs build --strict` green in CI; every page linked from the nav |
+| M7.4 | Samples and README: both samples import the BOM and use only generated QModels; `samples/plain-jpa` shows the define-model, generate, page flow in under 20 lines without Spring; `README` cut to the quick start with links into the site (R-REL-13); `CHANGELOG.md` `0.1.0` section from the Conventional Commits since the start, with D-53's hand entry kept; `M7` added to the audit's started scope | `delivery/62` §1 M7 samples, R-REL-08 changelog, AC audit green with M7 started |
+
+**Exit:** AC-REL-04 and AC-REL-05 pass in CI, the docs site builds strictly in CI, both samples build against the BOM,
+and the `CHANGELOG.md` `0.1.0` section is ready, so the user can push the `v0.1.0` tag. Q-1 (artifact prefix) and Q-3
+(minimum Hibernate) are raised at the gate: the coordinates and the Hibernate floor become public with this release.
+
+## 9. M8
+
+Contents and exit criteria are in `delivery/62` §1. Its slice breakdown is written when the milestone starts, not
+before.

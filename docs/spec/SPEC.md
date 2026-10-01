@@ -132,7 +132,7 @@ Full milestone list and exclusions: `delivery/62`.
 | Vendor conformance suite | `model-query-tck` | `delivery/60` | 0.1 |
 | Version alignment | `model-query-bom` | `delivery/61` | 0.1 |
 | Bulk writes: `ModelUpdate`, `ModelDelete`, `Changes`, `ChunkTransactions`; `@ValidChanges` | `model-query-core`; `model-query-jpa` | `api/14` | Future (M6) |
-| Samples | `samples/plain-jpa`, `samples/spring-boot-multi-datasource` | `delivery/62` | 0.1 |
+| Samples | `samples/plain-jpa`, `samples/spring-boot` | `delivery/62` | 0.1 |
 
 ## 6. Architecture decisions (summary)
 

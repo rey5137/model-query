@@ -727,6 +727,12 @@ keeps the keyset order. → `api/14` R-WRT-20.
 `annotations`, as INV-7's order already allows; R-REL-03 lets `core` import it. The annotation has CLASS retention,
 so users never reference it. → `delivery/61` R-REL-03, R-REL-07, D-59.
 
+**D-76 — The docs site in 0.1.** 0.1 ships an MkDocs source tree under `docs/site` holding the user guide and the
+vendor notes page. CI builds it in strict mode on every PR, so a broken link or a missing page fails the build, but
+nothing deploys it: publishing the site (GitHub Pages or elsewhere) is what grows later. The samples keep the names on
+disk, `samples/plain-jpa` and `samples/spring-boot`; the Spring Boot sample covers several datasources and the PATCH
+endpoint. → `delivery/61` R-REL-02, R-REL-13, `delivery/62` M7, SPEC.md §4.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** `model-query` under `io.github.rey5137` is claimed and in use. Is a shorter
