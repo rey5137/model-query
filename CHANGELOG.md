@@ -6,7 +6,10 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
-## [0.1.0] - Unreleased
+### Added
+- The user guide is published to GitHub Pages from main.
+
+## [0.1.0] - 2026-10-01
 
 First release.
 

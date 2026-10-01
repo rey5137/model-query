@@ -35,8 +35,8 @@ model-query/
 **R-REL-01** A new module needs a real API or dependency boundary and an update to SPEC.md §5 and INV-7's order. A
 directory alone is never a reason.
 
-**R-REL-02** Grows later, not in 0.1: an `editors/` module, a `model-query-quarkus` extension, and publishing the docs
-site. Its source tree ships in 0.1 and CI builds it (D-76).
+**R-REL-02** Grows later, not in 0.1: an `editors/` module and a `model-query-quarkus` extension. The docs site
+source tree ships in 0.1 and CI builds it (D-76); it is published to GitHub Pages from main since 0.1.0 (D-79).
 
 ## 2. Dependency rules (INV-7)
 

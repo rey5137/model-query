@@ -80,7 +80,7 @@ jobs:
           cache: pip
           cache-dependency-path: docs/site/requirements.txt
       - run: pip install -r docs/site/requirements.txt
-      # A broken link, a page missing from the nav or a missing file fails the build; nothing is deployed (D-76)
+      # A broken link, a page missing from the nav or a missing file fails the build; docs.yml deploys it from main (D-79)
       - run: mkdocs build --strict -f docs/site/mkdocs.yml
 
   mutation:

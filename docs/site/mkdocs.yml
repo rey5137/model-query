@@ -1,8 +1,9 @@
 site_name: Model Query
 site_description: Typed, projection-first queries on top of JPA.
+site_url: https://rey5137.github.io/model-query/
 repo_url: https://github.com/rey5137/model-query
 docs_dir: docs
-# Built in CI to catch broken links; nothing deploys it. Kept under target/ so it stays out of git.
+# Built in CI on every PR and published to GitHub Pages from main (D-79). Kept under target/ so it stays out of git.
 site_dir: ../../target/docs-site
 strict: true
 
