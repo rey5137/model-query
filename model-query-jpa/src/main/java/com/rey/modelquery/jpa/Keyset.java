@@ -154,6 +154,19 @@ final class Keyset<M> {
         return cb.or(branches.toArray(Predicate[]::new));
     }
 
+    /** How many binds {@link #after} adds for {@code cursor}: a value beyond it and the equal values before it. */
+    int cursorBinds(Object[] cursor) {
+        int binds = 0;
+        int bound = 0;
+        for (int i = 0; i < keys.size(); i++) {
+            if (cursor[i] != null || keys.get(i).nulls() == NullPrecedence.FIRST) {
+                binds += bound + (cursor[i] == null ? 0 : 1);
+            }
+            bound += cursor[i] == null ? 0 : 1;
+        }
+        return binds;
+    }
+
     /** The values of {@code key}'s column that sort after {@code value}, or {@code null} when none does. */
     @SuppressWarnings("rawtypes")
     private static Predicate beyond(Key<?> key, Expression<?> column, Object value, CriteriaBuilder cb) {

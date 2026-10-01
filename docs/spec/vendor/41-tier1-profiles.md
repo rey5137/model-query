@@ -96,7 +96,7 @@ database (`delivery/60`).
 |---|---|
 | AC-PRF-01 | Every value in §2 is asserted against the running database, not just against the profile constant (R-PRF-11). |
 | AC-PRF-02 | An `IN` list at, just below and just above `maxInListSize()` returns identical rows (R-PRF-11, `api/12` R-FLT-09). |
-| AC-PRF-03 | A library-built key list needing more binds than `maxBindParameters()`, a primary-key-first step-2 batch, is split into several statements of at most a power-of-two size each and returns the same rows in order; a query's own statement over the limit is refused before it runs, with `MQ1306` when one filter's list alone passes it and `MQ1307` when several filters only together do (R-PRF-11, `api/12` R-FLT-09, `engine/21` R-PAG-07, R-PAG-08, D-80). |
+| AC-PRF-03 | A library-built key list needing more binds than `maxBindParameters()`, a primary-key-first step-2 batch, is split into several statements of at most a power-of-two size each and returns the same rows in order; a query's own statement over the limit is refused before it runs, with `MQ1306` when one filter's list alone passes it and `MQ1307` when several filters only together do, which on a keyset export page or key-first round after a cursor names the binds the cursor added (R-PRF-11, D-82, `api/12` R-FLT-09, `engine/21` R-PAG-07, R-PAG-08, D-80). |
 | AC-PRF-04 | PostgreSQL streaming without a transaction throws `MQ2101`; inside one it streams with bounded heap (R-PRF-03). |
 | AC-PRF-05 | Both MySQL streaming modes stream 20 000 rows with bounded heap (R-PRF-07). |
 | AC-PRF-06 | `defaultAscendingNullOrdering()` matches the database's observed ordering on every Tier-1 version (R-PRF-08). |

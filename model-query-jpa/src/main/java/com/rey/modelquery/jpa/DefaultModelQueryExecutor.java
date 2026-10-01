@@ -204,7 +204,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /** A statement of {@code query} on {@code on}, a chunk's own {@code EntityManager} or the caller's. */
     private <T> TypedQuery<T> create(Object label, EntityManager on, CriteriaQuery<T> query) {
-        TypedQuery<T> typed = withinBindLimit(label, on.createQuery(query));
+        return create(label, on, query, 0);
+    }
+
+    /** As above, for a statement whose {@code cursorBinds} binds are a keyset cursor's (D-82). */
+    private <T> TypedQuery<T> create(Object label, EntityManager on, CriteriaQuery<T> query, int cursorBinds) {
+        TypedQuery<T> typed = withinBindLimit(label, on.createQuery(query), cursorBinds);
         queryTimeout.ifPresent(timeout -> vendor.profile().applyTimeout(typed, timeout));
         return typed;
     }
@@ -216,11 +221,25 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * query's own binds can pass it.
      */
     private <Q extends Query> Q withinBindLimit(Object label, Q statement) {
+        return withinBindLimit(label, statement, 0);
+    }
+
+    /**
+     * As above, for a statement of which {@code cursorBinds} binds are the keyset cursor's values after the previous
+     * page or round: none is reserved, so the refusal says how many the cursor added, since a query that fits the first
+     * page can pass the limit on a later one (D-82).
+     */
+    private <Q extends Query> Q withinBindLimit(Object label, Q statement, int cursorBinds) {
         int binds = statement.getParameters().size();
-        if (binds > renderOptions.maxBindParameters()) {
+        int max = renderOptions.maxBindParameters();
+        if (binds > max) {
+            String why = cursorBinds > 0
+                    ? "; " + cursorBinds + " of them are the keyset cursor's values after the previous page, which "
+                            + "the first page does not bind, so narrow the query's own filters by at least "
+                            + (binds - max) + " or use a smaller key"
+                    : "; narrow its filters, since a query's own statement is never split across statements";
             throw new ModelQueryDefinitionException(MqCode.MQ1307, label + ": a statement binds " + binds
-                    + " values, more than the " + renderOptions.maxBindParameters() + " bind parameters one statement "
-                    + "takes; narrow its filters, since a query's own statement is never split across statements");
+                    + " values, more than the " + max + " bind parameters one statement takes" + why);
         }
         return statement;
     }
@@ -484,7 +503,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 .orElseGet(() -> keyLimits.clamp(whole.get().getParameters().size(), keyed.key().columns().size(),
                         size));
         boolean perChunk = chunk.map(ChunkOptions::commitsEachChunk).orElse(false);
-        return new KeysetWrite(cb, (on, query) -> create(rootEntity.getSimpleName(), on, query), this::execute, em,
+        return new KeysetWrite(cb, (on, query, cursorBinds) ->
+                create(rootEntity.getSimpleName(), on, query, cursorBinds), this::execute, em,
                 perChunk ? chunkTransactions : null).run(keyed, n, chunk.map(ChunkOptions::locksKeys).orElse(false));
     }
 
@@ -761,7 +781,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 built.query().where(own == null ? after : cb.and(own, after));
             }
             keyset.appendOrder(built, cb);
-            TypedQuery<Tuple> query = create(q, built.query());
+            TypedQuery<Tuple> query = create(q, em, built.query(), cursor == null ? 0 : keyset.cursorBinds(cursor));
             query.setMaxResults(pageSize);
             List<Tuple> rows = query.getResultList();
             Set<Object> keys = new HashSet<>();

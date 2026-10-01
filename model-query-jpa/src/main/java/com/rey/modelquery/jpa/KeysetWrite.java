@@ -56,8 +56,14 @@ final class KeysetWrite {
             Function<List<Object>, BuiltQuery<M>> keySelect, BiFunction<EntityManager, List<Object>, Query> write,
             Optional<Object> startAfter, UnaryOperator<Object> modelKey) {}
 
+    /** Creates a key select's statement, told how many of its binds are a keyset cursor's (D-82). */
+    @FunctionalInterface
+    interface Select {
+        TypedQuery<Tuple> create(EntityManager on, CriteriaQuery<Tuple> query, int cursorBinds);
+    }
+
     private final CriteriaBuilder cb;
-    private final BiFunction<EntityManager, CriteriaQuery<Tuple>, TypedQuery<Tuple>> select;
+    private final Select select;
     private final ToIntFunction<Query> execute;
     private final EntityManager caller;
     /** Runs each round in a new transaction on {@link #emf}, or {@code null} to run them all on the caller's. */
@@ -71,7 +77,7 @@ final class KeysetWrite {
      * @param caller the caller's {@code EntityManager}, which every round runs on without {@code transactions}
      * @param transactions runs each round in a new transaction, for {@code commitEachChunk()}, or {@code null}
      */
-    KeysetWrite(CriteriaBuilder cb, BiFunction<EntityManager, CriteriaQuery<Tuple>, TypedQuery<Tuple>> select,
+    KeysetWrite(CriteriaBuilder cb, Select select,
             ToIntFunction<Query> execute, EntityManager caller, ChunkTransactions transactions) {
         this.cb = cb;
         this.select = select;
@@ -99,7 +105,7 @@ final class KeysetWrite {
                 rounds.run(on -> {
                     // The run bounds the keys, so the select needs no limit and no cursor.
                     BuiltQuery<M> built = write.keySelect().apply(run);
-                    List<Tuple> rows = rows(on, built, 0, lockKeys);
+                    List<Tuple> rows = rows(on, built, 0, lockKeys, 0);
                     Set<Object> distinct = keysOf(write, built, rows, Set.of());
                     List<Object> keys = new ArrayList<>(distinct);
                     return new Round(keys, distinct, rows.size(), null, writeKeys(on, write, keys));
@@ -122,7 +128,7 @@ final class KeysetWrite {
                     built.query().where(own == null ? past : cb.and(own, past));
                 }
                 keyset.appendOrder(built, cb);
-                List<Tuple> rows = rows(on, built, n, lockKeys);
+                List<Tuple> rows = rows(on, built, n, lockKeys, after == null ? 0 : keyset.cursorBinds(after));
                 if (rows.isEmpty()) {
                     return Round.NONE;
                 }
@@ -140,8 +146,8 @@ final class KeysetWrite {
     }
 
     /** The rows of {@code built}, at most {@code max} unless it is zero, locked with {@code lockKeys}. */
-    private List<Tuple> rows(EntityManager on, BuiltQuery<?> built, int max, boolean lockKeys) {
-        TypedQuery<Tuple> query = select.apply(on, built.query());
+    private List<Tuple> rows(EntityManager on, BuiltQuery<?> built, int max, boolean lockKeys, int cursorBinds) {
+        TypedQuery<Tuple> query = select.create(on, built.query(), cursorBinds);
         if (max > 0) {
             query.setMaxResults(max);
         }

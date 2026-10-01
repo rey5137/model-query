@@ -95,7 +95,9 @@ The available filters:
 - **Long `IN` lists are split** into chunks of the vendor's limit, within one statement. A query's own statement is
   never split across statements, so one filter with more values than the vendor's bind parameter limit fails with
   `MQ1306` when the query is built, and filters that only together pass it fail with `MQ1307` before the statement
-  runs, instead of failing in the database.
+  runs, instead of failing in the database. A keyset export page or write round binds the previous row's sort keys on
+  top of the query's own, so a query that fits the first page can pass the limit on a later one; that `MQ1307` says
+  how many of the binds are the cursor's.
 - **A join first needed inside `or` or `not` is a LEFT join**, so one branch cannot remove rows another branch should
   match.
 

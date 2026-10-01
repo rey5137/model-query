@@ -9,7 +9,8 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 ### Added
 - The user guide is published to GitHub Pages from main.
 - `MQ1307`: a statement whose binds only together pass the vendor's `maxBindParameters()` is refused before it runs,
-  rather than failing in the database (#6).
+  rather than failing in the database (#6). On a keyset export page or key-first round after a cursor, the message
+  names how many of its binds are the cursor's.
 
 ### Changed
 - Primary-key-first step-2 batches and bulk-write key chunks hold at most the largest power of two of keys within the

@@ -121,7 +121,11 @@ filters, `having`, keyset or `SET` values or a `QueryCustomizer`'s, throws `MQ13
 entity, before it runs, asking for a narrower filter (INV-5, D-80). The statement check counts the query parameters JPA
 reports, as the `vendor/41` R-PRF-11 clamp does: a literal the provider renders inline takes none, an embeddable-valued
 parameter counts once though it binds several, and a row limit or offset the provider binds is not counted, so a
-statement at the limit can still fail in the database. Only library-built key lists are spread over several statements:
+statement at the limit can still fail in the database. No binds are reserved for a keyset cursor: a keyset export
+page, or a key-first write round, after the first (or after a write's `startAfter`) binds the cursor's values on top
+of the query's own, so a query within a few binds of the limit can pass the first page and be refused on a later one,
+and that `MQ1307` says how many of the statement's binds are the cursor's and that the query's own filters must drop
+that many (D-82). Only library-built key lists are spread over several statements:
 primary-key-first step 2 (`engine/21` R-PAG-07) and bulk-write key chunks (`api/14` R-WRT-08), each chunk at most the
 largest power of two within the limits. The engine counts one bind per value; a provider that pads IN lists, such as
 Hibernate with `hibernate.query.in_clause_parameter_padding`, binds up to the next power of two, which keeps a key chunk

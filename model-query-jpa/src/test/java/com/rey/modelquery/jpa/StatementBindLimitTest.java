@@ -3,6 +3,7 @@ package com.rey.modelquery.jpa;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.CountMode;
@@ -38,6 +39,17 @@ class StatementBindLimitTest {
 
     record Row2(Long id, Integer a) {}
 
+    record Pair(Integer first, Integer second) {}
+
+    private static final TableField<BindLimitPairEntity, BindLimitPairEntity> PAIRS =
+            TableField.root(BindLimitPairEntity.class);
+    private static final ColumnField<Pair, BindLimitPairEntity, Integer> FIRST =
+            ColumnField.of(Pair.class, PAIRS, "firstNo", Integer.class);
+    private static final ColumnField<Pair, BindLimitPairEntity, Integer> SECOND =
+            ColumnField.of(Pair.class, PAIRS, "secondNo", Integer.class);
+    private static final ColumnField<Pair, BindLimitPairEntity, Integer> TAG =
+            ColumnField.of(Pair.class, PAIRS, "tag", Integer.class);
+
     private static final TableField<KeysetRowEntity, KeysetRowEntity> ROOT = TableField.root(KeysetRowEntity.class);
     private static final ColumnField<Row2, KeysetRowEntity, Long> ID =
             ColumnField.of(Row2.class, ROOT, "id", Long.class);
@@ -61,6 +73,7 @@ class StatementBindLimitTest {
     static void seed() {
         sessions = new Configuration()
                 .addAnnotatedClass(KeysetRowEntity.class)
+                .addAnnotatedClass(BindLimitPairEntity.class)
                 .buildSessionFactory(new StandardServiceRegistryBuilder()
                         .applySetting(AvailableSettings.JAKARTA_JDBC_URL, "jdbc:h2:mem:bindlimit;DB_CLOSE_DELAY=-1")
                         .applySetting(AvailableSettings.JAKARTA_JDBC_USER, "sa")
@@ -72,6 +85,9 @@ class StatementBindLimitTest {
             for (long id = 1; id <= 3; id++) {
                 em.persist(new KeysetRowEntity(id, (int) id, (int) id * 10, 0));
             }
+            em.persist(new BindLimitPairEntity(1, 1, 1));
+            em.persist(new BindLimitPairEntity(1, 2, 2));
+            em.persist(new BindLimitPairEntity(2, 1, 3));
             em.getTransaction().commit();
         }
     }
@@ -147,6 +163,56 @@ class StatementBindLimitTest {
                                 e -> assertThat(e.code()).isEqualTo(MqCode.MQ1307))
                         .hasMessageStartingWith(MqCode.MQ1307.code() + ": KeysetRowEntity: a statement binds 2001");
                 assertThat(executor.count(ROWS.build())).isEqualTo(3);
+            } finally {
+                em.getTransaction().rollback();
+            }
+        }
+    }
+
+    private static String cursorRefusal(String label, int cursorBinds) {
+        return MqCode.MQ1307.code() + ": " + label + ": a statement binds 2001 values, more than the 2000 bind "
+                + "parameters one statement takes; " + cursorBinds + " of them are the keyset cursor's values after "
+                + "the previous page, which the first page does not bind, so narrow the query's own filters by at "
+                + "least 1 or use a smaller key";
+    }
+
+    @Test
+    void ac_prf_03_a_keyset_export_page_after_a_cursor_names_the_cursors_binds_in_mq1307() {
+        var fitsFirstPage = ROWS.where(f -> f.in(A, values(1_500)).in(B, values(500))).keyset().build();
+        withExecutor(executor -> assertThatThrownBy(
+                () -> executor.export(fitsFirstPage, ExportOptions.of(2), page -> page, row -> { }))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1307))
+                .hasMessage(cursorRefusal(fitsFirstPage.toString(), 1)));
+    }
+
+    /** Own binds 1 998: a one-key round's key select and write bind at most 2 000, a cursor of two keys takes 3. */
+    private static ModelDelete<BindLimitPairEntity, Pair> pairDelete(boolean startAfter) {
+        var where = ModelDelete.builder(PAIRS).primaryKey(PrimaryKey.composite(FIRST, SECOND))
+                .where(f -> f.in(TAG, values(1_500)).in(FIRST, values(498)));
+        return startAfter ? where.chunked(ChunkOptions.size(2), List.of(0, 0)).build()
+                : where.chunked(ChunkOptions.size(2)).build();
+    }
+
+    @Test
+    void ac_prf_03_a_key_first_round_after_a_cursor_names_the_cursors_binds_in_mq1307() {
+        assertCursorRefused(pairDelete(false));
+    }
+
+    @Test
+    void ac_prf_03_a_key_first_round_starting_after_a_key_names_the_cursors_binds_in_mq1307() {
+        assertCursorRefused(pairDelete(true));
+    }
+
+    private static void assertCursorRefused(ModelDelete<BindLimitPairEntity, Pair> rounds) {
+        try (EntityManager em = sessions.createEntityManager()) {
+            em.getTransaction().begin();
+            try {
+                var executor = ModelQueryExecutor.create(em, BindLimitPairEntity.class, OTHER);
+                assertThatThrownBy(() -> executor.delete(rounds))
+                        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ1307))
+                        .hasMessage(cursorRefusal("BindLimitPairEntity", 3));
             } finally {
                 em.getTransaction().rollback();
             }

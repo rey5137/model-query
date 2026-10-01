@@ -44,7 +44,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1304` | `exists(...)` given a root instead of a join path | `api/12` R-FLT-11 |
 | `MQ1305` | A `Filters.add` predicate returned `null` | `api/12` §1, D-24 |
 | `MQ1306` | One `in` or `notIn` filter has more values than `maxBindParameters()` | `api/12` R-FLT-09 |
-| `MQ1307` | A statement binds more values than `maxBindParameters()` together, though no one `in` or `notIn` filter does | `api/12` R-FLT-09, D-80 |
+| `MQ1307` | A statement binds more values than `maxBindParameters()` together, though no one `in` or `notIn` filter does; on a keyset page or round after a cursor, the message names the binds the cursor added | `api/12` R-FLT-09, D-80, D-82 |
 | `MQ1401` | A selected non-aggregate column is not in the group-by | `api/13` R-AGG-08 |
 | `MQ1402` | Keyset paging or primary-key-first on a grouped query | `api/13` R-AGG-10 |
 | `MQ1403` | `Agg.sum` or `Agg.sumAsLong` over a column whose SQL sum type differs from the declared result type | `api/13` R-AGG-03 |
