@@ -795,7 +795,7 @@ cursors read `Row.raw`, so no row is lost (D-37). Rejected: `Date` filter overlo
 and a `Date` bound against a `java.sql.Date` truncates); loosening the filter generics (any value type compiles); a
 `default boolean ordered()` on `ColumnConverter` (the processor cannot see it at compile time); refusing range filters
 and `orderBy` on unordered converters (breaks 0.1 users who sort by a stored code). → `api/10` R-COL-14, `api/13`
-R-AGG-04, `processor/30` R-PROC-07, `reference/90` `MQ1408`, D-20, D-37.
+R-AGG-04, `processor/30` R-PROC-07, R-PROC-15, `reference/90` `MQ1408`, D-20, D-37.
 
 ## 2. Open questions
 

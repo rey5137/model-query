@@ -11,7 +11,7 @@
 | Code | Check | Example message |
 |---|---|---|
 | `MQ3001` | Unknown attribute, or a dotted `@Column(attribute)` that leaves embedded values (D-44) | `OrderView.totl: no attribute 'totl' on OrderEntity` |
-| `MQ3002` | Model type is not the entity attribute's type, a primitive counting as its wrapper, and no converter; or the attribute is a collection (D-44) | `OrderView.id: model type Integer, entity attribute type Long` |
+| `MQ3002` | Model type is not the entity attribute's type, a primitive counting as its wrapper, and no converter, named or built-in (D-84); or the attribute is a collection (D-44) | `OrderView.id: model type Integer, entity attribute type Long` |
 | `MQ3003` | `@Join` attribute is not a to-one association (a collection cannot be selected, `engine/21` R-PAG-13), or the nested model's `root` does not match the target | `OrderView.customer: CustomerView.root is AccountEntity, association targets CustomerEntity` |
 | `MQ3004` | Missing `@PrimaryKey`, on a model with no `@Aggregate` field | `OrderView: no @PrimaryKey; paging, export and @Join presence need one` |
 | `MQ3005` | `@Join` field is not `Optional<X>`, or `X` is not a `@QueryModel`, or `X` has an `@Aggregate` field (D-45, D-47) | `OrderView.customer: @Join field must be Optional<CustomerView>, found CustomerView` |

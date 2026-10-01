@@ -56,12 +56,15 @@ final class ModelValidator {
     private final Types types;
     private final EntityMetamodel metamodel;
     private final NestedModels nestedModels;
+    private final BuiltInConverters builtIns;
     private final WriteChecks writeChecks;
 
-    ModelValidator(Types types, EntityMetamodel metamodel, NestedModels nestedModels) {
+    ModelValidator(
+            Types types, EntityMetamodel metamodel, NestedModels nestedModels, BuiltInConverters builtIns) {
         this.types = types;
         this.metamodel = metamodel;
         this.nestedModels = nestedModels;
+        this.builtIns = builtIns;
         this.writeChecks = new WriteChecks(types, metamodel);
     }
 
@@ -282,6 +285,10 @@ final class ModelValidator {
                         where + "AVG over " + sourceName + " is not supported; it averages a numeric attribute");
             }
             default -> {
+                // MIN and MAX over a Timestamp read through a built-in ordered converter as the field's type (D-84).
+                if (builtIns.between(field.type(), source) != null) {
+                    return new Expected(qualified(field.type()), over, false);
+                }
                 if (isSubtypeOf(source, COMPARABLE)) {
                     return new Expected(qualified(source), over, false);
                 }
@@ -318,7 +325,7 @@ final class ModelValidator {
     }
 
     /** The qualified name of {@code type}'s class, or {@code ""} when it is no class. */
-    private static String qualified(TypeMirror type) {
+    static String qualified(TypeMirror type) {
         return type.getKind() == TypeKind.DECLARED
                 ? ((TypeElement) ((DeclaredType) type).asElement()).getQualifiedName().toString() : "";
     }
@@ -520,8 +527,9 @@ final class ModelValidator {
     }
 
     /**
-     * {@code MQ3001} for a path that does not resolve, {@code MQ3002} for one of another type than the field,
-     * {@code MQ3014} for a converter that does not bridge the two, {@code MQ3016} for a whole entity.
+     * {@code MQ3001} for a path that does not resolve, {@code MQ3002} for one of another type than the field that no
+     * built-in converter bridges, {@code MQ3014} for a converter that does not bridge the two, {@code MQ3016} for a
+     * whole entity.
      */
     private void checkAttribute(ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
         Resolution resolution = metamodel.resolve(model.root(), field.attribute());
@@ -544,7 +552,8 @@ final class ModelValidator {
                     model, field.element(), field.converter(), field.type(), attribute, where, diagnostics)) {
                 return;
             }
-        } else if (!types.isSameType(boxed(field.type()), boxed(attribute.type()))) {
+        } else if (!types.isSameType(boxed(field.type()), boxed(attribute.type()))
+                && builtIns.between(field.type(), attribute.type()) == null) {
             // The engine compares the two boxed types for identity at first use (MQ1001), so assignable is not enough.
             String modelType = display(field.type());
             String attributeType = display(attribute.type());

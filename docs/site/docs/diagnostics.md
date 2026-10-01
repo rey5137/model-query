@@ -82,7 +82,7 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | Code | What went wrong |
 |---|---|
 | `MQ3001` | Unknown attribute, or a dotted `@Column(attribute)` that leaves embedded values. |
-| `MQ3002` | Model type is not the entity attribute's type, and no converter provided. |
+| `MQ3002` | Model type is not the entity attribute's type, and no converter provided or built in (`Instant` or `Date` over a `Timestamp`). |
 | `MQ3003` | `@Join` attribute is not a to-one association, or the nested model's root does not match the target. |
 | `MQ3004` | Missing `@PrimaryKey` on a model with no `@Aggregate` field. |
 | `MQ3005` | `@Join` field is not `Optional<X>`, or `X` is not a `@QueryModel`, or `X` has an `@Aggregate` field. |

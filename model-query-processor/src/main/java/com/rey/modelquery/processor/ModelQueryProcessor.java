@@ -34,9 +34,10 @@ public final class ModelQueryProcessor extends AbstractProcessor {
         var reader = new QueryModelReader(processingEnv.getOptions());
         var nestedModels = new NestedModels(reader);
         var metamodel = new EntityMetamodel(types);
-        var validator = new ModelValidator(types, metamodel, nestedModels);
-        var writer = new QModelWriter(types, metamodel, nestedModels);
         var elements = processingEnv.getElementUtils();
+        var builtIns = new BuiltInConverters(elements);
+        var validator = new ModelValidator(types, metamodel, nestedModels, builtIns);
+        var writer = new QModelWriter(types, metamodel, nestedModels, builtIns);
         // A model module without Bean Validation, or without model-query-jpa, compiles and references neither.
         var changesWriter = new ChangesWriter(types, elements.getTypeElement(ChangesWriter.VALID_CHANGES) != null
                 && elements.getTypeElement(ChangesWriter.CONSTRAINT) != null);

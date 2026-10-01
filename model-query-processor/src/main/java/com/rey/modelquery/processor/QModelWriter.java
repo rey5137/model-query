@@ -56,11 +56,13 @@ final class QModelWriter {
     private final Types types;
     private final EntityMetamodel metamodel;
     private final NestedModels nestedModels;
+    private final BuiltInConverters builtIns;
 
-    QModelWriter(Types types, EntityMetamodel metamodel, NestedModels nestedModels) {
+    QModelWriter(Types types, EntityMetamodel metamodel, NestedModels nestedModels, BuiltInConverters builtIns) {
         this.types = types;
         this.metamodel = metamodel;
         this.nestedModels = nestedModels;
+        this.builtIns = builtIns;
     }
 
     /**
@@ -102,7 +104,7 @@ final class QModelWriter {
         for (ModelField field : model.columns()) {
             type.addField(column(
                     modelName, model.root(), field.constant(), "ROOT", field.attribute(), field.type(),
-                    field.converter(), field.name()));
+                    converter(model, field), field.name()));
         }
         // Aggregates are in no column set, or every query of the model would be grouped (R-PROC-17).
         for (ModelField field : update ? List.<ModelField>of() : model.aggregates()) {
@@ -262,6 +264,18 @@ final class QModelWriter {
     }
 
     /**
+     * The converter {@code field}'s column carries: the one {@code @Column} names, else the built-in one between the
+     * field's type and its attribute's, else {@code null} (R-PROC-07, D-84).
+     */
+    private TypeMirror converter(ModelDefinition model, ModelField field) {
+        if (field.converter() != null) {
+            return field.converter();
+        }
+        var attribute = metamodel.resolve(model.root(), field.attribute()).attribute();
+        return attribute == null ? null : builtIns.between(field.type(), attribute.type());
+    }
+
+    /**
      * The constant of an {@code @Aggregate} field, over a column built in place from its attribute: the aggregate is
      * keyed by that column, so it equals the same function written by hand (api/13 R-AGG-01).
      */
@@ -274,8 +288,14 @@ final class QModelWriter {
             return constant.initializer("$T.count(ROOT)", AGG).build();
         }
         TypeMirror attributeType = metamodel.resolve(model.root(), aggregate.attribute()).attribute().type();
-        CodeBlock source = CodeBlock.of("$T.of($T.class,$WROOT,$W$S,$W$L)", COLUMN_FIELD, modelName,
-                aggregate.attribute(), classOf(column(attributeType)));
+        // MIN or MAX typed as the field reads its Timestamp attribute through the built-in converter (D-84).
+        TypeMirror converter = builtIns.between(field.type(), attributeType);
+        CodeBlock source = converter == null
+                ? CodeBlock.of("$T.of($T.class,$WROOT,$W$S,$W$L)", COLUMN_FIELD, modelName,
+                        aggregate.attribute(), classOf(column(attributeType)))
+                : CodeBlock.of("$T.of($T.class,$WROOT,$W$S,$W$L,$W$L,$W$T.INSTANCE)", COLUMN_FIELD, modelName,
+                        aggregate.attribute(), classOf(result), classOf(column(attributeType)),
+                        ClassName.get((TypeElement) types.asElement(converter)));
         String function = switch (aggregate.fn()) {
             case "COUNT" -> aggregate.distinct() ? "countDistinct" : null;
             case "SUM" -> column(attributeType).toString().matches("java\\.lang\\.(Integer|Short|Byte)")

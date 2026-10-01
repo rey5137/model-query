@@ -15,6 +15,9 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
   `InstantTimestampConverter` and `DateTimestampConverter` over a `Timestamp` attribute. `Agg.min`, `Agg.max` and
   `Agg.countDistinct` take a column with an ordered converter, and `min` and `max` return the model type; other
   aggregates over a converted column still throw `MQ1408`.
+- The processor gives an `Instant` or `Date` field over a `Timestamp` attribute the built-in converter when no
+  `converter` is named, so the column filters with values of the field's type; `@Aggregate` `MIN` and `MAX` into such
+  a field read through it.
 
 ### Changed
 - Primary-key-first step-2 batches and bulk-write key chunks hold at most the largest power of two of keys within the

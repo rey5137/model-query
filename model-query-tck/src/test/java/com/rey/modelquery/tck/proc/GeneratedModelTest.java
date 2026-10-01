@@ -11,6 +11,7 @@ import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
 import com.rey.modelquery.tck.col.OrderItemEntity;
 import com.rey.modelquery.tck.col.OrderStatus;
+import com.rey.modelquery.tck.col.StampedOrderEntity;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckDatabases;
 import com.rey.modelquery.tck.harness.TckFixture;
@@ -21,8 +22,11 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Consumer;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
@@ -347,11 +351,61 @@ class GeneratedModelTest {
         assertThat(totals.primaryKey()).isEmpty();
     }
 
+    @Test
+    void ac_proc_11_a_generated_date_column_over_a_timestamp_filters_with_an_optional_date() {
+        var stamped = QStampedOrderView.query().columns(QStampedOrderView.ALL).orderBy(QStampedOrderView.ID.asc());
+        List<StampedOrderView> all = new ArrayList<>();
+        withExecutor(StampedOrderEntity.class,
+                executor -> all.addAll(executor.list(stamped.build(), Limit.unlimited())));
+        Date cutoff = all.stream().map(StampedOrderView::placed).sorted().toList().get(all.size() / 2);
+        Optional<Date> from = Optional.of(cutoff);
+        Optional<Date> none = Optional.empty();
+        List<StampedOrderView> later = new ArrayList<>();
+        List<StampedOrderView> unfiltered = new ArrayList<>();
+        withExecutor(StampedOrderEntity.class, executor -> {
+            later.addAll(executor.list(
+                    stamped.where(f -> f.gte(QStampedOrderView.PLACED, from)).build(), Limit.unlimited()));
+            unfiltered.addAll(executor.list(
+                    stamped.where(f -> f.gte(QStampedOrderView.PLACED, none)).build(), Limit.unlimited()));
+        });
+
+        // The built-in converter hands back the Timestamp read, typed as the field's Date.
+        assertThat(all).hasSize(TckFixture.ORDERS)
+                .allSatisfy(order -> assertThat(order.placed()).isInstanceOf(Timestamp.class));
+        assertThat(later).isNotEmpty().hasSizeLessThan(all.size())
+                .isEqualTo(all.stream().filter(order -> order.placed().compareTo(cutoff) >= 0).toList());
+        assertThat(unfiltered).isEqualTo(all);
+    }
+
+    @Test
+    void ac_proc_12_a_generated_max_over_a_timestamp_reads_the_database_max_as_a_date() throws SQLException {
+        var summary = QStampSummary.query()
+                .columns(QStampSummary.GROUP_KEYS.with(QStampSummary.LAST_PLACED))
+                .orderBy(QStampSummary.STATUS.asc())
+                .build();
+        List<StampSummary> rows = new ArrayList<>();
+        SqlSnapshots.assertMatches(DB, "proc-12-built-in-converter-max",
+                ds -> withExecutor(ds, StampedOrderEntity.class,
+                        executor -> rows.addAll(executor.list(summary, Limit.unlimited()))));
+
+        assertThat(rows).hasSize(count("SELECT COUNT(DISTINCT status) FROM orders")).isNotEmpty();
+        assertThat(rows).allSatisfy(row -> assertThat(row.lastPlaced()).isInstanceOf(Timestamp.class)
+                .isEqualTo(timestamp("SELECT MAX(placed_at) FROM orders WHERE status = '" + row.status() + "'")));
+    }
+
     private static BigDecimal decimal(String sql) throws SQLException {
         try (Connection connection = DB.getConnection(); Statement statement = connection.createStatement();
                 ResultSet rows = statement.executeQuery(sql)) {
             rows.next();
             return rows.getBigDecimal(1);
+        }
+    }
+
+    private static Timestamp timestamp(String sql) throws SQLException {
+        try (Connection connection = DB.getConnection(); Statement statement = connection.createStatement();
+                ResultSet rows = statement.executeQuery(sql)) {
+            rows.next();
+            return rows.getTimestamp(1);
         }
     }
 

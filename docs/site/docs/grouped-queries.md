@@ -76,3 +76,5 @@ var q = QOrderTotals.query()
 - An aggregate over a column that has a converter fails with `MQ1408`; use `Agg.of` for that. The exception is an
   `OrderedColumnConverter`, such as the built-in `InstantTimestampConverter` and `DateTimestampConverter`: `min`, `max`
   and `countDistinct` take it, and `min` and `max` come back as the model type.
+- An `@Aggregate(fn = MIN)` or `MAX` field of type `Instant` or `Date` over a `Timestamp` attribute reads through the
+  built-in converter and comes back as the field's type.

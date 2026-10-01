@@ -29,6 +29,12 @@ public record OrderView(
 | `@GroupBy`, `@Aggregate` | Turn a model into a grouped result; see [Grouped queries](grouped-queries.md). |
 | `@UpdateModel(root = ...)` | Declares the attributes a bulk update may write; see [Bulk writes](bulk-writes.md). |
 
+A field of type `Instant` or `Date` over a `java.sql.Timestamp` attribute needs no `converter`: the processor gives it
+the built-in `InstantTimestampConverter` or `DateTimestampConverter`, so you filter it with values of the field's type:
+a `Date placedAt` field takes `f.gte(QOrderView.PLACED_AT, Optional.of(since))` with `since` a `Date`. A `Date` read
+this way is the `Timestamp` itself, so comparing it back to the stored value is exact. A converter you name takes
+precedence.
+
 A class model needs a no-argument constructor visible from its package and setters. Record components that are
 primitive are only allowed on the primary key of a plain model; use the boxed type elsewhere, because a column can be
 NULL.

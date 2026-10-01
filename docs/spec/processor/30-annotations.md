@@ -57,7 +57,10 @@ model that has `@GroupBy` fields is `MQ3207` (D-47).
 be stateless and have a public static `INSTANCE` field or a visible no-arg constructor, else `MQ3014`. `converter` is
 declared as `Class<?>`, default `void.class`, because `ColumnConverter` is a `core` type (R-PROC-01, D-37). The
 generated column carries the converter: `Row.get` applies it, and filters apply it in the other direction, so a
-converter that is not a bijection is documented as filter-unsafe (`api/10` R-COL-14).
+converter that is not a bijection is documented as filter-unsafe (`api/10` R-COL-14). When no `converter` is named and
+the field is a `java.time.Instant` or `java.util.Date` over a `java.sql.Timestamp` attribute, the column takes the
+built-in `InstantTimestampConverter` or `DateTimestampConverter` instead of failing `MQ3002`; a named converter wins,
+and any other mismatch is still `MQ3002` (D-84).
 
 ## 4. `@Join` and nested models
 
@@ -99,7 +102,10 @@ its own, `ITEMS_INNER_TABLE` under the alias `itemsInner` (D-46).
 **R-PROC-15** `@Aggregate` generates one `AggregateField` constant and maps it into its field. `fn` is `COUNT`, `SUM`,
 `AVG`, `MIN` or `MAX`; `attribute` is omitted for `COUNT` over the root; `distinct = true` yields `countDistinct`
 and is `MQ3206` on any other function. An `@Aggregate` field can't also carry `@PrimaryKey`, `@Column`, `@Join` or
-`@Transient` (`MQ3204`), and a model with an `@Aggregate` field can't be a `@Join` target (`MQ3005`) (D-47).
+`@Transient` (`MQ3204`), and a model with an `@Aggregate` field can't be a `@Join` target (`MQ3005`) (D-47). A `MIN`
+or `MAX` field of `Instant` or `Date` over a `Timestamp` attribute reads it through the built-in converter of R-PROC-07
+and is typed as the field; `SUM` and `AVG` over a `Timestamp` stay `MQ3202`, as does `MIN` or `MAX` into any other
+type than the attribute's (D-84).
 
 **R-PROC-16** `@GroupBy` fields, in declaration order, form the generated `GROUP_KEYS` `ColumnSet`, and
 `Q<Model>.query()` is pre-configured with `groupBy(GROUP_KEYS)`. `@GroupBy` cannot be combined with `@Aggregate` or
@@ -132,3 +138,5 @@ request can write every root column of the model, so the user guide recommends o
 | AC-PROC-08 | Every collection association on the root has a generated `TableField` usable in `exists` (R-PROC-13). |
 | AC-PROC-09 | `@Aggregate`/`@GroupBy` on a summary model generate `GROUP_KEYS` and a pre-configured `query()` (R-PROC-15, R-PROC-16). |
 | AC-PROC-10 | `singleGroup = true` suppresses `MQ3203`; omitting it raises it (R-PROC-05). |
+| AC-PROC-11 | An `Instant` or `Date` field over a `Timestamp` attribute with no `converter` takes the built-in converter, filters with an `Optional` of its own type and reads back the `Timestamp` itself as a `Date`; a named converter wins and any other mismatch is `MQ3002` (R-PROC-07, D-84). |
+| AC-PROC-12 | `@Aggregate` `MIN` or `MAX` into an `Instant` or `Date` field over a `Timestamp` attribute reads the database's value through the built-in converter, typed as the field; `COUNT` distinct over it stays `Long`, and `SUM`, `AVG` or a `MIN` into another type is `MQ3202` (R-PROC-15, D-84). |
