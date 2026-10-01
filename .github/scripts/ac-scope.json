@@ -1,6 +1,6 @@
 {
   "_comment": "Scope for ac_audit.py (delivery/60 R-QA-11). A milestone's criteria are enforced once it is listed in 'started'. 'files' are spec paths (relative to docs/spec, without .md) taken from the 'Exit criteria' column of delivery/62 section 1; 'ids' name individual criteria the plan assigns to the milestone. Criteria in no milestone are reported as unscheduled and do not fail the audit.",
-  "started": ["M0", "M1", "M2", "M3", "M4", "M5", "M6"],
+  "started": ["M0", "M1", "M2", "M3", "M4", "M5", "M6", "M7"],
   "milestones": {
     "M0": { "ids": ["AC-REL-01", "AC-REL-02", "AC-REL-03", "AC-REL-07", "AC-QA-01", "AC-QA-05"] },
     "M1": { "files": ["api/10-columns-joins", "api/11-query-definition", "api/12-filters", "api/13-aggregates-grouping"] },
@@ -9,11 +9,13 @@
     "M4": { "files": ["processor/30-annotations", "processor/31-generation", "processor/32-diagnostics"] },
     "M5": { "files": ["integration/50-spring"], "ids": ["AC-VND-06"] },
     "M6": { "files": ["api/14-bulk-writes"] },
-    "M7": { "ids": ["AC-REL-04", "AC-REL-05"] },
+    "M7": { "ids": ["AC-REL-04", "AC-REL-05", "AC-RDM-01"] },
     "M8": { "ids": ["AC-REL-06"] }
   },
   "build_proven": {
     "AC-REL-01": "The build produces exactly the modules in delivery/61 section 1 and 'mvnw verify' is green: proven by the CI build job, which fails otherwise.",
+    "AC-REL-04": "The CI release dry-run job signs with a throwaway key and .github/scripts/release_dry_run_check.py fails unless every module has signed -sources and -javadoc jars and the BOM lists them all.",
+    "AC-REL-05": "The CI reproducible-build job builds twice with a pinned outputTimestamp and .github/scripts/reproducible_build.py fails on any checksum difference.",
     "AC-REL-03": "maven-enforcer bannedDependencies in model-query-core and model-query-jpa bans org.hibernate* and org.springframework* at compile/runtime scope, transitively; 'mvnw verify' fails on a violation."
   }
 }

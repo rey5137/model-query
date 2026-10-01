@@ -13,10 +13,8 @@ Typed, projection-first queries on top of JPA.
   set (planned, M8).
 - Vendor-aware behaviour for **H2, PostgreSQL and MySQL**, behind an SPI other databases can implement.
 
-> **Status: early development.** Nothing is published yet and the API below is the target design.
-> The full specification is in [`docs/spec/`](docs/spec/SPEC.md) — start at the routing table in `SPEC.md`.
-> Milestones are in [`docs/spec/delivery/62-roadmap.md`](docs/spec/delivery/62-roadmap.md); finished ones are tagged
-> `mN-verified`.
+> **Status: pre-release (0.1.0).** The public API may change in any `0.x` release. The user guide is the docs site
+> under [`docs/site/docs/`](docs/site/docs/index.md); it is built in CI and not deployed.
 
 ## Example
 
@@ -43,22 +41,9 @@ List<OrderView> rows = executor.list(
         Limit.of(100));
 ```
 
-## Modules
-
-| Artifact | Contents |
-|---|---|
-| `model-query-bom` | Version alignment for all modules |
-| `model-query-annotations` | `@QueryModel`, `@PrimaryKey`, `@Column`, `@Join`, `@FilterColumn`, ... |
-| `model-query-core` | Columns, tables, column sets, rows, queries, the filters DSL and SPIs |
-| `model-query-jpa` | Executor, paging and export engine, built-in vendor profiles |
-| `model-query-hibernate` | Hibernate extras: dialect-based vendor detection, grouped count, null precedence |
-| `model-query-processor` | Annotation processor that generates `QModel` classes |
-| `model-query-spring-data` | `ModelQueryRepository` and Spring Data `Page`/`Pageable`/`Sort` adapters |
-| `model-query-spring-boot-starter` | Spring Boot auto-configuration |
-
 ## Usage
 
-Once released, import the BOM and add the modules you need:
+Import the BOM and add the modules you need:
 
 ```xml
 <dependencyManagement>
@@ -101,22 +86,15 @@ Register the processor in `maven-compiler-plugin`:
 
 Java 17+, Jakarta Persistence 3.1+, Hibernate ORM 6.6+ (tested on 6.6 and 7.x), Spring Boot 3.4+ for the starter.
 
-## Building
-
-```bash
-./mvnw verify
-```
-
-The TCK module needs Docker (Testcontainers starts PostgreSQL and MySQL).
-
 ## Documentation
 
 | Audience | Where |
 |---|---|
-| Using the library | this README, then the user guide (published at 0.1.0) |
+| Getting started | [Without Spring](docs/site/docs/getting-started/plain-jpa.md), [with Spring Boot](docs/site/docs/getting-started/spring-boot.md) |
+| Using the library | [Models](docs/site/docs/models.md), [queries](docs/site/docs/queries.md), [paging and export](docs/site/docs/paging-export.md), [grouped queries](docs/site/docs/grouped-queries.md), [bulk writes](docs/site/docs/bulk-writes.md), [vendors](docs/site/docs/vendors.md), [Spring](docs/site/docs/spring.md), [diagnostics](docs/site/docs/diagnostics.md) |
+| Samples | [plain JPA](samples/plain-jpa) (the quick start in [19 lines](samples/plain-jpa/src/main/java/com/rey/modelquery/sample/plainjpa/QuickStart.java)), [Spring Boot](samples/spring-boot) |
 | Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/code-conventions.md](docs/code-conventions.md) |
-| How it is specified | [docs/spec/SPEC.md](docs/spec/SPEC.md) — invariants, rules, acceptance criteria |
-| Why a design choice was made | [docs/spec/reference/92-decisions-questions.md](docs/spec/reference/92-decisions-questions.md) |
+| How it is specified | [docs/spec/SPEC.md](docs/spec/SPEC.md) |
 
 ## Contributing
 
