@@ -128,24 +128,29 @@ class ConvertedColumnTest {
 
     @Test
     void ac_col_11_an_aggregate_function_over_a_converted_column_throws_mq1408() {
-        assertMq1408(() -> Agg.countDistinct(STATUS));
-        assertMq1408(() -> Agg.min(STATUS));
-        assertMq1408(() -> Agg.max(STATUS));
-        assertMq1408(() -> Agg.sum(CENTS));
-        assertMq1408(() -> Agg.sumAsLong(CENTS));
-        assertMq1408(() -> Agg.avg(CENTS));
+        // Neither converter is ordered, so no function takes them; those that would take an ordered one say so.
+        assertMq1408(() -> Agg.countDistinct(STATUS), ORDERED_HINT);
+        assertMq1408(() -> Agg.min(STATUS), ORDERED_HINT);
+        assertMq1408(() -> Agg.max(STATUS), ORDERED_HINT);
+        assertMq1408(() -> Agg.sum(CENTS), "");
+        assertMq1408(() -> Agg.sumAsLong(CENTS), "");
+        assertMq1408(() -> Agg.avg(CENTS), "");
         // Agg.of aggregates the attribute itself, so it takes the column's path.
         assertThat(Agg.<OrderView, String>of("minStatus", String.class,
                 (ctx, cb) -> cb.least(STATUS_TEXT.path(ctx)))).isNotNull();
     }
 
-    private static void assertMq1408(org.assertj.core.api.ThrowableAssert.ThrowingCallable factory) {
+    static final String ORDERED_HINT =
+            "make the converter an OrderedColumnConverter if it keeps order both ways, or ";
+
+    static void assertMq1408(org.assertj.core.api.ThrowableAssert.ThrowingCallable factory, String hint) {
         assertThatThrownBy(factory)
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ1408))
                 .hasMessageStartingWith("MQ1408: OrderView.")
                 .hasMessageEndingWith(": an aggregate function does not take a column that has a ColumnConverter, "
-                        + "since the database computes over attribute values; aggregate the attribute with Agg.of");
+                        + "since the database computes over attribute values; " + hint
+                        + "aggregate the attribute with Agg.of");
     }
 
     /** A tuple that answers {@code get(alias)} only, which is all a {@link Row} reads. */

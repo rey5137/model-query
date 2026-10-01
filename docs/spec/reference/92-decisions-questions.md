@@ -128,9 +128,10 @@ the reader nothing the NPE doesn't). → `code-conventions` CC-ERR-01.
 **D-20 — A hand-written column's type must match its attribute exactly.**
 R-COL-08 compares `ColumnField.type` with `path.getJavaType()` after boxing primitives, and a `@Convert` attribute
 with its converted type. A supertype is rejected: a `Number` column over an `Integer` attribute throws `MQ1001`. The
-converter allow-list is empty until a real case needs an entry. Loosening the check later breaks no one; tightening it
-would. Rejected: accepting any assignable supertype (hides a wrong column until a value fails to map).
-→ `api/10` R-COL-08, AC-COL-04.
+converter allow-list is empty until a real case needs an entry; a model type other than the attribute's goes through a
+`ColumnConverter` (D-37), and `core` ships ordered ones for a `Timestamp` attribute (D-84). Loosening the check later
+breaks no one; tightening it would. Rejected: accepting any assignable supertype (hides a wrong column until a value
+fails to map). → `api/10` R-COL-08, AC-COL-04.
 
 **D-21 — The phase-consistency warning runs on first execution, not in `build()`.**
 Checking that a `QueryCustomizer` narrows every phase alike means running it against a real `CriteriaBuilder`, which
@@ -308,7 +309,8 @@ Hibernate factory without the module, and the remedy is the module or an explici
 the model type `C`. `Row.get` converts what it read, value filters bind `toAttribute(value)`, and `MQ1001` compares the
 entity attribute against `attributeType`. `Row.raw(column)` returns the value before conversion; the executor reads
 primary keys and keyset cursors through it, so a converter that is not a bijection cannot change which rows a page
-holds (INV-5). An aggregate function over a converted column throws `MQ1408`, since the database computes over `F`.
+holds (INV-5). An aggregate function over a converted column throws `MQ1408`, since the database computes over `F`;
+D-84 lets `min`, `max` and `countDistinct` take an ordered converter.
 The annotation names the converter as `Class<?> converter() default void.class`, which keeps the annotations module on
 the JDK alone (INV-7); the processor checks the class by name and reports `MQ3014` when it is not a
 `ColumnConverter<fieldType, attributeType>` or has neither a public static `INSTANCE` nor a visible no-arg constructor.

@@ -43,7 +43,7 @@ Messages say what to change, for example `OrderView.totl: no attribute 'totl' on
 | `MQ1405` | Grouped query: Agg.of expression returned `null`, or Java type does not match declared type. |
 | `MQ1406` | Grouped query: orderBy key does not fit the grouping (non-group-key column on grouped query, or aggregate on ungrouped one). |
 | `MQ1407` | Grouped query: `having(...)` on an ungrouped query. |
-| `MQ1408` | Grouped query: aggregate function over a column with a ColumnConverter. |
+| `MQ1408` | Grouped query: aggregate function over a column with a ColumnConverter (only `min`, `max` and `countDistinct` take an `OrderedColumnConverter`). |
 | `MQ1409` | Grouped query: column selected under a `presentBy` join whose key columns are not all group keys. |
 | `MQ1601` | Bulk write: no predicate left after skipping rows. |
 | `MQ1602` | Bulk write: column is assigned twice. |

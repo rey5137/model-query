@@ -15,9 +15,11 @@ import java.util.function.BiFunction;
  *
  * <p>Every function over a column throws {@code MQ1408} for a column that has a {@link ColumnConverter}: the database
  * aggregates attribute values, which the converter cannot be applied to. {@link #of} aggregates such an attribute
- * (R-AGG-04).
+ * (R-AGG-04). {@link #min}, {@link #max} and {@link #countDistinct} accept a column whose converter is an
+ * {@link OrderedColumnConverter}, since they commute with it: {@code min} and {@code max} return the converter's
+ * {@code toModel} of what the database returned, and a {@code having} value is bound as {@code toAttribute} of it.
  *
- * @implSpec api/13 §1, R-AGG-03
+ * @implSpec api/13 §1, R-AGG-03, R-AGG-04, D-84
  */
 @Incubating
 public final class Agg {
@@ -33,11 +35,16 @@ public final class Agg {
     public static <M> AggregateField<M, Long> count(TableField<?, ?> table) {
         Objects.requireNonNull(table, "table");
         String name = table.rootEntity() != null ? table.rootEntity().getSimpleName() : table.key().attribute();
-        return new AggregateField<>(AggregateField.Kind.COUNT, table.key(), name, "", Long.class,
+        return new AggregateField<>(AggregateField.Kind.COUNT, table.key(), name, "", Long.class, null,
                 (ctx, cb) -> cb.count(table.resolve(ctx)));
     }
 
-    /** {@code count(distinct column)}. */
+    /**
+     * {@code count(distinct column)}. A column with an {@link OrderedColumnConverter} is counted by its attribute
+     * values, which the converter maps one to one.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1408} for a column with any other {@link ColumnConverter}
+     */
     public static <M> AggregateField<M, Long> countDistinct(ColumnField<M, ?, ?> column) {
         return over(AggregateField.Kind.COUNT_DISTINCT, Objects.requireNonNull(column, "column"), Long.class,
                 (ctx, cb) -> cb.countDistinct(column.path(ctx)));
@@ -76,16 +83,24 @@ public final class Agg {
                 (ctx, cb) -> cb.avg(column.path(ctx)));
     }
 
-    /** {@code min(column)}, of the column's own type. */
+    /**
+     * {@code min(column)}, of the column's own type. Over a column with an {@link OrderedColumnConverter} it is the
+     * least attribute value, converted to the model's type.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1408} for a column with any other {@link ColumnConverter}
+     */
     public static <M, C extends Comparable<? super C>> AggregateField<M, C> min(ColumnField<M, ?, C> column) {
-        return over(AggregateField.Kind.MIN, Objects.requireNonNull(column, "column"), column.type(),
-                (ctx, cb) -> cb.least(column.path(ctx)));
+        return extreme(AggregateField.Kind.MIN, column, (ctx, cb) -> cb.least(column.path(ctx)));
     }
 
-    /** {@code max(column)}, of the column's own type. */
+    /**
+     * {@code max(column)}, of the column's own type. Over a column with an {@link OrderedColumnConverter} it is the
+     * greatest attribute value, converted to the model's type.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1408} for a column with any other {@link ColumnConverter}
+     */
     public static <M, C extends Comparable<? super C>> AggregateField<M, C> max(ColumnField<M, ?, C> column) {
-        return over(AggregateField.Kind.MAX, Objects.requireNonNull(column, "column"), column.type(),
-                (ctx, cb) -> cb.greatest(column.path(ctx)));
+        return extreme(AggregateField.Kind.MAX, column, (ctx, cb) -> cb.greatest(column.path(ctx)));
     }
 
     /**
@@ -102,7 +117,7 @@ public final class Agg {
             String name, Class<C> type, BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
         return new AggregateField<>(AggregateField.Kind.OF, null, Objects.requireNonNull(name, "name"), "",
                 // Sound: int.class is a Class<Integer>, so its wrapper is still a Class<C>.
-                (Class<C>) ColumnField.boxed(Objects.requireNonNull(type, "type")),
+                (Class<C>) ColumnField.boxed(Objects.requireNonNull(type, "type")), null,
                 Objects.requireNonNull(expression, "expression"));
     }
 
@@ -112,7 +127,8 @@ public final class Agg {
      */
     private static <T extends ColumnField<?, ?, ?>> T summable(T column, List<Class<?>> types, String function,
             String instead) {
-        unconverted(Objects.requireNonNull(column, "column"));
+        // Before the type check: no sum takes a converted column, whatever its type (R-AGG-04).
+        supported(AggregateField.Kind.SUM, Objects.requireNonNull(column, "column"));
         if (!types.contains(column.type())) {
             throw new ModelQueryDefinitionException(MqCode.MQ1403, String.format(
                     "%s: Agg.%s does not take column type %s, only %s; %s", column, function,
@@ -123,16 +139,29 @@ public final class Agg {
 
     private static <M, C> AggregateField<M, C> over(AggregateField.Kind kind, ColumnField<M, ?, ?> column,
             Class<C> type, BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
-        unconverted(column);
-        return new AggregateField<>(kind, column.table().key(), column.name(), "", type, expression);
+        supported(kind, column);
+        return new AggregateField<>(kind, column.table().key(), column.name(), "", type, null, expression);
     }
 
-    /** Refuses a converted column with {@code MQ1408}, before any check of its type (R-AGG-04). */
-    private static void unconverted(ColumnField<?, ?, ?> column) {
-        if (column.isConverted()) {
-            // The database aggregates attribute values, which the converter cannot be applied to.
+    /** {@code min} or {@code max}, whose result a converted column's converter maps (R-AGG-04). */
+    private static <M, C> AggregateField<M, C> extreme(AggregateField.Kind kind, ColumnField<M, ?, C> column,
+            BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
+        supported(kind, Objects.requireNonNull(column, "column"));
+        return new AggregateField<>(kind, column.table().key(), column.name(), "", column.type(),
+                column.isConverted() ? column : null, expression);
+    }
+
+    /**
+     * Refuses a converted column with {@code MQ1408} unless {@code kind} commutes with its converter, which must then
+     * be an {@link OrderedColumnConverter} (R-AGG-04, D-84).
+     */
+    private static void supported(AggregateField.Kind kind, ColumnField<?, ?, ?> column) {
+        if (column.isConverted() && !(kind.ordered && column.isOrdered())) {
+            // The database aggregates attribute values, which only an order-preserving converter commutes with.
             throw new ModelQueryDefinitionException(MqCode.MQ1408, column + ": an aggregate function does not take "
                     + "a column that has a ColumnConverter, since the database computes over attribute values; "
+                    + (kind.ordered ? "make the converter an OrderedColumnConverter if it keeps order both ways, or "
+                            : "")
                     + "aggregate the attribute with Agg.of");
         }
     }

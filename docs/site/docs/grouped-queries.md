@@ -73,4 +73,6 @@ var q = QOrderTotals.query()
 - **A grouped query has no primary key**, and `count` counts groups, not rows.
 - **No keyset paging** (`MQ1402`). Use `list`, `stream` or offset `export`; export orders by every group key not
   already in your order, so pages never overlap.
-- An aggregate over a column that has a converter fails with `MQ1408`; use `Agg.of` for that.
+- An aggregate over a column that has a converter fails with `MQ1408`; use `Agg.of` for that. The exception is an
+  `OrderedColumnConverter`, such as the built-in `InstantTimestampConverter` and `DateTimestampConverter`: `min`, `max`
+  and `countDistinct` take it, and `min` and `max` come back as the model type.

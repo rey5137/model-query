@@ -11,6 +11,10 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 - `MQ1307`: a statement whose binds only together pass the vendor's `maxBindParameters()` is refused before it runs,
   rather than failing in the database (#6). On a keyset export page or key-first round after a cursor, the message
   names how many of its binds are the cursor's.
+- `OrderedColumnConverter`, a `ColumnConverter` that preserves order both ways, and the built-in
+  `InstantTimestampConverter` and `DateTimestampConverter` over a `Timestamp` attribute. `Agg.min`, `Agg.max` and
+  `Agg.countDistinct` take a column with an ordered converter, and `min` and `max` return the model type; other
+  aggregates over a converted column still throw `MQ1408`.
 
 ### Changed
 - Primary-key-first step-2 batches and bulk-write key chunks hold at most the largest power of two of keys within the

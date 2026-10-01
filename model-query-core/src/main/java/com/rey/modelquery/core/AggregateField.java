@@ -13,31 +13,39 @@ import java.util.function.BiFunction;
  * number of concurrent queries (INV-9).
  *
  * <p>Two aggregates are equal when they have the same function, source (the column's join key and attribute, or the
- * table's join key) and alias, never by object identity (R-AGG-01). An {@link Agg#of} aggregate is keyed by its name
- * instead, because a lambda cannot be compared (R-AGG-02).
+ * table's join key) and alias, never by object identity, and a {@code min} or {@code max} the same converter class or
+ * none (R-AGG-01). An {@link Agg#of} aggregate is keyed by its name instead, because a lambda cannot be compared
+ * (R-AGG-02).
  *
  * @param <M> the model the selection belongs to
- * @param <C> the aggregate's result type, which is what the database returns (R-AGG-03)
- * @implSpec R-AGG-01, R-AGG-02, D-3
+ * @param <C> the aggregate's result type, which is what the database returns (R-AGG-03), or the model type for a
+ *     {@code min} or {@code max} over a column with an {@link OrderedColumnConverter} (R-AGG-04)
+ * @implSpec R-AGG-01, R-AGG-02, R-AGG-04, D-3, D-84
  */
 @Incubating
 public final class AggregateField<M, C> implements SelectField<M, C> {
 
     /** The aggregate function; its name is the one used in {@link #name()}. */
     enum Kind {
-        COUNT("count"),
-        COUNT_DISTINCT("countDistinct"),
-        SUM("sum"),
-        SUM_AS_LONG("sumAsLong"),
-        AVG("avg"),
-        MIN("min"),
-        MAX("max"),
-        OF(null);
+        COUNT("count", false),
+        COUNT_DISTINCT("countDistinct", true),
+        SUM("sum", false),
+        SUM_AS_LONG("sumAsLong", false),
+        AVG("avg", false),
+        MIN("min", true),
+        MAX("max", true),
+        OF(null, false);
 
         private final String function;
+        /**
+         * Whether the function commutes with an {@link OrderedColumnConverter}, so it may aggregate a column carrying
+         * one (R-AGG-04).
+         */
+        final boolean ordered;
 
-        Kind(String function) {
+        Kind(String function, boolean ordered) {
             this.function = function;
+            this.ordered = ordered;
         }
     }
 
@@ -48,15 +56,21 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
     private final String attribute;
     private final String alias;
     private final Class<C> type;
+    /**
+     * The converted column a {@code min} or {@code max} aggregates, whose converter maps the result read and a
+     * {@code having} value bound; {@code null} when the result is read as the database returns it.
+     */
+    private final ColumnField<?, ?, C> converted;
     private final BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression;
 
     AggregateField(Kind kind, JoinKey source, String attribute, String alias, Class<C> type,
-            BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
+            ColumnField<?, ?, C> converted, BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
         this.kind = kind;
         this.source = source;
         this.attribute = attribute;
         this.alias = alias;
         this.type = type;
+        this.converted = converted;
         this.expression = expression;
     }
 
@@ -65,7 +79,8 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
      * (R-AGG-01). The alias also becomes its {@link #name()}.
      */
     public AggregateField<M, C> as(String alias) {
-        return new AggregateField<>(kind, source, attribute, Objects.requireNonNull(alias, "alias"), type, expression);
+        return new AggregateField<>(kind, source, attribute, Objects.requireNonNull(alias, "alias"), type, converted,
+                expression);
     }
 
     @Override
@@ -106,6 +121,11 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         return result;
     }
 
+    /** The converted column a {@code min} or {@code max} aggregates, which maps its values; else {@code null}. */
+    ColumnField<?, ?, C> converted() {
+        return converted;
+    }
+
     /** Whether {@code a} and {@code b} are one {@code Agg.of} key defined by different functions (R-AGG-02). */
     static boolean conflict(SelectField<?, ?> a, SelectField<?, ?> b) {
         return a instanceof AggregateField<?, ?> x && b instanceof AggregateField<?, ?> y
@@ -125,12 +145,18 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
                 && kind == other.kind
                 && Objects.equals(source, other.source)
                 && attribute.equals(other.attribute)
-                && alias.equals(other.alias);
+                && alias.equals(other.alias)
+                && Objects.equals(converterClass(), other.converterClass());
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(kind, source, attribute, alias);
+        return Objects.hash(kind, source, attribute, alias, converterClass());
+    }
+
+    /** The class of the converter that maps the result, so a min over an {@code Instant} and a {@code Date} differ. */
+    private Class<?> converterClass() {
+        return converted == null ? null : converted.converterClass();
     }
 
     @Override

@@ -39,7 +39,8 @@ public static final AggregateField<ProductSales, BigDecimal> REVENUE = Agg.sum(Q
 ```
 
 **R-AGG-01** An `AggregateField` is equal to another with the same function, source column (by the column's own join
-key and attribute) and alias — never by object identity, the same rule joins follow (`api/10` R-COL-02). Two
+key and attribute) and alias — never by object identity, the same rule joins follow (`api/10` R-COL-02); a `min` or
+`max` over a converted column also needs a converter of the same class (`api/10` R-COL-14). Two
 `Agg.sum(LINE_TOTAL)` calls are therefore one selection and one `Row` key. `as("…")` gives an aggregate its own
 key when the same function over the same column is needed twice.
 
@@ -70,7 +71,11 @@ argument (D-25). For generated columns the processor (M4) reports the same mista
 type; a primitive field for a `sum` column is a processor error `MQ3201`. A caller that wants `0` uses a
 `ColumnConverter` or `Objects.requireNonNullElse` in the mapper — the engine never invents a value (INV-5).
 An aggregate function over a converted column throws `MQ1408`: the database aggregates attribute values, which the
-column's converter cannot be applied to (`api/10` R-COL-14). `Agg.of` is the way to aggregate such an attribute.
+column's converter cannot be applied to (`api/10` R-COL-14). `Agg.of` is the way to aggregate such an attribute. The
+exception is a column whose converter is an `OrderedColumnConverter`: `min`, `max` and `countDistinct` commute with an
+order-preserving, injective conversion, so they take it. `min` and `max` return the converter's `toModel` of the value
+the database returned, typed as the column, and a `having` value on them binds `toAttribute` of it; `countDistinct`
+stays a `Long`. `sum`, `sumAsLong` and `avg` keep `MQ1408` for every converter (D-84).
 
 ## 3. Grouping and `having`
 
@@ -147,3 +152,4 @@ generated `GROUP_KEYS` `ColumnSet`, and `QProductSales.query()` comes pre-config
 | AC-AGG-10 | An aggregate selection with no `groupBy` returns exactly one row (R-AGG-07). |
 | AC-AGG-11 | `afterMap` on a grouped query runs once per group and sees every selected aggregate (`api/11` R-QRY-05). |
 | AC-AGG-12 | `having` on a query with neither a `groupBy` nor a selected aggregate throws `MQ1407`, even when every filter was skipped; an aggregate in the `groupBy` set throws `MQ1404` (R-AGG-05, R-AGG-07). |
+| AC-AGG-13 | `Agg.min`, `max` and `countDistinct` over a column with an `OrderedColumnConverter` return the model-typed `min` and `max` and the `Long` count the database computes over the attribute on every Tier-1 vendor, and `having` and `orderBy` on them compare attribute values; `sum`, `sumAsLong` and `avg` over it, and every function over a converter that is not ordered, throw `MQ1408` (R-AGG-04, D-84). |

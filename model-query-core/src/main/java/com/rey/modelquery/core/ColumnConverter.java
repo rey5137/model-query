@@ -8,11 +8,13 @@ import com.rey.modelquery.annotations.Incubating;
  * of its value. An implementation is stateless, and neither method is ever given {@code null}.
  *
  * <p>The database compares, orders and pages by attribute values. A converter that is not a bijection is therefore
- * unsafe to filter by: two model values mapped to one attribute value match the same rows.
+ * unsafe to filter by: two model values mapped to one attribute value match the same rows. An aggregate function does
+ * not take a converted column, except {@code min}, {@code max} and {@code countDistinct} over one whose converter is an
+ * {@link OrderedColumnConverter}.
  *
  * @param <C> the model type, the column's {@link ColumnField#type()}
  * @param <F> the entity attribute's type
- * @implSpec R-COL-14, D-37
+ * @implSpec R-COL-14, D-37, D-84
  */
 @Incubating
 public interface ColumnConverter<C, F> {

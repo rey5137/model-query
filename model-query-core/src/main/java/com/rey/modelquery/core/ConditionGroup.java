@@ -478,13 +478,15 @@ abstract class ConditionGroup<M, G> {
 
     /**
      * The value a filter on {@code column} binds for {@code value}: the attribute value for a column with a
-     * {@link ColumnConverter}, converted once when the filter is recorded, else {@code value} itself (R-COL-14).
+     * {@link ColumnConverter}, or a {@code min} or {@code max} over one (R-AGG-04), converted once when the filter is
+     * recorded, else {@code value} itself (R-COL-14).
      */
     @SuppressWarnings("unchecked")
     private static <C> C bound(SelectField<?, C> column, C value) {
         // A converted column's path is of the attribute's type although typed by the model's (D-37), and the bound
         // value is typed the same way, so the two still meet in one Criteria call.
-        return column instanceof ColumnField<?, ?, C> field ? (C) field.toAttribute(value) : value;
+        ColumnField<?, ?, C> values = ColumnField.valueColumn(column);
+        return values != null ? (C) values.toAttribute(value) : value;
     }
 
     /** {@link #bound(SelectField, Object)} for an operator that needs the attribute to be a {@code needed}. */
@@ -507,13 +509,15 @@ abstract class ConditionGroup<M, G> {
         }
     }
 
-    /** {@code column} as a {@link ColumnField} with a {@link ColumnConverter}, or {@code null}. */
+    /** The {@link ColumnField} with a {@link ColumnConverter} that maps {@code column}'s values, or {@code null}. */
     private static ColumnField<?, ?, ?> converted(SelectField<?, ?> column) {
-        return column instanceof ColumnField<?, ?, ?> field && field.isConverted() ? field : null;
+        ColumnField<?, ?, ?> values = ColumnField.valueColumn(column);
+        return values != null && values.isConverted() ? values : null;
     }
 
     private static Class<?> attributeType(SelectField<?, ?> column) {
-        return column instanceof ColumnField<?, ?, ?> field ? field.attributeType() : column.type();
+        ColumnField<?, ?, ?> values = ColumnField.valueColumn(column);
+        return values != null ? values.attributeType() : column.type();
     }
 
     private static <C> C boundOrNull(SelectField<?, C> column, C value) {

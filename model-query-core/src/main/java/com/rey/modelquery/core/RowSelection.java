@@ -75,7 +75,8 @@ public final class RowSelection {
         @Override
         public <C> C get(SelectField<?, C> column) {
             Object raw = raw(column);
-            return column instanceof ColumnField<?, ?, C> field ? field.toModel(raw) : column.type().cast(raw);
+            ColumnField<?, ?, C> values = ColumnField.valueColumn(column);
+            return values != null ? values.toModel(raw) : column.type().cast(raw);
         }
 
         @Override

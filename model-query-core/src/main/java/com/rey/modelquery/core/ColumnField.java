@@ -95,7 +95,8 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
      * {@code table}, and its {@link #type()} is the model's {@code type}. A {@link Row} returns
      * {@code converter.toModel} of a non-null value read, a value filter binds {@code converter.toAttribute} of its
      * value, and {@link Row#raw} returns the attribute value as read (R-COL-14). An aggregate function does not take
-     * a converted column ({@code MQ1408}).
+     * a converted column ({@code MQ1408}), except {@code min}, {@code max} and {@code countDistinct} over one whose
+     * converter is an {@link OrderedColumnConverter} (R-AGG-04).
      */
     @SuppressWarnings("unchecked")
     public static <M, T, C, F> ColumnField<M, T, C> of(
@@ -308,6 +309,23 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
     /** Whether the column has a {@link ColumnConverter}. */
     boolean isConverted() {
         return converter != null;
+    }
+
+    /** Whether the column's converter is an {@link OrderedColumnConverter}, so it keeps order both ways (D-84). */
+    boolean isOrdered() {
+        return converter instanceof OrderedColumnConverter;
+    }
+
+    /**
+     * The column whose {@link #toModel} and {@link #toAttribute} map {@code field}'s values: the column itself, or the
+     * converted column a {@code min} or {@code max} aggregates (R-AGG-04); {@code null} for any other selection,
+     * whose values are read and bound as they are.
+     */
+    static <C> ColumnField<?, ?, C> valueColumn(SelectField<?, C> field) {
+        if (field instanceof ColumnField<?, ?, C> column) {
+            return column;
+        }
+        return field instanceof AggregateField<?, C> aggregate ? aggregate.converted() : null;
     }
 
     /** The converter's class, which two equal columns share, or {@code null} without a converter (R-COL-14). */

@@ -52,7 +52,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1405` | An `Agg.of` expression returned `null`, or an expression whose Java type is not the declared type | `api/13` R-AGG-02 |
 | `MQ1406` | An `orderBy` key that does not fit the grouping: a non-group-key column on a grouped query, or an aggregate on an ungrouped one | `api/13` R-AGG-08 |
 | `MQ1407` | `having(...)` on an ungrouped query, one with neither a `groupBy` nor a selected aggregate | `api/13` R-AGG-07 |
-| `MQ1408` | An aggregate function over a column that has a `ColumnConverter` | `api/13` R-AGG-04 |
+| `MQ1408` | An aggregate function over a column that has a `ColumnConverter`, other than `min`, `max` or `countDistinct` over an `OrderedColumnConverter` | `api/13` R-AGG-04 |
 | `MQ1409` | A grouped query selects a column under a `presentBy` join whose key columns are not all group keys | `api/13` R-AGG-09 |
 | `MQ1601` | A bulk write chose its rows with `where(...)` and no predicate is left | `api/14` R-WRT-12 |
 | `MQ1602` | A column is assigned twice in one update | `api/14` R-WRT-13 |
