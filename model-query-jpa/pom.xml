@@ -76,6 +76,9 @@
                     <targetClasses>
                         <param>com.rey.modelquery.jpa.Keyset*</param>
                     </targetClasses>
+                    <excludedClasses>
+                        <param>com.rey.modelquery.jpa.KeysetWrite*</param>
+                    </excludedClasses>
                     <targetTests>
                         <param>com.rey.modelquery.jpa.*Test</param>
                     </targetTests>
