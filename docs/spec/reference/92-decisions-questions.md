@@ -960,6 +960,16 @@ join table only (forces a join entity on mappings that have none); refusing coll
 bidirectional case is free once dedupe is per parent). The re-rooting of `ChildQuery` filters under `through` goes to
 an `architect-review` before M8.15b. `@Incubating`. → `api/15` R-FCH-03, -04, -14.
 
+**D-100 — Re-rooting a `through` child.** A `through` child query resolves the child model against a second
+`JoinContext` whose root is the `through` join, instead of re-rooting each column, filter and sort with `under`: filters
+are closures and `add(...)` is caller code, so only rebinding the context re-roots every kind, `exists` included (it
+correlates the join). `ChildField` carries `through` as a generated INNER `TableField` chain, not a string, and
+`ChildLoad` builds the child query in core (INV-7). `key` must be the parent root's `@Id`, since a non-unique key would
+merge two parents' children silently; a grouped child model is refused, since the parent key would need a GROUP BY.
+Rejected: `under`-rewritten filters (impossible for closures and `add`); a second root matched in WHERE (an extra
+self-join, and comma joins mixed with JOIN/ON differ by vendor, INV-6). `@Incubating`. → `api/15` R-FCH-06, -14,
+`processor/32` `MQ3406`.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

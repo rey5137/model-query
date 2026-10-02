@@ -1082,23 +1082,24 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * The children of {@code keys}, grouped by key in child order. The keys go in rounds of at most the largest power
      * of two within the profile's limits, each one statement {@code where foreignKey IN keys} with the child filters
      * and the child order closed by the child's primary key; a child read twice for one key is kept once. The child
-     * plan then runs once over all the rows read (R-FCH-04, R-FCH-05, D-99).
+     * plan then runs once over all the rows read. A {@code through} child's statement is rooted at the parent's
+     * entity and matches the parent's key instead, which {@link ChildLoad} builds (R-FCH-04, R-FCH-05, R-FCH-14,
+     * D-99, D-100).
      */
     private <C> Map<Object, List<C>> childrenOf(ChildLoad<?, C> load, ModelQuery<E, ?, C> q, List<Object> keys) {
         checkFirstRun(q);
         CriteriaBuilder cb = em.getCriteriaBuilder();
         // The statement's own binds, before any key is added, at one bind per key (R-PAG-07, D-32).
-        int ownBinds = em.createQuery(q.buildQuery(cb, Phase.MODEL, renderOptions).query()).getParameters().size();
+        int ownBinds = em.createQuery(load.build(cb, renderOptions).query()).getParameters().size();
         int round = keyLimits.clamp(ownBinds, 1, OptionalInt.empty());
         LOG.log(DEBUG, () -> "child " + load + ": " + keys.size() + (keys.size() == 1 ? " key" : " keys") + " in "
                 + ((keys.size() - 1) / round + 1) + " round(s)");
-        ColumnField<C, ?, ?> foreignKey = load.field().foreignKey();
         List<Loaded<C>> loaded = new ArrayList<>();
         List<Object> parents = new ArrayList<>();
         for (int from = 0; from < keys.size(); from += round) {
             List<Object> roundKeys = keys.subList(from, Math.min(keys.size(), from + round));
-            BuiltQuery<C> built = q.buildQuery(cb, Phase.MODEL, renderOptions);
-            Predicate byKey = foreignKey.path(built.joins()).in(roundKeys);
+            BuiltQuery<C> built = load.build(cb, renderOptions);
+            Predicate byKey = load.key(built).in(roundKeys);
             Predicate own = built.query().getRestriction();
             built.query().where(own == null ? byKey : cb.and(own, byKey));
             appendStableOrder(q, built);
@@ -1115,9 +1116,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             PrimaryKey<C, ?> childKey = q.primaryKey().orElse(null);
             for (Tuple tuple : tuples) {
                 Row row = built.selection().row(tuple);
-                Object parent = row.raw(foreignKey);
+                Object parent = load.key(built, tuple);
                 if (!wanted.contains(parent)) {
-                    throw new ModelQueryExecutionException(MqCode.MQ2604, load + ": a child row's " + foreignKey
+                    throw new ModelQueryExecutionException(MqCode.MQ2604, load + ": a child row's "
+                            + load.field().foreignKey().<Object>map(column -> column).orElseGet(load.field()::key)
                             + " is " + parent + ", which equals none of the " + roundKeys.size() + " keys of the "
                             + "statement that matched it; the column's collation equates values Java tells apart, "
                             + "by case or trailing spaces, so key the child on a column with a binary collation");

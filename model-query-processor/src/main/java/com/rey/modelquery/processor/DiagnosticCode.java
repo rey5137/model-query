@@ -107,8 +107,17 @@ enum DiagnosticCode {
     MQ3403("@Child key and foreignKey attribute types differ"),
     /** A {@code @Child} key of several attributes, an embedded value, or an array. */
     MQ3404("@Child with a composite or array-typed key"),
-    /** A {@code List} {@code @Child} without {@code foreignKey}, or whose model has no {@code @PrimaryKey}. */
-    MQ3405("List @Child without foreignKey, or whose model has no @PrimaryKey");
+    /**
+     * A {@code List} {@code @Child} without {@code foreignKey} (unless {@code through}), or whose model has no
+     * {@code @PrimaryKey}.
+     */
+    MQ3405("List @Child without foreignKey, or whose model has no @PrimaryKey"),
+    /**
+     * A {@code @Child} {@code through} path that is blank, crosses a non-association or an embedded value, or ends at
+     * another type than the child's root; a {@code key} that is not the parent root's single {@code @Id}; or a grouped
+     * child model.
+     */
+    MQ3406("@Child through path, key or child model that a through child can't load");
 
     private final String defaultMessage;
 

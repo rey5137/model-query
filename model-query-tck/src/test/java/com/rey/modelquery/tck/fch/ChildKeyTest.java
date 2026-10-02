@@ -16,6 +16,7 @@ import com.rey.modelquery.core.LikeMode;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
@@ -284,8 +285,13 @@ class ChildKeyTest {
             }
 
             @Override
-            public ColumnField<OrderLines, ?, ?> foreignKey() {
+            public Optional<ColumnField<OrderLines, ?, ?>> foreignKey() {
                 return generated.foreignKey();
+            }
+
+            @Override
+            public Optional<TableField<?, ?>> through() {
+                return generated.through();
             }
 
             @Override

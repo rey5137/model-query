@@ -157,8 +157,13 @@ public final class QInvoiceView {
         }
 
         @Override
-        public ColumnField<CountryView, ?, ?> foreignKey() {
-            return foreignKey;
+        public Optional<ColumnField<CountryView, ?, ?>> foreignKey() {
+            return Optional.of(foreignKey);
+        }
+
+        @Override
+        public Optional<TableField<?, ?>> through() {
+            return Optional.empty();
         }
 
         @Override

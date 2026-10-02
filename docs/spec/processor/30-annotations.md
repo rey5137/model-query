@@ -79,7 +79,7 @@ joins (`api/10` R-COL-03); an `alias` written on the annotation wins (D-45).
 model's root and on the child's root; left empty, each is that model's one `@PrimaryKey` attribute. A path may cross
 associations, each joined `LEFT` and without alias so that a `@Join` on the same association shares the join, and
 embedded values, but not an association inside an embedded value. The field carries no other model annotation, and
-an update model has none (`processor/32` `MQ3401`–`MQ3405`). The child model may be a source of the compilation or a
+an update model has none (`processor/32` `MQ3401`–`MQ3406`). The child model may be a source of the compilation or a
 class on its classpath, as a nested model may (D-45).
 
 ## 5. `@FilterColumn`

@@ -17,6 +17,7 @@ import com.rey.modelquery.processor.fixture.OrderRef;
 import com.rey.modelquery.processor.fixture.QOrderRef;
 import jakarta.persistence.criteria.JoinType;
 import java.util.List;
+import java.util.Optional;
 import javax.annotation.processing.Generated;
 
 @Generated("com.rey.modelquery.processor.ModelQueryProcessor")
@@ -55,8 +56,13 @@ public final class QCustomerCard {
         }
 
         @Override
-        public ColumnField<OrderRef, ?, ?> foreignKey() {
-            return foreignKey;
+        public Optional<ColumnField<OrderRef, ?, ?>> foreignKey() {
+            return Optional.of(foreignKey);
+        }
+
+        @Override
+        public Optional<TableField<?, ?>> through() {
+            return Optional.empty();
         }
 
         @Override

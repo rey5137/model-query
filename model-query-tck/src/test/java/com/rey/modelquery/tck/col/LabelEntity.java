@@ -8,7 +8,10 @@ import jakarta.persistence.ManyToMany;
 import jakarta.persistence.Table;
 import java.util.List;
 
-/** Fixture entity over {@code labels}, many-to-many with the orders, mapped on this side only. */
+/**
+ * Fixture entity over {@code labels}, many-to-many with the orders: owned on this side, which the label child of an
+ * order crosses in its foreign key, and mapped back by {@code OrderEntity.labels}.
+ */
 @Entity
 @Table(name = "labels")
 public class LabelEntity {

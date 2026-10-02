@@ -143,7 +143,8 @@ final class QueryModelReader {
                 model = container.getTypeArguments().get(0);
             }
         }
-        return new ChildDefinition(List.of(child.key()), List.of(child.foreignKey()), toMany, model);
+        return new ChildDefinition(List.of(child.key()), List.of(child.foreignKey()), child.through(), toMany,
+                model);
     }
 
     /** What {@code @Aggregate} says of {@code field}, or {@code null} when it carries none. */

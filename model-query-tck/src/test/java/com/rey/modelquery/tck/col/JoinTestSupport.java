@@ -128,6 +128,7 @@ public final class JoinTestSupport {
                 .addAnnotatedClass(StampedOrderEntity.class)
                 .addAnnotatedClass(LabelEntity.class)
                 .addAnnotatedClass(CustomerNoteEntity.class)
+                .addAnnotatedClass(PatronEntity.class)
                 .buildSessionFactory(registry);
     }
 }

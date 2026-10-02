@@ -12,6 +12,7 @@ import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Selection;
 import jakarta.persistence.metamodel.PluralAttribute;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -343,6 +344,28 @@ public final class ModelQuery<E, K, M> {
         }
     }
 
+    /**
+     * The {@code MODEL} statement of a {@code through} child load (R-FCH-14, D-100): rooted at the parent's entity,
+     * where {@code through} starts, and joined {@code INNER} along it before anything else, so that no {@code or(...)}
+     * turns those joins {@code LEFT} (R-FLT-10). The model then resolves as {@link #buildQuery} resolves it, against a
+     * context whose root is the path's last join, and {@code parentKey}, read on the parent's root, is selected last.
+     * The customizer, if any, runs last, its {@code query.getRoots()} holding the parent's entity.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1205} when the customizer changed the ordering or the grouping
+     */
+    BuiltQuery<M> buildThroughQuery(CriteriaBuilder cb, RenderOptions options, TableField<?, ?> through,
+            ColumnField<?, ?, ?> parentKey) {
+        CriteriaQuery<Tuple> query = cb.createTupleQuery();
+        JoinContext parent = JoinContext.of(query.from(through.pathRoot()), cb, query, options);
+        From<?, ?> join = through.resolve(parent);
+        Expression<?> key = parentKey.path(parent);
+        BuiltQuery<M> built = assemble(query, parent.rootedAt(join, root.rootEntity()), Phase.MODEL, key);
+        if (customizer != null) {
+            customize(built, cb, Phase.MODEL);
+        }
+        return built;
+    }
+
     /** Selection, predicate, grouping and ordering of {@code phase}, before any customizer runs. */
     private BuiltQuery<M> assemble(CriteriaBuilder cb, Phase phase, RenderOptions options) {
         if (phase == Phase.PRIMARY_KEY && primaryKey == null) {
@@ -351,7 +374,16 @@ public final class ModelQuery<E, K, M> {
         }
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root<E> from = query.from(root.rootEntity());
-        JoinContext joins = JoinContext.of(from, cb, query, options);
+        return assemble(query, JoinContext.of(from, cb, query, options), phase, null);
+    }
+
+    /**
+     * {@link #assemble(CriteriaBuilder, Phase, RenderOptions)} on {@code query}, resolving through {@code joins};
+     * {@code parentKey}, when not {@code null}, is selected after the model's columns.
+     */
+    private BuiltQuery<M> assemble(CriteriaQuery<Tuple> query, JoinContext joins, Phase phase,
+            Expression<?> parentKey) {
+        CriteriaBuilder cb = joins.cb();
         // Joins resolve in one order in every phase: selection, ordering and grouping first, then every filter
         // outside or/not, then those inside. An or(...) then finds the INNER join the rest of the query needs and
         // reuses it, instead of joining the path LEFT and leaving the rest to join it again (R-FLT-10, D-26).
@@ -364,7 +396,11 @@ public final class ModelQuery<E, K, M> {
         } else {
             selection = modelSelection;
         }
-        query.multiselect(selection.selections(joins));
+        List<Selection<?>> selections = new ArrayList<>(selection.selections(joins));
+        if (parentKey != null) {
+            selections.add(parentKey.alias(BuiltQuery.PARENT_KEY));
+        }
+        query.multiselect(selections);
         List<Order> orders = new ArrayList<>();
         for (OrderField<M, ?> order : orderBy) {
             orders.addAll(order.toOrders(joins, cb));
@@ -382,7 +418,7 @@ public final class ModelQuery<E, K, M> {
         if (!predicates.get(1).isEmpty()) {
             query.having(predicates.get(1).toArray(Predicate[]::new));
         }
-        return new BuiltQuery<>(query, joins, selection, mapping);
+        return new BuiltQuery<>(query, joins, selection, mapping, parentKey);
     }
 
     /**

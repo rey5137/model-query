@@ -135,11 +135,13 @@ record ModelDefinition(
      *
      * @param key the paths written for {@code key}; empty for the model's {@code @PrimaryKey} attribute
      * @param foreignKey the paths written for {@code foreignKey}; empty for the child's {@code @PrimaryKey} attribute
+     * @param through the association path written for {@code through}; {@code ""} for none
      * @param toMany whether the field is a {@code List}, rather than an {@code Optional}
      * @param model {@code X} of a field declared {@code List<X>} or {@code Optional<X>}, or {@code null} for any
      *     other type
      */
-    record ChildDefinition(List<String> key, List<String> foreignKey, boolean toMany, TypeMirror model) {
+    record ChildDefinition(List<String> key, List<String> foreignKey, String through, boolean toMany,
+            TypeMirror model) {
 
         ChildDefinition {
             key = List.copyOf(key);

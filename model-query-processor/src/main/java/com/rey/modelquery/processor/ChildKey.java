@@ -100,6 +100,59 @@ record ChildKey(
                 null, null);
     }
 
+    /**
+     * The associations a {@code through} path joins from {@code root}, one per step, or why it can't: a step that is
+     * not an association of a known target, or that sits in an embedded value (api/15 R-FCH-14).
+     *
+     * @param joins the joins, in order; empty when the path fails
+     * @param problem why the path fails, worded to follow {@code "through 'path' "}; {@code null} when it does not
+     */
+    record Through(List<Join> joins, String problem) {
+
+        Through {
+            joins = List.copyOf(joins);
+        }
+
+        /** Whether a join of the path is a collection, which gives a row per element. */
+        boolean crossesCollection() {
+            return joins.stream().anyMatch(Join::collection);
+        }
+
+        /** The entity the path ends at; the path must not have failed. */
+        TypeElement target() {
+            return joins.get(joins.size() - 1).entity();
+        }
+    }
+
+    /** Lays the {@code through} path {@code path} out from {@code root}. */
+    static Through through(EntityMetamodel metamodel, TypeElement root, String path) {
+        if (path.isBlank()) {
+            return new Through(List.of(), "is blank");
+        }
+        Walk walk = metamodel.walk(root, path);
+        if (walk.problem() != null) {
+            return new Through(List.of(), "can't be followed: " + walk.problem());
+        }
+        var joins = new ArrayList<Join>();
+        TypeElement entity = root;
+        for (Step step : walk.steps()) {
+            EntityAttribute attribute = step.attribute();
+            if (attribute.kind() == EntityAttribute.Kind.EMBEDDED) {
+                return new Through(List.of(), "crosses the embedded value '" + attribute.name() + "' of "
+                        + step.owner() + ", which a join can't reach into");
+            }
+            if (!attribute.joinable()) {
+                return new Through(List.of(), "crosses '" + attribute.name() + "' on " + step.owner()
+                        + ", which is not an association to an entity");
+            }
+            var target = (TypeElement) attribute.target().asElement();
+            joins.add(new Join(entity, target, attribute.name(),
+                    attribute.kind() == EntityAttribute.Kind.COLLECTION));
+            entity = target;
+        }
+        return new Through(joins, null);
+    }
+
     private static ChildKey failed(String path, DiagnosticCode code, String problem) {
         return new ChildKey(path, List.of(), null, null, code, problem);
     }

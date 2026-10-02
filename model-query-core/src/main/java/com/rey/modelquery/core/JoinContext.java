@@ -32,6 +32,11 @@ public final class JoinContext {
     private record Resolved(From<?, ?> from, Object condition) {}
 
     private final From<?, ?> root;
+    /**
+     * The entity {@link #root} stands for, which a root column must sit on: its Java type, or the child's root entity
+     * when the root is a {@code through} join (D-100), whose type a provider may report otherwise for a collection.
+     */
+    private final Class<?> rootType;
     private final CriteriaBuilder cb;
     /** Where an {@code exists} sub-query is created; {@code null} for a context made with {@link #of}. */
     private final CommonAbstractCriteria query;
@@ -56,9 +61,10 @@ public final class JoinContext {
      */
     private final Set<Class<?>> existsJoined;
 
-    private JoinContext(From<?, ?> root, CriteriaBuilder cb, CommonAbstractCriteria query, JoinKey rootKey,
-            Set<JoinKey> required, RenderOptions renderOptions, Set<Class<?>> existsJoined) {
+    private JoinContext(From<?, ?> root, Class<?> rootType, CriteriaBuilder cb, CommonAbstractCriteria query,
+            JoinKey rootKey, Set<JoinKey> required, RenderOptions renderOptions, Set<Class<?>> existsJoined) {
         this.root = root;
+        this.rootType = rootType;
         this.cb = cb;
         this.query = query;
         this.rootKey = rootKey;
@@ -70,12 +76,23 @@ public final class JoinContext {
     /** A context over {@code root}, the query's root table, rendering with {@link RenderOptions#portable()}. */
     @EngineFacing
     public static JoinContext of(Root<?> root, CriteriaBuilder cb) {
-        return new JoinContext(root, cb, null, null, Set.of(), RenderOptions.portable(), new HashSet<>());
+        return new JoinContext(root, root.getJavaType(), cb, null, null, Set.of(), RenderOptions.portable(),
+                new HashSet<>());
     }
 
     /** A context over the root of {@code query}, which can also render {@code exists} sub-queries. */
     static JoinContext of(Root<?> root, CriteriaBuilder cb, CommonAbstractCriteria query, RenderOptions options) {
-        return new JoinContext(root, cb, query, null, Set.of(), options, new HashSet<>());
+        return new JoinContext(root, root.getJavaType(), cb, query, null, Set.of(), options, new HashSet<>());
+    }
+
+    /**
+     * A context of the same query whose root is {@code join}, a join of this context reaching {@code entity}: a
+     * {@code through} child's model resolves against it, its columns, joins, filters, {@code exists} and order all
+     * under the join, while this context keeps the joins up to it (R-FCH-14, D-100). It shares the render options and
+     * the {@code exists} bookkeeping, but not the join cache, so the joins it makes sit below {@code join}.
+     */
+    JoinContext rootedAt(From<?, ?> join, Class<?> entity) {
+        return new JoinContext(join, entity, cb, query, null, Set.of(), renderOptions, existsJoined);
     }
 
     /** Whether an {@code exists} sub-query of this build rendered so far, at any depth (R-WRT-11). */
@@ -93,6 +110,11 @@ public final class JoinContext {
 
     From<?, ?> root() {
         return root;
+    }
+
+    /** The entity the root stands for, which a column on a root must sit on. */
+    Class<?> rootType() {
+        return rootType;
     }
 
     JoinKey rootKey() {
@@ -133,11 +155,17 @@ public final class JoinContext {
             throw new IllegalStateException("exists(...) needs the JoinContext of a ModelQuery build");
         }
         Subquery<Integer> sub = query.subquery(Integer.class);
-        JoinContext ctx = existsPath == null
-                ? new JoinContext(sub.correlate((Root) root), cb, sub, null, path.keysUpTo(null), renderOptions,
-                        existsJoined)
-                : new JoinContext(sub.correlate((Join) existsFrom), cb, sub, existsPath.key(),
-                        path.keysUpTo(existsPath.key()), renderOptions, existsJoined);
+        JoinContext ctx;
+        if (existsPath == null) {
+            // The root of a through child's context is a join, which the sub-query correlates as a join (D-100).
+            From<?, ?> correlated = root instanceof Root<?> ? sub.correlate((Root) root) : sub.correlate((Join) root);
+            ctx = new JoinContext(correlated, rootType, cb, sub, null, path.keysUpTo(null), renderOptions,
+                    existsJoined);
+        } else {
+            From<?, ?> correlated = sub.correlate((Join) existsFrom);
+            ctx = new JoinContext(correlated, correlated.getJavaType(), cb, sub, existsPath.key(),
+                    path.keysUpTo(existsPath.key()), renderOptions, existsJoined);
+        }
         ctx.existsPath = path;
         ctx.existsFrom = path.resolve(ctx);
         sub.select(cb.literal(1));

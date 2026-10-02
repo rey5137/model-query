@@ -26,7 +26,7 @@ import org.junit.jupiter.params.provider.MethodSource;
  * raised for both shapes. Lombok adds accessors and constructors to class models only, so on a record its runs
  * repeat the plain ones with Lombok's processor in the chain. The update-model codes {@code MQ3301}..{@code MQ3307}
  * raise on an {@code @UpdateModel}, and {@code MQ3306} on a {@code generateChanges} query model too. The
- * {@code @Child} codes {@code MQ3401}..{@code MQ3405} raise on a query model with a child over another root.
+ * {@code @Child} codes {@code MQ3401}..{@code MQ3406} raise on a query model with a child over another root.
  */
 class DiagnosticMatrixTest {
 
@@ -108,6 +108,7 @@ class DiagnosticMatrixTest {
 
     private static final String ORDER = "@QueryModel(root = OrderEntity.class)";
     private static final String CUSTOMER = "@QueryModel(root = CustomerEntity.class)";
+    private static final String ITEM = "@QueryModel(root = ItemEntity.class)";
     private static final String SALES = "@QueryModel(root = SaleEntity.class)";
     private static final String SINGLE = "@QueryModel(root = SaleEntity.class, singleGroup = true)";
     private static final String ID = "@PrimaryKey Long id";
@@ -408,7 +409,12 @@ class DiagnosticMatrixTest {
                     with(c.model("OrderView", ORDER, ID),
                             c.model("CustomerView", CUSTOMER, ID, "@Child List<OrderView> orders")),
                     "MQ3405: CustomerView.orders: a List @Child needs foreignKey, the attribute of OrderEntity "
-                            + "that holds the parent's key")));
+                            + "that holds the parent's key")),
+            of("MQ3406", c -> fails(
+                    with(c.model("ItemView", ITEM, ID), c.model("OrderView", ORDER, ID,
+                            "@Child(through = \"customer\") List<ItemView> items")),
+                    "MQ3406: OrderView.items: through 'customer' ends at CustomerEntity, not at ItemEntity, the root "
+                            + "of ItemView")));
 
     static Stream<Arguments> matrix() {
         var runs = new ArrayList<Arguments>();

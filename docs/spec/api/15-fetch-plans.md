@@ -100,17 +100,19 @@ over all the page's child rows (its children, joins and enrichers), and the chil
 parent in child order. A page with no keys runs no child query.
 
 **R-FCH-06** A child query runs on the parent's `EntityManager`, inside the caller's transaction if any, through an
-executor for the child's root entity with the parent executor's `ModelQueryConfig`. It reads no entity (INV-2). Without
-a transaction (a Spring repository call outside one), a page and its children are separate reads, as R-PAG-07's two
-steps are; run in a read-only transaction for one snapshot.
+executor for the child's root entity (rooted at the parent's for `through`) with the parent executor's
+`ModelQueryConfig`. It reads no entity (INV-2). Without a transaction (a Spring repository call outside one), a page and
+its children are separate reads, as R-PAG-07's two steps are; run in a read-only transaction for one snapshot.
 
 **R-FCH-14** `@Child(through = "path")` loads a child the parent's root reaches through an association path ending at
 the child's root entity, typically a unidirectional `@ManyToMany` whose target has no way back. The child query is
-rooted at the parent's root entity: `where key IN keys`, joined (INNER) along `through`, with the child model's columns,
-`@Join`s and `ChildQuery` filters and order re-rooted under that join, as a join plan's are (R-FCH-07), and the parent's
-`key` read on the root as the raw key. `through` excludes `foreignKey`; a `through` path that names no association, or
-ends at another entity than the child's root, is `MQ3406`. Grouping, dedupe and rounds are as R-FCH-04/-05. The exact
-re-rooting of child filters is settled by the `architect-review` before M8.15b (D-99).
+rooted at the parent's root entity and joined INNER along `through`; the child model's selection, `@Join`s, filters
+(`exists` and `add` included), order and customizer resolve against a `JoinContext` whose root is that join, so the
+child's generated columns serve unchanged, and the parent's `key`, which must be its root's `@Id`, is read on the root
+as the raw key (D-100). A customizer must resolve paths through its `JoinContext`; `query.getRoots()` holds the
+parent's entity. `through` excludes `foreignKey` (`MQ3401`). A `through` path that crosses a non-association or an
+embedded value, or ends at another type than the child's root, a `key` that is not the parent root's single `@Id`, or a
+grouped child model, is `MQ3406`. Grouping, dedupe, bounds and rounds are as R-FCH-04/-05/-11.
 
 ## 3. Joins
 

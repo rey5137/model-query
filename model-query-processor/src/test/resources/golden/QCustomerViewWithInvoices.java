@@ -93,8 +93,13 @@ public final class QCustomerView {
         }
 
         @Override
-        public ColumnField<InvoiceView, ?, ?> foreignKey() {
-            return foreignKey;
+        public Optional<ColumnField<InvoiceView, ?, ?>> foreignKey() {
+            return Optional.of(foreignKey);
+        }
+
+        @Override
+        public Optional<TableField<?, ?>> through() {
+            return Optional.empty();
         }
 
         @Override

@@ -117,11 +117,12 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3305` | Update model: to-one attribute written by id with the wrong id type. |
 | `MQ3306` | Update model: `@PrimaryKey` is not the root entity's id. |
 | `MQ3307` | Update model: field generates a change-set member that clashes with `Changes<M>`. |
-| `MQ3401` | `@Child` field is not a `List` or `Optional` of a `@QueryModel`, carries `@Join`, `@Transient`, `@Aggregate` or `@GroupBy`, or is on an update model. |
+| `MQ3401` | `@Child` field is not a `List` or `Optional` of a `@QueryModel`, carries `@Join`, `@Transient`, `@Aggregate` or `@GroupBy`, is on an update model, or sets both `through` and `foreignKey`. |
 | `MQ3402` | `@Child` `key` or `foreignKey` names no attribute of its root, names an association rather than one of its attributes, or crosses a collection in `key`. A `foreignKey` may cross one, for a many-to-many child. |
 | `MQ3403` | `@Child` `key` and `foreignKey` attributes have different types. |
 | `MQ3404` | `@Child` key of several attributes, an embedded value or an array: it takes one attribute each side. |
-| `MQ3405` | A `List` `@Child` without `foreignKey`, or whose model has no `@PrimaryKey`. |
+| `MQ3405` | A `List` `@Child` without `foreignKey` (unless it has `through`), or whose model has no `@PrimaryKey`; or an `Optional` `@Child` whose `through` crosses a collection, on a model with no `@PrimaryKey`. |
+| `MQ3406` | `@Child(through)` whose path is blank, crosses something other than an association, or ends at another type than the child model's root; whose `key` is not the parent root's single `@Id`; or whose child model is grouped. |
 
 See [Models and QModels](models.md).
 

@@ -86,7 +86,8 @@ final class FetchFieldWriter {
     /**
      * The {@code ChildField} of the {@code @Child} {@code field}, named as a column of the field would be. Its key
      * columns read the attribute values on each side, without converter (R-FCH-05), and the child's QModel is named
-     * in {@code query()} alone.
+     * in {@code query()} alone. A {@code through} child carries its path as {@code INNER} joins from the parent's
+     * {@code ROOT} in place of a foreign key (R-FCH-14).
      */
     FieldSpec childField(ModelDefinition model, ModelField field) {
         ChildDefinition definition = field.child();
@@ -95,7 +96,17 @@ final class FetchFieldWriter {
         ClassName childName = ClassName.get(child.type());
         TypeName type = ParameterizedTypeName.get(CHILD_FIELD, modelName, childName);
         ChildKey key = ChildKey.of(metamodel, types, model, definition.key());
-        ChildKey foreignKey = ChildKey.of(metamodel, types, child, definition.foreignKey());
+        boolean through = !definition.through().isEmpty();
+        TypeName foreignKeyType = ParameterizedTypeName.get(COLUMN_FIELD, childName, ANY, ANY);
+        TypeName throughType = ParameterizedTypeName.get(TABLE_FIELD, ANY, ANY);
+        FieldSpec matched = through
+                ? FieldSpec.builder(throughType, "through", Modifier.PRIVATE, Modifier.FINAL)
+                        .initializer(path(ChildKey.through(metamodel, model.root(), definition.through())))
+                        .build()
+                : FieldSpec.builder(foreignKeyType, "foreignKey", Modifier.PRIVATE, Modifier.FINAL)
+                        .initializer(column(childName, ChildKey.of(metamodel, types, child, definition.foreignKey()),
+                                CodeBlock.of("$T.root($T.class)", TABLE_FIELD, ClassName.get(child.root()))))
+                        .build();
         TypeName children = ParameterizedTypeName.get(LIST, childName);
         MethodSpec.Builder with = method("with", modelName)
                 .addParameter(modelName, "parent")
@@ -108,19 +119,18 @@ final class FetchFieldWriter {
                                 Modifier.PRIVATE, Modifier.FINAL)
                         .initializer(column(modelName, key, CodeBlock.of("ROOT")))
                         .build())
-                .addField(FieldSpec.builder(ParameterizedTypeName.get(COLUMN_FIELD, childName, ANY, ANY),
-                                "foreignKey", Modifier.PRIVATE, Modifier.FINAL)
-                        .initializer(column(childName, foreignKey,
-                                CodeBlock.of("$T.root($T.class)", TABLE_FIELD, ClassName.get(child.root()))))
-                        .build())
+                .addField(matched)
                 .addMethod(method("name", ClassName.get(String.class))
                         .addStatement("return $S", field.name())
                         .build())
                 .addMethod(method("key", ParameterizedTypeName.get(COLUMN_FIELD, modelName, ANY, ANY))
                         .addStatement("return key")
                         .build())
-                .addMethod(method("foreignKey", ParameterizedTypeName.get(COLUMN_FIELD, childName, ANY, ANY))
-                        .addStatement("return foreignKey")
+                .addMethod(method("foreignKey", ParameterizedTypeName.get(OPTIONAL, foreignKeyType))
+                        .addStatement(through ? "return $T.empty()" : "return $T.of(foreignKey)", OPTIONAL)
+                        .build())
+                .addMethod(method("through", ParameterizedTypeName.get(OPTIONAL, throughType))
+                        .addStatement(through ? "return $T.of(through)" : "return $T.empty()", OPTIONAL)
                         .build())
                 .addMethod(method("isToMany", TypeName.BOOLEAN)
                         .addStatement("return $L", definition.toMany())
@@ -149,6 +159,16 @@ final class FetchFieldWriter {
         }
         return CodeBlock.of("$T.of($T.class,$W$L,$W$S,$W$L)", COLUMN_FIELD, model, table, key.attribute(),
                 QModelWriter.classOf(TypeName.get(key.type())));
+    }
+
+    /** The {@code through} path {@code through}: its joins from the parent's {@code ROOT}, each {@code INNER}. */
+    private static CodeBlock path(ChildKey.Through through) {
+        CodeBlock table = CodeBlock.of("ROOT");
+        for (ChildKey.Join join : through.joins()) {
+            table = CodeBlock.of("$T.<$T, $T>join($Z$L,$W$S,$W$T.INNER)", TABLE_FIELD, ClassName.get(join.parent()),
+                    ClassName.get(join.entity()), table, join.attribute(), JOIN_TYPE);
+        }
+        return table;
     }
 
     /**

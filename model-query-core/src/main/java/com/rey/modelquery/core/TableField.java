@@ -154,7 +154,7 @@ public final class TableField<P, T> {
             return (From<?, T>) ctx.root();
         }
         if (rootEntity != null) {
-            Class<?> queried = ctx.root().getJavaType();
+            Class<?> queried = ctx.rootType();
             // Otherwise a column declared on another entity's root would silently read the query root's attribute.
             if (!rootEntity.isAssignableFrom(queried)) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1003, prefix(owner) + "sits on " + describe()
@@ -183,6 +183,15 @@ public final class TableField<P, T> {
     /** The parent node, or {@code null} for a root. */
     TableField<?, P> parent() {
         return parent;
+    }
+
+    /** The entity of the root this path starts at. */
+    Class<?> pathRoot() {
+        TableField<?, ?> node = this;
+        while (node.parent != null) {
+            node = node.parent;
+        }
+        return node.rootEntity;
     }
 
     /**

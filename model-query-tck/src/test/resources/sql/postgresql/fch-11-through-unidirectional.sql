@@ -1,0 +1,2 @@
+select pe1_0.id from customers pe1_0 where pe1_0.id<=? or pe1_0.id=? order by 1
+select r1_1.id,r1_1.name,pe1_0.id from customers pe1_0 join orders r1_0 on pe1_0.id=r1_0.customer_id join customers r1_1 on r1_1.id=r1_0.referrer_id where pe1_0.id in (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) order by 1

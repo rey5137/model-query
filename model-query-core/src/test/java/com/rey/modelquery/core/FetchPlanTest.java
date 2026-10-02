@@ -345,6 +345,42 @@ class FetchPlanTest {
         assertThat(FetchPlan.of(SelectSet.of(ID)).isSelectionOnly()).isTrue();
     }
 
+    @Test
+    void ac_fch_11_a_child_field_needs_exactly_one_of_foreign_key_and_through() {
+        var through = TableField.<InvoiceEntity, LineEntity>join(ROOT, "lines", INNER);
+        Supplier<ModelQuery.Builder<?, ?, LineView>> lines =
+                () -> ModelQuery.builder(LINE_ROOT, row -> new LineView()).primaryKey(PrimaryKey.of(LINE_ID));
+        var both = childField("lines", ID, LINE_INVOICE_ID, through, lines);
+        var neither = childField("lines", ID, null, null, lines);
+
+        assertThatThrownBy(() -> FetchPlan.of(SelectSet.of(ID)).child(both, LINE))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessage("InvoiceView.lines: a child field needs exactly one of foreignKey() and through(), found "
+                        + "both");
+        assertThatThrownBy(() -> FetchPlan.of(SelectSet.of(ID)).child(neither, LINE))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessage("InvoiceView.lines: a child field needs exactly one of foreignKey() and through(), found "
+                        + "neither");
+    }
+
+    @Test
+    void ac_fch_11_a_through_child_selects_no_foreign_key_and_refuses_a_grouped_model_with_mq1704() {
+        var through = TableField.<InvoiceEntity, LineEntity>join(ROOT, "lines", INNER);
+        var lines = childField("lines", ID, null, through,
+                () -> ModelQuery.builder(LINE_ROOT, row -> new LineView()).primaryKey(PrimaryKey.of(LINE_ID)));
+        var plan = FetchPlan.of(SelectSet.of(ID)).child(lines, LINE);
+
+        @SuppressWarnings("unchecked") // the plan's only child is lines
+        var load = (ChildLoad<InvoiceView, LineView>) plan.childLoads().get(0);
+        assertThat(load.query().select().fields()).containsExactly(LINE_ID);
+        var grouped = childField("lines", ID, null, through,
+                () -> ModelQuery.builder(LINE_ROOT, row -> new LineView()).groupBy(LINE_INVOICE_ID));
+        assertCode(() -> FetchPlan.of(SelectSet.of(ID)).child(grouped,
+                        FetchPlan.of(SelectSet.<LineView>of(LINE_INVOICE_ID, Agg.count(LINE_ROOT)))), MqCode.MQ1704,
+                "MQ1704: InvoiceView.lines: a child loaded through an association path can't be grouped, since its "
+                        + "rows would have to be grouped by the parent's key too");
+    }
+
     // ---- R-FCH-02: select and fetch
 
     @Test
@@ -466,6 +502,11 @@ class FetchPlanTest {
 
     private static <M, C> ChildField<M, C> childField(String name, ColumnField<M, ?, ?> key,
             ColumnField<C, ?, ?> foreignKey, Supplier<ModelQuery.Builder<?, ?, C>> query) {
+        return childField(name, key, foreignKey, null, query);
+    }
+
+    private static <M, C> ChildField<M, C> childField(String name, ColumnField<M, ?, ?> key,
+            ColumnField<C, ?, ?> foreignKey, TableField<?, ?> through, Supplier<ModelQuery.Builder<?, ?, C>> query) {
         return new ChildField<>() {
             @Override
             public String name() {
@@ -478,8 +519,13 @@ class FetchPlanTest {
             }
 
             @Override
-            public ColumnField<C, ?, ?> foreignKey() {
-                return foreignKey;
+            public Optional<ColumnField<C, ?, ?>> foreignKey() {
+                return Optional.ofNullable(foreignKey);
+            }
+
+            @Override
+            public Optional<TableField<?, ?>> through() {
+                return Optional.ofNullable(through);
             }
 
             @Override
