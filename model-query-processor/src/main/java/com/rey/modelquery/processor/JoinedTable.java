@@ -47,6 +47,8 @@ record JoinedTable(
      * @param constant the name of the outer model's constant
      * @param type the column's model type
      * @param path the fields that lead to it, as a diagnostic names it: {@code customer.id}
+     * @param owner the nested model that declares the column, whose QModel types its constant
+     * @param field the column's field on {@code owner}
      */
-    record JoinedColumn(String constant, TypeMirror type, String path) {}
+    record JoinedColumn(String constant, TypeMirror type, String path, ModelDefinition owner, ModelField field) {}
 }

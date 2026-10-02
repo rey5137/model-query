@@ -20,8 +20,10 @@ import com.rey.modelquery.core.RowMapper;
 import com.rey.modelquery.core.TableField;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Tuple;
+import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -183,8 +185,16 @@ class KeysetTest {
                 built.query().where(keyset.after(cursor, built.joins(), cb));
             }
             keyset.appendOrder(built, cb);
+            TypedQuery<Tuple> typed = em.createQuery(built.query());
+            if (cursor != null) {
+                // The bind pre-flight counts what after() binds without building it, so the two must agree (D-82).
+                BuiltQuery<Row3> first = q.buildQuery(cb, Phase.MODEL, portable());
+                keyset.appendOrder(first, cb);
+                assertThat(typed.getParameters().size() - em.createQuery(first.query()).getParameters().size())
+                        .as("binds after %s", Arrays.toString(cursor)).isEqualTo(keyset.cursorBinds(cursor));
+            }
             List<Row3> result = new ArrayList<>();
-            for (Tuple tuple : em.createQuery(built.query()).getResultList()) {
+            for (Tuple tuple : typed.getResultList()) {
                 result.add(built.map(tuple));
             }
             return result;

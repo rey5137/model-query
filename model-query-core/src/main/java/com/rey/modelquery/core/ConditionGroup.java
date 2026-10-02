@@ -218,11 +218,16 @@ abstract class ConditionGroup<M, G> {
 
     // ---- sets
 
+    /** A condition no row meets, FALSE: nothing to resolve, so no join either (R-FLT-02, D-92). */
+    private G none() {
+        return record(ctx -> Optional.of(ctx.cb().disjunction()));
+    }
+
     final <C> G in(SelectField<M, C> column, Collection<? extends C> values) {
         List<C> copy = elements(column, "in", values);
         if (copy.isEmpty()) {
-            // An empty selection means "none of these" (R-FLT-02); nothing to resolve, so no join either.
-            return record(ctx -> Optional.of(ctx.cb().disjunction()));
+            // An empty selection means "none of these" (R-FLT-02).
+            return none();
         }
         return record(ctx -> {
             List<Predicate> chunks = inChunks(column, "in", column.expression(ctx), copy, ctx.renderOptions());
@@ -357,8 +362,8 @@ abstract class ConditionGroup<M, G> {
     public final G or(List<? extends UnaryOperator<G>> branches) {
         checkOpen();
         if (Objects.requireNonNull(branches, "branches").isEmpty()) {
-            // No branch at all is "none of these" (D-92, P-3), as an empty `in` is (R-FLT-02); no join either.
-            return record(ctx -> Optional.of(ctx.cb().disjunction()));
+            // No branch at all is "none of these" (D-92, P-3), as an empty `in` is (R-FLT-02).
+            return none();
         }
         var groups = new ArrayList<List<Filter>>();
         for (UnaryOperator<G> branch : branches) {

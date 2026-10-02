@@ -56,6 +56,7 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
      */
     private final ColumnField<?, ?, C> converted;
     private final BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression;
+    private final int hash;
 
     AggregateField(Kind kind, JoinKey source, String attribute, String alias, Class<C> type,
             ColumnField<?, ?, C> converted, BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
@@ -66,6 +67,7 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         this.type = type;
         this.converted = converted;
         this.expression = expression;
+        this.hash = Objects.hash(kind, source, attribute, alias, converterClass());
     }
 
     /**
@@ -145,7 +147,7 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
 
     @Override
     public int hashCode() {
-        return Objects.hash(kind, source, attribute, alias, converterClass());
+        return hash;
     }
 
     /** The class of the converter that maps the result, so a min over an {@code Instant} and a {@code Date} differ. */

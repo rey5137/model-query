@@ -115,7 +115,8 @@ final class QModelWriter {
         for (JoinedTable table : joined) {
             ClassName nested = generatedName(table.nested());
             for (JoinedColumn column : table.columns()) {
-                ClassName kind = orderedInNested(table.nested(), table.inNested(column.constant()))
+                // Typed as the nested QModel types it, OrderedColumnField when its converter is ordered (D-93).
+                ClassName kind = ConverterType.ordered(types, converter(column.owner(), column.field()))
                         ? ORDERED_COLUMN_FIELD : COLUMN_FIELD;
                 type.addField(FieldSpec.builder(ParameterizedTypeName.get(kind, modelName,
                                 ClassName.get(table.entity()), column(column.type())), column.constant(), CONSTANT)
@@ -270,26 +271,6 @@ final class QModelWriter {
                         ? CodeBlock.of("$T.INSTANCE", converterName) : CodeBlock.of("new $T()", converterName),
                 named)
                 .build();
-    }
-
-    /**
-     * Whether the constant {@code constant} of {@code nested}'s QModel is an {@code OrderedColumnField}: one of its
-     * own columns, or else one it declares for a join of its own, named with that join's prefix (D-93).
-     */
-    private boolean orderedInNested(ModelDefinition nested, String constant) {
-        for (ModelField field : nested.columns()) {
-            if (field.constant().equals(constant)) {
-                return ConverterType.ordered(types, converter(nested, field));
-            }
-        }
-        for (ModelField join : nested.joins()) {
-            ModelDefinition below = nestedModels.of(join);
-            String prefix = join.join().prefix() + "_";
-            if (below != null && constant.startsWith(prefix)) {
-                return orderedInNested(below, constant.substring(prefix.length()));
-            }
-        }
-        return false;
     }
 
     /**

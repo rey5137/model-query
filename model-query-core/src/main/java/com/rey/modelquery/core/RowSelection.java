@@ -64,12 +64,14 @@ public final class RowSelection {
             if (aliases.containsKey(column)) {
                 continue;
             }
-            String fresh = "c" + next;
-            String alias = column instanceof ColumnField<?, ?, ?> field
-                    ? byAttribute.computeIfAbsent(new AttributeKey(field.table().key(), field.name()), key -> fresh)
-                    : fresh;
-            if (alias.equals(fresh)) {
-                next++;
+            AttributeKey key = column instanceof ColumnField<?, ?, ?> field
+                    ? new AttributeKey(field.table().key(), field.name()) : null;
+            String alias = key == null ? null : byAttribute.get(key);
+            if (alias == null) {
+                alias = "c" + next++;
+                if (key != null) {
+                    byAttribute.put(key, alias);
+                }
             }
             aliases.put(column, alias);
         }

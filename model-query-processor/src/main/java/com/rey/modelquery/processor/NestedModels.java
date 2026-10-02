@@ -57,8 +57,8 @@ final class NestedModels {
                 join, nested, prefix, null, join.name(), join.join().attribute(), model.root(), nested.root(),
                 join.join().type(),
                 nested.columns().stream()
-                        .map(column -> new JoinedColumn(
-                                prefix + "_" + column.constant(), column.type(), join.name() + "." + column.name()))
+                        .map(column -> new JoinedColumn(prefix + "_" + column.constant(), column.type(),
+                                join.name() + "." + column.name(), nested, column))
                         .toList()));
         for (JoinedTable below : tables(nested)) {
             tables.add(new JoinedTable(
@@ -68,7 +68,7 @@ final class NestedModels {
                     below.parentEntity(), below.entity(), below.joinType(),
                     below.columns().stream()
                             .map(column -> new JoinedColumn(prefix + "_" + column.constant(), column.type(),
-                                    join.name() + "." + column.path()))
+                                    join.name() + "." + column.path(), column.owner(), column.field()))
                             .toList()));
         }
         return tables;

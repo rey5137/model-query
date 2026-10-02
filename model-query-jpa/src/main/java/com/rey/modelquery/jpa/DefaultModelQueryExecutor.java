@@ -204,25 +204,24 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /** A statement of {@code query} on {@code on}, a chunk's own {@code EntityManager} or the caller's. */
     private <T> TypedQuery<T> create(Object label, EntityManager on, CriteriaQuery<T> query) {
-        TypedQuery<T> typed = withinBindLimit(label, on.createQuery(query));
-        queryTimeout.ifPresent(timeout -> vendor.profile().applyTimeout(typed, timeout));
-        return typed;
+        return create(label, on, query, null, null);
     }
 
     /**
      * As above, for a keyset statement, {@code cursor} being the one it was built after or {@code null} for the first
-     * page or round, and {@code keyset} {@code null} for a statement without one (a run of distinct keys). It is refused up front when its own binds plus the worst cursor {@code keyset} can add pass the
-     * limit, on every page, so a run never fails after rows reached a sink or a round committed (D-82).
+     * page or round, and {@code keyset} {@code null} for a statement without one (a run of distinct keys). It is
+     * refused up front when its own binds plus the worst cursor {@code keyset} can add pass the limit, on every page,
+     * so a run never fails after rows reached a sink or a round committed (D-82).
      */
     private <T> TypedQuery<T> create(Object label, EntityManager on, CriteriaQuery<T> query, Keyset<?> keyset,
             Object[] cursor) {
-        if (keyset == null) {
-            return create(label, on, query);
-        }
         TypedQuery<T> typed = on.createQuery(query);
-        int cursorBinds = cursor == null ? 0 : keyset.cursorBinds(cursor);
-        withinCursorBindLimit(label, typed, keyset, cursorBinds);
-        withinBindLimit(label, typed, cursorBinds);
+        int binds = typed.getParameters().size();
+        int cursorBinds = keyset == null || cursor == null ? 0 : keyset.cursorBinds(cursor);
+        if (keyset != null) {
+            withinCursorBindLimit(label, binds - cursorBinds, keyset);
+        }
+        withinBindLimit(label, binds, cursorBinds);
         queryTimeout.ifPresent(timeout -> vendor.profile().applyTimeout(typed, timeout));
         return typed;
     }
@@ -234,15 +233,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * query's own binds can pass it.
      */
     private <Q extends Query> Q withinBindLimit(Object label, Q statement) {
-        return withinBindLimit(label, statement, 0);
+        withinBindLimit(label, statement.getParameters().size(), 0);
+        return statement;
     }
 
     /**
-     * As above, for a statement of which {@code cursorBinds} binds are the keyset cursor's values, which the refusal
-     * counts (D-82).
+     * As above, for a statement of {@code binds} values, {@code cursorBinds} of them the keyset cursor's, which the
+     * refusal counts (D-82).
      */
-    private <Q extends Query> Q withinBindLimit(Object label, Q statement, int cursorBinds) {
-        int binds = statement.getParameters().size();
+    private void withinBindLimit(Object label, int binds, int cursorBinds) {
         int max = renderOptions.maxBindParameters();
         if (binds > max) {
             String why = cursorBinds > 0
@@ -252,12 +251,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             throw new ModelQueryDefinitionException(MqCode.MQ1307, label + ": a statement binds " + binds
                     + " values, more than the " + max + " bind parameters one statement takes" + why);
         }
-        return statement;
     }
 
-    /** Throws {@code MQ1307} when {@code statement}'s own binds and the worst keyset cursor pass the limit (D-82). */
-    private void withinCursorBindLimit(Object label, Query statement, Keyset<?> keyset, int cursorBinds) {
-        int own = statement.getParameters().size() - cursorBinds;
+    /** Throws {@code MQ1307} when a statement's {@code own} binds and the worst keyset cursor pass the limit (D-82). */
+    private void withinCursorBindLimit(Object label, int own, Keyset<?> keyset) {
         int worst = keyset.maxCursorBinds();
         int max = renderOptions.maxBindParameters();
         if (own + worst > max) {

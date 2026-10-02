@@ -139,17 +139,22 @@ final class Keyset<M> {
      */
     Predicate after(Object[] cursor, JoinContext joins, CriteriaBuilder cb) {
         List<Predicate> branches = new ArrayList<>();
-        List<Predicate> equal = new ArrayList<>();
+        List<Expression<?>> columns = new ArrayList<>();
         for (int i = 0; i < keys.size(); i++) {
             Key<M> key = keys.get(i);
             Expression<?> column = key.order().column().expression(joins);
             Predicate beyond = beyond(key, column, cursor[i], cb);
             if (beyond != null) {
-                List<Predicate> branch = new ArrayList<>(equal);
+                // Each branch builds its own equal predicates: one shared across branches renders a bind per branch
+                // but JPA reports it once, so the bind limit check would undercount (D-82).
+                List<Predicate> branch = new ArrayList<>();
+                for (int j = 0; j < i; j++) {
+                    branch.add(cursor[j] == null ? cb.isNull(columns.get(j)) : cb.equal(columns.get(j), cursor[j]));
+                }
                 branch.add(beyond);
                 branches.add(branch.size() == 1 ? beyond : cb.and(branch.toArray(Predicate[]::new)));
             }
-            equal.add(cursor[i] == null ? cb.isNull(column) : cb.equal(column, cursor[i]));
+            columns.add(column);
         }
         return cb.or(branches.toArray(Predicate[]::new));
     }
@@ -164,15 +169,22 @@ final class Keyset<M> {
         return keys.size() * (keys.size() + 1) / 2;
     }
 
-    /** How many binds {@link #after} adds for {@code cursor}: a value beyond it and the equal values before it. */
+    /**
+     * How many binds {@link #after} adds for {@code cursor}: a value beyond it and the equal values before it. It
+     * mirrors the branches {@code after} and {@code beyond} build, so a change there changes this too (D-82).
+     */
     int cursorBinds(Object[] cursor) {
         int binds = 0;
         int bound = 0;
         for (int i = 0; i < keys.size(); i++) {
-            if (cursor[i] != null || keys.get(i).nulls() == NullPrecedence.FIRST) {
-                binds += bound + (cursor[i] == null ? 0 : 1);
+            boolean value = cursor[i] != null;
+            if (value || keys.get(i).nulls() == NullPrecedence.FIRST) {
+                // A branch binds the earlier equal values, and its own value unless it is IS NOT NULL.
+                binds += bound + (value ? 1 : 0);
             }
-            bound += cursor[i] == null ? 0 : 1;
+            if (value) {
+                bound++;
+            }
         }
         return binds;
     }
