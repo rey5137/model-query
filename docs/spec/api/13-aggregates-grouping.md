@@ -5,6 +5,7 @@ query is grouped.
 **Read when:** building a report summary, adding an aggregate function, or deciding what a grouped query may and may
 not do.
 **Owns:** `R-AGG-*`, `AC-AGG-*`. `SelectField` is `api/10` §2; grouped export is `engine/21` §5.
+What a built query records of its `having` filters is `api/16`.
 
 ---
 

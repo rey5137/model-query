@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.core.Condition.Kind;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Predicate;
@@ -14,9 +15,10 @@ import java.util.function.UnaryOperator;
 
 /**
  * The recording engine behind {@link Filters} and {@link Having}: an AND group that records one {@link Filter} per
- * filter added, over any {@link SelectField}. Each subclass exposes it through its public builder type {@code G}, whose
- * signatures decide which selections are accepted: {@code Filters} takes a {@code ColumnField} and {@code Having} an
- * {@code AggregateField} (R-COL-06, R-AGG-06), so the skip and {@code Optional} semantics are shared, not copied.
+ * filter added, over any {@link SelectField}, each with the {@link Condition} it records (R-INS-01). Each subclass
+ * exposes it through its public builder type {@code G}, whose signatures decide which selections are accepted:
+ * {@code Filters} takes a {@code ColumnField} and {@code Having} an {@code AggregateField} (R-COL-06, R-AGG-06), so
+ * the skip and {@code Optional} semantics are shared, not copied.
  *
  * <p>A group lives only while its operator runs; {@link #collect} freezes what it recorded into an immutable list,
  * which is what a {@link ModelQuery} keeps (INV-9). The group is closed once {@code collect} returns, so a reference
@@ -81,7 +83,7 @@ abstract class ConditionGroup<M, G> {
         for (List<Filter> filters : clauses) {
             var clause = new ArrayList<Optional<Predicate>>(filters.size());
             for (Filter filter : filters) {
-                clause.add(filter instanceof LeftJoining ? null : filter.toPredicate(ctx));
+                clause.add(leftJoining(filter) ? null : filter.toPredicate(ctx));
             }
             rendered.add(clause);
         }
@@ -89,8 +91,8 @@ abstract class ConditionGroup<M, G> {
         for (int c = 0; c < clauses.size(); c++) {
             List<Filter> filters = clauses.get(c);
             for (int i = 0; i < filters.size(); i++) {
-                if (filters.get(i) instanceof LeftJoining filter) {
-                    rendered.get(c).set(i, filter.toPredicate(ctx));
+                if (leftJoining(filters.get(i))) {
+                    rendered.get(c).set(i, filters.get(i).toPredicate(ctx));
                 }
             }
             var predicates = new ArrayList<Predicate>();
@@ -98,6 +100,15 @@ abstract class ConditionGroup<M, G> {
             result.add(predicates);
         }
         return result;
+    }
+
+    /** The conditions {@code filters} recorded, in order (R-INS-01). */
+    static List<Condition> conditions(List<Filter> filters) {
+        return filters.stream().map(filter -> ((Recorded) filter).condition()).toList();
+    }
+
+    private static boolean leftJoining(Filter filter) {
+        return ((Recorded) filter).filter() instanceof LeftJoining;
     }
 
     /** An {@code or} or {@code not}: the joins it is the first to need resolve as LEFT (R-FLT-10). */
@@ -108,11 +119,20 @@ abstract class ConditionGroup<M, G> {
         }
     }
 
+    /** A filter with the condition it records: every filter a group holds is one, so none lacks its condition. */
+    private record Recorded(Condition condition, Filter filter) implements Filter {
+        @Override
+        public Optional<Predicate> toPredicate(JoinContext ctx) {
+            return filter.toPredicate(ctx);
+        }
+    }
+
     // ---- equality and comparison
 
     final <C> G eq(SelectField<M, C> column, C value) {
         C v = bound(column, required(column, "eq", value));
-        return record(ctx -> Optional.of(ctx.cb().equal(column.expression(ctx), v)));
+        return record(Condition.of(Kind.EQ, column, List.of(value)),
+                ctx -> Optional.of(ctx.cb().equal(column.expression(ctx), v)));
     }
 
     final <C> G eq(SelectField<M, C> column, Optional<? extends C> value) {
@@ -121,7 +141,7 @@ abstract class ConditionGroup<M, G> {
 
     final <C> G ne(SelectField<M, C> column, C value) {
         C v = bound(column, required(column, "ne", value));
-        return record(ctx -> {
+        return record(Condition.of(Kind.NE, column, List.of(value)), ctx -> {
             CriteriaBuilder cb = ctx.cb();
             Expression<C> expression = column.expression(ctx);
             // Plain SQL <> would drop NULL rows, which a report's "not X" means to keep (R-FLT-04). Rendered for
@@ -136,7 +156,8 @@ abstract class ConditionGroup<M, G> {
 
     final <C extends Comparable<? super C>> G gt(SelectField<M, C> column, C value) {
         C v = bound(column, required(column, "gt", value), Comparable.class, "gt");
-        return record(ctx -> Optional.of(ctx.cb().greaterThan(column.expression(ctx), v)));
+        return record(Condition.of(Kind.GT, column, List.of(value)),
+                ctx -> Optional.of(ctx.cb().greaterThan(column.expression(ctx), v)));
     }
 
     final <C extends Comparable<? super C>> G gt(SelectField<M, C> column, Optional<? extends C> value) {
@@ -145,7 +166,8 @@ abstract class ConditionGroup<M, G> {
 
     final <C extends Comparable<? super C>> G gte(SelectField<M, C> column, C value) {
         C v = bound(column, required(column, "gte", value), Comparable.class, "gte");
-        return record(ctx -> Optional.of(ctx.cb().greaterThanOrEqualTo(column.expression(ctx), v)));
+        return record(Condition.of(Kind.GTE, column, List.of(value)),
+                ctx -> Optional.of(ctx.cb().greaterThanOrEqualTo(column.expression(ctx), v)));
     }
 
     final <C extends Comparable<? super C>> G gte(SelectField<M, C> column, Optional<? extends C> value) {
@@ -154,7 +176,8 @@ abstract class ConditionGroup<M, G> {
 
     final <C extends Comparable<? super C>> G lt(SelectField<M, C> column, C value) {
         C v = bound(column, required(column, "lt", value), Comparable.class, "lt");
-        return record(ctx -> Optional.of(ctx.cb().lessThan(column.expression(ctx), v)));
+        return record(Condition.of(Kind.LT, column, List.of(value)),
+                ctx -> Optional.of(ctx.cb().lessThan(column.expression(ctx), v)));
     }
 
     final <C extends Comparable<? super C>> G lt(SelectField<M, C> column, Optional<? extends C> value) {
@@ -163,7 +186,8 @@ abstract class ConditionGroup<M, G> {
 
     final <C extends Comparable<? super C>> G lte(SelectField<M, C> column, C value) {
         C v = bound(column, required(column, "lte", value), Comparable.class, "lte");
-        return record(ctx -> Optional.of(ctx.cb().lessThanOrEqualTo(column.expression(ctx), v)));
+        return record(Condition.of(Kind.LTE, column, List.of(value)),
+                ctx -> Optional.of(ctx.cb().lessThanOrEqualTo(column.expression(ctx), v)));
     }
 
     final <C extends Comparable<? super C>> G lte(SelectField<M, C> column, Optional<? extends C> value) {
@@ -178,7 +202,8 @@ abstract class ConditionGroup<M, G> {
     final <C extends Comparable<? super C>> G between(SelectField<M, C> column, C fromInclusive, C toInclusive) {
         C from = bound(column, required(column, "between", fromInclusive), Comparable.class, "between");
         C to = bound(column, required(column, "between", toInclusive), Comparable.class, "between");
-        return record(ctx -> Optional.of(ctx.cb().between(column.expression(ctx), from, to)));
+        return record(Condition.of(Kind.BETWEEN, column, List.of(fromInclusive, toInclusive)),
+                ctx -> Optional.of(ctx.cb().between(column.expression(ctx), from, to)));
     }
 
     final <C extends Comparable<? super C>> G between(
@@ -196,13 +221,21 @@ abstract class ConditionGroup<M, G> {
             SelectField<M, C> column, Optional<? extends C> from, Optional<? extends C> to, boolean toInclusive) {
         guard(column, "column");
         requireAttribute(column, Comparable.class, "between");
-        C lower = boundOrNull(column, Objects.requireNonNull(from, "fromInclusive").orElse(null));
-        C upper = boundOrNull(column,
-                Objects.requireNonNull(to, toInclusive ? "toInclusive" : "toExclusive").orElse(null));
+        C lowerValue = Objects.requireNonNull(from, "fromInclusive").orElse(null);
+        C upperValue = Objects.requireNonNull(to, toInclusive ? "toInclusive" : "toExclusive").orElse(null);
+        C lower = boundOrNull(column, lowerValue);
+        C upper = boundOrNull(column, upperValue);
         if (lower == null && upper == null) {
             return self();
         }
-        return record(ctx -> {
+        // Recorded as rendered: both bounds of a range, else the one comparison left (R-INS-01). Both bounds of a
+        // between never get here.
+        Condition condition = lower == null
+                ? Condition.of(toInclusive ? Kind.LTE : Kind.LT, column, List.of(upperValue))
+                : upper == null
+                        ? Condition.of(Kind.GTE, column, List.of(lowerValue))
+                        : Condition.of(Kind.RANGE, column, List.of(lowerValue, upperValue));
+        return record(condition, ctx -> {
             CriteriaBuilder cb = ctx.cb();
             Expression<C> expression = column.expression(ctx);
             var parts = new ArrayList<Predicate>(2);
@@ -218,18 +251,22 @@ abstract class ConditionGroup<M, G> {
 
     // ---- sets
 
-    /** A condition no row meets, FALSE: nothing to resolve, so no join either (R-FLT-02, D-92). */
-    private G none() {
-        return record(ctx -> Optional.of(ctx.cb().disjunction()));
+    /**
+     * A condition no row meets, FALSE: nothing to resolve, so no join either (R-FLT-02, D-92). Shared by an empty
+     * {@code in} and an empty {@code or}, so it records the {@code condition} each passes.
+     */
+    private G none(Condition condition) {
+        return record(condition, ctx -> Optional.of(ctx.cb().disjunction()));
     }
 
     final <C> G in(SelectField<M, C> column, Collection<? extends C> values) {
         List<C> copy = elements(column, "in", values);
+        Condition condition = Condition.of(Kind.IN, column, List.copyOf(values));
         if (copy.isEmpty()) {
             // An empty selection means "none of these" (R-FLT-02).
-            return none();
+            return none(condition);
         }
-        return record(ctx -> {
+        return record(condition, ctx -> {
             List<Predicate> chunks = inChunks(column, "in", column.expression(ctx), copy, ctx.renderOptions());
             return Optional.of(chunks.size() == 1 ? chunks.get(0) : ctx.cb().or(chunks.toArray(Predicate[]::new)));
         });
@@ -241,11 +278,12 @@ abstract class ConditionGroup<M, G> {
 
     final <C> G notIn(SelectField<M, C> column, Collection<? extends C> values) {
         List<C> copy = elements(column, "notIn", values);
+        Condition condition = Condition.of(Kind.NOT_IN, column, List.copyOf(values));
         if (copy.isEmpty()) {
             // Holds for every row rather than being skipped: it still counts as a filter inside a group.
-            return record(ctx -> Optional.empty());
+            return record(condition, ctx -> Optional.empty());
         }
-        return record(ctx -> {
+        return record(condition, ctx -> {
             CriteriaBuilder cb = ctx.cb();
             Expression<C> expression = column.expression(ctx);
             List<Predicate> notIn = inChunks(column, "notIn", expression, copy, ctx.renderOptions()).stream()
@@ -263,8 +301,10 @@ abstract class ConditionGroup<M, G> {
     // ---- strings
 
     final G like(SelectField<M, String> column, String value, LikeMode mode) {
-        String pattern = pattern(bound(column, required(column, "like", value), String.class, "like"), Objects.requireNonNull(mode, "mode"));
-        return record(ctx -> Optional.of(like(ctx.cb(), column.expression(ctx), pattern, mode)));
+        String pattern = pattern(bound(column, required(column, "like", value), String.class, "like"),
+                Objects.requireNonNull(mode, "mode"));
+        return record(Condition.like(Kind.LIKE, column, value, mode),
+                ctx -> Optional.of(like(ctx.cb(), column.expression(ctx), pattern, mode)));
     }
 
     /** {@code LIKE}, with the escape character only when the pattern was escaped, i.e. not {@code EXACT}. */
@@ -279,8 +319,10 @@ abstract class ConditionGroup<M, G> {
 
     final G likeIgnoreCase(SelectField<M, String> column, String value, LikeMode mode) {
         Objects.requireNonNull(mode, "mode");
-        String pattern = lower(pattern(bound(column, required(column, "likeIgnoreCase", value), String.class, "likeIgnoreCase"), mode));
-        return record(ctx -> Optional.of(like(ctx.cb(), ctx.cb().lower(column.expression(ctx)), pattern, mode)));
+        String pattern = lower(pattern(
+                bound(column, required(column, "likeIgnoreCase", value), String.class, "likeIgnoreCase"), mode));
+        return record(Condition.like(Kind.LIKE_IGNORE_CASE, column, value, mode),
+                ctx -> Optional.of(like(ctx.cb(), ctx.cb().lower(column.expression(ctx)), pattern, mode)));
     }
 
     final G likeIgnoreCase(SelectField<M, String> column, Optional<String> value, LikeMode mode) {
@@ -290,7 +332,7 @@ abstract class ConditionGroup<M, G> {
 
     final G eqIgnoreCase(SelectField<M, String> column, String value) {
         String v = lower(bound(column, required(column, "eqIgnoreCase", value), String.class, "eqIgnoreCase"));
-        return record(ctx -> {
+        return record(Condition.of(Kind.EQ_IGNORE_CASE, column, List.of(value)), ctx -> {
             CriteriaBuilder cb = ctx.cb();
             return Optional.of(cb.equal(cb.lower(column.expression(ctx)), v));
         });
@@ -304,12 +346,14 @@ abstract class ConditionGroup<M, G> {
 
     final G isNull(SelectField<M, ?> column) {
         guard(column, "column");
-        return record(ctx -> Optional.of(ctx.cb().isNull(column.expression(ctx))));
+        return record(Condition.of(Kind.IS_NULL, column, List.of()),
+                ctx -> Optional.of(ctx.cb().isNull(column.expression(ctx))));
     }
 
     final G isNotNull(SelectField<M, ?> column) {
         guard(column, "column");
-        return record(ctx -> Optional.of(ctx.cb().isNotNull(column.expression(ctx))));
+        return record(Condition.of(Kind.IS_NOT_NULL, column, List.of()),
+                ctx -> Optional.of(ctx.cb().isNotNull(column.expression(ctx))));
     }
 
     final G isNull(SelectField<M, ?> column, Optional<Boolean> isNull) {
@@ -333,7 +377,7 @@ abstract class ConditionGroup<M, G> {
                             + "compare columns of one attribute type", left, op, right,
                     attributeType(left).getSimpleName(), attributeType(right).getSimpleName()));
         }
-        return record(ctx -> {
+        return record(Condition.compare(left, op, right), ctx -> {
             CriteriaBuilder cb = ctx.cb();
             // Raw: the ordering operators need a Comparable bound that compare's signature leaves open (api/12 §1).
             Expression l = left.expression(ctx);
@@ -363,7 +407,7 @@ abstract class ConditionGroup<M, G> {
         checkOpen();
         if (Objects.requireNonNull(branches, "branches").isEmpty()) {
             // No branch at all is "none of these" (D-92, P-3), as an empty `in` is (R-FLT-02).
-            return none();
+            return none(Condition.group(Kind.OR, List.of()));
         }
         var groups = new ArrayList<List<Filter>>();
         for (UnaryOperator<G> branch : branches) {
@@ -376,7 +420,13 @@ abstract class ConditionGroup<M, G> {
             return self(); // every branch had its filters all skipped, so the or is skipped (R-FLT-01)
         }
         List<List<Filter>> recorded = List.copyOf(groups);
-        return record(new LeftJoining(ctx -> {
+        var branchConditions = new ArrayList<Condition>(recorded.size());
+        for (List<Filter> group : recorded) {
+            // A branch of several filters is an AND node, so or(a.and(b), c) and or(a, b, c) differ (D-101).
+            List<Condition> conditions = conditions(group);
+            branchConditions.add(conditions.size() == 1 ? conditions.get(0) : Condition.group(Kind.AND, conditions));
+        }
+        return record(Condition.group(Kind.OR, branchConditions), new LeftJoining(ctx -> {
             CriteriaBuilder cb = ctx.cb();
             var alternatives = new ArrayList<Predicate>(recorded.size());
             for (List<Filter> group : recorded) {
@@ -397,7 +447,7 @@ abstract class ConditionGroup<M, G> {
         if (negated.isEmpty()) {
             return self(); // R-FLT-01
         }
-        return record(new LeftJoining(ctx -> {
+        return record(Condition.group(Kind.NOT, conditions(negated)), new LeftJoining(ctx -> {
             CriteriaBuilder cb = ctx.cb();
             List<Predicate> parts = toPredicates(negated, ctx);
             // Plain NOT (R-FLT-05); a group holding for every row negates to one matching none.
@@ -437,9 +487,10 @@ abstract class ConditionGroup<M, G> {
         return parts.size() == 1 ? parts.get(0) : cb.and(parts.toArray(Predicate[]::new));
     }
 
-    final G record(Filter filter) {
+    /** The one point a filter is recorded, with the condition it records, so no predicate lacks one (D-101). */
+    final G record(Condition condition, Filter filter) {
         checkOpen();
-        filters.add(filter);
+        filters.add(new Recorded(Objects.requireNonNull(condition, "condition"), filter));
         return self();
     }
 

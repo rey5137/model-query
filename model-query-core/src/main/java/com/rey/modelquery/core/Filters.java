@@ -214,4 +214,13 @@ public sealed interface Filters<M> permits FilterGroup {
      * {@link #when}.
      */
     Filters<M> add(BiFunction<JoinContext, CriteriaBuilder, Predicate> custom);
+
+    /**
+     * {@link #add(BiFunction)}, recorded under {@code label} so a test or a log can name it (R-INS-03). The label is
+     * printed in logs and failure messages: make it a constant, never a value.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1301} when {@code label} is null or blank
+     * @implSpec R-INS-03
+     */
+    Filters<M> add(String label, BiFunction<JoinContext, CriteriaBuilder, Predicate> custom);
 }

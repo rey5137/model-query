@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.core.Condition.Kind;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Predicate;
 import java.util.Collection;
@@ -215,7 +216,8 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
     @Override
     public Filters<M> exists(TableField<?, ?> path) {
         checkOpen();
-        return record(exists(existsPath(path), List.of(), false));
+        TableField<?, ?> checked = existsPath(path);
+        return record(Condition.exists(Kind.EXISTS, checked, List.of()), exists(checked, List.of(), false));
     }
 
     @Override
@@ -225,7 +227,11 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
 
     private Filters<M> exists(TableField<?, ?> path, UnaryOperator<Filters<M>> inner, boolean negated) {
         List<Filter> group = nested(Objects.requireNonNull(inner, "inner"), new FilterGroup<>(existsPath(path)));
-        return group.isEmpty() ? this : record(exists(path, group, negated)); // R-FLT-01
+        if (group.isEmpty()) {
+            return this; // R-FLT-01
+        }
+        return record(Condition.exists(negated ? Kind.NOT_EXISTS : Kind.EXISTS, path, conditions(group)),
+                exists(path, group, negated));
     }
 
     private static Filter exists(TableField<?, ?> path, List<Filter> inner, boolean negated) {
@@ -254,8 +260,22 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
 
     @Override
     public Filters<M> add(BiFunction<JoinContext, CriteriaBuilder, Predicate> custom) {
+        return addCustom(Condition.custom(null), custom);
+    }
+
+    @Override
+    public Filters<M> add(String label, BiFunction<JoinContext, CriteriaBuilder, Predicate> custom) {
+        checkOpen();
+        if (label == null || label.isBlank()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1301, "add(label, ...) received a "
+                    + (label == null ? "null" : "blank") + " label; name the custom filter, or use add(...)");
+        }
+        return addCustom(Condition.custom(label), custom);
+    }
+
+    private Filters<M> addCustom(Condition condition, BiFunction<JoinContext, CriteriaBuilder, Predicate> custom) {
         Objects.requireNonNull(custom, "custom");
-        return record(ctx -> {
+        return record(condition, ctx -> {
             Predicate predicate = custom.apply(ctx, ctx.cb());
             if (predicate == null) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1305,

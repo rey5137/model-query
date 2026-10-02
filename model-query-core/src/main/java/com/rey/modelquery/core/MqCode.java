@@ -53,8 +53,8 @@ public enum MqCode {
     /** {@code keyset()} with a {@code Float} or {@code Double} order or primary-key column (R-QRY-13). */
     MQ1207("keyset() cannot page by a Float or Double column"),
 
-    /** A value-form filter received {@code null} (api/12 §1). */
-    MQ1301("A value-form filter received null; pass Optional.empty() to skip the filter"),
+    /** A value-form filter received {@code null}, or {@code add(label, ...)} a null or blank label (R-INS-03). */
+    MQ1301("A value-form filter received null, or add(label, ...) a null or blank label"),
 
     /** A column or nested {@code exists(...)} path is not on or below the enclosing {@code exists} path (R-FLT-11). */
     MQ1302("A column or nested exists(...) path inside exists(...) is not on or below the given path"),

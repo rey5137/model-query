@@ -58,6 +58,7 @@ public final class ModelQuery<E, K, M> {
     private final List<Filter> where;
     private final List<ColumnField<M, ?, ?>> groupBy;
     private final List<Filter> having;
+    private final QueryConditions conditions;
     private final boolean grouped;
     private final QuerySpec spec;
     /** The fetch plan, or {@code null}. */
@@ -94,6 +95,9 @@ public final class ModelQuery<E, K, M> {
         this.where = b.where;
         this.groupBy = b.groupBy;
         this.having = b.having == null ? List.of() : b.having.filters();
+        // An orderedBy copy differs in its order alone, which the view leaves out, so it shares the view (R-INS-04).
+        this.conditions = definition != null ? definition.conditions
+                : new QueryConditions(ConditionGroup.conditions(where), ConditionGroup.conditions(having));
         this.grouped = grouped;
         this.spec = new Spec(root.rootEntity(), List.copyOf(columns.fields()),
                 Optional.ofNullable(primaryKey), List.copyOf(orderBy), keyset, List.copyOf(groupBy), grouped);
@@ -165,6 +169,18 @@ public final class ModelQuery<E, K, M> {
     /** The ordering keys, in order, as a list that throws on mutation. */
     public List<OrderField<M, ?>> orderBy() {
         return orderBy;
+    }
+
+    /**
+     * What this query filters on: the conditions its {@code where} and {@code having} operators recorded, as called,
+     * leaving out skipped filters and the predicates of a {@link QueryCustomizer} or of the executor. A fetch plan's
+     * child filters are not in it. {@link #withFetch} and {@link #orderedBy} copies have an equal view.
+     *
+     * @implSpec R-INS-01, R-INS-02, R-INS-04, D-101
+     */
+    @Incubating
+    public QueryConditions conditions() {
+        return conditions;
     }
 
     /**
@@ -593,12 +609,12 @@ public final class ModelQuery<E, K, M> {
             text.append(", primaryKey ").append(names(primaryKey.columns()));
         }
         if (!where.isEmpty()) {
-            text.append(", where ").append(count(where.size(), "filter"));
+            text.append(", where ").append(conditions.where()); // each value as ?, never the value (R-INS-05)
         }
         if (grouped) {
             text.append(", groupBy ").append(names(groupBy));
             if (!having.isEmpty()) {
-                text.append(", having ").append(count(having.size(), "filter"));
+                text.append(", having ").append(conditions.having());
             }
         }
         if (!orderBy.isEmpty()) {
@@ -618,10 +634,6 @@ public final class ModelQuery<E, K, M> {
 
     private static List<String> names(List<? extends SelectField<?, ?>> fields) {
         return fields.stream().<String>map(SelectField::name).toList();
-    }
-
-    private static String count(int n, String noun) {
-        return n + " " + noun + (n == 1 ? "" : "s");
     }
 
     private record Spec(Class<?> rootEntity, List<SelectField<?, ?>> columns, Optional<PrimaryKey<?, ?>> primaryKey,

@@ -4,6 +4,7 @@
 escaping, and `IN`-list splitting.
 **Read when:** adding an operator, or explaining why a filter did or did not narrow a query.
 **Owns:** `R-FLT-*`, `AC-FLT-*`. Aggregate conditions are `api/13` (`having`).
+What a built query records of its filters (`conditions()`, `add(label, …)`) is `api/16`.
 
 ---
 
@@ -65,6 +66,7 @@ public interface Filters<M> {
 
     // Escape hatch
     Filters<M> add(BiFunction<JoinContext, CriteriaBuilder, Predicate> custom);    // D-24
+    Filters<M> add(String label, BiFunction<JoinContext, CriteriaBuilder, Predicate> custom); // api/16 R-INS-03
 }
 ```
 
