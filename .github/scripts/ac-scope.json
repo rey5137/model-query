@@ -10,7 +10,7 @@
     "M5": { "files": ["integration/50-spring"], "ids": ["AC-VND-06"] },
     "M6": { "files": ["api/14-bulk-writes"] },
     "M7": { "ids": ["AC-REL-04", "AC-REL-05", "AC-RDM-01"] },
-    "M8": { "ids": ["AC-REL-06", "AC-PRF-03", "AC-SPR-13", "AC-COL-13", "AC-COL-14", "AC-AGG-13", "AC-PROC-11", "AC-PROC-12"] }
+    "M8": { "files": ["api/15-fetch-plans", "api/16-query-inspection"], "ids": ["AC-REL-06", "AC-PRF-03", "AC-SPR-13", "AC-COL-13", "AC-COL-14", "AC-AGG-13", "AC-PROC-11", "AC-PROC-12"] }
   },
   "build_proven": {
     "AC-REL-01": "The build produces exactly the modules in delivery/61 section 1 and 'mvnw verify' is green: proven by the CI build job, which fails otherwise.",
