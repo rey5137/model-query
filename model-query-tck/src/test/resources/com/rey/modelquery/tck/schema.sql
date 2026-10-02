@@ -1,5 +1,5 @@
 -- Fixture schema (spec delivery/60 §2). Portable DDL; @COLLATE@ becomes a binary collation per vendor so string
--- ordering is identical everywhere.
+-- ordering is identical everywhere, and @CI_TEXT@ a VARCHAR(150) with a case-insensitive one.
 CREATE TABLE customers (
     id         BIGINT NOT NULL PRIMARY KEY,
     name       VARCHAR(100) @COLLATE@ NOT NULL,
@@ -39,4 +39,20 @@ CREATE TABLE nullable_sort_rows (
     sort_int  INT NULL,
     sort_text VARCHAR(20) @COLLATE@ NULL,
     sort_ts   TIMESTAMP NULL
+);
+CREATE TABLE labels (
+    id   BIGINT NOT NULL PRIMARY KEY,
+    name VARCHAR(20) @COLLATE@ NOT NULL
+);
+CREATE TABLE order_labels (
+    label_id BIGINT NOT NULL,
+    order_id BIGINT NOT NULL,
+    PRIMARY KEY (label_id, order_id),
+    CONSTRAINT fk_order_labels_label FOREIGN KEY (label_id) REFERENCES labels (id),
+    CONSTRAINT fk_order_labels_order FOREIGN KEY (order_id) REFERENCES orders (id)
+);
+CREATE TABLE customer_notes (
+    id             BIGINT NOT NULL PRIMARY KEY,
+    customer_email @CI_TEXT@ NOT NULL,
+    body           VARCHAR(50) @COLLATE@ NOT NULL
 )

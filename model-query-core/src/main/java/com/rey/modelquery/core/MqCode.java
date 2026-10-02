@@ -193,6 +193,18 @@ public enum MqCode {
     /** A per-chunk write failed; earlier chunks stay committed (R-WRT-20). */
     MQ2502("A per-chunk write failed"),
 
+    /** A to-one child finds two distinct rows for one key (R-FCH-04). */
+    MQ2601("A to-one child found two distinct rows for one key"),
+
+    /** A parent has more children than {@code maxPerParent}, or a child load's round reads its row cap (R-FCH-11). */
+    MQ2603("A parent has more children than maxPerParent, or a child load's round reached its row cap"),
+
+    /** A child row's key equals none of its round's keys, as a case-insensitive collation allows (R-FCH-05). */
+    MQ2604("A child row's key equals none of the keys of its round"),
+
+    /** {@code stream} with a fetch plan that has a child, a join plan or an enricher (R-FCH-09). */
+    MQ2605("stream cannot run a fetch plan with a child, join plan or enricher"),
+
     /** {@code modelquery.vendor} names an unknown vendor (R-VND-04). */
     MQ4001("modelquery.vendor names an unknown vendor"),
 

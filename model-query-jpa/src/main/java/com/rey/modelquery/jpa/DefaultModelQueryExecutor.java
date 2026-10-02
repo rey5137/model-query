@@ -1,10 +1,12 @@
 package com.rey.modelquery.jpa;
 
 import com.rey.modelquery.core.BuiltQuery;
+import com.rey.modelquery.core.ChildLoad;
 import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
+import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.JoinContext;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
@@ -77,7 +79,8 @@ import java.util.stream.Stream;
  * @implSpec R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-05, R-EXE-06, R-EXE-07, R-EXE-09, R-QRY-09, R-PAG-01,
  *     R-PAG-02, R-PAG-03, R-PAG-04, R-PAG-05, R-PAG-06, R-PAG-07, R-PAG-08, R-PAG-09, R-PAG-10, R-PAG-11, R-PAG-12,
  *     R-PAG-13, R-PAG-14, R-AGG-09, R-EXE-08, R-EXE-11, R-WRT-07, R-WRT-08, R-WRT-14, R-WRT-15, R-WRT-16, R-WRT-17,
- *     R-WRT-18, R-WRT-19, R-WRT-20, R-WRT-23, D-61, D-62, D-63
+ *     R-WRT-18, R-WRT-19, R-WRT-20, R-WRT-23, R-FCH-04, R-FCH-05, R-FCH-06, R-FCH-09, R-FCH-11, R-FCH-12, D-61,
+ *     D-62, D-63, D-99
  */
 final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
@@ -103,6 +106,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     private final EntityManager em;
     private final Class<E> rootEntity;
+    /** What a child load's executor is created with (R-FCH-06). */
+    private final ModelQueryConfig config;
     /** The profile and provider support of {@code em}'s factory, resolved once per factory (R-VND-02). */
     private final ResolvedVendor vendor;
     /** The profile's facts as every query build of this executor renders by (D-34). */
@@ -134,7 +139,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     DefaultModelQueryExecutor(EntityManager em, Class<E> rootEntity, ModelQueryConfig config) {
         this.em = Objects.requireNonNull(em, "em");
         this.rootEntity = Objects.requireNonNull(rootEntity, "rootEntity");
-        Objects.requireNonNull(config, "config");
+        this.config = Objects.requireNonNull(config, "config");
         EntityManagerFactory emf = em.getEntityManagerFactory();
         this.vendor = VendorResolver.withSupplied(emf, VendorResolver.resolve(emf, config.vendor(),
                 config.mysqlStreamingMode()), config.vendorProfiles());
@@ -167,7 +172,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             return List.of(); // no statement runs for a zero limit (R-EXE-06)
         }
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
-        return mapAll(q, limited(q, built, limit), built);
+        return models(q, mapAll(q, limited(q, built, limit), built));
     }
 
     @Override
@@ -175,6 +180,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(limit, "limit");
         Objects.requireNonNull(body, "body");
+        if (q.fetch().filter(plan -> !plan.isSelectionOnly()).isPresent()) {
+            // A plan runs once per page, and a stream has none (R-FCH-09, D-96).
+            throw new ModelQueryExecutionException(MqCode.MQ2605, q + ": stream(...) cannot run the fetch plan, whose "
+                    + "children, join plans and enrichers run once per page, and a stream has no page; use "
+                    + "export(...), which runs the plan on each page");
+        }
         checkFirstRun(q);
         LOG.log(DEBUG, () -> "stream " + q + ": " + limit);
         if (zeroLimit(limit)) {
@@ -329,17 +340,18 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             }
             case COUNT: {
                 long total = countRows(q);
-                List<M> content = offset >= total ? List.of() : fetch(q, offset, size);
+                List<M> content = offset >= total ? List.of() : models(q, fetch(q, offset, size));
                 return new Slice<>(content, page.pageNumber(), size, offset + (long) content.size() < total,
                         OptionalLong.of(total));
             }
             default: {
                 // One row beyond the page tells whether another follows, so an exact multiple of the page size
                 // does not report a next page that is empty (R-EXE-02).
-                List<M> rows = fetch(q, offset, size == Integer.MAX_VALUE ? size : size + 1);
+                List<Loaded<M>> rows = fetch(q, offset, size == Integer.MAX_VALUE ? size : size + 1);
                 boolean hasNext = rows.size() > size;
-                return new Slice<>(hasNext ? rows.subList(0, size) : rows, page.pageNumber(), size, hasNext,
-                        OptionalLong.empty());
+                // The plan runs after the probe row is dropped, so that row's children are never read (R-FCH-09).
+                return new Slice<>(models(q, hasNext ? rows.subList(0, size) : rows), page.pageNumber(), size,
+                        hasNext, OptionalLong.empty());
             }
         }
     }
@@ -640,7 +652,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     // ---- page content
 
-    private <M> List<M> fetch(ModelQuery<E, ?, M> q, int offset, int maxRows) {
+    /** The rows of a page, mapped, before its fetch plan runs. */
+    private <M> List<Loaded<M>> fetch(ModelQuery<E, ?, M> q, int offset, int maxRows) {
         if (primaryKeyFirst(q, offset)) {
             PrimaryKey<M, ?> key = q.primaryKey().orElseThrow(); // primaryKeyFirst(...) needs one (MQ1201)
             // Read the page's keys in the stable order, then their rows: the same rows as the one-step page, a key
@@ -714,7 +727,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * keeps neither the step-1 order nor the order across statements, so rows are placed by their key's position. A
      * key whose row no longer matches between the two steps is skipped.
      */
-    private <M> List<M> readByKeys(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> key, List<Object> keys, int batch) {
+    private <M> List<Loaded<M>> readByKeys(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> key, List<Object> keys,
+            int batch) {
         if (keys.isEmpty()) {
             return List.of();
         }
@@ -733,11 +747,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 found.putIfAbsent(Keys.keyOf(q, key, built.selection().row(tuple)), new Found<>(built, tuple));
             }
         }
-        List<M> models = new ArrayList<>(keys.size());
+        List<Loaded<M>> models = new ArrayList<>(keys.size());
         for (Object rowKey : keys) {
             Found<M> row = found.get(rowKey);
             if (row != null) {
-                models.add(row.built().map(row.tuple())); // mapped per position, so afterMap runs once per row
+                // Mapped per position, so afterMap runs once per row.
+                models.add(new Loaded<>(row.built().map(row.tuple()), row.built().selection().row(row.tuple())));
             }
         }
         return models;
@@ -761,11 +776,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return keyLimits.clamp(ownBinds, key.columns().size(), primaryKeyFirstBatchSize);
     }
 
-    private static <M> List<M> mapAll(Object label, TypedQuery<Tuple> query, BuiltQuery<M> built) {
+    private static <M> List<Loaded<M>> mapAll(Object label, TypedQuery<Tuple> query, BuiltQuery<M> built) {
         List<Tuple> tuples = rows(label, query);
-        var models = new ArrayList<M>(tuples.size());
+        var models = new ArrayList<Loaded<M>>(tuples.size());
         for (Tuple tuple : tuples) {
-            models.add(built.map(tuple));
+            models.add(new Loaded<>(built.map(tuple), built.selection().row(tuple)));
         }
         return models;
     }
@@ -798,7 +813,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Set<Object> previousKeys = Set.of();
         while (passed < limit) {
             Set<Object> keys = new HashSet<>();
-            List<M> fresh;
+            List<Loaded<M>> fresh;
             int read;
             if (primaryKeyFirst(q, offset)) {
                 // Only an ungrouped query with a primary key gets here (MQ1201, MQ1402), so key is set.
@@ -824,14 +839,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 List<Tuple> rows = rows(q, query);
                 fresh = new ArrayList<>(rows.size());
                 for (Tuple tuple : rows) {
-                    Object rowKey = keyOfRow.apply(built.selection().row(tuple));
-                    if (isFresh(keys, previousKeys, rowKey)) {
-                        fresh.add(built.map(tuple));
+                    Row row = built.selection().row(tuple);
+                    if (isFresh(keys, previousKeys, keyOfRow.apply(row))) {
+                        fresh.add(new Loaded<>(built.map(tuple), row));
                     }
                 }
                 read = rows.size();
             }
-            passed = pass(fresh, passed, limit, pageTransformer, sink);
+            // After the dedupe, so the plan runs on exactly the rows passed on (R-FCH-09).
+            passed = pass(models(q, fresh), passed, limit, pageTransformer, sink);
             if (read < pageSize) {
                 break;
             }
@@ -875,7 +891,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             query.setMaxResults(pageSize);
             List<Tuple> rows = rows(q, query);
             Set<Object> keys = new HashSet<>();
-            List<M> fresh = new ArrayList<>(rows.size());
+            List<Loaded<M>> fresh = new ArrayList<>(rows.size());
             for (Tuple tuple : rows) {
                 Row row = built.selection().row(tuple);
                 Object rowKey = Keys.keyOf(q, key, row);
@@ -892,10 +908,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 // Equal keys sort together and the cursor is past them all, so a key repeats only within a page,
                 // when a predicate's to-many join repeats the root, and that repeat is dropped (R-PAG-02).
                 if (keys.add(rowKey)) {
-                    fresh.add(built.map(tuple));
+                    fresh.add(new Loaded<>(built.map(tuple), row));
                 }
             }
-            passed = pass(fresh, passed, limit, pageTransformer, sink);
+            passed = pass(models(q, fresh), passed, limit, pageTransformer, sink);
             if (rows.size() < pageSize) {
                 break;
             }
@@ -950,6 +966,167 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                         + attribute.getName() + ", so one primary key spans several rows; select from the child side, "
                         + "or filter with Filters.exists(...)");
             }
+        }
+    }
+
+    // ---- fetch plans
+
+    /** A mapped row and the row it was read from, whose raw values a child load keys on (R-FCH-05). */
+    private record Loaded<M>(M model, Row row) {}
+
+    /**
+     * The models of {@code rows}, in order, with {@code q}'s fetch plan, if any, run once over them: on exactly the
+     * rows a call returns or passes on, never on what paging only reads (R-FCH-09).
+     */
+    private <M> List<M> models(ModelQuery<?, ?, M> q, List<Loaded<M>> rows) {
+        List<M> models = new ArrayList<>(rows.size());
+        rows.forEach(loaded -> models.add(loaded.model()));
+        Optional<FetchPlan<M>> plan = q.fetch();
+        if (plan.isPresent() && !rows.isEmpty()) {
+            for (ChildLoad<M, ?> load : plan.get().childLoads()) {
+                loadChild(load, rows, models);
+            }
+        }
+        return models;
+    }
+
+    /**
+     * Loads {@code load}'s children for the distinct non-null keys of {@code rows}, and sets them on the parent at the
+     * same position of {@code models}. A parent whose key is null, or that has no child, keeps the empty value it was
+     * mapped with (R-FCH-03).
+     */
+    private <M, C> void loadChild(ChildLoad<M, C> load, List<Loaded<M>> rows, List<M> models) {
+        ColumnField<M, ?, ?> key = load.field().key();
+        Object[] keys = new Object[rows.size()];
+        var distinct = new LinkedHashSet<Object>();
+        for (int i = 0; i < keys.length; i++) {
+            // The attribute value, before any converter, as the child's foreign key is read (R-FCH-05, R-COL-11).
+            keys[i] = rows.get(i).row().raw(key);
+            if (keys[i] != null) {
+                distinct.add(keys[i]);
+            }
+        }
+        if (distinct.isEmpty()) {
+            LOG.log(DEBUG, () -> "child " + load + ": no key on the page, so no child query");
+            return;
+        }
+        Map<Object, List<C>> children = readChildren(load, load.query(), List.copyOf(distinct));
+        for (int i = 0; i < keys.length; i++) {
+            List<C> found = keys[i] == null ? null : children.get(keys[i]);
+            if (found != null) {
+                models.set(i, load.field().with(models.get(i), found));
+            }
+        }
+    }
+
+    /**
+     * Reads {@code load}'s children of {@code keys} through an executor for the child's root entity, on this
+     * executor's {@code EntityManager} and with its configuration (R-FCH-06).
+     *
+     * @param <E2> the child's root entity
+     */
+    private <E2, C> Map<Object, List<C>> readChildren(ChildLoad<?, C> load, ModelQuery<E2, ?, C> q,
+            List<Object> keys) {
+        return new DefaultModelQueryExecutor<>(em, q.rootEntity(), config).childrenOf(load, q, keys);
+    }
+
+    /**
+     * The children of {@code keys}, grouped by key in child order. The keys go in rounds of at most the largest power
+     * of two within the profile's limits, each one statement {@code where foreignKey IN keys} with the child filters
+     * and the child order closed by the child's primary key; a child read twice for one key is kept once. The child
+     * plan then runs once over all the rows read (R-FCH-04, R-FCH-05, D-99).
+     */
+    private <C> Map<Object, List<C>> childrenOf(ChildLoad<?, C> load, ModelQuery<E, ?, C> q, List<Object> keys) {
+        checkFirstRun(q);
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        // The statement's own binds, before any key is added, at one bind per key (R-PAG-07, D-32).
+        int ownBinds = em.createQuery(q.buildQuery(cb, Phase.MODEL, renderOptions).query()).getParameters().size();
+        int round = keyLimits.clamp(ownBinds, 1, OptionalInt.empty());
+        LOG.log(DEBUG, () -> "child " + load + ": " + keys.size() + (keys.size() == 1 ? " key" : " keys") + " in "
+                + ((keys.size() - 1) / round + 1) + " round(s)");
+        ColumnField<C, ?, ?> foreignKey = load.field().foreignKey();
+        List<Loaded<C>> loaded = new ArrayList<>();
+        List<Object> parents = new ArrayList<>();
+        for (int from = 0; from < keys.size(); from += round) {
+            List<Object> roundKeys = keys.subList(from, Math.min(keys.size(), from + round));
+            BuiltQuery<C> built = q.buildQuery(cb, Phase.MODEL, renderOptions);
+            Predicate byKey = foreignKey.path(built.joins()).in(roundKeys);
+            Predicate own = built.query().getRestriction();
+            built.query().where(own == null ? byKey : cb.and(own, byKey));
+            appendStableOrder(q, built);
+            TypedQuery<Tuple> query = create(load, built.query());
+            long cap = (long) roundKeys.size() * load.maxPerParent() + 1;
+            if (load.maxPerParent() > 0) {
+                query.setMaxResults((int) Math.min(cap, Integer.MAX_VALUE));
+            }
+            List<Tuple> tuples = rows(load, query);
+            Set<Object> wanted = new HashSet<>(roundKeys);
+            // Per key: the children kept, by primary key, and the rows read, which MQ2603 names the most of.
+            Map<Object, Set<Object>> kept = new HashMap<>();
+            Map<Object, Integer> read = new HashMap<>();
+            PrimaryKey<C, ?> childKey = q.primaryKey().orElse(null);
+            for (Tuple tuple : tuples) {
+                Row row = built.selection().row(tuple);
+                Object parent = row.raw(foreignKey);
+                if (!wanted.contains(parent)) {
+                    throw new ModelQueryExecutionException(MqCode.MQ2604, load + ": a child row's " + foreignKey
+                            + " is " + parent + ", which equals none of the " + roundKeys.size() + " keys of the "
+                            + "statement that matched it; the column's collation equates values Java tells apart, "
+                            + "by case or trailing spaces, so key the child on a column with a binary collation");
+                }
+                read.merge(parent, 1, Integer::sum);
+                Set<Object> children = kept.computeIfAbsent(parent, k -> new HashSet<>());
+                // A child filter through a to-many join repeats a child, and a many-to-many child belongs to several
+                // keys, so a child is kept once per key (R-FCH-04, D-99). Without a primary key, every row is one.
+                if (children.add(childKey == null ? new Object() : Keys.keyOf(load, childKey, row))) {
+                    if (children.size() > 1 && !load.field().isToMany()) {
+                        throw new ModelQueryExecutionException(MqCode.MQ2601, load + ": the to-one child found two "
+                                + "distinct rows for key " + parent + "; key it on a column unique per child, or "
+                                + "declare the field a List");
+                    }
+                    loaded.add(new Loaded<>(built.map(tuple), row));
+                    parents.add(parent);
+                }
+            }
+            if (load.maxPerParent() > 0) {
+                checkBound(load, roundKeys.size(), tuples.size() >= cap, kept, read);
+            }
+        }
+        List<C> children = models(q, loaded);
+        Map<Object, List<C>> grouped = new HashMap<>();
+        for (int i = 0; i < children.size(); i++) {
+            grouped.computeIfAbsent(parents.get(i), k -> new ArrayList<>()).add(children.get(i));
+        }
+        return grouped;
+    }
+
+    /**
+     * Throws {@code MQ2603} when a key of a round has more distinct children than {@code maxPerParent}, or the round
+     * read its cap of keys × {@code maxPerParent} + 1 rows, and names the key with the most rows read (R-FCH-11).
+     */
+    private static void checkBound(ChildLoad<?, ?> load, int keys, boolean capped, Map<Object, Set<Object>> kept,
+            Map<Object, Integer> read) {
+        int bound = load.maxPerParent();
+        Object over = null;
+        Object most = null;
+        for (Map.Entry<Object, Integer> entry : read.entrySet()) {
+            Object key = entry.getKey();
+            if (kept.get(key).size() > bound && (over == null || entry.getValue() > read.get(over))) {
+                over = key;
+            }
+            if (most == null || entry.getValue() > read.get(most)) {
+                most = key;
+            }
+        }
+        if (over != null) {
+            throw new ModelQueryExecutionException(MqCode.MQ2603, load + ": key " + over + " has "
+                    + kept.get(over).size() + " children, more than maxPerParent(" + bound + "); raise the bound or "
+                    + "narrow the child filters");
+        }
+        if (capped) {
+            throw new ModelQueryExecutionException(MqCode.MQ2603, load + ": a round of " + keys + " keys read its "
+                    + "cap of " + keys + " x maxPerParent(" + bound + ") + 1 rows, key " + most + " the most, "
+                    + read.get(most) + "; raise the bound or narrow the child filters");
         }
     }
 

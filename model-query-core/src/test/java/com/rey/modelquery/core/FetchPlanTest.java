@@ -120,9 +120,10 @@ class FetchPlanTest {
             ColumnField.of(LineView.class, LINE_ROOT, "id", Long.class);
     private static final OrderedColumnField<LineView, LineEntity, Long> LINE_INVOICE_ID =
             ColumnField.of(LineView.class, LINE_ROOT, "invoiceId", Long.class);
-    private static final ChildField<InvoiceView, LineView> LINES = childField("lines", ID, LINE_INVOICE_ID);
+    private static final ChildField<InvoiceView, LineView> LINES = childField("lines", ID, LINE_INVOICE_ID,
+            () -> ModelQuery.builder(LINE_ROOT, row -> new LineView()).primaryKey(PrimaryKey.of(LINE_ID)));
     private static final ChildField<CustomerView, InvoiceView> INVOICES = childField("invoices", CUSTOMER_ID,
-            CUSTOMER_ID.withTable(InvoiceView.class, CUSTOMER_TABLE));
+            CUSTOMER_ID.withTable(InvoiceView.class, CUSTOMER_TABLE), FetchPlanTest::invoices);
 
     private static final FetchPlan<CountryView> COUNTRY = FetchPlan.of(SelectSet.of(CODE, NAME));
     private static final FetchPlan<CustomerView> CUSTOMER =
@@ -326,6 +327,24 @@ class FetchPlanTest {
         assertThat(filtered.order()).isEqualTo(ordered.order());
     }
 
+    @Test
+    void ac_fch_04_a_child_load_selects_the_foreign_key_with_the_child_filters_and_order() {
+        var plan = FetchPlan.of(SelectSet.of(ID)).child(LINES, LINE, c -> c
+                .where(f -> f.eq(LINE_INVOICE_ID, Optional.of(1L))).orderBy(LINE_INVOICE_ID.desc()).maxPerParent(3));
+
+        @SuppressWarnings("unchecked") // the plan's only child is LINES
+        var load = (ChildLoad<InvoiceView, LineView>) plan.childLoads().get(0);
+        assertThat(load.field()).isSameAs(LINES);
+        assertThat(load.maxPerParent()).isEqualTo(3);
+        assertThat(load.toString()).isEqualTo("InvoiceView.lines");
+        // The child plan's selection, then the foreign key a load reads from each child row (R-FCH-05).
+        assertThat(load.query().select().fields()).containsExactly(LINE_ID, LINE_INVOICE_ID);
+        assertThat(load.query().orderBy()).containsExactly(LINE_INVOICE_ID.desc());
+        assertThat(load.query().fetch()).hasValueSatisfying(child -> assertThat(child.isSelectionOnly()).isTrue());
+        assertThat(plan.isSelectionOnly()).isFalse();
+        assertThat(FetchPlan.of(SelectSet.of(ID)).isSelectionOnly()).isTrue();
+    }
+
     // ---- R-FCH-02: select and fetch
 
     @Test
@@ -446,7 +465,7 @@ class FetchPlanTest {
     }
 
     private static <M, C> ChildField<M, C> childField(String name, ColumnField<M, ?, ?> key,
-            ColumnField<C, ?, ?> foreignKey) {
+            ColumnField<C, ?, ?> foreignKey, Supplier<ModelQuery.Builder<?, ?, C>> query) {
         return new ChildField<>() {
             @Override
             public String name() {
@@ -470,7 +489,7 @@ class FetchPlanTest {
 
             @Override
             public ModelQuery.Builder<?, ?, C> query() {
-                throw new UnsupportedOperationException("not read before M8.14");
+                return query.get();
             }
 
             @Override

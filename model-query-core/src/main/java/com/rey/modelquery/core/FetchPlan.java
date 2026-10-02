@@ -20,11 +20,11 @@ import java.util.function.UnaryOperator;
 public final class FetchPlan<M> {
 
     private final SelectSet<M> select;
-    private final List<ChildPlan<M, ?>> children;
+    private final List<ChildLoad<M, ?>> children;
     private final List<JoinPlan<M, ?>> joins;
     private final List<Enricher<M>> enrichers;
 
-    private FetchPlan(SelectSet<M> select, List<ChildPlan<M, ?>> children, List<JoinPlan<M, ?>> joins,
+    private FetchPlan(SelectSet<M> select, List<ChildLoad<M, ?>> children, List<JoinPlan<M, ?>> joins,
             List<Enricher<M>> enrichers) {
         this.select = select;
         this.children = children;
@@ -40,7 +40,8 @@ public final class FetchPlan<M> {
     /**
      * A copy that loads the child {@code field} with {@code plan}, ordered by the child's primary key.
      *
-     * @throws ModelQueryDefinitionException {@code MQ1703} when the plan already loads {@code field}
+     * @throws ModelQueryDefinitionException {@code MQ1703} when the plan already loads {@code field}, and as
+     *     {@code build()} does for the child query
      */
     public <C> FetchPlan<M> child(ChildField<M, C> field, FetchPlan<C> plan) {
         return child(field, plan, UnaryOperator.identity());
@@ -48,21 +49,23 @@ public final class FetchPlan<M> {
 
     /**
      * A copy that loads the child {@code field} with {@code plan}, filtered, ordered and bounded by what
-     * {@code query} makes of an empty {@link ChildQuery} (R-FCH-04).
+     * {@code query} makes of an empty {@link ChildQuery} (R-FCH-04). The child query is built and checked here, as
+     * {@link ModelQuery.Builder#build()} checks a query.
      *
-     * @throws ModelQueryDefinitionException {@code MQ1703} when the plan already loads {@code field}
+     * @throws ModelQueryDefinitionException {@code MQ1703} when the plan already loads {@code field}, and as
+     *     {@code build()} does for the child query
      */
     public <C> FetchPlan<M> child(ChildField<M, C> field, FetchPlan<C> plan, UnaryOperator<ChildQuery<C>> query) {
         Objects.requireNonNull(field, "field");
         Objects.requireNonNull(plan, "plan");
         Objects.requireNonNull(query, "query");
-        for (ChildPlan<M, ?> child : children) {
+        for (ChildLoad<M, ?> child : children) {
             if (child.field().name().equals(field.name())) {
                 throw twice(field.key().model(), field.name(), "child");
             }
         }
         ChildQuery<C> load = Objects.requireNonNull(query.apply(ChildQuery.empty()), "query result");
-        return new FetchPlan<>(select, append(children, new ChildPlan<>(field, plan, load)), joins, enrichers);
+        return new FetchPlan<>(select, append(children, new ChildLoad<>(field, plan, load)), joins, enrichers);
     }
 
     /**
@@ -91,6 +94,26 @@ public final class FetchPlan<M> {
     /** The plan's own selection, as given to {@link #of}. */
     public SelectSet<M> select() {
         return select;
+    }
+
+    /** The children the plan loads, in the order added (R-FCH-04). */
+    @EngineFacing
+    public List<ChildLoad<M, ?>> childLoads() {
+        return children;
+    }
+
+    /**
+     * Whether the plan only selects: it has no child, join plan nor enricher, so nothing of it runs on a page
+     * (R-FCH-09).
+     */
+    @EngineFacing
+    public boolean isSelectionOnly() {
+        return children.isEmpty() && joins.isEmpty() && enrichers.isEmpty();
+    }
+
+    /** A copy that also selects {@code column}, as a child query selects its foreign key (R-FCH-05). */
+    FetchPlan<M> selecting(ColumnField<M, ?, ?> column) {
+        return new FetchPlan<>(select.with(column), children, joins, enrichers);
     }
 
     /**
@@ -157,9 +180,6 @@ public final class FetchPlan<M> {
         result.add(element);
         return List.copyOf(result);
     }
-
-    /** A child the plan loads, with its plan and its load's filters, order and bound. */
-    private record ChildPlan<M, C>(ChildField<M, C> field, FetchPlan<C> plan, ChildQuery<C> query) {}
 
     /** A plan applied to the models a join holds. */
     private record JoinPlan<M, N>(JoinField<M, N> field, FetchPlan<N> plan) {

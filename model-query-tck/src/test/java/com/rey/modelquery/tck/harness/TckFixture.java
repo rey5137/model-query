@@ -11,6 +11,8 @@ import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * The shared fixture (spec delivery/60 §2): DDL plus a deterministic seed. Every value is a pure function of the row
@@ -25,6 +27,15 @@ public final class TckFixture {
     public static final int COMPOSITE_ITEMS_PER_TENANT = 100;
     public static final int COMPOSITE_KEY_ITEMS = COMPOSITE_TENANTS * COMPOSITE_ITEMS_PER_TENANT;
     public static final int NULLABLE_SORT_ROWS = 3_000;
+    public static final int LABELS = 10;
+    /** Orders 1 to this one carry labels, many-to-many: one or two each, every label on many orders. */
+    public static final int LABELED_ORDERS = 200;
+    /**
+     * The customer notes' emails, by note id: three notes of customer 1, one of customer 3, and one of customer 2 whose
+     * email differs from the customer's only by case, which the column's case-insensitive collation matches.
+     */
+    public static final List<String> NOTE_EMAILS = List.of("customer0001@example.test", "customer0001@example.test",
+            "customer0001@example.test", "customer0003@example.test", "CUSTOMER0002@EXAMPLE.TEST");
 
     private static final int BATCH = 1_000;
     private static final LocalDateTime BASE = LocalDateTime.of(2020, 1, 1, 0, 0);
@@ -57,8 +68,12 @@ public final class TckFixture {
             if (in == null) {
                 throw new IllegalStateException("schema.sql not found");
             }
-            String script = new String(in.readAllBytes(), StandardCharsets.UTF_8).replace("@COLLATE@", vendor.textCollation());
-            return script.split(";\\s*\\n");
+            String script = new String(in.readAllBytes(), StandardCharsets.UTF_8)
+                    .replace("@COLLATE@", vendor.textCollation())
+                    .replace("@CI_TEXT@", vendor.caseInsensitiveText());
+            List<String> statements = new ArrayList<>(vendor.setup());
+            statements.addAll(List.of(script.split(";\\s*\\n")));
+            return statements.toArray(String[]::new);
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
@@ -120,6 +135,36 @@ public final class TckFixture {
                 ps.setTimestamp(4, Timestamp.valueOf(BASE.plusDays(i % 50)));
             }
         });
+        insert(c, "INSERT INTO labels (id, name) VALUES (?,?)", LABELS, (ps, i) -> {
+            ps.setLong(1, i);
+            ps.setString(2, "label-" + pad(i, 2));
+        });
+        try (PreparedStatement ps = c.prepareStatement("INSERT INTO order_labels (label_id, order_id) VALUES (?,?)")) {
+            for (long order = 1; order <= LABELED_ORDERS; order++) {
+                for (long label : labelsOf(order)) {
+                    ps.setLong(1, label);
+                    ps.setLong(2, order);
+                    ps.addBatch();
+                }
+            }
+            ps.executeBatch();
+        }
+        insert(c, "INSERT INTO customer_notes (id, customer_email, body) VALUES (?,?,?)", NOTE_EMAILS.size(),
+                (ps, i) -> {
+                    ps.setLong(1, i);
+                    ps.setString(2, NOTE_EMAILS.get(i - 1));
+                    ps.setString(3, "note " + i);
+                });
+    }
+
+    /** The labels of order {@code order}, ascending: none past {@link #LABELED_ORDERS}. */
+    public static List<Long> labelsOf(long order) {
+        if (order > LABELED_ORDERS) {
+            return List.of();
+        }
+        long first = order % LABELS + 1;
+        long second = order * 3 % LABELS + 1;
+        return first == second ? List.of(first) : List.of(Math.min(first, second), Math.max(first, second));
     }
 
     private interface RowBinder {

@@ -665,6 +665,15 @@ public final class ModelQuery<E, K, M> {
                     finisher, customizer, where, groupBy, having, Objects.requireNonNull(plan, "plan"));
         }
 
+        /**
+         * The builder of a child load's query: {@code plan} as {@link #fetch} attaches one, the child filters as its
+         * {@code where} and the child order as its {@code orderBy}, each replacing what was set before (R-FCH-04).
+         */
+        Builder<E, K, M> forChildren(FetchPlan<M> plan, List<Filter> where, List<OrderField<M, ?>> orderBy) {
+            return new Builder<>(root, mapper, null, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
+                    finisher, customizer, where, groupBy, having, plan);
+        }
+
         /** The primary key; required for {@link #keyset()} and {@link #primaryKeyFirst}. */
         public <K2> Builder<E, K2, M> primaryKey(PrimaryKey<M, K2> primaryKey) {
             return new Builder<>(root, mapper, columns, Objects.requireNonNull(primaryKey, "primaryKey"), orderBy,

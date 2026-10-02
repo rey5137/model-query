@@ -10,7 +10,8 @@ validation, and the connection lifetime of a stream.
 ## 1. `list`
 
 **R-EXE-01** `list(q, limit)` runs one query and returns the mapped rows in order. `Limit.of(0)` returns an empty list
-without touching the database. `Limit.unlimited()`, or `Limit.of(null)`, applies no `maxResults`.
+without touching the database. `Limit.unlimited()`, or `Limit.of(null)`, applies no `maxResults`. A fetch plan runs
+once on the returned rows (`api/15` R-FCH-09).
 
 ## 2. `page`
 
@@ -25,7 +26,8 @@ constructor, so a page number cannot be read as an offset (D-88).
 | `ONLY_COUNT` | Runs the count query only; the content list is empty. |
 
 A `Slice` never reports a total of `0` when it holds rows, and never reports `hasNext == false` because the count was
-skipped.
+skipped. A fetch plan runs on the content only, after the `NO_COUNT` probe row is dropped, and `ONLY_COUNT` runs none
+(`api/15` R-FCH-09).
 
 ## 3. `count`
 
@@ -53,7 +55,8 @@ negative offset throws `MQ2002`. A negative `Limit` throws `MQ2001`. `ExportOpti
 
 **R-EXE-07** *(was R10)* The only streaming API is `stream(q, limit, Function<Stream<M>, R> body)`. The engine opens the
 stream, passes it to `body`, and closes it in a `finally` block. No method returns an open `Stream`, so a caller cannot
-leak a JDBC result set (D-8).
+leak a JDBC result set (D-8). A fetch plan with a child, join plan or enricher runs once per page, and a stream has
+none, so `stream` with one throws `MQ2605` before any statement (`api/15` R-FCH-09).
 
 **R-EXE-08** The engine calls `VendorProfile.applyStreaming(query, fetchSize)` before execution and
 `checkStreamingPreconditions(em)` before that. On PostgreSQL, streaming outside a transaction fails fast with `MQ2101`

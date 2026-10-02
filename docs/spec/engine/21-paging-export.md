@@ -75,7 +75,8 @@ whole page when that is unset, clamped to `VendorProfile.maxInListSize()` keys a
 statement's own binds, rounded down to a power of two so a provider's IN-list padding stays within it (`vendor/41`,
 D-32, D-80); a configured batch below the clamp is kept, and a batch over it is read in several statements. A keyset page or
 export page is refused up front with `MQ1307` when its own binds plus the worst cursor, k(k+1)/2 binds for k keyset keys,
-exceed `maxBindParameters()` (`api/12` R-FLT-09, D-82).
+exceed `maxBindParameters()` (`api/12` R-FLT-09, D-82). A fetch plan's child keys go in rounds of the same
+clamp, without `primaryKeyFirstBatchSize` (`api/15` R-FCH-05).
 
 **R-PAG-08** Step 2 re-applies the query's order, because `IN` does not preserve the key order. Predicates must be
 identical in both steps; a `QueryCustomizer` that narrows only one phase is what `api/11` R-QRY-09 warns about, and
@@ -99,6 +100,7 @@ loop:
     fresh = rows minus keys repeated within the page   # both modes (R-PAG-02)
     offset: fresh -= keys of the previous page         # rows shifted across the boundary
     keyset: a key of the previous page -> MQ2205       # the cursor did not round-trip (R-PAG-14)
+    fresh = fetch plan run on fresh                    # children and enrichers, if any (api/15 R-FCH-09)
     for item in pageTransformer(fresh): sink(item) until limit reached
     if rows.size < pageSize or limit reached: stop
     cursor = next(cursor, rows)                        # keyset: last row's key; offset: += rows.size
