@@ -925,6 +925,18 @@ that passed in a static weak set rather than on the query (CC-IMM-01). Also reje
 follows `fetch` (two sources of one selection), and caching a checked copy on the query (a lazily filled field on a
 `static final` constant). → `api/15`.
 
+**D-98 — Query inspection and a test-support module.** Unit tests that cannot run a database need to check which
+filters a request became, and `Filters` is sealed with each filter held as an opaque lambda, so nothing can be mocked
+or read back. Each filter now records a `Condition` (operator, column, values, nested conditions) next to its
+predicate, `ModelQuery.conditions()` exposes the tree read-only, and a new `model-query-test` module (core and AssertJ
+only) asserts on it with matchers named after the `Filters` operators. A skipped filter records nothing, so the view
+matches the statement. `toString` and the D-95 log show `?` for values, which can be personal data. `add(label, …)`
+names an otherwise opaque custom filter. D-97 is the starter's dependency change (M8.12b). Rejected: a mockable
+`Filters` (unsealing it opens the DSL to implementations the engine cannot render); asserting on a rendered JPQL or
+SQL string (needs a provider and a metamodel, and breaks on any rendering change); a recording `Filters` only inside
+the test module (it would duplicate every operator's skipping rules and drift from them). INV-7 widens: `test`
+depends only on `core`. All new types `@Incubating`. → `api/16`.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
