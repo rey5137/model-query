@@ -43,6 +43,8 @@ Behaviour to know when moving from hand-written Criteria code:
   `assertThatQuery(query)` asserts on filters, `having`, order, selection and a fetch plan's selection with no database,
   and `FilterMatchers` has one matcher per `Filters` operator, plus `and(...)` and `custom(label)`. See "Testing queries
   without a database" in the user guide.
+  `QueryAssert<M>` is typed by the query's model, so `isOrderedBy` and the selection methods refuse a column of another
+  model, and a filter on a join matches only the same join path (D-103).
 - `japicmp` runs in `verify` against the baseline release named by `japicmp.baseline`, and fails the build on a
   binary- or source-incompatible change to API; it is skipped while no baseline is set, and ignores `@Incubating`,
   `@EngineFacing` and `jpa.vendor`.
@@ -118,6 +120,9 @@ Behaviour to know when moving from hand-written Criteria code:
   `@Child`, which fetch plans name. A class model's `JoinField` reads the field through its getter (`getCustomer()`,
   as Lombok names it), so a class model with a `@Join` field and no getter no longer compiles; javac reports the call
   in the generated class (D-96).
+- `TableField` has `equals` and `hashCode` by its join key, and its `toString` is path-qualified, as in
+  `Order.customer.address (INNER)` (D-103). `Enricher.of` is documented as positional, and a `null` element in its
+  result is `MQ2602` like a wrong size (D-102).
 
 ### Fixed
 - The starter's repository factory bean swap re-registers each definition, so a repository type-checked before the swap

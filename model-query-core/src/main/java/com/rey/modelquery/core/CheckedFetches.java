@@ -1,31 +1,41 @@
 package com.rey.modelquery.core;
 
+import java.lang.ref.WeakReference;
 import java.util.Collections;
 import java.util.Map;
-import java.util.Set;
 import java.util.WeakHashMap;
 
 /**
- * The (query, plan) pairs whose {@link ModelQuery#withFetch} copy passed the checks of {@code build()}, by identity,
- * so a constant plan is checked once per query (R-FCH-13). Static, since a query holds no cache (CC-IMM-01); weak on
- * both, so neither a query nor a plan built per request stays reachable.
+ * The {@link ModelQuery#withFetch} copies that passed the checks of {@code build()}, by (query, plan) identity, so a
+ * constant plan is checked once per query (R-FCH-13) and a repeated {@code withFetch} returns the same copy, which
+ * keeps the executor's first-run check cache (keyed on the definition) warm. Static, since a query holds no cache
+ * (CC-IMM-01); weak on the query, the plan and the copy, so none built per request stays reachable. The pass
+ * outlives a collected copy, so the next one is built without the checks.
  */
 final class CheckedFetches {
 
-    private static final Map<ModelQuery<?, ?, ?>, Set<FetchPlan<?>>> PASSED =
+    private static final Map<ModelQuery<?, ?, ?>, Map<FetchPlan<?>, WeakReference<ModelQuery<?, ?, ?>>>> PASSED =
             Collections.synchronizedMap(new WeakHashMap<>());
 
     private CheckedFetches() {}
 
-    /** Whether {@code query.withFetch(plan)} passed its checks before. */
+    /** Whether {@code query.withFetch(plan)} passed its checks before, though its copy may since be collected. */
     static boolean passed(ModelQuery<?, ?, ?> query, FetchPlan<?> plan) {
-        Set<FetchPlan<?>> plans = PASSED.get(query);
-        return plans != null && plans.contains(plan);
+        Map<FetchPlan<?>, WeakReference<ModelQuery<?, ?, ?>>> plans = PASSED.get(query);
+        return plans != null && plans.containsKey(plan);
     }
 
-    /** Records that {@code query.withFetch(plan)} passed its checks. */
-    static void pass(ModelQuery<?, ?, ?> query, FetchPlan<?> plan) {
-        PASSED.computeIfAbsent(query, q -> Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>())))
-                .add(plan);
+    /** The copy {@code query.withFetch(plan)} passed its checks as, or {@code null} when none is held. */
+    @SuppressWarnings("unchecked")
+    static <E, K, M> ModelQuery<E, K, M> copy(ModelQuery<E, K, M> query, FetchPlan<M> plan) {
+        Map<FetchPlan<?>, WeakReference<ModelQuery<?, ?, ?>>> plans = PASSED.get(query);
+        WeakReference<ModelQuery<?, ?, ?>> copy = plans == null ? null : plans.get(plan);
+        return copy == null ? null : (ModelQuery<E, K, M>) copy.get();
+    }
+
+    /** Records that {@code query.withFetch(plan)} passed its checks as {@code copy}. */
+    static void pass(ModelQuery<?, ?, ?> query, FetchPlan<?> plan, ModelQuery<?, ?, ?> copy) {
+        PASSED.computeIfAbsent(query, q -> Collections.synchronizedMap(new WeakHashMap<>()))
+                .put(plan, new WeakReference<>(copy));
     }
 }

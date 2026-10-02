@@ -707,7 +707,7 @@ ArchUnit checks. `hibernate-validator` and `tomcat-embed-el` are test-scope only
 → `api/14` R-WRT-21, R-WRT-22, `processor/31` R-GEN-23, `delivery/61` R-REL-03.
 
 **D-72 — Engine-facing members.** Members of public `core` types that only an executor calls carry `@EngineFacing`
-(`core`, class retention, methods only; D-86 lets it mark a type too): `ModelQuery.buildQuery` and `checkPhases`,
+(`core`, class retention, methods only; D-86 lets it mark a type too): `ModelQuery.buildQuery`, `checkPhases` and `checkFetch`,
 and on `ModelUpdate` and `ModelDelete` `checkMetamodel`, `writesNothing`, every `buildWrite` and `buildKeySelect`
 overload, `readsTargetInSubquery`, `distinctKeys`, `startAfter` and `modelKey`. Like `jpa.vendor` (R-REL-10) they may
 change in any release; `japicmp` excludes them. This makes D-67's `readsTargetInSubquery` boolean non-API. →
@@ -829,7 +829,8 @@ target class, and a common `ModelQueryException` superclass. → `delivery/61` R
 **D-86 — `@EngineFacing` may mark a type (amends D-72).** From 0.2 `BuiltQuery`, `RowSelection` and `RenderOptions`
 carry it at type level, and `JoinContext.of` and `OrderField.toOrders` at method level; `japicmp` excludes both. A
 selection's shape can then change, for example one alias per selected path, without breaking anything. → R-REL-10,
-R-REL-11, D-72.
+R-REL-11, D-72. The fetch-plan seams join them: the types `ChildLoad` and `JoinPlan`, and the methods
+`FetchPlan.childLoads`, `joinPlans`, `enrichers` and `isSelectionOnly` and `Enricher.enrich`.
 
 **D-87 — `or` takes two or three branches, or a list (applied in 0.2).** An interface method cannot be `@SafeVarargs`,
 so the generic varargs `or` warned `unchecked generic array creation` at every call and failed under `-Werror`.
@@ -981,7 +982,22 @@ condition. Matchers live in `model-query-test` and take value forms only. `toStr
 values; `ModelQuery.toString()` stays the model's name, which failure messages use. Rejected: sealed per-kind types (no
 record patterns or pattern `switch` on Java 17, and their exhaustiveness breaks like an enum's); string kinds (P-2);
 public `Condition` factories (they freeze construction); a flat `children()` for `or` (ambiguous). `@Incubating`. →
-`api/16` §1, R-INS-01–07.
+`api/16` §1, R-INS-01–07. Amended by D-103.
+
+**D-102 — `Enricher.of` is positional.** A plan serves a query alone and nested (R-FCH-07), and a nested plan's models
+are put back into their parents by position, so `of` returns one model per position, in the page's order: position `i`
+replaces position `i`, and a wrong size or a `null` element is `MQ2602`. Rejected: matching by identity (a record's
+`with` returns a copy, so the result is never the page's instance); matching by key (a model need not expose one). A
+possible 1.0 change is an API that cannot reorder: a values function plus a `with` `BiFunction` the engine applies
+itself, as `byKey` does. `@Incubating`. → `api/15` R-FCH-07, -08.
+
+**D-103 — Condition paths compare by key; `QueryAssert<M>` (amends D-101).** `TableField` has `equals` and `hashCode` by
+its join key (the parent path, the attribute and the join type, R-INS-04 "paths by their key", CC-IMM-04), so two
+`TableField`s that differ only in `on` are equal and a matcher compares a path with `Objects.equals`, not by its text:
+a join of the same attribute under another parent no longer matches. `TableField.toString` is path-qualified
+(`Order.customer.address (INNER)`) and is not API. `QueryAssert` is typed by the query's model, `QueryAssert<M>`, so
+`isOrderedBy` and the selection methods refuse a column of another model; `ConditionMatcher` stays non-generic.
+`@Incubating`. → `api/16` R-INS-04, R-INS-06.
 
 ## 2. Open questions
 

@@ -87,9 +87,12 @@ public final class ChildLoad<M, C> {
         return through == null ? foreignKey.path(built.joins()) : built.parentKey();
     }
 
-    /** The parent key a row of {@code built} belongs to: its attribute value, before any converter (R-FCH-05). */
-    public Object key(BuiltQuery<C> built, Tuple tuple) {
-        return through == null ? built.selection().row(tuple).raw(foreignKey) : built.parentKey(tuple);
+    /**
+     * The parent key {@code row}, built from {@code tuple} of {@code built}, belongs to: its attribute value, before
+     * any converter (R-FCH-05).
+     */
+    public Object key(BuiltQuery<C> built, Tuple tuple, Row row) {
+        return through == null ? row.raw(foreignKey) : built.parentKey(tuple);
     }
 
     /** The most children per parent, or 0 for no bound (R-FCH-11). */

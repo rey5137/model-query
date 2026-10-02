@@ -121,6 +121,15 @@ class LayeringTest {
     }
 
     @Test
+    void ac_ins_06_testUsesNoEngineFacingMember() {
+        proves(
+                LayeringRules::testUsesNoEngineFacingMember,
+                F + "test.BadTestEngineFacingCall",
+                F + "test.BadTestEngineFacingType",
+                F + "core.EngineOnly");
+    }
+
+    @Test
     void ac_rel_02_noLombok() {
         proves(LayeringRules::noLombok, F + "hibernate.BadLombokImport", "lombok.fixturestub.Stub");
     }

@@ -10,7 +10,6 @@ import com.rey.modelquery.core.TableField;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * Matches one {@link Condition} of a query, built by {@link FilterMatchers}; nothing else builds one, and core exposes
@@ -52,7 +51,7 @@ public final class ConditionMatcher {
                 || !Objects.equals(condition.right().orElse(null), right)
                 || condition.op().orElse(null) != op
                 || condition.likeMode().orElse(null) != likeMode
-                || !samePath(condition.path(), path)
+                || !Objects.equals(condition.path().orElse(null), path)
                 || !Objects.equals(condition.label().orElse(null), label)
                 || !valuesMatch(condition.values())
                 || condition.children().size() != children.size()) {
@@ -76,12 +75,6 @@ public final class ConditionMatcher {
         }
         var remaining = new ArrayList<>(actual);
         return values.stream().allMatch(remaining::remove);
-    }
-
-    /** A path has no public key, so it matches by identity or by its description (the join, its type and alias). */
-    private static boolean samePath(Optional<TableField<?, ?>> actual, TableField<?, ?> expected) {
-        return actual.map(path -> expected != null && (path == expected || path.toString().equals(expected.toString())))
-                .orElse(expected == null);
     }
 
     @Override

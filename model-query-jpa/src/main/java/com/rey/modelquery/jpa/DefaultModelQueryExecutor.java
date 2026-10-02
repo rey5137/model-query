@@ -624,7 +624,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * Runs the R-QRY-09 phase check and the R-FCH-02 fetch-plan check the first time any executor runs {@code q}
      * (D-21).
      */
-    private void checkFirstRun(ModelQuery<E, ?, ?> q) {
+    private <E2> void checkFirstRun(ModelQuery<E2, ?, ?> q) {
         checkFirstRun(q, true);
     }
 
@@ -633,9 +633,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * children and runs no enricher, a failed fetch-plan check logs a {@code WARNING} instead of throwing
      * {@code MQ1702}, and is not remembered, so the next call that returns models throws it.
      */
-    private void checkFirstRun(ModelQuery<E, ?, ?> q, boolean fetchesModels) {
+    private <E2> void checkFirstRun(ModelQuery<E2, ?, ?> q, boolean fetchesModels) {
         // An orderedBy copy is covered by the check of its definition, so a per-request sort does not repeat it.
-        ModelQuery<E, ?, ?> definition = q.definition();
+        ModelQuery<E2, ?, ?> definition = q.definition();
         if (!FIRST_RUN_CHECKED.contains(definition)) {
             CriteriaBuilder cb = em.getCriteriaBuilder();
             q.checkPhases(cb);
@@ -677,7 +677,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * Offset pages of an order with ties overlap or skip rows, so the primary key (the group keys of a grouped query)
      * closes the order (api/11 §5, R-PAG-01, R-PAG-11).
      */
-    private <M> void appendStableOrder(ModelQuery<E, ?, M> q, BuiltQuery<M> built) {
+    private <E2, M> void appendStableOrder(ModelQuery<E2, ?, M> q, BuiltQuery<M> built) {
         List<? extends SelectField<M, ?>> tieBreakers = q.isGrouped()
                 ? q.groupBy()
                 : q.primaryKey().<List<? extends SelectField<M, ?>>>map(key -> key.columns()).orElse(List.of());
@@ -755,7 +755,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             Found<M> row = found.get(rowKey);
             if (row != null) {
                 // Mapped per position, so afterMap runs once per row.
-                models.add(new Loaded<>(row.built().map(row.tuple()), row.built().selection().row(row.tuple())));
+                models.add(loaded(row.built(), row.tuple()));
             }
         }
         return models;
@@ -783,7 +783,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         List<Tuple> tuples = rows(label, query);
         var models = new ArrayList<Loaded<M>>(tuples.size());
         for (Tuple tuple : tuples) {
-            models.add(new Loaded<>(built.map(tuple), built.selection().row(tuple)));
+            models.add(loaded(built, tuple));
         }
         return models;
     }
@@ -844,7 +844,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 for (Tuple tuple : rows) {
                     Row row = built.selection().row(tuple);
                     if (isFresh(keys, previousKeys, keyOfRow.apply(row))) {
-                        fresh.add(new Loaded<>(built.map(tuple), row));
+                        fresh.add(new Loaded<>(built.map(row), row));
                     }
                 }
                 read = rows.size();
@@ -911,7 +911,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 // Equal keys sort together and the cursor is past them all, so a key repeats only within a page,
                 // when a predicate's to-many join repeats the root, and that repeat is dropped (R-PAG-02).
                 if (keys.add(rowKey)) {
-                    fresh.add(new Loaded<>(built.map(tuple), row));
+                    fresh.add(new Loaded<>(built.map(row), row));
                 }
             }
             passed = pass(models(q, fresh), passed, limit, pageTransformer, sink);
@@ -977,6 +977,19 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     /** A mapped row and the row it was read from, whose raw values a child load keys on (R-FCH-05). */
     private record Loaded<M>(M model, Row row) {}
 
+    /** {@code tuple} as a {@link Loaded}, its row built once. */
+    private static <M> Loaded<M> loaded(BuiltQuery<M> built, Tuple tuple) {
+        Row row = built.selection().row(tuple);
+        return new Loaded<>(built.map(row), row);
+    }
+
+    /** The models of {@code rows}, in order. */
+    private static <M> List<M> modelsOf(List<Loaded<M>> rows) {
+        List<M> models = new ArrayList<>(rows.size());
+        rows.forEach(loaded -> models.add(loaded.model()));
+        return models;
+    }
+
     /**
      * The models of {@code rows}, in order, with {@code q}'s fetch plan, if any, run once over them: on exactly the
      * rows a call returns or passes on, never on what paging only reads (R-FCH-09).
@@ -986,9 +999,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         if (plan.isPresent() && !rows.isEmpty()) {
             return run(plan.get(), q.toString(), rows);
         }
-        List<M> models = new ArrayList<>(rows.size());
-        rows.forEach(loaded -> models.add(loaded.model()));
-        return models;
+        return modelsOf(rows);
     }
 
     /**
@@ -997,8 +1008,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * {@code owner} names the plan's model, or its join path, in a message.
      */
     private <M> List<M> run(FetchPlan<M> plan, String owner, List<Loaded<M>> rows) {
-        List<M> models = new ArrayList<>(rows.size());
-        rows.forEach(loaded -> models.add(loaded.model()));
+        List<M> models = modelsOf(rows);
         for (ChildLoad<M, ?> load : plan.childLoads()) {
             loadChild(load, rows, models);
         }
@@ -1045,6 +1055,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      */
     private <M, C> void loadChild(ChildLoad<M, C> load, List<Loaded<M>> rows, List<M> models) {
         ColumnField<M, ?, ?> key = load.field().key();
+        if (!rows.isEmpty() && !rows.get(0).row().isSelected(key)) {
+            // raw(...) is null for an unselected column, which would read as "no key" and leave every child empty.
+            throw new IllegalStateException(load + ": the parent key " + key + " is not selected, so no child can be "
+                    + "matched to a parent");
+        }
         Object[] keys = new Object[rows.size()];
         var distinct = new LinkedHashSet<Object>();
         for (int i = 0; i < keys.length; i++) {
@@ -1068,14 +1083,14 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     }
 
     /**
-     * Reads {@code load}'s children of {@code keys} through an executor for the child's root entity, on this
-     * executor's {@code EntityManager} and with its configuration (R-FCH-06).
+     * Reads {@code load}'s children of {@code keys} for the child's root entity, on this executor's
+     * {@code EntityManager} and with its configuration (R-FCH-06).
      *
      * @param <E2> the child's root entity
      */
     private <E2, C> Map<Object, List<C>> readChildren(ChildLoad<?, C> load, ModelQuery<E2, ?, C> q,
             List<Object> keys) {
-        return new DefaultModelQueryExecutor<>(em, q.rootEntity(), config).childrenOf(load, q, keys);
+        return childrenOf(load, q, keys);
     }
 
     /**
@@ -1086,11 +1101,14 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * entity and matches the parent's key instead, which {@link ChildLoad} builds (R-FCH-04, R-FCH-05, R-FCH-14,
      * D-99, D-100).
      */
-    private <C> Map<Object, List<C>> childrenOf(ChildLoad<?, C> load, ModelQuery<E, ?, C> q, List<Object> keys) {
+    private <E2, C> Map<Object, List<C>> childrenOf(ChildLoad<?, C> load, ModelQuery<E2, ?, C> q,
+            List<Object> keys) {
         checkFirstRun(q);
         CriteriaBuilder cb = em.getCriteriaBuilder();
-        // The statement's own binds, before any key is added, at one bind per key (R-PAG-07, D-32).
-        int ownBinds = em.createQuery(load.build(cb, renderOptions).query()).getParameters().size();
+        // The statement's own binds, before any key is added, at one bind per key (R-PAG-07, D-32); a dialect that binds
+        // the LIMIT of the setMaxResults below as a parameter takes one more.
+        int ownBinds = em.createQuery(load.build(cb, renderOptions).query()).getParameters().size()
+                + (load.maxPerParent() > 0 ? 1 : 0);
         int round = keyLimits.clamp(ownBinds, 1, OptionalInt.empty());
         LOG.log(DEBUG, () -> "child " + load + ": " + keys.size() + (keys.size() == 1 ? " key" : " keys") + " in "
                 + ((keys.size() - 1) / round + 1) + " round(s)");
@@ -1116,7 +1134,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             PrimaryKey<C, ?> childKey = q.primaryKey().orElse(null);
             for (Tuple tuple : tuples) {
                 Row row = built.selection().row(tuple);
-                Object parent = load.key(built, tuple);
+                Object parent = load.key(built, tuple, row);
                 if (!wanted.contains(parent)) {
                     throw new ModelQueryExecutionException(MqCode.MQ2604, load + ": a child row's "
                             + load.field().foreignKey().<Object>map(column -> column).orElseGet(load.field()::key)
@@ -1134,7 +1152,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                                 + "distinct rows for key " + parent + "; key it on a column unique per child, or "
                                 + "declare the field a List");
                     }
-                    loaded.add(new Loaded<>(built.map(tuple), row));
+                    loaded.add(new Loaded<>(built.map(row), row));
                     parents.add(parent);
                 }
             }

@@ -64,8 +64,9 @@ them; a join plan's re-rooted selection is part of `select()`. They stay filled 
 
 **R-FCH-13** `ModelQuery.withFetch(FetchPlan<M>)` returns a copy with the plan's selection and plan: a new definition
 (D-21), checked as `build()` checks one. A (query, plan) pair that passed is remembered, by identity, in a static set
-weak on both, not on the query (CC-IMM-01): a later `withFetch` of the pair builds a new copy without the checks and
-without the `DEBUG` build log, so a constant plan is checked once per query. A pair that threw is checked again. An
+weak on both, not on the query (CC-IMM-01): a later `withFetch` of the pair returns the copy
+already built, without the checks and the `DEBUG` build log, so a constant plan is checked once per query. The copy for a repeated (query, plan) pair is the same instance, so
+D-21's first-run check runs once. A pair that threw is checked again. An
 `orderedBy` copy keeps the plan. Use it when the plan depends on the call, such as an export's chosen columns,
 or holds a bean the query definition must not.
 
@@ -79,7 +80,8 @@ arrays (INV-3, R-QRY-12). `foreignKey` may cross a collection, a many-to-many se
 row per parent it belongs to); `key` may not, since the parent would get a row per element (`MQ3402`, D-99). A
 many-to-many mapped only on the parent's side uses `through` instead (R-FCH-14). The field is `List<C>` (to-many: `foreignKey` required, and `C` has a `@PrimaryKey`) or
 `Optional<C>` (to-one). The processor generates a `ChildField<M, C>` per `@Child` that returns a copy of the parent with
-the field set (a record's canonical constructor, a class's setter), and refers to the child's generated class lazily,
+the field set for a record (its canonical constructor), and the same instance with the field set for a class (its
+setter), and refers to the child's generated class lazily,
 so a `@Child` and a back-`@Join` between two models initialise in either order. A mapped row holds `List.of()` or
 `Optional.empty()` until its child is loaded.
 
@@ -88,7 +90,9 @@ so a `@Child` and a back-`@Join` between two models initialise in either order. 
 by default) and `maxPerParent` (R-FCH-11; below 1 it throws `MQ2001`). Child rows are deduplicated on the child's
 primary key per parent key, since a child filter through a to-many join can repeat them, while a many-to-many child
 belongs to several parents (D-99). A to-one child that finds two distinct rows
-for one key throws `MQ2601` naming the child field.
+for one key throws `MQ2601` naming the child field. A to-one child without a `@PrimaryKey` is not deduplicated, so one
+reached through a to-many path (a child filter or `foreignKey` crossing a collection) throws `MQ2601` on the repeated
+rows unless it has a `@PrimaryKey`.
 
 **R-FCH-05** Keys match on attribute values before any converter, as primary keys do (R-COL-11): the parent's key is
 read from its row when it is mapped, the child's `foreignKey` from the child's row, and the `IN` binds those values.
@@ -130,8 +134,9 @@ exactly as selecting it does.
 **R-FCH-08** An `Enricher<M>` is caller code run once per page, declaring the columns it reads (selected per
 R-FCH-02). `Enricher.byKey(key, lookup, with, columns...)` reads a key per model, looks the distinct keys up in one call
 and copies each model with its value (a model whose key is absent or `null` is left as is), so size and order cannot
-change. `Enricher.of(page -> ..., columns...)` takes the page and returns it filled: a result of another size, or
-`null`, throws `MQ2602`; the order is the caller's responsibility. Exceptions propagate unwrapped. Within a plan,
+change. `Enricher.of(page -> ..., columns...)` takes the page and returns it filled, one model per position, in the page's
+order: position `i` of the result replaces position `i` of the page (a plan serves a query alone and nested, and a
+nested model is put back by position, D-102). A result of another size, or with a `null` element, throws `MQ2602`. Exceptions propagate unwrapped. Within a plan,
 children and joins run first, then its enrichers in the order added; a nested plan's enrichers run before the outer
 plan's, and a join plan's enricher gets one entry per present nested model, duplicates included. The library never
 fills a `@Transient` field. `afterMap` and the mapper's finisher run per row before any plan, so they cannot see
@@ -139,10 +144,12 @@ children (R-QRY-05).
 
 ## 5. Where a plan runs
 
-**R-FCH-09** A plan runs on exactly the models a call returns or passes on, once per page: `list` (one page), `page`
+**R-FCH-09** A plan runs on the models a call returns or passes on, once per page: `list` (one page), `page`
 after the `hasNext` probe row is dropped (offset, keyset and primary-key-first), `export` on each page after grouped
 dedupe and before `pageTransformer`, and their Spring forms (`findAll`, `findPage`, `export`). It never runs for
-`count` or under `ONLY_COUNT`. Paging state (cursor, keys, dedupe) is read from rows, never from what a plan returns.
+`count` or under `ONLY_COUNT`. Paging state (cursor, keys, dedupe) is read from rows, never from what a plan returns. The last `export` page is the
+exception to "exactly the returned models": the plan runs on the whole page and `limit` cuts after, since
+`pageTransformer` can change the item count, so a plan may load children for models the sink never sees.
 `stream` with a plan that has a child, join plan or enricher throws `MQ2605` before any statement, naming `export`.
 
 **R-FCH-10** A child on a grouped query, at any join depth, throws `MQ1704` at `build()`, before `MQ1401`: a grouped

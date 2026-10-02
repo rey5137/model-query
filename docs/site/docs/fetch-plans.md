@@ -60,7 +60,8 @@ executor.export(q, ExportOptions.of(500), p -> p, sink);
 
 The same calls on a Spring repository (`findAll`, `findPage` in each `CountMode`, `export`) run it too. `count` and
 `ONLY_COUNT` load no children. `stream` refuses a plan that has any (`MQ2605`); use `export`, which runs the plan on
-each page.
+each page; on the last page it runs on the whole page and the export's `limit` cuts after, since a `pageTransformer`
+can change the item count.
 
 ### Filters, order and a cap on a child
 
@@ -74,7 +75,8 @@ each page.
 ```
 
 The child's order is closed by its primary key, which is also the default order. A child row is read once per parent,
-so a filter through a to-many join does not repeat it.
+so a filter through a to-many join does not repeat it. A to-one child without a `@PrimaryKey` is not
+deduplicated: reached through a to-many path it fails with `MQ2601` on repeated rows, so give it a `@PrimaryKey`.
 
 ## What to know
 
@@ -171,7 +173,8 @@ FetchPlan<Loan> plan = FetchPlan.of(QLoan.DEFAULT)
                 QLoan.USER_TYPE_ID, QLoan.USER_ID));
 ```
 
-`Enricher.of(page -> ..., columns...)` takes the whole page and returns it filled; a result of another size, or `null`,
+`Enricher.of(page -> ..., columns...)` takes the whole page and returns it filled, one model per position, in the page's order:
+position `i` of the result replaces position `i` of the page. A result of another size, or with a `null` element,
 fails with `MQ2602`. Within a plan, children and joins run first, then its enrichers in the order added; a nested
 plan's enrichers run before the outer plan's. The library never fills a `@Transient` field itself.
 

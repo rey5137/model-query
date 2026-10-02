@@ -69,6 +69,11 @@ public final class BuiltQuery<M> {
 
     /** Maps one tuple to a model: the {@code RowMapper}, then {@code afterMap} and any finisher. */
     public M map(Tuple tuple) {
-        return mapping.apply(selection.row(Objects.requireNonNull(tuple, "tuple")));
+        return map(selection.row(Objects.requireNonNull(tuple, "tuple")));
+    }
+
+    /** Maps one row, built from a tuple of {@link #query()}, to a model, as {@link #map(Tuple)}. */
+    public M map(Row row) {
+        return mapping.apply(row);
     }
 }

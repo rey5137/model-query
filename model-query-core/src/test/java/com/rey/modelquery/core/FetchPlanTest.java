@@ -455,11 +455,11 @@ class FetchPlanTest {
 
         assertThat(built).containsExactly("built InvoiceView over InvoiceEntity: select [id, status], primaryKey "
                 + "[id], paging offset");
-        assertThat(second).isNotSameAs(first);
+        // The same copy, so the executor's first-run checks, keyed on the definition, do not run again.
+        assertThat(second).isSameAs(first);
         assertThat(second.definition()).isSameAs(second);
         assertThat(second.select().fields()).containsExactly(ID, STATUS);
         assertThat(second.fetch()).containsSame(plan);
-        assertThat(second.modelColumns()).isEqualTo(first.modelColumns());
         // Another plan, or the same plan on another query, is checked anew; a failed check is not remembered.
         log(Level.FINE, built, () -> query.withFetch(FetchPlan.of(SelectSet.of(ID, STATUS))));
         log(Level.FINE, built, () -> invoices().select(SelectSet.of(ID)).build().withFetch(plan));

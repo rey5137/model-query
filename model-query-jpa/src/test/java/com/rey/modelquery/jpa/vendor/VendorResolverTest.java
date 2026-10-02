@@ -221,6 +221,26 @@ class VendorResolverTest {
         assertThat(VendorResolver.loadable(discovered)).containsExactly(working, working);
     }
 
+    @Test
+    void r_vnd_04_an_iterator_that_always_throws_stops_after_the_skip_bound_and_keeps_what_loaded() {
+        int[] calls = {0};
+        Iterable<ProviderSupport> discovered = () -> new Iterator<>() {
+            @Override
+            public boolean hasNext() {
+                calls[0]++;
+                throw new ServiceConfigurationError("provider library absent");
+            }
+
+            @Override
+            public ProviderSupport next() {
+                throw new java.util.NoSuchElementException();
+            }
+        };
+
+        assertThat(VendorResolver.loadable(discovered)).isEmpty();
+        assertThat(calls[0]).isEqualTo(100);
+    }
+
     private static VendorProfile profileFor(DatabaseVendor vendor, Map<DatabaseVendor, VendorProfile> discovered) {
         return VendorResolver.profileFor(vendor, MysqlStreamingMode.ROW_BY_ROW, discovered);
     }

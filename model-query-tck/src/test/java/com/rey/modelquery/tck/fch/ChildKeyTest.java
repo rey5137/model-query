@@ -236,6 +236,26 @@ class ChildKeyTest {
     }
 
     @TckTest
+    void ac_fch_08_max_per_parent_leaves_one_bind_for_the_limit_in_a_key_round(TckDatabase db) {
+        // A bind limit of 5 leaves 4 binds for keys after the child filter's own bind, so 4 keys; maxPerParent takes one
+        // bind for the LIMIT, so the clamp falls to 2.
+        var config = ModelQueryConfig.defaults().vendorProfiles(List.of(limited(db, 1024, 5)));
+        var plain = customers(10, c -> c.where(f -> f.like(QOrderLines.ITEM_CODE, "P0", LikeMode.STARTS_WITH)));
+        var capped = customers(10, c -> c.where(f -> f.like(QOrderLines.ITEM_CODE, "P0", LikeMode.STARTS_WITH))
+                .maxPerParent(100));
+
+        List<String> plainSql = SqlSnapshots.capture(db, ds -> withExecutor(ds,
+                CustomerEntity.class, config, executor -> assertThat(executor.list(plain, Limit.unlimited()))
+                        .hasSize(10)));
+        List<String> cappedSql = SqlSnapshots.capture(db, ds -> withExecutor(ds,
+                CustomerEntity.class, config, executor -> assertThat(executor.list(capped, Limit.unlimited()))
+                        .hasSize(10)));
+        assertThat(cappedSql.size()).isGreaterThan(plainSql.size());
+        assertThat(cappedSql.subList(1, cappedSql.size())).extracting(FetchTestSupport::binds)
+                .allSatisfy(binds -> assertThat(binds).isLessThanOrEqualTo(5L));
+    }
+
+    @TckTest
     void ac_fch_08_a_parent_with_more_children_than_max_per_parent_throws_mq2603(TckDatabase db) {
         var plan = FetchPlan.of(QCustomerNotes.ALL)
                 .child(QCustomerNotes.NOTES, FetchPlan.of(QNote.ALL), c -> c.maxPerParent(2));

@@ -61,6 +61,8 @@ class QueryAssertTest {
 
     private static final TableField<Order, Order> ROOT = TableField.root(Order.class);
     private static final TableField<Order, Item> ITEMS = TableField.join(ROOT, "items", JoinType.INNER);
+    private static final TableField<Order, Item> OTHER_PARENT = TableField.join(ROOT, "other", JoinType.INNER);
+    private static final TableField<Item, Item> NESTED_ITEMS = TableField.join(OTHER_PARENT, "items", JoinType.INNER);
     private static final OrderedColumnField<OrderView, Order, Long> ID =
             ColumnField.of(OrderView.class, ROOT, "id", Long.class);
     private static final OrderedColumnField<OrderView, Order, String> NAME =
@@ -101,10 +103,10 @@ class QueryAssertTest {
 
     /** A stand-in executor that records the queries it is given, in place of a mocking library. */
     @SuppressWarnings("unchecked")
-    private static ModelQueryExecutor<Order> capturing(List<ModelQuery<?, ?, ?>> captured) {
+    private static ModelQueryExecutor<Order> capturing(List<ModelQuery<?, ?, OrderView>> captured) {
         return (ModelQueryExecutor<Order>) Proxy.newProxyInstance(QueryAssertTest.class.getClassLoader(),
                 new Class<?>[] {ModelQueryExecutor.class}, (proxy, method, args) -> {
-                    captured.add((ModelQuery<?, ?, ?>) args[0]);
+                    captured.add((ModelQuery<?, ?, OrderView>) args[0]);
                     return List.of();
                 });
     }
@@ -114,7 +116,7 @@ class QueryAssertTest {
         assertThat(ServiceLoader.load(jakarta.persistence.spi.PersistenceProvider.class)).isEmpty();
         assertThatThrownBy(() -> Class.forName("org.hibernate.Session")).isInstanceOf(ClassNotFoundException.class);
 
-        var captured = new ArrayList<ModelQuery<?, ?, ?>>();
+        var captured = new ArrayList<ModelQuery<?, ?, OrderView>>();
         new OrderService(capturing(captured)).search(new Search(Optional.of(Status.OPEN), Optional.empty()));
 
         assertThat(captured).hasSize(1);
@@ -216,11 +218,20 @@ class QueryAssertTest {
         var q = query(f -> f.exists(ITEMS, i -> i.gt(QTY, 3)));
 
         assertThatThrownBy(() -> assertThatQuery(q).containsFilter(exists(ITEMS, gt(QTY, 4))))
-                .hasMessageContaining("EXISTS(join 'items' (INNER), GT(OrderView.qty, 4))")
-                .hasMessageContaining("  EXISTS(join 'items' (INNER))")
+                .hasMessageContaining("EXISTS(Order.items (INNER), GT(OrderView.qty, 4))")
+                .hasMessageContaining("  EXISTS(Order.items (INNER))")
                 .hasMessageContaining("    GT(OrderView.qty, 3)");
         assertThatThrownBy(() -> assertThatQuery(q).hasNoFilters())
                 .hasMessageContaining("unexpected (no expectation matched):")
-                .hasMessageContaining("EXISTS(join 'items' (INNER), GT(OrderView.qty, 3))");
+                .hasMessageContaining("EXISTS(Order.items (INNER), GT(OrderView.qty, 3))");
+    }
+
+    @Test
+    void ac_ins_06_exists_on_a_same_named_join_under_another_parent_does_not_match() {
+        var q = query(f -> f.exists(ITEMS, i -> i.gt(QTY, 3)));
+
+        assertThatQuery(q).containsFilter(exists(ITEMS, gt(QTY, 3)));
+        assertThatThrownBy(() -> assertThatQuery(q).containsFilter(exists(NESTED_ITEMS, gt(QTY, 3))))
+                .isInstanceOf(AssertionError.class);
     }
 }

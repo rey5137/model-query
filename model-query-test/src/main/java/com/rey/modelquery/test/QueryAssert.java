@@ -20,45 +20,46 @@ import org.assertj.core.api.AbstractAssert;
  * @implSpec api/16 R-INS-06, R-INS-07
  */
 @Incubating
-public final class QueryAssert extends AbstractAssert<QueryAssert, ModelQuery<?, ?, ?>> {
+public final class QueryAssert<M> extends AbstractAssert<QueryAssert<M>, ModelQuery<?, ?, M>> {
 
-    QueryAssert(ModelQuery<?, ?, ?> actual) {
+    QueryAssert(ModelQuery<?, ?, M> actual) {
         super(actual, QueryAssert.class);
     }
 
     /** The top-level {@code where} conditions are exactly these, in any order (a multiset). */
-    public QueryAssert hasFilters(ConditionMatcher... expected) {
+    public QueryAssert<M> hasFilters(ConditionMatcher... expected) {
         return hasExactly("where", query().conditions().where(), expected);
     }
 
     /** One of the top-level {@code where} conditions matches {@code expected}. */
-    public QueryAssert containsFilter(ConditionMatcher expected) {
+    public QueryAssert<M> containsFilter(ConditionMatcher expected) {
         return contains("where", query().conditions().where(), expected);
     }
 
     /** The query has no {@code where} condition: every filter was skipped, or none was added. */
-    public QueryAssert hasNoFilters() {
+    public QueryAssert<M> hasNoFilters() {
         return hasExactly("where", query().conditions().where());
     }
 
     /** The top-level {@code having} conditions are exactly these, in any order (a multiset). */
-    public QueryAssert hasHaving(ConditionMatcher... expected) {
+    public QueryAssert<M> hasHaving(ConditionMatcher... expected) {
         return hasExactly("having", query().conditions().having(), expected);
     }
 
     /** One of the top-level {@code having} conditions matches {@code expected}. */
-    public QueryAssert containsHaving(ConditionMatcher expected) {
+    public QueryAssert<M> containsHaving(ConditionMatcher expected) {
         return contains("having", query().conditions().having(), expected);
     }
 
     /** The query has no {@code having} condition. */
-    public QueryAssert hasNoHaving() {
+    public QueryAssert<M> hasNoHaving() {
         return hasExactly("having", query().conditions().having());
     }
 
     /** {@code orderBy()} is exactly these keys, in this order, with their directions and null precedence. */
-    public QueryAssert isOrderedBy(OrderField<?, ?>... expected) {
-        List<OrderField<?, ?>> actualOrder = new ArrayList<>(query().orderBy());
+    @SafeVarargs
+    public final QueryAssert<M> isOrderedBy(OrderField<M, ?>... expected) {
+        List<? extends OrderField<M, ?>> actualOrder = query().orderBy();
         if (!actualOrder.equals(List.of(expected))) {
             return fail("Expecting %s to be ordered by%n  %s%nbut it is ordered by%n  %s",
                     describe(), render(List.of(expected)), render(actualOrder));
@@ -67,32 +68,36 @@ public final class QueryAssert extends AbstractAssert<QueryAssert, ModelQuery<?,
     }
 
     /** The query has no ordering. */
-    public QueryAssert isNotOrdered() {
+    public QueryAssert<M> isNotOrdered() {
         return isOrderedBy();
     }
 
     /** {@code select()} is exactly these selections, in this order. */
-    public QueryAssert hasSelection(SelectField<?, ?>... expected) {
+    @SafeVarargs
+    public final QueryAssert<M> hasSelection(SelectField<M, ?>... expected) {
         return selection("selection", query().select().fields(), expected);
     }
 
     /** {@code select()} holds each of these selections, among others. */
-    public QueryAssert selectionContains(SelectField<?, ?>... expected) {
+    @SafeVarargs
+    public final QueryAssert<M> selectionContains(SelectField<M, ?>... expected) {
         return selectionContains("selection", query().select().fields(), expected);
     }
 
     /** The fetch plan's selection is exactly these selections, in this order; fails when the query has no plan. */
-    public QueryAssert hasFetchSelection(SelectField<?, ?>... expected) {
+    @SafeVarargs
+    public final QueryAssert<M> hasFetchSelection(SelectField<M, ?>... expected) {
         return selection("fetch plan selection", fetchSelection(), expected);
     }
 
     /** The fetch plan's selection holds each of these selections, among others; fails without a plan. */
-    public QueryAssert fetchSelectionContains(SelectField<?, ?>... expected) {
+    @SafeVarargs
+    public final QueryAssert<M> fetchSelectionContains(SelectField<M, ?>... expected) {
         return selectionContains("fetch plan selection", fetchSelection(), expected);
     }
 
     /** The query has no fetch plan. */
-    public QueryAssert hasNoFetchPlan() {
+    public QueryAssert<M> hasNoFetchPlan() {
         if (query().fetch().isPresent()) {
             return fail("Expecting %s to have no fetch plan, but it has one", describe());
         }
@@ -100,12 +105,12 @@ public final class QueryAssert extends AbstractAssert<QueryAssert, ModelQuery<?,
     }
 
     /** Fails through AssertJ, so a description and a soft assertion work; returns for a soft assertion to go on. */
-    private QueryAssert fail(String message, Object... args) {
+    private QueryAssert<M> fail(String message, Object... args) {
         failWithMessage(message, args);
         return this;
     }
 
-    private ModelQuery<?, ?, ?> query() {
+    private ModelQuery<?, ?, M> query() {
         isNotNull();
         return actual;
     }
@@ -114,22 +119,22 @@ public final class QueryAssert extends AbstractAssert<QueryAssert, ModelQuery<?,
         return "the query of " + actual;
     }
 
-    private List<? extends SelectField<?, ?>> fetchSelection() {
+    private List<? extends SelectField<M, ?>> fetchSelection() {
         return query().fetch().map(FetchPlan::select).map(select -> select.fields())
                 .orElseThrow(() -> failure("Expecting %s to have a fetch plan, but it has none", describe()));
     }
 
-    private QueryAssert selection(String what, List<? extends SelectField<?, ?>> actualFields,
-            SelectField<?, ?>[] expected) {
-        if (!new ArrayList<>(actualFields).equals(Arrays.asList(expected))) {
+    private QueryAssert<M> selection(String what, List<? extends SelectField<M, ?>> actualFields,
+            SelectField<M, ?>[] expected) {
+        if (!actualFields.equals(Arrays.asList(expected))) {
             return fail("Expecting the %s of %s to be%n  %s%nbut it is%n  %s",
                     what, describe(), render(Arrays.asList(expected)), render(actualFields));
         }
         return this;
     }
 
-    private QueryAssert selectionContains(String what, List<? extends SelectField<?, ?>> actualFields,
-            SelectField<?, ?>[] expected) {
+    private QueryAssert<M> selectionContains(String what, List<? extends SelectField<M, ?>> actualFields,
+            SelectField<M, ?>[] expected) {
         List<Object> missing = Arrays.stream(expected).filter(field -> !actualFields.contains(field))
                 .map(Object.class::cast).toList();
         if (!missing.isEmpty()) {
@@ -143,7 +148,7 @@ public final class QueryAssert extends AbstractAssert<QueryAssert, ModelQuery<?,
         return items.isEmpty() ? "(none)" : items.stream().map(Objects::toString).toList().toString();
     }
 
-    private QueryAssert contains(String clause, List<Condition> conditions, ConditionMatcher expected) {
+    private QueryAssert<M> contains(String clause, List<Condition> conditions, ConditionMatcher expected) {
         if (conditions.stream().noneMatch(expected::matches)) {
             return fail("Expecting %s to have a %s filter matching%n  %s%nbut none of its %s conditions does:%n%s",
                     describe(), clause, expected, clause, tree(conditions));
@@ -151,7 +156,7 @@ public final class QueryAssert extends AbstractAssert<QueryAssert, ModelQuery<?,
         return this;
     }
 
-    private QueryAssert hasExactly(String clause, List<Condition> conditions, ConditionMatcher... matchers) {
+    private QueryAssert<M> hasExactly(String clause, List<Condition> conditions, ConditionMatcher... matchers) {
         int[] matchOf = assign(conditions, matchers);
         List<String> missing = new ArrayList<>();
         List<String> unexpected = new ArrayList<>();

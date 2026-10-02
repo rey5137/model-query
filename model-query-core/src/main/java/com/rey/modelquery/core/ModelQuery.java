@@ -145,19 +145,20 @@ public final class ModelQuery<E, K, M> {
     /**
      * A copy of this query with {@code plan}'s selection and plan, replacing any it had: a new definition, checked as
      * {@link Builder#build()} checks one, but only the first time this query is given {@code plan}, so a constant
-     * plan is checked once. An {@link #orderedBy} copy of it keeps the plan.
+     * plan is checked once and returns the same copy. An {@link #orderedBy} copy of it keeps the plan.
      *
      * @throws ModelQueryDefinitionException as {@link Builder#build()} does
      * @implSpec R-FCH-13
      */
     @Incubating
     public ModelQuery<E, K, M> withFetch(FetchPlan<M> plan) {
-        Builder<E, K, M> fetching = builder.fetch(plan);
-        if (CheckedFetches.passed(this, plan)) {
-            return fetching.unchecked();
+        ModelQuery<E, K, M> copy = CheckedFetches.copy(this, plan);
+        if (copy != null) {
+            return copy;
         }
-        ModelQuery<E, K, M> built = fetching.build();
-        CheckedFetches.pass(this, plan); // only once it passed, so a plan that threw is checked again next time
+        Builder<E, K, M> fetching = builder.fetch(plan);
+        ModelQuery<E, K, M> built = CheckedFetches.passed(this, plan) ? fetching.unchecked() : fetching.build();
+        CheckedFetches.pass(this, plan, built); // only once it passed, so a plan that threw is checked again next time
         return built;
     }
 
@@ -943,7 +944,7 @@ public final class ModelQuery<E, K, M> {
 
         /**
          * Builds without the checks of {@link #build()}, for a {@link ModelQuery#withFetch} copy whose query and plan
-         * passed them before (R-FCH-13).
+         * passed them before, once the earlier copy was collected (R-FCH-13).
          */
         private ModelQuery<E, K, M> unchecked() {
             SelectSet<M> selection = selection();

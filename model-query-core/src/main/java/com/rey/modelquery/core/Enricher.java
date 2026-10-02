@@ -48,7 +48,11 @@ public final class Enricher<M> {
         return new Enricher<>(checked(columns), null, byKey);
     }
 
-    /** An enricher that takes a page of models and returns it filled, of the same size. It reads {@code columns}. */
+    /**
+     * An enricher that takes a page of models and returns it filled: one model per position, in the page's order, since
+     * the model at position {@code i} of the result replaces the one at position {@code i} of the page; a reordered
+     * result attaches data to the wrong parent. It reads {@code columns}.
+     */
     @SafeVarargs
     public static <M> Enricher<M> of(UnaryOperator<List<M>> page, ColumnField<M, ?, ?>... columns) {
         return new Enricher<>(checked(columns), Objects.requireNonNull(page, "page"), null);
@@ -65,8 +69,8 @@ public final class Enricher<M> {
      * {@link #of} gets a modifiable copy of the page. {@code owner} names the plan's model, or the join path, in a
      * message. Exceptions of the caller's code propagate unwrapped.
      *
-     * @throws ModelQueryExecutionException {@code MQ2602} when an {@link #of} enricher returns {@code null} or a page
-     *     of another size
+     * @throws ModelQueryExecutionException {@code MQ2602} when an {@link #of} enricher returns {@code null}, a page
+     *     of another size or a page with a {@code null} model
      */
     @EngineFacing
     public List<M> enrich(String owner, List<M> page) {
@@ -78,6 +82,13 @@ public final class Enricher<M> {
             throw new ModelQueryExecutionException(MqCode.MQ2602, owner + ": an Enricher.of returned "
                     + (result == null ? "null" : "a page of " + result.size()) + " for a page of " + page.size()
                     + " models; return one model per model of the page, filled");
+        }
+        // A loop, not indexOf(null): an immutable list's indexOf rejects null.
+        for (int i = 0; i < result.size(); i++) {
+            if (result.get(i) == null) {
+                throw new ModelQueryExecutionException(MqCode.MQ2602, owner + ": an Enricher.of returned null at "
+                        + "position " + i + " of the page; return one model per model of the page, filled");
+            }
         }
         return result;
     }

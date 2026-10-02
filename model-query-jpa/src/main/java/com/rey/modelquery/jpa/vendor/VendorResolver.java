@@ -42,6 +42,8 @@ public final class VendorResolver {
     static final String HIBERNATE_DEFAULT_NULL_ORDERING = "hibernate.order_by.default_null_ordering";
 
     private static final System.Logger LOG = System.getLogger(VendorResolver.class.getName());
+    /** How many providers {@link #loadable} skips before it stops listing. */
+    private static final int MAX_SKIPPED = 100;
 
     /**
      * By factory, then by configured vendor, so an explicit vendor always wins over an earlier detection (R-VND-04).
@@ -168,9 +170,17 @@ public final class VendorResolver {
         try {
             return candidate.supports(emf);
         } catch (LinkageError notLinkable) {
-            LOG.log(System.Logger.Level.DEBUG, "Skipped {0}: {1}", candidate.getClass().getName(), notLinkable);
+            // A missing provider library is the expected case; any other link error is a broken class path.
+            LOG.log(levelOf(notLinkable), "Skipped {0}: {1}", candidate.getClass().getName(), notLinkable);
             return false;
         }
+    }
+
+    /** {@code DEBUG} for a missing class or a service-loader error, {@code WARNING} for any other link error. */
+    private static System.Logger.Level levelOf(Throwable skipped) {
+        return skipped instanceof LinkageError && !(skipped instanceof NoClassDefFoundError)
+                ? System.Logger.Level.WARNING
+                : System.Logger.Level.DEBUG;
     }
 
     /**
@@ -180,16 +190,21 @@ public final class VendorResolver {
     static List<ProviderSupport> loadable(Iterable<ProviderSupport> discovered) {
         List<ProviderSupport> loaded = new ArrayList<>();
         Iterator<ProviderSupport> it = discovered.iterator();
-        while (true) {
+        int skipped = 0;
+        // Bounded: an iterator whose hasNext() keeps throwing would otherwise never end.
+        while (skipped < MAX_SKIPPED) {
             try {
                 if (!it.hasNext()) {
                     return loaded;
                 }
                 loaded.add(it.next());
             } catch (ServiceConfigurationError | LinkageError notLoadable) {
-                LOG.log(System.Logger.Level.DEBUG, "Skipped a ProviderSupport that does not load: {0}", notLoadable);
+                skipped++;
+                LOG.log(levelOf(notLoadable), "Skipped a ProviderSupport that does not load: {0}", notLoadable);
             }
         }
+        LOG.log(System.Logger.Level.WARNING, "Gave up listing ProviderSupport after {0} failures", skipped);
+        return loaded;
     }
 
     /**

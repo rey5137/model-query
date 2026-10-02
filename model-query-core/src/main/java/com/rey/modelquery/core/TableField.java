@@ -138,6 +138,20 @@ public final class TableField<P, T> {
     }
 
     /**
+     * Whether {@code o} is a node with the same join key: the same root or parent path, attribute, type and alias. Two
+     * nodes that differ only in their {@code ON} condition, presence key or property are equal (CC-IMM-04).
+     */
+    @Override
+    public boolean equals(Object o) {
+        return this == o || o instanceof TableField<?, ?> other && key.equals(other.key);
+    }
+
+    @Override
+    public int hashCode() {
+        return key.hashCode();
+    }
+
+    /**
      * Resolves this node to a {@link From}, creating the join on first use within {@code ctx}.
      *
      * @throws ModelQueryDefinitionException {@code MQ1003} when the path starts at a root the query is not rooted
@@ -264,10 +278,17 @@ public final class TableField<P, T> {
         return owner == null ? "" : owner + ": ";
     }
 
-    /** The root entity, or the join's attribute, type and alias, so a message can name a path; not API. */
+    /**
+     * The root entity's simple name, or the root entity, the dotted path, the join type and the alias of a join, such
+     * as {@code OrderEntity.items (LEFT, alias 'i')}; not API, and it prints no values.
+     */
     @Override
     public String toString() {
-        return describe();
+        if (rootEntity != null) {
+            return rootEntity.getSimpleName();
+        }
+        return pathRoot().getSimpleName() + "." + path() + " (" + type
+                + (alias.isEmpty() ? "" : ", alias '" + alias + "'") + ")";
     }
 
     String describe() {

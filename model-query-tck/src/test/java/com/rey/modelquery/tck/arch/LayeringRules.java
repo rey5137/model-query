@@ -5,7 +5,13 @@ import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAnyP
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
+import com.tngtech.archunit.core.domain.AccessTarget;
+import com.tngtech.archunit.core.domain.JavaAccess;
+import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
+import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
 import com.tngtech.archunit.lang.CompositeArchRule;
 import java.util.Arrays;
 
@@ -14,6 +20,8 @@ import java.util.Arrays;
  * rules run on the real code ({@code com.rey.modelquery}) and on a deliberately bad fixture tree.
  */
 final class LayeringRules {
+
+    private static final String ENGINE_FACING = "com.rey.modelquery.core.EngineFacing";
 
     private final String root;
     private final boolean allowEmptyShould;
@@ -137,6 +145,38 @@ final class LayeringRules {
                         pkg("test"), pkg("core"), pkg("annotations"), "java..", "org.assertj.."))
                 .as("test depends only on core and AssertJ")
                 .allowEmptyShould(allowEmptyShould);
+    }
+
+    /**
+     * {@code test} calls or accesses no member annotated {@code @EngineFacing} and uses no type annotated with it, so
+     * an assertion reads the query's public view and never an engine seam (api/16 R-INS-06).
+     */
+    ArchRule testUsesNoEngineFacingMember() {
+        return noClasses()
+                .that()
+                .resideInAPackage(pkg("test"))
+                .should(useEngineFacing())
+                .as("test uses no @EngineFacing member or type")
+                .allowEmptyShould(allowEmptyShould);
+    }
+
+    private static ArchCondition<JavaClass> useEngineFacing() {
+        return new ArchCondition<>("use an @EngineFacing member or type") {
+            @Override
+            public void check(JavaClass origin, ConditionEvents events) {
+                for (JavaAccess<?> access : origin.getAccessesFromSelf()) {
+                    AccessTarget target = access.getTarget();
+                    boolean member = target.resolveMember().map(m -> m.isAnnotatedWith(ENGINE_FACING)).orElse(false);
+                    if (member || target.getOwner().isAnnotatedWith(ENGINE_FACING)) {
+                        events.add(SimpleConditionEvent.satisfied(access, access.getDescription()));
+                    }
+                }
+                origin.getDirectDependenciesFromSelf().stream()
+                        .filter(dependency -> dependency.getTargetClass().isAnnotatedWith(ENGINE_FACING))
+                        .forEach(dependency ->
+                                events.add(SimpleConditionEvent.satisfied(dependency, dependency.getDescription())));
+            }
+        };
     }
 
     /**

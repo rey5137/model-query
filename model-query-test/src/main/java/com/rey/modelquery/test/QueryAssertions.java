@@ -14,7 +14,7 @@ public final class QueryAssertions {
     private QueryAssertions() {}
 
     /** Assertions on what {@code actual} filters on, orders by and selects. */
-    public static QueryAssert assertThatQuery(ModelQuery<?, ?, ?> actual) {
-        return new QueryAssert(actual);
+    public static <M> QueryAssert<M> assertThatQuery(ModelQuery<?, ?, M> actual) {
+        return new QueryAssert<>(actual);
     }
 }

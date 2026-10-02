@@ -61,6 +61,11 @@ final class FetchTestSupport {
 
     /** {@code db}'s built-in profile with an IN list of at most {@code maxInListSize} values (R-VND-03). */
     static VendorProfile limited(TckDatabase db, int maxInListSize) {
+        return limited(db, maxInListSize, 0);
+    }
+
+    /** As {@link #limited(TckDatabase, int)}, with at most {@code maxBindParameters} binds a statement when above 0. */
+    static VendorProfile limited(TckDatabase db, int maxInListSize, int maxBindParameters) {
         VendorProfile builtIn;
         try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
             builtIn = VendorResolver.resolve(sf, Optional.empty(), MysqlStreamingMode.ROW_BY_ROW).profile();
@@ -78,7 +83,7 @@ final class FetchTestSupport {
 
             @Override
             public int maxBindParameters() {
-                return builtIn.maxBindParameters();
+                return maxBindParameters > 0 ? maxBindParameters : builtIn.maxBindParameters();
             }
 
             @Override

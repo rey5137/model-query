@@ -44,6 +44,9 @@ public interface ChildField<M, C> {
     /** A builder of the child's own query, which a child load selects and filters through. */
     ModelQuery.Builder<?, ?, C> query();
 
-    /** A copy of {@code parent} with the field set to {@code children}; one child at most for a to-one field. */
+    /**
+     * {@code parent} with the field set to {@code children}; one child at most for a to-one field. A copy for a record,
+     * the same instance, set, for a class.
+     */
     M with(M parent, List<C> children);
 }

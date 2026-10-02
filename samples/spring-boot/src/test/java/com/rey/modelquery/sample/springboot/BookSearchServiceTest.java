@@ -9,6 +9,7 @@ import com.rey.modelquery.core.LikeMode;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.sample.springboot.h2.BookRepository;
 import com.rey.modelquery.sample.springboot.h2.BookSearchService;
+import com.rey.modelquery.sample.springboot.h2.BookView;
 import com.rey.modelquery.sample.springboot.h2.QBookView;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
@@ -23,12 +24,12 @@ import org.junit.jupiter.api.Test;
  */
 class BookSearchServiceTest {
 
-    private final List<ModelQuery<?, ?, ?>> captured = new ArrayList<>();
+    private final List<ModelQuery<?, ?, BookView>> captured = new ArrayList<>();
 
     private final BookSearchService service = new BookSearchService((BookRepository) Proxy.newProxyInstance(
             BookSearchServiceTest.class.getClassLoader(), new Class<?>[] {BookRepository.class},
             (proxy, method, args) -> {
-                captured.add((ModelQuery<?, ?, ?>) args[0]);
+                captured.add((ModelQuery<?, ?, BookView>) args[0]);
                 return List.of();
             }));
 

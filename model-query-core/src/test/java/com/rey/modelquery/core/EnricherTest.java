@@ -46,4 +46,23 @@ class EnricherTest {
                 .hasMessage("MQ2602: Model: an Enricher.of returned a page of 3 for a page of 2 models; return one "
                         + "model per model of the page, filled");
     }
+
+    @Test
+    void ac_fch_06_of_rejects_a_null_model_in_the_result() {
+        List<String> page = List.of("a", "b");
+
+        assertThatThrownBy(() -> Enricher.<String>of(models -> Arrays.asList("a", null)).enrich("Model", page))
+                .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ2602))
+                .hasMessage("MQ2602: Model: an Enricher.of returned null at position 1 of the page; return one "
+                        + "model per model of the page, filled");
+    }
+
+    @Test
+    void ac_fch_06_of_accepts_an_immutable_result_list_without_a_null() {
+        List<String> page = List.of("a", "b");
+
+        assertThat(Enricher.<String>of(models -> List.copyOf(models)).enrich("Model", page)).containsExactly("a", "b");
+        assertThat(Enricher.<String>of(models -> List.of("x", "y")).enrich("Model", page)).containsExactly("x", "y");
+    }
 }

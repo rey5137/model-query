@@ -26,6 +26,9 @@ public interface JoinField<M, N> {
     /** The nested model of {@code parent}; empty when a LEFT join found nothing. */
     Optional<N> get(M parent);
 
-    /** A copy of {@code parent} with the nested model replaced by {@code nested}. */
+    /**
+     * {@code parent} with the nested model replaced by {@code nested}. A copy for a record, the same instance, set,
+     * for a class.
+     */
     M with(M parent, N nested);
 }

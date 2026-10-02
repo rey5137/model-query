@@ -91,8 +91,9 @@ through the `rey5137` GitHub account. The Java package `com.rey.modelquery` inte
 `.spring.boot`. `com.rey.modelquery.jpa.vendor` (the built-in profiles, `VendorResolver`, `ResolvedVendor`) is not
 API, whatever the visibility of its types: it may change in any release, and extensions go through `jpa.spi`. A
 type or method marked `@EngineFacing` (`core`; only an executor uses it) is not API either, and may change in any
-release: the types `BuiltQuery`, `RowSelection` and `RenderOptions`, the methods `JoinContext.of`,
-`OrderField.toOrders` and those D-72 lists (D-72, D-86).
+release: the types `BuiltQuery`, `RowSelection`, `RenderOptions`, `ChildLoad` and `JoinPlan`, the methods
+`JoinContext.of`, `OrderField.toOrders`, `FetchPlan.childLoads`, `joinPlans`, `enrichers` and `isSelectionOnly`,
+`Enricher.enrich`, `ModelQuery.checkFetch` and those D-72 lists (D-72, D-86).
 
 **R-REL-11** From 1.0, `japicmp` fails the build on a binary-incompatible change to API: a type outside the non-API
 packages that is neither `@Incubating` nor `@EngineFacing`, or a member of such a type that is neither (R-REL-10).
