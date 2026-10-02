@@ -12,13 +12,15 @@ Import the BOM as shown in [Getting started without Spring](plain-jpa.md), then 
     <groupId>io.github.rey5137</groupId>
     <artifactId>model-query-spring-boot-starter</artifactId>
 </dependency>
-<dependency>
-    <groupId>io.github.rey5137</groupId>
-    <artifactId>model-query-annotations</artifactId>
-</dependency>
 ```
 
-and register `model-query-processor` in `annotationProcessorPaths`, as in the plain-JPA guide.
+That one dependency brings `spring-boot-starter-data-jpa` (Hibernate is Boot's default JPA provider),
+`model-query-hibernate`, `model-query-spring-data` and, through them, the executor and the annotations. Declare
+no other library artifact; `model-query-annotations` is needed only in a module that has no starter, such as a
+shared module holding your models.
+
+Register `model-query-processor` in `annotationProcessorPaths`, as in the plain-JPA guide: Maven cannot add an
+annotation processor through a dependency, so the starter cannot bring it.
 
 ## 2. Extend `ModelQueryRepository`
 

@@ -9,11 +9,14 @@ import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.jpa.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import jakarta.persistence.Query;
 import java.time.Duration;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.ServiceConfigurationError;
 import org.junit.jupiter.api.Test;
 
 class VendorResolverTest {
@@ -188,6 +191,34 @@ class VendorResolverTest {
     /** {@code vendor} as resolved from {@code DatabaseMetaData} with {@code discovered} on the class path. */
     private static ResolvedVendor resolved(DatabaseVendor vendor, Map<DatabaseVendor, VendorProfile> discovered) {
         return new ResolvedVendor(profileFor(vendor, discovered), null, vendor, ResolvedVendor.Source.METADATA, "");
+    }
+
+    @Test
+    void r_vnd_04_a_provider_support_that_does_not_load_is_skipped() {
+        ProviderSupport working = new ProviderSupport() {
+            @Override
+            public boolean supports(jakarta.persistence.EntityManagerFactory emf) {
+                return true;
+            }
+        };
+        Iterable<ProviderSupport> discovered = () -> new Iterator<>() {
+            private int next;
+
+            @Override
+            public boolean hasNext() {
+                return next < 3;
+            }
+
+            @Override
+            public ProviderSupport next() {
+                if (next++ == 0) {
+                    throw new ServiceConfigurationError("provider library absent");
+                }
+                return working;
+            }
+        };
+
+        assertThat(VendorResolver.loadable(discovered)).containsExactly(working, working);
     }
 
     private static VendorProfile profileFor(DatabaseVendor vendor, Map<DatabaseVendor, VendorProfile> discovered) {

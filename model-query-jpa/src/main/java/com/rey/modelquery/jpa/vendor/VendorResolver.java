@@ -10,12 +10,15 @@ import com.rey.modelquery.jpa.spi.VendorProfile;
 import jakarta.persistence.EntityManagerFactory;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 import java.util.Set;
 import java.util.WeakHashMap;
@@ -101,7 +104,7 @@ public final class VendorResolver {
         }
         // Detected outside the lock, so a slow DatabaseMetaData read blocks no other factory; a racing thread's
         // result is dropped and only the winner logs.
-        ResolvedVendor fresh = detect(emf, configured, ServiceLoader.load(ProviderSupport.class),
+        ResolvedVendor fresh = detect(emf, configured, loadable(ServiceLoader.load(ProviderSupport.class)),
                 ServiceLoader.load(VendorProfile.class));
         ResolvedVendor winner = byConfig.putIfAbsent(settings, fresh);
         if (winner != null) {
@@ -118,7 +121,7 @@ public final class VendorResolver {
         MysqlStreamingMode mode = MysqlStreamingMode.ROW_BY_ROW;
         ProviderSupport provider = null;
         for (ProviderSupport candidate : providers) {
-            if (candidate.supports(emf)) {
+            if (supportsSafely(candidate, emf)) {
                 provider = candidate;
                 break;
             }
@@ -158,6 +161,35 @@ public final class VendorResolver {
             case "MariaDB" -> DatabaseVendor.MARIADB;
             default -> DatabaseVendor.OTHER;
         };
+    }
+
+    /** Whether {@code candidate} supports {@code emf}; false when its provider library is missing (a link error). */
+    private static boolean supportsSafely(ProviderSupport candidate, EntityManagerFactory emf) {
+        try {
+            return candidate.supports(emf);
+        } catch (LinkageError notLinkable) {
+            LOG.log(System.Logger.Level.DEBUG, "Skipped {0}: {1}", candidate.getClass().getName(), notLinkable);
+            return false;
+        }
+    }
+
+    /**
+     * The providers of {@code discovered} that load. One whose provider library is absent (the Hibernate support
+     * without Hibernate on the class path) fails to load, and is skipped so it stays inert.
+     */
+    static List<ProviderSupport> loadable(Iterable<ProviderSupport> discovered) {
+        List<ProviderSupport> loaded = new ArrayList<>();
+        Iterator<ProviderSupport> it = discovered.iterator();
+        while (true) {
+            try {
+                if (!it.hasNext()) {
+                    return loaded;
+                }
+                loaded.add(it.next());
+            } catch (ServiceConfigurationError | LinkageError notLoadable) {
+                LOG.log(System.Logger.Level.DEBUG, "Skipped a ProviderSupport that does not load: {0}", notLoadable);
+            }
+        }
     }
 
     /**

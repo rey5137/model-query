@@ -84,6 +84,10 @@ Register the processor in `maven-compiler-plugin`:
 </annotationProcessorPaths>
 ```
 
+On Spring Boot, declare `model-query-spring-boot-starter` instead of the two above: it brings Spring Data JPA,
+Hibernate and `model-query-hibernate`, so `model-query-annotations` is needed only in a module without the starter.
+Keep the processor in `annotationProcessorPaths` either way.
+
 ## Requirements
 
 Java 17+, Jakarta Persistence 3.1+, Hibernate ORM 6.6+ (tested on 6.6 and 7.x), Spring Boot 3.4+ for the starter.

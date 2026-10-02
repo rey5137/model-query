@@ -4,6 +4,10 @@ The `model-query-spring-data` module adds `ModelQueryRepository`, and `model-que
 Both only delegate to the plain-JPA executor: every behaviour here also works without Spring, and a behaviour that
 only works under Spring is a bug.
 
+The starter is the only dependency to declare: it pulls `spring-boot-starter-data-jpa`, `model-query-hibernate` and
+`model-query-spring-data`. `model-query-annotations` is needed only in a module without the starter, and the processor
+still goes in `annotationProcessorPaths`, which no dependency can fill.
+
 ## The repository
 
 ```java

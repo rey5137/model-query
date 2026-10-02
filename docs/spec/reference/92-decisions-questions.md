@@ -925,13 +925,24 @@ that passed in a static weak set rather than on the query (CC-IMM-01). Also reje
 follows `fetch` (two sources of one selection), and caching a checked copy on the query (a lazily filled field on a
 `static final` constant). → `api/15`.
 
+**D-97 — One starter dependency.** A Spring Boot application declared the starter, `model-query-hibernate`,
+`model-query-annotations`, `spring-boot-autoconfigure`, Spring Data JPA and Hibernate itself, because the starter held
+Spring as `provided`. `model-query-spring-boot-starter` now depends on `spring-boot-starter-data-jpa` and on
+`model-query-hibernate`, so the starter alone is enough; Hibernate is Spring Boot's default JPA provider, and
+`model-query-hibernate` keeps `hibernate-core` `provided`, so it adds nothing Hibernate-specific off the starter. A
+`ProviderSupport` whose provider library is missing fails to link; the resolver skips it, so the support stays inert
+without Hibernate. `model-query-annotations` is needed only in a module without the starter, and the processor stays
+in `annotationProcessorPaths`. INV-7 already puts the starter above `hibernate`. Rejected: keeping Spring `provided`
+(every user declared four or more dependencies); pulling the processor through the starter (Maven cannot add an
+annotation processor through a dependency). → `integration/50`.
+
 **D-98 — Query inspection and a test-support module.** Unit tests that cannot run a database need to check which
 filters a request became, and `Filters` is sealed with each filter held as an opaque lambda, so nothing can be mocked
 or read back. Each filter now records a `Condition` (operator, column, values, nested conditions) next to its
 predicate, `ModelQuery.conditions()` exposes the tree read-only, and a new `model-query-test` module (core and AssertJ
 only) asserts on it with matchers named after the `Filters` operators. A skipped filter records nothing, so the view
 matches the statement. `toString` and the D-95 log show `?` for values, which can be personal data. `add(label, …)`
-names an otherwise opaque custom filter. D-97 is the starter's dependency change (M8.12b). Rejected: a mockable
+names an otherwise opaque custom filter. Rejected: a mockable
 `Filters` (unsealing it opens the DSL to implementations the engine cannot render); asserting on a rendered JPQL or
 SQL string (needs a provider and a metamodel, and breaks on any rendering change); a recording `Filters` only inside
 the test module (it would duplicate every operator's skipping rules and drift from them). INV-7 widens: `test`

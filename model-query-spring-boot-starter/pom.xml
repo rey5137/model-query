@@ -22,16 +22,16 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-autoconfigure</artifactId>
-            <version>${spring-boot.version}</version>
-            <scope>provided</scope>
+            <groupId>io.github.rey5137</groupId>
+            <artifactId>model-query-hibernate</artifactId>
+            <version>${project.version}</version>
         </dependency>
+        <!-- Hibernate is Spring Boot's default JPA provider; the one starter brings Spring Data JPA, Hibernate and
+             Boot's auto-configuration (D-97) -->
         <dependency>
-            <groupId>org.springframework.data</groupId>
-            <artifactId>spring-data-jpa</artifactId>
-            <version>${spring-data-jpa.version}</version>
-            <scope>provided</scope>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+            <version>${spring-boot.version}</version>
         </dependency>
     </dependencies>
 </project>

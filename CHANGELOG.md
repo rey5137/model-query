@@ -64,6 +64,10 @@ Behaviour to know when moving from hand-written Criteria code:
   a field read through it.
 
 ### Changed
+- `model-query-spring-boot-starter` is the one dependency of a Spring Boot application: it pulls
+  `spring-boot-starter-data-jpa` and `model-query-hibernate`, where Spring was `provided` and an application declared
+  four or more artifacts. `model-query-annotations` is needed only in a module without the starter, and the processor
+  still goes in `annotationProcessorPaths`. A `ProviderSupport` whose provider library is missing is skipped (D-97).
 - Every public annotation, `@EngineFacing` and `ModelQueryProcessor` carries `@Incubating`, as every other public
   type does (D-90).
 - The starter's repository factory bean swap copies a `RootBeanDefinition` with `cloneBeanDefinition()` and keeps its

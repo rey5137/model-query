@@ -33,6 +33,14 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!-- Boot's slf4j 2.x, which Testcontainers' 1.7 would otherwise displace (nearest wins) -->
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -41,35 +49,12 @@
             <groupId>io.github.rey5137</groupId>
             <artifactId>model-query-spring-boot-starter</artifactId>
         </dependency>
-        <dependency>
-            <groupId>io.github.rey5137</groupId>
-            <artifactId>model-query-hibernate</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.github.rey5137</groupId>
-            <artifactId>model-query-annotations</artifactId>
-        </dependency>
         <!-- Listed so the reactor builds the processor first; it runs from annotationProcessorPaths -->
         <dependency>
             <groupId>io.github.rey5137</groupId>
             <artifactId>model-query-processor</artifactId>
             <scope>provided</scope>
             <optional>true</optional>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-autoconfigure</artifactId>
-            <version>${spring-boot.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.data</groupId>
-            <artifactId>spring-data-jpa</artifactId>
-            <version>${spring-data-jpa.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.hibernate.orm</groupId>
-            <artifactId>hibernate-core</artifactId>
-            <version>${hibernate.version}</version>
         </dependency>
         <!-- The PATCH endpoint: a generated change set binds from the body and @ValidChanges checks it -->
         <dependency>
