@@ -970,6 +970,19 @@ Rejected: `under`-rewritten filters (impossible for closures and `add`); a secon
 self-join, and comma joins mixed with JOIN/ON differ by vendor, INV-6). `@Incubating`. → `api/15` R-FCH-06, -14,
 `processor/32` `MQ3406`.
 
+**D-101 — The shape of a recorded condition.** One final `Condition` class with a `Kind` enum and optional accessors
+(`column`, `right`, `op`, `likeMode`, `path`, `values`, `children`, `label`), and a final `QueryConditions` holding
+`where` and `having`, neither a record and neither publicly constructible. An `or` branch of two or more filters is an
+`AND` node, so `or(a.and(b), c)` and `or(a, b, c)` differ; a one-sided `range` or `between` records the comparison it
+renders; values are recorded as passed, before converters. Order stays on `orderBy()`, so `orderedBy` copies share the
+view; a fetch plan's child-query filters are out (Q-13), since `ChildLoad` is `@EngineFacing`. Recording goes through
+the single point that records a predicate, which then takes both, so the compiler refuses a predicate without its
+condition. Matchers live in `model-query-test` and take value forms only. `toString` and the build log show `?` for
+values; `ModelQuery.toString()` stays the model's name, which failure messages use. Rejected: sealed per-kind types (no
+record patterns or pattern `switch` on Java 17, and their exhaustiveness breaks like an enum's); string kinds (P-2);
+public `Condition` factories (they freeze construction); a flat `children()` for `or` (ambiguous). `@Incubating`. →
+`api/16` §1, R-INS-01–07.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -1020,6 +1033,11 @@ R-DIAG-03.
 the root's table is not detected (JPA exposes no table names, INV-7), so MySQL fails with error 1093 where the write
 should have run key-first. Should `VendorProfile` or a jpa provider hook report an entity's table so that `jpa` can
 detect it? → `api/14` R-WRT-11.
+
+**Q-13 — Inspecting a fetch plan's child queries.** `conditions()` covers the query's own `where` and `having`
+(D-101); a test cannot read a child query's filters, order or `maxPerParent`, which sit behind the `@EngineFacing`
+`ChildLoad`. Should `FetchPlan` gain a public read-only view of its children, or should child queries be tested only
+against a database? → `api/16` R-INS-06, `api/15`.
 
 ## 3. Risks
 

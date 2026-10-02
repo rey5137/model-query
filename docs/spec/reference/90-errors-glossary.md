@@ -38,7 +38,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1205` | A `QueryCustomizer` changed the `ORDER BY` or `GROUP BY` of a phase | `api/11` R-QRY-11 |
 | `MQ1206` | A primary-key column of array type | `api/11` R-QRY-12 |
 | `MQ1207` | `keyset()` with a `Float` or `Double` order or primary-key column | `api/11` R-QRY-13 |
-| `MQ1301` | A value-form filter received `null` | `api/12` §1 |
+| `MQ1301` | A value-form filter received `null`, or `add(label, …)` a null or blank label | `api/12` §1 |
 | `MQ1302` | A column or nested `exists(...)` path inside `exists(...)` is not on or below the given path | `api/12` R-FLT-11 |
 | `MQ1303` | A `Filters` or `Having` used after its operator returned, or while a nested operator runs | `api/12` §1, D-23 |
 | `MQ1304` | `exists(...)` given a root instead of a join path | `api/12` R-FLT-11 |
