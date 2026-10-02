@@ -49,17 +49,24 @@ any depth: a child's or join's plan has its own children, joins and enrichers. I
 parts, so it cannot contain itself; a self-referencing model (a tree) nests as deep as its plans are written. Naming
 the same child or join twice in one plan throws `MQ1703`.
 
-**R-FCH-02** `ModelQuery.Builder.fetch(FetchPlan<M>)` selects the plan's `SelectSet` and attaches the plan; `fetch` and
-`select` replace each other's selection, last call wins, and `build()` with neither throws `MQ1202`. The query also
-selects every column the plan needs: each child's parent-side key and each enricher's declared columns, recursively
-through joins (R-FCH-07). Those columns count as selected for every rule: presence keys (R-QRY-04), phase consistency
-(R-QRY-09), to-many joins (R-PAG-13), grouping (R-AGG-08, `MQ1401`) and counting (R-EXE-04). One that is read through a
-to-many join throws `MQ1702` at `build()`. `select()` returns the selection without them, as it does without the
-primary key, so `orderedBy` cannot sort on them. They stay filled on the returned models.
+**R-FCH-02** `ModelQuery.Builder.fetch(FetchPlan<M>)` selects the plan's `SelectSet`, with its join plans' re-rooted
+under their joins (R-FCH-07), and attaches the plan. `fetch` and `select` replace each other, last call wins as a
+whole: `select` after `fetch` drops the plan, and logs a `WARNING` naming the model that it did. `build()` with
+neither throws `MQ1202`. The query also selects every column the plan needs: each child's parent-side key and each
+enricher's declared columns, recursively through joins (R-FCH-07). Those columns count as selected for every rule:
+presence keys (R-QRY-04, `MQ1409`), phase consistency (R-QRY-09), to-many joins (R-PAG-13), grouping (R-AGG-08,
+`MQ1401`) and counting (R-EXE-04). One that is read through a to-many join throws `MQ1702` on first execution, checked
+once per `ModelQuery` as the phases are (D-21), since `build()` has no metamodel to tell a to-many join from a to-one.
+`count`, which loads no children and runs no enricher, logs that check's failure as a `WARNING` and counts; the failure
+is not remembered, so the next call that returns models throws `MQ1702`.
+`select()` returns the selection without them, as it does without the primary key, so `orderedBy` cannot sort on
+them; a join plan's re-rooted selection is part of `select()`. They stay filled on the returned models.
 
 **R-FCH-13** `ModelQuery.withFetch(FetchPlan<M>)` returns a copy with the plan's selection and plan: a new definition
-(D-21), checked as `build()` checks one, with the check cached per (definition, plan), so a constant plan is checked
-once. An `orderedBy` copy keeps the plan. Use it when the plan depends on the call, such as an export's chosen columns,
+(D-21), checked as `build()` checks one. A (query, plan) pair that passed is remembered, by identity, in a static set
+weak on both, not on the query (CC-IMM-01): a later `withFetch` of the pair builds a new copy without the checks and
+without the `DEBUG` build log, so a constant plan is checked once per query. A pair that threw is checked again. An
+`orderedBy` copy keeps the plan. Use it when the plan depends on the call, such as an export's chosen columns,
 or holds a bean the query definition must not.
 
 ## 2. Children
@@ -76,9 +83,9 @@ so a `@Child` and a back-`@Join` between two models initialise in either order. 
 
 **R-FCH-04** `child(ChildField<M, C>, FetchPlan<C>)` loads a child; one not in the plan stays empty. An optional
 `ChildQuery` adds child filters (`where`), an order (`orderBy`, closed by the child's primary key; the primary key alone
-by default) and `maxPerParent` (R-FCH-11). Child rows are deduplicated on the child's primary key, since a child filter
-through a to-many join can repeat them. A to-one child that finds two distinct rows for one key throws `MQ2601` naming
-the child field.
+by default) and `maxPerParent` (R-FCH-11; below 1 it throws `MQ2001`). Child rows are deduplicated on the child's
+primary key, since a child filter through a to-many join can repeat them. A to-one child that finds two distinct rows
+for one key throws `MQ2601` naming the child field.
 
 **R-FCH-05** Keys match on attribute values before any converter, as primary keys do (R-COL-11): the parent's key is
 read from its row when it is mapped, the child's `foreignKey` from the child's row, and the `IN` binds those values.
@@ -98,10 +105,12 @@ steps are; run in a read-only transaction for one snapshot.
 
 **R-FCH-07** `join(JoinField<M, N>, FetchPlan<N>)` applies a nested plan to the models a `@Join` produced. The nested
 plan's selection and needed columns are re-rooted under the join, as the generated join constants are, and added to the
-parent's selection, so one plan serves on its own and nested. A join plan whose join ends up with no selected column
-throws `MQ1701`. The processor generates a `JoinField<M, N>` per `@Join`, carrying the join's `TableField` and returning
-a parent copy with the nested model replaced; an empty `Optional` (a LEFT join that found nothing) is skipped. An INNER
-`@Join` narrows the rows exactly as selecting it does.
+parent's selection, so one plan serves on its own and nested. A join plan whose join ends up with no column of the
+query's selection at or below it, at any depth, throws `MQ1701`; one whose nested plan selects an `AggregateField`,
+which has no meaning under a join, throws `MQ1705`. Both are checked at `build()` and `withFetch`. The processor
+generates a `JoinField<M, N>` per `@Join`, carrying the join's `TableField` and returning a parent copy with the nested
+model replaced; an empty `Optional` (a LEFT join that found nothing) is skipped. An INNER `@Join` narrows the rows
+exactly as selecting it does.
 
 ## 4. Enrichers
 
@@ -123,8 +132,8 @@ dedupe and before `pageTransformer`, and their Spring forms (`findAll`, `findPag
 `count` or under `ONLY_COUNT`. Paging state (cursor, keys, dedupe) is read from rows, never from what a plan returns.
 `stream` with a plan that has a child, join plan or enricher throws `MQ2605` before any statement, naming `export`.
 
-**R-FCH-10** A child on a grouped query throws `MQ1704` at `build()`: a grouped row has no single key. An enricher's
-columns on a grouped query must be group keys (`MQ1401`).
+**R-FCH-10** A child on a grouped query, at any join depth, throws `MQ1704` at `build()`, before `MQ1401`: a grouped
+row has no single key. An enricher's columns on a grouped query must be group keys (`MQ1401`).
 
 **R-FCH-11** INV-4's page includes its children. `maxPerParent(n)` bounds them: each round reads at most
 `keys × n + 1` rows (`setMaxResults`), and reaching that, or a parent with more than `n` distinct children, throws
@@ -142,9 +151,9 @@ round's statement logs as any statement does (D-95).
 | AC-FCH-02 | A to-one child by key loads; two distinct rows for one key throw `MQ2601`; repeated child rows from a to-many child filter are deduplicated (R-FCH-03, R-FCH-04). |
 | AC-FCH-03 | Child keys above the vendor's limit split into rounds; a page with no keys runs no child statement; a converted key column matches on its attribute value; a case-insensitive collation's unmatched child row throws `MQ2604` (R-FCH-05). |
 | AC-FCH-04 | Child filters and order apply, closed by the child's primary key; the default order is the primary key (R-FCH-04). |
-| AC-FCH-05 | One plan fills a model on its own and through a `@Join`, including two aliased joins to one entity and a LEFT join that found nothing; a join plan with nothing selected throws `MQ1701` (R-FCH-07). |
+| AC-FCH-05 | One plan fills a model on its own and through a `@Join`, including two aliased joins to one entity and a LEFT join that found nothing; the re-rooted columns equal the generated join constants; a join plan with nothing selected throws `MQ1701`, and one selecting an aggregate throws `MQ1705` (R-FCH-07). |
 | AC-FCH-06 | `byKey` and `of` enrichers see their columns selected and run once per page after children, nested first; `of` returning another size or `null` throws `MQ2602` (R-FCH-08). |
-| AC-FCH-07 | `stream` with a plan throws `MQ2605`; a child on a grouped query throws `MQ1704`; a plan column through a to-many join throws `MQ1702`; a duplicate child throws `MQ1703`; `count` and `ONLY_COUNT` run no child query; the probe row's children are never loaded (R-FCH-01, R-FCH-02, R-FCH-09, R-FCH-10). |
-| AC-FCH-08 | `maxPerParent` throws `MQ2603` within one round's cap (R-FCH-11). |
-| AC-FCH-09 | `withFetch` returns a definition with the plan's selection, `orderedBy` keeps it, and the original is unchanged (R-FCH-13). |
+| AC-FCH-07 | `stream` with a plan throws `MQ2605`; a child on a grouped query throws `MQ1704`; a plan column through a to-many join throws `MQ1702` on first execution, except on `count`, which logs a `WARNING`; a duplicate child throws `MQ1703`; `count` and `ONLY_COUNT` run no child query; the probe row's children are never loaded (R-FCH-01, R-FCH-02, R-FCH-09, R-FCH-10). |
+| AC-FCH-08 | `maxPerParent` throws `MQ2603` within one round's cap, and `MQ2001` below 1 (R-FCH-04, R-FCH-11). |
+| AC-FCH-09 | `withFetch` returns a definition with the plan's selection, `orderedBy` keeps it, the original is unchanged, and a (query, plan) pair is checked once; `select` after `fetch` drops the plan with a warning (R-FCH-02, R-FCH-13). |
 | AC-FCH-10 | The processor generates `ChildField` and `JoinField` for records and setter classes, a mutual `@Child`/back-`@Join` pair initialises in either order, a nested model from another module works (D-45), and each of `MQ3401`–`MQ3405` has a compile-failure case (R-FCH-03). |

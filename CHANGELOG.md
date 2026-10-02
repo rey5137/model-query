@@ -85,7 +85,7 @@ Behaviour to know when moving from hand-written Criteria code:
   which set `null` on every row, no longer compiles (D-88).
 - **Breaking:** `ColumnSet` is renamed `SelectSet`, after the `SelectField`s it holds, aggregates included; its
   `columns()` is `fields()`. `ModelQuery.Builder.columns(...)` is `select(...)`, `ModelQuery.columns()` is `select()`,
-  `@QueryModel(generateColumnSets)` is `generateSelectSets`, and `MQ1202` reads `select(...) is required`. The
+  `@QueryModel(generateColumnSets)` is `generateSelectSets`, and `MQ1202` names `select(...)` or `fetch(...)`. The
   generated `ALL`, `DEFAULT`, join and `GROUP_KEYS` constants keep their names (D-94).
 - `DateTimestampConverter` documents that the `Date` it reads is a `Timestamp`, whose `equals` is asymmetric with a
   plain `Date` (D-89).

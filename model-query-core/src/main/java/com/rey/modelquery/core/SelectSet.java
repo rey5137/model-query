@@ -30,6 +30,11 @@ public final class SelectSet<M> {
         return new SelectSet<>(append(new LinkedHashSet<>(), checked(columns, "columns")));
     }
 
+    /** A set of {@code columns}, in the given order, as {@link #of} makes one. */
+    static <M> SelectSet<M> copyOf(Collection<? extends SelectField<M, ?>> columns) {
+        return new SelectSet<>(append(new LinkedHashSet<>(), columns));
+    }
+
     /** A copy with {@code extra} appended; columns already present keep their position. */
     @SafeVarargs
     public final SelectSet<M> with(SelectField<M, ?>... extra) {

@@ -9,8 +9,10 @@ import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Order;
+import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
+import jakarta.persistence.metamodel.PluralAttribute;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -57,6 +59,10 @@ public final class ModelQuery<E, K, M> {
     private final List<Filter> having;
     private final boolean grouped;
     private final QuerySpec spec;
+    /** The fetch plan, or {@code null}. */
+    private final FetchPlan<M> fetch;
+    /** The columns the fetch plan needs besides {@link #columns}: child keys and enricher columns (R-FCH-02). */
+    private final List<ColumnField<M, ?, ?>> needed;
     /** What {@code MODEL} and {@code MODEL_BY_KEYS} select, and what {@code PRIMARY_KEY} selects; fixed per query. */
     private final List<SelectField<M, ?>> modelColumns;
     private final RowSelection modelSelection;
@@ -67,12 +73,15 @@ public final class ModelQuery<E, K, M> {
     /** The query {@code build()} returned: this one, or the one this is an {@link #orderedBy} copy of. */
     private final ModelQuery<E, K, M> definition;
 
-    private ModelQuery(Builder<E, K, M> b, boolean grouped, ModelQuery<E, K, M> definition) {
+    private ModelQuery(Builder<E, K, M> b, SelectSet<M> columns, List<ColumnField<M, ?, ?>> needed, boolean grouped,
+            ModelQuery<E, K, M> definition) {
         this.builder = b;
         this.definition = definition == null ? this : definition;
         this.root = b.root;
         this.mapper = b.mapper;
-        this.columns = b.columns;
+        this.columns = columns;
+        this.fetch = b.fetch;
+        this.needed = needed;
         // A group has no row identity, so a grouped query runs without its key (R-AGG-09).
         this.primaryKey = grouped ? null : b.primaryKey;
         this.orderBy = b.orderBy;
@@ -106,7 +115,7 @@ public final class ModelQuery<E, K, M> {
                     "builder(...) takes a TableField.root(...), not the " + root.describe());
         }
         return new Builder<>(root, mapper, null, null, List.of(), false, null, null, null, null, List.of(), List.of(),
-                null);
+                null, null);
     }
 
     /** The entity the query is rooted at. */
@@ -114,9 +123,37 @@ public final class ModelQuery<E, K, M> {
         return root.rootEntity();
     }
 
-    /** What the query selects for the model, without any primary key added for paging. */
+    /**
+     * What the query selects for the model, without any primary key added for paging nor the columns a fetch plan
+     * needs (R-FCH-02). With a plan, it is the plan's selection and its join plans', re-rooted under their joins.
+     */
     public SelectSet<M> select() {
         return columns;
+    }
+
+    /** The fetch plan the query runs on what it returns, when one is attached (R-FCH-02, R-FCH-13). */
+    @Incubating
+    public Optional<FetchPlan<M>> fetch() {
+        return Optional.ofNullable(fetch);
+    }
+
+    /**
+     * A copy of this query with {@code plan}'s selection and plan, replacing any it had: a new definition, checked as
+     * {@link Builder#build()} checks one, but only the first time this query is given {@code plan}, so a constant
+     * plan is checked once. An {@link #orderedBy} copy of it keeps the plan.
+     *
+     * @throws ModelQueryDefinitionException as {@link Builder#build()} does
+     * @implSpec R-FCH-13
+     */
+    @Incubating
+    public ModelQuery<E, K, M> withFetch(FetchPlan<M> plan) {
+        Builder<E, K, M> fetching = builder.fetch(plan);
+        if (CheckedFetches.passed(this, plan)) {
+            return fetching.unchecked();
+        }
+        ModelQuery<E, K, M> built = fetching.build();
+        CheckedFetches.pass(this, plan); // only once it passed, so a plan that threw is checked again next time
+        return built;
     }
 
     /** The primary key, when defined; always empty for a grouped query, which ignores one (R-AGG-09). */
@@ -397,6 +434,34 @@ public final class ModelQuery<E, K, M> {
         }
     }
 
+    /**
+     * Checks that no column the fetch plan needs, a child's key or an enricher's column, is read through a to-many
+     * join, where one row would hold several of its values: it resolves each on a scratch query and walks its joins
+     * up to the root. Call it once per ModelQuery, on first execution, as {@link #checkPhases} (D-21).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1702} for a needed column read through a to-many join
+     * @implSpec R-FCH-02
+     */
+    @EngineFacing
+    public void checkFetch(CriteriaBuilder cb) {
+        Objects.requireNonNull(cb, "cb");
+        if (needed.isEmpty()) {
+            return;
+        }
+        CriteriaQuery<Tuple> query = cb.createTupleQuery();
+        JoinContext joins = JoinContext.of(query.from(root.rootEntity()), cb, query, UNLIMITED);
+        for (ColumnField<M, ?, ?> column : needed) {
+            for (Path<?> path = column.path(joins); path != null; path = path.getParentPath()) {
+                if (path instanceof Join<?, ?> join && join.getAttribute() instanceof PluralAttribute<?, ?, ?> many) {
+                    throw new ModelQueryDefinitionException(MqCode.MQ1702, column + ": the fetch plan needs it, but "
+                            + "it is read through the to-many join " + many.getDeclaringType().getJavaType()
+                            .getSimpleName() + "." + many.getName() + ", where one row holds several of its values; "
+                            + "key the child or the enricher by a column on a to-one path");
+                }
+            }
+        }
+    }
+
     /** The roots of {@code query} and every join below them that can remove rows, which is any but a LEFT join. */
     private static int narrowingJoins(CriteriaQuery<?> query) {
         int count = 0;
@@ -416,10 +481,11 @@ public final class ModelQuery<E, K, M> {
 
     /**
      * What {@code MODEL} and {@code MODEL_BY_KEYS} select: the columns, the primary key of an ungrouped query,
-     * every ordering and group key, and on an ungrouped query the presence key of each {@code presentBy} join a column
-     * of the {@code SelectSet} is read through. None of the additions changes which rows return, and their joins are
-     * made anyway; selecting them lets an executor read a row's key, cursor and group from the row, and a mapper tell
-     * a join that missed from one that matched (R-QRY-04, D-29, D-38).
+     * every ordering and group key, the columns the fetch plan needs, and on an ungrouped query the presence key of
+     * each {@code presentBy} join a selected or needed column is read through. None of the keys changes which rows
+     * return, and their joins are made anyway; selecting them lets an executor read a row's key, cursor and group from
+     * the row, and a mapper tell a join that missed from one that matched (R-QRY-04, D-29, D-38). A needed column
+     * joins as a selected one does (R-FCH-02).
      */
     private List<SelectField<M, ?>> selected() {
         var result = new ArrayList<SelectField<M, ?>>(columns.fields());
@@ -428,15 +494,24 @@ public final class ModelQuery<E, K, M> {
         }
         orderBy.forEach(order -> result.add(order.column()));
         result.addAll(groupBy);
+        // Selected as the keys are, so they count as selected for every rule that reads the selection (R-FCH-02).
+        result.addAll(needed);
         if (!grouped) {
             // Last, and once each: a RowSelection keeps a column at its first position (R-QRY-04).
-            for (SelectField<M, ?> column : columns.fields()) {
+            var read = new ArrayList<SelectField<M, ?>>(columns.fields());
+            read.addAll(needed);
+            for (SelectField<M, ?> column : read) {
                 if (column instanceof ColumnField<M, ?, ?> plain) {
                     result.addAll(presenceKeys(plain));
                 }
             }
         }
         return result;
+    }
+
+    /** What {@code MODEL} and {@code MODEL_BY_KEYS} select, as {@link #selected()} lists it. */
+    List<SelectField<M, ?>> modelColumns() {
+        return modelColumns;
     }
 
     /**
@@ -541,12 +616,14 @@ public final class ModelQuery<E, K, M> {
         private final List<Filter> where;
         private final List<ColumnField<M, ?, ?>> groupBy;
         private final HavingGroup.Clause having;
+        /** The fetch plan, whose selection replaces {@link #columns}; {@code null} without one. */
+        private final FetchPlan<M> fetch;
 
         private Builder(TableField<E, E> root, RowMapper<M> mapper, SelectSet<M> columns,
                 PrimaryKey<M, K> primaryKey, List<OrderField<M, ?>> orderBy, boolean keyset,
                 PrimaryKeyFirst primaryKeyFirst, BiConsumer<M, Row> afterMap, UnaryOperator<M> finisher,
                 QueryCustomizer customizer, List<Filter> where, List<ColumnField<M, ?, ?>> groupBy,
-                HavingGroup.Clause having) {
+                HavingGroup.Clause having, FetchPlan<M> fetch) {
             this.root = root;
             this.mapper = mapper;
             this.columns = columns;
@@ -560,18 +637,38 @@ public final class ModelQuery<E, K, M> {
             this.where = where;
             this.groupBy = groupBy;
             this.having = having;
+            this.fetch = fetch;
         }
 
-        /** What the query selects; required. */
+        /**
+         * What the query selects; this or {@link #fetch} is required. It replaces a fetch plan set before, which is
+         * then dropped with a warning: the last of {@code select} and {@code fetch} wins as a whole (R-FCH-02).
+         */
         public Builder<E, K, M> select(SelectSet<M> select) {
-            return new Builder<>(root, mapper, Objects.requireNonNull(select, "select"), primaryKey, orderBy, keyset,
-                    primaryKeyFirst, afterMap, finisher, customizer, where, groupBy, having);
+            Objects.requireNonNull(select, "select");
+            if (fetch != null) {
+                LOG.log(System.Logger.Level.WARNING, "{0}: select(...) after fetch(...) discards the fetch plan, so "
+                        + "no child, join plan or enricher of it runs; call fetch(...) last, with the selection in "
+                        + "its FetchPlan.of(...)", modelName(fetch.select(), root.rootEntity()));
+            }
+            return new Builder<>(root, mapper, select, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
+                    finisher, customizer, where, groupBy, having, null);
+        }
+
+        /**
+         * Selects {@code plan}'s selection and attaches the plan, replacing any {@link #select} or plan set before. The
+         * query also selects every column the plan needs, which {@link ModelQuery#select()} leaves out (R-FCH-02).
+         */
+        @Incubating
+        public Builder<E, K, M> fetch(FetchPlan<M> plan) {
+            return new Builder<>(root, mapper, null, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
+                    finisher, customizer, where, groupBy, having, Objects.requireNonNull(plan, "plan"));
         }
 
         /** The primary key; required for {@link #keyset()} and {@link #primaryKeyFirst}. */
         public <K2> Builder<E, K2, M> primaryKey(PrimaryKey<M, K2> primaryKey) {
             return new Builder<>(root, mapper, columns, Objects.requireNonNull(primaryKey, "primaryKey"), orderBy,
-                    keyset, primaryKeyFirst, afterMap, finisher, customizer, where, groupBy, having);
+                    keyset, primaryKeyFirst, afterMap, finisher, customizer, where, groupBy, having, fetch);
         }
 
         /** The ordering keys, replacing any set before. */
@@ -582,7 +679,7 @@ public final class ModelQuery<E, K, M> {
                 copy.add(Objects.requireNonNull(order, "orderBy element"));
             }
             return new Builder<>(root, mapper, columns, primaryKey, List.copyOf(copy), keyset, primaryKeyFirst,
-                    afterMap, finisher, customizer, where, groupBy, having);
+                    afterMap, finisher, customizer, where, groupBy, having, fetch);
         }
 
         /**
@@ -591,7 +688,7 @@ public final class ModelQuery<E, K, M> {
          */
         public Builder<E, K, M> keyset() {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, true, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, groupBy, having);
+                    finisher, customizer, where, groupBy, having, fetch);
         }
 
         /**
@@ -601,7 +698,7 @@ public final class ModelQuery<E, K, M> {
         public Builder<E, K, M> primaryKeyFirst(PrimaryKeyFirst primaryKeyFirst) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset,
                     Objects.requireNonNull(primaryKeyFirst, "primaryKeyFirst"), afterMap, finisher, customizer,
-                    where, groupBy, having);
+                    where, groupBy, having, fetch);
         }
 
         /**
@@ -611,19 +708,19 @@ public final class ModelQuery<E, K, M> {
          */
         public Builder<E, K, M> afterMap(BiConsumer<M, Row> afterMap) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst,
-                    Objects.requireNonNull(afterMap, "afterMap"), finisher, customizer, where, groupBy, having);
+                    Objects.requireNonNull(afterMap, "afterMap"), finisher, customizer, where, groupBy, having, fetch);
         }
 
         /** Replaces each mapped model with {@code finisher}'s result, after {@code afterMap}; for records. */
         public Builder<E, K, M> finisher(UnaryOperator<M> finisher) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    Objects.requireNonNull(finisher, "finisher"), customizer, where, groupBy, having);
+                    Objects.requireNonNull(finisher, "finisher"), customizer, where, groupBy, having, fetch);
         }
 
         /** Raw Criteria access for each phase; see {@link QueryCustomizer}. Replaces any customizer set before. */
         public Builder<E, K, M> customize(QueryCustomizer customizer) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, Objects.requireNonNull(customizer, "customizer"), where, groupBy, having);
+                    finisher, Objects.requireNonNull(customizer, "customizer"), where, groupBy, having, fetch);
         }
 
         /**
@@ -634,7 +731,7 @@ public final class ModelQuery<E, K, M> {
         public Builder<E, K, M> where(UnaryOperator<Filters<M>> filters) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
                     finisher, customizer, FilterGroup.collect(Objects.requireNonNull(filters, "filters")), groupBy,
-                    having);
+                    having, fetch);
         }
 
         /**
@@ -669,7 +766,7 @@ public final class ModelQuery<E, K, M> {
 
         private Builder<E, K, M> groupBy(List<ColumnField<M, ?, ?>> keys) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, List.copyOf(new LinkedHashSet<>(keys)), having);
+                    finisher, customizer, where, List.copyOf(new LinkedHashSet<>(keys)), having, fetch);
         }
 
         /**
@@ -681,14 +778,16 @@ public final class ModelQuery<E, K, M> {
         public Builder<E, K, M> having(UnaryOperator<Having<M>> filters) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
                     finisher, customizer, where, groupBy,
-                    HavingGroup.collect(Objects.requireNonNull(filters, "filters")));
+                    HavingGroup.collect(Objects.requireNonNull(filters, "filters")), fetch);
         }
 
         /**
          * Builds the immutable query. A query is grouped when it has a group-by or selects an aggregate (R-AGG-07); a
          * grouped query needs no primary key and ignores one (R-AGG-09).
          *
-         * @throws ModelQueryDefinitionException {@code MQ1202} when {@link #select} was not called
+         * @throws ModelQueryDefinitionException {@code MQ1202} when neither {@link #select} nor {@link #fetch} was
+         *     called
+         * @throws ModelQueryDefinitionException {@code MQ1705} for a join plan selecting an aggregate
          * @throws ModelQueryDefinitionException {@code MQ1407} for {@code having(...)} on an ungrouped query
          * @throws ModelQueryDefinitionException {@code MQ1402} for {@code keyset()} or {@code primaryKeyFirst(...)} on
          *     a grouped query
@@ -697,12 +796,15 @@ public final class ModelQuery<E, K, M> {
          * @throws ModelQueryDefinitionException {@code MQ1206} for a primary-key column of array type
          * @throws ModelQueryDefinitionException {@code MQ1207} for {@code keyset()} with a {@code Float} or
          *     {@code Double} order or primary-key column
-         * @throws ModelQueryDefinitionException {@code MQ1401} for a selected column missing from the group-by
+         * @throws ModelQueryDefinitionException {@code MQ1704} for a fetch plan loading a child on a grouped query
+         * @throws ModelQueryDefinitionException {@code MQ1401} for a selected column, or a column an enricher reads,
+         *     missing from the group-by
          * @throws ModelQueryDefinitionException {@code MQ1409} for a grouped query selecting a column under a
          *     {@code presentBy} join whose key columns are not all group keys
          * @throws ModelQueryDefinitionException {@code MQ1406} for an ordering key that does not fit the grouping
          * @throws ModelQueryDefinitionException {@code MQ1103} for two {@code Agg.of} fields sharing a name with
          *     different expressions
+         * @throws ModelQueryDefinitionException {@code MQ1701} for a join plan whose join has no selected column
          */
         public ModelQuery<E, K, M> build() {
             return build(null);
@@ -711,19 +813,19 @@ public final class ModelQuery<E, K, M> {
         /** This builder with {@code orderBy}, an immutable list, as its ordering keys. */
         private Builder<E, K, M> ordered(List<OrderField<M, ?>> orderBy) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, groupBy, having);
+                    finisher, customizer, where, groupBy, having, fetch);
         }
 
         /** Checks and builds; {@code definition} is the query this one is a re-ordered copy of, or null. */
         private ModelQuery<E, K, M> build(ModelQuery<E, K, M> definition) {
-            if (columns == null) {
+            if (columns == null && fetch == null) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1202,
-                        "select(...) is required for a query on " + root.rootEntity().getSimpleName());
+                        "select(...) or fetch(...) is required for a query on " + root.rootEntity().getSimpleName());
             }
-            String model = modelName(columns, root.rootEntity());
-            // Structural, so skipping every having filter cannot turn a plain query into a grouped one (D-28).
-            boolean grouped = !groupBy.isEmpty()
-                    || columns.fields().stream().anyMatch(AggregateField.class::isInstance);
+            SelectSet<M> selection = selection();
+            List<ColumnField<M, ?, ?>> needed = needed();
+            String model = modelName(selection, root.rootEntity());
+            boolean grouped = isGrouped(selection);
             if (!grouped && having != null) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1407, model + ": having(...) needs a grouped query; "
                         + "add groupBy(...) or select an aggregate, or filter rows with where(...)");
@@ -744,26 +846,82 @@ public final class ModelQuery<E, K, M> {
                 checkKeyTypes(keyset);
             }
             if (grouped) {
-                for (SelectField<M, ?> column : columns.fields()) {
+                String child = fetch == null ? null : fetch.firstChild();
+                if (child != null) {
+                    // Before MQ1401, which the child's key would otherwise raise first (R-FCH-10).
+                    throw new ModelQueryDefinitionException(MqCode.MQ1704, model + "." + child + ": a fetch plan "
+                            + "loads this child on a grouped query, whose rows have no single key to match children "
+                            + "on; load it from an ungrouped query");
+                }
+                for (SelectField<M, ?> column : selection.fields()) {
                     // MySQL would return an arbitrary value of the group; PostgreSQL would fail anonymously (R-AGG-08).
                     if (column instanceof ColumnField<M, ?, ?> plain && !groupBy.contains(plain)) {
                         throw new ModelQueryDefinitionException(MqCode.MQ1401,
                                 plain + ": selected but not in groupBy");
                     }
                 }
+                for (ColumnField<M, ?, ?> column : needed) {
+                    if (!groupBy.contains(column)) {
+                        throw new ModelQueryDefinitionException(MqCode.MQ1401, column + ": read by an enricher of the "
+                                + "fetch plan but not in groupBy; an enricher on a grouped query reads group keys");
+                    }
+                }
                 if (primaryKey != null) {
                     LOG.log(System.Logger.Level.DEBUG, "{0}: primaryKey(...) is ignored on a grouped query", model);
                 }
-                checkPresenceKeys();
+                checkPresenceKeys(selection, needed);
             }
             checkOrder(model, grouped);
-            checkAggregates(model);
-            ModelQuery<E, K, M> built = new ModelQuery<>(this, grouped, definition);
+            checkAggregates(selection, model);
+            ModelQuery<E, K, M> built = new ModelQuery<>(this, selection, needed, grouped, definition);
+            if (fetch != null) {
+                checkJoinPlans(built, model);
+            }
             // Only the definition: an orderedBy copy is built per call, and the executor logs each call (D-95).
             if (definition == null && LOG.isLoggable(System.Logger.Level.DEBUG)) {
                 LOG.log(System.Logger.Level.DEBUG, built.describe());
             }
             return built;
+        }
+
+        /**
+         * Builds without the checks of {@link #build()}, for a {@link ModelQuery#withFetch} copy whose query and plan
+         * passed them before (R-FCH-13).
+         */
+        private ModelQuery<E, K, M> unchecked() {
+            SelectSet<M> selection = selection();
+            return new ModelQuery<>(this, selection, needed(), isGrouped(selection), null);
+        }
+
+        /** The plan's selection, its join plans' re-rooted under their joins, or else what select(...) was given. */
+        private SelectSet<M> selection() {
+            return fetch == null ? columns : fetch.selection();
+        }
+
+        /** The columns the fetch plan needs besides its selection (R-FCH-02). */
+        private List<ColumnField<M, ?, ?>> needed() {
+            return fetch == null ? List.of() : List.copyOf(fetch.needed());
+        }
+
+        /** Structural, so skipping every having filter cannot turn a plain query into a grouped one (D-28). */
+        private boolean isGrouped(SelectSet<M> selection) {
+            return !groupBy.isEmpty() || selection.fields().stream().anyMatch(AggregateField.class::isInstance);
+        }
+
+        /**
+         * Each join with a plan has a column of the query's selection at or below it: otherwise the join reads no
+         * nested model for its plan to apply to (R-FCH-07).
+         */
+        private void checkJoinPlans(ModelQuery<E, K, M> built, String model) {
+            fetch.joinTables().forEach((path, join) -> {
+                boolean selected = built.modelColumns().stream().anyMatch(
+                        column -> column instanceof ColumnField<M, ?, ?> plain && plain.table().isAtOrBelow(join));
+                if (!selected) {
+                    throw new ModelQueryDefinitionException(MqCode.MQ1701, model + "." + path + ": the join plan "
+                            + "selects no column under its join, which then reads no nested model; select a column "
+                            + "of the nested model in its plan, or drop the join(...)");
+                }
+            });
         }
 
         /**
@@ -804,8 +962,10 @@ public final class ModelQuery<E, K, M> {
          * A grouped query adds no presence key, so every key column of a {@code presentBy} join a selected column is
          * read through must be a group key: otherwise the nested model would map as absent (R-AGG-09, D-38).
          */
-        private void checkPresenceKeys() {
-            for (SelectField<M, ?> column : columns.fields()) {
+        private void checkPresenceKeys(SelectSet<M> selection, List<ColumnField<M, ?, ?>> needed) {
+            var read = new ArrayList<SelectField<M, ?>>(selection.fields());
+            read.addAll(needed);
+            for (SelectField<M, ?> column : read) {
                 if (column instanceof ColumnField<M, ?, ?> plain) {
                     for (ColumnField<M, ?, ?> key : presenceKeys(plain)) {
                         if (!groupBy.contains(key)) {
@@ -837,8 +997,8 @@ public final class ModelQuery<E, K, M> {
         }
 
         /** Two {@code Agg.of} fields sharing a name must be one definition wherever the query names them (R-AGG-02). */
-        private void checkAggregates(String model) {
-            var named = new ArrayList<SelectField<?, ?>>(columns.fields());
+        private void checkAggregates(SelectSet<M> selection, String model) {
+            var named = new ArrayList<SelectField<?, ?>>(selection.fields());
             orderBy.forEach(order -> named.add(order.column()));
             if (having != null) {
                 named.addAll(having.aggregates());

@@ -6,7 +6,7 @@ state, so you can build it once and share it between threads.
 ## The builder
 
 `QOrderView.query()` returns a builder already configured with the model's root, mapper and primary key. Everything
-besides `select` is optional.
+besides `select` (or `fetch`) is optional.
 
 ```java
 ModelQuery<OrderEntity, Long, OrderView> q = QOrderView.query()
@@ -18,7 +18,8 @@ ModelQuery<OrderEntity, Long, OrderView> q = QOrderView.query()
 
 | Builder method | Purpose |
 |---|---|
-| `select(SelectSet)` | The selection. `build()` without it fails. |
+| `select(SelectSet)` | The selection. `build()` without it, or a `fetch`, fails. |
+| `fetch(FetchPlan)` | The selection of a fetch plan, and the plan. `select` and `fetch` replace each other whole: a `select` after a `fetch` drops the plan and logs a warning, so call `fetch` last. |
 | `where(f -> ...)` | The filters, see below. |
 | `orderBy(OrderField...)` | `asc()` or `desc()` on a column, optionally `.nullsFirst()` or `.nullsLast()`. |
 | `keyset()` | Allows keyset paging; see [Paging and export](paging-export.md). |

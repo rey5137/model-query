@@ -35,8 +35,8 @@ public enum MqCode {
     /** {@code keyset()} or {@code primaryKeyFirst(...)} without a primary key (R-QRY-03). */
     MQ1201("keyset() and primaryKeyFirst(...) require a primary key"),
 
-    /** {@code build()} called without {@code select(...)} (R-QRY-02). */
-    MQ1202("select(...) is required"),
+    /** {@code build()} called without {@code select(...)} or {@code fetch(...)} (R-QRY-02, R-FCH-02). */
+    MQ1202("build() without select(...) or fetch(...)"),
 
     /** {@code ModelQuery.builder} given a join instead of a root {@code TableField} (R-QRY-02). */
     MQ1203("ModelQuery, ModelUpdate and ModelDelete builders take a root TableField, not a join"),
@@ -138,8 +138,26 @@ public enum MqCode {
     /** {@code setExpression} on a column with a {@code ColumnConverter} (R-WRT-14). */
     MQ1609("setExpression(...) does not take a column that has a ColumnConverter"),
 
-    /** A page size that is not positive, or a limit that is negative (R-EXE-06). */
-    MQ2001("A page or chunk size must be positive and a limit must not be negative"),
+    /** A join plan whose join ends up with no selected column (R-FCH-07). */
+    MQ1701("A join plan's join has no selected column"),
+
+    /**
+     * A column a fetch plan needs, a child's key or an enricher's column, is read through a to-many join; checked on
+     * first execution (R-FCH-02).
+     */
+    MQ1702("A column a fetch plan needs is read through a to-many join"),
+
+    /** A fetch plan names the same child or join twice (R-FCH-01). */
+    MQ1703("A fetch plan names the same child or join twice"),
+
+    /** A fetch plan with a child on a grouped query, at any join depth (R-FCH-10). */
+    MQ1704("A fetch plan with a child on a grouped query"),
+
+    /** A join plan selects an aggregate, which cannot be re-rooted under the join (R-FCH-07). */
+    MQ1705("A join plan selects an aggregate, which cannot be re-rooted under its join"),
+
+    /** A page size or {@code maxPerParent} that is not positive, or a limit that is negative (R-EXE-06, R-FCH-11). */
+    MQ2001("A page or chunk size and maxPerParent must be positive, and a limit must not be negative"),
 
     /** A negative offset (R-EXE-06). */
     MQ2002("An offset must not be negative"),

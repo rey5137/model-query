@@ -32,7 +32,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1103` | Two `Agg.of` fields share a name with different expressions | `api/13` R-AGG-02 |
 | `MQ1104` | `as(...)`, `on(...)` or `presentBy(...)` on a root `TableField`, which is not a join | `api/10` R-COL-03, R-COL-04 |
 | `MQ1201` | `keyset()` or `primaryKeyFirst(...)` without a primary key | `api/11` R-QRY-03 |
-| `MQ1202` | `build()` without `select` | `api/11` R-QRY-02 |
+| `MQ1202` | `build()` without `select` or `fetch` | `api/11` R-QRY-02 |
 | `MQ1203` | `ModelQuery.builder`, `ModelUpdate.builder` or `ModelDelete.builder` given a join instead of a root `TableField` | `api/11` R-QRY-02, `api/14` R-WRT-12 |
 | `MQ1204` | `PrimaryKeyFirst.whenOffsetAbove` with a negative offset | `api/11` R-QRY-03 |
 | `MQ1205` | A `QueryCustomizer` changed the `ORDER BY` or `GROUP BY` of a phase | `api/11` R-QRY-11 |
@@ -65,15 +65,16 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1608` | A bulk write's `@PrimaryKey` is not the root entity's id; checked on first execution, before the flush | `api/14` R-WRT-08, D-61 |
 | `MQ1609` | `setExpression` on a column with a converter | `api/14` R-WRT-14 |
 | `MQ1701` | A join plan whose join ends up with no selected column | `api/15` R-FCH-07 |
-| `MQ1702` | A column a fetch plan needs (a child's key, an enricher's column) is read through a to-many join | `api/15` R-FCH-02 |
+| `MQ1702` | A column a fetch plan needs (a child's key, an enricher's column) is read through a to-many join; checked on first execution (`count` logs a `WARNING` instead) | `api/15` R-FCH-02 |
 | `MQ1703` | A fetch plan names the same child or join twice | `api/15` R-FCH-01 |
-| `MQ1704` | A fetch plan with a child on a grouped query | `api/15` R-FCH-10 |
+| `MQ1704` | A fetch plan with a child, at any join depth, on a grouped query | `api/15` R-FCH-10 |
+| `MQ1705` | A join plan selects an `AggregateField`, which cannot be re-rooted under the join | `api/15` R-FCH-07 |
 
 ## 3. `MQ2xxx` — execution
 
 | Code | Meaning | Owner |
 |---|---|---|
-| `MQ2001` | `pageSize`, `ExportOptions.pageSize` or `ChunkOptions.size` is not positive, or a `Limit` is negative | `engine/20` R-EXE-06 |
+| `MQ2001` | `pageSize`, `ExportOptions.pageSize`, `ChunkOptions.size` or `ChildQuery.maxPerParent` is not positive, or a `Limit` is negative | `engine/20` R-EXE-06, `api/15` R-FCH-04 |
 | `MQ2002` | Negative offset | `engine/20` R-EXE-06 |
 | `MQ2101` | Streaming requires a transaction on this vendor | `engine/20` R-EXE-08 |
 | `MQ2201` | A row's primary key mapped to `null` during export or primary-key-first paging | `engine/21` R-PAG-03 |

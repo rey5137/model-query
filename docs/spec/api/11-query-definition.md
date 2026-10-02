@@ -29,8 +29,8 @@ ModelQuery<OrderEntity, Long, OrderView> q = ModelQuery.builder(QOrderView.ROOT,
 resolved against a `CriteriaBuilder` until the query is executed.
 
 **R-QRY-02** `ModelQuery.builder(root, mapper)` is the only required input besides `select`. Everything else is
-optional, and every optional part has a defined behaviour when absent, listed in §5. `build()` without `select`
-throws `MQ1202`.
+optional, and every optional part has a defined behaviour when absent, listed in §5. `build()` without `select`, or a
+fetch plan that carries one (`api/15` R-FCH-02), throws `MQ1202`.
 
 ## 2. Primary keys
 

@@ -86,10 +86,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private static final System.Logger.Level TRACE = System.Logger.Level.TRACE;
 
     /**
-     * The queries whose phases were checked, by identity. Static, because the check is once per {@code ModelQuery}
-     * whichever executor runs it first (D-21); weak, so a query built per request does not stay reachable.
+     * The queries whose phases and fetch-plan columns were checked, by identity. Static, because the checks are once
+     * per {@code ModelQuery} whichever executor runs it first (D-21); weak, so a query built per request does not stay
+     * reachable.
      */
-    private static final Set<ModelQuery<?, ?, ?>> PHASES_CHECKED =
+    private static final Set<ModelQuery<?, ?, ?>> FIRST_RUN_CHECKED =
             Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
 
     /**
@@ -160,7 +161,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     public <M> List<M> list(ModelQuery<E, ?, M> q, Limit limit) {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(limit, "limit");
-        checkPhasesOnce(q);
+        checkFirstRun(q);
         LOG.log(DEBUG, () -> "list " + q + ": " + limit);
         if (zeroLimit(limit)) {
             return List.of(); // no statement runs for a zero limit (R-EXE-06)
@@ -174,7 +175,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(limit, "limit");
         Objects.requireNonNull(body, "body");
-        checkPhasesOnce(q);
+        checkFirstRun(q);
         LOG.log(DEBUG, () -> "stream " + q + ": " + limit);
         if (zeroLimit(limit)) {
             try (Stream<M> none = Stream.empty()) {
@@ -310,7 +311,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(page, "page");
         Objects.requireNonNull(mode, "mode");
-        checkPhasesOnce(q);
+        checkFirstRun(q);
         int offset = page.offset();
         int size = page.pageSize();
         LOG.log(DEBUG, () -> "page " + q + ": offset " + offset + " size " + size + ", " + mode
@@ -346,7 +347,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     @Override
     public long count(ModelQuery<E, ?, ?> q) {
         Objects.requireNonNull(q, "q");
-        checkPhasesOnce(q);
+        checkFirstRun(q, false);
         LOG.log(DEBUG, () -> "count " + q);
         return countRows(q);
     }
@@ -358,7 +359,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(pageTransformer, "pageTransformer");
         Objects.requireNonNull(sink, "sink");
-        checkPhasesOnce(q);
+        checkFirstRun(q);
         long limit = options.limit().maxRows().isPresent() ? options.limit().maxRows().getAsInt() : Long.MAX_VALUE;
         int pageSize = options.pageSize().orElse(exportPageSize);
         LOG.log(DEBUG, () -> "export " + q + ": " + (q.isGrouped() ? "grouped offset" : q.isKeyset() ? "keyset"
@@ -604,13 +605,36 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
     }
 
-    /** Runs the R-QRY-09 phase check the first time any executor runs {@code q} (D-21). */
-    private void checkPhasesOnce(ModelQuery<E, ?, ?> q) {
+    /**
+     * Runs the R-QRY-09 phase check and the R-FCH-02 fetch-plan check the first time any executor runs {@code q}
+     * (D-21).
+     */
+    private void checkFirstRun(ModelQuery<E, ?, ?> q) {
+        checkFirstRun(q, true);
+    }
+
+    /**
+     * As {@link #checkFirstRun(ModelQuery)}; without {@code fetchesModels}, as for {@code count}, which loads no
+     * children and runs no enricher, a failed fetch-plan check logs a {@code WARNING} instead of throwing
+     * {@code MQ1702}, and is not remembered, so the next call that returns models throws it.
+     */
+    private void checkFirstRun(ModelQuery<E, ?, ?> q, boolean fetchesModels) {
         // An orderedBy copy is covered by the check of its definition, so a per-request sort does not repeat it.
         ModelQuery<E, ?, ?> definition = q.definition();
-        if (!PHASES_CHECKED.contains(definition)) {
-            q.checkPhases(em.getCriteriaBuilder());
-            PHASES_CHECKED.add(definition); // only once it passed, so a check that threw runs again next time
+        if (!FIRST_RUN_CHECKED.contains(definition)) {
+            CriteriaBuilder cb = em.getCriteriaBuilder();
+            q.checkPhases(cb);
+            try {
+                q.checkFetch(cb);
+            } catch (ModelQueryDefinitionException e) {
+                if (fetchesModels) {
+                    throw e;
+                }
+                LOG.log(System.Logger.Level.WARNING, "count runs, but the fetch plan of the query is invalid, and "
+                        + "every call that returns models throws: {0}", e.getMessage());
+                return;
+            }
+            FIRST_RUN_CHECKED.add(definition); // only once they passed, so a check that threw runs again next time
         }
     }
 

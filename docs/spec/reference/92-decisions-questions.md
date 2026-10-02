@@ -916,7 +916,14 @@ key throws, since collations can equate unequal strings. A nested plan's selecti
 plan serves on its own and nested. A plan also attaches per call through `withFetch`, a new definition. Two invariants
 widen: columns a plan needs are selected as R-QRY-04's keys are (INV-2), and INV-4's page includes its children,
 bounded per round by `maxPerParent`. Also rejected: matching on model values (converters and collations lose rows
-silently); requiring a nested plan's selection to be empty (plans could not be reused). → `api/15`.
+silently); requiring a nested plan's selection to be empty (plans could not be reused). A plan column read through a
+to-many join (`MQ1702`) is found on first execution, once per query as D-21's phase check is, since `build()` has no
+metamodel; `count` only warns of it, since it reads no plan column into a model. A join plan selecting an aggregate
+(`MQ1705`) is refused at `build()`. `fetch` and `select` replace each other whole, so `select` after `fetch` drops the
+plan, with a warning. `withFetch` remembers each (query, plan) pair
+that passed in a static weak set rather than on the query (CC-IMM-01). Also rejected: keeping the plan when `select`
+follows `fetch` (two sources of one selection), and caching a checked copy on the query (a lazily filled field on a
+`static final` constant). → `api/15`.
 
 ## 2. Open questions
 

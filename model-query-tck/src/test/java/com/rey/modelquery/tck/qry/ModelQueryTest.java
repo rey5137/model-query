@@ -9,6 +9,7 @@ import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.BuiltQuery;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
@@ -127,8 +128,15 @@ class ModelQueryTest {
                 continue;
             }
             assertThat(m.getName()).as(m.toString()).doesNotStartWith("set").doesNotStartWith("add")
-                    .doesNotStartWith("put").doesNotStartWith("remove").doesNotStartWith("with");
+                    .doesNotStartWith("put").doesNotStartWith("remove");
+            // A with... returns a copy, as withFetch does (R-FCH-13), never this query changed.
+            if (m.getName().startsWith("with")) {
+                assertThat(m.getReturnType()).as(m.toString()).isEqualTo(ModelQuery.class);
+            }
         }
+        var fetching = q.withFetch(FetchPlan.of(DEFAULT));
+        assertThat(fetching).isNotSameAs(q);
+        assertThat(q.fetch()).isEmpty();
         assertThat(ModelQuery.class.getFields()).isEmpty();
         assertThatThrownBy(() -> q.orderBy().add(ID.desc())).isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> q.select().fields().clear()).isInstanceOf(UnsupportedOperationException.class);
