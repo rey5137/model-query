@@ -1,7 +1,9 @@
 package shop;
 
 import com.rey.modelquery.annotations.Incubating;
+import com.rey.modelquery.core.ChildField;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.JoinField;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.OrderedColumnField;
@@ -11,6 +13,7 @@ import com.rey.modelquery.core.RowMapper;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import jakarta.persistence.criteria.JoinType;
+import java.util.List;
 import java.util.Optional;
 import javax.annotation.processing.Generated;
 
@@ -76,6 +79,105 @@ public final class QInvoiceView {
 
     public static final PrimaryKey<InvoiceView, Long> KEY = PrimaryKey.of(ID);
 
+    @Incubating
+    public static final JoinField<InvoiceView, CustomerView> CUSTOMER_JOIN = new JoinField<InvoiceView, CustomerView>() {
+        @Override
+        public String name() {
+            return "customer";
+        }
+
+        @Override
+        public Class<InvoiceView> model() {
+            return InvoiceView.class;
+        }
+
+        @Override
+        public TableField<?, ?> table() {
+            return CUSTOMER_TABLE;
+        }
+
+        @Override
+        public Optional<CustomerView> get(InvoiceView parent) {
+            return parent.customer();
+        }
+
+        @Override
+        public InvoiceView with(InvoiceView parent, CustomerView nested) {
+            return new InvoiceView(parent.id(), parent.status(), Optional.of(nested),
+                    parent.payer(), parent.billingCountry());
+        }
+    };
+
+    @Incubating
+    public static final JoinField<InvoiceView, CustomerView> BUYER_JOIN = new JoinField<InvoiceView, CustomerView>() {
+        @Override
+        public String name() {
+            return "payer";
+        }
+
+        @Override
+        public Class<InvoiceView> model() {
+            return InvoiceView.class;
+        }
+
+        @Override
+        public TableField<?, ?> table() {
+            return BUYER_TABLE;
+        }
+
+        @Override
+        public Optional<CustomerView> get(InvoiceView parent) {
+            return parent.payer();
+        }
+
+        @Override
+        public InvoiceView with(InvoiceView parent, CustomerView nested) {
+            return new InvoiceView(parent.id(), parent.status(), parent.customer(),
+                    Optional.of(nested), parent.billingCountry());
+        }
+    };
+
+    @Incubating
+    public static final ChildField<InvoiceView, CountryView> BILLING_COUNTRY = new ChildField<InvoiceView, CountryView>() {
+        private final ColumnField<InvoiceView, ?, ?> key = ColumnField.of(InvoiceView.class,
+                TableField.<CustomerEntity, CountryEntity>join(TableField.<InvoiceEntity, CustomerEntity>join(ROOT,
+                "customer", JoinType.LEFT), "country", JoinType.LEFT), "code", String.class);
+
+        private final ColumnField<CountryView, ?, ?> foreignKey = ColumnField.of(CountryView.class,
+                TableField.root(CountryEntity.class), "code", String.class);
+
+        @Override
+        public String name() {
+            return "billingCountry";
+        }
+
+        @Override
+        public ColumnField<InvoiceView, ?, ?> key() {
+            return key;
+        }
+
+        @Override
+        public ColumnField<CountryView, ?, ?> foreignKey() {
+            return foreignKey;
+        }
+
+        @Override
+        public boolean isToMany() {
+            return false;
+        }
+
+        @Override
+        public ModelQuery.Builder<?, ?, CountryView> query() {
+            return QCountryView.query();
+        }
+
+        @Override
+        public InvoiceView with(InvoiceView parent, List<CountryView> children) {
+            return new InvoiceView(parent.id(), parent.status(), parent.customer(), parent.payer(),
+                    children.isEmpty() ? Optional.empty() : Optional.of(children.get(0)));
+        }
+    };
+
     public static final RowMapper<InvoiceView> MAPPER = QInvoiceView::map;
 
     private QInvoiceView() {
@@ -91,7 +193,7 @@ public final class QInvoiceView {
         return new InvoiceView(row.get(ID), row.get(STATUS), customer.get(QCustomerView.ID) == null
                 ? Optional.empty() : Optional.of(QCustomerView.MAPPER.map(customer)),
                 payer.get(QCustomerView.ID) == null ? Optional.empty()
-                : Optional.of(QCustomerView.MAPPER.map(payer)));
+                : Optional.of(QCustomerView.MAPPER.map(payer)), Optional.empty());
     }
 
     @Incubating

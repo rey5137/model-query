@@ -2,7 +2,10 @@ package com.rey.modelquery.processor;
 
 import javax.tools.JavaFileObject;
 
-/** The sources the golden files pin: a flat class and a flat record over one root, and a nested pair. */
+/**
+ * The sources the golden files pin: a flat class and a flat record over one root, a nested pair, and the pair with a
+ * {@code @Child} back from the nested model to the outer one.
+ */
 final class ShopSources {
 
     private ShopSources() {}
@@ -201,9 +204,11 @@ final class ShopSources {
         return ProcessorHarness.source("shop.CustomerView", """
                 package shop;
 
+                import com.rey.modelquery.annotations.Child;
                 import com.rey.modelquery.annotations.Join;
                 import com.rey.modelquery.annotations.PrimaryKey;
                 import com.rey.modelquery.annotations.QueryModel;
+                import java.util.List;
                 import java.util.Optional;
 
                 @QueryModel(root = CustomerEntity.class)
@@ -223,6 +228,10 @@ final class ShopSources {
                         this.name = name;
                     }
 
+                    public Optional<CountryView> getCountry() {
+                        return country;
+                    }
+
                     public void setCountry(Optional<CountryView> country) {
                         this.country = country;
                     }
@@ -230,10 +239,27 @@ final class ShopSources {
                 """.formatted(extra));
     }
 
-    /** The outer model of the nested pair: a converted column, and one association joined twice. */
+    /**
+     * {@link #CUSTOMER_VIEW} with a to-many {@code @Child} of {@link #INVOICE_VIEW}, which joins it back: a class
+     * {@code @Child} whose {@code foreignKey} crosses an association, and the mutual pair (api/15 R-FCH-03).
+     */
+    static final JavaFileObject CUSTOMER_WITH_INVOICES = customerView("""
+                @Child(foreignKey = "customer.id")
+                List<InvoiceView> invoices;
+
+                public void setInvoices(List<InvoiceView> invoices) {
+                    this.invoices = invoices;
+                }
+            """);
+
+    /**
+     * The outer model of the nested pair: a converted column, one association joined twice, and a to-one
+     * {@code @Child} whose {@code key} crosses two associations and whose {@code foreignKey} is the child's key.
+     */
     static final JavaFileObject INVOICE_VIEW = ProcessorHarness.source("shop.InvoiceView", """
             package shop;
 
+            import com.rey.modelquery.annotations.Child;
             import com.rey.modelquery.annotations.Column;
             import com.rey.modelquery.annotations.Join;
             import com.rey.modelquery.annotations.JoinKind;
@@ -247,7 +273,8 @@ final class ShopSources {
                     @Column(converter = InvoiceStatus.Converter.class) InvoiceStatus status,
                     @Join Optional<CustomerView> customer,
                     @Join(attribute = "customer", type = JoinKind.INNER, prefix = "BUYER")
-                    Optional<CustomerView> payer) {}
+                    Optional<CustomerView> payer,
+                    @Child(key = "customer.country.code") Optional<CountryView> billingCountry) {}
             """);
 
     /** Everything the nested pair compiles with, the pair itself left out. */

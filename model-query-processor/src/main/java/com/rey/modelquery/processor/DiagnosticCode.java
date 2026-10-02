@@ -95,7 +95,20 @@ enum DiagnosticCode {
     MQ3306("@PrimaryKey of an update model or a generateChanges query model is not the root entity's id"),
 
     /** A field whose change-set members clash with those of {@code Changes<M>}. */
-    MQ3307("Update-model field generates a change-set member that clashes with Changes");
+    MQ3307("Update-model field generates a change-set member that clashes with Changes"),
+    /**
+     * {@code @Child} on a field that is not a {@code List} or {@code Optional} of a {@code @QueryModel}, beside
+     * {@code @Join}, {@code @Transient}, {@code @Aggregate} or {@code @GroupBy}, or on an update model.
+     */
+    MQ3401("@Child field is not a List or Optional of a @QueryModel, or carries an annotation it can't share"),
+    /** A {@code @Child} {@code key} or {@code foreignKey} names no attribute of its root. */
+    MQ3402("@Child key or foreignKey names no attribute of its root"),
+    /** A {@code @Child}'s key and foreign-key attributes are of different types. */
+    MQ3403("@Child key and foreignKey attribute types differ"),
+    /** A {@code @Child} key of several attributes, an embedded value, or an array. */
+    MQ3404("@Child with a composite or array-typed key"),
+    /** A {@code List} {@code @Child} without {@code foreignKey}, or whose model has no {@code @PrimaryKey}. */
+    MQ3405("List @Child without foreignKey, or whose model has no @PrimaryKey");
 
     private final String defaultMessage;
 

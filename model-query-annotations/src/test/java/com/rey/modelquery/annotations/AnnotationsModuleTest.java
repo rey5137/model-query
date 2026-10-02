@@ -51,7 +51,7 @@ class AnnotationsModuleTest {
 
         assertThat(types)
                 .contains(QueryModel.class, UpdateModel.class, FilterColumns.class, Transient.class, Incubating.class)
-                .hasSize(12);
+                .hasSize(13);
         assertThat(types).allSatisfy(type -> assertThat(type.getAnnotation(Retention.class))
                 .as("@Retention of %s", type.getSimpleName())
                 .isNotNull()

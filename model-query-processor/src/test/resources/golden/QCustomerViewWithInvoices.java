@@ -1,6 +1,7 @@
 package shop;
 
 import com.rey.modelquery.annotations.Incubating;
+import com.rey.modelquery.core.ChildField;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.JoinField;
 import com.rey.modelquery.core.ModelDelete;
@@ -12,6 +13,7 @@ import com.rey.modelquery.core.RowMapper;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import jakarta.persistence.criteria.JoinType;
+import java.util.List;
 import java.util.Optional;
 import javax.annotation.processing.Generated;
 
@@ -71,6 +73,47 @@ public final class QCustomerView {
         }
     };
 
+    @Incubating
+    public static final ChildField<CustomerView, InvoiceView> INVOICES = new ChildField<CustomerView, InvoiceView>() {
+        private final ColumnField<CustomerView, ?, ?> key = ColumnField.of(CustomerView.class, ROOT,
+                "id", Long.class);
+
+        private final ColumnField<InvoiceView, ?, ?> foreignKey = ColumnField.of(InvoiceView.class,
+                TableField.<InvoiceEntity, CustomerEntity>join(TableField.root(InvoiceEntity.class),
+                "customer", JoinType.LEFT), "id", Long.class);
+
+        @Override
+        public String name() {
+            return "invoices";
+        }
+
+        @Override
+        public ColumnField<CustomerView, ?, ?> key() {
+            return key;
+        }
+
+        @Override
+        public ColumnField<InvoiceView, ?, ?> foreignKey() {
+            return foreignKey;
+        }
+
+        @Override
+        public boolean isToMany() {
+            return true;
+        }
+
+        @Override
+        public ModelQuery.Builder<?, ?, InvoiceView> query() {
+            return QInvoiceView.query();
+        }
+
+        @Override
+        public CustomerView with(CustomerView parent, List<InvoiceView> children) {
+            parent.setInvoices(List.copyOf(children));
+            return parent;
+        }
+    };
+
     public static final RowMapper<CustomerView> MAPPER = QCustomerView::map;
 
     private QCustomerView() {
@@ -91,6 +134,7 @@ public final class QCustomerView {
         Row country = row.scoped(COUNTRY_TABLE);
         m.setCountry(country.get(QCountryView.CODE) == null ? Optional.empty()
                 : Optional.of(QCountryView.MAPPER.map(country)));
+        m.setInvoices(List.of());
         return m;
     }
 

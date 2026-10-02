@@ -67,6 +67,11 @@ record ModelDefinition(
         return fields.stream().filter(field -> field.join() != null).toList();
     }
 
+    /** The {@code @Child} fields, in declaration order. */
+    List<ModelField> children() {
+        return fields.stream().filter(field -> field.child() != null).toList();
+    }
+
     /** The {@code @Aggregate} fields, in declaration order. */
     List<ModelField> aggregates() {
         return fields.stream().filter(field -> field.aggregate() != null).toList();
@@ -86,8 +91,8 @@ record ModelDefinition(
      * One field of a class model, or one component of a record model, read from the record's field of the same name.
      *
      * @param element the field, which diagnostics are reported on
-     * @param column {@code false} for a {@code @Transient}, {@code @Join} or {@code @Aggregate} field, which keeps
-     *     its place in a record's constructor
+     * @param column {@code false} for a {@code @Transient}, {@code @Join}, {@code @Aggregate} or {@code @Child}
+     *     field, which keeps its place in a record's constructor
      * @param attribute the entity attribute path the column reads, dotted through embedded values
      * @param constant the name of the generated column constant
      * @param primaryKey whether the field is a {@code @PrimaryKey}
@@ -96,11 +101,13 @@ record ModelDefinition(
      * @param join what {@code @Join} says of the field, or {@code null} when it carries none
      * @param aggregate what {@code @Aggregate} says of the field, or {@code null} when it carries none
      * @param groupBy whether the field carries {@code @GroupBy}
+     * @param child what {@code @Child} says of the field, or {@code null} when it carries none; a {@code @Child}
+     *     field has no {@code join} and no {@code aggregate}, whatever else it carries
      */
     record ModelField(
             VariableElement element, boolean column, String attribute, String constant, boolean primaryKey,
             boolean excludedFromDefaults, TypeMirror converter, JoinDefinition join,
-            AggregateDefinition aggregate, boolean groupBy) {
+            AggregateDefinition aggregate, boolean groupBy, ChildDefinition child) {
 
         String name() {
             return element.getSimpleName().toString();
@@ -122,6 +129,23 @@ record ModelDefinition(
      * @param nested {@code X} of a field declared {@code Optional<X>}, or {@code null} for any other type
      */
     record JoinDefinition(String attribute, String type, String prefix, String alias, TypeMirror nested) {}
+
+    /**
+     * A {@code @Child} as written on its field.
+     *
+     * @param key the paths written for {@code key}; empty for the model's {@code @PrimaryKey} attribute
+     * @param foreignKey the paths written for {@code foreignKey}; empty for the child's {@code @PrimaryKey} attribute
+     * @param toMany whether the field is a {@code List}, rather than an {@code Optional}
+     * @param model {@code X} of a field declared {@code List<X>} or {@code Optional<X>}, or {@code null} for any
+     *     other type
+     */
+    record ChildDefinition(List<String> key, List<String> foreignKey, boolean toMany, TypeMirror model) {
+
+        ChildDefinition {
+            key = List.copyOf(key);
+            foreignKey = List.copyOf(foreignKey);
+        }
+    }
 
     /**
      * An {@code @Aggregate} as written on its field.

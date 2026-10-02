@@ -11,9 +11,9 @@ import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
 
 /**
- * Reads the models that {@code @Join} fields nest, and lays out the constants an outer model derives from them. A
- * nested model is read from its own fields and its QModel is only named, never looked up, so the order in which
- * models are processed does not matter (R-GEN-04, D-39).
+ * Reads the models that {@code @Join} fields nest and {@code @Child} fields hold, and lays out the constants an outer
+ * model derives from nested ones. Such a model is read from its own fields and its QModel is only named, never looked
+ * up, so the order in which models are processed does not matter (R-GEN-04, D-39).
  */
 final class NestedModels {
 
@@ -34,6 +34,18 @@ final class NestedModels {
             return null;
         }
         var type = (TypeElement) ((DeclaredType) join.join().nested()).asElement();
+        return type.getAnnotation(QueryModel.class) != null ? read.computeIfAbsent(type, reader::read) : null;
+    }
+
+    /**
+     * The model a {@code @Child} field holds, or {@code null} when its field is not a {@code List} or
+     * {@code Optional} of a {@code @QueryModel}; read as {@link #of} reads a nested model (D-45).
+     */
+    ModelDefinition child(ModelField child) {
+        if (child.child().model() == null) {
+            return null;
+        }
+        var type = (TypeElement) ((DeclaredType) child.child().model()).asElement();
         return type.getAnnotation(QueryModel.class) != null ? read.computeIfAbsent(type, reader::read) : null;
     }
 

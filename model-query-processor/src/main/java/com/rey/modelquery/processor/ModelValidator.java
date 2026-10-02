@@ -58,6 +58,7 @@ final class ModelValidator {
     private final NestedModels nestedModels;
     private final BuiltInConverters builtIns;
     private final WriteChecks writeChecks;
+    private final ChildChecks childChecks;
 
     ModelValidator(
             Types types, EntityMetamodel metamodel, NestedModels nestedModels, BuiltInConverters builtIns) {
@@ -66,6 +67,7 @@ final class ModelValidator {
         this.nestedModels = nestedModels;
         this.builtIns = builtIns;
         this.writeChecks = new WriteChecks(types, metamodel);
+        this.childChecks = new ChildChecks(types, metamodel, nestedModels);
     }
 
     void validate(ModelDefinition model, Diagnostics diagnostics) {
@@ -132,15 +134,12 @@ final class ModelValidator {
                 // An @Aggregate on a @Join field is MQ3204; its constant is the join's own prefix, not a clash.
                 continue;
             }
-            String earlier = constants.putIfAbsent(field.constant(), "field '" + field.name() + "'");
-            if (reserved.contains(field.constant())) {
-                diagnostics.error(field.element(), DiagnosticCode.MQ3015, where + "constant " + field.constant()
-                        + " is reserved by the generated class; rename the field");
-            } else if (earlier != null) {
-                diagnostics.error(field.element(), DiagnosticCode.MQ3015, where + "constant " + field.constant()
-                        + " is also generated for " + earlier + "; rename the field"
-                        + (ofJoins.contains(field.constant()) ? " or set @Join(prefix)" : ""));
-            }
+            claim(field, where, reserved, constants, ofJoins, diagnostics);
+        }
+        for (ModelField child : model.children()) {
+            childChecks.check(model, child, diagnostics);
+            // Its ChildField constant is named as a column of the field would be (R-FCH-03).
+            claim(child, model.name() + "." + child.name() + ": ", reserved, constants, ofJoins, diagnostics);
         }
         for (FilterColumnDefinition column : model.filterColumns()) {
             String where = model.name() + " " + column.label() + ": ";
@@ -162,6 +161,20 @@ final class ModelValidator {
                 checkConverter(model, model.type(), column.definition().converter(), null, column.read(),
                         model.name() + " " + column.definition().label() + ": ", diagnostics);
             }
+        }
+    }
+
+    /** {@code MQ3015} for a field whose constant is reserved, or already generated for something else. */
+    private static void claim(ModelField field, String where, Set<String> reserved, Map<String, String> constants,
+            Set<String> ofJoins, Diagnostics diagnostics) {
+        String earlier = constants.putIfAbsent(field.constant(), "field '" + field.name() + "'");
+        if (reserved.contains(field.constant())) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3015, where + "constant " + field.constant()
+                    + " is reserved by the generated class; rename the field");
+        } else if (earlier != null) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3015, where + "constant " + field.constant()
+                    + " is also generated for " + earlier + "; rename the field"
+                    + (ofJoins.contains(field.constant()) ? " or set @Join(prefix)" : ""));
         }
     }
 
@@ -482,6 +495,10 @@ final class ModelValidator {
             var generated = new LinkedHashMap<String, String>();
             generated.put(table.table(), "the join " + table.path());
             generated.put(table.prefix(), "the columns of " + table.path());
+            if (table.parent() == null) {
+                // A @Join of the model itself also has its JoinField (R-FCH-07).
+                generated.put(table.prefix() + "_JOIN", "the join field of " + table.path());
+            }
             table.columns().forEach(column -> generated.put(column.constant(), column.path()));
             // A join whose prefix is taken clashes on every constant: the first one says it all.
             boolean reported = false;

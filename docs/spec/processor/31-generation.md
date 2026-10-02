@@ -105,12 +105,13 @@ m.setCustomer(customer.get(QCustomerView.ID) == null ? Optional.empty() : Option
 return m;
 ```
 
-**R-GEN-10** Generated code calls setters by name. Those calls are resolved when javac attributes the code, after every
-annotation processor — Lombok included — has run, so Lombok-generated setters work provided the processor follows
-Lombok's naming rules: a `Boolean isX` field gets `setIsX`, a primitive `boolean isX` gets `setX`.
+**R-GEN-10** Generated code calls setters by name, and the getter of a `@Join` field (R-GEN-25). Those calls are
+resolved when javac attributes the code, after every annotation processor — Lombok included — has run, so
+Lombok-generated accessors work provided the processor follows Lombok's naming rules: a `Boolean isX` field gets
+`setIsX`, a primitive `boolean isX` gets `setX`, and an `Optional<X> customer` gets `getCustomer`.
 
-**R-GEN-11** A missing setter is therefore not a processor diagnostic. javac reports it when compiling the generated
-`map`, pointing at the call (`processor/32` §3).
+**R-GEN-11** A missing setter or getter is therefore not a processor diagnostic. javac reports it when compiling the
+generated class, pointing at the call (`processor/32` §3).
 
 ## 4. Nested models
 
@@ -135,6 +136,21 @@ class field with no initialiser is never `null` after mapping.
 
 **R-GEN-16** `Optional` fields need Jackson's `jdk8` module, registered by default in Spring Boot. Stated in the user
 guide, not enforced.
+
+**R-GEN-25** Each `@Join` of the model itself also generates `CUSTOMER_JOIN`, a `JoinField<OrderView, CustomerView>`
+named after the join's prefix, which a fetch plan names (`api/15` R-FCH-07). Its `table()` is `CUSTOMER_TABLE`; `get`
+reads the field, through a record's accessor or a class's getter; `with` returns the parent with the field set to
+`Optional.of(nested)`: a record rebuilt through its canonical constructor, every other component read through its
+accessor, and a class through its setter, called on the parent itself, which is returned. A join below the `@Join`
+has its `JoinField` in its own nested QModel.
+
+**R-GEN-26** Each `@Child` generates a `ChildField<OrderView, LineView>` named as a column of the field would be
+(`LINES`), which a fetch plan names (`api/15` R-FCH-03). Its `key()` and `foreignKey()` are columns read as the
+attribute's type, without converter (R-FCH-05), on `ROOT` and on the child root's `TableField.root`, or on the
+`LEFT` joins their paths cross from there. Only `query()` names the child's QModel, so neither QModel's static
+initialiser reads the other's: a `@Child` and a back-`@Join` initialise in either order. `with` sets the field to
+`List.copyOf(children)`, or to the first child or `Optional.empty()`, as R-GEN-25's `with` does. The mapper sets a
+`@Child` field to `List.of()` or `Optional.empty()`, a record's in its constructor and a class's through its setter.
 
 ## 5. Aggregate models
 

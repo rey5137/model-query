@@ -21,6 +21,7 @@ Breaking changes, each under Changed below:
 - `ColumnSet` is `SelectSet`, with `fields()` for `columns()`; the builder's `columns(...)` and the query's `columns()`
   are `select(...)` and `select()`, and `@QueryModel(generateColumnSets)` is `generateSelectSets` (D-94).
 - A statement whose binds pass the vendor's limit throws `MQ1307` before it runs (D-80).
+- A class model with a `@Join` field needs that field's getter, named as Lombok names it (D-96).
 
 Behaviour to know when moving from hand-written Criteria code:
 
@@ -95,6 +96,10 @@ Behaviour to know when moving from hand-written Criteria code:
   plain `Date` (D-89).
 - Primary-key-first step-2 batches and bulk-write key chunks hold at most the largest power of two of keys within the
   vendor's limits, so IN-list padding cannot pass them (#6).
+- **Breaking:** the processor generates a `JoinField` constant per `@Join` (`CUSTOMER_JOIN`) and a `ChildField` per
+  `@Child`, which fetch plans name. A class model's `JoinField` reads the field through its getter (`getCustomer()`,
+  as Lombok names it), so a class model with a `@Join` field and no getter no longer compiles; javac reports the call
+  in the generated class (D-96).
 
 ### Fixed
 - The starter's repository factory bean swap re-registers each definition, so a repository type-checked before the swap

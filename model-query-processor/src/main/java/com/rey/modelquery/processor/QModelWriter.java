@@ -59,12 +59,14 @@ final class QModelWriter {
     private final EntityMetamodel metamodel;
     private final NestedModels nestedModels;
     private final BuiltInConverters builtIns;
+    private final FetchFieldWriter fetchFields;
 
     QModelWriter(Types types, EntityMetamodel metamodel, NestedModels nestedModels, BuiltInConverters builtIns) {
         this.types = types;
         this.metamodel = metamodel;
         this.nestedModels = nestedModels;
         this.builtIns = builtIns;
+        this.fetchFields = new FetchFieldWriter(types, metamodel, nestedModels);
     }
 
     /**
@@ -160,6 +162,13 @@ final class QModelWriter {
             type.addField(FieldSpec.builder(ParameterizedTypeName.get(PRIMARY_KEY, modelName, keyType), "KEY", CONSTANT)
                     .initializer(keys.size() == 1 ? "$T.of($L)" : "$T.composite($L)", PRIMARY_KEY, constants(keys))
                     .build());
+        }
+        // What a fetch plan names: the model's own @Joins and its @Child fields (R-FCH-03, R-FCH-07).
+        for (ModelField join : update ? List.<ModelField>of() : model.joins()) {
+            type.addField(fetchFields.joinField(model, join));
+        }
+        for (ModelField child : update ? List.<ModelField>of() : model.children()) {
+            type.addField(fetchFields.childField(model, child));
         }
         if (update) {
             writes(model, modelName, entity, keyType, type);
@@ -339,7 +348,8 @@ final class QModelWriter {
     private void mapRecord(ModelDefinition model, ClassName modelName, MethodSpec.Builder map) {
         scopeJoins(model, map);
         CodeBlock arguments = model.fields().stream()
-                .map(field -> field.join() != null ? nested(field) : field.column() || field.aggregate() != null
+                .map(field -> field.join() != null ? nested(field) : field.child() != null ? unloaded(field)
+                        : field.column() || field.aggregate() != null
                         ? CodeBlock.of("row.get($L)", field.constant()) : CodeBlock.of(unset(field.type())))
                 .collect(CodeBlock.joining(",$W"));
         map.addStatement("return new $T($L)", modelName, arguments);
@@ -347,7 +357,7 @@ final class QModelWriter {
 
     /**
      * Calls a setter only for a selected column, so a field initialiser survives for the others (R-GEN-09), and
-     * always for a {@code @Join} field, which is never left {@code null} (R-GEN-15).
+     * always for a {@code @Join} field, which is never left {@code null} (R-GEN-15), and a {@code @Child} field.
      */
     private void mapClass(ModelDefinition model, ClassName modelName, MethodSpec.Builder map) {
         map.addStatement("$T m = new $T()", modelName, modelName);
@@ -363,7 +373,15 @@ final class QModelWriter {
         for (ModelField field : model.joins()) {
             map.addStatement("m.$L($L)", setter(field), nested(field));
         }
+        for (ModelField field : model.children()) {
+            map.addStatement("m.$L($L)", setter(field), unloaded(field));
+        }
         map.addStatement("return m");
+    }
+
+    /** A {@code @Child} field until a fetch plan loads it: an empty {@code List} or {@code Optional} (R-FCH-03). */
+    private static CodeBlock unloaded(ModelField field) {
+        return field.child().toMany() ? CodeBlock.of("$T.of()", List.class) : CodeBlock.of("$T.empty()", OPTIONAL);
     }
 
     /** Declares, for each join, the view of the row its nested model's own columns are read through. */
@@ -420,7 +438,7 @@ final class QModelWriter {
                 .build()).build();
     }
 
-    private static ClassName generatedName(ModelDefinition model) {
+    static ClassName generatedName(ModelDefinition model) {
         return ClassName.get(ClassName.get(model.type()).packageName(), model.generatedName());
     }
 
@@ -428,7 +446,7 @@ final class QModelWriter {
      * The setter as Lombok names it, so generated and hand-written setters both resolve: a primitive
      * {@code boolean isX} gets {@code setX}, anything else {@code set} and the capitalised field name (R-GEN-10).
      */
-    private static String setter(ModelField field) {
+    static String setter(ModelField field) {
         String name = field.name();
         if (field.type().getKind() == TypeKind.BOOLEAN && name.length() > 2 && name.startsWith("is")
                 && !Character.isLowerCase(name.charAt(2))) {
@@ -453,7 +471,7 @@ final class QModelWriter {
     }
 
     /** The class literal of {@code type}. */
-    private static CodeBlock classOf(TypeName type) {
+    static CodeBlock classOf(TypeName type) {
         if (type instanceof ParameterizedTypeName parameterized) {
             // A parameterized type has no class literal: its raw class stands in, as a hand-written column's would.
             return CodeBlock.of("($T) ($T) $T.class", ParameterizedTypeName.get(ClassName.get(Class.class), type),

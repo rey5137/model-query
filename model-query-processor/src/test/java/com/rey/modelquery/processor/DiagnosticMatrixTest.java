@@ -25,7 +25,8 @@ import org.junit.jupiter.params.provider.MethodSource;
  * {@code MQ3010} are record checks (a class has no components, and a generic class is allowed). Every other code is
  * raised for both shapes. Lombok adds accessors and constructors to class models only, so on a record its runs
  * repeat the plain ones with Lombok's processor in the chain. The update-model codes {@code MQ3301}..{@code MQ3307}
- * raise on an {@code @UpdateModel}, and {@code MQ3306} on a {@code generateChanges} query model too.
+ * raise on an {@code @UpdateModel}, and {@code MQ3306} on a {@code generateChanges} query model too. The
+ * {@code @Child} codes {@code MQ3401}..{@code MQ3405} raise on a query model with a child over another root.
  */
 class DiagnosticMatrixTest {
 
@@ -48,6 +49,7 @@ class DiagnosticMatrixTest {
 
                 import com.rey.modelquery.annotations.Aggregate;
                 import com.rey.modelquery.annotations.AggregateFunction;
+                import com.rey.modelquery.annotations.Child;
                 import com.rey.modelquery.annotations.Column;
                 import com.rey.modelquery.annotations.FilterColumn;
                 import com.rey.modelquery.annotations.GroupBy;
@@ -60,6 +62,7 @@ class DiagnosticMatrixTest {
                 import com.rey.modelquery.processor.fixture.ItemEntity;
                 import com.rey.modelquery.processor.fixture.OrderEntity;
                 import java.math.BigDecimal;
+                import java.util.List;
                 import java.util.Optional;
 
                 """;
@@ -104,6 +107,7 @@ class DiagnosticMatrixTest {
     }
 
     private static final String ORDER = "@QueryModel(root = OrderEntity.class)";
+    private static final String CUSTOMER = "@QueryModel(root = CustomerEntity.class)";
     private static final String SALES = "@QueryModel(root = SaleEntity.class)";
     private static final String SINGLE = "@QueryModel(root = SaleEntity.class, singleGroup = true)";
     private static final String ID = "@PrimaryKey Long id";
@@ -385,7 +389,26 @@ class DiagnosticMatrixTest {
                     "MQ3307: TicketPatch.empty: generates getEmpty() and setEmpty(...), which clash with "
                             + "Changes.isEmpty() as property 'empty'; rename the field",
                     "MQ3307: TicketPatch.unset: generates unset(String), which clashes with Changes.unset(...); "
-                            + "rename the field")));
+                            + "rename the field")),
+            of("MQ3401", c -> fails(c.model("CustomerView", CUSTOMER, ID, "@Child String note"),
+                    "MQ3401: CustomerView.note: @Child needs a List or Optional of a @QueryModel, found String")),
+            of("MQ3402", c -> fails(
+                    with(c.model("OrderView", ORDER, ID), c.model("CustomerView", CUSTOMER, ID,
+                            "@Child(foreignKey = \"customer.idx\") List<OrderView> orders")),
+                    "MQ3402: CustomerView.orders: OrderEntity has no attribute 'customer.idx'")),
+            of("MQ3403", c -> fails(
+                    with(c.model("OrderView", ORDER, ID), c.model("CustomerView", CUSTOMER, ID,
+                            "@Child(key = \"name\", foreignKey = \"customer.id\") List<OrderView> orders")),
+                    "MQ3403: CustomerView.orders: key String name and foreignKey Long customer.id differ")),
+            of("MQ3404", c -> fails(
+                    with(c.model("OrderView", ORDER, ID), c.model("CustomerView", CUSTOMER, ID,
+                            "@Child(foreignKey = {\"customer.id\", \"status\"}) List<OrderView> orders")),
+                    "MQ3404: CustomerView.orders: @Child takes one key attribute each side; foreignKey names 2")),
+            of("MQ3405", c -> fails(
+                    with(c.model("OrderView", ORDER, ID),
+                            c.model("CustomerView", CUSTOMER, ID, "@Child List<OrderView> orders")),
+                    "MQ3405: CustomerView.orders: a List @Child needs foreignKey, the attribute of OrderEntity "
+                            + "that holds the parent's key")));
 
     static Stream<Arguments> matrix() {
         var runs = new ArrayList<Arguments>();

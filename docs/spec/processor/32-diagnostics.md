@@ -40,11 +40,11 @@
 | `MQ3305` | To-one attribute written by id with the wrong id type | `OrderPatch.customerId: CustomerEntity's id is Long, found String` |
 | `MQ3306` | `@PrimaryKey` on an update model, or a query model with `generateChanges = true`, is not the root entity's id | `OrderPatch.orderNo: @PrimaryKey must be OrderEntity's id 'id'; bulk writes key on the entity id` |
 | `MQ3307` | Update-model field generates a change-set member that clashes with `Changes<M>` | `OrderPatch.empty: generates getEmpty() and setEmpty(...), which clash with Changes.isEmpty() as property 'empty'; rename the field` |
-| `MQ3401` | `@Child` on a field that is not a `List` or `Optional` of a `@QueryModel`, combined with `@Join`, `@Transient`, `@Aggregate` or `@GroupBy`, or on an update model | `Lender.configs: @Child needs a List or Optional of a @QueryModel` |
-| `MQ3402` | `@Child` `key` or `foreignKey` names no attribute of its root | `Lender.configs: LenderSpiUrlConfigEntity has no attribute 'lender.idx'` |
-| `MQ3403` | `@Child` key and foreign-key attribute types differ | `Lender.configs: key Integer id and foreignKey Long lender.id differ` |
-| `MQ3404` | `@Child` with a composite key, or an array-typed key | `Lender.configs: @Child takes one key attribute each side` |
-| `MQ3405` | A `List` `@Child` without `foreignKey`, or whose model has no `@PrimaryKey` | `Lender.configs: a List @Child needs foreignKey` |
+| `MQ3401` | `@Child` on a field that is not a `List` or `Optional` of a `@QueryModel`, combined with `@Join`, `@Transient`, `@Aggregate` or `@GroupBy`, or on an update model | `CustomerView.note: @Child needs a List or Optional of a @QueryModel, found String` |
+| `MQ3402` | `@Child` `key` or `foreignKey` names no attribute of its root, names an association rather than one of its attributes, crosses an association inside an embedded value, or crosses a collection on the `key` side (a `foreignKey` may, D-99); or is left empty on a model with no `@PrimaryKey` | `CustomerView.orders: OrderEntity has no attribute 'customer.idx'` |
+| `MQ3403` | `@Child` key and foreign-key attribute types differ | `CustomerView.orders: key String name and foreignKey Long customer.id differ` |
+| `MQ3404` | `@Child` with a composite key: several paths, a path to an embedded value, or a default `@PrimaryKey` of several columns; or an array-typed key | `CustomerView.orders: @Child takes one key attribute each side; foreignKey names 2` |
+| `MQ3405` | A `List` `@Child` without `foreignKey`, or whose model has no `@PrimaryKey` | `CustomerView.orders: a List @Child needs foreignKey, the attribute of OrderEntity that holds the parent's key` |
 
 The `MQ3304` check on `updatable = false` is best-effort: it reads `@Column` and `@JoinColumn`, not `@AttributeOverride` or
 orm.xml (D-70).
@@ -70,8 +70,9 @@ its milestone builds the check.
 
 ## 3. What is deliberately not a diagnostic
 
-**R-DIAG-06** A missing setter on a class model, because Lombok-generated setters are not reliably visible to another
-processor (`processor/31` R-GEN-11). javac reports it against the generated `map` call.
+**R-DIAG-06** A missing setter, or a `@Join` field's missing getter, on a class model, because Lombok-generated
+accessors are not reliably visible to another processor (`processor/31` R-GEN-11). javac reports it against the call in
+the generated class.
 
 **R-DIAG-07** A compact record constructor that rejects `null` (`processor/31` R-GEN-07), and a non-bijective
 `ColumnConverter` (`processor/30` R-PROC-07). Both are documented, not checked.

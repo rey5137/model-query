@@ -15,6 +15,7 @@
 | `@PrimaryKey` | field or record component | Primary-key column(s); composite keys supported |
 | `@Column(attribute = "...", converter = Foo.class)` | field or component | Rename the attribute or convert the value (`ColumnConverter<C, F>`) |
 | `@Join(attribute = "...", type = LEFT, prefix = "CUSTOMER", alias = "")` | `Optional<NestedModel>` field or component | Join the association and reuse the nested model's QModel columns |
+| `@Child(key = {}, foreignKey = {})` | `List<ChildModel>` or `Optional<ChildModel>` field or component | Filled from another model's rows when a fetch plan names it (`api/15`) |
 | `@FilterColumn(name = "...", path = "...", joinType = LEFT, alias = "", converter = Foo.class)` | model type (repeatable) | A filter-only column: a `ColumnField` constant with no model field, left out of every generated `SelectSet` and of `map(Row)` |
 | `@FilterColumns` | model type | The container that makes `@FilterColumn` repeatable; never written by hand |
 | `@Aggregate(fn = SUM, attribute = "...", distinct = false)` | field or component | An `AggregateField` constant, mapped into this field (`api/13`) |
@@ -72,6 +73,14 @@ to `Optional.empty()`, which the processor can't check (D-45). Semantics — emp
 
 **R-PROC-09** Two `@Join`s on the same attribute get the field name as their alias automatically, so they become two
 joins (`api/10` R-COL-03); an `alias` written on the annotation wins (D-45).
+
+**R-PROC-20** `@Child` marks a `List<ChildModel>` or `Optional<ChildModel>` field that a fetch plan fills from another
+`@QueryModel`'s rows (`api/15` R-FCH-03). `key` and `foreignKey` are `String[]` of one attribute path each, on the
+model's root and on the child's root; left empty, each is that model's one `@PrimaryKey` attribute. A path may cross
+associations, each joined `LEFT` and without alias so that a `@Join` on the same association shares the join, and
+embedded values, but not an association inside an embedded value. The field carries no other model annotation, and
+an update model has none (`processor/32` `MQ3401`–`MQ3405`). The child model may be a source of the compilation or a
+class on its classpath, as a nested model may (D-45).
 
 ## 5. `@FilterColumn`
 

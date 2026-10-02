@@ -1,6 +1,7 @@
 package com.rey.modelquery.processor;
 
 import com.rey.modelquery.annotations.Aggregate;
+import com.rey.modelquery.annotations.Child;
 import com.rey.modelquery.annotations.Column;
 import com.rey.modelquery.annotations.ExcludeFromDefaults;
 import com.rey.modelquery.annotations.FilterColumn;
@@ -13,6 +14,7 @@ import com.rey.modelquery.annotations.QueryModel;
 import com.rey.modelquery.annotations.Transient;
 import com.rey.modelquery.annotations.UpdateModel;
 import com.rey.modelquery.processor.ModelDefinition.AggregateDefinition;
+import com.rey.modelquery.processor.ModelDefinition.ChildDefinition;
 import com.rey.modelquery.processor.ModelDefinition.FilterColumnDefinition;
 import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
@@ -25,6 +27,7 @@ import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.Modifier;
+import javax.lang.model.element.Name;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.DeclaredType;
@@ -53,6 +56,7 @@ final class QueryModelReader {
     private static final String GENERATE_CHANGES = "generateChanges";
     private static final String CONVERTER = "converter";
     private static final String OPTIONAL = "java.util.Optional";
+    private static final String LIST = "java.util.List";
 
     private final Map<String, String> options;
 
@@ -98,12 +102,16 @@ final class QueryModelReader {
         for (VariableElement field : declared) {
             Column column = field.getAnnotation(Column.class);
             String name = field.getSimpleName().toString();
-            JoinDefinition join = isJoin(field) ? join(field, joinsPerAttribute.get(joinAttribute(field)) > 1) : null;
+            // A @Child field is nothing else: the validator reports what it is combined with (MQ3401).
+            ChildDefinition child = child(field);
+            JoinDefinition join = child == null && isJoin(field)
+                    ? join(field, joinsPerAttribute.get(joinAttribute(field)) > 1) : null;
             // Read even beside @Transient or @Join, so that the validator reports the pair (MQ3204).
-            AggregateDefinition aggregate = aggregate(field);
+            AggregateDefinition aggregate = child == null ? aggregate(field) : null;
             fields.add(new ModelField(
                     field,
-                    field.getAnnotation(Transient.class) == null && join == null && aggregate == null,
+                    field.getAnnotation(Transient.class) == null && join == null && aggregate == null
+                            && child == null,
                     column == null || column.attribute().isEmpty() ? name : column.attribute(),
                     constantName(name),
                     field.getAnnotation(PrimaryKey.class) != null,
@@ -111,11 +119,31 @@ final class QueryModelReader {
                     column == null ? null : converter(field),
                     join,
                     aggregate,
-                    field.getAnnotation(GroupBy.class) != null));
+                    child == null && field.getAnnotation(GroupBy.class) != null,
+                    child));
         }
         return new ModelDefinition(
                 type, (TypeElement) rootType.asElement(), prefix + type.getSimpleName() + suffix, selectSets,
                 singleGroup, fields, filterColumns(type), updateModel, generateChanges);
+    }
+
+    /** What {@code @Child} says of {@code field}, or {@code null} when it carries none. */
+    private static ChildDefinition child(VariableElement field) {
+        Child child = field.getAnnotation(Child.class);
+        if (child == null) {
+            return null;
+        }
+        boolean toMany = false;
+        TypeMirror model = null;
+        if (field.asType() instanceof DeclaredType container && container.getTypeArguments().size() == 1
+                && container.getTypeArguments().get(0).getKind() == TypeKind.DECLARED) {
+            Name name = ((TypeElement) container.asElement()).getQualifiedName();
+            if (name.contentEquals(LIST) || name.contentEquals(OPTIONAL)) {
+                toMany = name.contentEquals(LIST);
+                model = container.getTypeArguments().get(0);
+            }
+        }
+        return new ChildDefinition(List.of(child.key()), List.of(child.foreignKey()), toMany, model);
     }
 
     /** What {@code @Aggregate} says of {@code field}, or {@code null} when it carries none. */
