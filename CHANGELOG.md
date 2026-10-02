@@ -56,6 +56,7 @@ Behaviour to know when moving from hand-written Criteria code:
   is refused with a message naming the column; `InstantTimestampConverter` now round-trips the converted value, since
   `Timestamp.from(Instant.MAX)` returned a wrong instant on JDK 21 (D-84).
 - `Limit.of(Integer)` takes `null` for "unlimited".
+- `SelectSet.isEmpty()`, true when the set selects nothing.
 - The processor gives an `Instant` or `Date` field over a `Timestamp` attribute the built-in converter when no
   `converter` is named, so the column filters with values of the field's type; `@Aggregate` `MIN` and `MAX` into such
   a field read through it.

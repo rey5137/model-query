@@ -57,5 +57,8 @@ class SelectSetTest {
     void ac_col_05_an_empty_set_selects_nothing() {
         assertThat(SelectSet.<OrderView>of().fields()).isEmpty();
         assertThat(SelectSet.of(ID).without(ID).fields()).isEmpty();
+        assertThat(SelectSet.<OrderView>of().isEmpty()).isTrue();
+        assertThat(SelectSet.of(ID).without(ID).isEmpty()).isTrue();
+        assertThat(SelectSet.of(ID).isEmpty()).isFalse();
     }
 }

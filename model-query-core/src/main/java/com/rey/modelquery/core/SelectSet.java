@@ -54,6 +54,11 @@ public final class SelectSet<M> {
         return fields;
     }
 
+    /** Whether the set selects nothing (P-3). */
+    public boolean isEmpty() {
+        return fields.isEmpty();
+    }
+
     /**
      * {@code into} with {@code extra} appended. An {@code Agg.of} equal to one already present but defined by a
      * different function throws {@code MQ1103} here, where keeping the first would silently drop it (R-AGG-02).
