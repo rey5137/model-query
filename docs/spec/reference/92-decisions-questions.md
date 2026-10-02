@@ -948,6 +948,18 @@ SQL string (needs a provider and a metamodel, and breaks on any rendering change
 the test module (it would duplicate every operator's skipping rules and drift from them). INV-7 widens: `test`
 depends only on `core`. All new types `@Incubating`. → `api/16`.
 
+**D-99 — Many-to-many children.** Report lists show children reached through a `@ManyToMany`, often unidirectional
+(the target has no collection back), sometimes with the join table mapped as an entity. Three shapes, all supported:
+a child model rooted on the join-table entity needs nothing new; a `foreignKey` may cross a collection, so a mapping
+seen from the child's side works, while `key` may not (the parent would get a row per element, `MQ3402`); and
+`@Child(through = "path")` roots the child query at the parent's entity, joins along the path, and re-roots the child
+model's columns, joins, filters and order under that join, as join plans already re-root (R-FCH-07). Child rows are
+deduplicated per (parent key, child primary key) instead of per child primary key, since one child can belong to
+several parents. `through` excludes `foreignKey`; a bad `through` path is `MQ3406`. Rejected: a model rooted on the
+join table only (forces a join entity on mappings that have none); refusing collections in `foreignKey` (the
+bidirectional case is free once dedupe is per parent). The re-rooting of `ChildQuery` filters under `through` goes to
+an `architect-review` before M8.15b. `@Incubating`. → `api/15` R-FCH-03, -04, -14.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

@@ -75,7 +75,9 @@ or holds a bean the query definition must not.
 path on the parent's root (default: its `@PrimaryKey` attribute), equals `foreignKey`, an attribute path on the child's
 root (default: its `@PrimaryKey` attribute); both are validated against the entities, need not be model fields, and are
 declared `String[]` but take one path in 0.2.0 (composite keys are `MQ3404`). The two attribute types are equal and not
-arrays (INV-3, R-QRY-12). The field is `List<C>` (to-many: `foreignKey` required, and `C` has a `@PrimaryKey`) or
+arrays (INV-3, R-QRY-12). `foreignKey` may cross a collection, a many-to-many seen from the child's side (one child
+row per parent it belongs to); `key` may not, since the parent would get a row per element (`MQ3402`, D-99). A
+many-to-many mapped only on the parent's side uses `through` instead (R-FCH-14). The field is `List<C>` (to-many: `foreignKey` required, and `C` has a `@PrimaryKey`) or
 `Optional<C>` (to-one). The processor generates a `ChildField<M, C>` per `@Child` that returns a copy of the parent with
 the field set (a record's canonical constructor, a class's setter), and refers to the child's generated class lazily,
 so a `@Child` and a back-`@Join` between two models initialise in either order. A mapped row holds `List.of()` or
@@ -84,7 +86,8 @@ so a `@Child` and a back-`@Join` between two models initialise in either order. 
 **R-FCH-04** `child(ChildField<M, C>, FetchPlan<C>)` loads a child; one not in the plan stays empty. An optional
 `ChildQuery` adds child filters (`where`), an order (`orderBy`, closed by the child's primary key; the primary key alone
 by default) and `maxPerParent` (R-FCH-11; below 1 it throws `MQ2001`). Child rows are deduplicated on the child's
-primary key, since a child filter through a to-many join can repeat them. A to-one child that finds two distinct rows
+primary key per parent key, since a child filter through a to-many join can repeat them, while a many-to-many child
+belongs to several parents (D-99). A to-one child that finds two distinct rows
 for one key throws `MQ2601` naming the child field.
 
 **R-FCH-05** Keys match on attribute values before any converter, as primary keys do (R-COL-11): the parent's key is
@@ -100,6 +103,14 @@ parent in child order. A page with no keys runs no child query.
 executor for the child's root entity with the parent executor's `ModelQueryConfig`. It reads no entity (INV-2). Without
 a transaction (a Spring repository call outside one), a page and its children are separate reads, as R-PAG-07's two
 steps are; run in a read-only transaction for one snapshot.
+
+**R-FCH-14** `@Child(through = "path")` loads a child the parent's root reaches through an association path ending at
+the child's root entity, typically a unidirectional `@ManyToMany` whose target has no way back. The child query is
+rooted at the parent's root entity: `where key IN keys`, joined (INNER) along `through`, with the child model's columns,
+`@Join`s and `ChildQuery` filters and order re-rooted under that join, as a join plan's are (R-FCH-07), and the parent's
+`key` read on the root as the raw key. `through` excludes `foreignKey`; a `through` path that names no association, or
+ends at another entity than the child's root, is `MQ3406`. Grouping, dedupe and rounds are as R-FCH-04/-05. The exact
+re-rooting of child filters is settled by the `architect-review` before M8.15b (D-99).
 
 ## 3. Joins
 
@@ -157,3 +168,4 @@ round's statement logs as any statement does (D-95).
 | AC-FCH-08 | `maxPerParent` throws `MQ2603` within one round's cap, and `MQ2001` below 1 (R-FCH-04, R-FCH-11). |
 | AC-FCH-09 | `withFetch` returns a definition with the plan's selection, `orderedBy` keeps it, the original is unchanged, and a (query, plan) pair is checked once; `select` after `fetch` drops the plan with a warning (R-FCH-02, R-FCH-13). |
 | AC-FCH-10 | The processor generates `ChildField` and `JoinField` for records and setter classes, a mutual `@Child`/back-`@Join` pair initialises in either order, a nested model from another module works (D-45), and each of `MQ3401`–`MQ3405` has a compile-failure case (R-FCH-03). |
+| AC-FCH-11 | A many-to-many child loads both ways on Tier 1: through a `foreignKey` crossing the child's collection, and through `through` on a unidirectional `@ManyToMany`; a child shared by two parents appears under both; a child filter and order apply through `through`; `MQ3406` has a compile-failure case (R-FCH-03, R-FCH-04, R-FCH-14). |
