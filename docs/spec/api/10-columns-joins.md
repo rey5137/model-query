@@ -147,7 +147,8 @@ public interface RowMapper<M> {
 
 **R-COL-10** Queries select a JPA `Tuple`. The engine wraps it as a `Row` keyed by `SelectField` and hands it to the
 query's `RowMapper`. Values are never read by tuple index at any layer above the wrapper, so inserting a selection
-cannot shift a mapping.
+cannot shift a mapping. Columns of one model over the same attribute of the same table, whatever their types and
+converters, are one selection under one alias, and each reads the value through its own converter.
 
 **R-COL-11** Because a model is built from a complete row in one call, classes and records use the same engine.
 Primary keys, keyset cursors and export dedupe read from the `Row` before mapping, so a model needs no key accessor and
@@ -205,3 +206,4 @@ default null ordering the persistence provider is configured with replaces the p
 | AC-COL-11 | A column built with a `ColumnConverter` round-trips through `Row.get` and through a filter on the same column, while `Row.raw` returns the value unconverted, which primary keys and keyset cursors are read as; an aggregate function over it throws `MQ1408` unless the converter is ordered (AC-AGG-13) (R-COL-14, R-COL-11, D-37). |
 | AC-COL-12 | Selecting a column of a `presentBy` join also selects the join's presence key, and that of every such join above it, in every model phase and once only, so a mapper tells an absent row from a match whose columns are all `NULL`; a grouped query whose group keys lack the key throws `MQ1409`, and `presentBy` on a root `MQ1104` (R-COL-15, D-38). |
 | AC-COL-13 | `InstantTimestampConverter` and `DateTimestampConverter` round-trip with nanoseconds kept and keep order both ways; a `Timestamp` attribute holding sub-millisecond digits is read, filtered with `eq`, `gt`, `lte` and `between`, sorted and keyset-paged through each, and a value read back through `DateTimestampConverter` binds exactly what was read (R-COL-14, D-84). |
+| AC-COL-14 | A model selecting one attribute through several columns, a `Timestamp` read as an `Instant`, a `Date` and itself, is read through `list`, offset and primary-key-first `page`, `count`, `stream` and keyset export across several pages, and as two group keys through `list`, `count` and export, each column holding its own converted value (R-COL-10). |

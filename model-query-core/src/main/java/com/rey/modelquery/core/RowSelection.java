@@ -2,11 +2,13 @@ package com.rey.modelquery.core;
 
 import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.Tuple;
+import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Selection;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,7 +17,8 @@ import java.util.Objects;
 /**
  * The selections of one query and the {@link Row} view over the {@link Tuple} they produce. Each selection gets a
  * generated alias, and rows read by that alias only, never by tuple index (R-COL-10). Immutable and thread-safe
- * (INV-9); a selection appears once, at its first position.
+ * (INV-9); a selection appears once, at its first position. Columns over one attribute of one table share the first
+ * one's alias, so the attribute is selected once and each column converts the value it reads.
  *
  * @implSpec R-COL-10
  */
@@ -34,6 +37,9 @@ public final class RowSelection {
         }
     }
 
+    /** A selected column's attribute: columns sharing one are one selection, read under one alias. */
+    private record AttributeKey(JoinKey table, String attribute) {}
+
     private final Map<SelectField<?, ?>, String> aliases;
     private final Map<PathKey, String> byPath;
 
@@ -51,17 +57,39 @@ public final class RowSelection {
     /** A selection of {@code columns}, in order. */
     public static RowSelection of(Collection<? extends SelectField<?, ?>> columns) {
         var aliases = new LinkedHashMap<SelectField<?, ?>, String>();
+        var byAttribute = new HashMap<AttributeKey, String>();
+        int next = 0;
         for (SelectField<?, ?> column : Objects.requireNonNull(columns, "columns")) {
             Objects.requireNonNull(column, "column");
-            aliases.putIfAbsent(column, "c" + aliases.size());
+            if (aliases.containsKey(column)) {
+                continue;
+            }
+            String fresh = "c" + next;
+            String alias = column instanceof ColumnField<?, ?, ?> field
+                    ? byAttribute.computeIfAbsent(new AttributeKey(field.table().key(), field.name()), key -> fresh)
+                    : fresh;
+            if (alias.equals(fresh)) {
+                next++;
+            }
+            aliases.put(column, alias);
         }
         return new RowSelection(Collections.unmodifiableMap(aliases));
     }
 
-    /** The aliased Criteria selections to pass to {@code multiselect}, resolving joins through {@code ctx}. */
+    /**
+     * The aliased Criteria selections to pass to {@code multiselect}, resolving joins through {@code ctx}. A column
+     * sharing another's alias is resolved, for its joins and its type check, but not selected again: a provider may
+     * hand back one path object per attribute, as Hibernate does, and aliasing it twice renames the first selection.
+     */
     public List<Selection<?>> selections(JoinContext ctx) {
         var result = new ArrayList<Selection<?>>(aliases.size());
-        aliases.forEach((column, alias) -> result.add(column.expression(ctx).alias(alias)));
+        var selected = new HashSet<String>();
+        aliases.forEach((column, alias) -> {
+            Expression<?> expression = column.expression(ctx);
+            if (selected.add(alias)) {
+                result.add(expression.alias(alias));
+            }
+        });
         return result;
     }
 

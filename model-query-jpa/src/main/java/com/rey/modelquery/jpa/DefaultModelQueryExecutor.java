@@ -889,7 +889,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             // The group keys identify a group, and selecting only them is what the count needs (R-EXE-05).
             List<Selection<?>> keys = new ArrayList<>();
             for (ColumnField<M, ?, ?> key : q.groupBy()) {
-                keys.add(key.path(built.joins()));
+                // Two keys over one attribute can resolve to one aliased path, which is selected once (R-COL-10).
+                Selection<?> path = key.path(built.joins());
+                if (keys.stream().noneMatch(added -> added == path)) {
+                    keys.add(path);
+                }
             }
             query.multiselect(keys);
         }

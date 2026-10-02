@@ -35,7 +35,7 @@ import org.hibernate.SessionFactory;
 /** The built-in ordered converters over a {@code Timestamp} attribute (api/10 R-COL-14, api/13 R-AGG-04, D-84). */
 class OrderedConverterTest {
 
-    /** One built-in per model: a query cannot select one attribute through two converters at once. */
+    /** One built-in per model; SharedAttributeTest selects one attribute through both. */
     record AtInstant(Long id, Instant placed, Timestamp raw) {}
 
     record AtDate(Long id, Date placed, Timestamp raw) {}

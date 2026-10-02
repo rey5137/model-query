@@ -123,6 +123,20 @@ class OrderedColumnConverterTest {
     }
 
     @Test
+    void ac_col_14_columns_over_one_attribute_share_one_alias_and_each_converts_the_value_it_reads() {
+        Timestamp stamp = Timestamp.from(INSTANTS.get(0));
+        // The attribute is c0 for every column over it, so the next attribute is c1, not c2 or c3.
+        Row row = RowSelection.of(List.of(PLACED, PLACED_STAMP, CENTS, PLACED_DATE, Agg.max(PLACED)))
+                .row(tuple(Map.of("c0", stamp, "c1", 12, "c2", stamp)));
+        assertThat(row.get(PLACED)).isEqualTo(INSTANTS.get(0));
+        assertThat(row.get(PLACED_STAMP)).isSameAs(stamp);
+        assertThat(row.get(PLACED_DATE)).isSameAs(stamp);
+        assertThat(row.get(CENTS)).isEqualTo(1_200L);
+        assertThat(row.get(Agg.max(PLACED))).isEqualTo(INSTANTS.get(0));
+        assertThat(row.raw(PLACED_DATE)).isSameAs(row.raw(PLACED));
+    }
+
+    @Test
     void ac_agg_13_sum_and_avg_over_an_ordered_column_and_any_function_over_an_unordered_one_throw_mq1408() {
         assertThat(Agg.min(CENTS).type()).isEqualTo(Long.class);
         assertMq1408(() -> Agg.sum(CENTS), "");

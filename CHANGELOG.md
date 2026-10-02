@@ -68,6 +68,9 @@ Behaviour to know when moving from hand-written Criteria code:
 ### Fixed
 - The starter's repository factory bean swap re-registers each definition, so a repository type-checked before the swap
   no longer starts without `findPage`.
+- A model selecting one attribute through two columns, such as an `Instant` and a `Date` field over one `Timestamp`,
+  or a plain column beside a converted one, no longer fails with a duplicate-alias error: the attribute is selected
+  once and each column reads it through its own converter, on every read path and in a grouped count (R-COL-10).
 
 ## [0.1.0] - 2026-10-01
 
