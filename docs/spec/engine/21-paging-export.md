@@ -37,7 +37,7 @@ child side, or filter with `Filters.exists` (`api/12` R-FLT-12). `list`, `page` 
 **R-PAG-04** *(was R4)* **Keyset paging doesn't skip ties.** The primary key is appended as the last keyset column, with
 the direction of the last order column. Keyset without a primary key is a build-time error (`api/11` R-QRY-03). Every
 order column is added to the selection, so the cursor can read its value from the `Row` even when the column is
-filter-only or absent from the chosen `ColumnSet`.
+filter-only or absent from the chosen `SelectSet`.
 
 **R-PAG-05** *(was R5)* **Keyset paging doesn't truncate on NULL.** A NULL in a keyset column throws `MQ2202` by
 default. With explicit `nullsFirst()`/`nullsLast()` (`api/10` R-COL-12), the keyset predicate adds the matching
@@ -127,7 +127,7 @@ that could overlap pages, and R-PAG-11 makes it unreachable.
 |---|---|
 | AC-PAG-01 | Offset export over a table with duplicated sort keys yields every row exactly once (R-PAG-01). |
 | AC-PAG-02 | Export heap stays bounded at 20 000 rows; no structure grows with the row count (R-PAG-02). |
-| AC-PAG-03 | An export whose `ColumnSet` omits the primary key still succeeds, because the engine added it (R-PAG-03). |
+| AC-PAG-03 | An export whose `SelectSet` omits the primary key still succeeds, because the engine added it (R-PAG-03). |
 | AC-PAG-04 | A model whose primary key maps to `null` throws `MQ2201` naming the model (R-PAG-03). |
 | AC-PAG-05 | Keyset export over ties yields every row exactly once (R-PAG-04). |
 | AC-PAG-06 | Keyset ordering by a filter-only or unselected column works, because the engine selected it (R-PAG-04). |

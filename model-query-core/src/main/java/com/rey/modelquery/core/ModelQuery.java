@@ -44,7 +44,7 @@ public final class ModelQuery<E, K, M> {
 
     private final TableField<E, E> root;
     private final RowMapper<M> mapper;
-    private final ColumnSet<M> columns;
+    private final SelectSet<M> columns;
     private final PrimaryKey<M, K> primaryKey;
     private final List<OrderField<M, ?>> orderBy;
     private final boolean keyset;
@@ -85,7 +85,7 @@ public final class ModelQuery<E, K, M> {
         this.groupBy = b.groupBy;
         this.having = b.having == null ? List.of() : b.having.filters();
         this.grouped = grouped;
-        this.spec = new Spec(root.rootEntity(), List.copyOf(columns.columns()),
+        this.spec = new Spec(root.rootEntity(), List.copyOf(columns.fields()),
                 Optional.ofNullable(primaryKey), List.copyOf(orderBy), keyset, List.copyOf(groupBy), grouped);
         this.modelColumns = List.copyOf(selected());
         this.modelSelection = RowSelection.of(modelColumns);
@@ -93,7 +93,7 @@ public final class ModelQuery<E, K, M> {
     }
 
     /**
-     * Starts a definition rooted at {@code root}, mapped with {@code mapper}. Only {@link Builder#columns} is also
+     * Starts a definition rooted at {@code root}, mapped with {@code mapper}. Only {@link Builder#select} is also
      * required; every other part has a defined behaviour when absent (spec api/11 §5).
      *
      * @throws ModelQueryDefinitionException {@code MQ1203} when {@code root} is a join, not a root
@@ -114,8 +114,8 @@ public final class ModelQuery<E, K, M> {
         return root.rootEntity();
     }
 
-    /** The columns selected for the model, without any primary key added for paging. */
-    public ColumnSet<M> columns() {
+    /** What the query selects for the model, without any primary key added for paging. */
+    public SelectSet<M> select() {
         return columns;
     }
 
@@ -132,7 +132,7 @@ public final class ModelQuery<E, K, M> {
     /**
      * A copy of this query ordered by {@code sort} instead of its own {@code orderBy}, for a sort chosen per call on
      * a definition held in a {@code static final} field; this query when {@code sort} has no key. Each property names
-     * one of the selected {@link #columns()}, never an attribute the query does not select: first by a column's
+     * one of the selected {@link #select()}, never an attribute the query does not select: first by a column's
      * property path, the model field names from the root ({@code customer.name} for the field {@code name} of the
      * model under the {@code @Join} field {@code customer}), then by its attribute path from the root
      * ({@code customer.fullName}; the attribute itself for a root column), then by an aggregate's
@@ -179,7 +179,7 @@ public final class ModelQuery<E, K, M> {
      */
     private SelectField<M, ?> resolve(String property) {
         var matches = new LinkedHashMap<SelectField<M, ?>, List<String>>();
-        for (SelectField<M, ?> column : columns.columns()) {
+        for (SelectField<M, ?> column : columns.fields()) {
             if (column instanceof ColumnField<M, ?, ?> plain) {
                 if (property.equals(plain.propertyPath())) {
                     matches.computeIfAbsent(column, c -> new ArrayList<>()).add("property path");
@@ -264,7 +264,7 @@ public final class ModelQuery<E, K, M> {
     /**
      * Resolves the statement of {@code phase} against {@code cb}. Every phase has the same joins, predicate, grouping
      * and ordering, and only the SELECT list differs (R-QRY-09, D-26). {@code MODEL} and {@code MODEL_BY_KEYS} select
-     * the columns plus, where the {@code ColumnSet} omits them, the primary-key columns of an ungrouped query, every
+     * the columns plus, where the {@code SelectSet} omits them, the primary-key columns of an ungrouped query, every
      * ordering key and every group key, so an executor can read them from the row (R-QRY-04, D-29), and on an
      * ungrouped query the presence key of each {@code presentBy} join a column is read through (D-38);
      * {@code PRIMARY_KEY} selects the key columns only. The customizer, if any, runs last. A new {@link JoinContext}
@@ -417,12 +417,12 @@ public final class ModelQuery<E, K, M> {
     /**
      * What {@code MODEL} and {@code MODEL_BY_KEYS} select: the columns, the primary key of an ungrouped query,
      * every ordering and group key, and on an ungrouped query the presence key of each {@code presentBy} join a column
-     * of the {@code ColumnSet} is read through. None of the additions changes which rows return, and their joins are
+     * of the {@code SelectSet} is read through. None of the additions changes which rows return, and their joins are
      * made anyway; selecting them lets an executor read a row's key, cursor and group from the row, and a mapper tell
      * a join that missed from one that matched (R-QRY-04, D-29, D-38).
      */
     private List<SelectField<M, ?>> selected() {
-        var result = new ArrayList<SelectField<M, ?>>(columns.columns());
+        var result = new ArrayList<SelectField<M, ?>>(columns.fields());
         if (primaryKey != null) {
             result.addAll(primaryKey.columns());
         }
@@ -430,7 +430,7 @@ public final class ModelQuery<E, K, M> {
         result.addAll(groupBy);
         if (!grouped) {
             // Last, and once each: a RowSelection keeps a column at its first position (R-QRY-04).
-            for (SelectField<M, ?> column : columns.columns()) {
+            for (SelectField<M, ?> column : columns.fields()) {
                 if (column instanceof ColumnField<M, ?, ?> plain) {
                     result.addAll(presenceKeys(plain));
                 }
@@ -491,7 +491,7 @@ public final class ModelQuery<E, K, M> {
 
         private final TableField<E, E> root;
         private final RowMapper<M> mapper;
-        private final ColumnSet<M> columns;
+        private final SelectSet<M> columns;
         private final PrimaryKey<M, K> primaryKey;
         private final List<OrderField<M, ?>> orderBy;
         private final boolean keyset;
@@ -503,7 +503,7 @@ public final class ModelQuery<E, K, M> {
         private final List<ColumnField<M, ?, ?>> groupBy;
         private final HavingGroup.Clause having;
 
-        private Builder(TableField<E, E> root, RowMapper<M> mapper, ColumnSet<M> columns,
+        private Builder(TableField<E, E> root, RowMapper<M> mapper, SelectSet<M> columns,
                 PrimaryKey<M, K> primaryKey, List<OrderField<M, ?>> orderBy, boolean keyset,
                 PrimaryKeyFirst primaryKeyFirst, BiConsumer<M, Row> afterMap, UnaryOperator<M> finisher,
                 QueryCustomizer customizer, List<Filter> where, List<ColumnField<M, ?, ?>> groupBy,
@@ -523,9 +523,9 @@ public final class ModelQuery<E, K, M> {
             this.having = having;
         }
 
-        /** The columns to select; required. */
-        public Builder<E, K, M> columns(ColumnSet<M> columns) {
-            return new Builder<>(root, mapper, Objects.requireNonNull(columns, "columns"), primaryKey, orderBy, keyset,
+        /** What the query selects; required. */
+        public Builder<E, K, M> select(SelectSet<M> select) {
+            return new Builder<>(root, mapper, Objects.requireNonNull(select, "select"), primaryKey, orderBy, keyset,
                     primaryKeyFirst, afterMap, finisher, customizer, where, groupBy, having);
         }
 
@@ -606,9 +606,9 @@ public final class ModelQuery<E, K, M> {
          * @throws ModelQueryDefinitionException {@code MQ1404} when {@code columns} holds an {@link AggregateField},
          *     which cannot be a group key
          */
-        public Builder<E, K, M> groupBy(ColumnSet<M> columns) {
+        public Builder<E, K, M> groupBy(SelectSet<M> columns) {
             var keys = new ArrayList<ColumnField<M, ?, ?>>();
-            for (SelectField<M, ?> column : Objects.requireNonNull(columns, "columns").columns()) {
+            for (SelectField<M, ?> column : Objects.requireNonNull(columns, "columns").fields()) {
                 if (!(column instanceof ColumnField<M, ?, ?> key)) {
                     throw new ModelQueryDefinitionException(MqCode.MQ1404, modelName(columns, root.rootEntity()) + "."
                             + column.name() + ": groupBy(...) takes columns; an aggregate cannot be a group key");
@@ -618,7 +618,7 @@ public final class ModelQuery<E, K, M> {
             return groupBy(keys);
         }
 
-        /** Groups the query by {@code columns}, as {@link #groupBy(ColumnSet)} does (R-AGG-05). */
+        /** Groups the query by {@code columns}, as {@link #groupBy(SelectSet)} does (R-AGG-05). */
         @SafeVarargs
         public final Builder<E, K, M> groupBy(ColumnField<M, ?, ?>... columns) {
             var keys = new ArrayList<ColumnField<M, ?, ?>>();
@@ -649,7 +649,7 @@ public final class ModelQuery<E, K, M> {
          * Builds the immutable query. A query is grouped when it has a group-by or selects an aggregate (R-AGG-07); a
          * grouped query needs no primary key and ignores one (R-AGG-09).
          *
-         * @throws ModelQueryDefinitionException {@code MQ1202} when {@link #columns} was not called
+         * @throws ModelQueryDefinitionException {@code MQ1202} when {@link #select} was not called
          * @throws ModelQueryDefinitionException {@code MQ1407} for {@code having(...)} on an ungrouped query
          * @throws ModelQueryDefinitionException {@code MQ1402} for {@code keyset()} or {@code primaryKeyFirst(...)} on
          *     a grouped query
@@ -679,12 +679,12 @@ public final class ModelQuery<E, K, M> {
         private ModelQuery<E, K, M> build(ModelQuery<E, K, M> definition) {
             if (columns == null) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1202,
-                        "columns(...) is required for a query on " + root.rootEntity().getSimpleName());
+                        "select(...) is required for a query on " + root.rootEntity().getSimpleName());
             }
             String model = modelName(columns, root.rootEntity());
             // Structural, so skipping every having filter cannot turn a plain query into a grouped one (D-28).
             boolean grouped = !groupBy.isEmpty()
-                    || columns.columns().stream().anyMatch(AggregateField.class::isInstance);
+                    || columns.fields().stream().anyMatch(AggregateField.class::isInstance);
             if (!grouped && having != null) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1407, model + ": having(...) needs a grouped query; "
                         + "add groupBy(...) or select an aggregate, or filter rows with where(...)");
@@ -705,7 +705,7 @@ public final class ModelQuery<E, K, M> {
                 checkKeyTypes(keyset);
             }
             if (grouped) {
-                for (SelectField<M, ?> column : columns.columns()) {
+                for (SelectField<M, ?> column : columns.fields()) {
                     // MySQL would return an arbitrary value of the group; PostgreSQL would fail anonymously (R-AGG-08).
                     if (column instanceof ColumnField<M, ?, ?> plain && !groupBy.contains(plain)) {
                         throw new ModelQueryDefinitionException(MqCode.MQ1401,
@@ -761,7 +761,7 @@ public final class ModelQuery<E, K, M> {
          * read through must be a group key: otherwise the nested model would map as absent (R-AGG-09, D-38).
          */
         private void checkPresenceKeys() {
-            for (SelectField<M, ?> column : columns.columns()) {
+            for (SelectField<M, ?> column : columns.fields()) {
                 if (column instanceof ColumnField<M, ?, ?> plain) {
                     for (ColumnField<M, ?, ?> key : presenceKeys(plain)) {
                         if (!groupBy.contains(key)) {
@@ -794,7 +794,7 @@ public final class ModelQuery<E, K, M> {
 
         /** Two {@code Agg.of} fields sharing a name must be one definition wherever the query names them (R-AGG-02). */
         private void checkAggregates(String model) {
-            var named = new ArrayList<SelectField<?, ?>>(columns.columns());
+            var named = new ArrayList<SelectField<?, ?>>(columns.fields());
             orderBy.forEach(order -> named.add(order.column()));
             if (having != null) {
                 named.addAll(having.aggregates());
@@ -808,8 +808,8 @@ public final class ModelQuery<E, K, M> {
             }
         }
 
-        private static String modelName(ColumnSet<?> columns, Class<?> entity) {
-            for (SelectField<?, ?> column : columns.columns()) {
+        private static String modelName(SelectSet<?> columns, Class<?> entity) {
+            for (SelectField<?, ?> column : columns.fields()) {
                 if (column instanceof ColumnField<?, ?, ?> field) {
                     return field.model().getSimpleName();
                 }

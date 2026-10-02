@@ -6,11 +6,11 @@ state, so you can build it once and share it between threads.
 ## The builder
 
 `QOrderView.query()` returns a builder already configured with the model's root, mapper and primary key. Everything
-besides `columns` is optional.
+besides `select` is optional.
 
 ```java
 ModelQuery<OrderEntity, Long, OrderView> q = QOrderView.query()
-        .columns(QOrderView.DEFAULT)
+        .select(QOrderView.DEFAULT)
         .where(f -> f.eq(QOrderView.STATUS, status))
         .orderBy(QOrderView.CREATED_AT.desc())
         .build();
@@ -18,7 +18,7 @@ ModelQuery<OrderEntity, Long, OrderView> q = QOrderView.query()
 
 | Builder method | Purpose |
 |---|---|
-| `columns(ColumnSet)` | The selection. `build()` without it fails. |
+| `select(SelectSet)` | The selection. `build()` without it fails. |
 | `where(f -> ...)` | The filters, see below. |
 | `orderBy(OrderField...)` | `asc()` or `desc()` on a column, optionally `.nullsFirst()` or `.nullsLast()`. |
 | `keyset()` | Allows keyset paging; see [Paging and export](paging-export.md). |

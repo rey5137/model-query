@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Filters;
 import com.rey.modelquery.core.Limit;
@@ -12,6 +11,7 @@ import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ChunkTransactions;
 import com.rey.modelquery.jpa.ModelQueryConfig;
@@ -70,7 +70,7 @@ class ModelQueryRepositoryTest {
 
     private static final ModelQuery<OrderEntity, ?, OrderRow> NEW_ORDERS = ModelQuery
             .builder(ORDERS, row -> new OrderRow(row.get(ID), row.get(STATUS), row.get(TOTAL)))
-            .columns(ColumnSet.of(ID, STATUS, TOTAL))
+            .select(SelectSet.of(ID, STATUS, TOTAL))
             .primaryKey(PrimaryKey.of(ID))
             .orderBy(ID.asc())
             .where(f -> f.eq(STATUS, Optional.of("NEW")))

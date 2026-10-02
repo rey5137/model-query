@@ -2,13 +2,13 @@ package shop;
 
 import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.OrderedColumnField;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowMapper;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import java.math.BigDecimal;
 import javax.annotation.processing.Generated;
@@ -35,10 +35,10 @@ public final class QOrderView {
     public static final OrderedColumnField<OrderView, OrderEntity, Boolean> PAID = ColumnField.of(OrderView.class,
             ROOT, "paid", Boolean.class).named("paid");
 
-    public static final ColumnSet<OrderView> ALL = ColumnSet.of(ID, STATUS, TOTAL, CITY, NOTES,
+    public static final SelectSet<OrderView> ALL = SelectSet.of(ID, STATUS, TOTAL, CITY, NOTES,
             PAID);
 
-    public static final ColumnSet<OrderView> DEFAULT = ALL.without(NOTES);
+    public static final SelectSet<OrderView> DEFAULT = ALL.without(NOTES);
 
     public static final PrimaryKey<OrderView, Long> KEY = PrimaryKey.of(ID);
 

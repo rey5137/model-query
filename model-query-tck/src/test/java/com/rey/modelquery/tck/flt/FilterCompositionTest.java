@@ -8,20 +8,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.BuiltQuery;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.Filters;
 import com.rey.modelquery.core.LikeMode;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.Phase;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
-import com.rey.modelquery.tck.flt.FiltersTest.Fixture;
 import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.NullableSortEntity;
 import com.rey.modelquery.tck.col.OrderEntity;
 import com.rey.modelquery.tck.col.OrderItemEntity;
+import com.rey.modelquery.tck.flt.FiltersTest.Fixture;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
@@ -74,7 +74,7 @@ class FilterCompositionTest {
             ColumnField.of(O.class, ITEMS_BIG, "productCode", String.class);
 
     static final ModelQuery.Builder<OrderEntity, Object, O> ORDER_QUERY =
-            ModelQuery.builder(ORDERS, row -> new O(row.get(ID))).columns(ColumnSet.of(ID)).orderBy(ID.asc());
+            ModelQuery.builder(ORDERS, row -> new O(row.get(ID))).select(SelectSet.of(ID)).orderBy(ID.asc());
 
     /** A shared fragment, as a caller would keep one. */
     private static final UnaryOperator<Filters<O>> NOT_CANCELLED = g -> g.ne(STATUS, "CANCELLED");
@@ -112,7 +112,7 @@ class FilterCompositionTest {
             ColumnField.of(C.class, ORDER_ITEMS, "quantity", Integer.class);
 
     static final ModelQuery.Builder<CustomerEntity, Object, C> CUSTOMER_QUERY =
-            ModelQuery.builder(CUSTOMERS, row -> new C(row.get(C_ID))).columns(ColumnSet.of(C_ID))
+            ModelQuery.builder(CUSTOMERS, row -> new C(row.get(C_ID))).select(SelectSet.of(C_ID))
                     .orderBy(C_ID.asc());
 
     // ---- nullable columns, for NOT over NULL
@@ -127,7 +127,7 @@ class FilterCompositionTest {
             ColumnField.of(N.class, NULLABLE, "sortInt", Integer.class);
     static final ModelQuery.Builder<NullableSortEntity, Object, N> NULLABLE_QUERY =
             ModelQuery.builder(NULLABLE, row -> new N(row.get(N_ID), row.get(N_INT)))
-                    .columns(ColumnSet.of(N_ID, N_INT)).orderBy(N_ID.asc());
+                    .select(SelectSet.of(N_ID, N_INT)).orderBy(N_ID.asc());
 
     private static final Optional<String> NONE = Optional.empty();
     private static final BigDecimal T500 = new BigDecimal("500.00");
@@ -320,7 +320,7 @@ class FilterCompositionTest {
 
     @TckTest
     void ac_flt_09_an_or_branch_over_a_left_joined_column_keeps_rows_that_have_no_joined_row(TckDatabase db) {
-        var selectingInner = CUSTOMER_QUERY.columns(ColumnSet.of(C_ID, INNER_STATUS));
+        var selectingInner = CUSTOMER_QUERY.select(SelectSet.of(C_ID, INNER_STATUS));
         List<ModelQuery.Builder<CustomerEntity, Object, C>> queries = List.of(
                 CUSTOMER_QUERY.where(PAID_OR_LONELY_LEFT),
                 CUSTOMER_QUERY.where(PAID_OR_LONELY_INNER),
@@ -354,7 +354,7 @@ class FilterCompositionTest {
             results.add(ids(em, ORDER_QUERY.where(EXISTS_P007_BIG)));
             results.add(ids(em, ORDER_QUERY.where(EXISTS_ALIASED_P007_BIG)));
             results.add(ids(em, ORDER_QUERY.where(EXISTS_ON_P007)));
-            results.add(ids(em, ORDER_QUERY.columns(ColumnSet.of(ID, PRODUCT)).where(P007_AND_EXISTS_IN_OR)));
+            results.add(ids(em, ORDER_QUERY.select(SelectSet.of(ID, PRODUCT)).where(P007_AND_EXISTS_IN_OR)));
             belowPath.add(run(em, CUSTOMER_QUERY.where(NO_ITEM_BELOW_PATH)));
             belowPath.add(run(em, CUSTOMER_QUERY.where(AN_ITEM_BELOW_PATH)));
         }));
@@ -442,7 +442,7 @@ class FilterCompositionTest {
     void d_24_a_custom_predicate_is_anded_with_the_other_filters_and_shares_the_query_joins(TckDatabase db) {
         List<List<Long>> results = new ArrayList<>();
         SqlSnapshots.assertMatches(db, "flt-add-custom-predicate", ds -> inSession(ds, em -> results.add(ids(em,
-                ORDER_QUERY.columns(ColumnSet.of(ID, CUSTOMER_NAME)).where(CUSTOM_PREDICATES)))));
+                ORDER_QUERY.select(SelectSet.of(ID, CUSTOMER_NAME)).where(CUSTOM_PREDICATES)))));
         assertThat(results.get(0)).isNotEmpty().isEqualTo(jpql(db,
                 "where o.total > 500 and o.customer.country = 'VN' and o.customer.name < 'Customer 0100'"));
     }

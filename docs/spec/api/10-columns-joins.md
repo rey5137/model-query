@@ -1,6 +1,6 @@
 # 10 — Columns, Joins and Row Mapping
 
-**Covers:** `TableField`, `SelectField`, `ColumnField`, `ColumnSet`, `OrderField`, `Row`, `RowMapper`, how joins are
+**Covers:** `TableField`, `SelectField`, `ColumnField`, `SelectSet`, `OrderField`, `Row`, `RowMapper`, how joins are
 shared within one query, and how null precedence is rendered portably.
 **Read when:** defining the columns of a model, adding a join, deciding why two joins appeared, or changing how a row
 becomes a model.
@@ -74,7 +74,7 @@ public sealed interface SelectField<M, C> permits ColumnField, AggregateField {
 }
 ```
 
-**R-COL-06** Everything that selects, orders or reads a value accepts a `SelectField`: `ColumnSet`, `orderBy`,
+**R-COL-06** Everything that selects, orders or reads a value accepts a `SelectField`: `SelectSet`, `orderBy`,
 `Row.get`. Everything that builds a `WHERE` predicate accepts a `ColumnField` only, which is what makes an aggregate in
 `where` a compile error rather than a runtime failure (P-2, `api/13` R-AGG-05).
 
@@ -100,7 +100,7 @@ plain `ColumnField`. `ColumnField.of` returns the narrower type whenever it can,
 static type is wider; `equals` ignores the subclass (D-93).
 
 **R-COL-07** A column does not have to be mapped. A **filter-only column** has no field on the model; the mapper only
-reads the columns it knows, so a filter-only column never affects the result even if it ends up in a `ColumnSet`.
+reads the columns it knows, so a filter-only column never affects the result even if it ends up in a `SelectSet`.
 
 **R-COL-08** *(was R11)* **Column types match entity attributes.** Generated columns are checked by the processor
 (`processor/32`). Hand-written columns are checked at first path resolution — `path.getJavaType()` against
@@ -128,19 +128,19 @@ refused with `MQ1308` when a value filter or a write converts it. A plain `java.
 an inclusive upper bound is written half-open, `lt(nextDayStart)`: `lte(23:59:59.999)` excludes a stored
 `23:59:59.999500`.
 
-## 4. `ColumnSet` — an immutable named set
+## 4. `SelectSet` — an immutable named set
 
 ```java
-public final class ColumnSet<M> {
-    @SafeVarargs public static <M> ColumnSet<M> of(SelectField<M, ?>... columns);
-    public ColumnSet<M> with(SelectField<M, ?>... extra);   // returns a copy
-    public ColumnSet<M> with(ColumnSet<M> other);
-    public ColumnSet<M> without(SelectField<M, ?>... columns);
-    public List<SelectField<M, ?>> columns();               // unmodifiable
+public final class SelectSet<M> {
+    @SafeVarargs public static <M> SelectSet<M> of(SelectField<M, ?>... columns);
+    public SelectSet<M> with(SelectField<M, ?>... extra);   // returns a copy
+    public SelectSet<M> with(SelectSet<M> other);
+    public SelectSet<M> without(SelectField<M, ?>... columns);
+    public List<SelectField<M, ?>> fields();                // unmodifiable
 }
 ```
 
-**R-COL-09** A `ColumnSet` is immutable. `with` and `without` return copies, so a shared constant cannot be changed by
+**R-COL-09** A `SelectSet` is immutable. `with` and `without` return copies, so a shared constant cannot be changed by
 one caller and affect every later query (INV-9).
 
 ## 5. `Row` and `RowMapper`
@@ -212,7 +212,7 @@ default null ordering the persistence provider is configured with replaces the p
 | AC-COL-02 | `on(...)` without an alias throws; two `TableField`s with the same key and different conditions throw `MQ1101`; `as(...)` or `on(...)` on a root throws `MQ1104` (R-COL-04). |
 | AC-COL-03 | `on(...)` on a LEFT join keeps rows with no matching child (R-COL-03). |
 | AC-COL-04 | A hand-written `ColumnField` whose type does not match the entity attribute throws `MQ1001` at first resolution; an unknown attribute throws `MQ1002` and a column on another entity's root `MQ1003` (R-COL-08). |
-| AC-COL-05 | `ColumnSet.with`/`without` leave the original set unchanged (R-COL-09). |
+| AC-COL-05 | `SelectSet.with`/`without` leave the original set unchanged (R-COL-09). |
 | AC-COL-06 | Every `ColumnField` type round-trips through `Row.get`, including converters, for a class model and an equivalent record model (R-COL-10). |
 | AC-COL-07 | A filter-only column filters correctly, adds no join when its filter is skipped, and never reaches the model (R-COL-07). |
 | AC-COL-08 | `nullsFirst()`/`nullsLast()` produce identical orderings on every Tier-1 vendor, with and without `model-query-hibernate` (R-COL-12). |

@@ -48,7 +48,7 @@ final class QueryModelReader {
     private static final String ROOT = "root";
     private static final String PREFIX = "prefix";
     private static final String SUFFIX = "suffix";
-    private static final String GENERATE_COLUMN_SETS = "generateColumnSets";
+    private static final String GENERATE_SELECT_SETS = "generateSelectSets";
     private static final String SINGLE_GROUP = "singleGroup";
     private static final String GENERATE_CHANGES = "generateChanges";
     private static final String CONVERTER = "converter";
@@ -83,7 +83,7 @@ final class QueryModelReader {
                 ? set : options.getOrDefault(PREFIX_OPTION, DEFAULT_PREFIX);
         String suffix = explicit(annotation, SUFFIX) instanceof String set
                 ? set : options.getOrDefault(SUFFIX_OPTION, "");
-        boolean columnSets = !updateModel && !Boolean.FALSE.equals(explicit(annotation, GENERATE_COLUMN_SETS));
+        boolean selectSets = !updateModel && !Boolean.FALSE.equals(explicit(annotation, GENERATE_SELECT_SETS));
         boolean singleGroup = Boolean.TRUE.equals(explicit(annotation, SINGLE_GROUP));
         boolean generateChanges = Boolean.TRUE.equals(explicit(annotation, GENERATE_CHANGES));
 
@@ -114,7 +114,7 @@ final class QueryModelReader {
                     field.getAnnotation(GroupBy.class) != null));
         }
         return new ModelDefinition(
-                type, (TypeElement) rootType.asElement(), prefix + type.getSimpleName() + suffix, columnSets,
+                type, (TypeElement) rootType.asElement(), prefix + type.getSimpleName() + suffix, selectSets,
                 singleGroup, fields, filterColumns(type), updateModel, generateChanges);
     }
 

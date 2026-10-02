@@ -35,8 +35,8 @@ public enum MqCode {
     /** {@code keyset()} or {@code primaryKeyFirst(...)} without a primary key (R-QRY-03). */
     MQ1201("keyset() and primaryKeyFirst(...) require a primary key"),
 
-    /** {@code build()} called without {@code columns(...)} (R-QRY-02). */
-    MQ1202("columns(...) is required"),
+    /** {@code build()} called without {@code select(...)} (R-QRY-02). */
+    MQ1202("select(...) is required"),
 
     /** {@code ModelQuery.builder} given a join instead of a root {@code TableField} (R-QRY-02). */
     MQ1203("ModelQuery, ModelUpdate and ModelDelete builders take a root TableField, not a join"),

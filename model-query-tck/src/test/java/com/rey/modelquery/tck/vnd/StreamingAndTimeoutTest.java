@@ -4,12 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullOrdering;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
@@ -65,13 +65,13 @@ class StreamingAndTimeoutTest {
     /** One row per order item: {@link TckFixture#ORDER_ITEMS}, 20 000 rows. */
     private static final ModelQuery<OrderEntity, ?, ItemRow> ITEM_ROWS = ModelQuery
             .builder(ORDERS, row -> new ItemRow(row.get(ORDER_ID), row.get(PRODUCT)))
-            .columns(ColumnSet.of(ORDER_ID, PRODUCT))
+            .select(SelectSet.of(ORDER_ID, PRODUCT))
             .build();
 
     /** Orders x items x items with a predicate no row satisfies and no index answers: about 2e12 candidate rows. */
     private static final ModelQuery<OrderEntity, ?, ItemRow> NEVER_FINISHES = ModelQuery
             .builder(ORDERS, row -> new ItemRow(row.get(ORDER_ID), row.get(PRODUCT)))
-            .columns(ColumnSet.of(ORDER_ID, PRODUCT))
+            .select(SelectSet.of(ORDER_ID, PRODUCT))
             .customize((spec, joins, query, cb, phase) -> {
                 Root<OrderItemEntity> a = query.from(OrderItemEntity.class);
                 Root<OrderItemEntity> b = query.from(OrderItemEntity.class);
@@ -83,7 +83,7 @@ class StreamingAndTimeoutTest {
     /** {@link #NEVER_FINISHES}, grouped, so its count is the provider support's count query (R-EXE-03). */
     private static final ModelQuery<OrderEntity, ?, ItemRow> NEVER_FINISHES_GROUPED = ModelQuery
             .builder(ORDERS, row -> new ItemRow(row.get(ORDER_ID), row.get(PRODUCT)))
-            .columns(ColumnSet.of(ORDER_ID, PRODUCT))
+            .select(SelectSet.of(ORDER_ID, PRODUCT))
             .groupBy(ORDER_ID, PRODUCT)
             .customize((spec, joins, query, cb, phase) -> {
                 Root<OrderItemEntity> a = query.from(OrderItemEntity.class);

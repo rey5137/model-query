@@ -34,7 +34,7 @@ public record OrderView(
 ```java
 List<OrderView> rows = executor.list(
         QOrderView.query()
-                .columns(QOrderView.DEFAULT, QOrderView.CUSTOMER)
+                .select(QOrderView.DEFAULT, QOrderView.CUSTOMER)
                 .where(f -> f.eq(QOrderView.STATUS, Optional.of("PAID"))
                              .range(QOrderView.CREATED_AT, from, to)
                              .eq(QOrderView.CUSTOMER_COUNTRY, country))

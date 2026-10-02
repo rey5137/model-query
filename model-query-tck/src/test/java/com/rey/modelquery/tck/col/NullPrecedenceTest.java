@@ -3,13 +3,13 @@ package com.rey.modelquery.tck.col;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.JoinContext;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.OrderField;
 import com.rey.modelquery.core.SelectField;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
@@ -57,7 +57,7 @@ class NullPrecedenceTest {
     /** The ids of the nullable-sort rows, ordered by the test. */
     private static final ModelQuery.Builder<NullableSortEntity, Object, SortView> SORT_IDS = ModelQuery
             .builder(ROOT, row -> new SortView(row.get(ID)))
-            .columns(ColumnSet.of(ID));
+            .select(SelectSet.of(ID));
 
     @TckTest
     void ac_col_08_nulls_first_and_last_give_identical_orderings_on_every_vendor(TckDatabase db) {

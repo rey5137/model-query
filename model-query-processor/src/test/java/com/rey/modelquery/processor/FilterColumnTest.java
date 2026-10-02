@@ -117,8 +117,8 @@ class FilterColumnTest {
                 .contains("ColumnField<BasketView, BasketEntity, String> CITY = "
                         + "ColumnField.of(BasketView.class, ROOT, \"address.city\", String.class);")
                 // Not mapped, and in no column set.
-                .contains("ColumnSet<BasketView> ALL = ColumnSet.of(ID);")
-                .contains("ColumnSet<BasketView> CUSTOMER = ColumnSet.of(CUSTOMER_ID, CUSTOMER_NAME);")
+                .contains("SelectSet<BasketView> ALL = SelectSet.of(ID);")
+                .contains("SelectSet<BasketView> CUSTOMER = SelectSet.of(CUSTOMER_ID, CUSTOMER_NAME);")
                 .doesNotContain("row.get(CITY)");
         // The joins are the @Join's own: neither is declared a second time.
         assertThat(generated.split("join\\(", -1)).hasSize(1 + 3);

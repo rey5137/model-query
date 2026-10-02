@@ -7,7 +7,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryExecutionException;
@@ -15,9 +14,10 @@ import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.Slice;
-import com.rey.modelquery.core.SortSpec;
 import com.rey.modelquery.core.SortSpec.Key;
+import com.rey.modelquery.core.SortSpec;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.spring.data.ModelPage;
 import com.rey.modelquery.tck.col.CustomerEntity;
@@ -37,8 +37,8 @@ import javax.sql.DataSource;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.SliceImpl;
-import org.springframework.data.domain.Sort;
 import org.springframework.data.domain.Sort.Order;
+import org.springframework.data.domain.Sort;
 
 /** {@code ModelQueryRepository.findPage} over the plain-JPA executor's {@code page} (integration/50 §2). */
 class FindPageTest {
@@ -78,7 +78,7 @@ class FindPageTest {
 
     private static final ModelQuery<OrderEntity, ?, BuyerRow> BUYER_ROWS = ModelQuery
             .builder(ORDERS, row -> new BuyerRow(row.get(BUYER_ROW_ID), row.get(BUYER_NAME), row.get(REFERRER_ID)))
-            .columns(ColumnSet.of(BUYER_ROW_ID, BUYER_NAME, REFERRER_ID))
+            .select(SelectSet.of(BUYER_ROW_ID, BUYER_NAME, REFERRER_ID))
             .primaryKey(PrimaryKey.of(BUYER_ROW_ID))
             .orderBy(BUYER_ROW_ID.asc())
             .build();
@@ -93,7 +93,7 @@ class FindPageTest {
     /** A quarter of the orders, ordered by id descending, so an unsorted page is told apart from an ascending one. */
     private static final ModelQuery<OrderEntity, ?, OrderRow> NEW_ORDERS = ModelQuery
             .builder(ORDERS, row -> new OrderRow(row.get(ID), row.get(STATUS), row.get(TOTAL)))
-            .columns(ColumnSet.of(ID, STATUS, TOTAL))
+            .select(SelectSet.of(ID, STATUS, TOTAL))
             .primaryKey(PrimaryKey.of(ID))
             .orderBy(ID.desc())
             .where(f -> f.eq(STATUS, Optional.of("NEW")))
@@ -161,7 +161,7 @@ class FindPageTest {
                 String.class);
         var id = ColumnField.of(TwoNames.class, ORDERS, "id", Long.class);
         var twoNames = ModelQuery.builder(ORDERS, row -> new TwoNames(row.get(id), row.get(first), row.get(second)))
-                .columns(ColumnSet.of(id, first, second))
+                .select(SelectSet.of(id, first, second))
                 .primaryKey(PrimaryKey.of(id))
                 .build();
 
@@ -174,7 +174,7 @@ class FindPageTest {
         // "total" is the property path of a column reading status, and TOTAL's attribute path (D-58).
         var renamed = ColumnField.of(OrderRow.class, ORDERS, "status", String.class).named("total");
         var q = ModelQuery.builder(ORDERS, row -> new OrderRow(row.get(ID), row.get(renamed), row.get(TOTAL)))
-                .columns(ColumnSet.of(ID, renamed, TOTAL))
+                .select(SelectSet.of(ID, renamed, TOTAL))
                 .primaryKey(PrimaryKey.of(ID))
                 .build();
 
@@ -186,7 +186,7 @@ class FindPageTest {
     @TckTest
     void ac_spr_05_a_sort_on_an_ungrouped_query_without_a_primary_key_throws_mq2301(TckDatabase db) {
         var q = ModelQuery.builder(ORDERS, row -> new OrderRow(row.get(ID), row.get(STATUS), row.get(TOTAL)))
-                .columns(ColumnSet.of(ID, STATUS, TOTAL))
+                .select(SelectSet.of(ID, STATUS, TOTAL))
                 .orderBy(ID.desc())
                 .build();
 

@@ -32,7 +32,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1103` | Two `Agg.of` fields share a name with different expressions | `api/13` R-AGG-02 |
 | `MQ1104` | `as(...)`, `on(...)` or `presentBy(...)` on a root `TableField`, which is not a join | `api/10` R-COL-03, R-COL-04 |
 | `MQ1201` | `keyset()` or `primaryKeyFirst(...)` without a primary key | `api/11` R-QRY-03 |
-| `MQ1202` | `build()` without `columns` | `api/11` R-QRY-02 |
+| `MQ1202` | `build()` without `select` | `api/11` R-QRY-02 |
 | `MQ1203` | `ModelQuery.builder`, `ModelUpdate.builder` or `ModelDelete.builder` given a join instead of a root `TableField` | `api/11` R-QRY-02, `api/14` R-WRT-12 |
 | `MQ1204` | `PrimaryKeyFirst.whenOffsetAbove` with a negative offset | `api/11` R-QRY-03 |
 | `MQ1205` | A `QueryCustomizer` changed the `ORDER BY` or `GROUP BY` of a phase | `api/11` R-QRY-11 |

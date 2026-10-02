@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.BuiltQuery;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
@@ -17,6 +16,7 @@ import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowMapper;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Tuple;
@@ -160,7 +160,7 @@ class KeysetTest {
     @SafeVarargs
     private static ModelQuery<KeysetRowEntity, Long, Row3> query(OrderField<Row3, ?>... order) {
         return ModelQuery.builder(ROOT, MAPPER)
-                .columns(ColumnSet.of(ID, A, B, C))
+                .select(SelectSet.of(ID, A, B, C))
                 .primaryKey(PrimaryKey.of(ID))
                 .orderBy(order)
                 .keyset()
@@ -420,7 +420,7 @@ class KeysetTest {
     @Test
     void ac_qa_04_a_key_only_keyset_orders_by_the_key_ascending_and_selects_the_keys_after_the_cursor() {
         // No order of its own: the key alone orders and pages, as a write's key loop does (D-63).
-        var q = ModelQuery.builder(ROOT, MAPPER).columns(ColumnSet.of(ID, A, B, C)).primaryKey(PrimaryKey.of(ID))
+        var q = ModelQuery.builder(ROOT, MAPPER).select(SelectSet.of(ID, A, B, C)).primaryKey(PrimaryKey.of(ID))
                 .build();
         Keyset<Row3> keyset = Keyset.ofKey(q.primaryKey().orElseThrow());
         List<Long> ids = rows.stream().map(Row3::id).sorted().toList();

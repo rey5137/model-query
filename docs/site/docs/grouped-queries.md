@@ -13,7 +13,7 @@ public record OrderTotals(
 
 ```java
 var totals = QOrderTotals.query()
-        .columns(QOrderTotals.GROUP_KEYS.with(QOrderTotals.ORDERS, QOrderTotals.REVENUE))
+        .select(QOrderTotals.GROUP_KEYS.with(QOrderTotals.ORDERS, QOrderTotals.REVENUE))
         .orderBy(QOrderTotals.STATUS.asc())
         .build();
 
@@ -56,7 +56,7 @@ Aggregates cannot appear in `where` and plain columns cannot appear in `having`:
 
 ```java
 var q = QOrderTotals.query()
-        .columns(QOrderTotals.GROUP_KEYS.with(QOrderTotals.ORDERS, QOrderTotals.REVENUE))
+        .select(QOrderTotals.GROUP_KEYS.with(QOrderTotals.ORDERS, QOrderTotals.REVENUE))
         .where(f -> f.eq(QOrderTotals.STATUS, "PAID"))
         .having(h -> h.gte(QOrderTotals.REVENUE, minRevenue))
         .orderBy(QOrderTotals.REVENUE.desc())

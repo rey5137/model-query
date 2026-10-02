@@ -38,7 +38,7 @@ public record BookView(@PrimaryKey Long id, String title, Integer released) {}
 
 ```java
 private static final ModelQuery<BookEntity, Long, BookView> BOOKS = QBookView.query()
-        .columns(QBookView.ALL)
+        .select(QBookView.ALL)
         .orderBy(QBookView.TITLE.asc())
         .build();
 

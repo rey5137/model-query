@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryExecutionException;
@@ -12,6 +11,7 @@ import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.OrderField;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.KeysetNullKeys;
 import com.rey.modelquery.jpa.ModelQueryConfig;
@@ -60,7 +60,7 @@ class NullOrderingTest {
     /** Every nullable-sort row, keyset-paged: 3 000 rows. */
     private static final ModelQuery.Builder<NullableSortEntity, Long, SortRow> SORT_ROWS = ModelQuery
             .builder(ROOT, row -> new SortRow(row.get(ID), row.get(SORT_INT), row.get(SORT_TEXT), row.get(SORT_TS)))
-            .columns(ColumnSet.of(ID, SORT_INT, SORT_TEXT, SORT_TS))
+            .select(SelectSet.of(ID, SORT_INT, SORT_TEXT, SORT_TS))
             .primaryKey(PrimaryKey.of(ID))
             .keyset();
 

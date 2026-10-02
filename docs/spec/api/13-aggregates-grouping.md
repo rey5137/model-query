@@ -82,7 +82,7 @@ stays a `Long`. `sum`, `sumAsLong` and `avg` keep `MQ1408` for every converter (
 
 ```java
 ModelQuery<OrderItemEntity, ?, ProductSales> q = QProductSales.query()
-        .columns(QProductSales.GROUP_KEYS.with(LINES, REVENUE))
+        .select(QProductSales.GROUP_KEYS.with(LINES, REVENUE))
         .where(f -> f.range(QProductSales.PLACED_AT, from, to)
                      .in(QProductSales.REGION, regions)
                      .not(g -> g.eq(QProductSales.ORDER_STATUS, OrderStatus.CANCELLED)))
@@ -93,9 +93,9 @@ ModelQuery<OrderItemEntity, ?, ProductSales> q = QProductSales.query()
         .build();
 ```
 
-**R-AGG-05** `groupBy` accepts a `ColumnSet<M>` or explicit `ColumnField`s. Passing a `ColumnSet` keeps the group-by
+**R-AGG-05** `groupBy` accepts a `SelectSet<M>` or explicit `ColumnField`s. Passing a `SelectSet` keeps the group-by
 list and the selection in step from one constant, which is where hand-written builders drift. A
-`ColumnSet` holding an aggregate throws `MQ1404`, since an aggregate cannot be a group key.
+`SelectSet` holding an aggregate throws `MQ1404`, since an aggregate cannot be a group key.
 
 **R-AGG-06** `having(UnaryOperator<Having<M>>)` is the `Filters` DSL (`api/12`) over `AggregateField` instead of
 `ColumnField`, with the same skip and `Optional` semantics. Aggregates cannot appear in `where` and plain columns cannot
@@ -128,14 +128,14 @@ use `list`, `stream` or offset `export`.
 
 **R-AGG-11** `count` over a grouped query counts groups, not rows (`engine/20` R-EXE-03).
 
-**R-AGG-12** Generated `ColumnSet`s (`DEFAULT`, `ALL`) never include aggregates, since including one would turn every
+**R-AGG-12** Generated `SelectSet`s (`DEFAULT`, `ALL`) never include aggregates, since including one would turn every
 plain query into a grouped one. Aggregates are added explicitly with `with(...)`.
 
 ## 5. Generated support
 
 `processor/30` defines `@Aggregate` and `@GroupBy`; `processor/31` defines what they generate. In short: an
 `@Aggregate` field yields one `AggregateField` constant and is mapped like any other column, `@GroupBy` fields form the
-generated `GROUP_KEYS` `ColumnSet`, and `QProductSales.query()` comes pre-configured with `groupBy(GROUP_KEYS)`.
+generated `GROUP_KEYS` `SelectSet`, and `QProductSales.query()` comes pre-configured with `groupBy(GROUP_KEYS)`.
 
 ## 6. Acceptance criteria
 

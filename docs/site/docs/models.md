@@ -46,7 +46,7 @@ NULL.
 For `OrderView` you get `QOrderView` with:
 
 - a `ColumnField` constant per field (`ID`, `STATUS`, `TOTAL`), and per joined column (`CUSTOMER_NAME`);
-- a `ColumnSet` named `ALL` with the model's own columns, `DEFAULT` (the same minus `@ExcludeFromDefaults`), and one set
+- a `SelectSet` named `ALL` with the model's own columns, `DEFAULT` (the same minus `@ExcludeFromDefaults`), and one set
   per `@Join` (`CUSTOMER`);
 - a constant per `@FilterColumn`, and a `TableField` for every collection association on the root (`ITEMS_TABLE`),
   which you use with `Filters.exists`;
@@ -55,13 +55,13 @@ For `OrderView` you get `QOrderView` with:
 
 ```java
 var q = QOrderView.query()
-        .columns(QOrderView.ALL.with(QOrderView.CUSTOMER))
+        .select(QOrderView.ALL.with(QOrderView.CUSTOMER))
         .where(f -> f.eq(QOrderView.CUSTOMER_COUNTRY, "DE"))
         .orderBy(QOrderView.CUSTOMER_NAME.asc().nullsFirst(), QOrderView.ID.desc())
         .build();
 ```
 
-A `ColumnSet` is immutable: `with(...)` and `without(...)` return copies, so a shared constant cannot be changed by
+A `SelectSet` is immutable: `with(...)` and `without(...)` return copies, so a shared constant cannot be changed by
 one caller and affect another.
 
 ## Joins

@@ -12,12 +12,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.google.testing.compile.Compilation;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.RowMapper;
 import com.rey.modelquery.core.SelectField;
-import com.rey.modelquery.core.SortSpec;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.SortSpec.Key;
+import com.rey.modelquery.core.SortSpec;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.net.URL;
@@ -94,14 +94,14 @@ class GenerationTest {
 
         assertThat(after).succeededWithoutWarnings();
         assertThat(generatedFlat(before, "shop.QInvoiceView"))
-                .contains("ColumnSet<InvoiceView> CUSTOMER = ColumnSet.of(CUSTOMER_ID, CUSTOMER_NAME);")
+                .contains("SelectSet<InvoiceView> CUSTOMER = SelectSet.of(CUSTOMER_ID, CUSTOMER_NAME);")
                 .doesNotContain("EMAIL");
         assertThat(generatedFlat(after, "shop.QInvoiceView"))
                 .contains("ColumnField<InvoiceView, CustomerEntity, String> CUSTOMER_EMAIL = "
                         + "QCustomerView.EMAIL.withTable(InvoiceView.class, CUSTOMER_TABLE);")
-                .contains("ColumnSet<InvoiceView> CUSTOMER = ColumnSet.of(CUSTOMER_ID, CUSTOMER_NAME, "
+                .contains("SelectSet<InvoiceView> CUSTOMER = SelectSet.of(CUSTOMER_ID, CUSTOMER_NAME, "
                         + "CUSTOMER_EMAIL);")
-                .contains("ColumnSet<InvoiceView> BUYER = ColumnSet.of(BUYER_ID, BUYER_NAME, BUYER_EMAIL);");
+                .contains("SelectSet<InvoiceView> BUYER = SelectSet.of(BUYER_ID, BUYER_NAME, BUYER_EMAIL);");
     }
 
     @Test
@@ -139,11 +139,11 @@ class GenerationTest {
     @SuppressWarnings({"unchecked", "rawtypes"})
     private static ModelQuery<?, ?, ?> selectingAll(Class<?> qModel, String... sets)
             throws ReflectiveOperationException {
-        ColumnSet columns = (ColumnSet) qModel.getField(sets[0]).get(null);
+        SelectSet columns = (SelectSet) qModel.getField(sets[0]).get(null);
         for (int i = 1; i < sets.length; i++) {
-            columns = columns.with((ColumnSet) qModel.getField(sets[i]).get(null));
+            columns = columns.with((SelectSet) qModel.getField(sets[i]).get(null));
         }
-        return ((ModelQuery.Builder) qModel.getMethod("query").invoke(null)).columns(columns).build();
+        return ((ModelQuery.Builder) qModel.getMethod("query").invoke(null)).select(columns).build();
     }
 
     @Test
@@ -215,7 +215,7 @@ class GenerationTest {
                 .contains("ColumnField.of(OrderRow.class, ROOT, \"createdAt\", Instant.class)")
                 .contains("ColumnField.of(OrderRow.class, ROOT, \"address.city\", String.class)")
                 .contains("ColumnField<OrderRow, OrderEntity, Integer> QUANTITY")
-                .contains("ColumnSet.of(ID, CREATED_AT, CITY, QUANTITY)");
+                .contains("SelectSet.of(ID, CREATED_AT, CITY, QUANTITY)");
     }
 
     @Test
@@ -253,8 +253,8 @@ class GenerationTest {
                 model("GetterRow", "GetterIdEntity", "@PrimaryKey Long id, String name"));
 
         assertThat(compilation).succeededWithoutWarnings();
-        assertThat(generatedFlat(compilation, "models.QPropertyRow")).contains("ColumnSet.of(ID, LABEL, ACTIVE, RANK)");
-        assertThat(generatedFlat(compilation, "models.QGetterRow")).contains("ColumnSet.of(ID, NAME)");
+        assertThat(generatedFlat(compilation, "models.QPropertyRow")).contains("SelectSet.of(ID, LABEL, ACTIVE, RANK)");
+        assertThat(generatedFlat(compilation, "models.QGetterRow")).contains("SelectSet.of(ID, NAME)");
     }
 
     @Test
@@ -571,7 +571,7 @@ import java.util.stream.Stream;
         assertThat(compilation).succeededWithoutWarnings();
         assertThat(generatedFlat(compilation, "odd.QOddView"))
                 .contains("(Class<Map<String, String>>) (Class<?>) Map.class")
-                .contains("ColumnSet.of(ID, LABELS, A$B)");
+                .contains("SelectSet.of(ID, LABELS, A$B)");
     }
 
     @Test

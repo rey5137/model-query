@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
@@ -14,6 +13,7 @@ import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.OrderField;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
@@ -63,7 +63,7 @@ class KeysetExportTest {
     /** Every order item, keyset-paged: 20 000 rows. */
     private static final ModelQuery.Builder<OrderItemEntity, Long, ItemRow> ITEM_ROWS = ModelQuery
             .builder(ITEMS, row -> new ItemRow(row.get(ITEM_ID), row.get(ITEM_PRODUCT), row.get(ITEM_QUANTITY)))
-            .columns(ColumnSet.of(ITEM_ID, ITEM_PRODUCT, ITEM_QUANTITY))
+            .select(SelectSet.of(ITEM_ID, ITEM_PRODUCT, ITEM_QUANTITY))
             .primaryKey(PrimaryKey.of(ITEM_ID))
             .keyset();
 
@@ -86,7 +86,7 @@ class KeysetExportTest {
 
     private static final ModelQuery.Builder<OrderEntity, Long, OrderRow> ORDER_ROWS = ModelQuery
             .builder(ORDERS, row -> new OrderRow(row.get(ORDER_ID), row.get(ORDER_STATUS)))
-            .columns(ColumnSet.of(ORDER_ID, ORDER_STATUS))
+            .select(SelectSet.of(ORDER_ID, ORDER_STATUS))
             .primaryKey(PrimaryKey.of(ORDER_ID))
             .keyset();
 
@@ -105,7 +105,7 @@ class KeysetExportTest {
     private static final ModelQuery.Builder<NullableSortEntity, Long, SortRow> SORT_ROWS_QUERY = ModelQuery
             .builder(SORT_ROWS, row -> new SortRow(row.get(SORT_ID), row.get(SORT_INT), row.get(SORT_TEXT),
                     row.get(SORT_TS)))
-            .columns(ColumnSet.of(SORT_ID, SORT_INT, SORT_TEXT, SORT_TS))
+            .select(SelectSet.of(SORT_ID, SORT_INT, SORT_TEXT, SORT_TS))
             .primaryKey(PrimaryKey.of(SORT_ID))
             .keyset();
 
@@ -195,7 +195,7 @@ class KeysetExportTest {
         // reads them from the row (R-PAG-04, D-29). Eight countries over 5 000 orders tie heavily.
         var byCountry = ORDER_ROWS.orderBy(ORDER_COUNTRY.asc()).build();
         var byTotal = ORDER_ROWS.orderBy(ORDER_TOTAL.desc()).build();
-        assertThat(byCountry.columns().columns()).doesNotContain(ORDER_COUNTRY, ORDER_TOTAL);
+        assertThat(byCountry.select().fields()).doesNotContain(ORDER_COUNTRY, ORDER_TOTAL);
         List<Long> expectedByCountry = new ArrayList<>();
         List<Long> expectedByTotal = new ArrayList<>();
         inSession(db, em -> {
@@ -375,7 +375,7 @@ class KeysetExportTest {
     @TckTest
     void ac_pag_12_keyset_paging_selecting_through_a_to_many_join_throws_mq2204_naming_the_join(TckDatabase db) {
         var selected = ModelQuery.builder(ORDERS, row -> new OrderRow(row.get(ORDER_ID), row.get(ORDER_ITEM_PRODUCT)))
-                .columns(ColumnSet.of(ORDER_ID, ORDER_ITEM_PRODUCT))
+                .select(SelectSet.of(ORDER_ID, ORDER_ITEM_PRODUCT))
                 .primaryKey(PrimaryKey.of(ORDER_ID))
                 .keyset()
                 .build();

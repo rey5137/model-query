@@ -15,11 +15,11 @@ import com.google.testing.compile.Compilation;
 import com.rey.modelquery.core.Assignment;
 import com.rey.modelquery.core.Changes;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.SelectField;
+import com.rey.modelquery.core.SelectSet;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
@@ -82,7 +82,7 @@ class UpdateModelTest {
         String changes = generatedFlat(compilation, "patch.OrderEditChanges");
         assertThat(changes)
                 .contains("private OrderStatus status; private String note; private String city; public")
-                .contains("public static OrderEditChanges from(OrderEdit model, ColumnSet<OrderEdit> columns)")
+                .contains("public static OrderEditChanges from(OrderEdit model, SelectSet<OrderEdit> columns)")
                 .contains("changes.status(model.status());")
                 .doesNotContain("QOrderEdit.ID", "CUSTOMER", "Optional");
         assertThat(generatedFlat(compilation, "patch.PaidViewChanges"))
@@ -189,21 +189,21 @@ class UpdateModelTest {
         ClassLoader loader = classes(compile(UpdateModelSources.ORDER_EDIT_SOURCES));
         Class<?> model = loader.loadClass("patch.OrderEdit");
         Class<?> changesClass = loader.loadClass("patch.OrderEditChanges");
-        Method from = changesClass.getMethod("from", model, ColumnSet.class);
+        Method from = changesClass.getMethod("from", model, SelectSet.class);
         ColumnField<Object, ?, ?> status = constant(loader, "patch.QOrderEdit", "STATUS");
         ColumnField<Object, ?, ?> note = constant(loader, "patch.QOrderEdit", "NOTE");
         ColumnField<Object, ?, ?> city = constant(loader, "patch.QOrderEdit", "CITY");
         Object view = model.getConstructors()[0].newInstance(7L, null, "rush", null, Optional.empty());
 
-        Changes<Object> copied = changes(invoke(from, view, ColumnSet.of(status, note, city)));
-        Changes<Object> partial = changes(invoke(from, view, ColumnSet.of(note)));
+        Changes<Object> copied = changes(invoke(from, view, SelectSet.of(status, note, city)));
+        Changes<Object> partial = changes(invoke(from, view, SelectSet.of(note)));
 
         assertThat(copied.assignments()).containsExactly(
                 Assignment.ofNull(status), assignment(note, "rush"), Assignment.ofNull(city));
         assertThat(partial.assignments()).containsExactly(assignment(note, "rush"));
         for (String constant : new String[] {"ID", "CUSTOMER_NAME", "CUSTOMER_COUNTRY"}) {
             SelectField<Object, ?> column = constant(loader, "patch.QOrderEdit", constant);
-            assertThatThrownBy(() -> invoke(from, view, ColumnSet.of(note, column)))
+            assertThatThrownBy(() -> invoke(from, view, SelectSet.of(note, column)))
                     .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ1607))
                     .hasMessage("MQ1607: " + column + ": not a column OrderEditChanges writes; a change set "
@@ -221,7 +221,7 @@ class UpdateModelTest {
         ColumnField<Object, ?, ?> note = constant(loader, "patch.QPaidView", "NOTE");
 
         Changes<Object> copied = changes(invoke(loader.loadClass("patch.PaidViewChanges")
-                .getMethod("from", model, ColumnSet.class), view, ColumnSet.of(paid, note)));
+                .getMethod("from", model, SelectSet.class), view, SelectSet.of(paid, note)));
 
         assertThat(copied.assignments()).containsExactly(assignment(paid, true), Assignment.ofNull(note));
     }

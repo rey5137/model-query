@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.ModelQuery;
@@ -16,6 +15,7 @@ import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.PrimaryKeyFirst;
 import com.rey.modelquery.core.QueryCustomizer;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
@@ -64,7 +64,7 @@ class PrimaryKeyFirstTest {
     /** Every order item, 20 000 rows, over 50 product codes: each sort key is shared by 400 rows. */
     private static final ModelQuery.Builder<OrderItemEntity, Long, ItemRow> BY_PRODUCT = ModelQuery
             .builder(ITEMS, row -> new ItemRow(row.get(ITEM_ID), row.get(ITEM_PRODUCT)))
-            .columns(ColumnSet.of(ITEM_ID, ITEM_PRODUCT))
+            .select(SelectSet.of(ITEM_ID, ITEM_PRODUCT))
             .primaryKey(PrimaryKey.of(ITEM_ID))
             .orderBy(ITEM_PRODUCT.asc());
 
@@ -80,7 +80,7 @@ class PrimaryKeyFirstTest {
     /** Every composite-key item, 2 000 rows, over 25 labels: each sort key is shared by 80 rows. */
     private static final ModelQuery.Builder<CompositeKeyItemEntity, List<Object>, TenantItem> BY_LABEL = ModelQuery
             .builder(TENANT_ITEMS, row -> new TenantItem(row.get(TENANT_ID), row.get(ITEM_NO), row.get(LABEL)))
-            .columns(ColumnSet.of(TENANT_ID, ITEM_NO, LABEL))
+            .select(SelectSet.of(TENANT_ID, ITEM_NO, LABEL))
             .primaryKey(PrimaryKey.composite(TENANT_ID, ITEM_NO))
             .orderBy(LABEL.desc());
 
@@ -96,7 +96,7 @@ class PrimaryKeyFirstTest {
 
     private static final ModelQuery.Builder<OrderEntity, Long, OrderRow> ORDER_ROWS = ModelQuery
             .builder(ORDERS, row -> new OrderRow(row.get(ORDER_ID), row.get(ORDER_STATUS)))
-            .columns(ColumnSet.of(ORDER_ID, ORDER_STATUS))
+            .select(SelectSet.of(ORDER_ID, ORDER_STATUS))
             .primaryKey(PrimaryKey.of(ORDER_ID));
 
     // ---- AC-PAG-08
@@ -263,7 +263,7 @@ class PrimaryKeyFirstTest {
         var id = ColumnField.of(SortRow.class, sortRows, "id", Long.class);
         var sortInt = ColumnField.of(SortRow.class, sortRows, "sortInt", Integer.class);
         var nullableKey = ModelQuery.builder(sortRows, row -> new SortRow(row.get(id), row.get(sortInt)))
-                .columns(ColumnSet.of(id))
+                .select(SelectSet.of(id))
                 .primaryKey(PrimaryKey.of(sortInt))
                 .orderBy(id.asc())
                 .primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0))
@@ -279,7 +279,7 @@ class PrimaryKeyFirstTest {
     @TckTest
     void ac_pag_12_primary_key_first_paging_selecting_through_a_to_many_join_throws_mq2204(TckDatabase db) {
         var selected = ModelQuery.builder(ORDERS, row -> new OrderRow(row.get(ORDER_ID), row.get(ORDER_ITEM_PRODUCT)))
-                .columns(ColumnSet.of(ORDER_ID, ORDER_ITEM_PRODUCT))
+                .select(SelectSet.of(ORDER_ID, ORDER_ITEM_PRODUCT))
                 .primaryKey(PrimaryKey.of(ORDER_ID))
                 .primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(100))
                 .build();

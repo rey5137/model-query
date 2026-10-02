@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Limit;
@@ -17,6 +16,7 @@ import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.QueryCustomizer;
 import com.rey.modelquery.core.RowMapper;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.core.SortSpec;
 import com.rey.modelquery.core.TableField;
@@ -79,7 +79,7 @@ class OffsetExportTest {
     /** Every order item: 20 000 rows. */
     private static final ModelQuery.Builder<OrderItemEntity, Long, ItemRow> ITEM_ROWS = ModelQuery
             .builder(ITEMS, row -> new ItemRow(row.get(ITEM_ID), row.get(ITEM_PRODUCT)))
-            .columns(ColumnSet.of(ITEM_ID, ITEM_PRODUCT))
+            .select(SelectSet.of(ITEM_ID, ITEM_PRODUCT))
             .primaryKey(PrimaryKey.of(ITEM_ID));
 
     private static final TableField<OrderEntity, OrderEntity> ORDERS = TableField.root(OrderEntity.class);
@@ -94,7 +94,7 @@ class OffsetExportTest {
 
     private static final ModelQuery.Builder<OrderEntity, Long, OrderRow> ORDER_ROWS = ModelQuery
             .builder(ORDERS, row -> new OrderRow(row.get(ORDER_ID), row.get(ORDER_STATUS)))
-            .columns(ColumnSet.of(ORDER_ID, ORDER_STATUS))
+            .select(SelectSet.of(ORDER_ID, ORDER_STATUS))
             .primaryKey(PrimaryKey.of(ORDER_ID));
 
     // ---- AC-QRY-13
@@ -176,7 +176,7 @@ class OffsetExportTest {
     void ac_pag_01_the_export_appends_the_primary_key_to_the_callers_order(TckDatabase db) {
         // 400 items of product P001 over nine quantities, three pages of 150: the SQL shows the tie-breaker.
         var p001 = ModelQuery.builder(ITEMS, row -> new ItemRow(row.get(ITEM_ID), row.get(ITEM_PRODUCT)))
-                .columns(ColumnSet.of(ITEM_ID, ITEM_PRODUCT))
+                .select(SelectSet.of(ITEM_ID, ITEM_PRODUCT))
                 .primaryKey(PrimaryKey.of(ITEM_ID))
                 .where(f -> f.eq(ITEM_PRODUCT, Optional.of("P001")))
                 .orderBy(ITEM_QUANTITY.desc())
@@ -242,7 +242,7 @@ class OffsetExportTest {
                     mapped.incrementAndGet();
                     return new ItemRow(row.get(ITEM_ID), row.get(ITEM_PRODUCT));
                 })
-                .columns(ColumnSet.of(ITEM_ID, ITEM_PRODUCT))
+                .select(SelectSet.of(ITEM_ID, ITEM_PRODUCT))
                 .primaryKey(PrimaryKey.of(ITEM_ID))
                 .orderBy(ITEM_PRODUCT.asc())
                 .build();
@@ -293,14 +293,14 @@ class OffsetExportTest {
     /** The column set names the product only; the mapper reads the key the engine added. */
     private static final ModelQuery<OrderItemEntity, Long, ItemRow> WITHOUT_KEY_COLUMN = ModelQuery
             .builder(ITEMS, row -> new ItemRow(row.get(ITEM_ID), row.get(ITEM_PRODUCT)))
-            .columns(ColumnSet.of(ITEM_PRODUCT))
+            .select(SelectSet.of(ITEM_PRODUCT))
             .primaryKey(PrimaryKey.of(ITEM_ID))
             .orderBy(ITEM_PRODUCT.desc())
             .build();
 
     @TckTest
     void ac_pag_03_an_export_whose_column_set_omits_the_primary_key_still_succeeds(TckDatabase db) {
-        assertThat(WITHOUT_KEY_COLUMN.columns().columns()).doesNotContain(ITEM_ID);
+        assertThat(WITHOUT_KEY_COLUMN.select().fields()).doesNotContain(ITEM_ID);
         List<Long> ids = new ArrayList<>();
         withExecutor(db, OrderItemEntity.class, executor -> executor.export(WITHOUT_KEY_COLUMN,
                 ExportOptions.of(700), page -> page, row -> ids.add(row.id())));
@@ -337,7 +337,7 @@ class OffsetExportTest {
     void ac_pag_04_a_primary_key_mapped_to_null_throws_mq2201_naming_the_model(TckDatabase db) {
         // sortInt is null on every fifth row, so the misdeclared key is null on row 5 of the first page.
         var nullableKey = ModelQuery.builder(SORT_ROWS, row -> new SortRow(row.get(SORT_ID), row.get(SORT_INT)))
-                .columns(ColumnSet.of(SORT_ID))
+                .select(SelectSet.of(SORT_ID))
                 .primaryKey(PrimaryKey.of(SORT_INT))
                 .orderBy(SORT_ID.asc())
                 .build();
@@ -354,7 +354,7 @@ class OffsetExportTest {
     @TckTest
     void offset_export_of_a_query_without_a_primary_key_throws_mq2203_without_querying(TckDatabase db) {
         var noKey = ModelQuery.builder(ORDERS, row -> new OrderRow(row.get(ORDER_ID), row.get(ORDER_STATUS)))
-                .columns(ColumnSet.of(ORDER_ID, ORDER_STATUS))
+                .select(SelectSet.of(ORDER_ID, ORDER_STATUS))
                 .build();
         List<String> sql = SqlSnapshots.assertMatches(db, "pag-no-primary-key", ds -> withExecutor(ds,
                 OrderEntity.class, executor -> assertThatThrownBy(
@@ -370,7 +370,7 @@ class OffsetExportTest {
     @TckTest
     void ac_pag_12_offset_export_selecting_through_a_to_many_join_throws_mq2204_naming_the_join(TckDatabase db) {
         var selected = ModelQuery.builder(ORDERS, row -> new OrderRow(row.get(ORDER_ID), row.get(ORDER_ITEM_PRODUCT)))
-                .columns(ColumnSet.of(ORDER_ID, ORDER_ITEM_PRODUCT))
+                .select(SelectSet.of(ORDER_ID, ORDER_ITEM_PRODUCT))
                 .primaryKey(PrimaryKey.of(ORDER_ID))
                 .build();
         // Ordering keys are selected too (R-QRY-04, D-29), and ordering through the join repeats the key as well.
@@ -431,7 +431,7 @@ class OffsetExportTest {
                 .bind(L_ID, (m, v) -> m.id = v)
                 .bind(L_STATUS, (m, v) -> m.status = v);
         var q = ModelQuery.builder(ORDERS, mapper)
-                .columns(ColumnSet.of(L_ID, L_STATUS, L_TOTAL))
+                .select(SelectSet.of(L_ID, L_STATUS, L_TOTAL))
                 .primaryKey(PrimaryKey.of(L_ID))
                 .orderBy(L_STATUS.asc())
                 .afterMap((m, row) -> {

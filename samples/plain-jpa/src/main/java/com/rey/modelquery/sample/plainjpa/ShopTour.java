@@ -67,7 +67,7 @@ public final class ShopTour {
 
         // A filtered page of order views, each with its customer, if any.
         var paid = QOrderView.query()
-                .columns(QOrderView.ALL.with(QOrderView.CUSTOMER))
+                .select(QOrderView.ALL.with(QOrderView.CUSTOMER))
                 .where(f -> f.eq(QOrderView.STATUS, "PAID"))
                 .orderBy(QOrderView.ID.asc())
                 .build();
@@ -75,14 +75,14 @@ public final class ShopTour {
 
         // The orders with a keyboard among their items, through the generated table of the collection.
         var withKeyboard = QOrderView.query()
-                .columns(QOrderView.ALL)
+                .select(QOrderView.ALL)
                 .where(f -> f.exists(QOrderView.ITEMS_TABLE, item -> item.eq(QOrderView.ITEM_SKU, "KEYBOARD")))
                 .orderBy(QOrderView.ID.asc())
                 .build();
 
         // Orders and revenue per status.
         var totals = QOrderTotals.query()
-                .columns(QOrderTotals.GROUP_KEYS.with(QOrderTotals.ORDERS, QOrderTotals.REVENUE))
+                .select(QOrderTotals.GROUP_KEYS.with(QOrderTotals.ORDERS, QOrderTotals.REVENUE))
                 .orderBy(QOrderTotals.STATUS.asc())
                 .build();
 

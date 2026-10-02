@@ -15,7 +15,7 @@ model-query/
 ├── README.md  LICENSE  CONTRIBUTING.md  CODE_OF_CONDUCT.md  SECURITY.md  CHANGELOG.md
 ├── model-query-bom/                 version alignment
 ├── model-query-annotations/         @QueryModel and friends                      (no deps)
-├── model-query-core/                TableField, SelectField, ColumnField, AggregateField, ColumnSet,
+├── model-query-core/                TableField, SelectField, ColumnField, AggregateField, SelectSet,
 │                                    Row, RowMapper, ModelQuery, Filters, JoinContext, RenderOptions,
 │                                    SPI interfaces                               (jakarta.persistence-api)
 ├── model-query-jpa/                 executor, ModelQueryConfig, paging and export engine;          (core)

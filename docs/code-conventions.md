@@ -45,13 +45,13 @@ with the code. Silent degradation is how a correct-looking wrong total gets ship
 ## 3. Immutability and thread safety
 
 **CC-IMM-01** Every public type reachable from a `static final` field is immutable: `TableField`, `ColumnField`,
-`AggregateField`, `ColumnSet`, `OrderField`, `ModelQuery`, `PrimaryKey`, `VendorProfile` (INV-9). No lazily-populated
+`AggregateField`, `SelectSet`, `OrderField`, `ModelQuery`, `PrimaryKey`, `VendorProfile` (INV-9). No lazily-populated
 cache field on any of them.
 
 **CC-IMM-02** Per-query mutable state lives in `JoinContext` and nowhere else. A method that needs scratch space takes
 the context; it does not keep a field.
 
-**CC-IMM-03** Collections crossing a public boundary are unmodifiable copies. `ColumnSet.columns()` returns a view that
+**CC-IMM-03** Collections crossing a public boundary are unmodifiable copies. `SelectSet.fields()` returns a view that
 throws on mutation.
 
 **CC-IMM-04** Identity is by key, never by object identity or `==` on a `Class`. Joins use the join key

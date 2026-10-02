@@ -126,14 +126,14 @@ class SampleApplicationTest {
 
             var books = context.getBean(BookRepository.class);
             books.saveAll(List.of(new BookEntity(1L, "Dune", 1965), new BookEntity(2L, "Emma", 1815)));
-            var bookQuery = QBookView.query().columns(QBookView.ALL).orderBy(QBookView.ID.asc()).build();
+            var bookQuery = QBookView.query().select(QBookView.ALL).orderBy(QBookView.ID.asc()).build();
             assertThat(books.findAll(bookQuery, Limit.unlimited())).extracting(BookView::title)
                     .containsExactly("Dune", "Emma");
             assertThat(TIMEOUTS).containsOnlyKeys(DatabaseVendor.H2);
 
             var films = context.getBean(FilmRepository.class);
             films.saveAll(List.of(new FilmEntity(1L, "Alien", 1979), new FilmEntity(2L, "Heat", 1995)));
-            var filmQuery = QFilmView.query().columns(QFilmView.ALL).orderBy(QFilmView.ID.asc()).build();
+            var filmQuery = QFilmView.query().select(QFilmView.ALL).orderBy(QFilmView.ID.asc()).build();
             var filmPage = films.findPage(filmQuery, PageRequest.of(0, 1), CountMode.COUNT);
             assertThat(filmPage.getContent()).extracting(v -> v.title()).containsExactly("Alien");
             assertThat(filmPage.getTotalElements()).isEqualTo(2);
@@ -141,7 +141,7 @@ class SampleApplicationTest {
 
             var songs = context.getBean(SongRepository.class);
             songs.saveAll(List.of(new SongEntity(1L, "Yesterday", 1965)));
-            var songQuery = QSongView.query().columns(QSongView.ALL).orderBy(QSongView.ID.asc()).build();
+            var songQuery = QSongView.query().select(QSongView.ALL).orderBy(QSongView.ID.asc()).build();
             assertThat(songs.findAll(songQuery, Limit.unlimited())).extracting(v -> v.title())
                     .containsExactly("Yesterday");
             assertThat(TIMEOUTS).containsOnlyKeys(DatabaseVendor.H2, DatabaseVendor.POSTGRESQL,

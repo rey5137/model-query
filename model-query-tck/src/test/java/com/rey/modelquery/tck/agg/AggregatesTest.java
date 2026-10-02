@@ -5,11 +5,10 @@ import static jakarta.persistence.criteria.JoinType.INNER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.Agg;
+import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.BuiltQuery;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
@@ -19,6 +18,7 @@ import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.PrimaryKeyFirst;
 import com.rey.modelquery.core.Row;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
@@ -132,7 +132,7 @@ class AggregatesTest {
             row -> new Totals(row.get(CUSTOMER_ID), row.get(STATUS), row.get(SUM_TOTAL), row.get(COUNT)));
 
     private static final ModelQuery.Builder<OrderEntity, Object, Totals> PER_CUSTOMER = TOTALS
-            .columns(ColumnSet.of(CUSTOMER_ID, SUM_TOTAL))
+            .select(SelectSet.of(CUSTOMER_ID, SUM_TOTAL))
             .groupBy(CUSTOMER_ID)
             .orderBy(CUSTOMER_ID.asc());
 
@@ -144,11 +144,11 @@ class AggregatesTest {
 
     @TckTest
     void ac_agg_01_every_agg_function_returns_the_r_agg_03_type(TckDatabase db) {
-        ColumnSet<ItemTotals> columns = ColumnSet.of();
+        SelectSet<ItemTotals> columns = SelectSet.of();
         for (AggregateField<ItemTotals, ?> aggregate : FUNCTIONS.keySet()) {
             columns = columns.with(aggregate);
         }
-        var query = ModelQuery.builder(ITEMS, AggregatesTest::itemTotals).columns(columns).build();
+        var query = ModelQuery.builder(ITEMS, AggregatesTest::itemTotals).select(columns).build();
         List<ItemTotals> results = new ArrayList<>();
         SqlSnapshots.assertMatches(db, "agg-01-functions", ds -> inSession(ds, em -> results.addAll(run(em, query))));
         assertThat(results).hasSize(1);
@@ -229,7 +229,7 @@ class AggregatesTest {
 
     @TckTest
     void ac_agg_03_sum_over_zero_matching_rows_reaches_the_model_as_null_not_zero(TckDatabase db) {
-        var query = TOTALS.columns(ColumnSet.of(SUM_TOTAL, COUNT)).where(f -> f.eq(STATUS, "NO SUCH STATUS")).build();
+        var query = TOTALS.select(SelectSet.of(SUM_TOTAL, COUNT)).where(f -> f.eq(STATUS, "NO SUCH STATUS")).build();
         List<Totals> results = new ArrayList<>();
         inSession(db, em -> results.addAll(run(em, query)));
         assertThat(results).hasSize(1);
@@ -244,14 +244,14 @@ class AggregatesTest {
         AggregateField<Totals, BigDecimal> first = Agg.sum(TOTAL);
         AggregateField<Totals, BigDecimal> second = Agg.sum(TOTAL);
         assertThat(first).isNotSameAs(second).isEqualTo(second).hasSameHashCodeAs(second);
-        assertThat(ColumnSet.of(first, second).columns()).hasSize(1);
+        assertThat(SelectSet.of(first, second).fields()).hasSize(1);
         // as(...) is the way to the same function over the same column twice.
         AggregateField<Totals, BigDecimal> again = first.as("again");
         assertThat(again).isNotEqualTo(first);
-        assertThat(ColumnSet.of(first, again).columns()).hasSize(2);
+        assertThat(SelectSet.of(first, again).fields()).hasSize(2);
 
-        var once = TOTALS.columns(ColumnSet.of(first, second)).build();
-        var twice = TOTALS.columns(ColumnSet.of(first, again)).build();
+        var once = TOTALS.select(SelectSet.of(first, second)).build();
+        var twice = TOTALS.select(SelectSet.of(first, again)).build();
         List<Row> rows = new ArrayList<>();
         SqlSnapshots.assertMatches(db, "agg-04-identical-sums", ds -> inSession(ds, em -> {
             assertThat(once.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable()).query().getSelection()
@@ -276,19 +276,19 @@ class AggregatesTest {
         AggregateField<Totals, BigDecimal> alsoLargest =
                 Agg.of("largest", BigDecimal.class, (ctx, cb) -> cb.max(TOTAL.path(ctx)));
         assertThat(largest).isEqualTo(alsoLargest); // keyed by name (R-AGG-02)
-        var base = TOTALS.columns(ColumnSet.of(largest));
+        var base = TOTALS.select(SelectSet.of(largest));
 
-        assertMq1103(() -> ColumnSet.of(largest, alsoLargest), "ColumnSet.largest");
-        assertMq1103(() -> ColumnSet.of(largest).with(alsoLargest), "ColumnSet.largest");
+        assertMq1103(() -> SelectSet.of(largest, alsoLargest), "SelectSet.largest");
+        assertMq1103(() -> SelectSet.of(largest).with(alsoLargest), "SelectSet.largest");
         assertMq1103(() -> base.orderBy(alsoLargest.desc()).build(), "OrderEntity.largest");
         assertMq1103(() -> base.having(h -> h.gt(alsoLargest, BigDecimal.ONE)).build(), "OrderEntity.largest");
         assertMq1103(() -> base.having(h -> h.or(a -> a.gt(alsoLargest, NO_TOTAL), b -> b.gt(COUNT, 1L))).build(),
                 "OrderEntity.largest");
 
         // One definition named twice is one selection; as(...) gives a second definition its own key.
-        assertThat(ColumnSet.of(largest, largest).columns()).hasSize(1);
+        assertThat(SelectSet.of(largest, largest).fields()).hasSize(1);
         base.orderBy(largest.desc()).having(h -> h.gt(largest, BigDecimal.ONE)).build();
-        TOTALS.columns(ColumnSet.of(largest, alsoLargest.as("other"))).build();
+        TOTALS.select(SelectSet.of(largest, alsoLargest.as("other"))).build();
     }
 
     @TckTest
@@ -299,8 +299,8 @@ class AggregatesTest {
         // Declared a Long, but max(total) is a BigDecimal: Row.get would fail with a ClassCastException instead.
         AggregateField<Totals, Long> mistyped = Agg.of("mistyped", Long.class,
                 (ctx, cb) -> (jakarta.persistence.criteria.Expression) cb.max(TOTAL.path(ctx)));
-        var returnsNull = TOTALS.columns(ColumnSet.of(none)).build();
-        var wrongType = TOTALS.columns(ColumnSet.of(mistyped)).build();
+        var returnsNull = TOTALS.select(SelectSet.of(none)).build();
+        var wrongType = TOTALS.select(SelectSet.of(mistyped)).build();
         inSession(db, em -> {
             assertThatThrownBy(() -> returnsNull.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable()))
                     .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
@@ -345,7 +345,7 @@ class AggregatesTest {
                 "            ColumnField.of(Model.class, ROOT, \"status\", String.class);",
                 "    static final AggregateField<Model, Long> COUNT = Agg.count(ROOT);",
                 "    static final ModelQuery.Builder<Entity, Object, Model> BASE = ModelQuery.builder(ROOT,",
-                "            row -> new Model()).columns(ColumnSet.of(STATUS, COUNT)).groupBy(STATUS);",
+                "            row -> new Model()).select(SelectSet.of(STATUS, COUNT)).groupBy(STATUS);",
                 "    static final ModelQuery<Entity, Object, Model> QUERY = BASE." + call + ".build();",
                 "}");
         long probeLine = 12;
@@ -419,37 +419,37 @@ class AggregatesTest {
 
     @Test
     void ac_agg_08_a_selected_column_missing_from_the_group_by_throws_mq1401_naming_the_column() {
-        var selected = TOTALS.columns(ColumnSet.of(CUSTOMER_ID, CUSTOMER_NAME, SUM_TOTAL));
+        var selected = TOTALS.select(SelectSet.of(CUSTOMER_ID, CUSTOMER_NAME, SUM_TOTAL));
         assertMq1401(() -> selected.groupBy(CUSTOMER_ID).build(), "Totals.name");
         // With no groupBy an aggregate makes one group.
-        assertMq1401(() -> TOTALS.columns(ColumnSet.of(STATUS, COUNT)).build(), "Totals.status");
+        assertMq1401(() -> TOTALS.select(SelectSet.of(STATUS, COUNT)).build(), "Totals.status");
         // The same attribute on another join is another column.
         assertMq1401(() -> selected.groupBy(CUSTOMER_ID, ColumnField.of(Totals.class, CUSTOMER.as("other"), "name",
                 String.class)).build(), "Totals.name");
 
-        ColumnSet<Totals> keys = ColumnSet.of(CUSTOMER_ID, CUSTOMER_NAME);
+        SelectSet<Totals> keys = SelectSet.of(CUSTOMER_ID, CUSTOMER_NAME);
         selected.groupBy(keys).build();
         selected.groupBy(CUSTOMER_ID, CUSTOMER_NAME).build();
     }
 
     @Test
     void ac_agg_08_an_order_key_that_does_not_fit_the_grouping_throws_mq1406() {
-        var grouped = TOTALS.columns(ColumnSet.of(STATUS, COUNT)).groupBy(STATUS);
+        var grouped = TOTALS.select(SelectSet.of(STATUS, COUNT)).groupBy(STATUS);
         // A group holds many totals: ordering the groups by one of them is undefined.
         assertMq1406(() -> grouped.orderBy(STATUS.asc(), TOTAL.desc()).build(),
                 "MQ1406: Totals.total: ordered by but not in groupBy");
-        assertMq1406(() -> TOTALS.columns(ColumnSet.of(COUNT)).orderBy(STATUS.asc()).build(),
+        assertMq1406(() -> TOTALS.select(SelectSet.of(COUNT)).orderBy(STATUS.asc()).build(),
                 "MQ1406: Totals.status: ordered by but not in groupBy");
         // An aggregate cannot order rows that are not grouped.
-        assertMq1406(() -> TOTALS.columns(ColumnSet.of(STATUS)).orderBy(COUNT.desc()).build(),
+        assertMq1406(() -> TOTALS.select(SelectSet.of(STATUS)).orderBy(COUNT.desc()).build(),
                 "MQ1406: Totals.count(OrderEntity): ordered by an aggregate on an ungrouped query");
 
         grouped.orderBy(STATUS.asc()).build();
         grouped.orderBy(COUNT.desc(), STATUS.asc()).build();
         // An aggregate that is not selected still orders the groups, and a group key need not be selected.
         grouped.orderBy(SUM_TOTAL.desc()).build();
-        TOTALS.columns(ColumnSet.of(COUNT)).groupBy(STATUS).orderBy(STATUS.asc()).build();
-        TOTALS.columns(ColumnSet.of(STATUS)).orderBy(TOTAL.desc()).build();
+        TOTALS.select(SelectSet.of(COUNT)).groupBy(STATUS).orderBy(STATUS.asc()).build();
+        TOTALS.select(SelectSet.of(STATUS)).orderBy(TOTAL.desc()).build();
     }
 
     private static void assertMq1406(Runnable call, String message) {
@@ -470,10 +470,10 @@ class AggregatesTest {
 
     @Test
     void ac_agg_09_keyset_or_primary_key_first_on_a_grouped_query_throws_mq1402_naming_the_model() {
-        var grouped = TOTALS.columns(ColumnSet.of(STATUS, COUNT)).groupBy(STATUS);
+        var grouped = TOTALS.select(SelectSet.of(STATUS, COUNT)).groupBy(STATUS);
         var withKey = grouped.primaryKey(PrimaryKey.of(STATUS));
-        var singleGroup = TOTALS.columns(ColumnSet.of(COUNT));
-        var byHaving = TOTALS.columns(ColumnSet.of(STATUS)).groupBy(STATUS).having(h -> h.gt(COUNT, 1L));
+        var singleGroup = TOTALS.select(SelectSet.of(COUNT));
+        var byHaving = TOTALS.select(SelectSet.of(STATUS)).groupBy(STATUS).having(h -> h.gt(COUNT, 1L));
         List<Runnable> refused = List.of(
                 () -> grouped.keyset().build(),
                 () -> grouped.primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(100)).build(),
@@ -495,7 +495,7 @@ class AggregatesTest {
 
     @TckTest
     void ac_agg_09_a_grouped_query_needs_no_primary_key_and_ignores_one_that_is_set(TckDatabase db) {
-        var grouped = TOTALS.columns(ColumnSet.of(STATUS, COUNT)).groupBy(STATUS).orderBy(STATUS.asc());
+        var grouped = TOTALS.select(SelectSet.of(STATUS, COUNT)).groupBy(STATUS).orderBy(STATUS.asc());
         List<String> debug = new ArrayList<>();
         Logger logger = Logger.getLogger(ModelQuery.class.getName());
         Level level = logger.getLevel();
@@ -545,7 +545,7 @@ class AggregatesTest {
 
     @TckTest
     void ac_agg_10_an_aggregate_selection_with_no_group_by_returns_exactly_one_row(TckDatabase db) {
-        var whole = TOTALS.columns(ColumnSet.of(SUM_TOTAL, COUNT));
+        var whole = TOTALS.select(SelectSet.of(SUM_TOTAL, COUNT));
         List<List<Totals>> results = new ArrayList<>();
         SqlSnapshots.assertMatches(db, "agg-10-single-group", ds -> inSession(ds, em -> {
             assertThat(whole.build().buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable()).query()
@@ -585,7 +585,7 @@ class AggregatesTest {
                     summary.status = row.get(S_STATUS);
                     return summary;
                 })
-                .columns(ColumnSet.of(S_STATUS, S_COUNT, S_TOTAL))
+                .select(SelectSet.of(S_STATUS, S_COUNT, S_TOTAL))
                 .groupBy(S_STATUS)
                 .orderBy(S_STATUS.asc())
                 .afterMap((summary, row) -> {
@@ -616,7 +616,7 @@ class AggregatesTest {
 
     @Test
     void ac_agg_12_having_on_an_ungrouped_query_throws_mq1407_even_when_every_filter_was_skipped() {
-        var ungrouped = TOTALS.columns(ColumnSet.of(STATUS));
+        var ungrouped = TOTALS.select(SelectSet.of(STATUS));
         for (Runnable call : List.<Runnable>of(
                 () -> ungrouped.having(h -> h.gt(COUNT, 1L)).build(),
                 // Skipped or not: whether a query is grouped never depends on a request's values.
@@ -629,18 +629,18 @@ class AggregatesTest {
         }
         // A group-by or a selected aggregate makes it grouped, and then having is allowed, skipped or not.
         ungrouped.groupBy(STATUS).having(h -> h.gt(COUNT, NO_COUNT)).build();
-        TOTALS.columns(ColumnSet.of(COUNT)).having(h -> h.gt(COUNT, 1L)).build();
+        TOTALS.select(SelectSet.of(COUNT)).having(h -> h.gt(COUNT, 1L)).build();
     }
 
     @Test
     void ac_agg_12_an_aggregate_in_the_group_by_set_throws_mq1404() {
-        var selected = TOTALS.columns(ColumnSet.of(CUSTOMER_ID, SUM_TOTAL));
-        assertThatThrownBy(() -> selected.groupBy(ColumnSet.of(CUSTOMER_ID, SUM_TOTAL)))
+        var selected = TOTALS.select(SelectSet.of(CUSTOMER_ID, SUM_TOTAL));
+        assertThatThrownBy(() -> selected.groupBy(SelectSet.of(CUSTOMER_ID, SUM_TOTAL)))
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ1404))
                 .hasMessage("MQ1404: Totals.sum(total): groupBy(...) takes columns; an aggregate cannot be a group "
                         + "key");
-        selected.groupBy(ColumnSet.of(CUSTOMER_ID)).build();
+        selected.groupBy(SelectSet.of(CUSTOMER_ID)).build();
     }
 
     // ---- D-26: joins outside or/not resolve first, across where and having
@@ -651,7 +651,7 @@ class AggregatesTest {
         BigDecimal threshold = new BigDecimal("40000.00");
         // The items path is needed inside the or and by an aggregate that is only in having: one INNER join serves
         // both, where joining it LEFT for the or and again for the aggregate would multiply every sum.
-        var query = TOTALS.columns(ColumnSet.of(STATUS, COUNT)).groupBy(STATUS).orderBy(STATUS.asc())
+        var query = TOTALS.select(SelectSet.of(STATUS, COUNT)).groupBy(STATUS).orderBy(STATUS.asc())
                 .where(f -> f.or(a -> a.eq(ORDER_PRODUCT, "P007"), b -> b.eq(STATUS, "PAID")))
                 .having(h -> h.gt(itemTotal, threshold))
                 .build();

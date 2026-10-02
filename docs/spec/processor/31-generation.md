@@ -32,9 +32,9 @@ public final class QOrderView {
     public static final OrderedColumnField<OrderView, CustomerEntity, String> CUSTOMER_COUNTRY =
             ColumnField.of(OrderView.class, CUSTOMER_TABLE, "country", String.class);
 
-    public static final ColumnSet<OrderView> ALL      = ColumnSet.of(ID, STATUS, TOTAL, CREATED_AT);
-    public static final ColumnSet<OrderView> DEFAULT  = ALL.without(/* @ExcludeFromDefaults */);
-    public static final ColumnSet<OrderView> CUSTOMER = ColumnSet.of(CUSTOMER_ID, CUSTOMER_NAME);
+    public static final SelectSet<OrderView> ALL      = SelectSet.of(ID, STATUS, TOTAL, CREATED_AT);
+    public static final SelectSet<OrderView> DEFAULT  = ALL.without(/* @ExcludeFromDefaults */);
+    public static final SelectSet<OrderView> CUSTOMER = SelectSet.of(CUSTOMER_ID, CUSTOMER_NAME);
 
     public static final PrimaryKey<OrderView, Long> KEY = PrimaryKey.of(ID);
     public static final RowMapper<OrderView> MAPPER = QOrderView::map;
@@ -68,7 +68,7 @@ classpath. It does not consume `hibernate-jpamodelgen` output, so processor orde
 **R-GEN-03** Attribute names are emitted as string literals that the processor validated against the metamodel. A
 literal the processor could not validate is a diagnostic, never a guess (INV-3).
 
-**R-GEN-04** A joined `ColumnSet` is derived from the nested model (`CustomerView`), so a column added to
+**R-GEN-04** A joined `SelectSet` is derived from the nested model (`CustomerView`), so a column added to
 `CustomerView` appears in `QOrderView.CUSTOMER` with no list to update by hand. The processor reads the nested model's
 own fields and refers to its QModel by name only, so the order in which models are processed does not matter (D-39).
 A nested model is mapped through its `MAPPER`, which is public, so it may live in another package, and it may be a
@@ -86,7 +86,7 @@ processor jar (INV-7).
 **R-GEN-06** A record model is mapped through its canonical constructor, with components passed in declaration order.
 Unselected components get `null`, and `Optional` components get `Optional.empty()`.
 
-**R-GEN-07** A compact constructor that rejects `null` will fail on a partial `ColumnSet`. The user guide says to keep
+**R-GEN-07** A compact constructor that rejects `null` will fail on a partial `SelectSet`. The user guide says to keep
 validation out of query models; this is not something the processor can check.
 
 ## 3. Classes
@@ -128,7 +128,7 @@ its other selected columns are `NULL`.
 **R-GEN-14** Nesting composes. `OrderView.customer → CustomerView.address` yields `Optional<CustomerView>` containing
 `Optional<AddressView>`; classes and records may be nested in each other freely, because each QModel's `map(Row)` builds
 its own model. The outer QModel declares the joins below its `@Join` too, each with its columns and
-`ColumnSet` (`CUSTOMER_ADDRESS_TABLE`, `CUSTOMER_ADDRESS_CITY`, `CUSTOMER_ADDRESS`), read from the nested QModel (D-45).
+`SelectSet` (`CUSTOMER_ADDRESS_TABLE`, `CUSTOMER_ADDRESS_CITY`, `CUSTOMER_ADDRESS`), read from the nested QModel (D-45).
 
 **R-GEN-15** The generated mapper always assigns a `@Join` field, to `Optional.empty()` or `Optional.of(...)`, so even a
 class field with no initialiser is never `null` after mapping.
@@ -203,7 +203,7 @@ as on query models; a joined filter column renders through `api/14` R-WRT-10.
 change sets.
 
 **R-GEN-21** For `@QueryModel(generateChanges = true)`, `QOrderView` gains `changes()` and `update(changes)`, and
-`OrderViewChanges` gains `static OrderViewChanges from(OrderView model, ColumnSet<OrderView> columns)`, which reads the
+`OrderViewChanges` gains `static OrderViewChanges from(OrderView model, SelectSet<OrderView> columns)`, which reads the
 model's getters or record accessors (`api/14` R-WRT-04).
 
 **R-GEN-22** `QOrderView.delete()` is generated for every query model whose `@PrimaryKey` is the root entity's id,
@@ -223,8 +223,8 @@ are never copied to the change set. A field whose generated members would clash 
 |---|---|
 | AC-GEN-01 | Golden-file tests pin the generated source for a class model, a record model, a nested pair and a summary model (R-GEN-01). |
 | AC-GEN-02 | Every metamodel feature in R-GEN-02 has a generating case, including a composite `@IdClass` and a `@MappedSuperclass` parent. |
-| AC-GEN-03 | Adding a column to a nested model changes the outer model's joined `ColumnSet` with no edit to the outer model (R-GEN-04). |
-| AC-GEN-04 | A partial `ColumnSet` leaves unselected class fields at their initialiser and unselected record components `null` (R-GEN-06, R-GEN-09). |
+| AC-GEN-03 | Adding a column to a nested model changes the outer model's joined `SelectSet` with no edit to the outer model (R-GEN-04). |
+| AC-GEN-04 | A partial `SelectSet` leaves unselected class fields at their initialiser and unselected record components `null` (R-GEN-06, R-GEN-09). |
 | AC-GEN-05 | Lombok on and off both compile, including `Boolean isX` and `boolean isX` (R-GEN-10). |
 | AC-GEN-06 | A LEFT-join miss yields `Optional.empty()`; a match whose non-key columns are all NULL yields a present model (R-GEN-12, R-GEN-13). |
 | AC-GEN-07 | Two-level nesting maps correctly with a class nested in a record and vice versa (R-GEN-14). |

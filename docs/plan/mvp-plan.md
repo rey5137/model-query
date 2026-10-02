@@ -28,7 +28,7 @@ Spec: `api/10`, `api/11`, `api/12`, `api/13`. Model: `architect-review` required
 | Slice | Contents | Done when |
 |---|---|---|
 | M1.1 | `TableField`, `JoinContext`, join keys, `as`, `on`, `withParent` | AC-COL-01..03 |
-| M1.2 | `SelectField`, `ColumnField`, type checking, `withTable`, `ColumnSet` | AC-COL-04, AC-COL-05 |
+| M1.2 | `SelectField`, `ColumnField`, type checking, `withTable`, `SelectSet` | AC-COL-04, AC-COL-05 |
 | M1.3 | `Row`, `RowMapper`, `SetterMapper`, `OrderField`, null precedence | AC-COL-06, AC-COL-08 without `model-query-hibernate` |
 | M1.4 | `ModelQuery` builder, `PrimaryKey`, `afterMap`, `QueryCustomizer` | AC-QRY-01..09 at definition level (see note), AC-COL-09 |
 | M1.5 | `Filters`: comparison, sets, strings, nulls, `compare` | AC-FLT-01, 02, 05..07, AC-COL-07, AC-QRY-07 `where` row |
@@ -92,7 +92,7 @@ retention), D-40 (Lombok in the processor's tests only), D-41 (dotted paths thro
 | M4.1a | Every non-`Future` annotation of `processor/30` §1 at `CLASS` retention, with `@FilterColumns` and `suffix`; Lombok as a test-only dependency of the processor, with the ban kept elsewhere (D-40); dotted attribute paths in `ColumnField` (D-41) | AC-PROC-01, AC-COL-10 |
 | M4.1b | `ColumnConverter`, the converted `ColumnField`, `Row.raw` and the executor's key and cursor reads through it, `MQ1408` (D-37); `TableField.presentBy`, the presence key in the model phases, `MQ1409` (D-38); their criteria added to `api/10` §7 | the new `AC-COL` rows for D-37 and D-38 |
 | M4.2 | Processor base: the entity metamodel reader (R-GEN-01..03), flat class and record models (`@PrimaryKey`, `@Column(attribute)` through `@Embedded`, `@Transient`, `@ExcludeFromDefaults`), `ALL`/`DEFAULT`, `MAPPER`, `query()`, `map(Row)` for both shapes, `KEY`, `prefix`/`suffix` and their `-A` options, the collect-every-error reporter (R-DIAG-02, R-DIAG-03) with `MQ3001`, `MQ3002`, `MQ3004`, `MQ3008`..`MQ3010`, `MQ3015`; one file and one originating element per model, and the isolating registration | AC-PROC-02, AC-PROC-03, AC-GEN-01 (class, record), AC-GEN-02, AC-GEN-04, AC-GEN-05, AC-GEN-08, AC-GEN-09, AC-DIAG-02..04 |
-| M4.3 | `@Column(converter)`; `@Join` and nested models: joined constants and `ColumnSet`, automatic aliases, `Optional` mapping by the joined key, two-level nesting; `MQ3003`, `MQ3005`..`MQ3007`, `MQ3014`; the database criteria run in `model-query-tck` | AC-PROC-04, AC-PROC-05, AC-GEN-01 (nested pair), AC-GEN-03, AC-GEN-06, AC-GEN-07 |
+| M4.3 | `@Column(converter)`; `@Join` and nested models: joined constants and `SelectSet`, automatic aliases, `Optional` mapping by the joined key, two-level nesting; `MQ3003`, `MQ3005`..`MQ3007`, `MQ3014`; the database criteria run in `model-query-tck` | AC-PROC-04, AC-PROC-05, AC-GEN-01 (nested pair), AC-GEN-03, AC-GEN-06, AC-GEN-07 |
 | M4.4 | `@FilterColumn`: path resolution, join reuse, aliases; a `TableField` for every collection association on the root; `MQ3011`..`MQ3013` | AC-PROC-06..08 |
 | M4.5 | `@Aggregate`, `@GroupBy`, `singleGroup`: `AggregateField` constants, `GROUP_KEYS`, the pre-configured `query()`; `MQ3201`..`MQ3205` | AC-PROC-09, AC-PROC-10, AC-GEN-01 (summary) |
 | M4.6 | The diagnostic matrix completed (each code with Lombok on and off, class and record where both apply) and checked against `reference/90`; `samples/plain-jpa` moved to generated QModels only | AC-DIAG-01, AC-DIAG-05 |

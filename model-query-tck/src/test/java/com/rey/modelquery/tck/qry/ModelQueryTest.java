@@ -9,7 +9,6 @@ import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.BuiltQuery;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
@@ -20,6 +19,7 @@ import com.rey.modelquery.core.PrimaryKeyFirst;
 import com.rey.modelquery.core.QueryCustomizer;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowMapper;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
@@ -102,11 +102,11 @@ class ModelQueryTest {
     private static final RowMapper<View> VIEW_MAPPER =
             row -> new View(row.get(ID), row.get(STATUS), row.get(CUSTOMER_NAME), row.get(TOTAL));
 
-    private static final ColumnSet<View> DEFAULT = ColumnSet.of(STATUS, CUSTOMER_NAME, TOTAL);
+    private static final SelectSet<View> DEFAULT = SelectSet.of(STATUS, CUSTOMER_NAME, TOTAL);
 
     /** A constant shared by every thread of the concurrency test (INV-9). */
     private static final ModelQuery<OrderEntity, Long, View> SHARED = ModelQuery.builder(ROOT, VIEW_MAPPER)
-            .columns(ColumnSet.of(ID, STATUS, CUSTOMER_NAME, TOTAL))
+            .select(SelectSet.of(ID, STATUS, CUSTOMER_NAME, TOTAL))
             .primaryKey(PrimaryKey.of(ID))
             .orderBy(TOTAL.desc().nullsLast(), ID.asc())
             .keyset()
@@ -121,7 +121,7 @@ class ModelQueryTest {
 
     @Test
     void ac_qry_01_a_built_query_exposes_no_mutator_and_its_lists_throw() {
-        var q = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT).orderBy(ID.asc()).build();
+        var q = ModelQuery.builder(ROOT, VIEW_MAPPER).select(DEFAULT).orderBy(ID.asc()).build();
         for (Method m : ModelQuery.class.getMethods()) {
             if (m.getDeclaringClass() == Object.class || Modifier.isStatic(m.getModifiers())) {
                 continue;
@@ -131,13 +131,13 @@ class ModelQueryTest {
         }
         assertThat(ModelQuery.class.getFields()).isEmpty();
         assertThatThrownBy(() -> q.orderBy().add(ID.desc())).isInstanceOf(UnsupportedOperationException.class);
-        assertThatThrownBy(() -> q.columns().columns().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> q.select().fields().clear()).isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> q.spec().columns().clear()).isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test
     void ac_qry_01_two_queries_built_from_one_builder_instance_are_independent() {
-        var base = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT).primaryKey(PrimaryKey.of(ID));
+        var base = ModelQuery.builder(ROOT, VIEW_MAPPER).select(DEFAULT).primaryKey(PrimaryKey.of(ID));
         ModelQuery<OrderEntity, Long, View> plain = base.build();
         ModelQuery<OrderEntity, Long, View> keyset = base.keyset().orderBy(TOTAL.asc()).build();
         ModelQuery<OrderEntity, Long, View> again = base.build();
@@ -154,7 +154,7 @@ class ModelQueryTest {
 
     @Test
     void ac_qry_02_keyset_without_a_primary_key_throws_mq1201_naming_the_model() {
-        var noKey = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT);
+        var noKey = ModelQuery.builder(ROOT, VIEW_MAPPER).select(DEFAULT);
         assertThatThrownBy(() -> noKey.keyset().build())
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class, e -> assertThat(e.code())
                         .isEqualTo(MqCode.MQ1201))
@@ -173,13 +173,13 @@ class ModelQueryTest {
     @TckTest
     void ac_qry_03_a_column_set_omitting_the_primary_key_still_selects_it_for_paging(TckDatabase db) {
         var paged = ModelQuery.builder(ROOT, VIEW_MAPPER)
-                .columns(ColumnSet.of(STATUS, CUSTOMER_NAME, TOTAL))
+                .select(SelectSet.of(STATUS, CUSTOMER_NAME, TOTAL))
                 .primaryKey(PrimaryKey.of(ID))
                 .orderBy(ID.asc())
                 .keyset()
                 .build();
         var unpaged = ModelQuery.builder(ROOT, VIEW_MAPPER)
-                .columns(ColumnSet.of(STATUS, CUSTOMER_NAME, TOTAL))
+                .select(SelectSet.of(STATUS, CUSTOMER_NAME, TOTAL))
                 .primaryKey(PrimaryKey.of(ID))
                 .orderBy(ID.asc())
                 .build();
@@ -213,7 +213,7 @@ class ModelQueryTest {
                 .bind(L_STATUS, (m, v) -> m.status = v)
                 .bind(L_CUSTOMER_NAME, (m, v) -> m.customerName = v);
         var q = ModelQuery.builder(ROOT, mapper)
-                .columns(ColumnSet.of(L_ID, L_STATUS, L_CUSTOMER_NAME, L_TOTAL))
+                .select(SelectSet.of(L_ID, L_STATUS, L_CUSTOMER_NAME, L_TOTAL))
                 .afterMap((m, row) -> {
                     calls.incrementAndGet();
                     sawAll.add(row.isSelected(L_ID) && row.isSelected(L_STATUS) && row.isSelected(L_CUSTOMER_NAME)
@@ -222,7 +222,7 @@ class ModelQueryTest {
                 })
                 .build();
         var records = ModelQuery.builder(ROOT, VIEW_MAPPER)
-                .columns(ColumnSet.of(ID, STATUS, CUSTOMER_NAME, TOTAL))
+                .select(SelectSet.of(ID, STATUS, CUSTOMER_NAME, TOTAL))
                 .finisher(v -> new View(v.id(), v.status().toLowerCase(), v.customerName(), v.total()))
                 .build();
         List<Labelled> mapped;
@@ -250,7 +250,7 @@ class ModelQueryTest {
     void ac_qry_05_a_customizer_added_selection_is_not_readable_through_row(TckDatabase db) {
         QueryCustomizer extra = (spec, joins, query, cb, phase) -> addSelection(query, cb);
         var q = ModelQuery.builder(ROOT, VIEW_MAPPER)
-                .columns(ColumnSet.of(ID, STATUS, CUSTOMER_NAME))
+                .select(SelectSet.of(ID, STATUS, CUSTOMER_NAME))
                 .customize(extra)
                 .build();
         try (SessionFactory sf = sessionFactory(db)) {
@@ -312,11 +312,11 @@ class ModelQueryTest {
         try (SessionFactory sf = sessionFactory(db)) {
             sf.inSession(em -> {
                 CriteriaBuilder cb = em.getCriteriaBuilder();
-                var consistent = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT)
+                var consistent = ModelQuery.builder(ROOT, VIEW_MAPPER).select(DEFAULT)
                         .primaryKey(PrimaryKey.of(ID)).customize(everywhere).build();
                 consistent.checkPhases(cb);
                 assertThat(warnings).isEmpty();
-                var inconsistent = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT)
+                var inconsistent = ModelQuery.builder(ROOT, VIEW_MAPPER).select(DEFAULT)
                         .primaryKey(PrimaryKey.of(ID)).customize(onlyModel).build();
                 inconsistent.checkPhases(cb);
             });
@@ -339,7 +339,7 @@ class ModelQueryTest {
         try (SessionFactory sf = sessionFactory(db)) {
             sf.inSession(em -> {
                 CriteriaBuilder cb = em.getCriteriaBuilder();
-                var minimal = ModelQuery.builder(ROOT, counting).columns(ColumnSet.of(ID, STATUS)).build();
+                var minimal = ModelQuery.builder(ROOT, counting).select(SelectSet.of(ID, STATUS)).build();
 
                 // orderBy: unordered.
                 assertThat(minimal.buildQuery(cb, Phase.MODEL, portable()).query().getOrderList()).isEmpty();
@@ -375,7 +375,7 @@ class ModelQueryTest {
 
     @TckTest
     void ac_qry_07_without_where_the_query_has_no_predicate_and_reads_every_row(TckDatabase db) {
-        var base = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(ColumnSet.of(ID, STATUS)).orderBy(ID.asc());
+        var base = ModelQuery.builder(ROOT, VIEW_MAPPER).select(SelectSet.of(ID, STATUS)).orderBy(ID.asc());
         var filtered = base.where(f -> f.eq(STATUS, "PAID")).build();
         var unfiltered = base.build();
         try (SessionFactory sf = sessionFactory(db)) {
@@ -393,11 +393,11 @@ class ModelQueryTest {
     @TckTest
     void ac_qry_07_without_group_by_the_query_is_not_grouped_and_an_aggregate_makes_it_one_group(TckDatabase db) {
         AggregateField<View, Long> count = Agg.count(ROOT);
-        var plain = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(ColumnSet.of(ID, STATUS)).build();
+        var plain = ModelQuery.builder(ROOT, VIEW_MAPPER).select(SelectSet.of(ID, STATUS)).build();
         // The count rides in the view's id.
         RowMapper<View> counted = row -> new View(row.get(count), row.get(STATUS), null, null);
-        var single = ModelQuery.builder(ROOT, counted).columns(ColumnSet.of(count)).build();
-        var grouped = ModelQuery.builder(ROOT, counted).columns(ColumnSet.of(STATUS, count)).groupBy(STATUS).build();
+        var single = ModelQuery.builder(ROOT, counted).select(SelectSet.of(count)).build();
+        var grouped = ModelQuery.builder(ROOT, counted).select(SelectSet.of(STATUS, count)).groupBy(STATUS).build();
         try (SessionFactory sf = sessionFactory(db)) {
             sf.inSession(em -> {
                 CriteriaBuilder cb = em.getCriteriaBuilder();
@@ -450,7 +450,7 @@ class ModelQueryTest {
         try (SessionFactory sf = sessionFactory(db)) {
             sf.inSession(em -> {
                 CriteriaBuilder cb = em.getCriteriaBuilder();
-                var filtered = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT).primaryKey(PrimaryKey.of(ID))
+                var filtered = ModelQuery.builder(ROOT, VIEW_MAPPER).select(DEFAULT).primaryKey(PrimaryKey.of(ID))
                         .where(f -> f.eq(STATUS, "PAID"));
                 filtered.customize(noPredicate).build().checkPhases(cb);
                 assertThat(warnings).isEmpty();
@@ -475,7 +475,7 @@ class ModelQueryTest {
                 query.getRoots().iterator().next().join("referrer");
             }
         };
-        var keyed = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT).primaryKey(PrimaryKey.of(ID));
+        var keyed = ModelQuery.builder(ROOT, VIEW_MAPPER).select(DEFAULT).primaryKey(PrimaryKey.of(ID));
         List<String> warnings = warnings(() -> {
             try (SessionFactory sf = sessionFactory(db)) {
                 sf.inSession(em -> {
@@ -534,9 +534,9 @@ class ModelQueryTest {
 
     @TckTest
     void ac_qry_08_the_primary_key_phase_of_a_query_without_a_key_throws_mq2203(TckDatabase db) {
-        var noKey = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT).build();
+        var noKey = ModelQuery.builder(ROOT, VIEW_MAPPER).select(DEFAULT).build();
         AggregateField<View, Long> count = Agg.count(ROOT);
-        var grouped = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(ColumnSet.of(STATUS, count)).groupBy(STATUS)
+        var grouped = ModelQuery.builder(ROOT, VIEW_MAPPER).select(SelectSet.of(STATUS, count)).groupBy(STATUS)
                 .primaryKey(PrimaryKey.of(ID)).build();
         try (SessionFactory sf = sessionFactory(db)) {
             sf.inSession(em -> {
@@ -562,13 +562,13 @@ class ModelQueryTest {
                 .primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0));
         List<ModelQuery<OrderEntity, Long, View>> queries = List.of(
                 // A nullable join made only by the selection: PRIMARY_KEY must drop the orders it drops.
-                keyed.columns(ColumnSet.of(STATUS, REFERRER_NAME)).orderBy(TOTAL.desc(), ID.asc()).build(),
+                keyed.select(SelectSet.of(STATUS, REFERRER_NAME)).orderBy(TOTAL.desc(), ID.asc()).build(),
                 // The same path inside an or(...) reuses the selection's INNER join, in every phase.
-                keyed.columns(ColumnSet.of(STATUS, REFERRER_NAME))
+                keyed.select(SelectSet.of(STATUS, REFERRER_NAME))
                         .where(f -> f.or(a -> a.lt(REFERRER_NAME, "Customer 0100"), b -> b.eq(STATUS, "PAID")))
                         .orderBy(ID.asc()).build(),
                 // Needed only inside the or(...): LEFT in every phase, next to an INNER join made by the selection.
-                keyed.columns(ColumnSet.of(STATUS, CUSTOMER_NAME))
+                keyed.select(SelectSet.of(STATUS, CUSTOMER_NAME))
                         .where(f -> f.or(a -> a.lt(REFERRER_NAME, "Customer 0100"), b -> b.eq(STATUS, "PAID")))
                         .orderBy(CUSTOMER_NAME.asc(), ID.asc()).build());
         List<Map<Phase, List<Long>>> keys = new ArrayList<>();
@@ -674,10 +674,10 @@ class ModelQueryTest {
             query.groupBy(query.getGroupList());
         };
         AggregateField<View, Long> count = Agg.count(ROOT);
-        var byStatus = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(ColumnSet.of(STATUS, count)).groupBy(STATUS);
-        var keyed = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT).primaryKey(PrimaryKey.of(ID))
+        var byStatus = ModelQuery.builder(ROOT, VIEW_MAPPER).select(SelectSet.of(STATUS, count)).groupBy(STATUS);
+        var keyed = ModelQuery.builder(ROOT, VIEW_MAPPER).select(DEFAULT).primaryKey(PrimaryKey.of(ID))
                 .orderBy(STATUS.asc());
-        var unkeyed = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT).orderBy(STATUS.asc());
+        var unkeyed = ModelQuery.builder(ROOT, VIEW_MAPPER).select(DEFAULT).orderBy(STATUS.asc());
         try (SessionFactory sf = sessionFactory(db)) {
             sf.inSession(em -> {
                 CriteriaBuilder cb = em.getCriteriaBuilder();
@@ -713,7 +713,7 @@ class ModelQueryTest {
     @Test
     void ac_qry_11_a_primary_key_column_of_array_type_throws_mq1206() {
         ColumnField<View, OrderEntity, byte[]> rawId = ColumnField.of(View.class, ROOT, "id", byte[].class);
-        var keyedByBytes = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT).primaryKey(PrimaryKey.of(rawId));
+        var keyedByBytes = ModelQuery.builder(ROOT, VIEW_MAPPER).select(DEFAULT).primaryKey(PrimaryKey.of(rawId));
         for (var builder : List.of(keyedByBytes, keyedByBytes.keyset(),
                 keyedByBytes.primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)))) {
             assertThatThrownBy(builder::build)
@@ -731,9 +731,9 @@ class ModelQueryTest {
         // Resolved against no entity: the refusal is part of build(), before any database is involved.
         ColumnField<View, OrderEntity, Double> doubleTotal = ColumnField.of(View.class, ROOT, "total", Double.class);
         ColumnField<View, OrderEntity, Float> floatId = ColumnField.of(View.class, ROOT, "id", float.class);
-        var byTotal = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT).primaryKey(PrimaryKey.of(ID))
+        var byTotal = ModelQuery.builder(ROOT, VIEW_MAPPER).select(DEFAULT).primaryKey(PrimaryKey.of(ID))
                 .orderBy(STATUS.asc(), doubleTotal.desc());
-        var keyedByFloat = ModelQuery.builder(ROOT, VIEW_MAPPER).columns(DEFAULT).primaryKey(PrimaryKey.of(floatId))
+        var keyedByFloat = ModelQuery.builder(ROOT, VIEW_MAPPER).select(DEFAULT).primaryKey(PrimaryKey.of(floatId))
                 .orderBy(STATUS.asc());
         assertThatThrownBy(() -> byTotal.keyset().build())
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,

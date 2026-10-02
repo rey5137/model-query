@@ -54,7 +54,7 @@ class OrderedByTest {
 
     private static ModelQuery.Builder<Order, Long, OrderView> selecting(SelectField<OrderView, ?>... columns) {
         return ModelQuery.builder(ROOT, row -> new OrderView())
-                .columns(ColumnSet.of(columns))
+                .select(SelectSet.of(columns))
                 .primaryKey(PrimaryKey.of(ID));
     }
 
@@ -266,7 +266,7 @@ class OrderedByTest {
         assertThat(sorted.orderBy()).containsExactly(CUSTOMER_NAME.asc());
         assertThat(sorted.spec().orderBy()).containsExactly(CUSTOMER_NAME.asc());
         assertThat(query.orderBy()).containsExactly(STATUS.desc(), ID.asc());
-        assertThat(sorted.columns()).isSameAs(query.columns());
+        assertThat(sorted.select()).isSameAs(query.select());
         assertThat(sorted.primaryKey()).isEqualTo(query.primaryKey());
         assertThat(sorted.isKeyset()).isTrue();
         // The phase check of the definition covers every copy, a copy of a copy included (R-QRY-11).
@@ -288,7 +288,7 @@ class OrderedByTest {
     @Test
     void ac_qry_13_a_grouped_query_sorts_by_an_aggregates_name() {
         var grouped = ModelQuery.builder(ROOT, row -> new OrderView())
-                .columns(ColumnSet.of(STATUS, ORDERS))
+                .select(SelectSet.of(STATUS, ORDERS))
                 .groupBy(STATUS)
                 .build();
 
@@ -319,7 +319,7 @@ class OrderedByTest {
     @Test
     void ac_qry_13_an_ungrouped_query_without_a_primary_key_takes_no_sort() {
         var query = ModelQuery.builder(ROOT, row -> new OrderView())
-                .columns(ColumnSet.of(STATUS))
+                .select(SelectSet.of(STATUS))
                 .orderBy(STATUS.asc())
                 .build();
 

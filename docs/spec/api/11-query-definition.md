@@ -13,7 +13,7 @@ signatures a query is handed to.
 ```java
 ModelQuery<OrderEntity, Long, OrderView> q = ModelQuery.builder(QOrderView.ROOT, QOrderView.MAPPER)
         .primaryKey(PrimaryKey.of(QOrderView.ID))     // composite: PrimaryKey.composite(A, B)
-        .columns(QOrderView.DEFAULT)
+        .select(QOrderView.DEFAULT)
         .where(f -> f.eq(QOrderView.STATUS, status))
         .groupBy(...)                                 // optional; api/13
         .having(h -> ...)                             // optional, aggregates only; api/13
@@ -28,8 +28,8 @@ ModelQuery<OrderEntity, Long, OrderView> q = ModelQuery.builder(QOrderView.ROOT,
 **R-QRY-01** `build()` returns an immutable `ModelQuery` (INV-9). A builder holds no per-query state; nothing is
 resolved against a `CriteriaBuilder` until the query is executed.
 
-**R-QRY-02** `ModelQuery.builder(root, mapper)` is the only required input besides `columns`. Everything else is
-optional, and every optional part has a defined behaviour when absent, listed in §5. `build()` without `columns`
+**R-QRY-02** `ModelQuery.builder(root, mapper)` is the only required input besides `select`. Everything else is
+optional, and every optional part has a defined behaviour when absent, listed in §5. `build()` without `select`
 throws `MQ1202`.
 
 ## 2. Primary keys
@@ -39,8 +39,8 @@ throws `MQ1202`.
 (`api/13` R-AGG-07). `keyset()` without a primary key is a build-time error, `MQ1201`.
 
 **R-QRY-04** The primary-key columns are added to the selection automatically whenever they are needed. A caller never
-has to put them in a `ColumnSet` to make paging work. `MODEL` and `MODEL_BY_KEYS` therefore select the key of every
-ungrouped query that defines one, and every ordering and group key, whether or not the `ColumnSet` names them (D-29). On an ungrouped query they also select
+has to put them in a `SelectSet` to make paging work. `MODEL` and `MODEL_BY_KEYS` therefore select the key of every
+ungrouped query that defines one, and every ordering and group key, whether or not the `SelectSet` names them (D-29). On an ungrouped query they also select
 the presence key of each `presentBy` join a selected column is read through, and of every such join above it
 (`api/10` R-COL-15, D-38).
 
@@ -152,7 +152,7 @@ its facts to every build as `RenderOptions` (D-34). Semantics of each method are
 |---|---|
 | AC-QRY-01 | A built `ModelQuery` exposes no mutator; two queries built from one builder instance are independent (R-QRY-01). |
 | AC-QRY-02 | `keyset()` without `primaryKey` throws `MQ1201` naming the model (R-QRY-03). |
-| AC-QRY-03 | A `ColumnSet` omitting the primary key still pages and exports correctly (R-QRY-04). |
+| AC-QRY-03 | A `SelectSet` omitting the primary key still pages and exports correctly (R-QRY-04). |
 | AC-QRY-04 | `afterMap` runs exactly once per row, sees every selected column, and its effect survives `export` (R-QRY-05). |
 | AC-QRY-05 | A customizer-added selection is not readable through `Row`; the Javadoc example uses `afterMap` instead (R-QRY-08). |
 | AC-QRY-06 | A customizer adding a predicate only in `Phase.MODEL` logs a warning naming the phase (R-QRY-09). |

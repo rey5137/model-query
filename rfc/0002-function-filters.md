@@ -294,7 +294,7 @@ are pinned for Hibernate.
 12. `in(call, values)` with a function carrying one bound argument, over a list that needs splitting, stays within
     `maxBindParameters()` and returns the same rows as an unsplit list (R-FLT-24).
 13. (compile-testing) An `AggregateField` passed to `Fn.call` or `Fn.lower` does not compile, and neither does a
-    `FunctionCall` passed to `orderBy` or `ColumnSet.of` (R-COL-06, R-FLT-26).
+    `FunctionCall` passed to `orderBy` or `SelectSet.of` (R-COL-06, R-FLT-26).
 
 The volatile-function guidance (R-FLT-25) is a documentation rule, checked in review, with no test.
 

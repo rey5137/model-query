@@ -4,9 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 import com.rey.modelquery.core.Changes;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.tck.col.JoinTestSupport;
@@ -54,7 +54,7 @@ class GeneratedUpdateModelTest {
             var view = new SortRowPatch(ROW, null, "copied");
 
             Changes<SortRowPatch> copied =
-                    SortRowPatchChanges.from(view, ColumnSet.of(QSortRowPatch.SORT_INT, QSortRowPatch.SORT_TEXT));
+                    SortRowPatchChanges.from(view, SelectSet.of(QSortRowPatch.SORT_INT, QSortRowPatch.SORT_TEXT));
             long written = executor(em).update(QSortRowPatch.update(copied).whereKey(ROW).build());
 
             assertThat(before).doesNotContainNull();
@@ -62,7 +62,7 @@ class GeneratedUpdateModelTest {
             assertThat(row(em)).containsExactly(null, "copied");
             assertThatExceptionOfType(ModelQueryDefinitionException.class)
                     .isThrownBy(() -> SortRowPatchChanges.from(view,
-                            ColumnSet.of(QSortRowPatch.ID, QSortRowPatch.SORT_TEXT)))
+                            SelectSet.of(QSortRowPatch.ID, QSortRowPatch.SORT_TEXT)))
                     .satisfies(e -> assertThat(e.code()).isEqualTo(MqCode.MQ1607));
         });
     }

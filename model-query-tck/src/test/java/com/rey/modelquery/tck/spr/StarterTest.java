@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ChunkedWriteException;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
@@ -15,6 +14,7 @@ import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.PersistenceContextMode;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ChunkTransactions;
 import com.rey.modelquery.jpa.KeysetNullKeys;
@@ -78,7 +78,7 @@ class StarterTest {
     private static final TableField<OrderEntity, OrderEntity> ORDERS = TableField.root(OrderEntity.class);
     private static final ColumnField<Long, OrderEntity, Long> ID = ColumnField.of(Long.class, ORDERS, "id", Long.class);
     private static final ModelQuery<OrderEntity, ?, Long> ORDER_IDS = ModelQuery.builder(ORDERS, row -> row.get(ID))
-            .columns(ColumnSet.of(ID)).primaryKey(PrimaryKey.of(ID)).orderBy(ID.asc()).build();
+            .select(SelectSet.of(ID)).primaryKey(PrimaryKey.of(ID)).orderBy(ID.asc()).build();
 
     /** The ids above which a test inserts customers and orders of its own, and removes them again. */
     private static final long TEMPORARY = 100_000;

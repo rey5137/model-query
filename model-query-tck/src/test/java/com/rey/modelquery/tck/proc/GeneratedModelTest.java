@@ -2,8 +2,8 @@ package com.rey.modelquery.tck.proc;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.Limit;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.tck.col.CustomerEntity;
@@ -42,7 +42,7 @@ class GeneratedModelTest {
 
     @Test
     void ac_proc_04_a_converted_column_round_trips_through_row_get_and_through_a_filter_on_it() throws SQLException {
-        var orders = QOrderView.query().columns(QOrderView.ALL).orderBy(QOrderView.ID.asc());
+        var orders = QOrderView.query().select(QOrderView.ALL).orderBy(QOrderView.ID.asc());
         List<OrderView> paid = new ArrayList<>();
         List<OrderView> all = new ArrayList<>();
         withExecutor(OrderEntity.class, executor -> {
@@ -64,7 +64,7 @@ class GeneratedModelTest {
     @Test
     void ac_proc_05_two_joins_on_one_attribute_are_two_joins_with_distinct_aliases() {
         var buyers = QOrderBuyers.query()
-                .columns(QOrderBuyers.ALL.with(QOrderBuyers.CUSTOMER).with(QOrderBuyers.BUYER))
+                .select(QOrderBuyers.ALL.with(QOrderBuyers.CUSTOMER).with(QOrderBuyers.BUYER))
                 .orderBy(QOrderBuyers.ID.asc())
                 .build();
         List<OrderBuyers> found = new ArrayList<>();
@@ -83,7 +83,7 @@ class GeneratedModelTest {
     @Test
     void ac_proc_06_a_filter_path_under_a_join_reuses_it_and_any_other_path_joins_on_its_own() throws SQLException {
         var selected = QOrderView.query()
-                .columns(QOrderView.ALL.with(QOrderView.REFERRER)).orderBy(QOrderView.ID.asc());
+                .select(QOrderView.ALL.with(QOrderView.REFERRER)).orderBy(QOrderView.ID.asc());
         List<OrderView> vipReferrer = new ArrayList<>();
         List<OrderView> german = new ArrayList<>();
         List<String> sql = SqlSnapshots.assertMatches(DB, "proc-06-filter-column-joins",
@@ -112,7 +112,7 @@ class GeneratedModelTest {
 
     @Test
     void ac_proc_07_filter_columns_of_one_alias_share_a_join_and_another_alias_joins_again() throws SQLException {
-        var orders = QOrderView.query().columns(QOrderView.ALL).orderBy(QOrderView.ID.asc());
+        var orders = QOrderView.query().select(QOrderView.ALL).orderBy(QOrderView.ID.asc());
         List<OrderView> sameLine = new ArrayList<>();
         List<OrderView> twoLines = new ArrayList<>();
         List<OrderView> neverOneLine = new ArrayList<>();
@@ -151,7 +151,7 @@ class GeneratedModelTest {
     @Test
     void ac_proc_07_an_alias_that_is_a_joins_alias_filters_on_that_join() throws SQLException {
         var buyers = QOrderBuyers.query()
-                .columns(QOrderBuyers.ALL.with(QOrderBuyers.CUSTOMER).with(QOrderBuyers.BUYER))
+                .select(QOrderBuyers.ALL.with(QOrderBuyers.CUSTOMER).with(QOrderBuyers.BUYER))
                 .where(f -> f.eq(QOrderBuyers.CUSTOMER_VIP, true).eq(QOrderBuyers.BUYER_VIP, true))
                 .orderBy(QOrderBuyers.ID.asc())
                 .build();
@@ -170,7 +170,7 @@ class GeneratedModelTest {
 
     @Test
     void ac_proc_08_an_inner_filter_through_a_root_collection_leaves_its_table_left() throws SQLException {
-        var orders = QOrderView.query().columns(QOrderView.ALL).orderBy(QOrderView.ID.asc());
+        var orders = QOrderView.query().select(QOrderView.ALL).orderBy(QOrderView.ID.asc());
         List<OrderView> onTheTable = new ArrayList<>();
         List<OrderView> onItsOwnJoin = new ArrayList<>();
         List<OrderView> onBoth = new ArrayList<>();
@@ -207,13 +207,13 @@ class GeneratedModelTest {
     @Test
     void ac_proc_08_the_generated_table_of_a_root_collection_is_usable_in_exists() throws SQLException {
         var withItem = QOrderView.query()
-                .columns(QOrderView.ALL)
+                .select(QOrderView.ALL)
                 .where(f -> f.exists(QOrderView.ITEMS_TABLE, item -> item.eq(QOrderView.ITEM_CODE, "P007")))
                 .orderBy(QOrderView.ID.asc())
                 .build();
         // A model that declares nothing for the collection still has its table.
         var withOrders = QCustomerView.query()
-                .columns(QCustomerView.ALL)
+                .select(QCustomerView.ALL)
                 .where(f -> f.exists(QCustomerView.ORDERS_TABLE))
                 .orderBy(QCustomerView.ID.asc())
                 .build();
@@ -239,11 +239,11 @@ class GeneratedModelTest {
     void ac_gen_06_a_left_join_miss_is_empty_and_a_match_whose_other_columns_are_null_is_present() {
         // The referrer is joined LEFT, and two thirds of the orders have none.
         var withReferrer = QOrderView.query()
-                .columns(QOrderView.ALL.with(QOrderView.REFERRER)).orderBy(QOrderView.ID.asc()).build();
+                .select(QOrderView.ALL.with(QOrderView.REFERRER)).orderBy(QOrderView.ID.asc()).build();
         // Only a nullable column of the order is selected: its key is read because the join says so.
         var orderReferrerOnly = QItemView.query()
-                .columns(ColumnSet.of(QItemView.ID, QItemView.ORDER_REFERRER_KEY)).orderBy(QItemView.ID.asc()).build();
-        var unjoined = QOrderView.query().columns(QOrderView.ALL).orderBy(QOrderView.ID.asc()).build();
+                .select(SelectSet.of(QItemView.ID, QItemView.ORDER_REFERRER_KEY)).orderBy(QItemView.ID.asc()).build();
+        var unjoined = QOrderView.query().select(QOrderView.ALL).orderBy(QOrderView.ID.asc()).build();
         List<OrderView> orders = new ArrayList<>();
         List<OrderView> flat = new ArrayList<>();
         List<ItemView> items = new ArrayList<>();
@@ -281,7 +281,7 @@ class GeneratedModelTest {
     @Test
     void ac_gen_07_two_level_nesting_maps_a_class_in_a_record_and_a_record_in_that_class() {
         var nested = QItemView.query()
-                .columns(QItemView.ALL.with(QItemView.ORDER).with(QItemView.ORDER_REFERRER))
+                .select(QItemView.ALL.with(QItemView.ORDER).with(QItemView.ORDER_REFERRER))
                 .orderBy(QItemView.ID.asc())
                 .build();
         List<ItemView> items = new ArrayList<>();
@@ -311,7 +311,7 @@ class GeneratedModelTest {
     @Test
     void ac_proc_09_a_summary_model_query_is_grouped_by_its_group_keys() throws SQLException {
         var summary = QStatusSummary.query()
-                .columns(QStatusSummary.GROUP_KEYS.with(
+                .select(QStatusSummary.GROUP_KEYS.with(
                         QStatusSummary.ORDERS, QStatusSummary.REVENUE, QStatusSummary.FIRST_PLACED))
                 .orderBy(QStatusSummary.STATUS.asc())
                 .build();
@@ -336,7 +336,7 @@ class GeneratedModelTest {
     @Test
     void ac_proc_10_a_single_group_model_query_returns_one_row_with_no_group_by_and_no_key() throws SQLException {
         var totals = QOrderTotals.query()
-                .columns(ColumnSet.of(QOrderTotals.ORDERS, QOrderTotals.REVENUE))
+                .select(SelectSet.of(QOrderTotals.ORDERS, QOrderTotals.REVENUE))
                 .build();
         List<OrderTotals> rows = new ArrayList<>();
         List<String> sql = SqlSnapshots.assertMatches(DB, "proc-10-summary-model-single-group",
@@ -353,7 +353,7 @@ class GeneratedModelTest {
 
     @Test
     void ac_proc_11_a_generated_date_column_over_a_timestamp_filters_with_an_optional_date() {
-        var stamped = QStampedOrderView.query().columns(QStampedOrderView.ALL).orderBy(QStampedOrderView.ID.asc());
+        var stamped = QStampedOrderView.query().select(QStampedOrderView.ALL).orderBy(QStampedOrderView.ID.asc());
         List<StampedOrderView> all = new ArrayList<>();
         withExecutor(StampedOrderEntity.class,
                 executor -> all.addAll(executor.list(stamped.build(), Limit.unlimited())));
@@ -380,7 +380,7 @@ class GeneratedModelTest {
     @Test
     void ac_proc_12_a_generated_max_over_a_timestamp_reads_the_database_max_as_a_date() throws SQLException {
         var summary = QStampSummary.query()
-                .columns(QStampSummary.GROUP_KEYS.with(QStampSummary.LAST_PLACED))
+                .select(QStampSummary.GROUP_KEYS.with(QStampSummary.LAST_PLACED))
                 .orderBy(QStampSummary.STATUS.asc())
                 .build();
         List<StampSummary> rows = new ArrayList<>();

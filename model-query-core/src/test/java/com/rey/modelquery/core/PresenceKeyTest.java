@@ -54,7 +54,7 @@ class PresenceKeyTest {
     @Test
     void ac_col_12_a_grouped_query_selecting_under_a_present_by_join_without_its_key_throws_mq1409() {
         var grouped = ModelQuery.builder(ROOT, row -> new OrderView())
-                .columns(ColumnSet.of(NAME, Agg.count(ROOT)))
+                .select(SelectSet.of(NAME, Agg.count(ROOT)))
                 .groupBy(NAME);
 
         assertThatThrownBy(grouped::build)
@@ -68,17 +68,17 @@ class PresenceKeyTest {
     @Test
     void ac_col_12_a_grouped_query_whose_group_keys_hold_the_presence_key_builds() {
         assertThatCode(() -> ModelQuery.builder(ROOT, row -> new OrderView())
-                .columns(ColumnSet.of(NAME, Agg.count(ROOT)))
+                .select(SelectSet.of(NAME, Agg.count(ROOT)))
                 .groupBy(NAME, KEY)
                 .build()).doesNotThrowAnyException();
         // A join that names no key asks for nothing.
         assertThatCode(() -> ModelQuery.builder(ROOT, row -> new OrderView())
-                .columns(ColumnSet.of(CUSTOMER_NAME.withTable(OrderView.class, PLAIN), Agg.count(ROOT)))
+                .select(SelectSet.of(CUSTOMER_NAME.withTable(OrderView.class, PLAIN), Agg.count(ROOT)))
                 .groupBy(CUSTOMER_NAME.withTable(OrderView.class, PLAIN))
                 .build()).doesNotThrowAnyException();
         // Nor does an ungrouped query, which selects the key itself.
         assertThatCode(() -> ModelQuery.builder(ROOT, row -> new OrderView())
-                .columns(ColumnSet.of(ID, NAME))
+                .select(SelectSet.of(ID, NAME))
                 .build()).doesNotThrowAnyException();
     }
 
@@ -91,7 +91,7 @@ class PresenceKeyTest {
         for (TableField<Order, Customer> join : java.util.List.of(aliased, conditioned, reparented)) {
             ColumnField<OrderView, Customer, String> name = CUSTOMER_NAME.withTable(OrderView.class, join);
             assertThatThrownBy(() -> ModelQuery.builder(ROOT, row -> new OrderView())
-                    .columns(ColumnSet.of(name, Agg.count(ROOT)))
+                    .select(SelectSet.of(name, Agg.count(ROOT)))
                     .groupBy(name)
                     .build())
                     .isInstanceOfSatisfying(ModelQueryDefinitionException.class,

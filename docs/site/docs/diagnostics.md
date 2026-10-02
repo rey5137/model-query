@@ -23,7 +23,7 @@ Messages say what to change, for example `OrderView.totl: no attribute 'totl' on
 | `MQ1103` | Two `Agg.of` fields share a name with different expressions. |
 | `MQ1104` | `as(...)`, `on(...)` or `presentBy(...)` on a root TableField, which is not a join. |
 | `MQ1201` | `keyset()` or `primaryKeyFirst(...)` without a primary key. |
-| `MQ1202` | `build()` without columns. |
+| `MQ1202` | `build()` without `select(...)`. |
 | `MQ1203` | Builder given a join instead of a root TableField. |
 | `MQ1204` | `PrimaryKeyFirst.whenOffsetAbove` with a negative offset. |
 | `MQ1205` | QueryCustomizer changed the `ORDER BY` or `GROUP BY` of a phase. |

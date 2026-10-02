@@ -10,12 +10,12 @@
 
 | Annotation | Target | Purpose |
 |---|---|---|
-| `@QueryModel(root = X.class, generateColumnSets = true, prefix = "Q", suffix = "", singleGroup = false, generateChanges = false)` | model class or record | Enables generation |
+| `@QueryModel(root = X.class, generateSelectSets = true, prefix = "Q", suffix = "", singleGroup = false, generateChanges = false)` | model class or record | Enables generation |
 | `@UpdateModel(root = X.class, prefix = "Q")` | class or record | The attributes a bulk update may write; generates columns and a change set (§7) |
 | `@PrimaryKey` | field or record component | Primary-key column(s); composite keys supported |
 | `@Column(attribute = "...", converter = Foo.class)` | field or component | Rename the attribute or convert the value (`ColumnConverter<C, F>`) |
 | `@Join(attribute = "...", type = LEFT, prefix = "CUSTOMER", alias = "")` | `Optional<NestedModel>` field or component | Join the association and reuse the nested model's QModel columns |
-| `@FilterColumn(name = "...", path = "...", joinType = LEFT, alias = "", converter = Foo.class)` | model type (repeatable) | A filter-only column: a `ColumnField` constant with no model field, left out of every generated `ColumnSet` and of `map(Row)` |
+| `@FilterColumn(name = "...", path = "...", joinType = LEFT, alias = "", converter = Foo.class)` | model type (repeatable) | A filter-only column: a `ColumnField` constant with no model field, left out of every generated `SelectSet` and of `map(Row)` |
 | `@FilterColumns` | model type | The container that makes `@FilterColumn` repeatable; never written by hand |
 | `@Aggregate(fn = SUM, attribute = "...", distinct = false)` | field or component | An `AggregateField` constant, mapped into this field (`api/13`) |
 | `@GroupBy` | field or component | The column joins the generated `GROUP_KEYS` set and the query's group-by |
@@ -110,11 +110,11 @@ and is typed as the field; `SUM` and `AVG` over a `Timestamp` stay `MQ3202`, as 
 type than the attribute's (D-84). The column a `MIN`, `MAX` or `distinct` `COUNT` reads is the `OrderedColumnField` of
 R-PROC-07 (D-93).
 
-**R-PROC-16** `@GroupBy` fields, in declaration order, form the generated `GROUP_KEYS` `ColumnSet`, and
+**R-PROC-16** `@GroupBy` fields, in declaration order, form the generated `GROUP_KEYS` `SelectSet`, and
 `Q<Model>.query()` is pre-configured with `groupBy(GROUP_KEYS)`. `@GroupBy` cannot be combined with `@Aggregate` or
 `@Join` (`processor/32` `MQ3204`).
 
-**R-PROC-17** Aggregates are in no generated `ColumnSet` (`api/13` R-AGG-12).
+**R-PROC-17** Aggregates are in no generated `SelectSet` (`api/13` R-AGG-12).
 
 ## 7. Update models
 

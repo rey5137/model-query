@@ -4,7 +4,6 @@ import static jakarta.persistence.criteria.JoinType.LEFT;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Limit;
@@ -14,6 +13,7 @@ import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.PrimaryKeyFirst;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowMapper;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
@@ -87,11 +87,11 @@ class PresenceKeyTest {
     @TckTest
     void ac_col_12_the_presence_key_of_a_present_by_join_is_selected_with_a_column_of_the_join(TckDatabase db) {
         // No key is named: each is selected because a column is read through its join, or through one below it.
-        var orderOnly = ITEMS.columns(ColumnSet.of(ID, ITEM_ORDER_REFERRER_ID)).build();
-        var referrerOnly = ITEMS.columns(ColumnSet.of(ID, ITEM_REFERRER_NAME)).build();
-        // A key the ColumnSet already holds is selected once.
-        var keyNamed = ITEMS.columns(ColumnSet.of(ID, ITEM_REFERRER_ID, ITEM_REFERRER_NAME)).build();
-        var unjoined = ITEMS.columns(ColumnSet.of(ID)).build();
+        var orderOnly = ITEMS.select(SelectSet.of(ID, ITEM_ORDER_REFERRER_ID)).build();
+        var referrerOnly = ITEMS.select(SelectSet.of(ID, ITEM_REFERRER_NAME)).build();
+        // A key the SelectSet already holds is selected once.
+        var keyNamed = ITEMS.select(SelectSet.of(ID, ITEM_REFERRER_ID, ITEM_REFERRER_NAME)).build();
+        var unjoined = ITEMS.select(SelectSet.of(ID)).build();
         List<ItemView> viaOrder = new ArrayList<>();
         List<ItemView> viaReferrer = new ArrayList<>();
         List<ItemView> viaNamedKey = new ArrayList<>();
@@ -121,7 +121,7 @@ class PresenceKeyTest {
 
     @TckTest
     void ac_col_12_an_absent_row_is_told_from_a_match_whose_columns_are_all_null(TckDatabase db) {
-        var q = ITEMS.columns(ColumnSet.of(ID, ITEM_ORDER_REFERRER_ID, ITEM_REFERRER_NAME)).build();
+        var q = ITEMS.select(SelectSet.of(ID, ITEM_ORDER_REFERRER_ID, ITEM_REFERRER_NAME)).build();
         List<ItemView> items = new ArrayList<>();
         withExecutor(JoinTestSupport.dataSource(db), executor -> items.addAll(executor.list(q, Limit.unlimited())));
 
@@ -143,10 +143,10 @@ class PresenceKeyTest {
 
     @TckTest
     void ac_col_12_every_model_phase_selects_the_presence_key(TckDatabase db) {
-        var columns = ColumnSet.of(ID, ITEM_ORDER_REFERRER_ID, ITEM_REFERRER_NAME);
-        var plain = ITEMS.columns(columns).build();
-        var twoStep = ITEMS.columns(columns).primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
-        var keyset = ITEMS.columns(columns).keyset().build();
+        var columns = SelectSet.of(ID, ITEM_ORDER_REFERRER_ID, ITEM_REFERRER_NAME);
+        var plain = ITEMS.select(columns).build();
+        var twoStep = ITEMS.select(columns).primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
+        var keyset = ITEMS.select(columns).keyset().build();
         List<ItemView> expected = new ArrayList<>();
         List<ItemView> paged = new ArrayList<>();
         List<ItemView> exported = new ArrayList<>();

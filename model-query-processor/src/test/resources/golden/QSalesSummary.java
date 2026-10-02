@@ -3,11 +3,11 @@ package shop;
 import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.OrderedColumnField;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowMapper;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -43,11 +43,11 @@ public final class QSalesSummary {
     public static final AggregateField<SalesSummary, BigDecimal> BIGGEST_SALE = Agg.max(
             ColumnField.of(SalesSummary.class, ROOT, "amount", BigDecimal.class));
 
-    public static final ColumnSet<SalesSummary> ALL = ColumnSet.of(REGION, PRODUCT);
+    public static final SelectSet<SalesSummary> ALL = SelectSet.of(REGION, PRODUCT);
 
-    public static final ColumnSet<SalesSummary> DEFAULT = ALL;
+    public static final SelectSet<SalesSummary> DEFAULT = ALL;
 
-    public static final ColumnSet<SalesSummary> GROUP_KEYS = ColumnSet.of(REGION, PRODUCT);
+    public static final SelectSet<SalesSummary> GROUP_KEYS = SelectSet.of(REGION, PRODUCT);
 
     public static final RowMapper<SalesSummary> MAPPER = QSalesSummary::map;
 

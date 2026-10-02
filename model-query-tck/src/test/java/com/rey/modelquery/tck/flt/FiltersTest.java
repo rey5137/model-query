@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.rey.modelquery.core.BuiltQuery;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.Filters;
 import com.rey.modelquery.core.LikeMode;
 import com.rey.modelquery.core.ModelQuery;
@@ -14,6 +13,7 @@ import com.rey.modelquery.core.Op;
 import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.core.RowMapper;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
@@ -67,7 +67,7 @@ class FiltersTest {
     private static final RowMapper<O> O_MAPPER = row -> new O(row.get(ID), row.get(STATUS), row.get(TOTAL),
             row.get(PLACED_AT), row.get(CUSTOMER_NAME));
     static final ModelQuery.Builder<OrderEntity, Object, O> ORDER_QUERY = ModelQuery.builder(ORDERS, O_MAPPER)
-            .columns(ColumnSet.of(ID, STATUS, TOTAL, PLACED_AT, CUSTOMER_NAME))
+            .select(SelectSet.of(ID, STATUS, TOTAL, PLACED_AT, CUSTOMER_NAME))
             .orderBy(ID.asc());
 
     // ---- order items against their order, for column-against-column
@@ -82,7 +82,7 @@ class FiltersTest {
             ColumnField.of(I.class, ITEM_ORDER, "id", Long.class);
     static final ModelQuery.Builder<OrderItemEntity, Object, I> ITEM_QUERY =
             ModelQuery.builder(ITEMS, row -> new I(row.get(ITEM_ID), row.get(ITEM_ORDER_ID)))
-                    .columns(ColumnSet.of(ITEM_ID, ITEM_ORDER_ID))
+                    .select(SelectSet.of(ITEM_ID, ITEM_ORDER_ID))
                     .orderBy(ITEM_ID.asc());
 
     // ---- nullable columns
@@ -101,7 +101,7 @@ class FiltersTest {
             ColumnField.of(N.class, NULLABLE, "sortTs", LocalDateTime.class);
     static final ModelQuery.Builder<NullableSortEntity, Object, N> NULLABLE_QUERY =
             ModelQuery.builder(NULLABLE, row -> new N(row.get(N_ID), row.get(N_INT), row.get(N_TEXT), row.get(N_TS)))
-                    .columns(ColumnSet.of(N_ID, N_INT, N_TEXT, N_TS))
+                    .select(SelectSet.of(N_ID, N_INT, N_TEXT, N_TS))
                     .orderBy(N_ID.asc());
 
     private static final LocalDateTime BASE = LocalDateTime.of(2020, 1, 1, 0, 0);
@@ -469,7 +469,7 @@ class FiltersTest {
         var customer = TableField.join(root, "customer", INNER);
         var id = ColumnField.of(Id.class, root, "id", Long.class);
         var country = ColumnField.of(Id.class, customer, "country", String.class);
-        var query = ModelQuery.builder(root, row -> new Id(row.get(id))).columns(ColumnSet.of(id)).orderBy(id.asc());
+        var query = ModelQuery.builder(root, row -> new Id(row.get(id))).select(SelectSet.of(id)).orderBy(id.asc());
         List<List<Id>> results = new ArrayList<>();
         List<Long> expected = new ArrayList<>();
         SqlSnapshots.assertMatches(db, "col-07-filter-only-column", ds -> {
@@ -483,7 +483,7 @@ class FiltersTest {
                             .allSatisfy(r -> assertThat(r.getJoins()).isEmpty());
                     results.add(run(em, skipped));
                     // Even when selected, the model has no field for it and is unchanged.
-                    results.add(run(em, query.columns(ColumnSet.of(id, country))
+                    results.add(run(em, query.select(SelectSet.of(id, country))
                             .where(f -> f.eq(country, Optional.of("VN")))));
                 });
             }

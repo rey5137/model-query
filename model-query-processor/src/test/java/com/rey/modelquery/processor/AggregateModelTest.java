@@ -100,8 +100,8 @@ class AggregateModelTest {
         assertThat(compilation).succeededWithoutWarnings();
         String generated = generatedFlat(compilation, "shop.QSalesSummary");
         assertThat(generated)
-                .contains("ColumnSet<SalesSummary> GROUP_KEYS = ColumnSet.of(REGION);")
-                .contains("ColumnSet<SalesSummary> ALL = ColumnSet.of(REGION);")
+                .contains("SelectSet<SalesSummary> GROUP_KEYS = SelectSet.of(REGION);")
+                .contains("SelectSet<SalesSummary> ALL = SelectSet.of(REGION);")
                 .contains("AggregateField<SalesSummary, Long> LINES = Agg.count(ROOT);")
                 .contains("Builder<SaleEntity, Object, SalesSummary> query() { "
                         + "return ModelQuery.builder(ROOT, MAPPER).groupBy(GROUP_KEYS); }")

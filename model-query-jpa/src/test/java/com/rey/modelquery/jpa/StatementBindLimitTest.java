@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Limit;
@@ -15,6 +14,7 @@ import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import jakarta.persistence.EntityManager;
@@ -55,7 +55,7 @@ class StatementBindLimitTest {
 
     private static final ModelQuery.Builder<BindLimitPairEntity, Object, Pair> PAIR_ROWS = ModelQuery
             .builder(PAIRS, row -> new Pair(row.get(FIRST), row.get(SECOND)))
-            .columns(ColumnSet.of(FIRST, SECOND));
+            .select(SelectSet.of(FIRST, SECOND));
 
     private static final TableField<KeysetRowEntity, KeysetRowEntity> ROOT = TableField.root(KeysetRowEntity.class);
     private static final ColumnField<Row2, KeysetRowEntity, Long> ID =
@@ -67,7 +67,7 @@ class StatementBindLimitTest {
 
     private static final ModelQuery.Builder<KeysetRowEntity, Long, Row2> ROWS = ModelQuery
             .builder(ROOT, row -> new Row2(row.get(ID), row.get(A)))
-            .columns(ColumnSet.of(ID, A))
+            .select(SelectSet.of(ID, A))
             .primaryKey(PrimaryKey.of(ID))
             .orderBy(ID.asc());
 

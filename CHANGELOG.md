@@ -18,6 +18,8 @@ Breaking changes, each under Changed below:
 - `Filters.or` and `Having.or` take two or three branches or a `List`, not varargs (D-87).
 - `PageSpec` and `ExportOptions` have no public constructor; use `PageSpec.of` or `PageSpec.ofOffset` (D-88).
 - `SetterMapper.bind` takes a column of the mapper's own model (D-88).
+- `ColumnSet` is `SelectSet`, with `fields()` for `columns()`; the builder's `columns(...)` and the query's `columns()`
+  are `select(...)` and `select()`, and `@QueryModel(generateColumnSets)` is `generateSelectSets` (D-94).
 - A statement whose binds pass the vendor's limit throws `MQ1307` before it runs (D-80).
 
 Behaviour to know when moving from hand-written Criteria code:
@@ -78,6 +80,10 @@ Behaviour to know when moving from hand-written Criteria code:
   the `pageSize()` and `limit()` accessors are unchanged (D-88).
 - **Breaking:** `SetterMapper.bind` takes a `SelectField<M, C>` of the mapper's own model; another model's column,
   which set `null` on every row, no longer compiles (D-88).
+- **Breaking:** `ColumnSet` is renamed `SelectSet`, after the `SelectField`s it holds, aggregates included; its
+  `columns()` is `fields()`. `ModelQuery.Builder.columns(...)` is `select(...)`, `ModelQuery.columns()` is `select()`,
+  `@QueryModel(generateColumnSets)` is `generateSelectSets`, and `MQ1202` reads `select(...) is required`. The
+  generated `ALL`, `DEFAULT`, join and `GROUP_KEYS` constants keep their names (D-94).
 - `DateTimestampConverter` documents that the `Date` it reads is a `Timestamp`, whose `equals` is asymmetric with a
   plain `Date` (D-89).
 - Primary-key-first step-2 batches and bulk-write key chunks hold at most the largest power of two of keys within the

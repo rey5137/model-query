@@ -2,13 +2,13 @@ package shop;
 
 import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.OrderedColumnField;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowMapper;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import javax.annotation.processing.Generated;
 
@@ -28,9 +28,9 @@ public final class QOrderSummary {
     public static final OrderedColumnField<OrderSummary, OrderEntity, String> NOTES = ColumnField.of(OrderSummary.class,
             ROOT, "notes", String.class).named("notes");
 
-    public static final ColumnSet<OrderSummary> ALL = ColumnSet.of(ID, STATUS, CITY, NOTES);
+    public static final SelectSet<OrderSummary> ALL = SelectSet.of(ID, STATUS, CITY, NOTES);
 
-    public static final ColumnSet<OrderSummary> DEFAULT = ALL.without(NOTES);
+    public static final SelectSet<OrderSummary> DEFAULT = ALL.without(NOTES);
 
     public static final PrimaryKey<OrderSummary, Long> KEY = PrimaryKey.of(ID);
 

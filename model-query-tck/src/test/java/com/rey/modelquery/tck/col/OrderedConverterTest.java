@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.DateTimestampConverter;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Filters;
@@ -14,6 +13,7 @@ import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.OrderedColumnField;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
@@ -57,12 +57,12 @@ class OrderedConverterTest {
 
     private static final ModelQuery.Builder<StampedOrderEntity, Long, AtInstant> AT_INSTANT = ModelQuery
             .builder(ROOT, row -> new AtInstant(row.get(ID), row.get(PLACED), (Timestamp) row.raw(PLACED)))
-            .columns(ColumnSet.of(ID, PLACED))
+            .select(SelectSet.of(ID, PLACED))
             .primaryKey(PrimaryKey.of(ID))
             .orderBy(ID.asc());
     private static final ModelQuery.Builder<StampedOrderEntity, Long, AtDate> AT_DATE = ModelQuery
             .builder(ROOT, row -> new AtDate(row.get(DATE_ID), row.get(PLACED_DATE), (Timestamp) row.raw(PLACED_DATE)))
-            .columns(ColumnSet.of(DATE_ID, PLACED_DATE))
+            .select(SelectSet.of(DATE_ID, PLACED_DATE))
             .primaryKey(PrimaryKey.of(DATE_ID))
             .orderBy(DATE_ID.asc());
 
@@ -80,7 +80,7 @@ class OrderedConverterTest {
     private static final ModelQuery.Builder<StampedOrderEntity, Object, Span> SPANS = ModelQuery
             .builder(ROOT, row -> new Span(row.get(STATUS), row.get(FIRST), row.get(LAST), row.get(LAST_DATE),
                     row.get(DISTINCT)))
-            .columns(ColumnSet.of(STATUS, FIRST, LAST, LAST_DATE, DISTINCT))
+            .select(SelectSet.of(STATUS, FIRST, LAST, LAST_DATE, DISTINCT))
             .groupBy(STATUS);
 
     /** A stored value with microseconds, later than every fixture order. */

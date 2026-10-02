@@ -10,7 +10,6 @@ import com.rey.modelquery.core.Changes;
 import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ColumnConverter;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.Filters;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
@@ -22,6 +21,7 @@ import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.PersistenceContextMode;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
@@ -69,8 +69,8 @@ import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
-import org.junit.jupiter.api.Assumptions;
 import org.hibernate.exception.ConstraintViolationException;
+import org.junit.jupiter.api.Assumptions;
 
 /**
  * Bulk updates and deletes rendered as one statement, or one per run of keys (spec api/14 R-WRT-07, R-WRT-08,
@@ -424,7 +424,7 @@ class BulkWriteTest {
                 .not(g -> g.eq(REFERRER_COUNTRY, "VN"))
                 .lt(ID, 600L);
         var read = ModelQuery.builder(ORDERS, row -> new OrderPatch(row.get(ID)))
-                .columns(ColumnSet.of(ID)).primaryKey(PrimaryKey.of(ID)).where(where).build();
+                .select(SelectSet.of(ID)).primaryKey(PrimaryKey.of(ID)).where(where).build();
         var update = UPDATE.primaryKey(PrimaryKey.of(ID)).set(STATUS, "MARKED").where(where).build();
         var expected = new ArrayList<Long>();
         var marked = new ArrayList<Long>();
@@ -447,7 +447,7 @@ class BulkWriteTest {
     void ac_wrt_07_a_joined_delete_renders_one_exists_and_deletes_the_rows_the_read_returns(TckDatabase db) {
         UnaryOperator<Filters<ItemPatch>> where = f -> f.eq(ITEM_ORDER_STATUS, "CANCELLED").lte(ITEM_ID, 400L);
         var read = ModelQuery.builder(ITEMS, row -> new ItemPatch(row.get(ITEM_ID)))
-                .columns(ColumnSet.of(ITEM_ID)).primaryKey(PrimaryKey.of(ITEM_ID)).where(where).build();
+                .select(SelectSet.of(ITEM_ID)).primaryKey(PrimaryKey.of(ITEM_ID)).where(where).build();
         var delete = ModelDelete.builder(ITEMS).primaryKey(PrimaryKey.of(ITEM_ID)).where(where).build();
         var expected = new ArrayList<Long>();
         var left = new ArrayList<Long>();
@@ -898,7 +898,7 @@ class BulkWriteTest {
     /** The ids of the orders {@code where} chooses, as the read path returns them. */
     static List<Long> readIds(TckDatabase db, UnaryOperator<Filters<OrderPatch>> where) {
         var read = ModelQuery.builder(ORDERS, row -> new OrderPatch(row.get(ID)))
-                .columns(ColumnSet.of(ID)).primaryKey(PrimaryKey.of(ID)).where(where).build();
+                .select(SelectSet.of(ID)).primaryKey(PrimaryKey.of(ID)).where(where).build();
         var ids = new ArrayList<Long>();
         inRolledBackTransaction(JoinTestSupport.dataSource(db), em ->
                 orders(em).list(read, Limit.unlimited()).forEach(order -> ids.add(order.id())));

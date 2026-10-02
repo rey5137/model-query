@@ -2,13 +2,13 @@ package shop;
 
 import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.OrderedColumnField;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowMapper;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import jakarta.persistence.criteria.JoinType;
 import java.util.Optional;
@@ -60,18 +60,18 @@ public final class QInvoiceView {
     public static final OrderedColumnField<InvoiceView, CountryEntity, String> BUYER_COUNTRY_NAME = QCustomerView.COUNTRY_NAME.withTable(InvoiceView.class,
             BUYER_COUNTRY_TABLE);
 
-    public static final ColumnSet<InvoiceView> ALL = ColumnSet.of(ID, STATUS);
+    public static final SelectSet<InvoiceView> ALL = SelectSet.of(ID, STATUS);
 
-    public static final ColumnSet<InvoiceView> DEFAULT = ALL;
+    public static final SelectSet<InvoiceView> DEFAULT = ALL;
 
-    public static final ColumnSet<InvoiceView> CUSTOMER = ColumnSet.of(CUSTOMER_ID, CUSTOMER_NAME);
+    public static final SelectSet<InvoiceView> CUSTOMER = SelectSet.of(CUSTOMER_ID, CUSTOMER_NAME);
 
-    public static final ColumnSet<InvoiceView> CUSTOMER_COUNTRY = ColumnSet.of(CUSTOMER_COUNTRY_CODE,
+    public static final SelectSet<InvoiceView> CUSTOMER_COUNTRY = SelectSet.of(CUSTOMER_COUNTRY_CODE,
             CUSTOMER_COUNTRY_NAME);
 
-    public static final ColumnSet<InvoiceView> BUYER = ColumnSet.of(BUYER_ID, BUYER_NAME);
+    public static final SelectSet<InvoiceView> BUYER = SelectSet.of(BUYER_ID, BUYER_NAME);
 
-    public static final ColumnSet<InvoiceView> BUYER_COUNTRY = ColumnSet.of(BUYER_COUNTRY_CODE,
+    public static final SelectSet<InvoiceView> BUYER_COUNTRY = SelectSet.of(BUYER_COUNTRY_CODE,
             BUYER_COUNTRY_NAME);
 
     public static final PrimaryKey<InvoiceView, Long> KEY = PrimaryKey.of(ID);

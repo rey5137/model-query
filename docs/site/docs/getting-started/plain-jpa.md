@@ -76,7 +76,7 @@ var executor = ModelQueryExecutor.create(em, OrderEntity.class, ModelQueryConfig
 
 // A filtered page of order views, each with its customer, if any.
 var paid = QOrderView.query()
-        .columns(QOrderView.ALL.with(QOrderView.CUSTOMER))
+        .select(QOrderView.ALL.with(QOrderView.CUSTOMER))
         .where(f -> f.eq(QOrderView.STATUS, "PAID"))
         .orderBy(QOrderView.ID.asc())
         .build();

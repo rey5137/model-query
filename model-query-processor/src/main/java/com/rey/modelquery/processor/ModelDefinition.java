@@ -13,7 +13,7 @@ import javax.lang.model.type.TypeMirror;
  * @param type the model class or record
  * @param root the entity named by {@code @QueryModel(root)}
  * @param generatedName the simple name of the QModel class, in the model's package
- * @param columnSets whether {@code ALL} and {@code DEFAULT} are generated
+ * @param selectSets whether {@code ALL} and {@code DEFAULT} are generated
  * @param singleGroup whether {@code @QueryModel(singleGroup)} declares aggregates with no {@code @GroupBy}
  * @param fields the model's fields or record components, in declaration order
  * @param filterColumns the model's {@code @FilterColumn}s, in declaration order
@@ -21,7 +21,7 @@ import javax.lang.model.type.TypeMirror;
  * @param generateChanges whether {@code @QueryModel(generateChanges)} asks for a change set
  */
 record ModelDefinition(
-        TypeElement type, TypeElement root, String generatedName, boolean columnSets, boolean singleGroup,
+        TypeElement type, TypeElement root, String generatedName, boolean selectSets, boolean singleGroup,
         List<ModelField> fields, List<FilterColumnDefinition> filterColumns, boolean updateModel,
         boolean generateChanges) {
 

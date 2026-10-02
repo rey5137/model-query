@@ -42,7 +42,7 @@ final class QModelWriter {
     private static final ClassName ORDERED_COLUMN_FIELD = ClassName.get(CORE, "OrderedColumnField");
     private static final ClassName AGG = ClassName.get(CORE, "Agg");
     private static final ClassName AGGREGATE_FIELD = ClassName.get(CORE, "AggregateField");
-    private static final ClassName COLUMN_SET = ClassName.get(CORE, "ColumnSet");
+    private static final ClassName SELECT_SET = ClassName.get(CORE, "SelectSet");
     private static final ClassName PRIMARY_KEY = ClassName.get(CORE, "PrimaryKey");
     private static final ClassName ROW_MAPPER = ClassName.get(CORE, "RowMapper");
     private static final ClassName ROW = ClassName.get(CORE, "Row");
@@ -125,34 +125,34 @@ final class QModelWriter {
                         .build());
             }
         }
-        // A filter-only column has no field to map: it is in no ColumnSet and not in map(Row) (R-PROC-10).
+        // A filter-only column has no field to map: it is in no SelectSet and not in map(Row) (R-PROC-10).
         for (FilterLayout.Column column : filters.columns()) {
             type.addField(column(
                     modelName, column.entity(), column.definition().name(), column.table(), column.attribute(),
                     column.read().type(), column.definition().converter(), null));
         }
-        if (model.columnSets()) {
-            TypeName columnSet = ParameterizedTypeName.get(COLUMN_SET, modelName);
+        if (model.selectSets()) {
+            TypeName selectSet = ParameterizedTypeName.get(SELECT_SET, modelName);
             List<ModelField> excluded = model.columns().stream().filter(ModelField::excludedFromDefaults).toList();
-            type.addField(FieldSpec.builder(columnSet, "ALL", CONSTANT)
-                    .initializer("$T.of($L)", COLUMN_SET, constants(model.columns()))
+            type.addField(FieldSpec.builder(selectSet, "ALL", CONSTANT)
+                    .initializer("$T.of($L)", SELECT_SET, constants(model.columns()))
                     .build());
-            type.addField(FieldSpec.builder(columnSet, "DEFAULT", CONSTANT)
+            type.addField(FieldSpec.builder(selectSet, "DEFAULT", CONSTANT)
                     .initializer(excluded.isEmpty() ? CodeBlock.of("ALL") : CodeBlock.of("ALL.without($L)",
                             constants(excluded)))
                     .build());
             // Derived from the nested model's own fields, so a column added there is selected here too (R-GEN-04).
             for (JoinedTable table : joined) {
-                type.addField(FieldSpec.builder(columnSet, table.prefix(), CONSTANT)
-                        .initializer("$T.of($L)", COLUMN_SET, table.columns().stream()
+                type.addField(FieldSpec.builder(selectSet, table.prefix(), CONSTANT)
+                        .initializer("$T.of($L)", SELECT_SET, table.columns().stream()
                                 .map(column -> CodeBlock.of("$L", column.constant()))
                                 .collect(CodeBlock.joining(",$W")))
                         .build());
             }
         }
         if (!groupKeys.isEmpty()) {
-            type.addField(FieldSpec.builder(ParameterizedTypeName.get(COLUMN_SET, modelName), "GROUP_KEYS", CONSTANT)
-                    .initializer("$T.of($L)", COLUMN_SET, constants(groupKeys))
+            type.addField(FieldSpec.builder(ParameterizedTypeName.get(SELECT_SET, modelName), "GROUP_KEYS", CONSTANT)
+                    .initializer("$T.of($L)", SELECT_SET, constants(groupKeys))
                     .build());
         }
         // A summary model may have no key: a group has none (R-AGG-09). An update model names its key in place.

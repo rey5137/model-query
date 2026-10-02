@@ -6,11 +6,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
@@ -55,14 +55,14 @@ class GroupedExportTest {
 
     /** Every order holds exactly four items, so ordering its 5 000 groups by their count ties them all. */
     private static final ModelQuery<OrderItemEntity, Object, Group> PER_ORDER_BY_COUNT = GROUPS
-            .columns(ColumnSet.of(ORDER_ID, COUNT))
+            .select(SelectSet.of(ORDER_ID, COUNT))
             .groupBy(ORDER_ID)
             .orderBy(COUNT.desc())
             .build();
 
     /** 450 groups, nine per product: the product order ties nine groups, and only the quantity breaks the tie. */
     private static final ModelQuery.Builder<OrderItemEntity, Object, Group> PER_PRODUCT_AND_QUANTITY = GROUPS
-            .columns(ColumnSet.of(PRODUCT, QUANTITY, COUNT))
+            .select(SelectSet.of(PRODUCT, QUANTITY, COUNT))
             .groupBy(PRODUCT, QUANTITY)
             .orderBy(PRODUCT.asc());
 
@@ -182,12 +182,12 @@ class GroupedExportTest {
         // groups, pages of 7): a group-key tuple is unique per result row even through a to-many join, so neither is
         // refused, and the appended group key orders groups whose sums tie (R-PAG-11, R-PAG-13).
         var perOrder = ModelQuery.builder(ORDERS, GroupedExportTest::orderGroup)
-                .columns(ColumnSet.of(O_ID, O_QUANTITY))
+                .select(SelectSet.of(O_ID, O_QUANTITY))
                 .groupBy(O_ID)
                 .orderBy(O_QUANTITY.desc())
                 .build();
         var perProduct = ModelQuery.builder(ORDERS, GroupedExportTest::orderGroup)
-                .columns(ColumnSet.of(O_ITEM_PRODUCT, O_QUANTITY))
+                .select(SelectSet.of(O_ITEM_PRODUCT, O_QUANTITY))
                 .groupBy(O_ITEM_PRODUCT)
                 .orderBy(O_QUANTITY.desc())
                 .build();
@@ -229,7 +229,7 @@ class GroupedExportTest {
     @TckTest
     void ac_agg_09_a_grouped_query_with_no_primary_key_exports_and_one_that_is_set_is_ignored(TckDatabase db) {
         // 50 groups in pages of 20: both exports run the same three statements, neither selecting the item id.
-        var perProduct = GROUPS.columns(ColumnSet.of(PRODUCT, COUNT)).groupBy(PRODUCT).orderBy(COUNT.desc());
+        var perProduct = GROUPS.select(SelectSet.of(PRODUCT, COUNT)).groupBy(PRODUCT).orderBy(COUNT.desc());
         var keyless = perProduct.build();
         var keyed = perProduct.primaryKey(PrimaryKey.of(ITEM_ID)).build();
         List<List<Group>> exports = new ArrayList<>();
@@ -253,7 +253,7 @@ class GroupedExportTest {
     @TckTest
     void ac_agg_09_a_whole_table_aggregate_exports_its_one_group(TckDatabase db) {
         // A page of one is full, so a second, empty page ends the export; the one group is not repeated.
-        var total = GROUPS.columns(ColumnSet.of(COUNT)).build();
+        var total = GROUPS.select(SelectSet.of(COUNT)).build();
         List<Group> groups = new ArrayList<>();
         withExecutor(db, OrderItemEntity.class, executor -> assertThat(
                 executor.export(total, ExportOptions.of(1), page -> page, groups::add)).isEqualTo(1));

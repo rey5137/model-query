@@ -10,7 +10,7 @@ public final class QuickStart {
     public static Slice<OrderView> firstPaidPage(EntityManager em) {
         var executor = ModelQueryExecutor.create(em, OrderEntity.class, ModelQueryConfig.defaults());
         var query = QOrderView.query()
-                .columns(QOrderView.ALL)
+                .select(QOrderView.ALL)
                 .where(f -> f.eq(QOrderView.STATUS, "PAID"))
                 .orderBy(QOrderView.ID.asc())
                 .build();

@@ -42,7 +42,7 @@ final class ChangesWriter {
     private static final ClassName CHANGES = ClassName.get(CORE, "Changes");
     private static final ClassName ASSIGNMENT = ClassName.get(CORE, "Assignment");
     private static final ClassName COLUMN_FIELD = ClassName.get(CORE, "ColumnField");
-    private static final ClassName COLUMN_SET = ClassName.get(CORE, "ColumnSet");
+    private static final ClassName SELECT_SET = ClassName.get(CORE, "SelectSet");
     private static final ClassName SELECT_FIELD = ClassName.get(CORE, "SelectField");
     private static final ClassName DEFINITION_EXCEPTION = ClassName.get(CORE, "ModelQueryDefinitionException");
     private static final ClassName MQ_CODE = ClassName.get(CORE, "MqCode");
@@ -170,10 +170,10 @@ final class ChangesWriter {
                 .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
                 .returns(changes)
                 .addParameter(modelName, "model")
-                .addParameter(ParameterizedTypeName.get(COLUMN_SET, modelName), "columns")
+                .addParameter(ParameterizedTypeName.get(SELECT_SET, modelName), "columns")
                 .addStatement("$T.requireNonNull(model, $S)", Objects.class, "model")
                 .addStatement("$T changes = new $T()", changes, changes)
-                .beginControlFlow("for ($T column : $T.requireNonNull(columns, $S).columns())",
+                .beginControlFlow("for ($T column : $T.requireNonNull(columns, $S).fields())",
                         ParameterizedTypeName.get(SELECT_FIELD, modelName, ANY), Objects.class, "columns");
         for (int i = 0; i < writable.size(); i++) {
             ModelField field = writable.get(i);

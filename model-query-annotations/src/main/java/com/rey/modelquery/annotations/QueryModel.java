@@ -23,11 +23,11 @@ public @interface QueryModel {
     Class<?> root();
 
     /**
-     * Whether to generate {@code ColumnSet} constants.
+     * Whether to generate {@code SelectSet} constants.
      *
      * @return {@code true} to generate column sets
      */
-    boolean generateColumnSets() default true;
+    boolean generateSelectSets() default true;
 
     /**
      * Prefix of the generated class name. The {@code -Amodelquery.prefix=} processor option sets it for a whole

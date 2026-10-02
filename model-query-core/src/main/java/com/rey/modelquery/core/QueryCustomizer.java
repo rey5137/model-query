@@ -13,14 +13,14 @@ import jakarta.persistence.criteria.CriteriaQuery;
  *
  * <p><b>A selection added here cannot be read back.</b> It has no {@link SelectField} key, so {@link Row#get} never
  * returns it and it never reaches the model. A value the model needs goes through a {@link ColumnField} in the
- * {@code ColumnSet}; a value derived from other columns of the row is computed in {@code afterMap} (R-QRY-05). Keep
+ * {@code SelectSet}; a value derived from other columns of the row is computed in {@code afterMap} (R-QRY-05). Keep
  * {@code Agg.of(...)} for aggregate expressions: any aggregate makes the query grouped (R-QRY-08, D-27).
  *
  * <pre>{@code
  * // Wrong: the model never sees this.
  * (spec, joins, query, cb, phase) -> query.multiselect(withExtra(query, cb.upper(status)));
- * // Right: select the column through the ColumnSet and derive the value per row.
- * .columns(ColumnSet.of(ID, STATUS))
+ * // Right: select the column through the SelectSet and derive the value per row.
+ * .select(SelectSet.of(ID, STATUS))
  * .afterMap((view, row) -> view.setLabel(row.get(STATUS).toUpperCase(Locale.ROOT)))
  * }</pre>
  *

@@ -80,7 +80,7 @@ class FilterGroupTest {
 
     @Test
     void ac_flt_02_where_fails_when_it_is_called_not_when_the_query_runs() {
-        var builder = ModelQuery.builder(ROOT, row -> new OrderView()).columns(ColumnSet.of(ID));
+        var builder = ModelQuery.builder(ROOT, row -> new OrderView()).select(SelectSet.of(ID));
         String status = null;
         assertThatThrownBy(() -> builder.where(f -> f.eq(STATUS, status)))
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
@@ -219,7 +219,7 @@ class FilterGroupTest {
 
     @Test
     void ac_flt_10_a_column_outside_the_exists_path_throws_mq1302_when_where_runs() {
-        var builder = ModelQuery.builder(ROOT, row -> new OrderView()).columns(ColumnSet.of(ID));
+        var builder = ModelQuery.builder(ROOT, row -> new OrderView()).select(SelectSet.of(ID));
         Map<String, UnaryOperator<Filters<OrderView>>> outside = Map.of(
                 "root column", f -> f.exists(ITEMS, i -> i.eq(STATUS, "PAID")),
                 "sibling join", f -> f.exists(ITEMS, i -> i.isNull(CUSTOMER_NAME)),

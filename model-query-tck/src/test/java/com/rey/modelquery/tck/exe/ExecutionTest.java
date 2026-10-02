@@ -7,7 +7,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
@@ -15,6 +14,7 @@ import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
@@ -28,7 +28,9 @@ import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
 import jakarta.persistence.EntityManager;
+import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
+import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -43,8 +45,6 @@ import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
-import java.lang.reflect.Proxy;
-import java.sql.Connection;
 import java.util.stream.Stream;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
@@ -85,7 +85,7 @@ class ExecutionTest {
     /** Every order, in id order. */
     private static final ModelQuery.Builder<OrderEntity, Long, OrderRow> ORDER_ROWS = ModelQuery
             .builder(ORDERS, row -> new OrderRow(row.get(ID), row.get(STATUS), row.get(TOTAL)))
-            .columns(ColumnSet.of(ID, STATUS, TOTAL))
+            .select(SelectSet.of(ID, STATUS, TOTAL))
             .primaryKey(PrimaryKey.of(ID))
             .orderBy(ID.asc());
 
@@ -173,7 +173,7 @@ class ExecutionTest {
     void page_closes_a_tied_order_with_the_primary_key(TckDatabase db) {
         // Four statuses over 5 000 orders: every sort key is shared by 1 250 rows.
         var tied = ModelQuery.builder(ORDERS, row -> new OrderRow(row.get(ID), row.get(STATUS), row.get(TOTAL)))
-                .columns(ColumnSet.of(ID, STATUS, TOTAL))
+                .select(SelectSet.of(ID, STATUS, TOTAL))
                 .primaryKey(PrimaryKey.of(ID))
                 .orderBy(STATUS.asc())
                 .build();
@@ -192,7 +192,7 @@ class ExecutionTest {
 
     private static final ModelQuery.Builder<OrderEntity, Object, Group> PER_CUSTOMER = ModelQuery
             .builder(ORDERS, (com.rey.modelquery.core.Row row) -> new Group(row.get(GROUP_CUSTOMER), row.get(GROUP_TOTAL)))
-            .columns(ColumnSet.of(GROUP_CUSTOMER, GROUP_TOTAL))
+            .select(SelectSet.of(GROUP_CUSTOMER, GROUP_TOTAL))
             .groupBy(GROUP_CUSTOMER)
             .orderBy(GROUP_CUSTOMER.asc());
 
@@ -267,10 +267,10 @@ class ExecutionTest {
     @TckTest
     void ac_exe_10_count_over_a_column_read_through_a_to_many_join_equals_the_rows_list_returns(TckDatabase db) {
         var itemRows = ModelQuery.builder(ORDERS, row -> new ItemRow(row.get(ITEM_ORDER_ID), row.get(ITEM_PRODUCT)))
-                .columns(ColumnSet.of(ITEM_ORDER_ID, ITEM_PRODUCT))
+                .select(SelectSet.of(ITEM_ORDER_ID, ITEM_PRODUCT))
                 .build();
         var filtered = ModelQuery.builder(ORDERS, row -> new ItemRow(row.get(ITEM_ORDER_ID), row.get(ITEM_PRODUCT)))
-                .columns(ColumnSet.of(ITEM_ORDER_ID, ITEM_PRODUCT))
+                .select(SelectSet.of(ITEM_ORDER_ID, ITEM_PRODUCT))
                 .where(f -> f.eq(ITEM_PRODUCT, Optional.of("P001")))
                 .orderBy(ITEM_PRODUCT.asc())
                 .build();
@@ -340,7 +340,7 @@ class ExecutionTest {
                     mapped.incrementAndGet();
                     return new ItemRow(row.get(ITEM_ORDER_ID), row.get(ITEM_PRODUCT));
                 })
-                .columns(ColumnSet.of(ITEM_ORDER_ID, ITEM_PRODUCT))
+                .select(SelectSet.of(ITEM_ORDER_ID, ITEM_PRODUCT))
                 .build();
         withTransactionalExecutor(db, executor -> {
             // forEach, not count(): count() skips a SIZED stream's pipeline, which is what a buffered list would be

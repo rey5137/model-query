@@ -16,42 +16,42 @@ import java.util.Set;
  * @implSpec R-COL-09
  */
 @Incubating
-public final class ColumnSet<M> {
+public final class SelectSet<M> {
 
-    private final List<SelectField<M, ?>> columns;
+    private final List<SelectField<M, ?>> fields;
 
-    private ColumnSet(Set<SelectField<M, ?>> columns) {
-        this.columns = List.copyOf(columns);
+    private SelectSet(Set<SelectField<M, ?>> columns) {
+        this.fields = List.copyOf(columns);
     }
 
     /** A set of {@code columns}, in the given order; an empty set selects nothing (P-3). */
     @SafeVarargs
-    public static <M> ColumnSet<M> of(SelectField<M, ?>... columns) {
-        return new ColumnSet<>(append(new LinkedHashSet<>(), checked(columns, "columns")));
+    public static <M> SelectSet<M> of(SelectField<M, ?>... columns) {
+        return new SelectSet<>(append(new LinkedHashSet<>(), checked(columns, "columns")));
     }
 
     /** A copy with {@code extra} appended; columns already present keep their position. */
     @SafeVarargs
-    public final ColumnSet<M> with(SelectField<M, ?>... extra) {
-        return new ColumnSet<>(append(new LinkedHashSet<>(columns), checked(extra, "extra")));
+    public final SelectSet<M> with(SelectField<M, ?>... extra) {
+        return new SelectSet<>(append(new LinkedHashSet<>(fields), checked(extra, "extra")));
     }
 
     /** A copy with the columns of {@code other} appended; columns already present keep their position. */
-    public ColumnSet<M> with(ColumnSet<M> other) {
-        return new ColumnSet<>(append(new LinkedHashSet<>(columns), Objects.requireNonNull(other, "other").columns));
+    public SelectSet<M> with(SelectSet<M> other) {
+        return new SelectSet<>(append(new LinkedHashSet<>(fields), Objects.requireNonNull(other, "other").fields));
     }
 
     /** A copy without {@code columns}. */
     @SafeVarargs
-    public final ColumnSet<M> without(SelectField<M, ?>... columns) {
-        var result = new LinkedHashSet<>(this.columns);
+    public final SelectSet<M> without(SelectField<M, ?>... columns) {
+        var result = new LinkedHashSet<>(fields);
         result.removeAll(checked(columns, "columns"));
-        return new ColumnSet<>(result);
+        return new SelectSet<>(result);
     }
 
     /** The selections in order, as a list that throws on mutation (CC-IMM-03). */
-    public List<SelectField<M, ?>> columns() {
-        return columns;
+    public List<SelectField<M, ?>> fields() {
+        return fields;
     }
 
     /**
@@ -64,7 +64,7 @@ public final class ColumnSet<M> {
             if (!into.add(column)) {
                 for (SelectField<M, ?> present : into) {
                     if (AggregateField.conflict(present, column)) {
-                        throw AggregateField.redefined("ColumnSet", column);
+                        throw AggregateField.redefined("SelectSet", column);
                     }
                 }
             }

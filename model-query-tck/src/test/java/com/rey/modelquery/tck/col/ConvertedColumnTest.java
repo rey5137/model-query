@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.rey.modelquery.core.ColumnConverter;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Limit;
@@ -12,6 +11,7 @@ import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.PrimaryKeyFirst;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
@@ -83,12 +83,12 @@ class ConvertedColumnTest {
 
     private static final ModelQuery.Builder<OrderEntity, String, OrderView> ORDERS = ModelQuery
             .builder(ROOT, row -> new OrderView(row.get(REF), row.get(STATUS), row.raw(REF), row.raw(STATUS)))
-            .columns(ColumnSet.of(REF, STATUS))
+            .select(SelectSet.of(REF, STATUS))
             .primaryKey(PrimaryKey.of(REF));
 
     private static final ModelQuery.Builder<OrderEntity, Long, PlainView> PLAIN = ModelQuery
             .builder(ROOT, row -> new PlainView(row.get(ID), row.get(STATUS_TEXT)))
-            .columns(ColumnSet.of(ID, STATUS_TEXT))
+            .select(SelectSet.of(ID, STATUS_TEXT))
             .primaryKey(PrimaryKey.of(ID))
             .orderBy(ID.asc());
 

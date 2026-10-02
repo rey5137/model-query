@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
@@ -14,6 +13,7 @@ import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.PrimaryKeyFirst;
 import com.rey.modelquery.core.QueryCustomizer;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
@@ -55,7 +55,7 @@ class VendorLimitsTest {
     /** Every order item by id; its product code is shared by 400 rows. */
     private static final ModelQuery.Builder<OrderItemEntity, Long, ItemRow> BY_ID = ModelQuery
             .builder(ITEMS, row -> new ItemRow(row.get(ITEM_ID), row.get(ITEM_PRODUCT)))
-            .columns(ColumnSet.of(ITEM_ID, ITEM_PRODUCT))
+            .select(SelectSet.of(ITEM_ID, ITEM_PRODUCT))
             .primaryKey(PrimaryKey.of(ITEM_ID))
             .orderBy(ITEM_ID.asc());
 

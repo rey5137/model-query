@@ -2,13 +2,13 @@ package shop;
 
 import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.OrderedColumnField;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowMapper;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import jakarta.persistence.criteria.JoinType;
 import java.util.Optional;
@@ -33,11 +33,11 @@ public final class QCustomerView {
     public static final OrderedColumnField<CustomerView, CountryEntity, String> COUNTRY_NAME = QCountryView.NAME.withTable(CustomerView.class,
             COUNTRY_TABLE);
 
-    public static final ColumnSet<CustomerView> ALL = ColumnSet.of(ID, NAME);
+    public static final SelectSet<CustomerView> ALL = SelectSet.of(ID, NAME);
 
-    public static final ColumnSet<CustomerView> DEFAULT = ALL;
+    public static final SelectSet<CustomerView> DEFAULT = ALL;
 
-    public static final ColumnSet<CustomerView> COUNTRY = ColumnSet.of(COUNTRY_CODE, COUNTRY_NAME);
+    public static final SelectSet<CustomerView> COUNTRY = SelectSet.of(COUNTRY_CODE, COUNTRY_NAME);
 
     public static final PrimaryKey<CustomerView, Long> KEY = PrimaryKey.of(ID);
 

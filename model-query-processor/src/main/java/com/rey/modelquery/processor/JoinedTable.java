@@ -12,7 +12,7 @@ import javax.lang.model.type.TypeMirror;
  *
  * @param join the model's {@code @Join} field this join is, or sits under
  * @param nested the model {@code join} nests, whose QModel the constants are derived from
- * @param prefix what the join's constants start with: {@code CUSTOMER_TABLE}, the {@code ColumnSet}
+ * @param prefix what the join's constants start with: {@code CUSTOMER_TABLE}, the {@code SelectSet}
  *     {@code CUSTOMER}, a column {@code CUSTOMER_ID}
  * @param parent the prefix of the join this one hangs from, or {@code null} for a {@code @Join} of the model itself
  * @param path the fields that lead to the join, as a diagnostic names it: {@code customer.address}

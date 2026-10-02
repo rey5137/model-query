@@ -9,7 +9,7 @@ millions of rows with bounded memory, on H2, PostgreSQL and MySQL alike.
 > only writes are filter-driven bulk updates and deletes (M6), which load no entity.
 
 - **Implementation:** Java 17, Maven multi-module, `jakarta.persistence` 3.1+, Hibernate 6.6+ optional extras.
-- **Surface (0.1):** `TableField`, `ColumnField`, `AggregateField`, `ColumnSet`, `ModelQuery`, `Filters`, `Row`,
+- **Surface (0.1):** `TableField`, `ColumnField`, `AggregateField`, `SelectSet`, `ModelQuery`, `Filters`, `Row`,
   `RowMapper`, `ModelQueryExecutor`, `VendorProfile`, an annotation processor generating `QModel` classes.
 - **Works without Spring:** the core needs only an `EntityManager`. Spring Data and Boot are separate modules.
 - **Open source:** Apache-2.0, published to Maven Central as `io.github.rey5137:model-query-*`.
@@ -26,7 +26,7 @@ Each child file states what it is for in its first five lines, so you can route 
 | If you are working on… | Read |
 |---|---|
 | Anything at all | this file (invariants, principles, decisions index) |
-| `TableField`, `ColumnField`, `SelectField`, `ColumnSet`, `Row`, `RowMapper`, join sharing, null precedence | `api/10` |
+| `TableField`, `ColumnField`, `SelectField`, `SelectSet`, `Row`, `RowMapper`, join sharing, null precedence | `api/10` |
 | `ModelQuery` builder, primary keys, `afterMap`, `QueryCustomizer`, the executor's API surface | `api/11` |
 | The `Filters` DSL: operators, `Optional` skipping, `or`/`not`/`exists`, escaping | `api/12` |
 | `Agg`, `AggregateField`, `groupBy`, `having`, grouped-query rules | `api/13` |
@@ -84,7 +84,7 @@ These hold for the life of the library. A change that breaks one is an architect
 | **INV-6** | **Vendor differences live only behind `VendorProfile`.** No `if (vendor == MYSQL)` outside a profile, and no vendor name in `core` (`vendor/40`). |
 | **INV-7** | **Dependencies flow one way:** `annotations` ← `core` ← `jpa` ← (`hibernate`, `spring-data`) ← `spring-boot-starter`, with `processor` depending only on `annotations`. `core` imports only `jakarta.persistence` and the JDK; `jpa` never imports `org.hibernate` (`delivery/61`). |
 | **INV-8** | **Framework-optional.** Every feature is reachable with a plain `EntityManager`. Spring is a convenience layer, never a requirement. |
-| **INV-9** | **Definitions are immutable and thread-safe.** `TableField`, `ColumnField`, `AggregateField`, `ColumnSet`, `OrderField`, `ModelQuery`, and from M6 `ModelUpdate` and `ModelDelete`, can be `static final`. Per-query state lives only in `JoinContext`, created per build. |
+| **INV-9** | **Definitions are immutable and thread-safe.** `TableField`, `ColumnField`, `AggregateField`, `SelectSet`, `OrderField`, `ModelQuery`, and from M6 `ModelUpdate` and `ModelDelete`, can be `static final`. Per-query state lives only in `JoinContext`, created per build. |
 | **INV-10** | **Diagnostic codes are stable:** once released, an `MQnnnn` code is never reused for a different meaning. |
 
 ## 3. Design principles
@@ -105,7 +105,7 @@ These hold for the life of the library. A change that breaks one is an architect
 
 | Area | 0.1 | 0.1-reserved | Future |
 |---|---|---|---|
-| Columns | `TableField`, `ColumnField`, `SelectField`, `ColumnSet`, converters, filter-only columns | — | computed/SQL-function columns beyond `Agg.of` |
+| Columns | `TableField`, `ColumnField`, `SelectField`, `SelectSet`, converters, filter-only columns | — | computed/SQL-function columns beyond `Agg.of` |
 | Models | classes with setters, records, nested `@Join` models as `Optional<T>` | — | interface projections, Kotlin data classes as a first-class case |
 | Filters | full DSL: comparison, sets, strings, nulls, column/column, `or`/`not`/`when`/`apply`, `exists` | — | full-text search, JSON path predicates |
 | Aggregates | `count`, `countDistinct`, `sum`, `avg`, `min`, `max`, `Agg.of`, `groupBy`, `having` | `window(...)` name | window functions, `ROLLUP`/`CUBE`, sub-query selections |
@@ -161,7 +161,7 @@ Full milestone list and exclusions: `delivery/62`.
 | Artifact | Owner |
 |---|---|
 | API semantics | this spec tree |
-| What a query actually selects | the `ColumnSet` the caller passed, plus the columns the engine adds for R-PAG-03/04 |
+| What a query actually selects | the `SelectSet` the caller passed, plus the columns the engine adds for R-PAG-03/04 |
 | Whether a row maps to a model | the query's `RowMapper` (`api/10`) |
 | Vendor behaviour | the `VendorProfile` for that vendor (`vendor/41`), verified by the TCK |
 | Diagnostic codes | `reference/90` |
@@ -174,7 +174,7 @@ Full milestone list and exclusions: `delivery/62`.
 docs/spec/
   SPEC.md                         this file
   api/
-    10-columns-joins.md           TableField, SelectField, ColumnField, ColumnSet, Row/RowMapper, joins, null precedence
+    10-columns-joins.md           TableField, SelectField, ColumnField, SelectSet, Row/RowMapper, joins, null precedence
     11-query-definition.md        ModelQuery builder, primary keys, afterMap, QueryCustomizer, executor surface
     12-filters.md                 Filters DSL, skip semantics, or/not/exists, escaping, IN splitting
     13-aggregates-grouping.md     Agg, AggregateField, groupBy, having, grouped-query rules

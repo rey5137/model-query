@@ -23,7 +23,7 @@ one row catches it. Keying by the same object that produced the selection makes 
 
 **D-3 — One sealed `SelectField`, not a parallel aggregate API.**
 An aggregate resolves to an `Expression`, a column to a `Path`, so `ColumnField` could not hold both. The alternatives
-were a parallel `AggregateSet`/`AggregateRow` (doubling `ColumnSet`, `Row` and `orderBy`) or pushing aggregates through
+were a parallel `AggregateSet`/`AggregateRow` (doubling `SelectSet`, `Row` and `orderBy`) or pushing aggregates through
 `QueryCustomizer` (which cannot be read back, `api/11` R-QRY-08). Widening three signatures once, pre-1.0, was cheaper
 than either. `Filters` deliberately kept `ColumnField`, which is what makes an aggregate in `where` a compile error.
 → `api/10` §2, `api/13`.
@@ -191,7 +191,7 @@ documented on `QueryCustomizer` and accepted (P-6). → `api/11` R-QRY-09, `api/
 **D-27 — No `Col.of`: a non-aggregate derived value belongs in `afterMap`.**
 `Agg.of` is the escape hatch for aggregate expressions only, since any aggregate makes the query grouped (R-AGG-07).
 A value computed per row from other columns is derived in `afterMap` (or a record's `finisher`) from the columns the
-`ColumnSet` selects. Rejected: `Col.of(expression)` for computed non-aggregate columns, which would turn the column
+`SelectSet` selects. Rejected: `Col.of(expression)` for computed non-aggregate columns, which would turn the column
 model into a general expression builder (P-5). Resolves Q-5. → `api/11` R-QRY-05, R-QRY-08, `api/13` R-AGG-02.
 
 **D-28 — Grouping is structural.**
@@ -203,7 +203,7 @@ keys and aggregates, an ungrouped one never by an aggregate, else `MQ1406`. Reje
 → `api/13` R-AGG-07, R-AGG-08, AC-AGG-08, AC-AGG-12.
 
 **D-29 — The model phases select every key the executor reads.**
-`MODEL` and `MODEL_BY_KEYS` select the `ColumnSet`, plus the primary key when one is defined on an ungrouped query,
+`MODEL` and `MODEL_BY_KEYS` select the `SelectSet`, plus the primary key when one is defined on an ungrouped query,
 every ordering key and every group key. None of these changes which rows return, since their joins are made anyway
 (D-26), and selecting them lets the executor read a row's key (offset export, R-PAG-01, R-PAG-03), cursor (R-PAG-04)
 and group (R-PAG-11) from the `Row` without a second definition of the selection. Rejected: adding the key only for
@@ -330,7 +330,7 @@ generated QModel declares `KEY`, and an outer model declares its join as
 (R-AGG-09): selecting a column under a `presentBy` join whose key columns are not all group keys throws `MQ1409` at
 `build()`, rather than mapping a nested model that reads as absent. Rejected: the outer mapper testing a column the
 caller happened to select (a match whose selected columns are all `NULL` would read as a miss, R-GEN-13); the
-generator adding the key to every joined `ColumnSet` (a hand-built `ColumnSet.of(CUSTOMER_NAME)` would lose it).
+generator adding the key to every joined `SelectSet` (a hand-built `SelectSet.of(CUSTOMER_NAME)` would lose it).
 A customizer that applies `DISTINCT` sees the added key columns in the selection; the user guide says so.
 → `api/10` §1, R-COL-15, `api/11` R-QRY-04, `api/13` R-AGG-09, `processor/31` §1, R-GEN-09, R-GEN-13, D-29.
 
@@ -370,8 +370,8 @@ are equal, and a scoped `Row` matches them, only when their converters are of th
 Rejected: a new code for the operator mismatch (it is the declared-type mismatch `MQ1001` already names). →
 `api/10` R-COL-14, D-37.
 
-**D-43 — A presence key is selected for `ColumnSet` columns only, by the `presentBy` instance.**
-Only a column of the query's `ColumnSet` brings in the presence keys of the joins it is read through; an order-only
+**D-43 — A presence key is selected for `SelectSet` columns only, by the `presentBy` instance.**
+Only a column of the query's `SelectSet` brings in the presence keys of the joins it is read through; an order-only
 or primary-key column does not, since no nested model is mapped from it. The keys are appended last in the selection.
 The key is found on the column's own `TableField`: a join with an equal key built without `presentBy` selects none,
 because the presence key is not part of the join's identity. Generated code declares each join once, so it always
@@ -397,9 +397,9 @@ assignability (it would let through what `MQ1001` refuses). → `processor/30` R
 An outer QModel declares every join under a `@Join`, not only the join itself: for `OrderView.customer →
 CustomerView.address` it has `CUSTOMER_TABLE`, `CUSTOMER_ADDRESS_TABLE =
 QCustomerView.ADDRESS_TABLE.withParent(CUSTOMER_TABLE)`, a column `<PREFIX>_<constant of the nested QModel>` for each
-column on either, and one `ColumnSet` per join (`CUSTOMER`, `CUSTOMER_ADDRESS`) holding that model's own columns.
+column on either, and one `SelectSet` per join (`CUSTOMER`, `CUSTOMER_ADDRESS`) holding that model's own columns.
 Every constant is read from the QModel of the `@Join`'s own nested model, which already declares the joins below it,
-so `Row.scoped` finds them where the nested mapper looks. The joined `ColumnSet`s follow `generateColumnSets`. When
+so `Row.scoped` finds them where the nested mapper looks. The joined `SelectSet`s follow `generateSelectSets`. When
 several `@Join`s read one attribute, each without an explicit `alias` takes its field name. A `@Join(attribute)` is
 one to-one association of the root itself; a dotted path is `MQ3003`. A join whose prefix is taken reports `MQ3015`
 once, on its first clashing constant. A `prefix` that is not a Java identifier is `MQ3015` too, since it can't start a
@@ -410,7 +410,7 @@ compilation or a class on its classpath (Q-10): the outer model needs only the n
 sees the nested model as a class. The nested QModel must be on the classpath too, which it is when the nested
 model's module ran the processor; if not, javac reports the missing `Q` class. A class `@Join` field's initialiser
 can't be read by a processor, so it is not checked: the mapper assigns the field on every row. Rejected: one joined
-`ColumnSet` holding the columns of every level (selecting a customer would always join its address); accepting only
+`SelectSet` holding the columns of every level (selecting a customer would always join its address); accepting only
 models whose source is a root element of the compilation (it fails the incremental build above).
 → `processor/30` R-PROC-09, `processor/31` R-GEN-04, R-GEN-14, `processor/32` `MQ3003`, `MQ3005`, `MQ3015`.
 
@@ -455,7 +455,7 @@ field type is `MQ3205`. `AVG` over a non-`Number` and `MIN` or `MAX` over a non-
 `@Aggregate` attribute reports `MQ3001` (missing or unknown), `MQ3002` (association) or `MQ3202` (unsupported source
 type). A model with no `@PrimaryKey` emits no `KEY`, and its `query()` has no `primaryKey`. A grouped model with a
 `@PrimaryKey` applies `primaryKey(KEY).groupBy(GROUP_KEYS)`. `GROUP_KEYS` is emitted even with
-`generateColumnSets = false`. A `@GroupBy` field that raises `MQ3204` is left out of `GROUP_KEYS`.
+`generateSelectSets = false`. A `@GroupBy` field that raises `MQ3204` is left out of `GROUP_KEYS`.
 → `processor/30` R-PROC-05, R-PROC-15, `processor/32` `MQ3005`, `MQ3201`, `MQ3204`, `MQ3206`, `MQ3207`.
 
 **D-48 — The diagnostic matrix covers the live codes.**
@@ -881,6 +881,14 @@ for `sum`, `sumAsLong` and `avg` over any converted column, and its text no long
 parameter on `ColumnField` (every user-facing `ColumnField` type changes); keeping the run-time `MQ1408` (P-2).
 → `api/10` R-COL-14, `api/13` R-AGG-04, `processor/31`, `reference/90` `MQ1408`, D-84, D-85.
 
+**D-94 — `ColumnSet` is `SelectSet`, and what a query selects is `select`.** The set holds `SelectField`s, aggregates
+included, so a name after `ColumnField` misread it. The user chose `SelectSet` and folded the rename into 0.2.0, which
+already breaks the API, over a second break in 0.3. `SelectSet.columns()` is `fields()`;
+`ModelQuery.Builder.columns(...)` and `ModelQuery.columns()` are `select(...)` and `select()`;
+`@QueryModel(generateColumnSets)` is `generateSelectSets`; `MQ1202` names `select(...)`. `groupBy(SelectSet)`, the generated constant names, `PrimaryKey.columns()` and the
+`columns` parameter of a generated `from(model, columns)` stay. Rejected: `SelectFieldSet` (longer for no gain),
+`SelectFields` (a plural type name). → `api/10` §4, `api/11` R-QRY-02, `processor/30`, `reference/90` `MQ1202`, D-90.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -907,7 +915,7 @@ caller does it: `export` hands each page to `pageTransformer` (`engine/21` R-PAG
 per-page hook, and `afterMap` runs per row, where a lookup is one query per row (D-11). A selection through a to-many
 join is refused (R-PAG-13), so a child collection is a second query on the parents' keys, batched by hand within the
 vendor's IN-list limit. Should 0.x add (a) a per-page hook on `page` and `list` matching `pageTransformer`, and/or
-(b) a declared to-many child with its own `ColumnSet`, loaded by the executor in batches on the parents' keys, reusing
+(b) a declared to-many child with its own `SelectSet`, loaded by the executor in batches on the parents' keys, reusing
 the primary-key-first step-2 batching and clamp (R-PAG-07, D-32)? Either is new public API, and (b) must keep memory
 bounded by one page (INV-4). → `api/11`, `engine/21`.
 

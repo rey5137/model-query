@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.DateTimestampConverter;
 import com.rey.modelquery.core.ExportOptions;
@@ -15,6 +14,7 @@ import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.PrimaryKeyFirst;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
@@ -54,7 +54,7 @@ class SharedAttributeTest {
 
     private static final ModelQuery.Builder<StampedOrderEntity, Long, Stamp> STAMPS = ModelQuery
             .builder(ROOT, row -> new Stamp(row.get(ID), row.get(PLACED), row.get(PLACED_ON), row.get(STORED)))
-            .columns(ColumnSet.of(ID, PLACED, PLACED_ON, STORED))
+            .select(SelectSet.of(ID, PLACED, PLACED_ON, STORED))
             .primaryKey(PrimaryKey.of(ID))
             .orderBy(PLACED_ON.desc());
 
@@ -66,7 +66,7 @@ class SharedAttributeTest {
 
     private static final ModelQuery.Builder<StampedOrderEntity, Object, Day> DAYS = ModelQuery
             .builder(ROOT, row -> new Day(row.get(DAY_PLACED), row.get(DAY_PLACED_ON), row.get(ORDERS)))
-            .columns(ColumnSet.of(DAY_PLACED, DAY_PLACED_ON, ORDERS))
+            .select(SelectSet.of(DAY_PLACED, DAY_PLACED_ON, ORDERS))
             .groupBy(DAY_PLACED, DAY_PLACED_ON)
             .orderBy(DAY_PLACED.desc());
 

@@ -3,12 +3,12 @@ package com.rey.modelquery.jpa;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.rey.modelquery.core.ColumnField;
-import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.OrderField;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
@@ -118,7 +118,7 @@ class ProviderNullOrderingTest {
 
     private static List<Long> export(ModelQueryConfig config, OrderField<Row, Integer> order) {
         ModelQuery<KeysetRowEntity, Long, Row> q = ModelQuery.builder(ROOT, row -> new Row(row.get(ID), row.get(A)))
-                .columns(ColumnSet.of(ID, A))
+                .select(SelectSet.of(ID, A))
                 .primaryKey(PrimaryKey.of(ID))
                 .orderBy(order)
                 .keyset()

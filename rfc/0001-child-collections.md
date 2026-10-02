@@ -68,7 +68,7 @@ public final class ChildQuery<P, K, C> {            // immutable, may be static 
             Supplier<ModelQuery<CE, ?, C>> child, BiFunction<P, List<C>, P> attach);
 
     public <CE> ChildQuery<P, K, C> withQuery(ModelQuery<CE, ?, C> child);   // copy; the root is checked (MQ1503)
-    public ChildQuery<P, K, C> columns(ColumnSet<C> columns);              // copy with the child's columns replaced
+    public ChildQuery<P, K, C> select(SelectSet<C> select);                // copy with the child's selection replaced
 }
 ```
 
@@ -76,8 +76,8 @@ On the parent query:
 
 ```java
 ModelQuery<OrderEntity, Long, OrderView> q = QOrderView.query()
-        .columns(QOrderView.DEFAULT)
-        .children(QOrderView.ITEMS.columns(QOrderItemView.DEFAULT))   // opt-in per query
+        .select(QOrderView.DEFAULT)
+        .children(QOrderView.ITEMS.select(QOrderItemView.DEFAULT))   // opt-in per query
         .children(QOrderView.NOTES)
         .build();
 ```
@@ -97,7 +97,7 @@ The design choices behind these signatures:
 0.1 and issues the same SQL.
 
 **R-CHD-02** The engine selects `parentKey` and `childKey` for that execution when they are missing, as R-QRY-04 does
-for primary keys. It never changes the caller's `ColumnSet`.
+for primary keys. It never changes the caller's `SelectSet`.
 
 **R-CHD-03** Build-time checks on each link:
 
@@ -211,7 +211,7 @@ child entity (`@OneToMany(mappedBy = …)`). The processor generates:
 - `QOrderView.ITEMS`, a `ChildQuery`:
   - `parentKey` is a hidden column on the root's `@Id`, not the model's `@PrimaryKey`, which may be a business key.
   - `childKey` is a hidden link column on the inverse path (`order.id`) in `QOrderItemView`.
-  - The child query is `QOrderItemView::query` with `columns(QOrderItemView.DEFAULT)`, because `query()` alone has no
+  - The child query is `QOrderItemView::query` with `select(QOrderItemView.DEFAULT)`, because `query()` alone has no
     columns (R-QRY-02).
 - The attach function: a setter for a class, a copy for a record.
 
@@ -268,7 +268,7 @@ Every other link, such as a business key or a unidirectional FK column, is writt
 2. A parent with no children and a parent with a NULL key each get an empty unmodifiable list. An unrequested class
    field keeps its initialiser, and an unrequested record component is `null` (R-CHD-10, R-CHD-17).
 3. Parents with duplicated keys each receive the list, without an exception (R-CHD-10).
-4. The caller's `ColumnSet` constants are unchanged after a query that needed a link column added (R-CHD-02).
+4. The caller's `SelectSet` constants are unchanged after a query that needed a link column added (R-CHD-02).
 5. An export of 20 000 parents over 3 levels visits every parent once, with each child under the right parent. The
    statement count equals R-CHD-12's formula per page (R-CHD-12, INV-4).
 6. `NO_COUNT` issues no child statement for the look-ahead row. `ONLY_COUNT` and `count` issue none at all. An empty

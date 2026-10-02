@@ -29,7 +29,7 @@ seen" instead, which stays fast at any depth:
 
 ```java
 var q = QOrderView.query()
-        .columns(QOrderView.ALL)
+        .select(QOrderView.ALL)
         .orderBy(QOrderView.CREATED_AT.desc())
         .keyset()
         .build();
