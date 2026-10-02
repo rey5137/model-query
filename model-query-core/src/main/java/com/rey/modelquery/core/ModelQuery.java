@@ -474,6 +474,45 @@ public final class ModelQuery<E, K, M> {
         return Builder.modelName(columns, root.rootEntity());
     }
 
+    /** The definition's shape for the build log, by field name; never a filter's values (D-95). */
+    private String describe() {
+        var text = new StringBuilder("built ").append(modelName()).append(" over ")
+                .append(root.rootEntity().getSimpleName()).append(": select ").append(names(columns.fields()));
+        if (primaryKey != null) {
+            text.append(", primaryKey ").append(names(primaryKey.columns()));
+        }
+        if (!where.isEmpty()) {
+            text.append(", where ").append(count(where.size(), "filter"));
+        }
+        if (grouped) {
+            text.append(", groupBy ").append(names(groupBy));
+            if (!having.isEmpty()) {
+                text.append(", having ").append(count(having.size(), "filter"));
+            }
+        }
+        if (!orderBy.isEmpty()) {
+            var keys = new ArrayList<String>(orderBy.size());
+            for (OrderField<M, ?> key : orderBy) {
+                keys.add(key.column().name() + (key.ascending() ? " ASC" : " DESC")
+                        + (key.nulls() == NullPrecedence.DEFAULT ? "" : " NULLS " + key.nulls()));
+            }
+            text.append(", orderBy ").append(keys);
+        }
+        text.append(", paging ").append(keyset ? "keyset" : "offset");
+        if (primaryKeyFirst != null) {
+            text.append(", primary-key-first above offset ").append(primaryKeyFirst.offsetThreshold());
+        }
+        return text.toString();
+    }
+
+    private static List<String> names(List<? extends SelectField<?, ?>> fields) {
+        return fields.stream().<String>map(SelectField::name).toList();
+    }
+
+    private static String count(int n, String noun) {
+        return n + " " + noun + (n == 1 ? "" : "s");
+    }
+
     private record Spec(Class<?> rootEntity, List<SelectField<?, ?>> columns, Optional<PrimaryKey<?, ?>> primaryKey,
             List<OrderField<?, ?>> orderBy, boolean keyset, List<ColumnField<?, ?, ?>> groupBy, boolean isGrouped)
             implements QuerySpec {}
@@ -719,7 +758,12 @@ public final class ModelQuery<E, K, M> {
             }
             checkOrder(model, grouped);
             checkAggregates(model);
-            return new ModelQuery<>(this, grouped, definition);
+            ModelQuery<E, K, M> built = new ModelQuery<>(this, grouped, definition);
+            // Only the definition: an orderedBy copy is built per call, and the executor logs each call (D-95).
+            if (definition == null && LOG.isLoggable(System.Logger.Level.DEBUG)) {
+                LOG.log(System.Logger.Level.DEBUG, built.describe());
+            }
+            return built;
         }
 
         /**

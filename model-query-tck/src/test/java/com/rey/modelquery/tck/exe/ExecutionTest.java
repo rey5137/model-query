@@ -82,6 +82,8 @@ class ExecutionTest {
             ColumnField.of(Group.class, ORDERS, "total", BigDecimal.class);
     private static final AggregateField<Group, BigDecimal> GROUP_TOTAL = Agg.sum(GROUP_TOTAL_COLUMN);
 
+    private static final String EXECUTOR_LOG = "com.rey.modelquery.jpa.DefaultModelQueryExecutor";
+
     /** Every order, in id order. */
     private static final ModelQuery.Builder<OrderEntity, Long, OrderRow> ORDER_ROWS = ModelQuery
             .builder(ORDERS, row -> new OrderRow(row.get(ID), row.get(STATUS), row.get(TOTAL)))
@@ -452,6 +454,25 @@ class ExecutionTest {
 
     // ---- support
 
+    // ---- logging (D-95)
+
+    @TckTest
+    void build_logs_the_definition_and_list_logs_the_call_at_debug_and_its_statement_at_trace(TckDatabase db) {
+        // FINE and FINER are System.Logger's DEBUG and TRACE on java.util.logging.
+        assertThat(capturing("com.rey.modelquery.core.ModelQuery", Level.FINE, () -> ORDER_ROWS.build()))
+                .containsExactly("built OrderRow over OrderEntity: select [id, status, total], primaryKey [id], "
+                        + "orderBy [id ASC], paging offset");
+        withExecutor(db, executor -> {
+            assertThat(capturing(EXECUTOR_LOG, Level.FINE, () -> executor.list(NEW_ORDERS, Limit.of(2))))
+                    .containsExactly("list OrderRow: Limit.of(2)");
+            List<String> trace = capturing(EXECUTOR_LOG, Level.FINER,
+                    () -> executor.list(NEW_ORDERS, Limit.of(2)));
+            assertThat(trace).hasSize(2);
+            assertThat(trace.get(0)).matches("OrderRow: statement binds \\d+ of \\d+");
+            assertThat(trace.get(1)).matches("OrderRow: 2 rows in \\d+ ms");
+        });
+    }
+
     private static void withExecutor(TckDatabase db, Consumer<ModelQueryExecutor<OrderEntity>> work) {
         inSession(db, em -> work.accept(ModelQueryExecutor.create(em, OrderEntity.class, ModelQueryConfig.defaults())));
     }
@@ -481,14 +502,19 @@ class ExecutionTest {
     }
 
     private static List<String> capturingWarnings(Runnable work) {
-        List<String> warnings = new ArrayList<>();
-        Logger logger = Logger.getLogger("com.rey.modelquery.jpa.DefaultModelQueryExecutor");
-        Level level = logger.getLevel();
+        return capturing(EXECUTOR_LOG, Level.WARNING, work);
+    }
+
+    /** The messages {@code work} logs to {@code name} at exactly {@code level}. */
+    private static List<String> capturing(String name, Level level, Runnable work) {
+        List<String> messages = new ArrayList<>();
+        Logger logger = Logger.getLogger(name);
+        Level previous = logger.getLevel();
         Handler handler = new Handler() {
             @Override
             public void publish(LogRecord r) {
-                if (r.getLevel() == Level.WARNING) {
-                    warnings.add(new SimpleFormatter().formatMessage(r));
+                if (r.getLevel() == level) {
+                    messages.add(new SimpleFormatter().formatMessage(r));
                 }
             }
 
@@ -498,14 +524,14 @@ class ExecutionTest {
             @Override
             public void close() {}
         };
-        logger.setLevel(Level.WARNING);
+        logger.setLevel(level);
         logger.addHandler(handler);
         try {
             work.run();
         } finally {
             logger.removeHandler(handler);
-            logger.setLevel(level);
+            logger.setLevel(previous);
         }
-        return warnings;
+        return messages;
     }
 }

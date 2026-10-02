@@ -889,6 +889,16 @@ already breaks the API, over a second break in 0.3. `SelectSet.columns()` is `fi
 `columns` parameter of a generated `from(model, columns)` stay. Rejected: `SelectFieldSet` (longer for no gain),
 `SelectFields` (a plural type name). → `api/10` §4, `api/11` R-QRY-02, `processor/30`, `reference/90` `MQ1202`, D-90.
 
+**D-95 — Debug and trace logging through `System.Logger`.** `ModelQuery.Builder.build()` logs the definition it
+built at `DEBUG`: the model and entity, the selected, key, group and order fields by name, the number of `where` and
+`having` filters, and the paging mode. An `orderedBy` copy is not logged, since it is built per call. The executor logs
+each `list`, `stream`, `page`, `count`, `export`, `update` and `delete` call at `DEBUG`, and at `TRACE` each statement's
+bind count against the profile's limit, and its rows read or written and time taken. No filter value, bind value or
+keyset cursor is logged at any level: they are often personal data, and the provider's own bind logging shows them
+when needed. The statement text is not logged either, since JPA has no portable way to render a criteria query; the
+provider's SQL log shows it. Every message is built only when its level is enabled. Rejected: logging bind values at
+`TRACE` (personal data in application logs). → `docs/site` Diagnostics §Logging.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

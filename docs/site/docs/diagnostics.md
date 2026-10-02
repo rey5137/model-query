@@ -129,6 +129,33 @@ See [Models and QModels](models.md).
 
 See [Spring Data and the starter](spring.md) and [Vendor notes](vendors.md).
 
+## Logging
+
+model-query logs through `System.Logger`, which reaches SLF4J, Logback or Log4j through their `System.Logger`
+bridges, and `java.util.logging` without one (where `DEBUG` is `FINE` and `TRACE` is `FINER`).
+
+| Logger | Level | What it logs |
+|---|---|---|
+| `com.rey.modelquery.core.ModelQuery` | `DEBUG` | Each query definition `build()` returns: model, entity, selected fields, primary key, filter counts, group-by, order and paging mode. |
+| `com.rey.modelquery.jpa.DefaultModelQueryExecutor` | `DEBUG` | Each `list`, `stream`, `page`, `count`, `export`, `update` and `delete` call, with its limit, page or export options, or how a write runs. |
+| `com.rey.modelquery.jpa.DefaultModelQueryExecutor` | `TRACE` | Each statement's bind count against the vendor's limit, then its rows read or written and the time it took. |
+
+```
+DEBUG com.rey.modelquery.core.ModelQuery - built OrderView over OrderEntity: select [id, status, total], primaryKey [id], where 2 filters, orderBy [total DESC NULLS LAST], paging keyset
+DEBUG com.rey.modelquery.jpa.DefaultModelQueryExecutor - page OrderView: offset 100 size 50, NO_COUNT
+TRACE com.rey.modelquery.jpa.DefaultModelQueryExecutor - OrderView: statement binds 3 of 65535
+TRACE com.rey.modelquery.jpa.DefaultModelQueryExecutor - OrderView: 51 rows in 12 ms
+```
+
+Filter values, bind values and keyset cursors are never logged, since they often hold personal data, and neither is
+the statement text. Turn on your provider's SQL and bind logging for those, for example Hibernate's `org.hibernate.SQL`
+and `org.hibernate.orm.jdbc.bind`. With Spring Boot:
+
+```properties
+logging.level.com.rey.modelquery=DEBUG
+logging.level.com.rey.modelquery.jpa.DefaultModelQueryExecutor=TRACE
+```
+
 ## Reporting a problem
 
 If you meet a failure without a code, that is a bug: please report it with the stack trace and the model involved.

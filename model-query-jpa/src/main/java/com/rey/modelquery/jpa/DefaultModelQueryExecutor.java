@@ -82,6 +82,8 @@ import java.util.stream.Stream;
 final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     private static final System.Logger LOG = System.getLogger(DefaultModelQueryExecutor.class.getName());
+    private static final System.Logger.Level DEBUG = System.Logger.Level.DEBUG;
+    private static final System.Logger.Level TRACE = System.Logger.Level.TRACE;
 
     /**
      * The queries whose phases were checked, by identity. Static, because the check is once per {@code ModelQuery}
@@ -159,11 +161,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(limit, "limit");
         checkPhasesOnce(q);
+        LOG.log(DEBUG, () -> "list " + q + ": " + limit);
         if (zeroLimit(limit)) {
             return List.of(); // no statement runs for a zero limit (R-EXE-06)
         }
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
-        return mapAll(limited(q, built, limit), built);
+        return mapAll(q, limited(q, built, limit), built);
     }
 
     @Override
@@ -172,6 +175,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(limit, "limit");
         Objects.requireNonNull(body, "body");
         checkPhasesOnce(q);
+        LOG.log(DEBUG, () -> "stream " + q + ": " + limit);
         if (zeroLimit(limit)) {
             try (Stream<M> none = Stream.empty()) {
                 return body.apply(none); // no statement runs for a zero limit (R-EXE-06)
@@ -223,7 +227,36 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         withinBindLimit(label, binds, cursorBinds);
         queryTimeout.ifPresent(timeout -> vendor.profile().applyTimeout(typed, timeout));
+        LOG.log(TRACE, () -> label + ": statement binds " + binds + " of " + renderOptions.maxBindParameters()
+                + (cursorBinds > 0 ? ", " + cursorBinds + " of them the keyset cursor's" : ""));
         return typed;
+    }
+
+    /** {@code query}'s rows, with their count and time in the trace log (D-95). */
+    private static <T> List<T> rows(Object label, TypedQuery<T> query) {
+        long start = System.nanoTime();
+        List<T> rows = query.getResultList();
+        traceTimed(label, rows.size() + (rows.size() == 1 ? " row" : " rows"), start);
+        return rows;
+    }
+
+    /** {@code query}'s one row, with its time in the trace log (D-95). */
+    private static <T> T single(Object label, TypedQuery<T> query) {
+        long start = System.nanoTime();
+        T row = query.getSingleResult();
+        traceTimed(label, "1 row", start);
+        return row;
+    }
+
+    private static void traceTimed(Object label, String what, long start) {
+        long millis = (System.nanoTime() - start) / 1_000_000;
+        LOG.log(TRACE, () -> label + ": " + what + " in " + millis + " ms");
+    }
+
+    /** The debug line of a write, with how it runs (R-WRT-08, R-WRT-11, D-95). */
+    private void logWrite(String operation, Optional<ChunkOptions> chunk, boolean keyFirst) {
+        LOG.log(DEBUG, () -> operation + " " + rootEntity.getSimpleName() + ": "
+                + (chunk.isPresent() ? "chunked" : keyFirst ? "key-first" : "direct"));
     }
 
     /**
@@ -280,6 +313,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         checkPhasesOnce(q);
         int offset = page.offset();
         int size = page.pageSize();
+        LOG.log(DEBUG, () -> "page " + q + ": offset " + offset + " size " + size + ", " + mode
+                + (mode != CountMode.ONLY_COUNT && primaryKeyFirst(q, offset) ? ", primary-key-first" : ""));
         if (mode != CountMode.ONLY_COUNT && primaryKeyFirst(q, offset)) {
             // Before the count too, so a refused page runs no query at all (R-PAG-13).
             refuseToManySelection(q, q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL_BY_KEYS, renderOptions),
@@ -287,12 +322,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         switch (mode) {
             case ONLY_COUNT: {
-                long total = count(q);
+                long total = countRows(q);
                 return new Slice<>(List.of(), page.pageNumber(), size, offset + (long) size < total,
                         OptionalLong.of(total));
             }
             case COUNT: {
-                long total = count(q);
+                long total = countRows(q);
                 List<M> content = offset >= total ? List.of() : fetch(q, offset, size);
                 return new Slice<>(content, page.pageNumber(), size, offset + (long) content.size() < total,
                         OptionalLong.of(total));
@@ -312,6 +347,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     public long count(ModelQuery<E, ?, ?> q) {
         Objects.requireNonNull(q, "q");
         checkPhasesOnce(q);
+        LOG.log(DEBUG, () -> "count " + q);
         return countRows(q);
     }
 
@@ -325,6 +361,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         checkPhasesOnce(q);
         long limit = options.limit().maxRows().isPresent() ? options.limit().maxRows().getAsInt() : Long.MAX_VALUE;
         int pageSize = options.pageSize().orElse(exportPageSize);
+        LOG.log(DEBUG, () -> "export " + q + ": " + (q.isGrouped() ? "grouped offset" : q.isKeyset() ? "keyset"
+                : "offset") + ", pageSize " + pageSize + ", " + options.limit());
         if (q.isGrouped()) {
             // A group has no row identity, so its group keys order and dedupe the pages in place of a primary key,
             // which a grouped query never has; keyset() and primaryKeyFirst(...) were refused at build (MQ1402), so
@@ -372,6 +410,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Function<List<Object>, Query> byKeys = chunk -> em.createQuery(u.buildWrite(cb, renderOptions, references,
                 chunk));
         boolean rootTermsOnly = keyFirst(() -> u.readsTargetInSubquery(cb, renderOptions));
+        logWrite("update", u.chunkOptions(), rootTermsOnly);
         if (!rootTermsOnly && u.chunkOptions().isEmpty()) {
             return write(u.persistenceContext(), () -> direct(u.distinctKeys(), whole, byKeys));
         }
@@ -398,6 +437,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Supplier<Query> whole = () -> em.createQuery(d.buildWrite(cb, renderOptions));
         Function<List<Object>, Query> byKeys = chunk -> em.createQuery(d.buildWrite(cb, renderOptions, chunk));
         boolean rootTermsOnly = keyFirst(() -> d.readsTargetInSubquery(cb, renderOptions));
+        logWrite("delete", d.chunkOptions(), rootTermsOnly);
         if (!rootTermsOnly && d.chunkOptions().isEmpty()) {
             return write(d.persistenceContext(), () -> direct(d.distinctKeys(), whole, byKeys));
         }
@@ -546,7 +586,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private int execute(Query statement) {
         withinBindLimit(rootEntity.getSimpleName(), statement);
         queryTimeout.ifPresent(timeout -> vendor.profile().applyTimeout(statement, timeout));
-        return statement.executeUpdate();
+        LOG.log(TRACE, () -> rootEntity.getSimpleName() + ": statement binds " + statement.getParameters().size()
+                + " of " + renderOptions.maxBindParameters());
+        long start = System.nanoTime();
+        int written = statement.executeUpdate();
+        traceTimed(rootEntity.getSimpleName(), written + (written == 1 ? " row" : " rows") + " written", start);
+        return written;
     }
 
     /** Runs {@code check} the first time {@code definition} runs on this executor's factory, before any statement. */
@@ -585,7 +630,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         TypedQuery<Tuple> query = create(q, built.query());
         query.setFirstResult(offset);
         query.setMaxResults(maxRows);
-        return mapAll(query, built);
+        return mapAll(q, query, built);
     }
 
     /**
@@ -631,7 +676,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         TypedQuery<Tuple> query = create(q, keyQuery.query());
         query.setFirstResult(offset);
         query.setMaxResults(maxRows);
-        List<Tuple> rows = query.getResultList();
+        List<Tuple> rows = rows(q, query);
         List<Object> keys = new ArrayList<>(rows.size());
         for (Tuple tuple : rows) {
             keys.add(Keys.keyOf(q, key, keyQuery.selection().row(tuple)));
@@ -660,7 +705,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             Predicate own = built.query().getRestriction();
             built.query().where(own == null ? byKey : cb.and(own, byKey));
             appendStableOrder(q, built);
-            for (Tuple tuple : create(q, built.query()).getResultList()) {
+            for (Tuple tuple : rows(q, create(q, built.query()))) {
                 found.putIfAbsent(Keys.keyOf(q, key, built.selection().row(tuple)), new Found<>(built, tuple));
             }
         }
@@ -692,8 +737,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return keyLimits.clamp(ownBinds, key.columns().size(), primaryKeyFirstBatchSize);
     }
 
-    private static <M> List<M> mapAll(TypedQuery<Tuple> query, BuiltQuery<M> built) {
-        List<Tuple> tuples = query.getResultList();
+    private static <M> List<M> mapAll(Object label, TypedQuery<Tuple> query, BuiltQuery<M> built) {
+        List<Tuple> tuples = rows(label, query);
         var models = new ArrayList<M>(tuples.size());
         for (Tuple tuple : tuples) {
             models.add(built.map(tuple));
@@ -752,7 +797,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 TypedQuery<Tuple> query = create(q, built.query());
                 query.setFirstResult(offset);
                 query.setMaxResults(pageSize);
-                List<Tuple> rows = query.getResultList();
+                List<Tuple> rows = rows(q, query);
                 fresh = new ArrayList<>(rows.size());
                 for (Tuple tuple : rows) {
                     Object rowKey = keyOfRow.apply(built.selection().row(tuple));
@@ -804,7 +849,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             keyset.appendOrder(built, cb);
             TypedQuery<Tuple> query = create(q, em, built.query(), keyset, cursor);
             query.setMaxResults(pageSize);
-            List<Tuple> rows = query.getResultList();
+            List<Tuple> rows = rows(q, query);
             Set<Object> keys = new HashSet<>();
             List<M> fresh = new ArrayList<>(rows.size());
             for (Tuple tuple : rows) {
@@ -900,7 +945,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 .anyMatch(selection -> toManyJoin(selection) != null);
         Expression<Long> count = hasToManyJoin(root) && !readThroughToMany ? cb.countDistinct(root) : cb.count(root);
         query.multiselect(count);
-        return ((Number) create(q, query).getSingleResult().get(0)).longValue();
+        return ((Number) single(q, create(q, query)).get(0)).longValue();
     }
 
     /** {@code count(*)} over the groups: in the database when the provider support can, else client-side. */
@@ -921,12 +966,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         // The provider support only builds the count; it runs here, so the configured timeout applies (R-EXE-11).
         Optional<CriteriaQuery<Long>> count = vendor.providerSupport().flatMap(p -> p.countQuery(query));
         if (count.isPresent()) {
-            return create(q, count.get()).getSingleResult();
+            return single(q, create(q, count.get()));
         }
         LOG.log(System.Logger.Level.WARNING, "count over the grouped query on {0} runs it and counts its rows in "
                 + "memory, because no ProviderSupport counts groups for this persistence provider; add "
                 + "model-query-hibernate for a count in the database (R-EXE-03)", rootEntity.getSimpleName());
-        return create(q, query).getResultList().size();
+        return rows(q, create(q, query)).size();
     }
 
     private static boolean hasToManyJoin(From<?, ?> from) {

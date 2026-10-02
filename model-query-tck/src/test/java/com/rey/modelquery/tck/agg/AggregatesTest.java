@@ -522,7 +522,9 @@ class AggregatesTest {
             logger.removeHandler(handler);
             logger.setLevel(level);
         }
-        assertThat(debug).containsExactly("Totals: primaryKey(...) is ignored on a grouped query");
+        assertThat(debug).hasSize(2).first().isEqualTo("Totals: primaryKey(...) is ignored on a grouped query");
+        // The build log (D-95) shows the query as it runs, without the ignored key.
+        assertThat(debug.get(1)).startsWith("built Totals over OrderEntity: ").doesNotContain("primaryKey");
         assertThat(keyed.primaryKey()).isEmpty();
         assertThat(keyed.spec().primaryKey()).isEmpty();
 

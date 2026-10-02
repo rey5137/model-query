@@ -57,6 +57,8 @@ Behaviour to know when moving from hand-written Criteria code:
   `Timestamp.from(Instant.MAX)` returned a wrong instant on JDK 21 (D-84).
 - `Limit.of(Integer)` takes `null` for "unlimited".
 - `SelectSet.isEmpty()`, true when the set selects nothing.
+- `DEBUG` logging of each query definition built and each executor call, and `TRACE` logging of each statement's bind
+  count, rows and time, through `System.Logger`; values are never logged (D-95). See Diagnostics §Logging.
 - The processor gives an `Instant` or `Date` field over a `Timestamp` attribute the built-in converter when no
   `converter` is named, so the column filters with values of the field's type; `@Aggregate` `MIN` and `MAX` into such
   a field read through it.
