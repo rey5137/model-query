@@ -64,6 +64,10 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1607` | `Changes.from(...)` names a column that is not writable | `api/14` R-WRT-04 |
 | `MQ1608` | A bulk write's `@PrimaryKey` is not the root entity's id; checked on first execution, before the flush | `api/14` R-WRT-08, D-61 |
 | `MQ1609` | `setExpression` on a column with a converter | `api/14` R-WRT-14 |
+| `MQ1701` | A join plan whose join ends up with no selected column | `api/15` R-FCH-07 |
+| `MQ1702` | A column a fetch plan needs (a child's key, an enricher's column) is read through a to-many join | `api/15` R-FCH-02 |
+| `MQ1703` | A fetch plan names the same child or join twice | `api/15` R-FCH-01 |
+| `MQ1704` | A fetch plan with a child on a grouped query | `api/15` R-FCH-10 |
 
 ## 3. `MQ2xxx` — execution
 
@@ -81,6 +85,11 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ2301` | A sort property resolves to no selected column or to more than one (on any tier), or asks for `ignoreCase`; a sort on an ungrouped query without a primary key; a sorted copy that fails `build()`, as the cause | `api/11` R-QRY-14, `integration/50` R-SPR-06 |
 | `MQ2501` | A bulk write, other than `commitEachChunk()`, ran without an active transaction | `api/14` R-WRT-18 |
 | `MQ2502` | A per-chunk write failed; `ChunkedWriteException` carries the committed rows, the last committed key and the keys of a chunk in doubt | `api/14` R-WRT-20 |
+| `MQ2601` | A to-one child finds two distinct rows for one key | `api/15` R-FCH-04 |
+| `MQ2602` | An `Enricher.of` returns a page of another size, or `null` | `api/15` R-FCH-08 |
+| `MQ2603` | A parent has more children than `maxPerParent`, or a round reaches its row cap | `api/15` R-FCH-11 |
+| `MQ2604` | A child row's key equals none of its round's keys (a case-insensitive or padding collation) | `api/15` R-FCH-05 |
+| `MQ2605` | `stream` with a fetch plan that has a child, join plan or enricher | `api/15` R-FCH-09 |
 
 **R-ERR-04** One JPA exception is thrown deliberately instead of a library type: `OptimisticLockException` when an
 `expectVersion` update affects no rows (`api/14` R-WRT-16), because callers already handle it for entity writes.
@@ -88,7 +97,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 ## 4. `MQ3xxx` — annotation processing
 
 Catalogued with messages in `processor/32` §1: `MQ3001`–`MQ3016` for structural checks, `MQ3201`–`MQ3207` for aggregate
-models, `MQ3301`–`MQ3307` for update models. Codes are not repeated here to keep one owner.
+models, `MQ3301`–`MQ3307` for update models, `MQ3401`–`MQ3405` for `@Child` (`api/15`). Codes are not repeated here to keep one owner.
 
 ## 5. `MQ4xxx` — configuration
 

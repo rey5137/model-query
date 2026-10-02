@@ -31,6 +31,7 @@ Each child file states what it is for in its first five lines, so you can route 
 | The `Filters` DSL: operators, `Optional` skipping, `or`/`not`/`exists`, escaping | `api/12` |
 | `Agg`, `AggregateField`, `groupBy`, `having`, grouped-query rules | `api/13` |
 | Bulk `update`/`delete`, `ModelUpdate`, `ModelDelete`, change sets | `api/14` |
+| `FetchPlan`, `@Child` children, plans through `@Join`, per-page enrichers | `api/15` |
 | `list` / `page` / `count` / `stream`: counting, limits, slices, connection lifetime | `engine/20` |
 | Offset paging, keyset paging, primary-key-first, the export loop, grouped export | `engine/21` |
 | `@QueryModel` and the other annotations, what each one means | `processor/30` |
@@ -60,7 +61,7 @@ Each child file states what it is for in its first five lines, so you can route 
 | `CC-*` | code convention | `docs/code-conventions.md` |
 | `§n` | section of the original plan document (moved here; `reference/91` maps it) | `reference/91` |
 
-Areas: `COL` 10 · `QRY` 11 · `FLT` 12 · `AGG` 13 · `WRT` 14 · `EXE` 20 · `PAG` 21 · `PROC` 30 · `GEN` 31 · `DIAG` 32 ·
+Areas: `COL` 10 · `QRY` 11 · `FLT` 12 · `AGG` 13 · `WRT` 14 · `FCH` 15 · `EXE` 20 · `PAG` 21 · `PROC` 30 · `GEN` 31 · `DIAG` 32 ·
 `VND` 40 · `PRF` 41 · `SPR` 50 · `QA` 60 · `REL` 61 · `RDM` 62 · `ERR` 90.
 
 ### Status tags
@@ -109,10 +110,10 @@ These hold for the life of the library. A change that breaks one is an architect
 | Models | classes with setters, records, nested `@Join` models as `Optional<T>` | — | interface projections, Kotlin data classes as a first-class case |
 | Filters | full DSL: comparison, sets, strings, nulls, column/column, `or`/`not`/`when`/`apply`, `exists` | — | full-text search, JSON path predicates |
 | Aggregates | `count`, `countDistinct`, `sum`, `avg`, `min`, `max`, `Agg.of`, `groupBy`, `having` | `window(...)` name | window functions, `ROLLUP`/`CUBE`, sub-query selections |
-| Execution | `list`, `page`, `count`, `stream`, `export` | — | reactive / `Publisher` results |
+| Execution | `list`, `page`, `count`, `stream`, `export`; fetch plans with children and per-page enrichers (`api/15`) | — | reactive / `Publisher` results |
 | Paging | offset, keyset, primary-key-first, grouped offset | `Cursor` serialisation format | keyset over grouped queries, row-value keyset per vendor |
 | Vendors | H2, PostgreSQL, MySQL (Tier 1) | `DatabaseVendor` entries for MariaDB, Oracle, SQL Server | Tier-2 MariaDB profile, community profiles |
-| Processor | `@QueryModel`, `@PrimaryKey`, `@Column`, `@Join`, `@FilterColumn`, `@Aggregate`, `@GroupBy`, `@ExcludeFromDefaults`, `@Transient` | — | generating from an existing JPA metamodel, IDE plugin |
+| Processor | `@QueryModel`, `@PrimaryKey`, `@Column`, `@Join`, `@FilterColumn`, `@Aggregate`, `@GroupBy`, `@ExcludeFromDefaults`, `@Transient`, `@Child` | — | generating from an existing JPA metamodel, IDE plugin |
 | Integration | Spring Data repository, Boot starter, `modelquery.*` properties | remote-store properties | Quarkus / Micronaut extensions |
 | Writes | — | — | bulk `update`/`delete`, change sets, `@UpdateModel` (M6, `api/14`) |
 

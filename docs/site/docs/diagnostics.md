@@ -156,6 +156,15 @@ logging.level.com.rey.modelquery=DEBUG
 logging.level.com.rey.modelquery.jpa.DefaultModelQueryExecutor=TRACE
 ```
 
+This works with `spring-boot-starter-logging`, Spring Boot's default: its `jul-to-slf4j` bridge carries the records to
+Logback, and Spring Boot keeps the `java.util.logging` levels in step with Logback's, at startup and on every later
+change, such as a Spring Cloud refresh or the `loggers` endpoint. Through that bridge, a `TRACE` line prints as
+`DEBUG`.
+
+If you exclude `spring-boot-starter-logging` and add Logback yourself, nothing carries the records to it, and anything
+below `INFO` is dropped. Add `org.slf4j:slf4j-jdk-platform-logging`, which Spring Boot manages: it sends `System.Logger`
+straight to SLF4J, keeps `TRACE` as `TRACE`, and follows level changes, since SLF4J reads them from Logback each time.
+
 ## Reporting a problem
 
 If you meet a failure without a code, that is a bug: please report it with the stack trace and the model involved.

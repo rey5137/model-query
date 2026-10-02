@@ -40,6 +40,11 @@
 | `MQ3305` | To-one attribute written by id with the wrong id type | `OrderPatch.customerId: CustomerEntity's id is Long, found String` |
 | `MQ3306` | `@PrimaryKey` on an update model, or a query model with `generateChanges = true`, is not the root entity's id | `OrderPatch.orderNo: @PrimaryKey must be OrderEntity's id 'id'; bulk writes key on the entity id` |
 | `MQ3307` | Update-model field generates a change-set member that clashes with `Changes<M>` | `OrderPatch.empty: generates getEmpty() and setEmpty(...), which clash with Changes.isEmpty() as property 'empty'; rename the field` |
+| `MQ3401` | `@Child` on a field that is not a `List` or `Optional` of a `@QueryModel`, combined with `@Join`, `@Transient`, `@Aggregate` or `@GroupBy`, or on an update model | `Lender.configs: @Child needs a List or Optional of a @QueryModel` |
+| `MQ3402` | `@Child` `key` or `foreignKey` names no attribute of its root | `Lender.configs: LenderSpiUrlConfigEntity has no attribute 'lender.idx'` |
+| `MQ3403` | `@Child` key and foreign-key attribute types differ | `Lender.configs: key Integer id and foreignKey Long lender.id differ` |
+| `MQ3404` | `@Child` with a composite key, or an array-typed key | `Lender.configs: @Child takes one key attribute each side` |
+| `MQ3405` | A `List` `@Child` without `foreignKey`, or whose model has no `@PrimaryKey` | `Lender.configs: a List @Child needs foreignKey` |
 
 The `MQ3304` check on `updatable = false` is best-effort: it reads `@Column` and `@JoinColumn`, not `@AttributeOverride` or
 orm.xml (D-70).

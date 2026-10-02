@@ -897,7 +897,26 @@ bind count against the profile's limit, and its rows read or written and time ta
 keyset cursor is logged at any level: they are often personal data, and the provider's own bind logging shows them
 when needed. The statement text is not logged either, since JPA has no portable way to render a criteria query; the
 provider's SQL log shows it. Every message is built only when its level is enabled. Rejected: logging bind values at
-`TRACE` (personal data in application logs). → `docs/site` Diagnostics §Logging.
+`TRACE` (personal data in application logs). Spring Boot's default `spring-boot-starter-logging` carries the records
+to Logback through `jul-to-slf4j` and keeps the JUL levels in step with Logback's (`LevelChangePropagator`), refreshes
+included; an application that excludes it adds `slf4j-jdk-platform-logging`. Also rejected: logging through SLF4J
+when present (an optional dependency and a facade, only for applications that drop the default bridge), and a starter
+listener copying Logback's levels to JUL (no use without a bridge, and Spring Boot already does it with one).
+→ `docs/site` Diagnostics §Logging.
+
+**D-96 — Fetch plans (resolves Q-8).** A `FetchPlan<M>` attached by
+`ModelQuery.Builder.fetch` carries the selection, children loaded by the library (`@Child`, matched on one column
+each side, `List` or `Optional`), plans for `@Join`ed models, and caller enrichers run once per page. Children load per
+page in key rounds within the vendor's limits (R-PAG-07), recursively, so plans nest to any depth; enrichers are the
+caller's code for anything else, and the library never fills a `@Transient` field. The plan lives on the query, so the
+executor and repository signatures (`ModelPage`, `findAll`, `export`) do not change. Rejected: per-call overloads taking
+a page hook (every method doubled, and plans could not nest); children loaded per row (N+1, INV-2); `stream` running a
+plan (it has no page). Keys match on attribute values, as R-COL-11 does for primary keys, and a child row matching no
+key throws, since collations can equate unequal strings. A nested plan's selection is re-rooted under its join, so one
+plan serves on its own and nested. A plan also attaches per call through `withFetch`, a new definition. Two invariants
+widen: columns a plan needs are selected as R-QRY-04's keys are (INV-2), and INV-4's page includes its children,
+bounded per round by `maxPerParent`. Also rejected: matching on model values (converters and collations lose rows
+silently); requiring a nested plan's selection to be empty (plans could not be reused). → `api/15`.
 
 ## 2. Open questions
 
@@ -919,7 +938,7 @@ Should 0.1 ship an opaque encoded form (so a REST API can page without exposing 
 
 **Q-7 — Per-chunk commits without Spring.** Resolved by D-16.
 
-**Q-8 — Per-page enrichment and to-many children.** A report model often needs more than its own row: a child
+**Q-8 — Per-page enrichment and to-many children.** Resolved by D-96. Was: A report model often needs more than its own row: a child
 collection with its own columns (an order's lines), or a value computed per row by a lookup outside the query. Today the
 caller does it: `export` hands each page to `pageTransformer` (`engine/21` R-PAG-09), but `page` and `list` have no
 per-page hook, and `afterMap` runs per row, where a lookup is one query per row (D-11). A selection through a to-many
