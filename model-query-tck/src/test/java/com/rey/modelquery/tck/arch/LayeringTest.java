@@ -48,6 +48,7 @@ class LayeringTest {
         org.assertj.core.api.Assertions.assertThat(REAL.stream().map(c -> c.getPackageName()))
                 .anyMatch(p -> p.startsWith(REAL_ROOT + ".annotations"))
                 .anyMatch(p -> p.startsWith(REAL_ROOT + ".core"))
+                .anyMatch(p -> p.startsWith(REAL_ROOT + ".test"))
                 .anyMatch(p -> p.startsWith(REAL_ROOT + ".jpa"))
                 .anyMatch(p -> p.startsWith(REAL_ROOT + ".hibernate"))
                 .anyMatch(p -> p.startsWith(REAL_ROOT + ".processor"))
@@ -110,6 +111,16 @@ class LayeringTest {
     }
 
     @Test
+    void ac_ins_05_testDependsOnlyOnCoreAndAssertJ() {
+        proves(
+                LayeringRules::testDependsOnlyOnCoreAndAssertJ,
+                F + "test.BadTestModuleEdge",
+                F + "jpa.GoodJpa",
+                F + "test.BadTestThirdParty",
+                "javax.inject.fixturestub.Stub");
+    }
+
+    @Test
     void ac_rel_02_noLombok() {
         proves(LayeringRules::noLombok, F + "hibernate.BadLombokImport", "lombok.fixturestub.Stub");
     }
@@ -121,6 +132,7 @@ class LayeringTest {
                 F + "annotations.BadAnnotations",
                 F + "core.GoodCore",
                 F + "processor.BadProcessorModuleEdge",
+                F + "test.BadTestModuleEdge",
                 F + "jpa.GoodJpa");
     }
 

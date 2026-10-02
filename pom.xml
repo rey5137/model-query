@@ -46,6 +46,7 @@
         <module>model-query-bom</module>
         <module>model-query-annotations</module>
         <module>model-query-core</module>
+        <module>model-query-test</module>
         <module>model-query-jpa</module>
         <module>model-query-hibernate</module>
         <module>model-query-processor</module>

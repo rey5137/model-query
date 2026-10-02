@@ -82,6 +82,12 @@
             <artifactId>tomcat-embed-el</artifactId>
             <version>${tomcat-embed-el.version}</version>
         </dependency>
+        <!-- Asserts on a query captured from a stand-in repository, with no datasource (D-98) -->
+        <dependency>
+            <groupId>io.github.rey5137</groupId>
+            <artifactId>model-query-test</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-test</artifactId>

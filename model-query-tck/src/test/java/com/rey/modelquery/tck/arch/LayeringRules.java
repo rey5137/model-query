@@ -125,6 +125,21 @@ final class LayeringRules {
     }
 
     /**
+     * {@code test} depends only on {@code core} (and the {@code annotations} it exposes), the JDK and AssertJ, so a
+     * unit test needs no provider, Spring or other library to assert on a query (api/16 R-INS-06, D-98).
+     */
+    ArchRule testDependsOnlyOnCoreAndAssertJ() {
+        return classes()
+                .that()
+                .resideInAPackage(pkg("test"))
+                .should()
+                .onlyDependOnClassesThat(resideInAnyPackage(
+                        pkg("test"), pkg("core"), pkg("annotations"), "java..", "org.assertj.."))
+                .as("test depends only on core and AssertJ")
+                .allowEmptyShould(allowEmptyShould);
+    }
+
+    /**
      * No Lombok anywhere in the library. Lombok's annotations are source-retained, so this only catches references
      * that survive into bytecode; the enforcer {@code bannedDependencies} rule in the root pom is the primary guard.
      */
@@ -160,15 +175,18 @@ final class LayeringRules {
 
     /**
      * The one-way order {@code annotations <- core <- jpa <- (hibernate, spring)}, with {@code processor} depending
-     * only on {@code annotations}. No module may depend on a module that is later in the order or beside it.
+     * only on {@code annotations} and {@code test} (a leaf beside {@code jpa}) only on {@code core}. No module may
+     * depend on a module that is later in the order or beside it.
      */
     ArchRule dependenciesFlowOneWay() {
-        return CompositeArchRule.of(forbid("annotations", "core", "jpa", "hibernate", "spring", "processor"))
-                .and(forbid("core", "jpa", "hibernate", "spring", "processor"))
-                .and(forbid("jpa", "hibernate", "spring", "processor"))
-                .and(forbid("hibernate", "spring", "processor"))
-                .and(forbid("spring", "hibernate", "processor"))
-                .and(forbid("processor", "core", "jpa", "hibernate", "spring"))
+        return CompositeArchRule
+                .of(forbid("annotations", "core", "jpa", "hibernate", "spring", "processor", "test"))
+                .and(forbid("core", "jpa", "hibernate", "spring", "processor", "test"))
+                .and(forbid("jpa", "hibernate", "spring", "processor", "test"))
+                .and(forbid("hibernate", "spring", "processor", "test"))
+                .and(forbid("spring", "hibernate", "processor", "test"))
+                .and(forbid("processor", "core", "jpa", "hibernate", "spring", "test"))
+                .and(forbid("test", "jpa", "hibernate", "spring", "processor"))
                 .as("dependencies flow one way: annotations <- core <- jpa <- (hibernate, spring)")
                 .allowEmptyShould(allowEmptyShould);
     }

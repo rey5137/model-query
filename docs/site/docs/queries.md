@@ -76,7 +76,7 @@ The available filters:
 | Column against column | `compare(left, Op, right)` |
 | Composition | `or` (two or three branches, or a `List` of them), `not`, `when`, `apply` (reuse a shared fragment) |
 | Sub-queries | `exists`, `notExists` |
-| Escape hatch | `add((joinContext, criteriaBuilder) -> predicate)` |
+| Escape hatch | `add((joinContext, criteriaBuilder) -> predicate)`, or `add("label", ...)` to name it for logs and [tests](testing.md); the label is a constant, never a value |
 
 ### What the rules mean for you
 

@@ -264,6 +264,12 @@ public final class TableField<P, T> {
         return owner == null ? "" : owner + ": ";
     }
 
+    /** The root entity, or the join's attribute, type and alias, so a message can name a path; not API. */
+    @Override
+    public String toString() {
+        return describe();
+    }
+
     String describe() {
         if (rootEntity != null) {
             return "root " + rootEntity.getSimpleName();

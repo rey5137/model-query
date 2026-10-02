@@ -33,6 +33,16 @@ Behaviour to know when moving from hand-written Criteria code:
   converter (D-84).
 
 ### Added
+- `ModelQuery.conditions()` (incubating, D-98, D-101): a read-only view of the filters a built query records in `where`
+  and `having`, as `QueryConditions` and `Condition` (kind, column, values as passed, children, label). A filter skipped
+  by an empty `Optional` is absent. `conditions().toString()` and the build log list each condition's kind and column
+  with every value shown as `?`; only the accessors expose values.
+- `Filters.add(String label, ...)` names a custom filter, so it shows in logs and can be matched in a test; a null or
+  blank label is `MQ1301`.
+- `model-query-test` (incubating, D-98), in the BOM: depends on `model-query-core` and AssertJ only.
+  `assertThatQuery(query)` asserts on filters, `having`, order, selection and a fetch plan's selection with no database,
+  and `FilterMatchers` has one matcher per `Filters` operator, plus `and(...)` and `custom(label)`. See "Testing queries
+  without a database" in the user guide.
 - `japicmp` runs in `verify` against the baseline release named by `japicmp.baseline`, and fails the build on a
   binary- or source-incompatible change to API; it is skipped while no baseline is set, and ignores `@Incubating`,
   `@EngineFacing` and `jpa.vendor`.

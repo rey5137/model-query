@@ -18,6 +18,8 @@ model-query/
 ├── model-query-core/                TableField, SelectField, ColumnField, AggregateField, SelectSet,
 │                                    Row, RowMapper, ModelQuery, Filters, JoinContext, RenderOptions,
 │                                    SPI interfaces                               (jakarta.persistence-api)
+├── model-query-test/                assertThatQuery and FilterMatchers: assert on a built query's filters,
+│                                    order and selection with no database (D-98)  (core, AssertJ)
 ├── model-query-jpa/                 executor, ModelQueryConfig, paging and export engine;          (core)
 │                                    jpa.spi: VendorProfile, ProviderSupport; jpa.vendor: built-in profiles (not API)
 ├── model-query-hibernate/           Hibernate 6.x extras: dialect detection, grouped count,
@@ -49,6 +51,7 @@ source tree ships in 0.1 and CI builds it (D-76); it is published to GitHub Page
 - `jakarta.validation` is an optional dependency of `jpa` only, used by `@ValidChanges` (`Future`, M6; `api/14`
   R-WRT-22). Generated change sets reference it only when it is on the model module's classpath.
 - `processor` depends only on `annotations` and shaded JavaPoet.
+- `test` depends only on `core` (and the `annotations` it exposes), the JDK and AssertJ (D-98, `api/16` R-INS-06).
 - No Lombok in anything the library ships. The processor's tests alone take it, in `test` scope, to compile models
   beside it (D-40). Consumers may use Lombok on their models (`processor/31` R-GEN-10).
 
@@ -84,7 +87,7 @@ Conventional Commits. A commit that breaks an `@Incubating` type is still marked
 **R-REL-09** Coordinates: `groupId` `io.github.rey5137`, artifacts `model-query-*`. The namespace is verified on Central
 through the `rey5137` GitHub account. The Java package `com.rey.modelquery` intentionally differs from the `groupId`.
 
-**R-REL-10** Sub-packages follow the modules: `.core`, `.jpa`, `.hibernate`, `.processor`, `.spring.data`,
+**R-REL-10** Sub-packages follow the modules: `.core`, `.test`, `.jpa`, `.hibernate`, `.processor`, `.spring.data`,
 `.spring.boot`. `com.rey.modelquery.jpa.vendor` (the built-in profiles, `VendorResolver`, `ResolvedVendor`) is not
 API, whatever the visibility of its types: it may change in any release, and extensions go through `jpa.spi`. A
 type or method marked `@EngineFacing` (`core`; only an executor uses it) is not API either, and may change in any
