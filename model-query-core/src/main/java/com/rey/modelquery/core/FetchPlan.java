@@ -102,6 +102,18 @@ public final class FetchPlan<M> {
         return children;
     }
 
+    /** The plans of {@code @Join}ed models, in the order added (R-FCH-07). */
+    @EngineFacing
+    public List<JoinPlan<M, ?>> joinPlans() {
+        return joins;
+    }
+
+    /** The enrichers, in the order added (R-FCH-08). */
+    @EngineFacing
+    public List<Enricher<M>> enrichers() {
+        return enrichers;
+    }
+
     /**
      * Whether the plan only selects: it has no child, join plan nor enricher, so nothing of it runs on a page
      * (R-FCH-09).
@@ -179,33 +191,5 @@ public final class FetchPlan<M> {
         var result = new ArrayList<T>(list);
         result.add(element);
         return List.copyOf(result);
-    }
-
-    /** A plan applied to the models a join holds. */
-    private record JoinPlan<M, N>(JoinField<M, N> field, FetchPlan<N> plan) {
-
-        /** The nested plan's selection, re-rooted under the join. */
-        List<SelectField<M, ?>> selection() {
-            var result = new ArrayList<SelectField<M, ?>>();
-            for (SelectField<N, ?> column : plan.selection().fields()) {
-                if (!(column instanceof ColumnField<N, ?, ?> plain)) {
-                    // An aggregate is over the nested model's own root and grouping, which do not exist under a join.
-                    throw new ModelQueryDefinitionException(MqCode.MQ1705, field.model().getSimpleName() + "."
-                            + field.name() + ": the join plan selects the aggregate " + column.name() + ", which "
-                            + "cannot be re-rooted under the join; select the aggregate in the outer plan");
-                }
-                result.add(reroot(plain));
-            }
-            return result;
-        }
-
-        /** The nested plan's needed columns, re-rooted under the join. */
-        List<ColumnField<M, ?, ?>> needed() {
-            return plan.needed().stream().<ColumnField<M, ?, ?>>map(this::reroot).toList();
-        }
-
-        private ColumnField<M, ?, ?> reroot(ColumnField<N, ?, ?> column) {
-            return column.under(field.model(), field.table());
-        }
     }
 }

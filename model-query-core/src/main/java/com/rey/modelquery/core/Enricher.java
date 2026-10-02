@@ -2,6 +2,8 @@ package com.rey.modelquery.core;
 
 import com.rey.modelquery.annotations.Incubating;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -57,6 +59,29 @@ public final class Enricher<M> {
         return columns;
     }
 
+    /**
+     * Runs the enricher once over {@code page}, a page's models in order, and returns the page it filled.
+     * {@link #byKey} calls its lookup only when a model has a non-null key, and keeps the size and order;
+     * {@link #of} gets a modifiable copy of the page. {@code owner} names the plan's model, or the join path, in a
+     * message. Exceptions of the caller's code propagate unwrapped.
+     *
+     * @throws ModelQueryExecutionException {@code MQ2602} when an {@link #of} enricher returns {@code null} or a page
+     *     of another size
+     */
+    @EngineFacing
+    public List<M> enrich(String owner, List<M> page) {
+        if (byKey != null) {
+            return byKey.enrich(owner, page);
+        }
+        List<M> result = this.page.apply(new ArrayList<>(page));
+        if (result == null || result.size() != page.size()) {
+            throw new ModelQueryExecutionException(MqCode.MQ2602, owner + ": an Enricher.of returned "
+                    + (result == null ? "null" : "a page of " + result.size()) + " for a page of " + page.size()
+                    + " models; return one model per model of the page, filled");
+        }
+        return result;
+    }
+
     private static <M> List<ColumnField<M, ?, ?>> checked(ColumnField<M, ?, ?>[] columns) {
         var result = new ArrayList<ColumnField<M, ?, ?>>();
         for (ColumnField<M, ?, ?> column : Objects.requireNonNull(columns, "columns")) {
@@ -68,5 +93,30 @@ public final class Enricher<M> {
     /** The parts of a {@link #byKey} enricher. */
     private record ByKey<M, K, V>(Function<? super M, ? extends K> key,
             Function<? super Set<K>, ? extends Map<K, ? extends V>> lookup,
-            BiFunction<? super M, ? super V, ? extends M> with) {}
+            BiFunction<? super M, ? super V, ? extends M> with) {
+
+        List<M> enrich(String owner, List<M> page) {
+            var keys = new ArrayList<K>(page.size());
+            var distinct = new LinkedHashSet<K>();
+            for (M model : page) {
+                K value = key.apply(model);
+                keys.add(value);
+                if (value != null) {
+                    distinct.add(value);
+                }
+            }
+            if (distinct.isEmpty()) {
+                return page;
+            }
+            Map<K, ? extends V> found = Objects.requireNonNull(lookup.apply(Collections.unmodifiableSet(distinct)),
+                    () -> owner + ": an Enricher.byKey lookup returned null; return an empty map for no value");
+            var result = new ArrayList<M>(page.size());
+            for (int i = 0; i < page.size(); i++) {
+                K value = keys.get(i);
+                V v = value == null ? null : found.get(value);
+                result.add(v == null ? page.get(i) : with.apply(page.get(i), v));
+            }
+            return result;
+        }
+    }
 }

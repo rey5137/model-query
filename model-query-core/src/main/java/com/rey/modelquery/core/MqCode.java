@@ -196,6 +196,9 @@ public enum MqCode {
     /** A to-one child finds two distinct rows for one key (R-FCH-04). */
     MQ2601("A to-one child found two distinct rows for one key"),
 
+    /** An {@code Enricher.of} returns a page of another size, or {@code null} (R-FCH-08). */
+    MQ2602("An Enricher.of returned a page of another size, or null"),
+
     /** A parent has more children than {@code maxPerParent}, or a child load's round reads its row cap (R-FCH-11). */
     MQ2603("A parent has more children than maxPerParent, or a child load's round reached its row cap"),
 

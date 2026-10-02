@@ -74,6 +74,7 @@ See [Queries and Filters](queries.md), [Grouped queries](grouped-queries.md) and
 | `MQ2501` | A bulk write ran without an active transaction. |
 | `MQ2502` | A chunk of a chunked write failed; `ChunkedWriteException` says what was committed. |
 | `MQ2601` | A to-one `@Child` found two distinct rows for one key. |
+| `MQ2602` | An `Enricher.of` returned `null`, or a page of another size than it was given. |
 | `MQ2603` | A parent has more children than `maxPerParent`, or one statement of a child load read its row cap. |
 | `MQ2604` | A child row's key equals none of the keys it was matched to: the column's collation is case-insensitive or ignores trailing spaces. |
 | `MQ2605` | `stream` with a fetch plan that loads children, join plans or enrichers; use `export`. |

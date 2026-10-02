@@ -5,9 +5,12 @@ import com.rey.modelquery.core.ChildLoad;
 import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.CountMode;
+import com.rey.modelquery.core.Enricher;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.JoinContext;
+import com.rey.modelquery.core.JoinField;
+import com.rey.modelquery.core.JoinPlan;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
@@ -979,15 +982,60 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * rows a call returns or passes on, never on what paging only reads (R-FCH-09).
      */
     private <M> List<M> models(ModelQuery<?, ?, M> q, List<Loaded<M>> rows) {
-        List<M> models = new ArrayList<>(rows.size());
-        rows.forEach(loaded -> models.add(loaded.model()));
         Optional<FetchPlan<M>> plan = q.fetch();
         if (plan.isPresent() && !rows.isEmpty()) {
-            for (ChildLoad<M, ?> load : plan.get().childLoads()) {
-                loadChild(load, rows, models);
+            return run(plan.get(), q.toString(), rows);
+        }
+        List<M> models = new ArrayList<>(rows.size());
+        rows.forEach(loaded -> models.add(loaded.model()));
+        return models;
+    }
+
+    /**
+     * Runs {@code plan} once over {@code rows}, a non-empty page: its children, then its join plans, each running its
+     * nested plan whole, then its enrichers in order, so a nested plan's enrichers run before this one's (R-FCH-08).
+     * {@code owner} names the plan's model, or its join path, in a message.
+     */
+    private <M> List<M> run(FetchPlan<M> plan, String owner, List<Loaded<M>> rows) {
+        List<M> models = new ArrayList<>(rows.size());
+        rows.forEach(loaded -> models.add(loaded.model()));
+        for (ChildLoad<M, ?> load : plan.childLoads()) {
+            loadChild(load, rows, models);
+        }
+        for (JoinPlan<M, ?> join : plan.joinPlans()) {
+            runJoin(join, owner, rows, models);
+        }
+        List<M> result = models;
+        for (Enricher<M> enricher : plan.enrichers()) {
+            result = enricher.enrich(owner, result);
+        }
+        return result;
+    }
+
+    /**
+     * Runs {@code join}'s nested plan once over the nested models present in {@code models}, one entry per parent,
+     * duplicates included, each read from its parent's row under the join, and sets each result back on its parent.
+     * A parent whose join found nothing is skipped (R-FCH-07).
+     */
+    private <M, N> void runJoin(JoinPlan<M, N> join, String owner, List<Loaded<M>> rows, List<M> models) {
+        JoinField<M, N> field = join.field();
+        List<Integer> parents = new ArrayList<>();
+        List<Loaded<N>> nested = new ArrayList<>();
+        for (int i = 0; i < models.size(); i++) {
+            Optional<N> present = field.get(models.get(i));
+            if (present.isPresent()) {
+                parents.add(i);
+                nested.add(new Loaded<>(present.get(), rows.get(i).row().scoped(field.table())));
             }
         }
-        return models;
+        if (nested.isEmpty()) {
+            return;
+        }
+        List<N> filled = run(join.plan(), owner + "." + field.name(), nested);
+        for (int k = 0; k < parents.size(); k++) {
+            int i = parents.get(k);
+            models.set(i, field.with(models.get(i), filled.get(k)));
+        }
     }
 
     /**

@@ -11,7 +11,9 @@ validation, and the connection lifetime of a stream.
 
 **R-EXE-01** `list(q, limit)` runs one query and returns the mapped rows in order. `Limit.of(0)` returns an empty list
 without touching the database. `Limit.unlimited()`, or `Limit.of(null)`, applies no `maxResults`. A fetch plan runs
-once on the returned rows (`api/15` R-FCH-09).
+once on the returned rows (`api/15` R-FCH-09): its children, then its join plans, each over the present nested models
+read from their rows under the join, then its enrichers in order, so a nested plan's enrichers run first (`api/15`
+R-FCH-08).
 
 ## 2. `page`
 

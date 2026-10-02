@@ -100,7 +100,7 @@ loop:
     fresh = rows minus keys repeated within the page   # both modes (R-PAG-02)
     offset: fresh -= keys of the previous page         # rows shifted across the boundary
     keyset: a key of the previous page -> MQ2205       # the cursor did not round-trip (R-PAG-14)
-    fresh = fetch plan run on fresh                    # children and enrichers, if any (api/15 R-FCH-09)
+    fresh = fetch plan run on fresh                    # children, join plans, enrichers (api/15 R-FCH-09)
     for item in pageTransformer(fresh): sink(item) until limit reached
     if rows.size < pageSize or limit reached: stop
     cursor = next(cursor, rows)                        # keyset: last row's key; offset: += rows.size
