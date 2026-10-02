@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -32,6 +33,7 @@ import java.util.function.UnaryOperator;
  * @param <M> the model
  * @implSpec R-QRY-01, R-QRY-02
  */
+@Incubating
 public final class ModelQuery<E, K, M> {
 
     private static final System.Logger LOG = System.getLogger(ModelQuery.class.getName());
@@ -147,6 +149,7 @@ public final class ModelQuery<E, K, M> {
      *     query, {@code MQ1406} for a key that does not fit the grouping)
      * @implSpec R-QRY-14, D-52, D-55, D-58
      */
+    @Incubating
     public ModelQuery<E, K, M> orderedBy(SortSpec sort) {
         Objects.requireNonNull(sort, "sort");
         if (sort.keys().isEmpty()) {
@@ -226,6 +229,7 @@ public final class ModelQuery<E, K, M> {
      *
      * @implSpec R-QRY-14
      */
+    @Incubating
     public ModelQuery<E, K, M> definition() {
         return definition;
     }
@@ -241,11 +245,13 @@ public final class ModelQuery<E, K, M> {
     }
 
     /** Whether the query is grouped: it has a group-by or selects an aggregate (R-AGG-07). */
+    @Incubating
     public boolean isGrouped() {
         return grouped;
     }
 
     /** The group-by columns in order, as a list that throws on mutation; empty when there is no group-by. */
+    @Incubating
     public List<ColumnField<M, ?, ?>> groupBy() {
         return groupBy;
     }
@@ -480,6 +486,7 @@ public final class ModelQuery<E, K, M> {
      * @param <K> the primary-key type
      * @param <M> the model
      */
+    @Incubating
     public static final class Builder<E, K, M> {
 
         private final TableField<E, E> root;

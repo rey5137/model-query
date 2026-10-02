@@ -12,6 +12,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *
  * @implSpec R-SPR-08, R-SPR-13
  */
+@Incubating
 @ConfigurationProperties("modelquery")
 public class ModelQueryProperties {
 

@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -14,6 +15,7 @@ import java.util.Set;
  * @param <M> the model the selections belong to
  * @implSpec R-COL-09
  */
+@Incubating
 public final class ColumnSet<M> {
 
     private final List<SelectField<M, ?>> columns;

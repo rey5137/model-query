@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 
 /**
  * Where a database puts NULLs in ascending order when the query says nothing. Vendor-neutral: it is what a profile
@@ -7,6 +8,7 @@ package com.rey.modelquery.core;
  *
  * @implSpec R-PRF-08
  */
+@Incubating
 public enum NullOrdering {
     /** NULLs sort before every value in ascending order. */
     NULLS_FIRST,

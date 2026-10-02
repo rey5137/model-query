@@ -1,11 +1,13 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 
 /**
  * Whether {@code page} counts the rows behind the page, and whether it reads them at all.
  *
  * @implSpec R-EXE-02
  */
+@Incubating
 public enum CountMode {
     /** Runs the count query and reports an exact total. */
     COUNT,

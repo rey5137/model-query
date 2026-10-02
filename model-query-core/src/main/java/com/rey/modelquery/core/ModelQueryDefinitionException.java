@@ -1,11 +1,13 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 
 /**
  * Raised for an {@code MQ1xxx} failure: a query definition that is invalid when it is built or first resolved.
  *
  * @implSpec R-ERR-01
  */
+@Incubating
 public class ModelQueryDefinitionException extends RuntimeException {
 
     private static final long serialVersionUID = 1L;

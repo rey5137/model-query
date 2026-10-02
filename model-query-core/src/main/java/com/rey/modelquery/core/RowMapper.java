@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import java.util.Objects;
 import java.util.function.Supplier;
 
@@ -9,6 +10,7 @@ import java.util.function.Supplier;
  * @param <M> the model type
  * @implSpec R-COL-10, R-COL-11
  */
+@Incubating
 @FunctionalInterface
 public interface RowMapper<M> {
 

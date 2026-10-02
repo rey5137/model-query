@@ -26,6 +26,7 @@ import org.springframework.data.domain.Pageable;
  * @param <E> the root entity type, the repository's domain type
  * @implSpec R-SPR-01, R-SPR-02, R-SPR-03, R-SPR-10, R-SPR-12
  */
+@Incubating
 public interface ModelQueryRepository<E> {
 
     /**

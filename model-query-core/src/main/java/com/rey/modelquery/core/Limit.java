@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import java.util.OptionalInt;
 
 /**
@@ -7,6 +8,7 @@ import java.util.OptionalInt;
  *
  * @implSpec R-EXE-01, R-EXE-06
  */
+@Incubating
 public final class Limit {
 
     private static final Limit UNLIMITED = new Limit(OptionalInt.empty());

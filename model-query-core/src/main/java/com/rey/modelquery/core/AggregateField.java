@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
 import java.util.Objects;
@@ -21,6 +22,7 @@ import java.util.function.BiFunction;
  *     {@code min} or {@code max} over a column with an {@link OrderedColumnConverter} (R-AGG-04)
  * @implSpec R-AGG-01, R-AGG-02, R-AGG-04, D-3, D-84
  */
+@Incubating
 public final class AggregateField<M, C> implements SelectField<M, C> {
 
     /** The aggregate function; its name is the one used in {@link #name()}. */

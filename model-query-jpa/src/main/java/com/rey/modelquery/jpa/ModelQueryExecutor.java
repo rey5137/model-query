@@ -28,6 +28,7 @@ import java.util.stream.Stream;
  *     R-AGG-09, R-WRT-01, R-WRT-07, R-WRT-08, R-WRT-15, R-WRT-16, R-WRT-17, R-WRT-18, R-WRT-19, R-WRT-20,
  *     R-WRT-23, D-61
  */
+@Incubating
 public interface ModelQueryExecutor<E> {
 
     /**

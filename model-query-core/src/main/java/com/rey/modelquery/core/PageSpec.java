@@ -1,11 +1,14 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
+
 /**
  * Which page to read: the number of rows to skip and the page size. Immutable; built by {@link #of(int, int)} from a
  * page number or by {@link #ofOffset(int, int)} from an offset, so neither can be mistaken for the other (D-88).
  *
  * @implSpec R-EXE-02, R-EXE-06
  */
+@Incubating
 public final class PageSpec {
 
     private final int offset;

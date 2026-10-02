@@ -24,6 +24,7 @@ import java.util.OptionalInt;
  * @implSpec R-QRY-10, R-VND-04, R-PAG-07, R-EXE-11, R-PRF-07, R-PAG-05, R-QRY-15, R-VND-03, R-SPR-08, R-WRT-15,
  *     R-WRT-17, R-WRT-19
  */
+@Incubating
 public final class ModelQueryConfig {
 
     /** No batch size set: step 2 reads the whole page, within the profile's clamp (D-32). */

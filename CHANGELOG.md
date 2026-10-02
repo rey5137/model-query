@@ -6,9 +6,9 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
-## [1.0.0] - Unreleased
+## [0.2.0] - Unreleased
 
-The API is frozen from this release, except what is marked `@Incubating` (D-85).
+Nothing is frozen yet: every public type stays `@Incubating` until the 1.0 freeze (D-90).
 
 ### Upgrading from 0.1
 
@@ -46,15 +46,8 @@ Behaviour to know when moving from hand-written Criteria code:
   a field read through it.
 
 ### Changed
-- The 1.0 API freeze (D-85): `@Incubating` is removed from every annotation but `@UpdateModel` and
-  `QueryModel.generateChanges`, from every `core` type but the bulk-write types (`ModelUpdate`, `ModelDelete`,
-  `Changes`, `Assignment`, `ChunkOptions`, `ChunkedWriteException`, `PersistenceContextMode`) and
-  `NullPrecedenceRenderer`, from `ModelQueryExecutor`, `ModelQueryConfig`, `KeysetNullKeys`, `MysqlStreamingMode` and
-  `DatabaseVendor`, and from the Spring types. The bulk-write members of the frozen types (`ModelQueryExecutor` and
-  `ModelQueryRepository` `update`/`delete`, the `ModelQueryConfig` write settings, `ModelQueryProperties.getBulkWrite`)
-  and the generated `changes()`, `update(...)` and `delete()` are `@Incubating`, as are `VendorProfile`,
-  `ProviderSupport`, `ChunkTransactions`, `ValidChanges`, `ValidChangesValidator` and `HibernateProviderSupport`.
-  Incubating API may still break in a minor release.
+- The API review for 1.0 (D-85 to D-89) changed the signatures listed under Upgrading from 0.1. No type is frozen:
+  every public type stays `@Incubating` and may still break in a minor release (D-90).
 - `@EngineFacing` may mark a type: `BuiltQuery`, `RowSelection` and `RenderOptions` carry it, as do `JoinContext.of`
   and `OrderField.toOrders`. They are not API and may change in any release (D-86).
 - **Breaking:** `Filters` and `Having` are `sealed`, so they cannot be implemented outside `core` (D-85).

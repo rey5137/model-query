@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
 import java.math.BigDecimal;
@@ -20,6 +21,7 @@ import java.util.function.BiFunction;
  *
  * @implSpec api/13 §1, R-AGG-03, R-AGG-04, D-84
  */
+@Incubating
 public final class Agg {
 
     /** Columns the database sums to their own type (R-AGG-03). */

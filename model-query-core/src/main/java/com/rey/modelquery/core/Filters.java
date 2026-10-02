@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Predicate;
 import java.util.Collection;
@@ -25,6 +26,7 @@ import java.util.function.UnaryOperator;
  *
  * @implSpec api/12 §1, R-FLT-01..08, R-FLT-10, R-FLT-11, R-FLT-13, R-FLT-14
  */
+@Incubating
 public sealed interface Filters<M> permits FilterGroup {
 
     /** {@code column = value}. */

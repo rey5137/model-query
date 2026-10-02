@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 
 /**
  * A {@link ColumnConverter} that preserves order both ways: {@code a < b} exactly when
@@ -15,4 +16,5 @@ package com.rey.modelquery.core;
  * @param <F> the entity attribute's type
  * @implSpec R-COL-14, R-AGG-04, D-84
  */
+@Incubating
 public interface OrderedColumnConverter<C, F> extends ColumnConverter<C, F> {}

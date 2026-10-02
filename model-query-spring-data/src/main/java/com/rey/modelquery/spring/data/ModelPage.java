@@ -1,5 +1,6 @@
 package com.rey.modelquery.spring.data;
 
+import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.CountMode;
 import java.util.function.Function;
 import org.springframework.data.domain.Slice;
@@ -11,6 +12,7 @@ import org.springframework.data.domain.Slice;
  * @param <M> the model type
  * @implSpec R-SPR-07, D-51
  */
+@Incubating
 public interface ModelPage<M> extends Slice<M> {
 
     /**

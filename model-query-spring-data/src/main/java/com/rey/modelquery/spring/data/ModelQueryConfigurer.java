@@ -1,5 +1,6 @@
 package com.rey.modelquery.spring.data;
 
+import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import jakarta.persistence.EntityManagerFactory;
 
@@ -10,6 +11,7 @@ import jakarta.persistence.EntityManagerFactory;
  *
  * @implSpec R-SPR-13
  */
+@Incubating
 @FunctionalInterface
 public interface ModelQueryConfigurer {
 

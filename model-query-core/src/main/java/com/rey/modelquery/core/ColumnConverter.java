@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 
 /**
  * Converts between the type a model holds and the type of the entity attribute a {@link ColumnField} reads. The column
@@ -15,6 +16,7 @@ package com.rey.modelquery.core;
  * @param <F> the entity attribute's type
  * @implSpec R-COL-14, D-37, D-84
  */
+@Incubating
 public interface ColumnConverter<C, F> {
 
     /** The model value of {@code attribute}, a non-null value read from the database. */

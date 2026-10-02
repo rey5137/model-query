@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -14,6 +15,7 @@ import java.util.function.Supplier;
  * @param <M> the model type
  * @implSpec R-COL-11
  */
+@Incubating
 public final class SetterMapper<M> implements RowMapper<M> {
 
     private record Binding<M, C>(SelectField<?, C> column, BiConsumer<M, ? super C> setter) {

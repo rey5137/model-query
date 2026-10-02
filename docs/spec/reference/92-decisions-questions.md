@@ -557,9 +557,9 @@ with the tier it matched; one column matched on two tiers is not. A sort failure
 → `api/11` R-QRY-14, `integration/50` R-SPR-06.
 
 **D-59 — Bulk writes come before the first release.** The bulk-write milestone moves ahead of 0.1.0 and is renumbered:
-M6 is bulk writes (`api/14`), M7 is 0.1.0, M8 is hardening to 1.0.0. The first release ships the read API and
-filter-driven bulk updates and deletes together, both `@Incubating` until the M8 API review. Writes still load no
-entity (INV-1). → `delivery/62` §1 R-RDM-01, §2 R-RDM-03, `api/14`, see D-75.
+M6 is bulk writes (`api/14`), M7 is 0.1.0, M8 is hardening, shipped as 0.2.0 (D-90). The first release ships the read
+API and filter-driven bulk updates and deletes together, both `@Incubating` until the M8 API review. Writes still load
+no entity (INV-1). → `delivery/62` §1 R-RDM-01, §2 R-RDM-03, `api/14`, see D-75.
 
 **D-60 — Write builders are staged.** `ModelUpdate.builder(TableField<E,E> root)` returns `Start<E>`, whose
 `primaryKey(PrimaryKey<M,K>)` returns `Builder<E,K,M>`; each call returns a new immutable stage, like
@@ -742,7 +742,7 @@ R-REL-09.
 
 **D-78 — Minimum Hibernate version (resolves Q-3).** 0.1 supports Hibernate 6.6 and later, built and tested against
 Hibernate 6.6 with Spring Boot 3.4. Targeting Hibernate 7 only would exclude Spring Boot 3.x users; whether 1.0 moves to
-Hibernate 7 is decided before 1.0. → `delivery/61`.
+Hibernate 7 is decided before 1.0, after a Hibernate 7 CI leg (D-91). → `delivery/61`.
 
 **D-79 — Publishing the docs site (amends D-76).** After 0.1.0, the docs site is published to GitHub Pages at
 `https://rey5137.github.io/model-query/` from `main` by `.github/workflows/docs.yml`, so it tracks the latest main rather
@@ -797,7 +797,8 @@ and a `Date` bound against a `java.sql.Date` truncates); loosening the filter ge
 and `orderBy` on unordered converters (breaks 0.1 users who sort by a stored code). → `api/10` R-COL-14, `api/13`
 R-AGG-04, `processor/30` R-PROC-07, R-PROC-15, `reference/90` `MQ1408`, D-20, D-37.
 
-**D-85 — The 1.0 freeze, by type.** At 1.0 every annotation is frozen except `UpdateModel` and
+**D-85 — The planned 1.0 freeze, by type.** In 0.2 every type stays `@Incubating` (D-90); the split below is what 1.0
+will freeze. At 1.0 every annotation is frozen except `UpdateModel` and
 `QueryModel.generateChanges`. In `core` every public type is frozen except the bulk-write types (`ModelUpdate`,
 `ModelDelete`, `Changes`, `Assignment`, `ChunkOptions`, `ChunkedWriteException`, `PersistenceContextMode`) and
 `NullPrecedenceRenderer`, which the incubating SPI returns. In `jpa`, `ModelQueryExecutor`, `ModelQueryConfig`,
@@ -810,16 +811,19 @@ against is frozen. `Filters` and `Having` become `sealed`, so a new operator can
 freeze in a 1.x minor once one minor ships with no change to them. Deferred as additive: a `TableField.join` taking the
 target class, and a common `ModelQueryException` superclass. → `delivery/61` R-REL-07, R-REL-11, D-59.
 
-**D-86 — `@EngineFacing` may mark a type (amends D-72).** `BuiltQuery`, `RowSelection` and `RenderOptions` carry it at
-type level, and `JoinContext.of` and `OrderField.toOrders` at method level; `japicmp` excludes both. A selection's shape
-can then change, for example one alias per selected path, without breaking anything. → R-REL-10, R-REL-11, D-72.
+**D-86 — `@EngineFacing` may mark a type (amends D-72).** From 0.2 `BuiltQuery`, `RowSelection` and `RenderOptions`
+carry it at type level, and `JoinContext.of` and `OrderField.toOrders` at method level; `japicmp` excludes both. A
+selection's shape can then change, for example one alias per selected path, without breaking anything. → R-REL-10,
+R-REL-11, D-72.
 
-**D-87 — `or` takes two or three branches, or a list.** An interface method cannot be `@SafeVarargs`, so the generic
-varargs `or` warned `unchecked generic array creation` at every call and failed under `-Werror`. `Filters` and `Having`
-take `or(a, b)`, `or(a, b, c)` and `or(List)`, so a written-out `or` with fewer than two branches does not compile
-(P-2); a built list follows R-FLT-01 (empty is skipped, one branch is that branch). Rejected: keeping varargs with a documented `@SuppressWarnings` (every caller pays). → `api/12`, `api/13`.
+**D-87 — `or` takes two or three branches, or a list (applied in 0.2).** An interface method cannot be `@SafeVarargs`,
+so the generic varargs `or` warned `unchecked generic array creation` at every call and failed under `-Werror`.
+`Filters` and `Having` take `or(a, b)`, `or(a, b, c)` and `or(List)`, so a written-out `or` with fewer than two
+branches does not compile (P-2); a built list follows R-FLT-01 (empty is skipped, one branch is that branch).
+Rejected: keeping varargs with a documented `@SuppressWarnings` (every caller pays). → `api/12`, `api/13`.
 
-**D-88 — `PageSpec` and `ExportOptions` are final classes; `SetterMapper.bind` takes the mapper's model.** A record's
+**D-88 — `PageSpec` and `ExportOptions` are final classes; `SetterMapper.bind` takes the mapper's model (applied in
+0.2).** A record's
 public canonical constructor made `new PageSpec(2, 20)` an offset while `PageSpec.of(2, 20)` is a page number, and a
 frozen record cannot gain a component, while export options will grow. Both become final classes with factories:
 `PageSpec.of(page, size)` and `PageSpec.ofOffset(offset, size)`; `ExportOptions` keeps `defaults()`, `of(int)` and
@@ -827,18 +831,30 @@ frozen record cannot gain a component, while export options will grow. Both beco
 row. → R-EXE-02, R-PAG-09, R-COL-11.
 
 **D-89 — Ordered converters freeze; `@Aggregate.converter` waits.** `OrderedColumnConverter` and the two built-in
-converters freeze at 1.0, because generated code links their `INSTANCE`. `DateTimestampConverter.toModel` returning a
-`Timestamp` typed as `Date`, with its asymmetric `equals`, is part of the contract. A `converter` element on
-`@Aggregate`, legal for MIN and MAX only, is additive and comes after 1.0; until then a named ordered converter goes
-through a hand-written `Agg.min` or `max`. → R-COL-14, R-AGG-04, R-PROC-07, D-84.
+converters are planned to freeze at 1.0, because generated code links their `INSTANCE`.
+`DateTimestampConverter.toModel` returning a `Timestamp` typed as `Date`, with its asymmetric `equals`, is part of the
+contract. A `converter` element on `@Aggregate`, legal for MIN and MAX only, is additive and comes after 1.0; until
+then a named ordered converter goes through a hand-written `Agg.min` or `max`. → R-COL-14, R-AGG-04, R-PROC-07, D-84.
+
+**D-90 — M8 ships as 0.2.0; nothing is frozen yet.** The user decided against 1.0.0 for M8. The API changes of D-87
+and D-88 (and the `sealed` `Filters` and `Having` of D-85) are applied in 0.2.0, but no type is frozen: `@Incubating`
+stays on every public type until the 1.0 freeze, and D-85, D-86 and D-89 describe what 1.0 will freeze. `japicmp` stays
+skipped until a 1.0.0 baseline exists. → `delivery/61` R-REL-07, `delivery/62`.
+
+**D-91 — Decisions closing M8.** (1) Q-2 is resolved: `row-by-row` stays the MySQL streaming default, because
+`useCursorFetch` streams only when the user adds `useCursorFetch=true` to the JDBC URL and otherwise silently loads the
+whole result into memory. (2) D-78 stands: 0.2 keeps Hibernate 6.6+, and a Hibernate 7 CI leg comes before the 1.0
+decision. (3) `or(List)` with fewer than two branches follows R-FLT-01 (empty is skipped, one branch is that branch),
+with no new `MQ` code. (4) `@Aggregate.converter` is deferred and additive. → `vendor/41` R-PRF-04, R-PRF-07, D-78,
+D-87, D-89.
 
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
 
-**Q-2 — MySQL streaming default.** `row-by-row` is faster but blocks other statements on the connection until the
-result is read; `useCursorFetch` does not. The current default is `row-by-row` with the caveat documented. Should the
-default flip? → `vendor/41` R-PRF-04, R-PRF-07.
+**Q-2 — MySQL streaming default.** Resolved by D-91. `row-by-row` is faster but blocks other statements on the
+connection until the result is read; `useCursorFetch` does not. The current default is `row-by-row` with the caveat
+documented. Should the default flip? → `vendor/41` R-PRF-04, R-PRF-07.
 
 **Q-3 — Minimum Hibernate version.** Resolved by D-78.
 

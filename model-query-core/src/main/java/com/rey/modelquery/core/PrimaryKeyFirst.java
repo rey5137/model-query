@@ -1,11 +1,13 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 
 /**
  * When offset paging reads primary keys first and the rows by those keys second. Immutable.
  *
  * @implSpec R-QRY-03
  */
+@Incubating
 public final class PrimaryKeyFirst {
 
     private final long offsetThreshold;

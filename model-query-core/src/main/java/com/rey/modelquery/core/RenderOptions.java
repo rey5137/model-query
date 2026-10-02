@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -11,6 +12,7 @@ import java.util.Optional;
  * @implSpec R-VND-01, R-VND-06
  */
 @EngineFacing
+@Incubating
 public final class RenderOptions {
 
     /** The limits of the {@code OTHER} profile, which are safe on any database (R-VND-06). */

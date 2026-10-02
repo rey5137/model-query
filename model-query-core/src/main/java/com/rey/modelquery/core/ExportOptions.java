@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import java.util.Objects;
 import java.util.OptionalInt;
 
@@ -10,6 +11,7 @@ import java.util.OptionalInt;
  *
  * @implSpec R-EXE-06, R-PAG-10, R-QRY-15
  */
+@Incubating
 public final class ExportOptions {
 
     private static final ExportOptions DEFAULTS = new ExportOptions(OptionalInt.empty(), Limit.unlimited());

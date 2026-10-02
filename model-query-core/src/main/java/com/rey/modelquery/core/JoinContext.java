@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.From;
@@ -25,6 +26,7 @@ import java.util.function.Supplier;
  *
  * @implSpec R-COL-02, R-FLT-10, R-FLT-11
  */
+@Incubating
 public final class JoinContext {
 
     private record Resolved(From<?, ?> from, Object condition) {}

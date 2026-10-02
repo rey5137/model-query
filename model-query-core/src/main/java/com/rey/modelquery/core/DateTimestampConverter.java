@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import java.sql.Timestamp;
 import java.util.Date;
 
@@ -16,6 +17,7 @@ import java.util.Date;
  *
  * @implSpec R-COL-14, D-84, D-89
  */
+@Incubating
 public final class DateTimestampConverter implements OrderedColumnConverter<Date, Timestamp> {
 
     /** The one instance; the converter is stateless. */

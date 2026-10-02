@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.JoinType;
@@ -21,6 +22,7 @@ import java.util.function.BiFunction;
  * @param <T> the entity type this node reaches
  * @implSpec R-COL-01, D-55
  */
+@Incubating
 public final class TableField<P, T> {
 
     private final Class<T> rootEntity;

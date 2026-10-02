@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 
 /**
  * One result row, read by {@link SelectField} and never by position, so adding a selection cannot shift a mapping
@@ -7,6 +8,7 @@ package com.rey.modelquery.core;
  *
  * @implSpec R-COL-10, R-COL-11
  */
+@Incubating
 public interface Row {
 
     /**

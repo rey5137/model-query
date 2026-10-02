@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 
 /**
  * Registry of {@code MQnnnn} codes raised by the library (spec reference/90). A code's meaning is fixed once released
@@ -7,6 +8,7 @@ package com.rey.modelquery.core;
  *
  * @implSpec R-ERR-01
  */
+@Incubating
 public enum MqCode {
 
     /** A column's declared type does not match the entity attribute (R-COL-08). */

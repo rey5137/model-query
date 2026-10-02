@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -17,6 +18,7 @@ import java.util.function.UnaryOperator;
  * @param <M> the model the query maps to
  * @implSpec R-AGG-06
  */
+@Incubating
 public sealed interface Having<M> permits HavingGroup {
 
     /** {@code aggregate = value}. */

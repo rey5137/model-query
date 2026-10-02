@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import java.util.List;
 import java.util.Objects;
 
@@ -10,6 +11,7 @@ import java.util.Objects;
  * @param keys the ordering keys, in order; empty for no sort of its own
  * @implSpec R-QRY-14, D-52
  */
+@Incubating
 public record SortSpec(List<Key> keys) {
 
     private static final SortSpec UNSORTED = new SortSpec(List.of());
@@ -39,6 +41,7 @@ public record SortSpec(List<Key> keys) {
      * @param nulls where NULLs sort
      * @implSpec R-QRY-14
      */
+    @Incubating
     public record Key(String property, boolean ascending, NullPrecedence nulls) {
 
         /** Validates the components. */

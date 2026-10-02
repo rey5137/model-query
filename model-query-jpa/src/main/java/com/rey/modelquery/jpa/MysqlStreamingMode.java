@@ -1,11 +1,13 @@
 package com.rey.modelquery.jpa;
 
+import com.rey.modelquery.annotations.Incubating;
 
 /**
  * How the MySQL profile streams a large result (R-PRF-07). Read once when the profile is chosen, never per query.
  *
  * @implSpec R-PRF-07, R-PRF-04
  */
+@Incubating
 public enum MysqlStreamingMode {
 
     /**

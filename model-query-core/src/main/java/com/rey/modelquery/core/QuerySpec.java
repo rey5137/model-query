@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import com.rey.modelquery.annotations.Incubating;
 import java.util.List;
 import java.util.Optional;
 
@@ -9,6 +10,7 @@ import java.util.Optional;
  *
  * @implSpec R-QRY-07
  */
+@Incubating
 public interface QuerySpec {
 
     /** The entity the query is rooted at. */
@@ -27,8 +29,10 @@ public interface QuerySpec {
     boolean keyset();
 
     /** The group-by columns, in order; empty when the query has no group-by. */
+    @Incubating
     List<ColumnField<?, ?, ?>> groupBy();
 
     /** Whether the query is grouped: it has a group-by or selects an aggregate (R-AGG-07). */
+    @Incubating
     boolean isGrouped();
 }
