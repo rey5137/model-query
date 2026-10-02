@@ -20,6 +20,10 @@ public final class Main {
         for (OrderView order : tour.withKeyboard()) {
             System.out.println("  #" + order.getId() + " " + order.getStatus());
         }
+        System.out.println("Orders with their items, loaded by a fetch plan:");
+        for (OrderWithItems order : tour.withItems()) {
+            System.out.println("  #" + order.id() + " " + order.items().stream().map(ItemView::sku).toList());
+        }
         System.out.println("Per status:");
         for (OrderTotals totals : tour.totals()) {
             System.out.println("  " + totals.status() + ": " + totals.orders() + " orders, " + totals.revenue());

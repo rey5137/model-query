@@ -24,8 +24,9 @@ queries per vendor into `src/test/resources/sql/<vendor>/*.sql`. A PR that chang
 
 A JUnit 5 suite parameterized by vendor, over a shared fixture schema: `customers`, `orders` (with a nullable second
 reference to `customers` and a `@Version` column), `order_items`, a table with a composite key, a table with nullable
-sort columns, labels many-to-many with orders, customer notes keyed on a case-insensitive column, and about 20 000
-seeded rows.
+sort columns, labels many-to-many with orders (`OrderEntity.labels` is the inverse side), a read-only `PatronEntity`
+over the existing `customers` table with a self-referential unidirectional `referrers` many-to-many through `orders`,
+customer notes keyed on a case-insensitive column, and about 20 000 seeded rows.
 
 | Group | Tests |
 |---|---|

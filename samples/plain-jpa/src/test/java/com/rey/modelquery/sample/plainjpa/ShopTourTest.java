@@ -25,5 +25,9 @@ class ShopTourTest {
                 .containsExactly(tuple("NEW", 2L),
                         tuple("PAID", 3L));
         assertThat(tour.totals().get(1).revenue()).isEqualByComparingTo(new BigDecimal("167.75"));
+        // The fetch plan filled each order's items; the walk-in order's single item is its own.
+        assertThat(tour.withItems()).extracting(OrderWithItems::id).containsExactly(1L, 2L, 3L, 4L, 5L);
+        assertThat(tour.withItems().get(0).items()).extracting(ItemView::sku).containsExactly("KEYBOARD", "MOUSE");
+        assertThat(tour.withItems().get(3).items()).extracting(ItemView::sku).containsExactly("CABLE");
     }
 }

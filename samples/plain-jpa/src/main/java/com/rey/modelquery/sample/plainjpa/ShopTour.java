@@ -1,6 +1,7 @@
 package com.rey.modelquery.sample.plainjpa;
 
 import com.rey.modelquery.core.CountMode;
+import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.Slice;
@@ -18,7 +19,8 @@ import org.hibernate.cfg.Configuration;
 public final class ShopTour {
 
     /** What the tour found. */
-    public record Result(Slice<OrderView> paidPage, List<OrderView> withKeyboard, List<OrderTotals> totals) {}
+    public record Result(Slice<OrderView> paidPage, List<OrderView> withKeyboard,
+            List<OrderTotals> totals, List<OrderWithItems> withItems) {}
 
     private ShopTour() {
     }
@@ -61,7 +63,8 @@ public final class ShopTour {
         em.getTransaction().commit();
     }
 
-    /** Reads the shop: a filtered page, an {@code exists} filter on the items, and the summary. */
+    /** Reads the shop: a filtered page, an {@code exists} filter on the items, the summary,
+     * and orders with their items loaded by a fetch plan. */
     public static Result run(EntityManager em) {
         var executor = ModelQueryExecutor.create(em, OrderEntity.class, ModelQueryConfig.defaults());
 
@@ -86,8 +89,16 @@ public final class ShopTour {
                 .orderBy(QOrderTotals.STATUS.asc())
                 .build();
 
+        // Each order with its items, loaded in one more statement for the whole page. The items are bounded per order.
+        var plan = FetchPlan.of(QOrderWithItems.ALL)
+                .child(QOrderWithItems.ITEMS, FetchPlan.of(QItemView.ALL), c -> c.maxPerParent(10));
+        var withItems = QOrderWithItems.query()
+                .fetch(plan)
+                .orderBy(QOrderWithItems.ID.asc())
+                .build();
+
         return new Result(paidPage, executor.list(withKeyboard, Limit.unlimited()),
-                executor.list(totals, Limit.unlimited()));
+                executor.list(totals, Limit.unlimited()), executor.list(withItems, Limit.unlimited()));
     }
 
     /** Runs the whole tour on a fresh database. */

@@ -46,6 +46,11 @@ Messages say what to change, for example `OrderView.totl: no attribute 'totl' on
 | `MQ1407` | Grouped query: `having(...)` on an ungrouped query. |
 | `MQ1408` | Grouped query: aggregate function over a column with a ColumnConverter (`sum`, `sumAsLong` and `avg`; `min`, `max` and `countDistinct` take an `OrderedColumnField` and do not compile over any other converted column). |
 | `MQ1409` | Grouped query: column selected under a `presentBy` join whose key columns are not all group keys. |
+| `MQ1701` | A fetch plan's join plan whose join has no column of the query's selection at or below it. |
+| `MQ1702` | A column a fetch plan needs (a child's key, an enricher's column) is read through a to-many join; checked on first execution, and `count` logs a warning instead. |
+| `MQ1703` | A fetch plan names the same child or join twice. |
+| `MQ1704` | A fetch plan with a child, at any join depth, on a grouped query. |
+| `MQ1705` | A join plan selects an aggregate, which cannot be re-rooted under the join. |
 | `MQ1601` | Bulk write: no predicate left after skipping rows. |
 | `MQ1602` | Bulk write: column is assigned twice. |
 | `MQ1603` | Bulk write: `set(column, null)` called; NULL must be written with `setNull`. |

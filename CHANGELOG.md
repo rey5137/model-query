@@ -60,6 +60,14 @@ Behaviour to know when moving from hand-written Criteria code:
 - `SelectSet.isEmpty()`, true when the set selects nothing.
 - `DEBUG` logging of each query definition built and each executor call, and `TRACE` logging of each statement's bind
   count, rows and time, through `System.Logger`; values are never logged (D-95). See Diagnostics §Logging.
+- Fetch plans (D-96, D-99, D-100): `FetchPlan` loads, once per page, the children of each model (`@Child`, with a
+  generated `ChildField` and an optional `ChildQuery` for filters, order and `maxPerParent`), nested plans through a
+  `@Join` (`JoinField`), and caller-supplied `Enricher`s. A query takes one with `fetch(plan)` or `withFetch(plan)`, and
+  `list`, `page` (each `CountMode`), `export` and the Spring repository's `findAll`, `findPage` and `export` run it;
+  `stream` refuses it. Codes `MQ1701`-`MQ1705`, `MQ2601`-`MQ2605` and `MQ3401`-`MQ3406`. See the user guide's Fetch
+  plans page.
+- `@Child(through = "path")` loads a many-to-many child that only the parent's entity maps (unidirectional, the inverse
+  side, or through a join entity), by joining along an association path from the parent's `@Id` (D-100).
 - The processor gives an `Instant` or `Date` field over a `Timestamp` attribute the built-in converter when no
   `converter` is named, so the column filters with values of the field's type; `@Aggregate` `MIN` and `MAX` into such
   a field read through it.

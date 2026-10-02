@@ -79,7 +79,10 @@ joins (`api/10` R-COL-03); an `alias` written on the annotation wins (D-45).
 model's root and on the child's root; left empty, each is that model's one `@PrimaryKey` attribute. A path may cross
 associations, each joined `LEFT` and without alias so that a `@Join` on the same association shares the join, and
 embedded values, but not an association inside an embedded value. The field carries no other model annotation, and
-an update model has none (`processor/32` `MQ3401`–`MQ3406`). The child model may be a source of the compilation or a
+an update model has none (`processor/32` `MQ3401`–`MQ3406`). `through`, a path of associations from the
+model's root to the child's root entity for a many-to-many mapped on the parent's side only, replaces `foreignKey`
+(both is `MQ3401`); `key` is then matched on the parent's single `@Id` along that path, and a path or key that
+cannot be is `MQ3406` (`api/15` R-FCH-14). The child model may be a source of the compilation or a
 class on its classpath, as a nested model may (D-45).
 
 ## 5. `@FilterColumn`

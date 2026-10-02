@@ -144,7 +144,8 @@ public interface ModelQueryExecutor<E> {
 **R-QRY-10** `ModelQueryExecutor.create(EntityManager, Class<E>, ModelQueryConfig)`, both in `com.rey.modelquery.jpa`,
 is enough to use the library without Spring (INV-8). The executor resolves the factory's `VendorProfile` once and passes
 its facts to every build as `RenderOptions` (D-34). Semantics of each method are `engine/20`. The bulk `update` and
-`delete` methods are `api/14` §8 (`Future`, M6).
+`delete` methods are `api/14` §8 (`Future`, M6). A query that carries a `FetchPlan` (`api/15`) loads its children, join
+plans and enrichers on `list`, `page` and `export`, and `stream` refuses it (`api/15` R-FCH-09).
 
 ## 7. Acceptance criteria
 
