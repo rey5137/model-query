@@ -11,6 +11,7 @@ import java.lang.annotation.Target;
  * Declares a filter-only column: a column constant with no model field, left out of every generated column set and of
  * the row mapping.
  */
+@Incubating
 @Documented
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.CLASS)

@@ -12,6 +12,7 @@ import com.rey.modelquery.core.Filters;
 import com.rey.modelquery.core.InstantTimestampConverter;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.OrderedColumnField;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
@@ -45,13 +46,13 @@ class OrderedConverterTest {
     private static final TableField<StampedOrderEntity, StampedOrderEntity> ROOT =
             TableField.root(StampedOrderEntity.class);
 
-    private static final ColumnField<AtInstant, StampedOrderEntity, Long> ID =
+    private static final OrderedColumnField<AtInstant, StampedOrderEntity, Long> ID =
             ColumnField.of(AtInstant.class, ROOT, "id", Long.class);
-    private static final ColumnField<AtInstant, StampedOrderEntity, Instant> PLACED = ColumnField.of(
+    private static final OrderedColumnField<AtInstant, StampedOrderEntity, Instant> PLACED = ColumnField.of(
             AtInstant.class, ROOT, "placedAt", Instant.class, Timestamp.class, InstantTimestampConverter.INSTANCE);
-    private static final ColumnField<AtDate, StampedOrderEntity, Long> DATE_ID =
+    private static final OrderedColumnField<AtDate, StampedOrderEntity, Long> DATE_ID =
             ColumnField.of(AtDate.class, ROOT, "id", Long.class);
-    private static final ColumnField<AtDate, StampedOrderEntity, Date> PLACED_DATE = ColumnField.of(
+    private static final OrderedColumnField<AtDate, StampedOrderEntity, Date> PLACED_DATE = ColumnField.of(
             AtDate.class, ROOT, "placedAt", Date.class, Timestamp.class, DateTimestampConverter.INSTANCE);
 
     private static final ModelQuery.Builder<StampedOrderEntity, Long, AtInstant> AT_INSTANT = ModelQuery
@@ -65,11 +66,11 @@ class OrderedConverterTest {
             .primaryKey(PrimaryKey.of(DATE_ID))
             .orderBy(DATE_ID.asc());
 
-    private static final ColumnField<Span, StampedOrderEntity, String> STATUS =
+    private static final OrderedColumnField<Span, StampedOrderEntity, String> STATUS =
             ColumnField.of(Span.class, ROOT, "status", String.class);
-    private static final ColumnField<Span, StampedOrderEntity, Instant> SPAN_PLACED = ColumnField.of(
+    private static final OrderedColumnField<Span, StampedOrderEntity, Instant> SPAN_PLACED = ColumnField.of(
             Span.class, ROOT, "placedAt", Instant.class, Timestamp.class, InstantTimestampConverter.INSTANCE);
-    private static final ColumnField<Span, StampedOrderEntity, Date> SPAN_PLACED_DATE = ColumnField.of(
+    private static final OrderedColumnField<Span, StampedOrderEntity, Date> SPAN_PLACED_DATE = ColumnField.of(
             Span.class, ROOT, "placedAt", Date.class, Timestamp.class, DateTimestampConverter.INSTANCE);
     private static final AggregateField<Span, Instant> FIRST = Agg.min(SPAN_PLACED);
     private static final AggregateField<Span, Instant> LAST = Agg.max(SPAN_PLACED);

@@ -255,6 +255,15 @@ class FilterCompositionTest {
     }
 
     @TckTest
+    void ac_flt_03_an_empty_or_list_returns_no_rows_and_does_not_turn_the_query_into_all_rows(TckDatabase db) {
+        List<UnaryOperator<Filters<O>>> allowed = List.of(); // e.g. the tenants this caller may see
+        inSession(db, em -> {
+            assertThat(ids(em, ORDER_QUERY.where(f -> f.or(allowed)))).isEmpty();
+            assertThat(ids(em, ORDER_QUERY.where(f -> f.eq(STATUS, "PAID").or(allowed)))).isEmpty();
+        });
+    }
+
+    @TckTest
     void ac_flt_03_not_when_and_apply_follow_the_same_skip_rules(TckDatabase db) {
         List<List<Long>> results = new ArrayList<>();
         List<List<N>> nullable = new ArrayList<>();

@@ -356,15 +356,19 @@ abstract class ConditionGroup<M, G> {
 
     public final G or(List<? extends UnaryOperator<G>> branches) {
         checkOpen();
+        if (Objects.requireNonNull(branches, "branches").isEmpty()) {
+            // No branch at all is "none of these" (D-92, P-3), as an empty `in` is (R-FLT-02); no join either.
+            return record(ctx -> Optional.of(ctx.cb().disjunction()));
+        }
         var groups = new ArrayList<List<Filter>>();
-        for (UnaryOperator<G> branch : Objects.requireNonNull(branches, "branches")) {
+        for (UnaryOperator<G> branch : branches) {
             List<Filter> group = nested(Objects.requireNonNull(branch, "branch"), child());
             if (!group.isEmpty()) {
                 groups.add(group); // a branch whose filters were all skipped is dropped (R-FLT-01)
             }
         }
         if (groups.isEmpty()) {
-            return self(); // skipped, rather than FALSE matching nothing (R-FLT-01)
+            return self(); // every branch had its filters all skipped, so the or is skipped (R-FLT-01)
         }
         List<List<Filter>> recorded = List.copyOf(groups);
         return record(new LeftJoining(ctx -> {

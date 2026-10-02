@@ -20,9 +20,11 @@ import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.beans.factory.support.AbstractBeanDefinition;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.beans.factory.support.BeanDefinitionRegistryPostProcessor;
 import org.springframework.beans.factory.support.GenericBeanDefinition;
+import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -32,6 +34,7 @@ import org.springframework.boot.context.properties.source.ConfigurationPropertyS
 import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
 import org.springframework.boot.context.properties.source.IterableConfigurationPropertySource;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.ResolvableType;
 import org.springframework.core.env.Environment;
 import org.springframework.core.type.MethodMetadata;
 import org.springframework.data.jpa.repository.support.JpaRepositoryFactoryBean;
@@ -61,7 +64,10 @@ public class ModelQueryAutoConfiguration {
      * bean class of its own is left alone (R-SPR-02, D-50). Each swapped definition is copied and re-registered under
      * its name rather than changed in place, so a repository another post-processor type-checked first, which left
      * a merged definition and an early stock factory bean cached, is still built with the model-query factory bean
-     * (D-83).
+     * (D-83). A {@code RootBeanDefinition} is cloned and keeps its target type, now over
+     * {@code ModelQueryRepositoryFactoryBean} with the old generics. A swapped definition moves to the end of the
+     * registration order, which changes the singleton creation order and the order of an injected
+     * {@code List<Repository>}.
      */
     @Bean
     static BeanDefinitionRegistryPostProcessor modelQueryRepositoryFactoryBeanSwap() {
@@ -72,8 +78,7 @@ public class ModelQueryAutoConfiguration {
                 for (String name : registry.getBeanDefinitionNames().clone()) {
                     BeanDefinition definition = registry.getBeanDefinition(name);
                     if (stock.equals(definition.getBeanClassName())) {
-                        GenericBeanDefinition swapped = new GenericBeanDefinition(definition);
-                        swapped.setBeanClassName(ModelQueryRepositoryFactoryBean.class.getName());
+                        AbstractBeanDefinition swapped = copy(definition);
                         registry.removeBeanDefinition(name);
                         registry.registerBeanDefinition(name, swapped);
                     }
@@ -85,6 +90,24 @@ public class ModelQueryAutoConfiguration {
                 // Nothing to do: only the registry is changed.
             }
         };
+    }
+
+    private static AbstractBeanDefinition copy(BeanDefinition definition) {
+        if (definition instanceof RootBeanDefinition root) {
+            RootBeanDefinition swapped = root.cloneBeanDefinition();
+            swapped.setBeanClassName(ModelQueryRepositoryFactoryBean.class.getName());
+            // getResolvableType, not getTargetType: the latter is the raw class, without the repository's generics.
+            if (root.getTargetType() != null) {
+                ResolvableType[] generics = root.getResolvableType().getGenerics();
+                swapped.setTargetType(generics.length == 0
+                        ? ResolvableType.forClass(ModelQueryRepositoryFactoryBean.class)
+                        : ResolvableType.forClassWithGenerics(ModelQueryRepositoryFactoryBean.class, generics));
+            }
+            return swapped;
+        }
+        GenericBeanDefinition swapped = new GenericBeanDefinition(definition);
+        swapped.setBeanClassName(ModelQueryRepositoryFactoryBean.class.getName());
+        return swapped;
     }
 
     /**

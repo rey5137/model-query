@@ -9,6 +9,7 @@ import java.lang.annotation.Target;
 /**
  * Renames the entity attribute a model field reads, or converts its value.
  */
+@Incubating
 @Documented
 @Target({ElementType.FIELD, ElementType.RECORD_COMPONENT})
 @Retention(RetentionPolicy.CLASS)

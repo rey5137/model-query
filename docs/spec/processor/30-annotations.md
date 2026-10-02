@@ -60,7 +60,9 @@ generated column carries the converter: `Row.get` applies it, and filters apply 
 converter that is not a bijection is documented as filter-unsafe (`api/10` R-COL-14). When no `converter` is named and
 the field is a `java.time.Instant` or `java.util.Date` over a `java.sql.Timestamp` attribute, the column takes the
 built-in `InstantTimestampConverter` or `DateTimestampConverter` instead of failing `MQ3002`; a named converter wins,
-and any other mismatch is still `MQ3002` (D-84).
+and any other mismatch is still `MQ3002` (D-84). A generated column is declared `OrderedColumnField` when it has no
+converter or its converter, named or built-in, is an `OrderedColumnConverter`, and `ColumnField` otherwise, following
+nested-model joins (D-93).
 
 ## 4. `@Join` and nested models
 
@@ -105,7 +107,8 @@ and is `MQ3206` on any other function. An `@Aggregate` field can't also carry `@
 `@Transient` (`MQ3204`), and a model with an `@Aggregate` field can't be a `@Join` target (`MQ3005`) (D-47). A `MIN`
 or `MAX` field of `Instant` or `Date` over a `Timestamp` attribute reads it through the built-in converter of R-PROC-07
 and is typed as the field; `SUM` and `AVG` over a `Timestamp` stay `MQ3202`, as does `MIN` or `MAX` into any other
-type than the attribute's (D-84).
+type than the attribute's (D-84). The column a `MIN`, `MAX` or `distinct` `COUNT` reads is the `OrderedColumnField` of
+R-PROC-07 (D-93).
 
 **R-PROC-16** `@GroupBy` fields, in declaration order, form the generated `GROUP_KEYS` `ColumnSet`, and
 `Q<Model>.query()` is pre-configured with `groupBy(GROUP_KEYS)`. `@GroupBy` cannot be combined with `@Aggregate` or

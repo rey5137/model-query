@@ -435,8 +435,8 @@ class DiagnosticsTest {
                 message(DiagnosticCode.MQ3014, "OrderView.text: ToInteger converts Status to Integer, model type "
                         + "String, entity attribute type String"),
                 message(DiagnosticCode.MQ3014, "OrderView.plain: String is not a ColumnConverter<Status, String>"),
-                message(DiagnosticCode.MQ3014, "OrderView.hidden: Hidden needs a public static INSTANCE or a no-arg "
-                        + "constructor visible to QOrderView"));
+                message(DiagnosticCode.MQ3014, "OrderView.hidden: Hidden needs a public static INSTANCE, typed as an "
+                        + "OrderedColumnConverter when it is one, or a no-arg constructor visible to QOrderView"));
     }
 
     @Test

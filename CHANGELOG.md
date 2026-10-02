@@ -41,11 +41,29 @@ Behaviour to know when moving from hand-written Criteria code:
   `InstantTimestampConverter` and `DateTimestampConverter` over a `Timestamp` attribute. `Agg.min`, `Agg.max` and
   `Agg.countDistinct` take a column with an ordered converter, and `min` and `max` return the model type; other
   aggregates over a converted column still throw `MQ1408`.
+- `OrderedColumnField`, a `ColumnField` subclass for a column with no converter or an `OrderedColumnConverter`:
+  `Agg.min`, `max` and `countDistinct` take it, so they no longer compile over a column with any other converter instead
+  of throwing `MQ1408` (D-93). `ColumnField` is `sealed`. A variable typed `ColumnField` passed to those three must
+  become `OrderedColumnField`; the processor declares generated columns with the narrower type.
+- `Filters.or(List)` and `Having.or(List)` with an empty list render `FALSE`, "none of these", as an empty `in`; a
+  non-empty list whose branches were all skipped stays skipped (D-92).
+- The `MQ1307` bind check runs up front for a keyset page, export page or key-first write round, first one and
+  `startAfter` round included: it counts the worst cursor, k(k+1)/2 binds for k keyset keys, so a run never fails after
+  rows reached a sink or a round committed (D-82).
+- `MQ1308`: a value that its column's converter cannot convert, such as an `Instant` beyond the range of `Timestamp`,
+  is refused with a message naming the column; `InstantTimestampConverter` now round-trips the converted value, since
+  `Timestamp.from(Instant.MAX)` returned a wrong instant on JDK 21 (D-84).
+- `Limit.of(Integer)` takes `null` for "unlimited".
 - The processor gives an `Instant` or `Date` field over a `Timestamp` attribute the built-in converter when no
   `converter` is named, so the column filters with values of the field's type; `@Aggregate` `MIN` and `MAX` into such
   a field read through it.
 
 ### Changed
+- Every public annotation, `@EngineFacing` and `ModelQueryProcessor` carries `@Incubating`, as every other public
+  type does (D-90).
+- The starter's repository factory bean swap copies a `RootBeanDefinition` with `cloneBeanDefinition()` and keeps its
+  target type over `ModelQueryRepositoryFactoryBean`; a swapped repository moves to the end of the registration order,
+  which changes singleton creation order and `List<Repository>` injection order (D-83).
 - The API review for 1.0 (D-85 to D-89) changed the signatures listed under Upgrading from 0.1. No type is frozen:
   every public type stays `@Incubating` and may still break in a minor release (D-90).
 - `@EngineFacing` may mark a type: `BuiltQuery`, `RowSelection` and `RenderOptions` carry it, as do `JoinContext.of`

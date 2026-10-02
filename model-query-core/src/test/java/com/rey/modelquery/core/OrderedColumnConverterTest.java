@@ -1,8 +1,8 @@
 package com.rey.modelquery.core;
 
-import static com.rey.modelquery.core.ConvertedColumnTest.ORDERED_HINT;
 import static com.rey.modelquery.core.ConvertedColumnTest.assertMq1408;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import jakarta.persistence.Tuple;
 import java.lang.reflect.Proxy;
@@ -34,13 +34,13 @@ class OrderedColumnConverterTest {
     }
 
     private static final TableField<Order, Order> ROOT = TableField.root(Order.class);
-    private static final ColumnField<OrderView, Order, Instant> PLACED = ColumnField.of(
+    private static final OrderedColumnField<OrderView, Order, Instant> PLACED = ColumnField.of(
             OrderView.class, ROOT, "placedAt", Instant.class, Timestamp.class, InstantTimestampConverter.INSTANCE);
-    private static final ColumnField<OrderView, Order, Date> PLACED_DATE = ColumnField.of(
+    private static final OrderedColumnField<OrderView, Order, Date> PLACED_DATE = ColumnField.of(
             OrderView.class, ROOT, "placedAt", Date.class, Timestamp.class, DateTimestampConverter.INSTANCE);
-    private static final ColumnField<OrderView, Order, Timestamp> PLACED_STAMP =
+    private static final OrderedColumnField<OrderView, Order, Timestamp> PLACED_STAMP =
             ColumnField.of(OrderView.class, ROOT, "placedAt", Timestamp.class);
-    private static final ColumnField<OrderView, Order, Long> CENTS =
+    private static final OrderedColumnField<OrderView, Order, Long> CENTS =
             ColumnField.of(OrderView.class, ROOT, "total", Long.class, Integer.class, new CentsConverter());
 
     /** Three instants a microsecond and a nanosecond apart, in order, none on a whole millisecond. */
@@ -65,6 +65,16 @@ class OrderedColumnConverterTest {
             assertThat(converter.toModel(a)).isBefore(converter.toModel(b));
         }
         assertThat(converter).isInstanceOf(OrderedColumnConverter.class);
+    }
+
+    @Test
+    void ac_col_13_an_instant_beyond_timestamp_throws_mq1308_naming_the_column_and_the_value() {
+        assertThatThrownBy(() -> PLACED.toAttribute(Instant.MAX))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1308))
+                .hasMessageStartingWith(MqCode.MQ1308.code() + ": OrderView.placedAt: InstantTimestampConverter"
+                        + ".toAttribute cannot convert +1000000000-12-31T23:59:59.999999999Z")
+                .hasCauseInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -137,27 +147,11 @@ class OrderedColumnConverterTest {
     }
 
     @Test
-    void ac_agg_13_sum_and_avg_over_an_ordered_column_and_any_function_over_an_unordered_one_throw_mq1408() {
+    void ac_agg_13_sum_and_avg_over_an_ordered_column_still_throw_mq1408() {
         assertThat(Agg.min(CENTS).type()).isEqualTo(Long.class);
-        assertMq1408(() -> Agg.sum(CENTS), "");
-        assertMq1408(() -> Agg.sumAsLong(CENTS), "");
-        assertMq1408(() -> Agg.avg(CENTS), "");
-
-        var unordered = ColumnField.of(OrderView.class, ROOT, "placedAt", Instant.class, Timestamp.class,
-                new ColumnConverter<Instant, Timestamp>() {
-                    @Override
-                    public Instant toModel(Timestamp attribute) {
-                        return attribute.toInstant();
-                    }
-
-                    @Override
-                    public Timestamp toAttribute(Instant model) {
-                        return Timestamp.from(model);
-                    }
-                });
-        assertMq1408(() -> Agg.min(unordered), ORDERED_HINT);
-        assertMq1408(() -> Agg.max(unordered), ORDERED_HINT);
-        assertMq1408(() -> Agg.countDistinct(unordered), ORDERED_HINT);
+        assertMq1408(() -> Agg.sum(CENTS));
+        assertMq1408(() -> Agg.sumAsLong(CENTS));
+        assertMq1408(() -> Agg.avg(CENTS));
     }
 
     /** A tuple that answers {@code get(alias)} only, which is all a {@link Row} reads. */

@@ -20,11 +20,15 @@ public final class Limit {
     }
 
     /**
-     * At most {@code max} rows; {@code 0} returns an empty list without a query.
+     * At most {@code max} rows; {@code 0} returns an empty list without a query, and {@code null} is
+     * {@link #unlimited()}, so an optional limit from a request parameter needs no branch.
      *
      * @throws ModelQueryExecutionException {@code MQ2001} for a negative {@code max}
      */
-    public static Limit of(int max) {
+    public static Limit of(Integer max) {
+        if (max == null) {
+            return UNLIMITED;
+        }
         if (max < 0) {
             throw new ModelQueryExecutionException(MqCode.MQ2001, "Limit.of(" + max + "): a limit must not be negative");
         }

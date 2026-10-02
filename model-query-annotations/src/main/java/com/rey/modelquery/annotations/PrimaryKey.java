@@ -9,6 +9,7 @@ import java.lang.annotation.Target;
 /**
  * Marks a primary-key column of the model. A composite key marks each of its columns.
  */
+@Incubating
 @Documented
 @Target({ElementType.FIELD, ElementType.RECORD_COMPONENT})
 @Retention(RetentionPolicy.CLASS)

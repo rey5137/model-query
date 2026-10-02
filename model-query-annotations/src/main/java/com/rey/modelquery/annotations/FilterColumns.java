@@ -9,6 +9,7 @@ import java.lang.annotation.Target;
 /**
  * The container that makes {@link FilterColumn} repeatable. It is never written by hand.
  */
+@Incubating
 @Documented
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.CLASS)

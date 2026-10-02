@@ -9,6 +9,7 @@ import java.lang.annotation.Target;
 /**
  * Adds the column to the generated group keys and to the query's group-by.
  */
+@Incubating
 @Documented
 @Target({ElementType.FIELD, ElementType.RECORD_COMPONENT})
 @Retention(RetentionPolicy.CLASS)

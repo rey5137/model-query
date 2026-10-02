@@ -9,6 +9,7 @@ import java.lang.annotation.Target;
 /**
  * Marks a field or component that is not a column.
  */
+@Incubating
 @Documented
 @Target({ElementType.FIELD, ElementType.RECORD_COMPONENT})
 @Retention(RetentionPolicy.CLASS)

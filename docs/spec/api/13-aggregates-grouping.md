@@ -19,14 +19,14 @@ public final class AggregateField<M, C> implements SelectField<M, C> { /* … */
 
 public final class Agg {
     public static <M> AggregateField<M, Long> count(TableField<?, ?> table);
-    public static <M> AggregateField<M, Long> countDistinct(ColumnField<M, ?, ?> column);
+    public static <M> AggregateField<M, Long> countDistinct(OrderedColumnField<M, ?, ?> column);
 
     public static <M, C extends Number> AggregateField<M, C>      sum(ColumnField<M, ?, C> column);
     public static <M>                   AggregateField<M, Long>   sumAsLong(ColumnField<M, ?, ? extends Number> column);
     public static <M, C extends Number> AggregateField<M, Double> avg(ColumnField<M, ?, C> column);
 
-    public static <M, C extends Comparable<? super C>> AggregateField<M, C> min(ColumnField<M, ?, C> column);
-    public static <M, C extends Comparable<? super C>> AggregateField<M, C> max(ColumnField<M, ?, C> column);
+    public static <M, C extends Comparable<? super C>> AggregateField<M, C> min(OrderedColumnField<M, ?, C> column);
+    public static <M, C extends Comparable<? super C>> AggregateField<M, C> max(OrderedColumnField<M, ?, C> column);
 
     public static <M, C> AggregateField<M, C> of(String name, Class<C> type,
                                                 BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression);
@@ -70,12 +70,13 @@ argument (D-25). For generated columns the processor (M4) reports the same mista
 **R-AGG-04** `sum` over zero rows is `NULL`, not `0`. `Row.get` returns `null`, and a mapped field must be a boxed
 type; a primitive field for a `sum` column is a processor error `MQ3201`. A caller that wants `0` uses a
 `ColumnConverter` or `Objects.requireNonNullElse` in the mapper — the engine never invents a value (INV-5).
-An aggregate function over a converted column throws `MQ1408`: the database aggregates attribute values, which the
-column's converter cannot be applied to (`api/10` R-COL-14). `Agg.of` is the way to aggregate such an attribute. The
-exception is a column whose converter is an `OrderedColumnConverter`: `min`, `max` and `countDistinct` commute with an
-order-preserving, injective conversion, so they take it. `min` and `max` return the converter's `toModel` of the value
+`sum`, `sumAsLong` and `avg` over a converted column throw `MQ1408`: the database aggregates attribute values, which
+the column's converter cannot be applied to (`api/10` R-COL-14). `Agg.of` is the way to aggregate such an attribute.
+`min`, `max` and `countDistinct` commute with an order-preserving, injective conversion, so they take an
+`OrderedColumnField`, a column with no converter or with an `OrderedColumnConverter`; over a column with any other
+converter they do not compile (D-93). `min` and `max` return the converter's `toModel` of the value
 the database returned, typed as the column, and a `having` value on them binds `toAttribute` of it; `countDistinct`
-stays a `Long`. `sum`, `sumAsLong` and `avg` keep `MQ1408` for every converter (D-84).
+stays a `Long`. `sum`, `sumAsLong` and `avg` keep `MQ1408` for every converter (D-84, D-93).
 
 ## 3. Grouping and `having`
 
@@ -146,10 +147,10 @@ generated `GROUP_KEYS` `ColumnSet`, and `QProductSales.query()` comes pre-config
 | AC-AGG-04 | Two identical `Agg.sum(...)` constants render one selection and one `Row` key (R-AGG-01). |
 | AC-AGG-05 | Two `Agg.of` fields with the same name and different expressions throw `MQ1103`; an `Agg.of` returning `null` or an expression of another Java type throws `MQ1405` (R-AGG-02). |
 | AC-AGG-06 | An aggregate in `where` and a plain column in `having` fail to compile (compile-testing) (R-AGG-06). |
-| AC-AGG-07 | `having` skip semantics match `api/12` AC-FLT-03 for aggregates (R-AGG-06). |
+| AC-AGG-07 | `having` skip semantics match `api/12` AC-FLT-03 for aggregates: an all-skipped `or` is skipped, and an empty `or(List)` is recorded as `FALSE` (R-AGG-06, D-92). |
 | AC-AGG-08 | A selected column missing from the group-by throws `MQ1401` naming the column; an `orderBy` key that does not fit the grouping throws `MQ1406` (R-AGG-08). |
 | AC-AGG-09 | `.keyset()` on a grouped query throws `MQ1402`; a grouped query with no `primaryKey` exports successfully (R-AGG-09, R-AGG-10). |
 | AC-AGG-10 | An aggregate selection with no `groupBy` returns exactly one row (R-AGG-07). |
 | AC-AGG-11 | `afterMap` on a grouped query runs once per group and sees every selected aggregate (`api/11` R-QRY-05). |
 | AC-AGG-12 | `having` on a query with neither a `groupBy` nor a selected aggregate throws `MQ1407`, even when every filter was skipped; an aggregate in the `groupBy` set throws `MQ1404` (R-AGG-05, R-AGG-07). |
-| AC-AGG-13 | `Agg.min`, `max` and `countDistinct` over a column with an `OrderedColumnConverter` return the model-typed `min` and `max` and the `Long` count the database computes over the attribute on every Tier-1 vendor, and `having` and `orderBy` on them compare attribute values; `sum`, `sumAsLong` and `avg` over it, and every function over a converter that is not ordered, throw `MQ1408` (R-AGG-04, D-84). |
+| AC-AGG-13 | `Agg.min`, `max` and `countDistinct` over a column with an `OrderedColumnConverter` return the model-typed `min` and `max` and the `Long` count the database computes over the attribute on every Tier-1 vendor, and `having` and `orderBy` on them compare attribute values; `sum`, `sumAsLong` and `avg` over any converted column throw `MQ1408`, and `min`, `max` and `countDistinct` over a column whose converter is not ordered do not compile: the column is a plain `ColumnField`, and the processor declares a generated column as `OrderedColumnField` only when it has no converter or an ordered one (R-AGG-04, D-84, D-93). |

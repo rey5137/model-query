@@ -50,6 +50,7 @@ import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.beans.factory.support.BeanDefinitionRegistryPostProcessor;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.beans.factory.support.RootBeanDefinition;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
@@ -57,6 +58,7 @@ import org.springframework.context.annotation.ComponentScan.Filter;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.FilterType;
 import org.springframework.core.Ordered;
+import org.springframework.core.ResolvableType;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
@@ -254,6 +256,19 @@ class StarterTest {
             assertThat(context.getBean(OrderRepository.class).count(ORDER_IDS)).isPositive();
             assertThat(context.getBean(OrderRepository.class).findPage(ORDER_IDS, PageRequest.of(0, 2),
                     CountMode.COUNT).getContent()).hasSize(2);
+        });
+    }
+
+    @Test
+    void ac_spr_13_a_root_definition_keeps_its_target_type_over_the_model_query_factory_bean() {
+        withRepositories.withUserConfiguration(RootDefinitions.class).run(context -> {
+            assertThat(context).hasNotFailed();
+            var definition = (RootBeanDefinition) context.getBeanFactory().getBeanDefinition("orderRepository");
+            assertThat(definition.getBeanClassName()).isEqualTo(ModelQueryRepositoryFactoryBean.class.getName());
+            assertThat(definition.getTargetType()).isEqualTo(ModelQueryRepositoryFactoryBean.class);
+            assertThat(definition.getResolvableType().resolveGenerics())
+                    .containsExactly(OrderRepository.class, OrderEntity.class, Long.class);
+            assertThat(context.getBean(OrderRepository.class).count(ORDER_IDS)).isPositive();
         });
     }
 
@@ -598,6 +613,38 @@ class StarterTest {
                 beanFactory.getMergedBeanDefinition(name);
                 beanFactory.getType(name);
             }
+        }
+
+        @Override
+        public void postProcessBeanFactory(ConfigurableListableBeanFactory beanFactory) {}
+
+        @Override
+        public int getOrder() {
+            return 0;
+        }
+    }
+
+    /** Replaces the order repository with a {@code RootBeanDefinition} that has a target type, as Spring Data 3.x does. */
+    @Configuration(proxyBeanMethods = false)
+    static class RootDefinitions {
+
+        @Bean
+        static BeanDefinitionRegistryPostProcessor rootDefinitions() {
+            return new RootDefinitionsProcessor();
+        }
+    }
+
+    static final class RootDefinitionsProcessor implements BeanDefinitionRegistryPostProcessor, Ordered {
+
+        @Override
+        public void postProcessBeanDefinitionRegistry(BeanDefinitionRegistry registry) {
+            var generics = ResolvableType.forClassWithGenerics(JpaRepositoryFactoryBean.class, OrderRepository.class,
+                    OrderEntity.class, Long.class);
+            var root = new RootBeanDefinition();
+            root.overrideFrom(registry.getBeanDefinition("orderRepository"));
+            root.setTargetType(generics);
+            registry.removeBeanDefinition("orderRepository");
+            registry.registerBeanDefinition("orderRepository", root);
         }
 
         @Override

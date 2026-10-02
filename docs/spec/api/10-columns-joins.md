@@ -81,14 +81,23 @@ public sealed interface SelectField<M, C> permits ColumnField, AggregateField {
 ## 3. `ColumnField` — one column of a model
 
 ```java
-public final class ColumnField<M, T, C> implements SelectField<M, C> {
-    public static <M, T, C> ColumnField<M, T, C> of(Class<M> model, TableField<?, T> table, String attribute, Class<C> type);
+public sealed class ColumnField<M, T, C> implements SelectField<M, C> permits OrderedColumnField {
+    public static <M, T, C> OrderedColumnField<M, T, C> of(Class<M> model, TableField<?, T> table, String attribute,
+            Class<C> type);
     public static <M, T, C, F> ColumnField<M, T, C> of(Class<M> model, TableField<?, T> table, String attribute,
             Class<C> type, Class<F> attributeType, ColumnConverter<C, F> converter);
+    public static <M, T, C, F> OrderedColumnField<M, T, C> of(Class<M> model, TableField<?, T> table, String attribute,
+            Class<C> type, Class<F> attributeType, OrderedColumnConverter<C, F> converter);
     public Path<C> path(JoinContext ctx);
     public <M2> ColumnField<M2, T, C> withTable(Class<M2> model, TableField<?, T> table);   // re-root under a join
 }
+
+public final class OrderedColumnField<M, T, C> extends ColumnField<M, T, C> { /* withTable returns OrderedColumnField */ }
 ```
+
+`OrderedColumnField` is a column with no converter or with an `OrderedColumnConverter`; any other converter gives a
+plain `ColumnField`. `ColumnField.of` returns the narrower type whenever it can, also at run time when the converter's
+static type is wider; `equals` ignores the subclass (D-93).
 
 **R-COL-07** A column does not have to be mapped. A **filter-only column** has no field on the model; the mapper only
 reads the columns it knows, so a filter-only column never affects the result even if it ends up in a `ColumnSet`.
@@ -107,11 +116,17 @@ and reads an attribute of type `F`: `MQ1001` compares the attribute against `att
 never given `null`. `withTable` keeps it, and two columns are equal only when their converters are of the same class.
 `path(ctx)` is the attribute's path, so a custom predicate on it compares attribute values (D-37). An
 `OrderedColumnConverter<C, F>`, a `ColumnConverter` with no method of its own, promises that the conversion preserves
-order both ways, and so is injective: `min`, `max` and `countDistinct` then take the column (`api/13` R-AGG-04).
+order both ways, and so is injective: the column is an `OrderedColumnField`, which `min`, `max` and `countDistinct`
+take, while a column with any other converter is a plain `ColumnField` and they do not compile (`api/13` R-AGG-04,
+D-93).
 `core` ships two, each a singleton `INSTANCE`: `InstantTimestampConverter` (`Timestamp.from`/`toInstant`, nanoseconds
 kept) and `DateTimestampConverter`, whose `toModel` returns the `Timestamp` itself typed as `Date`, so a value read
 back binds exactly what was read. Range filters and `orderBy` on a converter that is not ordered stay allowed: they
-compare stored values, and keyset cursors read `Row.raw` (D-84).
+compare stored values, and keyset cursors read `Row.raw` (D-84). A value a converter cannot convert (its `toAttribute`
+throws `IllegalArgumentException`, as `InstantTimestampConverter` does for an `Instant` beyond `Timestamp`'s range) is
+refused with `MQ1308` when a value filter or a write converts it. A plain `java.util.Date` binds at whole milliseconds, so
+an inclusive upper bound is written half-open, `lt(nextDayStart)`: `lte(23:59:59.999)` excludes a stored
+`23:59:59.999500`.
 
 ## 4. `ColumnSet` — an immutable named set
 
@@ -203,7 +218,7 @@ default null ordering the persistence provider is configured with replaces the p
 | AC-COL-08 | `nullsFirst()`/`nullsLast()` produce identical orderings on every Tier-1 vendor, with and without `model-query-hibernate` (R-COL-12). |
 | AC-COL-09 | A `ModelQuery` stored in a `static final` field is used concurrently by 8 threads with identical results (INV-9). |
 | AC-COL-10 | A column whose attribute is a dotted path through an embedded value selects and filters that value; an unknown segment, or one crossing an association, throws `MQ1002` naming the segment (R-COL-08, D-41). |
-| AC-COL-11 | A column built with a `ColumnConverter` round-trips through `Row.get` and through a filter on the same column, while `Row.raw` returns the value unconverted, which primary keys and keyset cursors are read as; an aggregate function over it throws `MQ1408` unless the converter is ordered (AC-AGG-13) (R-COL-14, R-COL-11, D-37). |
+| AC-COL-11 | A column built with a `ColumnConverter` round-trips through `Row.get` and through a filter on the same column, while `Row.raw` returns the value unconverted, which primary keys and keyset cursors are read as; `sum`, `sumAsLong` and `avg` over it throw `MQ1408`, and `min`, `max` and `countDistinct` take an ordered one only (AC-AGG-13) (R-COL-14, R-COL-11, D-37). |
 | AC-COL-12 | Selecting a column of a `presentBy` join also selects the join's presence key, and that of every such join above it, in every model phase and once only, so a mapper tells an absent row from a match whose columns are all `NULL`; a grouped query whose group keys lack the key throws `MQ1409`, and `presentBy` on a root `MQ1104` (R-COL-15, D-38). |
-| AC-COL-13 | `InstantTimestampConverter` and `DateTimestampConverter` round-trip with nanoseconds kept and keep order both ways; a `Timestamp` attribute holding sub-millisecond digits is read, filtered with `eq`, `gt`, `lte` and `between`, sorted and keyset-paged through each, and a value read back through `DateTimestampConverter` binds exactly what was read (R-COL-14, D-84). |
+| AC-COL-13 | `InstantTimestampConverter` and `DateTimestampConverter` round-trip with nanoseconds kept and keep order both ways; a `Timestamp` attribute holding sub-millisecond digits is read, filtered with `eq`, `gt`, `lte` and `between`, sorted and keyset-paged through each, and a value read back through `DateTimestampConverter` binds exactly what was read; an `Instant` beyond `Timestamp`'s range is refused with `MQ1308` (R-COL-14, D-84). |
 | AC-COL-14 | A model selecting one attribute through several columns, a `Timestamp` read as an `Instant`, a `Date` and itself, is read through `list`, offset and primary-key-first `page`, `count`, `stream` and keyset export across several pages, and as two group keys through `list`, `count` and export, each column holding its own converted value (R-COL-10). |

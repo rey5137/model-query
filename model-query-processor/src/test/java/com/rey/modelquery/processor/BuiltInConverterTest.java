@@ -88,10 +88,10 @@ class BuiltInConverterTest {
         assertThat(generatedFlat(compilation, "shop.QEventView"))
                 .contains("import com.rey.modelquery.core.DateTimestampConverter;")
                 .contains("import com.rey.modelquery.core.InstantTimestampConverter;")
-                .contains("ColumnField<EventView, EventEntity, Instant> CREATED = ColumnField.of(EventView.class, "
+                .contains("final OrderedColumnField<EventView, EventEntity, Instant> CREATED = ColumnField.of(EventView.class, "
                         + "ROOT, \"createdAt\", Instant.class, Timestamp.class, InstantTimestampConverter.INSTANCE) "
                         + ".named(\"created\");")
-                .contains("ColumnField<EventView, EventEntity, Date> UPDATED = ColumnField.of(EventView.class, "
+                .contains("final OrderedColumnField<EventView, EventEntity, Date> UPDATED = ColumnField.of(EventView.class, "
                         + "ROOT, \"updatedAt\", Date.class, Timestamp.class, DateTimestampConverter.INSTANCE) "
                         + ".named(\"updated\");");
     }
@@ -107,9 +107,80 @@ class BuiltInConverterTest {
 
         assertThat(compilation).succeededWithoutWarnings();
         assertThat(generatedFlat(compilation, "shop.QEventView"))
-                .contains("ColumnField<EventView, EventEntity, Date> CREATED = ColumnField.of(EventView.class, "
+                .contains("final ColumnField<EventView, EventEntity, Date> CREATED = ColumnField.of(EventView.class, "
                         + "ROOT, \"createdAt\", Date.class, Timestamp.class, Later.INSTANCE).named(\"created\");")
                 .doesNotContain("DateTimestampConverter");
+    }
+
+    @Test
+    void ac_agg_13_a_named_converter_that_is_ordered_declares_an_ordered_column_and_any_other_a_plain_one() {
+        JavaFileObject earlier = source("shop.Earlier", """
+                package shop;
+
+                import com.rey.modelquery.core.OrderedColumnConverter;
+                import java.sql.Timestamp;
+                import java.util.Date;
+
+                public class Earlier implements OrderedColumnConverter<Date, Timestamp> {
+                    public static final Earlier INSTANCE = new Earlier();
+
+                    public Date toModel(Timestamp attribute) {
+                        return new Date(attribute.getTime());
+                    }
+
+                    public Timestamp toAttribute(Date model) {
+                        return new Timestamp(model.getTime());
+                    }
+                }
+                """);
+        Compilation compilation = compile(EVENT_ENTITY, LATER, earlier, source("shop.EventView", IMPORTS + """
+                @QueryModel(root = EventEntity.class)
+                public record EventView(
+                        @PrimaryKey Long id,
+                        @Column(attribute = "createdAt", converter = Earlier.class) Date created,
+                        @Column(attribute = "updatedAt", converter = Later.class) Date updated) {}
+                """));
+
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(generatedFlat(compilation, "shop.QEventView"))
+                .contains("final OrderedColumnField<EventView, EventEntity, Date> CREATED = ColumnField.of(")
+                .contains("final ColumnField<EventView, EventEntity, Date> UPDATED = ColumnField.of(");
+    }
+
+    @Test
+    void ac_agg_13_an_ordered_converter_whose_instance_is_typed_wider_is_built_with_its_constructor() {
+        JavaFileObject earlier = source("shop.Earlier", """
+                package shop;
+
+                import com.rey.modelquery.core.ColumnConverter;
+                import com.rey.modelquery.core.OrderedColumnConverter;
+                import java.sql.Timestamp;
+                import java.util.Date;
+
+                public class Earlier implements OrderedColumnConverter<Date, Timestamp> {
+                    public static final ColumnConverter<Date, Timestamp> INSTANCE = new Earlier();
+
+                    public Date toModel(Timestamp attribute) {
+                        return new Date(attribute.getTime());
+                    }
+
+                    public Timestamp toAttribute(Date model) {
+                        return new Timestamp(model.getTime());
+                    }
+                }
+                """);
+        Compilation compilation = compile(EVENT_ENTITY, earlier, source("shop.EventView", IMPORTS + """
+                @QueryModel(root = EventEntity.class)
+                public record EventView(
+                        @PrimaryKey Long id,
+                        @Column(attribute = "createdAt", converter = Earlier.class) Date created) {}
+                """));
+
+        // ColumnField.of(..., Earlier.INSTANCE) would pick the overload returning a plain ColumnField (D-93).
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(generatedFlat(compilation, "shop.QEventView"))
+                .contains("final OrderedColumnField<EventView, EventEntity, Date> CREATED = ColumnField.of(")
+                .contains("new Earlier()");
     }
 
     @Test
@@ -145,7 +216,7 @@ class BuiltInConverterTest {
 
         assertThat(plain).succeededWithoutWarnings();
         assertThat(generatedFlat(plain, "shop.QEventView"))
-                .contains("ColumnField<EventView, EventEntity, Timestamp> CREATED = ColumnField.of(EventView.class, "
+                .contains("final OrderedColumnField<EventView, EventEntity, Timestamp> CREATED = ColumnField.of(EventView.class, "
                         + "ROOT, \"createdAt\", Timestamp.class).named(\"created\");")
                 .doesNotContain("TimestampConverter");
         assertThat(errors(subclass)).containsExactly(message(DiagnosticCode.MQ3002,

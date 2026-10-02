@@ -1,5 +1,6 @@
 package com.rey.modelquery.processor;
 
+import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.annotations.QueryModel;
 import com.rey.modelquery.annotations.UpdateModel;
 import java.io.IOException;
@@ -19,6 +20,7 @@ import javax.tools.Diagnostic;
  *
  * @implSpec R-GEN-01, R-GEN-05, R-GEN-19, R-GEN-21, R-GEN-23, R-DIAG-03
  */
+@Incubating
 @SupportedAnnotationTypes({"com.rey.modelquery.annotations.QueryModel", "com.rey.modelquery.annotations.UpdateModel"})
 @SupportedOptions({QueryModelReader.PREFIX_OPTION, QueryModelReader.SUFFIX_OPTION})
 public final class ModelQueryProcessor extends AbstractProcessor {

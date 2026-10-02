@@ -10,6 +10,7 @@ import java.lang.annotation.Target;
  * Joins an association and reuses the nested model's columns. The field or component is an
  * {@code Optional<NestedModel>}.
  */
+@Incubating
 @Documented
 @Target({ElementType.FIELD, ElementType.RECORD_COMPONENT})
 @Retention(RetentionPolicy.CLASS)

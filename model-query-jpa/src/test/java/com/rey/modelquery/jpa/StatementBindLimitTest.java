@@ -18,8 +18,11 @@ import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -49,6 +52,10 @@ class StatementBindLimitTest {
             ColumnField.of(Pair.class, PAIRS, "secondNo", Integer.class);
     private static final ColumnField<Pair, BindLimitPairEntity, Integer> TAG =
             ColumnField.of(Pair.class, PAIRS, "tag", Integer.class);
+
+    private static final ModelQuery.Builder<BindLimitPairEntity, Object, Pair> PAIR_ROWS = ModelQuery
+            .builder(PAIRS, row -> new Pair(row.get(FIRST), row.get(SECOND)))
+            .columns(ColumnSet.of(FIRST, SECOND));
 
     private static final TableField<KeysetRowEntity, KeysetRowEntity> ROOT = TableField.root(KeysetRowEntity.class);
     private static final ColumnField<Row2, KeysetRowEntity, Long> ID =
@@ -169,39 +176,79 @@ class StatementBindLimitTest {
         }
     }
 
-    private static String cursorRefusal(String label, int cursorBinds) {
-        return MqCode.MQ1307.code() + ": " + label + ": a statement binds 2001 values, more than the 2000 bind "
-                + "parameters one statement takes; " + cursorBinds + " of them are the keyset cursor's values after "
-                + "the previous page, which the first page does not bind, so narrow the query's own filters by at "
-                + "least 1 or use a smaller key";
+    /** The up-front refusal of a keyset statement whose own binds plus its worst cursor pass 2 000 by one (D-82). */
+    private static String cursorRefusal(String label, int own, int worst) {
+        return MqCode.MQ1307.code() + ": " + label + ": a keyset statement binds " + own + " values of its own, and "
+                + "the keyset cursor's values can add up to " + worst + " more, over the 2000 bind parameters one "
+                + "statement takes; narrow the query's own filters by at least 1 or use fewer keyset columns";
     }
 
     @Test
-    void ac_prf_03_a_keyset_export_page_after_a_cursor_names_the_cursors_binds_in_mq1307() {
+    void ac_prf_03_a_keyset_export_within_the_worst_cursor_of_the_limit_is_refused_before_any_row_reaches_the_sink() {
+        // Own binds 2 000 fit the first page, which has no cursor, but one key's cursor takes 1 more (D-82).
         var fitsFirstPage = ROWS.where(f -> f.in(A, values(1_500)).in(B, values(500))).keyset().build();
+        List<Row2> sunk = new ArrayList<>();
         withExecutor(executor -> assertThatThrownBy(
-                () -> executor.export(fitsFirstPage, ExportOptions.of(2), page -> page, row -> { }))
+                () -> executor.export(fitsFirstPage, ExportOptions.of(2), page -> page, sunk::add))
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ1307))
-                .hasMessage(cursorRefusal(fitsFirstPage.toString(), 1)));
+                .hasMessage(cursorRefusal(fitsFirstPage.toString(), 2_000, 1)));
+        assertThat(sunk).isEmpty();
     }
 
-    /** Own binds 1 998: a one-key round's key select and write bind at most 2 000, a cursor of two keys takes 3. */
-    private static ModelDelete<BindLimitPairEntity, Pair> pairDelete(boolean startAfter) {
+    @Test
+    void ac_prf_03_a_keyset_export_whose_worst_cursor_still_fits_the_limit_runs_every_page() {
+        var fits = ROWS.where(f -> f.in(A, values(1_500)).in(B, values(499))).keyset().build();
+        List<Row2> sunk = new ArrayList<>();
+        withExecutor(executor -> executor.export(fits, ExportOptions.of(2), page -> page, sunk::add));
+        assertThat(sunk).extracting(Row2::id).containsExactly(1L, 2L, 3L);
+    }
+
+    /** Own binds 1 998: a two-key cursor takes at most 3 (k(k+1)/2), so one more than a statement takes. */
+    private static ModelDelete<BindLimitPairEntity, Pair> pairDelete(boolean startAfter, boolean commitEachChunk) {
         var where = ModelDelete.builder(PAIRS).primaryKey(PrimaryKey.composite(FIRST, SECOND))
                 .where(f -> f.in(TAG, values(1_500)).in(FIRST, values(498)));
-        return startAfter ? where.chunked(ChunkOptions.size(2), List.of(0, 0)).build()
-                : where.chunked(ChunkOptions.size(2)).build();
+        ChunkOptions options = commitEachChunk ? ChunkOptions.size(2).commitEachChunk() : ChunkOptions.size(2);
+        return startAfter ? where.chunked(options, List.of(0, 0)).build() : where.chunked(options).build();
     }
 
     @Test
-    void ac_prf_03_a_key_first_round_after_a_cursor_names_the_cursors_binds_in_mq1307() {
-        assertCursorRefused(pairDelete(false));
+    void ac_prf_03_a_first_key_first_round_over_the_worst_cursor_is_refused_before_it_writes() {
+        assertCursorRefused(pairDelete(false, false));
     }
 
     @Test
-    void ac_prf_03_a_key_first_round_starting_after_a_key_names_the_cursors_binds_in_mq1307() {
-        assertCursorRefused(pairDelete(true));
+    void ac_prf_03_a_key_first_round_starting_after_a_key_is_refused_with_the_same_mq1307() {
+        assertCursorRefused(pairDelete(true, false));
+    }
+
+    @Test
+    void ac_prf_03_a_commit_each_chunk_write_over_the_worst_cursor_is_refused_before_any_round_commits() {
+        ChunkTransactions resourceLocal = new ChunkTransactions() {
+            @Override
+            public <T> T inNewTransaction(EntityManagerFactory emf, Function<EntityManager, T> chunk) {
+                try (EntityManager own = emf.createEntityManager()) {
+                    own.getTransaction().begin();
+                    try {
+                        T result = chunk.apply(own);
+                        own.getTransaction().commit();
+                        return result;
+                    } catch (RuntimeException e) {
+                        own.getTransaction().rollback();
+                        throw e;
+                    }
+                }
+            }
+        };
+        try (EntityManager em = sessions.createEntityManager()) {
+            var executor = ModelQueryExecutor.create(em, BindLimitPairEntity.class,
+                    OTHER.chunkTransactions(resourceLocal));
+            // The refusal comes from the first round, wrapped as the failed chunk; nothing was committed before it.
+            assertThatThrownBy(() -> executor.delete(pairDelete(false, true)))
+                    .rootCause().hasMessageContaining(MqCode.MQ1307.code() + ": BindLimitPairEntity: a keyset statement binds "
+                            + "1998 values of its own");
+            assertThat(executor.count(PAIR_ROWS.build())).isEqualTo(3);
+        }
     }
 
     private static void assertCursorRefused(ModelDelete<BindLimitPairEntity, Pair> rounds) {
@@ -212,7 +259,8 @@ class StatementBindLimitTest {
                 assertThatThrownBy(() -> executor.delete(rounds))
                         .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                                 e -> assertThat(e.code()).isEqualTo(MqCode.MQ1307))
-                        .hasMessage(cursorRefusal("BindLimitPairEntity", 3));
+                        .hasMessage(cursorRefusal("BindLimitPairEntity", 1_998, 3));
+                assertThat(executor.count(PAIR_ROWS.build())).isEqualTo(3);
             } finally {
                 em.getTransaction().rollback();
             }

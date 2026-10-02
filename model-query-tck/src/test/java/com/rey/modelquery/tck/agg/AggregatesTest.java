@@ -14,6 +14,7 @@ import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.OrderedColumnField;
 import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.PrimaryKeyFirst;
@@ -69,15 +70,15 @@ class AggregatesTest {
     private static final TableField<OrderItemEntity, OrderItemEntity> ITEMS = TableField.root(OrderItemEntity.class);
     private static final TableField<OrderItemEntity, OrderEntity> ITEM_ORDER = TableField.join(ITEMS, "order", INNER);
 
-    private static final ColumnField<ItemTotals, OrderItemEntity, Long> ITEM_ID =
+    private static final OrderedColumnField<ItemTotals, OrderItemEntity, Long> ITEM_ID =
             ColumnField.of(ItemTotals.class, ITEMS, "id", Long.class);
-    private static final ColumnField<ItemTotals, OrderItemEntity, String> PRODUCT =
+    private static final OrderedColumnField<ItemTotals, OrderItemEntity, String> PRODUCT =
             ColumnField.of(ItemTotals.class, ITEMS, "productCode", String.class);
-    private static final ColumnField<ItemTotals, OrderItemEntity, Integer> QUANTITY =
+    private static final OrderedColumnField<ItemTotals, OrderItemEntity, Integer> QUANTITY =
             ColumnField.of(ItemTotals.class, ITEMS, "quantity", Integer.class);
-    private static final ColumnField<ItemTotals, OrderItemEntity, BigDecimal> UNIT_PRICE =
+    private static final OrderedColumnField<ItemTotals, OrderItemEntity, BigDecimal> UNIT_PRICE =
             ColumnField.of(ItemTotals.class, ITEMS, "unitPrice", BigDecimal.class);
-    private static final ColumnField<ItemTotals, OrderEntity, LocalDateTime> PLACED_AT =
+    private static final OrderedColumnField<ItemTotals, OrderEntity, LocalDateTime> PLACED_AT =
             ColumnField.of(ItemTotals.class, ITEM_ORDER, "placedAt", LocalDateTime.class);
 
     /** Each function with the Java type R-AGG-03 gives it. */
@@ -108,20 +109,20 @@ class AggregatesTest {
     private static final TableField<OrderEntity, OrderEntity> ORDERS = TableField.root(OrderEntity.class);
     private static final TableField<OrderEntity, CustomerEntity> CUSTOMER = TableField.join(ORDERS, "customer", INNER);
 
-    private static final ColumnField<Totals, OrderEntity, Long> ID =
+    private static final OrderedColumnField<Totals, OrderEntity, Long> ID =
             ColumnField.of(Totals.class, ORDERS, "id", Long.class);
-    private static final ColumnField<Totals, OrderEntity, String> STATUS =
+    private static final OrderedColumnField<Totals, OrderEntity, String> STATUS =
             ColumnField.of(Totals.class, ORDERS, "status", String.class);
-    private static final ColumnField<Totals, OrderEntity, BigDecimal> TOTAL =
+    private static final OrderedColumnField<Totals, OrderEntity, BigDecimal> TOTAL =
             ColumnField.of(Totals.class, ORDERS, "total", BigDecimal.class);
-    private static final ColumnField<Totals, CustomerEntity, Long> CUSTOMER_ID =
+    private static final OrderedColumnField<Totals, CustomerEntity, Long> CUSTOMER_ID =
             ColumnField.of(Totals.class, CUSTOMER, "id", Long.class);
-    private static final ColumnField<Totals, CustomerEntity, String> CUSTOMER_NAME =
+    private static final OrderedColumnField<Totals, CustomerEntity, String> CUSTOMER_NAME =
             ColumnField.of(Totals.class, CUSTOMER, "name", String.class);
     private static final TableField<OrderEntity, OrderItemEntity> ORDER_ITEMS = TableField.join(ORDERS, "items", INNER);
-    private static final ColumnField<Totals, OrderItemEntity, String> ORDER_PRODUCT =
+    private static final OrderedColumnField<Totals, OrderItemEntity, String> ORDER_PRODUCT =
             ColumnField.of(Totals.class, ORDER_ITEMS, "productCode", String.class);
-    private static final ColumnField<Totals, OrderItemEntity, BigDecimal> ORDER_UNIT_PRICE =
+    private static final OrderedColumnField<Totals, OrderItemEntity, BigDecimal> ORDER_UNIT_PRICE =
             ColumnField.of(Totals.class, ORDER_ITEMS, "unitPrice", BigDecimal.class);
 
     private static final AggregateField<Totals, BigDecimal> SUM_TOTAL = Agg.sum(TOTAL);
@@ -213,7 +214,7 @@ class AggregatesTest {
         }
     }
 
-    private static <C> ColumnField<ItemTotals, OrderItemEntity, C> itemColumn(String attribute, Class<C> type) {
+    private static <C> OrderedColumnField<ItemTotals, OrderItemEntity, C> itemColumn(String attribute, Class<C> type) {
         return ColumnField.of(ItemTotals.class, ITEMS, attribute, type);
     }
 
@@ -569,7 +570,7 @@ class AggregatesTest {
         BigDecimal average;
     }
 
-    private static final ColumnField<StatusSummary, OrderEntity, String> S_STATUS =
+    private static final OrderedColumnField<StatusSummary, OrderEntity, String> S_STATUS =
             ColumnField.of(StatusSummary.class, ORDERS, "status", String.class);
     private static final AggregateField<StatusSummary, Long> S_COUNT = Agg.count(ORDERS);
     private static final AggregateField<StatusSummary, BigDecimal> S_TOTAL =

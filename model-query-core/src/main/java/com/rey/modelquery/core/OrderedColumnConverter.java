@@ -4,7 +4,10 @@ import com.rey.modelquery.annotations.Incubating;
 
 /**
  * A {@link ColumnConverter} that preserves order both ways: {@code a < b} exactly when
- * {@code toModel(a) < toModel(b)}, and the same for {@link #toAttribute}. It is therefore also injective. The
+ * {@code toModel(a) < toModel(b)}, and the same for {@link #toAttribute}, where "<" is the ordering of the values the
+ * database returns: a {@code Timestamp}-aware one when the model type is a {@link java.util.Date} over a
+ * {@code Timestamp}, since a plain {@code Date} compares at whole milliseconds only (see
+ * {@link DateTimestampConverter}). It is therefore also injective. The
  * database's {@code min}, {@code max} and {@code countDistinct} over the attribute, with {@code toModel} applied to the
  * result, then equal the same aggregate over the model values, so {@link Agg} accepts a column carrying one (R-AGG-04).
  * {@code sum} and {@code avg} still refuse it ({@code MQ1408}): a converter that keeps order need not keep sums.

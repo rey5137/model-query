@@ -32,8 +32,10 @@ public record OrderView(
 A field of type `Instant` or `Date` over a `java.sql.Timestamp` attribute needs no `converter`: the processor gives it
 the built-in `InstantTimestampConverter` or `DateTimestampConverter`, so you filter it with values of the field's type:
 a `Date placedAt` field takes `f.gte(QOrderView.PLACED_AT, Optional.of(since))` with `since` a `Date`. A `Date` read
-this way is the `Timestamp` itself, so comparing it back to the stored value is exact. A converter you name takes
-precedence.
+this way is the `Timestamp` itself, so comparing it back to the stored value is exact. A plain `java.util.Date` binds
+at whole milliseconds, so write an inclusive upper bound as half-open, `lt(nextDayStart)`: `lte(23:59:59.999)` excludes
+a stored `23:59:59.999500`. An `Instant` beyond the range of `Timestamp` is refused with `MQ1308`. A converter you
+name takes precedence.
 
 A class model needs a no-argument constructor visible from its package and setters. Record components that are
 primitive are only allowed on the primary key of a plain model; use the boxed type elsewhere, because a column can be
@@ -75,9 +77,13 @@ collection multiplies rows; prefer `Filters.exists` for "has a child matching X"
 You rarely need to, but a `ColumnField` can be written by hand, for example for a column the server sets:
 
 ```java
-static final ColumnField<OrderPatch, OrderEntity, Instant> UPDATED_AT =
+static final OrderedColumnField<OrderPatch, OrderEntity, Instant> UPDATED_AT =
         ColumnField.of(OrderPatch.class, QOrderPatch.ROOT, "updatedAt", Instant.class);
 ```
+
+A column with no converter, or with an `OrderedColumnConverter`, is an `OrderedColumnField`, which `Agg.min`, `Agg.max`
+and `Agg.countDistinct` take. A column with any other converter is a plain `ColumnField`, and those three do not
+compile over it.
 
 ## Keep the prefix consistent
 

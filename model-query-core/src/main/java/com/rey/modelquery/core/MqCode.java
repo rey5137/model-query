@@ -74,6 +74,9 @@ public enum MqCode {
     /** A statement binds more values than one statement takes, though no one filter does (R-FLT-09, D-80). */
     MQ1307("A statement binds more values than one statement can bind; narrow its filters"),
 
+    /** A column converter's {@code toAttribute} rejected a value, such as an {@code Instant} beyond {@code Timestamp}. */
+    MQ1308("A value cannot be converted to its column's attribute type"),
+
     /** A selected non-aggregate column is not in the group-by (R-AGG-08). */
     MQ1401("A selected non-aggregate column is not in the group-by"),
 

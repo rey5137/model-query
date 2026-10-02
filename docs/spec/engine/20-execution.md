@@ -10,7 +10,7 @@ validation, and the connection lifetime of a stream.
 ## 1. `list`
 
 **R-EXE-01** `list(q, limit)` runs one query and returns the mapped rows in order. `Limit.of(0)` returns an empty list
-without touching the database. `Limit.unlimited()` applies no `maxResults`.
+without touching the database. `Limit.unlimited()`, or `Limit.of(null)`, applies no `maxResults`.
 
 ## 2. `page`
 

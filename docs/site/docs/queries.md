@@ -36,7 +36,7 @@ offers:
 
 | Method | Returns |
 |---|---|
-| `list(q, Limit)` | The mapped rows, in order. `Limit.unlimited()` applies no cap and `Limit.of(0)` returns nothing without querying. |
+| `list(q, Limit)` | The mapped rows, in order. `Limit.unlimited()` applies no cap, as does `Limit.of(null)`, and `Limit.of(0)` returns nothing without querying. |
 | `page(q, PageSpec, CountMode)` | A `Slice`; see [Paging and export](paging-export.md). |
 | `count(q)` | The number of matching rows (groups, for a grouped query). |
 | `stream(q, Limit, body)` | Runs `body` on a `Stream` that the library closes for you. |

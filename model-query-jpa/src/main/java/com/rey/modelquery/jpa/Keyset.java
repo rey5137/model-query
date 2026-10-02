@@ -154,6 +154,16 @@ final class Keyset<M> {
         return cb.or(branches.toArray(Predicate[]::new));
     }
 
+    /**
+     * The most binds {@link #after} can add, for any cursor: {@code k(k+1)/2} over {@code k} keys. Key {@code i}
+     * (from 0) binds its own value beyond the cursor's and the {@code i} equal values before it, and only a non-NULL
+     * cursor value binds, so a cursor of all non-NULL values is the worst case; a NULL under FIRST or LAST adds
+     * fewer. A statement is refused up front when its own binds plus this pass the limit (D-82).
+     */
+    int maxCursorBinds() {
+        return keys.size() * (keys.size() + 1) / 2;
+    }
+
     /** How many binds {@link #after} adds for {@code cursor}: a value beyond it and the equal values before it. */
     int cursorBinds(Object[] cursor) {
         int binds = 0;

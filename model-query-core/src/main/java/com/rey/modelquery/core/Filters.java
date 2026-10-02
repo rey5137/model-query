@@ -156,8 +156,14 @@ public sealed interface Filters<M> permits FilterGroup {
 
     /**
      * {@code (branch1) OR (branch2) ...} over a list, each branch dropped or kept as
-     * {@link #or(UnaryOperator, UnaryOperator)} does. An empty list is an {@code or} whose branches were all dropped,
-     * so it is skipped (R-FLT-01); a single branch is that branch's AND group.
+     * {@link #or(UnaryOperator, UnaryOperator)} does. Three cases:
+     * <ul>
+     *   <li>an <b>empty list</b> renders {@code FALSE} and matches no row, as {@code in(col, List.of())} does
+     *       (R-FLT-02, D-92): an empty "allowed tenants" list must return no rows, not every row;</li>
+     *   <li>a <b>non-empty list whose branches were all skipped</b> (every filter in them skipped through
+     *       {@code Optional.empty()}) is itself skipped (R-FLT-01);</li>
+     *   <li>a <b>single branch</b> is that branch's AND group.</li>
+     * </ul>
      */
     Filters<M> or(List<? extends UnaryOperator<Filters<M>>> branches);
 

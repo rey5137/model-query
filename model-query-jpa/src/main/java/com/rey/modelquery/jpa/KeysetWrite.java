@@ -56,10 +56,10 @@ final class KeysetWrite {
             Function<List<Object>, BuiltQuery<M>> keySelect, BiFunction<EntityManager, List<Object>, Query> write,
             Optional<Object> startAfter, UnaryOperator<Object> modelKey) {}
 
-    /** Creates a key select's statement, told how many of its binds are a keyset cursor's (D-82). */
+    /** Creates a key select's statement, told its keyset and cursor (both {@code null} without one, D-82). */
     @FunctionalInterface
     interface Select {
-        TypedQuery<Tuple> create(EntityManager on, CriteriaQuery<Tuple> query, int cursorBinds);
+        TypedQuery<Tuple> create(EntityManager on, CriteriaQuery<Tuple> query, Keyset<?> keyset, Object[] cursor);
     }
 
     private final CriteriaBuilder cb;
@@ -105,7 +105,7 @@ final class KeysetWrite {
                 rounds.run(on -> {
                     // The run bounds the keys, so the select needs no limit and no cursor.
                     BuiltQuery<M> built = write.keySelect().apply(run);
-                    List<Tuple> rows = rows(on, built, 0, lockKeys, 0);
+                    List<Tuple> rows = rows(on, built, 0, lockKeys, null, null);
                     Set<Object> distinct = keysOf(write, built, rows, Set.of());
                     List<Object> keys = new ArrayList<>(distinct);
                     return new Round(keys, distinct, rows.size(), null, writeKeys(on, write, keys));
@@ -128,7 +128,7 @@ final class KeysetWrite {
                     built.query().where(own == null ? past : cb.and(own, past));
                 }
                 keyset.appendOrder(built, cb);
-                List<Tuple> rows = rows(on, built, n, lockKeys, after == null ? 0 : keyset.cursorBinds(after));
+                List<Tuple> rows = rows(on, built, n, lockKeys, keyset, after);
                 if (rows.isEmpty()) {
                     return Round.NONE;
                 }
@@ -146,8 +146,9 @@ final class KeysetWrite {
     }
 
     /** The rows of {@code built}, at most {@code max} unless it is zero, locked with {@code lockKeys}. */
-    private List<Tuple> rows(EntityManager on, BuiltQuery<?> built, int max, boolean lockKeys, int cursorBinds) {
-        TypedQuery<Tuple> query = select.create(on, built.query(), cursorBinds);
+    private List<Tuple> rows(EntityManager on, BuiltQuery<?> built, int max, boolean lockKeys, Keyset<?> keyset,
+            Object[] cursor) {
+        TypedQuery<Tuple> query = select.create(on, built.query(), keyset, cursor);
         if (max > 0) {
             query.setMaxResults(max);
         }

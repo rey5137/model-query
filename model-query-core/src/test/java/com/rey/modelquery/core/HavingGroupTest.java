@@ -17,9 +17,9 @@ class HavingGroupTest {
     static final class Summary {}
 
     private static final TableField<Order, Order> ROOT = TableField.root(Order.class);
-    private static final ColumnField<Summary, Order, Long> TOTAL =
+    private static final OrderedColumnField<Summary, Order, Long> TOTAL =
             ColumnField.of(Summary.class, ROOT, "total", Long.class);
-    private static final ColumnField<Summary, Order, String> STATUS =
+    private static final OrderedColumnField<Summary, Order, String> STATUS =
             ColumnField.of(Summary.class, ROOT, "status", String.class);
     private static final AggregateField<Summary, Long> COUNT = Agg.count(ROOT);
     private static final AggregateField<Summary, Long> SUM = Agg.sum(TOTAL);
@@ -53,6 +53,13 @@ class HavingGroupTest {
         // One live branch keeps the or; the skipped one is dropped rather than turning into FALSE or TRUE.
         assertThat(HavingGroup.<Summary>collect(h -> h.or(a -> a.gt(SUM, none), b -> b.lt(COUNT, 3L))).filters())
                 .hasSize(1);
+    }
+
+    @Test
+    void ac_agg_07_an_empty_or_list_is_recorded_as_false_but_an_all_skipped_list_is_skipped() {
+        Optional<Long> none = Optional.empty();
+        assertThat(HavingGroup.<Summary>collect(h -> h.or(List.of())).filters()).hasSize(1);
+        assertThat(HavingGroup.<Summary>collect(h -> h.or(List.of(a -> a.gt(SUM, none)))).filters()).isEmpty();
     }
 
     @Test

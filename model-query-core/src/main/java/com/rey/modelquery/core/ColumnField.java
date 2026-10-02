@@ -28,13 +28,17 @@ import java.util.Optional;
  * <p>Two columns are equal when they have the same model, table join key, attribute and type, and converters of the
  * same class or none (CC-IMM-04); the property is not part of it.
  *
+ * <p>A column with no converter, or one with an {@link OrderedColumnConverter}, is an {@link OrderedColumnField},
+ * the only kind {@link Agg#min}, {@link Agg#max} and {@link Agg#countDistinct} take (D-93). Every other converter
+ * gives a plain {@code ColumnField}. The hierarchy is closed.
+ *
  * @param <M> the model the column belongs to
  * @param <T> the entity type of the table the column sits on
  * @param <C> the column's Java type
  * @implSpec R-COL-07, R-COL-08, R-COL-14, D-55
  */
 @Incubating
-public final class ColumnField<M, T, C> implements SelectField<M, C> {
+public sealed class ColumnField<M, T, C> implements SelectField<M, C> permits OrderedColumnField {
 
     // A primitive attribute is read as its wrapper, so the two are the same column type (R-COL-08).
     private static final Map<Class<?>, Class<?>> WRAPPERS = Map.of(
@@ -60,7 +64,7 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
     /** Cached: a row looks every column up by it, once per row (R-COL-10). */
     private final int hash;
 
-    private ColumnField(Class<M> model, TableField<?, T> table, String attribute, Class<C> type,
+    ColumnField(Class<M> model, TableField<?, T> table, String attribute, Class<C> type,
             Class<?> attributeType, ColumnConverter<C, Object> converter, String property) {
         this.model = model;
         this.table = table;
@@ -79,11 +83,11 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
      * {@link TableField} (R-COL-08).
      */
     @SuppressWarnings("unchecked")
-    public static <M, T, C> ColumnField<M, T, C> of(
+    public static <M, T, C> OrderedColumnField<M, T, C> of(
             Class<M> model, TableField<?, T> table, String attribute, Class<C> type) {
         // Sound: int.class is a Class<Integer>, so its wrapper is still a Class<C>.
         Class<C> boxed = (Class<C>) boxed(Objects.requireNonNull(type, "type"));
-        return new ColumnField<>(
+        return new OrderedColumnField<>(
                 Objects.requireNonNull(model, "model"),
                 Objects.requireNonNull(table, "table"),
                 Objects.requireNonNull(attribute, "attribute"),
@@ -95,22 +99,48 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
      * {@code table}, and its {@link #type()} is the model's {@code type}. A {@link Row} returns
      * {@code converter.toModel} of a non-null value read, a value filter binds {@code converter.toAttribute} of its
      * value, and {@link Row#raw} returns the attribute value as read (R-COL-14). An aggregate function does not take
-     * a converted column ({@code MQ1408}), except {@code min}, {@code max} and {@code countDistinct} over one whose
-     * converter is an {@link OrderedColumnConverter} (R-AGG-04).
+     * a converted column ({@code MQ1408}), except {@code min}, {@code max} and {@code countDistinct}, which take only
+     * an {@link OrderedColumnField}: a column whose converter is an {@link OrderedColumnConverter} is one, built by
+     * the overload below or, given such a converter through a wider static type, by this one (R-AGG-04, D-93).
      */
-    @SuppressWarnings("unchecked")
     public static <M, T, C, F> ColumnField<M, T, C> of(
             Class<M> model, TableField<?, T> table, String attribute, Class<C> type, Class<F> attributeType,
             ColumnConverter<C, F> converter) {
-        return new ColumnField<>(
-                Objects.requireNonNull(model, "model"),
-                Objects.requireNonNull(table, "table"),
-                Objects.requireNonNull(attribute, "attribute"),
-                (Class<C>) boxed(Objects.requireNonNull(type, "type")),
-                boxed(Objects.requireNonNull(attributeType, "attributeType")),
-                // Sound: the converter is only given values checked to be of attributeType.
-                (ColumnConverter<C, Object>) Objects.requireNonNull(converter, "converter"),
-                null);
+        return create(model, table, attribute, type, attributeType, converter);
+    }
+
+    /**
+     * A converted column like {@link #of(Class, TableField, String, Class, Class, ColumnConverter)} whose converter
+     * keeps order both ways, so it is an {@link OrderedColumnField}: {@code min}, {@code max} and
+     * {@code countDistinct} take it (D-84, D-93).
+     */
+    public static <M, T, C, F> OrderedColumnField<M, T, C> of(
+            Class<M> model, TableField<?, T> table, String attribute, Class<C> type, Class<F> attributeType,
+            OrderedColumnConverter<C, F> converter) {
+        return (OrderedColumnField<M, T, C>) create(model, table, attribute, type, attributeType, converter);
+    }
+
+    /** An {@link OrderedColumnField} exactly when {@code converter} is an {@link OrderedColumnConverter}. */
+    @SuppressWarnings("unchecked")
+    private static <M, T, C, F> ColumnField<M, T, C> create(
+            Class<M> model, TableField<?, T> table, String attribute, Class<C> type, Class<F> attributeType,
+            ColumnConverter<C, F> converter) {
+        Objects.requireNonNull(model, "model");
+        Objects.requireNonNull(table, "table");
+        Objects.requireNonNull(attribute, "attribute");
+        Class<C> boxedType = (Class<C>) boxed(Objects.requireNonNull(type, "type"));
+        Class<?> boxedAttribute = boxed(Objects.requireNonNull(attributeType, "attributeType"));
+        // Sound: the converter is only given values checked to be of attributeType.
+        ColumnConverter<C, Object> erased = (ColumnConverter<C, Object>) Objects.requireNonNull(converter, "converter");
+        return copy(model, table, attribute, boxedType, boxedAttribute, erased, null);
+    }
+
+    /** A column of the subtype its {@code converter} calls for: ordered with none or an ordered one (D-93). */
+    private static <M, T, C> ColumnField<M, T, C> copy(Class<M> model, TableField<?, T> table, String attribute,
+            Class<C> type, Class<?> attributeType, ColumnConverter<C, Object> converter, String property) {
+        return converter == null || converter instanceof OrderedColumnConverter
+                ? new OrderedColumnField<>(model, table, attribute, type, attributeType, converter, property)
+                : new ColumnField<>(model, table, attribute, type, attributeType, converter, property);
     }
 
     /**
@@ -220,7 +250,7 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
      * {@link #equals}.
      */
     public ColumnField<M, T, C> named(String property) {
-        return new ColumnField<>(model, table, attribute, type, attributeType, converter,
+        return copy(model, table, attribute, type, attributeType, converter,
                 Objects.requireNonNull(property, "property"));
     }
 
@@ -240,7 +270,7 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
      * re-rooting under a join.
      */
     public <M2> ColumnField<M2, T, C> withTable(Class<M2> model, TableField<?, T> table) {
-        return new ColumnField<>(Objects.requireNonNull(model, "model"), Objects.requireNonNull(table, "table"),
+        return copy(Objects.requireNonNull(model, "model"), Objects.requireNonNull(table, "table"),
                 attribute, type, attributeType, converter, property);
     }
 
@@ -311,11 +341,6 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
         return converter != null;
     }
 
-    /** Whether the column's converter is an {@link OrderedColumnConverter}, so it keeps order both ways (D-84). */
-    boolean isOrdered() {
-        return converter instanceof OrderedColumnConverter;
-    }
-
     /**
      * The column whose {@link #toModel} and {@link #toAttribute} map {@code field}'s values: the column itself, or the
      * converted column a {@code min} or {@code max} aggregates (R-AGG-04); {@code null} for any other selection,
@@ -343,7 +368,17 @@ public final class ColumnField<M, T, C> implements SelectField<M, C> {
 
     /** The value a filter binds for {@code value}, which is not {@code null}: the attribute value when converted. */
     Object toAttribute(C value) {
-        return converter == null ? value : Objects.requireNonNull(converter.toAttribute(value),
+        if (converter == null) {
+            return value;
+        }
+        Object attributeValue;
+        try {
+            attributeValue = converter.toAttribute(value);
+        } catch (IllegalArgumentException e) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1308, this + ": " + converter.getClass().getSimpleName()
+                    + ".toAttribute cannot convert " + value + ": " + e.getMessage(), e);
+        }
+        return Objects.requireNonNull(attributeValue,
                 () -> this + ": " + converter.getClass().getSimpleName() + ".toAttribute returned null");
     }
 

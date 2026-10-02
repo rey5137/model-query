@@ -72,7 +72,8 @@ committed with the code that changed them.
 **R-REL-07** SemVer. `0.x` while the API can still change; `1.0.0` freezes it. Anything that may still change after
 1.0 is annotated `@Incubating`, on a type or on a member of an otherwise frozen type (the bulk-write members of
 `ModelQueryExecutor`, say). Incubating API may break in a minor release; the commit is still marked breaking with `!`
-(R-REL-08). The planned freeze, type by type, is D-85; 0.2 keeps every type `@Incubating` (D-90).
+(R-REL-08). The planned freeze, type by type, is D-85; 0.2 keeps every public top-level type `@Incubating` (D-90),
+the annotations, `@EngineFacing` and `ModelQueryProcessor` among them; only `@Incubating` itself is not marked.
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from

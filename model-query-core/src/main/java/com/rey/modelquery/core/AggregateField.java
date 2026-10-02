@@ -27,25 +27,19 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
 
     /** The aggregate function; its name is the one used in {@link #name()}. */
     enum Kind {
-        COUNT("count", false),
-        COUNT_DISTINCT("countDistinct", true),
-        SUM("sum", false),
-        SUM_AS_LONG("sumAsLong", false),
-        AVG("avg", false),
-        MIN("min", true),
-        MAX("max", true),
-        OF(null, false);
+        COUNT("count"),
+        COUNT_DISTINCT("countDistinct"),
+        SUM("sum"),
+        SUM_AS_LONG("sumAsLong"),
+        AVG("avg"),
+        MIN("min"),
+        MAX("max"),
+        OF(null);
 
         private final String function;
-        /**
-         * Whether the function commutes with an {@link OrderedColumnConverter}, so it may aggregate a column carrying
-         * one (R-AGG-04).
-         */
-        final boolean ordered;
 
-        Kind(String function, boolean ordered) {
+        Kind(String function) {
             this.function = function;
-            this.ordered = ordered;
         }
     }
 

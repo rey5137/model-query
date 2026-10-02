@@ -9,6 +9,7 @@ import java.lang.annotation.Target;
 /**
  * Leaves the column out of the generated default column set, for heavy columns such as a BLOB or a long text.
  */
+@Incubating
 @Documented
 @Target({ElementType.FIELD, ElementType.RECORD_COMPONENT})
 @Retention(RetentionPolicy.CLASS)

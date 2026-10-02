@@ -158,7 +158,8 @@ class FilterGroupTest {
     @Test
     void ac_flt_03_an_or_list_or_three_branches_drop_skipped_branches_as_two_branches_do() {
         Optional<String> none = Optional.empty();
-        assertThat(FilterGroup.<OrderView>collect(f -> f.or(List.of()))).isEmpty();
+        // An empty list is "none of these" and is recorded as FALSE (D-92); a non-empty all-skipped list is skipped.
+        assertThat(FilterGroup.<OrderView>collect(f -> f.or(List.of()))).hasSize(1);
         assertThat(FilterGroup.<OrderView>collect(f -> f.or(List.of(a -> a.eq(STATUS, none))))).isEmpty();
         assertThat(FilterGroup.<OrderView>collect(f -> f.or(List.of(a -> a.eq(STATUS, "PAID"))))).hasSize(1);
         assertThat(FilterGroup.<OrderView>collect(f -> f.or(a -> a.eq(STATUS, none), b -> b,

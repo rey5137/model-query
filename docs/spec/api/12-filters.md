@@ -82,8 +82,9 @@ public interface Filters<M> {
 
 **R-FLT-01** **Skipping is local.** A skipped filter disappears from its group. An `or(...)` branch whose filters were
 all skipped is dropped. If every branch was dropped, the whole `or` is skipped rather than becoming `FALSE` and
-matching nothing; an `or(List)` with an empty list is such an `or`, and one with a single branch is that branch's
-group. The same holds for `not`, and for `exists` with an inner group: when all its inner filters were
+matching nothing; an `or(List)` with a single branch is that branch's group. An `or(List)` with an empty list is not
+that case: it is "none of these" and renders `FALSE`, as an empty `in` (R-FLT-02, D-92); an allowed-list that is empty
+must not return every row. The same holds for `not`, and for `exists` with an inner group: when all its inner filters were
 skipped, the `exists` is skipped too. Use `exists(path)` to ask for "has at least one" explicitly.
 
 **R-FLT-02** **Empty collections are not "skip".** `in(col, List.of())` renders `FALSE` and `notIn(col, List.of())`
@@ -124,11 +125,12 @@ filters, `having`, keyset or `SET` values or a `QueryCustomizer`'s, throws `MQ13
 entity, before it runs, asking for a narrower filter (INV-5, D-80). The statement check counts the query parameters JPA
 reports, as the `vendor/41` R-PRF-11 clamp does: a literal the provider renders inline takes none, an embeddable-valued
 parameter counts once though it binds several, and a row limit or offset the provider binds is not counted, so a
-statement at the limit can still fail in the database. No binds are reserved for a keyset cursor: a keyset export
-page, or a key-first write round, after the first (or after a write's `startAfter`) binds the cursor's values on top
-of the query's own, so a query within a few binds of the limit can pass the first page and be refused on a later one,
-and that `MQ1307` says how many of the statement's binds are the cursor's and that the query's own filters must drop
-that many (D-82). Only library-built key lists are spread over several statements:
+statement at the limit can still fail in the database. A keyset statement, which is a keyset page, an export page or a
+key-first write round, is checked up front for the worst cursor it can meet: its own binds plus k(k+1)/2 binds for k
+keyset keys (all non-null) must fit `maxBindParameters()`, on the first page or round and on a `startAfter` round too,
+so a run never fails after rows reached a sink or a round committed. That `MQ1307` says how many binds the statement
+has of its own, how many the cursor can add, and that the query's own filters must narrow by at least that much or use
+fewer keyset columns (D-82). Only library-built key lists are spread over several statements:
 primary-key-first step 2 (`engine/21` R-PAG-07) and bulk-write key chunks (`api/14` R-WRT-08), each chunk at most the
 largest power of two within the limits. The engine counts one bind per value; a provider that pads IN lists, such as
 Hibernate with `hibernate.query.in_clause_parameter_padding`, binds up to the next power of two, which keeps a key chunk
@@ -166,7 +168,7 @@ collection means "none"; negation includes NULLs; `like` input is escaped; long 
 |---|---|
 | AC-FLT-01 | Every operator behaves identically in value and `Optional` form on every Tier-1 vendor. |
 | AC-FLT-02 | A value-form filter with `null` throws `MQ1301` naming the column; an `add(...)` predicate returning `null` throws `MQ1305` (§1). |
-| AC-FLT-03 | An `or` whose every branch was skipped disappears; the query returns the same rows as one without it (R-FLT-01). |
+| AC-FLT-03 | An `or` whose every branch was skipped disappears; the query returns the same rows as one without it (R-FLT-01). An `or(List.of())` renders `FALSE` and returns no rows (R-FLT-01, D-92). |
 | AC-FLT-04 | `exists(path, inner)` with every inner filter skipped is skipped; `exists(path)` still renders (R-FLT-01). |
 | AC-FLT-05 | `in(col, List.of())` returns no rows; `notIn(col, List.of())` returns every row (R-FLT-02). |
 | AC-FLT-06 | `ne` and `notIn` include rows where the column is NULL (R-FLT-04). |

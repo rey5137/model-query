@@ -5,6 +5,7 @@ import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.OrderedColumnField;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowMapper;
@@ -20,16 +21,16 @@ public final class QCustomerView {
     public static final TableField<CustomerEntity, CountryEntity> COUNTRY_TABLE = TableField.<CustomerEntity, CountryEntity>join(ROOT,
             "country", JoinType.LEFT).presentBy(QCountryView.KEY).named("country");
 
-    public static final ColumnField<CustomerView, CustomerEntity, Long> ID = ColumnField.of(CustomerView.class,
+    public static final OrderedColumnField<CustomerView, CustomerEntity, Long> ID = ColumnField.of(CustomerView.class,
             ROOT, "id", Long.class).named("id");
 
-    public static final ColumnField<CustomerView, CustomerEntity, String> NAME = ColumnField.of(CustomerView.class,
+    public static final OrderedColumnField<CustomerView, CustomerEntity, String> NAME = ColumnField.of(CustomerView.class,
             ROOT, "name", String.class).named("name");
 
-    public static final ColumnField<CustomerView, CountryEntity, String> COUNTRY_CODE = QCountryView.CODE.withTable(CustomerView.class,
+    public static final OrderedColumnField<CustomerView, CountryEntity, String> COUNTRY_CODE = QCountryView.CODE.withTable(CustomerView.class,
             COUNTRY_TABLE);
 
-    public static final ColumnField<CustomerView, CountryEntity, String> COUNTRY_NAME = QCountryView.NAME.withTable(CustomerView.class,
+    public static final OrderedColumnField<CustomerView, CountryEntity, String> COUNTRY_NAME = QCountryView.NAME.withTable(CustomerView.class,
             COUNTRY_TABLE);
 
     public static final ColumnSet<CustomerView> ALL = ColumnSet.of(ID, NAME);

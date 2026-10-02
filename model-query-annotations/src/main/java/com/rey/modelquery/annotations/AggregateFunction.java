@@ -3,6 +3,7 @@ package com.rey.modelquery.annotations;
 /**
  * The function of an {@link Aggregate}.
  */
+@Incubating
 public enum AggregateFunction {
 
     /** Counts rows, or the attribute's non-null values. */

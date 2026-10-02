@@ -16,19 +16,20 @@ public final class QOrderView {
     public static final TableField<OrderEntity, CustomerEntity> CUSTOMER_TABLE =
             TableField.<OrderEntity, CustomerEntity>join(ROOT, "customer", JoinType.LEFT).presentBy(QCustomerView.KEY);
 
-    public static final ColumnField<OrderView, OrderEntity, Long> ID =
+    public static final OrderedColumnField<OrderView, OrderEntity, Long> ID =
             ColumnField.of(OrderView.class, ROOT, "id", Long.class);
-    // @Column(converter = OrderStatusConverter.class): the entity attribute is a String
+    // @Column(converter = OrderStatusConverter.class): the entity attribute is a String; a converter that is not an
+    // OrderedColumnConverter gives a plain ColumnField, so Agg.min/max/countDistinct do not take it (D-93)
     public static final ColumnField<OrderView, OrderEntity, OrderStatus> STATUS =
             ColumnField.of(OrderView.class, ROOT, "status", OrderStatus.class, String.class, OrderStatusConverter.INSTANCE);
-    public static final ColumnField<OrderView, OrderEntity, BigDecimal> TOTAL = …;
+    public static final OrderedColumnField<OrderView, OrderEntity, BigDecimal> TOTAL = …;
 
-    public static final ColumnField<OrderView, CustomerEntity, Long> CUSTOMER_ID =
+    public static final OrderedColumnField<OrderView, CustomerEntity, Long> CUSTOMER_ID =
             QCustomerView.ID.withTable(OrderView.class, CUSTOMER_TABLE);
-    public static final ColumnField<OrderView, CustomerEntity, String> CUSTOMER_NAME = …;
+    public static final OrderedColumnField<OrderView, CustomerEntity, String> CUSTOMER_NAME = …;
 
     // @FilterColumn(name = "CUSTOMER_COUNTRY", path = "customer.country"): reuses CUSTOMER_TABLE, not mapped
-    public static final ColumnField<OrderView, CustomerEntity, String> CUSTOMER_COUNTRY =
+    public static final OrderedColumnField<OrderView, CustomerEntity, String> CUSTOMER_COUNTRY =
             ColumnField.of(OrderView.class, CUSTOMER_TABLE, "country", String.class);
 
     public static final ColumnSet<OrderView> ALL      = ColumnSet.of(ID, STATUS, TOTAL, CREATED_AT);
@@ -152,11 +153,11 @@ For `@UpdateModel OrderPatch` (`api/14` §2) the processor generates two files, 
 @Generated("com.rey.modelquery.processor.ModelQueryProcessor")
 public final class QOrderPatch {
     public static final TableField<OrderEntity, OrderEntity> ROOT = TableField.root(OrderEntity.class);
-    public static final ColumnField<OrderPatch, OrderEntity, Long> ID = …;              // @PrimaryKey: whereKey only
-    public static final ColumnField<OrderPatch, OrderEntity, String> STATUS = …;
-    public static final ColumnField<OrderPatch, OrderEntity, Long> CUSTOMER_ID = …;     // to-one by id
-    public static final ColumnField<OrderPatch, OrderEntity, Instant> CREATED_AT = …;   // @FilterColumn
-    public static final ColumnField<OrderPatch, CustomerEntity, String> CUSTOMER_COUNTRY = …;
+    public static final OrderedColumnField<OrderPatch, OrderEntity, Long> ID = …;              // @PrimaryKey: whereKey only
+    public static final OrderedColumnField<OrderPatch, OrderEntity, String> STATUS = …;
+    public static final OrderedColumnField<OrderPatch, OrderEntity, Long> CUSTOMER_ID = …;     // to-one by id
+    public static final OrderedColumnField<OrderPatch, OrderEntity, Instant> CREATED_AT = …;   // @FilterColumn
+    public static final OrderedColumnField<OrderPatch, CustomerEntity, String> CUSTOMER_COUNTRY = …;
     // …
 
     public static OrderPatchChanges changes() { return new OrderPatchChanges(); }

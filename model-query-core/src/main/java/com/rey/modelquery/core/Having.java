@@ -117,7 +117,12 @@ public sealed interface Having<M> permits HavingGroup {
     /** {@code (first) OR (second) OR (third)}, skipped as the two-branch {@code or} is (R-FLT-01). */
     Having<M> or(UnaryOperator<Having<M>> first, UnaryOperator<Having<M>> second, UnaryOperator<Having<M>> third);
 
-    /** {@code (branch1) OR (branch2) ...} over a list, as {@link Filters#or(List)} renders it (R-FLT-01). */
+    /**
+     * {@code (branch1) OR (branch2) ...} over a list, as {@link Filters#or(List)} renders it. An <b>empty list</b>
+     * renders {@code FALSE} and matches no group (D-92): an empty "allowed tenants" list must return no rows, not
+     * every row. A non-empty list whose branches were all skipped is skipped (R-FLT-01); a single branch is that
+     * branch.
+     */
     Having<M> or(List<? extends UnaryOperator<Having<M>>> branches);
 
     /** {@code NOT (group)}, plain SQL negation, skipped when every filter in the group was skipped (R-FLT-01). */

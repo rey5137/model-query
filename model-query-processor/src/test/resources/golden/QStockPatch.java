@@ -5,6 +5,7 @@ import com.rey.modelquery.core.Changes;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelUpdate;
+import com.rey.modelquery.core.OrderedColumnField;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.TableField;
 import java.util.List;
@@ -14,16 +15,16 @@ import javax.annotation.processing.Generated;
 public final class QStockPatch {
     public static final TableField<StockEntity, StockEntity> ROOT = TableField.root(StockEntity.class);
 
-    public static final ColumnField<StockPatch, StockEntity, Long> WAREHOUSE_ID = ColumnField.of(StockPatch.class,
+    public static final OrderedColumnField<StockPatch, StockEntity, Long> WAREHOUSE_ID = ColumnField.of(StockPatch.class,
             ROOT, "warehouseId", Long.class).named("warehouseId");
 
-    public static final ColumnField<StockPatch, StockEntity, Long> PRODUCT_ID = ColumnField.of(StockPatch.class,
+    public static final OrderedColumnField<StockPatch, StockEntity, Long> PRODUCT_ID = ColumnField.of(StockPatch.class,
             ROOT, "productId", Long.class).named("productId");
 
-    public static final ColumnField<StockPatch, StockEntity, Integer> QUANTITY = ColumnField.of(StockPatch.class,
+    public static final OrderedColumnField<StockPatch, StockEntity, Integer> QUANTITY = ColumnField.of(StockPatch.class,
             ROOT, "quantity", Integer.class).named("quantity");
 
-    public static final ColumnField<StockPatch, StockEntity, Boolean> BLOCKED = ColumnField.of(StockPatch.class,
+    public static final OrderedColumnField<StockPatch, StockEntity, Boolean> BLOCKED = ColumnField.of(StockPatch.class,
             ROOT, "blocked", Boolean.class).named("blocked");
 
     private QStockPatch() {

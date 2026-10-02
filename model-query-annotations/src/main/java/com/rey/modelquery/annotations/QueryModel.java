@@ -9,6 +9,7 @@ import java.lang.annotation.Target;
 /**
  * Marks a model class or record for QModel generation.
  */
+@Incubating
 @Documented
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.CLASS)

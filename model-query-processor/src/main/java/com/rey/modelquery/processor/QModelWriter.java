@@ -39,6 +39,7 @@ final class QModelWriter {
     private static final String CORE = "com.rey.modelquery.core";
     private static final ClassName TABLE_FIELD = ClassName.get(CORE, "TableField");
     private static final ClassName COLUMN_FIELD = ClassName.get(CORE, "ColumnField");
+    private static final ClassName ORDERED_COLUMN_FIELD = ClassName.get(CORE, "OrderedColumnField");
     private static final ClassName AGG = ClassName.get(CORE, "Agg");
     private static final ClassName AGGREGATE_FIELD = ClassName.get(CORE, "AggregateField");
     private static final ClassName COLUMN_SET = ClassName.get(CORE, "ColumnSet");
@@ -114,7 +115,9 @@ final class QModelWriter {
         for (JoinedTable table : joined) {
             ClassName nested = generatedName(table.nested());
             for (JoinedColumn column : table.columns()) {
-                type.addField(FieldSpec.builder(ParameterizedTypeName.get(COLUMN_FIELD, modelName,
+                ClassName kind = orderedInNested(table.nested(), table.inNested(column.constant()))
+                        ? ORDERED_COLUMN_FIELD : COLUMN_FIELD;
+                type.addField(FieldSpec.builder(ParameterizedTypeName.get(kind, modelName,
                                 ClassName.get(table.entity()), column(column.type())), column.constant(), CONSTANT)
                         .initializer("$T.$L.withTable($T.class,$W$L)",
                                 nested, table.inNested(column.constant()), modelName, table.table())
@@ -245,8 +248,10 @@ final class QModelWriter {
         CodeBlock named = property == null ? CodeBlock.of("") : CodeBlock.of("$Z.named($S)", property);
         ConverterType converter = converterClass == null ? null : ConverterType.of(types, converterClass);
         TypeName column = column(converter == null ? type : converter.model());
+        // Ordered with no converter or an ordered one, the only kind Agg.min, max and countDistinct take (D-93).
+        ClassName kind = ConverterType.ordered(types, converterClass) ? ORDERED_COLUMN_FIELD : COLUMN_FIELD;
         FieldSpec.Builder field = FieldSpec.builder(
-                ParameterizedTypeName.get(COLUMN_FIELD, modelName, ClassName.get(entity), column), constant, CONSTANT);
+                ParameterizedTypeName.get(kind, modelName, ClassName.get(entity), column), constant, CONSTANT);
         if (column instanceof ParameterizedTypeName
                 || converter != null && column(converter.attribute()) instanceof ParameterizedTypeName) {
             field.addAnnotation(AnnotationSpec.builder(SuppressWarnings.class)
@@ -265,6 +270,26 @@ final class QModelWriter {
                         ? CodeBlock.of("$T.INSTANCE", converterName) : CodeBlock.of("new $T()", converterName),
                 named)
                 .build();
+    }
+
+    /**
+     * Whether the constant {@code constant} of {@code nested}'s QModel is an {@code OrderedColumnField}: one of its
+     * own columns, or else one it declares for a join of its own, named with that join's prefix (D-93).
+     */
+    private boolean orderedInNested(ModelDefinition nested, String constant) {
+        for (ModelField field : nested.columns()) {
+            if (field.constant().equals(constant)) {
+                return ConverterType.ordered(types, converter(nested, field));
+            }
+        }
+        for (ModelField join : nested.joins()) {
+            ModelDefinition below = nestedModels.of(join);
+            String prefix = join.join().prefix() + "_";
+            if (below != null && constant.startsWith(prefix)) {
+                return orderedInNested(below, constant.substring(prefix.length()));
+            }
+        }
+        return false;
     }
 
     /**

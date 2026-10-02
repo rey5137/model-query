@@ -13,7 +13,12 @@ import java.util.Date;
  * <p>Because the value read is a {@code Timestamp} typed as a {@code Date}, it carries {@code Timestamp}'s asymmetric
  * {@code equals}: for a plain {@code Date date} of the same instant, {@code ts.equals(date)} is {@code false} while
  * {@code date.equals(ts)} is {@code true}. Compare by {@link Date#getTime()} or {@link Date#toInstant()}. This is part
- * of the contract (D-89).
+ * of the contract (D-89). The order {@link OrderedColumnConverter} promises holds under {@code Timestamp} ordering of
+ * the values read back, which is what {@code min}, {@code max} and keyset paging see.
+ *
+ * <p>A plain {@code Date} binds at whole milliseconds, so an inclusive upper bound such as
+ * {@code lte(col, endOfDay)} with {@code 23:59:59.999} excludes a stored {@code 23:59:59.999500}. Write such a bound
+ * half-open, {@code lt(col, nextDayStart)}.
  *
  * @implSpec R-COL-14, D-84, D-89
  */

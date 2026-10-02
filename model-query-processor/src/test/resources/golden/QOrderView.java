@@ -5,6 +5,7 @@ import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.OrderedColumnField;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowMapper;
@@ -16,22 +17,22 @@ import javax.annotation.processing.Generated;
 public final class QOrderView {
     public static final TableField<OrderEntity, OrderEntity> ROOT = TableField.root(OrderEntity.class);
 
-    public static final ColumnField<OrderView, OrderEntity, Long> ID = ColumnField.of(OrderView.class,
+    public static final OrderedColumnField<OrderView, OrderEntity, Long> ID = ColumnField.of(OrderView.class,
             ROOT, "id", Long.class).named("id");
 
-    public static final ColumnField<OrderView, OrderEntity, String> STATUS = ColumnField.of(OrderView.class,
+    public static final OrderedColumnField<OrderView, OrderEntity, String> STATUS = ColumnField.of(OrderView.class,
             ROOT, "status", String.class).named("status");
 
-    public static final ColumnField<OrderView, OrderEntity, BigDecimal> TOTAL = ColumnField.of(OrderView.class,
+    public static final OrderedColumnField<OrderView, OrderEntity, BigDecimal> TOTAL = ColumnField.of(OrderView.class,
             ROOT, "total", BigDecimal.class).named("total");
 
-    public static final ColumnField<OrderView, OrderEntity, String> CITY = ColumnField.of(OrderView.class,
+    public static final OrderedColumnField<OrderView, OrderEntity, String> CITY = ColumnField.of(OrderView.class,
             ROOT, "address.city", String.class).named("city");
 
-    public static final ColumnField<OrderView, OrderEntity, String> NOTES = ColumnField.of(OrderView.class,
+    public static final OrderedColumnField<OrderView, OrderEntity, String> NOTES = ColumnField.of(OrderView.class,
             ROOT, "notes", String.class).named("notes");
 
-    public static final ColumnField<OrderView, OrderEntity, Boolean> PAID = ColumnField.of(OrderView.class,
+    public static final OrderedColumnField<OrderView, OrderEntity, Boolean> PAID = ColumnField.of(OrderView.class,
             ROOT, "paid", Boolean.class).named("paid");
 
     public static final ColumnSet<OrderView> ALL = ColumnSet.of(ID, STATUS, TOTAL, CITY, NOTES,

@@ -35,7 +35,8 @@ Messages say what to change, for example `OrderView.totl: no attribute 'totl' on
 | `MQ1304` | `exists(...)` given a root instead of a join path. |
 | `MQ1305` | A Filters.add predicate returned `null`. |
 | `MQ1306` | One `in` or `notIn` filter has more values than `maxBindParameters()`. |
-| `MQ1307` | A statement binds more values than `maxBindParameters()` together; narrow its filters. On a keyset page or round after the first, the message says how many binds the cursor added. |
+| `MQ1307` | A statement binds more values than `maxBindParameters()` together; narrow its filters. A keyset page, export page or write round is refused before it runs when its own binds plus the worst cursor would pass the limit; the message says how many binds each side has. |
+| `MQ1308` | A value cannot be converted to its column's attribute type, for example an `Instant` beyond the range of `Timestamp`. |
 | `MQ1401` | Grouped query: selected non-aggregate column is not in the group-by. |
 | `MQ1402` | Grouped query: keyset paging or primary-key-first not allowed. |
 | `MQ1403` | Grouped query: Agg.sum or Agg.sumAsLong over a column whose SQL sum type differs from the result type. |
@@ -43,7 +44,7 @@ Messages say what to change, for example `OrderView.totl: no attribute 'totl' on
 | `MQ1405` | Grouped query: Agg.of expression returned `null`, or Java type does not match declared type. |
 | `MQ1406` | Grouped query: orderBy key does not fit the grouping (non-group-key column on grouped query, or aggregate on ungrouped one). |
 | `MQ1407` | Grouped query: `having(...)` on an ungrouped query. |
-| `MQ1408` | Grouped query: aggregate function over a column with a ColumnConverter (only `min`, `max` and `countDistinct` take an `OrderedColumnConverter`). |
+| `MQ1408` | Grouped query: aggregate function over a column with a ColumnConverter (`sum`, `sumAsLong` and `avg`; `min`, `max` and `countDistinct` take an `OrderedColumnField` and do not compile over any other converted column). |
 | `MQ1409` | Grouped query: column selected under a `presentBy` join whose key columns are not all group keys. |
 | `MQ1601` | Bulk write: no predicate left after skipping rows. |
 | `MQ1602` | Bulk write: column is assigned twice. |

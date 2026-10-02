@@ -5,6 +5,7 @@ import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.OrderedColumnField;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowMapper;
 import com.rey.modelquery.core.TableField;
@@ -16,10 +17,10 @@ import javax.annotation.processing.Generated;
 public final class QSalesSummary {
     public static final TableField<SaleEntity, SaleEntity> ROOT = TableField.root(SaleEntity.class);
 
-    public static final ColumnField<SalesSummary, SaleEntity, String> REGION = ColumnField.of(SalesSummary.class,
+    public static final OrderedColumnField<SalesSummary, SaleEntity, String> REGION = ColumnField.of(SalesSummary.class,
             ROOT, "region", String.class).named("region");
 
-    public static final ColumnField<SalesSummary, SaleEntity, String> PRODUCT = ColumnField.of(SalesSummary.class,
+    public static final OrderedColumnField<SalesSummary, SaleEntity, String> PRODUCT = ColumnField.of(SalesSummary.class,
             ROOT, "product", String.class).named("product");
 
     public static final AggregateField<SalesSummary, Long> LINES = Agg.count(ROOT);

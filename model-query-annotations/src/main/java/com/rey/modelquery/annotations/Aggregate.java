@@ -9,6 +9,7 @@ import java.lang.annotation.Target;
 /**
  * Declares an aggregate selection, mapped into the annotated field.
  */
+@Incubating
 @Documented
 @Target({ElementType.FIELD, ElementType.RECORD_COMPONENT})
 @Retention(RetentionPolicy.CLASS)

@@ -5,6 +5,7 @@ import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ColumnSet;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.OrderedColumnField;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowMapper;
@@ -28,35 +29,35 @@ public final class QInvoiceView {
 
     public static final TableField<CustomerEntity, CountryEntity> BUYER_COUNTRY_TABLE = QCustomerView.COUNTRY_TABLE.withParent(BUYER_TABLE);
 
-    public static final ColumnField<InvoiceView, InvoiceEntity, Long> ID = ColumnField.of(InvoiceView.class,
+    public static final OrderedColumnField<InvoiceView, InvoiceEntity, Long> ID = ColumnField.of(InvoiceView.class,
             ROOT, "id", Long.class).named("id");
 
     public static final ColumnField<InvoiceView, InvoiceEntity, InvoiceStatus> STATUS = ColumnField.of(InvoiceView.class,
             ROOT, "status", InvoiceStatus.class, String.class, InvoiceStatus.Converter.INSTANCE)
             .named("status");
 
-    public static final ColumnField<InvoiceView, CustomerEntity, Long> CUSTOMER_ID = QCustomerView.ID.withTable(InvoiceView.class,
+    public static final OrderedColumnField<InvoiceView, CustomerEntity, Long> CUSTOMER_ID = QCustomerView.ID.withTable(InvoiceView.class,
             CUSTOMER_TABLE);
 
-    public static final ColumnField<InvoiceView, CustomerEntity, String> CUSTOMER_NAME = QCustomerView.NAME.withTable(InvoiceView.class,
+    public static final OrderedColumnField<InvoiceView, CustomerEntity, String> CUSTOMER_NAME = QCustomerView.NAME.withTable(InvoiceView.class,
             CUSTOMER_TABLE);
 
-    public static final ColumnField<InvoiceView, CountryEntity, String> CUSTOMER_COUNTRY_CODE = QCustomerView.COUNTRY_CODE.withTable(InvoiceView.class,
+    public static final OrderedColumnField<InvoiceView, CountryEntity, String> CUSTOMER_COUNTRY_CODE = QCustomerView.COUNTRY_CODE.withTable(InvoiceView.class,
             CUSTOMER_COUNTRY_TABLE);
 
-    public static final ColumnField<InvoiceView, CountryEntity, String> CUSTOMER_COUNTRY_NAME = QCustomerView.COUNTRY_NAME.withTable(InvoiceView.class,
+    public static final OrderedColumnField<InvoiceView, CountryEntity, String> CUSTOMER_COUNTRY_NAME = QCustomerView.COUNTRY_NAME.withTable(InvoiceView.class,
             CUSTOMER_COUNTRY_TABLE);
 
-    public static final ColumnField<InvoiceView, CustomerEntity, Long> BUYER_ID = QCustomerView.ID.withTable(InvoiceView.class,
+    public static final OrderedColumnField<InvoiceView, CustomerEntity, Long> BUYER_ID = QCustomerView.ID.withTable(InvoiceView.class,
             BUYER_TABLE);
 
-    public static final ColumnField<InvoiceView, CustomerEntity, String> BUYER_NAME = QCustomerView.NAME.withTable(InvoiceView.class,
+    public static final OrderedColumnField<InvoiceView, CustomerEntity, String> BUYER_NAME = QCustomerView.NAME.withTable(InvoiceView.class,
             BUYER_TABLE);
 
-    public static final ColumnField<InvoiceView, CountryEntity, String> BUYER_COUNTRY_CODE = QCustomerView.COUNTRY_CODE.withTable(InvoiceView.class,
+    public static final OrderedColumnField<InvoiceView, CountryEntity, String> BUYER_COUNTRY_CODE = QCustomerView.COUNTRY_CODE.withTable(InvoiceView.class,
             BUYER_COUNTRY_TABLE);
 
-    public static final ColumnField<InvoiceView, CountryEntity, String> BUYER_COUNTRY_NAME = QCustomerView.COUNTRY_NAME.withTable(InvoiceView.class,
+    public static final OrderedColumnField<InvoiceView, CountryEntity, String> BUYER_COUNTRY_NAME = QCustomerView.COUNTRY_NAME.withTable(InvoiceView.class,
             BUYER_COUNTRY_TABLE);
 
     public static final ColumnSet<InvoiceView> ALL = ColumnSet.of(ID, STATUS);

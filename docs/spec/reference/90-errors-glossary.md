@@ -44,7 +44,8 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1304` | `exists(...)` given a root instead of a join path | `api/12` R-FLT-11 |
 | `MQ1305` | A `Filters.add` predicate returned `null` | `api/12` §1, D-24 |
 | `MQ1306` | One `in` or `notIn` filter has more values than `maxBindParameters()` | `api/12` R-FLT-09 |
-| `MQ1307` | A statement binds more values than `maxBindParameters()` together, though no one `in` or `notIn` filter does; on a keyset page or round after a cursor, the message names the binds the cursor added | `api/12` R-FLT-09, D-80, D-82 |
+| `MQ1307` | A statement binds more values than `maxBindParameters()` together, though no one `in` or `notIn` filter does; a keyset statement (page, export page, key-first round) is refused up front when its own binds plus the worst cursor, k(k+1)/2 for k keyset keys, would pass it: `<label>: a keyset statement binds <own> values of its own, and the keyset cursor's values can add up to <worst> more, over the <max> bind parameters one statement takes; narrow the query's own filters by at least <n> or use fewer keyset columns` | `api/12` R-FLT-09, D-80, D-82 |
+| `MQ1308` | A value cannot be converted to its column's attribute type: a value filter or a write converts it through `ColumnField.toAttribute` and the converter throws `IllegalArgumentException`, for example `InstantTimestampConverter` with an `Instant` beyond `Timestamp`'s range | `api/10` R-COL-14, D-84 |
 | `MQ1401` | A selected non-aggregate column is not in the group-by | `api/13` R-AGG-08 |
 | `MQ1402` | Keyset paging or primary-key-first on a grouped query | `api/13` R-AGG-10 |
 | `MQ1403` | `Agg.sum` or `Agg.sumAsLong` over a column whose SQL sum type differs from the declared result type | `api/13` R-AGG-03 |
@@ -52,7 +53,7 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 | `MQ1405` | An `Agg.of` expression returned `null`, or an expression whose Java type is not the declared type | `api/13` R-AGG-02 |
 | `MQ1406` | An `orderBy` key that does not fit the grouping: a non-group-key column on a grouped query, or an aggregate on an ungrouped one | `api/13` R-AGG-08 |
 | `MQ1407` | `having(...)` on an ungrouped query, one with neither a `groupBy` nor a selected aggregate | `api/13` R-AGG-07 |
-| `MQ1408` | An aggregate function over a column that has a `ColumnConverter`, other than `min`, `max` or `countDistinct` over an `OrderedColumnConverter` | `api/13` R-AGG-04 |
+| `MQ1408` | `sum`, `sumAsLong` or `avg` over a column that has a `ColumnConverter`; `min`, `max` and `countDistinct` over a column with a converter that is not ordered do not compile (D-93) | `api/13` R-AGG-04 |
 | `MQ1409` | A grouped query selects a column under a `presentBy` join whose key columns are not all group keys | `api/13` R-AGG-09 |
 | `MQ1601` | A bulk write chose its rows with `where(...)` and no predicate is left | `api/14` R-WRT-12 |
 | `MQ1602` | A column is assigned twice in one update | `api/14` R-WRT-13 |

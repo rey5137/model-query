@@ -5,7 +5,9 @@ marked breaking. From 1.0.0 the project follows [Semantic Versioning](https://se
 
 ## Today: everything is `@Incubating`
 
-In 0.x every public type is marked `@Incubating`: the API is complete and tested, but it may still change.
+In 0.x every public top-level type is marked `@Incubating`, the annotations, `@EngineFacing`, the processor class and
+the `jpa.vendor` types included; only `@Incubating` itself is not. The API is complete and tested, but it may still
+change.
 `japicmp` is configured in the build, but it is skipped until a 1.0.0 baseline exists. The API review for 1.0 already
 changed some signatures in 0.2.0; see "Upgrading from 0.1" in the
 [changelog](https://github.com/rey5137/model-query/blob/main/CHANGELOG.md).

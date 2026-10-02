@@ -605,7 +605,8 @@ final class ModelValidator {
         }
         if (!converter.hasInstance() && !converter.hasVisibleConstructor(model.type())) {
             diagnostics.error(element, DiagnosticCode.MQ3014, where + name
-                    + " needs a public static INSTANCE or a no-arg constructor visible to " + model.generatedName());
+                    + " needs a public static INSTANCE, typed as an OrderedColumnConverter when it is one, or a no-arg "
+                    + "constructor visible to " + model.generatedName());
             fits = false;
         }
         return fits;

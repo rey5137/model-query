@@ -763,19 +763,29 @@ across statements (its rows would be merged in memory, and its order, limit and 
 the next Tier 2 vendor. A profile is additive, so adding it after the API freeze breaks no one. → `delivery/62` §1,
 `vendor/41` §1.
 
-**D-82 — A keyset cursor's binds are not reserved under the bind limit; `MQ1307` names them.** A keyset page, an export
-page or a key-first round that starts after a cursor binds the cursor's values on top of the query's own, so a query
-whose own binds sit within a few of `maxBindParameters()` can pass its first page or round and be refused on a later
-one (after a `commitEachChunk` round has committed). The refusal says how many of the statement's binds the cursor adds
-and that the query's own filters must drop that many. Rejected: lowering every clamp by the key's column count, which
-shrinks every chunk for a case only a query at the limit reaches. → `api/12` R-FLT-09, `engine/21` R-PAG-07, D-80.
+**D-82 — A keyset statement is refused up front when its cursor could pass the bind limit; `MQ1307` names the binds.**
+A keyset page, an export page or a key-first round that starts after a cursor binds the cursor's values on top of the
+query's own, so a query whose own binds sit within a few of `maxBindParameters()` could pass its first page or round and
+be refused on a later one (after rows reached a sink, or a `commitEachChunk` round committed). Amended at the M8 gate: a
+keyset statement (keyset page, export page, key-first write round, including the first page or round and a `startAfter`
+round) is refused before it runs with `MQ1307` when its own binds plus the worst cursor, k(k+1)/2 binds for k keyset
+keys (all non-null), exceed `maxBindParameters()`, so a run never fails after rows reached a sink or a round committed.
+The refusal says how many binds the statement has of its own and how many the cursor can add, and that the query's own
+filters must drop at least that many (or use fewer keyset columns). Rejected: lowering every clamp by the key's column
+count, which shrinks every chunk for a case only a query at the limit reaches; the check does not do that, it refuses
+only a query already that close to the limit. → `api/12` R-FLT-09, `engine/21` R-PAG-07, D-80.
 
 **D-83 — The factory bean swap re-registers each definition instead of mutating it.** A repository whose type another
 post-processor checked before the swap ran (the JPA repositories auto-configuration's missing-bean scan, a framework)
 has a merged definition and an early `JpaRepositoryFactoryBean` instance cached, and changing the registered
 definition's class name reaches neither: the repository was built without the `ModelQueryRepository` fragment and
 startup failed with `No property 'findPage' found`. The swap copies each definition with
-`ModelQueryRepositoryFactoryBean`, removes it and registers the copy under the same name, which drops both caches.
+`ModelQueryRepositoryFactoryBean`, removes it and registers the copy under the same name, which drops both caches. A
+`RootBeanDefinition` (Spring Data 3.x registers one with a `targetType` of `JpaRepositoryFactoryBean<Repo, S, ID>`) is
+copied with `cloneBeanDefinition()` and keeps its `targetType`, now `ModelQueryRepositoryFactoryBean` over the old
+generics; any other definition is copied as a `GenericBeanDefinition`. A swapped definition moves to the end of the
+registration order, which the registry API cannot prevent: it changes the singleton creation order and the order of an
+injected `List<Repository>`.
 Rejected: mutating in place (the cached merged definition and early instance survive); making the swap
 `PriorityOrdered` alone (another post-processor or a framework can still type-check first). → `integration/50` R-SPR-02,
 AC-SPR-13, D-50.
@@ -784,10 +794,14 @@ AC-SPR-13, D-50.
 `OrderedColumnConverter<C, F>` promises `a < b` exactly when `toModel(a) < toModel(b)`, and the same for `toAttribute`:
 it preserves order both ways, so it is also injective. For such a column the database's `min`, `max` and
 `countDistinct` over `F`, with `toModel` applied to the result, equal the same aggregate over the model values, so
-`Agg` accepts them; `sum` and `avg` keep `MQ1408`, as does every aggregate over a converter that is not ordered.
+`Agg` accepts them; `sum` and `avg` keep `MQ1408`, as does every aggregate over a converter that is not ordered
+(D-93 moves the `min`, `max` and `countDistinct` part of that restriction to compile time).
 `core` ships two ordered converters: `Instant`↔`Timestamp` (`Timestamp.from`/`toInstant`, nanoseconds kept) and
 `Date`↔`Timestamp`, whose `toModel` returns the `Timestamp` itself typed as `Date`, so no sub-millisecond digits are lost
-and an `eq`, `gt` or `lte` against a stored value with microseconds is exact. The processor uses one when a model field's
+when a value is read. A plain `java.util.Date` bound in a filter has whole milliseconds, so an inclusive upper bound is
+written half-open, `lt(nextDayStart)`: `lte(23:59:59.999)` excludes a stored `23:59:59.999500`. A value one converter
+cannot represent (an `Instant` beyond `Timestamp`'s range) is refused with `MQ1308`; the `Instant` converter round-trips
+the converted value, since on JDK 21 `Timestamp.from(Instant.MAX)` returns a wrong instant without failing. The processor uses one when a model field's
 type and its `Timestamp` attribute form one of these pairs and no `converter` is named. `LocalDateTime` is not a
 built-in: through the JVM time zone it is not order-preserving across a daylight-saving change. Range filters and
 `orderBy` on a converter that is not ordered stay allowed: they compare stored values, which is well defined, and keyset
@@ -795,11 +809,12 @@ cursors read `Row.raw`, so no row is lost (D-37). Rejected: `Date` filter overlo
 and a `Date` bound against a `java.sql.Date` truncates); loosening the filter generics (any value type compiles); a
 `default boolean ordered()` on `ColumnConverter` (the processor cannot see it at compile time); refusing range filters
 and `orderBy` on unordered converters (breaks 0.1 users who sort by a stored code). → `api/10` R-COL-14, `api/13`
-R-AGG-04, `processor/30` R-PROC-07, R-PROC-15, `reference/90` `MQ1408`, D-20, D-37.
+R-AGG-04, `processor/30` R-PROC-07, R-PROC-15, `reference/90` `MQ1408`, `MQ1308`, D-20, D-37, D-93.
 
 **D-85 — The planned 1.0 freeze, by type.** In 0.2 every type stays `@Incubating` (D-90); the split below is what 1.0
 will freeze. At 1.0 every annotation is frozen except `UpdateModel` and
-`QueryModel.generateChanges`. In `core` every public type is frozen except the bulk-write types (`ModelUpdate`,
+`QueryModel.generateChanges`. In `core` every public type, `ColumnField` and its subclass `OrderedColumnField` (D-93)
+among them, is frozen except the bulk-write types (`ModelUpdate`,
 `ModelDelete`, `Changes`, `Assignment`, `ChunkOptions`, `ChunkedWriteException`, `PersistenceContextMode`) and
 `NullPrecedenceRenderer`, which the incubating SPI returns. In `jpa`, `ModelQueryExecutor`, `ModelQueryConfig`,
 `KeysetNullKeys`, `MysqlStreamingMode` and `DatabaseVendor` are frozen and their bulk-write members stay `@Incubating`;
@@ -819,7 +834,7 @@ R-REL-11, D-72.
 **D-87 — `or` takes two or three branches, or a list (applied in 0.2).** An interface method cannot be `@SafeVarargs`,
 so the generic varargs `or` warned `unchecked generic array creation` at every call and failed under `-Werror`.
 `Filters` and `Having` take `or(a, b)`, `or(a, b, c)` and `or(List)`, so a written-out `or` with fewer than two
-branches does not compile (P-2); a built list follows R-FLT-01 (empty is skipped, one branch is that branch).
+branches does not compile (P-2); a built list follows R-FLT-01 (one branch is that branch; an empty list is `FALSE`, D-92).
 Rejected: keeping varargs with a documented `@SuppressWarnings` (every caller pays). → `api/12`, `api/13`.
 
 **D-88 — `PageSpec` and `ExportOptions` are final classes; `SetterMapper.bind` takes the mapper's model (applied in
@@ -838,15 +853,33 @@ then a named ordered converter goes through a hand-written `Agg.min` or `max`. �
 
 **D-90 — M8 ships as 0.2.0; nothing is frozen yet.** The user decided against 1.0.0 for M8. The API changes of D-87
 and D-88 (and the `sealed` `Filters` and `Having` of D-85) are applied in 0.2.0, but no type is frozen: `@Incubating`
-stays on every public type until the 1.0 freeze, and D-85, D-86 and D-89 describe what 1.0 will freeze. `japicmp` stays
+stays on every public top-level type until the 1.0 freeze (the annotations, `@EngineFacing` and `ModelQueryProcessor`
+included; only `@Incubating` itself is unmarked), and D-85, D-86 and D-89 describe what 1.0 will freeze. `japicmp` stays
 skipped until a 1.0.0 baseline exists. → `delivery/61` R-REL-07, `delivery/62`.
 
 **D-91 — Decisions closing M8.** (1) Q-2 is resolved: `row-by-row` stays the MySQL streaming default, because
 `useCursorFetch` streams only when the user adds `useCursorFetch=true` to the JDBC URL and otherwise silently loads the
 whole result into memory. (2) D-78 stands: 0.2 keeps Hibernate 6.6+, and a Hibernate 7 CI leg comes before the 1.0
-decision. (3) `or(List)` with fewer than two branches follows R-FLT-01 (empty is skipped, one branch is that branch),
-with no new `MQ` code. (4) `@Aggregate.converter` is deferred and additive. → `vendor/41` R-PRF-04, R-PRF-07, D-78,
+decision. (3) `or(List)` with fewer than two branches follows R-FLT-01 (one branch is that branch), with no new `MQ`
+code; an empty list is not skipped (D-92). (4) `@Aggregate.converter` is deferred and additive. → `vendor/41` R-PRF-04, R-PRF-07, D-78,
 D-87, D-89.
+
+**D-92 — An empty `or(List)` is "none of these" and renders `FALSE` (amends D-91(3)).** `or` over an empty list is the
+empty disjunction, `FALSE`, as R-FLT-02's empty `in`; a non-empty list whose branches were all skipped stays skipped
+(R-FLT-01); one branch is that branch. Rejected: skipping an empty list (an empty allowed-list returned every row,
+against P-3); a new `MQ` code (callers would special-case "no permissions"). → `api/12` R-FLT-01, R-FLT-02, AC-FLT-03,
+`api/13` AC-AGG-07, D-87, D-91.
+
+**D-93 — `Agg.min`, `max` and `countDistinct` take `OrderedColumnField` (supersedes the run-time part of D-84).**
+`ColumnField` becomes `sealed`, with one final subclass, `OrderedColumnField`: a column with no converter or with an
+`OrderedColumnConverter`. `ColumnField.of` without a converter, or with an ordered one, returns it (also at run time
+through a wider static `ColumnConverter` type); a column with any other converter is a plain `ColumnField`, so `min`,
+`max` and `countDistinct` over it do not compile (P-2) rather than throw `MQ1408`. The processor declares each
+generated column with the narrower type, following nested-model joins. `equals` ignores the subclass. `MQ1408` stays
+for `sum`, `sumAsLong` and `avg` over any converted column, and its text no longer suggests an ordered converter for
+`min` or `max`. `OrderedColumnField` is on the D-85 1.0 freeze list next to `ColumnField`. Rejected: a converter type
+parameter on `ColumnField` (every user-facing `ColumnField` type changes); keeping the run-time `MQ1408` (P-2).
+→ `api/10` R-COL-14, `api/13` R-AGG-04, `processor/31`, `reference/90` `MQ1408`, D-84, D-85.
 
 ## 2. Open questions
 
