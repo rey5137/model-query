@@ -26,6 +26,7 @@
 | `MQ3014` | `converter` is not a `ColumnConverter` between the field type and the attribute type, or has neither a public static `INSTANCE` nor a visible no-arg constructor | `OrderView.status: OrderStatusConverter converts OrderStatus to Integer, entity attribute type String` |
 | `MQ3015` | Two generated constants would have the same name, or a field's constant clashes with a reserved one (`ROOT`, `ALL`, `DEFAULT`, `KEY`, `MAPPER`, `GROUP_KEYS`), or a `@Join(prefix)` or a `@FilterColumn` `alias` is not a legal Java name (a keyword included; D-45, D-46) | `OrderView.customerId: constant CUSTOMER_ID is also generated for customer.id; rename the field or set @Join(prefix)` |
 | `MQ3016` | **Warning.** A column on a to-one association selects the whole entity and has no converter (D-44, D-45) | `OrderView.customer: selects the whole CustomerEntity entity; use @Join with a query model of CustomerEntity to select only its columns` |
+| `MQ3017` | A model's `root`, or the `root` of a model it nests through `@Join` or `@Child`, still names no class in the last round of annotation processing; until then the model is deferred to the next round (D-107) | `ShipmentView: root does not name a class, and no annotation processor generated one` |
 | `MQ3201` | `@Aggregate` field is primitive | `ProductSales.revenue: SUM is NULL over zero rows; use BigDecimal, not a primitive` |
 | `MQ3202` | `@Aggregate` field type does not match the function's result type | `ProductSales.lines: COUNT returns Long, field is Integer` |
 | `MQ3203` | `@Aggregate` model has no `@GroupBy` field and is not `singleGroup` | `ProductSales: has @Aggregate fields but no @GroupBy; add one or set @QueryModel(singleGroup = true)` |
@@ -58,7 +59,11 @@ the generated file. `MQ3016` alone is a `WARNING`: the model is still generated.
 points to, which selects the nested model's columns instead of the whole entity (D-44, D-45).
 
 **R-DIAG-03** The processor reports **every** independent problem in one pass. A model that failed one check still
-produces the remaining diagnostics for its other fields; it does not produce a QModel.
+produces the remaining diagnostics for its other fields; it does not produce a QModel. Two diagnostics wait for
+another, since each check needs the result the first error denies: an `MQ3015` clash with a `@Join`'s constants is
+reported once that `@Join`'s own error is fixed, and an `MQ3014` once its column's path resolves (D-107). A model whose
+`root`, or a nested model's `root`, names no class yet is not checked: another processor may generate that class, so
+the model is retried each round and reports `MQ3017` in the last one if the class never appears (D-107).
 
 **R-DIAG-04** A code's meaning is fixed once released (INV-10). A check that is later split keeps the original code for
 the original case and takes a new code for the new one.
@@ -87,3 +92,5 @@ the generated class.
 | AC-DIAG-03 | Diagnostics are attached to the annotated element, verified through the diagnostic's element (R-DIAG-02). |
 | AC-DIAG-04 | A model with any error produces no QModel file (R-DIAG-03). |
 | AC-DIAG-05 | `reference/90` lists exactly the codes §1 uses, with no gaps or duplicates (INV-10). |
+| AC-DIAG-06 | A model whose `root` another processor generates in the same compilation, and a model that nests it through `@Join`, are generated with no diagnostic (R-DIAG-03, D-107). |
+| AC-DIAG-07 | A model whose `root` is never generated, and a model that nests it, each report `MQ3017` on their own element and produce no QModel (R-DIAG-03, D-107). |

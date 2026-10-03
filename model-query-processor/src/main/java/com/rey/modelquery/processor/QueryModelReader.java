@@ -65,8 +65,8 @@ final class QueryModelReader {
     }
 
     /**
-     * Reads {@code type}, or returns {@code null} when its {@code root} does not name a class, which the compiler
-     * reports on its own.
+     * Reads {@code type}, or returns {@code null} when its {@code root} does not name a class: one that is not
+     * generated yet, which a later round may generate (D-107).
      */
     ModelDefinition read(TypeElement type) {
         return read(type, mirror(type, QueryModel.class), false);

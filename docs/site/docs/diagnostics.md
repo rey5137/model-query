@@ -121,6 +121,7 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3014` | `converter` is not a `ColumnConverter` between the field type and the attribute type. |
 | `MQ3015` | Two generated constants would have the same name, or a constant clashes with a reserved one. |
 | `MQ3016` | A warning, not an error: a column on a to-one association selects the whole entity and has no converter. |
+| `MQ3017` | The model's `root`, or the root of a model it nests, is not a class, and no annotation processor generated it. A root another processor generates is fine: the model waits for it. |
 | `MQ3201` | Aggregate model: field is primitive. |
 | `MQ3202` | Aggregate model: field type does not match the function's result type. |
 | `MQ3203` | Aggregate model: no `@GroupBy` field and is not `singleGroup`. |

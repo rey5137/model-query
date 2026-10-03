@@ -1039,7 +1039,10 @@ model, so no model is skipped silently. The two hidden diagnostics stay hidden: 
 `@Join`'s own error and an `MQ3014` for its path to resolve, since each check needs the result the first error denies.
 `processor/32` R-DIAG-03 documents both as reported once the first error is fixed. Rejected: reporting the hidden codes
 in the same pass (they would be guesses over an unresolved join); documenting the skip (a missing QModel shows as a
-compile error far from its cause). → `processor/32` R-DIAG-03.
+compile error far from its cause). *Amended in M9:* the code is `MQ3017`; a model that nests one with an unresolved
+`root`, through `@Join` or `@Child` at any depth, is deferred too and in the last round reports `MQ3017` on its own
+element, naming the nested model; and a `root` that is not a class, `int.class` included, is deferred and ends in
+`MQ3017` rather than being skipped silently. → `processor/32` R-DIAG-03.
 
 **D-108 — The fetch-size hint moves to `ProviderSupport` (resolves Q-9).** `VendorProfile` decides the size, through
 `int streamingFetchSize(int requested)` beside `checkStreamingPreconditions`, and no longer touches the `Query`;

@@ -5,10 +5,13 @@ import com.rey.modelquery.processor.JoinedTable.JoinedColumn;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
+import javax.lang.model.type.TypeMirror;
 
 /**
  * Reads the models that {@code @Join} fields nest and {@code @Child} fields hold, and lays out the constants an outer
@@ -47,6 +50,30 @@ final class NestedModels {
         }
         var type = (TypeElement) ((DeclaredType) child.child().model()).asElement();
         return type.getAnnotation(QueryModel.class) != null ? read.computeIfAbsent(type, reader::read) : null;
+    }
+
+    /**
+     * The first model that {@code model}'s {@code @Join} and {@code @Child} fields nest, at any depth, whose
+     * {@code root} does not name a class yet, or {@code null} when every one does (D-107).
+     */
+    TypeElement unresolved(ModelDefinition model) {
+        return unresolved(model, new HashSet<>());
+    }
+
+    private TypeElement unresolved(ModelDefinition model, Set<TypeElement> seen) {
+        for (ModelField field : model.fields()) {
+            TypeMirror nested = field.join() != null ? field.join().nested()
+                    : field.child() != null ? field.child().model() : null;
+            if (nested instanceof DeclaredType declared && declared.asElement() instanceof TypeElement type
+                    && type.getAnnotation(QueryModel.class) != null && seen.add(type)) {
+                ModelDefinition below = read.computeIfAbsent(type, reader::read);
+                TypeElement found = below == null ? type : unresolved(below, seen);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
     }
 
     /** Every join of {@code model}, its own and those below them; the joins must not form a cycle. */

@@ -52,6 +52,9 @@ enum DiagnosticCode {
     MQ3015("Generated constant name is already taken"),
     MQ3016("Column selects a whole entity; a warning"),
 
+    /** A model's {@code root}, or the {@code root} of a model it nests, still names no class in the last round. */
+    MQ3017("Model root does not resolve to a class"),
+
     /** An {@code @Aggregate} field is primitive, though an aggregate can be {@code NULL}. */
     MQ3201("@Aggregate field is primitive"),
 

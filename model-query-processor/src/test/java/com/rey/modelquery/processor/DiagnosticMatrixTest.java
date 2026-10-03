@@ -27,6 +27,8 @@ import org.junit.jupiter.params.provider.MethodSource;
  * repeat the plain ones with Lombok's processor in the chain. The update-model codes {@code MQ3301}..{@code MQ3307}
  * raise on an {@code @UpdateModel}, and {@code MQ3306} on a {@code generateChanges} query model too. The
  * {@code @Child} codes {@code MQ3401}..{@code MQ3406} raise on a query model with a child over another root.
+ * {@code MQ3017} raises on a {@code root} of {@code int.class}, since a missing class adds javac's own errors;
+ * {@link RoundDeferralTest} covers that one.
  */
 class DiagnosticMatrixTest {
 
@@ -312,6 +314,8 @@ class DiagnosticMatrixTest {
                     List.of(c.model("OrderView", ORDER, ID, "CustomerEntity customer")), true,
                     List.of("MQ3016: OrderView.customer: selects the whole CustomerEntity entity; use @Join with a "
                             + "query model of CustomerEntity to select only its columns"))),
+            of("MQ3017", c -> fails(c.model("OrderView", "@QueryModel(root = int.class)", ID, "String status"),
+                    "MQ3017: OrderView: root does not name a class, and no annotation processor generated one")),
             of("MQ3201", c -> fails(
                     with(SALE_ENTITY, c.model("SalesSummary", SINGLE,
                             "@Aggregate(fn = AggregateFunction.SUM, attribute = \"weight\") double weight")),
