@@ -20,6 +20,7 @@
 | **M6: Bulk writes** | `ModelUpdate`, `ModelDelete`, `Changes`, `@UpdateModel` and `generateChanges`, executor and repository methods, chunked mode, `VendorProfile.targetTableInSubquery` | `api/14` covered, TCK bulk-write group green on Tier-1 databases, AC-VND-07, AC-SPR-09, AC-GEN-10..12 and the `MQ33xx` compile-testing cases; the Spring Boot sample has a PATCH endpoint |
 | **M7: 0.1.0** | Docs site, samples, Maven Central publishing | First public release; AC-REL-04, AC-REL-05 |
 | **M8: Hardening → 0.2.0** | Early-adopter feedback, API review, `japicmp` check, fetch plans (`api/15`, D-96), query inspection and `model-query-test` (`api/16`, D-98) (MariaDB Tier 2 moved after 1.0, D-81) | API reviewed, nothing frozen (D-90); AC-REL-06; `api/15..16` covered |
+| **M9: Freeze → 1.0.0** | SPI split before new vendors (D-108, D-109), `ModelQueryException` (D-106), the two-way keyset page with an opaque cursor (D-105), child-query assertions (D-104), processor round deferral (D-107), the freeze review and the D-85 freeze applied | API frozen per D-85 and the M9 review; the new `AC-*` of D-104–D-109 covered; AC-REL-06 against the frozen types |
 
 **R-RDM-01** M3 and M4 may run in parallel after M2. M6 follows M5, so the first release (M7) ships bulk writes
 next to the read API; their API is `@Incubating` until the M8 API review, which covers it before the 1.0 freeze

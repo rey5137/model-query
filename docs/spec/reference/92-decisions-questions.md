@@ -819,12 +819,13 @@ among them, is frozen except the bulk-write types (`ModelUpdate`,
 `NullPrecedenceRenderer`, which the incubating SPI returns. In `jpa`, `ModelQueryExecutor`, `ModelQueryConfig`,
 `KeysetNullKeys`, `MysqlStreamingMode` and `DatabaseVendor` are frozen and their bulk-write members stay `@Incubating`;
 `VendorProfile`, `ProviderSupport`, `ChunkTransactions`, `ValidChanges`, `ValidChangesValidator` and
-`HibernateProviderSupport` stay `@Incubating` (Q-9, Q-12, D-78). The Spring types are frozen, with
+`HibernateProviderSupport` stay `@Incubating` (D-108, D-109, D-78). The Spring types are frozen, with
 `ModelQueryRepository.update`/`delete` and the bulk-write properties `@Incubating`; the starter's property keys are API.
 The generated `changes()`, `update(...)` and `delete()` carry `@Incubating`. Rule: every type generated code links
 against is frozen. `Filters` and `Having` become `sealed`, so a new operator can be an abstract method. Bulk writes
 freeze in a 1.x minor once one minor ships with no change to them. Deferred as additive: a `TableField.join` taking the
-target class, and a common `ModelQueryException` superclass. → `delivery/61` R-REL-07, R-REL-11, D-59.
+target class. A common `ModelQueryException` superclass is added before 1.0 and frozen (D-106). → `delivery/61`
+R-REL-07, R-REL-11, D-59.
 
 **D-86 — `@EngineFacing` may mark a type (amends D-72).** From 0.2 `BuiltQuery`, `RowSelection` and `RenderOptions`
 carry it at type level, and `JoinContext.of` and `OrderField.toOrders` at method level; `japicmp` excludes both. A
@@ -1001,6 +1002,62 @@ a join of the same attribute under another parent no longer matches. `TableField
 `isOrderedBy` and the selection methods refuse a column of another model; `ConditionMatcher` stays non-generic.
 `@Incubating`. → `api/16` R-INS-04, R-INS-06.
 
+**D-104 — Child queries are inspected through `model-query-test` (resolves Q-13).** `assertThatQuery(q).child(field)`
+returns an assertion over that child's query: its conditions, order, selection and `maxPerParent`, with the same
+matchers as the query's own. `model-query-test` reads them through `FetchPlan.childLoads()`, which stays
+`@EngineFacing`, so core gains no public view of a plan's children to freeze. A field the plan doesn't load fails the
+assertion with the fields it does load. Rejected: a public read-only `FetchPlan.children()` view (new frozen surface in
+core for a need only tests have); testing child queries only against a database (a plan's filters are as easy to get
+wrong as a query's). `@Incubating`. → `api/16` R-INS-06, `api/15`.
+
+**D-105 — A keyset page with an opaque cursor, both ways, before 1.0 (resolves Q-4).** One method,
+`ModelQueryExecutor.page(query, KeysetSpec)`, with `KeysetSpec.first(size)`, `after(cursor, size)` and
+`before(cursor, size)`, returns a `KeysetSlice<M>`: `content()`, `hasNext()`, `hasPrevious()`, `nextCursor()` and
+`previousCursor()`; `ModelQueryRepository` passes it through. A cursor is an opaque URL-safe string holding the
+boundary row's order-column and primary-key values and a fingerprint of the query's order, so a client pages without
+reading column values, and a cursor from another order, or an edited one, fails with a new `MQ` code instead of
+returning wrong rows. `before` reverses each order column and its null rule, reads `size + 1` rows to learn whether
+more exist, and reverses the result, so the slice keeps the query's order. The keyset rules of `engine/21` hold
+(R-PAG-04 ties, R-PAG-05 nulls, R-PAG-06 predicates); there is no total. The cursor format is not API: only its
+round trip is. Rejected: `pageAfter` and `pageBefore` as two methods (twice the surface on the executor and the
+repository for one choice a value carries); leaving encoding to callers (each caller re-implements typed decoding, and
+a forged cursor reaches the predicate); a signed cursor (the values are the client's own page; the fingerprint catches
+mistakes, and a forged value only moves the client inside rows the query already allows). The design gets an
+`architect-review` before its slice. `@Incubating` until the freeze. → `engine/21` §2, `api/11`, `integration/50`,
+SPEC.md §4.
+
+**D-106 — `ModelQueryException`, a common superclass, before 1.0 (amends D-85).** An abstract
+`ModelQueryException extends RuntimeException` holds `MqCode code()`, and `ModelQueryDefinitionException`,
+`ModelQueryExecutionException` and `ModelQueryConfigurationException` extend it, so a caller catches every library
+failure in one clause and reads its code. Adding it later would be binary-compatible, but a 1.0 handler written
+against three types would never pick it up. Its constructors are protected; no new subclass is planned. Frozen at
+1.0. → `reference/90` §1, D-85.
+
+**D-107 — A model rooted at a type generated in the same round is deferred (resolves Q-11).** The processor keeps a
+model whose `root` is not yet resolvable and retries it each round; in the last round it reports a new `MQ30xx` on the
+model, so no model is skipped silently. The two hidden diagnostics stay hidden: an `MQ3015` prefix clash waits for its
+`@Join`'s own error and an `MQ3014` for its path to resolve, since each check needs the result the first error denies.
+`processor/32` R-DIAG-03 documents both as reported once the first error is fixed. Rejected: reporting the hidden codes
+in the same pass (they would be guesses over an unresolved join); documenting the skip (a missing QModel shows as a
+compile error far from its cause). → `processor/32` R-DIAG-03.
+
+**D-108 — The fetch-size hint moves to `ProviderSupport` (resolves Q-9).** `VendorProfile` decides the size, through
+`int streamingFetchSize(int requested)` beside `checkStreamingPreconditions`, and no longer touches the `Query`;
+`ProviderSupport` gains `applyFetchSize(Query, int)`, which `model-query-hibernate` implements with
+`org.hibernate.fetchSize`. With no `ProviderSupport`, `jpa` passes nothing and logs once per factory at `WARN` that
+`stream` may buffer the whole result. This keeps D-34's split: database facts in the profile, provider mechanics in
+provider support. The R-VND-07 null-ordering warning keeps reading its Hibernate property in `jpa`, by necessity, since
+it fires only where no `ProviderSupport` exists. Done before any new vendor profile is written, since it changes what
+a profile implements. `@Incubating` (`jpa.spi`). → `vendor/40` §2, `vendor/41` §2, R-PRF-04, D-34.
+
+**D-109 — `ProviderSupport.tableOf` detects two entities on one table (resolves Q-12).** `ProviderSupport` gains
+`default Optional<String> tableOf(Class<?> entity)`, empty by default and implemented by `model-query-hibernate` from
+its mapping metamodel. When choosing key-first for a bulk write (R-WRT-11), `jpa` compares the tables of the root and
+of each entity a sub-query reads, and falls back to comparing entities when either table is unknown, as today. INV-7
+holds: `core` never sees a table name. Rejected: a `VendorProfile` method (table names are provider knowledge, not
+database knowledge); always running key-first on MySQL (a needless second statement for every joined write). Ships in
+the same SPI change as D-108. `@Incubating` (`jpa.spi`). → `api/14` R-WRT-11, `vendor/40` §2.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -1011,7 +1068,7 @@ documented. Should the default flip? → `vendor/41` R-PRF-04, R-PRF-07.
 
 **Q-3 — Minimum Hibernate version.** Resolved by D-78.
 
-**Q-4 — Cursor serialisation.** `0.1-reserved` mentions a `Cursor` format for passing a keyset position to a client.
+**Q-4 — Cursor serialisation.** Resolved by D-105. Was: `0.1-reserved` mentions a `Cursor` format for passing a keyset position to a client.
 Should 0.1 ship an opaque encoded form (so a REST API can page without exposing column values), or leave it to callers?
 → SPEC.md §4.
 
@@ -1031,7 +1088,7 @@ vendor's IN-list limit. Should 0.x add (a) a per-page hook on `page` and `list` 
 the primary-key-first step-2 batching and clamp (R-PAG-07, D-32)? Either is new public API, and (b) must keep memory
 bounded by one page (INV-4). → `api/11`, `engine/21`.
 
-**Q-9 — The fetch-size hint in the built-in profiles.** The built-in profiles stream by passing the
+**Q-9 — The fetch-size hint in the built-in profiles.** Resolved by D-108. Was: The built-in profiles stream by passing the
 `org.hibernate.fetchSize` hint, as `vendor/41` §2 mandates. That is provider behaviour inside a database profile,
 against D-34's split, and under another provider the hint is ignored, so streaming may buffer. Should the hint move
 to `ProviderSupport`? The resolver's warning on `hibernate.order_by.default_null_ordering` without
@@ -1040,19 +1097,19 @@ where no `ProviderSupport` exists to ask. → `vendor/41` §2, R-PRF-04, R-VND-0
 
 **Q-10 — A nested model from another module.** Resolved by D-45.
 
-**Q-11 — Processor diagnostics hidden or missing (left from the M4 gate).** Two diagnostics wait for another to be
+**Q-11 — Processor diagnostics hidden or missing (left from the M4 gate).** Resolved by D-107. Was: Two diagnostics wait for another to be
 fixed, against R-DIAG-03: an `MQ3015` prefix clash is not reported while the clashing `@Join` fails its own check, and
 an `MQ3014` is not reported while its path does not resolve. A model whose `root` is a type another processor generates
 in the same round is skipped with no diagnostic and no QModel. Open: report the hidden codes in the same pass, and
 defer such a model to a later round (reporting it if the type never appears), or document the gaps. → `processor/32`
 R-DIAG-03.
 
-**Q-12 — Detecting two entities mapped to one table.** A bulk write whose sub-query reads a second entity mapped to
+**Q-12 — Detecting two entities mapped to one table.** Resolved by D-109. Was: A bulk write whose sub-query reads a second entity mapped to
 the root's table is not detected (JPA exposes no table names, INV-7), so MySQL fails with error 1093 where the write
 should have run key-first. Should `VendorProfile` or a jpa provider hook report an entity's table so that `jpa` can
 detect it? → `api/14` R-WRT-11.
 
-**Q-13 — Inspecting a fetch plan's child queries.** `conditions()` covers the query's own `where` and `having`
+**Q-13 — Inspecting a fetch plan's child queries.** Resolved by D-104. Was: `conditions()` covers the query's own `where` and `having`
 (D-101); a test cannot read a child query's filters, order or `maxPerParent`, which sit behind the `@EngineFacing`
 `ChildLoad`. Should `FetchPlan` gain a public read-only view of its children, or should child queries be tested only
 against a database? → `api/16` R-INS-06, `api/15`.
