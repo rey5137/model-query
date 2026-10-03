@@ -3,6 +3,8 @@ package com.rey.modelquery.jpa;
 import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
+import com.rey.modelquery.core.KeysetSlice;
+import com.rey.modelquery.core.KeysetSpec;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
@@ -62,6 +64,26 @@ public interface ModelQueryExecutor<E> {
      *     {@code MQ2206} when its customizer narrows the phases differently, before any query runs (R-PAG-15)
      */
     <M> Slice<M> page(ModelQuery<E, ?, M> q, PageSpec page, CountMode mode);
+
+    /**
+     * Reads one keyset page of {@code q}: the first page, the rows after a cursor or the rows before one, of
+     * {@code keyset.size()} rows, with the cursors that reach the neighbouring pages and no total (R-PAG-16). A cursor
+     * is opaque, carries the boundary row's keyset values readably and is only understood by the order that issued it
+     * (R-PAG-17, R-PAG-19); {@code before} reverses each key and its null rule and returns the page in the query's
+     * order (R-PAG-20). The flags need no second statement (R-PAG-21), and a page through a cursor whose rows hold
+     * that cursor's own primary key throws {@code MQ2205} (R-PAG-24). It needs a {@code keyset()} query and a fetch
+     * plan runs on the page's content (R-PAG-16, R-PAG-23).
+     *
+     * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2207} for a query without
+     *     {@code keyset()}, {@code MQ2204} for a selection read through a to-many join, {@code MQ2206} for a
+     *     {@code primaryKeyFirst(...)} query whose customizer narrows the phases differently, {@code MQ2210} for a
+     *     key column no codec carries, {@code MQ2209} for a cursor of another order and {@code MQ2208} for a decoded
+     *     value of the wrong type or a NULL in a refusing or primary-key column, all before any query runs; after
+     *     reading, {@code MQ2202} for a NULL in a refusing keyset column and {@code MQ2205} for the cursor's own key
+     * @implSpec R-PAG-16, R-PAG-17, R-PAG-18, R-PAG-19, R-PAG-20, R-PAG-21, R-PAG-22, R-PAG-23, R-PAG-24
+     */
+    @Incubating
+    <M> KeysetSlice<M> page(ModelQuery<E, ?, M> q, KeysetSpec keyset);
 
     /**
      * The number of rows {@code q} returns: the number of groups for a grouped query (R-EXE-03), the number of

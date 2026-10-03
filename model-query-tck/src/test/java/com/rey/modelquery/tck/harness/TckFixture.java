@@ -13,6 +13,7 @@ import java.sql.Types;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * The shared fixture (spec delivery/60 §2): DDL plus a deterministic seed. Every value is a pure function of the row
@@ -27,6 +28,8 @@ public final class TckFixture {
     public static final int COMPOSITE_ITEMS_PER_TENANT = 100;
     public static final int COMPOSITE_KEY_ITEMS = COMPOSITE_TENANTS * COMPOSITE_ITEMS_PER_TENANT;
     public static final int NULLABLE_SORT_ROWS = 3_000;
+    /** Rows of {@code keyset_types}, one per cursor type (TCK AC-PAG-18). */
+    public static final int KEYSET_TYPES = 1_000;
     public static final int LABELS = 10;
     /** Orders 1 to this one carry labels, many-to-many: one or two each, every label on many orders. */
     public static final int LABELED_ORDERS = 200;
@@ -70,7 +73,9 @@ public final class TckFixture {
             }
             String script = new String(in.readAllBytes(), StandardCharsets.UTF_8)
                     .replace("@COLLATE@", vendor.textCollation())
-                    .replace("@CI_TEXT@", vendor.caseInsensitiveText());
+                    .replace("@CI_TEXT@", vendor.caseInsensitiveText())
+                    .replace("@BINARY@", vendor.binaryType())
+                    .replace("@MICRO_TS@", vendor.microTimestamp());
             List<String> statements = new ArrayList<>(vendor.setup());
             statements.addAll(List.of(script.split(";\\s*\\n")));
             return statements.toArray(String[]::new);
@@ -154,6 +159,20 @@ public final class TckFixture {
                     ps.setLong(1, i);
                     ps.setString(2, NOTE_EMAILS.get(i - 1));
                     ps.setString(3, "note " + i);
+                });
+        // Keyset cursor types (AC-PAG-18): ties of 20, a scale-4 decimal, microseconds, a UUID, a byte[] and a
+        // converted value class, each a pure function of the row number.
+        insert(c, "INSERT INTO keyset_types (id, tie, amount, stamp, token, payload, shape) VALUES (?,?,?,?,?,?,?)",
+                KEYSET_TYPES, (ps, i) -> {
+                    ps.setLong(1, i);
+                    ps.setInt(2, i % 20);
+                    ps.setBigDecimal(3, BigDecimal.valueOf((i * 37L) % 10_000, 4));
+                    Timestamp stamp = Timestamp.valueOf(BASE.plusSeconds(i));
+                    stamp.setNanos((i % 997) * 1_000);
+                    ps.setTimestamp(4, stamp);
+                    ps.setString(5, new UUID(0, i).toString());
+                    ps.setBytes(6, new byte[] {(byte) (i >> 8), (byte) i});
+                    ps.setString(7, "shape-" + (i % 5));
                 });
     }
 

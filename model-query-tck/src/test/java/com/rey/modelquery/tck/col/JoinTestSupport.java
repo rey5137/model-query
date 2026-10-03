@@ -129,6 +129,7 @@ public final class JoinTestSupport {
                 .addAnnotatedClass(LabelEntity.class)
                 .addAnnotatedClass(CustomerNoteEntity.class)
                 .addAnnotatedClass(PatronEntity.class)
+                .addAnnotatedClass(KeysetTypeEntity.class)
                 .buildSessionFactory(registry);
     }
 }

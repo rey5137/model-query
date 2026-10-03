@@ -305,7 +305,8 @@ public sealed class ColumnField<M, T, C> implements SelectField<M, C> permits Or
      * The attribute path from the query's root: {@link #name()} for a root column, {@code customer.fullName} for a
      * column of a joined table. A sort property is matched against it after the property path (R-QRY-14).
      */
-    String path() {
+    @EngineFacing
+    public String path() {
         String above = table.path();
         return above.isEmpty() ? attribute : above + "." + attribute;
     }
@@ -332,7 +333,8 @@ public sealed class ColumnField<M, T, C> implements SelectField<M, C> permits Or
     }
 
     /** The entity attribute's type: {@link #type()} unless the column has a {@link ColumnConverter}. */
-    Class<?> attributeType() {
+    @EngineFacing
+    public Class<?> attributeType() {
         return attributeType;
     }
 

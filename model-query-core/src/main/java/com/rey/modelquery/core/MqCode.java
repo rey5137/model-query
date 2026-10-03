@@ -178,11 +178,26 @@ public enum MqCode {
     MQ2204("Offset export of an ungrouped query, keyset paging or the primary-key-first phase selected a column "
             + "through a to-many join"),
 
-    /** A keyset export page repeated a key of the page before (R-PAG-14, D-31). */
-    MQ2205("A keyset export page repeated a row of the page before"),
+    /**
+     * A keyset page holds the cursor's own primary key, or a keyset export page holds a key of the page before
+     * (R-PAG-14, R-PAG-24, D-31).
+     */
+    MQ2205("A keyset page holds the cursor's own primary key, or an export page repeated a row of the page before"),
 
     /** The customizer narrows the phases differently on a query with {@code primaryKeyFirst(...)} (R-PAG-15). */
     MQ2206("The phases of a query with primaryKeyFirst(...) disagree on its rows"),
+
+    /** A keyset page asked of a query without {@code keyset()} (R-PAG-16, R-QRY-03). */
+    MQ2207("A keyset page needs a keyset() query; add keyset() or page by PageSpec"),
+
+    /** A malformed or edited keyset cursor (R-PAG-18). */
+    MQ2208("The keyset cursor is not one this library issued; start again with KeysetSpec.first"),
+
+    /** A keyset cursor from another order, entity or deployment (R-PAG-19). */
+    MQ2209("The keyset cursor belongs to another order; start again with KeysetSpec.first"),
+
+    /** A keyset column cannot be carried in a cursor, or makes it longer than 8192 characters (R-PAG-17, R-PAG-18). */
+    MQ2210("A keyset column cannot be carried in a cursor, or makes it longer than 8192 characters"),
 
     /** A sort property names no selected column or aggregate, or more than one (R-QRY-14, D-52). */
     MQ2301("A sort property resolves to no selected column or to more than one"),

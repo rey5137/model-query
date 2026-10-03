@@ -55,4 +55,15 @@ CREATE TABLE customer_notes (
     id             BIGINT NOT NULL PRIMARY KEY,
     customer_email @CI_TEXT@ NOT NULL,
     body           VARCHAR(50) @COLLATE@ NOT NULL
+);
+-- One row per keyset cursor type (TCK AC-PAG-18): amount keeps a scale, stamp microseconds, token a UUID,
+-- payload a byte[] and shape a converted value class no cursor codec carries.
+CREATE TABLE keyset_types (
+    id      BIGINT NOT NULL PRIMARY KEY,
+    tie     INT NOT NULL,
+    amount  DECIMAL(12,4) NOT NULL,
+    stamp   @MICRO_TS@ NOT NULL,
+    token   VARCHAR(36) @COLLATE@ NOT NULL,
+    payload @BINARY@ NOT NULL,
+    shape   VARCHAR(20) @COLLATE@ NOT NULL
 )

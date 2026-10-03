@@ -11,6 +11,8 @@ import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.JoinContext;
 import com.rey.modelquery.core.JoinField;
 import com.rey.modelquery.core.JoinPlan;
+import com.rey.modelquery.core.KeysetSlice;
+import com.rey.modelquery.core.KeysetSpec;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
@@ -383,6 +385,99 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                         hasNext, OptionalLong.empty());
             }
         }
+    }
+
+    @Override
+    public <M> KeysetSlice<M> page(ModelQuery<E, ?, M> q, KeysetSpec keyset) {
+        Objects.requireNonNull(q, "q");
+        Objects.requireNonNull(keyset, "keyset");
+        if (!q.isKeyset()) {
+            // R-PAG-16: a keyset page needs a keyset() query, before any query runs (MQ2207).
+            throw new ModelQueryExecutionException(MqCode.MQ2207, q + ": page(query, KeysetSpec) needs a keyset() "
+                    + "query; add keyset() or page by PageSpec");
+        }
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL, renderOptions);
+        // Before any query, in R-PAG-16/R-PAG-23's order: the to-many selection, then the first-run phase check
+        // (R-PAG-15) and the fetch plan's own check, so MQ2207 and MQ2204 precede MQ2206 as the design orders them.
+        refuseToManySelection(q, built, "keyset paging");
+        checkFirstRun(q);
+        PrimaryKey<M, ?> key = q.primaryKey().orElseThrow(() -> new ModelQueryExecutionException(MqCode.MQ2203,
+                q + ": a keyset page needs a primary key to order and identify its rows"));
+        Keyset<M> forward = Keyset.of(q, key, vendor.profile().defaultAscendingNullOrdering(), providerNulls,
+                keysetNullKeys);
+        forward.unsupportedColumn().ifPresent(column -> {
+            // A key type no codec carries is refused before any query runs (R-PAG-17, MQ2210).
+            throw new ModelQueryExecutionException(MqCode.MQ2210, q + ": keyset column " + column.path() + " of type "
+                    + column.attributeType().getName() + " cannot be carried in a cursor");
+        });
+        if (keyset.hasCursor() && !Arrays.equals(forward.fingerprint(), keyset.fingerprint())) {
+            // Another sort, direction, precedence, entity or deployment: refused before any query runs (R-PAG-19).
+            throw new ModelQueryExecutionException(MqCode.MQ2209, q + ": the keyset cursor belongs to another order "
+                    + "(sort, direction, null precedence, entity or deployment changed); start again with "
+                    + "KeysetSpec.first");
+        }
+        Object[] cursor = keyset.hasCursor() ? forward.resolve(keyset.values(), q) : null;
+        Object cursorKey = cursor == null ? null : forward.primaryKeyOf(cursor);
+        boolean before = keyset.direction() == KeysetSpec.Direction.BEFORE;
+        // before reads the same rows from the other side, in flipped order, and reverses them below (R-PAG-20).
+        Keyset<M> readKeyset = before ? forward.reversed() : forward;
+        if (cursor != null) {
+            // The cursor predicate joins the query's own restriction.
+            Predicate after = readKeyset.after(cursor, built.joins(), cb);
+            Predicate own = built.query().getRestriction();
+            built.query().where(own == null ? after : cb.and(own, after));
+        }
+        readKeyset.applyOrder(built, cb);
+        int size = keyset.size();
+        // One row beyond the page tells whether another follows (R-PAG-21); size + 1 fits an int (KeysetSpec).
+        TypedQuery<Tuple> query = create(q, em, built.query(), readKeyset, cursor);
+        query.setMaxResults(size + 1);
+        List<Tuple> rows = rows(q, query);
+        // The null rule is read on every row, the look-ahead included (R-PAG-05, R-PAG-22).
+        for (Tuple tuple : rows) {
+            forward.cursor(built.selection().row(tuple));
+        }
+        boolean lookAhead = rows.size() > size;
+        List<Tuple> kept = lookAhead ? rows.subList(0, size) : rows;
+        if (before) {
+            // Drop the furthest look-ahead row, then reverse the rest into the query's order (R-PAG-20).
+            kept = new ArrayList<>(kept);
+            Collections.reverse(kept);
+        }
+        Set<Object> seen = new HashSet<>();
+        List<Loaded<M>> fresh = new ArrayList<>(kept.size());
+        for (Tuple tuple : kept) {
+            Row row = built.selection().row(tuple);
+            Object rowKey = Keys.keyOf(q, key, row);
+            if (cursorKey != null && cursorKey.equals(rowKey)) {
+                // The cursor did not survive being bound, or the boundary row moved (R-PAG-24, D-110).
+                throw new ModelQueryExecutionException(MqCode.MQ2205, q + ": a keyset page holds the cursor's own "
+                        + "primary key: a cursor value did not survive being bound, or the boundary row moved");
+            }
+            // A predicate's to-many join repeats its root within the page, and that repeat is dropped (R-PAG-02).
+            if (seen.add(rowKey)) {
+                fresh.add(new Loaded<>(built.map(row), row));
+            }
+        }
+        List<M> content = models(q, fresh);
+        // The flags need no second statement (R-PAG-21); an empty page has neither cursor (R-PAG-21).
+        Optional<String> previous = Optional.empty();
+        Optional<String> next = Optional.empty();
+        if (!content.isEmpty()) {
+            if (before) {
+                previous = lookAhead ? Optional.of(forward.encode(q, fresh.get(0).row())) : Optional.empty();
+                next = Optional.of(forward.encode(q, fresh.get(fresh.size() - 1).row()));
+            } else if (cursor != null) {
+                previous = Optional.of(forward.encode(q, fresh.get(0).row()));
+                next = lookAhead ? Optional.of(forward.encode(q, fresh.get(fresh.size() - 1).row()))
+                        : Optional.empty();
+            } else {
+                next = lookAhead ? Optional.of(forward.encode(q, fresh.get(fresh.size() - 1).row()))
+                        : Optional.empty();
+            }
+        }
+        return KeysetSlice.of(content, size, previous, next);
     }
 
     @Override
