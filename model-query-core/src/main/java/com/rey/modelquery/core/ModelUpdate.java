@@ -652,7 +652,7 @@ public final class ModelUpdate<E, M> {
          */
         public Resumable<E, K, M> where(UnaryOperator<Filters<M>> filters) {
             return new Resumable<>(draft.rows(WriteRows.where(FilterGroup.collect(
-                    Objects.requireNonNull(filters, "filters")))));
+                    draft.root().rootEntity(), Objects.requireNonNull(filters, "filters")))));
         }
 
         /** Writes every row; no {@code where} follows (R-WRT-12). */
@@ -753,7 +753,7 @@ public final class ModelUpdate<E, M> {
         /** Narrows the row by {@code filters}, ANDed with the key; skipping every filter leaves the key alone. */
         public Versioned<E, K, M> where(UnaryOperator<Filters<M>> filters) {
             return new Versioned<>(draft.rows(draft.rows().and(FilterGroup.collect(
-                    Objects.requireNonNull(filters, "filters")))));
+                    draft.root().rootEntity(), Objects.requireNonNull(filters, "filters")))));
         }
     }
 
@@ -774,7 +774,7 @@ public final class ModelUpdate<E, M> {
         /** Narrows the rows by {@code filters}, ANDed with the keys; skipping every filter leaves the keys alone. */
         public Options<E, K, M> where(UnaryOperator<Filters<M>> filters) {
             return new Options<>(draft.rows(draft.rows().and(FilterGroup.collect(
-                    Objects.requireNonNull(filters, "filters")))));
+                    draft.root().rootEntity(), Objects.requireNonNull(filters, "filters")))));
         }
     }
 

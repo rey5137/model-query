@@ -788,7 +788,8 @@ public final class ModelQuery<E, K, M> {
          */
         public Builder<E, K, M> where(UnaryOperator<Filters<M>> filters) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, customizer, FilterGroup.collect(Objects.requireNonNull(filters, "filters")), groupBy,
+                    finisher, customizer,
+                    FilterGroup.collect(root.rootEntity(), Objects.requireNonNull(filters, "filters")), groupBy,
                     having, fetch);
         }
 

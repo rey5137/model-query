@@ -64,8 +64,19 @@ public final class FetchPlan<M> {
                 throw twice(field.key().model(), field.name(), "child");
             }
         }
-        ChildQuery<C> load = Objects.requireNonNull(query.apply(ChildQuery.empty()), "query result");
+        ChildQuery<C> load = Objects.requireNonNull(query.apply(ChildQuery.empty(childRootEntity(plan))),
+                "query result");
         return new FetchPlan<>(select, append(children, new ChildLoad<>(field, plan, load)), joins, enrichers);
+    }
+
+    /** The entity {@code plan} selects from, from its first column; {@code null} when it selects only aggregates. */
+    private static Class<?> childRootEntity(FetchPlan<?> plan) {
+        for (SelectField<?, ?> field : plan.select().fields()) {
+            if (field instanceof ColumnField<?, ?, ?> column) {
+                return column.table().pathRoot();
+            }
+        }
+        return null;
     }
 
     /**

@@ -22,7 +22,11 @@ class ApiShapeCompileTest {
             "    static final ColumnField<Model, Entity, String> STATUS = ColumnField.of(Model.class, ROOT,",
             "            \"status\", String.class);",
             "    static final ColumnField<Other, Entity, String> OTHER_STATUS = ColumnField.of(Other.class, ROOT,",
-            "            \"status\", String.class);");
+            "            \"status\", String.class);",
+            "    static final ColumnField<Model, Entity, Long> ID = ColumnField.of(Model.class, ROOT, \"id\",",
+            "            Long.class);",
+            "    static final ColumnField<Model, Entity, Integer> SIZE = ColumnField.of(Model.class, ROOT, \"size\",",
+            "            Integer.class);");
     private static final String WHERE = "(java.util.function.UnaryOperator<Filters<Model>>) f -> f.";
 
     @Test
@@ -45,6 +49,20 @@ class ApiShapeCompileTest {
         assertThat(probe(out, "RowMapper.setters(Model::new).bind(STATUS, (m, v) -> m.status = v)")).isEmpty();
         assertThat(probe(out, "RowMapper.setters(Model::new).bind(OTHER_STATUS, (m, v) -> m.status = v)"))
                 .isNotEmpty();
+    }
+
+    @Test
+    void ac_flt_15_a_long_column_against_an_integer_sub_select_does_not_compile(@TempDir Path out) throws IOException {
+        assertThat(probe(out, WHERE + "in(SIZE, SubSelect.of(SIZE))")).isEmpty();
+        assertThat(probe(out, WHERE + "notIn(SIZE, SubSelect.of(SIZE))")).isEmpty();
+        assertThat(probe(out, WHERE + "in(ID, SubSelect.of(SIZE))")).isNotEmpty();
+        assertThat(probe(out, WHERE + "notIn(ID, SubSelect.of(SIZE))")).isNotEmpty();
+    }
+
+    @Test
+    void ac_flt_15_outer_column_given_another_models_column_does_not_compile(@TempDir Path out) throws IOException {
+        assertThat(probe(out, "((Outer<Model, Model>) null).column(STATUS)")).isEmpty();
+        assertThat(probe(out, "((Outer<Model, Model>) null).column(OTHER_STATUS)")).isNotEmpty();
     }
 
     @Test

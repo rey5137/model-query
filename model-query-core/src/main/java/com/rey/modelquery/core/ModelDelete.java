@@ -330,7 +330,7 @@ public final class ModelDelete<E, M> {
          */
         public Resumable<E, K, M> where(UnaryOperator<Filters<M>> filters) {
             return new Resumable<>(draft.rows(WriteRows.where(FilterGroup.collect(
-                    Objects.requireNonNull(filters, "filters")))));
+                    draft.root().rootEntity(), Objects.requireNonNull(filters, "filters")))));
         }
 
         /** Deletes every row; no {@code where} follows (R-WRT-12). */
@@ -399,7 +399,7 @@ public final class ModelDelete<E, M> {
         /** Narrows the rows by {@code filters}, ANDed with the keys; skipping every filter leaves the keys alone. */
         public Options<E, K, M> where(UnaryOperator<Filters<M>> filters) {
             return new Options<>(draft.rows(draft.rows().and(FilterGroup.collect(
-                    Objects.requireNonNull(filters, "filters")))));
+                    draft.root().rootEntity(), Objects.requireNonNull(filters, "filters")))));
         }
     }
 

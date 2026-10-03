@@ -21,6 +21,7 @@ import static com.rey.modelquery.test.FilterMatchers.not;
 import static com.rey.modelquery.test.FilterMatchers.notExists;
 import static com.rey.modelquery.test.FilterMatchers.notIn;
 import static com.rey.modelquery.test.FilterMatchers.or;
+import static com.rey.modelquery.test.FilterMatchers.outer;
 import static com.rey.modelquery.test.FilterMatchers.range;
 import static com.rey.modelquery.test.QueryAssertions.assertThatQuery;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -37,6 +38,7 @@ import com.rey.modelquery.core.Op;
 import com.rey.modelquery.core.OrderedColumnField;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.SelectSet;
+import com.rey.modelquery.core.SubSelect;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import jakarta.persistence.criteria.JoinType;
@@ -171,6 +173,46 @@ class QueryAssertTest {
                 .containsFilter(custom("region visible to user"))
                 .hasHaving(isNotNull(COUNT), FilterMatchers.in(COUNT, List.of(3L, 2L)), FilterMatchers.gt(COUNT, 1L))
                 .containsHaving(FilterMatchers.gt(COUNT, 1L));
+    }
+
+    @Test
+    void ac_ins_08_sub_select_matchers_match_and_a_failure_prints_the_tree() {
+        SubSelect<OrderView, Integer> sub = SubSelect.of(TOTAL).where(f -> f.gt(TOTAL, 0));
+        var q = query(f -> f.in(TOTAL, sub).notIn(TOTAL, sub)
+                .exists(sub, (s, outer) -> s.compare(TOTAL, Op.EQ, outer.column(TOTAL)))
+                .notExists(sub, (s, outer) -> s.isNull(outer.column(NAME))));
+
+        assertThatQuery(q).hasFilters(
+                in(TOTAL, sub), notIn(TOTAL, sub),
+                exists(sub, compare(TOTAL, Op.EQ, outer(TOTAL))),
+                notExists(sub, isNull(outer(NAME))));
+        assertThatQuery(q).containsFilter(in(TOTAL, sub));
+
+        // A sub-select built from different filters is not the recorded one, and the failure prints the tree.
+        SubSelect<OrderView, Integer> other = SubSelect.of(TOTAL);
+        assertThatThrownBy(() -> assertThatQuery(q).containsFilter(in(TOTAL, other)))
+                .isInstanceOf(AssertionError.class)
+                .hasMessageContaining("IN_SUBSELECT(OrderView.total, sub-select(")
+                .hasMessageContaining("EXISTS_SUBSELECT(sub-select(")
+                .hasMessageContaining("outer.OrderView.name");
+    }
+
+    @Test
+    void ac_ins_08_a_lifted_column_does_not_match_the_plain_column_it_lifts() {
+        SubSelect<OrderView, Integer> sub = SubSelect.of(TOTAL).where(f -> f.gt(TOTAL, 0));
+        // The correlation records ID as a plain column, and lifts NAME so MQ1309 is satisfied.
+        var plain = query(f -> f.exists(sub, (s, outer) -> s
+                .compare(ID, Op.EQ, ID)
+                .compare(NAME, Op.EQ, outer.column(NAME))));
+        assertThatThrownBy(() -> assertThatQuery(plain).containsFilter(exists(sub, compare(ID, Op.EQ, outer(ID)))))
+                .isInstanceOf(AssertionError.class);
+
+        // The reverse: the correlation records the lift, and a matcher naming the plain column does not match.
+        var lifted = query(f -> f.exists(sub, (s, outer) -> s
+                .compare(ID, Op.EQ, outer.column(ID))
+                .compare(NAME, Op.EQ, outer.column(NAME))));
+        assertThatThrownBy(() -> assertThatQuery(lifted).containsFilter(exists(sub, compare(ID, Op.EQ, ID))))
+                .isInstanceOf(AssertionError.class);
     }
 
     @Test

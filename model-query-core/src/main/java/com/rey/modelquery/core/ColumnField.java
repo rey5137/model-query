@@ -61,11 +61,23 @@ public sealed class ColumnField<M, T, C> implements SelectField<M, C> permits Or
     private final ColumnConverter<C, Object> converter;
     /** The model field the column fills, or {@code null}; not part of {@link #equals}. */
     private final String property;
+    /**
+     * The outer column an {@link Outer} lift reads, or {@code null} for a column of the query's own vocabulary. Part
+     * of {@link #equals}: a lift never equals the plain column it reads, so a correlation that records one and a
+     * matcher that names the other do not match (R-INS-08).
+     */
+    private final ColumnField<?, ?, ?> liftedFrom;
     /** Cached: a row looks every column up by it, once per row (R-COL-10). */
     private final int hash;
 
     ColumnField(Class<M> model, TableField<?, T> table, String attribute, Class<C> type,
             Class<?> attributeType, ColumnConverter<C, Object> converter, String property) {
+        this(model, table, attribute, type, attributeType, converter, property, null);
+    }
+
+    private ColumnField(Class<M> model, TableField<?, T> table, String attribute, Class<C> type,
+            Class<?> attributeType, ColumnConverter<C, Object> converter, String property,
+            ColumnField<?, ?, ?> liftedFrom) {
         this.model = model;
         this.table = table;
         this.attribute = attribute;
@@ -73,7 +85,30 @@ public sealed class ColumnField<M, T, C> implements SelectField<M, C> permits Or
         this.attributeType = attributeType;
         this.converter = converter;
         this.property = property;
-        this.hash = Objects.hash(model, table.key(), attribute, type, converterClass());
+        this.liftedFrom = liftedFrom;
+        this.hash = Objects.hash(model, table.key(), attribute, type, converterClass(), liftedFrom);
+    }
+
+    /**
+     * A column of the inner vocabulary {@code S} that reads {@code outer}'s entity attribute from the enclosing query:
+     * what {@link Outer#column(ColumnField)} returns. It keeps {@code outer}'s model, table, attribute and converter,
+     * but is not {@link #equals} {@code outer}: two lifts are equal only when the outer columns they read are equal.
+     * Its {@link #path} resolves through the correlation's outer context (R-FLT-17, R-INS-08).
+     */
+    @SuppressWarnings("unchecked")
+    static <S, T, C> ColumnField<S, T, C> lifted(ColumnField<?, T, C> outer) {
+        return new ColumnField<>((Class<S>) outer.model, outer.table, outer.attribute, outer.type,
+                outer.attributeType, outer.converter, outer.property, outer);
+    }
+
+    /** The outer column this lift reads, or empty for a column of the query's own vocabulary. */
+    Optional<ColumnField<?, ?, ?>> liftedFrom() {
+        return Optional.ofNullable(liftedFrom);
+    }
+
+    /** Whether this column is an {@link Outer} lift. */
+    boolean isLifted() {
+        return liftedFrom != null;
     }
 
     /**
@@ -154,6 +189,9 @@ public sealed class ColumnField<M, T, C> implements SelectField<M, C> permits Or
      *     sits on a root the query is not rooted at
      */
     public Path<C> path(JoinContext ctx) {
+        if (liftedFrom != null) {
+            return ctx.liftedColumn(this);
+        }
         From<?, T> from = table.resolve(Objects.requireNonNull(ctx, "ctx"), this);
         Path<C> path;
         if (attribute.indexOf('.') >= 0) {
@@ -242,6 +280,32 @@ public sealed class ColumnField<M, T, C> implements SelectField<M, C> permits Or
             return target instanceof ManagedType<?> managed ? managed : null;
         }
         return ((Root<?>) from).getModel();
+    }
+
+    /**
+     * Whether this column's attribute is an embeddable value, which row-value {@code IN} cannot portably compare
+     * (R-FLT-16, INV-6): the check {@code in} and {@code notIn} over a sub-select run at first resolution.
+     */
+    boolean embeddableValued(JoinContext ctx) {
+        if (liftedFrom != null) {
+            return false; // a lift's outer column is checked on the outer side
+        }
+        From<?, T> from = table.resolve(Objects.requireNonNull(ctx, "ctx"), this);
+        if (attribute.indexOf('.') >= 0) {
+            return false; // a dotted path ends at a basic leaf, never an embeddable
+        }
+        ManagedType<?> owner = managedType(from);
+        if (owner == null) {
+            return false;
+        }
+        Attribute<?, ?> found;
+        try {
+            found = owner.getAttribute(attribute);
+        } catch (IllegalArgumentException e) {
+            return false; // path(...) reports the missing attribute as MQ1002
+        }
+        return found instanceof SingularAttribute<?, ?> singular
+                && singular.getType() instanceof jakarta.persistence.metamodel.EmbeddableType<?>;
     }
 
     /**
@@ -395,7 +459,8 @@ public sealed class ColumnField<M, T, C> implements SelectField<M, C> permits Or
                 && table.key().equals(other.table.key())
                 && attribute.equals(other.attribute)
                 && type.equals(other.type)
-                && Objects.equals(converterClass(), other.converterClass());
+                && Objects.equals(converterClass(), other.converterClass())
+                && Objects.equals(liftedFrom, other.liftedFrom);
     }
 
     @Override
@@ -405,6 +470,6 @@ public sealed class ColumnField<M, T, C> implements SelectField<M, C> permits Or
 
     @Override
     public String toString() {
-        return model.getSimpleName() + "." + attribute;
+        return (liftedFrom != null ? "outer." : "") + model.getSimpleName() + "." + attribute;
     }
 }

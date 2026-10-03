@@ -6,6 +6,7 @@ import com.rey.modelquery.core.Condition.Kind;
 import com.rey.modelquery.core.LikeMode;
 import com.rey.modelquery.core.Op;
 import com.rey.modelquery.core.SelectField;
+import com.rey.modelquery.core.SubSelect;
 import com.rey.modelquery.core.TableField;
 import java.util.ArrayList;
 import java.util.List;
@@ -30,9 +31,16 @@ public final class ConditionMatcher {
     private final List<Object> values;
     private final String label;
     private final List<ConditionMatcher> children;
+    private final SubSelect<?, ?> subSelect;
 
     ConditionMatcher(Kind kind, SelectField<?, ?> column, SelectField<?, ?> right, Op op, LikeMode likeMode,
             TableField<?, ?> path, List<?> values, String label, List<ConditionMatcher> children) {
+        this(kind, column, right, op, likeMode, path, values, label, children, null);
+    }
+
+    ConditionMatcher(Kind kind, SelectField<?, ?> column, SelectField<?, ?> right, Op op, LikeMode likeMode,
+            TableField<?, ?> path, List<?> values, String label, List<ConditionMatcher> children,
+            SubSelect<?, ?> subSelect) {
         this.kind = Objects.requireNonNull(kind, "kind");
         this.column = column;
         this.right = right;
@@ -42,6 +50,7 @@ public final class ConditionMatcher {
         this.values = new ArrayList<>(values);
         this.label = label;
         this.children = List.copyOf(children);
+        this.subSelect = subSelect;
     }
 
     /** Whether {@code condition} is the one this matcher describes, with every operand matching in order. */
@@ -53,6 +62,7 @@ public final class ConditionMatcher {
                 || condition.likeMode().orElse(null) != likeMode
                 || !Objects.equals(condition.path().orElse(null), path)
                 || !Objects.equals(condition.label().orElse(null), label)
+                || !Objects.equals(condition.subSelect().orElse(null), subSelect)
                 || !valuesMatch(condition.values())
                 || condition.children().size() != children.size()) {
             return false;
@@ -79,7 +89,7 @@ public final class ConditionMatcher {
 
     @Override
     public String toString() {
-        return ConditionText.format(kind, column, op, right, path, values, likeMode, label,
+        return ConditionText.format(kind, column, op, right, path, values, likeMode, label, subSelect,
                 children.stream().map(ConditionMatcher::toString).toList());
     }
 }

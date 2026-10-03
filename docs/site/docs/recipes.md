@@ -33,6 +33,74 @@ The subclass adds the fragment only to the repositories that extend `ModelQueryR
 
 Tested by `CustomFactoryBeanTest`.
 
+## Filter by a sub-query
+
+The case in one line: a filter whose values come from another query, or a row that exists only when another root has
+a matching row, with no association mapped between the two roots (D-111 item 2).
+
+A `SubSelect` is one column of another root with its own filters. It is immutable, so it can be a constant:
+
+```java
+record I(Long orderId, String productCode, Integer quantity) {}
+
+private static final TableField<PlainOrderItemEntity, PlainOrderItemEntity> PLAIN_ITEMS =
+        TableField.root(PlainOrderItemEntity.class);
+private static final ColumnField<I, PlainOrderItemEntity, Long> ITEM_ORDER_ID =
+        ColumnField.of(I.class, PLAIN_ITEMS, "orderId", Long.class);
+private static final ColumnField<I, PlainOrderItemEntity, String> ITEM_PRODUCT =
+        ColumnField.of(I.class, PLAIN_ITEMS, "productCode", String.class);
+
+// The items of product P007. PlainOrderItemEntity has no association to orders.
+private static final SubSelect<I, Long> P007_ITEMS =
+        SubSelect.of(ITEM_ORDER_ID).where(f -> f.eq(ITEM_PRODUCT, "P007"));
+```
+
+`in` and `notIn` take it uncorrelated. A `NULL` column value never empties a `notIn`, and an empty sub-select keeps
+its usual meaning — `in` matches nothing, `notIn` every row:
+
+```java
+ORDER_QUERY.where(f -> f.in(ID, P007_ITEMS)).build();      // orders with a P007 item
+ORDER_QUERY.where(f -> f.notIn(ID, P007_ITEMS)).build();   // orders without one, NULL columns kept (R-FLT-16)
+```
+
+`exists` on such an unmapped root states the correlation explicitly, since there is no association to follow:
+
+```java
+ORDER_QUERY.where(f -> f.exists(P007_ITEMS,
+        (inner, outer) -> inner.compare(ITEM_ORDER_ID, Op.EQ, outer.column(ID)))).build();
+```
+
+Tested by `SubSelectTest`.
+
+## Correlate an exists to the outer row
+
+The case in one line: a correlated `exists` whose inner predicate compares an inner column to a column of the outer
+root, so the sub-query reads the row being filtered (D-111 item 5).
+
+`outer.column(...)` lifts an outer-root column into the sub-select's vocabulary. It goes anywhere an inner column
+goes, so `compare` puts it on one side, and `or` can mix inner and lifted conditions:
+
+```java
+private static final ColumnField<O, OrderEntity, BigDecimal> TOTAL =
+        ColumnField.of(O.class, ORDERS, "total", BigDecimal.class);
+private static final ColumnField<I, PlainOrderItemEntity, Integer> ITEM_QUANTITY =
+        ColumnField.of(I.class, PLAIN_ITEMS, "quantity", Integer.class);
+
+ORDER_QUERY.where(f -> f.exists(P007_ITEMS,
+        (inner, outer) -> inner.compare(ITEM_ORDER_ID, Op.EQ, outer.column(ID)))).build();
+
+// notExists is the mirror image, and one branch of an or may read the outer row too.
+ORDER_QUERY.where(f -> f.notExists(P007_ITEMS,
+        (inner, outer) -> inner.compare(ITEM_ORDER_ID, Op.EQ, outer.column(ID)))).build();
+ORDER_QUERY.where(f -> f.exists(P007_ITEMS, (inner, outer) -> inner
+        .compare(ITEM_ORDER_ID, Op.EQ, outer.column(ID))
+        .or(a -> a.eq(ITEM_QUANTITY, 9),
+                b -> b.lt(outer.column(TOTAL), new BigDecimal("100.00"))))).build();
+```
+
+The lifted column must sit on the outer query's root, so the outer query joins nothing; the sub-query reads the
+outer row through a correlation. Tested by `SubSelectTest`.
+
 ## Enrich a joined model
 
 The case in one line: fill a field of the model behind a `@Join` from your own lookup, once per page.

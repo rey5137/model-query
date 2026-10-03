@@ -108,5 +108,31 @@ The available filters:
 export need no de-duplication, which makes it the preferred form for "has a child matching X". Columns inside
 `inner` must sit on the given path or below it.
 
+### Sub-selects
+
+`in` and `notIn` also take a `SubSelect` — one column of another root with its own filters — instead of a list:
+
+```java
+var p007Items = SubSelect.of(ITEM_ORDER_ID).where(f -> f.eq(ITEM_PRODUCT, "P007"));
+.where(f -> f.in(ID, p007Items))
+.where(f -> f.notIn(ID, p007Items))
+```
+
+`notIn` over a sub-select adds `IS NOT NULL` inside and `OR col IS NULL` outside, so a `NULL` among the sub-select's
+values never empties the result and rows whose own column is `NULL` are kept — the same rows as a `notExists`
+correlated on equality (R-FLT-16). An empty sub-select keeps the empty-list rule: `in` matches nothing, `notIn`
+every row.
+
+A sub-select is never correlated; for "a row the sub-select matches" use `exists`, and where there is no association
+between the roots, lift the outer column with `outer.column(...)`:
+
+```java
+.where(f -> f.exists(p007Items,
+        (inner, outer) -> inner.compare(ITEM_ORDER_ID, Op.EQ, outer.column(ID))))
+```
+
+The lifted column must sit on the outer root, so the outer query joins nothing. On PostgreSQL, prefer `notExists`
+over a large `notIn` sub-select.
+
 `Filters` builds `WHERE` predicates only. Conditions on aggregates go through `having`; see
 [Grouped queries](grouped-queries.md).

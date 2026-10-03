@@ -32,6 +32,12 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
   `ModelQueryRepository`, and the custom base class keeps working for all of them, so a repository migrates one at a
   time (R-SPR-02, R-SPR-12, D-50, D-83). The migration recipes add the custom factory bean, a nested-join enricher and
   a composite-key user-profile enricher (D-111).
+- `Filters.in` and `notIn` take a `SubSelect` — one column of another root with its own filters — and `exists` and
+  `notExists` take one with an explicit correlation: `Outer.column(...)` lifts a column of the enclosing query's root
+  into the sub-select, where `or` and `not` may mix inner and lifted conditions, and a `notIn` never lets a `NULL`
+  value of the sub-select empty the result (R-FLT-15, R-FLT-16, R-FLT-17, D-112). A bulk delete whose sub-select reads
+  its target table now runs key-first on MySQL (R-WRT-11), and the migration recipes add the sub-select and
+  correlated-`exists` cases.
 
 ### Changed
 

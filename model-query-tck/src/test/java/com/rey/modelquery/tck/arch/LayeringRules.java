@@ -25,9 +25,13 @@ final class LayeringRules {
     private static final String ENGINE_FACING = "com.rey.modelquery.core.EngineFacing";
     /** The one {@code @EngineFacing} type {@code test} may hold: a fetch plan's child load (D-104). */
     private static final String CHILD_LOAD = "com.rey.modelquery.core.ChildLoad";
-    /** The {@code @EngineFacing} members {@code test} may call, to assert a child query (D-104). */
-    private static final Set<String> CHILD_READS = Set.of("com.rey.modelquery.core.FetchPlan.childLoads",
-            CHILD_LOAD + ".field", CHILD_LOAD + ".query", CHILD_LOAD + ".maxPerParent", CHILD_LOAD + ".toString");
+    /**
+     * The {@code @EngineFacing} members {@code test} may call: to assert a child query (D-104), and to build the
+     * lifted column {@code outer(col)} matches (D-112, R-INS-08).
+     */
+    private static final Set<String> ENGINE_READS = Set.of("com.rey.modelquery.core.FetchPlan.childLoads",
+            CHILD_LOAD + ".field", CHILD_LOAD + ".query", CHILD_LOAD + ".maxPerParent", CHILD_LOAD + ".toString",
+            "com.rey.modelquery.core.Outer.reference");
 
     private final String root;
     private final boolean allowEmptyShould;
@@ -54,7 +58,8 @@ final class LayeringRules {
                 .that()
                 .resideInAPackage(pkg("core"))
                 .should()
-                .onlyDependOnClassesThat(resideInAnyPackage(pkg("core"), pkg("annotations"), "java..", "jakarta.persistence.."))
+                .onlyDependOnClassesThat(
+                        resideInAnyPackage(pkg("core"), pkg("annotations"), "java..", "jakarta.persistence.."))
                 .as("core imports only jakarta.persistence, annotations and the JDK")
                 .allowEmptyShould(allowEmptyShould);
     }
@@ -155,9 +160,9 @@ final class LayeringRules {
 
     /**
      * {@code test} calls or accesses no member annotated {@code @EngineFacing} and uses no type annotated with it, so
-     * an assertion reads the query's public view and never an engine seam (api/16 R-INS-06). The one exception is a
-     * child query's assertion, which reads {@code FetchPlan.childLoads()} and a {@code ChildLoad}'s field, query,
-     * bound and name, and nothing else of it (D-104).
+     * an assertion reads the query's public view and never an engine seam (api/16 R-INS-06). Two exceptions: a child
+     * query's assertion reads {@code FetchPlan.childLoads()} and a {@code ChildLoad}'s field, query, bound and name
+     * (D-104), and {@code outer(col)} builds its lifted column through {@code Outer.reference} (D-112, R-INS-08).
      */
     ArchRule testUsesNoEngineFacingMember() {
         return noClasses()
@@ -174,7 +179,7 @@ final class LayeringRules {
             public void check(JavaClass origin, ConditionEvents events) {
                 for (JavaAccess<?> access : origin.getAccessesFromSelf()) {
                     AccessTarget target = access.getTarget();
-                    if (CHILD_READS.contains(target.getFullName().replaceFirst("\\(.*", ""))) {
+                    if (ENGINE_READS.contains(target.getFullName().replaceFirst("\\(.*", ""))) {
                         continue;
                     }
                     boolean member = target.resolveMember().map(m -> m.isAnnotatedWith(ENGINE_FACING)).orElse(false);

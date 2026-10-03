@@ -193,11 +193,15 @@ class QueryInspectionTest {
 
     @Test
     void ac_ins_01_every_kind_is_recorded_by_some_operator() {
+        SubSelect<OrderView, String> sub = SubSelect.of(NAME);
         Set<Kind> seen = EnumSet.noneOf(Kind.class);
         collect(seen, conditions(f -> f
                 .eq(NAME, "a").ne(NAME, "b").gt(TOTAL, 1).gte(TOTAL, 2).lt(TOTAL, 3).lte(TOTAL, 4)
                 .range(TOTAL, Optional.of(5), Optional.of(6)).between(TOTAL, 7, 8)
                 .in(TOTAL, List.of(9)).notIn(TOTAL, List.of(10))
+                .in(NAME, sub).notIn(NAME, sub)
+                .exists(sub, (s, outer) -> s.eq(outer.column(NAME), "x"))
+                .notExists(sub, (s, outer) -> s.isNull(outer.column(NAME)))
                 .like(NAME, "c", LikeMode.EXACT).likeIgnoreCase(NAME, "d", LikeMode.EXACT).eqIgnoreCase(NAME, "e")
                 .isNull(NAME).isNotNull(NAME).compare(TOTAL, Op.EQ, DISCOUNT)
                 .or(a -> a.eq(NAME, "f").eq(NAME, "g"), b -> b.isNull(TOTAL)).not(g -> g.eq(NAME, "h"))

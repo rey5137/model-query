@@ -1,0 +1,3 @@
+select oe1_0.id,oe1_0.status,oe1_0.total,oe1_0.referrer_id from orders oe1_0 where exists(select 1 from order_items poie1_0 where poie1_0.product_code=? and poie1_0.order_id=oe1_0.id) order by 1
+select oe1_0.id,oe1_0.status,oe1_0.total,oe1_0.referrer_id from orders oe1_0 where not exists(select 1 from order_items poie1_0 where poie1_0.product_code=? and poie1_0.order_id=oe1_0.id) order by 1
+select oe1_0.id,oe1_0.status,oe1_0.total,oe1_0.referrer_id from orders oe1_0 where exists(select 1 from order_items poie1_0 where poie1_0.product_code=? and poie1_0.order_id=oe1_0.id and (poie1_0.quantity=? or oe1_0.total<?)) order by 1

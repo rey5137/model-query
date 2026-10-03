@@ -74,8 +74,22 @@ public enum MqCode {
     /** A statement binds more values than one statement takes, though no one filter does (R-FLT-09, D-80). */
     MQ1307("A statement binds more values than one statement can bind; narrow its filters"),
 
-    /** A column converter's {@code toAttribute} rejected a value, such as an {@code Instant} beyond {@code Timestamp}. */
+    /**
+     * A column converter's {@code toAttribute} rejected a value, such as an {@code Instant} beyond {@code Timestamp}.
+     */
     MQ1308("A value cannot be converted to its column's attribute type"),
+
+    /** {@code exists} or {@code notExists} over a sub-select whose correlation lifts no outer column. */
+    MQ1309("exists(...) or notExists(...) over a sub-select needs a correlation that lifts an outer column"),
+
+    /** An {@code Outer.column} resolved outside the correlation it was made in, or lifted through two levels. */
+    MQ1310("An Outer.column was resolved outside the correlation it was made in, or lifted through two levels"),
+
+    /** {@code Outer.column} given a column that is not on the outer query's root. */
+    MQ1311("Outer.column(...) takes a column of the outer query's root"),
+
+    /** {@code in} or {@code notIn} over a sub-select with an embeddable-valued column on either side. */
+    MQ1312("in(...) and notIn(...) over a sub-select do not take an embeddable-valued column"),
 
     /** A selected non-aggregate column is not in the group-by (R-AGG-08). */
     MQ1401("A selected non-aggregate column is not in the group-by"),

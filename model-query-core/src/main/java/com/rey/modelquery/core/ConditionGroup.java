@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.BiFunction;
 import java.util.function.UnaryOperator;
 
 /**
@@ -65,6 +66,30 @@ abstract class ConditionGroup<M, G> {
         } finally {
             group.closed = true;
         }
+    }
+
+    /**
+     * Runs the two-argument {@code operator} on {@code group}, the shape a correlated {@code exists} takes: its
+     * correlation receives the sub-select's inner group and its {@link Outer}.
+     */
+    static <M, G, X> List<Filter> collect(ConditionGroup<M, G> group, BiFunction<G, X, G> operator, X argument) {
+        try {
+            operator.apply(group.self(), argument);
+            return List.copyOf(group.filters);
+        } finally {
+            group.closed = true;
+        }
+    }
+
+    /** Marks this group as in use by a nested operator, so a filter meant for the branch cannot land here. */
+    final void beginNesting() {
+        checkOpen();
+        nesting = true;
+    }
+
+    /** Ends {@link #beginNesting()}. */
+    final void endNesting() {
+        nesting = false;
     }
 
     /** The predicates of one group against one build's joins, rendered as {@link #clausePredicates} renders. */
@@ -578,12 +603,12 @@ abstract class ConditionGroup<M, G> {
     }
 
     /** The {@link ColumnField} with a {@link ColumnConverter} that maps {@code column}'s values, or {@code null}. */
-    private static ColumnField<?, ?, ?> converted(SelectField<?, ?> column) {
+    static ColumnField<?, ?, ?> converted(SelectField<?, ?> column) {
         ColumnField<?, ?, ?> values = ColumnField.valueColumn(column);
         return values != null && values.isConverted() ? values : null;
     }
 
-    private static Class<?> attributeType(SelectField<?, ?> column) {
+    static Class<?> attributeType(SelectField<?, ?> column) {
         ColumnField<?, ?, ?> values = ColumnField.valueColumn(column);
         return values != null ? values.attributeType() : column.type();
     }

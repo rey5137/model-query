@@ -5,6 +5,7 @@ import com.rey.modelquery.core.Condition.Kind;
 import com.rey.modelquery.core.LikeMode;
 import com.rey.modelquery.core.Op;
 import com.rey.modelquery.core.SelectField;
+import com.rey.modelquery.core.SubSelect;
 import com.rey.modelquery.core.TableField;
 import java.util.ArrayList;
 import java.util.List;
@@ -23,6 +24,7 @@ final class ConditionText {
         return format(condition.kind(), condition.column().orElse(null), condition.op().orElse(null),
                 condition.right().orElse(null), condition.path().orElse(null), condition.values(),
                 condition.likeMode().orElse(null), condition.label().orElse(null),
+                condition.subSelect().orElse(null),
                 condition.children().stream().map(ConditionText::describe).toList());
     }
 
@@ -31,13 +33,14 @@ final class ConditionText {
         out.append("  ".repeat(depth))
                 .append(format(condition.kind(), condition.column().orElse(null), condition.op().orElse(null),
                         condition.right().orElse(null), condition.path().orElse(null), condition.values(),
-                        condition.likeMode().orElse(null), condition.label().orElse(null), List.of()))
+                        condition.likeMode().orElse(null), condition.label().orElse(null),
+                        condition.subSelect().orElse(null), List.of()))
                 .append('\n');
         condition.children().forEach(child -> tree(child, depth + 1, out));
     }
 
     static String format(Kind kind, SelectField<?, ?> column, Op op, SelectField<?, ?> right, TableField<?, ?> path,
-            List<?> values, LikeMode likeMode, String label, List<String> children) {
+            List<?> values, LikeMode likeMode, String label, SubSelect<?, ?> subSelect, List<String> children) {
         var parts = new ArrayList<String>();
         if (column != null) {
             parts.add(column.toString());
@@ -61,6 +64,9 @@ final class ConditionText {
         }
         if (label != null) {
             parts.add('"' + label + '"');
+        }
+        if (subSelect != null) {
+            parts.add(subSelect.toString());
         }
         parts.addAll(children);
         return kind + "(" + String.join(", ", parts) + ")";

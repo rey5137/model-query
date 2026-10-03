@@ -22,6 +22,7 @@ import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.PersistenceContextMode;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.SelectSet;
+import com.rey.modelquery.core.SubSelect;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
@@ -485,6 +486,43 @@ class BulkWriteTest {
                 .exists(CUSTOMER_ORDERS, g -> g.eq(CUSTOMER_ORDER_STATUS, "CANCELLED"))
                 .lt(ID, 300L);
         assertWritesTheRowsTheReadReturns(db, "wrt-07-exists-back-to-root", ModelQueryConfig.defaults(), where);
+    }
+
+    @TckTest
+    void ac_flt_16_a_bulk_delete_whose_sub_select_reads_its_target_runs_key_first_on_mysql(TckDatabase db) {
+        // The sub-select reads order_items, the delete's own table: where the database cannot read its target in a
+        // sub-query it selects the matching keys first, then deletes by key with the root terms re-applied (R-WRT-11).
+        SubSelect<ItemPatch, Long> cancelled = SubSelect.of(ITEM_ID).where(f -> f.eq(ITEM_ORDER_STATUS, "CANCELLED"));
+        UnaryOperator<Filters<ItemPatch>> where = f -> f.in(ITEM_ID, cancelled).lte(ITEM_ID, 300L);
+        var read = ModelQuery.builder(ITEMS, row -> new ItemPatch(row.get(ITEM_ID)))
+                .select(SelectSet.of(ITEM_ID)).primaryKey(PrimaryKey.of(ITEM_ID)).where(where).build();
+        var delete = ModelDelete.builder(ITEMS).primaryKey(PrimaryKey.of(ITEM_ID)).where(where).build();
+        List<Long> expected = new ArrayList<>();
+        var left = new ArrayList<Long>();
+        long[] deleted = new long[1];
+        inRolledBackTransaction(JoinTestSupport.dataSource(db),
+                em -> ModelQueryExecutor.create(em, OrderItemEntity.class, ModelQueryConfig.defaults())
+                        .list(read, Limit.unlimited()).forEach(item -> expected.add(item.id())));
+
+        List<String> sql = SqlSnapshots.assertMatches(db, "flt-16-sub-select-delete", ds -> inRolledBackTransaction(ds,
+                em -> {
+                    deleted[0] = ModelQueryExecutor.create(em, OrderItemEntity.class, ModelQueryConfig.defaults())
+                            .delete(delete);
+                    left.addAll(em.createQuery("select i.id from OrderItemEntity i where i.id <= 300", Long.class)
+                            .getResultList());
+                }));
+
+        assertThat(expected).isNotEmpty();
+        assertThat(deleted[0]).isEqualTo(expected.size());
+        assertThat(left).hasSize(300 - expected.size()).doesNotContainAnyElementsOf(expected);
+        if (!targetTableInSubquery(db)) {
+            assertThat(keySelects(sql)).as("key select").isNotEmpty();
+            assertThat(writes(sql, "delete")).isNotEmpty().allSatisfy(statement -> assertThat(statement)
+                    .doesNotContain("select"));
+        } else {
+            assertThat(keySelects(sql)).as("key select").isEmpty();
+            assertThat(writes(sql, "delete")).singleElement().asString().contains("in ((select");
+        }
     }
 
     @TckTest

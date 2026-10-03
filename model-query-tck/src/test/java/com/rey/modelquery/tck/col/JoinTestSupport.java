@@ -94,7 +94,8 @@ public final class JoinTestSupport {
     public static SessionFactory sessionFactoryReleasingAfterStatement(DataSource dataSource) {
         return build(new StandardServiceRegistryBuilder()
                 .applySetting(AvailableSettings.JAKARTA_NON_JTA_DATASOURCE, dataSource)
-                .applySetting(AvailableSettings.CONNECTION_HANDLING, "DELAYED_ACQUISITION_AND_RELEASE_AFTER_STATEMENT"));
+                .applySetting(AvailableSettings.CONNECTION_HANDLING,
+                        "DELAYED_ACQUISITION_AND_RELEASE_AFTER_STATEMENT"));
     }
 
     /** Runs {@code work} where no {@code ServiceLoader} service file is visible: the executor as without add-ons. */
@@ -123,6 +124,7 @@ public final class JoinTestSupport {
                 .addAnnotatedClass(CustomerEntity.class)
                 .addAnnotatedClass(OrderEntity.class)
                 .addAnnotatedClass(OrderItemEntity.class)
+                .addAnnotatedClass(PlainOrderItemEntity.class)
                 .addAnnotatedClass(NullableSortEntity.class)
                 .addAnnotatedClass(CompositeKeyItemEntity.class)
                 .addAnnotatedClass(StampedOrderEntity.class)

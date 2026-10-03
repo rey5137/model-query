@@ -8,7 +8,9 @@ import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.Condition.Kind;
 import com.rey.modelquery.core.LikeMode;
 import com.rey.modelquery.core.Op;
+import com.rey.modelquery.core.Outer;
 import com.rey.modelquery.core.SelectField;
+import com.rey.modelquery.core.SubSelect;
 import com.rey.modelquery.core.TableField;
 import java.util.Collection;
 import java.util.List;
@@ -237,6 +239,46 @@ public final class FilterMatchers {
     public static ConditionMatcher notExists(TableField<?, ?> path, ConditionMatcher... inner) {
         return new ConditionMatcher(Kind.NOT_EXISTS, null, null, null, null, requireNonNull(path, "path"), List.of(),
                 null, List.of(inner));
+    }
+
+    // ---- sub-selects (R-INS-08)
+
+    /** Matches in(column, sub) (IN_SUBSELECT): the column and the sub-select's column, root and conditions. */
+    public static <C> ConditionMatcher in(ColumnField<?, ?, C> column, SubSelect<?, C> sub) {
+        requireNonNull(column, "column");
+        requireNonNull(sub, "sub");
+        return new ConditionMatcher(Kind.IN_SUBSELECT, column, null, null, null, null, List.of(), null, List.of(),
+                sub);
+    }
+
+    /** Matches notIn(column, sub) (NOT_IN_SUBSELECT). */
+    public static <C> ConditionMatcher notIn(ColumnField<?, ?, C> column, SubSelect<?, C> sub) {
+        requireNonNull(column, "column");
+        requireNonNull(sub, "sub");
+        return new ConditionMatcher(Kind.NOT_IN_SUBSELECT, column, null, null, null, null, List.of(), null, List.of(),
+                sub);
+    }
+
+    /** Matches exists(sub, correlation...) (EXISTS_SUBSELECT), the correlation matchers in order. */
+    public static ConditionMatcher exists(SubSelect<?, ?> sub, ConditionMatcher... correlation) {
+        requireNonNull(sub, "sub");
+        return new ConditionMatcher(Kind.EXISTS_SUBSELECT, null, null, null, null, null, List.of(), null,
+                List.of(correlation), sub);
+    }
+
+    /** Matches notExists(sub, correlation...) (NOT_EXISTS_SUBSELECT), the correlation matchers in order. */
+    public static ConditionMatcher notExists(SubSelect<?, ?> sub, ConditionMatcher... correlation) {
+        requireNonNull(sub, "sub");
+        return new ConditionMatcher(Kind.NOT_EXISTS_SUBSELECT, null, null, null, null, null, List.of(), null,
+                List.of(correlation), sub);
+    }
+
+    /**
+     * The lifted column {@code Outer.column(column)} builds, for a correlation's matcher (R-INS-08). It equals the
+     * column an actual correlation recorded, and its text marks it {@code outer.}.
+     */
+    public static <S, T, C> ColumnField<S, T, C> outer(ColumnField<S, T, C> column) {
+        return Outer.reference(requireNonNull(column, "column"));
     }
 
     /** Matches a custom filter added with {@code add(label, ...)}; the predicate is opaque, so the label is all. */

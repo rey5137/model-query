@@ -70,6 +70,14 @@ public final class Condition {
         EXISTS,
         /** {@code notExists}: {@code path} and {@code children}, ANDed. */
         NOT_EXISTS,
+        /** {@code in} over a sub-select: {@code column} and {@code subSelect}, never {@code values}. */
+        IN_SUBSELECT,
+        /** {@code notIn} over a sub-select: {@code column} and {@code subSelect}, never {@code values}. */
+        NOT_IN_SUBSELECT,
+        /** {@code exists} over a sub-select: {@code subSelect} and the correlation as {@code children}. */
+        EXISTS_SUBSELECT,
+        /** {@code notExists} over a sub-select: {@code subSelect} and the correlation as {@code children}. */
+        NOT_EXISTS_SUBSELECT,
         /** {@code add}: {@code label} when given; nothing else about the predicate is recorded. */
         CUSTOM
     }
@@ -83,9 +91,10 @@ public final class Condition {
     private final List<Object> values;
     private final List<Condition> children;
     private final String label;
+    private final SubSelect<?, ?> subSelect;
 
     private Condition(Kind kind, SelectField<?, ?> column, SelectField<?, ?> right, Op op, LikeMode likeMode,
-            TableField<?, ?> path, List<?> values, List<Condition> children, String label) {
+            TableField<?, ?> path, List<?> values, List<Condition> children, String label, SubSelect<?, ?> subSelect) {
         this.kind = kind;
         this.column = column;
         this.right = right;
@@ -95,36 +104,49 @@ public final class Condition {
         this.values = List.copyOf(values);
         this.children = List.copyOf(children);
         this.label = label;
+        this.subSelect = subSelect;
     }
 
     /** A condition on {@code column} with {@code values}, as passed: a comparison, a range, a set or a null test. */
     static Condition of(Kind kind, SelectField<?, ?> column, List<?> values) {
-        return new Condition(kind, column, null, null, null, null, values, List.of(), null);
+        return new Condition(kind, column, null, null, null, null, values, List.of(), null, null);
     }
 
     /** {@code LIKE} or {@code LIKE_IGNORE_CASE} on {@code column}, with {@code value} as passed. */
     static Condition like(Kind kind, SelectField<?, ?> column, String value, LikeMode mode) {
-        return new Condition(kind, column, null, null, mode, null, List.of(value), List.of(), null);
+        return new Condition(kind, column, null, null, mode, null, List.of(value), List.of(), null, null);
     }
 
     /** {@code COMPARE} of {@code left} with {@code right}. */
     static Condition compare(SelectField<?, ?> left, Op op, SelectField<?, ?> right) {
-        return new Condition(Kind.COMPARE, left, right, op, null, null, List.of(), List.of(), null);
+        return new Condition(Kind.COMPARE, left, right, op, null, null, List.of(), List.of(), null, null);
     }
 
     /** {@code AND}, {@code OR} or {@code NOT} over {@code children}. */
     static Condition group(Kind kind, List<Condition> children) {
-        return new Condition(kind, null, null, null, null, null, List.of(), children, null);
+        return new Condition(kind, null, null, null, null, null, List.of(), children, null, null);
     }
 
     /** {@code EXISTS} or {@code NOT_EXISTS} a row of {@code path} meeting {@code children}. */
     static Condition exists(Kind kind, TableField<?, ?> path, List<Condition> children) {
-        return new Condition(kind, null, null, null, null, path, List.of(), children, null);
+        return new Condition(kind, null, null, null, null, path, List.of(), children, null, null);
+    }
+
+    /** {@code IN_SUBSELECT} or {@code NOT_IN_SUBSELECT} over {@code sub}. */
+    static Condition inSubSelect(Kind kind, SelectField<?, ?> column, SubSelect<?, ?> sub) {
+        return new Condition(kind, column, null, null, null, null, List.of(), List.of(), null,
+                Objects.requireNonNull(sub, "sub"));
+    }
+
+    /** {@code EXISTS_SUBSELECT} or {@code NOT_EXISTS_SUBSELECT} over {@code sub}, with {@code children}. */
+    static Condition existsSubSelect(Kind kind, SubSelect<?, ?> sub, List<Condition> children) {
+        return new Condition(kind, null, null, null, null, null, List.of(), children, null,
+                Objects.requireNonNull(sub, "sub"));
     }
 
     /** {@code CUSTOM}, labelled with {@code label}, or {@code null} for none. */
     static Condition custom(String label) {
-        return new Condition(Kind.CUSTOM, null, null, null, null, null, List.of(), List.of(), label);
+        return new Condition(Kind.CUSTOM, null, null, null, null, null, List.of(), List.of(), label, null);
     }
 
     /** What this condition records. */
@@ -172,6 +194,12 @@ public final class Condition {
         return Optional.ofNullable(label);
     }
 
+    /** The sub-select of one of the four {@code *_SUBSELECT} kinds (R-INS-08). */
+    @Incubating
+    public Optional<SubSelect<?, ?>> subSelect() {
+        return Optional.ofNullable(subSelect);
+    }
+
     @Override
     public boolean equals(Object o) {
         if (!(o instanceof Condition other) || kind != other.kind) {
@@ -187,7 +215,8 @@ public final class Condition {
                 && Objects.equals(pathKey(), other.pathKey())
                 && values.equals(other.values)
                 && children.equals(other.children)
-                && Objects.equals(label, other.label);
+                && Objects.equals(label, other.label)
+                && Objects.equals(subSelect, other.subSelect);
     }
 
     @Override
@@ -195,7 +224,7 @@ public final class Condition {
         // Computed per call: a mutable value changed after the call changes the view (R-INS-04).
         return kind == Kind.CUSTOM
                 ? Objects.hash(kind, label)
-                : Objects.hash(kind, column, right, op, likeMode, pathKey(), values, children, label);
+                : Objects.hash(kind, column, right, op, likeMode, pathKey(), values, children, label, subSelect);
     }
 
     /** {@code path}'s identity: a {@code TableField} compares by its join key, not by instance (CC-IMM-04). */
@@ -229,6 +258,9 @@ public final class Condition {
         }
         if (label != null) {
             parts.add('"' + label + '"');
+        }
+        if (subSelect != null) {
+            parts.add(subSelect.toString());
         }
         children.forEach(child -> parts.add(child.toString()));
         return kind + "(" + String.join(", ", parts) + ")";

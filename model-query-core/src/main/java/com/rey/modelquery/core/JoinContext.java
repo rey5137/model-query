@@ -6,6 +6,7 @@ import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
@@ -61,9 +62,20 @@ public final class JoinContext {
      * context, so a bulk write learns whether a sub-query reads its own table (R-WRT-11).
      */
     private final Set<Class<?>> existsJoined;
+    /**
+     * Inside a correlated {@code exists} over a sub-select, the context a lifted outer column resolves through, over
+     * the correlated outer root; {@code null} everywhere else (R-FLT-17).
+     */
+    private final JoinContext outer;
 
     private JoinContext(From<?, ?> root, Class<?> rootType, CriteriaBuilder cb, CommonAbstractCriteria query,
             JoinKey rootKey, Set<JoinKey> required, RenderOptions renderOptions, Set<Class<?>> existsJoined) {
+        this(root, rootType, cb, query, rootKey, required, renderOptions, existsJoined, null);
+    }
+
+    private JoinContext(From<?, ?> root, Class<?> rootType, CriteriaBuilder cb, CommonAbstractCriteria query,
+            JoinKey rootKey, Set<JoinKey> required, RenderOptions renderOptions, Set<Class<?>> existsJoined,
+            JoinContext outer) {
         this.root = root;
         this.rootType = rootType;
         this.cb = cb;
@@ -72,6 +84,7 @@ public final class JoinContext {
         this.required = required;
         this.renderOptions = renderOptions;
         this.existsJoined = existsJoined;
+        this.outer = outer;
     }
 
     /** A context over {@code root}, the query's root table, rendering with {@link RenderOptions#portable()}. */
@@ -158,11 +171,11 @@ public final class JoinContext {
             // The root of a through child's context is a join, which the sub-query correlates as a join (D-100).
             From<?, ?> correlated = root instanceof Root<?> ? sub.correlate((Root) root) : sub.correlate((Join) root);
             ctx = new JoinContext(correlated, rootType, cb, sub, null, path.keysUpTo(null), renderOptions,
-                    existsJoined);
+                    existsJoined, outer);
         } else {
             From<?, ?> correlated = sub.correlate((Join) existsFrom);
             ctx = new JoinContext(correlated, correlated.getJavaType(), cb, sub, existsPath.key(),
-                    path.keysUpTo(existsPath.key()), renderOptions, existsJoined);
+                    path.keysUpTo(existsPath.key()), renderOptions, existsJoined, outer);
         }
         ctx.existsPath = path;
         ctx.existsFrom = path.resolve(ctx);
@@ -173,6 +186,84 @@ public final class JoinContext {
             sub.where(where.toArray(Predicate[]::new));
         }
         return cb.exists(sub);
+    }
+
+    /**
+     * The outer root path a lifted column reads, resolved through this context's correlation. {@code lift} is the
+     * column an {@link Outer#column} built; resolving it here rather than outside any correlation is {@code MQ1310}
+     * (R-FLT-17).
+     */
+    @SuppressWarnings("unchecked")
+    <T, C> Path<C> liftedColumn(ColumnField<?, T, C> lift) {
+        if (outer == null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1310, lift
+                    + " was resolved outside the correlation it was made in; lift it again inside exists(...)");
+        }
+        return (Path<C>) lift.liftedFrom().orElseThrow().path(outer);
+    }
+
+    /**
+     * {@code column IN (SELECT s.c FROM <sub's root> WHERE <sub's filters>)} (R-FLT-16); {@code negated} is the
+     * null-safe {@code notIn}: {@code NOT IN (... AND s.c IS NOT NULL) OR column IS NULL}.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    <C> Predicate inSubSelect(ColumnField<?, ?, C> column, SubSelect<?, C> sub, boolean negated) {
+        if (query == null) {
+            throw new IllegalStateException("in(...) over a sub-select needs the JoinContext of a ModelQuery build");
+        }
+        Subquery<C> sq = query.subquery(sub.column().type());
+        Root<?> inner = sq.from(sub.rootEntity());
+        JoinContext ctx = new JoinContext(inner, sub.rootEntity(), cb, sq, null, Set.of(), renderOptions,
+                existsJoined);
+        Path<C> selected = sub.column().path(ctx);
+        // A lifted column reads the outer root, so its embeddable check runs against the outer context, not this one.
+        boolean embeddable = column.isLifted() && outer != null
+                ? column.liftedFrom().orElseThrow().embeddableValued(outer)
+                : column.embeddableValued(this);
+        if (embeddable || sub.column().embeddableValued(ctx)) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1312, "in(...) over " + sub
+                    + ": an embeddable-valued column has no portable row-value IN (INV-6)");
+        }
+        sq.select(selected);
+        var where = new ArrayList<>(ConditionGroup.toPredicates(sub.filters(), ctx));
+        if (negated) {
+            where.add(cb.isNotNull(selected));
+        }
+        if (!where.isEmpty()) {
+            sq.where(where.toArray(Predicate[]::new));
+        }
+        existsJoined.add(sub.rootEntity());
+        Path<C> outerColumn = column.path(this);
+        Predicate in = cb.in(outerColumn).value(sq);
+        return negated ? cb.or(cb.not(in), cb.isNull(outerColumn)) : in;
+    }
+
+    /**
+     * {@code EXISTS (SELECT 1 FROM <sub's root> s WHERE <sub's filters> AND <correlation>)}, correlated to this
+     * context's root through which a lifted outer column resolves (R-FLT-17). The sub-select's column is not rendered.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    Predicate existsSubSelect(SubSelect<?, ?> sub, List<Filter> correlation, boolean negated) {
+        if (query == null) {
+            throw new IllegalStateException("exists(...) needs the JoinContext of a ModelQuery build");
+        }
+        Subquery<Integer> sq = query.subquery(Integer.class);
+        Root<?> inner = sq.from(sub.rootEntity());
+        // The correlated outer root a lifted column reads; a through child's root is a join (D-100).
+        From<?, ?> correlated = root instanceof Root<?> ? sq.correlate((Root) root) : sq.correlate((Join) root);
+        JoinContext outerCtx = new JoinContext(correlated, rootType, cb, sq, rootKey, Set.of(), renderOptions,
+                existsJoined);
+        JoinContext ctx = new JoinContext(inner, sub.rootEntity(), cb, sq, null, Set.of(), renderOptions,
+                existsJoined, outerCtx);
+        sq.select(cb.literal(1));
+        var where = new ArrayList<>(ConditionGroup.toPredicates(sub.filters(), ctx));
+        where.addAll(ConditionGroup.toPredicates(correlation, ctx));
+        if (!where.isEmpty()) {
+            sq.where(where.toArray(Predicate[]::new));
+        }
+        existsJoined.add(sub.rootEntity());
+        Predicate exists = cb.exists(sq);
+        return negated ? cb.not(exists) : exists;
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})

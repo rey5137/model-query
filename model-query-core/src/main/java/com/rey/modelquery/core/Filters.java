@@ -103,6 +103,40 @@ public sealed interface Filters<M> permits FilterGroup {
     /** {@link #notIn(ColumnField, Collection)}, skipped when {@code values} is empty. */
     <C> Filters<M> notIn(ColumnField<M, ?, C> column, Optional<? extends Collection<? extends C>> values);
 
+    /**
+     * {@code column IN (SELECT s.c FROM ... WHERE ...)} over a {@link SubSelect} (R-FLT-15, R-FLT-16). The sub-select
+     * is never correlated and is never skipped, even when every one of its own filters was skipped; skip it with
+     * {@link #when}. An empty sub-select matches no row. A {@code Long} column against an {@code Integer} sub-select
+     * does not compile; when a converter hides different attribute types the check is {@code MQ1001} at definition.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1312} for an embeddable-valued column on either side
+     */
+    <C> Filters<M> in(ColumnField<M, ?, C> column, SubSelect<?, C> values);
+
+    /**
+     * {@code (column NOT IN (SELECT s.c FROM ... WHERE ... AND s.c IS NOT NULL) OR column IS NULL)} over a
+     * sub-select (R-FLT-16): a NULL among the sub-select's values never empties the result, and rows whose column is
+     * NULL match, the same rows as a {@code notExists} correlated on equality. An empty sub-select matches every row.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1312} for an embeddable-valued column on either side
+     */
+    <C> Filters<M> notIn(ColumnField<M, ?, C> column, SubSelect<?, C> values);
+
+    /**
+     * {@code EXISTS (SELECT 1 FROM <sub's root> s WHERE <sub's filters> AND <correlation>)} over a {@link SubSelect}
+     * (R-FLT-17). {@code correlation} reads the sub-select's columns and, through {@link Outer#column}, columns of the
+     * outer query's root, so it goes wherever a column of the sub-select does. The sub-select's own column is not
+     * rendered. The correlation must lift at least one outer column, else {@code MQ1309}.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1309} when the correlation lifts no outer column
+     * @throws ModelQueryDefinitionException {@code MQ1310} for a lifted column resolved outside its correlation
+     * @throws ModelQueryDefinitionException {@code MQ1311} for an outer column that is not on the outer root
+     */
+    <S> Filters<M> exists(SubSelect<S, ?> rows, BiFunction<Filters<S>, Outer<M, S>, Filters<S>> correlation);
+
+    /** {@code NOT EXISTS (...)}, as {@link #exists(SubSelect, BiFunction)} with the same rules. */
+    <S> Filters<M> notExists(SubSelect<S, ?> rows, BiFunction<Filters<S>, Outer<M, S>, Filters<S>> correlation);
+
     /** {@code column LIKE pattern ESCAPE '\'}, the pattern built from {@code value} by {@code mode} (R-FLT-06). */
     Filters<M> like(ColumnField<M, ?, String> column, String value, LikeMode mode);
 
