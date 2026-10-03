@@ -213,11 +213,6 @@ class BulkWriteTest {
         }
 
         @Override
-        public int streamingFetchSize(int requested) {
-            return requested;
-        }
-
-        @Override
         public void applyTimeout(Query query, Duration timeout) {}
 
         @Override
