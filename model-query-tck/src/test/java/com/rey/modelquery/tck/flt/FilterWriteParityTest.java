@@ -238,7 +238,8 @@ class FilterWriteParityTest {
             inRolledBackTransaction(em -> {
                 target.setup().accept(em);
                 Set<Long> expected = readIds(em, target, fixture);
-                boolean readsTarget = update.readsTargetInSubquery(em.getCriteriaBuilder(), portable());
+                boolean readsTarget = readsTarget(update.entitiesReadInSubquery(em.getCriteriaBuilder(), portable()),
+                        target.entity());
                 statements.clear();
                 long written = executor(em, target, path).update(update);
                 List<String> sql = List.copyOf(statements);
@@ -251,6 +252,11 @@ class FilterWriteParityTest {
             });
         }
 
+        /** Whether a sub-query reading {@code read} reads {@code root}'s table: no fixture maps two to one table. */
+        private static boolean readsTarget(Set<Class<?>> read, Class<?> root) {
+            return read.stream().anyMatch(type -> type.isAssignableFrom(root) || root.isAssignableFrom(type));
+        }
+
         private <E, V> void assertDeleteParity(Target<E, V> target, Fixture<V> fixture, WritePath path) {
             var builder = target.delete().where(fixture.where());
             ModelDelete<E, V> delete = (path == WritePath.CHUNKED ? builder.chunked(ChunkOptions.size(CHUNK))
@@ -260,7 +266,8 @@ class FilterWriteParityTest {
                 target.setup().accept(em);
                 Set<Long> expected = readIds(em, target, fixture);
                 Set<Long> deleted = new HashSet<>(em.createQuery(allIds, Long.class).getResultList());
-                boolean readsTarget = delete.readsTargetInSubquery(em.getCriteriaBuilder(), portable());
+                boolean readsTarget = readsTarget(delete.entitiesReadInSubquery(em.getCriteriaBuilder(), portable()),
+                        target.entity());
                 statements.clear();
                 long written = executor(em, target, path).delete(delete);
                 List<String> sql = List.copyOf(statements);
@@ -336,8 +343,8 @@ class FilterWriteParityTest {
             }
 
             @Override
-            public void applyStreaming(Query query, int fetchSize) {
-                builtIn.applyStreaming(query, fetchSize);
+            public int streamingFetchSize(int requested) {
+                return builtIn.streamingFetchSize(requested);
             }
 
             @Override

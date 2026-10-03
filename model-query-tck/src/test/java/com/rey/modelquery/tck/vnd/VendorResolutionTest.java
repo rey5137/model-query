@@ -10,8 +10,10 @@ import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.jpa.vendor.ResolvedVendor;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
+import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
+import com.rey.modelquery.tck.col.StampedOrderEntity;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckDatabases;
 import com.rey.modelquery.tck.harness.TckTarget;
@@ -109,6 +111,20 @@ class VendorResolutionTest {
         try (SessionFactory sf = JoinTestSupport.sessionFactory(database(TckVendor.H2))) {
             assertThat(VendorResolver.resolve(sf, DETECT, MysqlStreamingMode.CURSOR_FETCH))
                     .isSameAs(VendorResolver.resolve(sf, DETECT, MysqlStreamingMode.ROW_BY_ROW));
+        }
+    }
+
+    @Test
+    void ac_vnd_10_hibernate_reports_one_table_for_two_entities_mapped_to_it_and_none_for_a_non_entity() {
+        HibernateProviderSupport support = new HibernateProviderSupport();
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(database(TckVendor.H2))) {
+            assertThat(support.tablesOf(sf, OrderEntity.class)).singleElement()
+                    .satisfies(table -> assertThat(table).isEqualToIgnoringCase("orders"));
+            assertThat(support.tablesOf(sf, StampedOrderEntity.class))
+                    .isEqualTo(support.tablesOf(sf, OrderEntity.class));
+            assertThat(support.tablesOf(sf, CustomerEntity.class)).singleElement()
+                    .satisfies(table -> assertThat(table).isEqualToIgnoringCase("customers"));
+            assertThat(support.tablesOf(sf, String.class)).isEmpty();
         }
     }
 

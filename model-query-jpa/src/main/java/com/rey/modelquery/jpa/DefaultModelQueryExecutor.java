@@ -61,6 +61,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -70,7 +71,6 @@ import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.function.Consumer;
 import java.util.function.BiFunction;
-import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -106,6 +106,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      */
     private static final Map<EntityManagerFactory, Set<Object>> WRITES_CHECKED =
             Collections.synchronizedMap(new WeakHashMap<>());
+
+    /** The factories {@code stream} warned of setting no fetch size on, so each is warned of once (R-VND-12). */
+    private static final Set<EntityManagerFactory> FETCH_SIZE_UNSET =
+            Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
 
     private final EntityManager em;
     private final Class<E> rootEntity;
@@ -198,14 +202,35 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
         TypedQuery<Tuple> query = limited(q, built, limit);
-        // Precondition first, so a refusal runs no statement; the configured fetch size is read only by the profiles
-        // that stream by cursor (R-EXE-08, R-QRY-15).
+        // Precondition first, so a refusal runs no statement. The profile decides the size from the configured one,
+        // and the provider's support opens the stream with it (R-EXE-08, R-QRY-15, R-VND-12).
         vendor.profile().checkStreamingPreconditions(em);
-        vendor.profile().applyStreaming(query, streamFetchSize);
+        int fetchSize = vendor.profile().streamingFetchSize(streamFetchSize);
         // Rows are mapped one at a time as body pulls them; closing the mapped stream closes the result stream under
         // it, whether body returns, stops early or throws (R-EXE-07, R-EXE-09).
-        try (Stream<Tuple> tuples = query.getResultStream(); Stream<M> models = tuples.map(built::map)) {
+        try (Stream<Tuple> tuples = resultStream(query, fetchSize); Stream<M> models = tuples.map(built::map)) {
             return body.apply(models);
+        }
+    }
+
+    /** {@code query}'s rows, streamed by the factory's provider support, or portably with a warning when none. */
+    private <T> Stream<T> resultStream(TypedQuery<T> query, int fetchSize) {
+        Optional<ProviderSupport> support = vendor.providerSupport();
+        if (support.isPresent()) {
+            return support.get().resultStream(query, fetchSize);
+        }
+        warnOfUnsetFetchSize();
+        return query.getResultStream();
+    }
+
+    /** Warns once per factory that, with no provider support to set the fetch size, the driver may buffer. */
+    private void warnOfUnsetFetchSize() {
+        EntityManagerFactory emf = em.getEntityManagerFactory();
+        if (FETCH_SIZE_UNSET.add(emf)) {
+            LOG.log(System.Logger.Level.WARNING, "stream sets no fetch size on {0}, because no ProviderSupport serves "
+                    + "its persistence provider, so the JDBC driver may read the whole result into memory; add a "
+                    + "ProviderSupport for its provider (model-query-hibernate for Hibernate), or use keyset export "
+                    + "(R-VND-12, D-108)", emf);
         }
     }
 
@@ -426,7 +451,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Supplier<Query> whole = () -> em.createQuery(u.buildWrite(cb, renderOptions, references));
         Function<List<Object>, Query> byKeys = chunk -> em.createQuery(u.buildWrite(cb, renderOptions, references,
                 chunk));
-        boolean rootTermsOnly = keyFirst(() -> u.readsTargetInSubquery(cb, renderOptions));
+        boolean rootTermsOnly = keyFirst(() -> u.entitiesReadInSubquery(cb, renderOptions));
         logWrite("update", u, u.chunkOptions(), rootTermsOnly);
         if (!rootTermsOnly && u.chunkOptions().isEmpty()) {
             return write(u.persistenceContext(), () -> direct(u.distinctKeys(), whole, byKeys));
@@ -453,7 +478,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         CriteriaBuilder cb = em.getCriteriaBuilder();
         Supplier<Query> whole = () -> em.createQuery(d.buildWrite(cb, renderOptions));
         Function<List<Object>, Query> byKeys = chunk -> em.createQuery(d.buildWrite(cb, renderOptions, chunk));
-        boolean rootTermsOnly = keyFirst(() -> d.readsTargetInSubquery(cb, renderOptions));
+        boolean rootTermsOnly = keyFirst(() -> d.entitiesReadInSubquery(cb, renderOptions));
         logWrite("delete", d, d.chunkOptions(), rootTermsOnly);
         if (!rootTermsOnly && d.chunkOptions().isEmpty()) {
             return write(d.persistenceContext(), () -> direct(d.distinctKeys(), whole, byKeys));
@@ -467,12 +492,47 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * Whether a write runs key-first: the profile says the database cannot read a write's target table in a
-     * sub-query, and the write's rendering would, through its tree ({@code readsTarget}) or because the root shares
-     * its table hierarchy with another entity (R-WRT-11, R-VND-11). The metamodel shows the hierarchy but not its
-     * inheritance strategy, so every hierarchy counts: key-first is always correct, only slower.
+     * sub-query, and the write's rendering would, because the root shares its table hierarchy with another entity, or
+     * because a sub-query reads an entity of the root's hierarchy or touching one of its tables ({@code subqueryReads})
+     * (R-WRT-11, R-VND-11, D-109). The metamodel shows the hierarchy but not its inheritance strategy, so every
+     * hierarchy counts: key-first is always correct, only slower.
      */
-    private boolean keyFirst(BooleanSupplier readsTarget) {
-        return !vendor.profile().targetTableInSubquery() && (inHierarchy() || readsTarget.getAsBoolean());
+    private boolean keyFirst(Supplier<Set<Class<?>>> subqueryReads) {
+        if (vendor.profile().targetTableInSubquery()) {
+            return false;
+        }
+        if (inHierarchy()) {
+            return true;
+        }
+        Set<Class<?>> read = subqueryReads.get();
+        return read.stream().anyMatch(this::sharesRootHierarchy) || readsRootTable(read);
+    }
+
+    private boolean sharesRootHierarchy(Class<?> entity) {
+        return entity.isAssignableFrom(rootEntity) || rootEntity.isAssignableFrom(entity);
+    }
+
+    /**
+     * Whether reading one of {@code entities} touches a table reading the root does, by the tables the provider names,
+     * ignoring case; false for an entity whose set or the root's is unknown, so two entities on one table then go
+     * undetected (R-VND-13, D-109).
+     */
+    private boolean readsRootTable(Set<Class<?>> entities) {
+        Optional<ProviderSupport> support = vendor.providerSupport();
+        if (entities.isEmpty() || support.isEmpty()) {
+            return false;
+        }
+        EntityManagerFactory emf = em.getEntityManagerFactory();
+        Set<String> rootTables = lowerCase(support.get().tablesOf(emf, rootEntity));
+        return !rootTables.isEmpty() && entities.stream()
+                .flatMap(entity -> support.get().tablesOf(emf, entity).stream())
+                .anyMatch(table -> rootTables.contains(table.toLowerCase(Locale.ROOT)));
+    }
+
+    private static Set<String> lowerCase(Set<String> tables) {
+        Set<String> lower = new HashSet<>();
+        tables.forEach(table -> lower.add(table.toLowerCase(Locale.ROOT)));
+        return lower;
     }
 
     /** Whether the root has an entity supertype or subtype in the metamodel. */

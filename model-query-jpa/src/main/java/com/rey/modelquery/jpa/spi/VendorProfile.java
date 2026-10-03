@@ -11,7 +11,7 @@ import java.time.Duration;
  * discovered with {@code ServiceLoader}; a discovered profile takes precedence over the built-in one for its vendor
  * (R-VND-03). A new behaviour is a new method with a default.
  *
- * @implSpec R-VND-01, R-VND-02, R-VND-03, R-VND-11
+ * @implSpec R-VND-01, R-VND-02, R-VND-03, R-VND-11, R-VND-12
  */
 @Incubating
 public interface VendorProfile {
@@ -25,8 +25,15 @@ public interface VendorProfile {
     /** The hard limit on bind parameters per statement. */
     int maxBindParameters();
 
-    /** Sets {@code query} up for forward-only streaming of a large result. */
-    void applyStreaming(Query query, int fetchSize);
+    /**
+     * The fetch size a forward-only stream of a large result runs with, given the configured {@code requested} size:
+     * {@code requested} where the driver reads by cursor, or the value the driver streams at. A database fact only:
+     * the factory's {@link ProviderSupport#resultStream} streams the query with it (R-VND-12, D-108). Defaults to
+     * {@code requested}.
+     */
+    default int streamingFetchSize(int requested) {
+        return requested;
+    }
 
     /** Fails fast when {@code em} cannot stream, such as outside a transaction where the driver needs one. */
     default void checkStreamingPreconditions(EntityManager em) {

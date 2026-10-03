@@ -43,6 +43,7 @@ import java.util.stream.Stream;
 import javax.sql.DataSource;
 import org.hibernate.Session;
 import org.hibernate.SessionFactory;
+import org.junit.jupiter.api.Assumptions;
 
 /**
  * Streaming and the query timeout through the executor (engine/20 R-EXE-08, R-EXE-09; vendor/41 R-PRF-03..07,
@@ -142,6 +143,36 @@ class StreamingAndTimeoutTest {
     }
 
     @TckTest
+    void ac_vnd_08_the_fetch_size_reaches_the_statement_only_through_the_provider_support(TckDatabase db) {
+        Assumptions.assumeTrue(db.vendor() == TckVendor.POSTGRESQL, "pgjdbc shows whether it reads by fetch size");
+        assertThat(namedPortalsWhileStreaming(db, true)).as("open cursors with model-query-hibernate").isPositive();
+        assertThat(namedPortalsWhileStreaming(db, false)).as("open cursors without a ProviderSupport").isZero();
+    }
+
+    /** The portals open while {@code stream} reads its first row, with or without {@code model-query-hibernate}. */
+    private static long namedPortalsWhileStreaming(TckDatabase db, boolean hibernate) {
+        AtomicLong cursors = new AtomicLong(-1);
+        // Built on a DataSource, so without the Hibernate SPI the vendor is read from its metadata (R-VND-04).
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(JoinTestSupport.dataSource(db))) {
+            Runnable streaming = () -> sf.inTransaction(em -> {
+                var executor = ModelQueryExecutor.create(em, OrderEntity.class, ModelQueryConfig.defaults());
+                long rows = executor.stream(ITEM_ROWS, Limit.unlimited(), stream -> stream.peek(row -> {
+                    if (cursors.get() < 0) {
+                        cursors.set(count(em, NAMED_PORTALS));
+                    }
+                }).count());
+                assertThat(rows).isEqualTo(TckFixture.ORDER_ITEMS);
+            });
+            if (hibernate) {
+                streaming.run();
+            } else {
+                JoinTestSupport.withoutServices(streaming);
+            }
+        }
+        return cursors.get();
+    }
+
+    @TckTest
     void ac_prf_05_mysql_row_by_row_streams_20_000_rows_and_holds_the_connection(TckDatabase db) {
         try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
             AtomicLong rows = new AtomicLong();
@@ -217,7 +248,7 @@ class StreamingAndTimeoutTest {
         return recording.fetchSizes();
     }
 
-    /** {@code delegate} with the fetch size of every {@code applyStreaming} call recorded. */
+    /** {@code delegate} with the fetch size of every {@code streamingFetchSize} call recorded. */
     private record RecordingProfile(VendorProfile delegate, List<Integer> fetchSizes) implements VendorProfile {
 
         @Override
@@ -236,9 +267,9 @@ class StreamingAndTimeoutTest {
         }
 
         @Override
-        public void applyStreaming(Query query, int fetchSize) {
-            fetchSizes.add(fetchSize);
-            delegate.applyStreaming(query, fetchSize);
+        public int streamingFetchSize(int requested) {
+            fetchSizes.add(requested);
+            return delegate.streamingFetchSize(requested);
         }
 
         @Override

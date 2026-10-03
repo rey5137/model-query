@@ -1,1 +1,2 @@
 com.rey.modelquery.jpa.ProviderNullOrderingTest$ConfiguredNullsSupport
+com.rey.modelquery.jpa.StreamFetchSizeTest$RecordingSupport

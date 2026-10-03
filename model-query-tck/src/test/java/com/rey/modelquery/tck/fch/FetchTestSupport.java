@@ -87,8 +87,8 @@ final class FetchTestSupport {
             }
 
             @Override
-            public void applyStreaming(Query query, int fetchSize) {
-                builtIn.applyStreaming(query, fetchSize);
+            public int streamingFetchSize(int requested) {
+                return builtIn.streamingFetchSize(requested);
             }
 
             @Override

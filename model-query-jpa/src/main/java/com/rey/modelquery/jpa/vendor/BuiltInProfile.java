@@ -50,8 +50,8 @@ enum BuiltInProfile implements VendorProfile {
      */
     MYSQL(DatabaseVendor.MYSQL, 10_000, 65_535, NullOrdering.NULLS_FIRST) {
         @Override
-        public void applyStreaming(Query query, int fetchSize) {
-            query.setHint(FETCH_SIZE_HINT, Integer.MIN_VALUE);
+        public int streamingFetchSize(int requested) {
+            return Integer.MIN_VALUE;
         }
     },
 
@@ -59,9 +59,6 @@ enum BuiltInProfile implements VendorProfile {
     MYSQL_CURSOR_FETCH(DatabaseVendor.MYSQL, 10_000, 65_535, NullOrdering.NULLS_FIRST),
 
     OTHER(DatabaseVendor.OTHER, 1_000, 2_000, NullOrdering.UNKNOWN);
-
-    /** The fetch-size hint vendor/41 §2 names; a provider that does not know it ignores it. */
-    static final String FETCH_SIZE_HINT = "org.hibernate.fetchSize";
 
     /** The portable query timeout hint, in milliseconds (R-PRF-05). */
     static final String TIMEOUT_HINT = "jakarta.persistence.query.timeout";
@@ -107,11 +104,6 @@ enum BuiltInProfile implements VendorProfile {
     @Override
     public int maxBindParameters() {
         return maxBindParameters;
-    }
-
-    @Override
-    public void applyStreaming(Query query, int fetchSize) {
-        query.setHint(FETCH_SIZE_HINT, fetchSize);
     }
 
     @Override

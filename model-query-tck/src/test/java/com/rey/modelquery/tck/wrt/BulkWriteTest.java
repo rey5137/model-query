@@ -35,6 +35,7 @@ import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
 import com.rey.modelquery.tck.col.OrderItemEntity;
 import com.rey.modelquery.tck.col.OrderStatus;
+import com.rey.modelquery.tck.col.StampedOrderEntity;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
@@ -151,6 +152,17 @@ class BulkWriteTest {
             TableField.join(CUSTOMER, "orders", INNER);
     private static final ColumnField<OrderPatch, OrderEntity, String> CUSTOMER_ORDER_STATUS =
             ColumnField.of(OrderPatch.class, CUSTOMER_ORDERS, "status", String.class);
+    /** A second entity on the orders table, and the orders of its customer, which an {@code exists} reads. */
+    private static final TableField<StampedOrderEntity, StampedOrderEntity> STAMPED =
+            TableField.root(StampedOrderEntity.class);
+    private static final ColumnField<OrderPatch, StampedOrderEntity, Long> STAMPED_ID =
+            ColumnField.of(OrderPatch.class, STAMPED, "id", Long.class);
+    private static final ColumnField<OrderPatch, StampedOrderEntity, String> STAMPED_STATUS =
+            ColumnField.of(OrderPatch.class, STAMPED, "status", String.class);
+    private static final TableField<CustomerEntity, OrderEntity> STAMPED_CUSTOMER_ORDERS =
+            TableField.join(TableField.join(STAMPED, "customer", INNER), "orders", INNER);
+    private static final ColumnField<OrderPatch, OrderEntity, String> STAMPED_CUSTOMER_ORDER_STATUS =
+            ColumnField.of(OrderPatch.class, STAMPED_CUSTOMER_ORDERS, "status", String.class);
     private static final TableField<OrderEntity, OrderItemEntity> ORDER_ITEMS =
             TableField.join(ORDERS, "items", INNER);
     private static final ColumnField<OrderPatch, OrderItemEntity, Integer> ITEM_QUANTITY =
@@ -201,7 +213,9 @@ class BulkWriteTest {
         }
 
         @Override
-        public void applyStreaming(Query query, int fetchSize) {}
+        public int streamingFetchSize(int requested) {
+            return requested;
+        }
 
         @Override
         public void applyTimeout(Query query, Duration timeout) {}
@@ -476,6 +490,39 @@ class BulkWriteTest {
                 .exists(CUSTOMER_ORDERS, g -> g.eq(CUSTOMER_ORDER_STATUS, "CANCELLED"))
                 .lt(ID, 300L);
         assertWritesTheRowsTheReadReturns(db, "wrt-07-exists-back-to-root", ModelQueryConfig.defaults(), where);
+    }
+
+    @TckTest
+    void ac_wrt_20_an_exists_over_a_second_entity_on_the_roots_table_runs_key_first_where_needed(TckDatabase db) {
+        // The sub-query reads orders through OrderEntity, while the root is StampedOrderEntity on the same table: only
+        // the tables model-query-hibernate reports tell them apart (D-109).
+        List<Long> expected = readIds(db, f -> f.exists(CUSTOMER_ORDERS, g -> g.eq(CUSTOMER_ORDER_STATUS, "CANCELLED"))
+                .lt(ID, 300L));
+        var update = ModelUpdate.builder(STAMPED).primaryKey(PrimaryKey.of(STAMPED_ID)).set(STAMPED_STATUS, "MARKED")
+                .where(f -> f.exists(STAMPED_CUSTOMER_ORDERS, g -> g.eq(STAMPED_CUSTOMER_ORDER_STATUS, "CANCELLED"))
+                        .lt(STAMPED_ID, 300L))
+                .build();
+        var marked = new ArrayList<Long>();
+        long[] written = new long[1];
+
+        List<String> sql = SqlSnapshots.assertMatches(db, "wrt-20-exists-over-second-entity-on-root-table",
+                ds -> inRolledBackTransaction(ds, em -> {
+                    written[0] = ModelQueryExecutor.create(em, StampedOrderEntity.class, ModelQueryConfig.defaults())
+                            .update(update);
+                    marked.addAll(markedIds(em));
+                }));
+
+        assertThat(expected).isNotEmpty();
+        assertThat(written[0]).isEqualTo(expected.size());
+        assertThat(marked).containsExactlyInAnyOrderElementsOf(expected);
+        List<String> updates = writes(sql, "update");
+        if (!targetTableInSubquery(db)) {
+            assertThat(keySelects(sql)).as("key select").isNotEmpty();
+            assertThat(updates).isNotEmpty().allSatisfy(u -> assertThat(u).doesNotContain("exists"));
+        } else {
+            assertThat(keySelects(sql)).as("key select").isEmpty();
+            assertThat(updates).singleElement().asString().contains("exists");
+        }
     }
 
     @TckTest
@@ -917,9 +964,14 @@ class BulkWriteTest {
 
     /** Skips the calling test where the database can read a write's target table in a sub-query (R-VND-11). */
     private static void assumeKeyFirst(TckDatabase db) {
+        Assumptions.assumeFalse(targetTableInSubquery(db), "key-first runs where a write cannot read its own table");
+    }
+
+    /** Whether {@code db}'s profile lets a write read its own table in a sub-query (R-VND-11). */
+    private static boolean targetTableInSubquery(TckDatabase db) {
         try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
-            Assumptions.assumeFalse(VendorResolver.resolve(sf, Optional.empty(), MysqlStreamingMode.ROW_BY_ROW)
-                    .profile().targetTableInSubquery(), "key-first runs where a write cannot read its own table");
+            return VendorResolver.resolve(sf, Optional.empty(), MysqlStreamingMode.ROW_BY_ROW).profile()
+                    .targetTableInSubquery();
         }
     }
 

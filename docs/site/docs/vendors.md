@@ -27,7 +27,12 @@ community-supported and never gates a release.
 | Bind parameters (max) | 100 000 | 65 535 | 65 535 |
 | NULLs in ascending order | first | **last** | first |
 | Explicit `NULLS FIRST/LAST` | native | native | emulated by Hibernate |
-| Target table in an `UPDATE`/`DELETE` sub-query | yes | yes | **no** (error 1093); joined filters run key-first |
+| Target table in an `UPDATE`/`DELETE` sub-query | yes | yes | **no** (error 1093); such writes run key-first |
+
+The streaming fetch size reaches the driver through the provider's `ProviderSupport`, which opens the stream itself:
+`model-query-hibernate` for Hibernate. Without one, the library sets none, so the driver's default applies, which on
+PostgreSQL and MySQL reads the whole result into memory, and the first `stream` on each `EntityManagerFactory` logs a
+warning saying so.
 
 Longer `IN` lists are split into chunks automatically. One filter with more values than the bind-parameter limit fails
 with `MQ1306` when the query is built, and a statement whose values only together pass it fails with `MQ1307` before it
@@ -86,10 +91,12 @@ null precedence is refused. If your database is one of the Tier-1 vendors but re
 - NULLs sort **first** in ascending order, and explicit `NULLS FIRST/LAST` is emulated by Hibernate with an `ISNULL`
   sort key.
 - **Bulk writes and error 1093.** MySQL cannot read the table being updated in a sub-query. When a bulk write's filter
-  needs a join, or goes through inheritance, the library selects the matching keys first and writes them in chunks. A
-  change to a joined row between the two steps is not re-checked; `ChunkOptions.lockKeys()` selects the keys with a
-  pessimistic write lock, which on MySQL also reads current rows instead of the transaction's snapshot. If two entities
-  map to one table, the library cannot detect it, and MySQL fails with error 1093.
+  needs a join, goes through inheritance, or has an `exists(...)` reading the root's table, even through another entity
+  mapped to it, the library selects the matching keys first and writes them in chunks. A change to a joined row
+  between the two steps is not re-checked; `ChunkOptions.lockKeys()` selects the keys with a pessimistic write lock,
+  which on MySQL also reads current rows instead of the transaction's snapshot. Telling two entities on one table apart
+  needs `model-query-hibernate`, which reports the tables each entity reads, joined supertables and secondary tables
+  included; without it, such a write fails with error 1093.
 
 ## What the library leaves to the database
 

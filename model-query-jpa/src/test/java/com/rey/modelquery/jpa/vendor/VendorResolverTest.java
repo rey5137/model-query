@@ -12,11 +12,13 @@ import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import jakarta.persistence.Query;
+import jakarta.persistence.TypedQuery;
 import java.time.Duration;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceConfigurationError;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 class VendorResolverTest {
@@ -35,7 +37,9 @@ class VendorResolverTest {
         }
 
         @Override
-        public void applyStreaming(Query query, int fetchSize) {}
+        public int streamingFetchSize(int requested) {
+            return requested;
+        }
 
         @Override
         public void applyTimeout(Query query, Duration timeout) {}
@@ -199,6 +203,11 @@ class VendorResolverTest {
             @Override
             public boolean supports(jakarta.persistence.EntityManagerFactory emf) {
                 return true;
+            }
+
+            @Override
+            public <T> Stream<T> resultStream(TypedQuery<T> query, int fetchSize) {
+                return query.getResultStream();
             }
         };
         Iterable<ProviderSupport> discovered = () -> new Iterator<>() {

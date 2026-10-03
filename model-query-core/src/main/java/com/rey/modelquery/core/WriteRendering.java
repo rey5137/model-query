@@ -129,18 +129,23 @@ final class WriteRendering {
     }
 
     /**
-     * Whether the statement {@link #rows} renders for {@code where} reads {@code entity}'s table in a sub-query: the
-     * tree needs a join, so renders in an {@code EXISTS} over the entity (R-WRT-10), or an {@code exists(...)} path
-     * joins the entity, a type of its hierarchy or one sharing it (R-WRT-11). Rendered into a scratch query, since a
-     * filter is a lambda with no structure to walk (D-65).
+     * The entity types the sub-queries of the statement {@link #rows} renders for {@code where} read: {@code entity}
+     * when the tree needs a join, so renders in an {@code EXISTS} over it (R-WRT-10), and each type an
+     * {@code exists(...)} path joins (R-WRT-11). Empty when the statement has no sub-query. An executor tells from them
+     * whether the statement reads its own table; never a table name here (INV-7, D-109). Rendered into a scratch query,
+     * since a filter is a lambda with no structure to walk (D-65).
      */
-    static boolean readsTargetInSubquery(List<Filter> where, Class<?> entity, CriteriaBuilder cb,
+    static Set<Class<?>> entitiesReadInSubquery(List<Filter> where, Class<?> entity, CriteriaBuilder cb,
             RenderOptions options) {
         if (where.isEmpty()) {
-            return false;
+            return Set.of();
         }
         Probe probe = probe(where, cb.createQuery(), entity, cb, options);
-        return probe.joined() || probe.ctx().existsReads(entity);
+        Set<Class<?>> read = new LinkedHashSet<>(probe.ctx().existsJoined());
+        if (probe.joined()) {
+            read.add(entity);
+        }
+        return Collections.unmodifiableSet(read);
     }
 
     /**

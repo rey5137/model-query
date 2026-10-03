@@ -18,7 +18,7 @@ public interface VendorProfile {
 
     int maxBindParameters();                                   // hard limit per statement
 
-    void applyStreaming(Query query, int fetchSize);            // forward-only streaming of large results
+    default int streamingFetchSize(int requested) { return requested; } // the fetch size `stream` runs with
 
     default void checkStreamingPreconditions(EntityManager em) {}
 
@@ -28,13 +28,31 @@ public interface VendorProfile {
 
     default boolean targetTableInSubquery() { return false; }  // Future (M6): may UPDATE/DELETE read their own table
 }
+
+public interface ProviderSupport {                             // what a persistence provider does, not a database
+
+    boolean supports(EntityManagerFactory emf);
+
+    default Optional<DatabaseVendor> detectVendor(EntityManagerFactory emf) { return Optional.empty(); }
+
+    default Optional<CriteriaQuery<Long>> countQuery(CriteriaQuery<?> groupedQuery) { return Optional.empty(); }
+
+    default Optional<NullPrecedenceRenderer> nullPrecedence() { return Optional.empty(); }
+
+    default Optional<NullPrecedence> defaultNullPrecedence(EntityManagerFactory emf) { return Optional.empty(); }
+
+    <T> Stream<T> resultStream(TypedQuery<T> query, int fetchSize); // streams by cursor at a profile's fetch size
+
+    default Set<String> tablesOf(EntityManagerFactory emf, Class<?> entity) { return Set.of(); }
+}
 ```
 
 `VendorProfile` and `DatabaseVendor` are in `com.rey.modelquery.jpa.spi`; `NullOrdering` is in `core`, because it names
 no vendor. The built-in profiles and the resolver are in `com.rey.modelquery.jpa.vendor`. `core` sees a profile only as
 the vendor-neutral `RenderOptions` the executor passes to each query build. What varies by persistence provider rather
 than by database (dialect detection, the grouped count, native null precedence, a configured default null ordering)
-is the separate `ProviderSupport` SPI in `jpa.spi`, which `model-query-hibernate` implements (D-34, D-36).
+is the separate `ProviderSupport` SPI in `jpa.spi`, which `model-query-hibernate` implements (D-34, D-36). How
+streaming fetches and which tables an entity reads are provider mechanics too (D-108, D-109).
 
 **R-VND-01** Every vendor-specific behaviour the engine needs is a method here. No vendor name and no
 `if (vendor == …)` exists anywhere else (INV-6). A new behaviour is a new method with a default, never a cast to a
@@ -55,6 +73,23 @@ It defaults to `false`, which is always correct and only slower, so a profile wr
 stays safe (R-VND-01). It is a capability, not a rendering hook, because the engine renders every predicate itself
 (R-VND-08, P-5). Tier-1 values are in `vendor/41` §2; otherwise `true` for Oracle, SQL Server and MariaDB 10.3.1+, and
 `false` for `OTHER`.
+
+**R-VND-12** Streaming splits the database fact from the provider mechanism (D-108). The profile decides the fetch size
+with `streamingFetchSize(requested)`, given the configured `modelquery.stream.fetch-size` (by default, that size), and
+never touches the `Query`; the factory's `ProviderSupport` opens the stream with that size,
+`resultStream(query, size)`, since a provider may stream only through its own API (EclipseLink's `getResultStream()`
+reads the whole list first). `model-query-hibernate` sets the `org.hibernate.fetchSize` hint and calls
+`getResultStream()`. No profile names a provider's hint. With no `ProviderSupport` serving the factory, the engine calls
+`getResultStream()` and sets no fetch size, so the driver's default applies and may buffer the whole result, and the
+first `stream` on the factory logs a `WARN` saying so, which advises adding a `ProviderSupport` for its provider
+(`model-query-hibernate` for Hibernate); later ones on that factory log nothing.
+
+**R-VND-13** `ProviderSupport.tablesOf(emf, entity)` reports every table reading `entity` touches, its joined
+supertables, secondary tables and subclass tables included, each unquoted and qualified with the configured default
+catalog and schema when it names none, to be compared ignoring case; empty when it cannot tell, the default (D-109).
+`model-query-hibernate` reads them from the query spaces of the entity's persister and its subclasses'. The engine uses
+them in `jpa` only, to tell that a bulk write's sub-query reads a second entity sharing one of the root's tables
+(`api/14` R-WRT-11); `core` never sees a table name (INV-7).
 
 ## 2. Detection
 
@@ -85,7 +120,8 @@ null precedence is refused under `OTHER` (`engine/21` R-PAG-05, `api/10` R-COL-1
 **R-VND-07** The resolved profile is logged once at `INFO` with how it was resolved, because a wrong profile produces
 correct-looking results with the wrong limits. When no `ProviderSupport` serves the factory and its properties carry
 `hibernate.order_by.default_null_ordering` set to anything but `none`, resolution also logs a `WARN` once: the setting
-is not honoured without `model-query-hibernate` (`engine/21` R-PAG-05, D-36, Q-9).
+is not honoured without `model-query-hibernate` (`engine/21` R-PAG-05, D-36). It reads that Hibernate property in
+`jpa` by necessity: it fires only where no `ProviderSupport` exists (D-108).
 
 ## 3. Keyset predicate contract
 
@@ -122,3 +158,6 @@ explicitly (`likeIgnoreCase`, `nullsFirst`), and the library renders it the same
 | AC-VND-05 | An unknown `DatabaseMetaData` product name yields `OTHER`, and a nullable-column keyset under `OTHER` is refused (R-VND-06). |
 | AC-VND-06 | A Spring-registered profile bean overrides the `ServiceLoader` one (R-VND-03). |
 | AC-VND-07 | (`Future`, M6) `targetTableInSubquery()` is true for H2 and PostgreSQL and false for MySQL and `OTHER`, verified against each container (R-VND-11). |
+| AC-VND-08 | On PostgreSQL, the profile's fetch size reaches the streamed statement through `model-query-hibernate`'s `resultStream`, so the driver reads by cursor; without a `ProviderSupport` it reads the result at once (R-VND-12). |
+| AC-VND-09 | With no `ProviderSupport`, `stream` logs one `WARN` per factory however many streams run; with one, none, and `resultStream` receives the size the profile chose: the configured size, or `Integer.MIN_VALUE` for MySQL row-by-row (R-VND-12). |
+| AC-VND-10 | `model-query-hibernate`'s `tablesOf` reports every table reading an entity touches, unquoted and qualified with the default schema: a joined subclass's supertable, which a second entity on it shares, a secondary table and a table-per-class parent's subclass tables; the same for two entities on one table; and none for a type that is not an entity (R-VND-13). |

@@ -60,10 +60,13 @@ stream, passes it to `body`, and closes it in a `finally` block. No method retur
 leak a JDBC result set (D-8). A fetch plan with a child, join plan or enricher runs once per page, and a stream has
 none, so `stream` with one throws `MQ2605` before any statement (`api/15` R-FCH-09).
 
-**R-EXE-08** The engine calls `VendorProfile.applyStreaming(query, fetchSize)` before execution and
-`checkStreamingPreconditions(em)` before that. On PostgreSQL, streaming outside a transaction fails fast with `MQ2101`
-rather than silently buffering the whole result in the driver (`vendor/41`). The fetch size is one constant, 500 (the
-`OTHER` value), which only the profiles that stream with a cursor read.
+**R-EXE-08** Before execution the engine calls `checkStreamingPreconditions(em)`, then asks the profile for the fetch
+size with `VendorProfile.streamingFetchSize(requested)`, `requested` being `ModelQueryConfig.streamFetchSize()`
+(default 500, `api/11` R-QRY-15), and has the factory's `ProviderSupport` open the stream with it,
+`resultStream(query, size)` (`vendor/40` R-VND-12, D-108). On PostgreSQL, streaming outside a transaction fails fast
+with `MQ2101` rather than silently buffering the whole result in the driver (`vendor/41`). With no `ProviderSupport`
+the engine streams with `getResultStream()` and sets no fetch size, and the first `stream` on the factory logs a
+`WARN` that the driver may buffer the whole result.
 
 **R-EXE-09** An early exit from `body` — `findFirst`, a `break`, an exception — still closes the stream and releases the
 connection.

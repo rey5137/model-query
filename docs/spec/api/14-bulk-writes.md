@@ -146,9 +146,12 @@ select the matching keys with the query engine, then write `WHERE pk IN (…) AN
 R-WRT-08. The root predicates are the top-level `AND` terms that need no join and no sub-query; re-applying them means
 a row that stopped matching on its own columns between the two steps is not written. A change to a joined row in
 between is not re-checked; `ChunkOptions.lockKeys()` selects the keys with `LockModeType.PESSIMISTIC_WRITE`, which on
-MySQL also makes the select read current rows rather than the transaction's snapshot. The Javadoc states both. Two entities
-mapped to one table are not detected, since JPA exposes no table names (INV-7): the sub-query then reads the target
-table undetected, and MySQL fails loudly with error 1093 (Q-12).
+MySQL also makes the select read current rows rather than the transaction's snapshot. The Javadoc states both. A
+sub-query also reads the target table when it reads a second entity that shares one of the root's tables: `jpa`
+intersects, ignoring case, the tables `ProviderSupport.tablesOf` reports for the root and for each entity an
+`exists(...)` sub-query reads, and where either set is empty, as without `model-query-hibernate`, compares the entities
+alone, so two entities on one table then go undetected and MySQL fails loudly with error 1093 (`vendor/40` R-VND-13,
+D-109). `core` reports the entities a sub-query reads, never a table (INV-7).
 
 **R-WRT-12** **No accidental full-table writes.** A builder chooses its rows with `where(...)` and `whereKey(s)(...)`,
 which combine with `AND`, or with `all()`, which excludes both: `all()` returns a stage with no `where`, and neither
@@ -299,3 +302,4 @@ public interface ModelQueryExecutor<E> {
 | AC-WRT-17 | Without `jakarta.validation` on the classpath, generated change sets compile, carry no `@ValidChanges`, and nothing is validated (R-WRT-22). |
 | AC-WRT-18 | On MySQL, a row that stops matching on a root column between the key select and the write is not written; with `lockKeys()` a concurrent change to a matched row waits for the write (R-WRT-11). |
 | AC-WRT-19 | `setExpression` reading a column that a plain assignment writes gives the same result on every Tier-1 vendor (R-WRT-13). |
+| AC-WRT-20 | On MySQL with `model-query-hibernate`, a write whose `exists(...)` sub-query reads a second entity that shares the root's table runs key-first and writes the rows the read returns; on H2 and PostgreSQL it runs as one statement (R-WRT-11, D-109). |

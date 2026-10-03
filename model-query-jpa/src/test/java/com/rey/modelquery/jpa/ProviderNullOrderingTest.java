@@ -14,11 +14,13 @@ import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.TypedQuery;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.LongStream;
+import java.util.stream.Stream;
 import org.hibernate.SessionFactory;
 import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
 import org.hibernate.cfg.AvailableSettings;
@@ -55,6 +57,11 @@ class ProviderNullOrderingTest {
         @Override
         public Optional<NullPrecedence> defaultNullPrecedence(EntityManagerFactory emf) {
             return Optional.of(NullPrecedence.LAST);
+        }
+
+        @Override
+        public <T> Stream<T> resultStream(TypedQuery<T> query, int fetchSize) {
+            return query.getResultStream();
         }
     }
 

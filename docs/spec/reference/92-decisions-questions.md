@@ -637,7 +637,8 @@ R-WRT-18, D-62, D-63. `build()` does the key conversion, the null check and the 
 result with each composite key copied, so `distinctKeys()` and `startAfter()` return stored values and a caller's list
 changed after `build()` leaves the definition alone (INV-9); a wrong arity or a null key fails at `build()`.
 
-**D-67 — M6.4 key-first surface.** `ModelUpdate` and `ModelDelete` gain `readsTargetInSubquery(cb, options)`,
+**D-67 — M6.4 key-first surface.** `ModelUpdate` and `ModelDelete` gain `readsTargetInSubquery(cb, options)` (now
+`entitiesReadInSubquery`, D-109),
 `buildKeySelect(cb, options)` and an overload over a run of `distinctKeys()`, a `buildWrite` overload over the keys a
 key select chose with a `boolean rootTermsOnly` shape, `primaryKey()` and `chunkOptions()`. The key select is a
 `BuiltQuery` whose `map` throws, since it maps no model. A top-level `where` term is a root term when, rendered alone
@@ -710,7 +711,8 @@ ArchUnit checks. `hibernate-validator` and `tomcat-embed-el` are test-scope only
 (`core`, class retention, methods only; D-86 lets it mark a type too): `ModelQuery.buildQuery`, `checkPhases` and `checkFetch`,
 and on `ModelUpdate` and `ModelDelete` `checkMetamodel`, `writesNothing`, every `buildWrite` and `buildKeySelect`
 overload, `readsTargetInSubquery`, `distinctKeys`, `startAfter` and `modelKey`. Like `jpa.vendor` (R-REL-10) they may
-change in any release; `japicmp` excludes them. This makes D-67's `readsTargetInSubquery` boolean non-API. →
+change in any release; `japicmp` excludes them. This makes D-67's `readsTargetInSubquery` boolean (now
+`entitiesReadInSubquery`, D-109) non-API. →
 `delivery/61` R-REL-10, R-REL-11.
 
 **D-73 — `lastCommittedKey()` of a keyed write (amends D-68).** For a `whereKey`/`whereKeys` write,
@@ -1052,14 +1054,31 @@ element, naming the nested model; and a `root` that is not a class, `int.class` 
 provider support. The R-VND-07 null-ordering warning keeps reading its Hibernate property in `jpa`, by necessity, since
 it fires only where no `ProviderSupport` exists. Done before any new vendor profile is written, since it changes what
 a profile implements. `@Incubating` (`jpa.spi`). → `vendor/40` §2, `vendor/41` §2, R-PRF-04, D-34.
+*Amended in M9:* `streamingFetchSize` defaults to returning `requested`, as R-VND-01 asks of a new profile method.
+`applyFetchSize(Query, int)` is replaced by `<T> Stream<T> resultStream(TypedQuery<T> query, int fetchSize)`: setting a
+size is not enough for every provider, since EclipseLink's `getResultStream()` is `getResultList().stream()` and
+streams only through its cursor API, so the provider support opens the stream itself; a support that only set a size
+would buffer silently with no `WARN`. `model-query-hibernate` sets `org.hibernate.fetchSize` and calls
+`getResultStream()`; with no `ProviderSupport` the engine calls `getResultStream()` and warns, naming a
+`ProviderSupport` for the provider (`model-query-hibernate` for Hibernate). `resultStream` has no default, since a
+portable one would let a `ProviderSupport` that forgot it buffer every stream with no `WARN` (the warning fires only
+where no `ProviderSupport` serves the factory).
 
 **D-109 — `ProviderSupport.tableOf` detects two entities on one table (resolves Q-12).** `ProviderSupport` gains
-`default Optional<String> tableOf(Class<?> entity)`, empty by default and implemented by `model-query-hibernate` from
-its mapping metamodel. When choosing key-first for a bulk write (R-WRT-11), `jpa` compares the tables of the root and
-of each entity a sub-query reads, and falls back to comparing entities when either table is unknown, as today. INV-7
+`default Optional<String> tableOf(EntityManagerFactory emf, Class<?> entity)` (the factory added at build: a
+`ProviderSupport` is shared by every factory it serves), empty by default and implemented by `model-query-hibernate`
+from its mapping metamodel. When choosing key-first for a bulk write (R-WRT-11), `jpa` compares the tables of the root
+and of each entity a sub-query reads, and falls back to comparing entities when either table is unknown, as today. INV-7
 holds: `core` never sees a table name. Rejected: a `VendorProfile` method (table names are provider knowledge, not
 database knowledge); always running key-first on MySQL (a needless second statement for every joined write). Ships in
 the same SPI change as D-108. `@Incubating` (`jpa.spi`). → `api/14` R-WRT-11, `vendor/40` §2.
+*Amended in M9:* `tableOf` is replaced by `default Set<String> tablesOf(EntityManagerFactory emf, Class<?> entity)`,
+every table reading the entity touches, empty when unknown, and `jpa` tests the intersection with the root's tables,
+ignoring case, falling back to the entity comparison when either set is empty. One table name missed a JOINED
+subclass's supertable, a `@SecondaryTable` and a table-per-class parent's subclass tables, each of which a sub-query
+reads. `model-query-hibernate` reports the query spaces of the entity's persister and its subclasses', each unquoted
+and qualified with the default catalog and schema when it names none, so a quoted or schema-defaulted name still
+matches.
 
 ## 2. Open questions
 

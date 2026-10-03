@@ -14,6 +14,7 @@ import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
 import jakarta.persistence.Query;
 import jakarta.persistence.QueryTimeoutException;
+import jakarta.persistence.TypedQuery;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -23,6 +24,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 import org.hibernate.SessionFactory;
 
 /**
@@ -86,9 +88,11 @@ class ProfileValuesTest {
                     "select count(e) from NullableSortEntity e").getSingleResult()).longValue());
             assertThat(total).isGreaterThan(1);
             List<Integer> streamed = sf.fromTransaction(em -> {
-                Query query = em.createQuery(HQL_ALL, Integer.class);
-                profile.applyStreaming(query, 2);
-                return query.getResultList();
+                TypedQuery<Integer> query = em.createQuery(HQL_ALL, Integer.class);
+                try (Stream<Integer> rows = VendorResolver.resolve(sf, Optional.empty(), MysqlStreamingMode.ROW_BY_ROW)
+                        .providerSupport().orElseThrow().resultStream(query, profile.streamingFetchSize(2))) {
+                    return rows.toList();
+                }
             });
             assertThat(streamed).hasSize((int) total);
         }

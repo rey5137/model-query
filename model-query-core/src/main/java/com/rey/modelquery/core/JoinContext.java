@@ -10,6 +10,7 @@ import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -100,12 +101,9 @@ public final class JoinContext {
         return !existsJoined.isEmpty(); // an exists always joins its path
     }
 
-    /**
-     * Whether an {@code exists} sub-query of this build joined {@code entity}, a type of its hierarchy or one sharing
-     * it, so reads the table of a bulk write on {@code entity} (R-WRT-11).
-     */
-    boolean existsReads(Class<?> entity) {
-        return existsJoined.stream().anyMatch(type -> type.isAssignableFrom(entity) || entity.isAssignableFrom(type));
+    /** The types the {@code exists} sub-queries of this build joined so far, at any depth (R-WRT-11). */
+    Set<Class<?>> existsJoined() {
+        return Collections.unmodifiableSet(existsJoined);
     }
 
     From<?, ?> root() {

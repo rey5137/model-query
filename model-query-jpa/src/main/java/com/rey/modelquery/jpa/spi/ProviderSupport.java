@@ -4,17 +4,20 @@ import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaQuery;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * What a persistence provider can do better than portable JPA: detect the database without a connection, count
- * groups in the database, render null precedence natively and report a configured default null ordering. It varies
- * by provider, not by database, so it is not part of {@link VendorProfile} (D-34). Discovered with
- * {@code ServiceLoader}; the first that {@linkplain #supports supports} a factory serves it. Implementations are
- * stateless and thread-safe.
+ * groups in the database, render null precedence natively, report a configured default null ordering, stream a
+ * query's rows by cursor and name the tables an entity reads. It varies by provider, not by database, so it is not
+ * part of {@link VendorProfile} (D-34, D-108). Discovered with {@code ServiceLoader}; the first that
+ * {@linkplain #supports supports} a factory serves it. Implementations are stateless and thread-safe.
  *
- * @implSpec R-VND-04, R-EXE-03
+ * @implSpec R-VND-04, R-EXE-03, R-VND-12, R-VND-13
  */
 @Incubating
 public interface ProviderSupport {
@@ -50,5 +53,24 @@ public interface ProviderSupport {
      */
     default Optional<NullPrecedence> defaultNullPrecedence(EntityManagerFactory emf) {
         return Optional.empty();
+    }
+
+    /**
+     * Opens {@code query}, a query of this implementation's provider, as a stream that reads its rows from the database
+     * as they are pulled, {@code fetchSize} at a time, the size the profile's {@code streamingFetchSize} chose. The
+     * implementation opens the stream itself, because a provider may stream only through its own API: a portable
+     * {@code getResultStream()} may read the whole result first. Closing the stream releases the cursor (R-VND-12,
+     * D-108).
+     */
+    <T> Stream<T> resultStream(TypedQuery<T> query, int fetchSize);
+
+    /**
+     * Every table reading {@code entity} in {@code emf} touches, such as a joined supertable, a secondary table or a
+     * subclass table, each unquoted and qualified with the configured default catalog and schema when it names none,
+     * to be compared ignoring case; empty when it cannot tell, the default. A bulk write intersects them with the
+     * root's to tell that a sub-query reads a table the write targets (R-VND-13, R-WRT-11, D-109).
+     */
+    default Set<String> tablesOf(EntityManagerFactory emf, Class<?> entity) {
+        return Set.of();
     }
 }

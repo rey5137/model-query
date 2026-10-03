@@ -10,6 +10,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.UnaryOperator;
 
 /**
@@ -149,15 +150,19 @@ public final class ModelDelete<E, M> {
     }
 
     /**
-     * Whether the statement {@link #buildWrite(CriteriaBuilder, RenderOptions)} renders reads the root's table in a
-     * sub-query: the {@code where} tree needs a join (R-WRT-10), or an {@code exists(...)} path leads back to the
-     * root entity type. Where the database refuses that, an executor runs the delete key-first (R-WRT-11, R-VND-11).
+     * The entity types the sub-queries of the statement {@link #buildWrite(CriteriaBuilder, RenderOptions)} renders
+     * read: the root's own when the {@code where} tree needs a join (R-WRT-10), and each type an {@code exists(...)}
+     * path joins; empty when it renders none. An executor runs the delete key-first where the database refuses a
+     * sub-query reading the root's table and one of these shares the root's hierarchy or table (R-WRT-11, R-VND-11,
+     * D-109).
+     *
+     * @return an unmodifiable set
      */
     @EngineFacing
-    public boolean readsTargetInSubquery(CriteriaBuilder cb, RenderOptions options) {
+    public Set<Class<?>> entitiesReadInSubquery(CriteriaBuilder cb, RenderOptions options) {
         Objects.requireNonNull(cb, "cb");
         Objects.requireNonNull(options, "options");
-        return WriteRendering.readsTargetInSubquery(definition.rows().where(), rootEntity(), cb, options);
+        return WriteRendering.entitiesReadInSubquery(definition.rows().where(), rootEntity(), cb, options);
     }
 
     /** The primary key the delete chooses rows by, whose columns a key select reads (D-63). */

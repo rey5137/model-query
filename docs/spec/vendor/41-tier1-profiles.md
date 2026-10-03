@@ -26,7 +26,7 @@ as community-supported. It never gates a release.
 
 | Concern | H2 | PostgreSQL | MySQL |
 |---|---|---|---|
-| Streaming | positive `fetchSize` (hint `org.hibernate.fetchSize`) | positive `fetchSize`; the driver only uses a cursor when **autocommit is off**, so the query must run in a transaction | `fetchSize = Integer.MIN_VALUE` (row-by-row). Alternative: `useCursorFetch=true` + positive fetch size, chosen by config |
+| Streaming fetch size | the configured size | the configured size; the driver only uses a cursor when **autocommit is off**, so the query must run in a transaction | `Integer.MIN_VALUE` (row-by-row). Alternative: `useCursorFetch=true` + the configured size, chosen by config |
 | Timeout | `jakarta.persistence.query.timeout` | `jakarta.persistence.query.timeout` | `jakarta.persistence.query.timeout` |
 | Max IN list (soft) | 10 000 | 10 000 | 10 000 |
 | Max bind parameters | 100 000 | 65 535 | 65 535 |
@@ -36,6 +36,8 @@ as community-supported. It never gates a release.
 | Row-value keyset `(a,b) > (?,?)` | supported | supported | supported — a possible later optimisation; the default stays the portable OR-expansion |
 
 **R-PRF-11** The built-in H2, PostgreSQL and MySQL profiles carry the values in this table (`vendor/40` R-VND-03).
+A profile's streaming value is the size its `streamingFetchSize` returns; it names no provider hint, and the factory's
+`ProviderSupport` opens the stream with it, `resultStream(query, size)` (`vendor/40` R-VND-12, D-108).
 
 The clamp counts `Query.getParameters()`, which holds one parameter for an embeddable-valued key or a composite-FK to-one
 SET value though each takes several JDBC binds, so it can under-count; on a limit-bound vendor that fails loudly at the
@@ -49,7 +51,10 @@ guard.
 
 **R-PRF-04** MySQL row-by-row streaming holds the connection until the whole result has been read and blocks other
 statements on it. Documented, and the reason keyset `export` is the recommended default for large exports
-(`engine/20` R-EXE-10).
+(`engine/20` R-EXE-10). Every streaming value, `Integer.MIN_VALUE` included, reaches the driver only through a
+`ProviderSupport`: without one for the provider (`model-query-hibernate` for Hibernate) the driver's default applies,
+which on MySQL and PostgreSQL buffers the whole result, and the engine warns once per factory (`vendor/40` R-VND-12,
+D-108).
 
 **R-PRF-05** `jakarta.persistence.query.timeout` becomes `Statement.setQueryTimeout`, which has **one-second
 granularity**; a sub-second timeout is rounded up, not honoured exactly.
@@ -64,7 +69,9 @@ the vendor notes page.
 query. `ModelQueryConfig.mysqlStreamingMode(...)` picks the built-in MySQL profile, and the resolver caches by it as well
 as by the vendor, so two configurations on one factory get their own profile (`reference/92` D-34). `cursor-fetch` needs
 `useCursorFetch=true` on the JDBC URL, which the library cannot set; without it Connector/J ignores the fetch size and
-buffers. A `ServiceLoader` profile decides its own streaming and ignores the mode.
+buffers. With the MariaDB Connector/J driver, which rejects a negative fetch size and so fails `row-by-row`, use
+`cursor-fetch` (`MysqlStreamingMode.CURSOR_FETCH`). A `ServiceLoader` profile decides its own streaming and ignores the
+mode.
 
 ## 4. NULL ordering defaults
 

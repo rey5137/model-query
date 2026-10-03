@@ -214,7 +214,9 @@ class ModelQueryConfigTest {
         }
 
         @Override
-        public void applyStreaming(Query query, int fetchSize) {}
+        public int streamingFetchSize(int requested) {
+            return requested;
+        }
 
         @Override
         public void applyTimeout(Query query, Duration timeout) {}

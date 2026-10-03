@@ -511,8 +511,8 @@ class StarterTest {
         }
 
         @Override
-        public void applyStreaming(Query query, int fetchSize) {
-            query.setHint("org.hibernate.fetchSize", fetchSize);
+        public int streamingFetchSize(int requested) {
+            return requested;
         }
 
         @Override
