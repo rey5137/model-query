@@ -11,6 +11,9 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 - `ModelQueryException`, the abstract superclass of `ModelQueryDefinitionException`, `ModelQueryExecutionException`
   and `ModelQueryConfigurationException`: one catch clause handles every library failure and reads its `code()`
   (D-106).
+- `assertThatQuery(q).child(field)` in `model-query-test` asserts a fetch plan's child query: its filters, order,
+  selection and `maxPerParent`, with the same matchers; a child the plan doesn't load fails, naming the ones it does
+  (D-104).
 
 ## [0.2.0] - Unreleased
 

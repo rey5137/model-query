@@ -126,7 +126,9 @@ class LayeringTest {
                 LayeringRules::testUsesNoEngineFacingMember,
                 F + "test.BadTestEngineFacingCall",
                 F + "test.BadTestEngineFacingType",
-                F + "core.EngineOnly");
+                F + "core.EngineOnly",
+                "ChildLoad.build(",
+                "FetchPlan.joinPlans()");
     }
 
     @Test

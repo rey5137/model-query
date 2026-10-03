@@ -1,6 +1,7 @@
 package com.rey.modelquery.test;
 
 import com.rey.modelquery.annotations.Incubating;
+import com.rey.modelquery.core.ChildField;
 import com.rey.modelquery.core.Condition;
 import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.ModelQuery;
@@ -13,17 +14,25 @@ import java.util.Objects;
 import org.assertj.core.api.AbstractAssert;
 
 /**
- * Assertions on a built {@link ModelQuery}, from its public view only: {@code conditions()}, {@code orderBy()},
- * {@code select()} and the fetch plan's {@code select()} (R-INS-06). Needs no {@code EntityManager}, metamodel or
- * database. Filters of a fetch plan's child queries are not in the view (Q-13).
+ * Assertions on a built {@link ModelQuery}, from its public view: {@code conditions()}, {@code orderBy()},
+ * {@code select()} and the fetch plan's {@code select()}, plus the plan's child queries through {@link #child}
+ * (R-INS-06, D-104). Needs no {@code EntityManager}, metamodel or database.
  *
  * @implSpec api/16 R-INS-06, R-INS-07
  */
 @Incubating
 public final class QueryAssert<M> extends AbstractAssert<QueryAssert<M>, ModelQuery<?, ?, M>> {
 
+    /** What a failure message calls the query: the query of its model, or a plan's child query. */
+    private final String subject;
+
     QueryAssert(ModelQuery<?, ?, M> actual) {
+        this(actual, "the query of " + actual);
+    }
+
+    QueryAssert(ModelQuery<?, ?, M> actual, String subject) {
         super(actual, QueryAssert.class);
+        this.subject = subject;
     }
 
     /** The top-level {@code where} conditions are exactly these, in any order (a multiset). */
@@ -104,6 +113,37 @@ public final class QueryAssert<M> extends AbstractAssert<QueryAssert<M>, ModelQu
         return this;
     }
 
+    /**
+     * The query the fetch plan runs to load {@code field}: its filters, order, selection and {@code maxPerParent},
+     * asserted with the same matchers (D-104). Fails, naming the children the plan loads, when the plan doesn't load
+     * {@code field} or the query has no plan.
+     *
+     * @param <C> the child model
+     */
+    @SuppressWarnings("unchecked") // the plan loads field, so the child query is a query of C
+    public <C> ChildQueryAssert<C> child(ChildField<M, C> field) {
+        Objects.requireNonNull(field, "field");
+        String name = query() + "." + field.name(); // a query's toString is its model's name
+        FetchPlan<M> plan = query().fetch().orElseThrow(() -> failure(
+                "Expecting %s to load the child %s, but it has no fetch plan", describe(), name));
+        for (var load : plan.childLoads()) {
+            if (load.field().name().equals(field.name())) {
+                return withStateOf(this, new ChildQueryAssert<>((ModelQuery<?, ?, C>) load.query(), load.toString(),
+                        load.maxPerParent()));
+            }
+        }
+        throw failure("Expecting %s to load the child %s, but its fetch plan loads%n  %s",
+                describe(), name, render(plan.childLoads()));
+    }
+
+    /** {@code target}, which fails with the description, overriding message and representation of {@code source}. */
+    static <A extends AbstractAssert<?, ?>> A withStateOf(AbstractAssert<?, ?> source, A target) {
+        target.info.description(source.info.description());
+        target.info.overridingErrorMessage(source.info.overridingErrorMessage());
+        target.info.useRepresentation(source.info.representation());
+        return target;
+    }
+
     /** Fails through AssertJ, so a description and a soft assertion work; returns for a soft assertion to go on. */
     private QueryAssert<M> fail(String message, Object... args) {
         failWithMessage(message, args);
@@ -116,7 +156,7 @@ public final class QueryAssert<M> extends AbstractAssert<QueryAssert<M>, ModelQu
     }
 
     private String describe() {
-        return "the query of " + actual;
+        return subject;
     }
 
     private List<? extends SelectField<M, ?>> fetchSelection() {

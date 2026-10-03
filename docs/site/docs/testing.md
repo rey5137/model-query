@@ -47,6 +47,7 @@ A filter skipped by an empty `Optional` is simply absent, so the test says what 
 | `isOrderedBy(keys...)`, `isNotOrdered()` | `orderBy()`, in order, with directions and null precedence. |
 | `hasSelection(fields...)`, `selectionContains(fields...)` | The query's `select()`. |
 | `hasFetchSelection(fields...)`, `fetchSelectionContains(fields...)`, `hasNoFetchPlan()` | The selection of the query's fetch plan. |
+| `child(field)` | The query the fetch plan runs for that child, asserted below. |
 
 The matchers in `FilterMatchers` mirror the `Filters` operators by name, with the value form of their parameters:
 `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `range`, `between`, `in`, `notIn`, `like`, `likeIgnoreCase`, `eqIgnoreCase`,
@@ -68,6 +69,29 @@ query, before any converter. The operands of `or`, `and`, `not` and `exists` mat
 
 When an assertion fails, the message prints the whole condition tree, values included, and `hasFilters` names the
 conditions that are missing and those that were not expected.
+
+### Child queries
+
+`child(field)` (incubating) asserts the query the fetch plan runs to load a child: its filters, its order, its selection
+and its `maxPerParent`, with the same matchers. For the plan that loads `QCustomerOrders.ORDERS` with paid orders,
+newest total first, at most 50 per customer:
+
+```java
+assertThatQuery(q).child(QCustomerOrders.ORDERS)
+        .hasFilters(eq(QOrderLines.STATUS, "PAID"))
+        .isOrderedBy(QOrderLines.TOTAL.desc())
+        .selectionContains(QOrderLines.TOTAL)
+        .hasMaxPerParent(50);
+```
+
+| Assertion | Checks |
+|---|---|
+| `hasFilters(...)`, `containsFilter(...)`, `hasNoFilters()` | The child filters, without the match on the parent's key. |
+| `isOrderedBy(keys...)`, `isNotOrdered()` | The child order, without the primary key that closes it. |
+| `hasSelection(fields...)`, `selectionContains(fields...)` | The child plan's own selection, then the child's `foreignKey` unless the plan already selects it (a `through` child adds none), then its join plans' selections. |
+| `hasMaxPerParent(n)`, `hasNoMaxPerParent()` | The bound on children per parent. |
+
+A child the plan doesn't load fails the assertion, and the message lists the children the plan does load.
 
 ## Reading the conditions yourself
 

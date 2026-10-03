@@ -95,10 +95,16 @@ build log and the D-95 `update` and `delete` logs list each condition's kind and
 bound values can be personal data; only the accessors expose the values. `ModelQuery.toString()` stays the model's name.
 The text format is not API.
 
-**R-INS-06** **The test module reads only the public view.** `model-query-test` depends on `core` and AssertJ and
-nothing else (INV-7); its assertions use `conditions()`, `select()`, `orderBy()` and `fetch().map(FetchPlan::select)`,
-never an internal or `@EngineFacing` type. It needs no `EntityManager`, metamodel or database. `conditions()` covers
-the query's own `where` and `having` only: the filters of a fetch plan's child queries are not in it (Q-13).
+**R-INS-06** **The test module reads the public view and a plan's child loads.** `model-query-test` depends on `core`
+and AssertJ and nothing else (INV-7); its assertions use `conditions()`, `select()`, `orderBy()` and
+`fetch().map(FetchPlan::select)`, never an internal type. It needs no `EntityManager`, metamodel or database.
+`conditions()` covers the query's own `where` and `having` only; a fetch plan's child queries are asserted through
+`assertThatQuery(q).child(field)`, which reads `FetchPlan.childLoads()` and each `ChildLoad`'s field, query and
+`maxPerParent`, the one `@EngineFacing` read the module makes (D-104). It asserts the child query's filters and order
+(the `ChildQuery`'s, without the key match or the primary-key tie-breaker), its selection (the child plan's own, then
+the child's `foreignKey` unless already selected, then its join plans', R-FCH-05; a `through` child adds no
+`foreignKey`, R-FCH-14) and its `maxPerParent`, with the same matchers; a field the plan doesn't load fails, naming the
+children it loads.
 
 **R-INS-07** **Matchers mirror `Filters`.** `FilterMatchers` has one factory per `Filters` operator, with the same
 name and the value form of its parameters (`eq`, `ne`, `in`, `like`, `isNull`, `between`, `compare`, `or`, `not`,
@@ -118,3 +124,4 @@ values included.
 | AC-INS-04 | `conditions().toString()` and the build log of a query with an `eq` on a string column contain the column and `?`, not the value (R-INS-05). |
 | AC-INS-05 | A unit test in `model-query-test` asserts a query captured from a mocked `ModelQueryExecutor`, with no persistence provider on its test classpath (R-INS-06, R-INS-07). |
 | AC-INS-06 | A failing `hasFilters` names the missing and the unexpected conditions (R-INS-07). |
+| AC-INS-07 | `assertThatQuery(q).child(field)` asserts that child query's filters, order, selection and `maxPerParent`, and a failure names the child; a field the plan doesn't load fails, naming the children the plan loads (R-INS-06, D-104). |

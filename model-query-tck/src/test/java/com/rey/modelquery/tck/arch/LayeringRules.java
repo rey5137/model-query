@@ -14,6 +14,7 @@ import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
 import com.tngtech.archunit.lang.CompositeArchRule;
 import java.util.Arrays;
+import java.util.Set;
 
 /**
  * The INV-7 dependency rules (delivery/61 R-REL-03). Every rule is parameterised by the root package, so the same
@@ -22,6 +23,11 @@ import java.util.Arrays;
 final class LayeringRules {
 
     private static final String ENGINE_FACING = "com.rey.modelquery.core.EngineFacing";
+    /** The one {@code @EngineFacing} type {@code test} may hold: a fetch plan's child load (D-104). */
+    private static final String CHILD_LOAD = "com.rey.modelquery.core.ChildLoad";
+    /** The {@code @EngineFacing} members {@code test} may call, to assert a child query (D-104). */
+    private static final Set<String> CHILD_READS = Set.of("com.rey.modelquery.core.FetchPlan.childLoads",
+            CHILD_LOAD + ".field", CHILD_LOAD + ".query", CHILD_LOAD + ".maxPerParent", CHILD_LOAD + ".toString");
 
     private final String root;
     private final boolean allowEmptyShould;
@@ -149,7 +155,9 @@ final class LayeringRules {
 
     /**
      * {@code test} calls or accesses no member annotated {@code @EngineFacing} and uses no type annotated with it, so
-     * an assertion reads the query's public view and never an engine seam (api/16 R-INS-06).
+     * an assertion reads the query's public view and never an engine seam (api/16 R-INS-06). The one exception is a
+     * child query's assertion, which reads {@code FetchPlan.childLoads()} and a {@code ChildLoad}'s field, query,
+     * bound and name, and nothing else of it (D-104).
      */
     ArchRule testUsesNoEngineFacingMember() {
         return noClasses()
@@ -166,6 +174,9 @@ final class LayeringRules {
             public void check(JavaClass origin, ConditionEvents events) {
                 for (JavaAccess<?> access : origin.getAccessesFromSelf()) {
                     AccessTarget target = access.getTarget();
+                    if (CHILD_READS.contains(target.getFullName().replaceFirst("\\(.*", ""))) {
+                        continue;
+                    }
                     boolean member = target.resolveMember().map(m -> m.isAnnotatedWith(ENGINE_FACING)).orElse(false);
                     if (member || target.getOwner().isAnnotatedWith(ENGINE_FACING)) {
                         events.add(SimpleConditionEvent.satisfied(access, access.getDescription()));
@@ -173,6 +184,7 @@ final class LayeringRules {
                 }
                 origin.getDirectDependenciesFromSelf().stream()
                         .filter(dependency -> dependency.getTargetClass().isAnnotatedWith(ENGINE_FACING))
+                        .filter(dependency -> !dependency.getTargetClass().getName().equals(CHILD_LOAD))
                         .forEach(dependency ->
                                 events.add(SimpleConditionEvent.satisfied(dependency, dependency.getDescription())));
             }
