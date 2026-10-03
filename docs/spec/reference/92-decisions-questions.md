@@ -1111,7 +1111,11 @@ and selected columns, reversing D-27; (4) ordering by an expression, with a stat
 `primaryKeyFirst`; (5) a correlated `exists` whose inner predicate reads outer columns; (6) enrichers on a nested join
 model, already R-FCH-01/R-FCH-08, owed a documented recipe; (7) joins through a non-key `@JoinColumn` or Hibernate
 `@JoinFormula`, tested and documented through the mapped association, with no `@Join(on = …)` (R-PROC-12 holds);
-(8) chunked lookups for `Enricher.byKey`; (9) `keyset()` and `primaryKeyFirst` over String and `@EmbeddedId` keys, tested
+(8) enrichers for a row carrying several keys (a payment order's payer, payee, initiator and an optional
+requestor, each a user type and id), widened by the adopter's follow-up: each key routed to its role's field, one
+lookup for the distinct keys across rows and roles, chunked lookups, a lookup split by a key part (the user type,
+one datasource each), the null-key skip stated, values shared with another enricher of the same fetch (a child's),
+and request-time parameters; (9) `keyset()` and `primaryKeyFirst` over String and `@EmbeddedId` keys, tested
 and documented. Items 2–5 and 8 get their own `architect-review` before their slices and are recorded as their own
 `D-n`; this decision fixes the scope and order only. → `delivery/62` §1, `docs/plan/mvp-plan.md` §10–11.
 
