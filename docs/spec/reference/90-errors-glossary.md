@@ -28,7 +28,7 @@ is R-ERR-04's `OptimisticLockException`. Its constructors are protected; no othe
 
 | Code | Meaning | Owner |
 |---|---|---|
-| `MQ1001` | A column's declared type does not match the entity attribute | `api/10` R-COL-08 |
+| `MQ1001` | A column's declared type does not match the entity attribute, or two columns compared or matched against a sub-select convert to different attribute types | `api/10` R-COL-08, `api/12` R-FLT-15 |
 | `MQ1002` | An attribute named by a column or join does not exist on its entity; the provider's exception is the cause | `api/10` R-COL-01, R-COL-08 |
 | `MQ1003` | A column or table sits on a root entity the query is not rooted at | `api/10` R-COL-01 |
 | `MQ1101` | Two `TableField`s share a join key but carry different `on(...)` conditions | `api/10` R-COL-04 |
@@ -50,6 +50,10 @@ is R-ERR-04's `OptimisticLockException`. Its constructors are protected; no othe
 | `MQ1306` | One `in` or `notIn` filter has more values than `maxBindParameters()` | `api/12` R-FLT-09 |
 | `MQ1307` | A statement binds more values than `maxBindParameters()` together, though no one `in` or `notIn` filter does; a keyset statement (page, export page, key-first round) is refused up front when its own binds plus the worst cursor, k(k+1)/2 for k keyset keys, would pass it: `<label>: a keyset statement binds <own> values of its own, and the keyset cursor's values can add up to <worst> more, over the <max> bind parameters one statement takes; narrow the query's own filters by at least <n> or use fewer keyset columns` | `api/12` R-FLT-09, D-80, D-82 |
 | `MQ1308` | A value cannot be converted to its column's attribute type: a value filter or a write converts it through `ColumnField.toAttribute` and the converter throws `IllegalArgumentException`, for example `InstantTimestampConverter` with an `Instant` beyond `Timestamp`'s range | `api/10` R-COL-14, D-84 |
+| `MQ1309` | `exists` or `notExists` over a sub-select whose correlation lifts no outer column | `api/12` R-FLT-17, D-112 |
+| `MQ1310` | An `Outer.column` resolved outside the correlation it was made in, or lifted through two sub-select levels | `api/12` R-FLT-17 |
+| `MQ1311` | `Outer.column` given a column that is not on the outer query's root | `api/12` R-FLT-17 |
+| `MQ1312` | `in` or `notIn` over a sub-select with an embeddable-valued column on either side; checked at first resolution | `api/12` R-FLT-16 |
 | `MQ1401` | A selected non-aggregate column is not in the group-by | `api/13` R-AGG-08 |
 | `MQ1402` | Keyset paging or primary-key-first on a grouped query | `api/13` R-AGG-10 |
 | `MQ1403` | `Agg.sum` or `Agg.sumAsLong` over a column whose SQL sum type differs from the declared result type | `api/13` R-AGG-03 |
@@ -73,6 +77,8 @@ is R-ERR-04's `OptimisticLockException`. Its constructors are protected; no othe
 | `MQ1703` | A fetch plan names the same child or join twice | `api/15` R-FCH-01 |
 | `MQ1704` | A fetch plan with a child, at any join depth, on a grouped query | `api/15` R-FCH-10 |
 | `MQ1705` | A join plan selects an `AggregateField`, which cannot be re-rooted under the join | `api/15` R-FCH-07 |
+| `MQ1706` | `Enricher.byKeys(…).reading(…)` with no `key(…)` | `api/15` R-FCH-15, D-114 |
+| `MQ1707` | `Enricher.Keys.batchSize(n)` with `n` below 1 | `api/15` R-FCH-15 |
 
 ## 3. `MQ2xxx` — execution
 
@@ -99,6 +105,7 @@ is R-ERR-04's `OptimisticLockException`. Its constructors are protected; no othe
 | `MQ2603` | A parent has more children than `maxPerParent`, or a round reaches its row cap | `api/15` R-FCH-11 |
 | `MQ2604` | A child row's key equals none of its round's keys (a case-insensitive or padding collation) | `api/15` R-FCH-05 |
 | `MQ2605` | `stream` with a fetch plan that has a child, join plan or enricher | `api/15` R-FCH-09 |
+| `MQ2606` | An `Enricher.byKey` or `byKeys` lookup returned `null` | `api/15` R-FCH-08, R-FCH-15 |
 
 **R-ERR-04** One JPA exception is thrown deliberately instead of a library type: `OptimisticLockException` when an
 `expectVersion` update affects no rows (`api/14` R-WRT-16), because callers already handle it for entity writes.
@@ -118,6 +125,7 @@ models, `MQ3301`–`MQ3307` for update models, `MQ3401`–`MQ3406` for `@Child` 
 | `MQ4005` | `modelquery.vendor` set with more than one `EntityManagerFactory` and no `ModelQueryConfigurer` | `integration/50` R-SPR-13 |
 | `MQ4006` | A `ModelQueryConfig` bean of the application drops a `VendorProfile` or `ChunkTransactions` bean, or a set `modelquery.*` property | `integration/50` R-SPR-13 |
 | `MQ4007` | A repository declares `ModelQueryRepository` of an entity other than its domain type | `integration/50` R-SPR-12 |
+| `MQ4008` | The starter cannot add the repository fragment because the factory bean definition already sets `customImplementation` | `integration/50` R-SPR-02, D-113 |
 | `MQ4004` | `commitEachChunk()` with no `ChunkTransactions` configured, or none that serves the write's `EntityManagerFactory` | `api/14` R-WRT-19 |
 
 ## 6. Glossary

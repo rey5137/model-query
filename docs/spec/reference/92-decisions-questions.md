@@ -482,7 +482,8 @@ prefix.
 `<E, ID> extends JpaRepository`. `ModelQueryRepositoryFactoryBean` extends `JpaRepositoryFactoryBean` and adds the
 fragment's implementation when the repository interface extends it. A base class would collide with a user's own
 `repositoryBaseClass`, and the base interface forced `JpaRepository` and an `ID` no method used. The starter swaps
-bean definitions whose class is exactly `JpaRepositoryFactoryBean` for it, which keeps Boot's own registrar. Spring
+bean definitions whose class is exactly `JpaRepositoryFactoryBean` for it, which keeps Boot's own registrar; any other
+subclass gets the fragment beside it (D-113). Spring
 Data's exception translation applies to the fragment as to any repository method: a provider exception reaches the
 caller as a `DataAccessException`, while `MQnnnn` exceptions pass through unchanged. That is Spring's behaviour for
 every repository, not a semantic the library adds (INV-8).
@@ -1117,7 +1118,50 @@ lookup for the distinct keys across rows and roles, chunked lookups, a lookup sp
 one datasource each), the null-key skip stated, values shared with another enricher of the same fetch (a child's),
 and request-time parameters; (9) `keyset()` and `primaryKeyFirst` over String and `@EmbeddedId` keys, tested
 and documented. Items 2–5 and 8 get their own `architect-review` before their slices and are recorded as their own
-`D-n`; this decision fixes the scope and order only. → `delivery/62` §1, `docs/plan/mvp-plan.md` §10–11.
+`D-n`; this decision fixes the scope and order only. D-114 ships item 8's partitioning, shared values and
+request-time parameters as tested recipes rather than library API. → `delivery/62` §1, `docs/plan/mvp-plan.md` §10–11.
+
+**D-112 — Sub-selects and correlated `exists` (M9.11a review, D-111 items 2 and 5).** `SubSelect<S, C>` is one column
+of any root with its own filters, immutable, so it can be a constant. `in`/`notIn` take it uncorrelated, with an
+invariant `C`; `notIn` adds `IS NOT NULL` inside and `OR col IS NULL` outside, so a NULL value never empties a report.
+`exists`/`notExists(sub, (s, outer) -> …)` correlate through `Outer<M, S>.column`, which lifts an outer-root column
+into the inner vocabulary, so every operator, `or` and `not` mix inner and outer conditions. An uncorrelated `exists`
+is `MQ1309`; outer columns are root-only in 1.0 (`MQ1311`), because Hibernate renders joins off a correlated root as
+the sub-query's `FROM` and drops their `ON`; widening it later breaks no one. Inspection gets four `Kind` values and
+`subSelect()`, and `model-query-test` a second `@EngineFacing` read, `Outer.reference`. Rejected: relaxing `MQ1302`
+(silently changes R-FLT-11); per-operator outer overloads (same erasure); an outer type parameter on the sub-select
+(breaks reuse as a constant); reusing the `IN`/`EXISTS` kinds (an `IN` without values reads as an empty set);
+rendering `notIn` as `NOT EXISTS` (needs outer-join correlation; the guide advises `notExists` on PostgreSQL); the name
+`SubQuery` (one case away from JPA's `Subquery`). → `api/12` R-FLT-12, R-FLT-15 to R-FLT-17; `api/14` R-WRT-11;
+`api/16` R-INS-06, R-INS-08; `reference/90`; `delivery/61`.
+
+**D-113 — The starter adds the fragment beside any factory bean subclass (amends D-50, D-111 item 1).** An exact
+`JpaRepositoryFactoryBean` is swapped as before, and a `ModelQueryRepositoryFactoryBean` subclass is left alone. Any
+other subclass whose repository extends `ModelQueryRepository` keeps its class and gets the fragment through
+`customImplementation`, public and not deprecated in Spring Data 3.4 to 4.0, from a `ModelQueryRepositoryFragmentFactoryBean`
+in `model-query-spring-data` (INV-7), re-registered per D-83; a definition already setting it is `MQ4008`. Rejected: a
+repository proxy post-processor or factory customizer (the query-method composition is already fixed without the
+fragment, so `findPage` parses as a derived query); post-processing instances (misses repositories created before the
+post-processor); editing Spring Data's inner fragments definition (internal structure); `customImplementation` for the
+stock case too (a behaviour change for 0.1 users); `RepositoryFragmentsContributor` (Spring Data 4.0 only, the later
+route). → `integration/50` R-SPR-02, `reference/90`.
+
+**D-114 — Enrichers over several keys (M9.11a review, D-111 item 8).**
+`Enricher.<M, K, V>byKeys(lookup).key(key, with)….batchSize(n).reading(columns)` makes one lookup per run for the
+distinct non-null keys across models and keys, or one per chunk of at most `n` with `batchSize`, and routes each value
+through its key's setter; a null key is skipped, and `byKey` is its one-key case. A key builder (Option B) beat a
+`Map<Role, K>` with a three-argument router (Option A): no new functional interface, no map per row, no role `switch`,
+and a null requestor cannot throw inside `Map.of`. Chunking is library API because any key lookup meets an IN-list or
+API limit and multi-key pages reach it sooner; a lookup that also splits by source receives each chunk, so each source
+is called at most once per chunk. Partitioning by a key part, a cache shared with a child's enricher, and request-time
+parameters stay in caller code: a lookup that splits its own keys, and a plan built per call (R-FCH-13) relying on
+R-FCH-17's order. Each is a tested recipe, revisited once the adopting service has run in production, and each can
+later become API (`Keys.sharing(token)`, a context) without breaking anyone. Rejected: Option A; `partitionBy` (the
+recipe is three lines, and it invites parallel calls into the library); a library per-run cache (scope across export
+batches undecided, overlaps the caller's cache); `EnrichContext` (an untyped bag or a type parameter on every plan).
+Measure lock contention on the first-run check set under the service's load before 1.0; it decides whether a cached
+per-parameter plan or a context is needed. Amends D-111's "built" to "a tested recipe" for those three asks.
+→ `api/15` R-FCH-08, R-FCH-15 to R-FCH-17; `reference/90`.
 
 
 ## 2. Open questions

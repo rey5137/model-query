@@ -139,8 +139,8 @@ excludes an order with no customer on the read path, while `NOT EXISTS (…)` wo
 stay correlated sub-queries inside the tree.
 
 **R-WRT-11** **Bulk writes work where the database cannot read the target table in a sub-query.** The rendering reads
-the target table in a sub-query when R-WRT-10 builds one, when an `exists(...)` path leads back to the root entity
-type, or when the root uses `SINGLE_TABLE` or `JOINED` inheritance. If it does and
+the target table in a sub-query when R-WRT-10 builds one, when an `exists(...)` path or a sub-select (`api/12`
+R-FLT-15) leads back to the root entity type, or when the root uses `SINGLE_TABLE` or `JOINED` inheritance. If it does and
 `VendorProfile.targetTableInSubquery()` is false (MySQL, error 1093; `vendor/40` R-VND-11), the engine runs key-first:
 select the matching keys with the query engine, then write `WHERE pk IN (…) AND <root predicates>` in chunks sized by
 R-WRT-08. The root predicates are the top-level `AND` terms that need no join and no sub-query; re-applying them means
@@ -149,7 +149,7 @@ between is not re-checked; `ChunkOptions.lockKeys()` selects the keys with `Lock
 MySQL also makes the select read current rows rather than the transaction's snapshot. The Javadoc states both. A
 sub-query also reads the target table when it reads a second entity that shares one of the root's tables: `jpa`
 intersects, ignoring case, the tables `ProviderSupport.tablesOf` reports for the root and for each entity an
-`exists(...)` sub-query reads, and where either set is empty, as without `model-query-hibernate`, compares the entities
+`exists(...)` sub-query or sub-select reads, and where either set is empty, as without `model-query-hibernate`, compares the entities
 alone, so two entities on one table then go undetected and MySQL fails loudly with error 1093 (`vendor/40` R-VND-13,
 D-109). `core` reports the entities a sub-query reads, never a table (INV-7).
 

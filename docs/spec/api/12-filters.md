@@ -64,6 +64,12 @@ public interface Filters<M> {
     Filters<M> exists(TableField<?, ?> path);                 // "has at least one"
     Filters<M> notExists(TableField<?, ?> path, UnaryOperator<Filters<M>> inner);
 
+    // Sub-selects, no Optional twins (R-FLT-15 to R-FLT-17, D-112)
+    <C> Filters<M> in(ColumnField<M, ?, C> column, SubSelect<?, C> values);
+    <C> Filters<M> notIn(ColumnField<M, ?, C> column, SubSelect<?, C> values);
+    <S> Filters<M> exists(SubSelect<S, ?> rows, BiFunction<Filters<S>, Outer<M, S>, Filters<S>> correlation);
+    <S> Filters<M> notExists(SubSelect<S, ?> rows, BiFunction<Filters<S>, Outer<M, S>, Filters<S>> correlation);
+
     // Escape hatch
     Filters<M> add(BiFunction<JoinContext, CriteriaBuilder, Predicate> custom);    // D-24
     Filters<M> add(String label, BiFunction<JoinContext, CriteriaBuilder, Predicate> custom); // api/16 R-INS-03
@@ -144,7 +150,7 @@ within the limits but which a user's own lists must leave room for (`vendor/41`)
 branch would remove rows another branch should match. If the same path is already joined as INNER elsewhere in the
 query, that join is reused, because those rows are already required.
 
-## 7. `exists`
+## 7. `exists` and sub-selects
 
 **R-FLT-11** `exists(ITEMS_TABLE, inner)` renders `EXISTS (SELECT 1 FROM order_items i WHERE i.order_id = o.id AND
 <inner>)`. Columns inside `inner` must sit on `path` or below it and are re-rooted to the sub-query; any other column
@@ -153,8 +159,80 @@ be a join, else `MQ1304`. A nested `exists` correlates to the enclosing `exists`
 that child; on exactly the same path, to the **same child row**, so its filters narrow the row the enclosing `exists`
 found rather than asking for another row of that path.
 
-**R-FLT-12** Because `exists` joins nothing on the outer query, `count` and export need no distinct or dedupe work
-(`engine/20` R-EXE-04). It is the preferred form for "has a child matching X".
+**R-FLT-12** Because `exists` and sub-selects join nothing on the outer query, `count` and export need no distinct or
+dedupe work (`engine/20` R-EXE-04). `exists` is the preferred form for "has a child matching X".
+
+**R-FLT-15** *(D-112)* **A sub-select is one column of another root.** `SubSelect.of(column)` selects `column` from
+the root its path starts at, any entity, the outer root's own included; `where(filters)` adds filters on that root,
+recorded once, and each of their columns must start at that root, else `MQ1003` at definition. A `SubSelect<S, C>` is
+immutable and may be a constant (INV-9). It has no order, limit, grouping, second column or aggregate, and is never
+skipped, even when every one of its own filters was skipped; skip it with `when`. It is not named `SubQuery`, which
+differs from `jakarta.persistence.criteria.Subquery` only by case.
+
+```java
+static final SubSelect<RefundView, Long> REFUNDED = SubSelect.of(QRefundView.ORDER_ID)
+        .where(f -> f.eq(QRefundView.STATUS, "DONE"));
+
+.where(f -> f.notIn(QOrderView.ID, REFUNDED))
+```
+
+`in(column, sub)` and `notIn(column, sub)` take a `ColumnField<M, ?, C>` and a `SubSelect<?, C>` with the same,
+invariant `C`, so a `Long` column against an `Integer` sub-select does not compile; when a converter hides different
+attribute types on either side, the check is `MQ1001` at definition, as for `compare`.
+
+```java
+public final class SubSelect<S, C> {                                   // @Incubating, immutable
+    public static <S, C> SubSelect<S, C> of(ColumnField<S, ?, C> column);  // FROM the column's path root
+    public SubSelect<S, C> where(UnaryOperator<Filters<S>> filters);      // replaces; recorded once, here
+    public ColumnField<S, ?, C> column();
+    public TableField<?, ?> root();
+    public List<Condition> conditions();                                  // its own where
+}
+public final class Outer<M, S> {                                       // @Incubating, built by the DSL only
+    public <T, C> ColumnField<S, T, C> column(ColumnField<M, T, C> outerColumn);
+    public static Optional<ColumnField<?, ?, ?>> referenced(SelectField<?, ?> column);   // api/16 R-INS-08
+}
+```
+
+`S` is the inner column vocabulary: a generated model's columns, or the entity class for hand-written columns
+(`ColumnField.of(Entity.class, …)`). `exists` infers `S` from `rows` before it types the lambda, so implicit lambdas
+work, and an outer column passed where an inner one is expected does not compile unless `S` is `M`; then `MQ1309`
+catches a correlation that lifts nothing.
+
+**R-FLT-16** *(D-112)* **`in` and `notIn` over a sub-select.** `in` renders `col IN (SELECT s.c FROM … WHERE …)`.
+`notIn` renders `(col NOT IN (SELECT s.c FROM … WHERE … AND s.c IS NOT NULL) OR col IS NULL)`: a NULL among the
+sub-select's values never empties the result, and rows whose column is NULL match (R-FLT-04), the same rows as a
+`notExists` correlated on equality. An empty sub-select keeps R-FLT-02's meaning: `in` matches nothing, `notIn` every
+row. An embeddable-valued column on either side throws `MQ1312` at first resolution, because row-value `IN` is not
+portable (INV-6). On PostgreSQL the user guide advises `notExists` for a large sub-select.
+
+**R-FLT-17** *(D-112)* **Correlated `exists`.** `exists(sub, (s, outer) -> …)` and `notExists(...)` render
+`EXISTS (SELECT 1 FROM <root> s WHERE <sub's filters> AND <correlation>)`; the sub-select's column is not rendered.
+`outer.column(c)` lifts a column of the enclosing query's model into the sub-select's vocabulary, so it goes wherever
+a column of `S` goes (`compare` against an inner column, `eq` against a value) and `or`/`not` mix inner and outer
+conditions; an `add(...)` resolves it through its `JoinContext`, and a
+nested `exists(path, …)` inside the correlation may use it (exempt from `MQ1302`).
+
+```java
+// AuditEntry has no association to Order
+.where(f -> f.exists(SubSelect.of(QAuditView.ID), (s, outer) -> s
+        .compare(QAuditView.ENTITY_ID, EQ, outer.column(QOrderView.ID))
+        .or(g -> g.compare(QAuditView.ACTOR, EQ, outer.column(QOrderView.OWNER)),
+            g -> g.isNull(QAuditView.ACTOR))))
+```
+
+- The lifted column must sit on the outer query's root, else `MQ1311` at definition; it is read through a correlation
+  of that root (or of a `through` child's join, D-100), so the outer query joins nothing. Hibernate renders joins off
+  a correlated root as the sub-query's `FROM` and drops their `ON`, which would turn a LEFT join INNER and lose a
+  collection join's row pairing (INV-5); widening this later turns a throw into working code.
+- The correlation must record at least one lifted column, else `MQ1309`, so R-FLT-01 skipping never empties it.
+- A lifted column resolved outside the correlation it was made in, or lifted through two sub-select levels, throws
+  `MQ1310`.
+- Lifted columns resolve through the sub-select's link to its outer query, so a sub-select over the outer root's own
+  entity is unambiguous.
+
+`in` and `notIn` are never correlated (use `exists`); a sub-select is never compared as a scalar and never used in
+`having` (R-FLT-14).
 
 ## 8. Scope
 
@@ -179,3 +257,8 @@ collection means "none"; negation includes NULLs; `like` input is escaped; long 
 | AC-FLT-09 | An `or` branch over a LEFT-joined column keeps rows that have no joined row (R-FLT-10). |
 | AC-FLT-10 | A column outside the `exists` path throws `MQ1302`; a root as the path throws `MQ1304`; an aliased path works inside `exists`; a nested `exists` on the same path tests the same child row (R-FLT-11). |
 | AC-FLT-11 | `count` over a query using `exists` equals `count` over the equivalent join query with distinct (R-FLT-12). |
+| AC-FLT-12 | `in(col, sub)` returns the rows whose column is among the sub-select's filtered values; an empty sub-select returns none; a sub-select over the outer root's own entity works (R-FLT-15, R-FLT-16, D-112). |
+| AC-FLT-13 | `notIn(col, sub)` keeps the rows whose column is NULL, is not emptied by a NULL value of the sub-select, and returns every row for an empty sub-select (R-FLT-16). |
+| AC-FLT-14 | `exists` and `notExists` over an entity with no association to the outer root, correlated on an outer-root column; an `or` mixing an inner and a lifted condition matches through either branch; a `through` child's query correlates to its join (R-FLT-17). |
+| AC-FLT-15 | A mismatched `C`, and `Outer.column` given another model's column, have compile-failure cases; `MQ1309`, `MQ1310`, `MQ1311`, `MQ1312` and `MQ1001` (converted attribute types) each have a case (R-FLT-15 to R-FLT-17). |
+| AC-FLT-16 | With `in(sub)` and `exists(sub, …)`, `count` equals the list size, and keyset page, primary-key-first and export visit every row once; a bulk delete whose sub-select reads its target runs key-first on MySQL (R-FLT-12, R-WRT-11, INV-4). |

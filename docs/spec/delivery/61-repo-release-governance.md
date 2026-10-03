@@ -79,7 +79,9 @@ committed with the code that changed them.
 the annotations, `@EngineFacing` and `ModelQueryProcessor` among them; only `@Incubating` itself is not marked.
 Adding an abstract method to an interface is safe while it has a single implementation:
 `ModelQueryExecutor.page(query, KeysetSpec)` joins the interface before the freeze (D-110), and
-`DefaultModelQueryExecutor` is its only implementation.
+`DefaultModelQueryExecutor` is its only implementation. Likewise 0.2 adds the sub-select methods to `Filters` and four
+constants to `Condition.Kind` (D-112): `Filters` is implemented only by core, and `Kind` already warns that it gains
+constants, so a binary-compatibility report flags both while no caller breaks.
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from

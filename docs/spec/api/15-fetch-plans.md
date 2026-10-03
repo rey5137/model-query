@@ -134,13 +134,62 @@ exactly as selecting it does.
 **R-FCH-08** An `Enricher<M>` is caller code run once per page, declaring the columns it reads (selected per
 R-FCH-02). `Enricher.byKey(key, lookup, with, columns...)` reads a key per model, looks the distinct keys up in one call
 and copies each model with its value (a model whose key is absent or `null` is left as is), so size and order cannot
-change. `Enricher.of(page -> ..., columns...)` takes the page and returns it filled, one model per position, in the page's
+change; it is the one-key case of `byKeys` (R-FCH-15), and a lookup returning `null` throws `MQ2606`. `Enricher.of(page -> ..., columns...)` takes the page and returns it filled, one model per position, in the page's
 order: position `i` of the result replaces position `i` of the page (a plan serves a query alone and nested, and a
 nested model is put back by position, D-102). A result of another size, or with a `null` element, throws `MQ2602`. Exceptions propagate unwrapped. Within a plan,
-children and joins run first, then its enrichers in the order added; a nested plan's enrichers run before the outer
-plan's, and a join plan's enricher gets one entry per present nested model, duplicates included. The library never
+children, joins and enrichers run in R-FCH-17's order; a nested plan's enrichers run before the outer plan's, and a
+join plan's enricher gets one entry per present nested model, duplicates included. The library never
 fills a `@Transient` field. `afterMap` and the mapper's finisher run per row before any plan, so they cannot see
 children (R-QRY-05).
+
+**R-FCH-15** *(D-114)* **An enricher over several keys per model.** `byKeys` routes each key's value to its own
+field:
+
+```java
+public static <M, K, V> Enricher.Keys<M, K, V> byKeys(Function<? super Set<K>, ? extends Map<K, ? extends V>> lookup);
+
+public static final class Keys<M, K, V> {                  // @Incubating; immutable, each call returns a copy
+    public Keys<M, K, V> key(Function<? super M, ? extends K> key, BiFunction<? super M, ? super V, ? extends M> with);
+    public Keys<M, K, V> batchSize(int maxKeysPerLookup);  // at least 1, else MQ1707; unset = one lookup per run
+    @SafeVarargs public final Enricher<M> reading(ColumnField<M, ?, ?>... columns);   // MQ1706 with no key
+}
+```
+
+```java
+Enricher<PaymentOrderView> actors = Enricher.<PaymentOrderView, ActorKey, Profile>byKeys(
+                keys -> profiles.find(keys, fields))
+        .key(PaymentOrderView::payerKey, PaymentOrderView::withPayer)
+        .key(PaymentOrderView::payeeKey, PaymentOrderView::withPayee)
+        .key(PaymentOrderView::initiatorKey, PaymentOrderView::withInitiator)
+        .key(PaymentOrderView::requestorKey, PaymentOrderView::withRequestor)   // null when absent: skipped
+        .batchSize(1000)
+        .reading(QPaymentOrderView.PAYER_USER_TYPE, QPaymentOrderView.PAYER_USER_ID, /* … all 8 */);
+```
+
+Java cannot infer `M` through a builder chain of implicit lambdas, so `byKeys` takes explicit type witnesses.
+
+- For each model in page order and each key in the order declared, a `null` key is skipped and never looked up.
+- The distinct non-null keys across models and keys go to **one** lookup call per run (a page, or an export batch,
+  R-FCH-09), as an unmodifiable set in first-seen order. With `batchSize(n)`, they go in consecutive chunks of at most
+  `n` keys in that order, one call per chunk, one after another on the calling thread; a key is in exactly one chunk,
+  and only the values for a chunk's own keys are used.
+- Each value found is set through its key's `with`, in key order; a value shared by several keys or models is passed to
+  each. An absent key, or a `null` map value, leaves the model as is. Size and order cannot change.
+- A lookup returning `null` throws `MQ2606`; `reading` with no `key` throws `MQ1706`, and `batchSize` below 1
+  throws `MQ1707`, both at definition. Exceptions from the lookup propagate unwrapped.
+
+**R-FCH-16** *(D-114)* **The library chunks keys only by `batchSize`, and never partitions them.** A lookup over
+several sources (one datasource per user type, say) splits the keys of its call itself. With `batchSize(n)` set to the
+smallest source's limit, each source gets at most one call per chunk, never with more than `n` keys; a source with a
+smaller limit, or one called in parallel, is the lookup's own concern.
+
+**R-FCH-17** *(D-114)* **The order within a run, and per-call state.** Within a run, the plan's children run in the
+order added, each child plan whole, its enrichers included; then its join plans in the order added; then its enrichers
+in the order added. Each step completes, its effects visible, before the next starts; the thread is not promised.
+Per-call inputs (the profile fields a request asks for, a cache shared with a child's enricher) are captured by
+building the enricher and its plan per call and applying it with `withFetch` (R-FCH-13), which runs no statement of its
+own. Such a plan holds caller state and must not be shared across calls (INV-9); a cache it captures spans export
+batches and is the caller's memory, outside INV-4.
 
 ## 5. Where a plan runs
 
@@ -180,3 +229,7 @@ round's statement logs as any statement does (D-95).
 | AC-FCH-11 | A many-to-many child loads both ways on Tier 1: through a `foreignKey` crossing the child's collection, and through `through` on a unidirectional `@ManyToMany`; a child shared by two parents appears under both; a child filter and order apply through `through`; `MQ3406` has a compile-failure case (R-FCH-03, R-FCH-04, R-FCH-14). |
 | AC-FCH-12 | A nested plan's enricher, applied through `join`, fills a `@Transient` field of the joined model: each joined model is enriched and the lookup runs once per page (R-FCH-07, R-FCH-08, D-111). |
 | AC-FCH-13 | An `Enricher.byKey` with a composite record key looks the page's distinct keys up in one call, leaves a model whose key is absent unchanged, and is reused across a root query and a nested plan (R-FCH-08, D-111). |
+| AC-FCH-14 | A `byKeys` with payer, payee, initiator and a nullable requestor of a `(userType, userId)` record: one lookup per page with the distinct non-null keys across models and keys; a user in two roles or two models is looked up once and its value lands in every role's field; a null requestor is never in the set and leaves `requestor` as mapped; the 8 declared key columns are selected while the model's selection omits them (R-FCH-02, R-FCH-15, D-114). |
+| AC-FCH-15 | `byKeys` runs on `list`, offset, keyset and primary-key-first pages and once per `export` batch, through a join plan and a child plan; a `null` lookup result throws `MQ2606` for `byKey` and `byKeys`; no key throws `MQ1706` and `batchSize(0)` `MQ1707` (R-FCH-09, R-FCH-15). |
+| AC-FCH-16 | `batchSize(n)` over `d` distinct keys makes `ceil(d / n)` lookup calls of at most `n` keys each, in first-seen order, no key in two calls; with recipe 8's lookup split by user type, each type's source is called at most once per chunk (R-FCH-15, R-FCH-16). |
+| AC-FCH-17 | In a plan built per call, a user the movements `@Child` enricher loaded is not looked up again by the order's enricher; applying the per-call plan with `withFetch` adds no statement (R-FCH-13, R-FCH-17). |

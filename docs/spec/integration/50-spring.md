@@ -39,7 +39,16 @@ with exactly `JpaRepositoryFactoryBean`, Boot's own and any `@EnableJpaRepositor
 and leaves a repository with a factory bean class of its own alone (D-50). It re-registers each swapped definition
 rather than mutating it, so a repository type-checked before the swap is still built with it (D-83). A repository
 extending `ModelQueryRepository` without the factory bean fails at startup, as any repository with an unimplemented
-method does.
+method does. For any other `JpaRepositoryFactoryBean` subclass, Spring Data Envers' or the application's, the starter
+keeps the class and, when the repository extends `ModelQueryRepository`, re-registers the definition (as above) with
+its `customImplementation` set to an inner `ModelQueryRepositoryFragmentFactoryBean` (`model-query-spring-data`,
+INV-7), which builds the fragment as `ModelQueryRepositoryFactoryBean` does, from the definition's `entityManager`,
+`transactionManager` and lazy-init settings, so `MQ4007` and the configuration hold alike; Spring Data appends it after
+the repository's own fragments. A definition that already sets `customImplementation` fails with `MQ4008`. A subclass
+of `ModelQueryRepositoryFactoryBean` is left alone, so the fragment is never added twice. A `repositoryBaseClass` and
+the subclass's own overrides are untouched. Without the starter, a subclass extends `ModelQueryRepositoryFactoryBean`
+(AC-SPR-15). `setCustomImplementation` is public and not deprecated in Spring Data 3.4 to 4.0; Spring Data 4.0's
+`RepositoryFragmentsContributor` is the later route (D-113).
 
 **R-SPR-03** `stream(...)` opens a read-only transaction when none is active, which PostgreSQL needs for cursor
 streaming (`vendor/41` R-PRF-03), and joins an active one. The transaction ends when `stream` returns, and `body`
@@ -136,3 +145,5 @@ holds, or a `modelquery.*` property is set. The starter's own `ChunkTransactions
 | AC-SPR-09 | (`Future`, M6) `update`/`delete` without an ambient transaction succeed through the repository; `commitEachChunk` commits each chunk separately on the primary and on a secondary datasource of the multi-datasource sample, and a failed third chunk leaves the first two committed (R-SPR-10, R-SPR-11). |
 | AC-SPR-14 | `findKeysetPage(q, KeysetSpec, Sort)` returns the same rows as the executor; a sorted `Sort` changes the fingerprint (R-SPR-14). |
 | AC-SPR-15 | A context whose `@EnableJpaRepositories` names a factory bean class extending `ModelQueryRepositoryFactoryBean` and a `repositoryBaseClass`: the context starts, both repositories are built with that factory bean, the base class's own method works on both, `findPage` and `findAll` work on the repository extending `ModelQueryRepository`, and the other stays a plain repository without the fragment (R-SPR-02, R-SPR-12, D-50, D-83). |
+| AC-SPR-16 | A context naming a `JpaRepositoryFactoryBean` subclass that does not extend `ModelQueryRepositoryFactoryBean`, plus a `repositoryBaseClass`: it starts; both repositories are built by that class (its override is observed); the base class's method works on both; `findPage` and `findAll` work on the `ModelQueryRepository` one; the other has no fragment; a repository type-checked before the post-processor still gets the fragment (R-SPR-02, D-83, D-113). |
+| AC-SPR-17 | AC-SPR-15's subclass keeps an unchanged definition and its composition holds exactly one `ModelQueryRepository` implementation; a subclass definition already setting `customImplementation` fails with `MQ4008`; `MQ4007` holds on the new route (R-SPR-02, R-SPR-12, D-113). |

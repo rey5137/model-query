@@ -40,6 +40,7 @@ c.op();        // Optional<Op>: the operator of a compare(...)
 c.likeMode();  // Optional<LikeMode>: LIKE and LIKE_IGNORE_CASE
 c.path();      // Optional<TableField<?, ?>>: the join path of EXISTS and NOT_EXISTS
 c.label();     // Optional<String>: a labelled add(...)
+c.subSelect(); // Optional<SubSelect<?, ?>>: the sub-select of the four *_SUBSELECT kinds (R-INS-08)
 ```
 
 `Condition` and `QueryConditions` are final classes, not records, with no public constructor or factory: only the DSL
@@ -60,9 +61,11 @@ a `default`:
 | `NOT` | `not` | `children` (an implicit AND) |
 | `EXISTS`, `NOT_EXISTS` | `exists`, `notExists` | `path`, `children` (an implicit AND) |
 | `CUSTOM` | `add` | `label` when given |
+| `IN_SUBSELECT`, `NOT_IN_SUBSELECT` | `in`, `notIn` over a sub-select | `column`, `subSelect` |
+| `EXISTS_SUBSELECT`, `NOT_EXISTS_SUBSELECT` | `exists`, `notExists` over a sub-select | `subSelect`, `children` (the correlation, an implicit AND) |
 
-`having` records the same kinds over aggregate columns, except `EXISTS`, `NOT_EXISTS` and `CUSTOM`, which it has no
-operator for.
+`having` records the same kinds over aggregate columns, except `EXISTS`, `NOT_EXISTS`, `CUSTOM` and the four
+`*_SUBSELECT` kinds, which it has no operator for.
 
 ## 2. Rules
 
@@ -100,7 +103,8 @@ and AssertJ and nothing else (INV-7); its assertions use `conditions()`, `select
 `fetch().map(FetchPlan::select)`, never an internal type. It needs no `EntityManager`, metamodel or database.
 `conditions()` covers the query's own `where` and `having` only; a fetch plan's child queries are asserted through
 `assertThatQuery(q).child(field)`, which reads `FetchPlan.childLoads()` and each `ChildLoad`'s field, query and
-`maxPerParent`, the one `@EngineFacing` read the module makes (D-104). It asserts the child query's filters and order
+`maxPerParent`, an `@EngineFacing` read (D-104); the other is `Outer.reference`, through which `outer(col)` builds the
+lifted column it matches (R-INS-08, D-112). It asserts the child query's filters and order
 (the `ChildQuery`'s, without the key match or the primary-key tie-breaker), its selection (the child plan's own, then
 the child's `foreignKey` unless already selected, then its join plans', R-FCH-05; a `through` child adds no
 `foreignKey`, R-FCH-14) and its `maxPerParent`, with the same matchers; a field the plan doesn't load fails, naming the
@@ -114,6 +118,15 @@ build one. `IN` and `NOT_IN` values match as multisets. `hasFilters` matches the
 multiset, in any order; `containsFilter` matches one of them; a failure message prints the whole condition tree,
 values included.
 
+**R-INS-08** *(D-112)* **Sub-selects are recorded apart from value sets.** `in`/`notIn` over a sub-select record
+`IN_SUBSELECT`/`NOT_IN_SUBSELECT` with the column and `subSelect()`; `exists`/`notExists` over one record
+`EXISTS_SUBSELECT`/`NOT_EXISTS_SUBSELECT` with `subSelect()` and the correlation as `children`. They are not `IN` or
+`EXISTS`, so code reading `values()` of an `IN` never mistakes a sub-select for an empty set. A sub-select equals one
+built from equal calls (its column, root and conditions). A lifted column equals another lift of the same outer column,
+whatever `S` or `Outer` made it; `Outer.referenced(column)` returns the outer column it lifts, and `toString` marks it
+`outer.` with values shown as `?` (R-INS-05). `FilterMatchers` gains `in(col, sub)`, `notIn(col, sub)`,
+`exists(sub, matchers…)`, `notExists(sub, matchers…)` and `outer(col)`.
+
 ## 3. Acceptance criteria
 
 | ID | Criterion |
@@ -125,3 +138,4 @@ values included.
 | AC-INS-05 | A unit test in `model-query-test` asserts a query captured from a mocked `ModelQueryExecutor`, with no persistence provider on its test classpath (R-INS-06, R-INS-07). |
 | AC-INS-06 | A failing `hasFilters` names the missing and the unexpected conditions (R-INS-07). |
 | AC-INS-07 | `assertThatQuery(q).child(field)` asserts that child query's filters, order, selection and `maxPerParent`, and a failure names the child; a field the plan doesn't load fails, naming the children the plan loads (R-INS-06, D-104). |
+| AC-INS-08 | Each of the four `*_SUBSELECT` kinds records its column, `subSelect()` and correlation; `Outer.referenced` returns the lifted column; sub-selects built from equal calls are equal; the new matchers match them and a failure prints the tree (R-INS-08, D-112). |
