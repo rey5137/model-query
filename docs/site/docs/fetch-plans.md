@@ -304,6 +304,38 @@ on the page as a whole rather than on one key:
 
 A result of another size, or with a `null` element, fails with `MQ2602`.
 
+### An enricher on a joined model
+
+A plan under a `@Join` carries its own enrichers, and `join(...)` runs them on the models the join produced, once per
+page, before the outer plan's enrichers:
+
+```java
+FetchPlan<Patron> patron = FetchPlan.of(SelectSet.of(QPatron.ID))
+        .child(QPatron.ORDERS, FetchPlan.of(QOrderRef.ALL))
+        .enrich(Enricher.byKey(Patron::name,
+                names -> names.stream().collect(Collectors.toMap(Function.identity(), name -> name + "/")),
+                (p, tag) -> p.withTag(tag + p.orders().size()),
+                QPatron.NAME));
+FetchPlan<OrderPatrons> order = FetchPlan.of(SelectSet.of(QOrderPatrons.ID))
+        .join(QOrderPatrons.CUSTOMER_JOIN, patron)
+        .join(QOrderPatrons.REFERRER_JOIN, patron);
+```
+
+### A lookup keyed by several columns
+
+The key of a `byKey` enricher can be any type, including a record of several columns; the plan selects the columns the
+key reads, and the lookup gets the page's distinct keys in one call:
+
+```java
+record UserRef(long userId, int userTypeId) {}
+
+Enricher<Line> profileEnricher = Enricher.byKey(
+        line -> new UserRef(line.id(), line.quantity()),
+        PROFILES::find,                                           // one call per page: Map<UserRef, String>
+        (line, profile) -> line.withProfile(profile),
+        QLine.ID, QLine.QUANTITY);
+```
+
 ### The order a plan runs in
 
 Within a plan, children and joins run first, then its enrichers in the order added. A nested plan, under a join or a

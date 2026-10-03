@@ -27,6 +27,11 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
   paging, and a generated `@Join` through a non-key `referencedColumnName` or a Hibernate `@JoinFormula`; the
   hand-written `TableField.as(...).on(...)` join is documented as the replacement for the declined `@Join(on = ...)`
   (D-111). `docs/site/docs/recipes.md` starts the migration recipes with the keyset-key and join cases.
+- An application keeps its own `repositoryFactoryBeanClass` and `repositoryBaseClass` by extending
+  `ModelQueryRepositoryFactoryBean`: the subclass adds the model-query fragment only to the repositories that declare
+  `ModelQueryRepository`, and the custom base class keeps working for all of them, so a repository migrates one at a
+  time (R-SPR-02, R-SPR-12, D-50, D-83). The migration recipes add the custom factory bean, a nested-join enricher and
+  a composite-key user-profile enricher (D-111).
 
 ### Changed
 

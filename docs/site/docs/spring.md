@@ -32,6 +32,32 @@ repository with an unimplemented method. The starter swaps in its factory bean f
 Spring Data's `JpaRepositoryFactoryBean`, including Boot's own and any `@EnableJpaRepositories` that names no factory
 bean class. A repository with a factory bean class of its own is left alone.
 
+## A custom repository factory bean
+
+An application that sets its own `repositoryFactoryBeanClass` — usually to add a custom `repositoryBaseClass` — gets
+no model-query fragment on its repositories: the starter swaps only the stock `JpaRepositoryFactoryBean`, and the
+application's factory bean knows nothing about the fragment (R-SPR-02). Startup then fails on an unimplemented method.
+
+Keep your own factory bean class, but extend `ModelQueryRepositoryFactoryBean` instead of `JpaRepositoryFactoryBean`.
+Spring requires the one-argument constructor:
+
+```java
+public class CustomJpaRepositoryFactoryBean<T extends Repository<S, I>, S, I>
+        extends ModelQueryRepositoryFactoryBean<T, S, I> {
+    public CustomJpaRepositoryFactoryBean(Class<? extends T> repositoryInterface) {
+        super(repositoryInterface);
+    }
+}
+```
+
+Set it as before, next to your own `repositoryBaseClass`: `@EnableJpaRepositories(repositoryFactoryBeanClass =
+CustomJpaRepositoryFactoryBean.class, repositoryBaseClass = MyBaseRepository.class)`.
+
+The subclass adds the fragment only to the repositories that extend `ModelQueryRepository`, so a repository without
+it stays a plain Spring Data repository, and your `repositoryBaseClass` keeps working for all of them. Because the
+fragment is added per repository, you migrate one repository at a time: add `ModelQueryRepository<MyEntity>` to one
+interface, and leave the rest on your old route until you move them.
+
 ## `Pageable` and `Sort`
 
 A `Pageable` converts to a page spec, and its `Sort` is applied to the query's selected columns, so a REST endpoint

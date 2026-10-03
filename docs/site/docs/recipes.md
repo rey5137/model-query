@@ -3,6 +3,58 @@
 Recipes for moving an existing reporting service onto model-query, one adoption case at a time. Each recipe's code is
 copied from a test that runs, named under the code.
 
+## Keep your own repository factory bean
+
+The case in one line: an existing service that already sets its own `repositoryFactoryBeanClass` and
+`repositoryBaseClass`, so the starter leaves its repositories alone (R-SPR-02).
+
+Extend `ModelQueryRepositoryFactoryBean` instead of `JpaRepositoryFactoryBean`; Spring requires the one-argument
+constructor:
+
+```java
+public class CustomJpaRepositoryFactoryBean<T extends Repository<S, I>, S, I>
+        extends ModelQueryRepositoryFactoryBean<T, S, I> {
+    public CustomJpaRepositoryFactoryBean(Class<? extends T> repositoryInterface) {
+        super(repositoryInterface);
+    }
+}
+```
+
+Set it as before, next to your own base class:
+
+```java
+@EnableJpaRepositories(repositoryFactoryBeanClass = CustomJpaRepositoryFactoryBean.class,
+        repositoryBaseClass = RefreshingJpaRepository.class)
+```
+
+The subclass adds the fragment only to the repositories that extend `ModelQueryRepository`, and your
+`repositoryBaseClass` keeps working for all of them. Because it is added per repository, migrate one at a time: add
+`ModelQueryRepository<MyEntity>` to one interface and leave the rest for later.
+
+Tested by `CustomFactoryBeanTest`.
+
+## Enrich a joined model
+
+The case in one line: fill a field of the model behind a `@Join` from your own lookup, once per page.
+
+The nested plan carries the enricher, and `join(...)` applies it to the joined models, before the outer plan's
+enrichers:
+
+```java
+FetchPlan<Patron> patron = FetchPlan.of(SelectSet.of(QPatron.ID))
+        .child(QPatron.ORDERS, FetchPlan.of(QOrderRef.ALL))
+        .enrich(Enricher.byKey(Patron::name,
+                names -> names.stream().collect(Collectors.toMap(Function.identity(), name -> name + "/")),
+                (p, tag) -> p.withTag(tag + p.orders().size()),
+                QPatron.NAME));
+FetchPlan<OrderPatrons> order = FetchPlan.of(SelectSet.of(QOrderPatrons.ID))
+        .join(QOrderPatrons.CUSTOMER_JOIN, patron)                    // the same plan under both joins
+        .join(QOrderPatrons.REFERRER_JOIN, patron);
+```
+
+The lookup runs once per page for each join, with that page's distinct names, and every joined model is filled.
+Tested by `EnricherTest`.
+
 ## Join on a non-key column or a formula
 
 The case in one line: an association that joins on something other than the target's primary key, or on a computed
@@ -97,6 +149,34 @@ ModelQuery<SkuOrderLineEntity, Long, CheapLine> q = ModelQuery
 Because the condition goes through `Join#on`, a line whose product is not cheap keeps its row with a `NULL` name.
 
 Tested by `NonKeyJoinTest`.
+
+## A shared user-profile enricher
+
+The case in one line: a user profile that lives on another datasource, keyed by a `(userId, userTypeId)` record, and
+looked up once per page by an enricher declared once and reused on several models.
+
+The key is a record of the columns the plan selects, and the lookup is one call with the page's distinct keys:
+
+```java
+record UserRef(long userId, int userTypeId) {}
+
+private static final Enricher<Line> PROFILE_ENRICHER = Enricher.byKey(
+        line -> new UserRef(line.id(), line.quantity()),          // the key of one model
+        PROFILES::find,                                           // one call per page: Map<UserRef, String>
+        (line, profile) -> line.withProfile(profile),             // a key absent from the map leaves the model as is
+        QLine.ID, QLine.QUANTITY);                                 // the columns the key reads
+```
+
+The same constant goes on a root plan and on a nested one:
+
+```java
+FetchPlan<Line> items = FetchPlan.of(SelectSet.of(QLine.ID, QLine.QUANTITY)).enrich(PROFILE_ENRICHER);
+FetchPlan<OrderLines> orders = FetchPlan.of(QOrderLines.ALL)
+        .child(QOrderLines.ITEMS, FetchPlan.of(SelectSet.of(QLine.ID, QLine.QUANTITY)).enrich(PROFILE_ENRICHER));
+```
+
+Very large key sets will be chunked in a later release (M9.12); until then the lookup receives all of a page's
+distinct keys in one call. Tested by `EnricherTest`.
 
 ## Keyset paging with a String or embedded key
 
