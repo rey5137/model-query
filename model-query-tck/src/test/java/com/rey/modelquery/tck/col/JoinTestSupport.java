@@ -130,6 +130,12 @@ public final class JoinTestSupport {
                 .addAnnotatedClass(CustomerNoteEntity.class)
                 .addAnnotatedClass(PatronEntity.class)
                 .addAnnotatedClass(KeysetTypeEntity.class)
+                .addAnnotatedClass(StringKeyProductEntity.class)
+                .addAnnotatedClass(EmbeddedKeyEntity.class)
+                .addAnnotatedClass(SkuProductEntity.class)
+                .addAnnotatedClass(SkuOrderLineEntity.class)
+                .addAnnotatedClass(FormulaProductEntity.class)
+                .addAnnotatedClass(FormulaLineEntity.class)
                 .buildSessionFactory(registry);
     }
 }

@@ -39,6 +39,7 @@ nav:
   - Paging and export: paging-export.md
   - Grouped queries: grouped-queries.md
   - Fetch plans: fetch-plans.md
+  - Migration recipes: recipes.md
   - Testing queries: testing.md
   - Bulk writes (incubating): bulk-writes.md
   - API stability: stability.md

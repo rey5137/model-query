@@ -66,4 +66,43 @@ CREATE TABLE keyset_types (
     token   VARCHAR(36) @COLLATE@ NOT NULL,
     payload @BINARY@ NOT NULL,
     shape   VARCHAR(20) @COLLATE@ NOT NULL
+);
+-- A String primary key whose codes sort differently from their insertion order (TCK AC-PAG-24).
+CREATE TABLE string_key_products (
+    code     VARCHAR(12) @COLLATE@ NOT NULL PRIMARY KEY,
+    name     VARCHAR(40) @COLLATE@ NOT NULL,
+    category VARCHAR(12) @COLLATE@ NOT NULL,
+    price    DECIMAL(12,2) NOT NULL
+);
+-- An @EmbeddedId of a region code and a sequence number (TCK AC-PAG-25).
+CREATE TABLE embedded_key_items (
+    region_code VARCHAR(10) @COLLATE@ NOT NULL,
+    seq_no      INT NOT NULL,
+    label       VARCHAR(30) @COLLATE@ NOT NULL,
+    amount      DECIMAL(12,2) NOT NULL,
+    PRIMARY KEY (region_code, seq_no)
+);
+-- A product with a surrogate key and a unique non-key sku, and lines that reference it by that sku (TCK AC-COL-15).
+CREATE TABLE sku_products (
+    id    BIGINT NOT NULL PRIMARY KEY,
+    sku   VARCHAR(20) @COLLATE@ NOT NULL UNIQUE,
+    name  VARCHAR(40) @COLLATE@ NOT NULL,
+    price DECIMAL(12,2) NOT NULL
+);
+CREATE TABLE sku_order_lines (
+    id          BIGINT NOT NULL PRIMARY KEY,
+    product_sku VARCHAR(20) @COLLATE@ NOT NULL,
+    quantity    INT NOT NULL,
+    CONSTRAINT fk_sku_order_lines_product FOREIGN KEY (product_sku) REFERENCES sku_products (sku)
+);
+-- A product joined through a Hibernate @JoinFormula on upper(product_code) (TCK AC-COL-16).
+CREATE TABLE formula_products (
+    code  VARCHAR(12) @COLLATE@ NOT NULL PRIMARY KEY,
+    name  VARCHAR(40) @COLLATE@ NOT NULL,
+    price DECIMAL(12,2) NOT NULL
+);
+CREATE TABLE formula_lines (
+    id           BIGINT NOT NULL PRIMARY KEY,
+    product_code VARCHAR(20) @COLLATE@ NOT NULL,
+    quantity     INT NOT NULL
 )

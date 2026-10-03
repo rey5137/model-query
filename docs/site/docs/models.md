@@ -72,6 +72,14 @@ same path use exactly one join. Two `@Join`s on the same attribute become two jo
 A filter-only column that crosses a collection needs an explicit `joinType` on its `@FilterColumn`, because joining a
 collection multiplies rows; prefer `Filters.exists` for "has a child matching X".
 
+A generated `@Join` follows the mapped association, whatever that association joins on. A `@ManyToOne` with
+`@JoinColumn(referencedColumnName = "sku")` joins through that unique non-key column instead of the target's key, and a
+Hibernate `@JoinFormula` joins through its computed expression; selecting, filtering and sorting on the nested model's
+columns use the join the mapping implies. When a join needs an extra `ON` condition that is not part of the mapping —
+the case `@Join(on = ...)` would cover — write a hand-written `TableField` and add it with `as(...).on(...)`. The
+condition goes through `Join#on`, so a `LEFT` join still keeps the rows that miss it. See
+[Migration recipes](recipes.md) for both.
+
 ## Hand-written columns
 
 You rarely need to, but a `ColumnField` can be written by hand, for example for a column the server sets:

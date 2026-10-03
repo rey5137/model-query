@@ -22,6 +22,13 @@ For `page` and `export`, the engine appends the primary key (or, for a grouped q
 are added to the selection for you; if a row's key still comes back `null`, the export fails with `MQ2201` rather than
 silently going wrong. An operation that needs a key on a query without one fails with `MQ2203`.
 
+## Primary keys
+
+Keyset paging and primary-key-first paging append the primary key to your order, whatever the key is: a numeric key, a
+`String` key, an `@IdClass` or an `@EmbeddedId`. The key's columns are read from the row itself, so a String key such
+as `"P-0001"` and a composite `@EmbeddedId` page and export exactly as a numeric one does, with the key's own columns
+closing the order. [Migration recipes](recipes.md) has a worked String and embedded example.
+
 ## Keyset page
 
 `executor.page(query, keysetSpec)` returns a `KeysetSlice<M>` for infinite scroll or next/previous links: the rows in

@@ -23,6 +23,10 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
   neighbours and no total — built with `KeysetSpec.first/after/before`; its checks report `MQ2207`–`MQ2210` (D-110).
 - `ModelQueryRepository.findKeysetPage(q, KeysetSpec, Sort)` exposes that keyset page through Spring Data, passing the
   order and the cursor fingerprint it decides straight through (R-SPR-14).
+- String and `@EmbeddedId` primary keys are covered by the TCK on the keyset page, keyset export and primary-key-first
+  paging, and a generated `@Join` through a non-key `referencedColumnName` or a Hibernate `@JoinFormula`; the
+  hand-written `TableField.as(...).on(...)` join is documented as the replacement for the declined `@Join(on = ...)`
+  (D-111). `docs/site/docs/recipes.md` starts the migration recipes with the keyset-key and join cases.
 
 ### Changed
 

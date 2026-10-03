@@ -30,6 +30,16 @@ public final class TckFixture {
     public static final int NULLABLE_SORT_ROWS = 3_000;
     /** Rows of {@code keyset_types}, one per cursor type (TCK AC-PAG-18). */
     public static final int KEYSET_TYPES = 1_000;
+    /** Rows of {@code string_key_products} (TCK AC-PAG-24). */
+    public static final int STRING_KEY_PRODUCTS = 30;
+    /** Rows of {@code embedded_key_items}, five regions of six (TCK AC-PAG-25). */
+    public static final int EMBEDDED_KEY_ITEMS = 30;
+    /** Rows of {@code sku_products}; every {@code sku_order_lines} row references one by sku (TCK AC-COL-15). */
+    public static final int SKU_PRODUCTS = 12;
+    public static final int SKU_ORDER_LINES = 40;
+    /** Rows of {@code formula_products} and {@code formula_lines} (TCK AC-COL-16). */
+    public static final int FORMULA_PRODUCTS = 8;
+    public static final int FORMULA_LINES = 16;
     public static final int LABELS = 10;
     /** Orders 1 to this one carry labels, many-to-many: one or two each, every label on many orders. */
     public static final int LABELED_ORDERS = 200;
@@ -174,6 +184,53 @@ public final class TckFixture {
                     ps.setBytes(6, new byte[] {(byte) (i >> 8), (byte) i});
                     ps.setString(7, "shape-" + (i % 5));
                 });
+        // A String key whose codes sort differently from their insertion order, with a shared prefix and mixed case
+        // (AC-PAG-24): the 7-step permutation puts row 30 on code P-0001 and every fifth row on a lowercase p- code.
+        insert(c, "INSERT INTO string_key_products (code, name, category, price) VALUES (?,?,?,?)",
+                STRING_KEY_PRODUCTS, (ps, i) -> {
+                    ps.setString(1, stringProductCode(i));
+                    ps.setString(2, "Product " + pad(i, 2));
+                    ps.setString(3, "cat-" + pad(i % 3, 2));
+                    ps.setBigDecimal(4, BigDecimal.valueOf((i * 41L) % 1_000, 2));
+                });
+        // An @EmbeddedId of (region_code, seq_no): five regions of six, four labels so ties straddle every page
+        // (AC-PAG-25).
+        insert(c, "INSERT INTO embedded_key_items (region_code, seq_no, label, amount) VALUES (?,?,?,?)",
+                EMBEDDED_KEY_ITEMS, (ps, i) -> {
+                    ps.setString(1, "R-" + pad((i - 1) / 6 + 1, 2));
+                    ps.setInt(2, (i - 1) % 6 + 1);
+                    ps.setString(3, "label-" + pad(i % 4, 2));
+                    ps.setBigDecimal(4, BigDecimal.valueOf((i * 17L) % 1_000, 2));
+                });
+        // A surrogate-keyed product and lines that reference it by its unique non-key sku (AC-COL-15).
+        insert(c, "INSERT INTO sku_products (id, sku, name, price) VALUES (?,?,?,?)", SKU_PRODUCTS, (ps, i) -> {
+            ps.setLong(1, i);
+            ps.setString(2, "SKU-" + pad(i, 3));
+            ps.setString(3, "Sku " + pad(i, 2));
+            ps.setBigDecimal(4, BigDecimal.valueOf((i * 29L) % 1_000, 2));
+        });
+        insert(c, "INSERT INTO sku_order_lines (id, product_sku, quantity) VALUES (?,?,?)", SKU_ORDER_LINES,
+                (ps, i) -> {
+                    ps.setLong(1, i);
+                    ps.setString(2, "SKU-" + pad((i * 5) % SKU_PRODUCTS + 1, 3));
+                    ps.setInt(3, i % 5 + 1);
+                });
+        // A String-keyed product and lines joined through a computed key: upper(product_code) (AC-COL-16).
+        insert(c, "INSERT INTO formula_products (code, name, price) VALUES (?,?,?)", FORMULA_PRODUCTS, (ps, i) -> {
+            ps.setString(1, "F-" + pad(i, 2));
+            ps.setString(2, "Formula " + pad(i, 2));
+            ps.setBigDecimal(3, BigDecimal.valueOf((i * 23L) % 1_000, 2));
+        });
+        insert(c, "INSERT INTO formula_lines (id, product_code, quantity) VALUES (?,?,?)", FORMULA_LINES, (ps, i) -> {
+            ps.setLong(1, i);
+            ps.setString(2, "f-" + pad((i * 3) % FORMULA_PRODUCTS + 1, 2));
+            ps.setInt(3, i % 4 + 1);
+        });
+    }
+
+    /** The code of {@code string_key_products} row {@code row} (1-based), a permutation with mixed case. */
+    private static String stringProductCode(int row) {
+        return (row % 5 == 0 ? "p-" : "P-") + pad((row * 7) % STRING_KEY_PRODUCTS + 1, 4);
     }
 
     /** The labels of order {@code order}, ascending: none past {@link #LABELED_ORDERS}. */
