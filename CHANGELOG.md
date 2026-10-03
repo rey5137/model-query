@@ -70,8 +70,9 @@ Behaviour to know when moving from hand-written Criteria code:
   `Timestamp.from(Instant.MAX)` returned a wrong instant on JDK 21 (D-84).
 - `Limit.of(Integer)` takes `null` for "unlimited".
 - `SelectSet.isEmpty()`, true when the set selects nothing.
-- `DEBUG` logging of each query definition built and each executor call, and `TRACE` logging of each statement's bind
-  count, rows and time, through `System.Logger`; values are never logged (D-95). See Diagnostics §Logging.
+- `DEBUG` logging of each query definition built and each executor call, naming the filters of a query, an update or
+  a delete, and `TRACE` logging of each statement's bind count, rows and time, through `System.Logger`; values and
+  keys are never logged (D-95, R-INS-05). See Diagnostics §Logging.
 - Fetch plans (D-96, D-99, D-100): `FetchPlan` loads, once per page, the children of each model (`@Child`, with a
   generated `ChildField` and an optional `ChildQuery` for filters, order and `maxPerParent`), nested plans through a
   `@Join` (`JoinField`), and caller-supplied `Enricher`s. A query takes one with `fetch(plan)` or `withFetch(plan)`, and

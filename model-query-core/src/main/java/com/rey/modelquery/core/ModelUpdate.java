@@ -72,6 +72,15 @@ public final class ModelUpdate<E, M> {
         return definition.root().rootEntity();
     }
 
+    /**
+     * The entity and how the rows are chosen, for the executor's log: never a key or a filter's values (D-95,
+     * R-INS-05). The format is not API.
+     */
+    @Override
+    public String toString() {
+        return rootEntity().getSimpleName() + " (" + definition.rows() + ")";
+    }
+
     /** The columns written, in the order assigned, as a list that throws on mutation. */
     public List<Assignment<M, ?>> assignments() {
         return definition.assignments();

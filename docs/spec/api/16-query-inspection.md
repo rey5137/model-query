@@ -90,9 +90,10 @@ queries built from equal calls; `withFetch` and `orderedBy` copies share it. Col
 paths by their key, `CUSTOM` conditions by label alone. Values are held by reference: a mutable value changed after
 the call (a `java.util.Date`) changes the view.
 
-**R-INS-05** **Logs name conditions, never values.** `QueryConditions.toString()`, `Condition.toString()` and the D-95
-build log list each condition's kind and column, with values shown as `?`, since bound values can be personal data;
-only the accessors expose the values. `ModelQuery.toString()` stays the model's name. The text format is not API.
+**R-INS-05** **Logs name conditions, never values.** `QueryConditions.toString()`, `Condition.toString()`, the D-95
+build log and the D-95 `update` and `delete` logs list each condition's kind and column, with values shown as `?`, since
+bound values can be personal data; only the accessors expose the values. `ModelQuery.toString()` stays the model's name.
+The text format is not API.
 
 **R-INS-06** **The test module reads only the public view.** `model-query-test` depends on `core` and AssertJ and
 nothing else (INV-7); its assertions use `conditions()`, `select()`, `orderBy()` and `fetch().map(FetchPlan::select)`,

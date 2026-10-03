@@ -53,6 +53,15 @@ public final class ModelDelete<E, M> {
         return definition.root().rootEntity();
     }
 
+    /**
+     * The entity and how the rows are chosen, for the executor's log: never a key or a filter's values (D-95,
+     * R-INS-05). The format is not API.
+     */
+    @Override
+    public String toString() {
+        return rootEntity().getSimpleName() + " (" + definition.rows() + ")";
+    }
+
     /** Whether the delete runs no statement: its {@code whereKeys} received no key (R-WRT-12). */
     @EngineFacing
     public boolean writesNothing() {

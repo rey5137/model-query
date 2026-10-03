@@ -153,12 +153,13 @@ bridges, and `java.util.logging` without one (where `DEBUG` is `FINE` and `TRACE
 | Logger | Level | What it logs |
 |---|---|---|
 | `com.rey.modelquery.core.ModelQuery` | `DEBUG` | Each query definition `build()` returns: model, entity, selected fields, primary key, filters (kind and column, each value shown as `?`), group-by, order and paging mode. |
-| `com.rey.modelquery.jpa.DefaultModelQueryExecutor` | `DEBUG` | Each `list`, `stream`, `page`, `count`, `export`, `update` and `delete` call, with its limit, page or export options, or how a write runs. |
+| `com.rey.modelquery.jpa.DefaultModelQueryExecutor` | `DEBUG` | Each `list`, `stream`, `page`, `count`, `export`, `update` and `delete` call, with its limit, page or export options; a write also lists how it chose its rows (the number of keys or all rows) and its filters, each value shown as `?`, and how it runs. |
 | `com.rey.modelquery.jpa.DefaultModelQueryExecutor` | `TRACE` | Each statement's bind count against the vendor's limit, then its rows read or written and the time it took. |
 
 ```
 DEBUG com.rey.modelquery.core.ModelQuery - built OrderView over OrderEntity: select [id, status, total], primaryKey [id], where [EQ(OrderView.status, ?), GT(OrderView.total, ?)], orderBy [total DESC NULLS LAST], paging keyset
 DEBUG com.rey.modelquery.jpa.DefaultModelQueryExecutor - page OrderView: offset 100 size 50, NO_COUNT
+DEBUG com.rey.modelquery.jpa.DefaultModelQueryExecutor - update OrderEntity (where [EQ(OrderView.status, ?)]): direct
 TRACE com.rey.modelquery.jpa.DefaultModelQueryExecutor - OrderView: statement binds 3 of 65535
 TRACE com.rey.modelquery.jpa.DefaultModelQueryExecutor - OrderView: 51 rows in 12 ms
 ```

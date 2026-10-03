@@ -890,19 +890,21 @@ already breaks the API, over a second break in 0.3. `SelectSet.columns()` is `fi
 `columns` parameter of a generated `from(model, columns)` stay. Rejected: `SelectFieldSet` (longer for no gain),
 `SelectFields` (a plural type name). → `api/10` §4, `api/11` R-QRY-02, `processor/30`, `reference/90` `MQ1202`, D-90.
 
-**D-95 — Debug and trace logging through `System.Logger`.** `ModelQuery.Builder.build()` logs the definition it
-built at `DEBUG`: the model and entity, the selected, key, group and order fields by name, the number of `where` and
-`having` filters, and the paging mode. An `orderedBy` copy is not logged, since it is built per call. The executor logs
-each `list`, `stream`, `page`, `count`, `export`, `update` and `delete` call at `DEBUG`, and at `TRACE` each statement's
-bind count against the profile's limit, and its rows read or written and time taken. No filter value, bind value or
-keyset cursor is logged at any level: they are often personal data, and the provider's own bind logging shows them
-when needed. The statement text is not logged either, since JPA has no portable way to render a criteria query; the
-provider's SQL log shows it. Every message is built only when its level is enabled. Rejected: logging bind values at
-`TRACE` (personal data in application logs). Spring Boot's default `spring-boot-starter-logging` carries the records
-to Logback through `jul-to-slf4j` and keeps the JUL levels in step with Logback's (`LevelChangePropagator`), refreshes
-included; an application that excludes it adds `slf4j-jdk-platform-logging`. Also rejected: logging through SLF4J
-when present (an optional dependency and a facade, only for applications that drop the default bridge), and a starter
-listener copying Logback's levels to JUL (no use without a bridge, and Spring Boot already does it with one).
+**D-95 — Debug and trace logging through `System.Logger`.** `ModelQuery.Builder.build()` logs the definition it built at
+`DEBUG`: the model and entity, the selected, key, group and order fields by name, the `where` and `having` conditions
+with each value as `?` (R-INS-05, D-101), and the paging mode. An `orderedBy` copy is not logged, since it is built per
+call. The executor logs each `list`, `stream`, `page`, `count`, `export`, `update` and `delete` call at `DEBUG`; an
+`update` or `delete` names how it chose its rows (its number of keys, never a key, or `all()`) and its `where`
+conditions the same way. At `TRACE` it logs each statement's bind count against the profile's limit, and its rows read
+or written and time taken. No filter value, write key, bind value or keyset cursor is logged at any level: they are
+often personal data, and the provider's own bind logging shows them when needed. The statement text is not logged
+either, since JPA has no portable way to render a criteria query; the provider's SQL log shows it. Every message is
+built only when its level is enabled. Rejected: logging bind values at `TRACE` (personal data in application logs).
+Spring Boot's default `spring-boot-starter-logging` carries the records to Logback through `jul-to-slf4j` and keeps the
+JUL levels in step with Logback's (`LevelChangePropagator`), refreshes included; an application that excludes it adds
+`slf4j-jdk-platform-logging`. Also rejected: logging through SLF4J when present (an optional dependency and a facade,
+only for applications that drop the default bridge), and a starter listener copying Logback's levels to JUL (no use
+without a bridge, and Spring Boot already does it with one).
 → `docs/site` Diagnostics §Logging.
 
 **D-96 — Fetch plans (resolves Q-8).** A `FetchPlan<M>` attached by

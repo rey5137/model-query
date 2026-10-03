@@ -61,4 +61,18 @@ record WriteRows(List<Object> keys, List<Filter> where, boolean all) {
                     + ": where(...) left no predicate, since every filter was skipped; all() writes every row");
         }
     }
+
+    /**
+     * How the rows are chosen, for the executor's log: the number of keys, never a key, and each {@code where}
+     * condition with its values as {@code ?} (D-95, R-INS-05). The format is not API.
+     */
+    @Override
+    public String toString() {
+        String chosen = all ? "all rows" : keys == null ? "" : keys.size() + (keys.size() == 1 ? " key" : " keys");
+        if (where.isEmpty()) {
+            return chosen;
+        }
+        String conditions = "where " + ConditionGroup.conditions(where);
+        return chosen.isEmpty() ? conditions : chosen + ", " + conditions;
+    }
 }

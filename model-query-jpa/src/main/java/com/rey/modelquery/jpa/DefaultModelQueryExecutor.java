@@ -269,8 +269,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     }
 
     /** The debug line of a write, with how it runs (R-WRT-08, R-WRT-11, D-95). */
-    private void logWrite(String operation, Optional<ChunkOptions> chunk, boolean keyFirst) {
-        LOG.log(DEBUG, () -> operation + " " + rootEntity.getSimpleName() + ": "
+    private void logWrite(String operation, Object write, Optional<ChunkOptions> chunk, boolean keyFirst) {
+        // The write's toString names its rows and where conditions, never a key or a value (D-95, R-INS-05).
+        LOG.log(DEBUG, () -> operation + " " + write + ": "
                 + (chunk.isPresent() ? "chunked" : keyFirst ? "key-first" : "direct"));
     }
 
@@ -426,7 +427,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Function<List<Object>, Query> byKeys = chunk -> em.createQuery(u.buildWrite(cb, renderOptions, references,
                 chunk));
         boolean rootTermsOnly = keyFirst(() -> u.readsTargetInSubquery(cb, renderOptions));
-        logWrite("update", u.chunkOptions(), rootTermsOnly);
+        logWrite("update", u, u.chunkOptions(), rootTermsOnly);
         if (!rootTermsOnly && u.chunkOptions().isEmpty()) {
             return write(u.persistenceContext(), () -> direct(u.distinctKeys(), whole, byKeys));
         }
@@ -453,7 +454,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Supplier<Query> whole = () -> em.createQuery(d.buildWrite(cb, renderOptions));
         Function<List<Object>, Query> byKeys = chunk -> em.createQuery(d.buildWrite(cb, renderOptions, chunk));
         boolean rootTermsOnly = keyFirst(() -> d.readsTargetInSubquery(cb, renderOptions));
-        logWrite("delete", d.chunkOptions(), rootTermsOnly);
+        logWrite("delete", d, d.chunkOptions(), rootTermsOnly);
         if (!rootTermsOnly && d.chunkOptions().isEmpty()) {
             return write(d.persistenceContext(), () -> direct(d.distinctKeys(), whole, byKeys));
         }

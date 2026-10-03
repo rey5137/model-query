@@ -336,4 +336,14 @@ class ModelUpdateTest {
         assertThatCode(() -> update().set(FLAGGED, true).setExpression(TOTAL, (path, cb) -> cb.sum(path, 1L))
                 .whereKey(1L).build()).doesNotThrowAnyException();
     }
+
+    @Test
+    void a_write_names_its_rows_and_conditions_but_never_a_key_or_a_value() {
+        assertThat(update().set(STATUS, "PAID").where(f -> f.eq(STATUS, "NEW").in(NOTE, List.of("a", "b"))).build())
+                .hasToString("Order (where [EQ(OrderPatch.status, ?), IN(OrderPatch.note, ? x 2)])");
+        assertThat(update().set(STATUS, "PAID").whereKey(42L).build()).hasToString("Order (1 key)");
+        assertThat(delete().whereKeys(List.of(41L, 42L)).where(f -> f.eq(NOTE, "secret")).build())
+                .hasToString("Order (2 keys, where [EQ(OrderPatch.note, ?)])");
+        assertThat(delete().all().build()).hasToString("Order (all rows)");
+    }
 }
