@@ -112,7 +112,7 @@ These hold for the life of the library. A change that breaks one is an architect
 | Filters | full DSL: comparison, sets, strings, nulls, column/column, `or`/`not`/`when`/`apply`, `exists` | — | full-text search, JSON path predicates |
 | Aggregates | `count`, `countDistinct`, `sum`, `avg`, `min`, `max`, `Agg.of`, `groupBy`, `having` | `window(...)` name | window functions, `ROLLUP`/`CUBE`, sub-query selections |
 | Execution | `list`, `page`, `count`, `stream`, `export`; fetch plans with children and per-page enrichers (`api/15`) | — | reactive / `Publisher` results |
-| Paging | offset, keyset, primary-key-first, grouped offset | `Cursor` serialisation format | keyset over grouped queries, row-value keyset per vendor |
+| Paging | offset, keyset, keyset page (cursor format not API), primary-key-first, grouped offset | — | keyset over grouped queries, row-value keyset per vendor |
 | Vendors | H2, PostgreSQL, MySQL (Tier 1) | `DatabaseVendor` entries for MariaDB, Oracle, SQL Server | Tier-2 MariaDB profile, community profiles |
 | Processor | `@QueryModel`, `@PrimaryKey`, `@Column`, `@Join`, `@FilterColumn`, `@Aggregate`, `@GroupBy`, `@ExcludeFromDefaults`, `@Transient`, `@Child` | — | generating from an existing JPA metamodel, IDE plugin |
 | Integration | Spring Data repository, Boot starter, `modelquery.*` properties | remote-store properties | Quarkus / Micronaut extensions |

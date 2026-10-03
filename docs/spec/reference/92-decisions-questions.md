@@ -1027,6 +1027,8 @@ a forged cursor reaches the predicate); a signed cursor (the values are the clie
 mistakes, and a forged value only moves the client inside rows the query already allows). The design gets an
 `architect-review` before its slice. `@Incubating` until the freeze. → `engine/21` §2, `api/11`, `integration/50`,
 SPEC.md §4.
+*Amended by D-110:* a cursor carries the boundary row's order-column and primary-key values readably, filter-only
+columns included; this is documented, not hidden.
 
 **D-106 — `ModelQueryException`, a common superclass, before 1.0 (amends D-85).** An abstract
 `ModelQueryException extends RuntimeException` holds `MqCode code()`, and `ModelQueryDefinitionException`,
@@ -1079,6 +1081,23 @@ subclass's supertable, a `@SecondaryTable` and a table-per-class parent's subcla
 reads. `model-query-hibernate` reports the query spaces of the entity's persister and its subclasses', each unquoted
 and qualified with the default catalog and schema when it names none, so a quoted or schema-defaulted name still
 matches.
+
+**D-110 — The keyset page design (amends D-105, M9.3a review).** D-105 holds, with its gaps closed.
+`page(query, KeysetSpec)` needs a `keyset()` query (`MQ2207`); `KeysetSlice` is a final class whose cursors are
+`Optional<String>`, present exactly when the matching flag is true, so a last page has no next cursor and tail-polling
+is not supported in 1.0. Spring adds `findKeysetPage(q, KeysetSpec, Sort)`, named apart from the `Pageable`
+`findPage`. A cursor holds the boundary row's keyset values through a closed codec set (never Java serialization),
+a version byte, an 8-byte fingerprint of the order and a CRC32C, capped at 8192 characters: an edited or malformed
+cursor is `MQ2208`, one from another order `MQ2209`, and a key type that cannot be carried `MQ2210`. Its values are
+readable by whoever decodes it, filter-only order columns and internal primary keys included; that is documented, not
+encrypted, and stays non-breaking to change because the format is not API. `before` flips each key's direction and
+null precedence, and a precedence resolved from `ProviderSupport.defaultNullPrecedence` (D-36) renders explicitly, or
+the reversed order would skip NULLs. The flags need no second statement, and `MQ2205` extends to a page holding the
+cursor's own key. Rejected: a typed `Cursor` value; a cursor present on every non-empty page; Spring Data's
+`Window`/`KeysetScrollPosition` (exposes the key values as a `Map`, R-SPR-01); a `KeysetQuery` type; always explicit
+null precedence (loses the index on MySQL); an `EXISTS` probe or a top-up of a short `before` page (a second
+statement each); encrypting the cursor in 1.0. → `engine/21` R-PAG-16 to R-PAG-24, `api/11`, `integration/50`
+R-SPR-14, `reference/90`, SPEC.md §4, `delivery/61`.
 
 ## 2. Open questions
 

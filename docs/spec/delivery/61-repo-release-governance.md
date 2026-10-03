@@ -77,6 +77,9 @@ committed with the code that changed them.
 `ModelQueryExecutor`, say). Incubating API may break in a minor release; the commit is still marked breaking with `!`
 (R-REL-08). The planned freeze, type by type, is D-85; 0.2 keeps every public top-level type `@Incubating` (D-90),
 the annotations, `@EngineFacing` and `ModelQueryProcessor` among them; only `@Incubating` itself is not marked.
+Adding an abstract method to an interface is safe while it has a single implementation:
+`ModelQueryExecutor.page(query, KeysetSpec)` joins the interface before the freeze (D-110), and
+`DefaultModelQueryExecutor` is its only implementation.
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from

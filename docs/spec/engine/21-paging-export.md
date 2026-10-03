@@ -67,6 +67,82 @@ repeat them, and a repeated tie group that fills a page would loop forever. A ke
 dropped as in R-PAG-02 (D-31). A row that moves further than the next page is not caught; keyset export guarantees
 exactly-once only over rows whose keyset values do not change while it runs.
 
+**R-PAG-16 — The keyset page's signatures.** `ModelQueryExecutor` gains
+`<M> KeysetSlice<M> page(ModelQuery<E, ?, M> q, KeysetSpec keyset)`, `@Incubating`, whose arity keeps it apart from
+`page(q, PageSpec, CountMode)`. `KeysetSpec` is a `core` final class built by `first(size)`, `after(cursor, size)` or
+`before(cursor, size)`; a null, blank or malformed cursor throws `MQ2208` when the spec is built, so there is no
+nullable `of(...)`. `KeysetSlice<M>` is a final class, not a record, so accessors can be added later; it has `content()`, `size()`,
+`hasNext()`, `hasPrevious()`, `nextCursor()` and `previousCursor()`, and the two cursor accessors return an
+`Optional<String>`, never `null`, with `hasNext() == nextCursor().isPresent()` and the same for previous, and
+`of(content, size, previous, next)` is public for tests. The size range is `1..Integer.MAX_VALUE - 1`, because the
+engine reads size + 1 rows; anything else reuses `MQ2001` (R-EXE-06). `page(q, KeysetSpec)` on a query without
+`keyset()` (`api/11` R-QRY-03) throws `MQ2207` before any query runs.
+
+**R-PAG-17 — A cursor is position only.** It carries the raw values (`Row.raw`, R-COL-11) of every keyset key — the
+order columns plus the primary key appended as the tie-breaker (R-PAG-04) — of the boundary row, with no direction:
+`nextCursor()` is built from the last content row and `previousCursor()` from the first, and `before` turns one
+around itself (R-PAG-20). Each value is read through the column's `attributeType`, over a closed codec set: String,
+Character, Boolean, the integral types and `BigInteger`; `BigDecimal` through `toString`/`new BigDecimal(String)`,
+which keeps its scale; `UUID`; an enum by `name()`; `LocalDate`, `LocalTime`, `LocalDateTime`, `Instant`,
+`OffsetDateTime`, `OffsetTime` and `ZonedDateTime` at nanosecond precision, keeping their offset or zone;
+`java.util.Date`, `java.sql.Date`, `Time` and `Timestamp` by runtime class, `Timestamp` keeping its nanos; and
+`byte[]`. Any other type — an `@Convert` value class or `Calendar` — throws `MQ2210` naming the column before any
+query runs; Java serialization is never used. The cursor's values are readable by anyone who decodes it, filter-only
+order columns and internal primary keys included; that is documented, not hidden, and non-breaking to change later
+because the format is not API (R-PAG-18).
+
+**R-PAG-18 — A cursor's encoding.** A cursor is URL-safe base64 without padding over
+`[version=1][fingerprint 8 bytes][key count][per value: kind byte (NULL or codec kind) + length-prefixed
+bytes][CRC32C 4 bytes over all preceding bytes]`. Its length is capped at 8192 characters: decoding a longer input is
+`MQ2208`, encoding a longer one is `MQ2210` naming the column. A decoder accepts every version it knows, and a format
+change keeps the previous version decodable for one minor release. The format is not API; only the round trip is.
+`MQ2208` also covers a null or blank cursor, one that is not base64, an unknown version, a bad checksum, a truncated
+one, a value that fails to decode, and a NULL in a refusing or primary-key column; the message names the reason, never
+echoes the whole cursor, and sends the caller back to `KeysetSpec.first`.
+
+**R-PAG-19 — A cursor's fingerprint.** The fingerprint is the first 8 bytes of SHA-256 over a canonical UTF-8 form of
+the root entity class name and, per keyset key in order, its attribute path, `attributeType` name, direction and
+resolved null precedence (FIRST, LAST or refusing). It excludes the filter, the model class and the selection: under
+another filter the cursor gives a different window, never wrong rows, so the same order under another filter is
+accepted. A mismatch — another sort, direction, precedence, entity or deployment — throws `MQ2209` before any query
+runs. The fingerprint catches another order and the CRC32C catches truncation and typos; a deliberately rebuilt
+cursor is accepted and only moves within rows the query allows, and nothing is signed.
+
+**R-PAG-20 — `before` reads the page before the cursor.** It flips each key's direction and resolved null precedence
+(FIRST↔LAST; a key that refuses NULL keeps its `OR IS NULL` branch, R-PAG-22), reads size + 1 rows nearest the cursor
+in the flipped order, drops the furthest (the last row read) and reverses the rest, so the slice keeps the query's
+order. It then drops keys repeated within the page (R-PAG-02, D-31) and runs the fetch plan on the final content in
+query order (R-PAG-23); the look-ahead row's children are never loaded. A short `before` page is not topped up,
+because that would be a second statement.
+
+**R-PAG-21 — The keyset page's flags need no extra query.** `first` gives `hasPrevious() == false` and
+`hasNext() == read > size`; `after` gives `hasPrevious() == true` and `hasNext() == read > size`; `before` gives
+`hasPrevious() == read > size` and `hasNext() == true`. An empty page has both flags false and both cursors empty,
+and the client restarts with `first`. A true flag reached through a cursor can lead to an empty page after deletes,
+and a look-ahead row that repeats a key within the page can give a short page; it never skips a row. An `EXISTS`
+probe for an exact `hasPrevious`, or a top-up of a short `before` page, is rejected: each is a second statement.
+
+**R-PAG-22 — Null rules under `before`.** The default is R-PAG-05 unchanged: a NULL keyset column throws `MQ2202`,
+checked on every row read, the look-ahead included. Under `before`, a key whose precedence is the database default
+may render bare reversed, because the database flips it (`api/10` R-COL-13, D-35). Explicit precedence renders the
+flipped precedence explicitly. A precedence resolved from `ProviderSupport.defaultNullPrecedence` (D-36) must render
+reversed and explicit too, because the provider applies its default the same way in both directions, so `Keyset.Key`
+records where its precedence came from. Always rendering explicit precedence is rejected: it loses the index on
+MySQL.
+
+**R-PAG-23 — The keyset page with grouped queries and fetch plans.** A grouped query is refused for keyset paging at
+build with `MQ1402` (`api/13` R-AGG-10) and stays `Future`; a keyset page asked of one past that point hits `MQ2207`
+(R-PAG-16). A fetch plan is allowed and runs on the page's content (`api/15` R-FCH-09). R-PAG-13 still holds: a
+to-many selection is `MQ2204` before querying, while a to-many join used only in predicates is accepted and its
+repeated roots are dropped within the page (R-PAG-02). A keyset page always runs in one step, so R-PAG-15's `MQ2206`
+applies and `MQ1307` covers its binds as it does for any keyset statement (R-PAG-07).
+
+**R-PAG-24 — `MQ2205` covers the stateless page, and R-PAG-14's guarantee is restated.** A keyset page reached
+through a cursor whose rows hold that cursor's own primary key throws `MQ2205` (INV-5): the cursor did not round-trip
+or the boundary row moved. A stateless page cannot detect other rows moving between requests, so R-PAG-14's
+exactly-once guarantee is restated for pages: a page repeats or skips no row only while its cursor round-trips and no
+row's keyset value changes while it is used.
+
 ## 3. Primary-key-first deep paging
 
 **R-PAG-07** *(was R12)* For a deep offset, step 1 selects only the primary keys in the query's order, and step 2
@@ -141,3 +217,12 @@ that could overlap pages, and R-PAG-11 makes it unreachable.
 | AC-PAG-12 | Offset export of an ungrouped query, keyset paging and primary-key-first paging over a selection read through a to-many join throw `MQ2204` naming the join, without querying; the same export with the to-many join used only in a predicate succeeds, and so does a grouped export over it (R-PAG-13). |
 | AC-PAG-13 | A keyset export whose next page repeats a key of the page before, because a row's keyset value moved after the cursor between pages, throws `MQ2205` naming the model before that page reaches `pageTransformer`, on every Tier-1 vendor; a key repeated within one page is still dropped (R-PAG-14). |
 | AC-PAG-14 | On a query with `primaryKeyFirst(...)` whose customizer narrows only some phases, `page` and `export` throw `MQ2206` before any query runs; the same customizer without `primaryKeyFirst(...)` only warns (R-PAG-15). |
+| AC-PAG-15 | A first/after walk over ties spanning page boundaries, for a single and a composite primary key, visits every row once, in the offset page's order; an exact-size remainder gives `hasNext()` false (R-PAG-04, R-PAG-16, R-PAG-21). |
+| AC-PAG-16 | `before` returns exactly the page before, in query order; the furthest look-ahead row is dropped; walking back reverses the forward walk; the first page has `hasPrevious()` false (R-PAG-20, R-PAG-21). |
+| AC-PAG-17 | Every ASC/DESC × FIRST/LAST combination with NULLs at page edges pages once each way on every Tier-1 vendor; a default-precedence NULL throws `MQ2202`; a Hibernate `default_null_ordering` key reverses correctly under `before` (R-PAG-05, R-PAG-22). |
+| AC-PAG-18 | Every supported type round-trips with no repeat or skip on ties (BigDecimal scale, Timestamp nanos, enum, UUID, `byte[]`, a `ColumnConverter` column); an unsupported type throws `MQ2210` without querying (R-PAG-17). |
+| AC-PAG-19 | A changed character, a truncation, non-base64 input, an empty or null cursor, an unknown version or an oversized cursor throws `MQ2208` at `KeysetSpec`, and no other exception type (R-PAG-18). |
+| AC-PAG-20 | A cursor from another sort, direction, precedence or entity throws `MQ2209` before querying; the same order under another filter is accepted (R-PAG-19). |
+| AC-PAG-21 | `first` on an empty result returns empty content, both flags false and both cursors empty; so does `after` once its rows are deleted (R-PAG-21). |
+| AC-PAG-22 | Before querying, a non-`keyset()` query throws `MQ2207`, a to-many selection `MQ2204`, a narrowing customizer with `primaryKeyFirst` `MQ2206`; a fetch plan loads children for the content only (R-PAG-16, R-PAG-23). |
+| AC-PAG-23 | A page holding the cursor's own primary key throws `MQ2205`; repeats from a predicate-only to-many join are dropped and no root is skipped (R-PAG-02, R-PAG-24). |

@@ -13,6 +13,7 @@ lacks (INV-8).
 ```java
 public interface ModelQueryRepository<E> {
     <M> ModelPage<M> findPage(ModelQuery<E, ?, M> q, Pageable pageable, CountMode mode);   // total null under NO_COUNT
+    <M> KeysetSlice<M> findKeysetPage(ModelQuery<E, ?, M> q, KeysetSpec keyset, Sort sort);   // sort unsorted: definition's order
     <M> List<M> findAll(ModelQuery<E, ?, M> q, Limit limit);
     long count(ModelQuery<E, ?, ?> q);
     <M, R> R stream(ModelQuery<E, ?, M> q, Limit limit, Function<Stream<M>, R> body);
@@ -81,6 +82,12 @@ the totals are `null` under `NO_COUNT`, unboxing them throws, so a caller serial
 page. A counted page's COUNT and content run as separate statements and are one snapshot only when the caller holds a
 transaction.
 
+**R-SPR-14** `findKeysetPage(q, KeysetSpec, Sort)` returns the executor's `KeysetSlice<M>` and adds no semantics of
+its own (R-SPR-01). `Sort.unsorted()` keeps the definition's order, and a sorted `Sort` applies through
+`orderedBy` (R-SPR-04); either way the order decides the cursor's fingerprint (`engine/21` R-PAG-19). Its name keeps
+it apart from the `Pageable` `findPage`, so a mock matching `any()` is unambiguous. The query still needs `keyset()`,
+or the call is `MQ2207` (`engine/21` R-PAG-16).
+
 ## 3. Properties
 
 | Property | Default | Meaning |
@@ -127,3 +134,4 @@ holds, or a `modelquery.*` property is set. The starter's own `ChunkTransactions
 | AC-SPR-13 | A post-processor that type-checks the repositories before the swap leaves them built with `ModelQueryRepositoryFactoryBean`: the context starts and `findPage` works; a `RootBeanDefinition` keeps its `targetType`, now over `ModelQueryRepositoryFactoryBean` with the old generics (R-SPR-02, D-83). |
 | AC-SPR-12 | A repository declaring `ModelQueryRepository` of an entity other than its domain type fails startup with `MQ4007` (R-SPR-12). |
 | AC-SPR-09 | (`Future`, M6) `update`/`delete` without an ambient transaction succeed through the repository; `commitEachChunk` commits each chunk separately on the primary and on a secondary datasource of the multi-datasource sample, and a failed third chunk leaves the first two committed (R-SPR-10, R-SPR-11). |
+| AC-SPR-14 | `findKeysetPage(q, KeysetSpec, Sort)` returns the same rows as the executor; a sorted `Sort` changes the fingerprint (R-SPR-14). |

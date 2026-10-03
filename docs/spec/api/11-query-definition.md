@@ -36,7 +36,9 @@ fetch plan that carries one (`api/15` R-FCH-02), throws `MQ1202`.
 
 **R-QRY-03** `primaryKey(...)` is required for `keyset()`, `primaryKeyFirst(...)`, offset `export` and `@Join` presence
 (`processor/31`). It is optional for `list`, `page` and `count`, and optional for every grouped query
-(`api/13` R-AGG-07). `keyset()` without a primary key is a build-time error, `MQ1201`.
+(`api/13` R-AGG-07). `keyset()` without a primary key is a build-time error, `MQ1201`. A keyset page
+(`engine/21` R-PAG-16) also needs `keyset()`: `page(query, KeysetSpec)` on a query without it throws `MQ2207` before
+any query runs, while `keyset()` puts `export` into keyset mode as well (`engine/21` R-PAG-14).
 
 **R-QRY-04** The primary-key columns are added to the selection automatically whenever they are needed. A caller never
 has to put them in a `SelectSet` to make paging work. `MODEL` and `MODEL_BY_KEYS` therefore select the key of every
@@ -105,7 +107,7 @@ they do not count.
 | `orderBy` | Unordered for `list` and `count`. Offset paging and export append the primary key (or the group keys) to get a stable order (`engine/21` R-PAG-01). |
 | `primaryKey` | Allowed except where R-QRY-03 requires one. |
 | `groupBy` | The query is not grouped; selecting an `AggregateField` makes it a single-group query (`api/13` R-AGG-07). |
-| `keyset()` | Paging and export use offset mode. |
+| `keyset()` | Paging and export use offset mode; `page(query, KeysetSpec)` throws `MQ2207` (`engine/21` R-PAG-16). |
 | `primaryKeyFirst` | Never used, whatever the offset. |
 | `afterMap` | The `RowMapper`'s result is returned as is. |
 | `where` | No predicate. `count` then counts the whole table. |
@@ -134,6 +136,7 @@ a failure there (`MQ1207`) is rethrown as `MQ2301` with it as the cause, because
 public interface ModelQueryExecutor<E> {
     <M> List<M> list(ModelQuery<E, ?, M> q, Limit limit);
     <M> Slice<M> page(ModelQuery<E, ?, M> q, PageSpec page, CountMode mode);        // COUNT, NO_COUNT, ONLY_COUNT
+    <M> KeysetSlice<M> page(ModelQuery<E, ?, M> q, KeysetSpec keyset);              // keyset page, @Incubating
     long count(ModelQuery<E, ?, ?> q);
     <M, R> R stream(ModelQuery<E, ?, M> q, Limit limit, Function<Stream<M>, R> body);
     <M, S> long export(ModelQuery<E, ?, M> q, ExportOptions options,
