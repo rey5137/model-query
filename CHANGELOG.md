@@ -6,6 +6,12 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
+### Added
+
+- `ModelQueryException`, the abstract superclass of `ModelQueryDefinitionException`, `ModelQueryExecutionException`
+  and `ModelQueryConfigurationException`: one catch clause handles every library failure and reads its `code()`
+  (D-106).
+
 ## [0.2.0] - Unreleased
 
 Nothing is frozen yet: every public type stays `@Incubating` until the 1.0 freeze (D-90).

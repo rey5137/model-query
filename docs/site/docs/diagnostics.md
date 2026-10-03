@@ -11,6 +11,19 @@ Messages say what to change, for example `OrderView.totl: no attribute 'totl' on
 | `MQ3xxx` | Your models, at compile time | a compiler error from the annotation processor |
 | `MQ4xxx` | Configuration and vendor resolution, usually at startup | `ModelQueryConfigurationException` |
 
+The three exceptions extend `ModelQueryException`, so one clause catches every failure the library raises, and its
+`code()` says which one it was. The one exception is the JPA `OptimisticLockException` an `expectVersion` update
+throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
+
+```java
+try {
+    return executor.page(query, PageSpec.of(0, 50), CountMode.NO_COUNT);
+} catch (ModelQueryException e) {
+    log.warn("query failed with {}", e.code(), e);
+    throw e;
+}
+```
+
 ## `MQ1xxx`: query and write definitions
 
 | Code | What went wrong |

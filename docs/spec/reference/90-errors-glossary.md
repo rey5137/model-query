@@ -20,6 +20,10 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 
 **R-ERR-02** A code is added here before the code that raises it (`delivery/61` R-REL-15).
 
+**R-ERR-05** The three exceptions above extend the abstract `ModelQueryException extends RuntimeException`, which
+holds `MqCode code()`, so a caller catches every library failure in one clause and reads its code; the one exception
+is R-ERR-04's `OptimisticLockException`. Its constructors are protected; no other direct subclass is planned (D-106).
+
 ## 2. `MQ1xxx` — query definition
 
 | Code | Meaning | Owner |
