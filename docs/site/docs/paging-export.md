@@ -22,9 +22,40 @@ For `page` and `export`, the engine appends the primary key (or, for a grouped q
 are added to the selection for you; if a row's key still comes back `null`, the export fails with `MQ2201` rather than
 silently going wrong. An operation that needs a key on a query without one fails with `MQ2203`.
 
-## Keyset paging
+## Keyset page
 
-Offset paging gets slower the deeper you go. Call `keyset()` on the query to page by "everything after the last row
+`executor.page(query, keysetSpec)` returns a `KeysetSlice<M>` for infinite scroll or next/previous links: the rows in
+the query's order, `hasNext()`/`hasPrevious()`, and an optional cursor for each neighbouring page. It carries no total
+and never runs a count.
+
+- Build the spec with `KeysetSpec.first(size)`, `KeysetSpec.after(cursor, size)` or `KeysetSpec.before(cursor, size)`.
+  `before` returns the page before the cursor's row in the query's order, with both neighbour cursors when a page sits
+  on each side.
+- `KeysetSlice.content()` is the page, `size()` the size asked for, and `nextCursor()`/`previousCursor()` the cursors
+  that reach the neighbouring pages; a cursor is present exactly when the matching `has…()` is true.
+- A cursor is opaque and only understood by the order that issued it: the order decides its fingerprint, so reusing a
+  cursor under a different `orderBy` fails with `MQ2209`. Start again with `KeysetSpec.first`.
+
+Through Spring Data, `findKeysetPage(q, keyset, sort)` passes straight through to the executor: `Sort.unsorted()`
+keeps the query's order, a sorted `Sort` replaces it, and the cursor's fingerprint follows whichever applies.
+
+```java
+@GetMapping("/books/pages")
+KeysetPage page(@RequestParam(required = false) String after, @RequestParam(defaultValue = "20") int size) {
+    var q = QBookView.query()
+            .select(QBookView.ALL)
+            .orderBy(QBookView.RELEASED.asc(), QBookView.ID.asc())   // the order the cursor is bound to
+            .keyset()
+            .build();
+    KeysetSpec spec = after == null ? KeysetSpec.first(size) : KeysetSpec.after(after, size);
+    KeysetSlice<BookView> slice = books.findKeysetPage(q, spec, Sort.unsorted());
+    return new KeysetPage(slice.content(), slice.nextCursor().orElse(null), slice.previousCursor().orElse(null));
+}
+```
+
+## Keyset export
+
+Offset export gets slower the deeper you go. Call `keyset()` on the query to export by "everything after the last row
 seen" instead, which stays fast at any depth:
 
 ```java

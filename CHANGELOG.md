@@ -19,6 +19,10 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 - `ProviderSupport.tablesOf(emf, entity)`, implemented by `model-query-hibernate` with every table reading the entity
   touches (joined supertables, secondary tables, subclass tables): on MySQL, a bulk write whose `exists(...)` reads a
   second entity that shares one of the root's tables now runs key-first instead of failing with error 1093 (D-109).
+- `ModelQueryExecutor.page(q, KeysetSpec)` returns a `KeysetSlice` — one keyset page with the cursors that reach its
+  neighbours and no total — built with `KeysetSpec.first/after/before`; its checks report `MQ2207`–`MQ2210` (D-110).
+- `ModelQueryRepository.findKeysetPage(q, KeysetSpec, Sort)` exposes that keyset page through Spring Data, passing the
+  order and the cursor fingerprint it decides straight through (R-SPR-14).
 
 ### Changed
 

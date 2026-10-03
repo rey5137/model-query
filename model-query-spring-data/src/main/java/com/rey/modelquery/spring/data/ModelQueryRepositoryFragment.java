@@ -3,6 +3,8 @@ package com.rey.modelquery.spring.data;
 import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
+import com.rey.modelquery.core.KeysetSlice;
+import com.rey.modelquery.core.KeysetSpec;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
@@ -18,6 +20,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionOperations;
@@ -65,6 +68,14 @@ final class ModelQueryRepositoryFragment<E> implements ModelQueryRepository<E> {
         Slice<M> slice = executor.get().page(sorted, page, mode);
         Long total = slice.total().isPresent() ? slice.total().getAsLong() : null;
         return new DefaultModelPage<>(slice.content(), pageable, slice.hasNext(), total);
+    }
+
+    @Override
+    public <M> KeysetSlice<M> findKeysetPage(ModelQuery<E, ?, M> q, KeysetSpec keyset, Sort sort) {
+        Objects.requireNonNull(q, "q");
+        Objects.requireNonNull(keyset, "keyset");
+        Objects.requireNonNull(sort, "sort");
+        return executor.get().page(q.orderedBy(SpringPaging.sortSpec(sort)), keyset);
     }
 
     @Override

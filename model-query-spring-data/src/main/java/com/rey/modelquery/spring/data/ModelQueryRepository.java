@@ -3,6 +3,8 @@ package com.rey.modelquery.spring.data;
 import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
+import com.rey.modelquery.core.KeysetSlice;
+import com.rey.modelquery.core.KeysetSpec;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
@@ -15,6 +17,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Stream;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 /**
  * A repository fragment that runs model queries rooted at the repository's entity: a repository extends it next to
@@ -24,7 +27,7 @@ import org.springframework.data.domain.Pageable;
  * (R-SPR-01, INV-8).
  *
  * @param <E> the root entity type, the repository's domain type
- * @implSpec R-SPR-01, R-SPR-02, R-SPR-03, R-SPR-10, R-SPR-12
+ * @implSpec R-SPR-01, R-SPR-02, R-SPR-03, R-SPR-10, R-SPR-12, R-SPR-14
  */
 @Incubating
 public interface ModelQueryRepository<E> {
@@ -42,6 +45,23 @@ public interface ModelQueryRepository<E> {
      *     fails the checks of {@code build()} (R-SPR-06, {@link ModelQuery#orderedBy(SortSpec)})
      */
     <M> ModelPage<M> findPage(ModelQuery<E, ?, M> q, Pageable pageable, CountMode mode);
+
+    /**
+     * {@link ModelQueryExecutor#page(ModelQuery, KeysetSpec)} with {@code q}'s order replaced by {@code sort}'s:
+     * {@link Sort#unsorted()} keeps the definition's order, and a sorted {@code sort} applies through
+     * {@link ModelQuery#orderedBy(SortSpec)} (R-SPR-04). Either way the effective order decides the cursor's
+     * fingerprint ({@code engine/21} R-PAG-19), so a cursor is only understood with the {@code Sort} that issued it.
+     * The call adds no semantics of its own (R-SPR-01, R-SPR-14).
+     *
+     * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2207} for a query without
+     *     {@code keyset()}, {@code MQ2204} for a selection read through a to-many join, {@code MQ2206} for a
+     *     {@code primaryKeyFirst(...)} query whose customizer narrows the phases differently, {@code MQ2210} for a
+     *     key column no codec carries, {@code MQ2209} for a cursor of another order, {@code MQ2208} for a decoded
+     *     value of the wrong type or a NULL in a refusing or primary-key column, all before any query runs; after
+     *     reading, {@code MQ2202} for a NULL in a refusing keyset column and {@code MQ2205} for the cursor's own key
+     */
+    @Incubating
+    <M> KeysetSlice<M> findKeysetPage(ModelQuery<E, ?, M> q, KeysetSpec keyset, Sort sort);
 
     /** {@link ModelQueryExecutor#list(ModelQuery, Limit)}. */
     <M> List<M> findAll(ModelQuery<E, ?, M> q, Limit limit);

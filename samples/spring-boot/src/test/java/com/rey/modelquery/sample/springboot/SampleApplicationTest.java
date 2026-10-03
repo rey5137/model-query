@@ -3,6 +3,7 @@ package com.rey.modelquery.sample.springboot;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.entry;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -203,6 +204,46 @@ class SampleApplicationTest {
             mvc.perform(patch("/books/99").contentType(MediaType.APPLICATION_JSON).content("{\"released\": 1}"))
                     .andExpect(status().isNotFound());
         }
+    }
+
+    @Test
+    void ac_spr_14_the_keyset_page_endpoint_walks_forward_and_back_to_the_first_page() throws Exception {
+        try (ConfigurableApplicationContext context = startSample(List.of())) {
+            var books = context.getBean(BookRepository.class);
+            books.saveAll(List.of(new BookEntity(1L, "One", 2000), new BookEntity(2L, "Two", 1990),
+                    new BookEntity(3L, "Three", 2000), new BookEntity(4L, "Four", 1980),
+                    new BookEntity(5L, "Five", 1990), new BookEntity(6L, "Six", 2000)));
+            MockMvc mvc = MockMvcBuilders.standaloneSetup(context.getBean("bookController")).build();
+
+            // Ordered by released year, then id: 4(1980), 2(1990), 5(1990), 1(2000), 3(2000), 6(2000).
+            KeysetResponse first = getPage(mvc, "/books/pages?size=2");
+            assertThat(ids(first)).containsExactly(4L, 2L);
+            assertThat(first.previous()).isNull();
+            assertThat(first.next()).isNotNull();
+
+            KeysetResponse second = getPage(mvc, "/books/pages?size=2&after=" + first.next());
+            assertThat(ids(second)).containsExactly(5L, 1L);
+            assertThat(second.previous()).isNotNull();
+            assertThat(second.next()).isNotNull();
+
+            KeysetResponse back = getPage(mvc, "/books/pages?size=2&before=" + second.previous());
+            assertThat(ids(back)).containsExactly(4L, 2L);
+            assertThat(back.previous()).isNull();
+            assertThat(back.next()).isNotNull();
+        }
+    }
+
+    /** A keyset page the endpoint answered with, deserialized from its JSON. */
+    record KeysetResponse(List<BookView> books, String next, String previous) {}
+
+    /** The page {@code url} answers with, asserting a 200. */
+    private static KeysetResponse getPage(MockMvc mvc, String url) throws Exception {
+        String json = mvc.perform(get(url)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        return new ObjectMapper().readValue(json, KeysetResponse.class);
+    }
+
+    private static List<Long> ids(KeysetResponse page) {
+        return page.books().stream().map(BookView::id).toList();
     }
 
     /** The field errors a PATCH of {@code body} to book 1 answers with a 400. */
