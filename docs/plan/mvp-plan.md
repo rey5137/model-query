@@ -213,18 +213,18 @@ a slice's.
 **Exit:** AC-REL-06 passes in CI (skipped until a 1.0 baseline exists), the API review's signature changes are applied,
 and the `0.2.0` CHANGELOG section is ready, so the user can push the `v0.2.0` tag.
 
-## 10. M9 — Freeze → 1.0.0
+## 10. M9 — Adoption → 0.2.0
 
 Spec: D-104–D-109 (Q-4, Q-9, Q-11, Q-12, Q-13 resolved), D-85 (the freeze split, amended by D-106), D-86, D-90;
 `vendor/40` §2, `vendor/41` §2, `api/14` R-WRT-11, `engine/21` §2, `api/11`, `integration/50`, `api/16` R-INS-06,
-`processor/32` R-DIAG-03, `reference/90`. Each slice writes its rules, `AC-*` rows and `MQ` codes into the owning spec
+`processor/32` R-DIAG-03, `reference/90`; D-111 (the adoption features, the freeze moved to M10). Each slice writes its rules, `AC-*` rows and `MQ` codes into the owning spec
 file first, then builds. Model: `architect-review` required before M9.3 (public API, paging correctness), for M9.1
-(`VendorProfile` and `ProviderSupport` surface) and at M9.7 (the freeze). New vendor profiles (MariaDB, D-81) come
-after M9, on the M9.1 SPI. Tagging `v1.0.0` is the user's step after the gate, never a slice's.
+(`VendorProfile` and `ProviderSupport` surface), before M9.11 (sub-queries and correlation, M9.11a) and before M9.13 (expressions, M9.13a). New vendor profiles (MariaDB, D-81) come
+after M9, on the M9.1 SPI. Nothing is frozen in M9 (D-111): every new type is `@Incubating`. Tagging `v0.2.0` is the user's step after the gate, never a slice's.
 
 Slices run in table order, not id order: M9.2, M9.5 and M9.6 are decided and independent, so they go first and may
 run unattended; M9.1 and M9.3a are attended (their reviews may need the user's decision); M9.3–M9.4 may run
-unattended once M9.3a is recorded; M9.7–M9.8 are attended.
+unattended once M9.3a is recorded; M9.9 and M9.10 are decided and may run unattended; M9.11a and M9.13a are attended, and the slices after each may run unattended once its decision is recorded.
 
 | Slice | Contents | Done when |
 |---|---|---|
@@ -235,8 +235,31 @@ unattended once M9.3a is recorded; M9.7–M9.8 are attended.
 | M9.3a | Keyset page design: `architect-review` of D-105 (signatures, the cursor's content and fingerprint, `before` with null rules, grouped and fetch-plan queries, the new `MQ` codes); the outcome recorded as `D-n` and written into `engine/21` §2, `api/11`, `integration/50`, `reference/90` and SPEC.md's paging row. Review only, no code | every open point of D-105 has a recorded decision and the new `AC-PAG` rows exist |
 | M9.3 | Keyset page in `core` and `jpa`: `KeysetSpec`, `KeysetSlice`, the cursor encoder and decoder (fingerprint check, typed values through converters), `ModelQueryExecutor.page(query, KeysetSpec)` with `after` and `before`, fetch plans run on the slice | the new `AC-PAG` rows green on Tier 1, ties, null precedences and a tampered cursor among them |
 | M9.4 | Keyset page in Spring and docs: `ModelQueryRepository` pass-through; `paging-export.md` gets a "Keyset page" section (a REST endpoint passing the cursor) and its current "Keyset paging" heading renamed to keyset export; the Spring Boot sample uses it; CHANGELOG | the repository case green on Tier 1; `mkdocs build --strict` green |
-| M9.7 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`) and inspection (`api/16`) types and the M9 types frozen or `@Incubating`; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
-| M9.8 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M9` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M9 started |
+| M9.9 | Keys and joins (D-111 items 7, 9): TCK entities with a String `@Id`, an `@EmbeddedId`, a `@ManyToOne` through `@JoinColumn(referencedColumnName)` on a non-key column and a Hibernate `@JoinFormula`; `keyset()` page, keyset export and `primaryKeyFirst` over the String and `@EmbeddedId` keys; a generated `@Join` through each association, filtered, sorted and fetched; new `AC-PAG` and `AC-COL` rows; `paging-export.md` and the joins page say what is supported. A failure is fixed if the rule is clear, otherwise reported | the new rows green on Tier 1 |
+| M9.10 | Spring and fetch recipes (D-111 items 1, 6): a context test with a `JpaRepositoryFactoryBean` subclass that extends `ModelQueryRepositoryFactoryBean` and a custom `repositoryBaseClass`, holding one repository that extends `ModelQueryRepository` and one that does not; `spring.md` says how to migrate one repository at a time this way; `fetch-plans.md` gets a recipe for an enricher on a nested join model (R-FCH-08) | the context test green; `mkdocs build --strict` green |
+| M9.11a | Sub-query design: `architect-review` of D-111 items 1, 2, 5 and 8: a public sub-query type (root, one selected column, filters, correlation to the outer query), `in`/`notIn`/`exists`/`notExists` over it, the outer root in the `exists` lambda and `or` across inner and outer, conditions recorded for inspection (`api/16`) and mirrored in `model-query-test`, the starter adding the fragment to any `JpaRepositoryFactoryBean` subclass (amending R-SPR-02/D-50), chunked `Enricher.byKey` lookups; new `MQ` codes; recorded as `D-n` and written into `api/12`, `api/15`, `api/16`, `integration/50`, `reference/90`. Review only, no code | every point has a recorded decision and the new `AC-*` rows exist |
+| M9.11 | Sub-queries in `core` and `jpa`: the M9.11a type and filter operators, correlation, the outer root in `exists`, inspection and `model-query-test` mirrors | the new `AC-FLT` rows green on Tier 1 |
+| M9.12 | Spring and enrichers per M9.11a: the starter's fragment registration for factory bean subclasses, chunked `Enricher.byKey`, repository and docs | the new `AC-SPR` and `AC-FCH` rows green on Tier 1 |
+| M9.13a | Expression design: `architect-review` of D-111 items 3 and 4, reversing D-27: one expression type (columns, literals, `coalesce`, `CASE`, arithmetic, `concat`, a named function call with a result type), where it plugs in (aggregate argument, group key, filter operand, selected column, order key), its place in the sealed `SelectField`, how `keyset()` and `primaryKeyFirst` treat an expression order (supported or a new `MQ` code), vendor rendering, the processor's annotation surface, inspection; recorded as `D-n` and written into `api/10..13`, `engine/21`, `processor/30`, `reference/90`. Review only, no code | every point has a recorded decision and the new `AC-*` rows exist |
+| M9.13 | Expressions in `core` and `jpa`, part 1: the expression type, as a filter operand and an aggregate argument | the new `AC-*` rows for filters and aggregates green on Tier 1 |
+| M9.14 | Expressions, part 2: selected columns, group keys and order keys, with the M9.13a paging rule on every paging path | the new `AC-*` rows for selection, grouping and order green on Tier 1 |
+| M9.15 | Processor: the M9.13a annotations for computed fields, expression aggregates and grouping by a computed field; diagnostics | compile-testing cases for each annotation and each new code |
+| M9.16 | Adoption docs and sample: a user-guide page on sub-queries and expressions, the Spring Boot sample using one of each, CHANGELOG entries for M9.9–M9.15 | `mkdocs build --strict` green; the sample's tests pass |
+| M9.17 | 0.2.0 release prep: `[Unreleased]` folded into the `0.2.0` CHANGELOG section, README, docs site and stability page say 0.2.0, `M9` added to the audit's started scope | AC audit green with M9 started |
 
-**Exit:** the M9 rows' criteria green on Tier 1, the freeze applied per D-85 and the M9.7 decision, and the `1.0.0`
-CHANGELOG section ready, so the user can push the `v1.0.0` tag.
+**Exit:** the M9 rows' criteria green on Tier 1, nothing frozen, and the `0.2.0` CHANGELOG section ready, so the user
+can push the `v0.2.0` tag.
+
+## 11. M10 — Freeze → 1.0.0
+
+Spec: D-85 (amended by D-106), D-86, D-111. Starts only when the user says the D-111 adopter has migrated onto 0.2.0
+and run it in production long enough. Model: `architect-review` at M10.1. Both slices are attended. Tagging `v1.0.0`
+is the user's step after the gate, never a slice's.
+
+| Slice | Contents | Done when |
+|---|---|---|
+| M10.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9 and adoption types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
+| M10.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M10` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M10 started |
+
+**Exit:** the M10 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M10.1 decision, so the user can
+push the `v1.0.0` tag.

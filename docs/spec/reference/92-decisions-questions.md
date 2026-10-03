@@ -1099,6 +1099,23 @@ null precedence (loses the index on MySQL); an `EXISTS` probe or a top-up of a s
 statement each); encrypting the cursor in 1.0. → `engine/21` R-PAG-16 to R-PAG-24, `api/11`, `integration/50`
 R-SPR-14, `reference/90`, SPEC.md §4, `delivery/61`.
 
+**D-111 — Adoption before the freeze (amends D-90, M9).** A report service migrating about 35 datasource
+configurations asked for nine features (the "adoption feedback"); every one is built before the API freezes. M9 ships
+as 0.2.0, carrying the slices built so far and the adoption features, all `@Incubating`. The freeze review and the D-85
+freeze move to M10, which starts only once that service has fully migrated onto 0.2.0 and run in production for a
+period the user judges enough; tagging `v1.0.0` stays the user's step. The features are:
+(1) the repository fragment working beside a custom `JpaRepositoryFactoryBean` subclass and a custom repository base
+class; (2) `in`/`notIn` against a sub-query and `exists` on an unmapped root with an explicit correlation;
+(3) expressions (`coalesce`, `CASE`, arithmetic, `concat`, function calls, literals) in aggregates, group keys, filters
+and selected columns, reversing D-27; (4) ordering by an expression, with a stated rule for `keyset()` and
+`primaryKeyFirst`; (5) a correlated `exists` whose inner predicate reads outer columns; (6) enrichers on a nested join
+model, already R-FCH-01/R-FCH-08, owed a documented recipe; (7) joins through a non-key `@JoinColumn` or Hibernate
+`@JoinFormula`, tested and documented through the mapped association, with no `@Join(on = …)` (R-PROC-12 holds);
+(8) chunked lookups for `Enricher.byKey`; (9) `keyset()` and `primaryKeyFirst` over String and `@EmbeddedId` keys, tested
+and documented. Items 2–5 and 8 get their own `architect-review` before their slices and are recorded as their own
+`D-n`; this decision fixes the scope and order only. → `delivery/62` §1, `docs/plan/mvp-plan.md` §10–11.
+
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
