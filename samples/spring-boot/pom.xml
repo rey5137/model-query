@@ -20,7 +20,7 @@
         <maven.source.skip>true</maven.source.skip>
         <maven.javadoc.skip>true</maven.javadoc.skip>
         <!-- The Spring Framework release Boot ${spring-boot.version} manages -->
-        <spring-framework.version>6.2.15</spring-framework.version>
+        <spring-framework.version>6.2.19</spring-framework.version>
     </properties>
 
     <dependencyManagement>
