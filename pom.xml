@@ -83,7 +83,7 @@
         <!-- Test scope of model-query-processor only (D-40); banned everywhere else by the enforcer below. -->
         <lombok.version>1.18.46</lombok.version>
         <!-- Test scope only: a Bean Validation provider and the EL it interpolates with, to run @ValidChanges. -->
-        <hibernate-validator.version>8.0.3.Final</hibernate-validator.version>
+        <hibernate-validator.version>9.1.4.Final</hibernate-validator.version>
         <tomcat-embed-el.version>10.1.50</tomcat-embed-el.version>
         <testcontainers.version>2.0.5</testcontainers.version>
         <h2.version>2.5.252</h2.version>
