@@ -88,7 +88,7 @@
         <testcontainers.version>2.0.5</testcontainers.version>
         <h2.version>2.5.252</h2.version>
         <postgresql.version>42.7.13</postgresql.version>
-        <mysql.version>9.7.0</mysql.version>
+        <mysql.version>26.7.0</mysql.version>
         <datasource-proxy.version>1.11.0</datasource-proxy.version>
 
         <!-- Plugins -->
