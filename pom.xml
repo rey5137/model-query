@@ -79,7 +79,7 @@
         <archunit.version>1.5.1</archunit.version>
         <compile-testing.version>0.23.0</compile-testing.version>
         <!-- Test scope of model-query-processor only: a generated change set binds from a PATCH body (AC-WRT-02). -->
-        <jackson.version>2.18.8</jackson.version>
+        <jackson.version>2.22.3</jackson.version>
         <!-- Test scope of model-query-processor only (D-40); banned everywhere else by the enforcer below. -->
         <lombok.version>1.18.46</lombok.version>
         <!-- Test scope only: a Bean Validation provider and the EL it interpolates with, to run @ValidChanges. -->
