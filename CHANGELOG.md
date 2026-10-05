@@ -38,6 +38,20 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
   value of the sub-select empty the result (R-FLT-15, R-FLT-16, R-FLT-17, D-112). A bulk delete whose sub-select reads
   its target table now runs key-first on MySQL (R-WRT-11), and the migration recipes add the sub-select and
   correlated-`exists` cases.
+- A `JpaRepositoryFactoryBean` subclass that does not extend `ModelQueryRepositoryFactoryBean` keeps its class, its
+  overrides and its `repositoryBaseClass`, and the starter re-registers each of its repositories that declares
+  `ModelQueryRepository` with an inner `ModelQueryRepositoryFragmentFactoryBean` as its `customImplementation`,
+  through the new `ModelQueryRepositoryFragmentFactoryBean` in `model-query-spring-data`; a definition that already
+  sets `customImplementation` fails with `MQ4008`, and `MQ4007` holds on the new route (R-SPR-02, D-113). The
+  migration recipes and the Spring guide cover both routes.
+- `Enricher.byKeys(lookup).key(key, with)….batchSize(n).reading(columns)` fills several fields of one model from one
+  lookup over the distinct non-null keys across models and keys, in first-seen order, in one call per run or one per
+  chunk of at most `n`; a null key is skipped, an absent key or a null map value leaves the model as is, a lookup
+  returning `null` fails with `MQ2606`, no `key(...)` with `MQ1706` and `batchSize(0)` with `MQ1707`; `byKey` is its
+  one-key case, and a `null` lookup result there now throws `MQ2606` too, where it was a `NullPointerException`
+  (R-FCH-15, R-FCH-16, D-114). The fetch-plan guide and the migration recipes add the
+  four-actor payment order, a lookup splitting its keys by a key part, a cache shared with a child's enricher and
+  request-time parameters applied with `withFetch`.
 
 ### Changed
 

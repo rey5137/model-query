@@ -138,6 +138,7 @@ public final class JoinTestSupport {
                 .addAnnotatedClass(SkuOrderLineEntity.class)
                 .addAnnotatedClass(FormulaProductEntity.class)
                 .addAnnotatedClass(FormulaLineEntity.class)
+                .addAnnotatedClass(PaymentOrderEntity.class)
                 .buildSessionFactory(registry);
     }
 }

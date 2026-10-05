@@ -18,8 +18,10 @@ import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import java.lang.reflect.Field;
 import java.util.Map;
 import javax.sql.DataSource;
+import org.springframework.aop.framework.Advised;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan.Filter;
@@ -31,6 +33,8 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.data.jpa.repository.support.JpaEntityInformation;
 import org.springframework.data.jpa.repository.support.SimpleJpaRepository;
 import org.springframework.data.repository.Repository;
+import org.springframework.data.repository.core.support.RepositoryComposition;
+import org.springframework.data.repository.core.support.RepositoryFragment;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
@@ -90,6 +94,54 @@ class CustomFactoryBeanTest {
     private static String definitionClass(AnnotationConfigApplicationContext context, Class<?> type) {
         String name = context.getBeanNamesForType(type)[0];
         return context.getBeanFactory().getBeanDefinition(name).getBeanClassName();
+    }
+
+    // ---- AC-SPR-17
+
+    @TckTest
+    void ac_spr_17_a_model_query_factory_bean_subclass_is_left_alone_and_adds_one_fragment(TckDatabase db) {
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean("dataSource", DataSource.class, () -> JoinTestSupport.dataSource(db));
+            context.register(CustomJpa.class, ModelQueryAutoConfiguration.class);
+            context.refresh();
+
+            // The starter leaves the definition unchanged: no custom implementation, one ModelQueryRepository.
+            String name = context.getBeanNamesForType(CustomerProfileRepository.class)[0];
+            var definition = context.getBeanFactory().getBeanDefinition(name);
+            assertThat(definition.getBeanClassName()).isEqualTo(CustomJpaRepositoryFactoryBean.class.getName());
+            assertThat(definition.getPropertyValues().contains("customImplementation")).isFalse();
+            assertThat(modelQueryFragments(context.getBean(CustomerProfileRepository.class), "AC-SPR-17")).isEqualTo(1);
+        }
+    }
+
+    /**
+     * The {@code ModelQueryRepository} implementations inside {@code repository}'s composition: the class, not the
+     * interface, of every fragment implementation that is one (R-SPR-02, D-113).
+     */
+    static long modelQueryFragments(Object repository, String message) {
+        // DECIDE: the composition is not public API and its shape was checked against Spring Data Commons 3.4.13, so
+        // the count is read by reflection from that version's own advice.
+        for (var advisor : ((Advised) repository).getAdvisors()) {
+            if (advisor.getAdvice().getClass().getName()
+                    .equals("org.springframework.data.repository.core.support.RepositoryFactorySupport$"
+                            + "ImplementationMethodExecutionInterceptor")) {
+                try {
+                    Field field = advisor.getAdvice().getClass().getDeclaredField("composition");
+                    field.setAccessible(true);
+                    var composition = (RepositoryComposition) field.get(advisor.getAdvice());
+                    long count = 0;
+                    for (RepositoryFragment<?> fragment : composition.getFragments()) {
+                        if (fragment.getImplementation().filter(ModelQueryRepository.class::isInstance).isPresent()) {
+                            count++;
+                        }
+                    }
+                    return count;
+                } catch (ReflectiveOperationException e) {
+                    throw new AssertionError(message + ": reading the composition failed", e);
+                }
+            }
+        }
+        throw new AssertionError(message + ": no composition on " + repository.getClass().getName());
     }
 
     /** A repository base interface of the application's own, implemented by {@link RefreshingJpaRepository}. */

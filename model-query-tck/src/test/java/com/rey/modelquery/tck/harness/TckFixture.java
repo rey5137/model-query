@@ -40,6 +40,13 @@ public final class TckFixture {
     /** Rows of {@code formula_products} and {@code formula_lines} (TCK AC-COL-16). */
     public static final int FORMULA_PRODUCTS = 8;
     public static final int FORMULA_LINES = 16;
+    /**
+     * Rows of {@code payment_orders} (TCK AC-FCH-14, D-114 item 8): each with a payer, payee and initiator pair and a
+     * requestor pair that is NULL on every fourth row. The references are a pure function of the row number:
+     * payer {@code (1, i % 2 + 1)}, payee {@code (1, i % 3 + 1)}, initiator {@code (2, 1)}, requestor either
+     * {@code (3, i % 2 + 1)} or absent.
+     */
+    public static final int PAYMENT_ORDERS = 6;
     public static final int LABELS = 10;
     /** Orders 1 to this one carry labels, many-to-many: one or two each, every label on many orders. */
     public static final int LABELED_ORDERS = 200;
@@ -226,6 +233,25 @@ public final class TckFixture {
             ps.setString(2, "f-" + pad((i * 3) % FORMULA_PRODUCTS + 1, 2));
             ps.setInt(3, i % 4 + 1);
         });
+        // A payment order's four actors, the requestor absent on every fourth row (AC-FCH-14).
+        insert(c, "INSERT INTO payment_orders (id, payer_user_type, payer_user_id, payee_user_type, payee_user_id, "
+                + "initiator_user_type, initiator_user_id, requestor_user_type, requestor_user_id) "
+                + "VALUES (?,?,?,?,?,?,?,?,?)", PAYMENT_ORDERS, (ps, i) -> {
+                    ps.setLong(1, i);
+                    ps.setInt(2, 1);
+                    ps.setLong(3, i % 2 + 1);
+                    ps.setInt(4, 1);
+                    ps.setLong(5, i % 3 + 1);
+                    ps.setInt(6, 2);
+                    ps.setLong(7, 1);
+                    if (i % 4 == 0) {
+                        ps.setNull(8, Types.INTEGER);
+                        ps.setNull(9, Types.BIGINT);
+                    } else {
+                        ps.setInt(8, 3);
+                        ps.setLong(9, i % 2 + 1);
+                    }
+                });
     }
 
     /** The code of {@code string_key_products} row {@code row} (1-based), a permutation with mixed case. */

@@ -27,6 +27,9 @@ selects exactly those columns, applies your filters, and maps rows straight into
 | `model-query-processor` | The annotation processor that generates `Q` classes |
 | `model-query-spring-data` | `ModelQueryRepository` and the Spring Data `Pageable`/`Sort` adapters |
 | `model-query-spring-boot-starter` | Spring Boot auto-configuration and the `modelquery.*` properties |
+| `model-query-test` | AssertJ assertions over recorded queries, for unit tests without a database |
+
+See [Architecture](architecture.md) for how the modules depend on each other and how a query runs.
 
 ## Where to go next
 

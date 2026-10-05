@@ -8,19 +8,26 @@ import com.rey.modelquery.jpa.KeysetNullKeys;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.spring.data.ModelQueryConfigurer;
+import com.rey.modelquery.spring.data.ModelQueryRepository;
 import com.rey.modelquery.spring.data.ModelQueryRepositoryFactoryBean;
+import com.rey.modelquery.spring.data.ModelQueryRepositoryFragmentFactoryBean;
 import jakarta.persistence.EntityManagerFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiFunction;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import org.springframework.beans.PropertyValue;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.beans.factory.config.ConstructorArgumentValues;
+import org.springframework.beans.factory.config.RuntimeBeanReference;
+import org.springframework.beans.factory.config.TypedStringValue;
 import org.springframework.beans.factory.support.AbstractBeanDefinition;
+import org.springframework.beans.factory.support.BeanDefinitionBuilder;
 import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.beans.factory.support.BeanDefinitionRegistryPostProcessor;
 import org.springframework.beans.factory.support.GenericBeanDefinition;
@@ -38,7 +45,9 @@ import org.springframework.core.ResolvableType;
 import org.springframework.core.env.Environment;
 import org.springframework.core.type.MethodMetadata;
 import org.springframework.data.jpa.repository.support.JpaRepositoryFactoryBean;
+import org.springframework.data.repository.core.support.RepositoryFactoryBeanSupport;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.util.ClassUtils;
 
 /**
  * Auto-configuration for Model Query: reads {@code modelquery.*} into the context's one {@link ModelQueryConfig}, hands
@@ -60,14 +69,16 @@ public class ModelQueryAutoConfiguration {
 
     /**
      * Swaps the repositories registered with the stock {@code JpaRepositoryFactoryBean} to
-     * {@link ModelQueryRepositoryFactoryBean}, keeping Boot's own repository registrar; a repository with a factory
-     * bean class of its own is left alone (R-SPR-02, D-50). Each swapped definition is copied and re-registered under
-     * its name rather than changed in place, so a repository another post-processor type-checked first, which left
-     * a merged definition and an early stock factory bean cached, is still built with the model-query factory bean
-     * (D-83). A {@code RootBeanDefinition} is cloned and keeps its target type, now over
-     * {@code ModelQueryRepositoryFactoryBean} with the old generics. A swapped definition moves to the end of the
-     * registration order, which changes the singleton creation order and the order of an injected
-     * {@code List<Repository>}.
+     * {@link ModelQueryRepositoryFactoryBean}, keeping Boot's own repository registrar (R-SPR-02, D-50). An exact
+     * {@code JpaRepositoryFactoryBean} is swapped; a {@link ModelQueryRepositoryFactoryBean} subclass is left alone;
+     * any other {@code JpaRepositoryFactoryBean} subclass whose repository extends {@link ModelQueryRepository} keeps
+     * its class and gets the fragment through {@code customImplementation}, re-registered as below (D-113). Each
+     * swapped definition is copied and re-registered under its name rather than changed in place, so a repository
+     * another post-processor type-checked first, which left a merged definition and an early stock factory bean
+     * cached, is still built with the model-query factory bean (D-83). A {@code RootBeanDefinition} is cloned and
+     * keeps its target type, now over {@code ModelQueryRepositoryFactoryBean} with the old generics. A swapped
+     * definition moves to the end of the registration order, which changes the singleton creation order and the order
+     * of an injected {@code List<Repository>}.
      */
     @Bean
     static BeanDefinitionRegistryPostProcessor modelQueryRepositoryFactoryBeanSwap() {
@@ -75,12 +86,32 @@ public class ModelQueryAutoConfiguration {
             @Override
             public void postProcessBeanDefinitionRegistry(BeanDefinitionRegistry registry) {
                 String stock = JpaRepositoryFactoryBean.class.getName();
+                ClassLoader classLoader = registry instanceof ConfigurableListableBeanFactory beanFactory
+                        ? beanFactory.getBeanClassLoader() : ClassUtils.getDefaultClassLoader();
                 for (String name : registry.getBeanDefinitionNames().clone()) {
                     BeanDefinition definition = registry.getBeanDefinition(name);
-                    if (stock.equals(definition.getBeanClassName())) {
+                    String beanClassName = definition.getBeanClassName();
+                    if (beanClassName == null) {
+                        continue;
+                    }
+                    if (stock.equals(beanClassName)) {
                         AbstractBeanDefinition swapped = copy(definition);
                         registry.removeBeanDefinition(name);
                         registry.registerBeanDefinition(name, swapped);
+                        continue;
+                    }
+                    // Only a repository definition can be a factory bean candidate: the registrar registers each as a
+                    // RootBeanDefinition carrying the target type, so no other bean's class is loaded here.
+                    if (!(definition instanceof RootBeanDefinition root) || root.getTargetType() == null) {
+                        continue;
+                    }
+                    Class<?> factoryBeanClass = load(beanClassName, classLoader);
+                    if (factoryBeanClass == null
+                            || !JpaRepositoryFactoryBean.class.isAssignableFrom(factoryBeanClass)) {
+                        continue;
+                    }
+                    if (!ModelQueryRepositoryFactoryBean.class.isAssignableFrom(factoryBeanClass)) {
+                        addFragment(registry, name, definition, classLoader);
                     }
                 }
             }
@@ -90,6 +121,90 @@ public class ModelQueryAutoConfiguration {
                 // Nothing to do: only the registry is changed.
             }
         };
+    }
+
+    /**
+     * A {@code JpaRepositoryFactoryBean} subclass of the application's own whose repository extends
+     * {@link ModelQueryRepository}: the starter keeps its class and re-registers a copy carrying a
+     * {@link ModelQueryRepositoryFragmentFactoryBean} as the definition's {@code customImplementation} (R-SPR-02,
+     * D-113). A definition that already sets {@code customImplementation} is refused with {@code MQ4008}.
+     */
+    private static void addFragment(BeanDefinitionRegistry registry, String name, BeanDefinition definition,
+            ClassLoader classLoader) {
+        Class<?> repositoryInterface = repositoryInterface(definition, classLoader);
+        if (repositoryInterface == null || !ModelQueryRepository.class.isAssignableFrom(repositoryInterface)) {
+            return;
+        }
+        if (definition.getPropertyValues().contains("customImplementation")) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4008, name + " (" + definition.getBeanClassName()
+                    + ") already sets customImplementation; the starter cannot add the ModelQueryRepository fragment "
+                    + "beside it, so leave the fragment to the repository's own implementation or extend "
+                    + "ModelQueryRepositoryFactoryBean");
+        }
+        String fragmentsBeanName = name + ".modelQueryFragment";
+        BeanDefinitionBuilder fragments = BeanDefinitionBuilder
+                .genericBeanDefinition(ModelQueryRepositoryFragmentFactoryBean.class);
+        fragments.addPropertyValue("repositoryInterface", repositoryInterface);
+        // The definition's entityManager, as Spring Data sets it from @EnableJpaRepositories(entityManagerFactoryRef
+        // = ...): the fragment's own @PersistenceContext would otherwise fall back to an unqualified one (R-SPR-02).
+        PropertyValue entityManager = definition.getPropertyValues().getPropertyValue("entityManager");
+        if (entityManager != null) {
+            fragments.addPropertyValue("entityManager", entityManager.getValue());
+        }
+        PropertyValue lazyInit = definition.getPropertyValues().getPropertyValue("lazyInit");
+        if (lazyInit != null) {
+            fragments.addPropertyValue("lazyInit", lazyInit.getValue());
+        }
+        PropertyValue transactionManager = definition.getPropertyValues().getPropertyValue("transactionManager");
+        if (transactionManager != null) {
+            fragments.addPropertyValue("transactionManager", transactionManager.getValue());
+        }
+        AbstractBeanDefinition fragmentsDefinition = (AbstractBeanDefinition) fragments.getBeanDefinition();
+        // Not autowired: a ModelQueryRepository<?> injection must resolve to the repository, not its fragment.
+        fragmentsDefinition.setAutowireCandidate(false);
+        fragmentsDefinition.setLazyInit(definition.isLazyInit());
+        registry.registerBeanDefinition(fragmentsBeanName, fragmentsDefinition);
+
+        AbstractBeanDefinition swapped = clone(definition);
+        swapped.getPropertyValues().add("customImplementation", new RuntimeBeanReference(fragmentsBeanName));
+        registry.removeBeanDefinition(name);
+        registry.registerBeanDefinition(name, swapped);
+    }
+
+    /**
+     * The repository interface the definition names, or {@code null} when it is not a repository definition: the
+     * registrar sets the definition's target type, resolving to the repository interface whenever the factory bean
+     * class fixes its type arguments, and its constructor argument 0 names the interface when it does not.
+     */
+    private static Class<?> repositoryInterface(BeanDefinition definition, ClassLoader classLoader) {
+        if (!(definition instanceof RootBeanDefinition root) || root.getTargetType() == null) {
+            return null;
+        }
+        Class<?> resolved = root.getResolvableType().as(RepositoryFactoryBeanSupport.class).resolveGeneric(0);
+        if (resolved != null) {
+            return resolved;
+        }
+        ConstructorArgumentValues.ValueHolder argument = root.getConstructorArgumentValues()
+                .getIndexedArgumentValue(0, Class.class);
+        Object value = argument == null ? null : argument.getValue();
+        if (value instanceof Class<?> type) {
+            return type;
+        }
+        return value instanceof TypedStringValue text ? load(text.getValue(), classLoader) : null;
+    }
+
+    private static Class<?> load(String className, ClassLoader classLoader) {
+        try {
+            return ClassUtils.forName(className, classLoader);
+        } catch (ClassNotFoundException | LinkageError e) {
+            return null;
+        }
+    }
+
+    /** A copy of {@code definition} under its own class, for the D-113 route, unlike {@link #copy}. */
+    private static AbstractBeanDefinition clone(BeanDefinition definition) {
+        return definition instanceof RootBeanDefinition root
+                ? root.cloneBeanDefinition() : new GenericBeanDefinition(definition);
     }
 
     private static AbstractBeanDefinition copy(BeanDefinition definition) {

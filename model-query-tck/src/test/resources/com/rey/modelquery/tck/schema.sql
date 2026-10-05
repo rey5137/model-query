@@ -105,4 +105,17 @@ CREATE TABLE formula_lines (
     id           BIGINT NOT NULL PRIMARY KEY,
     product_code VARCHAR(20) @COLLATE@ NOT NULL,
     quantity     INT NOT NULL
-)
+);
+-- Payment orders with four actors, each a (user_type, user_id) pair; the requestor pair is NULL when absent
+-- (TCK AC-FCH-14, D-114 item 8).
+CREATE TABLE payment_orders (
+    id                  BIGINT NOT NULL PRIMARY KEY,
+    payer_user_type     INT NOT NULL,
+    payer_user_id       BIGINT NOT NULL,
+    payee_user_type     INT NOT NULL,
+    payee_user_id       BIGINT NOT NULL,
+    initiator_user_type INT NOT NULL,
+    initiator_user_id   BIGINT NOT NULL,
+    requestor_user_type INT NULL,
+    requestor_user_id   BIGINT NULL
+);

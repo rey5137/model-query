@@ -1,25 +1,14 @@
 package com.rey.modelquery.spring.data;
 
 import com.rey.modelquery.annotations.Incubating;
-import com.rey.modelquery.core.ModelQueryConfigurationException;
-import com.rey.modelquery.core.MqCode;
-import com.rey.modelquery.jpa.ModelQueryConfig;
-import com.rey.modelquery.jpa.ModelQueryExecutor;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
-import java.util.Objects;
-import java.util.function.Supplier;
 import org.springframework.beans.factory.BeanFactory;
-import org.springframework.beans.factory.annotation.BeanFactoryAnnotationUtils;
-import org.springframework.core.ResolvableType;
 import org.springframework.data.jpa.repository.support.JpaRepositoryFactoryBean;
 import org.springframework.data.repository.Repository;
-import org.springframework.data.repository.core.support.AbstractRepositoryMetadata;
 import org.springframework.data.repository.core.support.RepositoryComposition.RepositoryFragments;
 import org.springframework.data.repository.core.support.RepositoryFragment;
 import org.springframework.data.repository.util.TxUtils;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.util.function.SingletonSupplier;
 
 /**
  * A {@link JpaRepositoryFactoryBean} that adds the {@link ModelQueryRepository} implementation to a repository
@@ -86,54 +75,20 @@ public class ModelQueryRepositoryFactoryBean<T extends Repository<S, ID>, S, ID>
     }
 
     @Override
+    @SuppressWarnings("unchecked")
     public void afterPropertiesSet() {
         // Without an EntityManager the superclass fails with its own message.
         if (entityManager != null && ModelQueryRepository.class.isAssignableFrom(repositoryInterface)) {
+            Class<Object> root = (Class<Object>) ModelQueryRepositoryFragmentFactoryBean.rootEntity(
+                    repositoryInterface);
             super.setRepositoryFragments(fragments.append(
-                    RepositoryFragment.implemented(ModelQueryRepository.class, fragment(rootEntity()))));
+                    RepositoryFragment.implemented(ModelQueryRepository.class, fragment(root))));
         }
         super.afterPropertiesSet();
     }
 
     private <E> ModelQueryRepositoryFragment<E> fragment(Class<E> rootEntity) {
-        ModelQueryConfig config = beanFactory.getBeanProvider(ModelQueryConfig.class)
-                .getIfAvailable(ModelQueryConfig::defaults);
-        ModelQueryConfigurer configurer = beanFactory.getBeanProvider(ModelQueryConfigurer.class).getIfAvailable();
-        if (configurer != null) {
-            config = Objects.requireNonNull(configurer.configure(config, entityManager.getEntityManagerFactory()),
-                    () -> "ModelQueryConfigurer " + configurer.getClass().getName() + " returned null for "
-                            + repositoryInterface.getName() + "; return the shared config to keep it");
-        }
-        ModelQueryConfig resolved = config;
-        String name = transactionManagerName;
-        Supplier<ModelQueryExecutor<E>> executor =
-                SingletonSupplier.of(() -> ModelQueryExecutor.create(entityManager, rootEntity, resolved));
-        if (!lazyInit) {
-            // Resolves the vendor now, as the repository itself is created now; a lazy repository (bootstrap mode
-            // LAZY or DEFERRED) leaves it to the first call, so its EntityManagerFactory is not waited on here.
-            executor.get();
-        }
-        return new ModelQueryRepositoryFragment<>(executor,
-                () -> BeanFactoryAnnotationUtils.qualifiedBeanOfType(beanFactory, PlatformTransactionManager.class,
-                        name));
-    }
-
-    /**
-     * The repository's domain type, which the {@code E} of {@code ModelQueryRepository<E>} must be, unless it is raw.
-     *
-     * @throws ModelQueryConfigurationException {@code MQ4007} when {@code E} is another type (R-SPR-12)
-     */
-    private Class<?> rootEntity() {
-        Class<?> domainType = AbstractRepositoryMetadata.getMetadata(repositoryInterface).getDomainType();
-        Class<?> declared = ResolvableType.forClass(repositoryInterface).as(ModelQueryRepository.class)
-                .resolveGeneric(0);
-        if (declared != null && declared != domainType) {
-            throw new ModelQueryConfigurationException(MqCode.MQ4007, repositoryInterface.getName()
-                    + " declares ModelQueryRepository<" + declared.getName() + "> on a repository of "
-                    + domainType.getName() + "; a repository queries its own domain type, so declare "
-                    + "ModelQueryRepository<" + domainType.getSimpleName() + "> or give the queries a repository of "
-                    + declared.getSimpleName());
-        }
-        return domainType;
+        return ModelQueryRepositoryFragmentFactoryBean.fragment(rootEntity, entityManager, beanFactory,
+                transactionManagerName, lazyInit);
     }
 }

@@ -16,7 +16,11 @@ markdown_extensions:
   - toc:
       permalink: true
   - pymdownx.highlight
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
 
 validation:
   nav:
@@ -31,6 +35,7 @@ validation:
 
 nav:
   - Home: index.md
+  - Architecture: architecture.md
   - Getting started:
       - Without Spring: getting-started/plain-jpa.md
       - With Spring Boot: getting-started/spring-boot.md

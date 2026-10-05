@@ -6,10 +6,29 @@ copied from a test that runs, named under the code.
 ## Keep your own repository factory bean
 
 The case in one line: an existing service that already sets its own `repositoryFactoryBeanClass` and
-`repositoryBaseClass`, so the starter leaves its repositories alone (R-SPR-02).
+`repositoryBaseClass`, so the starter has to add the fragment without replacing either (R-SPR-02, D-113).
 
-Extend `ModelQueryRepositoryFactoryBean` instead of `JpaRepositoryFactoryBean`; Spring requires the one-argument
-constructor:
+The starter keeps a plain `JpaRepositoryFactoryBean` subclass — its class, its override and your `repositoryBaseClass`
+— and re-registers the repository with the fragment as its `customImplementation`, but only where the repository
+extends `ModelQueryRepository`:
+
+```java
+public class PlainJpaRepositoryFactoryBean<T extends Repository<S, I>, S, I>
+        extends JpaRepositoryFactoryBean<T, S, I> {
+    public PlainJpaRepositoryFactoryBean(Class<? extends T> repositoryInterface) {
+        super(repositoryInterface);
+    }
+    // your own override, and a custom repositoryBaseClass, keep working
+}
+```
+
+```java
+@EnableJpaRepositories(repositoryFactoryBeanClass = PlainJpaRepositoryFactoryBean.class,
+        repositoryBaseClass = RefreshingJpaRepository.class)
+```
+
+If instead you can change the class, extending `ModelQueryRepositoryFactoryBean` is the simplest route; Spring
+requires the one-argument constructor:
 
 ```java
 public class CustomJpaRepositoryFactoryBean<T extends Repository<S, I>, S, I>
@@ -20,18 +39,19 @@ public class CustomJpaRepositoryFactoryBean<T extends Repository<S, I>, S, I>
 }
 ```
 
-Set it as before, next to your own base class:
-
 ```java
 @EnableJpaRepositories(repositoryFactoryBeanClass = CustomJpaRepositoryFactoryBean.class,
         repositoryBaseClass = RefreshingJpaRepository.class)
 ```
 
-The subclass adds the fragment only to the repositories that extend `ModelQueryRepository`, and your
-`repositoryBaseClass` keeps working for all of them. Because it is added per repository, migrate one at a time: add
-`ModelQueryRepository<MyEntity>` to one interface and leave the rest for later.
+Either way the fragment is added only to the repositories that extend `ModelQueryRepository`, and your
+`repositoryBaseClass` keeps working for all of them, so migrate one at a time: add `ModelQueryRepository<MyEntity>` to
+one interface and leave the rest for later. A definition that already sets `customImplementation` fails with `MQ4008`:
+the starter cannot compose the fragment beside it, so leave that implementation to provide the fragment methods or
+extend `ModelQueryRepositoryFactoryBean`; a repository whose `ModelQueryRepository<E>` names another entity than its
+own domain type fails with `MQ4007`.
 
-Tested by `CustomFactoryBeanTest`.
+Tested by `CustomFactoryBeanTest` and `PlainFactoryBeanTest`.
 
 ## Filter by a sub-query
 
@@ -243,8 +263,119 @@ FetchPlan<OrderLines> orders = FetchPlan.of(QOrderLines.ALL)
         .child(QOrderLines.ITEMS, FetchPlan.of(SelectSet.of(QLine.ID, QLine.QUANTITY)).enrich(PROFILE_ENRICHER));
 ```
 
-Very large key sets will be chunked in a later release (M9.12); until then the lookup receives all of a page's
-distinct keys in one call. Tested by `EnricherTest`.
+Tested by `EnricherTest`.
+
+### A row with several keys: a payment order's actors
+
+The case in one line: a row carries more than one look-up key — a payment order's payer, payee, initiator and optional
+requestor, each a `(userType, userId)` pair — and each key fills its own field from one lookup.
+
+The key is a record of the columns the plan selects, and `byKeys` takes one `key(...)` per field, all on the same
+lookup, whose values share a type:
+
+```java
+record ActorKey(int userType, long userId) {}
+
+Enricher<PaymentOrderView> actors = Enricher.<PaymentOrderView, ActorKey, String>byKeys(
+                profiles::find)                                          // one call per run: Map<ActorKey, String>
+        .key(PaymentOrderView::payerKey, PaymentOrderView::withPayer)
+        .key(PaymentOrderView::payeeKey, PaymentOrderView::withPayee)
+        .key(PaymentOrderView::initiatorKey, PaymentOrderView::withInitiator)
+        .key(PaymentOrderView::requestorKey, PaymentOrderView::withRequestor)  // null when absent: skipped
+        .reading(QPaymentOrderView.PAYER_USER_TYPE, QPaymentOrderView.PAYER_USER_ID,
+                QPaymentOrderView.PAYEE_USER_TYPE, QPaymentOrderView.PAYEE_USER_ID,
+                QPaymentOrderView.INITIATOR_USER_TYPE, QPaymentOrderView.INITIATOR_USER_ID,
+                QPaymentOrderView.REQUESTOR_USER_TYPE, QPaymentOrderView.REQUESTOR_USER_ID);
+```
+
+The plan selects the eight declared columns even though the model's own selection does not. A user in two roles of one
+row, or in two rows, is looked up once, and the value is passed to every role's setter. `batchSize(n)` splits the
+distinct keys into consecutive chunks of at most `n`, one lookup call per chunk. Tested by `ByKeysEnricherTest`.
+
+### A lookup that splits its own keys
+
+The case in one line: the profiles live in one source per user type, so the lookup partitions each chunk by the type.
+The library never partitions (R-FCH-16); because each chunk reaches the lookup once, each source is called at most
+once per chunk:
+
+```java
+Map<ActorKey, String> find(Set<ActorKey> keys) {
+    var grouped = new LinkedHashMap<Integer, Set<Long>>();
+    for (ActorKey key : keys) {
+        grouped.computeIfAbsent(key.userType(), type -> new LinkedHashSet<>()).add(key.userId());
+    }
+    var found = new LinkedHashMap<ActorKey, String>();
+    grouped.forEach((type, ids) -> {
+        Map<Long, String> source = byType.getOrDefault(type, Map.of());
+        for (long id : ids) {
+            String profile = source.get(id);
+            if (profile != null) {
+                found.put(new ActorKey(type, id), profile);
+            }
+        }
+    });
+    return found;
+}
+```
+
+Set `batchSize(...)` to the smallest source's limit, so no source ever receives more keys than it accepts. Tested by
+`ByKeysEnricherTest`.
+
+### A cache shared with a child's enricher
+
+The case in one line: the child's enricher loads a user, and the outer enricher must not load the same user again.
+Per-call state belongs in the caller's code, captured when the plan is built (R-FCH-17). The lookup loads only the
+keys no one has loaded yet, into a cache both enrichers read:
+
+```java
+Function<Set<ActorKey>, Map<ActorKey, String>> cached(SplitProfiles profiles,
+        Map<ActorKey, String> cache, List<List<ActorKey>> loads) {
+    return keys -> {
+        List<ActorKey> missing = keys.stream().filter(key -> !cache.containsKey(key)).toList();
+        if (!missing.isEmpty()) {
+            loads.add(missing);                                      // the test's bookkeeping; drop it in your own code
+            cache.putAll(profiles.find(new LinkedHashSet<>(missing)));
+        }
+        var found = new LinkedHashMap<ActorKey, String>();
+        for (ActorKey key : keys) {
+            if (cache.containsKey(key)) {
+                found.put(key, cache.get(key));
+            }
+        }
+        return found;
+    };
+}
+
+var cache = new HashMap<ActorKey, String>();                     // per call, the caller's memory
+var childLoads = new ArrayList<List<ActorKey>>();
+var orderLoads = new ArrayList<List<ActorKey>>();
+
+FetchPlan<Line> items = FetchPlan.of(SelectSet.of(QLine.ID, QLine.QUANTITY))
+        .enrich(Enricher.<Line, ActorKey, String>byKeys(cached(profiles, cache, childLoads))
+                .key(line -> new ActorKey(requestedUserType, line.id()), Line::withProfile).reading(QLine.ID));
+FetchPlan<OrderLines> order = FetchPlan.of(SelectSet.of(QOrderLines.ID))
+        .child(QOrderLines.ITEMS, items)
+        .enrich(Enricher.<OrderLines, ActorKey, String>byKeys(cached(profiles, cache, orderLoads))
+                .key(o -> new ActorKey(requestedUserType, o.id()), OrderLines::withProfile)
+                .reading(QOrderLines.ID));
+```
+
+A child plan runs whole before the outer plan's enrichers, so the outer enricher finds what the child loaded. Tested
+by `ByKeysEnricherTest`.
+
+### Request-time parameters
+
+The case in one line: the plan depends on the call — a requested user type, a chosen column set, a cursor — so build
+it per call and apply it with `withFetch`, which returns a copy of the query and runs no statement of its own
+(R-FCH-13):
+
+```java
+int requestedUserType = 1;                                    // captured when the plan is built
+ModelQuery<OrderEntity, Long, OrderLines> perCall = base.withFetch(order);
+```
+
+Such a plan holds caller state and must not be shared across calls; a cache it captures spans export batches and is
+the caller's memory (R-FCH-17, INV-9). Tested by `ByKeysEnricherTest`.
 
 ## Keyset paging with a String or embedded key
 

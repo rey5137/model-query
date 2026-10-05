@@ -170,6 +170,12 @@ public enum MqCode {
     /** A join plan selects an aggregate, which cannot be re-rooted under the join (R-FCH-07). */
     MQ1705("A join plan selects an aggregate, which cannot be re-rooted under its join"),
 
+    /** {@code Enricher.byKeys(...).reading(...)} with no {@code key(...)} (R-FCH-15, D-114). */
+    MQ1706("Enricher.byKeys(...).reading(...) with no key(...)"),
+
+    /** {@code Enricher.Keys.batchSize(n)} with {@code n} below 1 (R-FCH-15). */
+    MQ1707("Enricher.Keys.batchSize(n) with n below 1"),
+
     /** A page size or {@code maxPerParent} that is not positive, or a limit that is negative (R-EXE-06, R-FCH-11). */
     MQ2001("A page or chunk size and maxPerParent must be positive, and a limit must not be negative"),
 
@@ -237,6 +243,9 @@ public enum MqCode {
     /** {@code stream} with a fetch plan that has a child, a join plan or an enricher (R-FCH-09). */
     MQ2605("stream cannot run a fetch plan with a child, join plan or enricher"),
 
+    /** An {@code Enricher.byKey} or {@code byKeys} lookup returned {@code null} (R-FCH-08, R-FCH-15). */
+    MQ2606("An Enricher.byKey or byKeys lookup returned null"),
+
     /** {@code modelquery.vendor} names an unknown vendor (R-VND-04). */
     MQ4001("modelquery.vendor names an unknown vendor"),
 
@@ -264,7 +273,14 @@ public enum MqCode {
     /**
      * A repository declares {@code ModelQueryRepository} for an entity other than its own domain type (R-SPR-12).
      */
-    MQ4007("A repository's ModelQueryRepository entity is not the repository's domain type");
+    MQ4007("A repository's ModelQueryRepository entity is not the repository's domain type"),
+
+    /**
+     * The starter cannot add the repository fragment because the factory bean definition already sets
+     * {@code customImplementation} (R-SPR-02, D-113).
+     */
+    MQ4008("The starter cannot add the repository fragment because the factory bean definition already sets "
+            + "customImplementation");
 
     private final String defaultMessage;
 

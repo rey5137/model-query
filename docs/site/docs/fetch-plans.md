@@ -336,6 +336,42 @@ Enricher<Line> profileEnricher = Enricher.byKey(
         QLine.ID, QLine.QUANTITY);
 ```
 
+### Several keys on one model
+
+A model with more than one look-up key uses `byKeys`: one `key(...)` per field, all on the same lookup, whose values
+must share a type. `byKey` is its one-key case.
+
+```java
+record ActorKey(int userType, long userId) {}
+
+Enricher<PaymentOrderView> actors = Enricher.<PaymentOrderView, ActorKey, String>byKeys(
+                profiles::find)                                          // one call per run: Map<ActorKey, String>
+        .key(PaymentOrderView::payerKey, PaymentOrderView::withPayer)
+        .key(PaymentOrderView::payeeKey, PaymentOrderView::withPayee)
+        .key(PaymentOrderView::initiatorKey, PaymentOrderView::withInitiator)
+        .key(PaymentOrderView::requestorKey, PaymentOrderView::withRequestor)   // null when absent: skipped
+        .reading(QPaymentOrderView.PAYER_USER_TYPE, QPaymentOrderView.PAYER_USER_ID,
+                QPaymentOrderView.PAYEE_USER_TYPE, QPaymentOrderView.PAYEE_USER_ID,
+                QPaymentOrderView.INITIATOR_USER_TYPE, QPaymentOrderView.INITIATOR_USER_ID,
+                QPaymentOrderView.REQUESTOR_USER_TYPE, QPaymentOrderView.REQUESTOR_USER_ID);
+```
+
+- For each model in page order and each key in declaration order, a `null` key is skipped and never looked up, so an
+  absent requestor costs nothing.
+- The distinct non-null keys across models and keys go to one lookup call per run — a page, or an export batch — as
+  an unmodifiable set in first-seen order. A user in two roles, or in two models, is looked up once and its value is
+  passed to every role's setter.
+- `batchSize(n)` splits that set into consecutive chunks of at most `n` keys, in the same order, one call per chunk, on
+  the calling thread. Each chunk is handed to the lookup once, so a lookup that itself splits its keys by a key part
+  (one datasource per user type, say) calls each source at most once per chunk.
+- An absent key, or a `null` map value, leaves the model as is. Size and order cannot change.
+- `reading(...)` with no `key(...)` fails with `MQ1706`, and `batchSize(0)` with `MQ1707`, both at definition; a lookup
+  returning `null` fails with `MQ2606`.
+
+Because Java cannot infer `M` through a builder chain of implicit lambdas, `byKeys` takes the explicit type witnesses
+shown above. A plan built per call captures request-time state — a parameter, a cache shared with a child's
+enricher — through `withFetch(...)` (see the recipes).
+
 ### The order a plan runs in
 
 Within a plan, children and joins run first, then its enrichers in the order added. A nested plan, under a join or a

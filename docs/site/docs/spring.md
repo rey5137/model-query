@@ -30,15 +30,25 @@ fails at startup with `MQ4007`.
 A repository extending `ModelQueryRepository` without the starter's factory bean fails at startup, like any
 repository with an unimplemented method. The starter swaps in its factory bean for every repository registered with
 Spring Data's `JpaRepositoryFactoryBean`, including Boot's own and any `@EnableJpaRepositories` that names no factory
-bean class. A repository with a factory bean class of its own is left alone.
+bean class.
 
 ## A custom repository factory bean
 
-An application that sets its own `repositoryFactoryBeanClass` — usually to add a custom `repositoryBaseClass` — gets
-no model-query fragment on its repositories: the starter swaps only the stock `JpaRepositoryFactoryBean`, and the
-application's factory bean knows nothing about the fragment (R-SPR-02). Startup then fails on an unimplemented method.
+An application that sets its own `repositoryFactoryBeanClass` — usually to add a custom `repositoryBaseClass` — keeps
+that class, and the starter adds the fragment to it per repository (R-SPR-02, D-113). Three cases:
 
-Keep your own factory bean class, but extend `ModelQueryRepositoryFactoryBean` instead of `JpaRepositoryFactoryBean`.
+- **The stock `JpaRepositoryFactoryBean`** is swapped for `ModelQueryRepositoryFactoryBean`, as above.
+- **Your own `JpaRepositoryFactoryBean` subclass** whose repository extends `ModelQueryRepository` keeps its class,
+  its override and its `repositoryBaseClass`; the starter re-registers the definition with a
+  `ModelQueryRepositoryFragmentFactoryBean` as its `customImplementation`, so the fragment is composed in beside
+  everything the class already builds. A repository that does not extend `ModelQueryRepository` is left untouched.
+- **A `ModelQueryRepositoryFactoryBean` subclass** is left alone: it adds the fragment itself.
+
+A definition that already sets `customImplementation` fails with `MQ4008`: the starter cannot compose the fragment
+beside it, so leave the fragment to that implementation, or extend `ModelQueryRepositoryFactoryBean`. A repository
+that declares `ModelQueryRepository` for an entity other than its own domain type fails with `MQ4007`.
+
+Extending `ModelQueryRepositoryFactoryBean` rather than `JpaRepositoryFactoryBean` is still the simplest route, and
 Spring requires the one-argument constructor:
 
 ```java
