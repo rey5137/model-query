@@ -17,7 +17,8 @@ import java.util.function.UnaryOperator;
  * {@code MQ1301}, because "no filter" must be explicit (P-3). The {@code Optional} form skips the filter when the
  * value is empty, and a skipped filter joins nothing (R-FLT-03). Every value is a bind parameter (R-FLT-08).
  *
- * <p>Only {@link ColumnField}s are accepted, so an aggregate in {@code where} does not compile (R-COL-06).
+ * <p>Only {@link ScalarField}s (a {@link ColumnField} or an {@link ExpressionField}) are accepted, so an aggregate in
+ * {@code where} does not compile (R-COL-06).
  *
  * @param <M> the model the query maps to
  * <p>A nested {@code Filters} (an {@code or} branch, a {@code not}, {@code when} or {@code apply} group, an
@@ -30,57 +31,57 @@ import java.util.function.UnaryOperator;
 public sealed interface Filters<M> permits FilterGroup {
 
     /** {@code column = value}. */
-    <C> Filters<M> eq(ColumnField<M, ?, C> column, C value);
+    <C> Filters<M> eq(ScalarField<M, C> column, C value);
 
     /** {@code column = value}, skipped when {@code value} is empty. */
-    <C> Filters<M> eq(ColumnField<M, ?, C> column, Optional<? extends C> value);
+    <C> Filters<M> eq(ScalarField<M, C> column, Optional<? extends C> value);
 
     /** {@code column <> value OR column IS NULL}: NULL rows match (R-FLT-04). Add {@link #isNotNull} to drop them. */
-    <C> Filters<M> ne(ColumnField<M, ?, C> column, C value);
+    <C> Filters<M> ne(ScalarField<M, C> column, C value);
 
-    /** {@link #ne(ColumnField, Object)}, skipped when {@code value} is empty. */
-    <C> Filters<M> ne(ColumnField<M, ?, C> column, Optional<? extends C> value);
+    /** {@link #ne(ScalarField, Object)}, skipped when {@code value} is empty. */
+    <C> Filters<M> ne(ScalarField<M, C> column, Optional<? extends C> value);
 
     /** {@code column > value}. */
-    <C extends Comparable<? super C>> Filters<M> gt(ColumnField<M, ?, C> column, C value);
+    <C extends Comparable<? super C>> Filters<M> gt(ScalarField<M, C> column, C value);
 
     /** {@code column > value}, skipped when {@code value} is empty. */
-    <C extends Comparable<? super C>> Filters<M> gt(ColumnField<M, ?, C> column, Optional<? extends C> value);
+    <C extends Comparable<? super C>> Filters<M> gt(ScalarField<M, C> column, Optional<? extends C> value);
 
     /** {@code column >= value}. */
-    <C extends Comparable<? super C>> Filters<M> gte(ColumnField<M, ?, C> column, C value);
+    <C extends Comparable<? super C>> Filters<M> gte(ScalarField<M, C> column, C value);
 
     /** {@code column >= value}, skipped when {@code value} is empty. */
-    <C extends Comparable<? super C>> Filters<M> gte(ColumnField<M, ?, C> column, Optional<? extends C> value);
+    <C extends Comparable<? super C>> Filters<M> gte(ScalarField<M, C> column, Optional<? extends C> value);
 
     /** {@code column < value}. */
-    <C extends Comparable<? super C>> Filters<M> lt(ColumnField<M, ?, C> column, C value);
+    <C extends Comparable<? super C>> Filters<M> lt(ScalarField<M, C> column, C value);
 
     /** {@code column < value}, skipped when {@code value} is empty. */
-    <C extends Comparable<? super C>> Filters<M> lt(ColumnField<M, ?, C> column, Optional<? extends C> value);
+    <C extends Comparable<? super C>> Filters<M> lt(ScalarField<M, C> column, Optional<? extends C> value);
 
     /** {@code column <= value}. */
-    <C extends Comparable<? super C>> Filters<M> lte(ColumnField<M, ?, C> column, C value);
+    <C extends Comparable<? super C>> Filters<M> lte(ScalarField<M, C> column, C value);
 
     /** {@code column <= value}, skipped when {@code value} is empty. */
-    <C extends Comparable<? super C>> Filters<M> lte(ColumnField<M, ?, C> column, Optional<? extends C> value);
+    <C extends Comparable<? super C>> Filters<M> lte(ScalarField<M, C> column, Optional<? extends C> value);
 
     /**
      * The half-open range {@code column >= fromInclusive AND column < toExclusive}. Each bound is skipped on its own
      * when empty; with both empty the filter is skipped.
      */
     <C extends Comparable<? super C>> Filters<M> range(
-            ColumnField<M, ?, C> column, Optional<? extends C> fromInclusive, Optional<? extends C> toExclusive);
+            ScalarField<M, C> column, Optional<? extends C> fromInclusive, Optional<? extends C> toExclusive);
 
     /** {@code column BETWEEN fromInclusive AND toInclusive}. */
-    <C extends Comparable<? super C>> Filters<M> between(ColumnField<M, ?, C> column, C fromInclusive, C toInclusive);
+    <C extends Comparable<? super C>> Filters<M> between(ScalarField<M, C> column, C fromInclusive, C toInclusive);
 
     /**
      * {@code column >= fromInclusive AND column <= toInclusive}. Each bound is skipped on its own when empty; with
      * both empty the filter is skipped.
      */
     <C extends Comparable<? super C>> Filters<M> between(
-            ColumnField<M, ?, C> column, Optional<? extends C> fromInclusive, Optional<? extends C> toInclusive);
+            ScalarField<M, C> column, Optional<? extends C> fromInclusive, Optional<? extends C> toInclusive);
 
     /**
      * {@code column IN (values)}. An empty collection matches no row, because an empty selection means "none of
@@ -88,20 +89,20 @@ public sealed interface Filters<M> permits FilterGroup {
      * longer than the database's IN-list limit renders as an OR of {@code IN} chunks; one with more values than a
      * statement binds throws {@code MQ1306} when the query is built (R-FLT-09).
      */
-    <C> Filters<M> in(ColumnField<M, ?, C> column, Collection<? extends C> values);
+    <C> Filters<M> in(ScalarField<M, C> column, Collection<? extends C> values);
 
-    /** {@link #in(ColumnField, Collection)}, skipped when {@code values} is empty. */
-    <C> Filters<M> in(ColumnField<M, ?, C> column, Optional<? extends Collection<? extends C>> values);
+    /** {@link #in(ScalarField, Collection)}, skipped when {@code values} is empty. */
+    <C> Filters<M> in(ScalarField<M, C> column, Optional<? extends Collection<? extends C>> values);
 
     /**
      * {@code column NOT IN (values) OR column IS NULL}: NULL rows match (R-FLT-04). An empty collection matches every
      * row (R-FLT-02). A {@code null} element throws {@code MQ1301}. A long list renders as an AND of {@code NOT IN}
      * chunks, still ORed with {@code IS NULL}, and throws {@code MQ1306} as {@code in} does (R-FLT-09).
      */
-    <C> Filters<M> notIn(ColumnField<M, ?, C> column, Collection<? extends C> values);
+    <C> Filters<M> notIn(ScalarField<M, C> column, Collection<? extends C> values);
 
-    /** {@link #notIn(ColumnField, Collection)}, skipped when {@code values} is empty. */
-    <C> Filters<M> notIn(ColumnField<M, ?, C> column, Optional<? extends Collection<? extends C>> values);
+    /** {@link #notIn(ScalarField, Collection)}, skipped when {@code values} is empty. */
+    <C> Filters<M> notIn(ScalarField<M, C> column, Optional<? extends Collection<? extends C>> values);
 
     /**
      * {@code column IN (SELECT s.c FROM ... WHERE ...)} over a {@link SubSelect} (R-FLT-15, R-FLT-16). The sub-select
@@ -111,7 +112,7 @@ public sealed interface Filters<M> permits FilterGroup {
      *
      * @throws ModelQueryDefinitionException {@code MQ1312} for an embeddable-valued column on either side
      */
-    <C> Filters<M> in(ColumnField<M, ?, C> column, SubSelect<?, C> values);
+    <C> Filters<M> in(ScalarField<M, C> column, SubSelect<?, C> values);
 
     /**
      * {@code (column NOT IN (SELECT s.c FROM ... WHERE ... AND s.c IS NOT NULL) OR column IS NULL)} over a
@@ -120,7 +121,7 @@ public sealed interface Filters<M> permits FilterGroup {
      *
      * @throws ModelQueryDefinitionException {@code MQ1312} for an embeddable-valued column on either side
      */
-    <C> Filters<M> notIn(ColumnField<M, ?, C> column, SubSelect<?, C> values);
+    <C> Filters<M> notIn(ScalarField<M, C> column, SubSelect<?, C> values);
 
     /**
      * {@code EXISTS (SELECT 1 FROM <sub's root> s WHERE <sub's filters> AND <correlation>)} over a {@link SubSelect}
@@ -138,43 +139,43 @@ public sealed interface Filters<M> permits FilterGroup {
     <S> Filters<M> notExists(SubSelect<S, ?> rows, BiFunction<Filters<S>, Outer<M, S>, Filters<S>> correlation);
 
     /** {@code column LIKE pattern ESCAPE '\'}, the pattern built from {@code value} by {@code mode} (R-FLT-06). */
-    Filters<M> like(ColumnField<M, ?, String> column, String value, LikeMode mode);
+    Filters<M> like(ScalarField<M, String> column, String value, LikeMode mode);
 
-    /** {@link #like(ColumnField, String, LikeMode)}, skipped when {@code value} is empty. */
-    Filters<M> like(ColumnField<M, ?, String> column, Optional<String> value, LikeMode mode);
+    /** {@link #like(ScalarField, String, LikeMode)}, skipped when {@code value} is empty. */
+    Filters<M> like(ScalarField<M, String> column, Optional<String> value, LikeMode mode);
 
     /**
      * {@code lower(column) LIKE pattern}, the pattern lower-cased with {@code Locale.ROOT} (R-FLT-07). Fast only with a
      * functional index on {@code lower(column)}; plain {@code like} follows the column's collation instead.
      */
-    Filters<M> likeIgnoreCase(ColumnField<M, ?, String> column, String value, LikeMode mode);
+    Filters<M> likeIgnoreCase(ScalarField<M, String> column, String value, LikeMode mode);
 
-    /** {@link #likeIgnoreCase(ColumnField, String, LikeMode)}, skipped when {@code value} is empty. */
-    Filters<M> likeIgnoreCase(ColumnField<M, ?, String> column, Optional<String> value, LikeMode mode);
+    /** {@link #likeIgnoreCase(ScalarField, String, LikeMode)}, skipped when {@code value} is empty. */
+    Filters<M> likeIgnoreCase(ScalarField<M, String> column, Optional<String> value, LikeMode mode);
 
     /** {@code lower(column) = value}, the value lower-cased with {@code Locale.ROOT}. */
-    Filters<M> eqIgnoreCase(ColumnField<M, ?, String> column, String value);
+    Filters<M> eqIgnoreCase(ScalarField<M, String> column, String value);
 
-    /** {@link #eqIgnoreCase(ColumnField, String)}, skipped when {@code value} is empty. */
-    Filters<M> eqIgnoreCase(ColumnField<M, ?, String> column, Optional<String> value);
+    /** {@link #eqIgnoreCase(ScalarField, String)}, skipped when {@code value} is empty. */
+    Filters<M> eqIgnoreCase(ScalarField<M, String> column, Optional<String> value);
 
     /** {@code column IS NULL}. */
-    Filters<M> isNull(ColumnField<M, ?, ?> column);
+    Filters<M> isNull(ScalarField<M, ?> column);
 
     /** {@code column IS NOT NULL}. */
-    Filters<M> isNotNull(ColumnField<M, ?, ?> column);
+    Filters<M> isNotNull(ScalarField<M, ?> column);
 
     /**
-     * A tri-state request flag: {@code true} is {@link #isNull(ColumnField)}, {@code false} is
-     * {@link #isNotNull(ColumnField)}, empty skips the filter.
+     * A tri-state request flag: {@code true} is {@link #isNull(ScalarField)}, {@code false} is
+     * {@link #isNotNull(ScalarField)}, empty skips the filter.
      */
-    Filters<M> isNull(ColumnField<M, ?, ?> column, Optional<Boolean> isNull);
+    Filters<M> isNull(ScalarField<M, ?> column, Optional<Boolean> isNull);
 
     /**
      * {@code left op right}, column against column. This is plain SQL comparison: a row where either side is NULL
      * never matches, {@link Op#NE} included.
      */
-    <C> Filters<M> compare(ColumnField<M, ?, C> left, Op op, ColumnField<M, ?, C> right);
+    <C> Filters<M> compare(ScalarField<M, C> left, Op op, ScalarField<M, C> right);
 
     /**
      * {@code (branch1) OR (branch2) ...}, each branch an AND group. A branch whose filters were all skipped is dropped,
@@ -239,7 +240,7 @@ public sealed interface Filters<M> permits FilterGroup {
     /**
      * The escape hatch: a predicate built by {@code custom}, ANDed like any other filter. It runs once per query
      * build with that build's {@link JoinContext} and {@code CriteriaBuilder} (D-24), so resolve joins through
-     * {@link TableField#resolve} or {@link ColumnField#path} with that context to share the query's joins; inside
+     * {@link TableField#resolve} or {@link ScalarField#expression} with that context to share the query's joins; inside
      * {@link #or} or {@link #not} they resolve as there (R-FLT-10), and inside {@link #exists} the context is the
      * sub-query's. Values should be bind parameters, never concatenated into SQL (R-FLT-08).
      *

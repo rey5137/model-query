@@ -30,6 +30,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.Condition;
+import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.Filters;
 import com.rey.modelquery.core.LikeMode;
 import com.rey.modelquery.core.Limit;
@@ -43,11 +45,17 @@ import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import jakarta.persistence.criteria.JoinType;
 import java.lang.reflect.Proxy;
+import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.ServiceLoader;
+import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.jupiter.api.Test;
 
 /** The assertions and matchers over a hand-built model, with no persistence provider (api/16, R-INS-06/07). */
@@ -275,5 +283,55 @@ class QueryAssertTest {
         assertThatQuery(q).containsFilter(exists(ITEMS, gt(QTY, 3)));
         assertThatThrownBy(() -> assertThatQuery(q).containsFilter(exists(NESTED_ITEMS, gt(QTY, 3))))
                 .isInstanceOf(AssertionError.class);
+    }
+
+    @Test
+    void ac_ins_09_a_filter_over_an_expression_records_it_and_shows_values_as_a_question_mark() {
+        List<String> log = new ArrayList<>();
+        var q = debugLog(log, () -> query(f -> f.eq(Expr.plus(TOTAL, 1), 5)));
+
+        // The condition records the operator's kind with the expression as its column(), not a new kind.
+        Condition condition = q.conditions().where().get(0);
+        assertThat(condition.kind()).isEqualTo(Condition.Kind.EQ);
+        assertThat(condition.column()).contains(Expr.plus(TOTAL, 1));
+        // toString and the build log print the expression's structure, its own values as '?'.
+        assertThat(q.conditions()).hasToString("where [EQ((total + ?), ?)], having []");
+        assertThat(log).singleElement().asString().contains("EQ((total + ?), ?)");
+
+        // An eq matcher built from an equal Expr call matches; a structurally different expression prints the tree.
+        assertThatQuery(q).containsFilter(eq(Expr.plus(TOTAL, 1), 5));
+        assertThatThrownBy(() -> assertThatQuery(q).containsFilter(eq(Expr.minus(TOTAL, 1), 5)))
+                .isInstanceOf(AssertionError.class)
+                .hasMessageContaining("EQ((total - ?), 5)")
+                .hasMessageContaining("EQ((total + ?), 5)");
+    }
+
+    /** Captures {@link ModelQuery}'s build log while {@code work} builds a query, as core's inspection test does. */
+    private static <T> T debugLog(List<String> into, Supplier<T> work) {
+        Logger logger = Logger.getLogger(ModelQuery.class.getName());
+        Handler handler = new Handler() {
+            @Override
+            public void publish(LogRecord r) {
+                if (r.getLevel() == Level.FINE) {
+                    into.add(r.getParameters() == null ? r.getMessage()
+                            : MessageFormat.format(r.getMessage(), r.getParameters()));
+                }
+            }
+
+            @Override
+            public void flush() {}
+
+            @Override
+            public void close() {}
+        };
+        Level before = logger.getLevel();
+        logger.setLevel(Level.ALL);
+        logger.addHandler(handler);
+        try {
+            return work.get();
+        } finally {
+            logger.removeHandler(handler);
+            logger.setLevel(before);
+        }
     }
 }

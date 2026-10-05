@@ -54,7 +54,7 @@ class FiltersTest {
             ColumnField.of(O.class, ORDERS, "status", String.class);
     private static final ColumnField<O, OrderEntity, OrderStatus> STATUS_CODE =
             ColumnField.of(O.class, ORDERS, "statusCode", OrderStatus.class);
-    private static final ColumnField<O, OrderEntity, BigDecimal> TOTAL =
+    static final ColumnField<O, OrderEntity, BigDecimal> TOTAL =
             ColumnField.of(O.class, ORDERS, "total", BigDecimal.class);
     private static final ColumnField<O, OrderEntity, LocalDateTime> PLACED_AT =
             ColumnField.of(O.class, ORDERS, "placedAt", LocalDateTime.class);
@@ -315,7 +315,7 @@ class FiltersTest {
         }
     }
 
-    private static <E, V> void check(EntityManager em, ModelQuery.Builder<E, Object, V> base, Function<V, Long> id,
+    static <E, V> void check(EntityManager em, ModelQuery.Builder<E, Object, V> base, Function<V, Long> id,
             List<Case<V>> cases) {
         List<V> all = run(em, base);
         List<Long> allIds = all.stream().map(id).toList();
@@ -499,7 +499,7 @@ class FiltersTest {
         assertThat(results.get(2)).isEqualTo(results.get(0));
     }
 
-    private static <V> List<V> run(EntityManager em, ModelQuery.Builder<?, ?, V> query) {
+    static <V> List<V> run(EntityManager em, ModelQuery.Builder<?, ?, V> query) {
         return run(em, query.build());
     }
 

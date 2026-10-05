@@ -28,6 +28,7 @@ import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.core.Row;
+import com.rey.modelquery.core.ScalarField;
 import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.Slice;
@@ -422,16 +423,20 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         boolean before = keyset.direction() == KeysetSpec.Direction.BEFORE;
         // before reads the same rows from the other side, in flipped order, and reverses them below (R-PAG-20).
         Keyset<M> readKeyset = before ? forward.reversed() : forward;
+        Keyset.Beyond after = null;
         if (cursor != null) {
             // The cursor predicate joins the query's own restriction.
-            Predicate after = readKeyset.after(cursor, built.joins(), cb);
+            after = readKeyset.after(cursor, built.joins(), cb);
             Predicate own = built.query().getRestriction();
-            built.query().where(own == null ? after : cb.and(own, after));
+            built.query().where(own == null ? after.predicate() : cb.and(own, after.predicate()));
         }
         readKeyset.applyOrder(built, cb);
         int size = keyset.size();
         // One row beyond the page tells whether another follows (R-PAG-21); size + 1 fits an int (KeysetSpec).
         TypedQuery<Tuple> query = create(q, em, built.query(), readKeyset, cursor);
+        if (after != null) {
+            after.bindTo(query);
+        }
         query.setMaxResults(size + 1);
         List<Tuple> rows = rows(q, query);
         // The null rule is read on every row, the look-ahead included (R-PAG-05, R-PAG-22).
@@ -1039,14 +1044,18 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Object[] cursor = null;
         Set<Object> previousKeys = Set.of();
         while (passed < limit) {
+            Keyset.Beyond after = null;
             if (cursor != null) {
                 built = q.buildQuery(cb, Phase.MODEL, renderOptions);
-                Predicate after = keyset.after(cursor, built.joins(), cb);
+                after = keyset.after(cursor, built.joins(), cb);
                 Predicate own = built.query().getRestriction();
-                built.query().where(own == null ? after : cb.and(own, after));
+                built.query().where(own == null ? after.predicate() : cb.and(own, after.predicate()));
             }
             keyset.appendOrder(built, cb);
             TypedQuery<Tuple> query = create(q, em, built.query(), keyset, cursor);
+            if (after != null) {
+                after.bindTo(query);
+            }
             query.setMaxResults(pageSize);
             List<Tuple> rows = rows(q, query);
             Set<Object> keys = new HashSet<>();
@@ -1102,7 +1111,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * groups NULLs together, so a NULL is a value of the tuple like any other; a whole-table aggregate's is empty.
      */
     private static <M> Object groupKeyOf(ModelQuery<?, ?, M> q, Row row) {
-        List<ColumnField<M, ?, ?>> groupBy = q.groupBy();
+        List<ScalarField<M, ?>> groupBy = q.groupBy();
         Object[] values = new Object[groupBy.size()];
         for (int i = 0; i < values.length; i++) {
             values[i] = row.raw(groupBy.get(i));
@@ -1379,9 +1388,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         if (!q.groupBy().isEmpty()) {
             // The group keys identify a group, and selecting only them is what the count needs (R-EXE-05).
             List<Selection<?>> keys = new ArrayList<>();
-            for (ColumnField<M, ?, ?> key : q.groupBy()) {
+            for (ScalarField<M, ?> key : q.groupBy()) {
                 // Two keys over one attribute can resolve to one aliased path, which is selected once (R-COL-10).
-                Selection<?> path = key.path(built.joins());
+                Selection<?> path = key.expression(built.joins());
                 if (keys.stream().noneMatch(added -> added == path)) {
                     keys.add(path);
                 }

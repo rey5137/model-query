@@ -12,16 +12,21 @@ import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.OrderField;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
+import jakarta.persistence.Parameter;
+import jakarta.persistence.Query;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Order;
+import jakarta.persistence.criteria.ParameterExpression;
 import jakarta.persistence.criteria.Predicate;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -365,16 +370,31 @@ final class Keyset<M> {
     }
 
     /**
+     * The rows-after-a-cursor predicate, and the values its comparisons bind through a parameter. A comparison value
+     * the {@code CriteriaBuilder} value overloads do not take, such as the {@code byte[]} key of R-PAG-17, is compared
+     * as an expression bound through a parameter the executor sets, so it never reaches SQL as an inlined literal
+     * (R-FLT-08, AC-PAG-28). Empty for a cursor of value types alone.
+     */
+    record Beyond(Predicate predicate, Map<ParameterExpression<?>, Object> parameters) {
+
+        /** Sets this predicate's own parameter values, if any, on {@code query}. */
+        void bindTo(Query query) {
+            parameters.forEach((parameter, value) -> bind(query, parameter, value));
+        }
+    }
+
+    /**
      * The rows after {@code cursor}: an OR over the keys, each branch holding the earlier keys equal to the cursor's
      * and its own key beyond the cursor's value (R-PAG-06, vendor/41 §5). NULL branches follow R-PRF-09.
      */
-    Predicate after(Object[] cursor, JoinContext joins, CriteriaBuilder cb) {
+    Beyond after(Object[] cursor, JoinContext joins, CriteriaBuilder cb) {
         List<Predicate> branches = new ArrayList<>();
         List<Expression<?>> columns = new ArrayList<>();
+        Map<ParameterExpression<?>, Object> parameters = new LinkedHashMap<>();
         for (int i = 0; i < keys.size(); i++) {
             Key<M> key = keys.get(i);
             Expression<?> column = key.order().column().expression(joins);
-            Predicate beyond = beyond(key, column, cursor[i], cb);
+            Predicate beyond = beyond(key, column, cursor[i], cb, parameters);
             if (beyond != null) {
                 // Each branch builds its own equal predicates: one shared across branches renders a bind per branch
                 // but JPA reports it once, so the bind limit check would undercount (D-82).
@@ -387,7 +407,7 @@ final class Keyset<M> {
             }
             columns.add(column);
         }
-        return cb.or(branches.toArray(Predicate[]::new));
+        return new Beyond(cb.or(branches.toArray(Predicate[]::new)), parameters);
     }
 
     /**
@@ -422,14 +442,15 @@ final class Keyset<M> {
 
     /** The values of {@code key}'s column that sort after {@code value}, or {@code null} when none does. */
     @SuppressWarnings("rawtypes")
-    private static Predicate beyond(Key<?> key, Expression<?> column, Object value, CriteriaBuilder cb) {
+    private static Predicate beyond(Key<?> key, Expression<?> column, Object value, CriteriaBuilder cb,
+            Map<ParameterExpression<?>, Object> parameters) {
         NullPrecedence nulls = key.nulls();
         if (value == null) {
             // Only a known precedence reaches here (cursor() refuses the rest): under FIRST every value follows a
             // NULL, under LAST nothing does.
             return nulls == NullPrecedence.FIRST ? cb.isNotNull(column) : null;
         }
-        Predicate past = comparison(key.order().ascending(), column, value, cb);
+        Predicate past = comparison(key.order().ascending(), column, value, cb, parameters);
         // Under LAST every NULL follows every value. A column that refuses its NULLs keeps the branch whatever the
         // ordering, known or not: it makes sure a NULL is read, and so refused, wherever the database really sorts
         // it, instead of being skipped silently when the reported ordering is wrong (INV-5, D-30, D-35).
@@ -438,24 +459,32 @@ final class Keyset<M> {
     }
 
     /**
-     * {@code column} against {@code value} with {@code <} or {@code >}. A {@code byte[]} key (R-PAG-17) is carried
-     * although it is not {@code Comparable}, so its value goes through {@link CriteriaBuilder#literal} to the two-
-     * {@link Expression} overload, whose value is not bounded; the database compares it with the same operator. Every
-     * other value keeps the direct call, whose bound types the bind as the column does (a UUID column stored as text
-     * would otherwise be compared as {@code uuid}).
+     * Binds {@code parameter} to {@code value}. JPA's {@code setParameter(Parameter<T>, T)} cannot be called with a
+     * wildcard parameter and an {@code Object} value, so the parameter is raw: the value's runtime type is the
+     * parameter's declared type, which {@link #comparison} set from it.
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private static Predicate comparison(boolean ascending, Expression<?> column, Object value, CriteriaBuilder cb) {
-        if (value instanceof Comparable) {
-            return ascending ? cb.greaterThan(comparable(column), (Comparable) value)
-                    : cb.lessThan(comparable(column), (Comparable) value);
-        }
-        Expression literal = cb.literal(value);
-        return ascending ? cb.greaterThan((Expression) column, literal) : cb.lessThan((Expression) column, literal);
+    private static void bind(Query query, ParameterExpression<?> parameter, Object value) {
+        query.setParameter((Parameter) parameter, value);
     }
 
+    /**
+     * {@code column} against {@code value} with {@code <} or {@code >}. The value binds as a parameter, never as an
+     * inlined literal, so R-FLT-08 stays absolute (AC-PAG-28). A {@code byte[]} key (R-PAG-17) is not
+     * {@code Comparable}, so it cannot reach the value overloads: it is compared as an expression and registered for
+     * the executor to bind. The column types every other bind, so a UUID column stored as text is not compared as
+     * {@code uuid}.
+     */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private static Expression<Comparable> comparable(Expression<?> column) {
-        return (Expression<Comparable>) column;
+    private static Predicate comparison(boolean ascending, Expression<?> column, Object value, CriteriaBuilder cb,
+            Map<ParameterExpression<?>, Object> parameters) {
+        if (value instanceof Comparable) {
+            return ascending ? cb.greaterThan((Expression) column, (Comparable) value)
+                    : cb.lessThan((Expression) column, (Comparable) value);
+        }
+        ParameterExpression<?> bound = cb.parameter(value.getClass());
+        parameters.put(bound, value);
+        return ascending ? cb.greaterThan((Expression) column, (Expression) bound)
+                : cb.lessThan((Expression) column, (Expression) bound);
     }
 }

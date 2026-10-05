@@ -181,11 +181,15 @@ class KeysetTest {
         try (EntityManager em = sessions.createEntityManager()) {
             CriteriaBuilder cb = em.getCriteriaBuilder();
             BuiltQuery<Row3> built = q.buildQuery(cb, Phase.MODEL, portable());
-            if (cursor != null) {
-                built.query().where(keyset.after(cursor, built.joins(), cb));
+            Keyset.Beyond beyond = cursor == null ? null : keyset.after(cursor, built.joins(), cb);
+            if (beyond != null) {
+                built.query().where(beyond.predicate());
             }
             keyset.appendOrder(built, cb);
             TypedQuery<Tuple> typed = em.createQuery(built.query());
+            if (beyond != null) {
+                beyond.bindTo(typed);
+            }
             if (cursor != null) {
                 // The bind pre-flight counts what after() binds without building it, so the two must agree (D-82).
                 BuiltQuery<Row3> first = q.buildQuery(cb, Phase.MODEL, portable());

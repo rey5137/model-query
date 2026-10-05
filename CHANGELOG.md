@@ -52,6 +52,21 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
   (R-FCH-15, R-FCH-16, D-114). The fetch-plan guide and the migration recipes add the
   four-actor payment order, a lookup splitting its keys by a key part, a cache shared with a child's enricher and
   request-time parameters applied with `withFetch`.
+- `Expr` builds an `ExpressionField`, a typed, immutable value over one vocabulary's columns that is equal by
+  structure: `coalesce`, `nullIf`, `cases`, `plus`/`minus`/`times`/`dividedBy`, `negate`, `concat`, `function` and
+  `constant` (SQL definition text). A `ScalarField` is a `ColumnField` or an expression, so every `Filters` operator,
+  `Filters.compare` and `groupBy` take either, and `Agg` gains overloads over an expression (`Agg.count` over a
+  column included), while an aggregate as a filter operand still does not compile. A converted column (`MQ1501`), a
+  null, array, enum, `Date`, `Calendar` or entity value (`MQ1502`), an integral `dividedBy` (`MQ1503`), a CASE
+  condition left with no filter or one using `add`/`exists`/a sub-select (`MQ1504`, `MQ1505`), and a non-identifier or
+  aggregate function name (`MQ1506`) are refused at the factory; `cases` exposes only `when`, so a CASE with no WHEN
+  does not compile; a declared type the provider does not resolve (`MQ1507`) is refused at first resolution, when the
+  query is built against a provider. An expression as a selected column, a group key or an order key, and `keyset()`
+  over one, are M9.14 (`MQ1208`) (D-115).
+- `FilterMatchers` take a `ScalarField` wherever `Filters` does, and `ModelQuery.conditions()` records a filter over
+  an expression with the expression as its `column()`; `toString` and the build log show its values as `?` (R-INS-09).
+- The `byte[]` keyset cursor value binds as a parameter instead of being inlined as a hex literal, so R-FLT-08 holds
+  for every cursor value (AC-PAG-28).
 
 ### Changed
 
@@ -63,6 +78,10 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
   per factory that the driver may buffer the whole result (D-108). A plain `model-query-jpa` application on Hibernate
   therefore loses cursor streaming, and gets that warning, until it adds `model-query-hibernate`, which the Spring Boot
   starter already pulls in.
+- **Breaking (binary):** the `Filters` operators and `Filters.compare`, the `FilterMatchers` factories, `ModelQuery`'s
+  `groupBy` and `QuerySpec.groupBy()` take a `ScalarField` where they took a `ColumnField`. A `ColumnField` is one, so
+  source stays compatible, but a caller or a binary compiled against the old parameter descriptors must recompile
+  (D-115).
 
 ## [0.2.0] - Unreleased
 

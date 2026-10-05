@@ -11,7 +11,7 @@ import java.util.function.BiFunction;
 import java.util.function.UnaryOperator;
 
 /**
- * The {@link Filters} implementation: a {@link ConditionGroup} over {@link ColumnField}s, plus the {@code WHERE}-only
+ * The {@link Filters} implementation: a {@link ConditionGroup} over {@link ScalarField}s, plus the {@code WHERE}-only
  * operators, {@code exists} and {@code add}. It lives only while a {@code where} operator runs.
  */
 final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filters<M> {
@@ -73,139 +73,152 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
     /** A column must sit on the scope's path or below it: MQ1302 inside {@code exists}, MQ1003 in a sub-select. */
     @Override
     void check(SelectField<M, ?> column) {
-        if (scope != null && column instanceof ColumnField<?, ?, ?> c) {
-            if (c.isLifted()) {
-                if (allowLifted) {
-                    return; // the correlation's lifted outer column (R-FLT-17)
-                }
-                // A sub-select's own where has its own root, not the enclosing query's: lifting there would read the
-                // wrong row, so reject it at definition rather than render it against the sub-select's context.
-                throw new ModelQueryDefinitionException(scopeCode, c
-                        + " is a lifted outer column, which is not allowed here; lift it inside exists(...) instead");
+        if (column instanceof ExpressionField<?, ?> expression) {
+            // An expression's columns are checked as columns are (R-FLT-18): each of them, at any depth.
+            for (ColumnField<?, ?, ?> read : expression.columns()) {
+                checkColumn(read);
             }
-            if (!c.table().isAtOrBelow(scope)) {
-                throw new ModelQueryDefinitionException(scopeCode, scopeCode == MqCode.MQ1003
-                        ? column + " sits on " + c.table().describe() + ", not on the sub-select's root "
-                                + scope.describe()
-                        : column + " sits on " + c.table().describe() + ", outside the exists(...) path "
-                                + scope.describe() + "; use a column on that path or below it");
+        } else if (column instanceof ColumnField<?, ?, ?> plain) {
+            checkColumn(plain);
+        }
+    }
+
+    /** One column's scope check, shared by a plain filter and an expression's operands (R-FLT-18). */
+    private void checkColumn(ColumnField<?, ?, ?> column) {
+        if (scope == null) {
+            return;
+        }
+        if (column.isLifted()) {
+            if (allowLifted) {
+                return; // the correlation's lifted outer column (R-FLT-17)
             }
+            // A sub-select's own where has its own root, not the enclosing query's: lifting there would read the
+            // wrong row, so reject it at definition rather than render it against the sub-select's context.
+            throw new ModelQueryDefinitionException(scopeCode, column
+                    + " is a lifted outer column, which is not allowed here; lift it inside exists(...) instead");
+        }
+        if (!column.table().isAtOrBelow(scope)) {
+            throw new ModelQueryDefinitionException(scopeCode, scopeCode == MqCode.MQ1003
+                    ? column + " sits on " + column.table().describe() + ", not on the sub-select's root "
+                            + scope.describe()
+                    : column + " sits on " + column.table().describe() + ", outside the exists(...) path "
+                            + scope.describe() + "; use a column on that path or below it");
         }
     }
 
     // ---- equality and comparison
 
     @Override
-    public <C> Filters<M> eq(ColumnField<M, ?, C> column, C value) {
+    public <C> Filters<M> eq(ScalarField<M, C> column, C value) {
         return super.eq(column, value);
     }
 
     @Override
-    public <C> Filters<M> eq(ColumnField<M, ?, C> column, Optional<? extends C> value) {
+    public <C> Filters<M> eq(ScalarField<M, C> column, Optional<? extends C> value) {
         return super.eq(column, value);
     }
 
     @Override
-    public <C> Filters<M> ne(ColumnField<M, ?, C> column, C value) {
+    public <C> Filters<M> ne(ScalarField<M, C> column, C value) {
         return super.ne(column, value);
     }
 
     @Override
-    public <C> Filters<M> ne(ColumnField<M, ?, C> column, Optional<? extends C> value) {
+    public <C> Filters<M> ne(ScalarField<M, C> column, Optional<? extends C> value) {
         return super.ne(column, value);
     }
 
     @Override
-    public <C extends Comparable<? super C>> Filters<M> gt(ColumnField<M, ?, C> column, C value) {
+    public <C extends Comparable<? super C>> Filters<M> gt(ScalarField<M, C> column, C value) {
         return super.gt(column, value);
     }
 
     @Override
-    public <C extends Comparable<? super C>> Filters<M> gt(ColumnField<M, ?, C> column, Optional<? extends C> value) {
+    public <C extends Comparable<? super C>> Filters<M> gt(ScalarField<M, C> column, Optional<? extends C> value) {
         return super.gt(column, value);
     }
 
     @Override
-    public <C extends Comparable<? super C>> Filters<M> gte(ColumnField<M, ?, C> column, C value) {
+    public <C extends Comparable<? super C>> Filters<M> gte(ScalarField<M, C> column, C value) {
         return super.gte(column, value);
     }
 
     @Override
-    public <C extends Comparable<? super C>> Filters<M> gte(ColumnField<M, ?, C> column, Optional<? extends C> value) {
+    public <C extends Comparable<? super C>> Filters<M> gte(ScalarField<M, C> column, Optional<? extends C> value) {
         return super.gte(column, value);
     }
 
     @Override
-    public <C extends Comparable<? super C>> Filters<M> lt(ColumnField<M, ?, C> column, C value) {
+    public <C extends Comparable<? super C>> Filters<M> lt(ScalarField<M, C> column, C value) {
         return super.lt(column, value);
     }
 
     @Override
-    public <C extends Comparable<? super C>> Filters<M> lt(ColumnField<M, ?, C> column, Optional<? extends C> value) {
+    public <C extends Comparable<? super C>> Filters<M> lt(ScalarField<M, C> column, Optional<? extends C> value) {
         return super.lt(column, value);
     }
 
     @Override
-    public <C extends Comparable<? super C>> Filters<M> lte(ColumnField<M, ?, C> column, C value) {
+    public <C extends Comparable<? super C>> Filters<M> lte(ScalarField<M, C> column, C value) {
         return super.lte(column, value);
     }
 
     @Override
-    public <C extends Comparable<? super C>> Filters<M> lte(ColumnField<M, ?, C> column, Optional<? extends C> value) {
+    public <C extends Comparable<? super C>> Filters<M> lte(ScalarField<M, C> column, Optional<? extends C> value) {
         return super.lte(column, value);
     }
 
     @Override
     public <C extends Comparable<? super C>> Filters<M> range(
-            ColumnField<M, ?, C> column, Optional<? extends C> fromInclusive, Optional<? extends C> toExclusive) {
+            ScalarField<M, C> column, Optional<? extends C> fromInclusive, Optional<? extends C> toExclusive) {
         return super.range(column, fromInclusive, toExclusive);
     }
 
     @Override
     public <C extends Comparable<? super C>> Filters<M> between(
-            ColumnField<M, ?, C> column, C fromInclusive, C toInclusive) {
+            ScalarField<M, C> column, C fromInclusive, C toInclusive) {
         return super.between(column, fromInclusive, toInclusive);
     }
 
     @Override
     public <C extends Comparable<? super C>> Filters<M> between(
-            ColumnField<M, ?, C> column, Optional<? extends C> fromInclusive, Optional<? extends C> toInclusive) {
+            ScalarField<M, C> column, Optional<? extends C> fromInclusive, Optional<? extends C> toInclusive) {
         return super.between(column, fromInclusive, toInclusive);
     }
 
     // ---- sets
 
     @Override
-    public <C> Filters<M> in(ColumnField<M, ?, C> column, Collection<? extends C> values) {
+    public <C> Filters<M> in(ScalarField<M, C> column, Collection<? extends C> values) {
         return super.in(column, values);
     }
 
     @Override
-    public <C> Filters<M> in(ColumnField<M, ?, C> column, Optional<? extends Collection<? extends C>> values) {
+    public <C> Filters<M> in(ScalarField<M, C> column, Optional<? extends Collection<? extends C>> values) {
         return super.in(column, values);
     }
 
     @Override
-    public <C> Filters<M> notIn(ColumnField<M, ?, C> column, Collection<? extends C> values) {
+    public <C> Filters<M> notIn(ScalarField<M, C> column, Collection<? extends C> values) {
         return super.notIn(column, values);
     }
 
     @Override
-    public <C> Filters<M> notIn(ColumnField<M, ?, C> column, Optional<? extends Collection<? extends C>> values) {
+    public <C> Filters<M> notIn(ScalarField<M, C> column, Optional<? extends Collection<? extends C>> values) {
         return super.notIn(column, values);
     }
 
     // ---- sets over a sub-select
 
     @Override
-    public <C> Filters<M> in(ColumnField<M, ?, C> column, SubSelect<?, C> values) {
+    public <C> Filters<M> in(ScalarField<M, C> column, SubSelect<?, C> values) {
         checkSubSelect("in", column, values);
         return record(Condition.inSubSelect(Kind.IN_SUBSELECT, column, values),
                 ctx -> Optional.of(ctx.inSubSelect(column, values, false)));
     }
 
     @Override
-    public <C> Filters<M> notIn(ColumnField<M, ?, C> column, SubSelect<?, C> values) {
+    public <C> Filters<M> notIn(ScalarField<M, C> column, SubSelect<?, C> values) {
         checkSubSelect("notIn", column, values);
         return record(Condition.inSubSelect(Kind.NOT_IN_SUBSELECT, column, values),
                 ctx -> Optional.of(ctx.inSubSelect(column, values, true)));
@@ -216,7 +229,7 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
      * {@code C} is compile-time, and a converter that hides different attribute types is {@code MQ1001} here, as for
      * {@code compare} (R-FLT-15).
      */
-    private void checkSubSelect(String operator, ColumnField<M, ?, ?> column, SubSelect<?, ?> values) {
+    private void checkSubSelect(String operator, ScalarField<M, ?> column, SubSelect<?, ?> values) {
         check(Objects.requireNonNull(column, "column"));
         Objects.requireNonNull(values, "values");
         ColumnField<?, ?, ?> selected = values.column();
@@ -232,56 +245,56 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
     // ---- strings
 
     @Override
-    public Filters<M> like(ColumnField<M, ?, String> column, String value, LikeMode mode) {
+    public Filters<M> like(ScalarField<M, String> column, String value, LikeMode mode) {
         return super.like(column, value, mode);
     }
 
     @Override
-    public Filters<M> like(ColumnField<M, ?, String> column, Optional<String> value, LikeMode mode) {
+    public Filters<M> like(ScalarField<M, String> column, Optional<String> value, LikeMode mode) {
         return super.like(column, value, mode);
     }
 
     @Override
-    public Filters<M> likeIgnoreCase(ColumnField<M, ?, String> column, String value, LikeMode mode) {
+    public Filters<M> likeIgnoreCase(ScalarField<M, String> column, String value, LikeMode mode) {
         return super.likeIgnoreCase(column, value, mode);
     }
 
     @Override
-    public Filters<M> likeIgnoreCase(ColumnField<M, ?, String> column, Optional<String> value, LikeMode mode) {
+    public Filters<M> likeIgnoreCase(ScalarField<M, String> column, Optional<String> value, LikeMode mode) {
         return super.likeIgnoreCase(column, value, mode);
     }
 
     @Override
-    public Filters<M> eqIgnoreCase(ColumnField<M, ?, String> column, String value) {
+    public Filters<M> eqIgnoreCase(ScalarField<M, String> column, String value) {
         return super.eqIgnoreCase(column, value);
     }
 
     @Override
-    public Filters<M> eqIgnoreCase(ColumnField<M, ?, String> column, Optional<String> value) {
+    public Filters<M> eqIgnoreCase(ScalarField<M, String> column, Optional<String> value) {
         return super.eqIgnoreCase(column, value);
     }
 
     // ---- nulls
 
     @Override
-    public Filters<M> isNull(ColumnField<M, ?, ?> column) {
+    public Filters<M> isNull(ScalarField<M, ?> column) {
         return super.isNull(column);
     }
 
     @Override
-    public Filters<M> isNotNull(ColumnField<M, ?, ?> column) {
+    public Filters<M> isNotNull(ScalarField<M, ?> column) {
         return super.isNotNull(column);
     }
 
     @Override
-    public Filters<M> isNull(ColumnField<M, ?, ?> column, Optional<Boolean> isNull) {
+    public Filters<M> isNull(ScalarField<M, ?> column, Optional<Boolean> isNull) {
         return super.isNull(column, isNull);
     }
 
     // ---- column against column
 
     @Override
-    public <C> Filters<M> compare(ColumnField<M, ?, C> left, Op op, ColumnField<M, ?, C> right) {
+    public <C> Filters<M> compare(ScalarField<M, C> left, Op op, ScalarField<M, C> right) {
         return super.compare(left, op, right);
     }
 
@@ -372,7 +385,12 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
     }
 
     private static boolean lifted(SelectField<?, ?> field) {
-        return field instanceof ColumnField<?, ?, ?> column && column.isLifted();
+        if (field instanceof ColumnField<?, ?, ?> column) {
+            return column.isLifted();
+        }
+        // A lifted column inside an expression counts for MQ1309 (R-FLT-18).
+        return field instanceof ExpressionField<?, ?> expression
+                && expression.columns().stream().anyMatch(ColumnField::isLifted);
     }
 
     /** {@code path}, checked to be a join, and inside a scope to sit on or below it (R-FLT-11). */

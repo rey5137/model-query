@@ -464,3 +464,39 @@ Slice<StringRow> page = executor.page(twoStep, PageSpec.of(0, 500), CountMode.NO
 The key's columns close the order, so tied sort values never skip or repeat a row.
 
 Tested by `StringAndEmbeddedKeyTest`.
+
+## An expression in a filter or an aggregate
+
+The case in one line: a condition over a value the database computes, such as `total + 1` or `coalesce(status, 'NONE')`,
+and a conditional count, with no extra column mapped for either (D-115, R-COL-17, R-FLT-18, R-AGG-13).
+
+`Expr` builds a typed, immutable expression over one vocabulary's columns, equal by structure. `ExpressionFilterTest`
+declares the two this recipe uses as filter operands:
+
+```java
+/** {@code total + 1}: a non-null numeric expression over a root column. */
+private static final ExpressionField<O, BigDecimal> TOTAL_PLUS = Expr.plus(FiltersTest.TOTAL, BigDecimal.ONE);
+/** {@code coalesce(status, 'NONE')}: a non-null text expression over a root column. */
+private static final ExpressionField<O, String> STATUS_TEXT = Expr.coalesce(FiltersTest.STATUS, "NONE");
+```
+
+`Filters` takes either wherever it takes a column; the suite covers every operator and `Optional` form over them,
+for example `f -> f.like(STATUS_TEXT, "AID", LikeMode.CONTAINS)`.
+
+A conditional count is a `cases` expression the aggregate reads, so it counts only the rows each `when` matches:
+
+```java
+/** The rows whose quantity is above 4, NULL everywhere else: a conditional {@code count}. */
+private static final ExpressionField<ItemTotals, Integer> MANY_ITEMS =
+        Expr.cases(ItemTotals.class, Integer.class).when(f -> f.gt(QUANTITY, 4), 1).orNull();
+
+private static final AggregateField<ItemTotals, Long> CONDITIONAL_COUNT = Agg.count(MANY_ITEMS);
+```
+
+The expression's values bind as parameters. A filter and an aggregate argument take an expression now; `groupBy`'s
+parameter is widened to `ScalarField` for source compatibility, but an expression as a group key, a selected column or
+an order key is refused until M9.14.
+
+<!-- M9.14: an expression as a selected column, a group key or an order key, and the paging rules over one. -->
+
+Tested by `ExpressionFilterTest` and `ExpressionAggregateTest`.

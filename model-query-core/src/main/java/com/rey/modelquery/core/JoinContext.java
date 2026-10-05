@@ -3,6 +3,7 @@ package com.rey.modelquery.core;
 import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
@@ -33,6 +34,9 @@ public final class JoinContext {
 
     private record Resolved(From<?, ?> from, Object condition) {}
 
+    /** The memo key of {@link #expression}: the expression and whether the context was left-joining when it rendered. */
+    private record ExpressionKey(ExpressionField<?, ?> field, boolean leftJoining) {}
+
     private final From<?, ?> root;
     /**
      * The entity {@link #root} stands for, which a root column must sit on: its Java type, or the child's root entity
@@ -49,6 +53,12 @@ public final class JoinContext {
     /** The database facts this build renders by; the same object in every nested {@code exists}. */
     private final RenderOptions renderOptions;
     private final Map<JoinKey, Resolved> joins = new HashMap<>();
+    /**
+     * One Criteria node per equal expression and per join mode, so a select item is shared by GROUP BY and ORDER BY
+     * (R-COL-19), while an expression first rendered inside {@code or}/{@code not} is not reused outside it, where its
+     * columns join as plain columns would instead of as LEFT (R-COL-19, R-FLT-10).
+     */
+    private final Map<ExpressionKey, Expression<?>> expressions = new HashMap<>();
     /** The key each join was cached under, which is not the declared key when its type was changed. */
     private final Map<From<?, ?>, JoinKey> keys = new IdentityHashMap<>();
     /** In an {@code exists}, the {@code on(...)} conditions of its required joins, rendered in its WHERE instead. */
@@ -136,6 +146,26 @@ public final class JoinContext {
         return cb;
     }
 
+    /**
+     * The Criteria node for {@code field}, rendering it once per equal expression and join mode in this statement
+     * (R-COL-19): selection, group key, order key and filters of one statement share the node, so a provider that
+     * references select items by identity renders {@code GROUP BY} and {@code ORDER BY} as references. An expression
+     * rendered while left-joining (inside {@code or}/{@code not}, {@link #leftJoining}) is not shared with one rendered
+     * outside it: the columns inside it must join as plain columns outside and as LEFT inside (R-COL-19, R-FLT-10).
+     */
+    Expression<?> expression(ExpressionField<?, ?> field, Supplier<Expression<?>> render) {
+        // Not computeIfAbsent: render() renders the field's nested expressions through this same map, and HashMap
+        // forbids a mapping function that modifies the map (R-COL-19).
+        ExpressionKey key = new ExpressionKey(field, leftJoining > 0);
+        Expression<?> existing = expressions.get(key);
+        if (existing != null) {
+            return existing;
+        }
+        Expression<?> rendered = java.util.Objects.requireNonNull(render.get(), "rendered");
+        expressions.put(key, rendered);
+        return rendered;
+    }
+
     RenderOptions renderOptions() {
         return renderOptions;
     }
@@ -207,7 +237,7 @@ public final class JoinContext {
      * null-safe {@code notIn}: {@code NOT IN (... AND s.c IS NOT NULL) OR column IS NULL}.
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    <C> Predicate inSubSelect(ColumnField<?, ?, C> column, SubSelect<?, C> sub, boolean negated) {
+    <C> Predicate inSubSelect(ScalarField<?, C> column, SubSelect<?, C> sub, boolean negated) {
         if (query == null) {
             throw new IllegalStateException("in(...) over a sub-select needs the JoinContext of a ModelQuery build");
         }
@@ -217,9 +247,9 @@ public final class JoinContext {
                 existsJoined);
         Path<C> selected = sub.column().path(ctx);
         // A lifted column reads the outer root, so its embeddable check runs against the outer context, not this one.
-        boolean embeddable = column.isLifted() && outer != null
-                ? column.liftedFrom().orElseThrow().embeddableValued(outer)
-                : column.embeddableValued(this);
+        boolean embeddable = column instanceof ColumnField<?, ?, ?> outerColumn && outerColumn.isLifted() && outer != null
+                ? outerColumn.liftedFrom().orElseThrow().embeddableValued(outer)
+                : column instanceof ColumnField<?, ?, ?> plain && plain.embeddableValued(this);
         if (embeddable || sub.column().embeddableValued(ctx)) {
             throw new ModelQueryDefinitionException(MqCode.MQ1312, "in(...) over " + sub
                     + ": an embeddable-valued column has no portable row-value IN (INV-6)");
@@ -233,7 +263,7 @@ public final class JoinContext {
             sq.where(where.toArray(Predicate[]::new));
         }
         existsJoined.add(sub.rootEntity());
-        Path<C> outerColumn = column.path(this);
+        Expression<C> outerColumn = column.expression(this);
         Predicate in = cb.in(outerColumn).value(sq);
         return negated ? cb.or(cb.not(in), cb.isNull(outerColumn)) : in;
     }

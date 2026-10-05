@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import com.rey.modelquery.core.BuiltQuery;
 import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.Filters;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
@@ -33,6 +34,7 @@ import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -149,6 +151,18 @@ class FilterWriteParityTest {
                     .containsExactly("not, skipped", "when false", "exists, skipped");
             assertThat(writes.check(COMPOSED_CUSTOMERS, FilterCompositionTest.customerFixtures())).isEmpty();
             assertThat(writes.check(COMPOSED_NULLABLE, FilterCompositionTest.nullableFixtures())).isEmpty();
+        }
+    }
+
+    // ---- AC-FLT-19
+
+    @TckTest
+    void ac_flt_19_a_bulk_update_and_delete_over_an_expression_write_the_rows_the_read_returns(TckDatabase db) {
+        // The read, the update and the delete all compare the same expression, on every write path (R-FLT-18).
+        var overAnExpression = new Fixture<FiltersTest.I>("compare an expression",
+                f -> f.gt(Expr.plus(ITEM_QUANTITY, 2), 5));
+        try (Writes writes = new Writes(db)) {
+            assertThat(writes.check(ITEMS, List.of(overAnExpression))).isEmpty();
         }
     }
 

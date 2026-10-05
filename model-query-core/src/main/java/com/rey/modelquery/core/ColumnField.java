@@ -38,7 +38,7 @@ import java.util.Optional;
  * @implSpec R-COL-07, R-COL-08, R-COL-14, D-55
  */
 @Incubating
-public sealed class ColumnField<M, T, C> implements SelectField<M, C> permits OrderedColumnField {
+public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits OrderedColumnField {
 
     // A primitive attribute is read as its wrapper, so the two are the same column type (R-COL-08).
     private static final Map<Class<?>, Class<?>> WRAPPERS = Map.of(

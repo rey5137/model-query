@@ -118,6 +118,27 @@ public enum MqCode {
     /** A grouped query selects a column under a {@code presentBy} join whose key is not grouped by (R-AGG-09). */
     MQ1409("A grouped query selects a column under a presentBy join whose key columns are not all group keys"),
 
+    /** An expression reads a column with a {@code ColumnConverter} (R-COL-17). */
+    MQ1501("An expression reads a column with a ColumnConverter, which the database computes over without applying it"),
+
+    /** An expression is given a null or a value of a type it cannot bind (R-COL-18). */
+    MQ1502("An expression is given a null value, or a value of a type it cannot bind (arrays, Date, Calendar, enums)"),
+
+    /** {@code dividedBy} over two integral operands (R-COL-17). */
+    MQ1503("dividedBy over two integral operands, whose division truncates on some vendors"),
+
+    /** A CASE condition has no filter left (R-COL-17). */
+    MQ1504("A CASE condition has no filter left, so it would always match"),
+
+    /** A CASE condition uses {@code add(...)}, {@code exists(...)} or a sub-select (R-COL-17). */
+    MQ1505("A CASE condition uses add(...), exists(...) or a sub-select"),
+
+    /** {@code function(name, ...)} with a name that is not a plain identifier or is a built-in aggregate (R-COL-17). */
+    MQ1506("function(name, ...) with a name that is not a plain SQL identifier or is a built-in aggregate"),
+
+    /** An expression's declared type is not the type the provider resolves (R-COL-17). */
+    MQ1507("An expression's declared type is not the type the provider resolves"),
+
     /** A bulk write chose its rows with {@code where(...)} and no predicate is left (R-WRT-12). */
     MQ1601("A bulk write's where(...) left no predicate; all() is the only way to write every row"),
 

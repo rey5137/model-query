@@ -301,6 +301,16 @@ class FetchPlanTest {
     }
 
     @Test
+    void m9_14_a_join_plan_selecting_an_expression_is_refused() {
+        ExpressionField<CustomerView, Long> plusOne = Expr.plus(CUSTOMER_ID, 1L);
+        var plan = FetchPlan.of(SelectSet.of(ID)).join(CUSTOMER_JOIN, FetchPlan.of(SelectSet.of(plusOne)));
+
+        assertThatThrownBy(() -> invoices().fetch(plan).build())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("expression " + plusOne.name() + " is not supported as a selected column until M9.14");
+    }
+
+    @Test
     void ac_fch_08_max_per_parent_below_one_throws_mq2001() {
         ChildQuery<LineView> query = ChildQuery.empty();
 

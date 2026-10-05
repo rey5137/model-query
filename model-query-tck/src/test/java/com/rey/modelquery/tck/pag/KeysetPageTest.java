@@ -396,6 +396,25 @@ class KeysetPageTest {
         });
     }
 
+    // ---- AC-PAG-28
+
+    @TckTest
+    void ac_pag_28_a_byte_array_cursor_value_binds_and_is_not_inlined(TckDatabase db) {
+        // The byte[] order key's cursor value reaches the database as a bind parameter, never as an inlined literal
+        // (R-FLT-08): the page carrying the cursor compares payload with a '?' on its right-hand side, and no hex
+        // literal of any vendor — PostgreSQL '\x, H2/MySQL X' or 0x — appears in either statement.
+        var q = TYPE_ROWS.orderBy(TYPE_PAYLOAD.asc()).build();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, KeysetTypeEntity.class, executor -> {
+            String cursor = executor.page(q, KeysetSpec.first(5)).nextCursor().orElseThrow();
+            executor.page(q, KeysetSpec.after(cursor, 5));
+        }));
+        assertThat(sql).as("both pages ran a statement").hasSizeGreaterThanOrEqualTo(2);
+        String cursorPage = sql.get(1);
+        assertThat(cursorPage).as(cursorPage).containsPattern("(?i)payload\\s*[<>]\\s*\\?");
+        assertThat(sql).allSatisfy(statement -> assertThat(statement).as(statement)
+                .doesNotContain("'\\x").doesNotContainIgnoringCase("x'", "0x"));
+    }
+
     @TckTest
     void ac_pag_18_an_enum_through_a_converter_pages_and_round_trips(TckDatabase db) {
         // orders.status is an OrderStatus through a ColumnConverter (the enum case of R-PAG-17); 5 000 rows over four

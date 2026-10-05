@@ -37,7 +37,7 @@ public final class Agg {
     public static <M> AggregateField<M, Long> count(TableField<?, ?> table) {
         Objects.requireNonNull(table, "table");
         String name = table.rootEntity() != null ? table.rootEntity().getSimpleName() : table.key().attribute();
-        return new AggregateField<>(AggregateField.Kind.COUNT, table.key(), name, "", Long.class, null,
+        return new AggregateField<>(AggregateField.Kind.COUNT, table.key(), name, "", Long.class, null, null,
                 (ctx, cb) -> cb.count(table.resolve(ctx)));
     }
 
@@ -112,7 +112,76 @@ public final class Agg {
     }
 
     /**
-     * A custom aggregate expression, keyed by {@code name} because a lambda cannot be compared (R-AGG-02): two fields
+     * {@code count(value)}: the non-null values of a column or expression (R-AGG-13). A conditional count is
+     * {@code count(cases(...).when(condition, 1).orNull())}.
+     */
+    public static <M> AggregateField<M, Long> count(ScalarField<M, ?> value) {
+        Objects.requireNonNull(value, "value");
+        if (value instanceof ColumnField<?, ?, ?> column) {
+            return new AggregateField<>(AggregateField.Kind.COUNT, column.table().key(), column.name(), "",
+                    Long.class, null, null, (ctx, cb) -> cb.count(column.expression(ctx)));
+        }
+        ExpressionField<M, ?> expression = (ExpressionField<M, ?>) value;
+        return expressionOver(AggregateField.Kind.COUNT, expression, Long.class,
+                (ctx, cb) -> cb.count(expression.expression(ctx)));
+    }
+
+    /** {@code count(distinct expression)} (R-AGG-13). */
+    public static <M> AggregateField<M, Long> countDistinct(ExpressionField<M, ?> expression) {
+        Objects.requireNonNull(expression, "expression");
+        return expressionOver(AggregateField.Kind.COUNT_DISTINCT, expression, Long.class,
+                (ctx, cb) -> cb.countDistinct(expression.expression(ctx)));
+    }
+
+    /**
+     * {@code sum(expression)}, of the expression's type; {@code NULL} over zero rows (R-AGG-04, R-AGG-13).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1403} for any expression type other than {@code BigDecimal},
+     *     {@code Double} or {@code Long}
+     */
+    public static <M, C extends Number> AggregateField<M, C> sum(ExpressionField<M, C> expression) {
+        Objects.requireNonNull(expression, "expression");
+        requireSumType(expression.type(), SUM_TYPES, "sum", "use Agg.sumAsLong", expression);
+        return expressionOver(AggregateField.Kind.SUM, expression, expression.type(),
+                (ctx, cb) -> cb.sum(expression.expression(ctx)));
+    }
+
+    /**
+     * {@code sum(expression)} read as a {@code Long}, for an integral expression (R-AGG-03, R-AGG-13).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1403} for any other expression type
+     */
+    @SuppressWarnings("unchecked")
+    public static <M> AggregateField<M, Long> sumAsLong(ExpressionField<M, ? extends Number> expression) {
+        Objects.requireNonNull(expression, "expression");
+        requireSumType(expression.type(), SUM_AS_LONG_TYPES, "sumAsLong", "use Agg.sum", expression);
+        return expressionOver(AggregateField.Kind.SUM_AS_LONG, expression, Long.class,
+                // Unchecked: sumAsLong only declares the result type, which is the point of this function.
+                (ctx, cb) -> cb.sumAsLong((Expression<Integer>) (Expression<?>) expression.expression(ctx)));
+    }
+
+    /** {@code avg(expression)}, always a {@code Double} (R-AGG-13). */
+    public static <M, C extends Number> AggregateField<M, Double> avg(ExpressionField<M, C> expression) {
+        Objects.requireNonNull(expression, "expression");
+        return expressionOver(AggregateField.Kind.AVG, expression, Double.class,
+                (ctx, cb) -> cb.avg(expression.expression(ctx)));
+    }
+
+    /** {@code min(expression)}, of the expression's type (R-AGG-13). */
+    public static <M, C extends Comparable<? super C>> AggregateField<M, C> min(ExpressionField<M, C> expression) {
+        Objects.requireNonNull(expression, "expression");
+        return expressionOver(AggregateField.Kind.MIN, expression, expression.type(),
+                (ctx, cb) -> cb.least(expression.expression(ctx)));
+    }
+
+    /** {@code max(expression)}, of the expression's type (R-AGG-13). */
+    public static <M, C extends Comparable<? super C>> AggregateField<M, C> max(ExpressionField<M, C> expression) {
+        Objects.requireNonNull(expression, "expression");
+        return expressionOver(AggregateField.Kind.MAX, expression, expression.type(),
+                (ctx, cb) -> cb.greatest(expression.expression(ctx)));
+    }
+
+    /** A custom aggregate expression, keyed by {@code name} because a lambda cannot be compared (R-AGG-02): two fields
      * sharing a name with different {@code expression} instances throw {@code MQ1103} when the query is built.
      * {@code expression} runs once per query build with that build's {@link JoinContext} and {@code CriteriaBuilder}
      * (D-24), so resolve columns through {@link ColumnField#path} with that context to share the query's joins. It
@@ -125,7 +194,7 @@ public final class Agg {
             String name, Class<C> type, BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
         return new AggregateField<>(AggregateField.Kind.OF, null, Objects.requireNonNull(name, "name"), "",
                 // Sound: int.class is a Class<Integer>, so its wrapper is still a Class<C>.
-                (Class<C>) ColumnField.boxed(Objects.requireNonNull(type, "type")), null,
+                (Class<C>) ColumnField.boxed(Objects.requireNonNull(type, "type")), null, null,
                 Objects.requireNonNull(expression, "expression"));
     }
 
@@ -145,9 +214,19 @@ public final class Agg {
         return column;
     }
 
+    /** {@link #summable}'s type check for an expression, whose type is all that is known at definition (R-AGG-13). */
+    private static void requireSumType(Class<?> type, List<Class<?>> types, String function, String instead,
+            Object source) {
+        if (!types.contains(ColumnField.boxed(type))) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1403, String.format(
+                    "%s: Agg.%s does not take expression type %s, only %s; %s", source, function,
+                    type.getSimpleName(), types.stream().map(Class::getSimpleName).toList(), instead));
+        }
+    }
+
     private static <M, C> AggregateField<M, C> over(AggregateField.Kind kind, ColumnField<M, ?, ?> column,
             Class<C> type, BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
-        return new AggregateField<>(kind, column.table().key(), column.name(), "", type, null, expression);
+        return new AggregateField<>(kind, column.table().key(), column.name(), "", type, null, null, expression);
     }
 
     /** {@code min} or {@code max}, whose result a converted column's converter maps (R-AGG-04). */
@@ -155,7 +234,14 @@ public final class Agg {
             BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
         Objects.requireNonNull(column, "column");
         return new AggregateField<>(kind, column.table().key(), column.name(), "", column.type(),
-                column.isConverted() ? column : null, expression);
+                column.isConverted() ? column : null, null, expression);
+    }
+
+    /** An aggregate over an expression, keyed structurally by the expression (R-AGG-13). */
+    private static <M, C> AggregateField<M, C> expressionOver(AggregateField.Kind kind,
+            ExpressionField<M, ?> expression, Class<C> type,
+            BiFunction<JoinContext, CriteriaBuilder, Expression<C>> render) {
+        return new AggregateField<>(kind, null, "", "", type, null, expression, render);
     }
 
     /**

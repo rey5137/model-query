@@ -9,6 +9,7 @@ import com.rey.modelquery.core.Condition.Kind;
 import com.rey.modelquery.core.LikeMode;
 import com.rey.modelquery.core.Op;
 import com.rey.modelquery.core.Outer;
+import com.rey.modelquery.core.ScalarField;
 import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.SubSelect;
 import com.rey.modelquery.core.TableField;
@@ -49,7 +50,7 @@ public final class FilterMatchers {
     }
 
     /** Matches eq(column, value) (EQ), on a column of a {@code where} or an aggregate of a {@code having}. */
-    public static <C> ConditionMatcher eq(ColumnField<?, ?, C> column, C value) {
+    public static <C> ConditionMatcher eq(ScalarField<?, C> column, C value) {
         return leaf(Kind.EQ, column, value);
     }
 
@@ -59,7 +60,7 @@ public final class FilterMatchers {
     }
 
     /** Matches ne(column, value) (NE), on a column of a {@code where} or an aggregate of a {@code having}. */
-    public static <C> ConditionMatcher ne(ColumnField<?, ?, C> column, C value) {
+    public static <C> ConditionMatcher ne(ScalarField<?, C> column, C value) {
         return leaf(Kind.NE, column, value);
     }
 
@@ -69,7 +70,7 @@ public final class FilterMatchers {
     }
 
     /** Matches gt(column, value) (GT), on a column of a {@code where} or an aggregate of a {@code having}. */
-    public static <C extends Comparable<? super C>> ConditionMatcher gt(ColumnField<?, ?, C> column, C value) {
+    public static <C extends Comparable<? super C>> ConditionMatcher gt(ScalarField<?, C> column, C value) {
         return leaf(Kind.GT, column, value);
     }
 
@@ -79,7 +80,7 @@ public final class FilterMatchers {
     }
 
     /** Matches gte(column, value) (GTE), on a column of a {@code where} or an aggregate of a {@code having}. */
-    public static <C extends Comparable<? super C>> ConditionMatcher gte(ColumnField<?, ?, C> column, C value) {
+    public static <C extends Comparable<? super C>> ConditionMatcher gte(ScalarField<?, C> column, C value) {
         return leaf(Kind.GTE, column, value);
     }
 
@@ -89,7 +90,7 @@ public final class FilterMatchers {
     }
 
     /** Matches lt(column, value) (LT), on a column of a {@code where} or an aggregate of a {@code having}. */
-    public static <C extends Comparable<? super C>> ConditionMatcher lt(ColumnField<?, ?, C> column, C value) {
+    public static <C extends Comparable<? super C>> ConditionMatcher lt(ScalarField<?, C> column, C value) {
         return leaf(Kind.LT, column, value);
     }
 
@@ -99,7 +100,7 @@ public final class FilterMatchers {
     }
 
     /** Matches lte(column, value) (LTE), on a column of a {@code where} or an aggregate of a {@code having}. */
-    public static <C extends Comparable<? super C>> ConditionMatcher lte(ColumnField<?, ?, C> column, C value) {
+    public static <C extends Comparable<? super C>> ConditionMatcher lte(ScalarField<?, C> column, C value) {
         return leaf(Kind.LTE, column, value);
     }
 
@@ -110,7 +111,7 @@ public final class FilterMatchers {
 
     /** Matches range(column, from, to) (RANGE), both bounds. A one-sided range is the comparison it renders. */
     public static <C extends Comparable<? super C>> ConditionMatcher range(
-            ColumnField<?, ?, C> column, C from, C to) {
+            ScalarField<?, C> column, C from, C to) {
         return leaf(Kind.RANGE, column, from, to);
     }
 
@@ -122,7 +123,7 @@ public final class FilterMatchers {
 
     /** Matches between(column, from, to) (BETWEEN), both bounds. A one-sided between is the comparison it renders. */
     public static <C extends Comparable<? super C>> ConditionMatcher between(
-            ColumnField<?, ?, C> column, C from, C to) {
+            ScalarField<?, C> column, C from, C to) {
         return leaf(Kind.BETWEEN, column, from, to);
     }
 
@@ -133,7 +134,7 @@ public final class FilterMatchers {
     }
 
     /** Matches in(column, values) (IN); the values match as a multiset, so their order does not matter. */
-    public static <C> ConditionMatcher in(ColumnField<?, ?, C> column, Collection<? extends C> values) {
+    public static <C> ConditionMatcher in(ScalarField<?, C> column, Collection<? extends C> values) {
         return leaf(Kind.IN, column, values.toArray());
     }
 
@@ -143,7 +144,7 @@ public final class FilterMatchers {
     }
 
     /** Matches notIn(column, values) (NOT_IN); the values match as a multiset, so their order does not matter. */
-    public static <C> ConditionMatcher notIn(ColumnField<?, ?, C> column, Collection<? extends C> values) {
+    public static <C> ConditionMatcher notIn(ScalarField<?, C> column, Collection<? extends C> values) {
         return leaf(Kind.NOT_IN, column, values.toArray());
     }
 
@@ -153,7 +154,7 @@ public final class FilterMatchers {
     }
 
     /** Matches like(column, value, mode) (LIKE); the value as passed, not lower-cased. */
-    public static ConditionMatcher like(ColumnField<?, ?, String> column, String value, LikeMode mode) {
+    public static ConditionMatcher like(ScalarField<?, String> column, String value, LikeMode mode) {
         return like(Kind.LIKE, column, value, mode);
     }
 
@@ -163,7 +164,7 @@ public final class FilterMatchers {
     }
 
     /** Matches likeIgnoreCase(column, value, mode) (LIKE_IGNORE_CASE); the value as passed, not lower-cased. */
-    public static ConditionMatcher likeIgnoreCase(ColumnField<?, ?, String> column, String value, LikeMode mode) {
+    public static ConditionMatcher likeIgnoreCase(ScalarField<?, String> column, String value, LikeMode mode) {
         return like(Kind.LIKE_IGNORE_CASE, column, value, mode);
     }
 
@@ -173,7 +174,7 @@ public final class FilterMatchers {
     }
 
     /** Matches eqIgnoreCase(column, value) (EQ_IGNORE_CASE); the value as passed, not lower-cased. */
-    public static ConditionMatcher eqIgnoreCase(ColumnField<?, ?, String> column, String value) {
+    public static ConditionMatcher eqIgnoreCase(ScalarField<?, String> column, String value) {
         return leaf(Kind.EQ_IGNORE_CASE, column, value);
     }
 
@@ -183,7 +184,7 @@ public final class FilterMatchers {
     }
 
     /** Matches isNull(column) (IS_NULL). */
-    public static ConditionMatcher isNull(ColumnField<?, ?, ?> column) {
+    public static ConditionMatcher isNull(ScalarField<?, ?> column) {
         return leaf(Kind.IS_NULL, column);
     }
 
@@ -193,7 +194,7 @@ public final class FilterMatchers {
     }
 
     /** Matches isNotNull(column) (IS_NOT_NULL). */
-    public static ConditionMatcher isNotNull(ColumnField<?, ?, ?> column) {
+    public static ConditionMatcher isNotNull(ScalarField<?, ?> column) {
         return leaf(Kind.IS_NOT_NULL, column);
     }
 
@@ -203,7 +204,7 @@ public final class FilterMatchers {
     }
 
     /** Matches compare(left, op, right) (COMPARE). */
-    public static <C> ConditionMatcher compare(ColumnField<?, ?, C> left, Op op, ColumnField<?, ?, C> right) {
+    public static <C> ConditionMatcher compare(ScalarField<?, C> left, Op op, ScalarField<?, C> right) {
         return new ConditionMatcher(Kind.COMPARE, left, right, requireNonNull(op, "op"), null, null, List.of(), null,
                 List.of());
     }
@@ -244,7 +245,7 @@ public final class FilterMatchers {
     // ---- sub-selects (R-INS-08)
 
     /** Matches in(column, sub) (IN_SUBSELECT): the column and the sub-select's column, root and conditions. */
-    public static <C> ConditionMatcher in(ColumnField<?, ?, C> column, SubSelect<?, C> sub) {
+    public static <C> ConditionMatcher in(ScalarField<?, C> column, SubSelect<?, C> sub) {
         requireNonNull(column, "column");
         requireNonNull(sub, "sub");
         return new ConditionMatcher(Kind.IN_SUBSELECT, column, null, null, null, null, List.of(), null, List.of(),
@@ -252,7 +253,7 @@ public final class FilterMatchers {
     }
 
     /** Matches notIn(column, sub) (NOT_IN_SUBSELECT). */
-    public static <C> ConditionMatcher notIn(ColumnField<?, ?, C> column, SubSelect<?, C> sub) {
+    public static <C> ConditionMatcher notIn(ScalarField<?, C> column, SubSelect<?, C> sub) {
         requireNonNull(column, "column");
         requireNonNull(sub, "sub");
         return new ConditionMatcher(Kind.NOT_IN_SUBSELECT, column, null, null, null, null, List.of(), null, List.of(),

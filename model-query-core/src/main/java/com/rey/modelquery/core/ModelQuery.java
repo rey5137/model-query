@@ -56,7 +56,7 @@ public final class ModelQuery<E, K, M> {
     private final UnaryOperator<M> finisher;
     private final QueryCustomizer customizer;
     private final List<Filter> where;
-    private final List<ColumnField<M, ?, ?>> groupBy;
+    private final List<ScalarField<M, ?>> groupBy;
     private final List<Filter> having;
     private final QueryConditions conditions;
     private final boolean grouped;
@@ -305,9 +305,9 @@ public final class ModelQuery<E, K, M> {
         return grouped;
     }
 
-    /** The group-by columns in order, as a list that throws on mutation; empty when there is no group-by. */
+    /** The group-by keys in order, as a list that throws on mutation; empty when there is no group-by. */
     @Incubating
-    public List<ColumnField<M, ?, ?>> groupBy() {
+    public List<ScalarField<M, ?>> groupBy() {
         return groupBy;
     }
 
@@ -426,7 +426,7 @@ public final class ModelQuery<E, K, M> {
             query.orderBy(orders);
         }
         if (!groupBy.isEmpty()) {
-            query.groupBy(groupBy.stream().<Expression<?>>map(column -> column.path(joins)).toList());
+            query.groupBy(groupBy.stream().<Expression<?>>map(key -> key.expression(joins)).toList());
         }
         List<List<Predicate>> predicates = ConditionGroup.clausePredicates(List.of(where, having), joins);
         if (!predicates.get(0).isEmpty()) {
@@ -638,7 +638,7 @@ public final class ModelQuery<E, K, M> {
     }
 
     private record Spec(Class<?> rootEntity, List<SelectField<?, ?>> columns, Optional<PrimaryKey<?, ?>> primaryKey,
-            List<OrderField<?, ?>> orderBy, boolean keyset, List<ColumnField<?, ?, ?>> groupBy, boolean isGrouped)
+            List<OrderField<?, ?>> orderBy, boolean keyset, List<ScalarField<?, ?>> groupBy, boolean isGrouped)
             implements QuerySpec {}
 
     /**
@@ -663,7 +663,7 @@ public final class ModelQuery<E, K, M> {
         private final UnaryOperator<M> finisher;
         private final QueryCustomizer customizer;
         private final List<Filter> where;
-        private final List<ColumnField<M, ?, ?>> groupBy;
+        private final List<ScalarField<M, ?>> groupBy;
         private final HavingGroup.Clause having;
         /** The fetch plan, whose selection replaces {@link #columns}; {@code null} without one. */
         private final FetchPlan<M> fetch;
@@ -671,7 +671,7 @@ public final class ModelQuery<E, K, M> {
         private Builder(TableField<E, E> root, RowMapper<M> mapper, SelectSet<M> columns,
                 PrimaryKey<M, K> primaryKey, List<OrderField<M, ?>> orderBy, boolean keyset,
                 PrimaryKeyFirst primaryKeyFirst, BiConsumer<M, Row> afterMap, UnaryOperator<M> finisher,
-                QueryCustomizer customizer, List<Filter> where, List<ColumnField<M, ?, ?>> groupBy,
+                QueryCustomizer customizer, List<Filter> where, List<ScalarField<M, ?>> groupBy,
                 HavingGroup.Clause having, FetchPlan<M> fetch) {
             this.root = root;
             this.mapper = mapper;
@@ -802,28 +802,41 @@ public final class ModelQuery<E, K, M> {
          *     which cannot be a group key
          */
         public Builder<E, K, M> groupBy(SelectSet<M> columns) {
-            var keys = new ArrayList<ColumnField<M, ?, ?>>();
+            var keys = new ArrayList<ScalarField<M, ?>>();
             for (SelectField<M, ?> column : Objects.requireNonNull(columns, "columns").fields()) {
-                if (!(column instanceof ColumnField<M, ?, ?> key)) {
+                if (column instanceof AggregateField<?, ?>) {
                     throw new ModelQueryDefinitionException(MqCode.MQ1404, modelName(columns, root.rootEntity()) + "."
                             + column.name() + ": groupBy(...) takes columns; an aggregate cannot be a group key");
                 }
-                keys.add(key);
+                keys.add(groupKey(column));
             }
             return groupBy(keys);
         }
 
         /** Groups the query by {@code columns}, as {@link #groupBy(SelectSet)} does (R-AGG-05). */
         @SafeVarargs
-        public final Builder<E, K, M> groupBy(ColumnField<M, ?, ?>... columns) {
-            var keys = new ArrayList<ColumnField<M, ?, ?>>();
-            for (ColumnField<M, ?, ?> column : Objects.requireNonNull(columns, "columns")) {
-                keys.add(Objects.requireNonNull(column, "columns element"));
+        public final Builder<E, K, M> groupBy(ScalarField<M, ?>... columns) {
+            var keys = new ArrayList<ScalarField<M, ?>>();
+            for (ScalarField<M, ?> column : Objects.requireNonNull(columns, "columns")) {
+                keys.add(groupKey(Objects.requireNonNull(column, "columns element")));
             }
             return groupBy(keys);
         }
 
-        private Builder<E, K, M> groupBy(List<ColumnField<M, ?, ?>> keys) {
+        /**
+         * One group key: an expression as a group key is M9.14, so it is refused here rather than rendered on a
+         * path that cannot carry it yet.
+         */
+        private ScalarField<M, ?> groupKey(SelectField<M, ?> column) {
+            if (column instanceof ExpressionField<?, ?>) {
+                // M9.14: an expression group key.
+                throw new IllegalStateException("expression " + column.name()
+                        + " is not supported as a group key until M9.14");
+            }
+            return (ScalarField<M, ?>) column;
+        }
+
+        private Builder<E, K, M> groupBy(List<ScalarField<M, ?>> keys) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
                     finisher, customizer, where, List.copyOf(new LinkedHashSet<>(keys)), having, fetch);
         }
@@ -883,6 +896,7 @@ public final class ModelQuery<E, K, M> {
             }
             SelectSet<M> selection = selection();
             List<ColumnField<M, ?, ?>> needed = needed();
+            checkSupported(selection);
             String model = modelName(selection, root.rootEntity());
             boolean grouped = isGrouped(selection);
             if (!grouped && having != null) {
@@ -965,6 +979,27 @@ public final class ModelQuery<E, K, M> {
         /** Structural, so skipping every having filter cannot turn a plain query into a grouped one (D-28). */
         private boolean isGrouped(SelectSet<M> selection) {
             return !groupBy.isEmpty() || selection.fields().stream().anyMatch(AggregateField.class::isInstance);
+        }
+
+        /**
+         * Refuses what M9.14 owes: an expression as a selected column or as an order key. Both are reachable through
+         * {@link SelectField}, so the refusal is here, at build, rather than in a signature that cannot carry it yet.
+         */
+        private void checkSupported(SelectSet<M> selection) {
+            for (SelectField<M, ?> field : selection.fields()) {
+                if (field instanceof ExpressionField<?, ?>) {
+                    // M9.14: an expression as a selected column.
+                    throw new IllegalStateException("expression " + field.name()
+                            + " is not supported as a selected column until M9.14");
+                }
+            }
+            for (OrderField<M, ?> order : orderBy) {
+                if (order.column() instanceof ExpressionField<?, ?>) {
+                    // M9.14: an expression as an order key.
+                    throw new IllegalStateException("expression " + order.column().name()
+                            + " is not supported as an order key until M9.14");
+                }
+            }
         }
 
         /**

@@ -55,19 +55,23 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
      * {@code having} value bound; {@code null} when the result is read as the database returns it.
      */
     private final ColumnField<?, ?, C> converted;
+    /** The expression this aggregate is over, or {@code null} for a column, a table or an {@code Agg.of} (R-AGG-13). */
+    private final ExpressionField<?, ?> sourceExpression;
     private final BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression;
     private final int hash;
 
     AggregateField(Kind kind, JoinKey source, String attribute, String alias, Class<C> type,
-            ColumnField<?, ?, C> converted, BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
+            ColumnField<?, ?, C> converted, ExpressionField<?, ?> sourceExpression,
+            BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
         this.kind = kind;
         this.source = source;
         this.attribute = attribute;
         this.alias = alias;
         this.type = type;
         this.converted = converted;
+        this.sourceExpression = sourceExpression;
         this.expression = expression;
-        this.hash = Objects.hash(kind, source, attribute, alias, converterClass());
+        this.hash = Objects.hash(kind, source, attribute, alias, converterClass(), sourceExpression);
     }
 
     /**
@@ -76,7 +80,7 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
      */
     public AggregateField<M, C> as(String alias) {
         return new AggregateField<>(kind, source, attribute, Objects.requireNonNull(alias, "alias"), type, converted,
-                expression);
+                sourceExpression, expression);
     }
 
     @Override
@@ -89,6 +93,9 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
     public String name() {
         if (!alias.isEmpty()) {
             return alias;
+        }
+        if (sourceExpression != null) {
+            return kind.function + "(" + sourceExpression.name() + ")";
         }
         return kind == Kind.OF ? attribute : kind.function + "(" + attribute + ")";
     }
@@ -122,6 +129,11 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         return converted;
     }
 
+    /** The expression this aggregate is over, or {@code null} (R-AGG-13). */
+    ExpressionField<?, ?> sourceExpression() {
+        return sourceExpression;
+    }
+
     /** Whether {@code a} and {@code b} are one {@code Agg.of} key defined by different functions (R-AGG-02). */
     static boolean conflict(SelectField<?, ?> a, SelectField<?, ?> b) {
         return a instanceof AggregateField<?, ?> x && b instanceof AggregateField<?, ?> y
@@ -142,7 +154,8 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
                 && Objects.equals(source, other.source)
                 && attribute.equals(other.attribute)
                 && alias.equals(other.alias)
-                && Objects.equals(converterClass(), other.converterClass());
+                && Objects.equals(converterClass(), other.converterClass())
+                && Objects.equals(sourceExpression, other.sourceExpression);
     }
 
     @Override

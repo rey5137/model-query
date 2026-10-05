@@ -105,7 +105,7 @@ final class KeysetWrite {
                 rounds.run(on -> {
                     // The run bounds the keys, so the select needs no limit and no cursor.
                     BuiltQuery<M> built = write.keySelect().apply(run);
-                    List<Tuple> rows = rows(on, built, 0, lockKeys, null, null);
+                    List<Tuple> rows = rows(on, built, 0, lockKeys, null, null, null);
                     Set<Object> distinct = keysOf(write, built, rows, Set.of());
                     List<Object> keys = new ArrayList<>(distinct);
                     return new Round(keys, distinct, rows.size(), null, writeKeys(on, write, keys));
@@ -122,13 +122,14 @@ final class KeysetWrite {
             Set<Object> before = previous;
             Round round = rounds.run(on -> {
                 BuiltQuery<M> built = write.keySelect().apply(null);
+                Keyset.Beyond past = null;
                 if (after != null) {
-                    Predicate past = keyset.after(after, built.joins(), cb);
+                    past = keyset.after(after, built.joins(), cb);
                     Predicate own = built.query().getRestriction();
-                    built.query().where(own == null ? past : cb.and(own, past));
+                    built.query().where(own == null ? past.predicate() : cb.and(own, past.predicate()));
                 }
                 keyset.appendOrder(built, cb);
-                List<Tuple> rows = rows(on, built, n, lockKeys, keyset, after);
+                List<Tuple> rows = rows(on, built, n, lockKeys, keyset, after, past);
                 if (rows.isEmpty()) {
                     return Round.NONE;
                 }
@@ -147,8 +148,11 @@ final class KeysetWrite {
 
     /** The rows of {@code built}, at most {@code max} unless it is zero, locked with {@code lockKeys}. */
     private List<Tuple> rows(EntityManager on, BuiltQuery<?> built, int max, boolean lockKeys, Keyset<?> keyset,
-            Object[] cursor) {
+            Object[] cursor, Keyset.Beyond beyond) {
         TypedQuery<Tuple> query = select.create(on, built.query(), keyset, cursor);
+        if (beyond != null) {
+            beyond.bindTo(query);
+        }
         if (max > 0) {
             query.setMaxResults(max);
         }
