@@ -6,7 +6,7 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
-## [0.2.0] - Unreleased
+## [0.2.0] - 2026-10-06
 
 Nothing is frozen yet: every public type stays `@Incubating` until the 1.0 freeze (D-90).
 
