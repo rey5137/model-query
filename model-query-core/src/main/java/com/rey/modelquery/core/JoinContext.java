@@ -59,6 +59,13 @@ public final class JoinContext {
      * columns join as plain columns would instead of as LEFT (R-COL-19, R-FLT-10).
      */
     private final Map<ExpressionKey, Expression<?>> expressions = new HashMap<>();
+    /**
+     * The bind values a repeated expression node adds: each extra rendering of a memoised node repeats its values in
+     * the statement, which JPA reports once, so the bind-limit check adds them back (R-COL-19, D-80). The one-element
+     * array is shared with the build's nested contexts, since a sub-query and a {@code through} child are one
+     * statement.
+     */
+    private final int[] repeatedExpressionBinds;
     /** The key each join was cached under, which is not the declared key when its type was changed. */
     private final Map<From<?, ?>, JoinKey> keys = new IdentityHashMap<>();
     /** In an {@code exists}, the {@code on(...)} conditions of its required joins, rendered in its WHERE instead. */
@@ -80,12 +87,12 @@ public final class JoinContext {
 
     private JoinContext(From<?, ?> root, Class<?> rootType, CriteriaBuilder cb, CommonAbstractCriteria query,
             JoinKey rootKey, Set<JoinKey> required, RenderOptions renderOptions, Set<Class<?>> existsJoined) {
-        this(root, rootType, cb, query, rootKey, required, renderOptions, existsJoined, null);
+        this(root, rootType, cb, query, rootKey, required, renderOptions, existsJoined, null, new int[1]);
     }
 
     private JoinContext(From<?, ?> root, Class<?> rootType, CriteriaBuilder cb, CommonAbstractCriteria query,
             JoinKey rootKey, Set<JoinKey> required, RenderOptions renderOptions, Set<Class<?>> existsJoined,
-            JoinContext outer) {
+            JoinContext outer, int[] repeatedExpressionBinds) {
         this.root = root;
         this.rootType = rootType;
         this.cb = cb;
@@ -95,6 +102,7 @@ public final class JoinContext {
         this.renderOptions = renderOptions;
         this.existsJoined = existsJoined;
         this.outer = outer;
+        this.repeatedExpressionBinds = repeatedExpressionBinds;
     }
 
     /** A context over {@code root}, the query's root table, rendering with {@link RenderOptions#portable()}. */
@@ -116,7 +124,8 @@ public final class JoinContext {
      * the {@code exists} bookkeeping, but not the join cache, so the joins it makes sit below {@code join}.
      */
     JoinContext rootedAt(From<?, ?> join, Class<?> entity) {
-        return new JoinContext(join, entity, cb, query, null, Set.of(), renderOptions, existsJoined);
+        return new JoinContext(join, entity, cb, query, null, Set.of(), renderOptions, existsJoined, null,
+                repeatedExpressionBinds);
     }
 
     /** Whether an {@code exists} sub-query of this build rendered so far, at any depth (R-WRT-11). */
@@ -159,11 +168,27 @@ public final class JoinContext {
         ExpressionKey key = new ExpressionKey(field, leftJoining > 0);
         Expression<?> existing = expressions.get(key);
         if (existing != null) {
+            // The node repeats in the statement, so its values bind once more each; JPA reports the shared node once.
+            repeatedExpressionBinds[0] += field.binds();
             return existing;
         }
         Expression<?> rendered = java.util.Objects.requireNonNull(render.get(), "rendered");
         expressions.put(key, rendered);
         return rendered;
+    }
+
+    /** The bind values the repeated renderings of memoised expressions add beyond what JPA reports (R-COL-19, D-80). */
+    @EngineFacing
+    public int repeatedExpressionBinds() {
+        return repeatedExpressionBinds[0];
+    }
+
+    /**
+     * Adds the repeats {@code rendered} counted, a context of its own whose sub-query this statement keeps, such as a
+     * write's {@code EXISTS} (R-COL-19, D-80).
+     */
+    void addRepeatedExpressionBinds(JoinContext rendered) {
+        repeatedExpressionBinds[0] += rendered.repeatedExpressionBinds[0];
     }
 
     RenderOptions renderOptions() {
@@ -201,11 +226,11 @@ public final class JoinContext {
             // The root of a through child's context is a join, which the sub-query correlates as a join (D-100).
             From<?, ?> correlated = root instanceof Root<?> ? sub.correlate((Root) root) : sub.correlate((Join) root);
             ctx = new JoinContext(correlated, rootType, cb, sub, null, path.keysUpTo(null), renderOptions,
-                    existsJoined, outer);
+                    existsJoined, outer, repeatedExpressionBinds);
         } else {
             From<?, ?> correlated = sub.correlate((Join) existsFrom);
             ctx = new JoinContext(correlated, correlated.getJavaType(), cb, sub, existsPath.key(),
-                    path.keysUpTo(existsPath.key()), renderOptions, existsJoined, outer);
+                    path.keysUpTo(existsPath.key()), renderOptions, existsJoined, outer, repeatedExpressionBinds);
         }
         ctx.existsPath = path;
         ctx.existsFrom = path.resolve(ctx);
@@ -244,7 +269,7 @@ public final class JoinContext {
         Subquery<C> sq = query.subquery(sub.column().type());
         Root<?> inner = sq.from(sub.rootEntity());
         JoinContext ctx = new JoinContext(inner, sub.rootEntity(), cb, sq, null, Set.of(), renderOptions,
-                existsJoined);
+                existsJoined, null, repeatedExpressionBinds);
         Path<C> selected = sub.column().path(ctx);
         // A lifted column reads the outer root, so its embeddable check runs against the outer context, not this one.
         boolean embeddable = column instanceof ColumnField<?, ?, ?> outerColumn && outerColumn.isLifted() && outer != null
@@ -282,9 +307,9 @@ public final class JoinContext {
         // The correlated outer root a lifted column reads; a through child's root is a join (D-100).
         From<?, ?> correlated = root instanceof Root<?> ? sq.correlate((Root) root) : sq.correlate((Join) root);
         JoinContext outerCtx = new JoinContext(correlated, rootType, cb, sq, rootKey, Set.of(), renderOptions,
-                existsJoined);
+                existsJoined, null, repeatedExpressionBinds);
         JoinContext ctx = new JoinContext(inner, sub.rootEntity(), cb, sq, null, Set.of(), renderOptions,
-                existsJoined, outerCtx);
+                existsJoined, outerCtx, repeatedExpressionBinds);
         sq.select(cb.literal(1));
         var where = new ArrayList<>(ConditionGroup.toPredicates(sub.filters(), ctx));
         where.addAll(ConditionGroup.toPredicates(correlation, ctx));

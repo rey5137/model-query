@@ -90,7 +90,19 @@ public final class ModelDelete<E, M> {
      */
     @EngineFacing
     public CriteriaDelete<E> buildWrite(CriteriaBuilder cb, RenderOptions options) {
-        return render(cb, options, WriteRendering.keysToRender(distinctKeys().orElse(null), null), false);
+        return render(cb, options, WriteRendering.keysToRender(distinctKeys().orElse(null), null), false).delete();
+    }
+
+    /**
+     * The bind values the repeated renderings of memoised expressions add beyond what JPA reports, for the whole
+     * statement {@link #buildWrite(CriteriaBuilder, RenderOptions)} renders (R-COL-19, D-80). An executor adds them to
+     * the parameters JPA reports before checking the bind limit: a chunked or key-first delete renders the same filter
+     * in every round, so the whole statement's repeats bound every chunk's and key-first form's binds too (D-63).
+     */
+    @EngineFacing
+    public int repeatedExpressionBinds(CriteriaBuilder cb, RenderOptions options) {
+        return render(cb, options, WriteRendering.keysToRender(distinctKeys().orElse(null), null), false).joins()
+                .repeatedExpressionBinds();
     }
 
     /**
@@ -105,7 +117,7 @@ public final class ModelDelete<E, M> {
     @EngineFacing
     public CriteriaDelete<E> buildWrite(CriteriaBuilder cb, RenderOptions options, List<?> chunk) {
         Objects.requireNonNull(chunk, "chunk");
-        return render(cb, options, WriteRendering.keysToRender(distinctKeys().orElse(null), chunk), false);
+        return render(cb, options, WriteRendering.keysToRender(distinctKeys().orElse(null), chunk), false).delete();
     }
 
     /**
@@ -122,7 +134,8 @@ public final class ModelDelete<E, M> {
     @EngineFacing
     public CriteriaDelete<E> buildWrite(CriteriaBuilder cb, RenderOptions options, List<?> keys,
             boolean rootTermsOnly) {
-        return render(cb, options, WriteRendering.selectedKeys(Objects.requireNonNull(keys, "keys")), rootTermsOnly);
+        return render(cb, options, WriteRendering.selectedKeys(Objects.requireNonNull(keys, "keys")), rootTermsOnly)
+                .delete();
     }
 
     /**
@@ -221,18 +234,23 @@ public final class ModelDelete<E, M> {
         return definition.primaryKey().columns().get(0).model().getSimpleName();
     }
 
-    private CriteriaDelete<E> render(CriteriaBuilder cb, RenderOptions options, List<Object> keys,
+    /** A rendered delete: the statement and the context that rendered it, whose repeated expression binds an executor
+     * counts (R-COL-19, D-80). */
+    private record Rendered<E>(CriteriaDelete<E> delete, JoinContext joins) {}
+
+    private Rendered<E> render(CriteriaBuilder cb, RenderOptions options, List<Object> keys,
             boolean rootTermsOnly) {
         Objects.requireNonNull(cb, "cb");
         Objects.requireNonNull(options, "options");
         CriteriaDelete<E> delete = cb.createCriteriaDelete(rootEntity());
         Root<E> from = delete.from(rootEntity());
+        JoinContext ctx = JoinContext.of(from, cb, delete, options);
         List<Predicate> where = WriteRendering.rows(keys, definition.rows().where(), definition.primaryKey(), delete,
-                from, cb, options, rootTermsOnly);
+                from, ctx, cb, options, rootTermsOnly);
         if (!where.isEmpty()) {
             delete.where(where.toArray(Predicate[]::new));
         }
-        return delete;
+        return new Rendered<>(delete, ctx);
     }
 
     /** Everything a stage holds; each stage call returns a copy with one part changed. */

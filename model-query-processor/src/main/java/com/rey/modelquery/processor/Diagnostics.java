@@ -23,6 +23,15 @@ final class Diagnostics {
         errors++;
     }
 
+    /**
+     * Reports {@code detail} as an error at no location: the element belongs to a round that has ended, so it cannot
+     * be named (D-107).
+     */
+    void error(DiagnosticCode code, String detail) {
+        messager.printMessage(Diagnostic.Kind.ERROR, code.code() + ": " + detail);
+        errors++;
+    }
+
     /** Reports {@code detail} as a warning on {@code element}: the model is still generated. */
     void warning(Element element, DiagnosticCode code, String detail) {
         messager.printMessage(Diagnostic.Kind.WARNING, code.code() + ": " + detail, element);

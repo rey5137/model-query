@@ -247,24 +247,30 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * with the configured timeout applied through the profile (R-FLT-09, R-EXE-11).
      */
     private <T> TypedQuery<T> create(Object label, CriteriaQuery<T> query) {
-        return create(label, em, query);
+        return create(label, em, query, null, null, null);
+    }
+
+    /** A statement of {@code built} on {@code em}, counting the binds its repeated expression nodes add back. */
+    private <M> TypedQuery<Tuple> create(Object label, BuiltQuery<M> built) {
+        return create(label, em, built.query(), null, null, built.joins());
     }
 
     /** A statement of {@code query} on {@code on}, a chunk's own {@code EntityManager} or the caller's. */
     private <T> TypedQuery<T> create(Object label, EntityManager on, CriteriaQuery<T> query) {
-        return create(label, on, query, null, null);
+        return create(label, on, query, null, null, null);
     }
 
     /**
      * As above, for a keyset statement, {@code cursor} being the one it was built after or {@code null} for the first
      * page or round, and {@code keyset} {@code null} for a statement without one (a run of distinct keys). It is
      * refused up front when its own binds plus the worst cursor {@code keyset} can add pass the limit, on every page,
-     * so a run never fails after rows reached a sink or a round committed (D-82).
+     * so a run never fails after rows reached a sink or a round committed (D-82). {@code joins} adds back the binds a
+     * repeated expression node contributes beyond the one JPA reports (R-COL-19), or {@code null} when unknown.
      */
     private <T> TypedQuery<T> create(Object label, EntityManager on, CriteriaQuery<T> query, Keyset<?> keyset,
-            Object[] cursor) {
+            Object[] cursor, JoinContext joins) {
         TypedQuery<T> typed = on.createQuery(query);
-        int binds = typed.getParameters().size();
+        int binds = typed.getParameters().size() + (joins == null ? 0 : joins.repeatedExpressionBinds());
         int cursorBinds = keyset == null || cursor == null ? 0 : keyset.cursorBinds(cursor);
         if (keyset != null) {
             withinCursorBindLimit(label, binds - cursorBinds, keyset);
@@ -345,7 +351,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /** {@code built}'s statement for {@code q}, capped at {@code limit}'s rows if it has any. */
     private <M> TypedQuery<Tuple> limited(ModelQuery<E, ?, M> q, BuiltQuery<M> built, Limit limit) {
-        TypedQuery<Tuple> query = create(q, built.query());
+        TypedQuery<Tuple> query = create(q, built);
         limit.maxRows().ifPresent(query::setMaxResults);
         return query;
     }
@@ -434,18 +440,22 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         readKeyset.applyOrder(built, cb);
         int size = keyset.size();
         // One row beyond the page tells whether another follows (R-PAG-21); size + 1 fits an int (KeysetSpec).
-        TypedQuery<Tuple> query = create(q, em, built.query(), readKeyset, cursor);
+        TypedQuery<Tuple> query = create(q, em, built.query(), readKeyset, cursor, built.joins());
         if (after != null) {
             after.bindTo(query);
         }
         query.setMaxResults(size + 1);
         List<Tuple> rows = rows(q, query);
-        // The null rule is read on every row, the look-ahead included (R-PAG-05, R-PAG-22).
+        List<Row> decoded = new ArrayList<>(rows.size());
         for (Tuple tuple : rows) {
-            forward.cursor(built.selection().row(tuple));
+            decoded.add(built.selection().row(tuple));
         }
-        boolean lookAhead = rows.size() > size;
-        List<Tuple> kept = lookAhead ? rows.subList(0, size) : rows;
+        // The null rule is read on every row, the look-ahead included (R-PAG-05, R-PAG-22).
+        for (Row row : decoded) {
+            forward.cursor(row);
+        }
+        boolean lookAhead = decoded.size() > size;
+        List<Row> kept = lookAhead ? decoded.subList(0, size) : decoded;
         if (before) {
             // Drop the furthest look-ahead row, then reverse the rest into the query's order (R-PAG-20).
             kept = new ArrayList<>(kept);
@@ -453,8 +463,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         Set<Object> seen = new HashSet<>();
         List<Loaded<M>> fresh = new ArrayList<>(kept.size());
-        for (Tuple tuple : kept) {
-            Row row = built.selection().row(tuple);
+        for (Row row : kept) {
             Object rowKey = Keys.keyOf(q, key, row);
             if (cursorKey != null && cursorKey.equals(rowKey)) {
                 // The cursor did not survive being bound, or the boundary row moved (R-PAG-24, D-110).
@@ -471,16 +480,20 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Optional<String> previous = Optional.empty();
         Optional<String> next = Optional.empty();
         if (!content.isEmpty()) {
+            // A flag's cursor is the boundary row's, encoded once: the previous row of a `before` page and of an
+            // `after` page, and the next row when a look-ahead row was read (R-PAG-20, R-PAG-21).
+            boolean hasPrevious = before ? lookAhead : cursor != null;
+            boolean hasNext = before || lookAhead;
+            String firstCursor = hasPrevious ? forward.encode(q, fresh.get(0).row()) : null;
+            String lastCursor = hasNext ? forward.encode(q, fresh.get(fresh.size() - 1).row()) : null;
             if (before) {
-                previous = lookAhead ? Optional.of(forward.encode(q, fresh.get(0).row())) : Optional.empty();
-                next = Optional.of(forward.encode(q, fresh.get(fresh.size() - 1).row()));
+                previous = hasPrevious ? Optional.of(firstCursor) : Optional.empty();
+                next = Optional.of(lastCursor);
             } else if (cursor != null) {
-                previous = Optional.of(forward.encode(q, fresh.get(0).row()));
-                next = lookAhead ? Optional.of(forward.encode(q, fresh.get(fresh.size() - 1).row()))
-                        : Optional.empty();
+                previous = Optional.of(firstCursor);
+                next = hasNext ? Optional.of(lastCursor) : Optional.empty();
             } else {
-                next = lookAhead ? Optional.of(forward.encode(q, fresh.get(fresh.size() - 1).row()))
-                        : Optional.empty();
+                next = hasNext ? Optional.of(lastCursor) : Optional.empty();
             }
         }
         return KeysetSlice.of(content, size, previous, next);
@@ -549,19 +562,20 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private <M> long updateRows(ModelUpdate<E, M> u) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
         BiFunction<Class<?>, Object, ?> references = em::getReference;
+        int repeated = u.repeatedExpressionBinds(cb, renderOptions, references);
         Supplier<Query> whole = () -> em.createQuery(u.buildWrite(cb, renderOptions, references));
         Function<List<Object>, Query> byKeys = chunk -> em.createQuery(u.buildWrite(cb, renderOptions, references,
                 chunk));
         boolean rootTermsOnly = keyFirst(() -> u.entitiesReadInSubquery(cb, renderOptions));
         logWrite("update", u, u.chunkOptions(), rootTermsOnly);
         if (!rootTermsOnly && u.chunkOptions().isEmpty()) {
-            return write(u.persistenceContext(), () -> direct(u.distinctKeys(), whole, byKeys));
+            return write(u.persistenceContext(), () -> direct(u.distinctKeys(), whole, byKeys, repeated));
         }
         var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), u.primaryKey(), u.distinctKeys(),
                 run -> run == null ? u.buildKeySelect(cb, renderOptions) : u.buildKeySelect(cb, renderOptions, run),
                 (on, keys) -> on.createQuery(u.buildWrite(cb, renderOptions, on::getReference, keys, rootTermsOnly)),
                 u.startAfter(), u::modelKey);
-        return write(u.persistenceContext(), () -> keyset(keyed, whole, byKeys, u.chunkOptions(), cb));
+        return write(u.persistenceContext(), () -> keyset(keyed, whole, byKeys, u.chunkOptions(), cb, repeated));
     }
 
     @Override
@@ -577,18 +591,19 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     private <M> long deleteRows(ModelDelete<E, M> d) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
+        int repeated = d.repeatedExpressionBinds(cb, renderOptions);
         Supplier<Query> whole = () -> em.createQuery(d.buildWrite(cb, renderOptions));
         Function<List<Object>, Query> byKeys = chunk -> em.createQuery(d.buildWrite(cb, renderOptions, chunk));
         boolean rootTermsOnly = keyFirst(() -> d.entitiesReadInSubquery(cb, renderOptions));
         logWrite("delete", d, d.chunkOptions(), rootTermsOnly);
         if (!rootTermsOnly && d.chunkOptions().isEmpty()) {
-            return write(d.persistenceContext(), () -> direct(d.distinctKeys(), whole, byKeys));
+            return write(d.persistenceContext(), () -> direct(d.distinctKeys(), whole, byKeys, repeated));
         }
         var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), d.primaryKey(), d.distinctKeys(),
                 run -> run == null ? d.buildKeySelect(cb, renderOptions) : d.buildKeySelect(cb, renderOptions, run),
                 (on, keys) -> on.createQuery(d.buildWrite(cb, renderOptions, keys, rootTermsOnly)),
                 d.startAfter(), d::modelKey);
-        return write(d.persistenceContext(), () -> keyset(keyed, whole, byKeys, d.chunkOptions(), cb));
+        return write(d.persistenceContext(), () -> keyset(keyed, whole, byKeys, d.chunkOptions(), cb, repeated));
     }
 
     /**
@@ -707,19 +722,21 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * The {@code whole} statement, or with {@code keys} the {@code byKeys} statements over runs of the keys sized to
-     * the profile's limits, counting each statement's own binds, {@code SET} values included; returns the summed rows
-     * affected (R-WRT-08, D-63).
+     * the profile's limits, counting each statement's own binds, {@code SET} values included, plus {@code repeated},
+     * the values the whole statement's memoised expressions repeat (R-WRT-08, R-COL-19, D-63); returns the summed rows
+     * affected.
      */
-    private long direct(Optional<List<Object>> keys, Supplier<Query> whole, Function<List<Object>, Query> byKeys) {
+    private long direct(Optional<List<Object>> keys, Supplier<Query> whole, Function<List<Object>, Query> byKeys,
+            int repeated) {
         if (keys.isEmpty()) {
-            return execute(whole.get());
+            return execute(whole.get(), repeated);
         }
         List<Object> all = keys.get();
         int chunk = all.size() == 1 ? 1 : keyChunkSize(byKeys.apply(all.subList(0, 1)), all.get(0),
-                OptionalInt.empty());
+                OptionalInt.empty(), repeated);
         long written = 0;
         for (int from = 0; from < all.size(); from += chunk) {
-            written += execute(byKeys.apply(all.subList(from, Math.min(all.size(), from + chunk))));
+            written += execute(byKeys.apply(all.subList(from, Math.min(all.size(), from + chunk))), repeated);
         }
         return written;
     }
@@ -729,43 +746,46 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * configured {@code bulkWriteChunkSize} for a chunked write, else the profile's clamp, always within the clamp;
      * with the keys selected under a lock when the options say {@code lockKeys()}, and each round in a new
      * transaction when they say {@code commitEachChunk()} (R-WRT-11, R-WRT-17, R-WRT-19, D-63). The clamp counts
-     * the binds of the {@code whole} statement, or of {@code byKeys} over one key, less that key's: the whole tree's
-     * binds are at least those of the root terms the write keeps and of the tree the key select renders, so neither
-     * passes the limit.
+     * the binds of the {@code whole} statement, or of {@code byKeys} over one key, less that key's, plus the whole
+     * statement's memoised expression repeats (R-COL-19): the whole tree's binds are at least those of the root terms
+     * the write keeps and of the tree the key select renders, so neither passes the limit.
      */
     private <M> long keyset(KeysetWrite.Keyed<M> keyed, Supplier<Query> whole, Function<List<Object>, Query> byKeys,
-            Optional<ChunkOptions> chunk, CriteriaBuilder cb) {
+            Optional<ChunkOptions> chunk, CriteriaBuilder cb, int repeated) {
         OptionalInt size = chunk.isEmpty() ? OptionalInt.empty()
                 : OptionalInt.of(chunk.get().size().orElse(bulkWriteChunkSize));
         int n = keyed.distinctKeys()
-                .map(all -> all.size() == 1 ? 1 : keyChunkSize(byKeys.apply(all.subList(0, 1)), all.get(0), size))
-                .orElseGet(() -> keyLimits.clamp(whole.get().getParameters().size(), keyed.key().columns().size(),
-                        size));
+                .map(all -> all.size() == 1 ? 1
+                        : keyChunkSize(byKeys.apply(all.subList(0, 1)), all.get(0), size, repeated))
+                .orElseGet(() -> keyLimits.clamp(whole.get().getParameters().size() + repeated,
+                        keyed.key().columns().size(), size));
         boolean perChunk = chunk.map(ChunkOptions::commitsEachChunk).orElse(false);
-        return new KeysetWrite(cb, (on, query, keyset, cursor) ->
-                create(rootEntity.getSimpleName(), on, query, keyset, cursor), this::execute, em,
+        return new KeysetWrite(cb, (on, built, keyset, cursor) -> create(rootEntity.getSimpleName(), on, built.query(),
+                keyset, cursor, built.joins()), statement -> execute(statement, repeated), em,
                 perChunk ? chunkTransactions : null).run(keyed, n, chunk.map(ChunkOptions::locksKeys).orElse(false));
     }
 
     /**
      * The most keys one write statement takes, {@code configured} if any, from {@code oneKey}, the statement over a
-     * single key: its binds less the key's own are the statement's (D-63).
+     * single key: its binds less the key's own, plus the {@code repeated} the whole statement's memoised expressions
+     * add, are the statement's (D-63, R-COL-19).
      */
-    private int keyChunkSize(Query oneKey, Object key, OptionalInt configured) {
+    private int keyChunkSize(Query oneKey, Object key, OptionalInt configured, int repeated) {
         int keyColumns = key instanceof List<?> components ? components.size() : 1;
-        int ownBinds = Math.max(0, oneKey.getParameters().size() - keyColumns);
+        int ownBinds = Math.max(0, oneKey.getParameters().size() + repeated - keyColumns);
         return keyLimits.clamp(ownBinds, keyColumns, configured);
     }
 
     /**
      * Runs a write statement within the bind limit, with the configured timeout applied through the profile
-     * (R-FLT-09, R-EXE-11).
+     * (R-FLT-09, R-EXE-11). {@code repeated} counts the bind values the statement's memoised expressions repeat beyond
+     * what JPA reports (R-COL-19, D-80).
      */
-    private int execute(Query statement) {
-        withinBindLimit(rootEntity.getSimpleName(), statement);
+    private int execute(Query statement, int repeated) {
+        withinBindLimit(rootEntity.getSimpleName(), statement.getParameters().size() + repeated, 0);
         queryTimeout.ifPresent(timeout -> vendor.profile().applyTimeout(statement, timeout));
-        LOG.log(TRACE, () -> rootEntity.getSimpleName() + ": statement binds " + statement.getParameters().size()
-                + " of " + renderOptions.maxBindParameters());
+        LOG.log(TRACE, () -> rootEntity.getSimpleName() + ": statement binds "
+                + (statement.getParameters().size() + repeated) + " of " + renderOptions.maxBindParameters());
         long start = System.nanoTime();
         int written = statement.executeUpdate();
         traceTimed(rootEntity.getSimpleName(), written + (written == 1 ? " row" : " rows") + " written", start);
@@ -829,7 +849,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
         appendStableOrder(q, built);
-        TypedQuery<Tuple> query = create(q, built.query());
+        TypedQuery<Tuple> query = create(q, built);
         query.setFirstResult(offset);
         query.setMaxResults(maxRows);
         return mapAll(q, query, built);
@@ -875,7 +895,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     /** Step 1: the primary keys of {@code maxRows} rows from {@code offset}, in {@code keyQuery}'s order. */
     private <M> List<Object> readKeys(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> key, BuiltQuery<M> keyQuery,
             int offset, int maxRows) {
-        TypedQuery<Tuple> query = create(q, keyQuery.query());
+        TypedQuery<Tuple> query = create(q, keyQuery);
         query.setFirstResult(offset);
         query.setMaxResults(maxRows);
         List<Tuple> rows = rows(q, query);
@@ -908,7 +928,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             Predicate own = built.query().getRestriction();
             built.query().where(own == null ? byKey : cb.and(own, byKey));
             appendStableOrder(q, built);
-            for (Tuple tuple : rows(q, create(q, built.query()))) {
+            for (Tuple tuple : rows(q, create(q, built))) {
                 found.putIfAbsent(Keys.keyOf(q, key, built.selection().row(tuple)), new Found<>(built, tuple));
             }
         }
@@ -935,9 +955,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      */
     private <M> int keyBatchSize(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> key) {
         // The statement's own binds, the query's values and the customizer's, before any key is added. JPA reports a
-        // literal the provider binds as a parameter of the query; one it renders inline takes no bind.
-        int ownBinds = em.createQuery(q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL_BY_KEYS, renderOptions).query())
-                .getParameters().size();
+        // literal the provider binds as a parameter of the query; one it renders inline takes no bind. A memoised
+        // expression used twice reports once, so its repeated renderings are added back (R-COL-19).
+        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL_BY_KEYS, renderOptions);
+        int ownBinds = em.createQuery(built.query()).getParameters().size() + built.joins().repeatedExpressionBinds();
         return keyLimits.clamp(ownBinds, key.columns().size(), primaryKeyFirstBatchSize);
     }
 
@@ -998,7 +1019,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 fresh = readByKeys(q, key, freshKeys, batch); // only the fresh keys' rows are read (R-PAG-07)
                 read = pageKeys.size();
             } else {
-                TypedQuery<Tuple> query = create(q, built.query());
+                TypedQuery<Tuple> query = create(q, built);
                 query.setFirstResult(offset);
                 query.setMaxResults(pageSize);
                 List<Tuple> rows = rows(q, query);
@@ -1053,7 +1074,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 built.query().where(own == null ? after.predicate() : cb.and(own, after.predicate()));
             }
             keyset.appendOrder(built, cb);
-            TypedQuery<Tuple> query = create(q, em, built.query(), keyset, cursor);
+            TypedQuery<Tuple> query = create(q, em, built.query(), keyset, cursor, built.joins());
             if (after != null) {
                 after.bindTo(query);
             }
@@ -1279,24 +1300,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             LOG.log(DEBUG, () -> "child " + load + ": no key on the page, so no child query");
             return;
         }
-        Map<Object, List<C>> children = readChildren(load, load.query(), List.copyOf(distinct));
+        Map<Object, List<C>> children = childrenOf(load, load.query(), List.copyOf(distinct));
         for (int i = 0; i < keys.length; i++) {
             List<C> found = keys[i] == null ? null : children.get(keys[i]);
             if (found != null) {
                 models.set(i, load.field().with(models.get(i), found));
             }
         }
-    }
-
-    /**
-     * Reads {@code load}'s children of {@code keys} for the child's root entity, on this executor's
-     * {@code EntityManager} and with its configuration (R-FCH-06).
-     *
-     * @param <E2> the child's root entity
-     */
-    private <E2, C> Map<Object, List<C>> readChildren(ChildLoad<?, C> load, ModelQuery<E2, ?, C> q,
-            List<Object> keys) {
-        return childrenOf(load, q, keys);
     }
 
     /**
@@ -1311,10 +1321,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             List<Object> keys) {
         checkFirstRun(q);
         CriteriaBuilder cb = em.getCriteriaBuilder();
-        // The statement's own binds, before any key is added, at one bind per key (R-PAG-07, D-32); a dialect that
-        // binds the LIMIT of the setMaxResults below as a parameter takes one more.
-        int ownBinds = em.createQuery(load.build(cb, renderOptions).query()).getParameters().size()
-                + (load.maxPerParent() > 0 ? 1 : 0);
+        // The statement's own binds, before any key is added, at one bind per key (R-PAG-07, D-32), plus the values
+        // its memoised expressions repeat (R-COL-19); a dialect that binds the LIMIT of the setMaxResults below as a
+        // parameter takes one more.
+        BuiltQuery<C> counted = load.build(cb, renderOptions);
+        int ownBinds = em.createQuery(counted.query()).getParameters().size()
+                + counted.joins().repeatedExpressionBinds() + (load.maxPerParent() > 0 ? 1 : 0);
         int round = keyLimits.clamp(ownBinds, 1, OptionalInt.empty());
         LOG.log(DEBUG, () -> "child " + load + ": " + keys.size() + (keys.size() == 1 ? " key" : " keys") + " in "
                 + ((keys.size() - 1) / round + 1) + " round(s)");
@@ -1327,7 +1339,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             Predicate own = built.query().getRestriction();
             built.query().where(own == null ? byKey : cb.and(own, byKey));
             appendStableOrder(q, built);
-            TypedQuery<Tuple> query = create(load, built.query());
+            TypedQuery<Tuple> query = create(load, built);
             long cap = (long) roundKeys.size() * load.maxPerParent() + 1;
             if (load.maxPerParent() > 0) {
                 query.setMaxResults((int) Math.min(cap, Integer.MAX_VALUE));
@@ -1419,7 +1431,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         boolean readThroughToMany = readsThroughToMany(built);
         Expression<Long> count = hasToManyJoin(root) && !readThroughToMany ? cb.countDistinct(root) : cb.count(root);
         query.multiselect(count);
-        return ((Number) single(q, create(q, query)).get(0)).longValue();
+        return ((Number) single(q, create(q, built)).get(0)).longValue();
     }
 
     /** {@code count(*)} over the groups: in the database when the provider support can, else client-side. */
@@ -1440,12 +1452,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         // The provider support only builds the count; it runs here, so the configured timeout applies (R-EXE-11).
         Optional<CriteriaQuery<Long>> count = vendor.providerSupport().flatMap(p -> p.countQuery(query));
         if (count.isPresent()) {
-            return single(q, create(q, count.get()));
+            return single(q, create(q, em, count.get(), null, null, built.joins()));
         }
         LOG.log(System.Logger.Level.WARNING, "count over the grouped query on {0} runs it and counts its rows in "
                 + "memory, because no ProviderSupport counts groups for this persistence provider; add "
                 + "model-query-hibernate for a count in the database (R-EXE-03)", rootEntity.getSimpleName());
-        return rows(q, create(q, query)).size();
+        return rows(q, create(q, built)).size();
     }
 
     private static boolean hasToManyJoin(From<?, ?> from) {

@@ -7,10 +7,13 @@ import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
+import com.rey.modelquery.core.Expr;
+import com.rey.modelquery.core.ExpressionField;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
+import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.PrimaryKey;
@@ -64,6 +67,8 @@ class StatementBindLimitTest {
             ColumnField.of(Row2.class, ROOT, "a", Integer.class);
     private static final ColumnField<Row2, KeysetRowEntity, Integer> B =
             ColumnField.of(Row2.class, ROOT, "b", Integer.class);
+    /** A bound value in an expression, so a statement that selects and filters it binds once per occurrence (R-COL-19). */
+    private static final ExpressionField<Row2, Integer> A_PLUS = Expr.plus(A, 1);
 
     private static final ModelQuery.Builder<KeysetRowEntity, Long, Row2> ROWS = ModelQuery
             .builder(ROOT, row -> new Row2(row.get(ID), row.get(A)))
@@ -140,6 +145,23 @@ class StatementBindLimitTest {
     }
 
     @Test
+    void ac_prf_03_an_expression_used_in_select_and_filter_binds_once_per_occurrence() {
+        // A4: the memoised expression renders its value in the selection and the filter, but JPA reports the shared
+        // node once, so 1 999 IN-list binds plus the two expression values trip the 2 000 limit (api/10 R-COL-19,
+        // api/12 R-FLT-09, D-80). Counting it once, the statement binds 2 000 and runs.
+        var repeated = ModelQuery.builder(ROOT, row -> new Row2(row.get(ID), row.get(A)))
+                .select(SelectSet.of(ID, A, A_PLUS))
+                .primaryKey(PrimaryKey.of(ID))
+                .orderBy(ID.asc())
+                .where(f -> f.in(A, values(1_999)).isNotNull(A_PLUS))
+                .build();
+        withExecutor(executor -> assertThatThrownBy(() -> executor.list(repeated, Limit.unlimited()))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1307))
+                .hasMessageContaining("a statement binds 2001 values"));
+    }
+
+    @Test
     void ac_prf_03_filters_that_together_reach_the_bind_limit_run() {
         var atLimit = ROWS.where(f -> f.in(A, values(1_500)).in(B, values(500))).build();
         withExecutor(executor -> {
@@ -170,6 +192,81 @@ class StatementBindLimitTest {
                                 e -> assertThat(e.code()).isEqualTo(MqCode.MQ1307))
                         .hasMessageStartingWith(MqCode.MQ1307.code() + ": KeysetRowEntity: a statement binds 2001");
                 assertThat(executor.count(ROWS.build())).isEqualTo(3);
+            } finally {
+                em.getTransaction().rollback();
+            }
+        }
+    }
+
+    /**
+     * C2: a write's filter can repeat a memoised expression's bound value, which JPA reports once, so JPA's count fits
+     * the limit while the real one does not; the whole statement's repeats are added back before it runs
+     * (api/10 R-COL-19, api/12 R-FLT-09, D-80). A delete has no {@code SET} value, so 1 999 IN-list binds plus the two
+     * renderings of the expression's value are 2 001, though JPA reports 2 000 (D-82 for the refusal's timing).
+     */
+    @Test
+    void c2_a_delete_whose_filter_repeats_an_expression_trips_the_bind_limit_before_it_runs() {
+        var delete = ModelDelete.builder(ROOT).primaryKey(PrimaryKey.of(ID))
+                .where(f -> f.in(B, values(1_999)).or(a -> a.isNotNull(A_PLUS), b -> b.isNotNull(A_PLUS)))
+                .build();
+        try (EntityManager em = sessions.createEntityManager()) {
+            em.getTransaction().begin();
+            try {
+                var executor = ModelQueryExecutor.create(em, KeysetRowEntity.class, OTHER);
+                assertThatThrownBy(() -> executor.delete(delete))
+                        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ1307))
+                        .hasMessageContaining("a statement binds 2001 values");
+                assertThat(executor.count(ROWS.build())).isEqualTo(3);
+            } finally {
+                em.getTransaction().rollback();
+            }
+        }
+    }
+
+    /**
+     * C2: as above for an update, whose {@code SET} value is one bind too, so 1 998 IN-list binds plus the {@code SET}
+     * value and JPA's one expression value fit 2 000 while the expression's real two do not (api/10 R-COL-19,
+     * api/12 R-FLT-09, D-80).
+     */
+    @Test
+    void c2_an_update_whose_filter_repeats_an_expression_trips_the_bind_limit_before_it_runs() {
+        var update = ModelUpdate.builder(ROOT).primaryKey(PrimaryKey.of(ID)).set(A, 9)
+                .where(f -> f.in(B, values(1_998)).or(a -> a.isNotNull(A_PLUS), b -> b.isNotNull(A_PLUS)))
+                .build();
+        try (EntityManager em = sessions.createEntityManager()) {
+            em.getTransaction().begin();
+            try {
+                var executor = ModelQueryExecutor.create(em, KeysetRowEntity.class, OTHER);
+                assertThatThrownBy(() -> executor.update(update))
+                        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ1307))
+                        .hasMessageContaining("a statement binds 2001 values");
+                assertThat(executor.count(ROWS.build())).isEqualTo(3);
+            } finally {
+                em.getTransaction().rollback();
+            }
+        }
+    }
+
+    /**
+     * C2: a chunked write's key chunk is clamped from the whole statement's binds less one key's, plus the repeats JPA
+     * does not report (api/10 R-COL-19, api/12 R-FLT-09, D-80). Without them the clamp is 8 and a round's key select
+     * binds 2 001; adding the one repeated value shrinks it to 4, so the write runs every round (D-82).
+     */
+    @Test
+    void c2_a_chunked_write_shrinks_its_chunk_size_for_repeated_expression_binds() {
+        var delete = ModelDelete.builder(ROOT).primaryKey(PrimaryKey.of(ID))
+                .whereKeys(values(8).stream().map(Integer::longValue).toList())
+                .where(f -> f.in(B, values(1_991)).or(a -> a.isNotNull(A_PLUS), b -> b.isNotNull(A_PLUS)))
+                .chunked(ChunkOptions.size(8))
+                .build();
+        try (EntityManager em = sessions.createEntityManager()) {
+            em.getTransaction().begin();
+            try {
+                var executor = ModelQueryExecutor.create(em, KeysetRowEntity.class, OTHER);
+                assertThat(executor.delete(delete)).isEqualTo(3);
+                assertThat(executor.count(ROWS.build())).isZero();
             } finally {
                 em.getTransaction().rollback();
             }

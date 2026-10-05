@@ -109,6 +109,20 @@ class EnricherTest {
     }
 
     @Test
+    void ac_fch_14_a_with_returning_null_throws_mq2602() {
+        // A3: a with() that returns null is refused like Enricher.of's null model (api/15 R-FCH-14, R-FCH-15).
+        Enricher<Actor> actors = Enricher.<Actor, String, String>byKeys(keys -> Map.of("u1", "Ada"))
+                .key(Actor::payer, (actor, value) -> null)
+                .reading();
+
+        assertThatThrownBy(() -> actors.enrich("Actor", List.of(new Actor("u1", null))))
+                .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ2602))
+                .hasMessage("MQ2602: Actor: an Enricher.byKey or byKeys with() returned null at key index 0; return "
+                        + "the model it was given, filled");
+    }
+
+    @Test
     void ac_fch_14_a_key_two_bindings_share_is_read_once_per_binding_from_the_model_the_page_holds() {
         // Two bindings read the payer, and the first with() overwrites it: the second still reads the page's payer.
         var reads = new ArrayList<String>();

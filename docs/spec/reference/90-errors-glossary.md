@@ -23,6 +23,8 @@ column or property name. A bare `IllegalArgumentException` from library code is 
 **R-ERR-05** The three exceptions above extend the abstract `ModelQueryException extends RuntimeException`, which
 holds `MqCode code()`, so a caller catches every library failure in one clause and reads its code; the one exception
 is R-ERR-04's `OptimisticLockException`. Its constructors are protected; no other direct subclass is planned (D-106).
+*Amended at the M9 gate:* sealed over its three subclasses, which are `non-sealed`, so a foreign exception cannot
+carry an `MqCode`; sealing after 1.0 would break subclasses.
 
 ## 2. `MQ1xxx` — query definition
 

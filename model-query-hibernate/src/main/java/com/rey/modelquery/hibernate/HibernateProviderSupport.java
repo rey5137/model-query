@@ -14,10 +14,14 @@ import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Order;
 import java.io.Serializable;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.WeakHashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 import org.hibernate.boot.model.naming.Identifier;
 import org.hibernate.boot.model.relational.SqlStringGenerationContext;
@@ -46,6 +50,14 @@ import org.hibernate.query.criteria.JpaExpression;
  */
 @Incubating
 public final class HibernateProviderSupport implements ProviderSupport {
+
+    /**
+     * The tables an entity reads, per factory and entity class (R-VND-13, D-109): walking every entity descriptor is
+     * too costly to repeat per bulk-write statement, so the result is cached. Weak on the factory, so a closed one
+     * does not stay reachable; the entity classes stay reachable as long as their class loader.
+     */
+    private static final Map<EntityManagerFactory, Map<Class<?>, Set<String>>> TABLES =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     @Override
     public boolean supports(EntityManagerFactory emf) {
@@ -124,20 +136,24 @@ public final class HibernateProviderSupport implements ProviderSupport {
     @Override
     public Set<String> tablesOf(EntityManagerFactory emf, Class<?> entity) {
         return sessionFactory(emf).filter(sf -> sf.getMappingMetamodel().findEntityDescriptor(entity) != null)
-                .map(sf -> {
-                    SqlStringGenerationContext context = sf.getSqlStringGenerationContext();
-                    Set<String> tables = new LinkedHashSet<>();
-                    sf.getMappingMetamodel().forEachEntityDescriptor(persister -> {
-                        if (entity.isAssignableFrom(persister.getMappedClass())) {
-                            for (Serializable space : persister.getQuerySpaces()) {
-                                normalised(space.toString(), context.getDefaultCatalog(), context.getDefaultSchema())
-                                        .ifPresent(tables::add);
-                            }
-                        }
-                    });
-                    return Set.copyOf(tables);
-                })
+                .map(sf -> TABLES.computeIfAbsent(emf, factory -> new ConcurrentHashMap<>())
+                        .computeIfAbsent(entity, type -> tablesOf(sf, type)))
                 .orElse(Set.of());
+    }
+
+    /** The query spaces of {@code entity} and its subtypes in {@code sf}, as {@link #normalised} names. */
+    private static Set<String> tablesOf(SessionFactoryImplementor sf, Class<?> entity) {
+        SqlStringGenerationContext context = sf.getSqlStringGenerationContext();
+        Set<String> tables = new LinkedHashSet<>();
+        sf.getMappingMetamodel().forEachEntityDescriptor(persister -> {
+            if (entity.isAssignableFrom(persister.getMappedClass())) {
+                for (Serializable space : persister.getQuerySpaces()) {
+                    normalised(space.toString(), context.getDefaultCatalog(), context.getDefaultSchema())
+                            .ifPresent(tables::add);
+                }
+            }
+        });
+        return Set.copyOf(tables);
     }
 
     /**

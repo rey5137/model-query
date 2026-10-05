@@ -241,6 +241,11 @@ public final class Enricher<M> {
                     V value = found.get(key);
                     if (value != null) {
                         filled = bindings.get(b).with().apply(filled, value);
+                        if (filled == null) {
+                            throw new ModelQueryExecutionException(MqCode.MQ2602, owner + ": an Enricher.byKey or "
+                                    + "byKeys with() returned null at key index " + b + "; return the model it was "
+                                    + "given, filled");
+                        }
                     }
                 }
                 enriched.add(filled);

@@ -134,12 +134,16 @@ R-PROC-07 (D-93).
   constructor. It is declared `Class<?>` because the type is in core (R-PROC-01); otherwise `MQ3018`.
   `ExpressionDefinition<M, C>` (core, `@Incubating`) has one method, `ExpressionField<M, C> expression()`, where `M`
   is the model and `C` the field's type.
-- The generated constant is `value.expression().named(field)`, emitted after every column constant
-  (`processor/31`). It is mapped like a column and is in `DEFAULT` and `ALL` unless `@ExcludeFromDefaults`.
+- The generated constant is `value.expression().named(field)`, emitted in declaration order after the root, joined and
+  filter-only column constants and after the `@Computed` constants declared before it (`processor/31` R-GEN-27). The
+  definition builds its expression inside `expression()`, may read any `Q<Model>` constant declared earlier in that
+  order, and never caches it in a static field of its own. It is mapped like a column and is in `DEFAULT` and `ALL`
+  unless `@ExcludeFromDefaults`.
 - It cannot be combined with `@PrimaryKey`, `@Column`, `@Join`, `@Child`, `@Aggregate` or `@Transient`, nor be
   primitive (`MQ3019`). A model with one cannot be a `@Join` target (`MQ3005`).
 
-**R-PROC-22** *(D-115)* `@Aggregate(expression = Def.class)` aggregates the definition's expression. `attribute` and
+**R-PROC-22** *(D-115)* `@Aggregate(expression = Def.class)` aggregates the definition's expression, emitted after
+every other constant of the model so the definition may read any of them (`processor/31` R-GEN-27). `attribute` and
 `expression` together are `MQ3208`. `MQ3202`, `MQ3205` and `MQ3206` read the expression's type.
 
 ## 7. Update models

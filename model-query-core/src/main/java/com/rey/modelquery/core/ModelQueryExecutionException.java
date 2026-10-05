@@ -8,7 +8,7 @@ import com.rey.modelquery.annotations.Incubating;
  * @implSpec R-ERR-01, R-ERR-05
  */
 @Incubating
-public class ModelQueryExecutionException extends ModelQueryException {
+public non-sealed class ModelQueryExecutionException extends ModelQueryException {
 
     private static final long serialVersionUID = 1L;
 

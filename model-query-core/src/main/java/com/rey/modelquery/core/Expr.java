@@ -44,7 +44,7 @@ public final class Expr {
     public static <M, C> ExpressionField<M, C> coalesce(ScalarField<M, C> first, ScalarField<M, C> second) {
         checkFields(first);
         checkFields(second);
-        return new ExpressionField<>(new ExpressionField.Coalesce(first, second, boxed(first.type())), first.type(),
+        return new ExpressionField<>(new ExpressionField.Coalesce(first, second, ColumnField.boxed(first.type())), first.type(),
                 null);
     }
 
@@ -52,7 +52,7 @@ public final class Expr {
     public static <M, C> ExpressionField<M, C> coalesce(ScalarField<M, C> first, C fallback) {
         checkFields(first);
         checkValue(fallback);
-        return new ExpressionField<>(new ExpressionField.Coalesce(first, fallback, boxed(first.type())), first.type(),
+        return new ExpressionField<>(new ExpressionField.Coalesce(first, fallback, ColumnField.boxed(first.type())), first.type(),
                 null);
     }
 
@@ -60,7 +60,7 @@ public final class Expr {
     public static <M, C> ExpressionField<M, C> nullIf(ScalarField<M, C> value, C sentinel) {
         checkFields(value);
         checkValue(sentinel);
-        return new ExpressionField<>(new ExpressionField.NullIf(value, sentinel, boxed(value.type())), value.type(),
+        return new ExpressionField<>(new ExpressionField.NullIf(value, sentinel, ColumnField.boxed(value.type())), value.type(),
                 null);
     }
 
@@ -137,7 +137,7 @@ public final class Expr {
     /** {@code -value}. */
     public static <M, C extends Number> ExpressionField<M, C> negate(ScalarField<M, C> value) {
         checkFields(value);
-        return new ExpressionField<>(new ExpressionField.Negate(value, boxed(value.type())), value.type(), null);
+        return new ExpressionField<>(new ExpressionField.Negate(value, ColumnField.boxed(value.type())), value.type(), null);
     }
 
     /** {@code concat(a, b)}: NULL when any operand is NULL (R-COL-17). */
@@ -182,8 +182,8 @@ public final class Expr {
             checkFields(checked);
             operands.add(checked);
         }
-        return new ExpressionField<>(new ExpressionField.Fn(name, List.copyOf(operands), boxed(type)),
-                (Class<C>) boxed(type), null);
+        return new ExpressionField<>(new ExpressionField.Fn(name, List.copyOf(operands), ColumnField.boxed(type)),
+                (Class<C>) ColumnField.boxed(type), null);
     }
 
     /** {@code value} as SQL definition text, rendered by the provider's literal formatter; never a request value. */
@@ -215,7 +215,7 @@ public final class Expr {
     public static <M, R> Cases<M, R> cases(Class<M> model, Class<R> type) {
         Objects.requireNonNull(model, "model");
         Objects.requireNonNull(type, "type");
-        return new Cases<>((Class<R>) boxed(type));
+        return new Cases<>((Class<R>) ColumnField.boxed(type));
     }
 
     // ---- helpers shared with ExpressionField's nodes
@@ -279,7 +279,7 @@ public final class Expr {
     private static void dividedByCheck(ScalarField<?, ?> a, ScalarField<?, ?> b) {
         checkFields(a);
         checkFields(b);
-        if (INTEGRAL.contains(boxed(a.type())) && INTEGRAL.contains(boxed(b.type()))) {
+        if (INTEGRAL.contains(ColumnField.boxed(a.type())) && INTEGRAL.contains(ColumnField.boxed(b.type()))) {
             throw new ModelQueryDefinitionException(MqCode.MQ1503, "dividedBy(" + a + ", " + b + "): an integral "
                     + "division truncates on PostgreSQL and H2 and not on MySQL; divide decimals, or multiply by a "
                     + "decimal first");
@@ -296,12 +296,8 @@ public final class Expr {
             checkValue(b);
         }
         @SuppressWarnings("unchecked")
-        Class<C> result = type != null ? (Class<C>) boxed(type) : (Class<C>) boxed(a.type());
+        Class<C> result = type != null ? (Class<C>) ColumnField.boxed(type) : (Class<C>) ColumnField.boxed(a.type());
         return new ExpressionField<>(new ExpressionField.Arith(kind, a, b, result), result, null);
-    }
-
-    private static Class<?> boxed(Class<?> type) {
-        return ColumnField.boxed(type);
     }
 
     /** A CASE builder: only {@code when(...)} is exposed, so a CASE with no WHEN does not compile (R-COL-17). */

@@ -111,10 +111,6 @@ final class QModelWriter {
                     modelName, model.root(), field.constant(), "ROOT", field.attribute(), field.type(),
                     converter(model, field), field.name()));
         }
-        // Aggregates are in no column set, or every query of the model would be grouped (R-PROC-17).
-        for (ModelField field : update ? List.<ModelField>of() : model.aggregates()) {
-            type.addField(aggregate(modelName, model, field));
-        }
         for (JoinedTable table : joined) {
             ClassName nested = generatedName(table.nested());
             for (JoinedColumn column : table.columns()) {
@@ -138,6 +134,12 @@ final class QModelWriter {
         // already set when the generated class initialises it (R-GEN-27).
         for (ModelField field : update ? List.<ModelField>of() : model.computed()) {
             type.addField(computed(modelName, field));
+        }
+        // Aggregates come last: an aggregate over an expression builds it during the initialiser, and the expression
+        // may read any constant of the model declared earlier in this order (R-GEN-27, R-PROC-22). They are in no
+        // column set, or every query of the model would be grouped (R-PROC-17).
+        for (ModelField field : update ? List.<ModelField>of() : model.aggregates()) {
+            type.addField(aggregate(modelName, model, field));
         }
         if (model.selectSets()) {
             TypeName selectSet = ParameterizedTypeName.get(SELECT_SET, modelName);
@@ -335,13 +337,7 @@ final class QModelWriter {
             // The aggregate is the Agg overload over the definition's expression (R-PROC-22, R-GEN-27).
             ExpressionDefinitionType definition = ExpressionDefinitionType.of(types, aggregate.expression());
             TypeMirror sourceType = definition.value();
-            String function = switch (aggregate.fn()) {
-                case "COUNT" -> aggregate.distinct() ? "countDistinct" : "count";
-                // Agg.sum refuses a 32-bit expression; the field is a Long and the QModel sums it as one (MQ3205).
-                case "SUM" -> column(sourceType).toString().matches("java\\.lang\\.(Integer|Short|Byte)")
-                        ? "sumAsLong" : "sum";
-                default -> aggregate.fn().toLowerCase(Locale.ROOT);
-            };
+            String function = aggregateFunction(aggregate, sourceType);
             return constant.initializer("$T.$L($L)", AGG, function, definitionExpression(definition)).build();
         }
         if (aggregate.attribute().isEmpty() && aggregate.fn().equals("COUNT")) {
@@ -356,18 +352,29 @@ final class QModelWriter {
                 : CodeBlock.of("$T.of($T.class,$WROOT,$W$S,$W$L,$W$L,$W$T.INSTANCE)", COLUMN_FIELD, modelName,
                         aggregate.attribute(), classOf(result), classOf(column(attributeType)),
                         ClassName.get((TypeElement) types.asElement(converter)));
-        String function = switch (aggregate.fn()) {
-            case "COUNT" -> aggregate.distinct() ? "countDistinct" : null;
-            case "SUM" -> column(attributeType).toString().matches("java\\.lang\\.(Integer|Short|Byte)")
-                    ? "sumAsLong" : "sum";
-            default -> aggregate.fn().toLowerCase(Locale.ROOT);
-        };
+        String function = aggregate.fn().equals("COUNT") && !aggregate.distinct()
+                ? null
+                : aggregateFunction(aggregate, attributeType);
         if (function == null) {
             // Agg has no count(column), so it counts the column's non-null values as an expression of its own.
             return constant.initializer("$T.of($S, $T.class,$W(ctx, cb) -> cb.count($Z$L.path(ctx)))",
                     AGG, field.constant(), Long.class, source).build();
         }
         return constant.initializer("$T.$L($Z$L)", AGG, function, source).build();
+    }
+
+    /**
+     * The {@code Agg} factory for {@code aggregate}'s function over a column of {@code sourceType}: {@code COUNT}
+     * counts, {@code SUM} sums, and any other function is its name lower-cased.
+     */
+    private String aggregateFunction(AggregateDefinition aggregate, TypeMirror sourceType) {
+        return switch (aggregate.fn()) {
+            case "COUNT" -> aggregate.distinct() ? "countDistinct" : "count";
+            // Agg.sum refuses a 32-bit expression; the field is a Long and the QModel sums it as one (MQ3205).
+            case "SUM" -> column(sourceType).toString().matches("java\\.lang\\.(Integer|Short|Byte)")
+                    ? "sumAsLong" : "sum";
+            default -> aggregate.fn().toLowerCase(Locale.ROOT);
+        };
     }
 
     /** A join no {@code @Join} declares: of a filter column's path, or of a collection of the root (R-PROC-13). */
@@ -493,7 +500,7 @@ final class QModelWriter {
                 && !Character.isLowerCase(name.charAt(2))) {
             name = name.substring(2);
         }
-        return "set" + Character.toUpperCase(name.charAt(0)) + name.substring(1);
+        return "set" + ChangesWriter.capitalized(name);
     }
 
     /** What a record component that is not a column is constructed with: its type's default value. */

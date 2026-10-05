@@ -1036,7 +1036,8 @@ columns included; this is documented, not hidden.
 `ModelQueryExecutionException` and `ModelQueryConfigurationException` extend it, so a caller catches every library
 failure in one clause and reads its code. Adding it later would be binary-compatible, but a 1.0 handler written
 against three types would never pick it up. Its constructors are protected; no new subclass is planned. Frozen at
-1.0. → `reference/90` §1, D-85.
+1.0. *Amended at the M9 gate:* sealed over its three subclasses, which are `non-sealed`, so a foreign exception cannot
+carry an `MqCode`; sealing after 1.0 would break subclasses. → `reference/90` §1, D-85.
 
 **D-107 — A model rooted at a type generated in the same round is deferred (resolves Q-11).** The processor keeps a
 model whose `root` is not yet resolvable and retries it each round; in the last round it reports a new `MQ30xx` on the
@@ -1195,6 +1196,12 @@ against R-FLT-08, is bound instead (AC-PAG-28), so R-FLT-08 stays absolute. Reje
 `api/13` R-AGG-02, R-AGG-05, R-AGG-08, R-AGG-13, R-AGG-14; `api/15` R-FCH-07; `api/16` R-INS-04, R-INS-09; `engine/21`
 R-PAG-13, R-PAG-25; `processor/30` R-PROC-16, R-PROC-21, R-PROC-22; `processor/32`; `vendor/40` R-VND-09;
 `reference/90`; `delivery/61`; `SPEC.md` INV-9.
+
+*Amended at the M9 gate: the generated constant order is the root columns, the joined columns, the filter-only
+columns, the `@Computed` constants in declaration order, then the `@Aggregate` constants last. A definition builds its
+expression inside `expression()` and may read any constant of its own `Q<Model>` declared earlier in that order — a
+`@Computed` reads only earlier `@Computed` constants — never caching it in a static field of its own* (`processor/31`
+R-GEN-27).
 
 
 ## 2. Open questions

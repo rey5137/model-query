@@ -27,11 +27,13 @@ public final class SubSelect<S, C> {
     private final ColumnField<S, ?, C> column;
     private final TableField<?, ?> root;
     private final List<Filter> filters;
+    private final List<Condition> conditions;
 
     private SubSelect(ColumnField<S, ?, C> column, TableField<?, ?> root, List<Filter> filters) {
         this.column = column;
         this.root = root;
         this.filters = filters;
+        this.conditions = ConditionGroup.conditions(filters);
     }
 
     /** The sub-select of {@code column} from the root its path starts at, with no filters. */
@@ -66,7 +68,7 @@ public final class SubSelect<S, C> {
 
     /** The filters its {@code where} recorded, in order, as an immutable tree (R-INS-04). */
     public List<Condition> conditions() {
-        return ConditionGroup.conditions(filters);
+        return conditions;
     }
 
     /** The recorded filters, which render the sub-query's where. */

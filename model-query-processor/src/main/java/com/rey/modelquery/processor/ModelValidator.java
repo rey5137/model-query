@@ -246,16 +246,25 @@ final class ModelValidator {
     private void checkExpressionAggregate(ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
         AggregateDefinition aggregate = field.aggregate();
         ExpressionDefinitionType definition = ExpressionDefinitionType.of(types, aggregate.expression());
-        if (definition == null || !types.isSameType(definition.model(), model.type().asType())) {
-            diagnostics.error(field.element(), DiagnosticCode.MQ3018, definitionProblem(model, field, where));
-            return;
-        }
-        if (!definition.hasInstance() && !definition.hasVisibleConstructor(model.type())) {
-            diagnostics.error(field.element(), DiagnosticCode.MQ3018, definitionProblem(model, field, where));
+        if (!usableDefinition(model, field, where, definition, diagnostics)) {
             return;
         }
         reportAggregate(field, aggregate.fn(), expectedResult(definition.value(), false, field, where, diagnostics),
                 where, diagnostics);
+    }
+
+    /**
+     * Whether {@code definition} is a usable {@code ExpressionDefinition<Model, ?>}: of this model, and with an
+     * instance or a no-arg constructor. Reports {@code MQ3018} on the field otherwise.
+     */
+    private boolean usableDefinition(ModelDefinition model, ModelField field, String where,
+            ExpressionDefinitionType definition, Diagnostics diagnostics) {
+        if (definition == null || !types.isSameType(definition.model(), model.type().asType())
+                || (!definition.hasInstance() && !definition.hasVisibleConstructor(model.type()))) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3018, definitionProblem(model, field, where));
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -272,12 +281,10 @@ final class ModelValidator {
                     where + "@Computed can't be combined with " + annotation);
         }
         ExpressionDefinitionType definition = ExpressionDefinitionType.of(types, field.definition());
-        if (definition == null || !types.isSameType(definition.model(), model.type().asType())
-                || !types.isSameType(definition.value(), boxed(field.type()))) {
-            diagnostics.error(field.element(), DiagnosticCode.MQ3018, definitionProblem(model, field, where));
+        if (!usableDefinition(model, field, where, definition, diagnostics)) {
             return;
         }
-        if (!definition.hasInstance() && !definition.hasVisibleConstructor(model.type())) {
+        if (!types.isSameType(definition.value(), boxed(field.type()))) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3018, definitionProblem(model, field, where));
         }
     }

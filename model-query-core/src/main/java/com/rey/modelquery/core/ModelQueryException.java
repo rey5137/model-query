@@ -11,7 +11,8 @@ import com.rey.modelquery.annotations.Incubating;
  * @implSpec R-ERR-01, R-ERR-05, D-106
  */
 @Incubating
-public abstract class ModelQueryException extends RuntimeException {
+public abstract sealed class ModelQueryException extends RuntimeException
+        permits ModelQueryDefinitionException, ModelQueryExecutionException, ModelQueryConfigurationException {
 
     private static final long serialVersionUID = 1L;
 

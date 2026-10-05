@@ -176,11 +176,20 @@ public final class VendorResolver {
         }
     }
 
-    /** {@code DEBUG} for a missing class or a service-loader error, {@code WARNING} for any other link error. */
-    private static System.Logger.Level levelOf(Throwable skipped) {
-        return skipped instanceof LinkageError && !(skipped instanceof NoClassDefFoundError)
-                ? System.Logger.Level.WARNING
-                : System.Logger.Level.DEBUG;
+    /**
+     * {@code DEBUG} for an absent provider library or a service-loader error, {@code WARNING} for any other link
+     * error and for a skipped class of ours: a {@code NoClassDefFoundError} naming a {@code com.rey.modelquery.}
+     * class means this library's own class path is broken, not that a provider is absent (R-VND-04).
+     */
+    static System.Logger.Level levelOf(Throwable skipped) {
+        if (!(skipped instanceof LinkageError)) {
+            return System.Logger.Level.DEBUG;
+        }
+        if (!(skipped instanceof NoClassDefFoundError)) {
+            return System.Logger.Level.WARNING;
+        }
+        String missing = String.valueOf(skipped.getMessage()).replace('/', '.');
+        return missing.contains("com.rey.modelquery.") ? System.Logger.Level.WARNING : System.Logger.Level.DEBUG;
     }
 
     /**

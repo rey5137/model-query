@@ -89,6 +89,38 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         return columns;
     }
 
+    /**
+     * The bind values one rendering of this expression binds, its node's nested expressions and CASE conditions
+     * included (R-COL-18). A memoised node rendered again repeats them, so the bind-limit check adds this once per
+     * extra rendering (R-COL-19).
+     */
+    int binds() {
+        return node.binds();
+    }
+
+    /** The bind values one rendering of {@code operand} binds: an expression's own, one for a raw value, none for a column. */
+    private static int binds(Object operand) {
+        if (operand instanceof ExpressionField<?, ?> expression) {
+            return expression.binds();
+        }
+        return operand instanceof ScalarField<?, ?> ? 0 : 1;
+    }
+
+    /** The bind values a CASE condition binds: its values, its operands' expressions and its children's (R-COL-18). */
+    private static int conditionBinds(Condition condition) {
+        int total = condition.values().size();
+        if (condition.column().orElse(null) instanceof ExpressionField<?, ?> left) {
+            total += left.binds();
+        }
+        if (condition.right().orElse(null) instanceof ExpressionField<?, ?> right) {
+            total += right.binds();
+        }
+        for (Condition child : condition.children()) {
+            total += conditionBinds(child);
+        }
+        return total;
+    }
+
     @Override
     public boolean equals(Object o) {
         return o instanceof ExpressionField<?, ?> other && node.equals(other.node);
@@ -114,6 +146,9 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
 
         List<ColumnField<?, ?, ?>> columns();
 
+        /** The bind values one rendering of this node binds, nested expressions and CASE conditions included. */
+        int binds();
+
         /** The canonical text, values shown as {@code ?} (R-INS-09). */
         String text();
     }
@@ -135,6 +170,11 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         }
 
         @Override
+        public int binds() {
+            return ExpressionField.binds(first) + ExpressionField.binds(second);
+        }
+
+        @Override
         public String text() {
             return "coalesce(" + Expr.text(first) + ", " + Expr.text(second) + ")";
         }
@@ -149,6 +189,11 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         @Override
         public List<ColumnField<?, ?, ?>> columns() {
             return Expr.columns(value);
+        }
+
+        @Override
+        public int binds() {
+            return ExpressionField.binds(value) + 1; // the sentinel always binds
         }
 
         @Override
@@ -201,6 +246,11 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         }
 
         @Override
+        public int binds() {
+            return ExpressionField.binds(first) + ExpressionField.binds(second);
+        }
+
+        @Override
         public String text() {
             return "(" + Expr.text(first) + kind.symbol + Expr.text(second) + ")";
         }
@@ -215,6 +265,11 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         @Override
         public List<ColumnField<?, ?, ?>> columns() {
             return Expr.columns(value);
+        }
+
+        @Override
+        public int binds() {
+            return ExpressionField.binds(value);
         }
 
         @Override
@@ -243,6 +298,11 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         }
 
         @Override
+        public int binds() {
+            return ExpressionField.binds(first) + ExpressionField.binds(second);
+        }
+
+        @Override
         public String text() {
             return "concat(" + Expr.text(first) + ", " + Expr.text(second) + ")";
         }
@@ -265,6 +325,15 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         }
 
         @Override
+        public int binds() {
+            int total = 0;
+            for (ScalarField<?, ?> arg : args) {
+                total += ExpressionField.binds(arg);
+            }
+            return total;
+        }
+
+        @Override
         public String text() {
             var parts = new ArrayList<String>(args.size());
             args.forEach(arg -> parts.add(Expr.text(arg)));
@@ -282,6 +351,11 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         @Override
         public List<ColumnField<?, ?, ?>> columns() {
             return List.of();
+        }
+
+        @Override
+        public int binds() {
+            return 0; // definition text, not a value (R-COL-18)
         }
 
         @Override
@@ -340,6 +414,18 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
             }
             Expr.operand(otherwise, columns);
             return List.copyOf(columns);
+        }
+
+        @Override
+        public int binds() {
+            int total = 0;
+            for (CaseBranch branch : branches) {
+                for (Condition condition : branch.conditions()) {
+                    total += conditionBinds(condition);
+                }
+                total += ExpressionField.binds(branch.result());
+            }
+            return otherwiseNull ? total : total + ExpressionField.binds(otherwise);
         }
 
         @Override

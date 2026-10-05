@@ -13,7 +13,6 @@ import jakarta.persistence.Query;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
-import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -59,7 +58,7 @@ final class KeysetWrite {
     /** Creates a key select's statement, told its keyset and cursor (both {@code null} without one, D-82). */
     @FunctionalInterface
     interface Select {
-        TypedQuery<Tuple> create(EntityManager on, CriteriaQuery<Tuple> query, Keyset<?> keyset, Object[] cursor);
+        TypedQuery<Tuple> create(EntityManager on, BuiltQuery<?> built, Keyset<?> keyset, Object[] cursor);
     }
 
     private final CriteriaBuilder cb;
@@ -149,7 +148,7 @@ final class KeysetWrite {
     /** The rows of {@code built}, at most {@code max} unless it is zero, locked with {@code lockKeys}. */
     private List<Tuple> rows(EntityManager on, BuiltQuery<?> built, int max, boolean lockKeys, Keyset<?> keyset,
             Object[] cursor, Keyset.Beyond beyond) {
-        TypedQuery<Tuple> query = select.create(on, built.query(), keyset, cursor);
+        TypedQuery<Tuple> query = select.create(on, built, keyset, cursor);
         if (beyond != null) {
             beyond.bindTo(query);
         }

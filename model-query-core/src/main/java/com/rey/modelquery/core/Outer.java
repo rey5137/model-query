@@ -37,6 +37,39 @@ public final class Outer<M, S> {
      */
     public <T, C> ColumnField<S, T, C> column(ColumnField<M, T, C> outerColumn) {
         Objects.requireNonNull(outerColumn, "outerColumn");
+        checkLiftable(outerColumn, rootEntity);
+        return ColumnField.lifted(outerColumn);
+    }
+
+    /**
+     * The outer column {@code column} lifts, or empty for a column of a query's own vocabulary (R-INS-08). A test
+     * reads it to tell a lifted column from a plain one.
+     */
+    public static Optional<ColumnField<?, ?, ?>> referenced(SelectField<?, ?> column) {
+        return column instanceof ColumnField<?, ?, ?> c ? c.liftedFrom() : Optional.empty();
+    }
+
+    /**
+     * {@code outerColumn} as the lifted column {@code column(outerColumn)} builds, so a test matcher can name it
+     * (@EngineFacing: the {@code model-query-test} matcher {@code outer(col)}, R-INS-06). It refuses the columns
+     * {@link #column(ColumnField)} refuses, MQ1310 and MQ1311, so a caller cannot build the same lift through it.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1311} when {@code outerColumn} is not on a query root
+     * @throws ModelQueryDefinitionException {@code MQ1310} when {@code outerColumn} is itself a lift
+     */
+    @EngineFacing
+    public static <S, T, C> ColumnField<S, T, C> reference(ColumnField<S, T, C> outerColumn) {
+        Objects.requireNonNull(outerColumn, "outerColumn");
+        checkLiftable(outerColumn, null);
+        return ColumnField.lifted(outerColumn);
+    }
+
+    /**
+     * Refuses {@code outerColumn} when it cannot be lifted: itself a lift (MQ1310), or not on a query root (MQ1311,
+     * R-FLT-17, D-112). {@code rootEntity} is the enclosing query's root, or {@code null} when the caller has none,
+     * in which case only the root-less branch of MQ1311 applies.
+     */
+    private static void checkLiftable(ColumnField<?, ?, ?> outerColumn, Class<?> rootEntity) {
         if (outerColumn.isLifted()) {
             throw new ModelQueryDefinitionException(MqCode.MQ1310,
                     outerColumn + " is a lifted outer column; a column cannot be lifted through two sub-selects");
@@ -54,23 +87,5 @@ public final class Outer<M, S> {
                     + " sits on " + outerColumn.table().describe() + ", not on the outer query's root "
                     + rootEntity.getSimpleName() + "; lift a column of that root only");
         }
-        return ColumnField.lifted(outerColumn);
-    }
-
-    /**
-     * The outer column {@code column} lifts, or empty for a column of a query's own vocabulary (R-INS-08). A test
-     * reads it to tell a lifted column from a plain one.
-     */
-    public static Optional<ColumnField<?, ?, ?>> referenced(SelectField<?, ?> column) {
-        return column instanceof ColumnField<?, ?, ?> c ? c.liftedFrom() : Optional.empty();
-    }
-
-    /**
-     * {@code outerColumn} as the lifted column {@code column(outerColumn)} builds, so a test matcher can name it
-     * (@EngineFacing: the {@code model-query-test} matcher {@code outer(col)}, R-INS-06).
-     */
-    @EngineFacing
-    public static <S, T, C> ColumnField<S, T, C> reference(ColumnField<S, T, C> outerColumn) {
-        return ColumnField.lifted(Objects.requireNonNull(outerColumn, "outerColumn"));
     }
 }

@@ -137,6 +137,107 @@ class AggregateModelTest {
                 + "BigDecimal.class).path(ctx)));");
     }
 
+    // The M9 gate finding (R-GEN-27, R-PROC-21, R-PROC-22): an aggregate over an expression is emitted after the
+    // filter-only and computed constants its definition reads, so they are set when the generated class initialises
+    // it. Before the fix the aggregate came first and the definition read null during <clinit>.
+    @Test
+    void ac_proc_14_an_aggregate_over_an_expression_is_emitted_after_the_constants_it_reads() {
+        JavaFileObject bandName = source("shop.BandName", """
+                package shop;
+
+                import com.rey.modelquery.core.ColumnField;
+                import com.rey.modelquery.core.Expr;
+                import com.rey.modelquery.core.ExpressionDefinition;
+                import com.rey.modelquery.core.ExpressionField;
+                import com.rey.modelquery.core.TableField;
+
+                public final class BandName implements ExpressionDefinition<SaleGroup, String> {
+                    public static final BandName INSTANCE = new BandName();
+
+                    private BandName() {}
+
+                    @Override
+                    public ExpressionField<SaleGroup, String> expression() {
+                        return Expr.coalesce(ColumnField.of(SaleGroup.class, TableField.root(SaleEntity.class),
+                                "region", String.class), "none");
+                    }
+                }
+                """);
+        JavaFileObject saleDoubled = source("shop.SaleDoubled", """
+                package shop;
+
+                import com.rey.modelquery.core.ColumnField;
+                import com.rey.modelquery.core.Expr;
+                import com.rey.modelquery.core.ExpressionDefinition;
+                import com.rey.modelquery.core.ExpressionField;
+                import com.rey.modelquery.core.TableField;
+                import java.math.BigDecimal;
+
+                public final class SaleDoubled implements ExpressionDefinition<SaleGroup, BigDecimal> {
+                    public static final SaleDoubled INSTANCE = new SaleDoubled();
+
+                    private SaleDoubled() {}
+
+                    @Override
+                    public ExpressionField<SaleGroup, BigDecimal> expression() {
+                        return Expr.times(ColumnField.of(SaleGroup.class, TableField.root(SaleEntity.class), "amount",
+                                BigDecimal.class), BigDecimal.valueOf(2));
+                    }
+                }
+                """);
+        // Reads the generated @FilterColumn constant and the generated @Computed constant, never a hand-built column.
+        JavaFileObject saleWeight = source("shop.SaleWeight", """
+                package shop;
+
+                import com.rey.modelquery.core.Expr;
+                import com.rey.modelquery.core.ExpressionDefinition;
+                import com.rey.modelquery.core.ExpressionField;
+                import java.math.BigDecimal;
+
+                public final class SaleWeight implements ExpressionDefinition<SaleGroup, BigDecimal> {
+                    public static final SaleWeight INSTANCE = new SaleWeight();
+
+                    private SaleWeight() {}
+
+                    @Override
+                    public ExpressionField<SaleGroup, BigDecimal> expression() {
+                        return Expr.plus(QSaleGroup.SALE_AMOUNT, QSaleGroup.DOUBLED);
+                    }
+                }
+                """);
+        JavaFileObject model = source("shop.SaleGroup", """
+                package shop;
+
+                import com.rey.modelquery.annotations.Aggregate;
+                import com.rey.modelquery.annotations.AggregateFunction;
+                import com.rey.modelquery.annotations.Computed;
+                import com.rey.modelquery.annotations.FilterColumn;
+                import com.rey.modelquery.annotations.GroupBy;
+                import com.rey.modelquery.annotations.QueryModel;
+                import java.math.BigDecimal;
+
+                @QueryModel(root = SaleEntity.class)
+                @FilterColumn(name = "SALE_AMOUNT", path = "amount")
+                public record SaleGroup(
+                        @GroupBy @Computed(BandName.class) String band,
+                        @Computed(SaleDoubled.class) BigDecimal doubled,
+                        @Aggregate(fn = AggregateFunction.SUM, expression = SaleWeight.class) BigDecimal weighted) {}
+                """);
+
+        Compilation compilation = compile(SALE_ENTITY, bandName, saleDoubled, saleWeight, model);
+
+        assertThat(compilation).succeededWithoutWarnings();
+        String generated = generatedFlat(compilation, "shop.QSaleGroup");
+        int filter = generated.indexOf("SALE_AMOUNT = ");
+        int band = generated.indexOf("BAND = ");
+        int doubled = generated.indexOf("DOUBLED = ");
+        int aggregate = generated.indexOf("WEIGHTED = ");
+        assertThat(filter).as("the filter-only constant is emitted").isGreaterThan(0);
+        assertThat(band).as("computed constants follow the filter-only ones").isGreaterThan(filter);
+        assertThat(doubled).as("computed constants keep declaration order").isGreaterThan(band);
+        assertThat(aggregate).as("the aggregate is emitted last").isGreaterThan(doubled);
+    }
+
     private static final String TOTAL = """
             @QueryModel(root = SaleEntity.class, singleGroup = %s)
             public record SalesSummary(@Aggregate(fn = AggregateFunction.COUNT) Long lines) {}

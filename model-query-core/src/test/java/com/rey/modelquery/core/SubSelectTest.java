@@ -207,6 +207,22 @@ class SubSelectTest {
     }
 
     @Test
+    void ac_flt_17_reference_given_a_lifted_column_throws_mq1310() {
+        // A1: reference skips no refusal Outer.column makes (api/12 R-FLT-17, D-112).
+        assertThatThrownBy(() -> Outer.reference(Outer.reference(NAME)))
+                .isInstanceOf(ModelQueryDefinitionException.class)
+                .hasMessageContaining("MQ1310");
+    }
+
+    @Test
+    void ac_flt_17_reference_given_a_column_not_on_a_root_throws_mq1311() {
+        // A1: reference skips no refusal Outer.column makes (api/12 R-FLT-17, D-112).
+        assertThatThrownBy(() -> Outer.reference(SKU))
+                .isInstanceOf(ModelQueryDefinitionException.class)
+                .hasMessageContaining("MQ1311");
+    }
+
+    @Test
     void ac_flt_17_a_correlation_that_lifts_no_outer_column_throws_mq1309() {
         SubSelect<RefundView, Long> sub = refunded();
         assertThatThrownBy(() -> FilterGroup.<OrderView>collect(

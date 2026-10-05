@@ -111,7 +111,7 @@ public class ModelQueryAutoConfiguration {
                         continue;
                     }
                     if (!ModelQueryRepositoryFactoryBean.class.isAssignableFrom(factoryBeanClass)) {
-                        addFragment(registry, name, definition, classLoader);
+                        addFragment(registry, name, root, classLoader);
                     }
                 }
             }
@@ -129,7 +129,7 @@ public class ModelQueryAutoConfiguration {
      * {@link ModelQueryRepositoryFragmentFactoryBean} as the definition's {@code customImplementation} (R-SPR-02,
      * D-113). A definition that already sets {@code customImplementation} is refused with {@code MQ4008}.
      */
-    private static void addFragment(BeanDefinitionRegistry registry, String name, BeanDefinition definition,
+    private static void addFragment(BeanDefinitionRegistry registry, String name, RootBeanDefinition definition,
             ClassLoader classLoader) {
         Class<?> repositoryInterface = repositoryInterface(definition, classLoader);
         if (repositoryInterface == null || !ModelQueryRepository.class.isAssignableFrom(repositoryInterface)) {
@@ -145,19 +145,13 @@ public class ModelQueryAutoConfiguration {
         BeanDefinitionBuilder fragments = BeanDefinitionBuilder
                 .genericBeanDefinition(ModelQueryRepositoryFragmentFactoryBean.class);
         fragments.addPropertyValue("repositoryInterface", repositoryInterface);
-        // The definition's entityManager, as Spring Data sets it from @EnableJpaRepositories(entityManagerFactoryRef
-        // = ...): the fragment's own @PersistenceContext would otherwise fall back to an unqualified one (R-SPR-02).
-        PropertyValue entityManager = definition.getPropertyValues().getPropertyValue("entityManager");
-        if (entityManager != null) {
-            fragments.addPropertyValue("entityManager", entityManager.getValue());
-        }
-        PropertyValue lazyInit = definition.getPropertyValues().getPropertyValue("lazyInit");
-        if (lazyInit != null) {
-            fragments.addPropertyValue("lazyInit", lazyInit.getValue());
-        }
-        PropertyValue transactionManager = definition.getPropertyValues().getPropertyValue("transactionManager");
-        if (transactionManager != null) {
-            fragments.addPropertyValue("transactionManager", transactionManager.getValue());
+        // The properties Spring Data sets on a repository definition from @EnableJpaRepositories: without the
+        // entityManager the fragment's own @PersistenceContext would fall back to an unqualified one (R-SPR-02).
+        for (String property : List.of("entityManager", "lazyInit", "transactionManager")) {
+            PropertyValue value = definition.getPropertyValues().getPropertyValue(property);
+            if (value != null) {
+                fragments.addPropertyValue(property, value.getValue());
+            }
         }
         AbstractBeanDefinition fragmentsDefinition = (AbstractBeanDefinition) fragments.getBeanDefinition();
         // Not autowired: a ModelQueryRepository<?> injection must resolve to the repository, not its fragment.
@@ -176,10 +170,7 @@ public class ModelQueryAutoConfiguration {
      * registrar sets the definition's target type, resolving to the repository interface whenever the factory bean
      * class fixes its type arguments, and its constructor argument 0 names the interface when it does not.
      */
-    private static Class<?> repositoryInterface(BeanDefinition definition, ClassLoader classLoader) {
-        if (!(definition instanceof RootBeanDefinition root) || root.getTargetType() == null) {
-            return null;
-        }
+    private static Class<?> repositoryInterface(RootBeanDefinition root, ClassLoader classLoader) {
         Class<?> resolved = root.getResolvableType().as(RepositoryFactoryBeanSupport.class).resolveGeneric(0);
         if (resolved != null) {
             return resolved;

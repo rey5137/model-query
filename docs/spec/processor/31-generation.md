@@ -162,8 +162,13 @@ fields form `GROUP_KEYS` in declaration order, and `query()` is emitted with `.g
 whole-table aggregate has neither (`api/13` R-AGG-07, R-AGG-09).
 
 **R-GEN-27** *(D-115)* A `@Computed` field generates `<NAME> = Def.INSTANCE.expression().named("name")` (or
-`new Def().expression()...`), emitted after every column constant, so a definition reading `Q<Model>.*` columns runs
-during the initialiser with those fields already set. It is mapped like a column (`processor/30` R-PROC-21).
+`new Def().expression()...`). The generated constants come in a fixed order: the root columns, the joined columns, the
+filter-only columns, the `@Computed` constants in declaration order, then the `@Aggregate` constants last. A definition
+builds its expression inside `expression()` and may read any constant of its own `Q<Model>` declared earlier in that
+order, so those fields are already set when the generated class initialises it: a `@Computed` definition reads the
+column constants and earlier `@Computed` constants (never a later one), and an `@Aggregate(expression = …)` definition
+reads all of them. It must not cache the built expression in a static field of its own, which would initialise before
+the `Q<Model>` constants it reads. It is mapped like a column (`processor/30` R-PROC-21).
 
 ## 6. Generated update models
 

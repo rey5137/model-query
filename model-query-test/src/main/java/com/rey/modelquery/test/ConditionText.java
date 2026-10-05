@@ -21,22 +21,22 @@ final class ConditionText {
 
     /** One condition and its operands on one line. */
     static String describe(Condition condition) {
-        return format(condition.kind(), condition.column().orElse(null), condition.op().orElse(null),
-                condition.right().orElse(null), condition.path().orElse(null), condition.values(),
-                condition.likeMode().orElse(null), condition.label().orElse(null),
-                condition.subSelect().orElse(null),
-                condition.children().stream().map(ConditionText::describe).toList());
+        return format(condition, condition.children().stream().map(ConditionText::describe).toList());
     }
 
     /** One condition per line, its operands indented below it. */
     static void tree(Condition condition, int depth, StringBuilder out) {
         out.append("  ".repeat(depth))
-                .append(format(condition.kind(), condition.column().orElse(null), condition.op().orElse(null),
-                        condition.right().orElse(null), condition.path().orElse(null), condition.values(),
-                        condition.likeMode().orElse(null), condition.label().orElse(null),
-                        condition.subSelect().orElse(null), List.of()))
+                .append(format(condition, List.of()))
                 .append('\n');
         condition.children().forEach(child -> tree(child, depth + 1, out));
+    }
+
+    static String format(Condition condition, List<String> children) {
+        return format(condition.kind(), condition.column().orElse(null), condition.op().orElse(null),
+                condition.right().orElse(null), condition.path().orElse(null), condition.values(),
+                condition.likeMode().orElse(null), condition.label().orElse(null),
+                condition.subSelect().orElse(null), children);
     }
 
     static String format(Kind kind, SelectField<?, ?> column, Op op, SelectField<?, ?> right, TableField<?, ?> path,

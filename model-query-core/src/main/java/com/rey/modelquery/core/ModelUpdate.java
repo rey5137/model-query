@@ -154,7 +154,8 @@ public final class ModelUpdate<E, M> {
     @EngineFacing
     public CriteriaUpdate<E> buildWrite(CriteriaBuilder cb, RenderOptions options,
             BiFunction<Class<?>, Object, ?> references) {
-        return render(cb, options, references, WriteRendering.keysToRender(distinctKeys().orElse(null), null), false);
+        return render(cb, options, references, WriteRendering.keysToRender(distinctKeys().orElse(null), null),
+                false).update();
     }
 
     /**
@@ -170,7 +171,8 @@ public final class ModelUpdate<E, M> {
     public CriteriaUpdate<E> buildWrite(CriteriaBuilder cb, RenderOptions options,
             BiFunction<Class<?>, Object, ?> references, List<?> chunk) {
         Objects.requireNonNull(chunk, "chunk");
-        return render(cb, options, references, WriteRendering.keysToRender(distinctKeys().orElse(null), chunk), false);
+        return render(cb, options, references, WriteRendering.keysToRender(distinctKeys().orElse(null), chunk),
+                false).update();
     }
 
     /**
@@ -189,7 +191,25 @@ public final class ModelUpdate<E, M> {
     public CriteriaUpdate<E> buildWrite(CriteriaBuilder cb, RenderOptions options,
             BiFunction<Class<?>, Object, ?> references, List<?> keys, boolean rootTermsOnly) {
         return render(cb, options, references, WriteRendering.selectedKeys(Objects.requireNonNull(keys, "keys")),
-                rootTermsOnly);
+                rootTermsOnly).update();
+    }
+
+    /**
+     * The bind values the repeated renderings of memoised expressions add beyond what JPA reports, for the whole
+     * statement {@link #buildWrite(CriteriaBuilder, RenderOptions, BiFunction)} renders (R-COL-19, D-80). An executor
+     * adds them to the parameters JPA reports before checking the bind limit: a chunked or key-first write renders the
+     * same filter in every round, so the whole statement's repeats bound every chunk's and key-first form's binds too
+     * (D-63).
+     *
+     * @param references the reference to bind for a target entity type and an id, as the executor's write build takes:
+     *     a to-one assignment by id needs one, since the provider rejects a null value as it renders the statement
+     */
+    @EngineFacing
+    public int repeatedExpressionBinds(CriteriaBuilder cb, RenderOptions options,
+            BiFunction<Class<?>, Object, ?> references) {
+        Objects.requireNonNull(references, "references");
+        return render(cb, options, references, WriteRendering.keysToRender(distinctKeys().orElse(null), null), false)
+                .joins().repeatedExpressionBinds();
     }
 
     /**
@@ -284,8 +304,12 @@ public final class ModelUpdate<E, M> {
         return Optional.ofNullable(definition.persistenceContext());
     }
 
+    /** A rendered update: the statement and the context that rendered it, whose repeated expression binds an executor
+     * counts (R-COL-19, D-80). */
+    private record Rendered<E>(CriteriaUpdate<E> update, JoinContext joins) {}
+
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private CriteriaUpdate<E> render(CriteriaBuilder cb, RenderOptions options,
+    private Rendered<E> render(CriteriaBuilder cb, RenderOptions options,
             BiFunction<Class<?>, Object, ?> references, List<Object> keys, boolean rootTermsOnly) {
         Objects.requireNonNull(cb, "cb");
         Objects.requireNonNull(options, "options");
@@ -320,7 +344,7 @@ public final class ModelUpdate<E, M> {
             });
         }
         var where = WriteRendering.rows(keys, definition.rows().where(), definition.primaryKey(),
-                update, from, cb, options, rootTermsOnly);
+                update, from, ctx, cb, options, rootTermsOnly);
         SingularAttribute<?, ?> version = expectedVersionAttribute(entity, versionAttribute);
         if (version != null) {
             where.add(cb.equal(from.get(version.getName()), definition.expectedVersion()));
@@ -328,7 +352,7 @@ public final class ModelUpdate<E, M> {
         if (!where.isEmpty()) {
             update.where(where.toArray(Predicate[]::new));
         }
-        return update;
+        return new Rendered<>(update, ctx);
     }
 
     /** @throws ModelQueryDefinitionException {@code MQ1001} when the column's type is not the target's id type */

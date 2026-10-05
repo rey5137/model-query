@@ -119,8 +119,9 @@ public final class RowNet implements ExpressionDefinition<OrderNet, BigDecimal> 
 }
 ```
 
-The generated constant is an `ExpressionField` named after the field, emitted after every column constant so a
-definition reading `Q<Model>`'s own constants finds them set (R-GEN-27), and selected by `ALL` and `DEFAULT` unless
+The generated constant is an `ExpressionField` named after the field, emitted after the root, joined and filter-only
+column constants and after earlier `@Computed` constants — the `@Aggregate` constants come last — so a definition
+reading `Q<Model>`'s own constants finds them set (R-GEN-27), and selected by `ALL` and `DEFAULT` unless
 `@ExcludeFromDefaults`. The definition's type arguments must be exactly the model and the field's boxed type, and the
 class must have a public `INSTANCE` field or a visible no-arg constructor, or the processor reports `MQ3018`;
 `@Computed` can't share a field with another mapping annotation, or sit on a primitive field, and then reports

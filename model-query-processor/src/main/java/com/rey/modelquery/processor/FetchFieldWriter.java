@@ -55,7 +55,7 @@ final class FetchFieldWriter {
         ClassName modelName = ClassName.get(model.type());
         TypeName nested = TypeName.get(field.join().nested());
         TypeName type = ParameterizedTypeName.get(JOIN_FIELD, modelName, nested);
-        String getter = model.isRecord() ? field.name() : "get" + capitalized(field.name());
+        String getter = model.isRecord() ? field.name() : "get" + ChangesWriter.capitalized(field.name());
         MethodSpec.Builder with = method("with", modelName)
                 .addParameter(modelName, "parent")
                 .addParameter(nested, "nested");
@@ -152,21 +152,21 @@ final class FetchFieldWriter {
      * from there, which a {@code @Join} on the same association shares.
      */
     private static CodeBlock column(TypeName model, ChildKey key, CodeBlock root) {
-        CodeBlock table = root;
-        for (ChildKey.Join join : key.joins()) {
-            table = CodeBlock.of("$T.<$T, $T>join($L,$W$S,$W$T.LEFT)", TABLE_FIELD, ClassName.get(join.parent()),
-                    ClassName.get(join.entity()), table, join.attribute(), JOIN_TYPE);
-        }
+        CodeBlock table = joinChain(root, key.joins(), "", "LEFT");
         return CodeBlock.of("$T.of($T.class,$W$L,$W$S,$W$L)", COLUMN_FIELD, model, table, key.attribute(),
                 QModelWriter.classOf(TypeName.get(key.type())));
     }
 
     /** The {@code through} path {@code through}: its joins from the parent's {@code ROOT}, each {@code INNER}. */
     private static CodeBlock path(ChildKey.Through through) {
-        CodeBlock table = CodeBlock.of("ROOT");
-        for (ChildKey.Join join : through.joins()) {
-            table = CodeBlock.of("$T.<$T, $T>join($Z$L,$W$S,$W$T.INNER)", TABLE_FIELD, ClassName.get(join.parent()),
-                    ClassName.get(join.entity()), table, join.attribute(), JOIN_TYPE);
+        return joinChain(CodeBlock.of("ROOT"), through.joins(), "$Z", "INNER");
+    }
+
+    /** {@code table} with {@code joins}' chain appended, each joining with the {@code prefix} and {@code joinType}. */
+    private static CodeBlock joinChain(CodeBlock table, List<ChildKey.Join> joins, String prefix, String joinType) {
+        for (ChildKey.Join join : joins) {
+            table = CodeBlock.of("$T.<$T, $T>join(" + prefix + "$L,$W$S,$W$T." + joinType + ")", TABLE_FIELD,
+                    ClassName.get(join.parent()), ClassName.get(join.entity()), table, join.attribute(), JOIN_TYPE);
         }
         return table;
     }
@@ -192,9 +192,5 @@ final class FetchFieldWriter {
                 .addAnnotation(Override.class)
                 .addModifiers(Modifier.PUBLIC)
                 .returns(returns);
-    }
-
-    private static String capitalized(String name) {
-        return Character.toUpperCase(name.charAt(0)) + name.substring(1);
     }
 }

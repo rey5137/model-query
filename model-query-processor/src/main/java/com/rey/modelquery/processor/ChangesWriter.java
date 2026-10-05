@@ -217,7 +217,7 @@ final class ChangesWriter {
         return prefixed ? name : "is" + capitalized(name);
     }
 
-    private static String capitalized(String name) {
+    static String capitalized(String name) {
         return Character.toUpperCase(name.charAt(0)) + name.substring(1);
     }
 

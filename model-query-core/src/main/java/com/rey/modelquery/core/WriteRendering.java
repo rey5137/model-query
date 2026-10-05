@@ -90,9 +90,8 @@ final class WriteRendering {
      * @param keys attribute-value keys, as {@link #distinctKeys} returns them, or {@code null} for no key predicate
      */
     static <E, M> List<Predicate> rows(List<Object> keys, List<Filter> where, PrimaryKey<M, ?> key,
-            CommonAbstractCriteria statement, Root<E> root, CriteriaBuilder cb, RenderOptions options,
+            CommonAbstractCriteria statement, Root<E> root, JoinContext ctx, CriteriaBuilder cb, RenderOptions options,
             boolean rootTermsOnly) {
-        JoinContext ctx = JoinContext.of(root, cb, statement, options);
         var predicates = new ArrayList<Predicate>();
         if (keys != null) {
             predicates.add(key.in(keys, ctx, cb, true));
@@ -124,6 +123,8 @@ final class WriteRendering {
             correlated.addAll(tree);
             sub.select(cb.literal(1)).where(correlated.toArray(Predicate[]::new));
             predicates.add(cb.exists(sub));
+            // The sub-query is part of the statement, so the values its memoised expressions repeat count too.
+            ctx.addRepeatedExpressionBinds(innerCtx);
         }
         return predicates;
     }

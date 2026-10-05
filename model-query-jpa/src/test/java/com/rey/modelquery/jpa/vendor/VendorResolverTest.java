@@ -245,6 +245,18 @@ class VendorResolverTest {
         assertThat(calls[0]).isEqualTo(100);
     }
 
+    @Test
+    void r_vnd_04_a_no_class_def_found_error_naming_a_library_class_is_a_warning() {
+        // A5: an absent provider library is DEBUG, but a skipped class of ours means a broken class path (R-VND-04).
+        assertThat(VendorResolver.levelOf(new NoClassDefFoundError("org/hibernate/query/Query")))
+                .isEqualTo(System.Logger.Level.DEBUG);
+        assertThat(VendorResolver.levelOf(new NoClassDefFoundError(
+                "Could not initialize class com.rey.modelquery.hibernate.HibernateProviderSupport")))
+                .isEqualTo(System.Logger.Level.WARNING);
+        assertThat(VendorResolver.levelOf(new ServiceConfigurationError("provider library absent")))
+                .isEqualTo(System.Logger.Level.DEBUG);
+    }
+
     private static VendorProfile profileFor(DatabaseVendor vendor, Map<DatabaseVendor, VendorProfile> discovered) {
         return VendorResolver.profileFor(vendor, MysqlStreamingMode.ROW_BY_ROW, discovered);
     }

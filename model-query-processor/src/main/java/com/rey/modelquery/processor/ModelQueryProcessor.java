@@ -56,7 +56,12 @@ public final class ModelQueryProcessor extends AbstractProcessor {
             TypeElement type = elements.getTypeElement(model.name());
             if (type != null) {
                 generate(type, model.update(), round);
+                continue;
             }
+            // An ambiguous name across JPMS modules resolves to no type element: report it rather than drop the
+            // model silently (D-107).
+            new Diagnostics(processingEnv.getMessager()).error(DiagnosticCode.MQ3017, model.name()
+                    + ": could not be resolved: root does not name a class, and no annotation processor generated one");
         }
         for (Element element : roundEnv.getElementsAnnotatedWith(QueryModel.class)) {
             generate((TypeElement) element, false, round);

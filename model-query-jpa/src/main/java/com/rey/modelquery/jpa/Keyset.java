@@ -19,6 +19,7 @@ import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.ParameterExpression;
 import jakarta.persistence.criteria.Predicate;
+import java.lang.invoke.MethodType;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -74,12 +75,18 @@ final class Keyset<M> {
     private final byte[] fingerprint;
 
     private Keyset(int ordered, Object label, Class<?> rootEntity, PrimaryKey<M, ?> pk, List<Key<M>> keys) {
+        this(ordered, label, rootEntity, pk, keys,
+                rootEntity == null ? null : canonicalFingerprint(rootEntity, keys));
+    }
+
+    private Keyset(int ordered, Object label, Class<?> rootEntity, PrimaryKey<M, ?> pk, List<Key<M>> keys,
+            byte[] fingerprint) {
         this.ordered = ordered;
         this.label = label;
         this.rootEntity = rootEntity;
         this.pk = pk;
         this.keys = List.copyOf(keys);
-        this.fingerprint = rootEntity == null ? null : canonicalFingerprint();
+        this.fingerprint = fingerprint;
     }
 
     /**
@@ -152,7 +159,7 @@ final class Keyset<M> {
             OrderField<M, ?> order = new OrderField<>(key.order().column(), !key.order().ascending(), rendered);
             flipped.add(new Key<>(order, nulls, key.refuseNull, key.primaryKey, key.source));
         }
-        return new Keyset<>(ordered, label, rootEntity, pk, flipped);
+        return new Keyset<>(ordered, label, rootEntity, pk, flipped, fingerprint);
     }
 
     private static NullPrecedence flip(NullPrecedence nulls) {
@@ -222,7 +229,6 @@ final class Keyset<M> {
                 if (key.refuseNull() || key.primaryKey()) {
                     throw malformed(resolver, "column " + column.path() + " is null, and a cursor cannot name it");
                 }
-                values[i] = null;
                 continue;
             }
             Class<?> expected = box(column.attributeType());
@@ -263,7 +269,6 @@ final class Keyset<M> {
         Object[] keyValues = new Object[columns.size()];
         for (int c = 0; c < columns.size(); c++) {
             ColumnField<M, ?, ?> column = columns.get(c);
-            keyValues[c] = null;
             for (int i = 0; i < keys.size(); i++) {
                 if (keys.get(i).primaryKey() && keys.get(i).order().column().equals(column)) {
                     keyValues[c] = values[i];
@@ -303,32 +308,11 @@ final class Keyset<M> {
     }
 
     private static Class<?> box(Class<?> type) {
-        if (!type.isPrimitive()) {
-            return type;
-        }
-        if (type == int.class) {
-            return Integer.class;
-        }
-        if (type == long.class) {
-            return Long.class;
-        }
-        if (type == short.class) {
-            return Short.class;
-        }
-        if (type == byte.class) {
-            return Byte.class;
-        }
-        if (type == char.class) {
-            return Character.class;
-        }
-        if (type == boolean.class) {
-            return Boolean.class;
-        }
-        return type;
+        return MethodType.methodType(type).wrap().returnType();
     }
 
     /** The canonical UTF-8 form of R-PAG-19, hashed. */
-    private byte[] canonicalFingerprint() {
+    private static <M> byte[] canonicalFingerprint(Class<?> rootEntity, List<Key<M>> keys) {
         StringBuilder canonical = new StringBuilder();
         canonical.append(rootEntity.getName()).append('\n');
         for (Key<M> key : keys) {

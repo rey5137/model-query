@@ -50,14 +50,13 @@ public final class KeysetCursorCodec {
     private KeysetCursorCodec() {
     }
 
-    /** A decoded cursor: the order fingerprint and the values, each with the kind byte it arrived as. */
-    public record Decoded(byte[] fingerprint, Object[] values, byte[] kinds) {
+    /** A decoded cursor: the order fingerprint and the values. */
+    record Decoded(byte[] fingerprint, Object[] values) {
 
         /** Defensive copies, so a decoded cursor cannot be mutated. */
         public Decoded {
             fingerprint = fingerprint.clone();
             values = values.clone();
-            kinds = kinds.clone();
         }
 
         @Override
@@ -69,34 +68,26 @@ public final class KeysetCursorCodec {
         public Object[] values() {
             return values.clone();
         }
-
-        @Override
-        public byte[] kinds() {
-            return kinds.clone();
-        }
     }
 
     /** Whether a column's attribute type can be carried in a cursor (R-PAG-17). */
     public static boolean supports(Class<?> attributeType) {
         Objects.requireNonNull(attributeType, "attributeType");
-        return kindOfType(attributeType) != null;
+        return supportsType(attributeType);
     }
 
-    /**
-     * The kind byte a value of {@code attributeType} is carried as, or {@code null} when the type has no codec.
-     * An enum is carried as its {@link Enum#name()}.
-     */
-    static Byte kindOfType(Class<?> attributeType) {
-        Class<?> boxed = box(attributeType);
+    /** Whether a value of {@code attributeType} has a codec. An enum is carried as its {@link Enum#name()}. */
+    static boolean supportsType(Class<?> attributeType) {
+        Class<?> boxed = ColumnField.boxed(attributeType);
         if (boxed.isEnum()) {
-            return Kind.ENUM.tag;
+            return true;
         }
         for (Kind kind : Kind.values()) {
             if (kind.type == boxed) {
-                return kind.tag;
+                return true;
             }
         }
-        return null;
+        return false;
     }
 
     /**
@@ -152,7 +143,7 @@ public final class KeysetCursorCodec {
      *
      * @implSpec R-PAG-18
      */
-    public static Decoded decode(String cursor) {
+    static Decoded decode(String cursor) {
         if (cursor == null) {
             throw malformed("the cursor is null");
         }
@@ -186,7 +177,6 @@ public final class KeysetCursorCodec {
         System.arraycopy(all, 1, fingerprint, 0, FINGERPRINT_LENGTH);
         int count = ((all[1 + FINGERPRINT_LENGTH] & 0xFF) << 8) | (all[2 + FINGERPRINT_LENGTH] & 0xFF);
         Object[] values = new Object[count];
-        byte[] kinds = new byte[count];
         int at = 1 + FINGERPRINT_LENGTH + 2;
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(all, at, body - at))) {
             for (int i = 0; i < count; i++) {
@@ -208,7 +198,6 @@ public final class KeysetCursorCodec {
                 byte[] payload = new byte[length];
                 in.readFully(payload);
                 values[i] = kind.read(payload);
-                kinds[i] = tag;
             }
             if (in.available() != 0) {
                 throw malformed("it holds trailing bytes");
@@ -216,7 +205,7 @@ public final class KeysetCursorCodec {
         } catch (IOException e) {
             throw malformed("it is truncated");
         }
-        return new Decoded(fingerprint, values, kinds);
+        return new Decoded(fingerprint, values);
     }
 
     private static ModelQueryExecutionException malformed(String reason) {
@@ -232,31 +221,6 @@ public final class KeysetCursorCodec {
         }
         throw new ModelQueryExecutionException(MqCode.MQ2210, "a keyset value of type "
                 + value.getClass().getName() + " cannot be carried in a cursor");
-    }
-
-    private static Class<?> box(Class<?> type) {
-        if (!type.isPrimitive()) {
-            return type;
-        }
-        if (type == int.class) {
-            return Integer.class;
-        }
-        if (type == long.class) {
-            return Long.class;
-        }
-        if (type == short.class) {
-            return Short.class;
-        }
-        if (type == byte.class) {
-            return Byte.class;
-        }
-        if (type == char.class) {
-            return Character.class;
-        }
-        if (type == boolean.class) {
-            return Boolean.class;
-        }
-        return type;
     }
 
     /** The closed codec set of R-PAG-17. {@code type} is the value's boxed class; {@code NULL} has none. */
