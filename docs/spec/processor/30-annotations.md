@@ -132,6 +132,8 @@ R-PROC-07 (D-93).
 **R-PROC-21** *(D-115)* **`@Computed`.**
 - `value` names a class implementing `ExpressionDefinition<M, C>`, with a public static `INSTANCE` or a visible no-arg
   constructor. It is declared `Class<?>` because the type is in core (R-PROC-01); otherwise `MQ3018`.
+  `ExpressionDefinition<M, C>` (core, `@Incubating`) has one method, `ExpressionField<M, C> expression()`, where `M`
+  is the model and `C` the field's type.
 - The generated constant is `value.expression().named(field)`, emitted after every column constant
   (`processor/31`). It is mapped like a column and is in `DEFAULT` and `ALL` unless `@ExcludeFromDefaults`.
 - It cannot be combined with `@PrimaryKey`, `@Column`, `@Join`, `@Child`, `@Aggregate` or `@Transient`, nor be
