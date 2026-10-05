@@ -13,6 +13,7 @@ import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Order;
 import java.io.Serializable;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -25,6 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 import org.hibernate.boot.model.naming.Identifier;
 import org.hibernate.boot.model.relational.SqlStringGenerationContext;
+import org.hibernate.boot.spi.SessionFactoryOptions;
 import org.hibernate.dialect.Dialect;
 import org.hibernate.dialect.H2Dialect;
 import org.hibernate.dialect.MariaDBDialect;
@@ -58,6 +60,22 @@ public final class HibernateProviderSupport implements ProviderSupport {
      */
     private static final Map<EntityManagerFactory, Map<Class<?>, Set<String>>> TABLES =
             Collections.synchronizedMap(new WeakHashMap<>());
+
+    /**
+     * {@code SessionFactoryOptions.getDefaultNullPrecedence()}, whose return type differs between Hibernate 6 and 7.
+     * In a holder so the provider stays loadable without Hibernate on the class path (R-VND-04).
+     */
+    private static final class DefaultNullPrecedence {
+        static final Method METHOD;
+
+        static {
+            try {
+                METHOD = SessionFactoryOptions.class.getMethod("getDefaultNullPrecedence");
+            } catch (NoSuchMethodException e) {
+                throw new ExceptionInInitializerError(e);
+            }
+        }
+    }
 
     @Override
     public boolean supports(EntityManagerFactory emf) {
@@ -106,16 +124,29 @@ public final class HibernateProviderSupport implements ProviderSupport {
      */
     @Override
     public Optional<NullPrecedence> defaultNullPrecedence(EntityManagerFactory emf) {
-        return sessionFactory(emf).map(sf -> sf.getSessionFactoryOptions().getDefaultNullPrecedence())
+        return sessionFactory(emf).map(sf -> configuredNullPrecedence(sf.getSessionFactoryOptions()))
                 .flatMap(HibernateProviderSupport::precedenceOf);
     }
 
-    /** {@code configured} as a precedence; empty for {@code NONE} or no setting at all. */
-    private static Optional<NullPrecedence> precedenceOf(org.hibernate.query.NullPrecedence configured) {
-        return switch (configured) {
-            case FIRST -> Optional.of(NullPrecedence.FIRST);
-            case LAST -> Optional.of(NullPrecedence.LAST);
-            case NONE -> Optional.empty();
+    /**
+     * {@code options}' default null precedence, read reflectively: Hibernate 6 returns
+     * {@code org.hibernate.query.NullPrecedence}, Hibernate 7 {@code jakarta.persistence.criteria.Nulls}, so a direct
+     * call compiled against one fails to link on the other.
+     */
+    private static Enum<?> configuredNullPrecedence(SessionFactoryOptions options) {
+        try {
+            return (Enum<?>) DefaultNullPrecedence.METHOD.invoke(options);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Cannot read Hibernate's default null precedence", e);
+        }
+    }
+
+    /** {@code configured} as a precedence; empty for {@code NONE} or no setting at all. Both enums name the same. */
+    private static Optional<NullPrecedence> precedenceOf(Enum<?> configured) {
+        return switch (configured.name()) {
+            case "FIRST" -> Optional.of(NullPrecedence.FIRST);
+            case "LAST" -> Optional.of(NullPrecedence.LAST);
+            default -> Optional.empty();
         };
     }
 
