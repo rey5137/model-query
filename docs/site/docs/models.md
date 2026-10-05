@@ -125,7 +125,8 @@ definition reading `Q<Model>`'s own constants finds them set (R-GEN-27), and sel
 class must have a public `INSTANCE` field or a visible no-arg constructor, or the processor reports `MQ3018`;
 `@Computed` can't share a field with another mapping annotation, or sit on a primitive field, and then reports
 `MQ3019`. Build the expression inside `expression()`, or from `Q<Model>` constants, never from a static constant the
-generated class initialises.
+generated class initialises. The expression vocabulary, `@Aggregate(expression = ...)` and where an expression plugs
+in are on [Sub-queries and expressions](subqueries-expressions.md).
 
 Tested by `GeneratedModelTest`.
 

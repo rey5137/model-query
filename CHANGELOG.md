@@ -78,6 +78,11 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
   a `@GroupBy` on a `@Computed` field joins `GROUP_KEYS`, and the definition is built from a public `INSTANCE` or a
   visible no-arg constructor (`MQ3018`, `MQ3019`, `MQ3208`, and `MQ3005` when a `@Join` model has a `@Computed` field,
   D-115, R-PROC-21, R-PROC-22, R-GEN-27).
+- `docs/site/docs/subqueries-expressions.md` is the reference for `SubSelect`, `in`/`notIn`/`exists`/`notExists` and
+  `Outer.column` correlation, the `Expr` vocabulary and where an expression fits, the expression paging rule
+  (`MQ1208`, `MQ2204`), `@Computed`/`@Aggregate(expression)` (`MQ3018`, `MQ3019`, `MQ3208`) and the `MQ15xx` factory
+  codes. The Spring Boot sample runs the adoption recipes 1, 2, 3, 4 and 8 end to end, one tested HTTP endpoint per
+  recipe across its H2, PostgreSQL and MySQL datasources (D-111).
 
 ### Changed
 

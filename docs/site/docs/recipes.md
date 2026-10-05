@@ -8,30 +8,79 @@ copied from a test that runs, named under the code.
 The case in one line: an existing service that already sets its own `repositoryFactoryBeanClass` and
 `repositoryBaseClass`, so the starter has to add the fragment without replacing either (R-SPR-02, D-113).
 
-The starter keeps a plain `JpaRepositoryFactoryBean` subclass — its class, its override and your `repositoryBaseClass`
-— and re-registers the repository with the fragment as its `customImplementation`, but only where the repository
-extends `ModelQueryRepository`:
+The sample's factory bean is a plain `JpaRepositoryFactoryBean` subclass; it does not extend
+`ModelQueryRepositoryFactoryBean`:
 
 ```java
 public class PlainJpaRepositoryFactoryBean<T extends Repository<S, I>, S, I>
         extends JpaRepositoryFactoryBean<T, S, I> {
+
     public PlainJpaRepositoryFactoryBean(Class<? extends T> repositoryInterface) {
         super(repositoryInterface);
     }
-    // your own override, and a custom repositoryBaseClass, keep working
 }
 ```
 
+Its base class adds one method and keeps `SimpleJpaRepository`:
+
 ```java
-@EnableJpaRepositories(repositoryFactoryBeanClass = PlainJpaRepositoryFactoryBean.class,
+public class RefreshingJpaRepository<T, ID> extends SimpleJpaRepository<T, ID>
+        implements RefreshingRepository<T, ID> {
+
+    private final EntityManager entityManager;
+
+    public RefreshingJpaRepository(JpaEntityInformation<T, ?> entityInformation, EntityManager entityManager) {
+        super(entityInformation, entityManager);
+        this.entityManager = entityManager;
+    }
+
+    @Override
+    public T refreshAndGet(ID id) {
+        T entity = findById(id).orElse(null);
+        if (entity != null) {
+            entityManager.refresh(entity);
+        }
+        return entity;
+    }
+}
+```
+
+The h2 datasource names both, so the starter keeps them and adds the fragment only where the repository extends
+`ModelQueryRepository`:
+
+```java
+@EnableJpaRepositories(basePackageClasses = BookRepository.class, entityManagerFactoryRef = "h2EntityManagerFactory",
+        transactionManagerRef = "h2TransactionManager",
+        repositoryFactoryBeanClass = PlainJpaRepositoryFactoryBean.class,
         repositoryBaseClass = RefreshingJpaRepository.class)
 ```
 
-If instead you can change the class, extending `ModelQueryRepositoryFactoryBean` is the simplest route; Spring
-requires the one-argument constructor:
+One repository migrates, the other does not:
 
 ```java
-public class CustomJpaRepositoryFactoryBean<T extends Repository<S, I>, S, I>
+public interface BookRepository extends JpaRepository<BookEntity, Long>, ModelQueryRepository<BookEntity>,
+        RefreshingRepository<BookEntity, Long> {}
+```
+
+```java
+public interface ReviewRepository extends JpaRepository<ReviewEntity, Long>,
+        RefreshingRepository<ReviewEntity, Long> {}
+```
+
+`BookRepository` gets the model-query fragment; `ReviewRepository` does not, and both carry the base method. Migrate
+one at a time: add `ModelQueryRepository<MyEntity>` to one interface and leave the rest for later. A definition that
+already sets `customImplementation` fails with `MQ4008`: the starter cannot compose the fragment beside it, so leave
+that implementation to provide the fragment methods or extend `ModelQueryRepositoryFactoryBean`; a repository whose
+`ModelQueryRepository<E>` names another entity than its own domain type fails with `MQ4007`.
+
+Tested by `SampleApplicationTest`.
+
+If instead you can change the class, extending `ModelQueryRepositoryFactoryBean` is the simplest route; Spring
+requires the one-argument constructor. The test's own factory bean and `@EnableJpaRepositories` name it and the custom
+base class:
+
+```java
+public static class CustomJpaRepositoryFactoryBean<T extends Repository<S, I>, S, I>
         extends ModelQueryRepositoryFactoryBean<T, S, I> {
     public CustomJpaRepositoryFactoryBean(Class<? extends T> repositoryInterface) {
         super(repositoryInterface);
@@ -40,23 +89,32 @@ public class CustomJpaRepositoryFactoryBean<T extends Repository<S, I>, S, I>
 ```
 
 ```java
-@EnableJpaRepositories(repositoryFactoryBeanClass = CustomJpaRepositoryFactoryBean.class,
+@EnableJpaRepositories(basePackageClasses = CustomFactoryBeanTest.class, considerNestedRepositories = true,
+        includeFilters = @Filter(type = FilterType.ASSIGNABLE_TYPE,
+                classes = { CustomerProfileRepository.class, PlainCustomerRepository.class }),
+        repositoryFactoryBeanClass = CustomJpaRepositoryFactoryBean.class,
         repositoryBaseClass = RefreshingJpaRepository.class)
 ```
-
-Either way the fragment is added only to the repositories that extend `ModelQueryRepository`, and your
-`repositoryBaseClass` keeps working for all of them, so migrate one at a time: add `ModelQueryRepository<MyEntity>` to
-one interface and leave the rest for later. A definition that already sets `customImplementation` fails with `MQ4008`:
-the starter cannot compose the fragment beside it, so leave that implementation to provide the fragment methods or
-extend `ModelQueryRepositoryFactoryBean`; a repository whose `ModelQueryRepository<E>` names another entity than its
-own domain type fails with `MQ4007`.
 
 Tested by `CustomFactoryBeanTest` and `PlainFactoryBeanTest`.
 
 ## Filter by a sub-query
 
-The case in one line: a filter whose values come from another query, or a row that exists only when another root has
-a matching row, with no association mapped between the two roots (D-111 item 2).
+The case in one line: a filter whose values come from another query on an entity the model does not map, with no
+association between the two roots (D-111 item 2).
+
+The sample filters books by a sub-select over the unmapped `reviews` table; `mode=notIn` asks the mirror image, and
+the test pins the exact ids, including a `NULL` review book:
+
+```java
+SubSelect<ReviewView, Long> reviewed = SubSelect.of(QReviewView.BOOK_ID)
+        .where(f -> f.gte(QReviewView.RATING, minRating));
+var query = QBookView.query()
+        .select(QBookView.ALL)
+        .where(f -> "notIn".equals(mode) ? f.notIn(QBookView.ID, reviewed) : f.in(QBookView.ID, reviewed))
+        .orderBy(QBookView.ID.asc())
+        .build();
+```
 
 A `SubSelect` is one column of another root with its own filters. It is immutable, so it can be a constant:
 
@@ -70,32 +128,47 @@ private static final ColumnField<I, PlainOrderItemEntity, Long> ITEM_ORDER_ID =
 private static final ColumnField<I, PlainOrderItemEntity, String> ITEM_PRODUCT =
         ColumnField.of(I.class, PLAIN_ITEMS, "productCode", String.class);
 
-// The items of product P007. PlainOrderItemEntity has no association to orders.
 private static final SubSelect<I, Long> P007_ITEMS =
         SubSelect.of(ITEM_ORDER_ID).where(f -> f.eq(ITEM_PRODUCT, "P007"));
+private static final SubSelect<I, Long> NO_PRODUCT =
+        SubSelect.of(ITEM_ORDER_ID).where(f -> f.in(ITEM_PRODUCT, List.of()));
 ```
 
 `in` and `notIn` take it uncorrelated. A `NULL` column value never empties a `notIn`, and an empty sub-select keeps
 its usual meaning — `in` matches nothing, `notIn` every row:
 
 ```java
-ORDER_QUERY.where(f -> f.in(ID, P007_ITEMS)).build();      // orders with a P007 item
-ORDER_QUERY.where(f -> f.notIn(ID, P007_ITEMS)).build();   // orders without one, NULL columns kept (R-FLT-16)
+results.add(ids(executor, f -> f.in(ID, P007_ITEMS)));
+results.add(ids(executor, f -> f.notIn(REFERRER_ID, PAID_ORDERS)));
+results.add(ids(executor, f -> f.notIn(ID, NO_PRODUCT)));
 ```
 
 `exists` on such an unmapped root states the correlation explicitly, since there is no association to follow:
 
 ```java
-ORDER_QUERY.where(f -> f.exists(P007_ITEMS,
-        (inner, outer) -> inner.compare(ITEM_ORDER_ID, Op.EQ, outer.column(ID)))).build();
+results.add(ids(executor, f -> f.exists(P007_ITEMS,
+        (s, outer) -> s.compare(ITEM_ORDER_ID, Op.EQ, outer.column(ID)))));
 ```
 
-Tested by `SubSelectTest`.
+Tested by `SampleApplicationTest` and `SubSelectTest`.
 
 ## Correlate an exists to the outer row
 
 The case in one line: a correlated `exists` whose inner predicate compares an inner column to a column of the outer
 root, so the sub-query reads the row being filtered (D-111 item 5).
+
+The sample's `/books/with-review` does exactly that over the unmapped reviews:
+
+```java
+SubSelect<ReviewView, Long> reviewed = SubSelect.of(QReviewView.BOOK_ID)
+        .where(f -> f.gte(QReviewView.RATING, minRating));
+var query = QBookView.query()
+        .select(QBookView.ALL)
+        .where(f -> f.exists(reviewed,
+                (inner, outer) -> inner.compare(QReviewView.BOOK_ID, Op.EQ, outer.column(QBookView.ID))))
+        .orderBy(QBookView.ID.asc())
+        .build();
+```
 
 `outer.column(...)` lifts an outer-root column into the sub-select's vocabulary. It goes anywhere an inner column
 goes, so `compare` puts it on one side, and `or` can mix inner and lifted conditions:
@@ -106,38 +179,46 @@ private static final ColumnField<O, OrderEntity, BigDecimal> TOTAL =
 private static final ColumnField<I, PlainOrderItemEntity, Integer> ITEM_QUANTITY =
         ColumnField.of(I.class, PLAIN_ITEMS, "quantity", Integer.class);
 
-ORDER_QUERY.where(f -> f.exists(P007_ITEMS,
-        (inner, outer) -> inner.compare(ITEM_ORDER_ID, Op.EQ, outer.column(ID)))).build();
-
-// notExists is the mirror image, and one branch of an or may read the outer row too.
-ORDER_QUERY.where(f -> f.notExists(P007_ITEMS,
-        (inner, outer) -> inner.compare(ITEM_ORDER_ID, Op.EQ, outer.column(ID)))).build();
-ORDER_QUERY.where(f -> f.exists(P007_ITEMS, (inner, outer) -> inner
+results.add(ids(executor, f -> f.exists(P007_ITEMS,
+        (s, outer) -> s.compare(ITEM_ORDER_ID, Op.EQ, outer.column(ID)))));
+results.add(ids(executor, f -> f.notExists(P007_ITEMS,
+        (s, outer) -> s.compare(ITEM_ORDER_ID, Op.EQ, outer.column(ID)))));
+// An or mixing an inner condition and a lifted one matches through either branch.
+results.add(ids(executor, f -> f.exists(P007_ITEMS, (s, outer) -> s
         .compare(ITEM_ORDER_ID, Op.EQ, outer.column(ID))
         .or(a -> a.eq(ITEM_QUANTITY, 9),
-                b -> b.lt(outer.column(TOTAL), new BigDecimal("100.00"))))).build();
+                b -> b.lt(outer.column(TOTAL), new BigDecimal("100.00"))))));
 ```
 
 The lifted column must sit on the outer query's root, so the outer query joins nothing; the sub-query reads the
-outer row through a correlation. Tested by `SubSelectTest`.
+outer row through a correlation. Tested by `SubSelectTest` and `SampleApplicationTest`.
 
 ## Enrich a joined model
 
 The case in one line: fill a field of the model behind a `@Join` from your own lookup, once per page.
 
 The nested plan carries the enricher, and `join(...)` applies it to the joined models, before the outer plan's
-enrichers:
+enrichers; `calls` is the test's bookkeeping, so drop it in your own code:
 
 ```java
 FetchPlan<Patron> patron = FetchPlan.of(SelectSet.of(QPatron.ID))
         .child(QPatron.ORDERS, FetchPlan.of(QOrderRef.ALL))
-        .enrich(Enricher.byKey(Patron::name,
-                names -> names.stream().collect(Collectors.toMap(Function.identity(), name -> name + "/")),
-                (p, tag) -> p.withTag(tag + p.orders().size()),
-                QPatron.NAME));
+        .enrich(Enricher.byKey(Patron::name, names -> {
+            calls.lookups().add(Set.copyOf(names));
+            return names.stream().collect(Collectors.toMap(Function.identity(), name -> name + "/"));
+        }, (p, tag) -> p.withTag(tag + p.orders().size()), QPatron.NAME))
+        .enrich(Enricher.of(page -> {
+            calls.nested().add(page.size());
+            return page;
+        }));
 FetchPlan<OrderPatrons> order = FetchPlan.of(SelectSet.of(QOrderPatrons.ID))
-        .join(QOrderPatrons.CUSTOMER_JOIN, patron)                    // the same plan under both joins
-        .join(QOrderPatrons.REFERRER_JOIN, patron);
+        .join(QOrderPatrons.CUSTOMER_JOIN, patron)
+        .join(QOrderPatrons.REFERRER_JOIN, patron)
+        .enrich(Enricher.of(page -> {
+            calls.outer().add(page.size());
+            return page.stream().map(o -> o.withNote(o.status() + " "
+                    + o.customer().map(Patron::tag).orElseThrow())).toList();
+        }, QOrderPatrons.STATUS));
 ```
 
 The lookup runs once per page for each join, with that page's distinct names, and every joined model is filled.
@@ -160,7 +241,7 @@ public class SkuOrderLineEntity {
     int quantity;
 
     @ManyToOne
-    @JoinColumn(name = "product_sku", referencedColumnName = "sku")   // the product's unique non-key sku
+    @JoinColumn(name = "product_sku", referencedColumnName = "sku")
     SkuProductEntity product;
 }
 ```
@@ -178,7 +259,7 @@ public class FormulaLineEntity {
     int quantity;
 
     @ManyToOne
-    @JoinFormula("upper(product_code)")   // joins the product whose code is upper(product_code)
+    @JoinFormula("upper(product_code)")
     FormulaProductEntity product;
 }
 ```
@@ -190,10 +271,15 @@ The `@Join` model has an `Optional` nested model per association, with no hint o
 public record SkuLineView(@PrimaryKey Long id, Integer quantity, @Join Optional<SkuProductView> product) {}
 ```
 
+```java
+@QueryModel(root = FormulaLineEntity.class)
+public record FormulaLineView(@PrimaryKey Long id, Integer quantity, @Join Optional<FormulaProductView> product) {}
+```
+
 Selecting a nested column, filtering on it and sorting on it all use the mapped join:
 
 ```java
-var q = QSkuLineView.query()
+var filtered = QSkuLineView.query()
         .select(SelectSet.of(QSkuLineView.ID, QSkuLineView.QUANTITY, QSkuLineView.PRODUCT_ID,
                 QSkuLineView.PRODUCT_SKU, QSkuLineView.PRODUCT_NAME, QSkuLineView.PRODUCT_PRICE))
         .where(f -> f.eq(QSkuLineView.PRODUCT_NAME, Optional.of("Sku 03")))
@@ -216,6 +302,7 @@ which requires the alias from `as(...)`; D-111 declines `@Join(on = ...)` in fav
 
 ```java
 private record CheapLine(Long id, String productName) {}
+
 private static final TableField<SkuOrderLineEntity, SkuOrderLineEntity> LINES =
         TableField.root(SkuOrderLineEntity.class);
 private static final TableField<SkuOrderLineEntity, SkuProductEntity> CHEAP =
@@ -241,29 +328,86 @@ Tested by `NonKeyJoinTest`.
 ## A shared user-profile enricher
 
 The case in one line: a user profile that lives on another datasource, keyed by a `(userId, userTypeId)` record, and
-looked up once per page by an enricher declared once and reused on several models.
+looked up once per chunk by one enricher declaration that is reused across models.
 
-The key is a record of the columns the plan selects, and the lookup is one call with the page's distinct keys:
-
-```java
-record UserRef(long userId, int userTypeId) {}
-
-private static final Enricher<Line> PROFILE_ENRICHER = Enricher.byKey(
-        line -> new UserRef(line.id(), line.quantity()),          // the key of one model
-        PROFILES::find,                                           // one call per page: Map<UserRef, String>
-        (line, profile) -> line.withProfile(profile),             // a key absent from the map leaves the model as is
-        QLine.ID, QLine.QUANTITY);                                 // the columns the key reads
-```
-
-The same constant goes on a root plan and on a nested one:
+The sample's key is the pair a song carries, with a factory that hands a half-empty pair to the enricher as `null`, so
+that row is skipped:
 
 ```java
-FetchPlan<Line> items = FetchPlan.of(SelectSet.of(QLine.ID, QLine.QUANTITY)).enrich(PROFILE_ENRICHER);
-FetchPlan<OrderLines> orders = FetchPlan.of(QOrderLines.ALL)
-        .child(QOrderLines.ITEMS, FetchPlan.of(SelectSet.of(QLine.ID, QLine.QUANTITY)).enrich(PROFILE_ENRICHER));
+public record UserRef(long userId, int userTypeId) {
+
+    /** The ref the pair names, or {@code null} when either half is missing, so the enricher skips the row. */
+    static UserRef of(Long userId, Integer userTypeId) {
+        return userId == null || userTypeId == null ? null : new UserRef(userId, userTypeId);
+    }
+}
 ```
 
-Tested by `EnricherTest`.
+The lookup is one model query on the profile repository, run once per chunk of `batchSize` distinct keys:
+
+```java
+Map<UserRef, String> findProfiles(Set<UserRef> keys) {
+    counter.increment();
+    List<Long> userIds = keys.stream().map(UserRef::userId).distinct().toList();
+    List<Integer> userTypeIds = keys.stream().map(UserRef::userTypeId).distinct().toList();
+    var query = QProfileView.query()
+            .select(QProfileView.ALL)
+            .where(f -> f.in(QProfileView.USER_ID, userIds).in(QProfileView.USER_TYPE_ID, userTypeIds))
+            .build();
+    var found = new LinkedHashMap<UserRef, String>();
+    for (ProfileView profile : profiles.findAll(query, Limit.unlimited())) {
+        UserRef ref = new UserRef(profile.userId(), profile.userTypeId());
+        if (keys.contains(ref)) {
+            found.put(ref, profile.profile());
+        }
+    }
+    return found;
+}
+```
+
+One generic factory turns that one lookup into an enricher for whichever model it is given (R-FCH-15, R-FCH-16):
+
+```java
+@SafeVarargs
+public final <M> Enricher<M> profileOf(Function<M, UserRef> key, BiFunction<M, String, M> with,
+        ColumnField<M, ?, ?>... reading) {
+    return Enricher.<M, UserRef, String>byKeys(this::findProfiles)
+            .key(key, with)
+            .batchSize(2)
+            .reading(reading);
+}
+```
+
+The second model differs only in shape, over the same `songs` root as `SongView` but without the release year:
+
+```java
+public record SongCreditView(@PrimaryKey Long id, String title, Long userId, Integer userTypeId,
+        @Transient String profile) {
+
+    SongCreditView withProfile(String value) {
+        return new SongCreditView(id, title, userId, userTypeId, value);
+    }
+}
+```
+
+The sample calls the factory once per model and serves them at `/songs` and `/songs/credits`:
+
+```java
+public MusicService(SongRepository songs, ProfileEnrichers profiles) {
+    this.songs = songs;
+    this.songProfile = profiles.<SongView>profileOf(song -> UserRef.of(song.userId(), song.userTypeId()),
+            SongView::withProfile, QSongView.USER_ID, QSongView.USER_TYPE_ID);
+    this.creditProfile = profiles.<SongCreditView>profileOf(credit -> UserRef.of(credit.userId(),
+            credit.userTypeId()), SongCreditView::withProfile,
+            QSongCreditView.USER_ID, QSongCreditView.USER_TYPE_ID);
+}
+```
+
+`SampleApplicationTest` checks each model's rows are filled, a song with no profile stays `null`, and each endpoint's
+lookup runs once per chunk (four distinct keys at `batchSize(2)` are two calls). The rest of this recipe is the TCK's
+`ByKeysEnricherTest` cases.
+
+Tested by `SampleApplicationTest`.
 
 ### A row with several keys: a payment order's actors
 
@@ -276,21 +420,29 @@ lookup, whose values share a type:
 ```java
 record ActorKey(int userType, long userId) {}
 
-Enricher<PaymentOrderView> actors = Enricher.<PaymentOrderView, ActorKey, String>byKeys(
-                profiles::find)                                          // one call per run: Map<ActorKey, String>
-        .key(PaymentOrderView::payerKey, PaymentOrderView::withPayer)
-        .key(PaymentOrderView::payeeKey, PaymentOrderView::withPayee)
-        .key(PaymentOrderView::initiatorKey, PaymentOrderView::withInitiator)
-        .key(PaymentOrderView::requestorKey, PaymentOrderView::withRequestor)  // null when absent: skipped
-        .reading(QPaymentOrderView.PAYER_USER_TYPE, QPaymentOrderView.PAYER_USER_ID,
-                QPaymentOrderView.PAYEE_USER_TYPE, QPaymentOrderView.PAYEE_USER_ID,
-                QPaymentOrderView.INITIATOR_USER_TYPE, QPaymentOrderView.INITIATOR_USER_ID,
-                QPaymentOrderView.REQUESTOR_USER_TYPE, QPaymentOrderView.REQUESTOR_USER_ID);
+private static Enricher.Keys<PaymentOrderView, ActorKey, String> actorKeys(SplitProfiles profiles) {
+    return Enricher.<PaymentOrderView, ActorKey, String>byKeys(profiles::find)
+            .key(PaymentOrderView::payerKey, PaymentOrderView::withPayer)
+            .key(PaymentOrderView::payeeKey, PaymentOrderView::withPayee)
+            .key(PaymentOrderView::initiatorKey, PaymentOrderView::withInitiator)
+            .key(PaymentOrderView::requestorKey, PaymentOrderView::withRequestor);
+}
 ```
 
-The plan selects the eight declared columns even though the model's own selection does not. A user in two roles of one
-row, or in two rows, is looked up once, and the value is passed to every role's setter. `batchSize(n)` splits the
-distinct keys into consecutive chunks of at most `n`, one lookup call per chunk. Tested by `ByKeysEnricherTest`.
+The plan selects the eight declared columns even though the model's own selection does not:
+
+```java
+private static ColumnField<PaymentOrderView, ?, ?>[] keyColumns() {
+    return new ColumnField[] {QPaymentOrderView.PAYER_USER_TYPE, QPaymentOrderView.PAYER_USER_ID,
+            QPaymentOrderView.PAYEE_USER_TYPE, QPaymentOrderView.PAYEE_USER_ID,
+            QPaymentOrderView.INITIATOR_USER_TYPE, QPaymentOrderView.INITIATOR_USER_ID,
+            QPaymentOrderView.REQUESTOR_USER_TYPE, QPaymentOrderView.REQUESTOR_USER_ID};
+}
+```
+
+A user in two roles of one row, or in two rows, is looked up once, and the value is passed to every role's setter.
+`batchSize(n)` splits the distinct keys into consecutive chunks of at most `n`, one lookup call per chunk. Tested by
+`ByKeysEnricherTest`.
 
 ### A lookup that splits its own keys
 
@@ -328,12 +480,12 @@ Per-call state belongs in the caller's code, captured when the plan is built (R-
 keys no one has loaded yet, into a cache both enrichers read:
 
 ```java
-Function<Set<ActorKey>, Map<ActorKey, String>> cached(SplitProfiles profiles,
+private static Function<Set<ActorKey>, Map<ActorKey, String>> cached(SplitProfiles profiles,
         Map<ActorKey, String> cache, List<List<ActorKey>> loads) {
     return keys -> {
         List<ActorKey> missing = keys.stream().filter(key -> !cache.containsKey(key)).toList();
         if (!missing.isEmpty()) {
-            loads.add(missing);                                      // the test's bookkeeping; drop it in your own code
+            loads.add(missing);
             cache.putAll(profiles.find(new LinkedHashSet<>(missing)));
         }
         var found = new LinkedHashMap<ActorKey, String>();
@@ -346,7 +498,7 @@ Function<Set<ActorKey>, Map<ActorKey, String>> cached(SplitProfiles profiles,
     };
 }
 
-var cache = new HashMap<ActorKey, String>();                     // per call, the caller's memory
+var cache = new HashMap<ActorKey, String>();
 var childLoads = new ArrayList<List<ActorKey>>();
 var orderLoads = new ArrayList<List<ActorKey>>();
 
@@ -370,7 +522,7 @@ it per call and apply it with `withFetch`, which returns a copy of the query and
 (R-FCH-13):
 
 ```java
-int requestedUserType = 1;                                    // captured when the plan is built
+int requestedUserType = 1;
 ModelQuery<OrderEntity, Long, OrderLines> perCall = base.withFetch(order);
 ```
 
@@ -415,7 +567,8 @@ public class EmbeddedKeyEntity {
 
         @Column(name = "seq_no")
         int seqNo;
-        // equals and hashCode omitted
+
+        public Key() {}
     }
 }
 ```
@@ -424,41 +577,74 @@ The query states its primary key as usual; a String key is `PrimaryKey.of(code)`
 `PrimaryKey.composite(regionCode, seqNo)`:
 
 ```java
-ModelQuery.Builder<StringKeyProductEntity, String, StringRow> rows = ModelQuery
-        .builder(PRODUCTS, row -> new StringRow(row.get(CODE), row.get(NAME), row.get(CATEGORY)))
-        .select(SelectSet.of(CODE, NAME, CATEGORY))
-        .primaryKey(PrimaryKey.of(CODE));
-```
-
-```java
-ModelQuery.Builder<EmbeddedKeyEntity, List<Object>, EmbeddedRow> rows = ModelQuery
-        .builder(EMBEDDED, row -> new EmbeddedRow(row.get(REGION), row.get(SEQ), row.get(LABEL)))
-        .select(SelectSet.of(REGION, SEQ, LABEL))
-        .primaryKey(PrimaryKey.composite(REGION, SEQ));
-```
-
-The keyset page and its neighbour calls; the cursor is opaque, so pass it through rather than rebuilding it:
-
-```java
-var q = rows.orderBy(CATEGORY.asc()).keyset().build();
-
-KeysetSpec spec = KeysetSpec.first(size);
-KeysetSlice<StringRow> page = executor.page(q, spec);
-while (page.hasNext()) {
-    spec = KeysetSpec.after(page.nextCursor().orElseThrow(), size);   // the cursor the page handed back
-    page = executor.page(q, spec);
+private static ModelQuery.Builder<StringKeyProductEntity, String, StringRow> stringRows() {
+    return ModelQuery.builder(PRODUCTS, row -> new StringRow(row.get(CODE), row.get(NAME), row.get(CATEGORY)))
+            .select(SelectSet.of(CODE, NAME, CATEGORY))
+            .primaryKey(PrimaryKey.of(CODE));
 }
-// the last page's cursor, walked the other way
-KeysetSlice<StringRow> back = executor.page(q, KeysetSpec.before(page.previousCursor().orElseThrow(), size));
+```
+
+```java
+private static ModelQuery.Builder<EmbeddedKeyEntity, List<Object>, EmbeddedRow> embeddedRows() {
+    return ModelQuery
+            .builder(EMBEDDED, row -> new EmbeddedRow(row.get(REGION), row.get(SEQ), row.get(LABEL)))
+            .select(SelectSet.of(REGION, SEQ, LABEL))
+            .primaryKey(PrimaryKey.composite(REGION, SEQ));
+}
+```
+
+The keyset page and its neighbour calls; the cursor is opaque, so pass it through rather than rebuilding it. The
+test's `forward` walks one page at a time and `walkBack` walks the last page's cursor the other way:
+
+```java
+var q = stringRows().orderBy(CATEGORY.asc()).keyset().build();
+var list = stringRows().orderBy(CATEGORY.asc()).build();
+```
+
+```java
+private static <E, M> List<KeysetSlice<M>> forward(ModelQueryExecutor<E> executor, ModelQuery<E, ?, M> q,
+        int size) {
+    List<KeysetSlice<M>> pages = new ArrayList<>();
+    KeysetSpec spec = KeysetSpec.first(size);
+    while (true) {
+        KeysetSlice<M> page = executor.page(q, spec);
+        pages.add(page);
+        if (!page.hasNext()) {
+            return pages;
+        }
+        spec = KeysetSpec.after(page.nextCursor().orElseThrow(), size);
+    }
+}
+```
+
+```java
+private static <E, M> List<M> walkBack(ModelQueryExecutor<E> executor, ModelQuery<E, ?, M> q, int size,
+        List<KeysetSlice<M>> pages) {
+    List<M> rows = new ArrayList<>(pages.get(pages.size() - 1).content());
+    Optional<String> cursor = pages.get(pages.size() - 1).previousCursor();
+    while (cursor.isPresent()) {
+        KeysetSlice<M> page = executor.page(q, KeysetSpec.before(cursor.get(), size));
+        rows.addAll(0, page.content());
+        cursor = page.previousCursor();
+    }
+    return rows;
+}
 ```
 
 Primary-key-first paging works the same over the key:
 
 ```java
-var twoStep = rows.orderBy(CATEGORY.asc())
+var plain = stringRows().orderBy(CATEGORY.asc()).build();
+var twoStep = stringRows().orderBy(CATEGORY.asc())
         .primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0))
         .build();
-Slice<StringRow> page = executor.page(twoStep, PageSpec.of(0, 500), CountMode.NO_COUNT);
+```
+
+```java
+var filtered = stringRows().where(f -> f.in(CATEGORY, List.of("cat-00", "cat-02"))).orderBy(CATEGORY.asc());
+var keyset = filtered.keyset().build();
+var plain = filtered.build();
+var twoStep = filtered.primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
 ```
 
 The key's columns close the order, so tied sort values never skip or repeat a row.
@@ -468,7 +654,65 @@ Tested by `StringAndEmbeddedKeyTest`.
 ## An expression in a filter or an aggregate
 
 The case in one line: a condition over a value the database computes, such as `total + 1` or `coalesce(status, 'NONE')`,
-and a conditional count, with no extra column mapped for either (D-115, R-COL-17, R-FLT-18, R-AGG-13).
+and an aggregate over an expression, with no extra column mapped for either (D-115, R-COL-17, R-FLT-18, R-AGG-13).
+
+The sample's report filters films on `coalesce(genre, 'unknown')`, groups by a computed band, and sums the expression
+`tickets * 2`; the test pins the exact rows:
+
+```java
+ExpressionField<FilmBand, String> genreText = Expr.coalesce(ColumnField.of(FilmBand.class,
+        TableField.root(FilmEntity.class), "genre", String.class), "unknown");
+var query = QFilmBand.query()
+        .select(QFilmBand.GROUP_KEYS.with(QFilmBand.TICKETS))
+        .where(f -> f.eq(genreText, genre))
+        .orderBy(QFilmBand.BAND.asc())
+        .build();
+```
+
+The grouping key and the aggregate are computed fields, so the model names their definitions:
+
+```java
+@QueryModel(root = FilmEntity.class)
+public record FilmBand(
+        @GroupBy @Computed(FilmBandKey.class) String band,
+        @Aggregate(fn = AggregateFunction.SUM, expression = FilmTickets.class) Long tickets) {}
+```
+
+```java
+public final class FilmBandKey implements ExpressionDefinition<FilmBand, String> {
+
+    public static final FilmBandKey INSTANCE = new FilmBandKey();
+
+    private FilmBandKey() {
+    }
+
+    @Override
+    public ExpressionField<FilmBand, String> expression() {
+        ColumnField<FilmBand, FilmEntity, Integer> released =
+                ColumnField.of(FilmBand.class, TableField.root(FilmEntity.class), "released", Integer.class);
+        return Expr.cases(FilmBand.class, String.class)
+                .when(f -> f.lt(released, 1990), "classic")
+                .otherwise("modern");
+    }
+}
+```
+
+```java
+public final class FilmTickets implements ExpressionDefinition<FilmBand, Long> {
+
+    public static final FilmTickets INSTANCE = new FilmTickets();
+
+    private FilmTickets() {
+    }
+
+    @Override
+    public ExpressionField<FilmBand, Long> expression() {
+        ColumnField<FilmBand, FilmEntity, Long> tickets =
+                ColumnField.of(FilmBand.class, TableField.root(FilmEntity.class), "tickets", Long.class);
+        return Expr.times(tickets, 2L);
+    }
+}
+```
 
 `Expr` builds a typed, immutable expression over one vocabulary's columns, equal by structure. `ExpressionFilterTest`
 declares the two this recipe uses as filter operands:
@@ -510,7 +754,7 @@ var records = ModelQuery.builder(ITEMS, row -> new ExprView(row.get(EXPR_ID), ro
 As a group key it groups over the value the database computes, and the aggregate reads each group:
 
 ```java
-/** {@code quantity + 1}: a group key that binds a value. */
+/** {@code quantity + 1}: a group key that binds a value, so PostgreSQL must match it to the select item. */
 private static final ExpressionField<Group, Integer> KEY = Expr.plus(GROUP_QUANTITY, 1);
 private static final AggregateField<Group, Long> GROUP_COUNT = Agg.count(GROUP_ID);
 
@@ -522,19 +766,45 @@ takes an expression directly or in a `SelectSet`; a selected or ordered scalar t
 with `MQ1401` (selection) or `MQ1406` (order) — an expression fits when all of its columns are group-key columns, and
 a sub-expression is never matched (R-AGG-14).
 
-Tested by `ExpressionFilterTest`, `ExpressionAggregateTest`, `ExpressionTest`, `ExpressionNullOrderingTest` and
-`ModelQueryTest`.
+Tested by `SampleApplicationTest`, `ExpressionFilterTest`, `ExpressionAggregateTest`, `ExpressionTest`,
+`ExpressionNullOrderingTest` and `ModelQueryTest`.
 
 ## Order by an expression
 
-The case in one line: order a report by a value the database computes, such as `total + 1`, with no column mapped for
-it (D-115, R-PAG-25). `orderBy` takes an expression, and `orderedBy(SortSpec)` reaches it by its `named(...)` name.
+The case in one line: order a report by a value the database computes, such as `tickets + 1`, with no column mapped
+for it (D-115, R-PAG-25). `orderBy` takes an expression, and `orderedBy(SortSpec)` reaches it by its `named(...)`
+name.
+
+The sample pages films in two offset pages ordered by `tickets + 1`, and the keyset request is refused with `MQ1208`:
+
+```java
+var query = QFilmView.query()
+        .select(QFilmView.ALL)
+        .orderBy(ticketsPlusOne().asc())
+        .build();
+ModelPage<FilmView> result = films.findPage(query, PageRequest.of(page, size), CountMode.COUNT);
+```
+
+```java
+private static ExpressionField<FilmView, Long> ticketsPlusOne() {
+    return Expr.plus(QFilmView.TICKETS, 1L);
+}
+```
+
+```java
+QFilmView.query()
+        .select(QFilmView.ALL)
+        .orderBy(ticketsPlusOne().asc())
+        .keyset()
+        .build();
+```
 
 Offset paging and offset export accept an expression key: the engine selects it (D-29) and appends the primary-key
 tie-breaker, so ties still page and export each row once. `primaryKeyFirst` accepts it too, on both its steps:
 
 ```java
-/** {@code quantity + 1}: an expression key whose 2 222 rows per value duplicate on every page. */
+private static final ColumnField<KeyRow, OrderItemEntity, Long> KEY_ID =
+        ColumnField.of(KeyRow.class, ITEMS, "id", Long.class);
 private static final ExpressionField<KeyRow, Integer> ITEM_KEY = Expr.plus(
         ColumnField.of(KeyRow.class, ITEMS, "quantity", Integer.class), 1);
 private static final ModelQuery.Builder<OrderItemEntity, Long, KeyRow> BY_KEY = ModelQuery
@@ -564,4 +834,4 @@ that reads a column through a to-many join is refused for offset export, keyset 
 `MQ2204` before any query runs, and a `count` over such a query counts the rows rather than the keys (R-PAG-25,
 R-PAG-13).
 
-Tested by `PrimaryKeyFirstTest`, `OffsetExportTest` and `ModelQueryTest`.
+Tested by `SampleApplicationTest`, `PrimaryKeyFirstTest`, `OffsetExportTest` and `ModelQueryTest`.

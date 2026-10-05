@@ -65,3 +65,9 @@ modelquery.query-timeout=30s
 datasource, an `EntityManagerFactory`, a transaction manager and its repositories, and the starter wires every
 repository; each factory resolves the vendor profile of its own database. It also has a validated `PATCH` endpoint
 built on a generated change set; see [Bulk writes](../bulk-writes.md).
+
+The h2 package keeps its own `JpaRepositoryFactoryBean` subclass and repository base class, with one repository that
+extends `ModelQueryRepository` and one that does not (recipe 1). Each of the five migration recipes has an endpoint:
+`/books/{id}/detail` (recipe 1), `/books/by-review` and `/books/with-review` (recipe 2), `/films/bands` (recipe 3),
+`/films/by-tickets` and `/films/by-tickets/keyset` (recipe 4), and `/songs` and `/songs/credits` (recipe 8); see
+[Migration recipes](../recipes.md).

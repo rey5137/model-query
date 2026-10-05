@@ -41,6 +41,7 @@ nav:
       - With Spring Boot: getting-started/spring-boot.md
   - Models and QModels: models.md
   - Queries and Filters: queries.md
+  - Sub-queries and expressions: subqueries-expressions.md
   - Paging and export: paging-export.md
   - Grouped queries: grouped-queries.md
   - Fetch plans: fetch-plans.md

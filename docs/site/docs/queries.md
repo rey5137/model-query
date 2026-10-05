@@ -132,7 +132,8 @@ between the roots, lift the outer column with `outer.column(...)`:
 ```
 
 The lifted column must sit on the outer root, so the outer query joins nothing. On PostgreSQL, prefer `notExists`
-over a large `notIn` sub-select.
+over a large `notIn` sub-select. The full surface, and the expressions that plug into a filter, is on
+[Sub-queries and expressions](subqueries-expressions.md).
 
 `Filters` builds `WHERE` predicates only. Conditions on aggregates go through `having`; see
 [Grouped queries](grouped-queries.md).

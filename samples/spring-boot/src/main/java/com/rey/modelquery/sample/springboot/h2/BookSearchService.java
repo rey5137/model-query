@@ -42,6 +42,15 @@ public class BookSearchService {
         return new BookPage(slice.content(), slice.nextCursor().orElse(null), slice.previousCursor().orElse(null));
     }
 
+    /** The book {@code id}, or {@code null} when there is none; a plain model query on {@link BookRepository}. */
+    public BookView byId(long id) {
+        var query = QBookView.query()
+                .select(QBookView.ALL)
+                .where(f -> f.eq(QBookView.ID, id))
+                .build();
+        return books.findAll(query, Limit.of(1)).stream().findFirst().orElse(null);
+    }
+
     /** Books whose title contains {@code title} and that were released in {@code releasedFrom} or later. */
     public List<BookView> search(Optional<String> title, Optional<Integer> releasedFrom) {
         var query = QBookView.query()

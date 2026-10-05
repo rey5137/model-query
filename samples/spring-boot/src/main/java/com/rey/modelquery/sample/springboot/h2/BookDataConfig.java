@@ -11,10 +11,16 @@ import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.transaction.PlatformTransactionManager;
 
-/** The h2 datasource, its {@code EntityManagerFactory}, transaction manager and repositories. */
+/**
+ * The h2 datasource, its {@code EntityManagerFactory}, transaction manager and repositories. It keeps the sample's own
+ * factory bean and repository base class, and the starter still adds the model-query fragment to the repositories that
+ * declare {@code ModelQueryRepository} (recipe 1, D-113).
+ */
 @Configuration
 @EnableJpaRepositories(basePackageClasses = BookRepository.class, entityManagerFactoryRef = "h2EntityManagerFactory",
-        transactionManagerRef = "h2TransactionManager")
+        transactionManagerRef = "h2TransactionManager",
+        repositoryFactoryBeanClass = PlainJpaRepositoryFactoryBean.class,
+        repositoryBaseClass = RefreshingJpaRepository.class)
 class BookDataConfig {
 
     @Bean

@@ -22,13 +22,24 @@ import com.rey.modelquery.jpa.vendor.VendorResolver;
 import com.rey.modelquery.sample.springboot.h2.BookEntity;
 import com.rey.modelquery.sample.springboot.h2.BookRepository;
 import com.rey.modelquery.sample.springboot.h2.BookView;
+import com.rey.modelquery.sample.springboot.h2.ProfileEntity;
+import com.rey.modelquery.sample.springboot.h2.ProfileRepository;
 import com.rey.modelquery.sample.springboot.h2.QBookView;
+import com.rey.modelquery.sample.springboot.h2.RefreshingRepository;
+import com.rey.modelquery.sample.springboot.h2.ReviewEntity;
+import com.rey.modelquery.sample.springboot.h2.ReviewRepository;
+import com.rey.modelquery.sample.springboot.mysql.ProfileLookupCounter;
 import com.rey.modelquery.sample.springboot.mysql.QSongView;
+import com.rey.modelquery.sample.springboot.mysql.SongCreditView;
 import com.rey.modelquery.sample.springboot.mysql.SongEntity;
 import com.rey.modelquery.sample.springboot.mysql.SongRepository;
+import com.rey.modelquery.sample.springboot.mysql.SongView;
+import com.rey.modelquery.sample.springboot.postgres.FilmBand;
 import com.rey.modelquery.sample.springboot.postgres.FilmEntity;
 import com.rey.modelquery.sample.springboot.postgres.FilmRepository;
+import com.rey.modelquery.sample.springboot.postgres.FilmView;
 import com.rey.modelquery.sample.springboot.postgres.QFilmView;
+import com.rey.modelquery.spring.data.ModelQueryRepository;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Query;
 import java.time.Duration;
@@ -275,6 +286,162 @@ class SampleApplicationTest {
             jdbc.execute("drop table " + table + "_notes");
         }
     }
+
+    @Test
+    void ac_spr_02_recipe_1_own_factory_bean_and_base_class_answer_over_http() throws Exception {
+        // Recipe 1 (D-111 item 1, R-SPR-02, D-113): the sample's own factory bean and repository base class.
+        try (ConfigurableApplicationContext context = startSample(List.of())) {
+            var books = context.getBean(BookRepository.class);
+            var reviews = context.getBean(ReviewRepository.class);
+            books.save(new BookEntity(1L, "Dune", 1965));
+            reviews.save(new ReviewEntity(9L, 1L, 5));
+
+            String json = json(mvc(context, "bookController"), "/books/1/detail?reviewId=9");
+
+            assertThat(json).contains("\"title\":\"Dune\"").contains("\"rating\":5");
+            // Both repositories carry the base class; only BookRepository also carries the model-query fragment.
+            assertThat(books).isInstanceOf(ModelQueryRepository.class);
+            assertThat(reviews).isNotInstanceOf(ModelQueryRepository.class);
+            assertThat(books).isInstanceOf(RefreshingRepository.class);
+            assertThat(reviews).isInstanceOf(RefreshingRepository.class);
+            // The base method works on the plain repository too: it reloads the review saved above.
+            assertThat(reviews.refreshAndGet(9L).rating()).isEqualTo(5);
+        }
+    }
+
+    @Test
+    void ac_flt_12_recipe_2_in_and_not_in_sub_select_over_http() throws Exception {
+        // Recipe 2 (D-111 item 2, R-FLT-15, R-FLT-16, D-112).
+        try (ConfigurableApplicationContext context = startSample(List.of())) {
+            MockMvc mvc = reviewFixtures(context);
+
+            assertThat(bookIds(json(mvc, "/books/by-review?minRating=4"))).containsExactly(1L, 4L);
+            // Review 3's book is NULL, so a guardless notIn over it would return nothing.
+            assertThat(bookIds(json(mvc, "/books/by-review?minRating=4&mode=notIn"))).containsExactly(2L, 3L);
+        }
+    }
+
+    @Test
+    void ac_flt_14_recipe_2_correlated_exists_over_http() throws Exception {
+        // Recipe 2 (D-111 item 2, R-FLT-17, D-112): exists reading an outer column.
+        try (ConfigurableApplicationContext context = startSample(List.of())) {
+            MockMvc mvc = reviewFixtures(context);
+
+            assertThat(bookIds(json(mvc, "/books/with-review?minRating=4"))).containsExactly(1L, 4L);
+        }
+    }
+
+    @Test
+    void ac_agg_14_recipe_3_expression_filter_and_computed_group_key_over_http() throws Exception {
+        // Recipe 3 (D-111 item 3, R-FLT-18, R-COL-19, R-AGG-13, R-PROC-21, R-PROC-22, D-115).
+        try (ConfigurableApplicationContext context = startSample(List.of())) {
+            var films = context.getBean(FilmRepository.class);
+            films.saveAll(List.of(new FilmEntity(1L, "A", 1980, "drama", 10L),
+                    new FilmEntity(2L, "B", 1995, "drama", 20L),
+                    new FilmEntity(3L, "C", 1992, null, 30L),
+                    new FilmEntity(4L, "D", 2001, "comedy", 40L)));
+            MockMvc mvc = mvc(context, "filmReportController");
+
+            // coalesce(genre, 'unknown') = 'drama' keeps films 1 and 2; the band key groups them.
+            List<FilmBand> rows = new ObjectMapper().readValue(json(mvc, "/films/bands?genre=drama"),
+                    new TypeReference<List<FilmBand>>() {});
+
+            assertThat(rows).containsExactly(new FilmBand("classic", 20L), new FilmBand("modern", 40L));
+        }
+    }
+
+    @Test
+    void ac_pag_26_recipe_4_expression_order_page_and_keyset_refusal() throws Exception {
+        // Recipe 4 (D-111 item 4, R-PAG-25, AC-PAG-26, D-115): offset by an expression, keyset refused with MQ1208.
+        try (ConfigurableApplicationContext context = startSample(List.of())) {
+            var films = context.getBean(FilmRepository.class);
+            // Tickets 30, 10, 20, 10, 30, 20 make the expression order 2, 4, 3, 6, 1, 5 differ from the id order,
+            // and the ties (10, 20 and 30) are broken by the primary key.
+            films.saveAll(List.of(new FilmEntity(1L, "A", 2000, null, 30L), new FilmEntity(2L, "B", 2000, null, 10L),
+                    new FilmEntity(3L, "C", 2000, null, 20L), new FilmEntity(4L, "D", 2000, null, 10L),
+                    new FilmEntity(5L, "E", 2000, null, 30L), new FilmEntity(6L, "F", 2000, null, 20L)));
+            MockMvc mvc = mvc(context, "filmReportController");
+
+            FilmPage first = filmPage(mvc, "/films/by-tickets?page=0&size=2");
+            assertThat(filmIds(first)).containsExactly(2L, 4L);
+            assertThat(first.total()).isEqualTo(6L);
+            assertThat(filmIds(filmPage(mvc, "/films/by-tickets?page=1&size=2"))).containsExactly(3L, 6L);
+
+            String refusal = mvc.perform(get("/films/by-tickets/keyset")).andExpect(status().isBadRequest())
+                    .andReturn().getResponse().getContentAsString();
+            assertThat(refusal).contains("MQ1208");
+        }
+    }
+
+    @Test
+    void ac_fch_16_recipe_8_cross_datasource_enricher_over_http() throws Exception {
+        // Recipe 8 (D-111 item 8, R-FCH-15, R-FCH-16, D-114): one enricher declaration reused across two models.
+        try (ConfigurableApplicationContext context = startSample(List.of())) {
+            var profiles = context.getBean(ProfileRepository.class);
+            var songs = context.getBean(SongRepository.class);
+            var counter = context.getBean(ProfileLookupCounter.class);
+            profiles.saveAll(List.of(new ProfileEntity(1L, 7L, 1, "gold"), new ProfileEntity(2L, 8L, 2, "silver")));
+            songs.saveAll(List.of(new SongEntity(1L, "One", 1965, 7L, 1), new SongEntity(2L, "Two", 2000, 8L, 2),
+                    new SongEntity(3L, "Three", 2001, 9L, 1), new SongEntity(4L, "Four", 2002, 7L, 2),
+                    new SongEntity(5L, "Five", 2003, null, null)));
+            MockMvc mvc = mvc(context, "musicController");
+
+            counter.reset();
+            List<SongView> all = songViews(json(mvc, "/songs"));
+            assertThat(all).extracting(SongView::profile).containsExactly("gold", "silver", null, null, null);
+            assertThat(counter.count()).isEqualTo(2);  // batchSize(2): four distinct keys, two chunks.
+
+            counter.reset();
+            List<SongCreditView> credits = creditViews(json(mvc, "/songs/credits"));
+            assertThat(credits).extracting(SongCreditView::profile)
+                    .containsExactly("gold", "silver", null, null, null);
+            assertThat(counter.count()).isEqualTo(2);  // the same four keys on the second model, two chunks.
+        }
+    }
+
+    /** Books 1 to 4 and the reviews recipe 2's endpoints read. */
+    private static MockMvc reviewFixtures(ConfigurableApplicationContext context) {
+        var books = context.getBean(BookRepository.class);
+        var reviews = context.getBean(ReviewRepository.class);
+        books.saveAll(List.of(new BookEntity(1L, "One", 2000), new BookEntity(2L, "Two", 2000),
+                new BookEntity(3L, "Three", 2000), new BookEntity(4L, "Four", 2000)));
+        reviews.saveAll(List.of(new ReviewEntity(1L, 1L, 5), new ReviewEntity(2L, 2L, 2),
+                new ReviewEntity(3L, null, 5), new ReviewEntity(4L, 4L, 4)));
+        return mvc(context, "bookController");
+    }
+
+    private static MockMvc mvc(ConfigurableApplicationContext context, String beanName) {
+        return MockMvcBuilders.standaloneSetup(context.getBean(beanName)).build();
+    }
+
+    /** The 200 body of {@code url}. */
+    private static String json(MockMvc mvc, String url) throws Exception {
+        return mvc.perform(get(url)).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+    }
+
+    private static List<Long> bookIds(String json) throws Exception {
+        return new ObjectMapper().readValue(json, new TypeReference<List<BookView>>() {}).stream()
+                .map(BookView::id).toList();
+    }
+
+    private static List<SongView> songViews(String json) throws Exception {
+        return new ObjectMapper().readValue(json, new TypeReference<List<SongView>>() {});
+    }
+
+    private static List<SongCreditView> creditViews(String json) throws Exception {
+        return new ObjectMapper().readValue(json, new TypeReference<List<SongCreditView>>() {});
+    }
+
+    private static List<Long> filmIds(FilmPage page) {
+        return page.films().stream().map(FilmView::id).toList();
+    }
+
+    private static FilmPage filmPage(MockMvc mvc, String url) throws Exception {
+        return new ObjectMapper().readValue(json(mvc, url), FilmPage.class);
+    }
+
+    /** Recipe 4's page body. */
+    record FilmPage(List<FilmView> films, long total) {}
 
     /** Behaves as a plain profile for its vendor and records the timeouts applied through it. */
     private record RecordingProfile(DatabaseVendor vendor) implements VendorProfile {

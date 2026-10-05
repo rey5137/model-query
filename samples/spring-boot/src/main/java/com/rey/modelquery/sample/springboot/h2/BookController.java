@@ -1,7 +1,11 @@
 package com.rey.modelquery.sample.springboot.h2;
 
+import com.rey.modelquery.core.Limit;
+import com.rey.modelquery.core.Op;
+import com.rey.modelquery.core.SubSelect;
 import jakarta.validation.Valid;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.springframework.http.HttpStatus;
@@ -15,15 +19,17 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** A partial update of one book: only the fields the request body sets are written. */
+/** A partial update of one book, and the h2-side endpoints of recipes 1 and 2. */
 @RestController
 class BookController {
 
     private final BookRepository books;
+    private final ReviewRepository reviews;
     private final BookSearchService search;
 
-    BookController(BookRepository books, BookSearchService search) {
+    BookController(BookRepository books, ReviewRepository reviews, BookSearchService search) {
         this.books = books;
+        this.reviews = reviews;
         this.search = search;
     }
 
@@ -44,6 +50,53 @@ class BookController {
     BookSearchService.BookPage pages(@RequestParam(required = false) String after,
             @RequestParam(required = false) String before, @RequestParam(defaultValue = "20") int size) {
         return search.page(Optional.ofNullable(after), Optional.ofNullable(before), size);
+    }
+
+    /**
+     * Recipe 1: the book read by a model query on {@code BookRepository}, and a review refreshed through the sample's
+     * own repository base method on the plain {@code ReviewRepository}.
+     */
+    @GetMapping("/books/{id}/detail")
+    BookDetail detail(@PathVariable long id, @RequestParam long reviewId) {
+        ReviewEntity review = reviews.refreshAndGet(reviewId);
+        return new BookDetail(search.byId(id), review == null ? null
+                : new ReviewRow(review.id(), review.bookId(), review.rating()));
+    }
+
+    /** Recipe 1's response: a model-query book and a base-method review. */
+    record BookDetail(BookView book, ReviewRow review) {}
+
+    /** Recipe 1's review row. */
+    record ReviewRow(Long id, Long bookId, Integer rating) {}
+
+    /**
+     * Recipe 2: books whose id is {@code in} (or, with {@code mode=notIn}, not in) the sub-select of reviewed book ids
+     * with at least {@code minRating}, built per request (D-112).
+     */
+    @GetMapping("/books/by-review")
+    List<BookView> byReview(@RequestParam int minRating, @RequestParam(defaultValue = "in") String mode) {
+        SubSelect<ReviewView, Long> reviewed = SubSelect.of(QReviewView.BOOK_ID)
+                .where(f -> f.gte(QReviewView.RATING, minRating));
+        var query = QBookView.query()
+                .select(QBookView.ALL)
+                .where(f -> "notIn".equals(mode) ? f.notIn(QBookView.ID, reviewed) : f.in(QBookView.ID, reviewed))
+                .orderBy(QBookView.ID.asc())
+                .build();
+        return books.findAll(query, Limit.unlimited());
+    }
+
+    /** Recipe 2: books with a matching review, through a correlated {@code exists} on an unmapped root (D-112). */
+    @GetMapping("/books/with-review")
+    List<BookView> withReview(@RequestParam int minRating) {
+        SubSelect<ReviewView, Long> reviewed = SubSelect.of(QReviewView.BOOK_ID)
+                .where(f -> f.gte(QReviewView.RATING, minRating));
+        var query = QBookView.query()
+                .select(QBookView.ALL)
+                .where(f -> f.exists(reviewed,
+                        (inner, outer) -> inner.compare(QReviewView.BOOK_ID, Op.EQ, outer.column(QBookView.ID))))
+                .orderBy(QBookView.ID.asc())
+                .build();
+        return books.findAll(query, Limit.unlimited());
     }
 
     /** Each failed constraint as {@code field -> message}. */
