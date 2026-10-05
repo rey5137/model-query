@@ -72,6 +72,12 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
   an expression with the expression as its `column()`; `toString` and the build log show its values as `?` (R-INS-09).
 - The `byte[]` keyset cursor value binds as a parameter instead of being inlined as a hex literal, so R-FLT-08 holds
   for every cursor value (AC-PAG-28).
+- `@Computed` and `@Aggregate(expression = ...)` map a model field to an `ExpressionDefinition<Model, FieldType>`: the
+  generated constant is an `ExpressionField` named after the field, emitted after every column constant so a definition
+  reading `Q<Model>`'s own constants finds them set, and selected by `ALL` and `DEFAULT` unless `@ExcludeFromDefaults`;
+  a `@GroupBy` on a `@Computed` field joins `GROUP_KEYS`, and the definition is built from a public `INSTANCE` or a
+  visible no-arg constructor (`MQ3018`, `MQ3019`, `MQ3208`, and `MQ3005` when a `@Join` model has a `@Computed` field,
+  D-115, R-PROC-21, R-PROC-22, R-GEN-27).
 
 ### Changed
 

@@ -3,6 +3,7 @@ package com.rey.modelquery.processor;
 import com.rey.modelquery.annotations.Aggregate;
 import com.rey.modelquery.annotations.Child;
 import com.rey.modelquery.annotations.Column;
+import com.rey.modelquery.annotations.Computed;
 import com.rey.modelquery.annotations.ExcludeFromDefaults;
 import com.rey.modelquery.annotations.FilterColumn;
 import com.rey.modelquery.annotations.FilterColumns;
@@ -108,15 +109,18 @@ final class QueryModelReader {
                     ? join(field, joinsPerAttribute.get(joinAttribute(field)) > 1) : null;
             // Read even beside @Transient or @Join, so that the validator reports the pair (MQ3204).
             AggregateDefinition aggregate = child == null ? aggregate(field) : null;
+            // A @Computed field is no column: its constant is an ExpressionField, emitted after every column (R-GEN-27).
+            TypeMirror definition = computed(field);
             fields.add(new ModelField(
                     field,
-                    field.getAnnotation(Transient.class) == null && join == null && aggregate == null
-                            && child == null,
+                    definition == null && field.getAnnotation(Transient.class) == null && join == null
+                            && aggregate == null && child == null,
                     column == null || column.attribute().isEmpty() ? name : column.attribute(),
                     constantName(name),
                     field.getAnnotation(PrimaryKey.class) != null,
                     field.getAnnotation(ExcludeFromDefaults.class) != null,
                     column == null ? null : converter(field),
+                    definition,
                     join,
                     aggregate,
                     child == null && field.getAnnotation(GroupBy.class) != null,
@@ -156,7 +160,19 @@ final class QueryModelReader {
         return new AggregateDefinition(
                 explicit(mirror, "fn") instanceof Element fn ? fn.getSimpleName().toString() : "",
                 explicit(mirror, "attribute") instanceof String attribute ? attribute : "",
+                type(mirror, "expression"),
                 Boolean.TRUE.equals(explicit(mirror, "distinct")));
+    }
+
+    /** The class named by {@code @Computed}, or {@code null} when the field carries none. */
+    private static TypeMirror computed(VariableElement field) {
+        return type(mirror(field, Computed.class), "value");
+    }
+
+    /** The class {@code annotation} names as {@code member}, or {@code null} for none, {@code void.class} included. */
+    private static TypeMirror type(AnnotationMirror annotation, String member) {
+        return annotation != null && explicit(annotation, member) instanceof TypeMirror type
+                && type.getKind() != TypeKind.VOID ? type : null;
     }
 
     /** The {@code @FilterColumn}s of {@code type}, written once or repeated inside a {@code @FilterColumns}. */
@@ -218,8 +234,7 @@ final class QueryModelReader {
 
     /** The class {@code annotation} names as its {@code converter}, or {@code null} for {@code void.class}. */
     private static TypeMirror converter(AnnotationMirror annotation) {
-        return explicit(annotation, CONVERTER) instanceof TypeMirror converter
-                && converter.getKind() != TypeKind.VOID ? converter : null;
+        return type(annotation, CONVERTER);
     }
 
     /** {@code customerId} as {@code CUSTOMER_ID}: an underscore at each lower-to-upper step and after an acronym. */

@@ -38,7 +38,7 @@
 | `MQ3207` | `@QueryModel(singleGroup = true)` on a model that has `@GroupBy` fields (D-47) | `ProductSales: singleGroup = true can't be combined with @GroupBy fields; remove one` |
 | `MQ3208` | `@Aggregate` with both `attribute` and `expression` (D-115) | `ProductSales.paid: @Aggregate takes attribute or expression, not both` |
 | `MQ3301` | Update-model field maps through a join or a collection | `OrderPatch.customerName: update models can only write attributes of OrderEntity; 'customer.name' needs a join` |
-| `MQ3302` | `@Join`, `@Aggregate` or `@GroupBy` on an update model | `OrderPatch.customer: @Join isn't allowed on @UpdateModel; write the foreign key with @Column(attribute = "customer") Long customerId` |
+| `MQ3302` | `@Join`, `@Aggregate`, `@GroupBy` or `@Computed` on an update model | `OrderPatch.customer: @Join isn't allowed on @UpdateModel; write the foreign key with @Column(attribute = "customer") Long customerId` |
 | `MQ3303` | Update-model field maps to the primary key without `@PrimaryKey`, or to the `@Version` attribute | `OrderPatch.version: the @Version attribute is managed by the engine (keepVersion, expectVersion)` |
 | `MQ3304` | Update-model field maps to an attribute that can't be written: `updatable = false`, or the inverse (`mappedBy`) side of a to-one | `OrderPatch.createdAt: OrderEntity.createdAt is @Column(updatable = false)` |
 | `MQ3305` | To-one attribute written by id with the wrong id type | `OrderPatch.customerId: CustomerEntity's id is Long, found String` |

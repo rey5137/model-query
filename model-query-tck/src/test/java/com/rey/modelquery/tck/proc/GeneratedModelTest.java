@@ -393,6 +393,41 @@ class GeneratedModelTest {
                 .isEqualTo(timestamp("SELECT MAX(placed_at) FROM orders WHERE status = '" + row.status() + "'")));
     }
 
+    @Test
+    void ac_proc_13_a_computed_field_is_read_back_by_list_in_a_class_and_a_record_model() throws SQLException {
+        var netView = QOrderNetView.query().select(QOrderNetView.ALL).orderBy(QOrderNetView.ID.asc()).build();
+        var netRow = QOrderNet.query().select(QOrderNet.ALL).orderBy(QOrderNet.ID.asc()).build();
+        List<OrderNetView> views = new ArrayList<>();
+        List<OrderNet> rows = new ArrayList<>();
+        withExecutor(OrderEntity.class, executor -> {
+            views.addAll(executor.list(netView, Limit.unlimited()));
+            rows.addAll(executor.list(netRow, Limit.unlimited()));
+        });
+
+        List<BigDecimal> totals = totals();
+        assertThat(views).hasSize(totals.size()).hasSize(TckFixture.ORDERS).isNotEmpty();
+        assertThat(rows).hasSize(totals.size());
+        for (int i = 0; i < totals.size(); i++) {
+            BigDecimal expected = totals.get(i).multiply(BigDecimal.valueOf(2));
+            assertThat(views.get(i).getId()).isEqualTo((long) (i + 1));
+            // The class setter, and the record's canonical constructor, both read the computed constant.
+            assertThat(views.get(i).getNet()).isEqualByComparingTo(expected);
+            assertThat(rows.get(i).net()).isEqualByComparingTo(expected);
+        }
+    }
+
+    /** {@code total} of every order, ordered by id, as the computed expression's source values. */
+    private static List<BigDecimal> totals() throws SQLException {
+        List<BigDecimal> totals = new ArrayList<>();
+        try (Connection connection = DB.getConnection(); Statement statement = connection.createStatement();
+                ResultSet rows = statement.executeQuery("SELECT total FROM orders ORDER BY id")) {
+            while (rows.next()) {
+                totals.add(rows.getBigDecimal(1));
+            }
+        }
+        return totals;
+    }
+
     private static BigDecimal decimal(String sql) throws SQLException {
         try (Connection connection = DB.getConnection(); Statement statement = connection.createStatement();
                 ResultSet rows = statement.executeQuery(sql)) {

@@ -31,8 +31,8 @@ import javax.lang.model.util.Types;
  * not referenced, so the processor does not depend on {@code model-query-core}.
  *
  * @implSpec R-GEN-04, R-GEN-05, R-GEN-06, R-GEN-09, R-GEN-10, R-GEN-12, R-GEN-13, R-GEN-14, R-GEN-15, R-GEN-17,
- *     R-GEN-18, R-GEN-19, R-GEN-21, R-GEN-22, R-GEN-24, R-PROC-07, R-PROC-09, R-PROC-10, R-PROC-11, R-PROC-12,
- *     R-PROC-13, R-PROC-15, R-PROC-16, R-PROC-17
+ *     R-GEN-18, R-GEN-19, R-GEN-21, R-GEN-22, R-GEN-24, R-GEN-27, R-PROC-07, R-PROC-09, R-PROC-10, R-PROC-11,
+ *     R-PROC-12, R-PROC-13, R-PROC-15, R-PROC-16, R-PROC-17, R-PROC-21, R-PROC-22
  */
 final class QModelWriter {
 
@@ -42,6 +42,7 @@ final class QModelWriter {
     private static final ClassName ORDERED_COLUMN_FIELD = ClassName.get(CORE, "OrderedColumnField");
     private static final ClassName AGG = ClassName.get(CORE, "Agg");
     private static final ClassName AGGREGATE_FIELD = ClassName.get(CORE, "AggregateField");
+    private static final ClassName EXPRESSION_FIELD = ClassName.get(CORE, "ExpressionField");
     private static final ClassName SELECT_SET = ClassName.get(CORE, "SelectSet");
     private static final ClassName PRIMARY_KEY = ClassName.get(CORE, "PrimaryKey");
     private static final ClassName ROW_MAPPER = ClassName.get(CORE, "RowMapper");
@@ -133,11 +134,17 @@ final class QModelWriter {
                     modelName, column.entity(), column.definition().name(), column.table(), column.attribute(),
                     column.read().type(), column.definition().converter(), null));
         }
+        // A computed constant comes after every column constant, so a definition reading Q<Model> columns finds them
+        // already set when the generated class initialises it (R-GEN-27).
+        for (ModelField field : update ? List.<ModelField>of() : model.computed()) {
+            type.addField(computed(modelName, field));
+        }
         if (model.selectSets()) {
             TypeName selectSet = ParameterizedTypeName.get(SELECT_SET, modelName);
-            List<ModelField> excluded = model.columns().stream().filter(ModelField::excludedFromDefaults).toList();
+            List<ModelField> selections = model.selections();
+            List<ModelField> excluded = selections.stream().filter(ModelField::excludedFromDefaults).toList();
             type.addField(FieldSpec.builder(selectSet, "ALL", CONSTANT)
-                    .initializer("$T.of($L)", SELECT_SET, constants(model.columns()))
+                    .initializer("$T.of($L)", SELECT_SET, constants(selections))
                     .build());
             type.addField(FieldSpec.builder(selectSet, "DEFAULT", CONSTANT)
                     .initializer(excluded.isEmpty() ? CodeBlock.of("ALL") : CodeBlock.of("ALL.without($L)",
@@ -295,6 +302,27 @@ final class QModelWriter {
     }
 
     /**
+     * The constant of a {@code @Computed} field: an {@code ExpressionField} built from the class the field names,
+     * named after the field (R-GEN-27, R-PROC-21).
+     */
+    private FieldSpec computed(ClassName modelName, ModelField field) {
+        ExpressionDefinitionType definition = ExpressionDefinitionType.of(types, field.definition());
+        return FieldSpec.builder(
+                        ParameterizedTypeName.get(EXPRESSION_FIELD, modelName, column(field.type())),
+                        field.constant(), CONSTANT)
+                .initializer("$L.named($S)", definitionExpression(definition), field.name())
+                .build();
+    }
+
+    /** The expression of {@code definition}, from its {@code INSTANCE} or a new instance (R-GEN-27). */
+    private static CodeBlock definitionExpression(ExpressionDefinitionType definition) {
+        ClassName type = ClassName.get(definition.type());
+        return definition.hasInstance()
+                ? CodeBlock.of("$T.INSTANCE.expression()", type)
+                : CodeBlock.of("new $T().expression()", type);
+    }
+
+    /**
      * The constant of an {@code @Aggregate} field, over a column built in place from its attribute: the aggregate is
      * keyed by that column, so it equals the same function written by hand (api/13 R-AGG-01).
      */
@@ -303,6 +331,19 @@ final class QModelWriter {
         TypeName result = column(field.type());
         FieldSpec.Builder constant = FieldSpec.builder(
                 ParameterizedTypeName.get(AGGREGATE_FIELD, modelName, result), field.constant(), CONSTANT);
+        if (aggregate.expression() != null) {
+            // The aggregate is the Agg overload over the definition's expression (R-PROC-22, R-GEN-27).
+            ExpressionDefinitionType definition = ExpressionDefinitionType.of(types, aggregate.expression());
+            TypeMirror sourceType = definition.value();
+            String function = switch (aggregate.fn()) {
+                case "COUNT" -> aggregate.distinct() ? "countDistinct" : "count";
+                // Agg.sum refuses a 32-bit expression; the field is a Long and the QModel sums it as one (MQ3205).
+                case "SUM" -> column(sourceType).toString().matches("java\\.lang\\.(Integer|Short|Byte)")
+                        ? "sumAsLong" : "sum";
+                default -> aggregate.fn().toLowerCase(Locale.ROOT);
+            };
+            return constant.initializer("$T.$L($L)", AGG, function, definitionExpression(definition)).build();
+        }
         if (aggregate.attribute().isEmpty() && aggregate.fn().equals("COUNT")) {
             return constant.initializer("$T.count(ROOT)", AGG).build();
         }
@@ -349,7 +390,7 @@ final class QModelWriter {
         scopeJoins(model, map);
         CodeBlock arguments = model.fields().stream()
                 .map(field -> field.join() != null ? nested(field) : field.child() != null ? unloaded(field)
-                        : field.column() || field.aggregate() != null
+                        : field.column() || field.computed() || field.aggregate() != null
                         ? CodeBlock.of("row.get($L)", field.constant()) : CodeBlock.of(unset(field.type())))
                 .collect(CodeBlock.joining(",$W"));
         map.addStatement("return new $T($L)", modelName, arguments);
@@ -362,7 +403,7 @@ final class QModelWriter {
     private void mapClass(ModelDefinition model, ClassName modelName, MethodSpec.Builder map) {
         map.addStatement("$T m = new $T()", modelName, modelName);
         for (ModelField field : model.fields()) {
-            if (!field.column() && field.aggregate() == null) {
+            if (!field.column() && !field.computed() && field.aggregate() == null) {
                 continue;
             }
             map.beginControlFlow("if (row.isSelected($L))", field.constant())

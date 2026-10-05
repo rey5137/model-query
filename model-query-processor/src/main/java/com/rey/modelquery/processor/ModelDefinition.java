@@ -1,5 +1,6 @@
 package com.rey.modelquery.processor;
 
+import java.util.ArrayList;
 import java.util.List;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.TypeElement;
@@ -44,6 +45,21 @@ record ModelDefinition(
         return fields.stream().filter(ModelField::column).toList();
     }
 
+    /** The fields carrying {@code @Computed}, in declaration order. */
+    List<ModelField> computed() {
+        return fields.stream().filter(ModelField::computed).toList();
+    }
+
+    /**
+     * The fields a {@code SelectSet} can hold, in the order they are emitted: the columns, then the computed
+     * expressions, which are declared after every column constant (R-GEN-27).
+     */
+    List<ModelField> selections() {
+        var all = new ArrayList<>(columns());
+        all.addAll(computed());
+        return all;
+    }
+
     /** Whether a change set is generated: always for an update model, on request for a query model (R-GEN-21). */
     boolean changes() {
         return updateModel || generateChanges;
@@ -77,9 +93,9 @@ record ModelDefinition(
         return fields.stream().filter(field -> field.aggregate() != null).toList();
     }
 
-    /** The {@code @GroupBy} columns, in declaration order: the members of {@code GROUP_KEYS}. */
+    /** The {@code @GroupBy} columns or computed expressions, in declaration order: the members of {@code GROUP_KEYS}. */
     List<ModelField> groupKeys() {
-        return fields.stream().filter(field -> field.column() && field.groupBy()).toList();
+        return fields.stream().filter(field -> (field.column() || field.computed()) && field.groupBy()).toList();
     }
 
     /** The {@code @PrimaryKey} columns, in declaration order. */
@@ -98,6 +114,7 @@ record ModelDefinition(
      * @param primaryKey whether the field is a {@code @PrimaryKey}
      * @param excludedFromDefaults whether the field is left out of {@code DEFAULT}
      * @param converter the class named by {@code @Column(converter)}, or {@code null} for none
+     * @param definition the class named by {@code @Computed}, or {@code null} for none
      * @param join what {@code @Join} says of the field, or {@code null} when it carries none
      * @param aggregate what {@code @Aggregate} says of the field, or {@code null} when it carries none
      * @param groupBy whether the field carries {@code @GroupBy}
@@ -106,7 +123,7 @@ record ModelDefinition(
      */
     record ModelField(
             VariableElement element, boolean column, String attribute, String constant, boolean primaryKey,
-            boolean excludedFromDefaults, TypeMirror converter, JoinDefinition join,
+            boolean excludedFromDefaults, TypeMirror converter, TypeMirror definition, JoinDefinition join,
             AggregateDefinition aggregate, boolean groupBy, ChildDefinition child) {
 
         String name() {
@@ -115,6 +132,11 @@ record ModelDefinition(
 
         TypeMirror type() {
             return element.asType();
+        }
+
+        /** Whether the field carries {@code @Computed}. */
+        boolean computed() {
+            return definition != null;
         }
     }
 
@@ -153,10 +175,12 @@ record ModelDefinition(
      * An {@code @Aggregate} as written on its field.
      *
      * @param fn the function's name: {@code COUNT}, {@code SUM}, {@code AVG}, {@code MIN} or {@code MAX}
-     * @param attribute the entity attribute path the function reads; {@code ""} for a {@code COUNT} over the root
+     * @param attribute the entity attribute path the function reads; {@code ""} for a {@code COUNT} over the root or
+     *     an aggregate over an expression
+     * @param expression the class named by {@code expression}, or {@code null} for none
      * @param distinct whether {@code distinct = true} was written
      */
-    record AggregateDefinition(String fn, String attribute, boolean distinct) {}
+    record AggregateDefinition(String fn, String attribute, TypeMirror expression, boolean distinct) {}
 
     /**
      * A {@code @FilterColumn} as written on the model's type.

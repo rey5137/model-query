@@ -55,6 +55,12 @@ enum DiagnosticCode {
     /** A model's {@code root}, or the {@code root} of a model it nests, still names no class in the last round. */
     MQ3017("Model root does not resolve to a class"),
 
+    /** A {@code @Computed} or {@code @Aggregate(expression)} class is no usable {@code ExpressionDefinition}. */
+    MQ3018("@Computed or @Aggregate(expression) class is not a usable ExpressionDefinition"),
+
+    /** {@code @Computed} is combined with an annotation it can't share a field with, or is on a primitive field. */
+    MQ3019("@Computed combined with an annotation it can't share a field with, or on a primitive field"),
+
     /** An {@code @Aggregate} field is primitive, though an aggregate can be {@code NULL}. */
     MQ3201("@Aggregate field is primitive"),
 
@@ -78,6 +84,9 @@ enum DiagnosticCode {
 
     /** {@code @QueryModel(singleGroup = true)} on a model that has {@code @GroupBy} fields. */
     MQ3207("singleGroup combined with @GroupBy fields"),
+
+    /** {@code @Aggregate} with both {@code attribute} and {@code expression}. */
+    MQ3208("@Aggregate takes attribute or expression, not both"),
 
     /** An update-model field maps through an association, or to a collection. */
     MQ3301("Update-model field maps through a join or a collection"),

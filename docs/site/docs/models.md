@@ -93,6 +93,42 @@ A column with no converter, or with an `OrderedColumnConverter`, is an `OrderedC
 and `Agg.countDistinct` take. A column with any other converter is a plain `ColumnField`, and those three do not
 compile over it.
 
+## Computed fields
+
+A field whose value the database computes, rather than one it stores, is marked `@Computed` with a class implementing
+`ExpressionDefinition<Model, FieldType>`:
+
+```java
+@QueryModel(root = OrderEntity.class)
+public record OrderNet(@PrimaryKey Long id, @Computed(RowNet.class) BigDecimal net) {}
+```
+
+```java
+/** {@code total * 2} over {@code orders}, typed to the record model {@link OrderNet} (R-PROC-21). */
+public final class RowNet implements ExpressionDefinition<OrderNet, BigDecimal> {
+
+    public static final RowNet INSTANCE = new RowNet();
+
+    private RowNet() {}
+
+    @Override
+    public ExpressionField<OrderNet, BigDecimal> expression() {
+        return Expr.times(ColumnField.of(OrderNet.class, TableField.root(OrderEntity.class), "total",
+                BigDecimal.class), BigDecimal.valueOf(2));
+    }
+}
+```
+
+The generated constant is an `ExpressionField` named after the field, emitted after every column constant so a
+definition reading `Q<Model>`'s own constants finds them set (R-GEN-27), and selected by `ALL` and `DEFAULT` unless
+`@ExcludeFromDefaults`. The definition's type arguments must be exactly the model and the field's boxed type, and the
+class must have a public `INSTANCE` field or a visible no-arg constructor, or the processor reports `MQ3018`;
+`@Computed` can't share a field with another mapping annotation, or sit on a primitive field, and then reports
+`MQ3019`. Build the expression inside `expression()`, or from `Q<Model>` constants, never from a static constant the
+generated class initialises.
+
+Tested by `GeneratedModelTest`.
+
 ## Keep the prefix consistent
 
 The default class name is `Q` plus the model name. If you change `prefix` or `suffix` through the

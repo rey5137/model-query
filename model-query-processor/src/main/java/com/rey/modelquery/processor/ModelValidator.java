@@ -113,15 +113,18 @@ final class ModelValidator {
         // Only an ungrouped query always selects the key: a grouped one selects it like any other column (D-49).
         boolean ungrouped = model.aggregates().isEmpty() && model.groupKeys().isEmpty();
         for (ModelField field : model.fields()) {
-            if (!field.column() && field.aggregate() == null) {
+            if (!field.column() && field.aggregate() == null && !field.computed()) {
                 continue;
             }
             String where = model.name() + "." + field.name() + ": ";
-            if (field.aggregate() != null) {
-                if (!model.updateModel()) {
-                    checkAggregate(model, field, where, diagnostics);
-                }
-            } else {
+            // A field may carry @Computed beside @Aggregate, which MQ3019 reports: run both checks, not either.
+            if (!model.updateModel() && field.aggregate() != null) {
+                checkAggregate(model, field, where, diagnostics);
+            }
+            if (!model.updateModel() && field.computed()) {
+                checkComputed(model, field, where, diagnostics);
+            }
+            if (field.column()) {
                 checkAttribute(model, field, where, diagnostics);
             }
             if (field.column() && model.isRecord() && !model.updateModel() && field.type().getKind().isPrimitive()
@@ -223,8 +226,77 @@ final class ModelValidator {
             diagnostics.error(field.element(), DiagnosticCode.MQ3206,
                     where + "distinct only applies to COUNT, found " + fn);
         }
+        if (aggregate.expression() != null) {
+            if (!aggregate.attribute().isEmpty()) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3208,
+                        where + "@Aggregate takes attribute or expression, not both");
+                return;
+            }
+            checkExpressionAggregate(model, field, where, diagnostics);
+            return;
+        }
+        reportAggregate(field, fn, expected(model, field, where, diagnostics), where, diagnostics);
+    }
+
+    /**
+     * {@code MQ3018} for an {@code @Aggregate(expression)} class that is no usable
+     * {@code ExpressionDefinition<Model, C>}, then the field's type against the function's result over the
+     * expression's type {@code C} (R-PROC-22).
+     */
+    private void checkExpressionAggregate(ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
+        AggregateDefinition aggregate = field.aggregate();
+        ExpressionDefinitionType definition = ExpressionDefinitionType.of(types, aggregate.expression());
+        if (definition == null || !types.isSameType(definition.model(), model.type().asType())) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3018, definitionProblem(model, field, where));
+            return;
+        }
+        if (!definition.hasInstance() && !definition.hasVisibleConstructor(model.type())) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3018, definitionProblem(model, field, where));
+            return;
+        }
+        reportAggregate(field, aggregate.fn(), expectedResult(definition.value(), false, field, where, diagnostics),
+                where, diagnostics);
+    }
+
+    /**
+     * {@code MQ3018} for a {@code @Computed} class that is no usable {@code ExpressionDefinition<Model, FieldType>},
+     * and {@code MQ3019} for each annotation it can't share the field with and for a primitive field (R-PROC-21).
+     */
+    private void checkComputed(ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
+        if (field.type().getKind().isPrimitive()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3019,
+                    where + "@Computed field is primitive; an expression may be NULL");
+        }
+        for (String annotation : computedCombinedWith(field)) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3019,
+                    where + "@Computed can't be combined with " + annotation);
+        }
+        ExpressionDefinitionType definition = ExpressionDefinitionType.of(types, field.definition());
+        if (definition == null || !types.isSameType(definition.model(), model.type().asType())
+                || !types.isSameType(definition.value(), boxed(field.type()))) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3018, definitionProblem(model, field, where));
+            return;
+        }
+        if (!definition.hasInstance() && !definition.hasVisibleConstructor(model.type())) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3018, definitionProblem(model, field, where));
+        }
+    }
+
+    /**
+     * The {@code MQ3018} detail: the class the field names, and the {@code ExpressionDefinition} the field needs. For
+     * {@code @Aggregate(expression)} the message names the field's type, since a class that implements no
+     * {@code ExpressionDefinition} has no expression type to name.
+     */
+    private String definitionProblem(ModelDefinition model, ModelField field, String where) {
+        TypeMirror named = field.computed() ? field.definition() : field.aggregate().expression();
+        return where + display(named) + " is not an ExpressionDefinition<" + model.name() + ", "
+                + display(boxed(field.type())) + ">, or has neither INSTANCE nor a no-arg constructor";
+    }
+
+    /** {@code MQ3201}, {@code MQ3202} or {@code MQ3205} for a field that is not what the aggregate returns. */
+    private void reportAggregate(
+            ModelField field, String fn, Expected expected, String where, Diagnostics diagnostics) {
         TypeMirror fieldType = boxed(field.type());
-        Expected expected = expected(model, field, where, diagnostics);
         if (field.type().getKind().isPrimitive()) {
             String use = expected == null ? display(fieldType) : simpleName(expected.type());
             diagnostics.error(field.element(), DiagnosticCode.MQ3201, where + (fn.equals("COUNT")
@@ -272,7 +344,17 @@ final class ModelValidator {
                     + "; aggregate a basic attribute");
             return null;
         }
-        TypeMirror source = boxed(attribute.type());
+        return expectedResult(boxed(attribute.type()), true, field, where, diagnostics);
+    }
+
+    /**
+     * The result of {@code field}'s aggregate over {@code source}, or {@code null} with {@code MQ3202} when the
+     * function cannot read it. {@code converted} allows the built-in ordered converter a {@code MIN} or {@code MAX}
+     * over a {@code Timestamp} attribute reads through (D-84), which an already-typed expression does not need.
+     */
+    private Expected expectedResult(
+            TypeMirror source, boolean converted, ModelField field, String where, Diagnostics diagnostics) {
+        String fn = field.aggregate().fn();
         String sourceName = display(source);
         String over = fn + " over " + sourceName;
         switch (fn) {
@@ -299,7 +381,7 @@ final class ModelValidator {
             }
             default -> {
                 // MIN and MAX over a Timestamp read through a built-in ordered converter as the field's type (D-84).
-                if (builtIns.between(field.type(), source) != null) {
+                if (converted && builtIns.between(field.type(), source) != null) {
                     return new Expected(qualified(field.type()), over, false);
                 }
                 if (isSubtypeOf(source, COMPARABLE)) {
@@ -330,6 +412,30 @@ final class ModelValidator {
         }
         if (field.join() != null) {
             found.add("@Join");
+        }
+        if (field.element().getAnnotation(Transient.class) != null) {
+            found.add("@Transient");
+        }
+        return found;
+    }
+
+    /** The annotations {@code @Computed} can't share a field with, as written on {@code field} (R-PROC-21). */
+    private static List<String> computedCombinedWith(ModelField field) {
+        var found = new ArrayList<String>();
+        if (field.primaryKey()) {
+            found.add("@PrimaryKey");
+        }
+        if (field.element().getAnnotation(Column.class) != null) {
+            found.add("@Column");
+        }
+        if (field.join() != null) {
+            found.add("@Join");
+        }
+        if (field.child() != null) {
+            found.add("@Child");
+        }
+        if (field.aggregate() != null) {
+            found.add("@Aggregate");
         }
         if (field.element().getAnnotation(Transient.class) != null) {
             found.add("@Transient");
@@ -423,6 +529,11 @@ final class ModelValidator {
         if (!nested.aggregates().isEmpty()) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3005, where + "@Join model " + nested.name()
                     + " has @Aggregate fields; a summary model can't be joined");
+            joinable = false;
+        } else if (!nested.computed().isEmpty()) {
+            // A computed expression is built against its own model's columns, which a joined row cannot provide.
+            diagnostics.error(field.element(), DiagnosticCode.MQ3005, where + "@Join model " + nested.name()
+                    + " has @Computed fields; a model with a computed field can't be joined");
             joinable = false;
         } else if (nested.keys().isEmpty()) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3006,

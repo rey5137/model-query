@@ -53,6 +53,7 @@ class DiagnosticMatrixTest {
                 import com.rey.modelquery.annotations.AggregateFunction;
                 import com.rey.modelquery.annotations.Child;
                 import com.rey.modelquery.annotations.Column;
+                import com.rey.modelquery.annotations.Computed;
                 import com.rey.modelquery.annotations.FilterColumn;
                 import com.rey.modelquery.annotations.GroupBy;
                 import com.rey.modelquery.annotations.Join;
@@ -240,6 +241,35 @@ class DiagnosticMatrixTest {
             }
             """);
 
+    /** A class implementing no {@code ExpressionDefinition}, for the MQ3018 branch. */
+    private static final JavaFileObject NOT_A_DEFINITION =
+            source("models.NotADefinition", "package models;\npublic final class NotADefinition {}\n");
+
+    /**
+     * An {@code ExpressionDefinition<OrderView, BigDecimal>} over {@code OrderEntity.total}, with an {@code INSTANCE}.
+     */
+    private static final JavaFileObject DOUBLED = source("models.Doubled", """
+            package models;
+
+            import com.rey.modelquery.core.ColumnField;
+            import com.rey.modelquery.core.Expr;
+            import com.rey.modelquery.core.ExpressionDefinition;
+            import com.rey.modelquery.core.ExpressionField;
+            import com.rey.modelquery.core.TableField;
+            import com.rey.modelquery.processor.fixture.OrderEntity;
+            import java.math.BigDecimal;
+
+            public final class Doubled implements ExpressionDefinition<OrderView, BigDecimal> {
+                public static final Doubled INSTANCE = new Doubled();
+
+                @Override
+                public ExpressionField<OrderView, BigDecimal> expression() {
+                    return Expr.times(ColumnField.of(OrderView.class, TableField.root(OrderEntity.class), "total",
+                            BigDecimal.class), BigDecimal.valueOf(2));
+                }
+            }
+            """);
+
     private static final List<Case> CASES = List.of(
             of("MQ3001", c -> fails(c.model("OrderView", ORDER, ID, "BigDecimal totl"),
                     "MQ3001: OrderView.totl: no attribute 'totl' on OrderEntity")),
@@ -316,6 +346,15 @@ class DiagnosticMatrixTest {
                             + "query model of CustomerEntity to select only its columns"))),
             of("MQ3017", c -> fails(c.model("OrderView", "@QueryModel(root = int.class)", ID, "String status"),
                     "MQ3017: OrderView: root does not name a class, and no annotation processor generated one")),
+            of("MQ3018", c -> fails(
+                    with(NOT_A_DEFINITION, c.model("OrderView", ORDER, ID,
+                            "@Computed(NotADefinition.class) BigDecimal doubled")),
+                    "MQ3018: OrderView.doubled: NotADefinition is not an ExpressionDefinition<OrderView, BigDecimal>, "
+                            + "or has neither INSTANCE nor a no-arg constructor")),
+            of("MQ3019", c -> fails(
+                    with(DOUBLED, c.model("OrderView", ORDER, ID,
+                            "@Column @Computed(Doubled.class) BigDecimal doubled")),
+                    "MQ3019: OrderView.doubled: @Computed can't be combined with @Column")),
             of("MQ3201", c -> fails(
                     with(SALE_ENTITY, c.model("SalesSummary", SINGLE,
                             "@Aggregate(fn = AggregateFunction.SUM, attribute = \"weight\") double weight")),
@@ -345,6 +384,12 @@ class DiagnosticMatrixTest {
                             COUNT + " Long lines")),
                     "MQ3207: SalesSummary: singleGroup = true can't be combined with @GroupBy fields; remove "
                             + "one")),
+            of("MQ3208", c -> fails(
+                    with(DOUBLED, c.model("OrderView",
+                            "@QueryModel(root = OrderEntity.class, singleGroup = true)", ID,
+                            "@Aggregate(fn = AggregateFunction.SUM, attribute = \"total\", expression = Doubled.class) "
+                                    + "BigDecimal doubled")),
+                    "MQ3208: OrderView.doubled: @Aggregate takes attribute or expression, not both")),
             of("MQ3301", c -> fails(
                     with(TICKET_ENTITY, c.model("TicketPatch", PATCH, ID,
                             "@Column(attribute = \"customer.name\") String customerName",
@@ -355,13 +400,16 @@ class DiagnosticMatrixTest {
                             + "is a collection")),
             of("MQ3302", c -> fails(
                     with(TICKET_ENTITY, c.customerView(), c.model("TicketPatch", PATCH, ID,
-                            "@Join Optional<CustomerView> customer", COUNT + " Long lines", "@GroupBy String code")),
+                            "@Join Optional<CustomerView> customer", COUNT + " Long lines", "@GroupBy String code",
+                            "@Computed(CustomerView.class) BigDecimal computed")),
                     "MQ3302: TicketPatch.customer: @Join isn't allowed on @UpdateModel; write the foreign key with "
                             + "@Column(attribute = \"customer\") Long customerId",
                     "MQ3302: TicketPatch.lines: @Aggregate isn't allowed on @UpdateModel; an update writes columns, "
                             + "not groups",
                     "MQ3302: TicketPatch.code: @GroupBy isn't allowed on @UpdateModel; an update writes columns, "
-                            + "not groups")),
+                            + "not groups",
+                    "MQ3302: TicketPatch.computed: @Computed isn't allowed on @UpdateModel; an update writes columns, "
+                            + "not expressions")),
             of("MQ3303", c -> fails(
                     with(TICKET_ENTITY, c.model("TicketPatch", PATCH, ID, "Long version",
                             "@Column(attribute = \"id\") Long ticketId")),

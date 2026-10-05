@@ -44,6 +44,20 @@ An aggregate's Java type is what the database returns, not the column's type:
 `SUM` over zero rows is `NULL`, not `0`, so an aggregate field must be a boxed type. The library never invents a
 value for you; use `Objects.requireNonNullElse` in `afterMap` if you want zero.
 
+`expression = Def.class` aggregates over an `ExpressionDefinition<Model, C>` instead of a stored `attribute`; a
+`COUNT` over it counts non-null values. The field's type is checked against the function's result over `C` (`MQ3202`),
+and `attribute` and `expression` together are `MQ3208`. A `@GroupBy` on a `@Computed` field puts it in `GROUP_KEYS`
+like any other key, so the query groups by the value the database computes:
+
+```java
+@QueryModel(root = OrderEntity.class)
+public record OrderBandTotals(
+        @GroupBy @Computed(BandStatus.class) String band,
+        @Aggregate(fn = AggregateFunction.SUM, expression = BandTotal.class) BigDecimal doubled) {}
+```
+
+Tested by `ComputedModelQueryTest`.
+
 ## Whole-table totals
 
 A model with aggregates and no `@GroupBy` field is a single-group query, like `SELECT count(*) FROM ...`. Declare it

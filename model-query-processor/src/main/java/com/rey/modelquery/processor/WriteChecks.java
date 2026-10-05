@@ -51,6 +51,10 @@ final class WriteChecks {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3302,
                         where + "@GroupBy isn't allowed on @UpdateModel; an update writes columns, not groups");
             }
+            if (field.computed()) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3302,
+                        where + "@Computed isn't allowed on @UpdateModel; an update writes columns, not expressions");
+            }
         }
     }
 

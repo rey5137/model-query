@@ -109,7 +109,7 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3002` | Model type is not the entity attribute's type, and no converter provided or built in (`Instant` or `Date` over a `Timestamp`). |
 | `MQ3003` | `@Join` attribute is not a to-one association, or the nested model's root does not match the target. |
 | `MQ3004` | Missing `@PrimaryKey` on a model with no `@Aggregate` field. |
-| `MQ3005` | `@Join` field is not `Optional<X>`, or `X` is not a `@QueryModel`, or `X` has an `@Aggregate` field. |
+| `MQ3005` | `@Join` field is not `Optional<X>`, or `X` is not a `@QueryModel`, or `X` has an `@Aggregate` or `@Computed` field. |
 | `MQ3006` | Nested model has no `@PrimaryKey`, so presence cannot be decided. |
 | `MQ3007` | Join cycle between nested models. |
 | `MQ3008` | Class model has no no-arg constructor visible from its package. |
@@ -122,6 +122,8 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3015` | Two generated constants would have the same name, or a constant clashes with a reserved one. |
 | `MQ3016` | A warning, not an error: a column on a to-one association selects the whole entity and has no converter. |
 | `MQ3017` | The model's `root`, or the root of a model it nests, is not a class, and no annotation processor generated it. A root another processor generates is fine: the model waits for it. |
+| `MQ3018` | A `@Computed` or `@Aggregate(expression)` class is not a usable `ExpressionDefinition<Model, FieldType>`: its type arguments are not the model and the field's boxed type, or it has neither a public `INSTANCE` nor a visible no-arg constructor. |
+| `MQ3019` | `@Computed` combined with `@PrimaryKey`, `@Column`, `@Join`, `@Child`, `@Aggregate` or `@Transient`, or on a primitive field. |
 | `MQ3201` | Aggregate model: field is primitive. |
 | `MQ3202` | Aggregate model: field type does not match the function's result type. |
 | `MQ3203` | Aggregate model: no `@GroupBy` field and is not `singleGroup`. |
@@ -129,8 +131,9 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3205` | Aggregate model: `@Aggregate(fn = SUM)` over a 32-bit attribute. |
 | `MQ3206` | Aggregate model: `@Aggregate(distinct = true)` on `SUM`, `AVG`, `MIN` or `MAX`. |
 | `MQ3207` | Aggregate model: `@QueryModel(singleGroup = true)` combined with `@GroupBy` fields. |
+| `MQ3208` | Aggregate model: `@Aggregate` takes `attribute` or `expression`, not both. |
 | `MQ3301` | Update model: field maps through a join or a collection. |
-| `MQ3302` | Update model: `@Join`, `@Aggregate` or `@GroupBy` not allowed. |
+| `MQ3302` | Update model: `@Join`, `@Aggregate`, `@GroupBy` or `@Computed` not allowed. |
 | `MQ3303` | Update model: field maps to the primary key or `@Version` attribute. |
 | `MQ3304` | Update model: field maps to an attribute that can't be written. |
 | `MQ3305` | Update model: to-one attribute written by id with the wrong id type. |

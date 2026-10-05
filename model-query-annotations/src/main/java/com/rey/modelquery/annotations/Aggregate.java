@@ -30,6 +30,16 @@ public @interface Aggregate {
     String attribute() default "";
 
     /**
+     * The class implementing {@code ExpressionDefinition<Model, C>} whose expression the function is applied to,
+     * instead of an attribute (R-PROC-22). It is declared as {@code Class<?>} because the interface is in
+     * {@code model-query-core}, which this module does not depend on (R-PROC-01). {@code attribute} and
+     * {@code expression} together are {@code MQ3208}.
+     *
+     * @return the definition class, or {@code void.class} for none
+     */
+    Class<?> expression() default void.class;
+
+    /**
      * Whether the function is applied to distinct values.
      *
      * @return {@code true} for a distinct aggregate

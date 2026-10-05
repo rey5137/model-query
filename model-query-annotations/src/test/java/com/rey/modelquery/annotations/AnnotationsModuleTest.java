@@ -50,8 +50,9 @@ class AnnotationsModuleTest {
         List<Class<?>> types = annotationTypes();
 
         assertThat(types)
-                .contains(QueryModel.class, UpdateModel.class, FilterColumns.class, Transient.class, Incubating.class)
-                .hasSize(13);
+                .contains(QueryModel.class, UpdateModel.class, FilterColumns.class, Transient.class, Incubating.class,
+                        Computed.class)
+                .hasSize(14);
         assertThat(types).allSatisfy(type -> assertThat(type.getAnnotation(Retention.class))
                 .as("@Retention of %s", type.getSimpleName())
                 .isNotNull()
