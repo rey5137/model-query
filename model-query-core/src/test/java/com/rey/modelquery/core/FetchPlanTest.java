@@ -301,13 +301,15 @@ class FetchPlanTest {
     }
 
     @Test
-    void m9_14_a_join_plan_selecting_an_expression_is_refused() {
+    void ac_fch_18_a_join_plan_selecting_an_expression_throws_mq1705() {
         ExpressionField<CustomerView, Long> plusOne = Expr.plus(CUSTOMER_ID, 1L);
         var plan = FetchPlan.of(SelectSet.of(ID)).join(CUSTOMER_JOIN, FetchPlan.of(SelectSet.of(plusOne)));
+        String message = "MQ1705: InvoiceView.customer: the join plan selects the expression " + plusOne.name()
+                + ", which cannot be re-rooted under the join; select the expression in the outer plan";
 
-        assertThatThrownBy(() -> invoices().fetch(plan).build())
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("expression " + plusOne.name() + " is not supported as a selected column until M9.14");
+        assertCode(() -> invoices().fetch(plan).build(), MqCode.MQ1705, message);
+        var query = invoices().select(SelectSet.of(ID)).build();
+        assertCode(() -> query.withFetch(plan), MqCode.MQ1705, message);
     }
 
     @Test

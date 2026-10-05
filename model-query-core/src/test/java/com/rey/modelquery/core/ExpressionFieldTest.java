@@ -14,7 +14,7 @@ import java.util.concurrent.Future;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/** {@code Expr}, {@code ExpressionField}, {@code ScalarField} and what M9.14 still owes (api/10 R-COL-16 to R-COL-20). */
+/** {@code Expr}, {@code ExpressionField} and {@code ScalarField} (api/10 R-COL-16 to R-COL-20, api/13 R-AGG-14). */
 class ExpressionFieldTest {
 
     static final class Entity {}
@@ -86,18 +86,34 @@ class ExpressionFieldTest {
     }
 
     @Test
-    void m9_14_an_expression_in_the_selection_group_by_or_order_by_is_refused() {
-        assertThatThrownBy(() -> selecting(PLUS_ONE).build())
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("expression " + PLUS_ONE.name() + " is not supported as a selected column until M9.14");
-        assertThatThrownBy(() -> selecting(STATUS).groupBy(PLUS_ONE))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("expression " + PLUS_ONE.name() + " is not supported as a group key until M9.14");
-        assertThatThrownBy(() -> selecting(STATUS).orderBy(PLUS_ONE.asc()).build())
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("expression " + PLUS_ONE.name() + " is not supported as an order key until M9.14");
-        // A plain column selection, group-by and order-by still build.
-        selecting(STATUS).groupBy(STATUS).orderBy(STATUS.asc()).build();
+    void ac_col_20_an_expression_selects_and_an_expression_group_key_or_order_key_builds() {
+        selecting(PLUS_ONE).build();
+        selecting(PLUS_ONE).groupBy(PLUS_ONE).orderBy(PLUS_ONE.asc()).build();
+    }
+
+    @Test
+    void ac_agg_15_a_selected_expression_that_does_not_fit_the_group_by_throws_mq1401() {
+        // Reads quantity, which the group-by does not group (R-AGG-14).
+        assertThatThrownBy(() -> selecting(PLUS_ONE).groupBy(STATUS).build())
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1401))
+                .hasMessageContaining("selected but not in groupBy");
+        // An expression over a group-key column only fits and builds.
+        selecting(Expr.plus(QUANTITY, 2)).groupBy(QUANTITY).build();
+        // An expression that only contains a group-key expression does not fit: a sub-expression is never matched.
+        assertThatThrownBy(() -> selecting(Expr.plus(PLUS_ONE, 1)).groupBy(PLUS_ONE).build())
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1401));
+    }
+
+    @Test
+    void ac_agg_15_an_order_key_that_does_not_fit_a_grouped_query_throws_mq1406() {
+        assertThatThrownBy(() -> selecting(STATUS).groupBy(STATUS).orderBy(PLUS_ONE.asc()).build())
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1406))
+                .hasMessageContaining("ordered by but not in groupBy");
+        // The expression group key ordered by itself fits and builds.
+        selecting(PLUS_ONE).groupBy(PLUS_ONE).orderBy(PLUS_ONE.asc()).build();
     }
 
     private static ExpressionField<Model, Integer> cases(java.util.function.UnaryOperator<Filters<Model>> condition,

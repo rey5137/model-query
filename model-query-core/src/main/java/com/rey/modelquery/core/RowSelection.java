@@ -79,6 +79,15 @@ public final class RowSelection {
     }
 
     /**
+     * The selected fields, in selection order, for a paging check that must resolve each of them: order keys and
+     * group keys count as selected, and an expression reads columns a rendered selection alone cannot walk (R-PAG-13).
+     */
+    @EngineFacing
+    public List<SelectField<?, ?>> fields() {
+        return List.copyOf(aliases.keySet());
+    }
+
+    /**
      * The aliased Criteria selections to pass to {@code multiselect}, resolving joins through {@code ctx}. A column
      * sharing another's alias is resolved, for its joins and its type check, but not selected again: a provider may
      * hand back one path object per attribute, as Hibernate does, and aliasing it twice renames the first selection.

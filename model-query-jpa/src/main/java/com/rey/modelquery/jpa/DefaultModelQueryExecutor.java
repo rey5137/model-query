@@ -7,6 +7,7 @@ import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.Enricher;
 import com.rey.modelquery.core.ExportOptions;
+import com.rey.modelquery.core.ExpressionField;
 import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.JoinContext;
 import com.rey.modelquery.core.JoinField;
@@ -1122,19 +1123,59 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     /**
      * Throws {@code MQ2204} when a column of {@code built}'s selection is read through a to-many join, before any
      * query runs: one primary key then spans several rows, so the stable order is not unique and the boundary dedupe
-     * would drop real rows (R-PAG-13).
+     * would drop real rows (R-PAG-13). An expression reads every column it is built from, so one of them through a
+     * to-many join is refused too (R-COL-17).
      */
     private static void refuseToManySelection(ModelQuery<?, ?, ?> q, BuiltQuery<?> built, String operation) {
-        for (Selection<?> selection : built.query().getSelection().getCompoundSelectionItems()) {
-            Join<?, ?> join = toManyJoin(selection);
-            if (join != null) {
-                Attribute<?, ?> attribute = join.getAttribute();
-                throw new ModelQueryExecutionException(MqCode.MQ2204, q + ": " + operation + " selects a column "
-                        + "through the to-many join " + attribute.getDeclaringType().getJavaType().getSimpleName() + "."
-                        + attribute.getName() + ", so one primary key spans several rows; select from the child side, "
-                        + "or filter with Filters.exists(...)");
+        for (SelectField<?, ?> field : built.selection().fields()) {
+            boolean expression = field instanceof ExpressionField<?, ?>;
+            for (ColumnField<?, ?, ?> column : selectedColumns(field)) {
+                Join<?, ?> join = toManyJoin(column, built.joins());
+                if (join != null) {
+                    Attribute<?, ?> attribute = join.getAttribute();
+                    throw new ModelQueryExecutionException(MqCode.MQ2204, q + ": " + operation + " "
+                            + (expression ? "reads a column of an expression" : "selects a column")
+                            + " through the to-many join "
+                            + attribute.getDeclaringType().getJavaType().getSimpleName() + "." + attribute.getName()
+                            + ", so one primary key spans several rows; select from the child side, or filter with "
+                            + "Filters.exists(...)");
+                }
             }
         }
+    }
+
+    /** Whether {@code built}'s selection reads any column through a to-many join (R-PAG-13). */
+    private static boolean readsThroughToMany(BuiltQuery<?> built) {
+        for (SelectField<?, ?> field : built.selection().fields()) {
+            for (ColumnField<?, ?, ?> column : selectedColumns(field)) {
+                if (toManyJoin(column, built.joins()) != null) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** The columns a selected field reads: a column itself, an expression's operands, or none for an aggregate. */
+    @SuppressWarnings("unchecked")
+    private static List<ColumnField<?, ?, ?>> selectedColumns(SelectField<?, ?> field) {
+        if (field instanceof ColumnField<?, ?, ?> column) {
+            return List.of(column);
+        }
+        if (field instanceof ExpressionField<?, ?> expression) {
+            return (List<ColumnField<?, ?, ?>>) (List<?>) expression.columns();
+        }
+        return List.of();
+    }
+
+    /** The nearest to-many join {@code column} is read through, or {@code null} (R-PAG-13, R-COL-19). */
+    private static Join<?, ?> toManyJoin(ColumnField<?, ?, ?> column, JoinContext joins) {
+        for (Path<?> path = column.path(joins); path != null; path = path.getParentPath()) {
+            if (path instanceof Join<?, ?> join && join.getAttribute() instanceof PluralAttribute<?, ?, ?>) {
+                return join;
+            }
+        }
+        return null;
     }
 
     // ---- fetch plans
@@ -1270,8 +1311,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             List<Object> keys) {
         checkFirstRun(q);
         CriteriaBuilder cb = em.getCriteriaBuilder();
-        // The statement's own binds, before any key is added, at one bind per key (R-PAG-07, D-32); a dialect that binds
-        // the LIMIT of the setMaxResults below as a parameter takes one more.
+        // The statement's own binds, before any key is added, at one bind per key (R-PAG-07, D-32); a dialect that
+        // binds the LIMIT of the setMaxResults below as a parameter takes one more.
         int ownBinds = em.createQuery(load.build(cb, renderOptions).query()).getParameters().size()
                 + (load.maxPerParent() > 0 ? 1 : 0);
         int round = keyLimits.clamp(ownBinds, 1, OptionalInt.empty());
@@ -1375,8 +1416,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         // Every predicate and join stays, since one can change the number of rows; only the selection is replaced.
         From<?, ?> root = query.getRoots().iterator().next();
-        boolean readThroughToMany = query.getSelection().getCompoundSelectionItems().stream()
-                .anyMatch(selection -> toManyJoin(selection) != null);
+        boolean readThroughToMany = readsThroughToMany(built);
         Expression<Long> count = hasToManyJoin(root) && !readThroughToMany ? cb.countDistinct(root) : cb.count(root);
         query.multiselect(count);
         return ((Number) single(q, create(q, query)).get(0)).longValue();
@@ -1417,16 +1457,4 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return false;
     }
 
-    /**
-     * The nearest to-many join {@code selection} is read through, or {@code null}: under one, each joined row is a
-     * result, which {@code count} counts (R-EXE-04) and key-based paging refuses (R-PAG-13).
-     */
-    private static Join<?, ?> toManyJoin(Selection<?> selection) {
-        for (Path<?> path = selection instanceof Path<?> p ? p : null; path != null; path = path.getParentPath()) {
-            if (path instanceof Join<?, ?> join && join.getAttribute() instanceof PluralAttribute<?, ?, ?>) {
-                return join;
-            }
-        }
-        return null;
-    }
 }

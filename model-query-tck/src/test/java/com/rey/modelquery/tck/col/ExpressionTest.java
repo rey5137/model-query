@@ -1,17 +1,28 @@
 package com.rey.modelquery.tck.col;
 
+import static com.rey.modelquery.core.RenderOptions.portable;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.Agg;
+import com.rey.modelquery.core.BuiltQuery;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.Expr;
+import com.rey.modelquery.core.ExpressionField;
 import com.rey.modelquery.core.JoinContext;
+import com.rey.modelquery.core.Limit;
+import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.Phase;
+import com.rey.modelquery.core.RowMapper;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
+import com.rey.modelquery.jpa.ModelQueryConfig;
+import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
+import com.rey.modelquery.tck.sql.SqlSnapshots;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaBuilder;
@@ -19,11 +30,15 @@ import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Root;
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import org.hibernate.SessionFactory;
 
-/** Each {@code Expr} factory's value and Java type against a real provider, and MQ1501 to MQ1507 (api/10 AC-COL-19). */
+/** Each {@code Expr} factory's value and Java type against a real provider (api/10 AC-COL-19), and a selected
+ * expression read back through {@code Row.get} for a class and a record model (AC-COL-20). */
 class ExpressionTest {
 
     static final class View {}
@@ -262,7 +277,113 @@ class ExpressionTest {
         });
     }
 
+    // ---- AC-COL-20
+
+    /** A record model read from a selected expression. */
+    record ExprView(Long id, Integer key) {}
+
+    /** A class model read from the same expression, mapped through bound setters. */
+    static final class ClassView {
+        Long id;
+        Integer key;
+    }
+
+    private static final ColumnField<ExprView, OrderItemEntity, Long> EXPR_ID =
+            ColumnField.of(ExprView.class, ITEMS, "id", Long.class);
+    private static final ColumnField<ExprView, OrderItemEntity, Integer> EXPR_QUANTITY =
+            ColumnField.of(ExprView.class, ITEMS, "quantity", Integer.class);
+    /** {@code quantity + 1}, named so a second, equal expression is one selection under a different name. */
+    private static final ExpressionField<ExprView, Integer> EXPR_PLUS_ONE = Expr.plus(EXPR_QUANTITY, 1);
+    private static final ExpressionField<ExprView, Integer> EXPR_PLUS_ONE_NAMED = EXPR_PLUS_ONE.named("key");
+
+    private static final ColumnField<ClassView, OrderItemEntity, Long> CLASS_ID =
+            ColumnField.of(ClassView.class, ITEMS, "id", Long.class);
+    private static final ColumnField<ClassView, OrderItemEntity, Integer> CLASS_QUANTITY =
+            ColumnField.of(ClassView.class, ITEMS, "quantity", Integer.class);
+    private static final ExpressionField<ClassView, Integer> CLASS_PLUS_ONE = Expr.plus(CLASS_QUANTITY, 1);
+
+    @TckTest
+    void ac_col_20_a_selected_expression_round_trips_through_row_get_for_a_record_and_a_class(TckDatabase db) {
+        var records = ModelQuery.builder(ITEMS, row -> new ExprView(row.get(EXPR_ID), row.get(EXPR_PLUS_ONE)))
+                .select(SelectSet.of(EXPR_ID, EXPR_PLUS_ONE))
+                .where(f -> f.lte(EXPR_ID, 20L))
+                .build();
+        var classes = ModelQuery.builder(ITEMS, RowMapper.setters(ClassView::new)
+                        .bind(CLASS_ID, (m, v) -> m.id = v).bind(CLASS_PLUS_ONE, (m, v) -> m.key = v))
+                .select(SelectSet.of(CLASS_ID, CLASS_PLUS_ONE))
+                .where(f -> f.lte(CLASS_ID, 20L))
+                .build();
+        List<ExprView> recordRows = new ArrayList<>();
+        List<ClassView> classRows = new ArrayList<>();
+        Map<Long, Integer> quantities = new HashMap<>();
+        inSession(db, em -> {
+            recordRows.addAll(run(em, records));
+            classRows.addAll(run(em, classes));
+            readQuantities(em, quantities, 20L);
+        });
+        assertThat(recordRows).isNotEmpty().allSatisfy(r ->
+                assertThat(r.key()).as("quantity + 1 of item %s", r.id()).isEqualTo(quantities.get(r.id()) + 1));
+        assertThat(classRows).extracting(c -> c.id + ":" + c.key)
+                .containsExactlyElementsOf(recordRows.stream().map(r -> r.id() + ":" + r.key()).toList());
+    }
+
+    @TckTest
+    void ac_col_20_two_equal_expressions_under_different_named_are_one_selection_and_each_reads_the_value(
+            TckDatabase db) {
+        var query = ModelQuery.builder(ITEMS, row -> new ExprView(row.get(EXPR_ID), row.get(EXPR_PLUS_ONE_NAMED)))
+                .select(SelectSet.of(EXPR_ID, EXPR_PLUS_ONE, EXPR_PLUS_ONE_NAMED))
+                .where(f -> f.lte(EXPR_ID, 9L))
+                .build();
+        assertThat(query.select().fields()).as("equal expressions are one selection (R-COL-20)")
+                .containsExactly(EXPR_ID, EXPR_PLUS_ONE);
+        List<ExprView> rows = new ArrayList<>();
+        Map<Long, Integer> quantities = new HashMap<>();
+        inSession(db, em -> {
+            rows.addAll(run(em, query));
+            readQuantities(em, quantities, 9L);
+        });
+        assertThat(rows).isNotEmpty().allSatisfy(r ->
+                assertThat(r.key()).as("each named reads the one selection, item %s", r.id())
+                        .isEqualTo(quantities.get(r.id()) + 1));
+    }
+
+    @TckTest
+    void ac_col_20_an_expression_used_in_select_group_and_order_is_rendered_from_one_node(TckDatabase db) {
+        // One node for select, group key and order key: the database matches GROUP BY/ORDER BY to the select item,
+        // which Hibernate renders as a reference, and each occurrence binds its value once (R-COL-19, R-COL-20). The
+        // committed statement log of each vendor is what this checks.
+        var key = Expr.plus(EXPR_QUANTITY, 1);
+        var count = Agg.count(EXPR_ID);
+        var query = ModelQuery.builder(ITEMS, row -> new ExprView(row.get(EXPR_ID), row.get(key)))
+                .select(SelectSet.of(key, count))
+                .groupBy(key)
+                .orderBy(key.asc())
+                .where(f -> f.gt(key, 5))
+                .build();
+        List<String> sql = SqlSnapshots.assertMatches(db, "col-20-expression-one-node", ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+                sf.inSession(em -> {
+                    ModelQueryExecutor<OrderItemEntity> executor = ModelQueryExecutor.create(em, OrderItemEntity.class,
+                            ModelQueryConfig.defaults());
+                    assertThat(executor.list(query, Limit.unlimited())).isNotEmpty();
+                });
+            }
+        });
+        assertThat(sql).as("one statement, rendered from one node").hasSize(1);
+    }
+
     // ---- helpers
+
+    private static <M> List<M> run(EntityManager em, ModelQuery<OrderItemEntity, ?, M> q) {
+        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, portable());
+        return em.createQuery(built.query()).getResultList().stream().map(built::map).toList();
+    }
+
+    private static void readQuantities(EntityManager em, Map<Long, Integer> quantities, long lastId) {
+        em.createQuery("select i.id, i.quantity from OrderItemEntity i where i.id <= :lastId", Object[].class)
+                .setParameter("lastId", lastId)
+                .getResultList().forEach(r -> quantities.put((Long) r[0], (Integer) r[1]));
+    }
 
     private static void inSession(TckDatabase db, Consumer<EntityManager> work) {
         try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {

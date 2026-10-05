@@ -53,6 +53,9 @@ public enum MqCode {
     /** {@code keyset()} with a {@code Float} or {@code Double} order or primary-key column (R-QRY-13). */
     MQ1207("keyset() cannot page by a Float or Double column"),
 
+    /** {@code keyset()} with an expression order key, whose cursor is defined over attribute values (R-QRY-16). */
+    MQ1208("keyset() cannot order by an expression, whose cursor is defined over attribute values"),
+
     /** A value-form filter received {@code null}, or {@code add(label, ...)} a null or blank label (R-INS-03). */
     MQ1301("A value-form filter received null, or add(label, ...) a null or blank label"),
 
@@ -91,8 +94,8 @@ public enum MqCode {
     /** {@code in} or {@code notIn} over a sub-select with an embeddable-valued column on either side. */
     MQ1312("in(...) and notIn(...) over a sub-select do not take an embeddable-valued column"),
 
-    /** A selected non-aggregate column is not in the group-by (R-AGG-08). */
-    MQ1401("A selected non-aggregate column is not in the group-by"),
+    /** A selected non-aggregate column or expression does not fit the group-by (R-AGG-08, R-AGG-14). */
+    MQ1401("A selected non-aggregate column or expression does not fit the group-by"),
 
     /** Keyset paging or primary-key-first on a grouped query (R-AGG-10). */
     MQ1402("keyset() and primaryKeyFirst(...) are refused on a grouped query"),
@@ -106,7 +109,7 @@ public enum MqCode {
     /** An {@code Agg.of} expression returned {@code null} or has a Java type other than the declared one (R-AGG-02). */
     MQ1405("An Agg.of expression returned null or an expression of another Java type"),
 
-    /** An {@code orderBy} key that does not fit the grouping (R-AGG-08). */
+    /** An {@code orderBy} key that does not fit the grouping (R-AGG-08, R-AGG-14). */
     MQ1406("An orderBy key does not fit the grouping"),
 
     /** {@code having(...)} on an ungrouped query (R-AGG-07). */
@@ -188,8 +191,8 @@ public enum MqCode {
     /** A fetch plan with a child on a grouped query, at any join depth (R-FCH-10). */
     MQ1704("A fetch plan with a child on a grouped query"),
 
-    /** A join plan selects an aggregate, which cannot be re-rooted under the join (R-FCH-07). */
-    MQ1705("A join plan selects an aggregate, which cannot be re-rooted under its join"),
+    /** A join plan selects an aggregate or an expression, which cannot be re-rooted under the join (R-FCH-07). */
+    MQ1705("A join plan selects an aggregate or an expression, which cannot be re-rooted under its join"),
 
     /** {@code Enricher.byKeys(...).reading(...)} with no {@code key(...)} (R-FCH-15, D-114). */
     MQ1706("Enricher.byKeys(...).reading(...) with no key(...)"),
@@ -216,8 +219,8 @@ public enum MqCode {
     MQ2203("An operation needing a primary key ran on a query without one"),
 
     /** Key-based paging over a selection read through a to-many join (R-PAG-13). */
-    MQ2204("Offset export of an ungrouped query, keyset paging or the primary-key-first phase selected a column "
-            + "through a to-many join"),
+    MQ2204("Offset export of an ungrouped query, keyset paging or the primary-key-first phase selected a column, "
+            + "an expression included, through a to-many join"),
 
     /**
      * A keyset page holds the cursor's own primary key, or a keyset export page holds a key of the page before

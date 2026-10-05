@@ -9,6 +9,8 @@ import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.BuiltQuery;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.Expr;
+import com.rey.modelquery.core.ExpressionField;
 import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
@@ -21,6 +23,7 @@ import com.rey.modelquery.core.QueryCustomizer;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowMapper;
 import com.rey.modelquery.core.SelectSet;
+import com.rey.modelquery.core.SortSpec;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
@@ -90,6 +93,10 @@ class ModelQueryTest {
             ColumnField.of(View.class, CUSTOMER, "name", String.class);
     private static final ColumnField<View, CustomerEntity, String> REFERRER_NAME =
             ColumnField.of(View.class, REFERRER, "name", String.class);
+    /** {@code total + 1}: an expression order key, named so {@code orderedBy} can find it (R-QRY-14, AC-QRY-15). */
+    private static final ExpressionField<View, BigDecimal> TOTAL_PLUS_ONE =
+            Expr.plus(TOTAL, BigDecimal.valueOf(1));
+    private static final ExpressionField<View, BigDecimal> TOTAL_PLUS_ONE_NAMED = TOTAL_PLUS_ONE.named("totalPlus");
 
     private static final ColumnField<Labelled, OrderEntity, Long> L_ID =
             ColumnField.of(Labelled.class, ROOT, "id", Long.class);
@@ -755,6 +762,39 @@ class ModelQueryTest {
         // Offset paging binds no cursor, so the same queries build without keyset().
         assertThat(byTotal.build().isKeyset()).isFalse();
         assertThat(keyedByFloat.build().isKeyset()).isFalse();
+    }
+
+    // ---- AC-QRY-15
+
+    @Test
+    void ac_qry_15_a_keyset_query_ordered_by_an_expression_throws_mq1208_and_builds_without_keyset() {
+        var base = ModelQuery.builder(ROOT, VIEW_MAPPER).select(DEFAULT).primaryKey(PrimaryKey.of(ID))
+                .orderBy(TOTAL_PLUS_ONE.asc());
+        assertThatThrownBy(() -> base.keyset().build())
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1208))
+                .hasMessageStartingWith("MQ1208: " + TOTAL_PLUS_ONE.name()
+                        + ": keyset() cannot order by an expression");
+        // Without keyset() the order is an offset order, which takes an expression (R-PAG-25).
+        assertThat(base.build().orderBy()).containsExactly(TOTAL_PLUS_ONE.asc());
+    }
+
+    @Test
+    void ac_qry_15_ordered_by_an_expression_name_sorts_by_it_and_a_keyset_copy_throws_mq2301() {
+        var base = ModelQuery.builder(ROOT, VIEW_MAPPER)
+                .select(SelectSet.of(STATUS, CUSTOMER_NAME, TOTAL, TOTAL_PLUS_ONE_NAMED))
+                .primaryKey(PrimaryKey.of(ID));
+        assertThat(base.build().orderedBy(SortSpec.of(SortSpec.Key.asc("totalPlus"))).orderBy())
+                .containsExactly(TOTAL_PLUS_ONE_NAMED.asc());
+        // On a keyset query the build refusal surfaces as MQ2301 with MQ1208 as its cause (R-QRY-16, D-58).
+        var keyset = base.keyset().build();
+        assertThatThrownBy(() -> keyset.orderedBy(SortSpec.of(SortSpec.Key.asc("totalPlus"))))
+                .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ2301))
+                .hasMessageStartingWith("MQ2301: View: sort by [totalPlus] does not fit the query: MQ1208: ")
+                .cause()
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1208));
     }
 
     // ---- AC-COL-09

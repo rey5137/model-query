@@ -420,7 +420,7 @@ public final class ModelQuery<E, K, M> {
         query.multiselect(selections);
         List<Order> orders = new ArrayList<>();
         for (OrderField<M, ?> order : orderBy) {
-            orders.addAll(order.toOrders(joins, cb));
+            orders.addAll(order.toOrders(joins, cb, !groupBy.isEmpty()));
         }
         if (!orders.isEmpty()) {
             query.orderBy(orders);
@@ -823,16 +823,8 @@ public final class ModelQuery<E, K, M> {
             return groupBy(keys);
         }
 
-        /**
-         * One group key: an expression as a group key is M9.14, so it is refused here rather than rendered on a
-         * path that cannot carry it yet.
-         */
+        /** One group key, which may be an expression (R-AGG-05, R-COL-19). */
         private ScalarField<M, ?> groupKey(SelectField<M, ?> column) {
-            if (column instanceof ExpressionField<?, ?>) {
-                // M9.14: an expression group key.
-                throw new IllegalStateException("expression " + column.name()
-                        + " is not supported as a group key until M9.14");
-            }
             return (ScalarField<M, ?>) column;
         }
 
@@ -896,7 +888,6 @@ public final class ModelQuery<E, K, M> {
             }
             SelectSet<M> selection = selection();
             List<ColumnField<M, ?, ?>> needed = needed();
-            checkSupported(selection);
             String model = modelName(selection, root.rootEntity());
             boolean grouped = isGrouped(selection);
             if (!grouped && having != null) {
@@ -915,6 +906,9 @@ public final class ModelQuery<E, K, M> {
                             model + ": " + used + " requires primaryKey(...)");
                 }
             }
+            if (keyset) {
+                checkKeysetExpression();
+            }
             if (primaryKey != null) {
                 checkKeyTypes(keyset);
             }
@@ -928,9 +922,9 @@ public final class ModelQuery<E, K, M> {
                 }
                 for (SelectField<M, ?> column : selection.fields()) {
                     // MySQL would return an arbitrary value of the group; PostgreSQL would fail anonymously (R-AGG-08).
-                    if (column instanceof ColumnField<M, ?, ?> plain && !groupBy.contains(plain)) {
+                    if (column instanceof ScalarField<M, ?> scalar && !fitsGroup(scalar)) {
                         throw new ModelQueryDefinitionException(MqCode.MQ1401,
-                                plain + ": selected but not in groupBy");
+                                scalar + ": selected but not in groupBy");
                     }
                 }
                 for (ColumnField<M, ?, ?> column : needed) {
@@ -982,24 +976,28 @@ public final class ModelQuery<E, K, M> {
         }
 
         /**
-         * Refuses what M9.14 owes: an expression as a selected column or as an order key. Both are reachable through
-         * {@link SelectField}, so the refusal is here, at build, rather than in a signature that cannot carry it yet.
+         * {@code keyset()} pages by attribute values: its cursor, fingerprint and bind budget are defined over them,
+         * so an expression order key is refused at build, naming it (R-QRY-16).
          */
-        private void checkSupported(SelectSet<M> selection) {
-            for (SelectField<M, ?> field : selection.fields()) {
-                if (field instanceof ExpressionField<?, ?>) {
-                    // M9.14: an expression as a selected column.
-                    throw new IllegalStateException("expression " + field.name()
-                            + " is not supported as a selected column until M9.14");
-                }
-            }
+        private void checkKeysetExpression() {
             for (OrderField<M, ?> order : orderBy) {
                 if (order.column() instanceof ExpressionField<?, ?>) {
-                    // M9.14: an expression as an order key.
-                    throw new IllegalStateException("expression " + order.column().name()
-                            + " is not supported as an order key until M9.14");
+                    throw new ModelQueryDefinitionException(MqCode.MQ1208, order.column() + ": keyset() cannot "
+                            + "order by an expression, whose cursor, fingerprint and bind budget are defined over "
+                            + "attribute values; page or export by offset instead");
                 }
             }
+        }
+
+        /**
+         * Whether {@code field} fits a grouped query's group-by (R-AGG-14): it equals a group key ignoring
+         * {@code named}, or it is an expression every one of whose columns is a group-key column. A sub-expression is
+         * never matched to a group key, since a database that matches by text cannot equal two bound parameters.
+         */
+        private boolean fitsGroup(ScalarField<M, ?> field) {
+            return groupBy.contains(field)
+                    || field instanceof ExpressionField<?, ?> expression
+                            && expression.columns().stream().allMatch(groupBy::contains);
         }
 
         /**
@@ -1077,9 +1075,9 @@ public final class ModelQuery<E, K, M> {
         private void checkOrder(String model, boolean grouped) {
             for (OrderField<M, ?> order : orderBy) {
                 SelectField<M, ?> key = order.column();
-                if (grouped && key instanceof ColumnField<M, ?, ?> column && !groupBy.contains(column)) {
-                    // A group holds many values of the column: MySQL would sort by an arbitrary one (R-AGG-08).
-                    throw new ModelQueryDefinitionException(MqCode.MQ1406, column + ": ordered by but not in "
+                if (grouped && key instanceof ScalarField<M, ?> scalar && !fitsGroup(scalar)) {
+                    // A group holds many values of the column or expression: MySQL would sort by an arbitrary one.
+                    throw new ModelQueryDefinitionException(MqCode.MQ1406, scalar + ": ordered by but not in "
                             + "groupBy; order a grouped query by a group key or an aggregate");
                 }
                 if (!grouped && key instanceof AggregateField) {

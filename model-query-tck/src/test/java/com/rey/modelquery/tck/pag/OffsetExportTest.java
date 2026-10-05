@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.CountMode;
+import com.rey.modelquery.core.Expr;
+import com.rey.modelquery.core.ExpressionField;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
@@ -47,6 +49,7 @@ import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
 import java.util.stream.LongStream;
 import javax.sql.DataSource;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.Test;
 
@@ -520,6 +523,58 @@ class OffsetExportTest {
                 }, sunk::add)).isEqualTo(3));
         assertThat(pageSizes).containsExactly(4_000, 4_000, 4_000, 4_000, 4_000);
         assertThat(sunk).containsExactly("a", "b", "c");
+    }
+
+    // ---- AC-PAG-27
+
+    /** An expression reading a column of the to-many {@code items} join (R-PAG-13, R-COL-17). */
+    private static final ExpressionField<OrderRow, String> ORDER_ITEM_PRODUCT_UPPER =
+            Expr.function("upper", String.class, ORDER_ITEM_PRODUCT);
+
+    /** Every order with the upper-cased product of each of its items: one row per item. */
+    private static ModelQuery.Builder<OrderEntity, Long, OrderRow> itemsByProduct() {
+        return ModelQuery.builder(ORDERS, row -> new OrderRow(row.get(ORDER_ID), row.get(ORDER_ITEM_PRODUCT_UPPER)))
+                .select(SelectSet.of(ORDER_ID, ORDER_ITEM_PRODUCT_UPPER))
+                .primaryKey(PrimaryKey.of(ORDER_ID));
+    }
+
+    @TckTest
+    void ac_pag_27_offset_export_or_keyset_over_an_expression_reading_a_to_many_join_throws_mq2204(TckDatabase db) {
+        var selected = itemsByProduct().build();
+        // Ordering keys are selected too (D-29), so an ordered expression reads through the join just the same.
+        var ordered = ORDER_ROWS.orderBy(ORDER_ITEM_PRODUCT_UPPER.asc()).build();
+        // keyset() refuses an expression order key with MQ1208, so the keyset case selects the expression only.
+        var keyset = itemsByProduct().keyset().orderBy(ORDER_ID.asc()).build();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, OrderEntity.class, executor -> {
+            assertMq2204(() -> executor.export(selected, ExportOptions.of(100), page -> page, row -> {}),
+                    "offset export");
+            assertMq2204(() -> executor.export(ordered, ExportOptions.of(100), page -> page, row -> {}),
+                    "offset export");
+            assertMq2204(() -> executor.export(keyset, ExportOptions.of(100), page -> page, row -> {}),
+                    "keyset paging");
+        }));
+        assertThat(sql).as("refused before any query runs").isEmpty();
+    }
+
+    @TckTest
+    void ac_pag_27_count_of_a_query_reading_an_expression_through_a_to_many_join_counts_its_rows(TckDatabase db) {
+        var selected = itemsByProduct().build();
+        long[] counted = new long[1];
+        long[] listed = new long[1];
+        withExecutor(db, OrderEntity.class, executor -> {
+            listed[0] = executor.list(selected, Limit.unlimited()).size();
+            counted[0] = executor.count(selected);
+        });
+        assertThat(listed[0]).as("the join repeats each root once per item").isEqualTo(TckFixture.ORDER_ITEMS);
+        assertThat(counted[0]).as("count counts the rows the expression reads through the join")
+                .isEqualTo(listed[0]);
+    }
+
+    private static void assertMq2204(ThrowingCallable call, String operation) {
+        assertThatThrownBy(call).isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ2204))
+                .hasMessageStartingWith("MQ2204: OrderRow: " + operation + " reads a column of an expression through "
+                        + "the to-many join OrderEntity.items");
     }
 
     // ---- support

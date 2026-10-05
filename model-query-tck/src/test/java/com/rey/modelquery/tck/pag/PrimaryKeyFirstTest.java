@@ -7,6 +7,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
+import com.rey.modelquery.core.Expr;
+import com.rey.modelquery.core.ExpressionField;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
@@ -254,6 +256,78 @@ class PrimaryKeyFirstTest {
         return statement.chars().filter(c -> c == '?').count();
     }
 
+    // ---- AC-PAG-26
+
+    /** One order item with its expression sort key. */
+    record KeyRow(Long id, Integer key) {}
+
+    private static final ColumnField<KeyRow, OrderItemEntity, Long> KEY_ID =
+            ColumnField.of(KeyRow.class, ITEMS, "id", Long.class);
+    /** {@code quantity + 1}: an expression key whose 2 222 rows per value duplicate on every page. */
+    private static final ExpressionField<KeyRow, Integer> ITEM_KEY = Expr.plus(
+            ColumnField.of(KeyRow.class, ITEMS, "quantity", Integer.class), 1);
+    private static final ModelQuery.Builder<OrderItemEntity, Long, KeyRow> BY_KEY = ModelQuery
+            .builder(ITEMS, row -> new KeyRow(row.get(KEY_ID), row.get(ITEM_KEY)))
+            .select(SelectSet.of(KEY_ID, ITEM_KEY))
+            .primaryKey(PrimaryKey.of(KEY_ID));
+
+    /** One composite-key item with its expression sort key. */
+    record TenantKey(Integer tenantId, Integer itemNo, Integer key) {}
+
+    private static final ColumnField<TenantKey, CompositeKeyItemEntity, Integer> TENANT_KEY_TENANT =
+            ColumnField.of(TenantKey.class, TENANT_ITEMS, "tenantId", Integer.class);
+    private static final ColumnField<TenantKey, CompositeKeyItemEntity, Integer> TENANT_KEY_ITEM_NO =
+            ColumnField.of(TenantKey.class, TENANT_ITEMS, "itemNo", Integer.class);
+    private static final ExpressionField<TenantKey, Integer> TENANT_KEY = Expr.plus(TENANT_KEY_ITEM_NO, 1);
+    private static final ModelQuery.Builder<CompositeKeyItemEntity, List<Object>, TenantKey> BY_EXPRESSION_KEY =
+            ModelQuery.builder(TENANT_ITEMS, row ->
+                            new TenantKey(row.get(TENANT_KEY_TENANT), row.get(TENANT_KEY_ITEM_NO), row.get(TENANT_KEY)))
+                    .select(SelectSet.of(TENANT_KEY_TENANT, TENANT_KEY_ITEM_NO, TENANT_KEY))
+                    .primaryKey(PrimaryKey.composite(TENANT_KEY_TENANT, TENANT_KEY_ITEM_NO));
+
+    @TckTest
+    void ac_pag_26_offset_export_ordered_by_an_expression_visits_every_row_once(TckDatabase db) {
+        // 333 does not divide the 2 222 rows of a key, so every page boundary falls inside a run of ties.
+        List<KeyRow> rows = export(db, OrderItemEntity.class, BY_KEY.orderBy(ITEM_KEY.asc()).build(), 333);
+        assertThat(rows).hasSize(TckFixture.ORDER_ITEMS).extracting(KeyRow::id).doesNotHaveDuplicates();
+        assertThat(rows).isSortedAccordingTo(Comparator.comparingInt(KeyRow::key));
+    }
+
+    @TckTest
+    void ac_pag_26_primary_key_first_pages_ordered_by_an_expression_match_offset_pages(TckDatabase db) {
+        var plain = BY_KEY.orderBy(ITEM_KEY.asc()).build();
+        var twoStep = BY_KEY.orderBy(ITEM_KEY.asc()).primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(7_000)).build();
+        List<KeyRow> rows = samePages(db, OrderItemEntity.class, plain, twoStep, 700);
+        assertThat(rows).hasSize(TckFixture.ORDER_ITEMS).extracting(KeyRow::id).doesNotHaveDuplicates();
+        assertThat(rows).isSortedAccordingTo(Comparator.comparingInt(KeyRow::key));
+    }
+
+    @TckTest
+    void ac_pag_26_a_composite_key_ordered_by_an_expression_matches_offset_pages(TckDatabase db) {
+        var plain = BY_EXPRESSION_KEY.orderBy(TENANT_KEY.desc()).build();
+        var twoStep = BY_EXPRESSION_KEY.orderBy(TENANT_KEY.desc())
+                .primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(300)).build();
+        List<TenantKey> rows = samePages(db, CompositeKeyItemEntity.class, plain, twoStep, 70);
+        assertThat(rows).hasSize(TckFixture.COMPOSITE_KEY_ITEMS)
+                .extracting(r -> List.of(r.tenantId(), r.itemNo())).doesNotHaveDuplicates();
+        assertThat(rows).isSortedAccordingTo(Comparator.comparingInt(TenantKey::key).reversed());
+    }
+
+    @TckTest
+    void ac_pag_26_a_step_two_batch_split_keeps_the_expression_order(TckDatabase db) {
+        var plain = BY_KEY.orderBy(ITEM_KEY.desc()).build();
+        var twoStep = BY_KEY.orderBy(ITEM_KEY.desc()).primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
+        var deep = PageSpec.ofOffset(9_000, 1_100);
+        List<Slice<KeyRow>> slices = new ArrayList<>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, OrderItemEntity.class,
+                ModelQueryConfig.defaults().primaryKeyFirstBatchSize(256),
+                executor -> slices.add(executor.page(twoStep, deep, CountMode.NO_COUNT))));
+        assertThat(sql).as("the key statement and the five batches of keys").hasSize(6);
+        assertThat(slices.get(0).content()).isSortedAccordingTo(Comparator.comparingInt(KeyRow::key).reversed());
+        withExecutor(db, OrderItemEntity.class, executor -> assertThat(slices.get(0).content())
+                .isEqualTo(executor.page(plain, deep, CountMode.NO_COUNT).content()));
+    }
+
     // ---- AC-PAG-04, AC-PAG-12
 
     @TckTest
@@ -303,6 +377,29 @@ class PrimaryKeyFirstTest {
         // A page within the threshold reads in one step, and page accepts the shape there (R-PAG-13).
         withExecutor(db, OrderEntity.class, executor -> assertThat(
                 executor.page(selected, PageSpec.of(1, 100), CountMode.NO_COUNT).content()).hasSize(100));
+    }
+
+    // ---- AC-PAG-27
+
+    @TckTest
+    void ac_pag_27_primary_key_first_over_an_expression_reading_a_to_many_join_throws_mq2204(TckDatabase db) {
+        var upper = Expr.function("upper", String.class, ORDER_ITEM_PRODUCT);
+        var selected = ModelQuery.builder(ORDERS, row -> new OrderRow(row.get(ORDER_ID), row.get(upper)))
+                .select(SelectSet.of(ORDER_ID, upper))
+                .primaryKey(PrimaryKey.of(ORDER_ID))
+                .primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(100))
+                .build();
+        var ordered = ORDER_ROWS.orderBy(upper.asc()).primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(100)).build();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, OrderEntity.class, executor -> {
+            for (ModelQuery<OrderEntity, Long, OrderRow> q : List.of(selected, ordered)) {
+                assertThatThrownBy(() -> executor.page(q, PageSpec.of(2, 100), CountMode.NO_COUNT))
+                        .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ2204))
+                        .hasMessageStartingWith("MQ2204: OrderRow: primary-key-first paging reads a column of an "
+                                + "expression through the to-many join OrderEntity.items");
+            }
+        }));
+        assertThat(sql).as("refused before any query runs").isEmpty();
     }
 
     // ---- AC-PAG-14
@@ -378,8 +475,13 @@ class PrimaryKeyFirstTest {
     }
 
     private static <E> void withExecutor(DataSource ds, Class<E> root, Consumer<ModelQueryExecutor<E>> work) {
+        withExecutor(ds, root, ModelQueryConfig.defaults(), work);
+    }
+
+    private static <E> void withExecutor(DataSource ds, Class<E> root, ModelQueryConfig config,
+            Consumer<ModelQueryExecutor<E>> work) {
         try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
-            sf.inSession(em -> work.accept(ModelQueryExecutor.create(em, root, ModelQueryConfig.defaults())));
+            sf.inSession(em -> work.accept(ModelQueryExecutor.create(em, root, config)));
         }
     }
 }

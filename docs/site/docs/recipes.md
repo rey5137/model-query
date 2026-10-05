@@ -493,10 +493,75 @@ private static final ExpressionField<ItemTotals, Integer> MANY_ITEMS =
 private static final AggregateField<ItemTotals, Long> CONDITIONAL_COUNT = Agg.count(MANY_ITEMS);
 ```
 
-The expression's values bind as parameters. A filter and an aggregate argument take an expression now; `groupBy`'s
-parameter is widened to `ScalarField` for source compatibility, but an expression as a group key, a selected column or
-an order key is refused until M9.14.
+The expression's values bind as parameters. An expression also stands wherever a column does: as a selected column, a
+group key or an order key. A selected expression is read back by `Row.get`, exactly like a column, and two equal
+expressions under different `named` are one selection, each name reading the value:
 
-<!-- M9.14: an expression as a selected column, a group key or an order key, and the paging rules over one. -->
+```java
+/** {@code quantity + 1}, named so a second, equal expression is one selection under a different name. */
+private static final ExpressionField<ExprView, Integer> EXPR_PLUS_ONE = Expr.plus(EXPR_QUANTITY, 1);
+private static final ExpressionField<ExprView, Integer> EXPR_PLUS_ONE_NAMED = EXPR_PLUS_ONE.named("key");
 
-Tested by `ExpressionFilterTest` and `ExpressionAggregateTest`.
+var records = ModelQuery.builder(ITEMS, row -> new ExprView(row.get(EXPR_ID), row.get(EXPR_PLUS_ONE)))
+        .select(SelectSet.of(EXPR_ID, EXPR_PLUS_ONE))
+        .build();
+```
+
+As a group key it groups over the value the database computes, and the aggregate reads each group:
+
+```java
+/** {@code quantity + 1}: a group key that binds a value. */
+private static final ExpressionField<Group, Integer> KEY = Expr.plus(GROUP_QUANTITY, 1);
+private static final AggregateField<Group, Long> GROUP_COUNT = Agg.count(GROUP_ID);
+
+var query = GROUPS.select(SelectSet.of(KEY, GROUP_COUNT)).groupBy(KEY).orderBy(KEY.asc()).build();
+```
+
+A key the database binds is rendered once and reused across `select`, `group by` and `order by` (R-COL-19). `groupBy`
+takes an expression directly or in a `SelectSet`; a selected or ordered scalar the group-by does not cover is refused
+with `MQ1401` (selection) or `MQ1406` (order) — an expression fits when all of its columns are group-key columns, and
+a sub-expression is never matched (R-AGG-14).
+
+Tested by `ExpressionFilterTest`, `ExpressionAggregateTest`, `ExpressionTest`, `ExpressionNullOrderingTest` and
+`ModelQueryTest`.
+
+## Order by an expression
+
+The case in one line: order a report by a value the database computes, such as `total + 1`, with no column mapped for
+it (D-115, R-PAG-25). `orderBy` takes an expression, and `orderedBy(SortSpec)` reaches it by its `named(...)` name.
+
+Offset paging and offset export accept an expression key: the engine selects it (D-29) and appends the primary-key
+tie-breaker, so ties still page and export each row once. `primaryKeyFirst` accepts it too, on both its steps:
+
+```java
+/** {@code quantity + 1}: an expression key whose 2 222 rows per value duplicate on every page. */
+private static final ExpressionField<KeyRow, Integer> ITEM_KEY = Expr.plus(
+        ColumnField.of(KeyRow.class, ITEMS, "quantity", Integer.class), 1);
+private static final ModelQuery.Builder<OrderItemEntity, Long, KeyRow> BY_KEY = ModelQuery
+        .builder(ITEMS, row -> new KeyRow(row.get(KEY_ID), row.get(ITEM_KEY)))
+        .select(SelectSet.of(KEY_ID, ITEM_KEY))
+        .primaryKey(PrimaryKey.of(KEY_ID));
+
+var plain = BY_KEY.orderBy(ITEM_KEY.asc()).build();
+var twoStep = BY_KEY.orderBy(ITEM_KEY.asc()).primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(7_000)).build();
+```
+
+A keyset cursor binds the key's value to a column, and an expression key has no column to bind, so `keyset()` refuses
+it with `MQ1208`, naming the key:
+
+```java
+var base = ModelQuery.builder(ROOT, VIEW_MAPPER).select(DEFAULT).primaryKey(PrimaryKey.of(ID))
+        .orderBy(TOTAL_PLUS_ONE.asc());
+assertThatThrownBy(() -> base.keyset().build())
+        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                e -> assertThat(e.code()).isEqualTo(MqCode.MQ1208))
+        .hasMessageStartingWith("MQ1208: " + TOTAL_PLUS_ONE.name()
+                + ": keyset() cannot order by an expression");
+```
+
+Keep the function deterministic: a key the database computes differently on two runs cannot page stably. An expression
+that reads a column through a to-many join is refused for offset export, keyset paging and `primaryKeyFirst` with
+`MQ2204` before any query runs, and a `count` over such a query counts the rows rather than the keys (R-PAG-25,
+R-PAG-13).
+
+Tested by `PrimaryKeyFirstTest`, `OffsetExportTest` and `ModelQueryTest`.

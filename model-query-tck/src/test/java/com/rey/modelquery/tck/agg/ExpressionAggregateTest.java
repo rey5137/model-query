@@ -10,16 +10,22 @@ import com.rey.modelquery.core.BuiltQuery;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.ExpressionField;
+import com.rey.modelquery.core.ExportOptions;
+import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.OrderField;
 import com.rey.modelquery.core.OrderedColumnField;
 import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
+import com.rey.modelquery.jpa.ModelQueryConfig;
+import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderItemEntity;
 import com.rey.modelquery.tck.harness.TckDatabase;
+import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
 import jakarta.persistence.EntityManager;
 import java.math.BigDecimal;
@@ -30,7 +36,10 @@ import java.util.function.Consumer;
 import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.Test;
 
-/** {@code Agg} over an {@code ExpressionField}, and a conditional count and sum through {@code cases} (api/13 R-AGG-13). */
+/**
+ * {@code Agg} over an {@code ExpressionField}, a conditional count and sum through {@code cases} (api/13 R-AGG-13),
+ * and an expression group key with {@code list}, {@code count} and grouped export (AC-AGG-15).
+ */
 class ExpressionAggregateTest {
 
     record ItemTotals(Long count, Long countDistinct, Long sumAsLong, Double avg, Integer min, Integer max,
@@ -186,6 +195,89 @@ class ExpressionAggregateTest {
         assertThat(products).isEqualTo(expected);
     }
 
+    // ---- AC-AGG-15
+
+    /** One group of the expression-keyed query: the key and the count of its rows. */
+    record Group(Integer key, Long count) {}
+
+    private static final ColumnField<Group, OrderItemEntity, Integer> GROUP_QUANTITY =
+            ColumnField.of(Group.class, ITEMS, "quantity", Integer.class);
+    private static final ColumnField<Group, OrderItemEntity, Long> GROUP_ID =
+            ColumnField.of(Group.class, ITEMS, "id", Long.class);
+
+    /** {@code quantity + 1}: a group key that binds a value, so PostgreSQL must match it to the select item. */
+    private static final ExpressionField<Group, Integer> KEY = Expr.plus(GROUP_QUANTITY, 1);
+    private static final AggregateField<Group, Long> GROUP_COUNT = Agg.count(GROUP_ID);
+    private static final ModelQuery.Builder<OrderItemEntity, Object, Group> GROUPS =
+            ModelQuery.builder(ITEMS, row -> new Group(row.get(KEY), row.get(GROUP_COUNT)));
+
+    /** The nine keys of the fixture, quantity 1..9 shifted by one. */
+    private static final List<Integer> KEYS = List.of(2, 3, 4, 5, 6, 7, 8, 9, 10);
+
+    @TckTest
+    void ac_agg_15_a_grouped_expression_key_lists_counts_and_exports_every_group_once(TckDatabase db) {
+        var query = GROUPS.select(SelectSet.of(KEY, GROUP_COUNT)).groupBy(KEY).orderBy(KEY.asc()).build();
+        List<Group> groups = new ArrayList<>();
+        List<Group> exported = new ArrayList<>();
+        long[] counted = new long[1];
+        withExecutor(db, OrderItemEntity.class, executor -> {
+            groups.addAll(executor.list(query, Limit.unlimited()));
+            counted[0] = executor.count(query);
+            executor.export(query, ExportOptions.of(4), page -> page, exported::add);
+        });
+        assertThat(groups).extracting(Group::key).containsExactlyElementsOf(KEYS);
+        assertThat(groups.stream().mapToLong(Group::count).sum()).isEqualTo(TckFixture.ORDER_ITEMS);
+        assertThat(counted[0]).as("count of a grouped query counts its groups").isEqualTo(KEYS.size());
+        assertThat(exported).isEqualTo(groups);
+    }
+
+    @TckTest
+    void ac_agg_15_orders_a_binding_key_by_one_rendering_of_the_key(TckDatabase db) {
+        // One rendering of the key lets the database match GROUP BY and ORDER BY to the select item (R-COL-19).
+        // Explicit null precedence is a vendor's native renderer's job, so it is tested in the vnd package.
+        for (boolean hibernate : List.of(true, false)) {
+            assertOrdersEveryKey(db, hibernate, KEY.asc());
+            assertOrdersEveryKey(db, hibernate, KEY.desc());
+        }
+    }
+
+    private static void assertOrdersEveryKey(TckDatabase db, boolean hibernate, OrderField<Group, ?> order) {
+        var query = GROUPS.select(SelectSet.of(KEY, GROUP_COUNT)).groupBy(KEY).orderBy(order).build();
+        JoinTestSupport.withExecutor(JoinTestSupport.sessionFactory(db), hibernate, OrderItemEntity.class,
+                ModelQueryConfig.defaults(), executor -> assertThat(executor.list(query, Limit.unlimited()))
+                        .as("%s, hibernate %s", order, hibernate).extracting(Group::key)
+                        .containsExactlyInAnyOrderElementsOf(KEYS));
+    }
+
+    @Test
+    void ac_agg_15_the_expression_fit_rule_admits_group_key_columns_and_refuses_the_rest() {
+        var quantity = ColumnField.of(Group.class, ITEMS, "quantity", Integer.class);
+        var id = ColumnField.of(Group.class, ITEMS, "id", Long.class);
+        var key = Expr.plus(quantity, 1);
+        // A selected expression whose columns are all group-key columns is accepted.
+        GROUPS.select(SelectSet.of(Expr.plus(quantity, 2), GROUP_COUNT)).groupBy(quantity).build();
+        // A selected expression reading another column throws MQ1401.
+        assertDefinition(MqCode.MQ1401,
+                () -> GROUPS.select(SelectSet.of(key, GROUP_COUNT)).groupBy(id).build());
+        // An expression that only contains a group-key expression throws MQ1401: a sub-expression is never matched.
+        assertDefinition(MqCode.MQ1401,
+                () -> GROUPS.select(SelectSet.of(Expr.plus(key, 1), GROUP_COUNT)).groupBy(key).build());
+        // An order key that does not fit throws MQ1406: idPlusOne reads id, which the group-by does not group.
+        var idPlusOne = Expr.plus(id, 1L);
+        assertDefinition(MqCode.MQ1406,
+                () -> GROUPS.select(SelectSet.of(quantity, GROUP_COUNT)).groupBy(quantity).orderBy(idPlusOne.asc())
+                        .build());
+        // An order key over a group-key column fits, so ordering by key itself is accepted.
+        GROUPS.select(SelectSet.of(quantity, GROUP_COUNT)).groupBy(quantity).orderBy(key.asc()).build();
+        // groupBy(SelectSet) holding an expression builds.
+        GROUPS.select(SelectSet.of(key, GROUP_COUNT)).groupBy(SelectSet.of(key)).build();
+    }
+
+    private static void assertDefinition(MqCode code, org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
+        assertThatThrownBy(call).isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                e -> assertThat(e.code()).isEqualTo(code));
+    }
+
     // ---- helpers
 
     private static <V> List<V> run(EntityManager em, ModelQuery<?, ?, V> query) {
@@ -196,6 +288,12 @@ class ExpressionAggregateTest {
     private static void inSession(TckDatabase db, Consumer<EntityManager> work) {
         try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
             sf.inSession(work::accept);
+        }
+    }
+
+    private static <E> void withExecutor(TckDatabase db, Class<E> root, Consumer<ModelQueryExecutor<E>> work) {
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
+            sf.inSession(em -> work.accept(ModelQueryExecutor.create(em, root, ModelQueryConfig.defaults())));
         }
     }
 }

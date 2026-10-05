@@ -38,22 +38,19 @@ public final class JoinPlan<M, N> {
     /**
      * The nested plan's selection, re-rooted under the join.
      *
-     * @throws IllegalStateException an expression as a selected column, which is M9.14
-     * @throws ModelQueryDefinitionException {@code MQ1705} for a nested plan selecting an aggregate
+     * @throws ModelQueryDefinitionException {@code MQ1705} for a nested plan selecting an aggregate or an
+     *     expression
      */
     List<SelectField<M, ?>> selection() {
         var result = new ArrayList<SelectField<M, ?>>();
         for (SelectField<N, ?> column : plan.selection().fields()) {
-            if (column instanceof ExpressionField<?, ?>) {
-                // M9.14: an expression as a selected column.
-                throw new IllegalStateException("expression " + column.name()
-                        + " is not supported as a selected column until M9.14");
-            }
             if (!(column instanceof ColumnField<N, ?, ?> plain)) {
-                // An aggregate is over the nested model's own root and grouping, which do not exist under a join.
-                throw new ModelQueryDefinitionException(MqCode.MQ1705, this + ": the join plan selects the aggregate "
-                        + column.name() + ", which cannot be re-rooted under the join; select the aggregate in the "
-                        + "outer plan");
+                // An aggregate is over the nested model's own root and grouping, and an expression reads columns of
+                // the outer vocabulary, so neither can be re-rooted under the join (R-FCH-07).
+                String kind = column instanceof AggregateField<?, ?> ? "aggregate" : "expression";
+                throw new ModelQueryDefinitionException(MqCode.MQ1705, this + ": the join plan selects the " + kind
+                        + " " + column.name() + ", which cannot be re-rooted under the join; select the " + kind
+                        + " in the outer plan");
             }
             result.add(reroot(plain));
         }

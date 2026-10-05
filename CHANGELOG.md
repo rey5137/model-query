@@ -61,8 +61,13 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
   condition left with no filter or one using `add`/`exists`/a sub-select (`MQ1504`, `MQ1505`), and a non-identifier or
   aggregate function name (`MQ1506`) are refused at the factory; `cases` exposes only `when`, so a CASE with no WHEN
   does not compile; a declared type the provider does not resolve (`MQ1507`) is refused at first resolution, when the
-  query is built against a provider. An expression as a selected column, a group key or an order key, and `keyset()`
-  over one, are M9.14 (`MQ1208`) (D-115).
+  query is built against a provider. An expression also stands as a selected column, a group key or an order key: it
+  is read back by `Row.get`, reused across `select`, `group by` and `order by`, and accepted by offset paging, offset
+  export and `primaryKeyFirst`; `keyset()` refuses one with `MQ1208` (D-115, R-COL-20, R-AGG-14, R-PAG-25). A join plan
+  selecting one is refused with `MQ1705` (R-FCH-07), and an expression reading a column through a to-many join is
+  refused for offset export, keyset paging and `primaryKeyFirst` with `MQ2204` (R-PAG-13). On a grouped query, an
+  expression order key with an explicit null precedence renders the portable null key inside `MIN(...)`, with and
+  without `model-query-hibernate` (R-COL-12, D-115).
 - `FilterMatchers` take a `ScalarField` wherever `Filters` does, and `ModelQuery.conditions()` records a filter over
   an expression with the expression as its `column()`; `toString` and the build log show its values as `?` (R-INS-09).
 - The `byte[]` keyset cursor value binds as a parameter instead of being inlined as a hex literal, so R-FLT-08 holds

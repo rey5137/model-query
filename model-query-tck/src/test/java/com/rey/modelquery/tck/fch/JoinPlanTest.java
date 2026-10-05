@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.CountMode;
+import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
@@ -108,6 +109,20 @@ class JoinPlanTest {
         assertDefinitionCode(() -> QOrderPatrons.query().fetch(counted).build(), MqCode.MQ1705,
                 "MQ1705: OrderPatrons.referrer: the join plan selects the aggregate count(CustomerEntity), which "
                         + "cannot be re-rooted under the join; select the aggregate in the outer plan");
+    }
+
+    @Test
+    void ac_fch_18_a_join_plan_selecting_an_expression_throws_mq1705() {
+        // The nested expression cannot be re-rooted under the generated join, so it is refused at build (R-FCH-07).
+        var plusOne = Expr.plus(QPatron.ID, 1L);
+        var plan = FetchPlan.of(QOrderPatrons.ALL)
+                .join(QOrderPatrons.REFERRER_JOIN, FetchPlan.of(SelectSet.<Patron>of(plusOne)));
+        String message = "MQ1705: OrderPatrons.referrer: the join plan selects the expression " + plusOne.name()
+                + ", which cannot be re-rooted under the join; select the expression in the outer plan";
+
+        assertDefinitionCode(() -> QOrderPatrons.query().fetch(plan).build(), MqCode.MQ1705, message);
+        var query = QOrderPatrons.query().select(QOrderPatrons.ALL).build();
+        assertDefinitionCode(() -> query.withFetch(plan), MqCode.MQ1705, message);
     }
 
     /** {@code patron} is present, is customer {@code id}, without its name, and holds that customer's orders. */

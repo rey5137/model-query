@@ -51,6 +51,8 @@ class OrderedByTest {
     private static final ColumnField<OrderView, Address, String> SHIPPING_CITY =
             ColumnField.of(OrderView.class, SHIPPING, "city", String.class).named("city");
     private static final AggregateField<OrderView, Long> ORDERS = Agg.<OrderView>count(ROOT).as("orders");
+    private static final ExpressionField<OrderView, Long> ID_PLUS_ONE = Expr.plus(ID, 1L);
+    private static final ExpressionField<OrderView, Long> ID_PLUS_ONE_NAMED = ID_PLUS_ONE.named("idPlus");
 
     private static ModelQuery.Builder<Order, Long, OrderView> selecting(SelectField<OrderView, ?>... columns) {
         return ModelQuery.builder(ROOT, row -> new OrderView())
@@ -314,6 +316,34 @@ class OrderedByTest {
         // Without keyset() the same sort is an offset order, which a Double column can be.
         assertThat(selecting(STATUS, WEIGHT).build().orderedBy(SortSpec.of(Key.asc("weight"))).orderBy())
                 .containsExactly(WEIGHT.asc());
+    }
+
+    @Test
+    void ac_qry_15_a_keyset_query_ordered_by_an_expression_throws_mq1208_and_builds_without_keyset() {
+        assertThatThrownBy(() -> selecting(STATUS).orderBy(ID_PLUS_ONE.asc()).keyset().build())
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1208))
+                .hasMessageStartingWith("MQ1208: " + ID_PLUS_ONE.name() + ": keyset() cannot order by an expression");
+        // Without keyset() the same order is an offset order, which accepts an expression (R-PAG-25).
+        assertThat(selecting(STATUS).orderBy(ID_PLUS_ONE.asc()).build().orderBy())
+                .containsExactly(ID_PLUS_ONE.asc());
+    }
+
+    @Test
+    void ac_qry_15_ordered_by_an_expression_name_sorts_by_it_and_a_keyset_copy_throws_mq2301() {
+        var query = selecting(STATUS, ID_PLUS_ONE_NAMED).build();
+        assertThat(query.orderedBy(SortSpec.of(Key.asc("idPlus"))).orderBy())
+                .containsExactly(ID_PLUS_ONE_NAMED.asc());
+
+        // On a keyset query the build refusal surfaces as MQ2301 with MQ1208 as its cause (R-QRY-16, D-58).
+        var keyset = selecting(STATUS, ID_PLUS_ONE_NAMED).keyset().build();
+        assertThatThrownBy(() -> keyset.orderedBy(SortSpec.of(Key.asc("idPlus"))))
+                .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ2301))
+                .hasMessageStartingWith("MQ2301: OrderView: sort by [idPlus] does not fit the query: MQ1208: ")
+                .cause()
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1208));
     }
 
     @Test

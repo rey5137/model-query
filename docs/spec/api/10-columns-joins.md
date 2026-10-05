@@ -293,6 +293,11 @@ public enum NullPrecedence { DEFAULT, FIRST, LAST }        // DEFAULT = whatever
 - Without it the key is rendered even where the vendor's default already matches the requested precedence: a bare
   order would take a default null ordering the provider is configured with, which nothing reports there (D-36).
   With it, Hibernate omits the clause where the dialect's default matches.
+- On a grouped query ordered by an expression with `nullsFirst()` or `nullsLast()`, the engine always renders the
+  portable key, wrapped in `MIN(...)`, then the expression, with or without `model-query-hibernate` *(D-115)*. A null
+  test over a key that binds a value re-renders it with its own parameters, which PostgreSQL and MySQL do not match to
+  the `GROUP BY` item, while an aggregate may read any column; the key is constant within a group, so `MIN` is its
+  value. Hibernate's own emulation, where the dialect has no `NULLS FIRST/LAST`, would re-render it the same way.
 
 **R-COL-13** Keyset paging on a nullable column with `DEFAULT` precedence uses
 `VendorProfile.defaultAscendingNullOrdering()`, and is refused when that is `UNKNOWN` (`engine/21` R-PAG-05). A

@@ -52,26 +52,44 @@ public record OrderField<M, C>(SelectField<M, C> column, boolean ascending, Null
      * database's default already matches: a bare order would take any default null ordering the provider is
      * configured with, which nothing reports there (D-36).
      *
+     * <p>On a grouped query an expression's key uses the portable form even where the provider would render the
+     * clause itself, wrapped in {@code MIN(...)}: a null test over a key that binds a value re-renders it with its own
+     * parameters, which PostgreSQL and MySQL do not match to the {@code GROUP BY} item, while an aggregate may read
+     * any column and the key is constant within a group (R-COL-12, D-115).
+     *
      * @implSpec R-COL-12
      */
     @EngineFacing
-    public List<Order> toOrders(JoinContext ctx, CriteriaBuilder cb) {
+    public List<Order> toOrders(JoinContext ctx, CriteriaBuilder cb, boolean grouped) {
         Expression<C> expression = column.expression(Objects.requireNonNull(ctx, "ctx"));
         Order own = ascending ? cb.asc(expression) : cb.desc(expression);
         if (nulls == NullPrecedence.DEFAULT) {
             return List.of(own);
         }
+        // A grouped expression key takes the portable form even where the provider renders the clause itself.
+        boolean portableKey = grouped && column instanceof ExpressionField<?, ?>;
         RenderOptions options = ctx.renderOptions();
         // The provider's renderer omits the clause itself where the dialect already sorts so.
-        Optional<Order> nativeOrder = options.nullPrecedenceRenderer()
-                .flatMap(renderer -> renderer.order(cb, expression, ascending, nulls));
+        Optional<Order> nativeOrder = portableKey ? Optional.empty()
+                : options.nullPrecedenceRenderer()
+                        .flatMap(renderer -> renderer.order(cb, expression, ascending, nulls));
         if (nativeOrder.isPresent()) {
             return List.of(nativeOrder.get());
         }
         Expression<Integer> nullKey = cb.<Integer>selectCase()
                 .when(cb.isNull(expression), 0)
                 .otherwise(1);
+        if (portableKey) {
+            // The key is constant within a group, so MIN is its value (D-115).
+            nullKey = cb.min(nullKey);
+        }
         Order first = nulls == NullPrecedence.FIRST ? cb.asc(nullKey) : cb.desc(nullKey);
         return List.of(first, own);
+    }
+
+    /** The ungrouped rendering of {@link #toOrders(JoinContext, CriteriaBuilder, boolean)} (R-COL-12). */
+    @EngineFacing
+    public List<Order> toOrders(JoinContext ctx, CriteriaBuilder cb) {
+        return toOrders(ctx, cb, false);
     }
 }
