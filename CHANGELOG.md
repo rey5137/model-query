@@ -6,8 +6,88 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
-### Added
+## [0.2.0] - Unreleased
 
+Nothing is frozen yet: every public type stays `@Incubating` until the 1.0 freeze (D-90).
+
+### Upgrading from 0.1
+
+Breaking changes, each under Changed below:
+
+- `Filters` and `Having` are sealed (D-85).
+- `Filters.or` and `Having.or` take two or three branches or a `List`, not varargs (D-87).
+- `PageSpec` and `ExportOptions` have no public constructor; use `PageSpec.of` or `PageSpec.ofOffset` (D-88).
+- `SetterMapper.bind` takes a column of the mapper's own model (D-88).
+- `ColumnSet` is `SelectSet`, with `fields()` for `columns()`; the builder's `columns(...)` and the query's `columns()`
+  are `select(...)` and `select()`, and `@QueryModel(generateColumnSets)` is `generateSelectSets` (D-94).
+- A statement whose binds pass the vendor's limit throws `MQ1307` before it runs (D-80).
+- A class model with a `@Join` field needs that field's getter, named as Lombok names it (D-96).
+- `VendorProfile.applyStreaming` is replaced by `streamingFetchSize`, and `ProviderSupport` gains
+  `resultStream`; a plain `model-query-jpa` application streams by cursor only with `model-query-hibernate` (D-108).
+- The `Filters` operators, `FilterMatchers`, `groupBy` and `QuerySpec.groupBy()` take a `ScalarField`: source compiles
+  as before, but code compiled against 0.1 must be recompiled (D-115).
+
+Behaviour to know when moving from hand-written Criteria code:
+
+- `LikeMode.CONTAINS`, `STARTS_WITH` and `ENDS_WITH` escape `%`, `_` and the escape character in the value, so a `%`
+  in user input is no longer a wildcard. `EXACT` passes the pattern through as given.
+- Offset paging and export append the primary key to the order you give as a tie-breaker, so rows with equal sort
+  values come back in a stable order; keyset paging appends it as the last keyset column.
+- An `Optional<Date>` filter on a `Timestamp` column compiles when the model field is a `Date`, through the built-in
+  converter (D-84).
+
+### Added
+- `ModelQuery.conditions()` (incubating, D-98, D-101): a read-only view of the filters a built query records in `where`
+  and `having`, as `QueryConditions` and `Condition` (kind, column, values as passed, children, label). A filter skipped
+  by an empty `Optional` is absent. `conditions().toString()` and the build log list each condition's kind and column
+  with every value shown as `?`; only the accessors expose values.
+- `Filters.add(String label, ...)` names a custom filter, so it shows in logs and can be matched in a test; a null or
+  blank label is `MQ1301`.
+- `model-query-test` (incubating, D-98), in the BOM: depends on `model-query-core` and AssertJ only.
+  `assertThatQuery(query)` asserts on filters, `having`, order, selection and a fetch plan's selection with no database,
+  and `FilterMatchers` has one matcher per `Filters` operator, plus `and(...)` and `custom(label)`. See "Testing queries
+  without a database" in the user guide.
+  `QueryAssert<M>` is typed by the query's model, so `isOrderedBy` and the selection methods refuse a column of another
+  model, and a filter on a join matches only the same join path (D-103).
+- `japicmp` runs in `verify` against the baseline release named by `japicmp.baseline`, and fails the build on a
+  binary- or source-incompatible change to API; it is skipped while no baseline is set, and ignores `@Incubating`,
+  `@EngineFacing` and `jpa.vendor`.
+- The user guide is published to GitHub Pages from main.
+- `MQ1307`: a statement whose binds only together pass the vendor's `maxBindParameters()` is refused before it runs,
+  rather than failing in the database (#6). On a keyset export page or key-first round after a cursor, the message
+  names how many of its binds are the cursor's.
+- `OrderedColumnConverter`, a `ColumnConverter` that preserves order both ways, and the built-in
+  `InstantTimestampConverter` and `DateTimestampConverter` over a `Timestamp` attribute. `Agg.min`, `Agg.max` and
+  `Agg.countDistinct` take a column with an ordered converter, and `min` and `max` return the model type; other
+  aggregates over a converted column still throw `MQ1408`.
+- `OrderedColumnField`, a `ColumnField` subclass for a column with no converter or an `OrderedColumnConverter`:
+  `Agg.min`, `max` and `countDistinct` take it, so they no longer compile over a column with any other converter instead
+  of throwing `MQ1408` (D-93). `ColumnField` is `sealed`. A variable typed `ColumnField` passed to those three must
+  become `OrderedColumnField`; the processor declares generated columns with the narrower type.
+- `Filters.or(List)` and `Having.or(List)` with an empty list render `FALSE`, "none of these", as an empty `in`; a
+  non-empty list whose branches were all skipped stays skipped (D-92).
+- The `MQ1307` bind check runs up front for a keyset page, export page or key-first write round, first one and
+  `startAfter` round included: it counts the worst cursor, k(k+1)/2 binds for k keyset keys, so a run never fails after
+  rows reached a sink or a round committed (D-82).
+- `MQ1308`: a value that its column's converter cannot convert, such as an `Instant` beyond the range of `Timestamp`,
+  is refused with a message naming the column; `InstantTimestampConverter` now round-trips the converted value, since
+  `Timestamp.from(Instant.MAX)` returned a wrong instant on JDK 21 (D-84).
+- `Limit.of(Integer)` takes `null` for "unlimited".
+- `SelectSet.isEmpty()`, true when the set selects nothing.
+- `DEBUG` logging of each query definition built and each executor call, naming the filters of a query, an update or
+  a delete, and `TRACE` logging of each statement's bind count, rows and time, through `System.Logger`; values and
+  keys are never logged (D-95, R-INS-05). See Diagnostics §Logging.
+- Fetch plans (D-96, D-99, D-100): `FetchPlan` loads, once per page, the children of each model (`@Child`, with a
+  generated `ChildField` and an optional `ChildQuery` for filters, order and `maxPerParent`), nested plans through a
+  `@Join` (`JoinField`), and caller-supplied `Enricher`s. A query takes one with `fetch(plan)` or `withFetch(plan)`, and
+  `list`, `page` (each `CountMode`), `export` and the Spring repository's `findAll`, `findPage` and `export` run it;
+  `stream` refuses it. Codes `MQ1701`-`MQ1705`, `MQ2601`-`MQ2605` and `MQ3401`-`MQ3406`. See the user guide's Fetch
+  plans page.
+- `@Child(through = "path")` loads a many-to-many child that only the parent's entity maps (unidirectional, the inverse
+  side, or through a join entity), by joining along an association path from the parent's `@Id` (D-100).
+- The processor gives an `Instant` or `Date` field over a `Timestamp` attribute the built-in converter when no
+  `converter` is named, so the column filters with values of the field's type; `@Aggregate` `MIN` and `MAX` into such
+  a field read through it.
 - `ModelQueryException`, the abstract superclass of `ModelQueryDefinitionException`, `ModelQueryExecutionException`
   and `ModelQueryConfigurationException`: one catch clause handles every library failure and reads its `code()`
   (D-106).
@@ -85,100 +165,6 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
   recipe across its H2, PostgreSQL and MySQL datasources (D-111).
 
 ### Changed
-
-- **Breaking (vendor SPI):** `VendorProfile.applyStreaming(Query, int)` is replaced by
-  `int streamingFetchSize(int requested)`, which decides the size without touching the query (by default, the
-  configured size), and `ProviderSupport` gains `<T> Stream<T> resultStream(TypedQuery<T>, int)`, which opens the
-  stream with that size and has no default; `model-query-hibernate` does so with `org.hibernate.fetchSize`, and the
-  built-in profiles no longer name that hint. Without a `ProviderSupport`, `stream` sets no fetch size and warns once
-  per factory that the driver may buffer the whole result (D-108). A plain `model-query-jpa` application on Hibernate
-  therefore loses cursor streaming, and gets that warning, until it adds `model-query-hibernate`, which the Spring Boot
-  starter already pulls in.
-- **Breaking (binary):** the `Filters` operators and `Filters.compare`, the `FilterMatchers` factories, `ModelQuery`'s
-  `groupBy` and `QuerySpec.groupBy()` take a `ScalarField` where they took a `ColumnField`. A `ColumnField` is one, so
-  source stays compatible, but a caller or a binary compiled against the old parameter descriptors must recompile
-  (D-115).
-
-## [0.2.0] - Unreleased
-
-Nothing is frozen yet: every public type stays `@Incubating` until the 1.0 freeze (D-90).
-
-### Upgrading from 0.1
-
-Breaking changes, each under Changed below:
-
-- `Filters` and `Having` are sealed (D-85).
-- `Filters.or` and `Having.or` take two or three branches or a `List`, not varargs (D-87).
-- `PageSpec` and `ExportOptions` have no public constructor; use `PageSpec.of` or `PageSpec.ofOffset` (D-88).
-- `SetterMapper.bind` takes a column of the mapper's own model (D-88).
-- `ColumnSet` is `SelectSet`, with `fields()` for `columns()`; the builder's `columns(...)` and the query's `columns()`
-  are `select(...)` and `select()`, and `@QueryModel(generateColumnSets)` is `generateSelectSets` (D-94).
-- A statement whose binds pass the vendor's limit throws `MQ1307` before it runs (D-80).
-- A class model with a `@Join` field needs that field's getter, named as Lombok names it (D-96).
-
-Behaviour to know when moving from hand-written Criteria code:
-
-- `LikeMode.CONTAINS`, `STARTS_WITH` and `ENDS_WITH` escape `%`, `_` and the escape character in the value, so a `%`
-  in user input is no longer a wildcard. `EXACT` passes the pattern through as given.
-- Offset paging and export append the primary key to the order you give as a tie-breaker, so rows with equal sort
-  values come back in a stable order; keyset paging appends it as the last keyset column.
-- An `Optional<Date>` filter on a `Timestamp` column compiles when the model field is a `Date`, through the built-in
-  converter (D-84).
-
-### Added
-- `ModelQuery.conditions()` (incubating, D-98, D-101): a read-only view of the filters a built query records in `where`
-  and `having`, as `QueryConditions` and `Condition` (kind, column, values as passed, children, label). A filter skipped
-  by an empty `Optional` is absent. `conditions().toString()` and the build log list each condition's kind and column
-  with every value shown as `?`; only the accessors expose values.
-- `Filters.add(String label, ...)` names a custom filter, so it shows in logs and can be matched in a test; a null or
-  blank label is `MQ1301`.
-- `model-query-test` (incubating, D-98), in the BOM: depends on `model-query-core` and AssertJ only.
-  `assertThatQuery(query)` asserts on filters, `having`, order, selection and a fetch plan's selection with no database,
-  and `FilterMatchers` has one matcher per `Filters` operator, plus `and(...)` and `custom(label)`. See "Testing queries
-  without a database" in the user guide.
-  `QueryAssert<M>` is typed by the query's model, so `isOrderedBy` and the selection methods refuse a column of another
-  model, and a filter on a join matches only the same join path (D-103).
-- `japicmp` runs in `verify` against the baseline release named by `japicmp.baseline`, and fails the build on a
-  binary- or source-incompatible change to API; it is skipped while no baseline is set, and ignores `@Incubating`,
-  `@EngineFacing` and `jpa.vendor`.
-- The user guide is published to GitHub Pages from main.
-- `MQ1307`: a statement whose binds only together pass the vendor's `maxBindParameters()` is refused before it runs,
-  rather than failing in the database (#6). On a keyset export page or key-first round after a cursor, the message
-  names how many of its binds are the cursor's.
-- `OrderedColumnConverter`, a `ColumnConverter` that preserves order both ways, and the built-in
-  `InstantTimestampConverter` and `DateTimestampConverter` over a `Timestamp` attribute. `Agg.min`, `Agg.max` and
-  `Agg.countDistinct` take a column with an ordered converter, and `min` and `max` return the model type; other
-  aggregates over a converted column still throw `MQ1408`.
-- `OrderedColumnField`, a `ColumnField` subclass for a column with no converter or an `OrderedColumnConverter`:
-  `Agg.min`, `max` and `countDistinct` take it, so they no longer compile over a column with any other converter instead
-  of throwing `MQ1408` (D-93). `ColumnField` is `sealed`. A variable typed `ColumnField` passed to those three must
-  become `OrderedColumnField`; the processor declares generated columns with the narrower type.
-- `Filters.or(List)` and `Having.or(List)` with an empty list render `FALSE`, "none of these", as an empty `in`; a
-  non-empty list whose branches were all skipped stays skipped (D-92).
-- The `MQ1307` bind check runs up front for a keyset page, export page or key-first write round, first one and
-  `startAfter` round included: it counts the worst cursor, k(k+1)/2 binds for k keyset keys, so a run never fails after
-  rows reached a sink or a round committed (D-82).
-- `MQ1308`: a value that its column's converter cannot convert, such as an `Instant` beyond the range of `Timestamp`,
-  is refused with a message naming the column; `InstantTimestampConverter` now round-trips the converted value, since
-  `Timestamp.from(Instant.MAX)` returned a wrong instant on JDK 21 (D-84).
-- `Limit.of(Integer)` takes `null` for "unlimited".
-- `SelectSet.isEmpty()`, true when the set selects nothing.
-- `DEBUG` logging of each query definition built and each executor call, naming the filters of a query, an update or
-  a delete, and `TRACE` logging of each statement's bind count, rows and time, through `System.Logger`; values and
-  keys are never logged (D-95, R-INS-05). See Diagnostics §Logging.
-- Fetch plans (D-96, D-99, D-100): `FetchPlan` loads, once per page, the children of each model (`@Child`, with a
-  generated `ChildField` and an optional `ChildQuery` for filters, order and `maxPerParent`), nested plans through a
-  `@Join` (`JoinField`), and caller-supplied `Enricher`s. A query takes one with `fetch(plan)` or `withFetch(plan)`, and
-  `list`, `page` (each `CountMode`), `export` and the Spring repository's `findAll`, `findPage` and `export` run it;
-  `stream` refuses it. Codes `MQ1701`-`MQ1705`, `MQ2601`-`MQ2605` and `MQ3401`-`MQ3406`. See the user guide's Fetch
-  plans page.
-- `@Child(through = "path")` loads a many-to-many child that only the parent's entity maps (unidirectional, the inverse
-  side, or through a join entity), by joining along an association path from the parent's `@Id` (D-100).
-- The processor gives an `Instant` or `Date` field over a `Timestamp` attribute the built-in converter when no
-  `converter` is named, so the column filters with values of the field's type; `@Aggregate` `MIN` and `MAX` into such
-  a field read through it.
-
-### Changed
 - `model-query-spring-boot-starter` is the one dependency of a Spring Boot application: it pulls
   `spring-boot-starter-data-jpa` and `model-query-hibernate`, where Spring was `provided` and an application declared
   four or more artifacts. `model-query-annotations` is needed only in a module without the starter, and the processor
@@ -217,6 +203,18 @@ Behaviour to know when moving from hand-written Criteria code:
 - `TableField` has `equals` and `hashCode` by its join key, and its `toString` is path-qualified, as in
   `Order.customer.address (INNER)` (D-103). `Enricher.of` is documented as positional, and a `null` element in its
   result is `MQ2602` like a wrong size (D-102).
+- **Breaking (vendor SPI):** `VendorProfile.applyStreaming(Query, int)` is replaced by
+  `int streamingFetchSize(int requested)`, which decides the size without touching the query (by default, the
+  configured size), and `ProviderSupport` gains `<T> Stream<T> resultStream(TypedQuery<T>, int)`, which opens the
+  stream with that size and has no default; `model-query-hibernate` does so with `org.hibernate.fetchSize`, and the
+  built-in profiles no longer name that hint. Without a `ProviderSupport`, `stream` sets no fetch size and warns once
+  per factory that the driver may buffer the whole result (D-108). A plain `model-query-jpa` application on Hibernate
+  therefore loses cursor streaming, and gets that warning, until it adds `model-query-hibernate`, which the Spring Boot
+  starter already pulls in.
+- **Breaking (binary):** the `Filters` operators and `Filters.compare`, the `FilterMatchers` factories, `ModelQuery`'s
+  `groupBy` and `QuerySpec.groupBy()` take a `ScalarField` where they took a `ColumnField`. A `ColumnField` is one, so
+  source stays compatible, but a caller or a binary compiled against the old parameter descriptors must recompile
+  (D-115).
 
 ### Fixed
 - The starter's repository factory bean swap re-registers each definition, so a repository type-checked before the swap

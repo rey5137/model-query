@@ -45,6 +45,12 @@ The fetch-plan types are new in 0.2.0, `@Incubating`, and not yet placed in the 
 `FetchPlan`, `ChildField`, `JoinField`, `ChildQuery`, `Enricher` and the `@Child` annotation. The executor-facing
 `ChildLoad` and `JoinPlan` are `@EngineFacing`. See [Fetch plans](fetch-plans.md).
 
+Also new in 0.2.0, `@Incubating` and not yet in the freeze list: `ModelQueryException`, the two-way keyset
+page (`KeysetSpec`, `KeysetSlice`), sub-selects (`SubSelect`, `Outer`), expressions (`Expr`, `ExpressionField`,
+`ScalarField`, `ExpressionDefinition` and the `@Computed` annotation), `ModelQueryRepositoryFragmentFactoryBean` and
+`ChildQueryAssert`. The keyset cursor's `KeysetCursorCodec` is `@EngineFacing`. See
+[Sub-queries and expressions](subqueries-expressions.md).
+
 ## Not API
 
 Two things are not API, whatever their visibility, and may change in any release:
@@ -52,6 +58,6 @@ Two things are not API, whatever their visibility, and may change in any release
 - Everything in `com.rey.modelquery.jpa.vendor`: the built-in vendor profiles, `VendorResolver` and `ResolvedVendor`.
   To support another database, implement the `jpa.spi` extension points instead.
 - Types and methods marked `@EngineFacing`, which only an executor calls: `BuiltQuery`, `RowSelection`,
-  `RenderOptions`, `ChildLoad`, `JoinPlan`, `JoinContext.of` and `OrderField.toOrders`.
+  `RenderOptions`, `ChildLoad`, `JoinPlan`, `KeysetCursorCodec`, `JoinContext.of` and `OrderField.toOrders`.
 
 `japicmp` ignores `@Incubating`, `@EngineFacing` and `jpa.vendor`.

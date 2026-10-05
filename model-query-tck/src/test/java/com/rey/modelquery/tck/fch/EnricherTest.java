@@ -71,13 +71,14 @@ class EnricherTest {
     }
 
     @TckTest
-    void ac_fch_06_enrichers_see_their_columns_and_run_once_per_page_after_children_nested_first(TckDatabase db) {
+    void ac_fch_12_nested_enrichers_fill_joined_models_once_per_page_and_outer_ones_see_their_columns(TckDatabase db) {
         Map<Long, List<Long>> ordersOf = grouped(db, "SELECT customer_id, id FROM orders ORDER BY id");
         var calls = new Calls();
         // Orders 1 and 1001 share customer 38; of orders 1 to 3, only 3 has a referrer.
         List<Long> ids = List.of(1L, 2L, 3L, 1001L);
 
-        // AC-FCH-12: the nested plan's enricher fills each joined Patron (a @Join model), once per page and join.
+        // AC-FCH-12 and AC-FCH-06: the nested plan's enricher fills each joined Patron (a @Join model), once per
+        // page and join, before the outer enricher, which sees its columns.
         withExecutor(JoinTestSupport.dataSource(db), OrderEntity.class, executor -> {
             ModelQuery<OrderEntity, Long, OrderPatrons> q = orders(ids, calls);
             assertThat(q.select().fields()).containsExactly(QOrderPatrons.ID, QOrderPatrons.CUSTOMER_ID,
