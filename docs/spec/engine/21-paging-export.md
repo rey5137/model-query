@@ -30,7 +30,8 @@ throw `MQ2204` naming the model and the join, before the first query runs. A gro
 and dedupe are the group-key tuple, which is unique per result row even through a to-many join (R-PAG-11). Ordering
 keys count as selected (D-29), so ordering through a to-many join is refused too: its repeated rows need not be adjacent. A to-many join used only by predicates is unaffected; select from the
 child side, or filter with `Filters.exists` (`api/12` R-FLT-12). `list`, `page` and `stream` still accept the shape, and
-`count` counts its rows (`engine/20` R-EXE-04).
+`count` counts its rows (`engine/20` R-EXE-04). A selected or ordered expression reads every column it is built from, so
+one read through a to-many join is `MQ2204` and makes `count` count rows (`api/10` R-COL-17).
 
 ## 2. Keyset paging
 
@@ -86,7 +87,7 @@ Character, Boolean, the integral types and `BigInteger`; `BigDecimal` through `t
 which keeps its scale; `UUID`; an enum by `name()`; `LocalDate`, `LocalTime`, `LocalDateTime`, `Instant`,
 `OffsetDateTime`, `OffsetTime` and `ZonedDateTime` at nanosecond precision, keeping their offset or zone;
 `java.util.Date`, `java.sql.Date`, `Time` and `Timestamp` by runtime class, `Timestamp` keeping its nanos; and
-`byte[]`. Any other type — an `@Convert` value class or `Calendar` — throws `MQ2210` naming the column before any
+`byte[]`, which binds as a parameter like any other cursor value (R-FLT-08). Any other type — an `@Convert` value class or `Calendar` — throws `MQ2210` naming the column before any
 query runs; Java serialization is never used. The cursor's values are readable by anyone who decodes it, filter-only
 order columns and internal primary keys included; that is documented, not hidden, and non-breaking to change later
 because the format is not API (R-PAG-18).
@@ -142,6 +143,15 @@ through a cursor whose rows hold that cursor's own primary key throws `MQ2205` (
 or the boundary row moved. A stateless page cannot detect other rows moving between requests, so R-PAG-14's
 exactly-once guarantee is restated for pages: a page repeats or skips no row only while its cursor round-trips and no
 row's keyset value changes while it is used.
+
+**R-PAG-25** *(D-115)* **Ordering by an expression.**
+- Offset pages, offset export (R-PAG-01, R-PAG-02), `primaryKeyFirst` (R-PAG-07, R-PAG-08) and grouped export over
+  expression group keys (R-PAG-11) accept an expression key. The engine selects it (D-29) and its tie-breaker and
+  dedupe are unchanged.
+- Exactly-once holds while each row's expression value does not change during the run, as R-PAG-14 says of columns; a
+  named function must be deterministic.
+- `keyset()` refuses an expression key with `MQ1208` (`api/11` R-QRY-16).
+- A key that binds a value relies on `api/10` R-COL-19 under grouping.
 
 ## 3. Primary-key-first deep paging
 
@@ -228,3 +238,6 @@ that could overlap pages, and R-PAG-11 makes it unreachable.
 | AC-PAG-23 | A page holding the cursor's own primary key throws `MQ2205`; repeats from a predicate-only to-many join are dropped and no root is skipped (R-PAG-02, R-PAG-24). |
 | AC-PAG-24 | A String primary key works on the keyset page, keyset export and primary-key-first paging: a first/after walk and its backward walk over a non-key order with tied keys visit every row once in the key-closed order, and export and primary-key-first hold the same rows as `list`, in that order, under a filter and an explicit non-key sort too (R-PAG-04, R-PAG-07, R-PAG-16, D-111). |
 | AC-PAG-25 | An `@EmbeddedId` primary key works the same on the keyset page, keyset export and primary-key-first paging: a first/after walk and its backward walk over a non-key order with tied keys visit every row once in the order the composite key closes, and export and primary-key-first hold the same rows as `list`, in that order, filtered and explicitly sorted too (R-PAG-04, R-PAG-07, R-PAG-16, D-111). |
+| AC-PAG-26 | Over a table with duplicated expression values: offset export ordered by an expression visits every row once; `primaryKeyFirst` returns the same rows in the same order as plain offset paging, single and composite keys; the step-2 batch split keeps the order (R-PAG-25, R-PAG-01, R-PAG-07, R-PAG-08). |
+| AC-PAG-27 | A selected or ordered expression reading a column through a to-many join throws `MQ2204` for offset export, keyset and `primaryKeyFirst` before querying, and `count` equals `list`'s size for the same query (R-PAG-13). |
+| AC-PAG-28 | A `byte[]` keyset cursor value is a bind parameter, never an inlined literal (R-FLT-08). |

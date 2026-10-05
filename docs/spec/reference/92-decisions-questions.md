@@ -188,7 +188,7 @@ R-QRY-09), and `or()` never reusing an INNER join (a second join on to-many path
 the query joined LEFT only for an `or`/`not` and that the customizer resolves as INNER gets a second join; that is
 documented on `QueryCustomizer` and accepted (P-6). → `api/11` R-QRY-09, `api/12` R-FLT-10, AC-QRY-09.
 
-**D-27 — No `Col.of`: a non-aggregate derived value belongs in `afterMap`.**
+*(Reversed by D-115.)* **D-27 — No `Col.of`: a non-aggregate derived value belongs in `afterMap`.**
 `Agg.of` is the escape hatch for aggregate expressions only, since any aggregate makes the query grouped (R-AGG-07).
 A value computed per row from other columns is derived in `afterMap` (or a record's `finisher`) from the columns the
 `SelectSet` selects. Rejected: `Col.of(expression)` for computed non-aggregate columns, which would turn the column
@@ -1162,6 +1162,39 @@ batches undecided, overlaps the caller's cache); `EnrichContext` (an untyped bag
 Measure lock contention on the first-run check set under the service's load before 1.0; it decides whether a cached
 per-parameter plan or a context is needed. Amends D-111's "built" to "a tested recipe" for those three asks.
 → `api/15` R-FCH-08, R-FCH-15 to R-FCH-17; `reference/90`.
+
+**D-115 — Expressions (M9.13a review, D-111 items 3 and 4; reverses D-27).**
+`ExpressionField<M, C>`, built only by `Expr`'s factories (`coalesce`, `nullIf`, `cases`, `plus`/`minus`/`times`/
+`dividedBy`, `negate`, `concat`, `function`, `constant`), each one `CriteriaBuilder` construct, is a typed, immutable
+value over one vocabulary's columns that is equal by structure. With `ColumnField` it is a `ScalarField`, a new sealed
+subtype of `SelectField` that excludes aggregates. Every `Filters` operand, `groupBy` key and `Expr` argument takes
+either, so an aggregate there still does not compile, and there are no expressions over aggregates (`Agg.of` keeps
+them). `Agg` gains overloads over an expression, so conditional counts and sums are `cases`. Values given to a factory
+bind; `Expr.constant` is definition text, for a function's mode argument. One expression resolves to one Criteria node
+per statement, so Hibernate references the select item in `GROUP BY` and `ORDER BY` and PostgreSQL matches a key that
+binds a value. A grouped query's selected or ordered expression equals a group key or reads only group-key columns
+(`MQ1401`, `MQ1406`). Offset paging, offset and grouped export and `primaryKeyFirst` order by an expression. `keyset()`
+refuses one (`MQ1208`): its cursor, fingerprint and D-82 bind budget are defined over attribute values, and widening it
+later turns a throw into working code. A converted column, an integral division, a null or enum value, an emptied or
+custom CASE condition and a non-identifier or aggregate function name are refused at the factory (`MQ1501`–`MQ1506`),
+and a declared type the provider does not resolve at first resolution (`MQ1507`). The processor adds
+`@Computed(Def.class)` naming an `ExpressionDefinition<M, C>`, as `converter` names a class, and
+`@Aggregate(expression = …)`. The existing `byte[]` keyset cursor value, which `Keyset` rendered as an inlined literal
+against R-FLT-08, is bound instead (AC-PAG-28), so R-FLT-08 stays absolute. Rejected:
+- `Col.of(lambda)`: it cannot be compared, inspected or walked for R-PAG-13.
+- The name `Expression`: it clashes with JPA's in the same files.
+- `Filters` overloads beside every column form: they double the interface, and widening is source-compatible.
+- Fluent methods on `ColumnField`: additive later.
+- An expression language in annotation strings (P-5).
+- An annotation naming a static constant: a class-initialisation cycle.
+- Casts: Hibernate casts `BigDecimal` to scale 2.
+- A `VendorProfile` function-name map (P-5).
+- Keyset over an expression in 1.0.
+
+→ `api/10` R-COL-06, R-COL-16 to R-COL-20; `api/11` R-QRY-08, R-QRY-14, R-QRY-16; `api/12` R-FLT-08, R-FLT-18;
+`api/13` R-AGG-02, R-AGG-05, R-AGG-08, R-AGG-13, R-AGG-14; `api/15` R-FCH-07; `api/16` R-INS-04, R-INS-09; `engine/21`
+R-PAG-13, R-PAG-25; `processor/30` R-PROC-16, R-PROC-21, R-PROC-22; `processor/32`; `vendor/40` R-VND-09;
+`reference/90`; `delivery/61`; `SPEC.md` INV-9.
 
 
 ## 2. Open questions

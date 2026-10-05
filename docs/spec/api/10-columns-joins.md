@@ -1,6 +1,6 @@
 # 10 — Columns, Joins and Row Mapping
 
-**Covers:** `TableField`, `SelectField`, `ColumnField`, `SelectSet`, `OrderField`, `Row`, `RowMapper`, how joins are
+**Covers:** `TableField`, `SelectField`, `ScalarField`, `ColumnField`, `ExpressionField`, `Expr`, `SelectSet`, `OrderField`, `Row`, `RowMapper`, how joins are
 shared within one query, and how null precedence is rendered portably.
 **Read when:** defining the columns of a model, adding a join, deciding why two joins appeared, or changing how a row
 becomes a model.
@@ -65,18 +65,25 @@ Two joins to `order_items` express "has item A **and** has item B". For "has an 
 ## 2. `SelectField` — anything selectable
 
 ```java
-public sealed interface SelectField<M, C> permits ColumnField, AggregateField {
+public sealed interface SelectField<M, C> permits ScalarField, AggregateField {
     Class<C> type();
     String name();                                  // used in MQ messages
     Expression<C> expression(JoinContext ctx);      // ColumnField returns path(ctx)
     OrderField<M, C> asc();
     OrderField<M, C> desc();
 }
+
+public sealed interface ScalarField<M, C> extends SelectField<M, C> permits ColumnField, ExpressionField {}
 ```
 
 **R-COL-06** Everything that selects, orders or reads a value accepts a `SelectField`: `SelectSet`, `orderBy`,
-`Row.get`. Everything that builds a `WHERE` predicate accepts a `ColumnField` only, which is what makes an aggregate in
-`where` a compile error rather than a runtime failure (P-2, `api/13` R-AGG-05).
+`Row.get`. Everything that builds a `WHERE` predicate or a group key, and every `Expr` argument, accepts a
+`ScalarField`: a `ColumnField` or an `ExpressionField`. An aggregate in `where`, in `groupBy` or inside an expression is
+therefore a compile error rather than a runtime failure (P-2, `api/13` R-AGG-05).
+
+**R-COL-16** *(D-115)* **`ScalarField` is one value per row.** `SelectField` permits `ScalarField` and
+`AggregateField`, and `ScalarField` permits `ColumnField` and `ExpressionField`. A `switch` over `SelectField` names
+three cases.
 
 ## 3. `ColumnField` — one column of a model
 
@@ -127,6 +134,93 @@ throws `IllegalArgumentException`, as `InstantTimestampConverter` does for an `I
 refused with `MQ1308` when a value filter or a write converts it. A plain `java.util.Date` binds at whole milliseconds, so
 an inclusive upper bound is written half-open, `lt(nextDayStart)`: `lte(23:59:59.999)` excludes a stored
 `23:59:59.999500`.
+
+## 3a. `ExpressionField` and `Expr` — a value the database computes
+
+```java
+public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits OrderedColumnField { … }   // §3
+
+public final class ExpressionField<M, C> implements ScalarField<M, C> {
+    public Class<C> type();
+    public String name();                                  // the property when named, else canonical text: coalesce(OrderView.discount, ?)
+    public Expression<C> expression(JoinContext ctx);      // one Criteria node per JoinContext for equal expressions
+    public ExpressionField<M, C> named(String property);   // not part of equals, as ColumnField.named (D-55)
+    public Optional<String> property();
+    @EngineFacing public List<ColumnField<M, ?, ?>> columns();   // every column read in the row, CASE conditions included
+}
+
+public final class Expr {
+    public static <M, C> ExpressionField<M, C> coalesce(ScalarField<M, C> first, ScalarField<M, C> second);
+    public static <M, C> ExpressionField<M, C> coalesce(ScalarField<M, C> first, C fallback);
+    public static <M, C> ExpressionField<M, C> nullIf(ScalarField<M, C> value, C sentinel);
+    // plus, minus, times: same type, a value, or mixed operands with an explicit result type
+    public static <M, C extends Number> ExpressionField<M, C> plus(ScalarField<M, C> a, ScalarField<M, C> b);
+    public static <M, C extends Number> ExpressionField<M, C> plus(ScalarField<M, C> a, C b);
+    public static <M, C extends Number> ExpressionField<M, C> plus(ScalarField<M, ? extends Number> a,
+                                                                   ScalarField<M, ? extends Number> b, Class<C> type);
+    public static <M, C extends Number> ExpressionField<M, C> dividedBy(ScalarField<M, C> a, ScalarField<M, C> b);
+    public static <M, C extends Number> ExpressionField<M, C> dividedBy(ScalarField<M, ? extends Number> a,
+                                                                        ScalarField<M, ? extends Number> b, Class<C> type);
+    public static <M, C extends Number> ExpressionField<M, C> negate(ScalarField<M, C> value);
+    public static <M> ExpressionField<M, String> concat(ScalarField<M, String> a, ScalarField<M, String> b);
+    public static <M> ExpressionField<M, String> concat(ScalarField<M, String> a, String b);
+    public static <M> ExpressionField<M, String> concat(String a, ScalarField<M, String> b);
+    @SafeVarargs public static <M, C> ExpressionField<M, C> function(String name, Class<C> type, ScalarField<M, ?>... args);
+    public static <M> ExpressionField<M, String>  constant(String value);   // SQL text, never a request value
+    public static <M> ExpressionField<M, Integer> constant(int value);
+    public static <M> ExpressionField<M, Long>    constant(long value);
+    public static <M> ExpressionField<M, Boolean> constant(boolean value);
+    public static <M, R> Cases<M, R> cases(Class<M> model, Class<R> type);
+
+    public static final class Cases<M, R> {                // only when(...): a CASE with no WHEN does not compile
+        public When<M, R> when(UnaryOperator<Filters<M>> condition, ScalarField<M, R> result);
+        public When<M, R> when(UnaryOperator<Filters<M>> condition, R result);
+    }
+    public static final class When<M, R> {
+        /* the two when(...) */ public ExpressionField<M, R> otherwise(ScalarField<M, R> result);
+        public ExpressionField<M, R> otherwise(R result);
+        public ExpressionField<M, R> orNull();
+    }
+}
+```
+
+`Expr` mirrors `Agg`: it builds the field, and `ExpressionField` is the field type. `M` is the column vocabulary, a
+generated model or the entity class for hand-written columns, and `C` the Java type; there is no `T`, because an
+expression may span tables. `cases` takes the model class so the condition lambda's `Filters<M>` is inferred.
+
+**R-COL-17** *(D-115)* **An expression is a typed value computed by the database.**
+- It is built only by `Expr`'s factories, each one JPA `CriteriaBuilder` construct: `coalesce`, `nullIf`,
+  `cases(...).when(...).otherwise|orNull`, `plus`, `minus`, `times`, `dividedBy`, `negate`, `concat`, `function`,
+  `constant`. It reads columns of one vocabulary `M`, and holds no aggregate, join, order or SQL text of its own.
+- **Arithmetic** takes operands of one numeric type, or declares the result type when they differ; the provider's
+  resolved type must equal the declared one, else `MQ1507` at first resolution. `dividedBy` over two integral operands
+  is `MQ1503`.
+- **`concat`** is NULL when any operand is NULL.
+- **CASE conditions** are a `Filters` group with local skipping (`api/12` R-FLT-01). A condition left with no filter is
+  `MQ1504`; `add`, `exists` and sub-selects are `MQ1505`.
+- **`function(name, type, args)`** takes a plain identifier that is not a built-in aggregate, else `MQ1506`. It is
+  vendor SQL, and must be deterministic to order a paged or exported query (`engine/21` R-PAG-25).
+- **A column with a `ColumnConverter`** is `MQ1501`.
+
+**R-COL-18** *(D-115)* **Values bind, constants are text.**
+- A value given to a factory (a `coalesce` fallback, a `nullIf` sentinel, an arithmetic or `concat` operand, a CASE
+  result) is a bind parameter typed by its operand (`api/12` R-FLT-08).
+- `null`, arrays, `Date`, `Calendar`, enums and entities are `MQ1502`.
+- `Expr.constant(String|int|long|boolean)` is SQL text of the definition, rendered by the provider's literal formatter,
+  for a function's mode argument or a key a functional index must match. It is never a request value.
+
+**R-COL-19** *(D-115)* **One expression, one Criteria node per statement.** `expression(ctx)` returns the same
+Criteria expression for equal expressions within one `JoinContext`. Selection, group key, order key, tie-breaker, count
+and filters of one statement therefore share it: its values bind once per occurrence, and a provider that references
+select items by identity (Hibernate) renders `GROUP BY` and `ORDER BY` as references, so PostgreSQL matches a key that
+binds a value. The columns it reads join as each column would where the expression is used (`api/12` R-FLT-10 inside
+`or` and `not`).
+
+**R-COL-20** *(D-115)* **Equality and naming.** Two expressions are equal when built from equal calls: node kind,
+operands, values (`equals`, so `BigDecimal` scale counts), declared type, function name and CASE conditions.
+`named(property)` sets the model field's name for `orderedBy` and messages and is not part of equality, as
+`ColumnField.named` is (D-55). Equal expressions are one selection, and each reads it through `Row.get`. An expression
+is immutable and may be a constant (INV-9).
 
 ## 4. `SelectSet` — an immutable named set
 
@@ -225,3 +319,6 @@ default null ordering the persistence provider is configured with replaces the p
 | AC-COL-15 | A generated `@Join` follows a `@JoinColumn(referencedColumnName)` association to a unique non-key column: the nested model is selected, its columns filter and sort the query, and a fetch plan loads it, each matched through the referenced column and not the target's key (R-COL-01, R-COL-03, D-111). |
 | AC-COL-16 | A generated `@Join` follows a Hibernate `@JoinFormula` association: the nested model is selected, filtered, sorted and fetched through the computed key (R-COL-01, R-COL-03, D-111). |
 | AC-COL-17 | A hand-written `TableField` with `as(...)` and `on(...)` adds an extra ON condition to a `ModelQuery` join, keeping the rows whose join then misses with a `NULL` nested column — the documented replacement for the declined `@Join(on = ...)` (R-COL-03, R-COL-04, D-111). |
+| AC-COL-18 | An `AggregateField` passed to a `Filters` operator, to `groupBy(...)` or to an `Expr` factory, and `Expr.cases` with no `when` before `otherwise`, each have a compile-failure case. Two expressions built from equal calls are equal and hash alike, whatever `named` says; they differ by a value, a `BigDecimal` scale, the declared type and a function name. An expression constant is used by 8 threads with identical results (R-COL-16, R-COL-20, INV-9). |
+| AC-COL-19 | On every Tier-1 vendor, each factory returns the expected value and Java type: `coalesce` and `nullIf` over NULL and non-NULL; same-type and mixed `times` (`Integer × BigDecimal` gives `BigDecimal`); `dividedBy` over decimals; `concat` with a NULL operand (NULL); a CASE with column and value branches; a CASE whose every branch is a value with three decimal places, returned exactly; `function` with an `Expr.constant` mode argument. `MQ1501` to `MQ1507` each have a case (R-COL-17, R-COL-18). |
+| AC-COL-20 | A selected expression round-trips through `Row.get` for a class and a record model. Two equal expressions under different `named` properties are one selection, and each reads the value. The PostgreSQL statement log shows one rendering of an expression used in select, order and filter of one statement (R-COL-19, R-COL-20, R-COL-10). |

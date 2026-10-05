@@ -9,7 +9,7 @@ millions of rows with bounded memory, on H2, PostgreSQL and MySQL alike.
 > only writes are filter-driven bulk updates and deletes (M6), which load no entity.
 
 - **Implementation:** Java 17, Maven multi-module, `jakarta.persistence` 3.1+, Hibernate 6.6+ optional extras.
-- **Surface (0.1):** `TableField`, `ColumnField`, `AggregateField`, `SelectSet`, `ModelQuery`, `Filters`, `Row`,
+- **Surface (0.1):** `TableField`, `ColumnField`, `ExpressionField`, `AggregateField`, `SubSelect`, `SelectSet`, `ModelQuery`, `Filters`, `Row`,
   `RowMapper`, `ModelQueryExecutor`, `VendorProfile`, an annotation processor generating `QModel` classes.
 - **Works without Spring:** the core needs only an `EntityManager`. Spring Data and Boot are separate modules.
 - **Open source:** Apache-2.0, published to Maven Central as `io.github.rey5137:model-query-*`.

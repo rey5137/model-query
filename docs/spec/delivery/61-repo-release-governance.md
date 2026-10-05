@@ -81,7 +81,10 @@ Adding an abstract method to an interface is safe while it has a single implemen
 `ModelQueryExecutor.page(query, KeysetSpec)` joins the interface before the freeze (D-110), and
 `DefaultModelQueryExecutor` is its only implementation. Likewise 0.2 adds the sub-select methods to `Filters` and four
 constants to `Condition.Kind` (D-112): `Filters` is implemented only by core, and `Kind` already warns that it gains
-constants, so a binary-compatibility report flags both while no caller breaks.
+constants, so a binary-compatibility report flags both while no caller breaks. Expressions (D-115) widen every `Filters` operand and
+`groupBy` key from `ColumnField` to `ScalarField` (source-compatible, binary-incompatible against 0.1), change
+`ModelQuery.groupBy()`'s element type, and add `ScalarField` to `SelectField`'s permits, so an exhaustive `switch` over
+`SelectField` needs a third case and already-compiled code meets a `MatchException`; the changelog says so.
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from

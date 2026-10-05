@@ -29,6 +29,15 @@ public final class Agg {
     public static <M, C extends Comparable<? super C>> AggregateField<M, C> min(OrderedColumnField<M, ?, C> column);
     public static <M, C extends Comparable<? super C>> AggregateField<M, C> max(OrderedColumnField<M, ?, C> column);
 
+    // over an expression (R-AGG-13); count takes any ScalarField and counts its non-null values
+    public static <M> AggregateField<M, Long> count(ScalarField<M, ?> value);
+    public static <M> AggregateField<M, Long> countDistinct(ExpressionField<M, ?> expression);
+    public static <M, C extends Number> AggregateField<M, C>      sum(ExpressionField<M, C> expression);
+    public static <M>                   AggregateField<M, Long>   sumAsLong(ExpressionField<M, ? extends Number> expression);
+    public static <M, C extends Number> AggregateField<M, Double> avg(ExpressionField<M, C> expression);
+    public static <M, C extends Comparable<? super C>> AggregateField<M, C> min(ExpressionField<M, C> expression);
+    public static <M, C extends Comparable<? super C>> AggregateField<M, C> max(ExpressionField<M, C> expression);
+
     public static <M, C> AggregateField<M, C> of(String name, Class<C> type,
                                                 BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression);
 }
@@ -48,7 +57,7 @@ key when the same function over the same column is needed twice.
 **R-AGG-02** `Agg.of(...)` is keyed by its `name`, because a lambda cannot be compared. Two `Agg.of` fields sharing a
 name with different expression instances throw `MQ1103` when the query is built. An `Agg.of` function that returns
 `null`, or an expression whose Java type is not the declared type, throws `MQ1405` when the query is built, rather than
-a `ClassCastException` when a row is read. `Agg.of` is for aggregate expressions only (`api/11` R-QRY-08, D-27).
+a `ClassCastException` when a row is read. `Agg.of` is for aggregate expressions `Agg` over an expression cannot express (R-AGG-13).
 
 ## 2. Result types
 
@@ -94,13 +103,13 @@ ModelQuery<OrderItemEntity, ?, ProductSales> q = QProductSales.query()
         .build();
 ```
 
-**R-AGG-05** `groupBy` accepts a `SelectSet<M>` or explicit `ColumnField`s. Passing a `SelectSet` keeps the group-by
+**R-AGG-05** `groupBy` accepts a `SelectSet<M>` or explicit `ScalarField`s, so an expression may be a group key. Passing a `SelectSet` keeps the group-by
 list and the selection in step from one constant, which is where hand-written builders drift. A
-`SelectSet` holding an aggregate throws `MQ1404`, since an aggregate cannot be a group key.
+`SelectSet` holding an aggregate throws `MQ1404`, since an aggregate cannot be a group key (D-115).
 
 **R-AGG-06** `having(UnaryOperator<Having<M>>)` is the `Filters` DSL (`api/12`) over `AggregateField` instead of
 `ColumnField`, with the same skip and `Optional` semantics. Aggregates cannot appear in `where` and plain columns cannot
-appear in `having`: both are compile errors, because `Filters` takes `ColumnField` and `Having` takes `AggregateField`
+appear in `having`: both are compile errors, because `Filters` takes `ScalarField` and `Having` takes `AggregateField`
 (P-2).
 
 ## 4. Rules for a grouped query
@@ -111,10 +120,10 @@ query: `having(...)` does not, so a `having` on a query with neither a `groupBy`
 `MQ1407` at build time, whether or not its filters were skipped. Grouping is therefore fixed by the definition, never by
 a request's values (D-28).
 
-**R-AGG-08** Every selected non-aggregate column must be in the group-by. Checked when the query is built, throwing
+**R-AGG-08** Every selected non-aggregate column or expression must fit the group-by (R-AGG-14). Checked when the query is built, throwing
 `MQ1401` with the offending column's name. MySQL would accept it and return an arbitrary value; PostgreSQL would fail at
 execution time with a message naming neither the model nor the column. Ordering follows the same rule: every `orderBy`
-key of a grouped query is a group key or an aggregate, and no `orderBy` key of an ungrouped query is an aggregate. A key
+key of a grouped query fits the group-by (R-AGG-14) or is an aggregate, and no `orderBy` key of an ungrouped query is an aggregate. A key
 that does not fit throws `MQ1406` at build time (D-28).
 
 **R-AGG-09** A grouped query needs no primary key (`api/11` R-QRY-03). The `engine/21` R-PAG-03 "primary key not
@@ -131,6 +140,20 @@ use `list`, `stream` or offset `export`.
 
 **R-AGG-12** Generated `SelectSet`s (`DEFAULT`, `ALL`) never include aggregates, since including one would turn every
 plain query into a grouped one. Aggregates are added explicitly with `with(...)`.
+
+**R-AGG-13** *(D-115)* **Aggregates over an expression.**
+- `sum`, `sumAsLong`, `avg`, `min`, `max` and `countDistinct` take an `ExpressionField` too, and `count` takes any
+  `ScalarField`, counting its non-null values. A conditional count is `count(cases(...).when(cond, 1).orNull())`, and a
+  conditional sum is `sum(cases(...).when(cond, AMOUNT).otherwise(ZERO))`.
+- R-AGG-03's result types apply to the expression's type (an `Integer` expression is `MQ1403` for `sum`).
+- Equality is R-AGG-01's, with the expression's structure as the source.
+
+**R-AGG-14** *(D-115)* **Expression group keys and the fit rule.**
+- On a grouped query, a selected or ordered `ScalarField` fits when it equals a group key, ignoring `named`, or when it
+  is an expression every one of whose columns is a group-key column. Anything else is `MQ1401` or `MQ1406`.
+- A sub-expression is not matched to a group key, because a database that matches by text cannot equal two bound
+  parameters.
+- `having` stays over aggregates; a condition on a group key goes in `where`.
 
 ## 5. Generated support
 
@@ -149,9 +172,11 @@ generated `GROUP_KEYS` `SelectSet`, and `QProductSales.query()` comes pre-config
 | AC-AGG-05 | Two `Agg.of` fields with the same name and different expressions throw `MQ1103`; an `Agg.of` returning `null` or an expression of another Java type throws `MQ1405` (R-AGG-02). |
 | AC-AGG-06 | An aggregate in `where` and a plain column in `having` fail to compile (compile-testing) (R-AGG-06). |
 | AC-AGG-07 | `having` skip semantics match `api/12` AC-FLT-03 for aggregates: an all-skipped `or` is skipped, and an empty `or(List)` is recorded as `FALSE` (R-AGG-06, D-92). |
-| AC-AGG-08 | A selected column missing from the group-by throws `MQ1401` naming the column; an `orderBy` key that does not fit the grouping throws `MQ1406` (R-AGG-08). |
+| AC-AGG-08 | A selected column missing from the group-by throws `MQ1401` naming the column; an `orderBy` key that does not fit the grouping throws `MQ1406`; an expression is checked the same way (R-AGG-08, R-AGG-14). |
 | AC-AGG-09 | `.keyset()` on a grouped query throws `MQ1402`; a grouped query with no `primaryKey` exports successfully (R-AGG-09, R-AGG-10). |
 | AC-AGG-10 | An aggregate selection with no `groupBy` returns exactly one row (R-AGG-07). |
 | AC-AGG-11 | `afterMap` on a grouped query runs once per group and sees every selected aggregate (`api/11` R-QRY-05). |
 | AC-AGG-12 | `having` on a query with neither a `groupBy` nor a selected aggregate throws `MQ1407`, even when every filter was skipped; an aggregate in the `groupBy` set throws `MQ1404` (R-AGG-05, R-AGG-07). |
 | AC-AGG-13 | `Agg.min`, `max` and `countDistinct` over a column with an `OrderedColumnConverter` return the model-typed `min` and `max` and the `Long` count the database computes over the attribute on every Tier-1 vendor, and `having` and `orderBy` on them compare attribute values; `sum`, `sumAsLong` and `avg` over any converted column throw `MQ1408`, and `min`, `max` and `countDistinct` over a column whose converter is not ordered do not compile: the column is a plain `ColumnField`, and the processor declares a generated column as `OrderedColumnField` only when it has no converter or an ordered one (R-AGG-04, D-84, D-93). |
+| AC-AGG-14 | On every Tier-1 vendor: `sum`, `sumAsLong`, `avg`, `min`, `max` and `countDistinct` over an expression, and `count` over a column and over a CASE (a conditional count), return R-AGG-03's types; a conditional `sum` through `cases` equals the filtered `sum`; `Agg.sum` over an `Integer` expression throws `MQ1403`; two equal aggregates over equal expressions are one selection; `having` on an aggregate over an expression filters groups (R-AGG-13, R-AGG-01). |
+| AC-AGG-15 | For a query grouped by an expression key: `list`, `count` and grouped export visit every group once on every Tier-1 vendor, and on PostgreSQL that holds with a key that binds a value, ordered by it with and without explicit null precedence, with and without `model-query-hibernate`; a selected expression over group-key columns only is accepted; a selected expression reading another column throws `MQ1401`; an expression that only contains a group-key expression throws `MQ1401`; an order key that does not fit throws `MQ1406`; `groupBy(SelectSet)` holding an expression builds (R-AGG-14, R-AGG-05, R-AGG-08, R-COL-19). |

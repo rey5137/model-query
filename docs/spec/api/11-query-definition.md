@@ -57,6 +57,10 @@ stored one once bound (MySQL binds a `Float` as a decimal literal): a value stor
 next page repeat its tie group, and one stored below it makes the next page skip the rest of the group without a word.
 `build()` throws `MQ1207` naming the column. Order by an exact type such as `BigDecimal`, or export by offset.
 
+**R-QRY-16** *(D-115)* `keyset()` refuses an expression order key. Its cursor, fingerprint and bind budget are defined
+over attribute values (`engine/21` R-PAG-17, R-PAG-19, D-82). `build()` throws `MQ1208` naming it, and an `orderedBy`
+copy rethrows it as `MQ2301`'s cause. Offset paging, export and `primaryKeyFirst` accept it (`engine/21` R-PAG-25).
+
 ## 3. `afterMap` and derived fields
 
 **R-QRY-05** `afterMap(BiConsumer<M, Row>)` runs once per row, after the `RowMapper`, and may read any selected column
@@ -80,10 +84,11 @@ public enum Phase { MODEL, PRIMARY_KEY, MODEL_BY_KEYS }
 the engine runs (P-6). It cannot change the ordering or the grouping (R-QRY-11).
 
 **R-QRY-08** A selection added by a customizer has no `SelectField` key, so it cannot be read back through `Row`. A
-value that must reach the model goes through a `ColumnField`, or an `AggregateField` for an aggregate. `Agg.of` is for
-aggregate expressions only, since any aggregate makes the query grouped (`api/13` R-AGG-07); a non-aggregate value
-derived from the row is computed in `afterMap` (R-QRY-05), and there is no `Col.of` (D-27). The Javadoc says so
-explicitly, because this is the trap the escape hatch sets.
+value that must reach the model goes through a `ColumnField`, an `ExpressionField` (`api/10` R-COL-17) or an
+`AggregateField`. `Agg.of` remains for aggregate expressions `Agg` over an `ExpressionField` cannot express, such as a
+ratio of two aggregates. A value derived in Java belongs in `afterMap` (R-QRY-05). A customizer-added selection still
+cannot be read through `Row` (D-115 reverses D-27). The Javadoc says so explicitly, because this is the trap the escape
+hatch sets.
 
 **R-QRY-09** The three phases must stay consistent: a predicate that narrows `MODEL` but not `PRIMARY_KEY` makes
 primary-key-first paging return rows the caller filtered out. The engine builds every phase with the same joins,
@@ -114,9 +119,9 @@ they do not count.
 
 **R-QRY-14** `ModelQuery.orderedBy(SortSpec)` returns a copy of the definition ordered by the spec's keys, each a
 property name, a direction and a `NullPrecedence`; an empty spec returns the definition unchanged. A property names
-one of the query's selected columns or aggregates, never an attribute the query doesn't select: first by the column's
+one of the query's selected columns, expressions or aggregates, never an attribute the query doesn't select: first by the column's
 property path, the model field names from the root model (`customer.name` for field `name` of the nested model under
-the `@Join` field `customer`), then by its attribute path from the root; an aggregate matches by its name. A bare
+the `@Join` field `customer`), then by its attribute path from the root; an aggregate matches by its name, an expression by its `named` property. A bare
 attribute name never matches a joined column. A column without a property (hand-written, not given one with
 `named(String)`) matches by attribute path only (D-55). Matching is exact and case-sensitive, and every tier is
 tried: a property matching no column, or different columns on one tier or on different tiers, throws `MQ2301` naming it
@@ -168,3 +173,4 @@ plans and enrichers on `list`, `page` and `export`, and `stream` refuses it (`ap
 | AC-QRY-12 | `build()` of a `keyset()` query ordered by a `Float` or `Double` column, or keyed by one, throws `MQ1207` naming the column; the same query without `keyset()` builds (R-QRY-13). |
 | AC-QRY-13 | `orderedBy` sorts by a selected column's property path, by its attribute path and by an aggregate's name, including a renamed nested field and two `@Join`s on one attribute; a bare name of a joined column, an unknown or an ambiguous property, a property naming different columns on two tiers, a sort on an ungrouped query without a primary key, and a sorted copy `build()` refuses (as the cause) throw `MQ2301` (R-QRY-14). |
 | AC-QRY-14 | `ExportOptions.defaults()` exports with the config's page size, and `stream` uses the config's fetch size (R-QRY-15). |
+| AC-QRY-15 | `build()` of a `keyset()` query ordered by an expression throws `MQ1208` naming it, and the same query without `keyset()` builds. `orderedBy` naming an expression's property sorts by it, and on a `keyset()` query throws `MQ2301` caused by `MQ1208` (R-QRY-16, R-QRY-14). |

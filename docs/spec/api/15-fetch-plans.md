@@ -123,8 +123,8 @@ grouped child model, is `MQ3406`. Grouping, dedupe, bounds and rounds are as R-F
 **R-FCH-07** `join(JoinField<M, N>, FetchPlan<N>)` applies a nested plan to the models a `@Join` produced. The nested
 plan's selection and needed columns are re-rooted under the join, as the generated join constants are, and added to the
 parent's selection, so one plan serves on its own and nested. A join plan whose join ends up with no column of the
-query's selection at or below it, at any depth, throws `MQ1701`; one whose nested plan selects an `AggregateField`,
-which has no meaning under a join, throws `MQ1705`. Both are checked at `build()` and `withFetch`. The processor
+query's selection at or below it, at any depth, throws `MQ1701`; one whose nested plan selects an `AggregateField` or an
+`ExpressionField`, which cannot be re-rooted under a join, throws `MQ1705`. Both are checked at `build()` and `withFetch`. The processor
 generates a `JoinField<M, N>` per `@Join`, carrying the join's `TableField` and returning a parent copy with the nested
 model replaced; an empty `Optional` (a LEFT join that found nothing) is skipped. An INNER `@Join` narrows the rows
 exactly as selecting it does.
@@ -233,3 +233,4 @@ round's statement logs as any statement does (D-95).
 | AC-FCH-15 | `byKeys` runs on `list`, offset, keyset and primary-key-first pages and once per `export` batch, through a join plan and a child plan; a `null` lookup result throws `MQ2606` for `byKey` and `byKeys`; no key throws `MQ1706` and `batchSize(0)` `MQ1707` (R-FCH-09, R-FCH-15). |
 | AC-FCH-16 | `batchSize(n)` over `d` distinct keys makes `ceil(d / n)` lookup calls of at most `n` keys each, in first-seen order, no key in two calls; with recipe 8's lookup split by user type, each type's source is called at most once per chunk (R-FCH-15, R-FCH-16). |
 | AC-FCH-17 | In a plan built per call, a user the movements `@Child` enricher loaded is not looked up again by the order's enricher; applying the per-call plan with `withFetch` adds no statement (R-FCH-13, R-FCH-17). |
+| AC-FCH-18 | A join plan selecting an expression throws `MQ1705` (R-FCH-07). |

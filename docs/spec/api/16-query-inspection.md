@@ -90,7 +90,7 @@ is inspected.
 
 **R-INS-04** **The view is a value.** `conditions()` returns an immutable, thread-safe tree (INV-9), equal for two
 queries built from equal calls; `withFetch` and `orderedBy` copies share it. Columns compare as `ColumnField` does,
-paths by their key, `CUSTOM` conditions by label alone. Values are held by reference: a mutable value changed after
+expressions structurally (`api/10` R-COL-20), paths by their key, `CUSTOM` conditions by label alone. Values are held by reference: a mutable value changed after
 the call (a `java.util.Date`) changes the view.
 
 **R-INS-05** **Logs name conditions, never values.** `QueryConditions.toString()`, `Condition.toString()`, the D-95
@@ -127,6 +127,11 @@ whatever `S` or `Outer` made it; `Outer.referenced(column)` returns the outer co
 `outer.` with values shown as `?` (R-INS-05). `FilterMatchers` gains `in(col, sub)`, `notIn(col, sub)`,
 `exists(sub, matchers…)`, `notExists(sub, matchers…)` and `outer(col)`.
 
+**R-INS-09** *(D-115)* **Expressions are recorded as operands.** A filter over an expression records the operator's kind
+with the expression as `column()` (or `right()`); no kind is added. An expression's own CASE conditions are not query
+conditions. `toString` prints its structure with values as `?` (R-INS-05). `FilterMatchers` take a `ScalarField`
+wherever `Filters` does.
+
 ## 3. Acceptance criteria
 
 | ID | Criterion |
@@ -139,3 +144,4 @@ whatever `S` or `Outer` made it; `Outer.referenced(column)` returns the outer co
 | AC-INS-06 | A failing `hasFilters` names the missing and the unexpected conditions (R-INS-07). |
 | AC-INS-07 | `assertThatQuery(q).child(field)` asserts that child query's filters, order, selection and `maxPerParent`, and a failure names the child; a field the plan doesn't load fails, naming the children the plan loads (R-INS-06, D-104). |
 | AC-INS-08 | Each of the four `*_SUBSELECT` kinds records its column, `subSelect()` and correlation; `Outer.referenced` returns the lifted column; sub-selects built from equal calls are equal; the new matchers match them and a failure prints the tree (R-INS-08, D-112). |
+| AC-INS-09 | A filter over an expression records its kind with the expression as `column()`. `toString` and the build log show `?` for its values. An `eq` matcher built from equal `Expr` calls matches, and a failing one prints the tree (R-INS-09, R-INS-04, R-INS-05). |

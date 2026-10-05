@@ -14,7 +14,7 @@
 | `MQ3002` | Model type is not the entity attribute's type, a primitive counting as its wrapper, and no converter, named or built-in (D-84); or the attribute is a collection (D-44) | `OrderView.id: model type Integer, entity attribute type Long` |
 | `MQ3003` | `@Join` attribute is not a to-one association (a collection cannot be selected, `engine/21` R-PAG-13), or the nested model's `root` does not match the target | `OrderView.customer: CustomerView.root is AccountEntity, association targets CustomerEntity` |
 | `MQ3004` | Missing `@PrimaryKey`, on a model with no `@Aggregate` field | `OrderView: no @PrimaryKey; paging, export and @Join presence need one` |
-| `MQ3005` | `@Join` field is not `Optional<X>`, or `X` is not a `@QueryModel`, or `X` has an `@Aggregate` field (D-45, D-47) | `OrderView.customer: @Join field must be Optional<CustomerView>, found CustomerView` |
+| `MQ3005` | `@Join` field is not `Optional<X>`, or `X` is not a `@QueryModel`, or `X` has an `@Aggregate` or `@Computed` field (D-45, D-47, D-115) | `OrderView.customer: @Join field must be Optional<CustomerView>, found CustomerView` |
 | `MQ3006` | Nested model has no `@PrimaryKey`, so presence cannot be decided | `OrderView.customer: CustomerView needs a @PrimaryKey to be used in @Join` |
 | `MQ3007` | Join cycle between nested models | `OrderView.customer → CustomerView.lastOrder → OrderView` |
 | `MQ3008` | Class model has no no-arg constructor visible from its package | `OrderView: needs a no-arg constructor for setter mapping` |
@@ -27,6 +27,8 @@
 | `MQ3015` | Two generated constants would have the same name, or a field's constant clashes with a reserved one (`ROOT`, `ALL`, `DEFAULT`, `KEY`, `MAPPER`, `GROUP_KEYS`), or a `@Join(prefix)` or a `@FilterColumn` `alias` is not a legal Java name (a keyword included; D-45, D-46) | `OrderView.customerId: constant CUSTOMER_ID is also generated for customer.id; rename the field or set @Join(prefix)` |
 | `MQ3016` | **Warning.** A column on a to-one association selects the whole entity and has no converter (D-44, D-45) | `OrderView.customer: selects the whole CustomerEntity entity; use @Join with a query model of CustomerEntity to select only its columns` |
 | `MQ3017` | A model's `root`, or the `root` of a model it nests through `@Join` or `@Child`, still names no class in the last round of annotation processing; until then the model is deferred to the next round (D-107) | `ShipmentView: root does not name a class, and no annotation processor generated one` |
+| `MQ3018` | `@Computed(value)` is not an `ExpressionDefinition<Model, FieldType>`, or has neither a public static `INSTANCE` nor a visible no-arg constructor (D-115) | `OrderView.net: NetAmount is not an ExpressionDefinition<OrderView, BigDecimal>, or has neither INSTANCE nor a no-arg constructor` |
+| `MQ3019` | `@Computed` combined with `@PrimaryKey`, `@Column`, `@Join`, `@Child`, `@Aggregate` or `@Transient`, or on a primitive field, since an expression may be NULL (D-115) | `OrderView.net: @Computed can't be combined with @Column` or `OrderView.net: @Computed field is primitive; an expression may be NULL` |
 | `MQ3201` | `@Aggregate` field is primitive | `ProductSales.revenue: SUM is NULL over zero rows; use BigDecimal, not a primitive` |
 | `MQ3202` | `@Aggregate` field type does not match the function's result type | `ProductSales.lines: COUNT returns Long, field is Integer` |
 | `MQ3203` | `@Aggregate` model has no `@GroupBy` field and is not `singleGroup` | `ProductSales: has @Aggregate fields but no @GroupBy; add one or set @QueryModel(singleGroup = true)` |
@@ -34,6 +36,7 @@
 | `MQ3205` | `@Aggregate(fn = SUM)` over a 32-bit attribute | `ProductSales.units: SUM over Integer returns Long; declare the field as Long` |
 | `MQ3206` | `@Aggregate(distinct = true)` on `SUM`, `AVG`, `MIN` or `MAX` (D-47) | `ProductSales.revenue: distinct only applies to COUNT, found SUM` |
 | `MQ3207` | `@QueryModel(singleGroup = true)` on a model that has `@GroupBy` fields (D-47) | `ProductSales: singleGroup = true can't be combined with @GroupBy fields; remove one` |
+| `MQ3208` | `@Aggregate` with both `attribute` and `expression` (D-115) | `ProductSales.paid: @Aggregate takes attribute or expression, not both` |
 | `MQ3301` | Update-model field maps through a join or a collection | `OrderPatch.customerName: update models can only write attributes of OrderEntity; 'customer.name' needs a join` |
 | `MQ3302` | `@Join`, `@Aggregate` or `@GroupBy` on an update model | `OrderPatch.customer: @Join isn't allowed on @UpdateModel; write the foreign key with @Column(attribute = "customer") Long customerId` |
 | `MQ3303` | Update-model field maps to the primary key without `@PrimaryKey`, or to the `@Version` attribute | `OrderPatch.version: the @Version attribute is managed by the engine (keepVersion, expectVersion)` |
@@ -94,3 +97,4 @@ the generated class.
 | AC-DIAG-05 | `reference/90` lists exactly the codes §1 uses, with no gaps or duplicates (INV-10). |
 | AC-DIAG-06 | A model whose `root` another processor generates in the same compilation, and a model that nests it through `@Join`, are generated with no diagnostic (R-DIAG-03, D-107). |
 | AC-DIAG-07 | A model whose `root` is never generated, and a model that nests it, each report `MQ3017` on their own element and produce no QModel (R-DIAG-03, D-107). |
+| AC-DIAG-08 | `MQ3018`, `MQ3019`, `MQ3208` and the widened `MQ3005` each have a compile-testing case, and `MQ3202`/`MQ3205` over an expression's type (R-PROC-21, R-PROC-22). |

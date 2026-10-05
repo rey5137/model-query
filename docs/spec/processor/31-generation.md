@@ -161,6 +161,10 @@ fields form `GROUP_KEYS` in declaration order, and `query()` is emitted with `.g
 **R-GEN-18** For a `singleGroup` model, `query()` is emitted without a `groupBy` and without a `primaryKey`, since a
 whole-table aggregate has neither (`api/13` R-AGG-07, R-AGG-09).
 
+**R-GEN-27** *(D-115)* A `@Computed` field generates `<NAME> = Def.INSTANCE.expression().named("name")` (or
+`new Def().expression()...`), emitted after every column constant, so a definition reading `Q<Model>.*` columns runs
+during the initialiser with those fields already set. It is mapped like a column (`processor/30` R-PROC-21).
+
 ## 6. Generated update models
 
 For `@UpdateModel OrderPatch` (`api/14` §2) the processor generates two files, both in the model's package.

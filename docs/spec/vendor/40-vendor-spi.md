@@ -142,6 +142,10 @@ inherits correct keyset behaviour without writing SQL.
   which assumes NULLs sort smallest, leaves an explicit `nullsFirst()`/`nullsLast()` bare where it is needed, so NULLs
   are misplaced and keyset paging may skip them even with explicit precedence. It is not detectable without a
   connection (R-VND-05).
+- The scale of a decimal quotient follows the database (`api/10` R-COL-17).
+- `concat` with a NULL operand is NULL on Tier 1, and Oracle treats `''` as NULL.
+- A named function (`Expr.function`) is the database's own SQL.
+- Text an expression computes compares by the column collation rules.
 
 **R-VND-10** A behaviour in this list is never silently emulated. If a use case needs uniformity, it asks for it
 explicitly (`likeIgnoreCase`, `nullsFirst`), and the library renders it the same way everywhere (`api/12` R-FLT-07,

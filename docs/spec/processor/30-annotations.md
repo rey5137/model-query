@@ -18,7 +18,8 @@
 | `@Child(key = {}, foreignKey = {})` | `List<ChildModel>` or `Optional<ChildModel>` field or component | Filled from another model's rows when a fetch plan names it (`api/15`) |
 | `@FilterColumn(name = "...", path = "...", joinType = LEFT, alias = "", converter = Foo.class)` | model type (repeatable) | A filter-only column: a `ColumnField` constant with no model field, left out of every generated `SelectSet` and of `map(Row)` |
 | `@FilterColumns` | model type | The container that makes `@FilterColumn` repeatable; never written by hand |
-| `@Aggregate(fn = SUM, attribute = "...", distinct = false)` | field or component | An `AggregateField` constant, mapped into this field (`api/13`) |
+| `@Aggregate(fn = SUM, attribute = "...", expression = Def.class, distinct = false)` | field or component | An `AggregateField` constant, mapped into this field (`api/13`); `expression` aggregates a `@Computed`-style definition instead of an attribute |
+| `@Computed(Def.class)` | field or component | An `ExpressionField` constant, mapped into this field (`api/10` §3a) |
 | `@GroupBy` | field or component | The column joins the generated `GROUP_KEYS` set and the query's group-by |
 | `@ExcludeFromDefaults` | field or component | Leave the column out of `DEFAULT` (heavy BLOB/TEXT columns) |
 | `@Transient` | field or component | Not a column |
@@ -124,9 +125,20 @@ R-PROC-07 (D-93).
 
 **R-PROC-16** `@GroupBy` fields, in declaration order, form the generated `GROUP_KEYS` `SelectSet`, and
 `Q<Model>.query()` is pre-configured with `groupBy(GROUP_KEYS)`. `@GroupBy` cannot be combined with `@Aggregate` or
-`@Join` (`processor/32` `MQ3204`).
+`@Join` (`processor/32` `MQ3204`). It may mark a `@Computed` field.
 
 **R-PROC-17** Aggregates are in no generated `SelectSet` (`api/13` R-AGG-12).
+
+**R-PROC-21** *(D-115)* **`@Computed`.**
+- `value` names a class implementing `ExpressionDefinition<M, C>`, with a public static `INSTANCE` or a visible no-arg
+  constructor. It is declared `Class<?>` because the type is in core (R-PROC-01); otherwise `MQ3018`.
+- The generated constant is `value.expression().named(field)`, emitted after every column constant
+  (`processor/31`). It is mapped like a column and is in `DEFAULT` and `ALL` unless `@ExcludeFromDefaults`.
+- It cannot be combined with `@PrimaryKey`, `@Column`, `@Join`, `@Child`, `@Aggregate` or `@Transient`, nor be
+  primitive (`MQ3019`). A model with one cannot be a `@Join` target (`MQ3005`).
+
+**R-PROC-22** *(D-115)* `@Aggregate(expression = Def.class)` aggregates the definition's expression. `attribute` and
+`expression` together are `MQ3208`. `MQ3202`, `MQ3205` and `MQ3206` read the expression's type.
 
 ## 7. Update models
 
@@ -155,3 +167,5 @@ request can write every root column of the model, so the user guide recommends o
 | AC-PROC-10 | `singleGroup = true` suppresses `MQ3203`; omitting it raises it (R-PROC-05). |
 | AC-PROC-11 | An `Instant` or `Date` field over a `Timestamp` attribute with no `converter` takes the built-in converter, filters with an `Optional` of its own type and reads back the `Timestamp` itself as a `Date`; a named converter wins and any other mismatch is `MQ3002` (R-PROC-07, D-84). |
 | AC-PROC-12 | `@Aggregate` `MIN` or `MAX` into an `Instant` or `Date` field over a `Timestamp` attribute reads the database's value through the built-in converter, typed as the field; `COUNT` distinct over it stays `Long`, and `SUM`, `AVG` or a `MIN` into another type is `MQ3202` (R-PROC-15, D-84). |
+| AC-PROC-13 | `@Computed(Def.class)` generates an `ExpressionField` constant named after the field, after the column constants, mapped by the generated mapper, in `DEFAULT` and `ALL`, left out by `@ExcludeFromDefaults` (R-PROC-21). |
+| AC-PROC-14 | `@Aggregate(fn = SUM, expression = Def.class)` and `@GroupBy` on a `@Computed` field generate the aggregate constant and a `GROUP_KEYS` holding the expression; the query runs on every Tier-1 vendor (R-PROC-16, R-PROC-22). |

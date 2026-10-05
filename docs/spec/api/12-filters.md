@@ -23,33 +23,33 @@ Only the value-form signatures are listed below; each has an `Optional` twin.
 ```java
 public interface Filters<M> {
     // Equality and comparison
-    <C> Filters<M> eq(ColumnField<M, ?, C> column, C value);
-    <C> Filters<M> ne(ColumnField<M, ?, C> column, C value);                  // NULL rows match, see R-FLT-04
-    <C extends Comparable<? super C>> Filters<M> gt (ColumnField<M, ?, C> column, C value);
-    <C extends Comparable<? super C>> Filters<M> gte(ColumnField<M, ?, C> column, C value);
-    <C extends Comparable<? super C>> Filters<M> lt (ColumnField<M, ?, C> column, C value);
-    <C extends Comparable<? super C>> Filters<M> lte(ColumnField<M, ?, C> column, C value);
-    <C extends Comparable<? super C>> Filters<M> range(ColumnField<M, ?, C> column,
+    <C> Filters<M> eq(ScalarField<M, C> column, C value);
+    <C> Filters<M> ne(ScalarField<M, C> column, C value);                  // NULL rows match, see R-FLT-04
+    <C extends Comparable<? super C>> Filters<M> gt (ScalarField<M, C> column, C value);
+    <C extends Comparable<? super C>> Filters<M> gte(ScalarField<M, C> column, C value);
+    <C extends Comparable<? super C>> Filters<M> lt (ScalarField<M, C> column, C value);
+    <C extends Comparable<? super C>> Filters<M> lte(ScalarField<M, C> column, C value);
+    <C extends Comparable<? super C>> Filters<M> range(ScalarField<M, C> column,
                                                        Optional<? extends C> fromInclusive,
                                                        Optional<? extends C> toExclusive);
-    <C extends Comparable<? super C>> Filters<M> between(ColumnField<M, ?, C> column, C fromInclusive, C toInclusive);
+    <C extends Comparable<? super C>> Filters<M> between(ScalarField<M, C> column, C fromInclusive, C toInclusive);
 
     // Sets
-    <C> Filters<M> in(ColumnField<M, ?, C> column, Collection<? extends C> values);
-    <C> Filters<M> notIn(ColumnField<M, ?, C> column, Collection<? extends C> values);
+    <C> Filters<M> in(ScalarField<M, C> column, Collection<? extends C> values);
+    <C> Filters<M> notIn(ScalarField<M, C> column, Collection<? extends C> values);
 
     // Strings
-    Filters<M> like(ColumnField<M, ?, String> column, String value, LikeMode mode);   // EXACT | CONTAINS | STARTS_WITH | ENDS_WITH
-    Filters<M> likeIgnoreCase(ColumnField<M, ?, String> column, String value, LikeMode mode);
-    Filters<M> eqIgnoreCase(ColumnField<M, ?, String> column, String value);
+    Filters<M> like(ScalarField<M, String> column, String value, LikeMode mode);   // EXACT | CONTAINS | STARTS_WITH | ENDS_WITH
+    Filters<M> likeIgnoreCase(ScalarField<M, String> column, String value, LikeMode mode);
+    Filters<M> eqIgnoreCase(ScalarField<M, String> column, String value);
 
     // Nulls
-    Filters<M> isNull(ColumnField<M, ?, ?> column);
-    Filters<M> isNotNull(ColumnField<M, ?, ?> column);
-    Filters<M> isNull(ColumnField<M, ?, ?> column, Optional<Boolean> isNull);         // tri-state request flag
+    Filters<M> isNull(ScalarField<M, ?> column);
+    Filters<M> isNotNull(ScalarField<M, ?> column);
+    Filters<M> isNull(ScalarField<M, ?> column, Optional<Boolean> isNull);         // tri-state request flag
 
     // Column against column
-    <C> Filters<M> compare(ColumnField<M, ?, C> left, Op op, ColumnField<M, ?, C> right);   // EQ, NE, LT, LTE, GT, GTE
+    <C> Filters<M> compare(ScalarField<M, C> left, Op op, ScalarField<M, C> right);   // EQ, NE, LT, LTE, GT, GTE
 
     // Composition
     Filters<M> or(UnaryOperator<Filters<M>> a, UnaryOperator<Filters<M>> b);    // each branch is an AND group
@@ -65,8 +65,8 @@ public interface Filters<M> {
     Filters<M> notExists(TableField<?, ?> path, UnaryOperator<Filters<M>> inner);
 
     // Sub-selects, no Optional twins (R-FLT-15 to R-FLT-17, D-112)
-    <C> Filters<M> in(ColumnField<M, ?, C> column, SubSelect<?, C> values);
-    <C> Filters<M> notIn(ColumnField<M, ?, C> column, SubSelect<?, C> values);
+    <C> Filters<M> in(ScalarField<M, C> column, SubSelect<?, C> values);
+    <C> Filters<M> notIn(ScalarField<M, C> column, SubSelect<?, C> values);
     <S> Filters<M> exists(SubSelect<S, ?> rows, BiFunction<Filters<S>, Outer<M, S>, Filters<S>> correlation);
     <S> Filters<M> notExists(SubSelect<S, ?> rows, BiFunction<Filters<S>, Outer<M, S>, Filters<S>> correlation);
 
@@ -122,7 +122,8 @@ otherwise follows collation (`vendor/40` §4).
 
 ## 5. Bind parameters and large sets
 
-**R-FLT-08** Every value is a bind parameter. The engine never inlines a value into SQL, for any operator.
+**R-FLT-08** Every value is a bind parameter. The engine never inlines a value into SQL, for any operator. Inside an expression, values bind as `api/10` R-COL-18
+states; `Expr.constant` is definition text, not a value.
 
 **R-FLT-09** Lists longer than `VendorProfile.maxInListSize()` render as `col IN (…) OR col IN (…)`, in chunks of at
 most that many values in the given order, and `notIn` as an AND of `NOT IN` chunks, ORed once with `col IS NULL` so
@@ -176,7 +177,7 @@ static final SubSelect<RefundView, Long> REFUNDED = SubSelect.of(QRefundView.ORD
 .where(f -> f.notIn(QOrderView.ID, REFUNDED))
 ```
 
-`in(column, sub)` and `notIn(column, sub)` take a `ColumnField<M, ?, C>` and a `SubSelect<?, C>` with the same,
+`in(column, sub)` and `notIn(column, sub)` take a `ScalarField<M, C>` and a `SubSelect<?, C>` with the same,
 invariant `C`, so a `Long` column against an `Integer` sub-select does not compile; when a converter hides different
 attribute types on either side, the check is `MQ1001` at definition, as for `compare`.
 
@@ -234,6 +235,14 @@ nested `exists(path, …)` inside the correlation may use it (exempt from `MQ130
 `in` and `notIn` are never correlated (use `exists`); a sub-select is never compared as a scalar and never used in
 `having` (R-FLT-14).
 
+**R-FLT-18** *(D-115)* **An expression is an operand.**
+- Every operator takes a `ScalarField` where it took a column, and `compare` one on each side.
+- The skip, NULL (R-FLT-04: `expr <> ? OR expr IS NULL`), escaping, chunking and join rules apply unchanged. An
+  expression has no converter, so values bind as given.
+- Its columns are checked as columns are: `MQ1302` outside an `exists` path, `MQ1003` in a sub-select's `where`; a
+  lifted column inside it counts for `MQ1309`.
+- A sub-select still selects a column only.
+
 ## 8. Scope
 
 **R-FLT-13** *(was R15)* Filter values never change a query's meaning by accident: empty `Optional` skips; an empty
@@ -262,3 +271,6 @@ collection means "none"; negation includes NULLs; `like` input is escaped; long 
 | AC-FLT-14 | `exists` and `notExists` over an entity with no association to the outer root, correlated on an outer-root column; an `or` mixing an inner and a lifted condition matches through either branch; a `through` child's query correlates to its join (R-FLT-17). |
 | AC-FLT-15 | A mismatched `C`, and `Outer.column` given another model's column, have compile-failure cases; `MQ1309`, `MQ1310`, `MQ1311`, `MQ1312` and `MQ1001` (converted attribute types) each have a case (R-FLT-15 to R-FLT-17). |
 | AC-FLT-16 | With `in(sub)` and `exists(sub, …)`, `count` equals the list size, and keyset page, primary-key-first and export visit every row once; a bulk delete whose sub-select reads its target runs key-first on MySQL (R-FLT-12, R-WRT-11, INV-4). |
+| AC-FLT-17 | Every operator, value and `Optional` form, over an expression operand, and `compare` between an expression and a column, return on every Tier-1 vendor the rows the same predicate written over a column computed in a view or in Java returns. `ne` and `notIn` over a nullable expression include its NULL rows. A skipped filter over an expression adds no join (R-FLT-18, R-FLT-04, R-FLT-03). |
+| AC-FLT-18 | An expression over a column outside the `exists` path throws `MQ1302`. One in a sub-select's `where` over another root throws `MQ1003`. A correlation whose only lifted column sits inside an expression is not `MQ1309` (R-FLT-18). |
+| AC-FLT-19 | A bulk update and a bulk delete whose `where` compares an expression change exactly the rows `list` returns for that filter, key-first on MySQL too (R-FLT-18, `api/14` R-WRT-11). |
