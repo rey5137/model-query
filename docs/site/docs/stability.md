@@ -1,6 +1,6 @@
 # API stability
 
-model-query is at 0.2.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
+model-query is at 0.3.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
 marked breaking. From 1.0.0 the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Today: everything is `@Incubating`
@@ -17,14 +17,16 @@ changed some signatures in 0.2.0; see "Upgrading from 0.1" in the
 At 1.0 the following is planned to freeze, so that it changes incompatibly only in a new major release and `japicmp`
 fails the build on such a change:
 
-- every annotation except `@UpdateModel` and `QueryModel.generateChanges`;
-- every public type of `model-query-core` except the bulk-write types and `NullPrecedenceRenderer`;
+- every annotation except `@UpdateModel`, `@InsertModel` and `QueryModel.generateChanges`;
+- every public type of `model-query-core` except the bulk-write and insert types and `NullPrecedenceRenderer`;
 - in `model-query-jpa`, `ModelQueryExecutor`, `ModelQueryConfig`, `KeysetNullKeys`, `MysqlStreamingMode` and
-  `DatabaseVendor`, apart from their bulk-write members;
-- the Spring modules, including the starter's property keys, apart from `ModelQueryRepository.update`/`delete` and the
+  `DatabaseVendor`, apart from their bulk-write and insert members;
+- the Spring modules, including the starter's property keys, apart from `ModelQueryRepository.update`, `delete`,
+  `insert`, `insertReturningKeys` and `persist`, and the
   `modelquery.bulk-write.*` properties;
 - `OrderedColumnConverter` and the two built-in timestamp converters, because generated code links them;
-- the shape of the generated code, except `changes()`, `update(...)` and `delete()`.
+- the shape of the generated code, except `changes()`, `update(...)`, `delete()`, `insert(...)`, `insertFrom(...)`
+  and `persist(...)`.
 
 `Filters` and `Having` are already `sealed`, so a new operator can be added without breaking implementers.
 
@@ -34,12 +36,26 @@ These stay `@Incubating` at 1.0, and freeze in a later 1.x minor once one minor 
 
 - the bulk-write types in `core`: `ModelUpdate`, `ModelDelete`, `Changes`, `Assignment`, `ChunkOptions`,
   `ChunkedWriteException` and `PersistenceContextMode`, and the bulk-write members of the types above;
-- `@UpdateModel`, `QueryModel.generateChanges` and the generated `changes()`, `update(...)` and `delete()`;
+- `@UpdateModel`, `@InsertModel`, `QueryModel.generateChanges` and the generated `changes()`, `update(...)`, `delete()`,
+  `insert(...)`, `insertFrom(...)` and `persist(...)`;
 - the vendor SPI in `jpa.spi`: `VendorProfile`, `ProviderSupport` and `ChunkTransactions`;
 - `HibernateProviderSupport`, `NullPrecedenceRenderer`, and the bean-validation constraint `ValidChanges` with its
   `ValidChangesValidator`.
 
 Bulk writes are described in [Bulk writes](bulk-writes.md).
+
+The insert types are new in 0.3.0 and `@Incubating` (D-116), and join the bulk-write types in that list. The freeze
+review moves to the milestone after 0.3.0 (D-111). The incubating insert types are:
+
+- in `core`: `ModelInsert`, `ValuesInsert`, `ModelPersist`, `InsertColumns` and `ConflictUpdate`;
+- the `@InsertModel` annotation, and the generated `insert`, `insertFrom` and `persist` builders;
+- in `model-query-jpa`: the executor's `insert`, `insertReturningKeys` and `persist` methods, the
+  `conflictUpdateWhereOnAssignedColumns` option of `ModelQueryConfig`, and in `jpa.spi` `InsertSupport`,
+  `InsertTarget`, `IdGeneration` and `ConflictClause`, with `VendorProfile.maxValuesRows()` and
+  `conflictTargetHonoured()`;
+- in the Spring modules: `ModelQueryRepository.insert`, `insertReturningKeys` and `persist`.
+
+Inserts are described in [Inserts](inserts.md).
 
 The fetch-plan types are new in 0.2.0, `@Incubating`, and not yet placed in the 1.0 freeze list above:
 `FetchPlan`, `ChildField`, `JoinField`, `ChildQuery`, `Enricher` and the `@Child` annotation. The executor-facing

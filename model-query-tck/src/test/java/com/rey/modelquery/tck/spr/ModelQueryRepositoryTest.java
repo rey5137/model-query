@@ -255,7 +255,7 @@ class ModelQueryRepositoryTest {
     }
 
     @TckTest
-    void ac_spr_09_insert_insert_returning_keys_and_persist_without_a_transaction_commit_through_the_repository(
+    void ac_wrt_30_insert_insert_returning_keys_and_persist_without_a_transaction_commit_through_the_repository(
             TckDatabase db) {
         DataSource dataSource = JoinTestSupport.dataSource(db);
         JdbcTemplate jdbc = new JdbcTemplate(dataSource);

@@ -73,8 +73,16 @@ try {
 | `MQ1607` | Bulk write: `Changes.from(...)` names a column that is not writable. |
 | `MQ1608` | Bulk write: `@PrimaryKey` is not the root entity's id. |
 | `MQ1609` | Bulk write: `setExpression` on a column with a converter. |
+| `MQ1801` | Insert: a column is not mapped, is mapped or set twice, is not on the written root, or is not in the model's `InsertColumns`; a `map` between columns with different converters or types; `lockKeys()` on insert-values; `insertReturningKeys` with `commitEachChunk()`. |
+| `MQ1802` | Insert: the model names a generated id, lacks an id that has no generator, or a row has a `null` assigned id. |
+| `MQ1803` | Insert: a `null` row. |
+| `MQ1804` | Insert conflict clause: the conflict columns are not the id, a natural id or a declared unique constraint; a vendor that detects a conflict on any unique key without `anyUniqueKey()`; `doNothing` the provider does not render; a `doUpdate` assigning a key column or reading two or more assigned columns in its `where` without `conflictUpdateWhereOnAssignedColumns(true)`. |
+| `MQ1805` | Insert: a generator that is not supported for the call (a pooled sequence or a table or UUID generator on an insert-select), a `JOINED` or `@SecondaryTable` root, a composite id with generated parts, `@MapsId`, or a constructor-only embeddable under `persist`. |
+| `MQ1806` | Insert: a `chunked` insert-select whose source and target overlap, or whose tables the provider cannot name. |
+| `MQ1807` | Insert: keys requested for an `IDENTITY` or assigned id, or a key type that is not the id's type. |
+| `MQ1808` | Insert: two rows of one insert-values call with a conflict clause share a conflict-key tuple. |
 
-See [Queries and Filters](queries.md), [Grouped queries](grouped-queries.md) and [Bulk writes](bulk-writes.md).
+See [Queries and Filters](queries.md), [Grouped queries](grouped-queries.md), [Bulk writes](bulk-writes.md) and [Inserts](inserts.md).
 
 ## `MQ2xxx`: execution
 
@@ -145,6 +153,10 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3404` | `@Child` key of several attributes, an embedded value or an array: it takes one attribute each side. |
 | `MQ3405` | A `List` `@Child` without `foreignKey` (unless it has `through`), or whose model has no `@PrimaryKey`; or an `Optional` `@Child` whose `through` crosses a collection, on a model with no `@PrimaryKey`. |
 | `MQ3406` | `@Child(through)` whose path is blank, crosses something other than an association, or ends at another type than the child model's root; whose `key` is not the parent root's single `@Id`; or whose child model is grouped. |
+| `MQ3501` | Insert model: names a generated id, or does not name all of an id that has no generator with `@PrimaryKey`. |
+| `MQ3502` | Insert model: `@Join`, `@FilterColumn`, `@Aggregate`, `@GroupBy`, `@Computed`, `@Child` or `@Transient` field. |
+| `MQ3503` | A type carries more than one of `@QueryModel`, `@UpdateModel` and `@InsertModel`. |
+| `MQ3504` | Warning: the insert model's root shows the processor no id type, so the generated `insert` and `persist` type their keys as `Object`. |
 
 See [Models and QModels](models.md).
 
@@ -159,6 +171,7 @@ See [Models and QModels](models.md).
 | `MQ4005` | `modelquery.vendor` set with more than one `EntityManagerFactory` and no `ModelQueryConfigurer`. |
 | `MQ4006` | A `ModelQueryConfig` bean of your own drops a `VendorProfile` or `ChunkTransactions` bean, or a set `modelquery.*` property. |
 | `MQ4007` | A repository declares `ModelQueryRepository` of an entity other than its domain type. |
+| `MQ4009` | A bulk insert on a factory whose persistence provider has no insert support, before any statement. `persist` still runs. |
 
 See [Spring Data and the starter](spring.md) and [Vendor notes](vendors.md).
 

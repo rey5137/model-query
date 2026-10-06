@@ -48,6 +48,7 @@ nav:
   - Migration recipes: recipes.md
   - Testing queries: testing.md
   - Bulk writes (incubating): bulk-writes.md
+  - Inserts (incubating): inserts.md
   - API stability: stability.md
   - Spring Data and the starter: spring.md
   - Vendor notes: vendors.md
