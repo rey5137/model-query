@@ -9,6 +9,8 @@ import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Query;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Path;
+import jakarta.persistence.criteria.Root;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -18,6 +20,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import org.hibernate.Session;
 import org.hibernate.Version;
 import org.hibernate.dialect.Dialect;
 import org.hibernate.dialect.MySQLDialect;
@@ -34,6 +37,9 @@ import org.hibernate.id.enhanced.TableGenerator;
 import org.hibernate.persister.entity.AbstractEntityPersister;
 import org.hibernate.persister.entity.EntityPersister;
 import org.hibernate.persister.entity.JoinedSubclassEntityPersister;
+import org.hibernate.query.MutationQuery;
+import org.hibernate.query.criteria.JpaCriteriaInsert;
+import org.hibernate.query.criteria.JpaCriteriaInsertSelect;
 import org.hibernate.type.AssociationType;
 import org.hibernate.type.ForeignKeyDirection;
 import org.hibernate.type.Type;
@@ -110,14 +116,20 @@ final class HibernateInsertSupport implements InsertSupport {
         return column.replaceAll("[\"`\\[\\]]", "").toLowerCase(Locale.ROOT);
     }
 
-    /** {@code generator} as the engine sees it; a composite id's own generator counts as assigned. */
-    private static IdGeneration idGeneration(Generator generator, String name) {
+    /**
+     * {@code generator} as the engine sees it; a composite id's own generator counts as assigned. Only
+     * {@code SequenceStyleGenerator} itself is a sequence: a subclass's own key code would never run in an
+     * insert-select, which reads the sequence inside the statement, so it is {@code Other}, {@code MQ1805} for either
+     * insert (D-117).
+     */
+    static IdGeneration idGeneration(Generator generator, String name) {
         if (ASSIGNED.contains(name) || generator instanceof CompositeNestedGeneratedValueGenerator composite
                 && !generatesParts(composite)) {
             return new IdGeneration.Assigned();
         } else if (generator instanceof IdentityGenerator) {
             return new IdGeneration.Identity();
-        } else if (generator instanceof SequenceStyleGenerator sequence) {
+        } else if (generator.getClass() == SequenceStyleGenerator.class) {
+            SequenceStyleGenerator sequence = (SequenceStyleGenerator) generator;
             return new IdGeneration.Sequence(sequence.getDatabaseStructure().isPhysicalSequence(),
                     sequence.getOptimizer().getIncrementSize());
         } else if (generator instanceof TableGenerator) {
@@ -189,10 +201,34 @@ final class HibernateInsertSupport implements InsertSupport {
         return persister(emf.unwrap(SessionFactoryImplementor.class), entity).isVersioned() ? 1 : 0;
     }
 
+    /**
+     * A criteria insert-select: each attribute, dotted through embeddables or to a to-one's id, is a target path, and
+     * {@code source} the select. Hibernate adds the generated id and the {@code @Version} seed itself (D-116). The
+     * criteria is passed as a {@code JpaCriteriaInsert}, the overload both 6.6 and 7 have, and the query Hibernate
+     * returns for it is a {@code jakarta.persistence.Query} on both.
+     */
     @Override
     public <E> Query insertSelect(EntityManager em, Class<E> entity, List<String> attributes,
             CriteriaQuery<Tuple> source) {
-        throw new UnsupportedOperationException(entity.getSimpleName() + ": insert-select is built in M10.5");
+        Session session = em.unwrap(Session.class);
+        JpaCriteriaInsertSelect<E> insert = session.getCriteriaBuilder().createCriteriaInsertSelect(entity);
+        Root<E> target = insert.getTarget();
+        List<Path<?>> paths = new ArrayList<>(attributes.size());
+        for (String attribute : attributes) {
+            Path<?> path = target;
+            for (String segment : attribute.split("\\.")) {
+                path = path.get(segment);
+            }
+            paths.add(path);
+        }
+        insert.setInsertionTargetPaths(paths);
+        insert.select(source);
+        MutationQuery query = session.createMutationQuery((JpaCriteriaInsert<E>) insert);
+        if (!(query instanceof Query statement)) {
+            throw new IllegalStateException("Hibernate " + Version.getVersionString() + " returned a "
+                    + query.getClass().getName() + " for an insert-select, which is not a jakarta.persistence.Query");
+        }
+        return statement;
     }
 
     @Override

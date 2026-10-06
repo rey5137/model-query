@@ -63,8 +63,10 @@ import jakarta.persistence.metamodel.EntityType;
 import jakarta.persistence.metamodel.IdentifiableType;
 import jakarta.persistence.metamodel.Metamodel;
 import jakarta.persistence.metamodel.PluralAttribute;
+import jakarta.persistence.metamodel.SingularAttribute;
 import java.sql.SQLException;
 import java.time.Duration;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -79,12 +81,14 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.WeakHashMap;
 import java.util.function.Consumer;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -660,9 +664,44 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     @Override
     public long insert(ModelInsert<E, ?> i) {
         Objects.requireNonNull(i, "i");
-        checkInsertOnce(i, insertSupport(i));
+        InsertSupport support = insertSupport(i);
+        checkInsertOnce(i, support);
         requireTransaction("insert", i.chunkOptions());
-        throw notYetBuilt(i);
+        if (i.sourceEntity().isEmpty()) {
+            throw notYetBuilt(i);
+        }
+        return insertSelect(i, support);
+    }
+
+    /**
+     * Runs an insert-select: its source select built as the read path builds it, then written as one statement, or
+     * with {@code chunked} key-first over the distinct source-root ids, so each source row is read once; the
+     * persistence context is flushed before and cleared after, as for any bulk write (R-WRT-27, R-WRT-28, R-WRT-38).
+     */
+    private long insertSelect(ModelInsert<E, ?> i, InsertSupport support) {
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        List<String> attributes = i.selectedAttributes(em.getMetamodel());
+        Map<String, Object> constants = i.selectParameters();
+        BuiltQuery<?> select = i.buildSelect(cb, renderOptions);
+        int repeated = select.joins().repeatedExpressionBinds();
+        BiFunction<EntityManager, CriteriaQuery<Tuple>, Query> statement = (on, source) -> {
+            Query insert = support.insertSelect(on, rootEntity, attributes, source);
+            constants.forEach(insert::setParameter);
+            return insert;
+        };
+        Supplier<Query> whole = () -> statement.apply(em, select.query());
+        logWrite("insert", i, i.chunkOptions(), false);
+        if (i.chunkOptions().isEmpty()) {
+            return write(i.persistenceContext(), () -> execute(whole.get(), repeated));
+        }
+        PrimaryKey<Object, ?> key = i.sourceKey(em.getMetamodel());
+        BiFunction<EntityManager, List<Object>, Query> byKeys = (on, keys) -> statement.apply(on,
+                i.buildSelect(cb, renderOptions, key, keys).query());
+        // The source keys are attribute values of plain id columns, which is what the exception reports (R-WRT-32).
+        var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), key, Optional.empty(),
+                run -> i.buildKeySelect(cb, renderOptions, key), byKeys, Optional.empty(), sourceKey -> sourceKey);
+        return write(i.persistenceContext(), () -> keyset(keyed, whole, keys -> byKeys.apply(em, keys),
+                i.chunkOptions(), cb, repeated));
     }
 
     @Override
@@ -703,13 +742,95 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             i.checkMetamodel(metamodel);
             InsertChecks.checkTarget(i, support.target(em.getEntityManagerFactory(), rootEntity),
                     i.sourceEntity().isPresent(), i.writesId(metamodel));
+            if (i.chunkOptions().isPresent() && i.sourceEntity().isPresent()) {
+                checkNoOverlap(i, selected(i, metamodel), metamodel);
+            }
         });
     }
 
-    /** The statement paths M10.5 to M10.7 build: insert-select, insert-values and conflict clauses. */
+    /**
+     * The entity types {@code i}'s source select reads through its FROM: the source root, then each entity a
+     * {@code map} or {@code where} column joins, at any depth, in join order. A row a chunk writes into any of them
+     * could change a later chunk's rows, a to-many join's repeats or its {@code where} (R-WRT-28).
+     */
+    private Set<Class<?>> selected(ModelInsert<E, ?> i, Metamodel metamodel) {
+        Set<Class<?>> entities = metamodel.getEntities().stream().map(EntityType::getJavaType)
+                .collect(Collectors.toSet());
+        var selected = new LinkedHashSet<Class<?>>();
+        var froms = new ArrayDeque<From<?, ?>>(i.buildSelect(em.getCriteriaBuilder(), renderOptions).query()
+                .getRoots());
+        while (!froms.isEmpty()) {
+            From<?, ?> from = froms.poll();
+            Class<?> type = from instanceof Join<?, ?> join ? joinedType(join.getAttribute()) : from.getJavaType();
+            if (entities.contains(type)) {
+                selected.add(type);
+            }
+            froms.addAll(from.getJoins());
+        }
+        return selected;
+    }
+
+    /** The type a join over {@code attribute} reaches: a collection's element, else the attribute's own type. */
+    private static Class<?> joinedType(Attribute<?, ?> attribute) {
+        return attribute instanceof PluralAttribute<?, ?, ?> plural ? plural.getElementType().getJavaType()
+                : ((SingularAttribute<?, ?>) attribute).getType().getJavaType();
+    }
+
+    /**
+     * Checks that a chunked insert-select's target overlaps none of the {@code selected} entities its source select
+     * reads, the source root and every entity it joins: rows a chunk writes could match the next chunk's key select,
+     * or change the rows its joins return, and the engine only gets a count back. An entity overlaps the target when
+     * they are one entity or one hierarchy, or when the tables the provider names for them intersect, ignoring case;
+     * an entity or target whose tables the provider does not name fails closed, since rows written with generated ids
+     * above the cursor would otherwise be re-read silently (R-WRT-28, R-VND-13, INV-5).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1806} when one overlaps or a table set is unknown
+     */
+    private void checkNoOverlap(ModelInsert<E, ?> i, Set<Class<?>> selected, Metamodel metamodel) {
+        String chunked = i + ": a chunked insert-select";
+        String unchunked = "; the unchunked statement is allowed, since the database reads the whole select before "
+                + "it inserts";
+        EntityManagerFactory emf = em.getEntityManagerFactory();
+        ProviderSupport support = vendor.providerSupport().orElseThrow();
+        Set<String> targetTables = lowerCase(support.tablesOf(emf, rootEntity));
+        for (Class<?> source : selected) {
+            if (hierarchyRoot(metamodel, source) == hierarchyRoot(metamodel, rootEntity)) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1806, chunked + " reads " + source.getSimpleName()
+                        + ", of the target's own entity hierarchy, so a chunk's key select could read the rows an "
+                        + "earlier chunk wrote" + unchunked);
+            }
+            Set<String> sourceTables = lowerCase(support.tablesOf(emf, source));
+            if (targetTables.isEmpty() || sourceTables.isEmpty()) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1806, chunked + " cannot tell whether "
+                        + source.getSimpleName() + " and " + rootEntity.getSimpleName() + " share a table, since the "
+                        + "provider names no tables for "
+                        + (targetTables.isEmpty() ? rootEntity : source).getSimpleName() + unchunked);
+            }
+            sourceTables.retainAll(targetTables);
+            if (!sourceTables.isEmpty()) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1806, chunked + " reads " + source.getSimpleName()
+                        + ", which shares the table " + String.join(", ", new TreeSet<>(sourceTables))
+                        + " with the target, so a chunk's key select could read the rows an earlier chunk wrote"
+                        + unchunked);
+            }
+        }
+    }
+
+    /** The topmost entity type above {@code entity}, itself when it has no entity supertype. */
+    private static Class<?> hierarchyRoot(Metamodel metamodel, Class<?> entity) {
+        Class<?> top = entity;
+        for (IdentifiableType<?> type = metamodel.entity(entity).getSupertype(); type != null;
+                type = type.getSupertype()) {
+            if (type instanceof EntityType<?> supertype) {
+                top = supertype.getJavaType();
+            }
+        }
+        return top;
+    }
+
+    /** The statement paths M10.6 and M10.7 build: insert-values and conflict clauses. */
     private static UnsupportedOperationException notYetBuilt(ModelInsert<?, ?> i) {
-        return new UnsupportedOperationException(i + ": " + (i.sourceEntity().isPresent()
-                ? "insert-select is built in M10.5" : "insert-values is built in M10.6, conflict clauses in M10.7"));
+        return new UnsupportedOperationException(i + ": insert-values is built in M10.6, conflict clauses in M10.7");
     }
 
     /**

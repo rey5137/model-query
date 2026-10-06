@@ -119,3 +119,24 @@ CREATE TABLE deliveries (
     approver_party_type  INT NULL,
     approver_party_id    BIGINT NULL
 );
+-- The target of the insert-select tests (TCK AC-WRT-21): an assigned id, columns copied from orders, their
+-- customers and items, a to-one written by id, a constant and a version; empty in the seed.
+CREATE TABLE order_archive (
+    id            BIGINT NOT NULL PRIMARY KEY,
+    order_id      BIGINT NOT NULL,
+    customer_id   BIGINT NULL,
+    status        VARCHAR(20) @COLLATE@ NOT NULL,
+    customer_name VARCHAR(100) @COLLATE@ NULL,
+    product_code  VARCHAR(20) @COLLATE@ NULL,
+    archived_by   VARCHAR(20) @COLLATE@ NULL,
+    version       INT NOT NULL,
+    CONSTRAINT fk_order_archive_customer FOREIGN KEY (customer_id) REFERENCES customers (id)
+);
+-- The target of a chunked insert-select over composite_key_items' two-column id (TCK AC-WRT-21, AC-WRT-26); empty in
+-- the seed.
+CREATE TABLE composite_key_copies (
+    tenant_id INT NOT NULL,
+    item_no   INT NOT NULL,
+    label     VARCHAR(50) @COLLATE@ NOT NULL,
+    PRIMARY KEY (tenant_id, item_no)
+);

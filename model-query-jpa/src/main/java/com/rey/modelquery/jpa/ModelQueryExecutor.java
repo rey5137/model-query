@@ -230,12 +230,22 @@ public interface ModelQueryExecutor<E> {
      * checks it against the JPA metamodel and the root's generator, before any statement (D-61). The persistence
      * context and the second-level cache are handled as {@link #update} handles them (R-WRT-38).
      *
+     * <p>An insert-select writes exactly the rows the equivalent read returns, a to-many source join's repeats
+     * included: its select is built as the read path builds it. With {@code chunked} it runs key-first over the
+     * distinct source-root ids, each chunk in the caller's transaction or, with {@code commitEachChunk()}, its own
+     * (R-WRT-27, R-WRT-28).
+     *
      * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution: {@code MQ1801} for an
      *     insert-select {@code map} between attributes of different types or reading a column off the source root,
      *     {@code MQ1802} for an id the model names against the root's generator, {@code MQ1805} for a generator or a
-     *     mapping of the root that the insert cannot write (R-WRT-26, R-WRT-27)
+     *     mapping of the root that the insert cannot write, {@code MQ1806} for a chunked insert-select whose target
+     *     is of one entity hierarchy with, or shares a table with, the source root or an entity the select joins, or
+     *     whose tables the provider does not name (R-WRT-26, R-WRT-27, R-WRT-28)
+     * @throws com.rey.modelquery.core.ChunkedWriteException {@code MQ2502} when a chunk of a
+     *     {@code commitEachChunk()} insert-select fails; its keys are source-root ids (R-WRT-20, R-WRT-32)
      * @throws com.rey.modelquery.core.ModelQueryConfigurationException {@code MQ4009}, before any statement, the flush
-     *     included, when no {@code InsertSupport} serves the {@code EntityManager}'s factory (R-VND-14)
+     *     included, when no {@code InsertSupport} serves the {@code EntityManager}'s factory (R-VND-14);
+     *     {@code MQ4004}, before any statement, as {@link #update} throws it (R-WRT-19)
      * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2501}, before any statement, when the
      *     {@code EntityManager} is not joined to a transaction and the insert is not {@code commitEachChunk()}
      *     (R-WRT-18)

@@ -316,7 +316,7 @@ public interface ModelQueryExecutor<E> {
 | AC-WRT-29 | Insert-select with a pooled sequence or a `JOINED` root throws `MQ1805`; insert-values or `persist` with a `K` that is not the id's type throws `MQ1807`; on first execution, before the flush, a model naming a generated id, lacking an assigned one or writing part of a composite one throws `MQ1802`, and an insert-select `map` between attributes of different types, or a `map` or `where` column off the source root, `MQ1801` (R-WRT-26, R-WRT-27, §10.1). |
 | AC-WRT-30 | `ModelQueryRepository.insert`, `insertReturningKeys` and `persist` succeed without an ambient transaction (§10.1, `integration/50`). |
 | AC-WRT-31 | A bulk insert on a provider with no insert support throws `MQ4009` and runs no flush; `persist` runs on it (R-WRT-39, `vendor/40`). |
-| AC-WRT-32 | `build()` and `ModelPersist.of` check the definition before any statement: a `where` whose every filter is skipped throws `MQ1601`; a column unmapped, mapped twice or with another converter class, a `set` on a model column, a column set twice, a column not on the root, or `lockKeys()` on insert-values throws `MQ1801`; a `null` row throws `MQ1803`; a `null` assigned id `MQ1802`; two rows sharing a conflict-key tuple `MQ1808`; a conflict column or assignment that R-WRT-34 refuses, or `exists` in the update's `where`, `MQ1804`. Changing a row or the list after `build()` leaves the definition unchanged (R-WRT-27, R-WRT-29, R-WRT-30, R-WRT-32, R-WRT-34, R-WRT-37, INV-9). |
+| AC-WRT-32 | `build()` and `ModelPersist.of` check the definition before any statement: a `where` whose every filter is skipped throws `MQ1601`; a column unmapped, mapped twice or with another converter class, a `set` on a model column, a column set twice, a column not on the root, or `lockKeys()` on insert-values throws `MQ1801`; a `null` row throws `MQ1803`; a `null` assigned id `MQ1802`; two rows sharing a conflict-key tuple with no `null` in it `MQ1808`; a conflict column or assignment that R-WRT-34 refuses, or `exists` in the update's `where`, `MQ1804`. Changing a row or the list after `build()` leaves the definition unchanged (R-WRT-27, R-WRT-29, R-WRT-30, R-WRT-32, R-WRT-34, R-WRT-37, INV-9). |
 | AC-WRT-33 | The insert stages compile in the documented orders and reject the rest: a source column of another model than the first `map`'s, a join as `insertFrom`'s source, `onConflict` on an insert-select or after `chunked`, keys from an insert-select or a conflict-clause insert, `keepVersion()` after `doNothing()`, a `doUpdate` assigning nothing, and `set` or chunking on `persist` do not compile (R-WRT-27, R-WRT-29, R-WRT-33, R-WRT-34, R-WRT-40, D-60). |
 
 ## 10. Inserts
@@ -391,7 +391,8 @@ other generator, or an unsupported root, throws `MQ1805` naming the generator cl
   increment 1. Rows of a select cannot be pre-generated: a pooled sequence runs a statement per row (except one CTE on
   PostgreSQL), Hibernate rejects a table or UUID generator, and any sequence on MySQL writes wrong keys on 6.6.
 - **Either:** a `JOINED` root, a `@SecondaryTable`, a composite id with generated parts, and `@MapsId` in either form
-  (D-116) are `MQ1805`.
+  (D-116) are `MQ1805`, as is a subclass of `SequenceStyleGenerator`: an insert-select reads the sequence inside the
+  statement, so the subclass's own key code would never run (D-117).
 
 ### 10.3 Insert-select
 
@@ -422,13 +423,14 @@ is built with the same `JoinContext` as the read path.
 
 **R-WRT-28** **An insert-select writes exactly the rows the equivalent read returns** (D-17), duplicates from a to-many
 join included: seeding child rows from a parent's matches is that multiplication. `chunked(...)` pages key-first over
-the distinct source-root ids with R-WRT-17's guarantees, so each source row is read once. When the source and the
-target overlap (the same entity, the same hierarchy, or intersecting `tablesOf`, R-VND-13), `chunked` throws `MQ1806`
-on first execution, before the flush: rows a chunk writes could match the next chunk's key select, and the engine only
-gets a count back. A source or target whose `tablesOf` is empty fails closed with `MQ1806` as well, since rows written
-with generated ids above the cursor would otherwise be re-read silently (INV-5). The unchunked statement stays allowed,
-since the database reads the whole select before it inserts. A guard against rows already in the target is a
-correlated `notExists` filter over the target (R-FLT-17): portable, not atomic.
+the distinct source-root ids with R-WRT-17's guarantees, so each source row is read once. When the target overlaps
+the source root or an entity the select joins (the same entity, the same hierarchy, or intersecting `tablesOf`,
+R-VND-13), `chunked` throws `MQ1806` on first execution, before the flush: rows a chunk writes could match the next
+chunk's key select or change what its joins return, and the engine only gets a count back. A source or target whose
+`tablesOf` is empty fails closed with `MQ1806` as well, since rows written with generated ids above the cursor would
+otherwise be re-read silently (INV-5). The unchunked statement stays allowed, since the database reads the whole
+select before it inserts. A guard against rows already in the target is a correlated `notExists` filter over the
+target (R-FLT-17): portable, not atomic.
 
 ### 10.4 Insert-values
 
@@ -466,11 +468,12 @@ included. D-15's field-by-field rule is for change sets and does not apply.
 **R-WRT-32** By default the statements run in the caller's transaction (R-WRT-18). `ChunkOptions.commitEachChunk()`
 commits each statement (R-WRT-19); `lockKeys()` on insert-values throws `MQ1801` at `build()`, since no key is
 selected. A failed chunk throws `ChunkedWriteException` (`MQ2502`, R-WRT-20). For insert-select it carries source keys:
-`lastCommittedKey()` and `inDoubtKeys()` hold source-root ids. For insert-values it carries `OptionalInt
-nextRowIndex()`, the first row not committed, and `int inDoubtRowCount()`, the rows of the chunk whose commit failed,
-contiguous from `nextRowIndex` (0 when the chunk rolled back); `nextRowIndex()` is empty and `inDoubtRowCount()` 0 for
-every other write. `committedRows()` stays the rows affected (R-WRT-35), which with a conflict clause is not the rows
-processed. Resume with `rows.subList(nextRowIndex, size)`, after checking the in-doubt rows against the table.
+`lastCommittedKey()` and `inDoubtKeys()` hold source-root ids, a composite id as the list of its component values
+ordered by attribute name. For insert-values it carries `OptionalInt nextRowIndex()`, the first row not committed, and
+`int inDoubtRowCount()`, the rows of the chunk whose commit failed, contiguous from `nextRowIndex` (0 when the chunk
+rolled back); `nextRowIndex()` is empty and `inDoubtRowCount()` 0 for every other write. `committedRows()` stays the
+rows affected (R-WRT-35), which with a conflict clause is not the rows processed. Resume with
+`rows.subList(nextRowIndex, size)`, after checking the in-doubt rows against the table.
 
 **R-WRT-33** `insertReturningKeys(insert)` returns the generated keys in row order. It takes a `ValuesInsert`, so a
 definition with a conflict clause or an insert-select does not compile: a skipped row would leave a key with no row.
@@ -537,7 +540,9 @@ any-unique-key detection, the vendor's count (R-WRT-35) and the vendor's key col
 **R-WRT-37** **Duplicate conflict keys within one call.** Vendors disagree (PostgreSQL skips them for `doNothing` and
 fails for `doUpdate`; MySQL writes the first or the last; `MERGE` vendors fail), and the outcome would depend on the
 chunk size. An insert-values with a conflict clause throws `MQ1808` at `build()`, before any statement, when two rows
-share a conflict-key tuple, compared by `equals` on the model values.
+share a conflict-key tuple, compared by `equals` on the model values. A tuple holding a `null` is left out of the
+check: SQL `NULL`s never conflict, and a unique index that treats them as equal (PostgreSQL's `NULLS NOT DISTINCT`)
+reports its own constraint error.
 
 **R-WRT-38** Persistence context: every bulk insert applies R-WRT-15 unchanged (flush before; `CLEAR` by default,
 `KEEP` available; the root evicted from the second-level cache). An insert without `doUpdate` still leaves managed

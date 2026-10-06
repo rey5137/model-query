@@ -9,6 +9,8 @@ import jakarta.persistence.metamodel.Metamodel;
 import jakarta.persistence.metamodel.PluralAttribute;
 import jakarta.persistence.metamodel.SingularAttribute;
 import jakarta.persistence.metamodel.Type;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -135,6 +137,53 @@ final class InsertMetamodel {
                     + idType.getSimpleName() + " in the persistence unit, which an orm.xml mapping can change unseen "
                     + "by the processor; correct the mapping or the entity, and regenerate");
         }
+    }
+
+    /**
+     * {@code name}, an attribute of {@code entity} an insert-select writes, with the target's id attribute appended
+     * when it is a to-one: the select copies the id, as {@code checkMappings} lets a to-one take one (R-WRT-27).
+     */
+    static String toOneIdPath(EntityType<?> entity, String name) {
+        if (name.indexOf('.') < 0 && attribute(entity, name) instanceof SingularAttribute<?, ?> singular
+                && singular.isAssociation() && singular.getType() instanceof IdentifiableType<?> target
+                && target.hasSingleIdAttribute()) {
+            return name + "." + singleId(target).getName();
+        }
+        return name;
+    }
+
+    /**
+     * {@code entity}'s id as a key of plain columns on {@code root}, ordered by attribute name: the {@code @Id}, each
+     * component of an {@code @EmbeddedId} ({@code id.part}), or each {@code @IdClass} attribute (R-WRT-28).
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    static PrimaryKey<Object, ?> idKey(EntityType<?> entity, TableField<?, ?> root) {
+        var columns = new ArrayList<ColumnField<Object, ?, ?>>();
+        if (entity.hasSingleIdAttribute()) {
+            SingularAttribute<?, ?> id = singleId(entity);
+            if (id.getType() instanceof EmbeddableType<?> embeddable) {
+                embeddable.getSingularAttributes().stream().sorted(Comparator.comparing(Attribute::getName))
+                        .forEach(part -> columns.add(ColumnField.of(Object.class, (TableField) root,
+                                id.getName() + "." + part.getName(), part.getJavaType())));
+            } else {
+                columns.add(ColumnField.of(Object.class, (TableField) root, id.getName(), id.getJavaType()));
+            }
+        } else {
+            entity.getIdClassAttributes().stream().sorted(Comparator.comparing(Attribute::getName))
+                    .forEach(part -> columns.add(ColumnField.of(Object.class, (TableField) root, part.getName(),
+                            part.getJavaType())));
+        }
+        if (columns.size() == 1) {
+            return PrimaryKey.of((ColumnField) columns.get(0));
+        }
+        return PrimaryKey.composite(columns.get(0), columns.get(1),
+                columns.subList(2, columns.size()).toArray(ColumnField[]::new));
+    }
+
+    /** The one {@code @Id} or {@code @EmbeddedId} attribute of {@code type}, found by flag, whatever its type. */
+    private static SingularAttribute<?, ?> singleId(IdentifiableType<?> type) {
+        return type.getSingularAttributes().stream().filter(SingularAttribute::isId).findFirst()
+                .orElseThrow(() -> new IllegalStateException(type.getJavaType().getName() + " has no single id"));
     }
 
     private static void requireOnSource(SelectField<?, ?> field, Class<?> source, String what) {

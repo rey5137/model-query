@@ -1403,6 +1403,19 @@ one exception: whether a composite id generates a part is read from `CompositeNe
 private `generationPlans` field (6.6 has no accessor), and the read fails closed: a field missing, inaccessible or of
 another type counts as a generated part, so the root is `MQ1805`, never let through.
 
+*Amended by M10.5:* R-WRT-37 leaves a conflict-key tuple holding a `null` out of the `MQ1808` check: SQL `NULL`s
+never conflict, and a unique index that treats them as equal (PostgreSQL's `NULLS NOT DISTINCT`) reports its own
+constraint error. Item 10's `Sequence` is `SequenceStyleGenerator` itself, compared by class: a subclass is `Other`
+(`MQ1805`) for either insert, since an insert-select reads the sequence inside the statement and would bypass the
+subclass's own key code. The insert-select statement: a `set` constant is a named criteria parameter the executor
+binds, since Hibernate 6.6 inlines `CriteriaBuilder#literal`; a to-one column, written by id, is the target path
+`customer.id`, so the select copies the id. A chunked insert-select pages over the source root's id as plain
+attribute columns read from the metamodel (the `@Id`, the `@EmbeddedId` components, or the `@IdClass` attributes,
+ordered by name), so `lastCommittedKey()` and `inDoubtKeys()` hold the id value, or for a composite id the list of its
+component values in that order; `lockKeys()` locks the source rows the key select reads. `MQ1806` compares the target
+with the source root and with every entity the select joins, through a `map` or a `where` column at any depth: one
+topmost entity type, or intersecting `tablesOf`. A row a chunk writes into a joined table can join a later chunk's
+source row, so add to its to-many repeats or change its `where`, which the unchunked statement never sees.
 
 ## 2. Open questions
 

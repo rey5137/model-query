@@ -236,7 +236,9 @@ record InsertDraft<E, M>(
         }
 
         /**
-         * Checks that no two rows share a conflict-key tuple, compared by {@code equals} (R-WRT-37).
+         * Checks that no two rows share a conflict-key tuple, compared by {@code equals} (R-WRT-37). A tuple holding a
+         * {@code null} is left out: SQL {@code NULL}s never conflict, and a unique index that treats them as equal
+         * reports its own constraint error.
          *
          * @throws ModelQueryDefinitionException {@code MQ1808} naming the two rows' positions, never their values
          */
@@ -247,6 +249,9 @@ record InsertDraft<E, M>(
                 var tuple = new ArrayList<>(at.length);
                 for (int index : at) {
                     tuple.add(rows.get(i).get(index));
+                }
+                if (tuple.contains(null)) {
+                    continue;
                 }
                 Integer first = seen.putIfAbsent(tuple, i);
                 if (first != null) {

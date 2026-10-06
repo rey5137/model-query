@@ -4,6 +4,7 @@ import static jakarta.persistence.criteria.JoinType.LEFT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.entry;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -111,6 +112,17 @@ class InsertDefinitionTest {
     }
 
     // ---- insert-select
+
+    @Test
+    void ac_wrt_21_an_insert_select_binds_its_set_constants_by_name_through_their_converters() {
+        var approved = ColumnField.of(Order.class, ROOT, "approved", Boolean.class, String.class, new FlagConverter());
+        ModelInsert<Order, NewOrder> insert = select().set(CREATED_BY, "batch").set(approved, true).all().build();
+
+        assertThat(insert.selectParameters()).containsExactly(entry("mqConstant0", "batch"),
+                entry("mqConstant1", "Y"));
+        assertThatThrownBy(() -> values(FIRST).build().selectParameters()).isInstanceOf(IllegalStateException.class)
+                .hasMessage("Order (1 row): an insert-values has no source select");
+    }
 
     @Test
     void ac_wrt_32_an_insert_select_mapping_every_column_once_builds() {
@@ -280,6 +292,18 @@ class InsertDefinitionTest {
         assertThatCode(() -> ValuesInsert.builder(COLUMNS, Long.class, rows).onConflict(REF, STATUS).doNothing()
                 .build()).doesNotThrowAnyException();
         assertThatCode(() -> ValuesInsert.builder(COLUMNS, Long.class, rows).build()).doesNotThrowAnyException();
+    }
+
+    @Test
+    void ac_wrt_32_rows_whose_conflict_key_holds_a_null_never_count_as_sharing_it() {
+        var nullRefs = List.of(new NewOrder(4L, null, "OLD", null), new NewOrder(5L, null, "OLD", null));
+        assertThatCode(() -> ValuesInsert.builder(COLUMNS, Long.class, nullRefs).onConflict(REF).doNothing().build())
+                .doesNotThrowAnyException();
+        assertThatCode(() -> ValuesInsert.builder(COLUMNS, Long.class, nullRefs).onConflict(REF, STATUS).doNothing()
+                .build()).doesNotThrowAnyException();
+        var mixed = List.of(nullRefs.get(0), FIRST, nullRefs.get(1), new NewOrder(6L, "a", "NEW", null));
+        assertCode(() -> ValuesInsert.builder(COLUMNS, Long.class, mixed).onConflict(REF).doNothing().build(),
+                MqCode.MQ1808).hasMessageStartingWith("MQ1808: Order: rows 1 and 3 share the conflict key");
     }
 
     @Test

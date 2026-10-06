@@ -1063,7 +1063,7 @@ class BulkWriteTest {
     }
 
     /** {@code em}, whose factory's second-level cache records each entity type evicted into {@code evicted}. */
-    private static EntityManager recordingEvictions(EntityManager em, List<Object> evicted) {
+    static EntityManager recordingEvictions(EntityManager em, List<Object> evicted) {
         EntityManagerFactory factory = em.getEntityManagerFactory();
         Cache cache = factory.getCache();
         Cache recordingCache = proxy(Cache.class, (method, args) -> {

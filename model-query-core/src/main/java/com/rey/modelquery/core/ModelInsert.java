@@ -1,10 +1,19 @@
 package com.rey.modelquery.core;
 
 import com.rey.modelquery.annotations.Incubating;
+import jakarta.persistence.Tuple;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Selection;
 import jakarta.persistence.metamodel.EntityType;
 import jakarta.persistence.metamodel.Metamodel;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
@@ -25,6 +34,9 @@ import java.util.function.UnaryOperator;
  */
 @Incubating
 public sealed class ModelInsert<E, M> permits ValuesInsert {
+
+    /** The prefix of the parameter names a source select binds its {@code set} constants to. */
+    private static final String CONSTANT = "mqConstant";
 
     private final InsertDraft<E, M> definition;
 
@@ -93,6 +105,136 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
     @EngineFacing
     public boolean writesId(Metamodel metamodel) {
         return InsertMetamodel.writesId(metamodel.entity(rootEntity()), written(), toString());
+    }
+
+    /**
+     * The attributes an insert-select writes, in the order {@link #buildSelect} selects their values: each column of
+     * the model's {@code InsertColumns}, then each {@code set} constant. A to-one attribute, which a column writes by
+     * id, is named with its target's id attribute below it ({@code customer.id}): the select copies an id, never an
+     * entity (R-WRT-27).
+     *
+     * @throws IllegalStateException for an insert-values
+     */
+    @EngineFacing
+    public List<String> selectedAttributes(Metamodel metamodel) {
+        requireSource();
+        EntityType<E> entity = metamodel.entity(rootEntity());
+        var names = new ArrayList<String>();
+        for (String name : written()) {
+            names.add(InsertMetamodel.toOneIdPath(entity, name));
+        }
+        return names;
+    }
+
+    /**
+     * The source root's id as a key of plain attribute columns, which a chunked insert-select pages over: the
+     * {@code @Id}, the components of an {@code @EmbeddedId}, or the {@code @IdClass} attributes by name (R-WRT-28).
+     *
+     * @throws IllegalStateException for an insert-values
+     */
+    @EngineFacing
+    public PrimaryKey<Object, ?> sourceKey(Metamodel metamodel) {
+        return InsertMetamodel.idKey(metamodel.entity(requireSource().rootEntity()), requireSource());
+    }
+
+    /**
+     * Renders the source select of an insert-select: from the source root, each {@code map}'s source column in the
+     * order of {@link #selectedAttributes}, then each {@code set} constant as a named parameter
+     * ({@link #selectParameters}), with the {@code where} rendered as a read renders it, joins included. Duplicates
+     * from a to-many join stay: the insert writes the rows the equivalent read returns (R-WRT-27, R-WRT-28). The
+     * returned query maps no model.
+     *
+     * @throws IllegalStateException for an insert-values
+     */
+    @EngineFacing
+    public BuiltQuery<M> buildSelect(CriteriaBuilder cb, RenderOptions options) {
+        return select(cb, options, null, null);
+    }
+
+    /**
+     * As {@link #buildSelect(CriteriaBuilder, RenderOptions)}, narrowed to the source rows whose {@code key}, the
+     * {@link #sourceKey}, is one of {@code keys}: one chunk of a chunked insert-select (R-WRT-28).
+     *
+     * @throws IllegalArgumentException for empty {@code keys}, which would leave the rows unchosen
+     */
+    @EngineFacing
+    public BuiltQuery<M> buildSelect(CriteriaBuilder cb, RenderOptions options, PrimaryKey<Object, ?> key,
+            List<?> keys) {
+        return select(cb, options, Objects.requireNonNull(key, "key"), WriteRendering.selectedKeys(keys));
+    }
+
+    /**
+     * Renders the key select of a chunked insert-select: the {@code key} columns, the {@link #sourceKey}, of the
+     * source rows the {@code where} chooses, rendered as a read renders it, with no order. An executor adds the keyset
+     * order, the cursor, the row limit and any lock (R-WRT-17, R-WRT-28).
+     */
+    @EngineFacing
+    public BuiltQuery<Object> buildKeySelect(CriteriaBuilder cb, RenderOptions options, PrimaryKey<Object, ?> key) {
+        Class<?> source = requireSource().rootEntity();
+        return WriteRendering.keySelect(null, definition.where().where(), Objects.requireNonNull(key, "key"), source,
+                cb, options, toString());
+    }
+
+    /**
+     * The values of the {@code set} constants, by the name of the parameter {@link #buildSelect} renders each as:
+     * each value passed through its column's converter, a to-one's the target id. The executor binds them on the
+     * statement it creates from the select (R-WRT-14, R-WRT-25).
+     *
+     * @throws IllegalStateException for an insert-values
+     */
+    @EngineFacing
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public Map<String, Object> selectParameters() {
+        requireSource();
+        var parameters = new LinkedHashMap<String, Object>();
+        List<Assignment<?, ?>> constants = definition.constants();
+        for (int c = 0; c < constants.size(); c++) {
+            Assignment.Value<?, ?> constant = (Assignment.Value<?, ?>) constants.get(c);
+            parameters.put(CONSTANT + c, ((ColumnField) constant.column()).toAttribute(constant.value()));
+        }
+        return Collections.unmodifiableMap(parameters);
+    }
+
+    private BuiltQuery<M> select(CriteriaBuilder cb, RenderOptions options, PrimaryKey<Object, ?> key,
+            List<Object> keys) {
+        Objects.requireNonNull(cb, "cb");
+        Objects.requireNonNull(options, "options");
+        CriteriaQuery<Tuple> query = cb.createTupleQuery();
+        Root<?> from = query.from(requireSource().rootEntity());
+        JoinContext joins = JoinContext.of(from, cb, query, options);
+        // build() checked that each column is mapped exactly once, so every slot is filled.
+        var sources = new ArrayList<ColumnField<?, ?, ?>>(Collections.nCopies(definition.columns().columns().size(),
+                null));
+        definition.mappings().forEach(mapping -> sources.set(definition.columns().indexOf(mapping.target()),
+                mapping.source()));
+        var selected = new ArrayList<Selection<?>>();
+        sources.forEach(source -> selected.add(source.path(joins)));
+        // A parameter, not cb.literal, which a provider may inline: a value is always bound (R-WRT-14).
+        List<Assignment<?, ?>> constants = definition.constants();
+        for (int c = 0; c < constants.size(); c++) {
+            selected.add(cb.parameter(constants.get(c).column().attributeType(), CONSTANT + c));
+        }
+        query.multiselect(selected);
+        var predicates = new ArrayList<Predicate>();
+        if (keys != null) {
+            predicates.add(key.in(keys, joins, cb, true));
+        }
+        predicates.addAll(ConditionGroup.toPredicates(definition.where().where(), joins));
+        if (!predicates.isEmpty()) {
+            query.where(predicates.toArray(Predicate[]::new));
+        }
+        String label = toString();
+        return new BuiltQuery<>(query, joins, RowSelection.of(sources), row -> {
+            throw new UnsupportedOperationException(label + ": an insert-select's source select maps no model");
+        });
+    }
+
+    private TableField<?, ?> requireSource() {
+        TableField<?, ?> source = definition.source();
+        if (source == null) {
+            throw new IllegalStateException(this + ": an insert-values has no source select");
+        }
+        return source;
     }
 
     /** The attributes the insert writes: its columns, then its {@code set} constants. */

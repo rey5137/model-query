@@ -1,0 +1,1 @@
+insert into order_archive(id,order_id,customer_id,status,customer_name,product_code,archived_by,version) select i1_0.id,oe1_0.id,c2_0.id,oe1_0.status,c2_0.name,i1_0.product_code,?,? from orders oe1_0 join order_items i1_0 on oe1_0.id=i1_0.order_id join customers c2_0 on c2_0.id=oe1_0.customer_id where oe1_0.id in (?,?,?,?,?) and oe1_0.status=? and c2_0.country=? and oe1_0.id<?

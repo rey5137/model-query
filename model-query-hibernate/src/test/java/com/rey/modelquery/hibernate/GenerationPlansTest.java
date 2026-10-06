@@ -2,8 +2,10 @@ package com.rey.modelquery.hibernate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.rey.modelquery.jpa.spi.IdGeneration;
 import java.util.List;
 import org.hibernate.id.CompositeNestedGeneratedValueGenerator;
+import org.hibernate.id.enhanced.SequenceStyleGenerator;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -41,5 +43,16 @@ class GenerationPlansTest {
         // The field read from a generator of another class
         assertThat(HibernateInsertSupport.holdsPlans(CompositeNestedGeneratedValueGenerator.class, new NoPlans()))
                 .isTrue();
+    }
+
+    /** A generator extending Hibernate's sequence generator with key code of its own. */
+    static final class CustomSequence extends SequenceStyleGenerator {
+    }
+
+    @Test
+    void ac_vnd_11_a_sequence_generator_subclass_is_reported_as_another_generator() {
+        String name = CustomSequence.class.getName();
+        assertThat(HibernateInsertSupport.idGeneration(new CustomSequence(), name))
+                .isEqualTo(new IdGeneration.Other(name));
     }
 }
