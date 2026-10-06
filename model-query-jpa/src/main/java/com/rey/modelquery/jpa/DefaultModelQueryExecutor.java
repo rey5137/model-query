@@ -38,6 +38,7 @@ import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.core.ValuesInsert;
 import com.rey.modelquery.jpa.spi.ConflictClause;
 import com.rey.modelquery.jpa.spi.InsertSupport;
+import com.rey.modelquery.jpa.spi.InsertTarget;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.jpa.vendor.ResolvedVendor;
@@ -166,6 +167,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * the stored row (R-WRT-34, D-117).
      */
     private final boolean conflictUpdateWhereOnAssignedColumns;
+    /** The root's insert target, which the provider reads reflectively: read on first use, then kept. */
+    private volatile InsertTarget insertTarget;
 
     DefaultModelQueryExecutor(EntityManager em, Class<E> rootEntity, ModelQueryConfig config) {
         this.em = Objects.requireNonNull(em, "em");
@@ -714,7 +717,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         i.checkKeysReturnable();
         InsertSupport support = insertSupport(i);
         checkInsertOnce(i, support);
-        InsertChecks.checkKeysGenerated(i, support.target(em.getEntityManagerFactory(), rootEntity).id());
+        InsertChecks.checkKeysGenerated(i, insertTarget(support).id());
         requireTransaction("insert", i.chunkOptions());
         var keys = new ArrayList<Object>(i.rowCount());
         insertValues(i, support, keys);
@@ -736,11 +739,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         EntityManagerFactory emf = em.getEntityManagerFactory();
         List<String> attributes = new ArrayList<>(i.valueAttributes(em.getMetamodel()));
-        boolean drawn = InsertChecks.drawsKeys(support.target(emf, rootEntity).id());
+        boolean drawn = InsertChecks.drawsKeys(insertTarget(support).id());
         if (drawn) {
             attributes.add(idAttribute());
         }
         int providerBinds = support.providerBindsPerRow(emf, rootEntity);
+        int conflictRepeatedBinds = i.conflictRepeatedBinds();
         int perStatement = rowsPerStatement(i, attributes.size() + providerBinds);
         Optional<ConflictClause<E>> conflict = i.conflictKeys().isEmpty() ? Optional.empty()
                 : Optional.of(new InsertConflict<>(i, renderOptions));
@@ -756,7 +760,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 }
             }
             return execute(support.insertValues(on, rootEntity, attributes, values, conflict),
-                    providerBinds * (to - from) + i.conflictRepeatedBinds());
+                    providerBinds * (to - from) + conflictRepeatedBinds);
         };
         boolean perChunk = i.chunkOptions().map(ChunkOptions::commitsEachChunk).orElse(false);
         logWrite("insert", i, i.chunkOptions(), false);
@@ -823,6 +827,14 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                         + "EntityManagerFactory; add model-query-hibernate for Hibernate, or use persist(...)"));
     }
 
+    private InsertTarget insertTarget(InsertSupport support) {
+        InsertTarget target = insertTarget;
+        if (target == null) {
+            target = insertTarget = support.target(em.getEntityManagerFactory(), rootEntity);
+        }
+        return target;
+    }
+
     /**
      * Checks {@code i} the first time it runs on this executor's factory, before any statement: against the metamodel,
      * then against the generator and the mappings {@code support} reports for the root (D-61, R-WRT-26); and on each
@@ -833,7 +845,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         checkWriteOnce(i, metamodel -> {
             EntityManagerFactory emf = em.getEntityManagerFactory();
             i.checkMetamodel(metamodel);
-            InsertChecks.checkTarget(i, support.target(emf, rootEntity), i.sourceEntity().isPresent(),
+            InsertChecks.checkTarget(i, insertTarget(support), i.sourceEntity().isPresent(),
                     i.writesId(metamodel));
             if (!i.conflictKeys().isEmpty()) {
                 InsertChecks.checkConflict(i, i.conflictKeys(), support.uniqueKeys(emf, rootEntity),

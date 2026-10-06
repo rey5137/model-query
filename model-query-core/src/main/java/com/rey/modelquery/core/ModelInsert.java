@@ -45,9 +45,14 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
     private static final String CONSTANT = "mqConstant";
 
     private final InsertDraft<E, M> definition;
+    private final List<String> conflictKeys;
+    /** The {@code set} constants as attribute values, read on first use; a benign race recomputes the same list. */
+    private volatile List<Object> constantValues;
 
     ModelInsert(InsertDraft<E, M> definition) {
         this.definition = definition;
+        InsertDraft.Conflict<E, M> conflict = definition.conflict();
+        this.conflictKeys = conflict == null ? List.of() : conflict.keys().stream().map(ColumnField::name).toList();
     }
 
     /**
@@ -120,7 +125,7 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         conflict.update().assignments().forEach(assignment -> written.add(assignment.column()));
         for (ColumnField<?, ?, ?> column : written) {
             String name = column.name();
-            String head = name.indexOf('.') < 0 ? name : name.substring(0, name.indexOf('.'));
+            String head = InsertMetamodel.head(name);
             if (ids.contains(head) || version.filter(head::equals).isPresent()) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1804, column + ": doUpdate(...) assigns "
                         + entity.getJavaType().getSimpleName() + "." + head + ", "
@@ -199,26 +204,31 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
      * @throws IndexOutOfBoundsException for a range outside {@code 0} to {@link #rowCount()}
      */
     @EngineFacing
-    @SuppressWarnings({"unchecked", "rawtypes"})
     public List<List<Object>> valueRows(int from, int to) {
         List<List<Object>> read = requireValues().subList(from, to);
-        List<ColumnField<M, E, ?>> columns = definition.columns().columns();
-        var constants = new ArrayList<Object>();
-        for (Assignment<?, ?> constant : definition.constants()) {
-            Assignment.Value<?, ?> value = (Assignment.Value<?, ?>) constant;
-            constants.add(((ColumnField) value.column()).toAttribute(value.value()));
-        }
+        List<Object> constants = constantValues();
+        InsertColumns<M, E> columns = definition.columns();
         var rows = new ArrayList<List<Object>>(read.size());
         for (List<Object> row : read) {
-            var values = new ArrayList<>(columns.size() + constants.size());
-            for (int c = 0; c < columns.size(); c++) {
-                Object value = row.get(c);
-                values.add(value == null ? null : ((ColumnField) columns.get(c)).toAttribute(value));
-            }
+            var values = new ArrayList<>(columns.toAttributes(row));
             values.addAll(constants);
             rows.add(values);
         }
         return rows;
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private List<Object> constantValues() {
+        List<Object> values = constantValues;
+        if (values == null) {
+            var converted = new ArrayList<>();
+            for (Assignment<?, ?> constant : definition.constants()) {
+                Assignment.Value<?, ?> value = (Assignment.Value<?, ?>) constant;
+                converted.add(((ColumnField) value.column()).toAttribute(value.value()));
+            }
+            values = constantValues = Collections.unmodifiableList(converted);
+        }
+        return values;
     }
 
     /**
@@ -297,8 +307,7 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
      */
     @EngineFacing
     public List<String> conflictKeys() {
-        InsertDraft.Conflict<E, M> conflict = definition.conflict();
-        return conflict == null ? List.of() : conflict.keys().stream().map(ColumnField::name).toList();
+        return conflictKeys;
     }
 
     /** Whether the conflict clause skips a conflicting row, {@code doNothing()}; false without a clause. */
@@ -331,10 +340,11 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
     @SuppressWarnings({"unchecked", "rawtypes"})
     public Optional<Predicate> buildConflictUpdate(Root<E> target, Root<E> excluded, CriteriaBuilder cb,
             RenderOptions options, BiConsumer<Path<?>, Object> value, BiConsumer<Path<?>, Expression<?>> expression) {
-        InsertDraft.Conflict<E, M> conflict = definition.conflict();
-        if (conflict == null || conflict.update() == null) {
+        ConflictUpdate.Action<E, M> update = conflictUpdate();
+        if (update == null) {
             throw new IllegalStateException(this + ": no doUpdate(...) clause to render");
         }
+        InsertDraft.Conflict<E, M> conflict = definition.conflict();
         EntityType<E> entity = target.getModel();
         Set<String> read = conflictWhereReads(conflict);
         var first = new ArrayList<Runnable>();
@@ -376,10 +386,11 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
      */
     @EngineFacing
     public List<String> conflictWhereReadsAssigned(Metamodel metamodel) {
-        InsertDraft.Conflict<E, M> conflict = definition.conflict();
-        if (conflict == null || conflict.update() == null) {
+        ConflictUpdate.Action<E, M> update = conflictUpdate();
+        if (update == null) {
             return List.of();
         }
+        InsertDraft.Conflict<E, M> conflict = definition.conflict();
         Set<String> read = conflictWhereReads(conflict);
         var assigned = new ArrayList<String>();
         conflict.update().fromRow().forEach(column -> assigned.add(column.name()));
@@ -435,13 +446,19 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         return conflictWhereBinds() * conflictAssignments();
     }
 
-    private int conflictWhereBinds() {
+    /** The conflict clause's {@code doUpdate} action, or null for {@code doNothing()} or without a clause. */
+    private ConflictUpdate.Action<E, M> conflictUpdate() {
         InsertDraft.Conflict<E, M> conflict = definition.conflict();
-        if (conflict == null || conflict.update() == null) {
+        return conflict == null ? null : conflict.update();
+    }
+
+    private int conflictWhereBinds() {
+        ConflictUpdate.Action<E, M> update = conflictUpdate();
+        if (update == null) {
             return 0;
         }
         int binds = 0;
-        for (Condition condition : ConditionGroup.conditions(conflict.update().where())) {
+        for (Condition condition : ConditionGroup.conditions(update.where())) {
             binds += ExpressionField.conditionBinds(condition);
         }
         return binds;
@@ -449,12 +466,8 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
 
     /** The conflict update's assignments, the version increment counted unless {@code keepVersion()}. */
     private int conflictAssignments() {
-        InsertDraft.Conflict<E, M> conflict = definition.conflict();
-        if (conflict == null || conflict.update() == null) {
-            return 0;
-        }
-        return conflict.update().fromRow().size() + conflict.update().assignments().size()
-                + (conflict.keepVersion() ? 0 : 1);
+        ConflictUpdate.Action<E, M> update = conflictUpdate();
+        return update == null ? 0 : update.fromRow().size() + conflictValueBinds();
     }
 
     /**
@@ -462,11 +475,8 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
      * {@code keepVersion()}.
      */
     private int conflictValueBinds() {
-        InsertDraft.Conflict<E, M> conflict = definition.conflict();
-        if (conflict == null || conflict.update() == null) {
-            return 0;
-        }
-        return conflict.update().assignments().size() + (conflict.keepVersion() ? 0 : 1);
+        ConflictUpdate.Action<E, M> update = conflictUpdate();
+        return update == null ? 0 : update.assignments().size() + (definition.conflict().keepVersion() ? 0 : 1);
     }
 
     /** The path of {@code attribute}, dotted, below {@code root}. */

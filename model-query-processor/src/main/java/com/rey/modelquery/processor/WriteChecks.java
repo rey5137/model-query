@@ -25,6 +25,9 @@ final class WriteChecks {
     /** The property {@code Changes.isEmpty()} reads as, which a field's getter and setter must not name too. */
     private static final String EMPTY = "empty";
 
+    /** The tail of an {@code MQ3502} message for an annotation an insert model cannot carry. */
+    private static final String READS_NO_ROW = " isn't allowed on @InsertModel; an insert reads no row of its root";
+
     private final Types types;
     private final EntityMetamodel metamodel;
 
@@ -66,11 +69,10 @@ final class WriteChecks {
      * {@code @Transient}, since every field is a column (R-PROC-23, R-WRT-25).
      */
     void checkInsertOnly(ModelDefinition model, Diagnostics diagnostics) {
-        String reason = " isn't allowed on @InsertModel; an insert reads no row of its root";
         for (ModelField field : model.fields()) {
             String where = model.name() + "." + field.name() + ": ";
             if (field.child() != null) {
-                diagnostics.error(field.element(), DiagnosticCode.MQ3502, where + "@Child" + reason);
+                readsRow(diagnostics, field, where, "@Child");
                 continue;
             }
             if (field.element().getAnnotation(Transient.class) != null) {
@@ -83,19 +85,24 @@ final class WriteChecks {
                                 + foreignKey(model, field));
             }
             if (field.aggregate() != null) {
-                diagnostics.error(field.element(), DiagnosticCode.MQ3502, where + "@Aggregate" + reason);
+                readsRow(diagnostics, field, where, "@Aggregate");
             }
             if (field.groupBy()) {
-                diagnostics.error(field.element(), DiagnosticCode.MQ3502, where + "@GroupBy" + reason);
+                readsRow(diagnostics, field, where, "@GroupBy");
             }
             if (field.computed()) {
-                diagnostics.error(field.element(), DiagnosticCode.MQ3502, where + "@Computed" + reason);
+                readsRow(diagnostics, field, where, "@Computed");
             }
         }
         for (ModelDefinition.FilterColumnDefinition column : model.filterColumns()) {
             diagnostics.error(model.type(), DiagnosticCode.MQ3502,
-                    model.name() + " " + column.label() + ": @FilterColumn" + reason);
+                    model.name() + " " + column.label() + ": @FilterColumn" + READS_NO_ROW);
         }
+    }
+
+    /** {@code MQ3502} for {@code annotation}, which reads a row of the root, on an insert model's field. */
+    private static void readsRow(Diagnostics diagnostics, ModelField field, String where, String annotation) {
+        diagnostics.error(field.element(), DiagnosticCode.MQ3502, where + annotation + READS_NO_ROW);
     }
 
     /**
@@ -117,7 +124,6 @@ final class WriteChecks {
         boolean reported = false;
         for (ModelField field : model.columns()) {
             String where = model.name() + "." + field.name() + ": ";
-            boolean resolves = metamodel.resolve(model.root(), field.attribute()).problem() == null;
             if (id.covers(field.attribute())) {
                 if (id.generated()) {
                     diagnostics.error(field.element(), DiagnosticCode.MQ3501, where + root + "'s id " + id.label()
@@ -128,7 +134,7 @@ final class WriteChecks {
                             + "' is " + root + "'s id; mark the field @PrimaryKey");
                     reported = true;
                 }
-            } else if (field.primaryKey() && resolves) {
+            } else if (field.primaryKey() && metamodel.resolve(model.root(), field.attribute()).problem() == null) {
                 // A path that does not resolve is MQ3001.
                 diagnostics.error(field.element(), DiagnosticCode.MQ3501, where + "@PrimaryKey must be " + root
                         + "'s id " + id.label() + (id.generated()

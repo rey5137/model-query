@@ -419,8 +419,10 @@ final class HibernateInsertSupport implements InsertSupport {
         insert.setInsertionTargetPaths(paths);
         var values = new ArrayList<JpaValues>(rows.size());
         var types = new ArrayList<Object>(paths.size());
+        var javaTypes = new ArrayList<Class<?>>(paths.size());
         for (Path<?> path : paths) {
             types.add(TypedBinding.typeOf(path));
+            javaTypes.add(boxed(path.getJavaType()));
         }
         var bound = new ArrayList<Object>(rows.size() * paths.size());
         for (List<Object> row : rows) {
@@ -430,7 +432,7 @@ final class HibernateInsertSupport implements InsertSupport {
             }
             var parameters = new ArrayList<Expression<?>>(row.size());
             for (int c = 0; c < row.size(); c++) {
-                parameters.add(cb.parameter(boxed(paths.get(c).getJavaType()), VALUE + bound.size()));
+                parameters.add(cb.parameter(javaTypes.get(c), VALUE + bound.size()));
                 bound.add(row.get(c));
             }
             values.add(cb.values(parameters));

@@ -3,8 +3,6 @@ package com.rey.modelquery.core;
 import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.metamodel.EntityType;
 import jakarta.persistence.metamodel.Metamodel;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -90,15 +88,8 @@ public final class ModelPersist<E, K, M> {
      * @throws ModelQueryDefinitionException {@code MQ1308} when a converter cannot convert a value
      */
     @EngineFacing
-    @SuppressWarnings({"unchecked", "rawtypes"})
     public List<Object> attributeValues() {
-        List<ColumnField<M, E, ?>> fields = columns.columns();
-        var converted = new ArrayList<>(values.size());
-        for (int c = 0; c < values.size(); c++) {
-            Object value = values.get(c);
-            converted.add(value == null ? null : ((ColumnField) fields.get(c)).toAttribute(value));
-        }
-        return Collections.unmodifiableList(converted);
+        return columns.toAttributes(values);
     }
 
     /** The entity, for the executor's log: never a value (D-95). The format is not API. */

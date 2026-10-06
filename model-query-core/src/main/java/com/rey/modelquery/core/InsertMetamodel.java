@@ -24,6 +24,12 @@ final class InsertMetamodel {
     private InsertMetamodel() {
     }
 
+    /** The first segment of a dotted attribute name, the name itself when it has none. */
+    static String head(String name) {
+        int dot = name.indexOf('.');
+        return dot < 0 ? name : name.substring(0, dot);
+    }
+
     /**
      * Whether {@code written}, the attributes an insert writes, hold {@code entity}'s whole id: the {@code @Id}, the
      * {@code @EmbeddedId} or each of its components, or every {@code @IdClass} attribute.
@@ -36,7 +42,7 @@ final class InsertMetamodel {
         Set<String> parts = new HashSet<>();
         for (String name : written) {
             int dot = name.indexOf('.');
-            String head = dot < 0 ? name : name.substring(0, dot);
+            String head = head(name);
             if (ids.contains(head)) {
                 (dot < 0 ? whole : parts).add(name);
             }

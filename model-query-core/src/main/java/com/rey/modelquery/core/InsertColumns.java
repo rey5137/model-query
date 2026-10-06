@@ -22,10 +22,14 @@ public final class InsertColumns<M, E> {
 
     private final TableField<E, E> root;
     private final List<Column<M, E, ?>> columns;
+    private final List<ColumnField<M, E, ?>> fields;
+    private final List<ColumnField<M, E, ?>> keyFields;
 
     private InsertColumns(TableField<E, E> root, List<Column<M, E, ?>> columns) {
         this.root = root;
         this.columns = columns;
+        this.fields = columns.stream().<ColumnField<M, E, ?>>map(Column::field).toList();
+        this.keyFields = columns.stream().filter(Column::key).<ColumnField<M, E, ?>>map(Column::field).toList();
     }
 
     /**
@@ -64,18 +68,18 @@ public final class InsertColumns<M, E> {
 
     /** The columns, in the order added, as a list that throws on mutation. */
     public List<ColumnField<M, E, ?>> columns() {
-        return columns.stream().<ColumnField<M, E, ?>>map(Column::field).toList();
+        return fields;
     }
 
     /** The columns added with {@link #addKey}, in the order added. */
     public List<ColumnField<M, E, ?>> keyColumns() {
-        return columns.stream().filter(Column::key).<ColumnField<M, E, ?>>map(Column::field).toList();
+        return keyFields;
     }
 
     /** The entity name and the attributes written, for a log or a message. The format is not API. */
     @Override
     public String toString() {
-        return rootEntity().getSimpleName() + columns.stream().map(column -> column.field().name()).toList();
+        return rootEntity().getSimpleName() + fields.stream().map(ColumnField::name).toList();
     }
 
     TableField<E, E> root() {
@@ -120,6 +124,22 @@ public final class InsertColumns<M, E> {
             }
         }
         return Collections.unmodifiableList(Arrays.asList(values));
+    }
+
+    /**
+     * Passes each value of {@code row}, in column order, through its column's converter, a {@code null} kept, as a
+     * list that throws on mutation.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1308} when a converter cannot convert a value
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    List<Object> toAttributes(List<Object> row) {
+        var converted = new ArrayList<>(row.size());
+        for (int c = 0; c < row.size(); c++) {
+            Object value = row.get(c);
+            converted.add(value == null ? null : ((ColumnField) fields.get(c)).toAttribute(value));
+        }
+        return Collections.unmodifiableList(converted);
     }
 
     private InsertColumns<M, E> append(Column<M, E, ?> column) {
