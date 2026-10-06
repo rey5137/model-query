@@ -111,7 +111,10 @@ public final class ValuesInsert<E, K, M> extends ModelInsert<E, M> {
          * checked on first execution ({@code MQ1804}). A unique index that exists only in a migration or in
          * {@code orm.xml} is not seen and is rejected: declare it in the mapping's annotations. Each column must be in
          * the model's {@code InsertColumns}, named once, else {@code build()} throws {@code MQ1804}; two rows sharing a
-         * conflict-key tuple throw {@code MQ1808} at {@code build()} (R-WRT-34, R-WRT-37).
+         * conflict-key tuple throw {@code MQ1808} at {@code build()} (R-WRT-34, R-WRT-37). The key is trusted from the
+         * mapping: the database must enforce it, since {@code MERGE} vendors (H2, Oracle, SQL Server) and MySQL with
+         * {@code anyUniqueKey()} do not detect a key the schema does not enforce, and would update every matching row
+         * or insert duplicates.
          */
         @SafeVarargs
         public final ModelInsert.Conflict<E, M> onConflict(ColumnField<M, E, ?> first, ColumnField<M, E, ?>... rest) {

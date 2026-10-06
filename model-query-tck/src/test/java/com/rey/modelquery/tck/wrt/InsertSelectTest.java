@@ -36,6 +36,7 @@ import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.KeysetTypeEntity;
 import com.rey.modelquery.tck.col.OrderArchiveEntity;
 import com.rey.modelquery.tck.col.OrderEntity;
+import com.rey.modelquery.tck.col.LabelEntity;
 import com.rey.modelquery.tck.col.OrderItemEntity;
 import com.rey.modelquery.tck.col.StampedOrderEntity;
 import com.rey.modelquery.tck.harness.TckDatabase;
@@ -350,6 +351,18 @@ class InsertSelectTest {
                 "reads OrderItemEntity, of the target's own entity hierarchy");
         assertRefusedBeforeTheFlush(db, CustomerEntity.class, executor -> executor.insert(intoCustomers),
                 "reads CustomerEntity, of the target's own entity hierarchy");
+    }
+
+    @TckTest
+    void ac_wrt_21_a_chunked_insert_select_joining_a_collection_table_throws_mq1806_before_the_flush(TckDatabase db) {
+        // A many-to-many join reads the link table, which tablesOf does not name: the overlap check fails closed
+        TableField<OrderEntity, LabelEntity> labels = TableField.join(ORDERS, "labels", INNER);
+        var labelName = ColumnField.of(Line.class, labels, "name", String.class);
+        var chunked = archive(f -> f.eq(LINE_STATUS, "PAID").eq(labelName, "rush"))
+                .chunked(ChunkOptions.size(10)).build();
+
+        assertRefusedBeforeTheFlush(db, OrderArchiveEntity.class, executor -> executor.insert(chunked),
+                "joins through the collection table of labels");
     }
 
     @TckTest

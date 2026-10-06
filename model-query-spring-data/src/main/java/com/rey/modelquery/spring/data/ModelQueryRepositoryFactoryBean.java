@@ -16,7 +16,8 @@ import org.springframework.data.repository.util.TxUtils;
  * implementation's executor runs on the {@code EntityManager} Spring Data gives this repository, so the vendor profile
  * is resolved per {@code EntityManagerFactory}, with the context's {@code ModelQueryConfig} bean, or
  * {@link com.rey.modelquery.jpa.ModelQueryConfig#defaults()} when there is none, passed through the context's
- * {@link ModelQueryConfigurer} bean when there is one (R-SPR-13). {@code stream}, {@code update} and {@code delete} run in a transaction of the
+ * {@link ModelQueryConfigurer} bean when there is one (R-SPR-13). {@code stream}, {@code update}, {@code delete},
+ * {@code insert}, {@code insertReturningKeys} and {@code persist} run in a transaction of the
  * {@code transactionManagerRef} of the repository's {@code @EnableJpaRepositories} (R-SPR-03, R-SPR-10, D-54).
  *
  * @param <T>  the repository type

@@ -428,8 +428,9 @@ the source root or an entity the select joins (the same entity, the same hierarc
 R-VND-13), `chunked` throws `MQ1806` on first execution, before the flush: rows a chunk writes could match the next
 chunk's key select or change what its joins return, and the engine only gets a count back. A source or target whose
 `tablesOf` is empty fails closed with `MQ1806` as well, since rows written with generated ids above the cursor would
-otherwise be re-read silently (INV-5). The unchunked statement stays allowed, since the database reads the whole
-select before it inserts. A guard against rows already in the target is a correlated `notExists` filter over the
+otherwise be re-read silently (INV-5). A join through a collection table (`@ManyToMany`, `@ElementCollection`) is not checked for overlap, since
+`tablesOf` names entity tables only; `chunked` fails closed with `MQ1806` on it (M10 gate). The unchunked statement
+stays allowed, since the database reads the whole select before it inserts. A guard against rows already in the target is a correlated `notExists` filter over the
 target (R-FLT-17): portable, not atomic. A sub-query is not part of the select's FROM, so such a guard does not make
 `chunked` throw `MQ1806`. Chunked, it gives the same rows as the unchunked statement only when it is correlated on a
 value unique among the source rows, such as the source id, whose rows a chunk takes together; correlated on a value
@@ -507,7 +508,9 @@ declared unique constraint, checked on first execution (`MQ1804`) from the mappi
 = true)`, `@JoinColumn(unique = true)` and `@Table(uniqueConstraints)` on the entity or a superclass entity, the
 constraint's columns matched to the attributes' columns. A unique index that exists only in a migration, or only in
 `orm.xml`, is not seen and is rejected; the Javadoc says to declare it in the mapping. The check stays because on a
-`MERGE` vendor a non-unique match updates several rows.
+`MERGE` vendor a non-unique match updates several rows. The key is trusted from the mapping: the database must enforce
+it, since `MERGE` vendors (H2, Oracle, SQL Server) and MySQL with `anyUniqueKey()` do not detect a key the schema
+does not enforce, and would update every matching row or insert duplicates.
 
 `onConflict` returns `Conflict`, offering only `doNothing()`, which returns `ConflictOptions`, and
 `doUpdate(Function<ConflictUpdate<E, M>, ConflictUpdate.Action<E, M>>)`, which returns `Upserting`; so a clause without
@@ -574,7 +577,8 @@ does (R-WRT-30: `MQ1803`, `MQ1802`). The engine instantiates the root entity wit
 model column through the attribute's metamodel member: the field, or for property access the setter paired with the
 getter `Attribute#getJavaMember` returns, after the column's converter. An embeddable path instantiates the embeddable
 with its no-arg constructor where the root's constructor left it `null`; a record or constructor-only embeddable is
-`MQ1805`, on first execution (D-117). A to-one column binds `EntityManager#getReference`. It then calls `persist`
+`MQ1805`, on first execution (D-117). A to-one column binds `EntityManager#getReference`. For a `@MapsId` id the model names the to-one association (and
+`@PrimaryKey` the id) for `persist` to work. It then calls `persist`
 and `flush`, reads `PersistenceUnitUtil#getIdentifier`, and calls `detach` on the entity, in that order.
 Constructors and fields are reached with `setAccessible`, so a modular application `opens` its entity package to the
 library; the Javadoc says so. `persist` needs no provider SPI and works with every generator, `IDENTITY` included,

@@ -803,10 +803,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 p.attributeValues());
         LOG.log(DEBUG, () -> "persist " + p);
         em.persist(entity);
-        em.flush();
-        Object key = em.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity);
-        em.detach(entity);
-        return p.keyType().cast(key);
+        try {
+            em.flush();
+            Object key = em.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity);
+            return p.keyType().cast(key);
+        } finally {
+            em.detach(entity);
+        }
     }
 
     /**
@@ -854,6 +857,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * The entity types {@code i}'s source select reads through its FROM: the source root, then each entity a
      * {@code map} or {@code where} column joins, at any depth, in join order. A row a chunk writes into any of them
      * could change a later chunk's rows, a to-many join's repeats or its {@code where} (R-WRT-28).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1806} when a join goes through a collection table
      */
     private Set<Class<?>> selected(ModelInsert<E, ?> i, Metamodel metamodel) {
         Set<Class<?>> entities = metamodel.getEntities().stream().map(EntityType::getJavaType)
@@ -864,12 +869,24 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         while (!froms.isEmpty()) {
             From<?, ?> from = froms.poll();
             Class<?> type = from instanceof Join<?, ?> join ? joinedType(join.getAttribute()) : from.getJavaType();
+            if (from instanceof Join<?, ?> join && readsCollectionTable(join.getAttribute())) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1806, i + ": a chunked insert-select joins through "
+                        + "the collection table of " + join.getAttribute().getName() + ", which the chunked write "
+                        + "cannot check for overlap with the target; the unchunked statement is allowed, since the "
+                        + "database reads the whole select before it inserts");
+            }
             if (entities.contains(type)) {
                 selected.add(type);
             }
             froms.addAll(from.getJoins());
         }
         return selected;
+    }
+
+    /** Whether a join over {@code attribute} reads a link or collection table, which {@code tablesOf} does not name. */
+    private static boolean readsCollectionTable(Attribute<?, ?> attribute) {
+        return attribute.getPersistentAttributeType() == Attribute.PersistentAttributeType.MANY_TO_MANY
+                || attribute.getPersistentAttributeType() == Attribute.PersistentAttributeType.ELEMENT_COLLECTION;
     }
 
     /** The type a join over {@code attribute} reaches: a collection's element, else the attribute's own type. */

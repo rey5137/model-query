@@ -103,7 +103,7 @@ assertThat(failure[0].nextRowIndex()).hasValue(4);
 
 `onConflict(columns...)` makes an insert-values conditional: one statement per chunk, and a conflict is detected on the
 named key, which must be the id, a natural id or a declared unique constraint in the mapping (`MQ1804` otherwise).
-It is offered on insert-values only; an insert-select guards with `notExists`. Two rows of one call that share a conflict key throw `MQ1808` at `build()`. The count returned
+The key is trusted from the mapping, so the database must enforce it: `MERGE` vendors (H2, Oracle, SQL Server) and MySQL with `anyUniqueKey()` do not detect a key the schema does not enforce, and would update every matching row or insert duplicates. It is offered on insert-values only; an insert-select guards with `notExists`. Two rows of one call that share a conflict key throw `MQ1808` at `build()`. The count returned
 is the vendor's:
 MySQL counts a skipped or changed row differently from PostgreSQL and H2, and the tests pin each.
 

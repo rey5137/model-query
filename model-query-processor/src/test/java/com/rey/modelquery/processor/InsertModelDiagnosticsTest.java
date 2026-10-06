@@ -50,6 +50,63 @@ class InsertModelDiagnosticsTest {
             """;
 
     @Test
+    void ac_proc_17_an_id_with_a_hibernate_generator_annotation_is_generated_without_a_generated_value() {
+        Compilation compilation = compile(source("org.hibernate.annotations.IdGeneratorType", """
+                package org.hibernate.annotations;
+
+                import java.lang.annotation.Retention;
+                import java.lang.annotation.RetentionPolicy;
+
+                @Retention(RetentionPolicy.RUNTIME)
+                public @interface IdGeneratorType {
+                    Class<?> value();
+                }
+                """), source("ins.Tsid", """
+                package ins;
+
+                import java.lang.annotation.Retention;
+                import java.lang.annotation.RetentionPolicy;
+                import org.hibernate.annotations.IdGeneratorType;
+
+                @IdGeneratorType(Object.class)
+                @Retention(RetentionPolicy.RUNTIME)
+                public @interface Tsid {}
+                """), source("ins.StampEntity", """
+                package ins;
+
+                import jakarta.persistence.Entity;
+                import jakarta.persistence.Id;
+
+                @Entity
+                public class StampEntity {
+                    @Id
+                    @Tsid
+                    Long id;
+                    String label;
+                }
+                """), source("ins.StampRow", """
+                package ins;
+
+                import com.rey.modelquery.annotations.InsertModel;
+
+                @InsertModel(root = StampEntity.class)
+                public record StampRow(String label) {}
+                """), source("ins.KeyedStampRow", """
+                package ins;
+
+                import com.rey.modelquery.annotations.InsertModel;
+                import com.rey.modelquery.annotations.PrimaryKey;
+
+                @InsertModel(root = StampEntity.class)
+                public record KeyedStampRow(@PrimaryKey Long id, String label) {}
+                """));
+
+        assertThat(errors(compilation)).containsExactly(
+                "MQ3501: KeyedStampRow.id: StampEntity's id 'id' is generated (@GeneratedValue or a generator "
+                        + "annotation); leave it out of the model");
+    }
+
+    @Test
     void ac_proc_15_an_insert_model_column_takes_the_write_checks_of_an_update_model() {
         Compilation compilation = compile(InsertModelSources.ADDRESS, InsertModelSources.CUSTOMER_ENTITY,
                 InsertModelSources.ORDER_ENTITY, source("ins.TicketEntity", TICKET_ENTITY),
@@ -196,7 +253,8 @@ class InsertModelDiagnosticsTest {
                 .contains(".addKey(ID, WholeLineRow::id)")
                 .contains("public static ValuesInsert.Rows<LineEntity, LineId, WholeLineRow> insert(");
         assertThat(errors(half)).containsExactly(
-                "MQ3501: HalfLineRow: LineEntity's id 'id' has no @GeneratedValue; name it with @PrimaryKey");
+                "MQ3501: HalfLineRow: LineEntity's id 'id' has no @GeneratedValue or generator annotation; name it "
+                        + "with @PrimaryKey");
     }
 
     @Test

@@ -43,6 +43,8 @@ final class EntityMetamodel {
     private static final String VERSION = JPA + "Version";
     private static final String ID_CLASS = JPA + "IdClass";
     private static final String GENERATED_VALUE = JPA + "GeneratedValue";
+    private static final List<String> GENERATOR_META = List.of("org.hibernate.annotations.IdGeneratorType",
+            "org.hibernate.annotations.ValueGenerationType");
     private static final List<String> COLUMNS = List.of(JPA + "Column", JPA + "JoinColumn");
 
     private final Types types;
@@ -150,7 +152,8 @@ final class EntityMetamodel {
      *     any other id
      * @param type the id's type as {@code getReference} takes it: the one attribute's, else the {@code @IdClass};
      *     {@code null} when the entity declares neither
-     * @param generated whether an {@code @Id} attribute carries {@code @GeneratedValue}; a generator declared in
+     * @param generated whether an {@code @Id} attribute carries {@code @GeneratedValue} or a generator annotation
+     *     (one meta-annotated {@code @IdGeneratorType} or {@code @ValueGenerationType}); a generator declared in
      *     {@code orm.xml} is not seen
      */
     record Id(Set<String> attributes, Set<String> components, TypeMirror type, boolean generated) {
@@ -203,7 +206,7 @@ final class EntityMetamodel {
                 if (hasAny(member, IDS)) {
                     ids.add(member.getKind() == ElementKind.METHOD
                             ? propertyName((ExecutableElement) member) : member.getSimpleName().toString());
-                    generated |= hasAny(member, List.of(GENERATED_VALUE));
+                    generated |= hasAny(member, List.of(GENERATED_VALUE)) || hasGeneratorAnnotation(member);
                 }
             }
         }
@@ -371,6 +374,16 @@ final class EntityMetamodel {
             }
         }
         return null;
+    }
+
+    /** Whether {@code element} carries an annotation meta-annotated as a Hibernate id or value generator. */
+    private static boolean hasGeneratorAnnotation(Element element) {
+        for (AnnotationMirror mirror : element.getAnnotationMirrors()) {
+            if (hasAny(mirror.getAnnotationType().asElement(), GENERATOR_META)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean hasAny(Element element, List<String> annotations) {

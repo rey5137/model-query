@@ -522,8 +522,10 @@ class DiagnosticMatrixTest {
                             c.model("NoteRow", "@InsertModel(root = NoteEntity.class)", ID, "String text")),
                     "MQ3501: TicketRow.code: @PrimaryKey must be TicketEntity's id 'id'; an insert writes the id",
                     "MQ3501: TicketRow.ticketId: 'id' is TicketEntity's id; mark the field @PrimaryKey",
-                    "MQ3501: TicketDraft: TicketEntity's id 'id' has no @GeneratedValue; name it with @PrimaryKey",
-                    "MQ3501: NoteRow.id: NoteEntity's id 'id' is generated (@GeneratedValue); leave it out of the "
+                    "MQ3501: TicketDraft: TicketEntity's id 'id' has no @GeneratedValue or generator annotation; name it "
+                            + "with @PrimaryKey",
+                    "MQ3501: NoteRow.id: NoteEntity's id 'id' is generated (@GeneratedValue or a generator "
+                            + "annotation); leave it out of the "
                             + "model")),
             of("MQ3502", c -> fails(
                     with(TICKET_ENTITY, c.customerView(), c.model("TicketRow",

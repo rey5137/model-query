@@ -169,7 +169,8 @@ root. `@Transient` is `MQ3502` too, since every field is a column of each row (`
 an update model's write checks (`MQ3301`, `MQ3305`, the `@Version` part of `MQ3303`), and `MQ3304` for an attribute an
 insert cannot write: `insertable = false`, or the inverse (`mappedBy`) side of a to-one. `updatable = false` does not
 apply, since an insert writes the column first.
-- The id. When the root's `@Id` carries `@GeneratedValue`, the model leaves it out; when it carries none, the model
+- The id. When the root's `@Id` carries `@GeneratedValue` or a generator annotation (one meta-annotated
+  `@IdGeneratorType` or `@ValueGenerationType`), the model leaves it out; when it carries none, the model
   names all of it with `@PrimaryKey`, as the id attribute, the `@IdClass` attributes or the `@EmbeddedId` (whole or by
   its components). Anything else the annotations show is `MQ3501`. A generator declared in `orm.xml` is seen on the
   definition's first execution instead (`MQ1802`, `api/14` R-WRT-26).
@@ -200,3 +201,4 @@ generates `Q<Model>`. A type with two or more is reported once (`MQ3503`) and ge
 | AC-PROC-14 | `@Aggregate(fn = SUM, expression = Def.class)` and `@GroupBy` on a `@Computed` field generate the aggregate constant and a `GROUP_KEYS` holding the expression; the query runs on every Tier-1 vendor (R-PROC-16, R-PROC-22). |
 | AC-PROC-15 | An `@InsertModel` with a converter, a to-one by id, an embedded path and an `@EmbeddedId` named whole or by its components generates, as does an `updatable = false` column; `@Join`, `@FilterColumn`, `@Aggregate`, `@GroupBy`, `@Computed`, `@Child` and `@Transient` are `MQ3502`, a column through a join, a collection, the `@Version`, an inverse to-one or a to-one id of the wrong type takes the update model's code, and an `insertable = false` column is `MQ3304` (R-PROC-23). |
 | AC-PROC-16 | A type carrying two or three of `@QueryModel`, `@UpdateModel` and `@InsertModel` reports `MQ3503` once, on the type, and generates no file (R-PROC-24). |
+| AC-PROC-17 | An `@Id` carrying an annotation meta-annotated `@IdGeneratorType` or `@ValueGenerationType`, with no `@GeneratedValue`, is generated: an insert model leaves it out, and naming it is `MQ3501` (R-PROC-23). |

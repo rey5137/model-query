@@ -656,7 +656,10 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
 
         /**
          * Copies in chunks, as {@code options} states, key-first over the distinct source-root ids, so each source
-         * row is read once. A source and target that overlap throw {@code MQ1806} on first execution (R-WRT-28).
+         * row is read once. A source and target that overlap, or a source that joins through a collection table
+         * ({@code @ManyToMany}, {@code @ElementCollection}), throw {@code MQ1806} on first execution. A
+         * {@code notExists} guard correlated on a value several source rows share writes fewer rows chunked than
+         * unchunked, since a later chunk skips rows an earlier one wrote (R-WRT-28).
          */
         public SelectOptions<E, M> chunked(ChunkOptions options) {
             return new SelectOptions<>(draft.chunk(Objects.requireNonNull(options, "options")));

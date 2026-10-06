@@ -78,7 +78,7 @@ try {
 | `MQ1803` | Insert: a `null` row. |
 | `MQ1804` | Insert conflict clause: the conflict columns are not the id, a natural id or a declared unique constraint; a vendor that detects a conflict on any unique key without `anyUniqueKey()`; `doNothing` the provider does not render; a `doUpdate` assigning a key column or reading two or more assigned columns in its `where` without `conflictUpdateWhereOnAssignedColumns(true)`. |
 | `MQ1805` | Insert: a generator that is not supported for the call (a pooled sequence or a table or UUID generator on an insert-select), a `JOINED` or `@SecondaryTable` root, a composite id with generated parts, `@MapsId`, or a constructor-only embeddable under `persist`. |
-| `MQ1806` | Insert: a `chunked` insert-select whose source and target overlap, or whose tables the provider cannot name. |
+| `MQ1806` | Insert: a `chunked` insert-select whose source and target overlap, or whose tables the provider cannot name, or whose source joins through a collection table (`@ManyToMany`, `@ElementCollection`). |
 | `MQ1807` | Insert: keys requested for an `IDENTITY` or assigned id, or a key type that is not the id's type. |
 | `MQ1808` | Insert: two rows of one insert-values call with a conflict clause share a conflict-key tuple. |
 

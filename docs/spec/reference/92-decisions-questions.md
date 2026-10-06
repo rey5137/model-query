@@ -1469,6 +1469,9 @@ record or constructor-only embeddable check (`MQ1805`) runs with `MQ1807` on fir
 a column's path, before the `MQ2501` check. `ModelPersist` gains the `@EngineFacing` `attributes()` and
 `attributeValues()`, the dotted column names and their converted values, which the executor sets; nothing new is API.
 
+*Amended at the M10 gate:* a join through a collection table (`@ManyToMany`, `@ElementCollection`) is not checked for
+overlap; `chunked` fails closed with `MQ1806` on it.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

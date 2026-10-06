@@ -121,7 +121,7 @@ final class WriteChecks {
             if (id.covers(field.attribute())) {
                 if (id.generated()) {
                     diagnostics.error(field.element(), DiagnosticCode.MQ3501, where + root + "'s id " + id.label()
-                            + " is generated (@GeneratedValue); leave it out of the model");
+                            + " is generated (@GeneratedValue or a generator annotation); leave it out of the model");
                     reported = true;
                 } else if (!field.primaryKey()) {
                     diagnostics.error(field.element(), DiagnosticCode.MQ3501, where + "'" + field.attribute()
@@ -132,14 +132,15 @@ final class WriteChecks {
                 // A path that does not resolve is MQ3001.
                 diagnostics.error(field.element(), DiagnosticCode.MQ3501, where + "@PrimaryKey must be " + root
                         + "'s id " + id.label() + (id.generated()
-                                ? ", which is generated (@GeneratedValue); remove it" : "; an insert writes the id"));
+                                ? ", which is generated (@GeneratedValue or a generator annotation); remove it"
+                                : "; an insert writes the id"));
                 reported = true;
             }
         }
         Set<String> keys = model.keys().stream().map(ModelField::attribute).collect(Collectors.toSet());
         if (!reported && !id.generated() && !id.is(keys)) {
             diagnostics.error(model.type(), DiagnosticCode.MQ3501, model.name() + ": " + root + "'s id " + id.label()
-                    + " has no @GeneratedValue; name it with @PrimaryKey");
+                    + " has no @GeneratedValue or generator annotation; name it with @PrimaryKey");
         }
     }
 
