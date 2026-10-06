@@ -217,7 +217,7 @@ and the `0.2.0` CHANGELOG section is ready, so the user can push the `v0.2.0` ta
 
 Spec: D-104–D-109 (Q-4, Q-9, Q-11, Q-12, Q-13 resolved), D-85 (the freeze split, amended by D-106), D-86, D-90;
 `vendor/40` §2, `vendor/41` §2, `api/14` R-WRT-11, `engine/21` §2, `api/11`, `integration/50`, `api/16` R-INS-06,
-`processor/32` R-DIAG-03, `reference/90`; D-111 (the adoption features, the freeze moved to M10). Each slice writes its rules, `AC-*` rows and `MQ` codes into the owning spec
+`processor/32` R-DIAG-03, `reference/90`; D-111 (the adoption features, the freeze moved to M10, now M11 per D-116). Each slice writes its rules, `AC-*` rows and `MQ` codes into the owning spec
 file first, then builds. Model: `architect-review` required before M9.3 (public API, paging correctness), for M9.1
 (`VendorProfile` and `ProviderSupport` surface), before M9.11 (sub-queries and correlation, M9.11a) and before M9.13 (expressions, M9.13a). New vendor profiles (MariaDB, D-81) come
 after M9, on the M9.1 SPI. Nothing is frozen in M9 (D-111): every new type is `@Incubating`. Tagging `v0.2.0` is the user's step after the gate, never a slice's.
@@ -264,16 +264,48 @@ unattended once M9.3a is recorded; M9.9 and M9.10 are decided and may run unatte
 **Exit:** the M9 rows' criteria green on Tier 1, nothing frozen, and the `0.2.0` CHANGELOG section ready, so the user
 can push the `v0.2.0` tag.
 
-## 11. M10 — Freeze → 1.0.0
+## 11. M10 — Inserts → 0.3.0
 
-Spec: D-85 (amended by D-106), D-86, D-111. Starts only when the user says the D-111 adopter has migrated onto 0.2.0
-and run it in production long enough. Model: `architect-review` at M10.1. Both slices are attended. Tagging `v1.0.0`
+Spec: RFC 0004 (accepted, `rfc/0004-bulk-inserts.md`), D-116 (its §9; amends D-14, D-85, P-5), `api/14` (retitled
+"Writes", new §10 R-WRT-24…R-WRT-40, `AC-WRT-21`…; R-WRT-15, -18, -19, -20 extended), `processor/30` R-PROC-23,
+R-PROC-24, `processor/31` §7, `processor/32` (`MQ35xx`), `vendor/40` R-VND-14, `integration/50` R-SPR-10 and
+AC-SPR-09, `reference/90` (`MQ18xx`, `MQ4009`), `reference/92`. Each slice writes its rules, `AC-*` rows and `MQ` codes
+into the owning spec file first, then builds. Model: `architect-review` at M10.2a (key typing, RFC 0004 "Resolved" 1;
+the `ModelInsert`/`ValuesInsert`/`ModelPersist` generics and stages; the `InsertSupport` and `VendorProfile` surface),
+before any public type is written. Nothing is frozen: every new public type and method is `@Incubating` and D-85
+exempts it from the 1.0 freeze (D-116). The D-111 adopter migrates onto 0.3.0, not 0.2.0, before M11. Tagging
+`v0.3.0` is the user's step after the gate, never a slice's.
+
+M10.1 and M10.2a are attended (their results may need the user's decision); M10.2 onwards may run unattended once
+M10.2a's `D-n` is recorded.
+
+| Slice | Contents | Done when |
+|---|---|---|
+| M10.1 | Vendor spike (RFC 0004 "Resolved" 3): the generator × vendor × conflict matrix on every Tier 1 vendor, as TCK probes on Hibernate 6.6 and 7.x: `IDENTITY`, assigned, pooled sequence, table, UUID; pre-generated ids in insert-values; the temporary-table plan for insert-select with pooled and table generators; `@MapsId`; multi-row `VALUES` on Oracle before and after 23; the update count and the conflict rendering per vendor; `persist` on bytecode-enhanced entities written by field. Results fix R-WRT-26, R-WRT-29, R-WRT-35 and the `MQ1805` allowlist, recorded in D-116; probes that pin vendor behaviour stay as TCK cases | every matrix cell has a recorded result; D-116 final |
+| M10.2a | Insert API design: `architect-review` of key typing (`Class<K>` checked at run time or a processor-generated key type), the `ModelInsert`/`ValuesInsert`/`ModelPersist` generics and D-60 stages (`map`/`set`, `where`/`all()`, `onConflict` → `doNothing`/`doUpdate` → `keepVersion`/`anyUniqueKey`, options), `InsertSupport` (INV-7) and the two `VendorProfile` methods (INV-6), against the M10.1 results; recorded as `D-n`. Review only, no code | every point has a recorded decision |
+| M10.2 | Spec and `core` types: `api/14` §10, INV-1/INV-9/P-5 wording, D-116, `MQ18xx` in `reference/90`; `ModelInsert`, `ValuesInsert`, `ModelPersist` and their staged builders over `ColumnField`, with the `build()` checks (`MQ1601`, `MQ1801` set twice / converter mismatch / `lockKeys` / keys with `commitEachChunk`, `MQ1803`), the shallow row copy (INV-9); `ChunkedWriteException` `nextRowIndex()` and in-doubt range | `core` unit tests for every `build()` check green; ArchUnit green |
+| M10.3 | Processor: `@InsertModel` (R-PROC-23), one model annotation per type (R-PROC-24), generated `Q<Model>` with `INSERT_COLUMNS` and the `@Incubating` `insert`, `insertFrom`, `persist` builders (`processor/31` §7), `MQ3501`–`MQ3503` | compile-testing cases for the generated shape and each new code green |
+| M10.4 | Provider SPI and executor: `ProviderSupport#inserts()`/`InsertSupport` (R-VND-14) implemented by `HibernateProviderSupport` (generator kind, `n` pre-generated keys), `VendorProfile.maxValuesRows()` and `conflictTargetHonoured()` with the built-in overrides, the three `ModelQueryExecutor` methods, first-execution checks (D-61: `MQ1801` attribute types, `MQ1802`, `MQ1805`, `MQ1807`), `MQ4009` before the flush on a provider without the SPI | `AC-WRT` rows for `MQ1802`, `MQ1805`, `MQ1807`, `MQ4009` green on Tier 1 |
+| M10.5 | Insert-select: the source select on the read path's `JoinContext`, unchunked and `chunked` key-first over distinct source ids (R-WRT-28), `MQ1806` on overlap, R-WRT-38 context handling, `ChunkedWriteException` with source keys | insert-select `AC-WRT` rows (rows = `list`, joined and to-many sources, chunked once each, `MQ1806`, `CLEAR`/`KEEP`) green on Tier 1 |
+| M10.6 | Insert-values: rows per statement from the bind limit (D-80 counting), `maxValuesRows()` and the `chunked` cap, per-row statements where `VALUES` lists are unavailable, converters and to-one `getReference`, pre-generated keys, `insertReturningKeys` (R-WRT-33), `commitEachChunk` with `nextRowIndex()` | insert-values and keys `AC-WRT` rows green on Tier 1; SQL snapshots per vendor with the version seed |
+| M10.7 | Conflict clauses: `onConflict` stages, `doNothing`, `doUpdate` with `setFromRow`/`set`/`setNull`/`where`/`keepVersion`, the mapping unique-key check and R-WRT-13 (`MQ1804`), `conflictTargetHonoured()`/`anyUniqueKey()` (R-WRT-36), duplicate keys (`MQ1808`), on insert-values and insert-select; counts pinned per vendor | conflict `AC-WRT` rows green on Tier 1, MySQL `MQ1804` included |
+| M10.8 | `persist` (R-WRT-39, R-WRT-40): instantiate, set through the metamodel member, `persist`, `flush`, `getIdentifier`, `detach`; `MQ2501` without a transaction; `MQ1805` for a constructor-only embeddable | `persist` `AC-WRT` rows green on Hibernate and on a second provider if the TCK has one |
+| M10.9 | Spring: `ModelQueryRepository.insert`, `insertReturningKeys`, `persist` (R-SPR-10, AC-SPR-09); the Spring Boot sample gains a `POST` endpoint over `persist` and an import endpoint over insert-values with `doNothing`, tested over HTTP | AC-SPR-09 for the three methods green; the sample's tests pass |
+| M10.10 | Docs and 0.3.0 release prep: a user-guide page "Inserts" (every code block copied from a test that runs, the test named), the stability page listing the D-116 incubating types, `japicmp` exclusions for the executor and repository methods added to the interface, `[Unreleased]` folded into the `0.3.0` CHANGELOG section, README, docs site and stability page say 0.3.0, `M10` added to the audit's started scope | `mkdocs build --strict` green; `JapicmpExclusionsTest` green; AC audit green with M10 started |
+
+**Exit:** the M10 rows' criteria green on Tier 1, nothing frozen, and the `0.3.0` CHANGELOG section ready, so the user
+can push the `v0.3.0` tag.
+
+## 12. M11 — Freeze → 1.0.0
+
+Spec: D-85 (amended by D-106 and D-116), D-86, D-111, D-116. Starts only when the user says the D-111 adopter has migrated onto 0.3.0
+and run it in production long enough. Model: `architect-review` at M11.1. Both slices are attended. Tagging `v1.0.0`
 is the user's step after the gate, never a slice's.
 
 | Slice | Contents | Done when |
 |---|---|---|
-| M10.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9 and adoption types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
-| M10.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M10` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M10 started |
+| M11.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption and M10 insert types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
+| M11.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M11` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M10 started |
 
-**Exit:** the M10 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M10.1 decision, so the user can
+**Exit:** the M11 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M11.1 decision, so the user can
 push the `v1.0.0` tag.
