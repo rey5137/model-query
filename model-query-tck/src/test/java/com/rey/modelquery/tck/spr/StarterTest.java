@@ -110,6 +110,7 @@ class StarterTest {
             assertThat(config.mysqlStreamingMode()).isEqualTo(MysqlStreamingMode.ROW_BY_ROW);
             assertThat(config.persistenceContextMode()).isEqualTo(PersistenceContextMode.CLEAR);
             assertThat(config.bulkWriteChunkSize()).isEqualTo(ModelQueryConfig.defaults().bulkWriteChunkSize());
+            assertThat(config.conflictUpdateWhereOnAssignedColumns()).isFalse();
         });
     }
 
@@ -119,7 +120,8 @@ class StarterTest {
                 "modelquery.primary-key-first.batch-size=50", "modelquery.stream.fetch-size=70",
                 "modelquery.mysql.streaming-mode=cursor-fetch", "modelquery.query-timeout=30s",
                 "modelquery.keyset.null-keys=honour-null-precedence", "modelquery.bulk-write.persistence-context=keep",
-                "modelquery.bulk-write.chunk-size=250").run(context -> {
+                "modelquery.bulk-write.chunk-size=250",
+                "modelquery.bulk-write.conflict-update-where-on-assigned-columns=true").run(context -> {
                     ModelQueryConfig config = context.getBean(ModelQueryConfig.class);
                     assertThat(config.vendor()).contains(DatabaseVendor.SQLSERVER);
                     assertThat(config.exportPageSize()).isEqualTo(200);
@@ -130,6 +132,7 @@ class StarterTest {
                     assertThat(config.keysetNullKeys()).isEqualTo(KeysetNullKeys.HONOUR_NULL_PRECEDENCE);
                     assertThat(config.persistenceContextMode()).isEqualTo(PersistenceContextMode.KEEP);
                     assertThat(config.bulkWriteChunkSize()).isEqualTo(250);
+                    assertThat(config.conflictUpdateWhereOnAssignedColumns()).isTrue();
                 });
     }
 

@@ -309,7 +309,7 @@ public interface ModelQueryExecutor<E> {
 | AC-WRT-22 | Insert-values with an assigned id, a pooled sequence, a converter, a to-one by id and a `set` constant round-trips; `IDENTITY` round-trips with `insert` and throws `MQ1807` with `insertReturningKeys` (R-WRT-26, R-WRT-29, R-WRT-30, R-WRT-33). |
 | AC-WRT-23 | `insertReturningKeys` returns keys that read back each row by index; with `commitEachChunk()` it throws `MQ1801` before the flush (R-WRT-33). |
 | AC-WRT-24 | Rows per statement never exceed the bind or `VALUES` row limit, the version seed counted (SQL snapshots per vendor); an empty list runs no SQL (R-WRT-29). |
-| AC-WRT-25 | `doNothing` skips a conflicting row; `doUpdate` with `setFromRow` and `where` updates only the matching rows and increments `@Version`; MySQL without `anyUniqueKey()` throws `MQ1804`, and with it counts as R-WRT-35 states; `doNothing` where the provider does not render it throws `MQ1804` on first execution (R-WRT-34, R-WRT-35, R-WRT-36). |
+| AC-WRT-25 | `doNothing` skips a conflicting row; `doUpdate` with `setFromRow` and `where` updates only the matching rows and increments `@Version`; MySQL without `anyUniqueKey()` throws `MQ1804`, and with it counts as R-WRT-35 states; `doNothing` where the provider does not render it throws `MQ1804` on first execution; a `where` reading two or more assigned columns, the version increment included unless `keepVersion()`, throws `MQ1804` on every vendor by default, and with `conflictUpdateWhereOnAssignedColumns(true)` updates as the stored row matches where `conflictWhereSeesEarlierAssignments()` is false and throws `MQ1804` where it is true, while one such column runs everywhere (R-WRT-34, R-WRT-35, R-WRT-36). |
 | AC-WRT-26 | A `commitEachChunk` insert-values failure reports `committedRows()`, `nextRowIndex()` and `inDoubtRowCount()`; a failed insert-select reports source keys (R-WRT-32). |
 | AC-WRT-27 | After any bulk insert the persistence context is cleared by default and kept with `KEEP`, and the root is evicted from the second-level cache (R-WRT-38). |
 | AC-WRT-28 | `persist` with `IDENTITY` returns the key, runs `@PrePersist` and leaves the created entity detached, on Hibernate and on a second provider if the TCK has one; with a `CascadeType.ALL` to-one it detaches the caller's managed target, as documented; an unnamed nullable attribute with a database default is written as NULL (R-WRT-39, R-WRT-40). |
@@ -502,11 +502,12 @@ executor.insert(QNewOrder.insert(rows)
 **R-WRT-34** A conflict clause is offered on insert-values only (D-116: Hibernate cannot render one on an insert-select,
 which guards with `notExists`, R-WRT-28). `onConflict(ColumnField<M, E, ?> first, ColumnField<M, E, ?>... rest)` names
 the unique key the conflict is detected on; zero columns does not compile, and a column named twice or not in the
-model's `InsertColumns` throws `MQ1804` at `build()`. The columns must be the root's id, its natural id, or a declared
-unique constraint, checked on first execution (`MQ1804`) from the mapping: `@Id`, `@NaturalId`, `@Column(unique =
-true)` and `@Table(uniqueConstraints)`. A unique index that exists only in a migration is not seen and is rejected; the
-Javadoc says to declare it in the mapping. The check stays because on a `MERGE` vendor a non-unique match updates
-several rows.
+model's `InsertColumns` throws `MQ1804` at `build()`. The columns must be exactly the root's id, its natural id, or a
+declared unique constraint, checked on first execution (`MQ1804`) from the mapping: `@Id`, `@NaturalId`, `@Column(unique
+= true)`, `@JoinColumn(unique = true)` and `@Table(uniqueConstraints)` on the entity or a superclass entity, the
+constraint's columns matched to the attributes' columns. A unique index that exists only in a migration, or only in
+`orm.xml`, is not seen and is rejected; the Javadoc says to declare it in the mapping. The check stays because on a
+`MERGE` vendor a non-unique match updates several rows.
 
 `onConflict` returns `Conflict`, offering only `doNothing()`, which returns `ConflictOptions`, and
 `doUpdate(Function<ConflictUpdate<E, M>, ConflictUpdate.Action<E, M>>)`, which returns `Upserting`; so a clause without
@@ -516,18 +517,28 @@ an action does not compile. `ConflictUpdate` offers `setFromRow(first, rest...)`
 `ConflictOptions` offers `anyUniqueKey()` (R-WRT-36), `chunked`, `persistenceContext` and `build()`, which returns a
 `ModelInsert`; `Upserting` adds `keepVersion()`. The assignments follow R-WRT-13: a key column (the conflict columns or
 the model's `@PrimaryKey`), a column assigned twice or a column not on the root is `MQ1804` at `build()`, as is a
-`setFromRow` column not in the model's `InsertColumns`; a `@Version` column is `MQ1804` on first execution. The `where`
-filters the stored row on root columns only: the conflict action has no join context, so a joined column, `exists` or a
-sub-select is `MQ1804` at `build()`. If every filter in it is skipped, the update applies to every conflicting row (not
-`MQ1601`). A root `@Version` is incremented unless `keepVersion()`; `MQ1606` applies to a version type it cannot
-increment. Constraint names are not offered: Hibernate rejects them on every `MERGE` vendor and for `DO UPDATE` on
-MySQL. `doNothing()` throws `MQ1804` on first execution where the provider reports that it does not render it for the
-dialect (Hibernate 6 on a `MERGE` vendor writes a plain insert), rather than failing per row (D-116).
+`setFromRow` column not in the model's `InsertColumns`; an id or `@Version` attribute is `MQ1804` on first execution.
+The `where` filters the stored row on root columns only: the conflict action has no join context, so a joined column,
+`exists` or a sub-select is `MQ1804` at `build()`. If every filter in it is skipped, the update applies to every
+conflicting row (not `MQ1601`). A `where` that reads two or more of the columns the update assigns, the version
+increment counted unless `keepVersion()`, is `MQ1804` on execution, before any statement, on every vendor, unless the
+executor is configured with `ModelQueryConfig.conflictUpdateWhereOnAssignedColumns(true)`
+(`modelquery.bulk-write.conflict-update-where-on-assigned-columns`, default false); with it, it is still `MQ1804`
+where the profile's `conflictWhereSeesEarlierAssignments()` is true (`vendor/40` R-VND-14), since there the `where`
+would filter on the values the earlier assignments wrote (R-WRT-35). The check runs on each execution, after the
+first-execution checks, because the option is the executor's; so does R-WRT-36's, because the profile is. A
+`where` reading at most one assigned column runs on every vendor. A root `@Version` is incremented unless
+`keepVersion()`; `MQ1606` applies to a version type it cannot increment. Constraint names are not offered: Hibernate rejects them on every `MERGE` vendor and
+for `DO UPDATE` on MySQL. `doNothing()` throws `MQ1804` on first execution where the provider reports that it does not
+render it for the dialect (Hibernate 6 on a `MERGE` vendor writes a plain insert), rather than failing per row (D-116).
 
 **R-WRT-35** Rendering is the provider's: `ON CONFLICT` on PostgreSQL; `ON DUPLICATE KEY UPDATE` with a row alias on
 MySQL and MariaDB, `doNothing` rendered as a self-assignment and a `doUpdate`'s `where` as a `CASE` per assignment;
-`MERGE` on H2, Oracle and SQL Server, with the `where` on `WHEN MATCHED`. `insert` returns the provider's count, rows
-inserted plus rows updated, where `conflictTargetHonoured()`. Elsewhere a conflict clause already needs
+`MERGE` on H2, Oracle and SQL Server, with the `where` on `WHEN MATCHED`. MySQL assigns in order and each `CASE`
+reads the columns earlier assignments wrote, so an assignment to a column the `where` reads renders after the others,
+the version increment included; two or more such columns cannot all come last, which R-WRT-34 refuses there.
+`insert` returns the provider's count, rows inserted plus rows updated, where `conflictTargetHonoured()`. Elsewhere a
+conflict clause already needs
 `anyUniqueKey()`, whose Javadoc states that it accepts the vendor's count: on MySQL every conflicting row counts 1 when
 skipped, filtered out or left unchanged and 2 when changed (Connector/J's default found rows), so `doNothing` counts
 the rows it skipped. `ChunkedWriteException.committedRows()` follows the same count. The Javadoc says so and the TCK

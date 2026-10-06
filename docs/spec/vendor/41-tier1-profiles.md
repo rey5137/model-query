@@ -36,6 +36,7 @@ as community-supported. It never gates a release.
 | Row-value keyset `(a,b) > (?,?)` | supported | supported | supported — a possible later optimisation; the default stays the portable OR-expansion |
 | Rows per multi-row `VALUES` insert (`maxValuesRows()`) | no limit beyond the bind limit | no limit beyond the bind limit | no limit beyond the bind limit |
 | Conflict detected only on the named key (`conflictTargetHonoured()`) | yes | yes | **no**: any unique key, so a conflict clause needs `anyUniqueKey()` (`api/14` R-WRT-36) |
+| Conflict `where` reads earlier assignments (`conflictWhereSeesEarlierAssignments()`) | no | no | **yes**: a `CASE` per assignment, so a `where` reading two or more assigned columns is refused (`api/14` R-WRT-34) |
 
 **R-PRF-11** The built-in H2, PostgreSQL and MySQL profiles carry the values in this table (`vendor/40` R-VND-03);
 "no limit" is `maxValuesRows()` returning `Integer.MAX_VALUE` (`vendor/40` R-VND-14, D-117).
@@ -112,4 +113,4 @@ database (`delivery/60`).
 | AC-PRF-06 | `defaultAscendingNullOrdering()` matches the database's observed ordering on every Tier-1 version (R-PRF-08). |
 | AC-PRF-07 | Every keyset combination in R-PRF-10 pages through the whole table exactly once (R-PRF-09). |
 | AC-PRF-08 | A query exceeding the configured timeout is cancelled on every Tier-1 vendor (R-PRF-05). |
-| AC-PRF-09 | On every Tier-1 vendor a 1,001-row `VALUES` insert, past the default `maxValuesRows()`, runs as one statement, and a conflict clause naming the id meets a conflict on another unique key as a unique violation exactly where `conflictTargetHonoured()` is true (R-PRF-11, `vendor/40` R-VND-14). |
+| AC-PRF-09 | On every Tier-1 vendor a 1,001-row `VALUES` insert, past the default `maxValuesRows()`, runs as one statement, and a conflict clause naming the id meets a conflict on another unique key as a unique violation exactly where `conflictTargetHonoured()` is true, and a conflict update whose `where` reads both columns it assigns leaves the second unchanged exactly where `conflictWhereSeesEarlierAssignments()` is true (R-PRF-11, `vendor/40` R-VND-14). |

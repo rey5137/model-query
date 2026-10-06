@@ -172,6 +172,12 @@ class VendorResolverTest {
         assertThat(BuiltInProfile.OTHER.conflictTargetHonoured()).isFalse();
         assertThat(new CustomProfile(DatabaseVendor.H2).maxValuesRows()).isEqualTo(1_000);
         assertThat(new CustomProfile(DatabaseVendor.H2).conflictTargetHonoured()).isFalse();
+        assertThat(BuiltInProfile.H2.conflictWhereSeesEarlierAssignments()).isFalse();
+        assertThat(BuiltInProfile.POSTGRESQL.conflictWhereSeesEarlierAssignments()).isFalse();
+        assertThat(BuiltInProfile.MYSQL.conflictWhereSeesEarlierAssignments()).isTrue();
+        assertThat(BuiltInProfile.MYSQL_CURSOR_FETCH.conflictWhereSeesEarlierAssignments()).isTrue();
+        assertThat(BuiltInProfile.OTHER.conflictWhereSeesEarlierAssignments()).isTrue();
+        assertThat(new CustomProfile(DatabaseVendor.H2).conflictWhereSeesEarlierAssignments()).isTrue();
         ProviderSupport withoutInserts = new ProviderSupport() {
             @Override
             public boolean supports(EntityManagerFactory emf) {

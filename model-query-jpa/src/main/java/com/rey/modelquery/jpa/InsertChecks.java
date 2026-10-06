@@ -4,11 +4,13 @@ import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.jpa.spi.IdGeneration;
 import com.rey.modelquery.jpa.spi.InsertTarget;
+import java.util.List;
+import java.util.Set;
 
 /**
  * The checks of a bulk insert against what the provider reports of its root: the generator allowlist of api/14
- * R-WRT-26, the mappings no bulk insert writes, and the id the model names. Run on the definition's first execution,
- * before any statement (D-61, D-116, D-117).
+ * R-WRT-26, the mappings no bulk insert writes, the id the model names, and a conflict clause's key, action and
+ * {@code where}. Run on the definition's first execution, before any statement (D-61, D-116, D-117).
  */
 final class InsertChecks {
 
@@ -42,6 +44,71 @@ final class InsertChecks {
             throw new ModelQueryDefinitionException(MqCode.MQ1802, insert + ": writes the root's id, which "
                     + describe(target.id()) + " generates; leave it out of the model, since an explicit value would "
                     + "not advance the generator and a later generated key could collide");
+        }
+    }
+
+    /**
+     * Checks an insert's conflict clause, detected on {@code keys}, against the {@code uniqueKeys} the mapping
+     * declares and whether the provider renders the clause's action (R-WRT-34).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1804} for keys that are not exactly one declared unique key, or a
+     *     {@code doNothing()} the provider does not render
+     */
+    static void checkConflict(Object insert, List<String> keys, List<Set<String>> uniqueKeys, boolean rendered) {
+        if (!uniqueKeys.contains(Set.copyOf(keys))) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1804, insert + ": onConflict" + keys + " names no "
+                    + "unique key of the mapping, which declares " + uniqueKeys + "; declare it with @Id, "
+                    + "@NaturalId, @Column(unique = true), @JoinColumn(unique = true) or @Table(uniqueConstraints), "
+                    + "since a unique index only a migration or orm.xml declares is not seen");
+        }
+        if (!rendered) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1804, insert + ": the persistence provider does not "
+                    + "render doNothing() for this database and would write a plain insert, which fails on the first "
+                    + "conflicting row; use doUpdate(...), or a provider version that renders it");
+        }
+    }
+
+    /**
+     * Checks an insert's conflict clause on {@code keys} given whether the vendor honours the named key or the insert
+     * accepts any unique key (R-WRT-36).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1804} for a vendor that detects a conflict on any unique key
+     *     without {@code anyUniqueKey()}
+     */
+    static void checkConflictTarget(Object insert, List<String> keys, boolean keyHonoured) {
+        if (!keyHonoured) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1804, insert + ": this database detects a conflict on "
+                    + "any unique key, not only " + keys + ", so a row could skip or update a row it matches on "
+                    + "another key; anyUniqueKey() accepts that and the vendor's count");
+        }
+    }
+
+    /**
+     * Checks a conflict update whose {@code where} reads the {@code assigned} columns the update also assigns, given
+     * whether the executor's configuration {@code allows} two or more and whether the vendor's {@code where}
+     * {@code seesEarlierAssignments} (R-WRT-34, D-117).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1804} for two or more such columns unless allowed, and where the
+     *     vendor's {@code where} reads the values earlier assignments wrote even then
+     */
+    static void checkConflictWhere(Object insert, List<String> assigned, boolean allows,
+            boolean seesEarlierAssignments) {
+        if (assigned.size() < 2) {
+            return;
+        }
+        if (!allows) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1804, insert + ": the doUpdate(...) where reads "
+                    + assigned + ", which the update also assigns; on some databases it would filter on the values "
+                    + "the earlier assignments wrote. Filter on at most one of them, or set "
+                    + "ModelQueryConfig.conflictUpdateWhereOnAssignedColumns(true) "
+                    + "(modelquery.bulk-write.conflict-update-where-on-assigned-columns) where the database reads "
+                    + "the stored row");
+        }
+        if (seesEarlierAssignments) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1804, insert + ": the doUpdate(...) where reads "
+                    + assigned + ", which the update also assigns, and this database evaluates it per assignment, "
+                    + "after the earlier assignments, so it would filter on the values they wrote; filter on at most "
+                    + "one of them");
         }
     }
 

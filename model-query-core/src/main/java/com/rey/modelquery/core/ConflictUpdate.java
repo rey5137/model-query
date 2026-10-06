@@ -125,7 +125,10 @@ public final class ConflictUpdate<E, M> {
          * Updates only the stored rows {@code filters} matches: it receives an empty {@link Filters}, and every filter
          * it adds is ANDed. It reads the stored row's root columns only; a joined column, {@code exists} or a
          * sub-select throws {@code MQ1804} at {@code build()}. If every filter is skipped, the update applies to every
-         * conflicting row (R-WRT-34).
+         * conflicting row. Reading two or more of the columns the update assigns, the {@code @Version} increment
+         * included unless {@code keepVersion()}, throws {@code MQ1804} on execution unless the executor is configured
+         * with {@code conflictUpdateWhereOnAssignedColumns(true)}, and even then on MySQL, which would filter on the
+         * values the earlier assignments wrote (R-WRT-34).
          */
         public Action<E, M> where(UnaryOperator<Filters<M>> filters) {
             return new Action<>(fromRow(), assignments(), FilterGroup.collect(Objects.requireNonNull(filters,

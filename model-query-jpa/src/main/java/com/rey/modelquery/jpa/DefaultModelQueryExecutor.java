@@ -36,6 +36,7 @@ import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.core.ValuesInsert;
+import com.rey.modelquery.jpa.spi.ConflictClause;
 import com.rey.modelquery.jpa.spi.InsertSupport;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.jpa.spi.VendorProfile;
@@ -160,6 +161,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private final int bulkWriteChunkSize;
     /** The configured callback for {@code commitEachChunk()}, or {@code null} for none (R-WRT-19, D-62). */
     private final ChunkTransactions chunkTransactions;
+    /**
+     * Whether a conflict update's {@code where} may read two or more of its assigned columns where the vendor reads
+     * the stored row (R-WRT-34, D-117).
+     */
+    private final boolean conflictUpdateWhereOnAssignedColumns;
 
     DefaultModelQueryExecutor(EntityManager em, Class<E> rootEntity, ModelQueryConfig config) {
         this.em = Objects.requireNonNull(em, "em");
@@ -185,6 +191,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         this.persistenceContextMode = config.persistenceContextMode();
         this.bulkWriteChunkSize = config.bulkWriteChunkSize();
         this.chunkTransactions = config.chunkTransactions().orElse(null);
+        this.conflictUpdateWhereOnAssignedColumns = config.conflictUpdateWhereOnAssignedColumns();
     }
 
     @Override
@@ -670,9 +677,6 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         if (i.sourceEntity().isPresent()) {
             return insertSelect(i, support);
         }
-        if (!(i instanceof ValuesInsert<?, ?, ?>)) {
-            throw new UnsupportedOperationException(i + ": conflict clauses are built in M10.7");
-        }
         return insertValues(i, support, null);
     }
 
@@ -687,11 +691,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Map<String, Object> constants = i.selectParameters();
         BuiltQuery<?> select = i.buildSelect(cb, renderOptions);
         int repeated = select.joins().repeatedExpressionBinds();
-        BiFunction<EntityManager, CriteriaQuery<Tuple>, Query> statement = (on, source) -> {
-            Query insert = support.insertSelect(on, rootEntity, attributes, source);
-            constants.forEach(insert::setParameter);
-            return insert;
-        };
+        BiFunction<EntityManager, CriteriaQuery<Tuple>, Query> statement = (on, source) ->
+                support.insertSelect(on, rootEntity, attributes, source, constants);
         Supplier<Query> whole = () -> statement.apply(em, select.query());
         logWrite("insert", i, i.chunkOptions(), false);
         if (i.chunkOptions().isEmpty()) {
@@ -724,9 +725,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * Runs an insert-values: its rows in list order, in statements of the most rows that stay within the bind limit
      * and the profile's {@code VALUES} limit, capped by the chunk size; each in the caller's transaction, or with
      * {@code commitEachChunk()} in its own. A sequence, table or UUID id is drawn from the generator before each
-     * statement, written as a value and added to {@code keys} when given. An empty list runs no SQL, not even the
-     * flush; otherwise the persistence context is flushed before and cleared after, as for any bulk write (R-WRT-26,
-     * R-WRT-29, R-WRT-32, R-WRT-33, R-WRT-38).
+     * statement, written as a value and added to {@code keys} when given. A conflict clause goes in every statement.
+     * An empty list runs no SQL, not even the flush; otherwise the persistence context is flushed before and cleared
+     * after, as for any bulk write (R-WRT-26, R-WRT-29, R-WRT-32, R-WRT-33, R-WRT-34, R-WRT-38).
      */
     private long insertValues(ModelInsert<E, ?> i, InsertSupport support, List<Object> keys) {
         int rows = i.rowCount();
@@ -741,6 +742,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         int providerBinds = support.providerBindsPerRow(emf, rootEntity);
         int perStatement = rowsPerStatement(i, attributes.size() + providerBinds);
+        Optional<ConflictClause<E>> conflict = i.conflictKeys().isEmpty() ? Optional.empty()
+                : Optional.of(new InsertConflict<>(i, renderOptions));
         ValuesWrite.Statement statement = (on, from, to) -> {
             List<List<Object>> values = i.valueRows(from, to);
             if (drawn) {
@@ -752,8 +755,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                     keys.addAll(drawnKeys);
                 }
             }
-            return execute(support.insertValues(on, rootEntity, attributes, values, Optional.empty()),
-                    providerBinds * (to - from));
+            return execute(support.insertValues(on, rootEntity, attributes, values, conflict),
+                    providerBinds * (to - from) + i.conflictRepeatedBinds());
         };
         boolean perChunk = i.chunkOptions().map(ChunkOptions::commitsEachChunk).orElse(false);
         logWrite("insert", i, i.chunkOptions(), false);
@@ -764,13 +767,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     /**
      * The most rows one insert-values statement takes: as many as stay within the bind limit at {@code bindsPerRow}
      * each, the columns, the {@code set} constants, a drawn id and the provider's own binds such as the version seed,
-     * and within the profile's {@code maxValuesRows()}, capped by the chunk size, the given or else the configured
-     * one, when chunked; at least one, which {@code execute} refuses with {@code MQ1307} should it alone pass the bind
-     * limit (R-WRT-29, D-80).
+     * once the conflict clause's binds are bound, and within the profile's {@code maxValuesRows()}, capped by the
+     * chunk size, the given or else the configured one, when chunked; at least one, which {@code execute} refuses
+     * with {@code MQ1307} should it alone pass the bind limit (R-WRT-29, D-80).
      */
     private int rowsPerStatement(ModelInsert<E, ?> i, int bindsPerRow) {
-        int rows = Math.min(renderOptions.maxBindParameters() / Math.max(1, bindsPerRow),
-                vendor.profile().maxValuesRows());
+        int free = Math.max(0, renderOptions.maxBindParameters() - i.conflictBinds());
+        int rows = Math.min(free / Math.max(1, bindsPerRow), vendor.profile().maxValuesRows());
         if (i.chunkOptions().isPresent()) {
             rows = Math.min(rows, i.chunkOptions().get().size().orElse(bulkWriteChunkSize));
         }
@@ -808,17 +811,32 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * Checks {@code i} the first time it runs on this executor's factory, before any statement: against the metamodel,
-     * then against the generator and the mappings {@code support} reports for the root (D-61, R-WRT-26).
+     * then against the generator and the mappings {@code support} reports for the root (D-61, R-WRT-26); and on each
+     * run, a conflict clause's target and its update's {@code where} against this executor's configuration and
+     * profile (R-WRT-34, R-WRT-36).
      */
     private void checkInsertOnce(ModelInsert<E, ?> i, InsertSupport support) {
         checkWriteOnce(i, metamodel -> {
+            EntityManagerFactory emf = em.getEntityManagerFactory();
             i.checkMetamodel(metamodel);
-            InsertChecks.checkTarget(i, support.target(em.getEntityManagerFactory(), rootEntity),
-                    i.sourceEntity().isPresent(), i.writesId(metamodel));
+            InsertChecks.checkTarget(i, support.target(emf, rootEntity), i.sourceEntity().isPresent(),
+                    i.writesId(metamodel));
+            if (!i.conflictKeys().isEmpty()) {
+                InsertChecks.checkConflict(i, i.conflictKeys(), support.uniqueKeys(emf, rootEntity),
+                        !i.conflictSkips() || support.doNothingRendered(emf));
+            }
             if (i.chunkOptions().isPresent() && i.sourceEntity().isPresent()) {
                 checkNoOverlap(i, selected(i, metamodel), metamodel);
             }
         });
+        // Each run, not once per factory: the option and the profile are this executor's, and another executor on
+        // the same factory may run i too
+        if (!i.conflictKeys().isEmpty()) {
+            InsertChecks.checkConflictTarget(i, i.conflictKeys(),
+                    vendor.profile().conflictTargetHonoured() || i.conflictAnyUniqueKey());
+        }
+        InsertChecks.checkConflictWhere(i, i.conflictWhereReadsAssigned(em.getMetamodel()),
+                conflictUpdateWhereOnAssignedColumns, vendor.profile().conflictWhereSeesEarlierAssignments());
     }
 
     /**

@@ -110,6 +110,7 @@ or the call is `MQ2207` (`engine/21` R-PAG-16).
 | `modelquery.keyset.null-keys` | `fail` | `fail` or `honour-null-precedence` (`engine/21` R-PAG-05) |
 | `modelquery.bulk-write.persistence-context` | `clear` | `clear` or `keep` after a bulk write (`api/14` R-WRT-15) |
 | `modelquery.bulk-write.chunk-size` | 1000 | default size for `chunked(...)`, clamped per vendor (`api/14` R-WRT-17) |
+| `modelquery.bulk-write.conflict-update-where-on-assigned-columns` | false | allow a conflict update's `where` to read two or more assigned columns where the vendor reads the stored row (`api/14` R-WRT-34) |
 
 **R-SPR-08** Every property has a plain-JPA equivalent on `ModelQueryConfig`; the starter only reads properties into it
 (INV-8).

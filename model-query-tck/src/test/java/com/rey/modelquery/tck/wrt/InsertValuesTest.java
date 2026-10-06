@@ -424,7 +424,7 @@ class InsertValuesTest {
     }
 
     /** {@code db}'s built-in profile with the bind-parameter and {@code VALUES} row limits given (R-VND-03). */
-    private static VendorProfile limited(TckDatabase db, int maxBindParameters, int maxValuesRows) {
+    static VendorProfile limited(TckDatabase db, int maxBindParameters, int maxValuesRows) {
         VendorProfile builtIn;
         try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
             builtIn = VendorResolver.resolve(sf, Optional.empty(), MysqlStreamingMode.ROW_BY_ROW).profile();

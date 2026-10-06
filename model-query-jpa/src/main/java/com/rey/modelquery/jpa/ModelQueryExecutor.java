@@ -235,12 +235,24 @@ public interface ModelQueryExecutor<E> {
      * distinct source-root ids, each chunk in the caller's transaction or, with {@code commitEachChunk()}, its own
      * (R-WRT-27, R-WRT-28).
      *
+     * <p>With a conflict clause the count is the provider's, rows inserted plus rows updated, where the profile's
+     * {@code conflictTargetHonoured()}; elsewhere the clause needs {@code anyUniqueKey()}, which accepts the vendor's
+     * count: on MySQL a conflicting row counts 1 when skipped, filtered out or left unchanged and 2 when changed. A
+     * {@code MERGE} vendor raises a unique violation for a key another transaction inserts at the same time
+     * (R-WRT-35, R-WRT-36).
+     *
      * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution: {@code MQ1801} for an
      *     insert-select {@code map} between attributes of different types or reading a column off the source root,
      *     {@code MQ1802} for an id the model names against the root's generator, {@code MQ1805} for a generator or a
      *     mapping of the root that the insert cannot write, {@code MQ1806} for a chunked insert-select whose target
      *     is of one entity hierarchy with, or shares a table with, the source root or an entity the select joins, or
-     *     whose tables the provider does not name (R-WRT-26, R-WRT-27, R-WRT-28)
+     *     whose tables the provider does not name, {@code MQ1804} for conflict columns that are not exactly a unique
+     *     key the mapping declares, a conflict update assigning an id or the {@code @Version}, a vendor detecting a
+     *     conflict on any unique key without {@code anyUniqueKey()}, a {@code doNothing()} the provider does not
+     *     render, or a conflict update whose {@code where} reads two or more of the columns it assigns, the version
+     *     increment included, unless {@code ModelQueryConfig.conflictUpdateWhereOnAssignedColumns(true)} on a vendor
+     *     whose profile's {@code conflictWhereSeesEarlierAssignments()} is false (R-WRT-26, R-WRT-27, R-WRT-28,
+     *     R-WRT-34, R-WRT-36)
      * @throws com.rey.modelquery.core.ChunkedWriteException {@code MQ2502} when a chunk of a
      *     {@code commitEachChunk()} insert-select fails; its keys are source-root ids (R-WRT-20, R-WRT-32)
      * @throws com.rey.modelquery.core.ModelQueryConfigurationException {@code MQ4009}, before any statement, the flush

@@ -259,6 +259,8 @@ public class ModelQueryAutoConfiguration {
         config = ifSet(config, properties.getBulkWrite().getPersistenceContext(),
                 ModelQueryConfig::persistenceContextMode);
         config = ifSet(config, properties.getBulkWrite().getChunkSize(), ModelQueryConfig::bulkWriteChunkSize);
+        config = ifSet(config, properties.getBulkWrite().getConflictUpdateWhereOnAssignedColumns(),
+                ModelQueryConfig::conflictUpdateWhereOnAssignedColumns);
         if (properties.getKeyset().getNullKeys() != null) {
             config = config.keysetNullKeys(properties.getKeyset().getNullKeys());
             if (properties.getKeyset().getNullKeys() == KeysetNullKeys.HONOUR_NULL_PRECEDENCE) {

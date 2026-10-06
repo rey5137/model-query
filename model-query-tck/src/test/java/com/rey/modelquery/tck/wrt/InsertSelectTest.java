@@ -33,6 +33,7 @@ import com.rey.modelquery.tck.col.CompositeKeyCopyEntity;
 import com.rey.modelquery.tck.col.CompositeKeyItemEntity;
 import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
+import com.rey.modelquery.tck.col.KeysetTypeEntity;
 import com.rey.modelquery.tck.col.OrderArchiveEntity;
 import com.rey.modelquery.tck.col.OrderEntity;
 import com.rey.modelquery.tck.col.OrderItemEntity;
@@ -49,11 +50,14 @@ import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.EntityTransaction;
 import jakarta.persistence.FlushModeType;
 import jakarta.persistence.RollbackException;
+import java.math.BigDecimal;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
@@ -216,6 +220,38 @@ class InsertSelectTest {
 
         assertThat(written[0]).isEqualTo(52);
         assertThat(customers).hasSize(52).containsOnly(3L);
+    }
+
+    @TckTest
+    void ac_wrt_21_an_insert_select_binds_set_constants_through_their_attribute_mapping(TckDatabase db) {
+        TableField<KeysetTypeEntity, KeysetTypeEntity> types = TableField.root(KeysetTypeEntity.class);
+        var id = ColumnField.of(OrderRow.class, types, "id", Long.class);
+        UUID token = UUID.fromString("00000000-0000-0000-0000-00000000abcd");
+        var insert = ModelInsert.select(InsertColumns.<OrderRow, KeysetTypeEntity>of(types).addKey(id, OrderRow::id),
+                        ORDERS)
+                .map(id, LINE_ORDER_ID)
+                .set(ColumnField.of(KeysetTypeEntity.class, types, "tie", Integer.class), 1)
+                .set(ColumnField.of(KeysetTypeEntity.class, types, "amount", BigDecimal.class), new BigDecimal("1.5"))
+                .set(ColumnField.of(KeysetTypeEntity.class, types, "stamp", Timestamp.class), new Timestamp(0))
+                .set(ColumnField.of(KeysetTypeEntity.class, types, "token", UUID.class), token)
+                .set(ColumnField.of(KeysetTypeEntity.class, types, "payload", byte[].class), new byte[] {1, 2})
+                .set(ColumnField.of(KeysetTypeEntity.class, types, "shape", KeysetTypeEntity.Shape.class),
+                        new KeysetTypeEntity.Shape("square"))
+                .where(f -> f.lt(LINE_ORDER_ID, 4L)).build();
+        var stored = new ArrayList<String>();
+
+        inRolledBackTransaction(JoinTestSupport.dataSource(db), em -> {
+            em.createNativeQuery("delete from keyset_types").executeUpdate();
+            assertThat(ModelQueryExecutor.create(em, KeysetTypeEntity.class, ModelQueryConfig.defaults())
+                    .insert(insert)).isEqualTo(3);
+            for (Object row : em.createNativeQuery("select token, shape from keyset_types order by id")
+                    .getResultList()) {
+                stored.add(((Object[]) row)[0] + "|" + ((Object[]) row)[1]);
+            }
+        });
+
+        // Bound as the attribute's type: the UUID as its VARCHAR text, the Shape through its AttributeConverter.
+        assertThat(stored).containsExactly(token + "|square", token + "|square", token + "|square");
     }
 
     @TckTest

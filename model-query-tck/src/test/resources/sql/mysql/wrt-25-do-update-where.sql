@@ -1,0 +1,1 @@
+insert into ins_assigned(id,code,name,version) values (?,?,?,?), (?,?,?,?), (?,?,?,?) as excluded(id,code,name,version) on duplicate key update version=case when ins_assigned.name=? then (ins_assigned.version+?) else ins_assigned.version end,name=case when ins_assigned.name=? then excluded.name else ins_assigned.name end

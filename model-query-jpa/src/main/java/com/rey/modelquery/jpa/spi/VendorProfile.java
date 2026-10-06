@@ -73,4 +73,15 @@ public interface VendorProfile {
     default boolean conflictTargetHonoured() {
         return false;
     }
+
+    /**
+     * Whether a conflict update's {@code where} reads the values the update's earlier assignments wrote, rather than
+     * the stored row: MySQL renders it as a {@code CASE} in each assignment and assigns left to right. Where it does,
+     * an insert whose {@code where} reads two or more of the columns its update assigns is refused with
+     * {@code MQ1804}, whatever {@code ModelQueryConfig.conflictUpdateWhereOnAssignedColumns} says (api/14 R-WRT-34).
+     * {@code true}, the default, fails safe (R-VND-14, D-117).
+     */
+    default boolean conflictWhereSeesEarlierAssignments() {
+        return true;
+    }
 }

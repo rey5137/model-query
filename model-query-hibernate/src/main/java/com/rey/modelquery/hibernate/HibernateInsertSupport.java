@@ -4,24 +4,36 @@ import com.rey.modelquery.jpa.spi.ConflictClause;
 import com.rey.modelquery.jpa.spi.IdGeneration;
 import com.rey.modelquery.jpa.spi.InsertSupport;
 import com.rey.modelquery.jpa.spi.InsertTarget;
+import jakarta.persistence.Column;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Query;
+import jakarta.persistence.Table;
 import jakarta.persistence.Tuple;
+import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Root;
+import jakarta.persistence.metamodel.EmbeddableType;
+import jakarta.persistence.metamodel.EntityType;
+import jakarta.persistence.metamodel.ManagedType;
+import jakarta.persistence.metamodel.SingularAttribute;
 import java.lang.invoke.MethodType;
+import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Member;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.hibernate.Session;
@@ -38,11 +50,14 @@ import org.hibernate.id.CompositeNestedGeneratedValueGenerator;
 import org.hibernate.id.IdentityGenerator;
 import org.hibernate.id.enhanced.SequenceStyleGenerator;
 import org.hibernate.id.enhanced.TableGenerator;
+import org.hibernate.metamodel.mapping.NaturalIdMapping;
 import org.hibernate.persister.entity.AbstractEntityPersister;
 import org.hibernate.persister.entity.EntityPersister;
 import org.hibernate.persister.entity.JoinedSubclassEntityPersister;
 import org.hibernate.query.MutationQuery;
 import org.hibernate.query.criteria.HibernateCriteriaBuilder;
+import org.hibernate.query.criteria.JpaConflictClause;
+import org.hibernate.query.criteria.JpaConflictUpdateAction;
 import org.hibernate.query.criteria.JpaCriteriaInsert;
 import org.hibernate.query.criteria.JpaCriteriaInsertSelect;
 import org.hibernate.query.criteria.JpaCriteriaInsertValues;
@@ -63,6 +78,9 @@ final class HibernateInsertSupport implements InsertSupport {
 
     /** The prefix of the parameter names an insert-values binds its values to. */
     private static final String VALUE = "mqValue";
+
+    /** The prefix of the parameter names a conflict update binds its assigned values to. */
+    private static final String ASSIGNED_VALUE = "mqAssigned";
 
     /** The assigned generator: {@code id.Assigned} on Hibernate 6.x, {@code generator.Assigned} on 7. */
     private static final List<String> ASSIGNED = List.of("org.hibernate.id.Assigned",
@@ -213,17 +231,174 @@ final class HibernateInsertSupport implements InsertSupport {
     }
 
     /**
+     * The id, the {@code @NaturalId}, each {@code @Column(unique = true)} or {@code @JoinColumn(unique = true)}
+     * attribute, and each {@code @Table(uniqueConstraints)} constraint of the entity or a superclass entity, the ones
+     * Hibernate maps (a {@code @MappedSuperclass}'s {@code @Table} is not), whose columns are all attributes' columns.
+     * A constraint's column names are compared unquoted and ignoring case with the persister's column names and with
+     * each single-column attribute's logical name, which Hibernate resolves them as: its {@code @Column} or
+     * {@code @JoinColumn} name, else a basic attribute's own name, so a physical naming strategy that renames columns
+     * still matches. A composite id or natural id counts by its attributes and by their leaf paths through
+     * embeddables. A unique key only a migration declares, or one {@code orm.xml} declares, is not seen (R-WRT-34).
+     */
+    @Override
+    public List<Set<String>> uniqueKeys(EntityManagerFactory emf, Class<?> entity) {
+        EntityPersister persister = persister(emf.unwrap(SessionFactoryImplementor.class), entity);
+        EntityType<?> type = emf.getMetamodel().entity(entity);
+        Map<String, Set<String>> columns = new LinkedHashMap<>();
+        Map<String, Member> members = new LinkedHashMap<>();
+        Map<String, String> logical = new LinkedHashMap<>();
+        leaves(type, "", persister, columns, members, logical);
+        Set<String> leaves = columns.keySet();
+        List<Set<String>> keys = new ArrayList<>();
+        Set<String> ids = new HashSet<>();
+        if (type.hasSingleIdAttribute()) {
+            type.getSingularAttributes().stream().filter(SingularAttribute::isId)
+                    .forEach(attribute -> ids.add(attribute.getName()));
+        } else {
+            type.getIdClassAttributes().forEach(attribute -> ids.add(attribute.getName()));
+        }
+        addWithLeaves(keys, ids, leaves);
+        NaturalIdMapping naturalId = persister.getNaturalIdMapping();
+        if (naturalId != null) {
+            Set<String> names = new HashSet<>();
+            naturalId.getNaturalIdAttributes().forEach(attribute -> names.add(attribute.getAttributeName()));
+            addWithLeaves(keys, names, leaves);
+        }
+        members.forEach((path, member) -> {
+            if (member instanceof AnnotatedElement annotated && unique(annotated)) {
+                keys.add(Set.of(path));
+            }
+        });
+        Set<Class<?>> entities = new HashSet<>();
+        emf.getMetamodel().getEntities().forEach(mapped -> entities.add(mapped.getJavaType()));
+        for (Class<?> declaring = entity; declaring != null; declaring = declaring.getSuperclass()) {
+            Table table = declaring.getAnnotation(Table.class);
+            if (table == null || !entities.contains(declaring)) {
+                continue;
+            }
+            for (UniqueConstraint constraint : table.uniqueConstraints()) {
+                Set<String> named = new HashSet<>();
+                Arrays.stream(constraint.columnNames()).forEach(column -> named.add(unquoted(column)));
+                Set<String> key = new HashSet<>();
+                Set<String> covered = new HashSet<>();
+                columns.forEach((path, mapped) -> {
+                    if (!mapped.isEmpty() && named.containsAll(mapped)) {
+                        key.add(path);
+                        covered.addAll(mapped);
+                    } else if (named.contains(logical.get(path))) {
+                        key.add(path);
+                        covered.add(logical.get(path));
+                    }
+                });
+                if (covered.equals(named)) {
+                    keys.add(Set.copyOf(key));
+                }
+            }
+        }
+        return List.copyOf(keys);
+    }
+
+    /** Whether {@code member} is annotated {@code @Column(unique = true)} or {@code @JoinColumn(unique = true)}. */
+    private static boolean unique(AnnotatedElement member) {
+        Column column = member.getAnnotation(Column.class);
+        JoinColumn join = member.getAnnotation(JoinColumn.class);
+        return column != null && column.unique() || join != null && join.unique();
+    }
+
+    /**
+     * Records each singular attribute of {@code type} below {@code prefix} that is no embeddable, by its path dotted
+     * through embeddables: its columns, unquoted and lower case, where the persister reports them, its Java member,
+     * and its logical column name when it has one column.
+     */
+    private static void leaves(ManagedType<?> type, String prefix, EntityPersister persister,
+            Map<String, Set<String>> columns, Map<String, Member> members, Map<String, String> logical) {
+        for (SingularAttribute<?, ?> attribute : type.getSingularAttributes()) {
+            String path = prefix + attribute.getName();
+            if (attribute.getType() instanceof EmbeddableType<?> embeddable) {
+                leaves(embeddable, path + ".", persister, columns, members, logical);
+                continue;
+            }
+            members.put(path, attribute.getJavaMember());
+            Set<String> mapped = new HashSet<>();
+            if (attribute.isId() && prefix.isEmpty()) {
+                Arrays.stream(persister.getIdentifierColumnNames()).forEach(column -> mapped.add(unquoted(column)));
+            } else if (persister instanceof AbstractEntityPersister mapping) {
+                try {
+                    Arrays.stream(mapping.getPropertyColumnNames(path)).forEach(column -> mapped.add(unquoted(column)));
+                } catch (RuntimeException e) {
+                    // A path the persister does not map to columns of its own, which no constraint can name.
+                }
+            }
+            columns.put(path, mapped);
+            if (mapped.size() == 1) {
+                logicalName(attribute).ifPresent(name -> logical.put(path, name));
+            }
+        }
+    }
+
+    /**
+     * {@code attribute}'s logical column name, which a {@code @UniqueConstraint} names it by before any physical
+     * naming strategy: its {@code @Column} or {@code @JoinColumn} name, else a basic attribute's own name; unquoted
+     * and lower case. Empty for an association with no {@code @JoinColumn} name.
+     */
+    private static Optional<String> logicalName(SingularAttribute<?, ?> attribute) {
+        if (attribute.getJavaMember() instanceof AnnotatedElement annotated) {
+            Column column = annotated.getAnnotation(Column.class);
+            if (column != null && !column.name().isBlank()) {
+                return Optional.of(unquoted(column.name()));
+            }
+            JoinColumn join = annotated.getAnnotation(JoinColumn.class);
+            if (join != null && !join.name().isBlank()) {
+                return Optional.of(unquoted(join.name()));
+            }
+        }
+        return attribute.isAssociation() ? Optional.empty() : Optional.of(unquoted(attribute.getName()));
+    }
+
+    /**
+     * Adds {@code names} as a key, and also their leaf paths when an embeddable among them expands to some, so the
+     * key matches however a model names its columns.
+     */
+    private static void addWithLeaves(List<Set<String>> keys, Set<String> names, Set<String> leaves) {
+        keys.add(Set.copyOf(names));
+        Set<String> expanded = new HashSet<>();
+        for (String name : names) {
+            leaves.stream().filter(leaf -> leaf.equals(name) || leaf.startsWith(name + ".")).forEach(expanded::add);
+        }
+        if (!expanded.isEmpty() && !expanded.equals(names)) {
+            keys.add(Set.copyOf(expanded));
+        }
+    }
+
+    /**
      * A criteria insert-select: each attribute, dotted through embeddables or to a to-one's id, is a target path, and
-     * {@code source} the select. Hibernate adds the generated id and the {@code @Version} seed itself (D-116).
+     * {@code source} the select, whose constants are bound here as their attribute's mapped type, so a converted or
+     * enumerated value is written through its mapping (R-WRT-30). Hibernate adds the generated id and the
+     * {@code @Version} seed itself (D-116).
      */
     @Override
     public <E> Query insertSelect(EntityManager em, Class<E> entity, List<String> attributes,
-            CriteriaQuery<Tuple> source) {
+            CriteriaQuery<Tuple> source, Map<String, Object> constants) {
         Session session = em.unwrap(Session.class);
         JpaCriteriaInsertSelect<E> insert = session.getCriteriaBuilder().createCriteriaInsertSelect(entity);
-        insert.setInsertionTargetPaths(paths(insert.getTarget(), attributes));
+        List<Path<?>> paths = paths(insert.getTarget(), attributes);
+        if (constants.size() > paths.size()) {
+            throw new IllegalArgumentException(entity.getSimpleName() + ": " + constants.size() + " constants for "
+                    + paths.size() + " attributes");
+        }
+        insert.setInsertionTargetPaths(paths);
         insert.select(source);
-        return query(session, insert, "an insert-select");
+        Query statement = query(session, insert, "an insert-select");
+        // The constants are written to the last attributes, in order. Each binds as its attribute's mapped type: a
+        // target path's type, as insertValues binds, is resolved against the source select's FROM, not the target.
+        EntityPersister persister = persister(em.getEntityManagerFactory().unwrap(SessionFactoryImplementor.class),
+                entity);
+        int at = paths.size() - constants.size();
+        for (Map.Entry<String, Object> constant : constants.entrySet()) {
+            TypedBinding.bind(statement, constant.getKey(), constant.getValue(),
+                    persister.findByPath(attributes.get(at++)).getSingleJdbcMapping());
+        }
+        return statement;
     }
 
     /**
@@ -231,14 +406,12 @@ final class HibernateInsertSupport implements InsertSupport {
      * {@link #insertSelect}, is a target path, and each value a named parameter bound here as the path's type, so a
      * {@code null}, an {@code @Enumerated} value or one a JPA {@code AttributeConverter} writes binds through the
      * attribute's mapping, and no value is inlined (R-WRT-14, R-WRT-30). Hibernate adds the {@code @Version} seed to
-     * each row itself (D-116).
+     * each row itself (D-116). A conflict clause names its key as target paths, and its update's values are named
+     * parameters bound likewise (R-WRT-34, R-WRT-35).
      */
     @Override
     public <E> Query insertValues(EntityManager em, Class<E> entity, List<String> attributes,
             List<List<Object>> rows, Optional<ConflictClause<E>> conflict) {
-        if (conflict.isPresent()) {
-            throw new UnsupportedOperationException(entity.getSimpleName() + ": conflict clauses are built in M10.7");
-        }
         Session session = em.unwrap(Session.class);
         HibernateCriteriaBuilder cb = session.getCriteriaBuilder();
         JpaCriteriaInsertValues<E> insert = cb.createCriteriaInsertValues(entity);
@@ -263,7 +436,10 @@ final class HibernateInsertSupport implements InsertSupport {
             values.add(cb.values(parameters));
         }
         insert.values(values);
+        var assigned = new ArrayList<Assigned>();
+        conflict.ifPresent(clause -> onConflict(insert, clause, cb, assigned));
         Query statement = query(session, insert, "an insert-values");
+        assigned.forEach(value -> TypedBinding.bind(statement, value.name(), value.value(), value.type()));
         // Every row has a value per path, so value p is path p % paths' value.
         for (int p = 0; p < bound.size(); p++) {
             TypedBinding.bind(statement, VALUE + p, bound.get(p), types.get(p % types.size()));
@@ -272,11 +448,49 @@ final class HibernateInsertSupport implements InsertSupport {
     }
 
     /**
-     * Binds a parameter as a target path's Hibernate type, which Hibernate does not infer for an insert's values when
-     * the value is bound: it would resolve the type from the value's class, which fails for a converted class and
-     * binds an enum by ordinal. The path's node type and the {@code setParameter} overload taking it differ between
-     * Hibernate 6.6 ({@code org.hibernate.query.BindableType}) and 7 ({@code jakarta.persistence.metamodel.Type}),
-     * so both are found by name, once, the first time an insert-values runs.
+     * Adds {@code clause} to {@code insert}: the key as target paths, then {@code doNothing}, or the update's
+     * assignments and {@code where} on the conflict action. A value assigned is a named parameter, added to
+     * {@code assigned} to be bound as its target path's type, as the rows' values are.
+     */
+    private static <E> void onConflict(JpaCriteriaInsertValues<E> insert, ConflictClause<E> clause,
+            HibernateCriteriaBuilder cb, List<Assigned> assigned) {
+        JpaConflictClause<E> conflict = insert.onConflict();
+        conflict.conflictOnConstraintPaths(paths(insert.getTarget(), clause.keyAttributes()));
+        if (clause.doNothing()) {
+            conflict.onConflictDoNothing();
+            return;
+        }
+        JpaConflictUpdateAction<E> action = conflict.onConflictDoUpdate();
+        clause.update(insert.getTarget(), conflict.getExcludedRoot(), cb, new ConflictClause.Assignments() {
+            @Override
+            public void value(Path<?> target, Object value) {
+                String name = ASSIGNED_VALUE + assigned.size();
+                assigned.add(new Assigned(name, value, TypedBinding.typeOf(target)));
+                setExpression(action, target, cb.parameter(boxed(target.getJavaType()), name));
+            }
+
+            @Override
+            public void expression(Path<?> target, Expression<?> value) {
+                setExpression(action, target, value);
+            }
+        }).ifPresent(action::where);
+    }
+
+    /** A value a conflict update assigns: its parameter's name and the Hibernate type it binds as. */
+    private record Assigned(String name, Object value, Object type) {}
+
+    @SuppressWarnings("unchecked")
+    private static <Y> void setExpression(JpaConflictUpdateAction<?> action, Path<Y> target, Expression<?> value) {
+        action.set(target, (Expression<? extends Y>) value);
+    }
+
+    /**
+     * Binds a parameter as a target path's or an attribute's Hibernate type, which Hibernate does not infer for an
+     * insert's values when the value is bound: it would resolve the type from the value's class, which fails for a
+     * converted class and binds an enum by ordinal. The path's node type and the {@code setParameter} overload taking
+     * it differ between Hibernate 6.6 ({@code org.hibernate.query.BindableType}) and 7
+     * ({@code jakarta.persistence.metamodel.Type}), so both are found by name, once, the first time an insert runs; an
+     * attribute's {@code BasicType} is both.
      */
     private static final class TypedBinding {
 
@@ -308,7 +522,10 @@ final class HibernateInsertSupport implements InsertSupport {
             }
         }
 
-        /** Binds {@code value} to the parameter {@code name} of {@code statement} as {@code type}. */
+        /**
+         * Binds {@code value} to the parameter {@code name} of {@code statement} as {@code type}, a path's node type or
+         * an attribute's {@code BasicType}.
+         */
         static void bind(Query statement, String name, Object value, Object type) {
             try {
                 SET_PARAMETER.invoke(statement.unwrap(MutationQuery.class), name, value, type);
@@ -324,7 +541,7 @@ final class HibernateInsertSupport implements InsertSupport {
 
         private static IllegalStateException unsupported(Exception cause) {
             return new IllegalStateException("Hibernate " + Version.getVersionString() + " has no SqmPath.getNodeType()"
-                    + " and setParameter(String, Object, type) taking it, which an insert-values binds its values with",
+                    + " and setParameter(String, Object, type) taking it, which an insert binds its values with",
                     cause);
         }
     }

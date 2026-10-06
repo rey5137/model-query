@@ -34,7 +34,7 @@ public final class InsertProbes implements AutoCloseable {
 
     private static final List<Class<?>> ENTITIES = List.of(InsSourceEntity.class, InsIdentityEntity.class,
             InsAssignedEntity.class, InsPooledEntity.class, InsSequenceEntity.class, InsTableEntity.class,
-            InsUuidEntity.class, InsMapsIdEntity.class);
+            InsUuidEntity.class, InsMapsIdEntity.class, InsKeyedEntity.class);
 
     private final TckDatabase db;
     private final SessionFactory factory;
@@ -141,7 +141,7 @@ public final class InsertProbes implements AutoCloseable {
     }
 
     /** Runs {@code sql} over plain JDBC, outside any recorded session. */
-    void jdbc(String sql) {
+    public void jdbc(String sql) {
         try (Connection connection = db.getConnection(); Statement statement = connection.createStatement()) {
             statement.execute(sql);
         } catch (SQLException e) {
@@ -150,7 +150,7 @@ public final class InsertProbes implements AutoCloseable {
     }
 
     /** Each row of {@code sql}'s result, its columns joined by {@code |}, read over plain JDBC. */
-    List<String> rows(String sql) {
+    public List<String> rows(String sql) {
         try (Connection connection = db.getConnection(); Statement statement = connection.createStatement();
                 ResultSet rs = statement.executeQuery(sql)) {
             List<String> rows = new ArrayList<>();

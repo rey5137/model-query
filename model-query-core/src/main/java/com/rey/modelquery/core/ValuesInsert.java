@@ -106,10 +106,11 @@ public final class ValuesInsert<E, K, M> extends ModelInsert<E, M> {
         }
 
         /**
-         * Names the unique key a conflict is detected on: the root's id, its natural id, or a declared unique
-         * constraint, checked on first execution ({@code MQ1804}). A unique index that exists only in a migration is
-         * not seen and is rejected: declare it in the mapping. Each column must be in the model's
-         * {@code InsertColumns}, named once, else {@code build()} throws {@code MQ1804}; two rows sharing a
+         * Names the unique key a conflict is detected on: exactly the root's id, its natural id, or a declared unique
+         * constraint ({@code @Column} or {@code @JoinColumn(unique = true)}, {@code @Table(uniqueConstraints)}),
+         * checked on first execution ({@code MQ1804}). A unique index that exists only in a migration or in
+         * {@code orm.xml} is not seen and is rejected: declare it in the mapping's annotations. Each column must be in
+         * the model's {@code InsertColumns}, named once, else {@code build()} throws {@code MQ1804}; two rows sharing a
          * conflict-key tuple throw {@code MQ1808} at {@code build()} (R-WRT-34, R-WRT-37).
          */
         @SafeVarargs

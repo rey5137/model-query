@@ -34,6 +34,11 @@ enum BuiltInProfile implements VendorProfile {
         public boolean conflictTargetHonoured() {
             return true;
         }
+
+        @Override
+        public boolean conflictWhereSeesEarlierAssignments() {
+            return false;
+        }
     },
 
     // The driver uses a cursor only with autocommit off, so streaming outside a transaction would buffer (R-PRF-03).
@@ -61,13 +66,20 @@ enum BuiltInProfile implements VendorProfile {
         public boolean conflictTargetHonoured() {
             return true;
         }
+
+        @Override
+        public boolean conflictWhereSeesEarlierAssignments() {
+            return false;
+        }
     },
 
     /**
      * The default {@link MysqlStreamingMode#ROW_BY_ROW}: Connector/J streams only at {@code Integer.MIN_VALUE}. MySQL
      * refuses a write reading its own table in a sub-query (error 1093), so keeps the default
-     * {@link #targetTableInSubquery()}, and detects an insert's conflict on any unique key, so keeps the default
-     * {@link #conflictTargetHonoured()}.
+     * {@link #targetTableInSubquery()}, detects an insert's conflict on any unique key, so keeps the default
+     * {@link #conflictTargetHonoured()}, and renders a conflict update's {@code where} as a {@code CASE} per
+     * assignment, which reads the earlier assignments, so keeps the default
+     * {@link #conflictWhereSeesEarlierAssignments()}.
      */
     MYSQL(DatabaseVendor.MYSQL, 10_000, 65_535, NullOrdering.NULLS_FIRST) {
         @Override

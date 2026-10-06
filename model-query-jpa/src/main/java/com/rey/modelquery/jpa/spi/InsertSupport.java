@@ -7,7 +7,9 @@ import jakarta.persistence.Query;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaQuery;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * What a bulk insert needs of the persistence provider, which portable JPA has no API for: the root's generator, keys
@@ -49,11 +51,23 @@ public interface InsertSupport {
     int providerBindsPerRow(EntityManagerFactory emf, Class<?> entity);
 
     /**
-     * An insert of {@code source}'s rows into {@code entity}: each tuple's elements, in order, are written to
-     * {@code attributes}. The engine runs the returned query with {@code executeUpdate()}, after applying the query
-     * timeout, as for an update or delete (R-WRT-27).
+     * The sets of {@code entity}'s attributes its mapping declares unique: the id, the natural id, each unique column
+     * and each unique constraint whose columns are all attributes' columns. An attribute is named as a model column
+     * names it, dotted through embeddables and a to-one by its own name. The engine holds a conflict clause's columns
+     * against them on its first execution: a set of columns that is none of them is {@code MQ1804} (R-WRT-34).
      */
-    <E> Query insertSelect(EntityManager em, Class<E> entity, List<String> attributes, CriteriaQuery<Tuple> source);
+    List<Set<String>> uniqueKeys(EntityManagerFactory emf, Class<?> entity);
+
+    /**
+     * An insert of {@code source}'s rows into {@code entity}: each tuple's elements, in order, are written to
+     * {@code attributes}. {@code constants} holds the values of {@code source}'s named parameters by name, in the
+     * order of the attributes they are written to, the last {@code constants.size()} of {@code attributes}; the
+     * implementation binds each as its attribute's type, so a converted or enumerated value is written through the
+     * attribute's mapping. The engine runs the returned query with {@code executeUpdate()}, after applying the query
+     * timeout, as for an update or delete (R-WRT-27, R-WRT-30).
+     */
+    <E> Query insertSelect(EntityManager em, Class<E> entity, List<String> attributes, CriteriaQuery<Tuple> source,
+            Map<String, Object> constants);
 
     /**
      * An insert of {@code rows} into {@code entity}, one statement: each row's values, in order, are written to

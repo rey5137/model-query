@@ -43,7 +43,7 @@ import java.util.function.UnaryOperator;
 public final class ModelUpdate<E, M> {
 
     /** The {@code @Version} types a bulk update increments (R-WRT-16); {@link #nextVersion} handles each. */
-    private static final Set<Class<?>> VERSION_TYPES = Set.of(Integer.class, Long.class, Short.class,
+    static final Set<Class<?>> VERSION_TYPES = Set.of(Integer.class, Long.class, Short.class,
             BigInteger.class, Instant.class, LocalDateTime.class, OffsetDateTime.class, Timestamp.class, Date.class);
 
     private final Draft<E, ?, M> definition;
@@ -413,7 +413,7 @@ public final class ModelUpdate<E, M> {
 
     /** {@code version + 1}, or the current time for a timestamp version (R-WRT-16). */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private static Object nextVersion(Path path, CriteriaBuilder cb) {
+    static Object nextVersion(Path path, CriteriaBuilder cb) {
         Class<?> type = ColumnField.boxed(path.getJavaType());
         if (type == Integer.class) {
             return cb.sum(path, 1);

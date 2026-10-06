@@ -8,7 +8,6 @@ import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.BiConsumer;
 
 /**
  * An insert-values statement's conflict clause, as the engine hands it to {@link InsertSupport#insertValues}: the key
@@ -21,7 +20,10 @@ import java.util.function.BiConsumer;
 @Incubating
 public interface ConflictClause<E> {
 
-    /** The root's attributes the conflict is detected on, in the order named. */
+    /**
+     * The root's attributes the conflict is detected on, in the order named: dotted through embeddables, a to-one by
+     * its own name.
+     */
     List<String> keyAttributes();
 
     /** Whether a conflicting row is skipped; otherwise {@link #update} renders the update. */
@@ -35,6 +37,22 @@ public interface ConflictClause<E> {
      * @param target the stored row
      * @param excluded the incoming row
      */
-    Optional<Predicate> update(Root<E> target, Root<E> excluded, CriteriaBuilder cb,
-            BiConsumer<Path<?>, Expression<?>> assign);
+    Optional<Predicate> update(Root<E> target, Root<E> excluded, CriteriaBuilder cb, Assignments assign);
+
+    /**
+     * Where {@link #update} writes its assignments, which the implementation adds to the provider's conflict action.
+     */
+    @Incubating
+    interface Assignments {
+
+        /**
+         * Assigns {@code value}, which may be {@code null}, to {@code target}, bound as a parameter of
+         * {@code target}'s type, never inlined, so a value an {@code AttributeConverter} or {@code @Enumerated} maps
+         * is written through that mapping (R-WRT-14).
+         */
+        void value(Path<?> target, Object value);
+
+        /** Assigns {@code value}, such as the incoming row's attribute or the version's increment. */
+        void expression(Path<?> target, Expression<?> value);
+    }
 }

@@ -162,6 +162,17 @@ class ModelQueryConfigTest {
     }
 
     @Test
+    void r_wrt_34_a_conflict_where_on_assigned_columns_is_refused_by_default_and_the_other_setters_keep_it() {
+        assertThat(ModelQueryConfig.defaults().conflictUpdateWhereOnAssignedColumns()).isFalse();
+        ModelQueryConfig allowed = ModelQueryConfig.defaults().conflictUpdateWhereOnAssignedColumns(true);
+        assertThat(allowed.conflictUpdateWhereOnAssignedColumns()).isTrue();
+        assertThat(allowed.bulkWriteChunkSize(3).exportPageSize(5).vendor(DatabaseVendor.H2)
+                .conflictUpdateWhereOnAssignedColumns()).isTrue();
+        assertThat(allowed.conflictUpdateWhereOnAssignedColumns(false).conflictUpdateWhereOnAssignedColumns())
+                .isFalse();
+    }
+
+    @Test
     void r_wrt_19_no_chunk_transactions_are_set_by_default_and_the_other_setters_keep_them() {
         ChunkTransactions transactions = new ChunkTransactions() {
             @Override

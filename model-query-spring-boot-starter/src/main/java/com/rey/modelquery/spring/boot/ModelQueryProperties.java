@@ -132,11 +132,12 @@ public class ModelQueryProperties {
         }
     }
 
-    /** {@code modelquery.bulk-write.*} ({@code api/14} R-WRT-15, R-WRT-17, D-62). */
+    /** {@code modelquery.bulk-write.*} ({@code api/14} R-WRT-15, R-WRT-17, R-WRT-34, D-62). */
     @Incubating
     public static class BulkWrite {
         private PersistenceContextMode persistenceContext;
         private Integer chunkSize;
+        private Boolean conflictUpdateWhereOnAssignedColumns;
 
         public PersistenceContextMode getPersistenceContext() {
             return persistenceContext;
@@ -152,6 +153,18 @@ public class ModelQueryProperties {
 
         public void setChunkSize(Integer chunkSize) {
             this.chunkSize = chunkSize;
+        }
+
+        /**
+         * Whether a conflict update's {@code where} may read two or more of the columns it assigns, where the
+         * database reads the stored row ({@code api/14} R-WRT-34, D-117).
+         */
+        public Boolean getConflictUpdateWhereOnAssignedColumns() {
+            return conflictUpdateWhereOnAssignedColumns;
+        }
+
+        public void setConflictUpdateWhereOnAssignedColumns(Boolean conflictUpdateWhereOnAssignedColumns) {
+            this.conflictUpdateWhereOnAssignedColumns = conflictUpdateWhereOnAssignedColumns;
         }
     }
 }

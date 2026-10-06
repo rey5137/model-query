@@ -1432,6 +1432,37 @@ attribute's value, drawn before each statement on the `EntityManager` that runs 
 `commitEachChunk()` commits each alone, its `ChunkedWriteException` holding no keys. An empty list still runs the
 first-execution and transaction checks, then returns with no flush, clear or eviction.
 
+*Amended by M10.7:* item 10's `InsertSupport` gains `List<Set<String>> uniqueKeys(EntityManagerFactory, Class<?>)`,
+the attribute sets the mapping declares unique, which a conflict clause's columns must equal exactly (`MQ1804` on first
+execution). Hibernate's reads the id and `@NaturalId` from the persister, `@Column`/`@JoinColumn(unique = true)` from
+each attribute's member, and `@Table(uniqueConstraints)` of the entity or a superclass entity (Hibernate maps no other
+class's `@Table`), matching the constraint's column names, unquoted and ignoring case, to the persister's or to a
+single-column attribute's logical name (its `@Column`/`@JoinColumn` name, else a basic attribute's name), which is how
+Hibernate resolves them, so a physical naming strategy that renames columns, as Spring Boot's does, still matches; an
+`orm.xml` unique key is not seen, so it fails safe.
+`ConflictClause.update` takes an `Assignments` with `value(Path<?>, Object)` and `expression(Path<?>, Expression<?>)`
+instead of a `BiConsumer`, so a `set` value is bound as its target path's type, as the rows' values are (Hibernate's
+own conflict-action `set` resolves the value's class and fails for a converted one). `insertSelect` gains
+`Map<String, Object> constants`: a `set` constant of an insert-select is bound by `InsertSupport` as its attribute's
+type, not by the engine's untyped `setParameter`, which failed for an `AttributeConverter` class. Hibernate's binds it
+as the attribute's mapped `BasicType` (`findByPath(...).getSingleJdbcMapping()`), since a target path's type is
+resolved against the source select's FROM there and binds the wrong type. A conflict update assigning an id attribute
+is `MQ1804` on first execution, as `@Version` is; its binds count as item 10 states, the version increment counted
+as one assignment and one value. A `setNull` in a conflict update is a `null` value bound as its target path's type,
+counted as a `set` bind: a `NULL` literal typed by the attribute's Java class fails in Hibernate for a converted
+class. MySQL assigns in order and each `CASE` reads the columns earlier assignments wrote, so an assignment to a column
+the `where` reads, the version increment included, renders after the others. That cannot help a `where` reading two
+or more assigned columns, which on MySQL silently filters the later assignments on the values the earlier ones wrote.
+The user decided: such a `where` (the version increment counted unless `keepVersion()`) is `MQ1804` on every vendor
+by default, so a definition behaves alike everywhere; `ModelQueryConfig.conflictUpdateWhereOnAssignedColumns(boolean)`
+(`modelquery.bulk-write.conflict-update-where-on-assigned-columns`, default false) opts in where it is correct; and
+`VendorProfile.conflictWhereSeesEarlierAssignments()`, true by default so a third-party profile fails safe, false in
+the built-in `H2` and `POSTGRESQL` profiles and true in `MYSQL`, `MYSQL_CURSOR_FETCH` and `OTHER`, keeps it `MQ1804`
+where the opt-in would still be wrong. The check runs on each execution, after the first-execution checks, rather
+than once per factory, since the option belongs to the executor and two executors on one factory may differ. For
+the same reason the R-WRT-36 check (`conflictTargetHonoured() || anyUniqueKey()`) also runs on each execution, since
+the profile is the executor's.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

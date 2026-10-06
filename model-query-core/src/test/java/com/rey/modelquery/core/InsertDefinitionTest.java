@@ -388,6 +388,24 @@ class InsertDefinitionTest {
         assertThat(insert.definition().conflict().update().where()).isEmpty();
     }
 
+    @Test
+    void ac_wrt_24_a_conflict_clause_counts_its_where_once_per_assignment_and_once_more_plus_its_values() {
+        ModelInsert<Order, NewOrder> upsert = values().onConflict(REF)
+                .doUpdate(u -> u.setFromRow(STATUS).set(CREATED_BY, "batch").setNull(NOTE)
+                        .where(f -> f.in(STATUS, List.of("NEW", "PAID")).ne(FLAGGED, true)))
+                .build();
+        // where: 3 values; assignments: 3 and the version increment; values: the set, the setNull and the increment
+        assertThat(upsert.conflictBinds()).isEqualTo(3 * 5 + 3);
+        assertThat(upsert.conflictRepeatedBinds()).isEqualTo(3 * 4);
+
+        ModelInsert<Order, NewOrder> kept = values().onConflict(REF)
+                .doUpdate(u -> u.setFromRow(STATUS)).keepVersion().build();
+        assertThat(kept.conflictBinds()).isZero();
+        assertThat(kept.conflictRepeatedBinds()).isZero();
+        assertThat(values().onConflict(REF).doNothing().build().conflictBinds()).isZero();
+        assertThat(values().build().conflictBinds()).isZero();
+    }
+
     // ---- ChunkedWriteException
 
     @Test

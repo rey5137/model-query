@@ -130,6 +130,24 @@ class InsertVendorFactsTest {
         }
     }
 
+    @TckTest
+    void ac_prf_09_a_conflict_where_sees_earlier_assignments_where_the_profile_says_so(TckDatabase db) {
+        try (InsertProbes p = InsertProbes.open(db)) {
+            VendorProfile profile = profile(p.factory());
+            p.jdbc("insert into ins_assigned (id, code, name, version) values (1, 'c1', 'N1', 0)");
+
+            // The where reads both columns the update assigns: as stored it matches, and both change; after the
+            // code's assignment it no longer does, so the name stays
+            p.inTransaction(s -> s.createQuery("insert into InsAssignedEntity (id, code, name) values"
+                    + " (1, 'c9', 'Z9') on conflict (id) do update set code = excluded.code, name = excluded.name"
+                    + " where code = 'c1' and name = 'N1'").executeUpdate());
+
+            List<String> row = p.rows("select id, code, name from ins_assigned");
+            assertThat(row).containsAnyOf("1|c9|Z9", "1|c9|N1");
+            assertThat(profile.conflictWhereSeesEarlierAssignments()).isEqualTo(row.equals(List.of("1|c9|N1")));
+        }
+    }
+
     private static InsertTarget supported(IdGeneration id) {
         return new InsertTarget(id, List.of());
     }

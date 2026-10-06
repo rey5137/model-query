@@ -50,11 +50,16 @@ public final class NoTablesProviderSupport implements ProviderSupport {
 
     /** Runs {@code work} where this class is the only {@code ProviderSupport} {@code ServiceLoader} finds. */
     static void serving(Runnable work) {
+        serving(NoTablesProviderSupport.class, work);
+    }
+
+    /** Runs {@code work} where {@code support} is the only {@code ProviderSupport} {@code ServiceLoader} finds. */
+    static void serving(Class<? extends ProviderSupport> support, Runnable work) {
         URL service;
         Path file;
         try {
             file = Files.createTempFile("provider-support", ".txt");
-            Files.writeString(file, NoTablesProviderSupport.class.getName() + "\n");
+            Files.writeString(file, support.getName() + "\n");
             service = file.toUri().toURL();
         } catch (IOException e) {
             throw new UncheckedIOException(e);

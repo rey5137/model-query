@@ -107,7 +107,7 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
     }
 
     /** The bind values a CASE condition binds: its values, its operands' expressions and its children's (R-COL-18). */
-    private static int conditionBinds(Condition condition) {
+    static int conditionBinds(Condition condition) {
         int total = condition.values().size();
         if (condition.column().orElse(null) instanceof ExpressionField<?, ?> left) {
             total += left.binds();

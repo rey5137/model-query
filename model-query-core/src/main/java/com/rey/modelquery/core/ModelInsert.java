@@ -4,18 +4,24 @@ import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Selection;
+import jakarta.persistence.metamodel.Attribute;
 import jakarta.persistence.metamodel.EntityType;
 import jakarta.persistence.metamodel.Metamodel;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
 
@@ -84,7 +90,9 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
      *
      * @throws ModelQueryDefinitionException {@code MQ1802} when the columns and constants write part of the root's
      *     id; {@code MQ1801} for an insert-select {@code map} or {@code where} reading a column that is not on the
-     *     source root, or a {@code map} between attributes of different types (R-WRT-26, R-WRT-27)
+     *     source root, or a {@code map} between attributes of different types; {@code MQ1804} for a conflict update
+     *     assigning an id or the {@code @Version} attribute, and {@code MQ1606} for a {@code @Version} of a type it
+     *     cannot increment, unless {@code keepVersion()} (R-WRT-26, R-WRT-27, R-WRT-34)
      */
     @EngineFacing
     public void checkMetamodel(Metamodel metamodel) {
@@ -94,6 +102,43 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
             InsertMetamodel.checkMappings(metamodel, entity, source, definition.mappings());
             InsertMetamodel.checkWhere(source, ConditionGroup.conditions(definition.where().where()));
         });
+        InsertDraft.Conflict<E, M> conflict = definition.conflict();
+        if (conflict != null && conflict.update() != null) {
+            checkConflictUpdate(entity, conflict);
+        }
+    }
+
+    /**
+     * Checks a conflict update against the root's id and {@code @Version}, which {@code build()} cannot see.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1804} or {@code MQ1606}, as {@link #checkMetamodel} states
+     */
+    private void checkConflictUpdate(EntityType<E> entity, InsertDraft.Conflict<E, M> conflict) {
+        Set<String> ids = WriteRendering.idNames(entity);
+        Optional<String> version = WriteRendering.version(entity).map(Attribute::getName);
+        var written = new ArrayList<ColumnField<?, ?, ?>>(conflict.update().fromRow());
+        conflict.update().assignments().forEach(assignment -> written.add(assignment.column()));
+        for (ColumnField<?, ?, ?> column : written) {
+            String name = column.name();
+            String head = name.indexOf('.') < 0 ? name : name.substring(0, name.indexOf('.'));
+            if (ids.contains(head) || version.filter(head::equals).isPresent()) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1804, column + ": doUpdate(...) assigns "
+                        + entity.getJavaType().getSimpleName() + "." + head + ", "
+                        + (ids.contains(head) ? "an id attribute, which stays as stored"
+                                : "the @Version attribute, which the update increments unless keepVersion()"));
+            }
+        }
+        if (!conflict.keepVersion()) {
+            WriteRendering.version(entity).ifPresent(attribute -> {
+                Class<?> type = ColumnField.boxed(attribute.getJavaType());
+                if (!ModelUpdate.VERSION_TYPES.contains(type)) {
+                    throw new ModelQueryDefinitionException(MqCode.MQ1606, this + ": "
+                            + entity.getJavaType().getSimpleName() + "." + attribute.getName() + " is a "
+                            + type.getSimpleName() + " @Version, which a conflict update cannot increment; "
+                            + "keepVersion() leaves it alone");
+                }
+            });
+        }
     }
 
     /**
@@ -227,8 +272,9 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
 
     /**
      * The values of the {@code set} constants, by the name of the parameter {@link #buildSelect} renders each as:
-     * each value passed through its column's converter, a to-one's the target id. The executor binds them on the
-     * statement it creates from the select (R-WRT-14, R-WRT-25).
+     * each value passed through its column's converter, a to-one's the target id, in the order of the attributes they
+     * are written to. The executor hands them to the provider's insert, which binds each as its attribute's type
+     * (R-WRT-14, R-WRT-25, R-WRT-30).
      *
      * @throws IllegalStateException for an insert-values
      */
@@ -243,6 +289,193 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
             parameters.put(CONSTANT + c, ((ColumnField) constant.column()).toAttribute(constant.value()));
         }
         return Collections.unmodifiableMap(parameters);
+    }
+
+    /**
+     * The attributes the conflict clause detects a conflict on, as its columns name them, in the order named; empty
+     * without a clause (R-WRT-34).
+     */
+    @EngineFacing
+    public List<String> conflictKeys() {
+        InsertDraft.Conflict<E, M> conflict = definition.conflict();
+        return conflict == null ? List.of() : conflict.keys().stream().map(ColumnField::name).toList();
+    }
+
+    /** Whether the conflict clause skips a conflicting row, {@code doNothing()}; false without a clause. */
+    @EngineFacing
+    public boolean conflictSkips() {
+        InsertDraft.Conflict<E, M> conflict = definition.conflict();
+        return conflict != null && conflict.update() == null;
+    }
+
+    /** Whether the conflict clause accepts the vendor's any-unique-key detection, {@code anyUniqueKey()} (R-WRT-36). */
+    @EngineFacing
+    public boolean conflictAnyUniqueKey() {
+        InsertDraft.Conflict<E, M> conflict = definition.conflict();
+        return conflict != null && conflict.anyUniqueKey();
+    }
+
+    /**
+     * Renders the conflict update of a {@code doUpdate} clause: each {@code setFromRow} column as {@code excluded}'s
+     * attribute, each {@code set} as a {@code value} the provider binds as the attribute's type and each
+     * {@code setNull} as a {@code null} value bound likewise, in the order assigned, and the root's {@code @Version}
+     * increment unless {@code keepVersion()}; an assignment to a column the {@code where} reads comes after the
+     * others, since MySQL renders the {@code where} into each assignment and reads the columns earlier assignments
+     * wrote. A to-one attribute is written by its target's id ({@code customer.id}), as the rows are. Returns the
+     * {@code where} over the stored row, {@code target}, or empty without one or when every filter was skipped
+     * (R-WRT-13, R-WRT-34, R-WRT-35).
+     *
+     * @throws IllegalStateException without a {@code doUpdate} clause
+     */
+    @EngineFacing
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public Optional<Predicate> buildConflictUpdate(Root<E> target, Root<E> excluded, CriteriaBuilder cb,
+            RenderOptions options, BiConsumer<Path<?>, Object> value, BiConsumer<Path<?>, Expression<?>> expression) {
+        InsertDraft.Conflict<E, M> conflict = definition.conflict();
+        if (conflict == null || conflict.update() == null) {
+            throw new IllegalStateException(this + ": no doUpdate(...) clause to render");
+        }
+        EntityType<E> entity = target.getModel();
+        Set<String> read = conflictWhereReads(conflict);
+        var first = new ArrayList<Runnable>();
+        var last = new ArrayList<Runnable>();
+        for (ColumnField<M, E, ?> column : conflict.update().fromRow()) {
+            String path = InsertMetamodel.toOneIdPath(entity, column.name());
+            (read.contains(column.name()) ? last : first).add(() -> expression.accept(path(target, path),
+                    path(excluded, path)));
+        }
+        for (Assignment<?, ?> assignment : conflict.update().assignments()) {
+            ColumnField column = assignment.column();
+            Path<?> path = path(target, InsertMetamodel.toOneIdPath(entity, column.name()));
+            // A setNull binds a null as the attribute's type: a NULL literal typed by its Java class fails for a
+            // converted class, which the provider does not know as a type.
+            Object bound = assignment instanceof Assignment.Value<?, ?> assigned ? column.toAttribute(assigned.value())
+                    : null;
+            (read.contains(column.name()) ? last : first).add(() -> value.accept(path, bound));
+        }
+        if (!conflict.keepVersion()) {
+            WriteRendering.version(entity).ifPresent(version -> {
+                Path<?> path = target.get(version.getName());
+                Object next = ModelUpdate.nextVersion(path, cb);
+                (read.contains(version.getName()) ? last : first).add(next instanceof Expression<?> increment
+                        ? () -> expression.accept(path, increment) : () -> value.accept(path, next));
+            });
+        }
+        first.forEach(Runnable::run);
+        last.forEach(Runnable::run);
+        List<Predicate> where = ConditionGroup.toPredicates(conflict.update().where(),
+                JoinContext.of(target, cb, null, options));
+        return where.isEmpty() ? Optional.empty() : Optional.of(ConditionGroup.and(cb, where));
+    }
+
+    /**
+     * The columns a {@code doUpdate} clause's {@code where} reads that the update also assigns, the root's
+     * {@code @Version} included unless {@code keepVersion()}, in the order assigned; empty for {@code doNothing()},
+     * without a clause or without a {@code where}. Two or more are refused unless the executor's configuration allows
+     * them on a vendor whose {@code where} reads the stored row (R-WRT-34, D-117).
+     */
+    @EngineFacing
+    public List<String> conflictWhereReadsAssigned(Metamodel metamodel) {
+        InsertDraft.Conflict<E, M> conflict = definition.conflict();
+        if (conflict == null || conflict.update() == null) {
+            return List.of();
+        }
+        Set<String> read = conflictWhereReads(conflict);
+        var assigned = new ArrayList<String>();
+        conflict.update().fromRow().forEach(column -> assigned.add(column.name()));
+        conflict.update().assignments().forEach(assignment -> assigned.add(assignment.column().name()));
+        if (!conflict.keepVersion()) {
+            WriteRendering.version(metamodel.entity(rootEntity()))
+                    .ifPresent(version -> assigned.add(version.getName()));
+        }
+        return assigned.stream().filter(read::contains).toList();
+    }
+
+    /** The names of the root columns a conflict update's {@code where} reads. */
+    private static Set<String> conflictWhereReads(InsertDraft.Conflict<?, ?> conflict) {
+        Set<String> read = new HashSet<>();
+        conflictWhereColumns(ConditionGroup.conditions(conflict.update().where()), read);
+        return read;
+    }
+
+    /** Adds the names of the root columns {@code conditions} read, through expressions and groups, to {@code read}. */
+    private static void conflictWhereColumns(List<Condition> conditions, Set<String> read) {
+        for (Condition condition : conditions) {
+            condition.column().ifPresent(field -> whereColumn(field, read));
+            condition.right().ifPresent(field -> whereColumn(field, read));
+            conflictWhereColumns(condition.children(), read);
+        }
+    }
+
+    private static void whereColumn(SelectField<?, ?> field, Set<String> read) {
+        if (field instanceof ExpressionField<?, ?> expression) {
+            expression.columns().forEach(column -> read.add(column.name()));
+        } else if (field instanceof ColumnField<?, ?, ?> column) {
+            read.add(column.name());
+        }
+    }
+
+    /**
+     * The most binds the conflict clause adds to a statement, besides its rows: the {@code where}'s values once per
+     * assignment and once more, since MySQL renders it as a {@code CASE} in each assignment, plus each {@code set} or
+     * {@code setNull} value and the version increment; 0 for {@code doNothing()} or without a clause (R-WRT-29,
+     * D-80).
+     */
+    @EngineFacing
+    public int conflictBinds() {
+        return conflictWhereBinds() * (conflictAssignments() + 1) + conflictValueBinds();
+    }
+
+    /**
+     * The binds of {@link #conflictBinds} that a statement's reported parameters leave out: the {@code where}'s values
+     * once per assignment, which MySQL's {@code CASE} per assignment repeats (R-WRT-35, D-80).
+     */
+    @EngineFacing
+    public int conflictRepeatedBinds() {
+        return conflictWhereBinds() * conflictAssignments();
+    }
+
+    private int conflictWhereBinds() {
+        InsertDraft.Conflict<E, M> conflict = definition.conflict();
+        if (conflict == null || conflict.update() == null) {
+            return 0;
+        }
+        int binds = 0;
+        for (Condition condition : ConditionGroup.conditions(conflict.update().where())) {
+            binds += ExpressionField.conditionBinds(condition);
+        }
+        return binds;
+    }
+
+    /** The conflict update's assignments, the version increment counted unless {@code keepVersion()}. */
+    private int conflictAssignments() {
+        InsertDraft.Conflict<E, M> conflict = definition.conflict();
+        if (conflict == null || conflict.update() == null) {
+            return 0;
+        }
+        return conflict.update().fromRow().size() + conflict.update().assignments().size()
+                + (conflict.keepVersion() ? 0 : 1);
+    }
+
+    /**
+     * The conflict update's {@code set} and {@code setNull} values and the version increment's, counted unless
+     * {@code keepVersion()}.
+     */
+    private int conflictValueBinds() {
+        InsertDraft.Conflict<E, M> conflict = definition.conflict();
+        if (conflict == null || conflict.update() == null) {
+            return 0;
+        }
+        return conflict.update().assignments().size() + (conflict.keepVersion() ? 0 : 1);
+    }
+
+    /** The path of {@code attribute}, dotted, below {@code root}. */
+    private static Path<?> path(Root<?> root, String attribute) {
+        Path<?> path = root;
+        for (String segment : attribute.split("\\.")) {
+            path = path.get(segment);
+        }
+        return path;
     }
 
     private BuiltQuery<M> select(CriteriaBuilder cb, RenderOptions options, PrimaryKey<Object, ?> key,

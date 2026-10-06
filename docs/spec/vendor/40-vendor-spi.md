@@ -101,7 +101,9 @@ InsertTarget target(EntityManagerFactory emf, Class<?> entity);   // record Inse
 List<Object> generateKeys(EntityManager em, Class<?> entity, int count);
 boolean doNothingRendered(EntityManagerFactory emf);
 int providerBindsPerRow(EntityManagerFactory emf, Class<?> entity);
-<E> Query insertSelect(EntityManager em, Class<E> entity, List<String> attributes, CriteriaQuery<Tuple> source);
+List<Set<String>> uniqueKeys(EntityManagerFactory emf, Class<?> entity);
+<E> Query insertSelect(EntityManager em, Class<E> entity, List<String> attributes, CriteriaQuery<Tuple> source,
+        Map<String, Object> constants);
 <E> Query insertValues(EntityManager em, Class<E> entity, List<String> attributes, List<List<Object>> rows,
         Optional<ConflictClause<E>> conflict);
 ```
@@ -110,7 +112,11 @@ int providerBindsPerRow(EntityManagerFactory emf, Class<?> entity);
 `Other(String generatorClass)`. `unsupportedMappings` names each mapping of the root no bulk insert writes (`JOINED`
 inheritance, a `@SecondaryTable`, a composite id with generated parts, `@MapsId`). `ConflictClause<E>` carries
 `keyAttributes()`, `doNothing()` and `Optional<Predicate> update(Root<E> target, Root<E> excluded, CriteriaBuilder,
-BiConsumer<Path<?>, Expression<?>> assign)`. The engine holds the generator against `api/14` R-WRT-26's allowlist in
+ConflictClause.Assignments assign)`, where `Assignments` takes `value(Path<?>, Object)`, a value the implementation
+binds as the path's type, and `expression(Path<?>, Expression<?>)`. `insertSelect` binds each of `constants`, the
+source select's named parameters written to the last attributes, as its attribute's type, as `insertValues` binds its
+values. `uniqueKeys` names the attribute sets the mapping declares unique, which a conflict clause's columns must equal
+one of (`MQ1804`). The engine holds the generator against `api/14` R-WRT-26's allowlist in
 `jpa`, on the definition's first execution (`MQ1805`, `MQ1802`, `MQ1807`), draws keys with `generateKeys` for a
 sequence, table or UUID generator, refuses `doNothing` where `doNothingRendered` is false (`MQ1804`), and counts
 `providerBindsPerRow` (the `@Version` seed) when it sizes a `VALUES` statement (R-WRT-29, D-80). It runs the returned
@@ -120,10 +126,14 @@ against Hibernate 6.6 and run on 7.x by the TCK: it reads the generator from the
 generator class that moved between the two by name, and reports `doNothingRendered` true on 7 and on 6.x only for the
 PostgreSQL and MySQL dialect hierarchies (D-116).
 
-`VendorProfile` gains two database facts (INV-6): `default int maxValuesRows()`, the most rows one multi-row `VALUES`
-insert may hold besides the bind limit, `1_000` by default (a lower limit is only slower), and `default boolean
+`VendorProfile` gains three database facts (INV-6): `default int maxValuesRows()`, the most rows one multi-row
+`VALUES` insert may hold besides the bind limit, `1_000` by default (a lower limit is only slower); `default boolean
 conflictTargetHonoured()`, whether a conflict clause detects a conflict only on the key it names, `false` by default so
-a third-party profile fails safe (`api/14` R-WRT-36). Tier-1 values are in `vendor/41` §2.
+a third-party profile fails safe (`api/14` R-WRT-36); and `default boolean conflictWhereSeesEarlierAssignments()`,
+whether a conflict update's `where` reads the values the update's earlier assignments wrote rather than the stored row,
+as MySQL's `CASE` per assignment does, `true` by default so a third-party profile fails safe: where it is true, a
+`where` reading two or more assigned columns is refused even when the executor allows it (`api/14` R-WRT-34). Tier-1
+values are in `vendor/41` §2.
 
 ## 2. Detection
 
@@ -200,4 +210,4 @@ explicitly (`likeIgnoreCase`, `nullsFirst`), and the library renders it the same
 | AC-VND-09 | With no `ProviderSupport`, `stream` logs one `WARN` per factory however many streams run; with one, none, and `resultStream` receives the size the profile chose: the configured size, or `Integer.MIN_VALUE` for MySQL row-by-row (R-VND-12). |
 | AC-VND-10 | `model-query-hibernate`'s `tablesOf` reports every table reading an entity touches, unquoted and qualified with the default schema: a joined subclass's supertable, which a second entity on it shares, a secondary table and a table-per-class parent's subclass tables; the same for two entities on one table; and none for a type that is not an entity (R-VND-13). |
 | AC-VND-11 | `model-query-hibernate`'s `InsertSupport` reports each D-116 probe root's generator (assigned, `IDENTITY`, a sequence with its increment and whether a database sequence backs it, table, UUID, an `@IdClass` with no generated part as assigned) and its unsupported mappings (`JOINED`, `@SecondaryTable`, `@MapsId`, a generated composite part); draws distinct keys from a pooled sequence, a table and a UUID generator and refuses `IDENTITY`; reports `doNothingRendered` true on Hibernate 7 and on 6.x except on H2; and counts the version seed as one bind per row, on every Tier-1 vendor (R-VND-14). |
-| AC-VND-12 | `maxValuesRows()` defaults to 1,000 and `conflictTargetHonoured()` to false, `ProviderSupport#inserts()` to empty; the built-in profiles carry `vendor/41` §2's values (R-VND-14). |
+| AC-VND-12 | `maxValuesRows()` defaults to 1,000, `conflictTargetHonoured()` to false and `conflictWhereSeesEarlierAssignments()` to true, `ProviderSupport#inserts()` to empty; the built-in profiles carry `vendor/41` §2's values (R-VND-14). |

@@ -22,7 +22,7 @@ import java.util.OptionalInt;
  * {@code EntityManagerFactory} the configuration is used with (D-34).
  *
  * @implSpec R-QRY-10, R-VND-04, R-PAG-07, R-EXE-11, R-PRF-07, R-PAG-05, R-QRY-15, R-VND-03, R-SPR-08, R-WRT-15,
- *     R-WRT-17, R-WRT-19
+ *     R-WRT-17, R-WRT-19, R-WRT-34
  */
 @Incubating
 public final class ModelQueryConfig {
@@ -38,7 +38,7 @@ public final class ModelQueryConfig {
 
     private static final ModelQueryConfig DEFAULTS = new ModelQueryConfig(null, WHOLE_PAGE, null,
             MysqlStreamingMode.ROW_BY_ROW, KeysetNullKeys.FAIL, DEFAULT_EXPORT_PAGE_SIZE, DEFAULT_STREAM_FETCH_SIZE,
-            List.of(), PersistenceContextMode.CLEAR, DEFAULT_BULK_WRITE_CHUNK_SIZE, null);
+            List.of(), PersistenceContextMode.CLEAR, DEFAULT_BULK_WRITE_CHUNK_SIZE, null, false);
 
     private final DatabaseVendor vendor;
     private final int primaryKeyFirstBatchSize;
@@ -54,11 +54,17 @@ public final class ModelQueryConfig {
     private final int bulkWriteChunkSize;
     /** The callback running each chunk of a {@code commitEachChunk()} write, or {@code null} for none (R-WRT-19). */
     private final ChunkTransactions chunkTransactions;
+    /**
+     * Whether a conflict update's {@code where} may read two or more of the columns the update assigns, where the
+     * vendor's profile reads them as stored (R-WRT-34, D-117).
+     */
+    private final boolean conflictUpdateWhereOnAssignedColumns;
 
     private ModelQueryConfig(DatabaseVendor vendor, int primaryKeyFirstBatchSize, Duration queryTimeout,
             MysqlStreamingMode mysqlStreamingMode, KeysetNullKeys keysetNullKeys, int exportPageSize,
             int streamFetchSize, List<VendorProfile> vendorProfiles, PersistenceContextMode persistenceContextMode,
-            int bulkWriteChunkSize, ChunkTransactions chunkTransactions) {
+            int bulkWriteChunkSize, ChunkTransactions chunkTransactions,
+            boolean conflictUpdateWhereOnAssignedColumns) {
         this.vendor = vendor;
         this.primaryKeyFirstBatchSize = primaryKeyFirstBatchSize;
         this.queryTimeout = queryTimeout;
@@ -70,13 +76,15 @@ public final class ModelQueryConfig {
         this.persistenceContextMode = persistenceContextMode;
         this.bulkWriteChunkSize = bulkWriteChunkSize;
         this.chunkTransactions = chunkTransactions;
+        this.conflictUpdateWhereOnAssignedColumns = conflictUpdateWhereOnAssignedColumns;
     }
 
     /**
      * The configuration with every setting at its default: the vendor is detected, step 2 reads the whole page, no
      * query timeout, MySQL streams row by row, a NULL keyset key without explicit precedence fails, an export reads
      * pages of 1000 rows, a stream fetches 500 rows at a time, no profile is supplied, a bulk write clears the
-     * persistence context, a chunked write selects 1000 keys per chunk, and no {@code ChunkTransactions} is set.
+     * persistence context, a chunked write selects 1000 keys per chunk, no {@code ChunkTransactions} is set, and a
+     * conflict update's {@code where} reading two or more of its assigned columns is refused.
      */
     public static ModelQueryConfig defaults() {
         return DEFAULTS;
@@ -86,7 +94,7 @@ public final class ModelQueryConfig {
     public ModelQueryConfig vendor(DatabaseVendor vendor) {
         return new ModelQueryConfig(Objects.requireNonNull(vendor, "vendor"), primaryKeyFirstBatchSize, queryTimeout,
                 mysqlStreamingMode, keysetNullKeys, exportPageSize, streamFetchSize, vendorProfiles,
-                persistenceContextMode, bulkWriteChunkSize, chunkTransactions);
+                persistenceContextMode, bulkWriteChunkSize, chunkTransactions, conflictUpdateWhereOnAssignedColumns);
     }
 
     /**
@@ -129,7 +137,7 @@ public final class ModelQueryConfig {
         }
         return new ModelQueryConfig(vendor, batchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
                 exportPageSize, streamFetchSize, vendorProfiles,
-                persistenceContextMode, bulkWriteChunkSize, chunkTransactions);
+                persistenceContextMode, bulkWriteChunkSize, chunkTransactions, conflictUpdateWhereOnAssignedColumns);
     }
 
     /** The configured step-2 batch size, or empty when step 2 reads the whole page within the profile's clamp. */
@@ -150,7 +158,7 @@ public final class ModelQueryConfig {
         }
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, timeout, mysqlStreamingMode, keysetNullKeys,
                 exportPageSize, streamFetchSize, vendorProfiles,
-                persistenceContextMode, bulkWriteChunkSize, chunkTransactions);
+                persistenceContextMode, bulkWriteChunkSize, chunkTransactions, conflictUpdateWhereOnAssignedColumns);
     }
 
     /** The configured query timeout, or empty when statements run without one. */
@@ -165,7 +173,7 @@ public final class ModelQueryConfig {
     public ModelQueryConfig mysqlStreamingMode(MysqlStreamingMode mode) {
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout,
                 Objects.requireNonNull(mode, "mode"), keysetNullKeys, exportPageSize, streamFetchSize, vendorProfiles,
-                persistenceContextMode, bulkWriteChunkSize, chunkTransactions);
+                persistenceContextMode, bulkWriteChunkSize, chunkTransactions, conflictUpdateWhereOnAssignedColumns);
     }
 
     /** The configured MySQL streaming mode, {@link MysqlStreamingMode#ROW_BY_ROW} unless set. */
@@ -180,7 +188,7 @@ public final class ModelQueryConfig {
     public ModelQueryConfig keysetNullKeys(KeysetNullKeys nullKeys) {
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode,
                 Objects.requireNonNull(nullKeys, "nullKeys"), exportPageSize, streamFetchSize, vendorProfiles,
-                persistenceContextMode, bulkWriteChunkSize, chunkTransactions);
+                persistenceContextMode, bulkWriteChunkSize, chunkTransactions, conflictUpdateWhereOnAssignedColumns);
     }
 
     /** The configured keyset NULL handling, {@link KeysetNullKeys#FAIL} unless set. */
@@ -200,7 +208,7 @@ public final class ModelQueryConfig {
         }
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
                 pageSize, streamFetchSize, vendorProfiles,
-                persistenceContextMode, bulkWriteChunkSize, chunkTransactions);
+                persistenceContextMode, bulkWriteChunkSize, chunkTransactions, conflictUpdateWhereOnAssignedColumns);
     }
 
     /** The page size of an export whose options leave it open, 1000 unless set. */
@@ -220,7 +228,7 @@ public final class ModelQueryConfig {
         }
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
                 exportPageSize, fetchSize, vendorProfiles, persistenceContextMode, bulkWriteChunkSize,
-                chunkTransactions);
+                chunkTransactions, conflictUpdateWhereOnAssignedColumns);
     }
 
     /** The fetch size of {@code stream}, 500 unless set. */
@@ -248,7 +256,7 @@ public final class ModelQueryConfig {
         }
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
                 exportPageSize, streamFetchSize, supplied, persistenceContextMode, bulkWriteChunkSize,
-                chunkTransactions);
+                chunkTransactions, conflictUpdateWhereOnAssignedColumns);
     }
 
     /** The supplied profiles, at most one per vendor, in the order given; empty unless set. */
@@ -267,7 +275,7 @@ public final class ModelQueryConfig {
     public ModelQueryConfig persistenceContextMode(PersistenceContextMode mode) {
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
                 exportPageSize, streamFetchSize, vendorProfiles, Objects.requireNonNull(mode, "mode"),
-                bulkWriteChunkSize, chunkTransactions);
+                bulkWriteChunkSize, chunkTransactions, conflictUpdateWhereOnAssignedColumns);
     }
 
     /** What a bulk write does to the persistence context, {@link PersistenceContextMode#CLEAR} unless set. */
@@ -290,13 +298,39 @@ public final class ModelQueryConfig {
                     + " is below one");
         }
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
-                exportPageSize, streamFetchSize, vendorProfiles, persistenceContextMode, chunkSize, chunkTransactions);
+                exportPageSize, streamFetchSize, vendorProfiles, persistenceContextMode, chunkSize, chunkTransactions,
+                conflictUpdateWhereOnAssignedColumns);
     }
 
     /** The keys per chunk of a write whose options leave the size open, 1000 unless set. */
     @Incubating
     public int bulkWriteChunkSize() {
         return bulkWriteChunkSize;
+    }
+
+    /**
+     * This configuration with whether a conflict update's {@code where} may read two or more of the columns the update
+     * assigns, the {@code @Version} increment counted unless {@code keepVersion()}
+     * ({@code modelquery.bulk-write.conflict-update-where-on-assigned-columns}, R-WRT-34, D-117). Off, the default,
+     * such an insert throws {@code MQ1804} on every vendor, so a definition behaves alike everywhere. On, it runs where
+     * the vendor's {@code where} reads the stored row, and still throws {@code MQ1804} where the profile's
+     * {@code conflictWhereSeesEarlierAssignments()} is true (MySQL), whose update would filter on the values its
+     * earlier assignments wrote. A {@code where} reading at most one assigned column runs on every vendor either way.
+     */
+    @Incubating
+    public ModelQueryConfig conflictUpdateWhereOnAssignedColumns(boolean allowed) {
+        return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
+                exportPageSize, streamFetchSize, vendorProfiles, persistenceContextMode, bulkWriteChunkSize,
+                chunkTransactions, allowed);
+    }
+
+    /**
+     * Whether a conflict update's {@code where} may read two or more of the columns the update assigns, where the
+     * vendor allows it; false unless set.
+     */
+    @Incubating
+    public boolean conflictUpdateWhereOnAssignedColumns() {
+        return conflictUpdateWhereOnAssignedColumns;
     }
 
     /**
@@ -307,7 +341,7 @@ public final class ModelQueryConfig {
     public ModelQueryConfig chunkTransactions(ChunkTransactions transactions) {
         return new ModelQueryConfig(vendor, primaryKeyFirstBatchSize, queryTimeout, mysqlStreamingMode, keysetNullKeys,
                 exportPageSize, streamFetchSize, vendorProfiles, persistenceContextMode, bulkWriteChunkSize,
-                Objects.requireNonNull(transactions, "transactions"));
+                Objects.requireNonNull(transactions, "transactions"), conflictUpdateWhereOnAssignedColumns);
     }
 
     /** The callback running each chunk of a {@code commitEachChunk()} write; empty unless set. */
