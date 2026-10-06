@@ -111,7 +111,7 @@ Behaviour to know when moving from hand-written Criteria code:
   `ModelQueryRepositoryFactoryBean`: the subclass adds the model-query fragment only to the repositories that declare
   `ModelQueryRepository`, and the custom base class keeps working for all of them, so a repository migrates one at a
   time (R-SPR-02, R-SPR-12, D-50, D-83). The migration recipes add the custom factory bean, a nested-join enricher and
-  a composite-key user-profile enricher (D-111).
+  a composite-key artist-profile enricher (D-111).
 - `Filters.in` and `notIn` take a `SubSelect` — one column of another root with its own filters — and `exists` and
   `notExists` take one with an explicit correlation: `Outer.column(...)` lifts a column of the enclosing query's root
   into the sub-select, where `or` and `not` may mix inner and lifted conditions, and a `notIn` never lets a `NULL`
@@ -130,7 +130,7 @@ Behaviour to know when moving from hand-written Criteria code:
   returning `null` fails with `MQ2606`, no `key(...)` with `MQ1706` and `batchSize(0)` with `MQ1707`; `byKey` is its
   one-key case, and a `null` lookup result there now throws `MQ2606` too, where it was a `NullPointerException`
   (R-FCH-15, R-FCH-16, D-114). The fetch-plan guide and the migration recipes add the
-  four-actor payment order, a lookup splitting its keys by a key part, a cache shared with a child's enricher and
+  four-party delivery, a lookup splitting its keys by a key part, a cache shared with a child's enricher and
   request-time parameters applied with `withFetch`.
 - `Expr` builds an `ExpressionField`, a typed, immutable value over one vocabulary's columns that is equal by
   structure: `coalesce`, `nullIf`, `cases`, `plus`/`minus`/`times`/`dividedBy`, `negate`, `concat`, `function` and

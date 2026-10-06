@@ -325,20 +325,20 @@ Because the condition goes through `Join#on`, a line whose product is not cheap 
 
 Tested by `NonKeyJoinTest`.
 
-## A shared user-profile enricher
+## A shared artist-profile enricher
 
-The case in one line: a user profile that lives on another datasource, keyed by a `(userId, userTypeId)` record, and
+The case in one line: an artist profile that lives on another datasource, keyed by a `(artistId, catalogId)` record, and
 looked up once per chunk by one enricher declaration that is reused across models.
 
 The sample's key is the pair a song carries, with a factory that hands a half-empty pair to the enricher as `null`, so
 that row is skipped:
 
 ```java
-public record UserRef(long userId, int userTypeId) {
+public record ArtistRef(long artistId, int catalogId) {
 
     /** The ref the pair names, or {@code null} when either half is missing, so the enricher skips the row. */
-    static UserRef of(Long userId, Integer userTypeId) {
-        return userId == null || userTypeId == null ? null : new UserRef(userId, userTypeId);
+    static ArtistRef of(Long artistId, Integer catalogId) {
+        return artistId == null || catalogId == null ? null : new ArtistRef(artistId, catalogId);
     }
 }
 ```
@@ -346,17 +346,17 @@ public record UserRef(long userId, int userTypeId) {
 The lookup is one model query on the profile repository, run once per chunk of `batchSize` distinct keys:
 
 ```java
-Map<UserRef, String> findProfiles(Set<UserRef> keys) {
+Map<ArtistRef, String> findProfiles(Set<ArtistRef> keys) {
     counter.increment();
-    List<Long> userIds = keys.stream().map(UserRef::userId).distinct().toList();
-    List<Integer> userTypeIds = keys.stream().map(UserRef::userTypeId).distinct().toList();
+    List<Long> artistIds = keys.stream().map(ArtistRef::artistId).distinct().toList();
+    List<Integer> catalogIds = keys.stream().map(ArtistRef::catalogId).distinct().toList();
     var query = QProfileView.query()
             .select(QProfileView.ALL)
-            .where(f -> f.in(QProfileView.USER_ID, userIds).in(QProfileView.USER_TYPE_ID, userTypeIds))
+            .where(f -> f.in(QProfileView.ARTIST_ID, artistIds).in(QProfileView.CATALOG_ID, catalogIds))
             .build();
-    var found = new LinkedHashMap<UserRef, String>();
+    var found = new LinkedHashMap<ArtistRef, String>();
     for (ProfileView profile : profiles.findAll(query, Limit.unlimited())) {
-        UserRef ref = new UserRef(profile.userId(), profile.userTypeId());
+        ArtistRef ref = new ArtistRef(profile.artistId(), profile.catalogId());
         if (keys.contains(ref)) {
             found.put(ref, profile.profile());
         }
@@ -369,9 +369,9 @@ One generic factory turns that one lookup into an enricher for whichever model i
 
 ```java
 @SafeVarargs
-public final <M> Enricher<M> profileOf(Function<M, UserRef> key, BiFunction<M, String, M> with,
+public final <M> Enricher<M> profileOf(Function<M, ArtistRef> key, BiFunction<M, String, M> with,
         ColumnField<M, ?, ?>... reading) {
-    return Enricher.<M, UserRef, String>byKeys(this::findProfiles)
+    return Enricher.<M, ArtistRef, String>byKeys(this::findProfiles)
             .key(key, with)
             .batchSize(2)
             .reading(reading);
@@ -381,11 +381,11 @@ public final <M> Enricher<M> profileOf(Function<M, UserRef> key, BiFunction<M, S
 The second model differs only in shape, over the same `songs` root as `SongView` but without the release year:
 
 ```java
-public record SongCreditView(@PrimaryKey Long id, String title, Long userId, Integer userTypeId,
+public record SongCreditView(@PrimaryKey Long id, String title, Long artistId, Integer catalogId,
         @Transient String profile) {
 
     SongCreditView withProfile(String value) {
-        return new SongCreditView(id, title, userId, userTypeId, value);
+        return new SongCreditView(id, title, artistId, catalogId, value);
     }
 }
 ```
@@ -395,11 +395,11 @@ The sample calls the factory once per model and serves them at `/songs` and `/so
 ```java
 public MusicService(SongRepository songs, ProfileEnrichers profiles) {
     this.songs = songs;
-    this.songProfile = profiles.<SongView>profileOf(song -> UserRef.of(song.userId(), song.userTypeId()),
-            SongView::withProfile, QSongView.USER_ID, QSongView.USER_TYPE_ID);
-    this.creditProfile = profiles.<SongCreditView>profileOf(credit -> UserRef.of(credit.userId(),
-            credit.userTypeId()), SongCreditView::withProfile,
-            QSongCreditView.USER_ID, QSongCreditView.USER_TYPE_ID);
+    this.songProfile = profiles.<SongView>profileOf(song -> ArtistRef.of(song.artistId(), song.catalogId()),
+            SongView::withProfile, QSongView.ARTIST_ID, QSongView.CATALOG_ID);
+    this.creditProfile = profiles.<SongCreditView>profileOf(credit -> ArtistRef.of(credit.artistId(),
+            credit.catalogId()), SongCreditView::withProfile,
+            QSongCreditView.ARTIST_ID, QSongCreditView.CATALOG_ID);
 }
 ```
 
@@ -409,60 +409,60 @@ lookup runs once per chunk (four distinct keys at `batchSize(2)` are two calls).
 
 Tested by `SampleApplicationTest`.
 
-### A row with several keys: a payment order's actors
+### A row with several keys: a delivery's parties
 
-The case in one line: a row carries more than one look-up key — a payment order's payer, payee, initiator and optional
-requestor, each a `(userType, userId)` pair — and each key fills its own field from one lookup.
+The case in one line: a row carries more than one look-up key — a delivery's sender, recipient, courier and optional
+approver, each a `(partyType, partyId)` pair — and each key fills its own field from one lookup.
 
 The key is a record of the columns the plan selects, and `byKeys` takes one `key(...)` per field, all on the same
 lookup, whose values share a type:
 
 ```java
-record ActorKey(int userType, long userId) {}
+record PartyKey(int partyType, long partyId) {}
 
-private static Enricher.Keys<PaymentOrderView, ActorKey, String> actorKeys(SplitProfiles profiles) {
-    return Enricher.<PaymentOrderView, ActorKey, String>byKeys(profiles::find)
-            .key(PaymentOrderView::payerKey, PaymentOrderView::withPayer)
-            .key(PaymentOrderView::payeeKey, PaymentOrderView::withPayee)
-            .key(PaymentOrderView::initiatorKey, PaymentOrderView::withInitiator)
-            .key(PaymentOrderView::requestorKey, PaymentOrderView::withRequestor);
+private static Enricher.Keys<DeliveryView, PartyKey, String> partyKeys(SplitDirectory profiles) {
+    return Enricher.<DeliveryView, PartyKey, String>byKeys(profiles::find)
+            .key(DeliveryView::senderKey, DeliveryView::withSender)
+            .key(DeliveryView::recipientKey, DeliveryView::withRecipient)
+            .key(DeliveryView::courierKey, DeliveryView::withCourier)
+            .key(DeliveryView::approverKey, DeliveryView::withApprover);
 }
 ```
 
 The plan selects the eight declared columns even though the model's own selection does not:
 
 ```java
-private static ColumnField<PaymentOrderView, ?, ?>[] keyColumns() {
-    return new ColumnField[] {QPaymentOrderView.PAYER_USER_TYPE, QPaymentOrderView.PAYER_USER_ID,
-            QPaymentOrderView.PAYEE_USER_TYPE, QPaymentOrderView.PAYEE_USER_ID,
-            QPaymentOrderView.INITIATOR_USER_TYPE, QPaymentOrderView.INITIATOR_USER_ID,
-            QPaymentOrderView.REQUESTOR_USER_TYPE, QPaymentOrderView.REQUESTOR_USER_ID};
+private static ColumnField<DeliveryView, ?, ?>[] keyColumns() {
+    return new ColumnField[] {QDeliveryView.SENDER_PARTY_TYPE, QDeliveryView.SENDER_PARTY_ID,
+            QDeliveryView.RECIPIENT_PARTY_TYPE, QDeliveryView.RECIPIENT_PARTY_ID,
+            QDeliveryView.COURIER_PARTY_TYPE, QDeliveryView.COURIER_PARTY_ID,
+            QDeliveryView.APPROVER_PARTY_TYPE, QDeliveryView.APPROVER_PARTY_ID};
 }
 ```
 
-A user in two roles of one row, or in two rows, is looked up once, and the value is passed to every role's setter.
+A party in two roles of one row, or in two rows, is looked up once, and the value is passed to every role's setter.
 `batchSize(n)` splits the distinct keys into consecutive chunks of at most `n`, one lookup call per chunk. Tested by
 `ByKeysEnricherTest`.
 
 ### A lookup that splits its own keys
 
-The case in one line: the profiles live in one source per user type, so the lookup partitions each chunk by the type.
+The case in one line: the profiles live in one source per party type, so the lookup partitions each chunk by the type.
 The library never partitions (R-FCH-16); because each chunk reaches the lookup once, each source is called at most
 once per chunk:
 
 ```java
-Map<ActorKey, String> find(Set<ActorKey> keys) {
+Map<PartyKey, String> find(Set<PartyKey> keys) {
     var grouped = new LinkedHashMap<Integer, Set<Long>>();
-    for (ActorKey key : keys) {
-        grouped.computeIfAbsent(key.userType(), type -> new LinkedHashSet<>()).add(key.userId());
+    for (PartyKey key : keys) {
+        grouped.computeIfAbsent(key.partyType(), type -> new LinkedHashSet<>()).add(key.partyId());
     }
-    var found = new LinkedHashMap<ActorKey, String>();
+    var found = new LinkedHashMap<PartyKey, String>();
     grouped.forEach((type, ids) -> {
         Map<Long, String> source = byType.getOrDefault(type, Map.of());
         for (long id : ids) {
             String profile = source.get(id);
             if (profile != null) {
-                found.put(new ActorKey(type, id), profile);
+                found.put(new PartyKey(type, id), profile);
             }
         }
     });
@@ -475,21 +475,21 @@ Set `batchSize(...)` to the smallest source's limit, so no source ever receives 
 
 ### A cache shared with a child's enricher
 
-The case in one line: the child's enricher loads a user, and the outer enricher must not load the same user again.
+The case in one line: the child's enricher loads a party, and the outer enricher must not load the same party again.
 Per-call state belongs in the caller's code, captured when the plan is built (R-FCH-17). The lookup loads only the
 keys no one has loaded yet, into a cache both enrichers read:
 
 ```java
-private static Function<Set<ActorKey>, Map<ActorKey, String>> cached(SplitProfiles profiles,
-        Map<ActorKey, String> cache, List<List<ActorKey>> loads) {
+private static Function<Set<PartyKey>, Map<PartyKey, String>> cached(SplitDirectory profiles,
+        Map<PartyKey, String> cache, List<List<PartyKey>> loads) {
     return keys -> {
-        List<ActorKey> missing = keys.stream().filter(key -> !cache.containsKey(key)).toList();
+        List<PartyKey> missing = keys.stream().filter(key -> !cache.containsKey(key)).toList();
         if (!missing.isEmpty()) {
             loads.add(missing);
             cache.putAll(profiles.find(new LinkedHashSet<>(missing)));
         }
-        var found = new LinkedHashMap<ActorKey, String>();
-        for (ActorKey key : keys) {
+        var found = new LinkedHashMap<PartyKey, String>();
+        for (PartyKey key : keys) {
             if (cache.containsKey(key)) {
                 found.put(key, cache.get(key));
             }
@@ -498,17 +498,17 @@ private static Function<Set<ActorKey>, Map<ActorKey, String>> cached(SplitProfil
     };
 }
 
-var cache = new HashMap<ActorKey, String>();
-var childLoads = new ArrayList<List<ActorKey>>();
-var orderLoads = new ArrayList<List<ActorKey>>();
+var cache = new HashMap<PartyKey, String>();
+var childLoads = new ArrayList<List<PartyKey>>();
+var orderLoads = new ArrayList<List<PartyKey>>();
 
 FetchPlan<Line> items = FetchPlan.of(SelectSet.of(QLine.ID, QLine.QUANTITY))
-        .enrich(Enricher.<Line, ActorKey, String>byKeys(cached(profiles, cache, childLoads))
-                .key(line -> new ActorKey(requestedUserType, line.id()), Line::withProfile).reading(QLine.ID));
+        .enrich(Enricher.<Line, PartyKey, String>byKeys(cached(profiles, cache, childLoads))
+                .key(line -> new PartyKey(requestedPartyType, line.id()), Line::withProfile).reading(QLine.ID));
 FetchPlan<OrderLines> order = FetchPlan.of(SelectSet.of(QOrderLines.ID))
         .child(QOrderLines.ITEMS, items)
-        .enrich(Enricher.<OrderLines, ActorKey, String>byKeys(cached(profiles, cache, orderLoads))
-                .key(o -> new ActorKey(requestedUserType, o.id()), OrderLines::withProfile)
+        .enrich(Enricher.<OrderLines, PartyKey, String>byKeys(cached(profiles, cache, orderLoads))
+                .key(o -> new PartyKey(requestedPartyType, o.id()), OrderLines::withProfile)
                 .reading(QOrderLines.ID));
 ```
 
@@ -517,12 +517,12 @@ by `ByKeysEnricherTest`.
 
 ### Request-time parameters
 
-The case in one line: the plan depends on the call — a requested user type, a chosen column set, a cursor — so build
+The case in one line: the plan depends on the call — a requested party type, a chosen column set, a cursor — so build
 it per call and apply it with `withFetch`, which returns a copy of the query and runs no statement of its own
 (R-FCH-13):
 
 ```java
-int requestedUserType = 1;
+int requestedPartyType = 1;
 ModelQuery<OrderEntity, Long, OrderLines> perCall = base.withFetch(order);
 ```
 

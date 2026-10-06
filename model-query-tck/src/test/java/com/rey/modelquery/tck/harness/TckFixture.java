@@ -41,12 +41,12 @@ public final class TckFixture {
     public static final int FORMULA_PRODUCTS = 8;
     public static final int FORMULA_LINES = 16;
     /**
-     * Rows of {@code payment_orders} (TCK AC-FCH-14, D-114 item 8): each with a payer, payee and initiator pair and a
-     * requestor pair that is NULL on every fourth row. The references are a pure function of the row number:
-     * payer {@code (1, i % 2 + 1)}, payee {@code (1, i % 3 + 1)}, initiator {@code (2, 1)}, requestor either
+     * Rows of {@code deliveries} (TCK AC-FCH-14, D-114 item 8): each with a sender, recipient and courier pair and a
+     * approver pair that is NULL on every fourth row. The references are a pure function of the row number:
+     * sender {@code (1, i % 2 + 1)}, recipient {@code (1, i % 3 + 1)}, courier {@code (2, 1)}, approver either
      * {@code (3, i % 2 + 1)} or absent.
      */
-    public static final int PAYMENT_ORDERS = 6;
+    public static final int DELIVERIES = 6;
     public static final int LABELS = 10;
     /** Orders 1 to this one carry labels, many-to-many: one or two each, every label on many orders. */
     public static final int LABELED_ORDERS = 200;
@@ -233,10 +233,10 @@ public final class TckFixture {
             ps.setString(2, "f-" + pad((i * 3) % FORMULA_PRODUCTS + 1, 2));
             ps.setInt(3, i % 4 + 1);
         });
-        // A payment order's four actors, the requestor absent on every fourth row (AC-FCH-14).
-        insert(c, "INSERT INTO payment_orders (id, payer_user_type, payer_user_id, payee_user_type, payee_user_id, "
-                + "initiator_user_type, initiator_user_id, requestor_user_type, requestor_user_id) "
-                + "VALUES (?,?,?,?,?,?,?,?,?)", PAYMENT_ORDERS, (ps, i) -> {
+        // A delivery's four parties, the approver absent on every fourth row (AC-FCH-14).
+        insert(c, "INSERT INTO deliveries (id, sender_party_type, sender_party_id, recipient_party_type, "
+                + "recipient_party_id, courier_party_type, courier_party_id, approver_party_type, approver_party_id) "
+                + "VALUES (?,?,?,?,?,?,?,?,?)", DELIVERIES, (ps, i) -> {
                     ps.setLong(1, i);
                     ps.setInt(2, 1);
                     ps.setLong(3, i % 2 + 1);

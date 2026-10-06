@@ -1113,9 +1113,9 @@ and selected columns, reversing D-27; (4) ordering by an expression, with a stat
 `primaryKeyFirst`; (5) a correlated `exists` whose inner predicate reads outer columns; (6) enrichers on a nested join
 model, already R-FCH-01/R-FCH-08, owed a documented recipe; (7) joins through a non-key `@JoinColumn` or Hibernate
 `@JoinFormula`, tested and documented through the mapped association, with no `@Join(on = …)` (R-PROC-12 holds);
-(8) enrichers for a row carrying several keys (a payment order's payer, payee, initiator and an optional
-requestor, each a user type and id), widened by the adopter's follow-up: each key routed to its role's field, one
-lookup for the distinct keys across rows and roles, chunked lookups, a lookup split by a key part (the user type,
+(8) enrichers for a row carrying several keys (a delivery's sender, recipient, courier and an optional
+approver, each a party type and id), widened by the adopter's follow-up: each key routed to its role's field, one
+lookup for the distinct keys across rows and roles, chunked lookups, a lookup split by a key part (the party type,
 one datasource each), the null-key skip stated, values shared with another enricher of the same fetch (a child's),
 and request-time parameters; (9) `keyset()` and `primaryKeyFirst` over String and `@EmbeddedId` keys, tested
 and documented. Items 2–5 and 8 get their own `architect-review` before their slices and are recorded as their own
@@ -1152,7 +1152,7 @@ route). → `integration/50` R-SPR-02, `reference/90`.
 distinct non-null keys across models and keys, or one per chunk of at most `n` with `batchSize`, and routes each value
 through its key's setter; a null key is skipped, and `byKey` is its one-key case. A key builder (Option B) beat a
 `Map<Role, K>` with a three-argument router (Option A): no new functional interface, no map per row, no role `switch`,
-and a null requestor cannot throw inside `Map.of`. Chunking is library API because any key lookup meets an IN-list or
+and a null approver cannot throw inside `Map.of`. Chunking is library API because any key lookup meets an IN-list or
 API limit and multi-key pages reach it sooner; a lookup that also splits by source receives each chunk, so each source
 is called at most once per chunk. Partitioning by a key part, a cache shared with a child's enricher, and request-time
 parameters stay in caller code: a lookup that splits its own keys, and a plan built per call (R-FCH-13) relying on

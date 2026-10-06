@@ -21,10 +21,10 @@ public record Lender(
 @QueryModel(root = LoanEntity.class)
 public record Loan(
         @PrimaryKey Integer id,
-        Integer userTypeId,
-        Integer userId,
+        Integer catalogId,
+        Integer artistId,
         @Join Optional<Lender> lender,
-        @Transient Optional<UserProfile> userProfile) {}                               // filled by the caller
+        @Transient Optional<ArtistProfile> artistProfile) {} // filled by the caller
 
 static final FetchPlan<LenderSpiUrlConfig> SPI = FetchPlan.of(QLenderSpiUrlConfig.ALL);
 static final FetchPlan<Lender> LENDER = FetchPlan.of(QLender.ALL)
@@ -33,10 +33,10 @@ static final FetchPlan<Lender> LENDER = FetchPlan.of(QLender.ALL)
 FetchPlan<Loan> loan = FetchPlan.of(QLoan.DEFAULT)
         .join(QLoan.LENDER_JOIN, LENDER)               // the same plan, re-rooted under the join
         .enrich(Enricher.byKey(
-                l -> new UserKey(l.userTypeId(), l.userId()),
+                l -> new ArtistKey(l.catalogId(), l.artistId()),
                 keys -> profiles.find(keys, fields),   // caller code: one lookup per page
-                (l, p) -> l.withUserProfile(Optional.of(p)),
-                QLoan.USER_TYPE_ID, QLoan.USER_ID));
+                (l, p) -> l.withArtistProfile(Optional.of(p)),
+                QLoan.CATALOG_ID, QLoan.ARTIST_ID));
 
 ModelQuery<LoanEntity, Integer, Loan> q = QLoan.query().fetch(loan).where(f -> ...).build();
 ModelPage<Loan> page = loanRepository.findPage(q, pageable, CountMode.COUNT);   // children and profiles filled
@@ -156,14 +156,14 @@ public static final class Keys<M, K, V> {                  // @Incubating; immut
 ```
 
 ```java
-Enricher<PaymentOrderView> actors = Enricher.<PaymentOrderView, ActorKey, Profile>byKeys(
+Enricher<DeliveryView> parties = Enricher.<DeliveryView, PartyKey, Profile>byKeys(
                 keys -> profiles.find(keys, fields))
-        .key(PaymentOrderView::payerKey, PaymentOrderView::withPayer)
-        .key(PaymentOrderView::payeeKey, PaymentOrderView::withPayee)
-        .key(PaymentOrderView::initiatorKey, PaymentOrderView::withInitiator)
-        .key(PaymentOrderView::requestorKey, PaymentOrderView::withRequestor)   // null when absent: skipped
+        .key(DeliveryView::senderKey, DeliveryView::withSender)
+        .key(DeliveryView::recipientKey, DeliveryView::withRecipient)
+        .key(DeliveryView::courierKey, DeliveryView::withCourier)
+        .key(DeliveryView::approverKey, DeliveryView::withApprover)   // null when absent: skipped
         .batchSize(1000)
-        .reading(QPaymentOrderView.PAYER_USER_TYPE, QPaymentOrderView.PAYER_USER_ID, /* … all 8 */);
+        .reading(QDeliveryView.SENDER_PARTY_TYPE, QDeliveryView.SENDER_PARTY_ID, /* … all 8 */);
 ```
 
 Java cannot infer `M` through a builder chain of implicit lambdas, so `byKeys` takes explicit type witnesses.
@@ -179,7 +179,7 @@ Java cannot infer `M` through a builder chain of implicit lambdas, so `byKeys` t
   throws `MQ1707`, both at definition. Exceptions from the lookup propagate unwrapped.
 
 **R-FCH-16** *(D-114)* **The library chunks keys only by `batchSize`, and never partitions them.** A lookup over
-several sources (one datasource per user type, say) splits the keys of its call itself. With `batchSize(n)` set to the
+several sources (one datasource per party type, say) splits the keys of its call itself. With `batchSize(n)` set to the
 smallest source's limit, each source gets at most one call per chunk, never with more than `n` keys; a source with a
 smaller limit, or one called in parallel, is the lookup's own concern.
 
@@ -229,8 +229,8 @@ round's statement logs as any statement does (D-95).
 | AC-FCH-11 | A many-to-many child loads both ways on Tier 1: through a `foreignKey` crossing the child's collection, and through `through` on a unidirectional `@ManyToMany`; a child shared by two parents appears under both; a child filter and order apply through `through`; `MQ3406` has a compile-failure case (R-FCH-03, R-FCH-04, R-FCH-14). |
 | AC-FCH-12 | A nested plan's enricher, applied through `join`, fills a `@Transient` field of the joined model: each joined model is enriched and the lookup runs once per page (R-FCH-07, R-FCH-08, D-111). |
 | AC-FCH-13 | An `Enricher.byKey` with a composite record key looks the page's distinct keys up in one call, leaves a model whose key is absent unchanged, and is reused across a root query and a nested plan (R-FCH-08, D-111). |
-| AC-FCH-14 | A `byKeys` with payer, payee, initiator and a nullable requestor of a `(userType, userId)` record: one lookup per page with the distinct non-null keys across models and keys; a user in two roles or two models is looked up once and its value lands in every role's field; a null requestor is never in the set and leaves `requestor` as mapped; the 8 declared key columns are selected while the model's selection omits them (R-FCH-02, R-FCH-15, D-114). |
+| AC-FCH-14 | A `byKeys` with sender, recipient, courier and a nullable approver of a `(partyType, partyId)` record: one lookup per page with the distinct non-null keys across models and keys; a party in two roles or two models is looked up once and its value lands in every role's field; a null approver is never in the set and leaves `approver` as mapped; the 8 declared key columns are selected while the model's selection omits them (R-FCH-02, R-FCH-15, D-114). |
 | AC-FCH-15 | `byKeys` runs on `list`, offset, keyset and primary-key-first pages and once per `export` batch, through a join plan and a child plan; a `null` lookup result throws `MQ2606` for `byKey` and `byKeys`; no key throws `MQ1706` and `batchSize(0)` `MQ1707` (R-FCH-09, R-FCH-15). |
-| AC-FCH-16 | `batchSize(n)` over `d` distinct keys makes `ceil(d / n)` lookup calls of at most `n` keys each, in first-seen order, no key in two calls; with recipe 8's lookup split by user type, each type's source is called at most once per chunk (R-FCH-15, R-FCH-16). |
-| AC-FCH-17 | In a plan built per call, a user the movements `@Child` enricher loaded is not looked up again by the order's enricher; applying the per-call plan with `withFetch` adds no statement (R-FCH-13, R-FCH-17). |
+| AC-FCH-16 | `batchSize(n)` over `d` distinct keys makes `ceil(d / n)` lookup calls of at most `n` keys each, in first-seen order, no key in two calls; with recipe 8's lookup split by party type, each type's source is called at most once per chunk (R-FCH-15, R-FCH-16). |
+| AC-FCH-17 | In a plan built per call, a party the movements `@Child` enricher loaded is not looked up again by the order's enricher; applying the per-call plan with `withFetch` adds no statement (R-FCH-13, R-FCH-17). |
 | AC-FCH-18 | A join plan selecting an expression throws `MQ1705` (R-FCH-07). |

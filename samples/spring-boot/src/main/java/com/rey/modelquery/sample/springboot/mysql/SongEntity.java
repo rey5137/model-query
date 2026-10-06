@@ -4,7 +4,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
-/** A row of the mysql database. {@code userId} and {@code userTypeId} reference a profile on h2 (recipe 8). */
+/** A row of the mysql database. {@code artistId} and {@code catalogId} reference a profile on h2 (recipe 8). */
 @Entity
 @Table(name = "songs")
 public class SongEntity {
@@ -13,8 +13,8 @@ public class SongEntity {
     Long id;
     String title;
     Integer released;
-    Long userId;
-    Integer userTypeId;
+    Long artistId;
+    Integer catalogId;
 
     protected SongEntity() {
     }
@@ -23,23 +23,23 @@ public class SongEntity {
         this(id, title, released, null, null);
     }
 
-    public SongEntity(Long id, String title, Integer released, Long userId, Integer userTypeId) {
+    public SongEntity(Long id, String title, Integer released, Long artistId, Integer catalogId) {
         this.id = id;
         this.title = title;
         this.released = released;
-        this.userId = userId;
-        this.userTypeId = userTypeId;
+        this.artistId = artistId;
+        this.catalogId = catalogId;
     }
 
     public Long id() {
         return id;
     }
 
-    public Long userId() {
-        return userId;
+    public Long artistId() {
+        return artistId;
     }
 
-    public Integer userTypeId() {
-        return userTypeId;
+    public Integer catalogId() {
+        return catalogId;
     }
 }

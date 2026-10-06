@@ -327,11 +327,11 @@ The key of a `byKey` enricher can be any type, including a record of several col
 key reads, and the lookup gets the page's distinct keys in one call:
 
 ```java
-record UserRef(long userId, int userTypeId) {}
+record ArtistRef(long artistId, int catalogId) {}
 
 Enricher<Line> profileEnricher = Enricher.byKey(
-        line -> new UserRef(line.id(), line.quantity()),
-        PROFILES::find,                                           // one call per page: Map<UserRef, String>
+        line -> new ArtistRef(line.id(), line.quantity()),
+        PROFILES::find,                                           // one call per page: Map<ArtistRef, String>
         (line, profile) -> line.withProfile(profile),
         QLine.ID, QLine.QUANTITY);
 ```
@@ -342,28 +342,28 @@ A model with more than one look-up key uses `byKeys`: one `key(...)` per field, 
 must share a type. `byKey` is its one-key case.
 
 ```java
-record ActorKey(int userType, long userId) {}
+record PartyKey(int partyType, long partyId) {}
 
-Enricher<PaymentOrderView> actors = Enricher.<PaymentOrderView, ActorKey, String>byKeys(
-                profiles::find)                                          // one call per run: Map<ActorKey, String>
-        .key(PaymentOrderView::payerKey, PaymentOrderView::withPayer)
-        .key(PaymentOrderView::payeeKey, PaymentOrderView::withPayee)
-        .key(PaymentOrderView::initiatorKey, PaymentOrderView::withInitiator)
-        .key(PaymentOrderView::requestorKey, PaymentOrderView::withRequestor)   // null when absent: skipped
-        .reading(QPaymentOrderView.PAYER_USER_TYPE, QPaymentOrderView.PAYER_USER_ID,
-                QPaymentOrderView.PAYEE_USER_TYPE, QPaymentOrderView.PAYEE_USER_ID,
-                QPaymentOrderView.INITIATOR_USER_TYPE, QPaymentOrderView.INITIATOR_USER_ID,
-                QPaymentOrderView.REQUESTOR_USER_TYPE, QPaymentOrderView.REQUESTOR_USER_ID);
+Enricher<DeliveryView> parties = Enricher.<DeliveryView, PartyKey, String>byKeys(
+                profiles::find)                                          // one call per run: Map<PartyKey, String>
+        .key(DeliveryView::senderKey, DeliveryView::withSender)
+        .key(DeliveryView::recipientKey, DeliveryView::withRecipient)
+        .key(DeliveryView::courierKey, DeliveryView::withCourier)
+        .key(DeliveryView::approverKey, DeliveryView::withApprover)   // null when absent: skipped
+        .reading(QDeliveryView.SENDER_PARTY_TYPE, QDeliveryView.SENDER_PARTY_ID,
+                QDeliveryView.RECIPIENT_PARTY_TYPE, QDeliveryView.RECIPIENT_PARTY_ID,
+                QDeliveryView.COURIER_PARTY_TYPE, QDeliveryView.COURIER_PARTY_ID,
+                QDeliveryView.APPROVER_PARTY_TYPE, QDeliveryView.APPROVER_PARTY_ID);
 ```
 
 - For each model in page order and each key in declaration order, a `null` key is skipped and never looked up, so an
-  absent requestor costs nothing.
+  absent approver costs nothing.
 - The distinct non-null keys across models and keys go to one lookup call per run — a page, or an export batch — as
-  an unmodifiable set in first-seen order. A user in two roles, or in two models, is looked up once and its value is
+  an unmodifiable set in first-seen order. A party in two roles, or in two models, is looked up once and its value is
   passed to every role's setter.
 - `batchSize(n)` splits that set into consecutive chunks of at most `n` keys, in the same order, one call per chunk, on
   the calling thread. Each chunk is handed to the lookup once, so a lookup that itself splits its keys by a key part
-  (one datasource per user type, say) calls each source at most once per chunk.
+  (one datasource per party type, say) calls each source at most once per chunk.
 - An absent key, or a `null` map value, leaves the model as is. Size and order cannot change.
 - `reading(...)` with no `key(...)` fails with `MQ1706`, and `batchSize(0)` with `MQ1707`, both at definition; a lookup
   returning `null` fails with `MQ2606`.

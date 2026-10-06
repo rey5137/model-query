@@ -19,11 +19,11 @@ public class MusicService {
 
     public MusicService(SongRepository songs, ProfileEnrichers profiles) {
         this.songs = songs;
-        this.songProfile = profiles.<SongView>profileOf(song -> UserRef.of(song.userId(), song.userTypeId()),
-                SongView::withProfile, QSongView.USER_ID, QSongView.USER_TYPE_ID);
-        this.creditProfile = profiles.<SongCreditView>profileOf(credit -> UserRef.of(credit.userId(),
-                credit.userTypeId()), SongCreditView::withProfile,
-                QSongCreditView.USER_ID, QSongCreditView.USER_TYPE_ID);
+        this.songProfile = profiles.<SongView>profileOf(song -> ArtistRef.of(song.artistId(), song.catalogId()),
+                SongView::withProfile, QSongView.ARTIST_ID, QSongView.CATALOG_ID);
+        this.creditProfile = profiles.<SongCreditView>profileOf(credit -> ArtistRef.of(credit.artistId(),
+                credit.catalogId()), SongCreditView::withProfile,
+                QSongCreditView.ARTIST_ID, QSongCreditView.CATALOG_ID);
     }
 
     /** Every song, each row's profile filled from h2 when one exists. */

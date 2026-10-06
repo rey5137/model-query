@@ -5,7 +5,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 /**
- * A user profile, keyed by {@code (userId, userTypeId)}. The profiles live on h2 while the rows that reference them
+ * An artist profile, keyed by {@code (artistId, catalogId)}. The profiles live on h2 while the rows that reference them
  * live on mysql, so recipe 8's enricher reads across two datasources (D-111 item 8).
  */
 @Entity
@@ -14,17 +14,17 @@ public class ProfileEntity {
 
     @Id
     Long id;
-    Long userId;
-    Integer userTypeId;
+    Long artistId;
+    Integer catalogId;
     String profile;
 
     protected ProfileEntity() {
     }
 
-    public ProfileEntity(Long id, Long userId, Integer userTypeId, String profile) {
+    public ProfileEntity(Long id, Long artistId, Integer catalogId, String profile) {
         this.id = id;
-        this.userId = userId;
-        this.userTypeId = userTypeId;
+        this.artistId = artistId;
+        this.catalogId = catalogId;
         this.profile = profile;
     }
 }

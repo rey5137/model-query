@@ -144,23 +144,24 @@ class EnricherTest {
 
     // ---- AC-FCH-13
 
-    /** A user profile's key: a user id and a user type, the adopter's composite key of D-111 item 8. */
-    private record UserRef(long userId, int userTypeId) {}
+    /** An artist profile's key: an artist id and a catalog id, the adopter's composite key of D-111 item 8. */
+    private record ArtistRef(long artistId, int catalogId) {}
 
     /** A profile service on another datasource, in memory: a Map, counting the pages it is asked for. */
     private static final class ProfileService {
 
-        private final Map<UserRef, String> profiles = Map.of(new UserRef(1, 2), "gold", new UserRef(3, 4), "gold");
-        private final List<Set<UserRef>> lookups = new ArrayList<>();
+        private final Map<ArtistRef, String> profiles =
+                Map.of(new ArtistRef(1, 2), "gold", new ArtistRef(3, 4), "gold");
+        private final List<Set<ArtistRef>> lookups = new ArrayList<>();
 
-        List<Set<UserRef>> lookups() {
+        List<Set<ArtistRef>> lookups() {
             return lookups;
         }
 
-        Map<UserRef, String> find(Set<UserRef> refs) {
+        Map<ArtistRef, String> find(Set<ArtistRef> refs) {
             lookups.add(Set.copyOf(refs));
-            var found = new LinkedHashMap<UserRef, String>();
-            for (UserRef ref : refs) {
+            var found = new LinkedHashMap<ArtistRef, String>();
+            for (ArtistRef ref : refs) {
                 if (profiles.containsKey(ref)) {
                     found.put(ref, profiles.get(ref));
                 }
@@ -173,7 +174,7 @@ class EnricherTest {
 
     /** One enricher, declared once and reused below on a root query and on a nested plan (D-111 item 8). */
     private static final Enricher<Line> PROFILE_ENRICHER = Enricher.byKey(
-            line -> new UserRef(line.id(), line.quantity()),
+            line -> new ArtistRef(line.id(), line.quantity()),
             PROFILES::find,
             (line, profile) -> line.withProfile(profile),
             QLine.ID, QLine.QUANTITY);
@@ -206,7 +207,7 @@ class EnricherTest {
             assertThat(lines).extracting(Line::id).containsExactly(1L, 2L, 3L, 4L);
             assertThat(lines).extracting(Line::profile).containsExactly("gold", null, "gold", null);
             assertThat(PROFILES.lookups()).containsExactly(Set.of(
-                    new UserRef(1, 2), new UserRef(2, 3), new UserRef(3, 4), new UserRef(4, 5)));
+                    new ArtistRef(1, 2), new ArtistRef(2, 3), new ArtistRef(3, 4), new ArtistRef(4, 5)));
         });
 
         PROFILES.lookups().clear();
@@ -217,7 +218,7 @@ class EnricherTest {
             assertThat(lines).extracting(Line::id).containsExactly(1L, 5001L, 10001L, 15001L);
             assertThat(lines).extracting(Line::profile).containsExactly("gold", null, null, null);
             assertThat(PROFILES.lookups()).containsExactly(Set.of(
-                    new UserRef(1, 2), new UserRef(5001, 7), new UserRef(10001, 3), new UserRef(15001, 8)));
+                    new ArtistRef(1, 2), new ArtistRef(5001, 7), new ArtistRef(10001, 3), new ArtistRef(15001, 8)));
         });
     }
 

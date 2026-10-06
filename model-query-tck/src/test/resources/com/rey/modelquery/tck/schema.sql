@@ -106,16 +106,16 @@ CREATE TABLE formula_lines (
     product_code VARCHAR(20) @COLLATE@ NOT NULL,
     quantity     INT NOT NULL
 );
--- Payment orders with four actors, each a (user_type, user_id) pair; the requestor pair is NULL when absent
+-- Deliveries with four parties, each a (party_type, party_id) pair; the approver pair is NULL when absent
 -- (TCK AC-FCH-14, D-114 item 8).
-CREATE TABLE payment_orders (
-    id                  BIGINT NOT NULL PRIMARY KEY,
-    payer_user_type     INT NOT NULL,
-    payer_user_id       BIGINT NOT NULL,
-    payee_user_type     INT NOT NULL,
-    payee_user_id       BIGINT NOT NULL,
-    initiator_user_type INT NOT NULL,
-    initiator_user_id   BIGINT NOT NULL,
-    requestor_user_type INT NULL,
-    requestor_user_id   BIGINT NULL
+CREATE TABLE deliveries (
+    id                   BIGINT NOT NULL PRIMARY KEY,
+    sender_party_type    INT NOT NULL,
+    sender_party_id      BIGINT NOT NULL,
+    recipient_party_type INT NOT NULL,
+    recipient_party_id   BIGINT NOT NULL,
+    courier_party_type   INT NOT NULL,
+    courier_party_id     BIGINT NOT NULL,
+    approver_party_type  INT NULL,
+    approver_party_id    BIGINT NULL
 );

@@ -35,26 +35,26 @@ public class ProfileEnrichers {
      * serves them all, and {@code batchSize(2)} splits the keys into chunks of two (R-FCH-15, R-FCH-16).
      */
     @SafeVarargs
-    public final <M> Enricher<M> profileOf(Function<M, UserRef> key, BiFunction<M, String, M> with,
+    public final <M> Enricher<M> profileOf(Function<M, ArtistRef> key, BiFunction<M, String, M> with,
             ColumnField<M, ?, ?>... reading) {
-        return Enricher.<M, UserRef, String>byKeys(this::findProfiles)
+        return Enricher.<M, ArtistRef, String>byKeys(this::findProfiles)
                 .key(key, with)
                 .batchSize(2)
                 .reading(reading);
     }
 
     /** The lookup: one model query on the h2 profile repository per chunk, counting the calls (recipe 8). */
-    Map<UserRef, String> findProfiles(Set<UserRef> keys) {
+    Map<ArtistRef, String> findProfiles(Set<ArtistRef> keys) {
         counter.increment();
-        List<Long> userIds = keys.stream().map(UserRef::userId).distinct().toList();
-        List<Integer> userTypeIds = keys.stream().map(UserRef::userTypeId).distinct().toList();
+        List<Long> artistIds = keys.stream().map(ArtistRef::artistId).distinct().toList();
+        List<Integer> catalogIds = keys.stream().map(ArtistRef::catalogId).distinct().toList();
         var query = QProfileView.query()
                 .select(QProfileView.ALL)
-                .where(f -> f.in(QProfileView.USER_ID, userIds).in(QProfileView.USER_TYPE_ID, userTypeIds))
+                .where(f -> f.in(QProfileView.ARTIST_ID, artistIds).in(QProfileView.CATALOG_ID, catalogIds))
                 .build();
-        var found = new LinkedHashMap<UserRef, String>();
+        var found = new LinkedHashMap<ArtistRef, String>();
         for (ProfileView profile : profiles.findAll(query, Limit.unlimited())) {
-            UserRef ref = new UserRef(profile.userId(), profile.userTypeId());
+            ArtistRef ref = new ArtistRef(profile.artistId(), profile.catalogId());
             if (keys.contains(ref)) {
                 found.put(ref, profile.profile());
             }

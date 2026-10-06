@@ -5,4 +5,4 @@ import com.rey.modelquery.annotations.QueryModel;
 
 /** The model recipe 8's lookup reads, over {@link ProfileEntity}. */
 @QueryModel(root = ProfileEntity.class)
-public record ProfileView(@PrimaryKey Long id, Long userId, Integer userTypeId, String profile) {}
+public record ProfileView(@PrimaryKey Long id, Long artistId, Integer catalogId, String profile) {}
