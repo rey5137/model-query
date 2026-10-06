@@ -63,6 +63,15 @@ final class InsertChecks {
         }
     }
 
+    /**
+     * Whether an insert-values draws {@code id}'s keys from the generator before its statement and writes them as
+     * values: for a sequence, a table or a UUID generator (R-WRT-26).
+     */
+    static boolean drawsKeys(IdGeneration id) {
+        return id instanceof IdGeneration.Sequence || id instanceof IdGeneration.Table
+                || id instanceof IdGeneration.Uuid;
+    }
+
     /** Why the form refuses {@code id}, or {@code null} when it takes it (R-WRT-26). */
     private static String refusal(IdGeneration id, boolean select) {
         if (id instanceof IdGeneration.Other) {

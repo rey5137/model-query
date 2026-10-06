@@ -118,12 +118,62 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
     @EngineFacing
     public List<String> selectedAttributes(Metamodel metamodel) {
         requireSource();
-        EntityType<E> entity = metamodel.entity(rootEntity());
-        var names = new ArrayList<String>();
-        for (String name : written()) {
-            names.add(InsertMetamodel.toOneIdPath(entity, name));
+        return writtenPaths(metamodel);
+    }
+
+    /**
+     * The attributes an insert-values writes, in the order of each row of {@link #valueRows}: each column of the
+     * model's {@code InsertColumns}, then each {@code set} constant. A to-one attribute is named with its target's id
+     * attribute below it ({@code customer.id}), so a row writes the id, as an insert-select does (R-WRT-30).
+     *
+     * @throws IllegalStateException for an insert-select
+     */
+    @EngineFacing
+    public List<String> valueAttributes(Metamodel metamodel) {
+        requireValues();
+        return writtenPaths(metamodel);
+    }
+
+    /**
+     * The number of rows an insert-values writes, read at {@code build()} (R-WRT-29).
+     *
+     * @throws IllegalStateException for an insert-select
+     */
+    @EngineFacing
+    public int rowCount() {
+        return requireValues().size();
+    }
+
+    /**
+     * Rows {@code from} (inclusive) to {@code to} (exclusive) of an insert-values, each a new list of attribute values
+     * in the order of {@link #valueAttributes}: each model value passed through its column's converter, a
+     * {@code null} kept, then each {@code set} constant's value likewise (R-WRT-25, R-WRT-30). The rows
+     * {@code build()} read are not changed.
+     *
+     * @throws IllegalStateException for an insert-select
+     * @throws IndexOutOfBoundsException for a range outside {@code 0} to {@link #rowCount()}
+     */
+    @EngineFacing
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public List<List<Object>> valueRows(int from, int to) {
+        List<List<Object>> read = requireValues().subList(from, to);
+        List<ColumnField<M, E, ?>> columns = definition.columns().columns();
+        var constants = new ArrayList<Object>();
+        for (Assignment<?, ?> constant : definition.constants()) {
+            Assignment.Value<?, ?> value = (Assignment.Value<?, ?>) constant;
+            constants.add(((ColumnField) value.column()).toAttribute(value.value()));
         }
-        return names;
+        var rows = new ArrayList<List<Object>>(read.size());
+        for (List<Object> row : read) {
+            var values = new ArrayList<>(columns.size() + constants.size());
+            for (int c = 0; c < columns.size(); c++) {
+                Object value = row.get(c);
+                values.add(value == null ? null : ((ColumnField) columns.get(c)).toAttribute(value));
+            }
+            values.addAll(constants);
+            rows.add(values);
+        }
+        return rows;
     }
 
     /**
@@ -235,6 +285,24 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
             throw new IllegalStateException(this + ": an insert-values has no source select");
         }
         return source;
+    }
+
+    /** The rows {@code build()} read, else {@link IllegalStateException} for an insert-select. */
+    private List<List<Object>> requireValues() {
+        if (definition.source() != null) {
+            throw new IllegalStateException(this + ": an insert-select has no rows of values");
+        }
+        return definition.values();
+    }
+
+    /** The {@link #written} attributes, a to-one's with its target's id attribute appended. */
+    private List<String> writtenPaths(Metamodel metamodel) {
+        EntityType<E> entity = metamodel.entity(rootEntity());
+        var names = new ArrayList<String>();
+        for (String name : written()) {
+            names.add(InsertMetamodel.toOneIdPath(entity, name));
+        }
+        return names;
     }
 
     /** The attributes the insert writes: its columns, then its {@code set} constants. */

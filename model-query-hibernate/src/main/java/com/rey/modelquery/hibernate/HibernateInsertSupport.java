@@ -9,9 +9,13 @@ import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Query;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Root;
+import java.lang.invoke.MethodType;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -38,8 +42,12 @@ import org.hibernate.persister.entity.AbstractEntityPersister;
 import org.hibernate.persister.entity.EntityPersister;
 import org.hibernate.persister.entity.JoinedSubclassEntityPersister;
 import org.hibernate.query.MutationQuery;
+import org.hibernate.query.criteria.HibernateCriteriaBuilder;
 import org.hibernate.query.criteria.JpaCriteriaInsert;
 import org.hibernate.query.criteria.JpaCriteriaInsertSelect;
+import org.hibernate.query.criteria.JpaCriteriaInsertValues;
+import org.hibernate.query.criteria.JpaValues;
+import org.hibernate.query.sqm.tree.domain.SqmPath;
 import org.hibernate.type.AssociationType;
 import org.hibernate.type.ForeignKeyDirection;
 import org.hibernate.type.Type;
@@ -52,6 +60,9 @@ import org.hibernate.type.Type;
  * @implSpec R-VND-14, D-116, D-117
  */
 final class HibernateInsertSupport implements InsertSupport {
+
+    /** The prefix of the parameter names an insert-values binds its values to. */
+    private static final String VALUE = "mqValue";
 
     /** The assigned generator: {@code id.Assigned} on Hibernate 6.x, {@code generator.Assigned} on 7. */
     private static final List<String> ASSIGNED = List.of("org.hibernate.id.Assigned",
@@ -203,16 +214,123 @@ final class HibernateInsertSupport implements InsertSupport {
 
     /**
      * A criteria insert-select: each attribute, dotted through embeddables or to a to-one's id, is a target path, and
-     * {@code source} the select. Hibernate adds the generated id and the {@code @Version} seed itself (D-116). The
-     * criteria is passed as a {@code JpaCriteriaInsert}, the overload both 6.6 and 7 have, and the query Hibernate
-     * returns for it is a {@code jakarta.persistence.Query} on both.
+     * {@code source} the select. Hibernate adds the generated id and the {@code @Version} seed itself (D-116).
      */
     @Override
     public <E> Query insertSelect(EntityManager em, Class<E> entity, List<String> attributes,
             CriteriaQuery<Tuple> source) {
         Session session = em.unwrap(Session.class);
         JpaCriteriaInsertSelect<E> insert = session.getCriteriaBuilder().createCriteriaInsertSelect(entity);
-        Root<E> target = insert.getTarget();
+        insert.setInsertionTargetPaths(paths(insert.getTarget(), attributes));
+        insert.select(source);
+        return query(session, insert, "an insert-select");
+    }
+
+    /**
+     * A criteria insert of {@code rows} as one multi-row {@code VALUES} statement: each attribute, dotted as for
+     * {@link #insertSelect}, is a target path, and each value a named parameter bound here as the path's type, so a
+     * {@code null}, an {@code @Enumerated} value or one a JPA {@code AttributeConverter} writes binds through the
+     * attribute's mapping, and no value is inlined (R-WRT-14, R-WRT-30). Hibernate adds the {@code @Version} seed to
+     * each row itself (D-116).
+     */
+    @Override
+    public <E> Query insertValues(EntityManager em, Class<E> entity, List<String> attributes,
+            List<List<Object>> rows, Optional<ConflictClause<E>> conflict) {
+        if (conflict.isPresent()) {
+            throw new UnsupportedOperationException(entity.getSimpleName() + ": conflict clauses are built in M10.7");
+        }
+        Session session = em.unwrap(Session.class);
+        HibernateCriteriaBuilder cb = session.getCriteriaBuilder();
+        JpaCriteriaInsertValues<E> insert = cb.createCriteriaInsertValues(entity);
+        List<Path<?>> paths = paths(insert.getTarget(), attributes);
+        insert.setInsertionTargetPaths(paths);
+        var values = new ArrayList<JpaValues>(rows.size());
+        var types = new ArrayList<Object>(paths.size());
+        for (Path<?> path : paths) {
+            types.add(TypedBinding.typeOf(path));
+        }
+        var bound = new ArrayList<Object>(rows.size() * paths.size());
+        for (List<Object> row : rows) {
+            if (row.size() != paths.size()) {
+                throw new IllegalArgumentException(entity.getSimpleName() + ": a row of " + row.size()
+                        + " values for " + paths.size() + " attributes");
+            }
+            var parameters = new ArrayList<Expression<?>>(row.size());
+            for (int c = 0; c < row.size(); c++) {
+                parameters.add(cb.parameter(boxed(paths.get(c).getJavaType()), VALUE + bound.size()));
+                bound.add(row.get(c));
+            }
+            values.add(cb.values(parameters));
+        }
+        insert.values(values);
+        Query statement = query(session, insert, "an insert-values");
+        // Every row has a value per path, so value p is path p % paths' value.
+        for (int p = 0; p < bound.size(); p++) {
+            TypedBinding.bind(statement, VALUE + p, bound.get(p), types.get(p % types.size()));
+        }
+        return statement;
+    }
+
+    /**
+     * Binds a parameter as a target path's Hibernate type, which Hibernate does not infer for an insert's values when
+     * the value is bound: it would resolve the type from the value's class, which fails for a converted class and
+     * binds an enum by ordinal. The path's node type and the {@code setParameter} overload taking it differ between
+     * Hibernate 6.6 ({@code org.hibernate.query.BindableType}) and 7 ({@code jakarta.persistence.metamodel.Type}),
+     * so both are found by name, once, the first time an insert-values runs.
+     */
+    private static final class TypedBinding {
+
+        private static final Method NODE_TYPE;
+        private static final Method SET_PARAMETER;
+
+        static {
+            try {
+                NODE_TYPE = SqmPath.class.getMethod("getNodeType");
+            } catch (NoSuchMethodException e) {
+                throw unsupported(e);
+            }
+            SET_PARAMETER = Arrays.stream(MutationQuery.class.getMethods())
+                    .filter(m -> m.getName().equals("setParameter") && m.getParameterCount() == 3)
+                    .filter(m -> m.getParameterTypes()[0] == String.class && m.getParameterTypes()[1] == Object.class
+                            && m.getParameterTypes()[2] != Class.class
+                            && m.getParameterTypes()[2].isAssignableFrom(NODE_TYPE.getReturnType()))
+                    .findFirst().orElseThrow(() -> unsupported(null));
+        }
+
+        private TypedBinding() {}
+
+        /** {@code path}'s Hibernate type, which {@link #bind} takes. */
+        static Object typeOf(Path<?> path) {
+            try {
+                return NODE_TYPE.invoke(path);
+            } catch (ReflectiveOperationException e) {
+                throw unsupported(e);
+            }
+        }
+
+        /** Binds {@code value} to the parameter {@code name} of {@code statement} as {@code type}. */
+        static void bind(Query statement, String name, Object value, Object type) {
+            try {
+                SET_PARAMETER.invoke(statement.unwrap(MutationQuery.class), name, value, type);
+            } catch (InvocationTargetException e) {
+                if (e.getCause() instanceof RuntimeException runtime) {
+                    throw runtime;
+                }
+                throw unsupported(e);
+            } catch (IllegalAccessException e) {
+                throw unsupported(e);
+            }
+        }
+
+        private static IllegalStateException unsupported(Exception cause) {
+            return new IllegalStateException("Hibernate " + Version.getVersionString() + " has no SqmPath.getNodeType()"
+                    + " and setParameter(String, Object, type) taking it, which an insert-values binds its values with",
+                    cause);
+        }
+    }
+
+    /** The target path of each attribute, dotted through embeddables or to a to-one's id. */
+    private static List<Path<?>> paths(Root<?> target, List<String> attributes) {
         List<Path<?>> paths = new ArrayList<>(attributes.size());
         for (String attribute : attributes) {
             Path<?> path = target;
@@ -221,20 +339,25 @@ final class HibernateInsertSupport implements InsertSupport {
             }
             paths.add(path);
         }
-        insert.setInsertionTargetPaths(paths);
-        insert.select(source);
-        MutationQuery query = session.createMutationQuery((JpaCriteriaInsert<E>) insert);
+        return paths;
+    }
+
+    /**
+     * The mutation query Hibernate creates for {@code insert}, passed as a {@code JpaCriteriaInsert}, the overload
+     * both 6.6 and 7 have; the query it returns is a {@code jakarta.persistence.Query} on both.
+     */
+    private static <E> Query query(Session session, JpaCriteriaInsert<E> insert, String what) {
+        MutationQuery query = session.createMutationQuery(insert);
         if (!(query instanceof Query statement)) {
             throw new IllegalStateException("Hibernate " + Version.getVersionString() + " returned a "
-                    + query.getClass().getName() + " for an insert-select, which is not a jakarta.persistence.Query");
+                    + query.getClass().getName() + " for " + what + ", which is not a jakarta.persistence.Query");
         }
         return statement;
     }
 
-    @Override
-    public <E> Query insertValues(EntityManager em, Class<E> entity, List<String> attributes,
-            List<List<Object>> rows, Optional<ConflictClause<E>> conflict) {
-        throw new UnsupportedOperationException(entity.getSimpleName() + ": insert-values is built in M10.6");
+    /** {@code type}, or its wrapper class for a primitive, which a parameter takes. */
+    private static Class<?> boxed(Class<?> type) {
+        return MethodType.methodType(type).wrap().returnType();
     }
 
     private static EntityPersister persister(SessionFactoryImplementor factory, Class<?> entity) {

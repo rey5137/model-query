@@ -430,7 +430,10 @@ chunk's key select or change what its joins return, and the engine only gets a c
 `tablesOf` is empty fails closed with `MQ1806` as well, since rows written with generated ids above the cursor would
 otherwise be re-read silently (INV-5). The unchunked statement stays allowed, since the database reads the whole
 select before it inserts. A guard against rows already in the target is a correlated `notExists` filter over the
-target (R-FLT-17): portable, not atomic.
+target (R-FLT-17): portable, not atomic. A sub-query is not part of the select's FROM, so such a guard does not make
+`chunked` throw `MQ1806`. Chunked, it gives the same rows as the unchunked statement only when it is correlated on a
+value unique among the source rows, such as the source id, whose rows a chunk takes together; correlated on a value
+several source rows share, a later chunk skips rows an earlier chunk inserted, which a single statement would not.
 
 ### 10.4 Insert-values
 
@@ -456,7 +459,8 @@ empty list). Stages follow D-60: `insert(rows)` returns `ValuesInsert.Rows`, whi
 `MQ1801` at `build()`.
 
 **R-WRT-30** Values pass through the column's converter and are always bind parameters (R-WRT-14). A to-one column
-binds `EntityManager#getReference(target, id)`. `build()` reads each row once, through `InsertColumns`, into an
+binds its target's id to the target's id attribute (`customer.id`), as an insert-select copies it (R-WRT-27), so no
+reference is loaded or created. `build()` reads each row once, through `InsertColumns`, into an
 immutable array of its column values, and never reads the model instance again; the copy is shallow, so a mutable
 value inside a row is the caller's (INV-9). A `null` row therefore throws `MQ1803` at `build()`, as do `MQ1802`
 (R-WRT-26) and `MQ1808` (R-WRT-37).

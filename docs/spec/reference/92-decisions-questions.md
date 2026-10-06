@@ -1417,6 +1417,21 @@ with the source root and with every entity the select joins, through a `map` or 
 topmost entity type, or intersecting `tablesOf`. A row a chunk writes into a joined table can join a later chunk's
 source row, so add to its to-many repeats or change its `where`, which the unchunked statement never sees.
 
+*Amended by M10.6:* R-WRT-28 allows a chunked insert-select whose `where` holds an `exists` or `notExists` sub-query
+over the target (no `MQ1806`): a sub-query is not in the select's FROM. Chunked, such a guard gives the unchunked
+statement's rows only when correlated on a value unique among the source rows, such as the source id; on a value
+several source rows share, a later chunk skips rows an earlier chunk inserted. R-WRT-30's to-one binds its target's id
+to the path `customer.id`, as the insert-select copies it, instead of `getReference`. The insert-values statement: each
+value is a named parameter that `InsertSupport` creates and binds as its target path's type, since Hibernate infers no
+type for an insert's bound values: so a `null` binds typed, and a value an `AttributeConverter`, `@Enumerated` or
+`@JdbcTypeCode` maps is written through that mapping, not resolved from its class; a `set` constant is repeated in
+every row, one bind per row; a drawn key (sequence, table, UUID) is appended as the id
+attribute's value, drawn before each statement on the `EntityManager` that runs it. Rows per statement are
+`maxBindParameters()` over the binds of one row (its values, a drawn key and `providerBindsPerRow`), then at most
+`maxValuesRows()` and the chunk size (`size`, else the configured `bulkWriteChunkSize`); a chunk is one statement, and
+`commitEachChunk()` commits each alone, its `ChunkedWriteException` holding no keys. An empty list still runs the
+first-execution and transaction checks, then returns with no flush, clear or eviction.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

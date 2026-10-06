@@ -667,10 +667,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         InsertSupport support = insertSupport(i);
         checkInsertOnce(i, support);
         requireTransaction("insert", i.chunkOptions());
-        if (i.sourceEntity().isEmpty()) {
-            throw notYetBuilt(i);
+        if (i.sourceEntity().isPresent()) {
+            return insertSelect(i, support);
         }
-        return insertSelect(i, support);
+        if (!(i instanceof ValuesInsert<?, ?, ?>)) {
+            throw new UnsupportedOperationException(i + ": conflict clauses are built in M10.7");
+        }
+        return insertValues(i, support, null);
     }
 
     /**
@@ -712,7 +715,77 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         checkInsertOnce(i, support);
         InsertChecks.checkKeysGenerated(i, support.target(em.getEntityManagerFactory(), rootEntity).id());
         requireTransaction("insert", i.chunkOptions());
-        throw notYetBuilt(i);
+        var keys = new ArrayList<Object>(i.rowCount());
+        insertValues(i, support, keys);
+        return keys.stream().map(i.keyType()::cast).toList();
+    }
+
+    /**
+     * Runs an insert-values: its rows in list order, in statements of the most rows that stay within the bind limit
+     * and the profile's {@code VALUES} limit, capped by the chunk size; each in the caller's transaction, or with
+     * {@code commitEachChunk()} in its own. A sequence, table or UUID id is drawn from the generator before each
+     * statement, written as a value and added to {@code keys} when given. An empty list runs no SQL, not even the
+     * flush; otherwise the persistence context is flushed before and cleared after, as for any bulk write (R-WRT-26,
+     * R-WRT-29, R-WRT-32, R-WRT-33, R-WRT-38).
+     */
+    private long insertValues(ModelInsert<E, ?> i, InsertSupport support, List<Object> keys) {
+        int rows = i.rowCount();
+        if (rows == 0) {
+            return 0;
+        }
+        EntityManagerFactory emf = em.getEntityManagerFactory();
+        List<String> attributes = new ArrayList<>(i.valueAttributes(em.getMetamodel()));
+        boolean drawn = InsertChecks.drawsKeys(support.target(emf, rootEntity).id());
+        if (drawn) {
+            attributes.add(idAttribute());
+        }
+        int providerBinds = support.providerBindsPerRow(emf, rootEntity);
+        int perStatement = rowsPerStatement(i, attributes.size() + providerBinds);
+        ValuesWrite.Statement statement = (on, from, to) -> {
+            List<List<Object>> values = i.valueRows(from, to);
+            if (drawn) {
+                List<Object> drawnKeys = support.generateKeys(on, rootEntity, to - from);
+                for (int r = 0; r < values.size(); r++) {
+                    values.get(r).add(drawnKeys.get(r));
+                }
+                if (keys != null) {
+                    keys.addAll(drawnKeys);
+                }
+            }
+            return execute(support.insertValues(on, rootEntity, attributes, values, Optional.empty()),
+                    providerBinds * (to - from));
+        };
+        boolean perChunk = i.chunkOptions().map(ChunkOptions::commitsEachChunk).orElse(false);
+        logWrite("insert", i, i.chunkOptions(), false);
+        return write(i.persistenceContext(), () -> new ValuesWrite(rootEntity.getSimpleName(), em,
+                perChunk ? chunkTransactions : null).run(rows, perStatement, statement));
+    }
+
+    /**
+     * The most rows one insert-values statement takes: as many as stay within the bind limit at {@code bindsPerRow}
+     * each, the columns, the {@code set} constants, a drawn id and the provider's own binds such as the version seed,
+     * and within the profile's {@code maxValuesRows()}, capped by the chunk size, the given or else the configured
+     * one, when chunked; at least one, which {@code execute} refuses with {@code MQ1307} should it alone pass the bind
+     * limit (R-WRT-29, D-80).
+     */
+    private int rowsPerStatement(ModelInsert<E, ?> i, int bindsPerRow) {
+        int rows = Math.min(renderOptions.maxBindParameters() / Math.max(1, bindsPerRow),
+                vendor.profile().maxValuesRows());
+        if (i.chunkOptions().isPresent()) {
+            rows = Math.min(rows, i.chunkOptions().get().size().orElse(bulkWriteChunkSize));
+        }
+        return Math.max(1, rows);
+    }
+
+    /** The root's one id attribute, which a drawn key is written to: a generated id is never composite (R-WRT-26). */
+    private String idAttribute() {
+        List<String> ids = em.getMetamodel().entity(rootEntity).getSingularAttributes().stream()
+                .filter(SingularAttribute::isId).map(Attribute::getName).toList();
+        if (ids.size() != 1) {
+            throw new IllegalStateException(rootEntity.getSimpleName() + ": a drawn key needs one id attribute, "
+                    + "and the metamodel reports " + ids);
+        }
+        return ids.get(0);
     }
 
     @Override
@@ -826,11 +899,6 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             }
         }
         return top;
-    }
-
-    /** The statement paths M10.6 and M10.7 build: insert-values and conflict clauses. */
-    private static UnsupportedOperationException notYetBuilt(ModelInsert<?, ?> i) {
-        return new UnsupportedOperationException(i + ": insert-values is built in M10.6, conflict clauses in M10.7");
     }
 
     /**

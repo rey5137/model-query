@@ -57,8 +57,10 @@ public interface InsertSupport {
 
     /**
      * An insert of {@code rows} into {@code entity}, one statement: each row's values, in order, are written to
-     * {@code attributes}, with {@code conflict}'s clause when present. The engine runs the returned query with
-     * {@code executeUpdate()} (R-WRT-29, R-WRT-34).
+     * {@code attributes}, with {@code conflict}'s clause when present. The values are attribute values, a
+     * {@code null} included, and an attribute is dotted through embeddables, a to-one's ending in its target's id
+     * ({@code customer.id}); the implementation binds each value as a parameter, never inlined. The engine runs the
+     * returned query with {@code executeUpdate()} (R-WRT-29, R-WRT-30, R-WRT-34).
      */
     <E> Query insertValues(EntityManager em, Class<E> entity, List<String> attributes, List<List<Object>> rows,
             Optional<ConflictClause<E>> conflict);

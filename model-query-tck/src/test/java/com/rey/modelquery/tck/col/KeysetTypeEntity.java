@@ -44,7 +44,7 @@ public class KeysetTypeEntity {
     public static final class Shape {
         private final String name;
 
-        Shape(String name) {
+        public Shape(String name) {
             this.name = name;
         }
 

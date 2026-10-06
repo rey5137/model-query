@@ -219,6 +219,24 @@ class InsertDefinitionTest {
     }
 
     @Test
+    void ac_wrt_22_value_rows_convert_each_value_keep_a_null_and_append_the_set_constants() {
+        ValuesInsert<Order, Long, NewOrder> insert = ValuesInsert.builder(COLUMNS, Long.class,
+                List.of(FIRST, SECOND, new NewOrder(3L, null, "NEW", null))).set(CREATED_BY, "tck").build();
+
+        assertThat(insert.rowCount()).isEqualTo(3);
+        // The converter writes Y and N for the flag; a null stays null and is not converted.
+        assertThat(insert.valueRows(1, 3)).containsExactly(Arrays.asList(2L, "b", "NEW", "N", "tck"),
+                Arrays.asList(3L, null, "NEW", null, "tck"));
+        // Each call returns new lists, so the engine may append a drawn key without changing the definition.
+        insert.valueRows(0, 1).get(0).add(99L);
+        assertThat(insert.valueRows(0, 1)).containsExactly(Arrays.asList(1L, "a", "NEW", "Y", "tck"));
+        var select = ModelInsert.select(COLUMNS, SOURCE).map(ID, SOURCE_ID).map(REF, SOURCE_REF)
+                .map(STATUS, SOURCE_STATUS).map(FLAGGED, SOURCE_FLAGGED_CONVERTED).all().build();
+        assertThatThrownBy(select::rowCount).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> select.valueRows(0, 0)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void ac_wrt_32_a_null_row_throws_mq1803_and_a_null_assigned_id_mq1802() {
         assertCode(() -> ValuesInsert.builder(COLUMNS, Long.class, Arrays.asList(FIRST, null)).build(),
                 MqCode.MQ1803).hasMessage("MQ1803: Order[id, ref, status, flagged]: row 1 is null");

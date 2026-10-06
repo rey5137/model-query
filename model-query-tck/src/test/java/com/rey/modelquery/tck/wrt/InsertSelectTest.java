@@ -19,8 +19,10 @@ import com.rey.modelquery.core.ModelInsert;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.Op;
 import com.rey.modelquery.core.PersistenceContextMode;
 import com.rey.modelquery.core.SelectSet;
+import com.rey.modelquery.core.SubSelect;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.hibernate.HibernateProviderSupport;
 import com.rey.modelquery.jpa.ChunkTransactions;
@@ -236,6 +238,32 @@ class InsertSelectTest {
     }
 
     @TckTest
+    void ac_wrt_21_a_chunked_insert_select_guarded_by_not_exists_over_its_target_runs_without_mq1806(TckDatabase db) {
+        List<String> lines = read(db, PAID_IN_DE);
+        long archivedOrder = orderIds(lines).get(0);
+        // Correlated on the source root's id, whose rows a chunk takes together: the guard skips only that order's
+        // lines, as the unchunked statement would.
+        UnaryOperator<Filters<Line>> unarchived = f -> PAID_IN_DE.apply(f).notExists(SubSelect.of(ARCHIVE_ORDER_ID),
+                (s, outer) -> s.compare(ARCHIVE_ORDER_ID, Op.EQ, outer.column(LINE_ORDER_ID)));
+        List<String> expected = lines.stream().filter(line -> !line.split("\\|")[1].equals(
+                String.valueOf(archivedOrder))).toList();
+        long[] written = new long[1];
+        var archived = new ArrayList<String>();
+
+        inRolledBackTransaction(JoinTestSupport.dataSource(db), em -> {
+            em.createNativeQuery("insert into order_archive (id, order_id, status, version) values (900001, "
+                    + archivedOrder + ", 'X', 0)").executeUpdate();
+            written[0] = archives(em).insert(archive(unarchived).chunked(ChunkOptions.size(5)).build());
+            archived.addAll(archived(em));
+        });
+
+        assertThat(expected).hasSize(lines.size() - 4);
+        assertThat(written[0]).isEqualTo(expected.size());
+        assertThat(archived).filteredOn(row -> !row.startsWith("900001|"))
+                .containsExactlyInAnyOrderElementsOf(expected);
+    }
+
+    @TckTest
     void ac_wrt_21_a_chunked_insert_select_pages_over_a_composite_source_id_ordered_by_component_name(
             TckDatabase db) {
         long[] written = new long[1];
@@ -435,7 +463,7 @@ class InsertSelectTest {
     }
 
     /** Chunks as {@link ResourceLocal} runs them, but the second chunk's commit rolls back and throws. */
-    private static ResourceLocal failingSecondCommit() {
+    static ResourceLocal failingSecondCommit() {
         return new ResourceLocal() {
             @Override
             void commit(EntityTransaction transaction) {
@@ -449,7 +477,7 @@ class InsertSelectTest {
     }
 
     /** Each chunk on a new resource-local {@code EntityManager}, committed unless {@link #commit} throws. */
-    private static class ResourceLocal implements ChunkTransactions {
+    static class ResourceLocal implements ChunkTransactions {
 
         int chunks;
 
@@ -640,14 +668,14 @@ class InsertSelectTest {
     }
 
     /** The {@link ChunkedWriteException} {@code write} throws. */
-    private static ChunkedWriteException catchChunked(Runnable write) {
+    static ChunkedWriteException catchChunked(Runnable write) {
         ChunkedWriteException[] thrown = new ChunkedWriteException[1];
         assertThatThrownBy(write::run).isInstanceOfSatisfying(ChunkedWriteException.class, e -> thrown[0] = e);
         return thrown[0];
     }
 
     /** Runs {@code work} on a session of a factory over {@code ds} with no transaction. */
-    private static void withoutTransaction(DataSource ds, Consumer<EntityManager> work) {
+    static void withoutTransaction(DataSource ds, Consumer<EntityManager> work) {
         try (SessionFactory factory = JoinTestSupport.sessionFactory(ds)) {
             factory.inSession(work::accept);
         }
