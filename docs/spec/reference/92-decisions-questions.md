@@ -1307,6 +1307,81 @@ default; `detach` leaves it unmanaged. H2, PostgreSQL and MySQL on both Hibernat
 → `api/14` §10 (R-WRT-24 to R-WRT-40), `reference/90` (`MQ18xx`), `vendor/40` R-VND-14, `delivery/62`,
 `docs/plan/mvp-plan.md` §11–12, `rfc/0004-bulk-inserts.md`.
 
+**D-117 — Insert API shape (M10.2a review; amends RFC 0004 §3–§7 and D-116).** Built on D-116's three user
+decisions; nothing frozen (every type `@Incubating`).
+1. *Types.* `ModelInsert<E, M>` is a sealed class permitting `ValuesInsert`; insert-select and insert-values with a
+   conflict clause build to it. Insert-values without one builds to `final ValuesInsert<E, K, M>`; persist to
+   `final ModelPersist<E, K, M>` (order E, K, M as `ModelQuery`). `E` is the written root; the insert-select source
+   is unconstrained. Executor and repository: `long insert(ModelInsert<E, ?>)`,
+   `<K> List<K> insertReturningKeys(ValuesInsert<E, K, ?>)`, `<K> K persist(ModelPersist<E, K, ?>)`. Keys from an
+   insert-select or a conflict-clause insert, and `set`/conflict/chunking on persist, do not compile.
+2. *Key typing* (RFC "Resolved" 1). `K` is a type parameter fixed by the generated `insert(rows)`/`persist(row)` from
+   the root's id as the processor sees it (boxed `@Id`, `@EmbeddedId`, `@IdClass`, a `@MappedSuperclass` variable via
+   `Types.asMemberOf`), which passes `Class<K>` into the definition. On first execution (D-61) `K` must equal the boxed
+   `IdentifiableType#getIdType()` Java type, else `MQ1807` naming `orm.xml`. No id visible: `K = Object` and warning
+   `MQ3504`. A composite `K` is the `@IdClass` or embeddable (what `PersistenceUnitUtil#getIdentifier` returns), not
+   `PrimaryKey.composite`'s `List<Object>`. Generator strategy stays a run-time check (`MQ1805`, `MQ1807`). Rejected: a
+   per-call `Class<K>` (a wrong class compiles, P-2) and processor-only typing (misses `orm.xml`).
+3. *`InsertColumns<M, E>`*, a new core type and the type of `INSERT_COLUMNS`: the root `TableField<E, E>` and, in
+   declaration order, `<C> add(ColumnField<M, E, C>, Function<? super M, ? extends C>)` with a key flag per column.
+   Processor-free entry points (INV-8): `ModelInsert.select(InsertColumns<M, E>, TableField<S, S>)`,
+   `ValuesInsert.builder(InsertColumns<M, E>, Class<K>, List<? extends M>)`,
+   `ModelPersist.of(InsertColumns<M, E>, Class<K>, M)`.
+4. *Row copy (INV-9).* `build()` (or `ModelPersist.of`) reads each row once into an immutable value array; `M` is never
+   read again. So `MQ1803` (null row), `MQ1802` (null assigned id) and `MQ1808` (duplicate conflict-key tuple, by
+   `equals`) are raised at `build()`.
+5. *Insert-select stages* (D-60). `<S> SelectStart<E, M> insertFrom(TableField<S, S>)` (a join `TableField` does not
+   compile) → `<Q, C> Mapping<E, M, Q> map(ColumnField<M, E, C>, ColumnField<Q, ?, C>)`, the first `map` fixing `Q` →
+   more `map`s, `set(ColumnField<?, E, C>, C)`, then `where(UnaryOperator<Filters<Q>>)` or `all()` →
+   `SelectOptions<E, M>`: `chunked(ChunkOptions)`, `persistenceContext(...)`, `build()`. No `onConflict`,
+   `keepVersion` or `startAfter`; resume narrows the `where` on the source key. Every target column mapped exactly
+   once, checked at `build()` (`MQ1801`).
+6. *Insert-values stages.* `ValuesInsert.Rows<E, K, M> insert(List<? extends M>)` offers `set` (null is `MQ1603`; no
+   `setNull`), `onConflict`, `chunked`, `persistenceContext`, `build()`; `chunked`/`persistenceContext` move to
+   `ValuesInsert.Options`, where `onConflict` is gone. `lockKeys()` is `MQ1801` at `build()`; `commitEachChunk()` with
+   `insertReturningKeys` is `MQ1801` at that call, before the flush (`build()` cannot know).
+7. *Conflict stages* (insert-values only). `onConflict(ColumnField<M, E, ?> first, ColumnField<M, E, ?>... rest)` →
+   `Conflict<E, M>`: `doNothing()` → `ConflictOptions<E, M>`, or
+   `doUpdate(Function<ConflictUpdate<E, M>, ConflictUpdate.Action<E, M>>)` → `Upserting<E, M>`. `ConflictUpdate`
+   offers `setFromRow(first, rest...)`, `set`, `setNull`, each returning `Assigned` (an `Action`) with more
+   assignments and one `where(UnaryOperator<Filters<M>>)` returning a bare `Action`. `Upserting` adds `keepVersion()`
+   to `ConflictOptions` (`anyUniqueKey()`, `chunked`, `persistenceContext`, `build()` → `ModelInsert<E, M>`). If every
+   filter in the update's `where` is skipped the update applies to every conflicting row (not `MQ1601`). `exists` or
+   sub-query filters there are `MQ1804` at `build()`.
+8. *Counts.* `insert` returns the provider's count: inserted plus updated where `conflictTargetHonoured()`; elsewhere a
+   conflict clause already needs `anyUniqueKey()`, whose Javadoc states that it accepts any-unique-key detection, the
+   vendor's count (MySQL: 1 per skipped, filtered or unchanged row, 2 per changed one, at Connector/J's default found
+   rows) and the vendor's key collation. `ChunkedWriteException.committedRows()` follows it.
+9. *`ChunkedWriteException`* gains `OptionalInt nextRowIndex()` (insert-values only) and `int inDoubtRowCount()`, the
+   contiguous chunk from `nextRowIndex`; for insert-select `lastCommittedKey()`/`inDoubtKeys()` hold source ids.
+10. *`InsertSupport`* (INV-7, `jpa.spi`, jakarta types only), via `ProviderSupport#inserts()` (default empty):
+    `InsertTarget target(EntityManagerFactory, Class<?>)` → `record InsertTarget(IdGeneration id,
+    List<String> unsupportedMappings)`, sealed `IdGeneration` = `Assigned | Identity | Sequence(boolean physical,
+    int increment) | Table | Uuid | Other(String generatorClass)`; `List<Object> generateKeys(EntityManager,
+    Class<?>, int)`; `boolean doNothingRendered(EntityManagerFactory)`; `int providerBindsPerRow(EntityManagerFactory,
+    Class<?>)`; `<E> Query insertSelect(EntityManager, Class<E>, List<String>, CriteriaQuery<Tuple>)`;
+    `<E> Query insertValues(EntityManager, Class<E>, List<String>, List<List<Object>>, Optional<ConflictClause<E>>)`,
+    `ConflictClause<E>` carrying `keyAttributes()`, `doNothing()` and `Optional<Predicate> update(Root<E> target,
+    Root<E> excluded, CriteriaBuilder, BiConsumer<Path<?>, Expression<?>> assign)`. The `MQ1805` allowlist lives in
+    `jpa` over `IdGeneration` (insert-select `Sequence` needs `physical && increment == 1`). Bind count (D-80): columns
+    plus `set` constants plus `providerBindsPerRow` per row, plus the conflict binds as an upper bound (`where` binds ×
+    (assignments + 1), plus `set` binds). `model-query-hibernate` ships one `HibernateInsertSupport` compiled against
+    6.6 and run on 7.x in the TCK, using only API in both and comparing moved generator classes by name;
+    `doNothingRendered` is true on 7+, and on 6.x only for the PostgreSQL and MySQL dialect hierarchies.
+11. *`VendorProfile`* (INV-6): `default int maxValuesRows()` = `1_000` (the RFC's `Integer.MAX_VALUE` reversed: a lower
+    limit is only slower, and SQL Server resolves to OTHER) and `default boolean conflictTargetHonoured()` = `false`.
+    H2 and POSTGRESQL: `Integer.MAX_VALUE`, `true`; MYSQL and MYSQL_CURSOR_FETCH: `Integer.MAX_VALUE`, `false`. No
+    per-row fallback (D-116).
+12. *Overlap fails closed.* A chunked insert-select whose source or target has an empty `tablesOf` throws `MQ1806`:
+    rows written with generated ids above the cursor would otherwise be re-read silently (INV-5).
+
+RFC text this corrects: R-WRT-33 (`commitEachChunk` check), R-WRT-27 (mismatched source model compiled), R-WRT-26
+(the IDENTITY reason; "physical" sequence), R-WRT-35 (MySQL `doNothing` count), R-WRT-36 and R-WRT-29 (no Oracle or
+SQL Server profile exists), R-WRT-34 and R-WRT-37 (insert-select conflict). The M10.9 sample's `doNothing` endpoint runs
+on its PostgreSQL datasource (Boot 3.4 is Hibernate 6.6, where H2 gives `MQ1804`).
+→ `api/14` §10, `reference/90` (`MQ1801`, `MQ1807`, `MQ1808`), `processor/31` §7, `processor/32` (`MQ3504`),
+`vendor/40` R-VND-14, `vendor/41`, `rfc/0004-bulk-inserts.md`.
+
 
 ## 2. Open questions
 
