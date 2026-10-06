@@ -1,6 +1,6 @@
 # RFC 0004 — Inserts
 
-- **Status:** draft (revision 3, after the second `architect-review`)
+- **Status:** accepted (revision 3, after the second `architect-review`)
 - **Affects:** `P-5`, `INV-1`, `INV-9` (wording); `api/14` (retitled "Writes"; §1 R-WRT-01; new §10 with `R-WRT-24`…`R-WRT-40`
   and `AC-WRT-21`…; R-WRT-15, R-WRT-18, R-WRT-19, R-WRT-20 extended to inserts); `processor/30` (new `R-PROC-23`,
   `@InsertModel`, and `R-PROC-24`); `processor/31` (new §7, generated insert models); `processor/32` (codes
@@ -8,7 +8,7 @@
   `conflictTargetHonoured()`); `integration/50` (`ModelQueryRepository` gains `insert`, `insertReturningKeys` and `persist`; R-SPR-10 and
   AC-SPR-09 extended to them); `reference/90` (new `MQ18xx`
   sub-range and codes); `reference/92` (new D-116, amended D-14, D-85 and P-5); `core` `ChunkedWriteException` (new
-  accessors). `docs/plan/mvp-plan.md`: a new milestone before the M10 freeze.
+  accessors). `docs/plan/mvp-plan.md`: a new milestone M10 — Inserts, the freeze renumbered to M11.
 - **Discussion:** [#28](https://github.com/rey5137/model-query/discussions/28)
 - **Target:** 0.3.0. Every new public type and method is `@Incubating`; D-85 lists them as exempt from the 1.0 freeze.
 
@@ -367,16 +367,14 @@ except `INV-1` and `P-5`, which widen the list of explicit writes without changi
 - **Reuse `@UpdateModel` and change sets as rows.** See D-116.
 - **A guard filter.** See D-116; addable later.
 
-## Unresolved questions
+## Resolved at acceptance
 
-1. **Key typing.** `Class<K>` checked at run time (proposed), or a key type the processor generates from the entity's
-   id when it can see the entity. `architect-review` decides.
-2. **`ValuesInsert` as a separate type** so `insertReturningKeys` rejects conflict clauses at compile time (proposed),
-   or one `ModelInsert` with an `MQ1807` check.
-3. **Vendor spike before the slices**, a generator × vendor × conflict matrix: `IDENTITY`, assigned, pooled sequence,
-   table, UUID; pre-generated ids in insert-values on every vendor (Hibernate's source accepts them); the temporary-table plan for
+1. **Key typing.** Open: the milestone's `architect-review` decides between `Class<K>` checked at run time (proposed)
+   and a key type the processor generates from the entity's id when it can see the entity, before the API slice.
+2. **`ValuesInsert` is a separate type**, so `insertReturningKeys` rejects conflict clauses at compile time.
+3. **Vendor spike** is the milestone's first slice: the generator × vendor × conflict matrix (`IDENTITY`, assigned,
+   pooled sequence, table, UUID; pre-generated ids in insert-values on every vendor; the temporary-table plan for
    insert-select with pooled and table generators; `@MapsId`; multi-row `VALUES` on Oracle before and after 23; the
-   update count and the conflict rendering per vendor; `persist` on bytecode-enhanced entities written by field.
-   Results fix R-WRT-26/29/35 and the `MQ1805` allowlist.
-4. **Milestone.** A new milestone before the freeze ("M10 — Inserts → 0.3.0", the freeze renumbered to M11), or
-   "M9b"; decided when the RFC is accepted.
+   update count and the conflict rendering per vendor; `persist` on bytecode-enhanced entities written by field). Its
+   results fix R-WRT-26/29/35 and the `MQ1805` allowlist.
+4. **Milestone:** "M10 — Inserts → 0.3.0"; the freeze is renumbered to M11.
