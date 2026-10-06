@@ -9,6 +9,7 @@ import com.rey.modelquery.core.Row;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.LockModeType;
+import jakarta.persistence.PersistenceException;
 import jakarta.persistence.Query;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.TypedQuery;
@@ -64,6 +65,8 @@ final class KeysetWrite {
     private final CriteriaBuilder cb;
     private final Select select;
     private final ToIntFunction<Query> execute;
+    /** How a key select's statement reports a timeout cancellation, decided by the executor (R-EXE-11). */
+    private final UnaryOperator<PersistenceException> timeouts;
     private final EntityManager caller;
     /** Runs each round in a new transaction on {@link #emf}, or {@code null} to run them all on the caller's. */
     private final ChunkTransactions transactions;
@@ -73,14 +76,16 @@ final class KeysetWrite {
      * @param select creates a key select's query on the given {@code EntityManager}, with the configured timeout
      *     applied
      * @param execute runs a write statement, with the configured timeout applied, and returns the rows it affected
+     * @param timeouts how a key select's statement reports a timeout cancellation, as the executor translates it
      * @param caller the caller's {@code EntityManager}, which every round runs on without {@code transactions}
      * @param transactions runs each round in a new transaction, for {@code commitEachChunk()}, or {@code null}
      */
-    KeysetWrite(CriteriaBuilder cb, Select select,
-            ToIntFunction<Query> execute, EntityManager caller, ChunkTransactions transactions) {
+    KeysetWrite(CriteriaBuilder cb, Select select, ToIntFunction<Query> execute,
+            UnaryOperator<PersistenceException> timeouts, EntityManager caller, ChunkTransactions transactions) {
         this.cb = cb;
         this.select = select;
         this.execute = execute;
+        this.timeouts = timeouts;
         this.caller = caller;
         this.transactions = transactions;
         this.emf = caller.getEntityManagerFactory();
@@ -158,7 +163,11 @@ final class KeysetWrite {
         if (lockKeys) {
             query.setLockMode(LockModeType.PESSIMISTIC_WRITE);
         }
-        return query.getResultList();
+        try {
+            return query.getResultList();
+        } catch (PersistenceException e) {
+            throw timeouts.apply(e);
+        }
     }
 
     /**

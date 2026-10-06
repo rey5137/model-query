@@ -1,5 +1,6 @@
 package com.rey.modelquery.tck.vnd;
 
+import static com.rey.modelquery.tck.vnd.TimeoutAssertions.assertCancelledByTimeout;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -320,10 +321,10 @@ class StreamingAndTimeoutTest {
     void ac_prf_08_the_timeout_also_cancels_a_streamed_query(TckDatabase db) {
         ModelQueryConfig config = ModelQueryConfig.defaults().queryTimeout(Duration.ofSeconds(1));
         try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
-            assertThatThrownBy(() -> sf.inTransaction(em -> ModelQueryExecutor.create(em, OrderEntity.class, config)
-                    .stream(NEVER_FINISHES, Limit.unlimited(), s -> s.count())))
-                    // The stream path leaves Hibernate's own exception, which the list path converts to JPA's.
-                    .isInstanceOfAny(QueryTimeoutException.class, org.hibernate.QueryTimeoutException.class);
+            // The stream path leaves the provider's own exception, which the list path converts to JPA's.
+            assertCancelledByTimeout(() -> sf.inTransaction(em -> ModelQueryExecutor
+                    .create(em, OrderEntity.class, config)
+                    .stream(NEVER_FINISHES, Limit.unlimited(), s -> s.count())));
         }
     }
 

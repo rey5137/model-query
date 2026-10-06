@@ -222,6 +222,8 @@ Behaviour to know when moving from hand-written Criteria code:
 - A model selecting one attribute through two columns, such as an `Instant` and a `Date` field over one `Timestamp`,
   or a plain column beside a converted one, no longer fails with a duplicate-alias error: the attribute is selected
   once and each column reads it through its own converter, on every read path and in a grouped count (R-COL-10).
+- Hibernate 7: the default null precedence is read on both 6.6 and 7, and a statement cancelled by the query timeout
+  is reported as `QueryTimeoutException` on both.
 
 ## [0.1.0] - 2026-10-01
 

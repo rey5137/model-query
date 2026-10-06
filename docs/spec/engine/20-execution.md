@@ -80,7 +80,9 @@ keyset `export` is the documented default, because it runs short queries per pag
 **R-EXE-11** A per-query timeout comes from `ModelQueryConfig` or `modelquery.query-timeout` and is applied through
 `VendorProfile.applyTimeout`. The profile documents its granularity: `jakarta.persistence.query.timeout` becomes
 `Statement.setQueryTimeout`, which has one-second granularity (`vendor/41`). `ModelQueryConfig.queryTimeout(Duration)`
-must be positive (`MQ4003`) and applies to every statement the executor runs; unset means none.
+must be positive (`MQ4003`) and applies to every statement the executor runs; unset means none. The executor reports a
+statement its timeout cancelled as `QueryTimeoutException` on every supported Hibernate version, translating a
+cancellation (SQLState `57014`) a provider reports as a plain `PersistenceException`.
 
 ## 7. Acceptance criteria
 

@@ -40,7 +40,9 @@ import com.rey.modelquery.jpa.vendor.VendorResolver;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.OptimisticLockException;
+import jakarta.persistence.PersistenceException;
 import jakarta.persistence.Query;
+import jakarta.persistence.QueryTimeoutException;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
@@ -57,6 +59,7 @@ import jakarta.persistence.metamodel.EntityType;
 import jakarta.persistence.metamodel.IdentifiableType;
 import jakarta.persistence.metamodel.Metamodel;
 import jakarta.persistence.metamodel.PluralAttribute;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -94,6 +97,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private static final System.Logger LOG = System.getLogger(DefaultModelQueryExecutor.class.getName());
     private static final System.Logger.Level DEBUG = System.Logger.Level.DEBUG;
     private static final System.Logger.Level TRACE = System.Logger.Level.TRACE;
+
+    /** SQLState a provider reports for a statement its query timeout cancelled, PostgreSQL's {@code 57014}. */
+    static final String CANCELLED_SQL_STATE = "57014";
 
     /**
      * The queries whose phases and fetch-plan columns were checked, by identity. Static, because the checks are once
@@ -283,19 +289,60 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     }
 
     /** {@code query}'s rows, with their count and time in the trace log (D-95). */
-    private static <T> List<T> rows(Object label, TypedQuery<T> query) {
+    private <T> List<T> rows(Object label, TypedQuery<T> query) {
         long start = System.nanoTime();
-        List<T> rows = query.getResultList();
+        List<T> rows;
+        try {
+            rows = query.getResultList();
+        } catch (PersistenceException e) {
+            throw timeoutCancellation(e);
+        }
         traceTimed(label, rows.size() + (rows.size() == 1 ? " row" : " rows"), start);
         return rows;
     }
 
     /** {@code query}'s one row, with its time in the trace log (D-95). */
-    private static <T> T single(Object label, TypedQuery<T> query) {
+    private <T> T single(Object label, TypedQuery<T> query) {
         long start = System.nanoTime();
-        T row = query.getSingleResult();
+        T row;
+        try {
+            row = query.getSingleResult();
+        } catch (PersistenceException e) {
+            throw timeoutCancellation(e);
+        }
         traceTimed(label, "1 row", start);
         return row;
+    }
+
+    /** {@link #timeoutCancellation(PersistenceException, boolean)} for this executor's configured timeout. */
+    private PersistenceException timeoutCancellation(PersistenceException e) {
+        return timeoutCancellation(e, queryTimeout.isPresent());
+    }
+
+    /**
+     * {@code e} as JPA's {@link QueryTimeoutException} when {@code timeoutConfigured} and its cause chain holds a
+     * {@link SQLException} with SQLState {@code 57014} (a statement the query timeout cancelled), else {@code e}
+     * unchanged. Hibernate 6.6 already reports the cancellation as a {@code QueryTimeoutException}; Hibernate 7 on
+     * PostgreSQL reports it as a plain {@link PersistenceException}, so the executor translates it for callers on
+     * every supported version (R-EXE-11).
+     */
+    static PersistenceException timeoutCancellation(PersistenceException e, boolean timeoutConfigured) {
+        if (!timeoutConfigured || e instanceof QueryTimeoutException || !cancelledByTimeout(e)) {
+            return e;
+        }
+        return new QueryTimeoutException(e.getMessage(), e);
+    }
+
+    /** Whether {@code e}'s cause chain holds a {@link SQLException} with SQLState {@code 57014}. */
+    private static boolean cancelledByTimeout(Throwable e) {
+        // At most 32 causes deep, so a cyclic cause chain cannot loop forever.
+        Throwable cause = e;
+        for (int depth = 0; cause != null && depth < 32; cause = cause.getCause(), depth++) {
+            if (cause instanceof SQLException sql && CANCELLED_SQL_STATE.equals(sql.getSQLState())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void traceTimed(Object label, String what, long start) {
@@ -761,8 +808,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                         keyed.key().columns().size(), size));
         boolean perChunk = chunk.map(ChunkOptions::commitsEachChunk).orElse(false);
         return new KeysetWrite(cb, (on, built, keyset, cursor) -> create(rootEntity.getSimpleName(), on, built.query(),
-                keyset, cursor, built.joins()), statement -> execute(statement, repeated), em,
-                perChunk ? chunkTransactions : null).run(keyed, n, chunk.map(ChunkOptions::locksKeys).orElse(false));
+                keyset, cursor, built.joins()), statement -> execute(statement, repeated), this::timeoutCancellation,
+                em, perChunk ? chunkTransactions : null)
+                        .run(keyed, n, chunk.map(ChunkOptions::locksKeys).orElse(false));
     }
 
     /**
@@ -787,7 +835,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         LOG.log(TRACE, () -> rootEntity.getSimpleName() + ": statement binds "
                 + (statement.getParameters().size() + repeated) + " of " + renderOptions.maxBindParameters());
         long start = System.nanoTime();
-        int written = statement.executeUpdate();
+        int written;
+        try {
+            written = statement.executeUpdate();
+        } catch (PersistenceException e) {
+            throw timeoutCancellation(e);
+        }
         traceTimed(rootEntity.getSimpleName(), written + (written == 1 ? " row" : " rows") + " written", start);
         return written;
     }
@@ -962,7 +1015,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return keyLimits.clamp(ownBinds, key.columns().size(), primaryKeyFirstBatchSize);
     }
 
-    private static <M> List<Loaded<M>> mapAll(Object label, TypedQuery<Tuple> query, BuiltQuery<M> built) {
+    private <M> List<Loaded<M>> mapAll(Object label, TypedQuery<Tuple> query, BuiltQuery<M> built) {
         List<Tuple> tuples = rows(label, query);
         var models = new ArrayList<Loaded<M>>(tuples.size());
         for (Tuple tuple : tuples) {

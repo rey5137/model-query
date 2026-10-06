@@ -1,7 +1,7 @@
 package com.rey.modelquery.tck.vnd;
 
+import static com.rey.modelquery.tck.vnd.TimeoutAssertions.assertCancelledByTimeout;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.jpa.MysqlStreamingMode;
@@ -13,7 +13,6 @@ import com.rey.modelquery.tck.col.NullableSortEntity;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
 import jakarta.persistence.Query;
-import jakarta.persistence.QueryTimeoutException;
 import jakarta.persistence.TypedQuery;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -70,11 +69,11 @@ class ProfileValuesTest {
         try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
             VendorProfile profile = profile(sf);
             long start = System.nanoTime();
-            assertThatThrownBy(() -> sf.inSession(em -> {
+            assertCancelledByTimeout(() -> sf.inSession(em -> {
                 Query query = em.createNativeQuery(sleepingSql(db));
                 profile.applyTimeout(query, Duration.ofMillis(400));
                 query.getResultList();
-            })).isInstanceOf(QueryTimeoutException.class);
+            }));
             assertThat(Duration.ofNanos(System.nanoTime() - start)).isBetween(Duration.ofMillis(500),
                     Duration.ofSeconds(8));
         }

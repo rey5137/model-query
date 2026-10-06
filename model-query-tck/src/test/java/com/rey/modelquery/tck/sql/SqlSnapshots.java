@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Locale;
 import javax.sql.DataSource;
 import net.ttddyy.dsproxy.support.ProxyDataSourceBuilder;
+import org.hibernate.Version;
 
 /**
  * SQL-snapshot harness (spec delivery/60 R-QA-03, R-QA-04). Runs some work against a {@code datasource-proxy}
@@ -24,6 +25,11 @@ import net.ttddyy.dsproxy.support.ProxyDataSourceBuilder;
  *
  * <p>A mismatch or a missing snapshot fails the test with a diff. Run with {@code -Dsql.snapshots.update=true} to
  * rewrite the files under {@code src/test/resources}; the change then appears in the PR diff for review.
+ *
+ * <p>Looking a snapshot up on Hibernate 7 or higher: {@code <vendor>/hibernate7/<name>.sql} is used when it exists,
+ * else the shared {@code <vendor>/<name>.sql}. In update mode on Hibernate 7 only the {@code hibernate7/} variant is
+ * written, and only when its SQL differs from the shared snapshot, which is never rewritten; Hibernate 6 is unchanged.
+ * So a new snapshot is created on Hibernate 6 first.
  */
 public final class SqlSnapshots {
 
@@ -31,6 +37,9 @@ public final class SqlSnapshots {
     public static final String UPDATE_PROPERTY = "sql.snapshots.update";
 
     private static final String RESOURCE_DIR = "src/test/resources/sql";
+
+    /** Subdirectory of a vendor's snapshots that holds the Hibernate 7 variant of a shared snapshot. */
+    private static final String HIBERNATE7_DIR = "hibernate7";
 
     private SqlSnapshots() {}
 
@@ -46,18 +55,24 @@ public final class SqlSnapshots {
      */
     public static List<String> assertMatches(TckDatabase db, String name, SqlWork work) {
         List<String> actual = capture(db, work);
-        Path file = snapshotFile(db, name);
+        Path shared = snapshotFile(db, name);
+        Path variant = hibernateMajor() >= 7 ? variant(shared) : null;
+        Path file = variant != null && Files.exists(variant) ? variant : shared;
         boolean update = Boolean.getBoolean(UPDATE_PROPERTY);
         String rendered = String.join("\n", actual) + "\n";
         try {
             if (update) {
-                Files.createDirectories(file.getParent());
-                Files.writeString(file, rendered, StandardCharsets.UTF_8);
+                if (variant == null) {
+                    Files.createDirectories(shared.getParent());
+                    Files.writeString(shared, rendered, StandardCharsets.UTF_8);
+                } else {
+                    writeVariant(shared, variant, actual, rendered);
+                }
                 return actual;
             }
             if (!Files.exists(file)) {
-                fail("Missing SQL snapshot %s. Captured:%n%s%nRe-run with -D%s=true to create it, then review the diff.",
-                        file, rendered, UPDATE_PROPERTY);
+                fail("Missing SQL snapshot %s. Captured:%n%s%nRe-run with -D%s=true to create it, then review the "
+                        + "diff.", file, rendered, UPDATE_PROPERTY);
             }
             List<String> expected = readLines(file);
             if (!expected.equals(actual)) {
@@ -96,6 +111,35 @@ public final class SqlSnapshots {
     private static Path snapshotFile(TckDatabase db, String name) {
         String vendor = db.vendor().name().toLowerCase(Locale.ROOT);
         return Path.of(System.getProperty("basedir", ".")).resolve(RESOURCE_DIR).resolve(vendor).resolve(name + ".sql");
+    }
+
+    /**
+     * In update mode on Hibernate 7, writes {@code variant} when {@code actual} differs from the shared snapshot, and
+     * deletes a stale {@code variant} when it does not; the shared snapshot is never rewritten.
+     */
+    private static void writeVariant(Path shared, Path variant, List<String> actual, String rendered)
+            throws IOException {
+        if (Files.exists(shared) && readLines(shared).equals(actual)) {
+            Files.deleteIfExists(variant); // the shared snapshot still matches, so no variant is needed
+            return;
+        }
+        Files.createDirectories(variant.getParent());
+        Files.writeString(variant, rendered, StandardCharsets.UTF_8);
+    }
+
+    /** The {@code hibernate7/} variant of {@code shared}, which a Hibernate 7 run writes and reads back. */
+    private static Path variant(Path shared) {
+        return shared.resolveSibling(HIBERNATE7_DIR).resolve(shared.getFileName());
+    }
+
+    /** The running Hibernate's major version from its version string, or {@code 0} when it has no leading number. */
+    private static int hibernateMajor() {
+        String version = Version.getVersionString();
+        int end = 0;
+        while (end < version.length() && Character.isDigit(version.charAt(end))) {
+            end++;
+        }
+        return end == 0 ? 0 : Integer.parseInt(version.substring(0, end));
     }
 
     private static List<String> readLines(Path file) throws IOException {
