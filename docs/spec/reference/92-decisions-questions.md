@@ -1121,6 +1121,8 @@ and request-time parameters; (9) `keyset()` and `primaryKeyFirst` over String an
 and documented. Items 2–5 and 8 get their own `architect-review` before their slices and are recorded as their own
 `D-n`; this decision fixes the scope and order only. D-114 ships item 8's partitioning, shared values and
 request-time parameters as tested recipes rather than library API. → `delivery/62` §1, `docs/plan/mvp-plan.md` §10–11.
+*Amended by D-116:* the freeze review and the D-85 freeze move to M11, after M10 ships inserts as 0.3.0; the adopter
+migrates onto 0.3.0 before it.
 
 **D-112 — Sub-selects and correlated `exists` (M9.11a review, D-111 items 2 and 5).** `SubSelect<S, C>` is one column
 of any root with its own filters, immutable, so it can be a constant. `in`/`notIn` take it uncorrelated, with an
@@ -1202,6 +1204,108 @@ columns, the `@Computed` constants in declaration order, then the `@Aggregate` c
 expression inside `expression()` and may read any constant of its own `Q<Model>` declared earlier in that order — a
 `@Computed` reads only earlier `@Computed` constants — never caching it in a static field of its own* (`processor/31`
 R-GEN-27).
+
+**D-116 — Inserts (RFC 0004, M10.1 vendor spike; amends D-14, D-85, P-5 and D-111).** Insert-select is the read
+path's rows written elsewhere, so it reuses filters, joins and vendor limits exactly as D-14's update and delete do.
+Insert-values is accepted for a different reason: it keeps entities inside the persistence layer and makes batching a
+per-call option, and it is still not an entity write. Keys come back only where the engine generated them first,
+because the provider's bulk insert returns a count. `persist(model)` is the one entity write, accepted because it
+hides the entity, not to duplicate JPA: it is the only portable way to get an `IDENTITY` key back, and a single
+created row usually wants its callbacks; D-14's "never entity writes" and P-5 gain that one exception. `persist`
+detaches only the entity it created; cascade-detach is the mapping's. Insert-select generators are limited to those
+Hibernate renders inline. Conditional insert-values is the conflict clause: one statement per chunk, and a
+concurrent duplicate surfaces as a constraint violation rather than a silent skip; insert-select can already guard
+with `notExists` over the target. Rejected: a per-row guard statement (its cost), partial rows taking column defaults
+(rows with different column sets cannot share a statement), constraint-named conflict targets (unsupported on most
+vendors), `StatelessSession` for keys (Hibernate-only, and it silently skips Envers and validation), reading a "last
+insert id" (not available after a prepared statement on SQL Server, absent on Oracle), and reusing `@UpdateModel`
+(opposite id rule, never instantiated, "unset" means "keep"). D-85: `@InsertModel` joins the annotation freeze
+exemptions, and `ModelInsert`, `ValuesInsert`, `ModelPersist`, `InsertSupport`, the three executor methods, the
+generated builders and the repository methods join the incubating bulk-write types; the generated `insert`,
+`insertFrom` and `persist` carry `@Incubating`, as `update(...)` does, so "every type generated code links against is
+frozen" still holds. D-111: M10 ships inserts as 0.3.0, and the freeze review and the D-85 freeze move to M11, which
+starts once the D-111 adopter runs on 0.3.0.
+
+*Vendor spike.* Plain HQL, criteria and JPA, no insert API, on Hibernate 6.6.58 and 7.4.11, pinned per Tier-1 vendor
+by `tck/vnd/ins` (`InsertGeneratorSpikeTest`, `InsertConflictSpikeTest`, `PersistEnhancedSpikeTest`; SQL snapshots
+`wrt-d116-*`) on H2, PostgreSQL 14–17 and MySQL 8.0 and 8.4. Oracle 21.3 (XE) and 23.26 (Free) are Tier 3 with no TCK
+target: their cells come from a local exploration that is not kept. SQL Server was not probed. Each probe root has a
+version, a unique `code`, and generators as named; results hold on both Hibernate versions unless one is named.
+
+| Generator (Hibernate type) | Insert-values, id omitted | Insert-values, keys drawn first | Insert-select |
+|---|---|---|---|
+| assigned (`id.Assigned`; 7.x `generator.Assigned`) | — (the model names it): one statement | — | one statement, id mapped from the source |
+| `IDENTITY` (`IdentityGenerator`) | one statement | an explicit id is accepted on every vendor (Hibernate's DDL); H2, PostgreSQL and Oracle do not advance the identity past it, MySQL does | one statement |
+| sequence, increment 1 (`SequenceStyleGenerator`, `NoopOptimizer`) | one statement; Hibernate draws each key first, a round trip per key | one statement, the generator skipped | physical sequence (H2, PostgreSQL, Oracle): one statement, `next value` inline. MySQL (a table): 6.6 writes `row_number()` as the ids, ignoring the generator (an `AssertionError` under `-ea`); 7.x the temporary-table plan, a round trip and an `update` per row |
+| pooled sequence (`PooledOptimizer`, increment 20) | as above, a round trip per block | one statement; a later `persist` draws past the drawn keys | temporary-table plan: on H2, MySQL and Oracle an `HTE_` table, one `update` per row, the insert, a clean-up; on PostgreSQL one CTE statement |
+| table (`id.enhanced.TableGenerator`) | one statement; a locking select and an update per key | one statement | rejected by Hibernate: `SemanticException` "without bulk insertion capable identifier generator" |
+| UUID (6.6 `id.UUIDGenerator`, 7.x `id.uuid.UuidGenerator`) | one statement | one statement | rejected likewise |
+| `@MapsId` (6.6 `ForeignGenerator`) | naming the association writes the id column twice (a grammar error); naming the id: one statement | — | naming the association: rejected likewise; naming the id: one statement. `persist` writes it |
+
+The version seed is written, one bind per row, in both forms. Hibernate's `supportsBulkInsertionIdentifierGeneration()`
+is true for every physical sequence, pooled included, and false on MySQL, so it does not predict the plan; the
+optimizer's increment and `isPhysicalSequence()` do. Multi-row `VALUES` on Oracle: Hibernate renders 21.3 as
+`insert … select … from dual union all select … from dual` and 23.26 as `values (…), (…)`, one statement either way,
+`MERGE` sources likewise.
+
+| Conflict clause (target `ins_assigned`, ids 1 and 2 stored) | H2 | PostgreSQL | MySQL | Oracle 21/23 |
+|---|---|---|---|---|
+| `doNothing` rendering | 6.6: dropped, a plain `insert`; 7.x: `merge … when not matched then insert` | `on conflict(id) do nothing` | `values … as excluded(…) on duplicate key update id=t.id` | as H2 |
+| `doUpdate` rendering | `merge … using (values …) excluded(…) on (…) when matched then update … when not matched then insert …` | `on conflict(id) do update set …` | `on duplicate key update name=excluded.name` | as H2, the source a `select` list |
+| `doUpdate … where` | `when matched and <where>` | `do update … where <where>` | each assignment `case when <where> then excluded.c else t.c end` | `when matched then update … where <where>` |
+| count: `doNothing`, 1 conflicting and 1 new row | 6.6: unique violation; 7.x: 1 | 1 | 2 | as H2 |
+| count: `doUpdate`, 1 changed and 1 new | 2 | 2 | 3 | 2 |
+| count: `doUpdate` leaving the row unchanged | 1 | 1 | 1 | 1 |
+| count: `doUpdate … where` keeping 1 of 2 conflicting rows | 1 | 1 | 3 | 1 |
+| `set version = version + 1` | increments; count 1 | increments; count 1 | increments; count 2 | increments; count 1 |
+| conflict on another unique key than the named one | unique violation | unique violation | matched: `doNothing` skips (1), `doUpdate` updates that row (2) | unique violation |
+| two rows of one statement share the key: `doNothing` | unique violation | first row written (1) | first row written (2) | unique violation |
+| the same, `doUpdate` | unique violation | fails: "cannot affect row a second time" | last row wins (3) | unique violation; ORA-30926 when the key is stored |
+| a conflict clause on insert-select | a `NullPointerException` inside Hibernate (`BaseSqmToSqlAstConverter.visitConflictClause`), HQL and criteria, 6.6 and 7.x, every vendor; without conflict columns only PostgreSQL renders it (`on conflict do nothing`), elsewhere `IllegalQueryOperationException` | | | |
+
+MySQL counts with Connector/J's default found rows. `persist` on an entity enhanced by Hibernate's enhancer (dirty
+tracking, a lazy basic attribute), its fields set by reflection before `persist`: one insert writes every set field,
+the lazy one included; an unnamed field keeps the no-arg constructor's value and another is NULL, not a column
+default; `detach` leaves it unmanaged. H2, PostgreSQL and MySQL on both Hibernate versions.
+
+*Fixed by the spike* (the spec text lands in `api/14` §10 and `reference/90` with M10.2):
+- **R-WRT-26**, the id and the `MQ1805` allowlist. Naming a generated id is `MQ1802` because H2, PostgreSQL and
+  Oracle accept an explicit `IDENTITY` value without advancing the identity, so a later generated key collides (the
+  RFC's "PostgreSQL rejects it" is wrong under `GENERATED BY DEFAULT`). A root `@Version` is never in the model; the
+  provider writes its seed, one bind per row. The allowlist is checked on first execution against the generator
+  `InsertSupport` reports. Insert-values: assigned, `IDENTITY`, `SequenceStyleGenerator` with any optimizer (MySQL's
+  table-backed sequence included), `id.enhanced.TableGenerator`, and UUID (`id.UUIDGenerator`,
+  `id.uuid.UuidGenerator`); for all but `IDENTITY` and assigned the engine draws the keys from the provider's
+  generator before the statement and writes them as values, Hibernate skipping its own generator for an explicit id.
+  Insert-select: assigned (mapped from the source), `IDENTITY`, and `SequenceStyleGenerator` over a physical sequence
+  with increment 1. Everything else is `MQ1805` naming the generator class: a pooled sequence (a statement per row,
+  except one CTE on PostgreSQL), a table or UUID generator (Hibernate rejects them), and any sequence on MySQL (wrong
+  keys on 6.6). Either form: a `JOINED` root, a `@SecondaryTable`, a composite id with generated parts, and `@MapsId`
+  (Hibernate writes the id twice or rejects its generator) are `MQ1805`; naming the `@MapsId` id instead works and may
+  widen the rule later. `persist` takes every generator and `@MapsId`.
+- **R-WRT-29**, rows per statement. Every row of a chunk goes in one statement on every built-in vendor: Hibernate
+  renders Oracle before 23 as `insert … select … from dual union all …`, so the RFC's per-row fallback is dropped.
+  The version seed counts as one bind per row. `maxValuesRows()` stays (1,000 on SQL Server, unprobed).
+- **R-WRT-35**, rendering and count. `ON CONFLICT` on PostgreSQL; `ON DUPLICATE KEY UPDATE` with a row alias on
+  MySQL and MariaDB, `doNothing` rendered as a self-assignment, and a `doUpdate`'s `where` as a `CASE` per
+  assignment; `MERGE` on H2, Oracle and SQL Server, with the `where` on `WHEN MATCHED`. The count is the provider's:
+  rows inserted plus rows updated, except on MySQL, where every conflicting row counts 1 when skipped, filtered out or
+  left unchanged and 2 when changed, so `doNothing` counts the rows it skipped. The Javadoc says so and the TCK pins
+  it per vendor.
+
+*Decided by the user after the spike* (each contradicts the RFC; M10.2a shapes the stages on them):
+1. Hibernate 6.6.58 and 7.4.11 cannot render a conflict clause on an insert-select, so R-WRT-34's "both actions work
+   on insert-select as well" and R-WRT-37's insert-select clause do not hold. `onConflict` is on insert-values only;
+   an insert-select guards with `notExists` over the target, as this decision already says. Widening later is
+   additive.
+2. Hibernate 6.6 renders `doNothing` on a `MERGE` vendor (H2 is Tier 1; Oracle too) as a plain insert, so a conflict
+   throws a unique violation instead of skipping; 7.x renders it. `InsertSupport` reports whether the provider
+   renders `doNothing` for the dialect, and `onConflict(...).doNothing()` throws `MQ1804` on first execution where it
+   does not, rather than failing per row at run time.
+3. `@MapsId` stays `MQ1805` in both forms, as the RFC has it, even when the model names the id; widening is additive.
+
+→ `api/14` §10 (R-WRT-24 to R-WRT-40), `reference/90` (`MQ18xx`), `vendor/40` R-VND-14, `delivery/62`,
+`docs/plan/mvp-plan.md` §11–12, `rfc/0004-bulk-inserts.md`.
 
 
 ## 2. Open questions

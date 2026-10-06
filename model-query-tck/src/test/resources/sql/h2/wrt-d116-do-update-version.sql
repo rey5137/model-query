@@ -1,0 +1,1 @@
+merge into ins_assigned iae1_0 using (values (2,'c2','X2',?)) excluded(id,code,name,version) on (iae1_0.id=excluded.id) when matched then update set name=excluded.name,version=(iae1_0.version+1) when not matched then insert (id,code,name,version) values (excluded.id,excluded.code,excluded.name,excluded.version)

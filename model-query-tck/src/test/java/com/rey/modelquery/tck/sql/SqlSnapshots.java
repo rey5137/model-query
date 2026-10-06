@@ -54,7 +54,15 @@ public final class SqlSnapshots {
      * captured statements, normalized as the snapshot holds them, for a test that also inspects them.
      */
     public static List<String> assertMatches(TckDatabase db, String name, SqlWork work) {
-        List<String> actual = capture(db, work);
+        return assertMatches(db, name, capture(db, work));
+    }
+
+    /**
+     * Asserts that {@code actual}, statements a test recorded itself and normalized with {@link #normalize}, equal
+     * the snapshot {@code name} for the database's vendor, as {@link #assertMatches(TckDatabase, String, SqlWork)}
+     * does. Returns {@code actual}.
+     */
+    public static List<String> assertMatches(TckDatabase db, String name, List<String> actual) {
         Path shared = snapshotFile(db, name);
         Path variant = hibernateMajor() >= 7 ? variant(shared) : null;
         Path file = variant != null && Files.exists(variant) ? variant : shared;
@@ -104,7 +112,7 @@ public final class SqlSnapshots {
         return captured;
     }
 
-    static String normalize(String sql) {
+    public static String normalize(String sql) {
         return sql.trim().replaceAll("\\s+", " ");
     }
 

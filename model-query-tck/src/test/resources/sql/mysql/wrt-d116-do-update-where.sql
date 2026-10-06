@@ -1,0 +1,1 @@
+insert into ins_assigned(id,code,name,version) values (1,'c1','Y1',?), (2,'c2','Y2',?) as excluded(id,code,name,version) on duplicate key update name=case when ins_assigned.name='N2' then excluded.name else ins_assigned.name end
