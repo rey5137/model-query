@@ -269,12 +269,12 @@ final class Keyset<M> {
         Object[] keyValues = new Object[columns.size()];
         for (int c = 0; c < columns.size(); c++) {
             ColumnField<M, ?, ?> column = columns.get(c);
-            for (int i = 0; i < keys.size(); i++) {
-                if (keys.get(i).primaryKey() && keys.get(i).order().column().equals(column)) {
-                    keyValues[c] = values[i];
-                    break;
-                }
+            // Every primary-key column is a key: ordered, or appended by the factories.
+            int i = 0;
+            while (!(keys.get(i).primaryKey() && keys.get(i).order().column().equals(column))) {
+                i++;
             }
+            keyValues[c] = values[i];
         }
         return keyValues.length == 1 ? keyValues[0] : List.of(keyValues);
     }
