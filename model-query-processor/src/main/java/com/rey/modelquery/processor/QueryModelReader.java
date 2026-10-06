@@ -8,6 +8,7 @@ import com.rey.modelquery.annotations.ExcludeFromDefaults;
 import com.rey.modelquery.annotations.FilterColumn;
 import com.rey.modelquery.annotations.FilterColumns;
 import com.rey.modelquery.annotations.GroupBy;
+import com.rey.modelquery.annotations.InsertModel;
 import com.rey.modelquery.annotations.Join;
 import com.rey.modelquery.annotations.JoinKind;
 import com.rey.modelquery.annotations.PrimaryKey;
@@ -18,6 +19,7 @@ import com.rey.modelquery.processor.ModelDefinition.AggregateDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ChildDefinition;
 import com.rey.modelquery.processor.ModelDefinition.FilterColumnDefinition;
 import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
+import com.rey.modelquery.processor.ModelDefinition.Kind;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
 import java.lang.annotation.Annotation;
 import java.util.ArrayList;
@@ -37,8 +39,8 @@ import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.ElementFilter;
 
 /**
- * Reads a {@code @QueryModel} or {@code @UpdateModel} type into a {@link ModelDefinition}. It checks nothing:
- * {@link ModelValidator} does.
+ * Reads a {@code @QueryModel}, {@code @UpdateModel} or {@code @InsertModel} type into a {@link ModelDefinition}. It
+ * checks nothing: {@link ModelValidator} does.
  */
 final class QueryModelReader {
 
@@ -65,30 +67,27 @@ final class QueryModelReader {
         this.options = options;
     }
 
-    /**
-     * Reads {@code type}, or returns {@code null} when its {@code root} does not name a class: one that is not
-     * generated yet, which a later round may generate (D-107).
-     */
+    /** Reads the {@code @QueryModel} {@code type}, or returns {@code null} as {@link #read(TypeElement, Kind)} does. */
     ModelDefinition read(TypeElement type) {
-        return read(type, mirror(type, QueryModel.class), false);
+        return read(type, Kind.QUERY);
     }
 
-    /** Reads the {@code @UpdateModel} {@code type}, or returns {@code null} as {@link #read} does. */
-    ModelDefinition readUpdate(TypeElement type) {
-        return read(type, mirror(type, UpdateModel.class), true);
-    }
-
-    private ModelDefinition read(TypeElement type, AnnotationMirror annotation, boolean updateModel) {
+    /**
+     * Reads {@code type}, which carries the annotation of {@code kind}, or returns {@code null} when its {@code root}
+     * does not name a class: one that is not generated yet, which a later round may generate (D-107).
+     */
+    ModelDefinition read(TypeElement type, Kind kind) {
+        AnnotationMirror annotation = mirror(type, annotation(kind));
         if (!(explicit(annotation, ROOT) instanceof DeclaredType rootType) || rootType.getKind() != TypeKind.DECLARED) {
             return null;
         }
         // A name set on the annotation wins over the compilation-wide option, which wins over the default (D-44).
-        // An update model has no suffix member, so the option alone sets it (D-69).
+        // An update or insert model has no suffix member, so the option alone sets it (D-69).
         String prefix = explicit(annotation, PREFIX) instanceof String set
                 ? set : options.getOrDefault(PREFIX_OPTION, DEFAULT_PREFIX);
         String suffix = explicit(annotation, SUFFIX) instanceof String set
                 ? set : options.getOrDefault(SUFFIX_OPTION, "");
-        boolean selectSets = !updateModel && !Boolean.FALSE.equals(explicit(annotation, GENERATE_SELECT_SETS));
+        boolean selectSets = kind == Kind.QUERY && !Boolean.FALSE.equals(explicit(annotation, GENERATE_SELECT_SETS));
         boolean singleGroup = Boolean.TRUE.equals(explicit(annotation, SINGLE_GROUP));
         boolean generateChanges = Boolean.TRUE.equals(explicit(annotation, GENERATE_CHANGES));
 
@@ -128,7 +127,16 @@ final class QueryModelReader {
         }
         return new ModelDefinition(
                 type, (TypeElement) rootType.asElement(), prefix + type.getSimpleName() + suffix, selectSets,
-                singleGroup, fields, filterColumns(type), updateModel, generateChanges);
+                singleGroup, fields, filterColumns(type), kind, generateChanges);
+    }
+
+    /** The annotation a model of {@code kind} carries. */
+    static Class<? extends Annotation> annotation(Kind kind) {
+        return switch (kind) {
+            case QUERY -> QueryModel.class;
+            case UPDATE -> UpdateModel.class;
+            case INSERT -> InsertModel.class;
+        };
     }
 
     /** What {@code @Child} says of {@code field}, or {@code null} when it carries none. */

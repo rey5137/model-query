@@ -1,10 +1,10 @@
 package com.rey.modelquery.processor;
 
 import com.rey.modelquery.annotations.Incubating;
-import com.rey.modelquery.annotations.QueryModel;
-import com.rey.modelquery.annotations.UpdateModel;
+import com.rey.modelquery.processor.ModelDefinition.Kind;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import javax.annotation.processing.AbstractProcessor;
@@ -17,13 +17,15 @@ import javax.lang.model.element.TypeElement;
 import javax.tools.Diagnostic;
 
 /**
- * Generates a QModel class for every type annotated with {@code @QueryModel} or {@code @UpdateModel}: each model is
- * read, validated and, when it has no error, written to one file of its own, beside its change set when it has one.
+ * Generates a QModel class for every type annotated with {@code @QueryModel}, {@code @UpdateModel} or
+ * {@code @InsertModel}: each model is read, validated and, when it has no error, written to one file of its own,
+ * beside its change set when it has one. A type carrying two of them is reported and generates nothing.
  *
- * @implSpec R-GEN-01, R-GEN-05, R-GEN-19, R-GEN-21, R-GEN-23, R-DIAG-03, D-107
+ * @implSpec R-GEN-01, R-GEN-05, R-GEN-19, R-GEN-21, R-GEN-23, R-PROC-24, R-DIAG-03, D-107
  */
 @Incubating
-@SupportedAnnotationTypes({"com.rey.modelquery.annotations.QueryModel", "com.rey.modelquery.annotations.UpdateModel"})
+@SupportedAnnotationTypes({"com.rey.modelquery.annotations.QueryModel", "com.rey.modelquery.annotations.UpdateModel",
+        "com.rey.modelquery.annotations.InsertModel"})
 @SupportedOptions({QueryModelReader.PREFIX_OPTION, QueryModelReader.SUFFIX_OPTION})
 public final class ModelQueryProcessor extends AbstractProcessor {
 
@@ -55,7 +57,7 @@ public final class ModelQueryProcessor extends AbstractProcessor {
         for (Deferred model : retried) {
             TypeElement type = elements.getTypeElement(model.name());
             if (type != null) {
-                generate(type, model.update(), round);
+                generate(type, model.kind(), round);
                 continue;
             }
             // An ambiguous name across JPMS modules resolves to no type element: report it rather than drop the
@@ -63,25 +65,43 @@ public final class ModelQueryProcessor extends AbstractProcessor {
             new Diagnostics(processingEnv.getMessager()).error(DiagnosticCode.MQ3017, model.name()
                     + ": could not be resolved: root does not name a class, and no annotation processor generated one");
         }
-        for (Element element : roundEnv.getElementsAnnotatedWith(QueryModel.class)) {
-            generate((TypeElement) element, false, round);
-        }
-        for (Element element : roundEnv.getElementsAnnotatedWith(UpdateModel.class)) {
-            generate((TypeElement) element, true, round);
+        for (Kind kind : Kind.values()) {
+            for (Element element : roundEnv.getElementsAnnotatedWith(QueryModelReader.annotation(kind))) {
+                var type = (TypeElement) element;
+                List<Kind> carried = Arrays.stream(Kind.values())
+                        .filter(each -> QueryModelReader.mirror(type, QueryModelReader.annotation(each)) != null)
+                        .toList();
+                if (carried.size() == 1) {
+                    generate(type, kind, round);
+                } else if (carried.get(0) == kind) {
+                    reportTwoKinds(type, carried);
+                }
+            }
         }
         return false;
+    }
+
+    /** {@code MQ3503} for a type carrying several model annotations, each of which would generate its QModel. */
+    private void reportTwoKinds(TypeElement type, List<Kind> carried) {
+        List<String> names = carried.stream()
+                .map(each -> "@" + QueryModelReader.annotation(each).getSimpleName())
+                .toList();
+        String annotations = String.join(", ", names.subList(0, names.size() - 1)) + " and "
+                + names.get(names.size() - 1);
+        new Diagnostics(processingEnv.getMessager()).error(type, DiagnosticCode.MQ3503, type.getSimpleName() + ": "
+                + annotations + " each generate a QModel class for it; keep one");
     }
 
     /**
      * Generates one model, or defers it to the next round while its {@code root}, or a nested model's, names no class
      * yet: another processor may generate that class in this round. The last round reports it instead (D-107).
      */
-    private void generate(TypeElement type, boolean update, Round round) {
-        ModelDefinition model = update ? round.reader().readUpdate(type) : round.reader().read(type);
+    private void generate(TypeElement type, Kind kind, Round round) {
+        ModelDefinition model = round.reader().read(type, kind);
         TypeElement unresolved = model == null ? type : round.nestedModels().unresolved(model);
         if (unresolved != null) {
             if (!round.last()) {
-                deferred.add(new Deferred(type.getQualifiedName().toString(), update));
+                deferred.add(new Deferred(type.getQualifiedName().toString(), kind));
                 return;
             }
             // An unresolved class reads as an error value, which keeps no name; javac reports the name on its own.
@@ -108,8 +128,8 @@ public final class ModelQueryProcessor extends AbstractProcessor {
         }
     }
 
-    /** A model deferred to the next round, by qualified name, and whether it is an {@code @UpdateModel} (D-107). */
-    private record Deferred(String name, boolean update) {}
+    /** A model deferred to the next round, by qualified name, and the annotation it carries (D-107). */
+    private record Deferred(String name, Kind kind) {}
 
     /** What one round reads, checks and writes models with. */
     private record Round(

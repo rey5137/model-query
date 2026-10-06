@@ -13,6 +13,7 @@ import com.squareup.javapoet.MethodSpec;
 import com.squareup.javapoet.ParameterizedTypeName;
 import com.squareup.javapoet.TypeName;
 import com.squareup.javapoet.TypeSpec;
+import com.squareup.javapoet.TypeVariableName;
 import com.squareup.javapoet.WildcardTypeName;
 import java.util.List;
 import java.util.Locale;
@@ -32,7 +33,7 @@ import javax.lang.model.util.Types;
  *
  * @implSpec R-GEN-04, R-GEN-05, R-GEN-06, R-GEN-09, R-GEN-10, R-GEN-12, R-GEN-13, R-GEN-14, R-GEN-15, R-GEN-17,
  *     R-GEN-18, R-GEN-19, R-GEN-21, R-GEN-22, R-GEN-24, R-GEN-27, R-PROC-07, R-PROC-09, R-PROC-10, R-PROC-11,
- *     R-PROC-12, R-PROC-13, R-PROC-15, R-PROC-16, R-PROC-17, R-PROC-21, R-PROC-22
+ *     R-PROC-12, R-PROC-13, R-PROC-15, R-PROC-16, R-PROC-17, R-PROC-21, R-PROC-22, R-PROC-23, R-GEN-28
  */
 final class QModelWriter {
 
@@ -51,6 +52,10 @@ final class QModelWriter {
     private static final ClassName MODEL_UPDATE = ClassName.get(CORE, "ModelUpdate");
     private static final ClassName MODEL_DELETE = ClassName.get(CORE, "ModelDelete");
     private static final ClassName CHANGES = ClassName.get(CORE, "Changes");
+    private static final ClassName INSERT_COLUMNS = ClassName.get(CORE, "InsertColumns");
+    private static final ClassName MODEL_INSERT = ClassName.get(CORE, "ModelInsert");
+    private static final ClassName VALUES_INSERT = ClassName.get(CORE, "ValuesInsert");
+    private static final ClassName MODEL_PERSIST = ClassName.get(CORE, "ModelPersist");
     private static final ClassName INCUBATING = ClassName.get("com.rey.modelquery.annotations", "Incubating");
     private static final ClassName JOIN_TYPE = ClassName.get("jakarta.persistence.criteria", "JoinType");
     private static final ClassName OPTIONAL = ClassName.get(Optional.class);
@@ -71,11 +76,12 @@ final class QModelWriter {
     }
 
     /**
-     * The QModel file of {@code model}, whose only originating element is the model's type (R-GEN-05). An update
-     * model's has its columns and write methods only: it is never read into (R-GEN-19).
+     * The QModel file of {@code model}, whose only originating element is the model's type (R-GEN-05). An update or
+     * insert model's has its columns and write methods only: it is never read into (R-GEN-19, R-GEN-28).
      */
     JavaFile write(ModelDefinition model) {
-        boolean update = model.updateModel();
+        // An update or insert model's QModel has its columns and write methods only: it is never read into.
+        boolean writeOnly = !model.queryModel();
         ClassName modelName = ClassName.get(model.type());
         ClassName entity = ClassName.get(model.root());
         ClassName generated = ClassName.get(modelName.packageName(), model.generatedName());
@@ -85,7 +91,7 @@ final class QModelWriter {
                 ? column(keys.get(0).type()) : ParameterizedTypeName.get(List.class, Object.class);
         // A whole-table aggregate has no row identity, so its query() sets no key (R-GEN-18).
         boolean keyed = !keys.isEmpty() && !model.singleGroup();
-        List<ModelField> groupKeys = update ? List.of() : model.groupKeys();
+        List<ModelField> groupKeys = writeOnly ? List.of() : model.groupKeys();
         boolean grouped = !groupKeys.isEmpty() && !model.singleGroup();
 
         TypeSpec.Builder type = TypeSpec.classBuilder(generated)
@@ -97,7 +103,7 @@ final class QModelWriter {
                 .addField(FieldSpec.builder(ParameterizedTypeName.get(TABLE_FIELD, entity, entity), "ROOT", CONSTANT)
                         .initializer("$T.root($T.class)", TABLE_FIELD, entity)
                         .build());
-        List<JoinedTable> joined = update ? List.of() : nestedModels.tables(model);
+        List<JoinedTable> joined = writeOnly ? List.of() : nestedModels.tables(model);
         for (JoinedTable table : joined) {
             type.addField(joinedTable(table));
         }
@@ -132,13 +138,13 @@ final class QModelWriter {
         }
         // A computed constant comes after every column constant, so a definition reading Q<Model> columns finds them
         // already set when the generated class initialises it (R-GEN-27).
-        for (ModelField field : update ? List.<ModelField>of() : model.computed()) {
+        for (ModelField field : writeOnly ? List.<ModelField>of() : model.computed()) {
             type.addField(computed(modelName, field));
         }
         // Aggregates come last: an aggregate over an expression builds it during the initialiser, and the expression
         // may read any constant of the model declared earlier in this order (R-GEN-27, R-PROC-22). They are in no
         // column set, or every query of the model would be grouped (R-PROC-17).
-        for (ModelField field : update ? List.<ModelField>of() : model.aggregates()) {
+        for (ModelField field : writeOnly ? List.<ModelField>of() : model.aggregates()) {
             type.addField(aggregate(modelName, model, field));
         }
         if (model.selectSets()) {
@@ -166,21 +172,25 @@ final class QModelWriter {
                     .initializer("$T.of($L)", SELECT_SET, constants(groupKeys))
                     .build());
         }
-        // A summary model may have no key: a group has none (R-AGG-09). An update model names its key in place.
-        if (!keys.isEmpty() && !update) {
+        // A summary model may have no key: a group has none (R-AGG-09). A write-only model names its key in place.
+        if (!keys.isEmpty() && !writeOnly) {
             type.addField(FieldSpec.builder(ParameterizedTypeName.get(PRIMARY_KEY, modelName, keyType), "KEY", CONSTANT)
                     .initializer(keys.size() == 1 ? "$T.of($L)" : "$T.composite($L)", PRIMARY_KEY, constants(keys))
                     .build());
         }
         // What a fetch plan names: the model's own @Joins and its @Child fields (R-FCH-03, R-FCH-07).
-        for (ModelField join : update ? List.<ModelField>of() : model.joins()) {
+        for (ModelField join : writeOnly ? List.<ModelField>of() : model.joins()) {
             type.addField(fetchFields.joinField(model, join));
         }
-        for (ModelField child : update ? List.<ModelField>of() : model.children()) {
+        for (ModelField child : writeOnly ? List.<ModelField>of() : model.children()) {
             type.addField(fetchFields.childField(model, child));
         }
-        if (update) {
-            writes(model, modelName, entity, keyType, type);
+        if (writeOnly) {
+            if (model.insertModel()) {
+                inserts(model, modelName, entity, type);
+            } else {
+                writes(model, modelName, entity, keyType, type);
+            }
             type.addMethod(MethodSpec.constructorBuilder().addModifiers(Modifier.PRIVATE).build());
             return file(generated, type);
         }
@@ -254,6 +264,52 @@ final class QModelWriter {
                     .addStatement("return $T.builder(ROOT).primaryKey($L)", MODEL_DELETE, key)
                     .build());
         }
+    }
+
+    /**
+     * {@code INSERT_COLUMNS}, the model's columns in declaration order, each read from a row by its record accessor
+     * or getter, and the {@code insertFrom}, {@code insert} and {@code persist} that start from it. {@code K} is the
+     * root's id type as the processor sees it, else {@code Object} ({@code MQ3504}). All four are {@code @Incubating},
+     * as the insert API is (R-GEN-28, D-117).
+     */
+    private void inserts(ModelDefinition model, ClassName modelName, ClassName entity, TypeSpec.Builder type) {
+        CodeBlock.Builder columns = CodeBlock.builder().add("$T.<$T, $T>of(ROOT)", INSERT_COLUMNS, modelName, entity);
+        for (ModelField field : model.columns()) {
+            columns.add("\n$>$>.$L($L, $T::$L)$<$<", field.primaryKey() ? "addKey" : "add", field.constant(), modelName,
+                    model.isRecord() ? field.name() : ChangesWriter.getter(field));
+        }
+        type.addField(FieldSpec.builder(ParameterizedTypeName.get(INSERT_COLUMNS, modelName, entity),
+                        "INSERT_COLUMNS", CONSTANT)
+                .addAnnotation(INCUBATING)
+                .initializer(columns.build())
+                .build());
+        TypeMirror id = metamodel.id(model.root()).type();
+        TypeName key = id == null ? TypeName.OBJECT
+                : column(id.getKind() == TypeKind.TYPEVAR ? types.erasure(id) : id);
+        TypeVariableName source = TypeVariableName.get("S");
+        type.addMethod(MethodSpec.methodBuilder("insertFrom")
+                .addAnnotation(INCUBATING)
+                .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+                .addTypeVariable(source)
+                .returns(ParameterizedTypeName.get(MODEL_INSERT.nestedClass("SelectStart"), entity, modelName))
+                .addParameter(ParameterizedTypeName.get(TABLE_FIELD, source, source), "sourceRoot")
+                .addStatement("return $T.select(INSERT_COLUMNS, sourceRoot)", MODEL_INSERT)
+                .build());
+        type.addMethod(MethodSpec.methodBuilder("insert")
+                .addAnnotation(INCUBATING)
+                .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+                .returns(ParameterizedTypeName.get(VALUES_INSERT.nestedClass("Rows"), entity, key, modelName))
+                .addParameter(ParameterizedTypeName.get(ClassName.get(List.class),
+                        WildcardTypeName.subtypeOf(modelName)), "rows")
+                .addStatement("return $T.builder(INSERT_COLUMNS, $L, rows)", VALUES_INSERT, classOf(key))
+                .build());
+        type.addMethod(MethodSpec.methodBuilder("persist")
+                .addAnnotation(INCUBATING)
+                .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+                .returns(ParameterizedTypeName.get(MODEL_PERSIST, entity, key, modelName))
+                .addParameter(modelName, "row")
+                .addStatement("return $T.of(INSERT_COLUMNS, $L, row)", MODEL_PERSIST, classOf(key))
+                .build());
     }
 
     /**

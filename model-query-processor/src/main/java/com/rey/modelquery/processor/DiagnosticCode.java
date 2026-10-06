@@ -88,17 +88,23 @@ enum DiagnosticCode {
     /** {@code @Aggregate} with both {@code attribute} and {@code expression}. */
     MQ3208("@Aggregate takes attribute or expression, not both"),
 
-    /** An update-model field maps through an association, or to a collection. */
-    MQ3301("Update-model field maps through a join or a collection"),
+    /** An update- or insert-model field maps through an association, or to a collection. */
+    MQ3301("Update- or insert-model field maps through a join or a collection"),
 
     /** {@code @Join}, {@code @Aggregate} or {@code @GroupBy} on an update model, which only writes root columns. */
     MQ3302("@Join, @Aggregate or @GroupBy on an update model"),
 
-    /** An update-model field writes the id without {@code @PrimaryKey}, or writes the {@code @Version}. */
-    MQ3303("Update-model field maps to the primary key without @PrimaryKey, or to the @Version attribute"),
+    /**
+     * An update-model field writes the id without {@code @PrimaryKey}, or an update- or insert-model field writes the
+     * {@code @Version}.
+     */
+    MQ3303("Update-model field maps to the primary key without @PrimaryKey, or a write model's to the @Version"),
 
-    /** An update-model field maps to an attribute that is {@code updatable = false} or the inverse of a to-one. */
-    MQ3304("Update-model field maps to an attribute that can't be written"),
+    /**
+     * An update-model field maps to an attribute that is {@code updatable = false}, an insert-model field to one that
+     * is {@code insertable = false}, or an update- or insert-model field to the inverse of a to-one.
+     */
+    MQ3304("Update- or insert-model field maps to an attribute that can't be written"),
 
     /** A to-one written by id from a field whose type is not the target's id type. */
     MQ3305("To-one attribute written by id with the wrong id type"),
@@ -129,7 +135,22 @@ enum DiagnosticCode {
      * another type than the child's root; a {@code key} that is not the parent root's single {@code @Id}; or a grouped
      * child model.
      */
-    MQ3406("@Child through path, key or child model that a through child can't load");
+    MQ3406("@Child through path, key or child model that a through child can't load"),
+
+    /**
+     * An insert model that names its root's generated id, or does not name with {@code @PrimaryKey} an id that has
+     * no {@code @GeneratedValue}, or whose {@code @PrimaryKey} is not the id.
+     */
+    MQ3501("Insert model's @PrimaryKey does not match the root entity's id and its generator"),
+    /**
+     * {@code @Join}, {@code @FilterColumn}, {@code @Aggregate}, {@code @GroupBy}, {@code @Computed} or {@code @Child}
+     * on an insert model, which reads no row of its root, or {@code @Transient}, since every field is a column.
+     */
+    MQ3502("Annotation not allowed on an insert model"),
+    /** A type carrying more than one of {@code @QueryModel}, {@code @UpdateModel} and {@code @InsertModel}. */
+    MQ3503("More than one model annotation on one type"),
+    /** An insert model whose root shows the processor no id type, so its keys are typed {@code Object}; a warning. */
+    MQ3504("Insert model's root has no id type the processor can see; a warning");
 
     private final String defaultMessage;
 

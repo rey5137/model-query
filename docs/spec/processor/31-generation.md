@@ -242,7 +242,58 @@ compile classpath; otherwise it carries no annotation (`api/14` R-WRT-22). Const
 are never copied to the change set. A field whose generated members would clash with `Changes<M>`'s own (`isEmpty`,
 `isSet`, `unset`, `assignments`) is `MQ3307`.
 
-## 7. Acceptance criteria
+## 7. Generated insert models
+
+For `@InsertModel NewOrder` (`api/14` §10.2, `processor/30` R-PROC-23) the processor generates one file in the model's
+package. Every type it links against is in core and `@Incubating` (D-85, D-116).
+
+```java
+@Generated("com.rey.modelquery.processor.ModelQueryProcessor")
+public final class QNewOrder {
+    public static final TableField<OrderEntity, OrderEntity> ROOT = TableField.root(OrderEntity.class);
+    public static final OrderedColumnField<NewOrder, OrderEntity, String> EXTERNAL_REF = …;
+    public static final ColumnField<NewOrder, OrderEntity, OrderStatus> STATUS = …;          // converter
+    public static final OrderedColumnField<NewOrder, OrderEntity, Long> CUSTOMER_ID = …;      // to-one by id
+    // …
+
+    @Incubating
+    public static final InsertColumns<NewOrder, OrderEntity> INSERT_COLUMNS =
+            InsertColumns.<NewOrder, OrderEntity>of(ROOT)
+            .add(EXTERNAL_REF, NewOrder::externalRef)          // a class model's getter: OrderRow::getStatus, ::isPaid
+            .add(STATUS, NewOrder::status)
+            .add(CUSTOMER_ID, NewOrder::customerId);           // a @PrimaryKey column: addKey(ORDER_ID, …)
+
+    private QNewOrder() {}
+
+    @Incubating
+    public static <S> ModelInsert.SelectStart<OrderEntity, NewOrder> insertFrom(TableField<S, S> sourceRoot) {
+        return ModelInsert.select(INSERT_COLUMNS, sourceRoot);
+    }
+
+    @Incubating
+    public static ValuesInsert.Rows<OrderEntity, Long, NewOrder> insert(List<? extends NewOrder> rows) {
+        return ValuesInsert.builder(INSERT_COLUMNS, Long.class, rows);
+    }
+
+    @Incubating
+    public static ModelPersist<OrderEntity, Long, NewOrder> persist(NewOrder row) {
+        return ModelPersist.of(INSERT_COLUMNS, Long.class, row);
+    }
+}
+```
+
+**R-GEN-28** *(D-117)* The column constants are generated as an update model's (R-GEN-19), in declaration order, with
+no `KEY`, `MAPPER`, `query()`, `SelectSet`, join or collection `TableField`: an insert reads no row of its root.
+`INSERT_COLUMNS` is an `InsertColumns<M, E>` holding every column in declaration order, each with the record accessor,
+or the getter as Lombok names it (R-GEN-10), that reads its value from a row, and added with `addKey` when it is a
+`@PrimaryKey`. `ROOT` and `INSERT_COLUMNS` are reserved constant names (`MQ3015`). `insertFrom` is generic in the
+source root's entity, so a join `TableField` does not compile (`api/14` R-WRT-27). `insert` and `persist` fix `K` to
+the root's id as the processor sees it, boxed: the `@Id` attribute's type, the `@IdClass`, the `@EmbeddedId`'s type,
+or a `@MappedSuperclass` type variable resolved on the root; and pass `K.class` (`api/14` §10.1). With no id visible
+`K` is `Object`, and `MQ3504` warns (`processor/32`). `INSERT_COLUMNS`, `insertFrom`, `insert` and `persist` carry
+`@Incubating`.
+
+## 8. Acceptance criteria
 
 | ID | Criterion |
 |---|---|
@@ -258,3 +309,5 @@ are never copied to the change set. A field whose generated members would clash 
 | AC-GEN-10 | Golden files pin `QOrderPatch` and `OrderPatchChanges` for a record and a class update model, with a converter, a to-one by id and a composite key (R-GEN-19). |
 | AC-GEN-11 | `generateChanges = true` adds `changes()`, `update(...)` and `from(...)` covering root non-key columns only; a query model gets `delete()` exactly when its `@PrimaryKey` is the root entity's id (R-GEN-21, R-GEN-22). |
 | AC-GEN-12 | The generated change set carries `@ValidChanges` naming its model when Bean Validation is on the classpath, no annotation when it is not, and never the model's field constraints (R-GEN-23). |
+| AC-GEN-13 | Golden files pin `QNewOrder` and `QOrderArchiveRow` for a record insert model over a generated id (a converter, a to-one by id, an embedded path) and a class one over an assigned id (`addKey`, getters, `isX`); the generated `insert`, `insertFrom` and `persist` compile and build against core, and all four members are `@Incubating` (R-GEN-28). |
+| AC-GEN-14 | `K` is the boxed `@Id` type, the `@IdClass`, the `@EmbeddedId`'s type or a `@MappedSuperclass` variable resolved on the root, and `Object` with `MQ3504` when no id is visible (R-GEN-28, D-117). |

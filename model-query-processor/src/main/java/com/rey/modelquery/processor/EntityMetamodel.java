@@ -42,6 +42,7 @@ final class EntityMetamodel {
     private static final String TRANSIENT = JPA + "Transient";
     private static final String VERSION = JPA + "Version";
     private static final String ID_CLASS = JPA + "IdClass";
+    private static final String GENERATED_VALUE = JPA + "GeneratedValue";
     private static final List<String> COLUMNS = List.of(JPA + "Column", JPA + "JoinColumn");
 
     private final Types types;
@@ -149,8 +150,10 @@ final class EntityMetamodel {
      *     any other id
      * @param type the id's type as {@code getReference} takes it: the one attribute's, else the {@code @IdClass};
      *     {@code null} when the entity declares neither
+     * @param generated whether an {@code @Id} attribute carries {@code @GeneratedValue}; a generator declared in
+     *     {@code orm.xml} is not seen
      */
-    record Id(Set<String> attributes, Set<String> components, TypeMirror type) {
+    record Id(Set<String> attributes, Set<String> components, TypeMirror type, boolean generated) {
 
         /** Whether {@code paths} names exactly this id, as {@code MQ1608} compares a bulk write's key. */
         boolean is(Set<String> paths) {
@@ -189,6 +192,7 @@ final class EntityMetamodel {
         boolean property = defaultsToProperty(hierarchy, false);
         var ids = new LinkedHashSet<String>();
         TypeMirror idClass = null;
+        boolean generated = false;
         for (DeclaredType type : hierarchy) {
             for (AnnotationMirror mirror : type.asElement().getAnnotationMirrors()) {
                 if (isNamed(mirror, ID_CLASS)) {
@@ -199,6 +203,7 @@ final class EntityMetamodel {
                 if (hasAny(member, IDS)) {
                     ids.add(member.getKind() == ElementKind.METHOD
                             ? propertyName((ExecutableElement) member) : member.getSimpleName().toString());
+                    generated |= hasAny(member, List.of(GENERATED_VALUE));
                 }
             }
         }
@@ -206,13 +211,13 @@ final class EntityMetamodel {
         EntityAttribute id = ids.size() == 1 ? attributes.get(ids.iterator().next()) : null;
         TypeMirror type = idClass != null ? idClass : id == null ? null : id.type();
         if (id == null || id.kind() != EntityAttribute.Kind.EMBEDDED) {
-            return new Id(Set.copyOf(ids), Set.of(), type);
+            return new Id(Set.copyOf(ids), Set.of(), type, generated);
         }
         List<DeclaredType> embeddable = hierarchy((DeclaredType) id.type());
         Set<String> components = attributes(embeddable, defaultsToProperty(embeddable, property)).keySet().stream()
                 .map(component -> id.name() + "." + component)
                 .collect(Collectors.toSet());
-        return new Id(Set.copyOf(ids), components, type);
+        return new Id(Set.copyOf(ids), components, type, generated);
     }
 
     /** The collection associations of {@code root} itself, in declaration order (R-PROC-13). */
@@ -287,9 +292,8 @@ final class EntityMetamodel {
 
     private EntityAttribute attribute(String name, TypeMirror type, Element member) {
         boolean version = hasAny(member, List.of(VERSION));
-        boolean updatable = member.getAnnotationMirrors().stream()
-                .noneMatch(mirror -> COLUMNS.stream().anyMatch(column -> isNamed(mirror, column))
-                        && Boolean.FALSE.equals(value(mirror, "updatable")));
+        boolean updatable = !columnSaysFalse(member, "updatable");
+        boolean insertable = !columnSaysFalse(member, "insertable");
         if (hasAny(member, TO_ONE)) {
             String mappedBy = member.getAnnotationMirrors().stream()
                     .filter(mirror -> TO_ONE.stream().anyMatch(toOne -> isNamed(mirror, toOne)))
@@ -298,7 +302,7 @@ final class EntityMetamodel {
                     .map(String.class::cast)
                     .findFirst().orElse(null);
             return new EntityAttribute(
-                    name, type, EntityAttribute.Kind.TO_ONE, entity(type), version, updatable, mappedBy);
+                    name, type, EntityAttribute.Kind.TO_ONE, entity(type), version, updatable, insertable, mappedBy);
         }
         if (hasAny(member, TO_MANY)) {
             // The element of a Collection<E>, the value of a Map<K, E>.
@@ -306,16 +310,23 @@ final class EntityMetamodel {
                     ? ((DeclaredType) type).getTypeArguments() : List.of();
             DeclaredType target = arguments.isEmpty() ? null : entity(arguments.get(arguments.size() - 1));
             return new EntityAttribute(
-                    name, type, EntityAttribute.Kind.COLLECTION, target, version, updatable, null);
+                    name, type, EntityAttribute.Kind.COLLECTION, target, version, updatable, insertable, null);
         }
         if (hasAny(member, List.of(ELEMENT_COLLECTION))) {
             return new EntityAttribute(
-                    name, type, EntityAttribute.Kind.COLLECTION, null, version, updatable, null);
+                    name, type, EntityAttribute.Kind.COLLECTION, null, version, updatable, insertable, null);
         }
         boolean embedded = type.getKind() == TypeKind.DECLARED && (hasAny(member, EMBEDDED)
                 || hasAny(((DeclaredType) type).asElement(), List.of(EMBEDDABLE)));
         return new EntityAttribute(name, type, embedded ? EntityAttribute.Kind.EMBEDDED : EntityAttribute.Kind.BASIC,
-                null, version, updatable, null);
+                null, version, updatable, insertable, null);
+    }
+
+    /** Whether a {@code @Column} or {@code @JoinColumn} on {@code member} sets {@code element} to {@code false}. */
+    private static boolean columnSaysFalse(Element member, String element) {
+        return member.getAnnotationMirrors().stream()
+                .anyMatch(mirror -> COLUMNS.stream().anyMatch(column -> isNamed(mirror, column))
+                        && Boolean.FALSE.equals(value(mirror, element)));
     }
 
     /** {@code type} as the entity an association reaches, or {@code null} when it names no class. */

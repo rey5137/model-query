@@ -134,7 +134,8 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 ## 4. `MQ3xxx` — annotation processing
 
 Catalogued with messages in `processor/32` §1: `MQ3001`–`MQ3019` for structural checks, `MQ3201`–`MQ3208` for aggregate
-models, `MQ3301`–`MQ3307` for update models, `MQ3401`–`MQ3406` for `@Child` (`api/15`). Codes are not repeated here to keep one owner.
+models, `MQ3301`–`MQ3307` for update models, `MQ3401`–`MQ3406` for `@Child` (`api/15`), `MQ3501`–`MQ3504` for
+insert models (D-116, D-117). Codes are not repeated here to keep one owner.
 
 ## 5. `MQ4xxx` — configuration
 

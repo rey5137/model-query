@@ -208,7 +208,7 @@ final class ChangesWriter {
      * The getter as Lombok names it: a primitive {@code boolean x} or {@code boolean isX} gets {@code isX}, anything
      * else {@code get} and the capitalised field name (R-GEN-10).
      */
-    private static String getter(ModelField field) {
+    static String getter(ModelField field) {
         String name = field.name();
         if (field.type().getKind() != TypeKind.BOOLEAN) {
             return "get" + capitalized(name);

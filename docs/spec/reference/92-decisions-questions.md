@@ -1390,6 +1390,12 @@ generated `INSERT_COLUMNS` (M10.3) hides it. A column of a join, even one naming
 so `MQ1808` compares model values by `equals`. AC-WRT-32 (`build()` checks) and AC-WRT-33 (stage shapes) are added
 beyond RFC 0004's list.
 
+*Amended by M10.3:* an insert model's columns reuse `MQ3301`, the `@Version` part of `MQ3303`, `MQ3304` and `MQ3305`
+with an update model's meaning (INV-10, R-DIAG-04), but `MQ3304` covers what an insert cannot write:
+`@Column`/`@JoinColumn(insertable = false)` in place of `updatable = false`, and the inverse (`mappedBy`) side of a
+to-one. `@Transient` and `@Child` on an insert model are `MQ3502`: every field is a column (R-WRT-25). `MQ3501` also
+covers a `@PrimaryKey` on an attribute that is not the id, and the id named without `@PrimaryKey`.
+
 
 ## 2. Open questions
 

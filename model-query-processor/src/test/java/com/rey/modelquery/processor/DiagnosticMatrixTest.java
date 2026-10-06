@@ -26,7 +26,9 @@ import org.junit.jupiter.params.provider.MethodSource;
  * raised for both shapes. Lombok adds accessors and constructors to class models only, so on a record its runs
  * repeat the plain ones with Lombok's processor in the chain. The update-model codes {@code MQ3301}..{@code MQ3307}
  * raise on an {@code @UpdateModel}, and {@code MQ3306} on a {@code generateChanges} query model too. The
- * {@code @Child} codes {@code MQ3401}..{@code MQ3406} raise on a query model with a child over another root.
+ * {@code @Child} codes {@code MQ3401}..{@code MQ3406} raise on a query model with a child over another root. The
+ * insert-model codes {@code MQ3501}..{@code MQ3504} raise on an {@code @InsertModel}, which a class model writes
+ * through its getters, so a class without Lombok gets getters beside its setters.
  * {@code MQ3017} raises on a {@code root} of {@code int.class}, since a missing class adds javac's own errors;
  * {@link RoundDeferralTest} covers that one.
  */
@@ -34,8 +36,11 @@ class DiagnosticMatrixTest {
 
     private enum Shape { CLASS, RECORD }
 
-    /** What a case compiles, and the {@code MQ} errors, or the warnings when {@code warning}, that must come out. */
-    private record Scenario(List<JavaFileObject> sources, boolean warning, List<String> messages) {}
+    /**
+     * What a case compiles, and the {@code MQ} errors, or the warnings when {@code warning}, that must come out; a
+     * warning leaves the QModel {@code generated} written.
+     */
+    private record Scenario(List<JavaFileObject> sources, boolean warning, String generated, List<String> messages) {}
 
     private interface Build {
         Scenario apply(Ctx ctx);
@@ -56,10 +61,12 @@ class DiagnosticMatrixTest {
                 import com.rey.modelquery.annotations.Computed;
                 import com.rey.modelquery.annotations.FilterColumn;
                 import com.rey.modelquery.annotations.GroupBy;
+                import com.rey.modelquery.annotations.InsertModel;
                 import com.rey.modelquery.annotations.Join;
                 import com.rey.modelquery.annotations.JoinKind;
                 import com.rey.modelquery.annotations.PrimaryKey;
                 import com.rey.modelquery.annotations.QueryModel;
+                import com.rey.modelquery.annotations.Transient;
                 import com.rey.modelquery.annotations.UpdateModel;
                 import com.rey.modelquery.processor.fixture.CustomerEntity;
                 import com.rey.modelquery.processor.fixture.ItemEntity;
@@ -93,9 +100,12 @@ class DiagnosticMatrixTest {
                         String type = field.substring(0, field.lastIndexOf(' '));
                         type = type.substring(type.lastIndexOf(' ') + 1);
                         String var = field.substring(field.lastIndexOf(' ') + 1);
-                        text.append("    public void set").append(Character.toUpperCase(var.charAt(0)))
-                                .append(var.substring(1)).append('(').append(type).append(' ').append(var)
-                                .append(") { this.").append(var).append(" = ").append(var).append("; }\n");
+                        String property = Character.toUpperCase(var.charAt(0)) + var.substring(1);
+                        text.append("    public void set").append(property).append('(').append(type).append(' ')
+                                .append(var).append(") { this.").append(var).append(" = ").append(var)
+                                .append("; }\n");
+                        text.append("    public ").append(type).append(type.equals("boolean") ? " is" : " get")
+                                .append(property).append("() { return ").append(var).append("; }\n");
                     }
                 }
                 text.append("}\n");
@@ -171,10 +181,47 @@ class DiagnosticMatrixTest {
             }
             """);
 
+    private static final String INSERT_TICKET = "@InsertModel(root = TicketEntity.class)";
+
+    /** An entity whose id is generated, which an insert model leaves out. */
+    private static final JavaFileObject NOTE_ENTITY = source("models.NoteEntity", """
+            package models;
+
+            import jakarta.persistence.Entity;
+            import jakarta.persistence.GeneratedValue;
+            import jakarta.persistence.Id;
+
+            @Entity
+            public class NoteEntity {
+                @Id
+                @GeneratedValue
+                Long id;
+                String text;
+            }
+            """);
+
+    /** An entity whose id only {@code orm.xml} declares, so the processor sees none. */
+    private static final JavaFileObject LEGACY_ENTITY = source("models.LegacyEntity", """
+            package models;
+
+            import jakarta.persistence.Entity;
+
+            @Entity
+            public class LegacyEntity {
+                Long id;
+                String name;
+                boolean active;
+            }
+            """);
+
     private static final Set<Shape> BOTH = Set.of(Shape.CLASS, Shape.RECORD);
 
     private static Scenario fails(List<JavaFileObject> sources, String... messages) {
-        return new Scenario(sources, false, List.of(messages));
+        return new Scenario(sources, false, null, List.of(messages));
+    }
+
+    private static Scenario warns(List<JavaFileObject> sources, String generated, String... messages) {
+        return new Scenario(sources, true, generated, List.of(messages));
     }
 
     private static Scenario fails(JavaFileObject source, String... messages) {
@@ -340,10 +387,10 @@ class DiagnosticMatrixTest {
                             "@Join Optional<CustomerView> customer")),
                     "MQ3015: OrderView.customerName: constant CUSTOMER_NAME is also generated for customer.name; "
                             + "rename the field or set @Join(prefix)")),
-            of("MQ3016", c -> new Scenario(
-                    List.of(c.model("OrderView", ORDER, ID, "CustomerEntity customer")), true,
-                    List.of("MQ3016: OrderView.customer: selects the whole CustomerEntity entity; use @Join with a "
-                            + "query model of CustomerEntity to select only its columns"))),
+            of("MQ3016", c -> warns(
+                    List.of(c.model("OrderView", ORDER, ID, "CustomerEntity customer")), "models.QOrderView",
+                    "MQ3016: OrderView.customer: selects the whole CustomerEntity entity; use @Join with a "
+                            + "query model of CustomerEntity to select only its columns")),
             of("MQ3017", c -> fails(c.model("OrderView", "@QueryModel(root = int.class)", ID, "String status"),
                     "MQ3017: OrderView: root does not name a class, and no annotation processor generated one")),
             of("MQ3018", c -> fails(
@@ -466,7 +513,48 @@ class DiagnosticMatrixTest {
                     with(c.model("ItemView", ITEM, ID), c.model("OrderView", ORDER, ID,
                             "@Child(through = \"customer\") List<ItemView> items")),
                     "MQ3406: OrderView.items: through 'customer' ends at CustomerEntity, not at ItemEntity, the root "
-                            + "of ItemView")));
+                            + "of ItemView")),
+            of("MQ3501", c -> fails(
+                    with(TICKET_ENTITY, NOTE_ENTITY,
+                            c.model("TicketRow", INSERT_TICKET, "@PrimaryKey String code",
+                                    "@Column(attribute = \"id\") Long ticketId"),
+                            c.model("TicketDraft", INSERT_TICKET, "String createdBy"),
+                            c.model("NoteRow", "@InsertModel(root = NoteEntity.class)", ID, "String text")),
+                    "MQ3501: TicketRow.code: @PrimaryKey must be TicketEntity's id 'id'; an insert writes the id",
+                    "MQ3501: TicketRow.ticketId: 'id' is TicketEntity's id; mark the field @PrimaryKey",
+                    "MQ3501: TicketDraft: TicketEntity's id 'id' has no @GeneratedValue; name it with @PrimaryKey",
+                    "MQ3501: NoteRow.id: NoteEntity's id 'id' is generated (@GeneratedValue); leave it out of the "
+                            + "model")),
+            of("MQ3502", c -> fails(
+                    with(TICKET_ENTITY, c.customerView(), c.model("TicketRow",
+                            INSERT_TICKET + "\n@FilterColumn(name = \"CUSTOMER_NAME\", path = \"customer.name\")", ID,
+                            "@Join Optional<CustomerView> customer", COUNT + " Long lines", "@GroupBy String code",
+                            "@Computed(CustomerView.class) BigDecimal computed",
+                            "@Child(foreignKey = \"id\") List<CustomerView> notes", "@Transient String draft")),
+                    "MQ3502: TicketRow.customer: @Join isn't allowed on @InsertModel; write the foreign key with "
+                            + "@Column(attribute = \"customer\") Long customerId",
+                    "MQ3502: TicketRow.lines: @Aggregate isn't allowed on @InsertModel; an insert reads no row of its "
+                            + "root",
+                    "MQ3502: TicketRow.code: @GroupBy isn't allowed on @InsertModel; an insert reads no row of its "
+                            + "root",
+                    "MQ3502: TicketRow.computed: @Computed isn't allowed on @InsertModel; an insert reads no row of "
+                            + "its root",
+                    "MQ3502: TicketRow.notes: @Child isn't allowed on @InsertModel; an insert reads no row of its "
+                            + "root",
+                    "MQ3502: TicketRow.draft: @Transient isn't allowed on @InsertModel; every field is a column of "
+                            + "the rows an insert writes",
+                    "MQ3502: TicketRow @FilterColumn(CUSTOMER_NAME): @FilterColumn isn't allowed on @InsertModel; an "
+                            + "insert reads no row of its root")),
+            of("MQ3503", c -> fails(
+                    with(TICKET_ENTITY, c.model("TicketRow",
+                            "@QueryModel(root = TicketEntity.class)\n" + INSERT_TICKET, ID, "String code")),
+                    "MQ3503: TicketRow: @QueryModel and @InsertModel each generate a QModel class for it; keep one")),
+            of("MQ3504", c -> warns(
+                    with(LEGACY_ENTITY, c.model("LegacyRow", "@InsertModel(root = LegacyEntity.class)",
+                            "String name", "boolean active")),
+                    "models.QLegacyRow",
+                    "MQ3504: LegacyRow: LegacyEntity has no id type the processor can see; insert(rows) and "
+                            + "persist(row) return its keys as Object")));
 
     static Stream<Arguments> matrix() {
         var runs = new ArrayList<Arguments>();
@@ -492,12 +580,12 @@ class DiagnosticMatrixTest {
         Compilation compilation = compiler.compile(scenario.sources());
 
         if (scenario.warning()) {
-            // MQ3016 warns and the QModel is still written (R-DIAG-02).
+            // MQ3016 and MQ3504 warn and the QModel is still written (R-DIAG-02).
             assertThat(compilation.status()).isEqualTo(Compilation.Status.SUCCESS);
             assertThat(compilation.warnings().stream().map(w -> w.getMessage(Locale.ROOT))
                     .filter(text -> text.startsWith("MQ")))
                     .containsExactlyInAnyOrderElementsOf(scenario.messages());
-            assertThat(compilation.generatedSourceFile("models.QOrderView")).isPresent();
+            assertThat(compilation.generatedSourceFile(scenario.generated())).isPresent();
         } else {
             assertThat(compilation.status()).isEqualTo(Compilation.Status.FAILURE);
             assertThat(errors(compilation)).containsExactlyInAnyOrderElementsOf(scenario.messages());

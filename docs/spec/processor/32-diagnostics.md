@@ -24,7 +24,7 @@
 | `MQ3012` | Two `@FilterColumn`s with the same `alias` and path prefix but different `joinType`, or a `joinType` written on a `@FilterColumn` that differs from the type of the `@Join` its path reuses (D-46) | `OrderView @FilterColumn(SKU_B): alias 'itemB' is INNER here, LEFT on SKU_B_QTY` |
 | `MQ3013` | `@FilterColumn` name clashes with a generated constant, is reserved, or is not a legal Java name (a keyword included, D-46) | `OrderView @FilterColumn(STATUS): name already used by field 'status'` |
 | `MQ3014` | `converter` is not a `ColumnConverter` between the field type and the attribute type, or has neither a public static `INSTANCE` nor a visible no-arg constructor | `OrderView.status: OrderStatusConverter converts OrderStatus to Integer, entity attribute type String` |
-| `MQ3015` | Two generated constants would have the same name, or a field's constant clashes with a reserved one (`ROOT`, `ALL`, `DEFAULT`, `KEY`, `MAPPER`, `GROUP_KEYS`), or a `@Join(prefix)` or a `@FilterColumn` `alias` is not a legal Java name (a keyword included; D-45, D-46) | `OrderView.customerId: constant CUSTOMER_ID is also generated for customer.id; rename the field or set @Join(prefix)` |
+| `MQ3015` | Two generated constants would have the same name, or a field's constant clashes with a reserved one (`ROOT`, `ALL`, `DEFAULT`, `KEY`, `MAPPER`, `GROUP_KEYS`; `INSERT_COLUMNS` on an insert model), or a `@Join(prefix)` or a `@FilterColumn` `alias` is not a legal Java name (a keyword included; D-45, D-46) | `OrderView.customerId: constant CUSTOMER_ID is also generated for customer.id; rename the field or set @Join(prefix)` |
 | `MQ3016` | **Warning.** A column on a to-one association selects the whole entity and has no converter (D-44, D-45) | `OrderView.customer: selects the whole CustomerEntity entity; use @Join with a query model of CustomerEntity to select only its columns` |
 | `MQ3017` | A model's `root`, or the `root` of a model it nests through `@Join` or `@Child`, still names no class in the last round of annotation processing; until then the model is deferred to the next round. Also reported when a deferred model's own name resolves to no type element, as an ambiguous name across JPMS modules does (D-107) | `ShipmentView: root does not name a class, and no annotation processor generated one` or `shop.ShipmentView: could not be resolved: root does not name a class, and no annotation processor generated one` |
 | `MQ3018` | `@Computed(value)` is not an `ExpressionDefinition<Model, FieldType>`, or has neither a public static `INSTANCE` nor a visible no-arg constructor (D-115) | `OrderView.net: NetAmount is not an ExpressionDefinition<OrderView, BigDecimal>, or has neither INSTANCE nor a no-arg constructor` |
@@ -37,10 +37,10 @@
 | `MQ3206` | `@Aggregate(distinct = true)` on `SUM`, `AVG`, `MIN` or `MAX` (D-47) | `ProductSales.revenue: distinct only applies to COUNT, found SUM` |
 | `MQ3207` | `@QueryModel(singleGroup = true)` on a model that has `@GroupBy` fields (D-47) | `ProductSales: singleGroup = true can't be combined with @GroupBy fields; remove one` |
 | `MQ3208` | `@Aggregate` with both `attribute` and `expression` (D-115) | `ProductSales.paid: @Aggregate takes attribute or expression, not both` |
-| `MQ3301` | Update-model field maps through a join or a collection | `OrderPatch.customerName: update models can only write attributes of OrderEntity; 'customer.name' needs a join` |
+| `MQ3301` | Update- or insert-model field maps through a join or a collection | `OrderPatch.customerName: update models can only write attributes of OrderEntity; 'customer.name' needs a join` |
 | `MQ3302` | `@Join`, `@Aggregate`, `@GroupBy` or `@Computed` on an update model | `OrderPatch.customer: @Join isn't allowed on @UpdateModel; write the foreign key with @Column(attribute = "customer") Long customerId` |
-| `MQ3303` | Update-model field maps to the primary key without `@PrimaryKey`, or to the `@Version` attribute | `OrderPatch.version: the @Version attribute is managed by the engine (keepVersion, expectVersion)` |
-| `MQ3304` | Update-model field maps to an attribute that can't be written: `updatable = false`, or the inverse (`mappedBy`) side of a to-one | `OrderPatch.createdAt: OrderEntity.createdAt is @Column(updatable = false)` |
+| `MQ3303` | Update-model field maps to the primary key without `@PrimaryKey`, or an update- or insert-model field to the `@Version` attribute | `OrderPatch.version: the @Version attribute is managed by the engine (keepVersion, expectVersion)` |
+| `MQ3304` | Update- or insert-model field maps to an attribute that can't be written: `updatable = false` on an update model, `insertable = false` on an insert model, or the inverse (`mappedBy`) side of a to-one | `OrderPatch.createdAt: OrderEntity.createdAt is @Column(updatable = false)` |
 | `MQ3305` | To-one attribute written by id with the wrong id type | `OrderPatch.customerId: CustomerEntity's id is Long, found String` |
 | `MQ3306` | `@PrimaryKey` on an update model, or a query model with `generateChanges = true`, is not the root entity's id | `OrderPatch.orderNo: @PrimaryKey must be OrderEntity's id 'id'; bulk writes key on the entity id` |
 | `MQ3307` | Update-model field generates a change-set member that clashes with `Changes<M>` | `OrderPatch.empty: generates getEmpty() and setEmpty(...), which clash with Changes.isEmpty() as property 'empty'; rename the field` |
@@ -50,16 +50,21 @@
 | `MQ3404` | `@Child` with a composite key: several paths, a path to an embedded value, or a default `@PrimaryKey` of several columns; or an array-typed key | `CustomerView.orders: @Child takes one key attribute each side; foreignKey names 2` |
 | `MQ3405` | A `List` `@Child` without `foreignKey` (unless `through`), or whose model has no `@PrimaryKey`; an `Optional` `@Child` whose `through` crosses a collection, whose model has no `@PrimaryKey` | `CustomerView.orders: a List @Child needs foreignKey, the attribute of OrderEntity that holds the parent's key` |
 | `MQ3406` | `@Child` `through` that is blank, crosses an attribute that is not an association or an embedded value, or ends at another type than the child's root (a subclass included); a `key` that is not the parent root's single `@Id`; or a grouped child model (R-FCH-14) | `LabelView.orders: through 'customer' ends at CustomerEntity, not at OrderEntity, the root of OrderRef` |
+| `MQ3501` | Insert model names its root's id when the id carries `@GeneratedValue`; or does not name all of an id without one with `@PrimaryKey`, names it without `@PrimaryKey`, or puts `@PrimaryKey` on another attribute (R-PROC-23, D-117) | `NewOrder.id: OrderEntity's id 'id' is generated (@GeneratedValue); leave it out of the model` or `OrderArchiveRow: OrderArchiveEntity's id 'orderId' has no @GeneratedValue; name it with @PrimaryKey` |
+| `MQ3502` | `@Join`, `@FilterColumn`, `@Aggregate`, `@GroupBy`, `@Computed` or `@Child` on an insert model, which reads no row of its root; or `@Transient`, since every field is a column (R-PROC-23, `api/14` R-WRT-25) | `NewOrder.customer: @Join isn't allowed on @InsertModel; write the foreign key with @Column(attribute = "customer") Long customerId` |
+| `MQ3503` | A type carries more than one of `@QueryModel`, `@UpdateModel` and `@InsertModel` (R-PROC-24) | `OrderRow: @QueryModel and @InsertModel each generate a QModel class for it; keep one` |
+| `MQ3504` | **Warning.** An insert model's root shows the processor no id type (an `orm.xml` mapping, say), so the generated `insert` and `persist` type its keys as `Object` (D-117) | `LegacyRow: LegacyEntity has no id type the processor can see; insert(rows) and persist(row) return its keys as Object` |
 
-The `MQ3304` check on `updatable = false` is best-effort: it reads `@Column` and `@JoinColumn`, not `@AttributeOverride` or
-orm.xml (D-70).
+The `MQ3304` check on `updatable = false` and `insertable = false` is best-effort: it reads `@Column` and
+`@JoinColumn`, not `@AttributeOverride` or orm.xml (D-70).
 
 **R-DIAG-01** A message names the model, the field or annotation, and both sides of a mismatch. It never asks the user
 to read the spec to understand what happened.
 
 **R-DIAG-02** Every check reports as an `ERROR` on the annotated element, so the IDE underlines the field rather than
-the generated file. `MQ3016` alone is a `WARNING`: the model is still generated. The user guide shows the `@Join` form its message
-points to, which selects the nested model's columns instead of the whole entity (D-44, D-45).
+the generated file. `MQ3016` and `MQ3504` alone are `WARNING`s: the model is still generated. The user guide shows the
+`@Join` form `MQ3016`'s message points to, which selects the nested model's columns instead of the whole entity (D-44,
+D-45).
 
 **R-DIAG-03** The processor reports **every** independent problem in one pass. A model that failed one check still
 produces the remaining diagnostics for its other fields; it does not produce a QModel. Two diagnostics wait for
@@ -98,3 +103,4 @@ the generated class.
 | AC-DIAG-06 | A model whose `root` another processor generates in the same compilation, and a model that nests it through `@Join`, are generated with no diagnostic (R-DIAG-03, D-107). |
 | AC-DIAG-07 | A model whose `root` is never generated, and a model that nests it, each report `MQ3017` on their own element and produce no QModel (R-DIAG-03, D-107). |
 | AC-DIAG-08 | `MQ3018`, `MQ3019`, `MQ3208` and the widened `MQ3005` each have a compile-testing case, and `MQ3202`/`MQ3205` over an expression's type (R-PROC-21, R-PROC-22). |
+| AC-DIAG-09 | `MQ3501`, `MQ3502`, `MQ3503` and the warning `MQ3504` each have a compile-testing case on an insert model, `MQ3504` leaving the QModel generated; `MQ3503` is reported once, on the type (R-PROC-23, R-PROC-24, R-DIAG-02). |

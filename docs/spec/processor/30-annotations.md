@@ -12,6 +12,7 @@
 |---|---|---|
 | `@QueryModel(root = X.class, generateSelectSets = true, prefix = "Q", suffix = "", singleGroup = false, generateChanges = false)` | model class or record | Enables generation |
 | `@UpdateModel(root = X.class, prefix = "Q")` | class or record | The attributes a bulk update may write; generates columns and a change set (§7) |
+| `@InsertModel(root = X.class, prefix = "Q")` | class or record | The attributes an insert writes, one instance per row; generates columns, `INSERT_COLUMNS` and the insert builders (§8) |
 | `@PrimaryKey` | field or record component | Primary-key column(s); composite keys supported |
 | `@Column(attribute = "...", converter = Foo.class)` | field or component | Rename the attribute or convert the value (`ColumnConverter<C, F>`) |
 | `@Join(attribute = "...", type = LEFT, prefix = "CUSTOMER", alias = "")` | `Optional<NestedModel>` field or component | Join the association and reuse the nested model's QModel columns |
@@ -157,7 +158,29 @@ association written by id, `@Column(attribute = "customer") Long customerId`) an
 columns; joined and filter-only columns are left out. It is meant for internal use: an endpoint binding it from a
 request can write every root column of the model, so the user guide recommends one `@UpdateModel` per endpoint.
 
-## 8. Acceptance criteria
+## 8. Insert models
+
+**R-PROC-23** *(D-116, D-117)* `@InsertModel(root = …)` declares the root-entity attributes an insert writes
+(`api/14` §10.2). Unlike an update model it is instantiated: each instance is one row, and every column field is a
+column of it, read through its record accessor or getter. It accepts `@PrimaryKey` and `@Column`, including a to-one
+association written by id (`@Column(attribute = "customer") Long customerId`) and a dotted embedded path, and rejects
+`@Join`, `@FilterColumn`, `@Aggregate`, `@GroupBy`, `@Computed` and `@Child` (`MQ3502`): an insert reads no row of its
+root. `@Transient` is `MQ3502` too, since every field is a column of each row (`api/14` R-WRT-25). Its columns take
+an update model's write checks (`MQ3301`, `MQ3305`, the `@Version` part of `MQ3303`), and `MQ3304` for an attribute an
+insert cannot write: `insertable = false`, or the inverse (`mappedBy`) side of a to-one. `updatable = false` does not
+apply, since an insert writes the column first.
+- The id. When the root's `@Id` carries `@GeneratedValue`, the model leaves it out; when it carries none, the model
+  names all of it with `@PrimaryKey`, as the id attribute, the `@IdClass` attributes or the `@EmbeddedId` (whole or by
+  its components). Anything else the annotations show is `MQ3501`. A generator declared in `orm.xml` is seen on the
+  definition's first execution instead (`MQ1802`, `api/14` R-WRT-26).
+- The processor generates `Q<Model>` with one column constant per column field, `INSERT_COLUMNS` in declaration order,
+  and the `insert`, `insertFrom` and `persist` builders (`processor/31` §7). A model whose root shows no id type is
+  generated with keys typed `Object`, and warned (`MQ3504`).
+
+**R-PROC-24** *(D-116)* One type carries at most one of `@QueryModel`, `@UpdateModel` and `@InsertModel`, since each
+generates `Q<Model>`. A type with two or more is reported once (`MQ3503`) and generates nothing.
+
+## 9. Acceptance criteria
 
 | ID | Criterion |
 |---|---|
@@ -175,3 +198,5 @@ request can write every root column of the model, so the user guide recommends o
 | AC-PROC-12 | `@Aggregate` `MIN` or `MAX` into an `Instant` or `Date` field over a `Timestamp` attribute reads the database's value through the built-in converter, typed as the field; `COUNT` distinct over it stays `Long`, and `SUM`, `AVG` or a `MIN` into another type is `MQ3202` (R-PROC-15, D-84). |
 | AC-PROC-13 | `@Computed(Def.class)` generates an `ExpressionField` constant named after the field, after the column constants, mapped by the generated mapper, in `DEFAULT` and `ALL`, left out by `@ExcludeFromDefaults` (R-PROC-21). |
 | AC-PROC-14 | `@Aggregate(fn = SUM, expression = Def.class)` and `@GroupBy` on a `@Computed` field generate the aggregate constant and a `GROUP_KEYS` holding the expression; the query runs on every Tier-1 vendor (R-PROC-16, R-PROC-22). |
+| AC-PROC-15 | An `@InsertModel` with a converter, a to-one by id, an embedded path and an `@EmbeddedId` named whole or by its components generates, as does an `updatable = false` column; `@Join`, `@FilterColumn`, `@Aggregate`, `@GroupBy`, `@Computed`, `@Child` and `@Transient` are `MQ3502`, a column through a join, a collection, the `@Version`, an inverse to-one or a to-one id of the wrong type takes the update model's code, and an `insertable = false` column is `MQ3304` (R-PROC-23). |
+| AC-PROC-16 | A type carrying two or three of `@QueryModel`, `@UpdateModel` and `@InsertModel` reports `MQ3503` once, on the type, and generates no file (R-PROC-24). |

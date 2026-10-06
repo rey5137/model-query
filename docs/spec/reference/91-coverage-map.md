@@ -96,10 +96,12 @@ RFC 0004 (rey5137/model-query#29) is mapped the same way, by its own sections, a
 | rey5137/model-query#5 | §13 risks, §14 question 4 | `reference/92` §3, Q-6 (resolved by D-15) |
 | rey5137/model-query#29 | RFC 0004 §1 scope, `INV-1`, `INV-9`, `P-5`; R-WRT-24 | SPEC.md §2 INV-1, INV-9, §3 P-5; `api/14` §10.1 |
 | rey5137/model-query#29 | RFC 0004 §2 insert models; R-WRT-25, R-WRT-26 | `api/14` §10.2 |
+| rey5137/model-query#29 | RFC 0004 §2 `@InsertModel`, one model annotation per type; R-PROC-23, R-PROC-24 | `processor/30` §8, `processor/31` §7 R-GEN-28 |
 | rey5137/model-query#29 | RFC 0004 §3 insert-select; R-WRT-27, R-WRT-28 | `api/14` §10.3 |
 | rey5137/model-query#29 | RFC 0004 §4 insert-values; R-WRT-29 to R-WRT-33 | `api/14` §10.4 |
 | rey5137/model-query#29 | RFC 0004 §5 conflict clauses; R-WRT-34 to R-WRT-38 | `api/14` §10.5 |
 | rey5137/model-query#29 | RFC 0004 §6 `persist`; R-WRT-39, R-WRT-40 | `api/14` §10.6 |
 | rey5137/model-query#29 | RFC 0004 §7 executor methods | `api/14` §10.1 |
 | rey5137/model-query#29 | RFC 0004 §8 codes `MQ1801`–`MQ1808` | `reference/90` §2 |
+| rey5137/model-query#29 | RFC 0004 §8 codes `MQ3501`–`MQ3503`; `MQ3504` (D-117) | `processor/32` §1 |
 | rey5137/model-query#29 | RFC 0004 §8 acceptance criteria | `api/14` §9 AC-WRT-21 to AC-WRT-33 |

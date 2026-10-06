@@ -8,8 +8,8 @@ import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeMirror;
 
 /**
- * A {@code @QueryModel} or {@code @UpdateModel} type as written, before any check: what the validation and emission
- * steps both read.
+ * A {@code @QueryModel}, {@code @UpdateModel} or {@code @InsertModel} type as written, before any check: what the
+ * validation and emission steps both read.
  *
  * @param type the model class or record
  * @param root the entity named by {@code @QueryModel(root)}
@@ -18,17 +18,32 @@ import javax.lang.model.type.TypeMirror;
  * @param singleGroup whether {@code @QueryModel(singleGroup)} declares aggregates with no {@code @GroupBy}
  * @param fields the model's fields or record components, in declaration order
  * @param filterColumns the model's {@code @FilterColumn}s, in declaration order
- * @param updateModel whether the type is an {@code @UpdateModel}, which is only read and never instantiated
+ * @param kind which of the three model annotations the type carries
  * @param generateChanges whether {@code @QueryModel(generateChanges)} asks for a change set
  */
 record ModelDefinition(
         TypeElement type, TypeElement root, String generatedName, boolean selectSets, boolean singleGroup,
-        List<ModelField> fields, List<FilterColumnDefinition> filterColumns, boolean updateModel,
+        List<ModelField> fields, List<FilterColumnDefinition> filterColumns, Kind kind,
         boolean generateChanges) {
 
     ModelDefinition {
         fields = List.copyOf(fields);
         filterColumns = List.copyOf(filterColumns);
+    }
+
+    /** Whether the type is a {@code @QueryModel}, the only kind that is read into. */
+    boolean queryModel() {
+        return kind == Kind.QUERY;
+    }
+
+    /** Whether the type is an {@code @UpdateModel}, which is only read by the processor and never instantiated. */
+    boolean updateModel() {
+        return kind == Kind.UPDATE;
+    }
+
+    /** Whether the type is an {@code @InsertModel}, whose instances are the rows an insert writes (R-PROC-23). */
+    boolean insertModel() {
+        return kind == Kind.INSERT;
     }
 
     boolean isRecord() {
@@ -62,7 +77,7 @@ record ModelDefinition(
 
     /** Whether a change set is generated: always for an update model, on request for a query model (R-GEN-21). */
     boolean changes() {
-        return updateModel || generateChanges;
+        return updateModel() || generateChanges;
     }
 
     /** The change set's simple name, in the model's package: {@code OrderPatchChanges}. */
@@ -101,6 +116,16 @@ record ModelDefinition(
     /** The {@code @PrimaryKey} columns, in declaration order. */
     List<ModelField> keys() {
         return fields.stream().filter(field -> field.column() && field.primaryKey()).toList();
+    }
+
+    /** The annotation a model type carries, which decides what is generated for it. */
+    enum Kind {
+        /** {@code @QueryModel}: read into, and written through a change set when it asks for one. */
+        QUERY,
+        /** {@code @UpdateModel}: the columns a bulk update writes, through a change set. */
+        UPDATE,
+        /** {@code @InsertModel}: the columns an insert writes, read from each row (R-PROC-23). */
+        INSERT
     }
 
     /**

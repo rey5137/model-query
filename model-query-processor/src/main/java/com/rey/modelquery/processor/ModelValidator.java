@@ -42,6 +42,9 @@ final class ModelValidator {
     /** The only constant an update model's generated class declares itself (R-GEN-19). */
     private static final Set<String> RESERVED_BY_UPDATE = Set.of("ROOT");
 
+    /** The constants an insert model's generated class declares itself (R-GEN-28). */
+    private static final Set<String> RESERVED_BY_INSERT = Set.of("ROOT", "INSERT_COLUMNS");
+
     private static final String LONG = "java.lang.Long";
     private static final String DOUBLE = "java.lang.Double";
     private static final String NUMBER = "java.lang.Number";
@@ -71,19 +74,29 @@ final class ModelValidator {
     }
 
     void validate(ModelDefinition model, Diagnostics diagnostics) {
-        // An update model is only read, never instantiated, so neither its shape nor its primitives matter.
-        if (!model.updateModel()) {
+        // An update model is only read, and an insert model is instantiated by its caller, never by a mapper: neither
+        // its shape nor its primitives matter.
+        if (model.queryModel()) {
             checkShape(model, diagnostics);
         }
-        Set<String> reserved = model.updateModel() ? RESERVED_BY_UPDATE : RESERVED;
+        Set<String> reserved = switch (model.kind()) {
+            case QUERY -> RESERVED;
+            case UPDATE -> RESERVED_BY_UPDATE;
+            case INSERT -> RESERVED_BY_INSERT;
+        };
         if (model.updateModel()) {
             writeChecks.checkUpdateOnly(model, diagnostics);
+        }
+        if (model.insertModel()) {
+            writeChecks.checkInsertOnly(model, diagnostics);
+            writeChecks.checkInsertKey(model, diagnostics);
         }
         if (model.changes()) {
             writeChecks.checkModel(model, diagnostics);
         }
-        // A group has no row identity, so a summary model needs no key (R-AGG-09); an update model has no groups.
-        if (model.keys().isEmpty() && (model.updateModel() || model.aggregates().isEmpty())) {
+        // A group has no row identity, so a summary model needs no key (R-AGG-09); an update model has no groups. An
+        // insert model leaves a generated id out, which MQ3501 checks.
+        if (model.keys().isEmpty() && (model.updateModel() || model.queryModel() && model.aggregates().isEmpty())) {
             diagnostics.error(model.type(), DiagnosticCode.MQ3004, model.name() + (model.updateModel()
                     ? ": no @PrimaryKey; update(...) and delete() choose rows by the entity id"
                     : ": no @PrimaryKey; paging, export and @Join presence need one"));
@@ -92,8 +105,8 @@ final class ModelValidator {
         // name is the one reported.
         var constants = new HashMap<String, String>();
         var joined = new ArrayList<JoinedTable>();
-        // An update model's @Join is MQ3302, and joins nothing.
-        for (ModelField join : model.updateModel() ? List.<ModelField>of() : model.joins()) {
+        // An update model's @Join is MQ3302, an insert model's MQ3502, and joins nothing.
+        for (ModelField join : model.queryModel() ? model.joins() : List.<ModelField>of()) {
             String where = model.name() + "." + join.name() + ": ";
             ModelDefinition nested = checkJoin(model, join, where, diagnostics);
             if (nested != null) {
@@ -107,7 +120,7 @@ final class ModelValidator {
         FilterLayout filters = FilterLayout.of(model, joined, metamodel);
         filters.problems().forEach(problem -> diagnostics.error(model.type(), problem.code(), problem.detail()));
         claimFilterTables(model, filters, constants, diagnostics);
-        if (!model.updateModel()) {
+        if (model.queryModel()) {
             checkGrouping(model, diagnostics);
         }
         // Only an ungrouped query always selects the key: a grouped one selects it like any other column (D-49).
@@ -118,16 +131,16 @@ final class ModelValidator {
             }
             String where = model.name() + "." + field.name() + ": ";
             // A field may carry @Computed beside @Aggregate, which MQ3019 reports: run both checks, not either.
-            if (!model.updateModel() && field.aggregate() != null) {
+            if (model.queryModel() && field.aggregate() != null) {
                 checkAggregate(model, field, where, diagnostics);
             }
-            if (!model.updateModel() && field.computed()) {
+            if (model.queryModel() && field.computed()) {
                 checkComputed(model, field, where, diagnostics);
             }
             if (field.column()) {
                 checkAttribute(model, field, where, diagnostics);
             }
-            if (field.column() && model.isRecord() && !model.updateModel() && field.type().getKind().isPrimitive()
+            if (field.column() && model.isRecord() && model.queryModel() && field.type().getKind().isPrimitive()
                     && !(ungrouped && field.primaryKey())) {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3009,
                         where + "primitive components can't be null when not selected; use "
@@ -139,12 +152,15 @@ final class ModelValidator {
             }
             claim(field, where, reserved, constants, ofJoins, diagnostics);
         }
-        for (ModelField child : model.children()) {
+        // An insert model's @Child is MQ3502.
+        for (ModelField child : model.insertModel() ? List.<ModelField>of() : model.children()) {
             childChecks.check(model, child, diagnostics);
             // Its ChildField constant is named as a column of the field would be (R-FCH-03).
             claim(child, model.name() + "." + child.name() + ": ", reserved, constants, ofJoins, diagnostics);
         }
-        for (FilterColumnDefinition column : model.filterColumns()) {
+        // An insert model's @FilterColumn is MQ3502, and declares no constant.
+        for (FilterColumnDefinition column : model.insertModel() ? List.<FilterColumnDefinition>of()
+                : model.filterColumns()) {
             String where = model.name() + " " + column.label() + ": ";
             if (!isSimpleName(column.name())) {
                 diagnostics.error(model.type(), DiagnosticCode.MQ3013, where + "name '" + column.name()
@@ -668,7 +684,7 @@ final class ModelValidator {
      */
     private void checkAttribute(ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
         Resolution resolution = metamodel.resolve(model.root(), field.attribute());
-        if (model.updateModel() && !writeChecks.checkColumn(model, field, resolution, where, diagnostics)) {
+        if (!model.queryModel() && !writeChecks.checkColumn(model, field, resolution, where, diagnostics)) {
             return;
         }
         if (resolution.attribute() == null) {

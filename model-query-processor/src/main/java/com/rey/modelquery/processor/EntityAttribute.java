@@ -13,12 +13,13 @@ import javax.lang.model.type.TypeMirror;
  *     attribute, an {@code @ElementCollection}, and an association whose declared type does not name its target
  * @param version whether the attribute is the entity's {@code @Version}
  * @param updatable {@code false} when its {@code @Column} or {@code @JoinColumn} says {@code updatable = false}
+ * @param insertable {@code false} when its {@code @Column} or {@code @JoinColumn} says {@code insertable = false}
  * @param mappedBy what {@code @OneToOne(mappedBy)} names on the inverse side of a to-one; {@code null} on the owning
  *     side and for any other attribute
  */
 record EntityAttribute(
         String name, TypeMirror type, Kind kind, DeclaredType target, boolean version, boolean updatable,
-        String mappedBy) {
+        boolean insertable, String mappedBy) {
 
     /** Whether a join may follow the attribute: a to-one or collection association of a known target. */
     boolean joinable() {

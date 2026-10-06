@@ -77,6 +77,10 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
      * reuses that one, and either goes on through the joins below it (R-PROC-11, R-PROC-12).
      */
     static FilterLayout of(ModelDefinition model, List<JoinedTable> joined, EntityMetamodel metamodel) {
+        // An insert model reads no row of its root, so it declares no table; its @FilterColumn is MQ3502 (R-PROC-23).
+        if (model.insertModel()) {
+            return new FilterLayout(List.of(), List.of(), List.of());
+        }
         // Keyed by what makes a join its own: alias and association path, and the @Join it hangs below (R-PROC-12).
         var tables = new LinkedHashMap<List<String>, Table>();
         for (EntityAttribute collection : metamodel.collections(model.root())) {
