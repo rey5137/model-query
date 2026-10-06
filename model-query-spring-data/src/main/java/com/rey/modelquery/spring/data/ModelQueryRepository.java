@@ -7,10 +7,13 @@ import com.rey.modelquery.core.KeysetSlice;
 import com.rey.modelquery.core.KeysetSpec;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
+import com.rey.modelquery.core.ModelInsert;
+import com.rey.modelquery.core.ModelPersist;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.SortSpec;
+import com.rey.modelquery.core.ValuesInsert;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import java.util.List;
 import java.util.function.Consumer;
@@ -92,4 +95,25 @@ public interface ModelQueryRepository<E> {
     /** {@link ModelQueryExecutor#delete(ModelDelete)}, in a transaction as {@link #update} runs (R-SPR-10). */
     @Incubating
     long delete(ModelDelete<E, ?> d);
+
+    /**
+     * {@link ModelQueryExecutor#insert(ModelInsert)} in a transaction as {@link #update} runs: joined when one is
+     * active, opened otherwise, and none for a {@code commitEachChunk()} insert-select (R-SPR-10, R-WRT-18).
+     */
+    @Incubating
+    long insert(ModelInsert<E, ?> i);
+
+    /**
+     * {@link ModelQueryExecutor#insertReturningKeys(ValuesInsert)}, in a transaction joined or opened as
+     * {@link #update} runs; its keys are drawn and returned inside it (R-SPR-10, R-WRT-33).
+     */
+    @Incubating
+    <K> List<K> insertReturningKeys(ValuesInsert<E, K, ?> i);
+
+    /**
+     * {@link ModelQueryExecutor#persist(ModelPersist)}, in a transaction joined or opened as {@link #update} runs,
+     * which {@code persist} needs: outside one the executor throws {@code MQ2501} (R-SPR-10, R-WRT-39).
+     */
+    @Incubating
+    <K> K persist(ModelPersist<E, K, ?> p);
 }

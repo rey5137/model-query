@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.entry;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -177,6 +180,40 @@ class SampleApplicationTest {
                     .set(QFilmView.RELEASED, 2000).where(f -> f.gt(QFilmView.ID, 0L)).build())).isEqualTo(6);
             assertFailedThirdChunkKeepsTheFirstTwo(context, "postgresDataSource", "films", () -> films.delete(
                     QFilmView.delete().where(f -> f.gt(QFilmView.ID, 0L)).chunked(EACH_CHUNK_OF_TWO).build()));
+        }
+    }
+
+    @Test
+    void ac_spr_09_the_post_endpoint_persists_one_book_without_a_surrounding_transaction() throws Exception {
+        try (ConfigurableApplicationContext context = startSample(List.of())) {
+            MockMvc mvc = mvc(context, "bookController");
+            var jdbc = new JdbcTemplate(context.getBean("h2DataSource", DataSource.class));
+
+            // No transaction around the request: the repository opens the one persist needs.
+            mvc.perform(post("/books").contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"id\": 7, \"title\": \"Persisted\", \"released\": 1999}"))
+                    .andExpect(status().isCreated()).andExpect(header().string("Location", "/books/7"))
+                    .andExpect(content().string("{\"id\":7}"));
+            assertThat(jdbc.queryForMap("select title, released from books where id = 7"))
+                    .containsEntry("TITLE", "Persisted").containsEntry("RELEASED", 1999);
+        }
+    }
+
+    @Test
+    void ac_spr_09_the_import_endpoint_inserts_films_skipping_existing_ids() throws Exception {
+        try (ConfigurableApplicationContext context = startSample(List.of())) {
+            context.getBean(FilmRepository.class).save(new FilmEntity(7L, "Persisted", 1999));
+            MockMvc mvc = mvc(context, "filmReportController");
+            var jdbc = new JdbcTemplate(context.getBean("postgresDataSource", DataSource.class));
+
+            // Film 7 exists, so only the two new ids are written, and the existing row is left as it was.
+            mvc.perform(post("/films/import").contentType(MediaType.APPLICATION_JSON).content("""
+                            [{"id": 7, "title": "Replaced", "released": 2000},
+                             {"id": 8, "title": "Imported", "released": 2001},
+                             {"id": 9, "title": "Also", "released": 2002}]"""))
+                    .andExpect(status().isOk()).andExpect(content().string("{\"written\":2}"));
+            assertThat(jdbc.queryForList("select id || ':' || title from films order by id", String.class))
+                    .containsExactly("7:Persisted", "8:Imported", "9:Also");
         }
     }
 
@@ -464,6 +501,11 @@ class SampleApplicationTest {
         @Override
         public NullOrdering defaultAscendingNullOrdering() {
             return vendor == DatabaseVendor.POSTGRESQL ? NullOrdering.NULLS_LAST : NullOrdering.NULLS_FIRST;
+        }
+
+        @Override
+        public boolean conflictTargetHonoured() {
+            return vendor != DatabaseVendor.MYSQL;
         }
     }
 

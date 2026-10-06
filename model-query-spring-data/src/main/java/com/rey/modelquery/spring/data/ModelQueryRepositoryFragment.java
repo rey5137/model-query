@@ -7,10 +7,13 @@ import com.rey.modelquery.core.KeysetSlice;
 import com.rey.modelquery.core.KeysetSpec;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
+import com.rey.modelquery.core.ModelInsert;
+import com.rey.modelquery.core.ModelPersist;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.Slice;
+import com.rey.modelquery.core.ValuesInsert;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import java.util.List;
 import java.util.Objects;
@@ -113,6 +116,25 @@ final class ModelQueryRepositoryFragment<E> implements ModelQueryRepository<E> {
         return write(d.chunkOptions(), () -> executor.get().delete(d));
     }
 
+    @Override
+    public long insert(ModelInsert<E, ?> i) {
+        Objects.requireNonNull(i, "i");
+        return write(i.chunkOptions(), () -> executor.get().insert(i));
+    }
+
+    @Override
+    public <K> List<K> insertReturningKeys(ValuesInsert<E, K, ?> i) {
+        Objects.requireNonNull(i, "i");
+        // A commitEachChunk() definition fails MQ1801 in the executor, so there is always one transaction here.
+        return inTransaction(() -> executor.get().insertReturningKeys(i));
+    }
+
+    @Override
+    public <K> K persist(ModelPersist<E, K, ?> p) {
+        Objects.requireNonNull(p, "p");
+        return inTransaction(() -> executor.get().persist(p));
+    }
+
     /**
      * Runs {@code write} in a transaction joined or opened on the repository's manager, unless {@code chunk} commits
      * each chunk: that write opens none, since each chunk commits on its own (R-SPR-10, R-WRT-19).
@@ -121,6 +143,10 @@ final class ModelQueryRepositoryFragment<E> implements ModelQueryRepository<E> {
         if (chunk.map(ChunkOptions::commitsEachChunk).orElse(false)) {
             return write.get();
         }
-        return Objects.requireNonNull(writeTransactions.get().execute(status -> write.get()));
+        return inTransaction(write);
+    }
+
+    private <T> T inTransaction(Supplier<T> work) {
+        return writeTransactions.get().execute(status -> work.get());
     }
 }

@@ -6,13 +6,17 @@ import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Filters;
+import com.rey.modelquery.core.InsertColumns;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
+import com.rey.modelquery.core.ModelInsert;
+import com.rey.modelquery.core.ModelPersist;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
+import com.rey.modelquery.core.ValuesInsert;
 import com.rey.modelquery.jpa.ChunkTransactions;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
@@ -24,6 +28,11 @@ import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
+import com.rey.modelquery.tck.vnd.ins.InsPersistEntity;
+import com.rey.modelquery.tck.vnd.ins.InsPersistRepository;
+import com.rey.modelquery.tck.vnd.ins.InsSourceEntity;
+import com.rey.modelquery.tck.vnd.ins.InsUuidEntity;
+import com.rey.modelquery.tck.vnd.ins.InsUuidRepository;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import java.math.BigDecimal;
@@ -32,6 +41,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
@@ -45,6 +55,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.EntityManagerFactoryUtils;
 import org.springframework.orm.jpa.JpaTransactionManager;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
+import org.springframework.orm.jpa.persistenceunit.PersistenceManagedTypes;
 import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -88,6 +99,19 @@ class ModelQueryRepositoryTest {
             ColumnField.of(Long.class, CUSTOMERS, "id", Long.class);
     private static final ModelDelete<CustomerEntity, Long> DELETE_TEMPORARY_CUSTOMERS = ModelDelete.builder(CUSTOMERS)
             .primaryKey(PrimaryKey.of(CUSTOMER_ID)).where(f -> f.gt(CUSTOMER_ID, TEMPORARY)).build();
+
+    /** A probe row of the UUID-generated root and of the {@code persist} root. */
+    record Coded(String code, String name) {}
+
+    private static final TableField<InsUuidEntity, InsUuidEntity> UUIDS = TableField.root(InsUuidEntity.class);
+    private static final InsertColumns<Coded, InsUuidEntity> CODED_UUIDS = InsertColumns.<Coded, InsUuidEntity>of(UUIDS)
+            .add(ColumnField.of(Coded.class, UUIDS, "code", String.class), Coded::code)
+            .add(ColumnField.of(Coded.class, UUIDS, "name", String.class), Coded::name);
+    private static final TableField<InsPersistEntity, InsPersistEntity> PERSISTED =
+            TableField.root(InsPersistEntity.class);
+    private static final InsertColumns<Coded, InsPersistEntity> CODED_PERSIST =
+            InsertColumns.<Coded, InsPersistEntity>of(PERSISTED)
+                    .add(ColumnField.of(Coded.class, PERSISTED, "code", String.class), Coded::code);
 
     // ---- AC-SPR-01
 
@@ -227,6 +251,55 @@ class ModelQueryRepositoryTest {
             assertThat(RecordingChunks.ACTIVE).containsExactly(false, false, false);
         } finally {
             jdbc.update("delete from orders where id > " + TEMPORARY);
+        }
+    }
+
+    @TckTest
+    void ac_spr_09_insert_insert_returning_keys_and_persist_without_a_transaction_commit_through_the_repository(
+            TckDatabase db) {
+        DataSource dataSource = JoinTestSupport.dataSource(db);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean("dataSource", DataSource.class, () -> dataSource);
+            context.register(InsertTransactions.class);
+            context.refresh();
+            var uuids = context.getBean(InsUuidRepository.class);
+            var persisted = context.getBean(InsPersistRepository.class);
+
+            ModelInsert<InsUuidEntity, ?> values = ValuesInsert.builder(CODED_UUIDS, UUID.class,
+                    List.of(new Coded("a", "A"), new Coded("b", "B"))).build();
+            assertThat(uuids.insert(values)).isEqualTo(2);
+            List<UUID> keys = uuids.insertReturningKeys(ValuesInsert.builder(CODED_UUIDS, UUID.class,
+                    List.of(new Coded("c", "C"), new Coded("d", "D"), new Coded("e", "E"))).build());
+            Long key = persisted.persist(ModelPersist.of(CODED_PERSIST, Long.class, new Coded("p", null)));
+
+            // Committed, not rolled back with a lost transaction: read over a connection of its own.
+            assertThat(keys).hasSize(3).doesNotContainNull();
+            assertThat(jdbc.queryForList("select code from ins_uuid order by code", String.class))
+                    .containsExactly("a", "b", "c", "d", "e");
+            assertThat(jdbc.queryForObject("select code from ins_persist where id = ?", String.class, key))
+                    .isEqualTo("p");
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+        }
+    }
+
+    @TckTest
+    void ac_spr_09_persist_joins_an_active_transaction(TckDatabase db) {
+        DataSource dataSource = JoinTestSupport.dataSource(db);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean("dataSource", DataSource.class, () -> dataSource);
+            context.register(InsertTransactions.class);
+            context.refresh();
+            var persisted = context.getBean(InsPersistRepository.class);
+            var outer = new TransactionTemplate(context.getBean(TRANSACTIONS, PlatformTransactionManager.class));
+
+            outer.executeWithoutResult(status -> {
+                status.setRollbackOnly();
+                persisted.persist(ModelPersist.of(CODED_PERSIST, Long.class, new Coded("rolled-back", null)));
+            });
+
+            assertThat(jdbc.queryForList("select code from ins_persist", String.class)).isEmpty();
         }
     }
 
@@ -385,6 +458,32 @@ class ModelQueryRepositoryTest {
         @Bean
         ModelQueryConfig modelQueryConfig() {
             return ModelQueryConfig.defaults().chunkTransactions(new RecordingChunks());
+        }
+    }
+
+    /**
+     * The insert probe roots on a schema of their own, created and dropped with the context, and a repository of
+     * each; the default-named transaction manager is not the repository's, as in {@link JpaBeans}.
+     */
+    @Configuration(proxyBeanMethods = false)
+    @EnableJpaRepositories(basePackageClasses = InsUuidRepository.class, entityManagerFactoryRef = "insertEntities",
+            transactionManagerRef = TRANSACTIONS, repositoryFactoryBeanClass = ModelQueryRepositoryFactoryBean.class)
+    static class InsertTransactions {
+
+        @Bean
+        LocalContainerEntityManagerFactoryBean insertEntities(DataSource dataSource) {
+            var factory = new LocalContainerEntityManagerFactoryBean();
+            factory.setDataSource(dataSource);
+            factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());
+            factory.setManagedTypes(PersistenceManagedTypes.of(InsUuidEntity.class.getName(),
+                    InsPersistEntity.class.getName(), InsSourceEntity.class.getName()));
+            factory.setJpaPropertyMap(Map.of("hibernate.hbm2ddl.auto", "create-drop"));
+            return factory;
+        }
+
+        @Bean(TRANSACTIONS)
+        JpaTransactionManager insertTransactions(EntityManagerFactory insertEntities) {
+            return new JpaTransactionManager(insertEntities);
         }
     }
 }

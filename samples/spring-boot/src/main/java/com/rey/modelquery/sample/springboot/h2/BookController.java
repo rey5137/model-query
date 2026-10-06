@@ -4,6 +4,7 @@ import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.Op;
 import com.rey.modelquery.core.SubSelect;
 import jakarta.validation.Valid;
+import java.net.URI;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,11 +16,12 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** A partial update of one book, and the h2-side endpoints of recipes 1 and 2. */
+/** Creating and partially updating books, and the h2-side endpoints of recipes 1 and 2. */
 @RestController
 class BookController {
 
@@ -32,6 +34,19 @@ class BookController {
         this.reviews = reviews;
         this.search = search;
     }
+
+    /**
+     * Creates one book through JPA, so lifecycle callbacks and Bean Validation run, and answers {@code 201} with its
+     * key and location. The repository opens the transaction {@code persist} needs (R-SPR-10).
+     */
+    @PostMapping("/books")
+    ResponseEntity<Created> create(@RequestBody NewBook book) {
+        Long id = books.persist(QNewBook.persist(book));
+        return ResponseEntity.created(URI.create("/books/" + id)).body(new Created(id));
+    }
+
+    /** The key of the book {@code POST /books} created. */
+    record Created(Long id) {}
 
     /** Writes the fields of {@code changes} to book {@code id}; a field sent as {@code null} is written as NULL. */
     @PatchMapping("/books/{id}")

@@ -6,18 +6,39 @@ import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Recipe 3's grouped report and recipe 4's expression-ordered page and keyset refusal, over postgres films. */
+/**
+ * Recipe 3's grouped report, recipe 4's expression-ordered page and keyset refusal, and an import, over postgres
+ * films.
+ */
 @RestController
 class FilmReportController {
 
     private final FilmReportService reports;
+    private final FilmRepository films;
 
-    FilmReportController(FilmReportService reports) {
+    FilmReportController(FilmReportService reports, FilmRepository films) {
         this.reports = reports;
+        this.films = films;
     }
+
+    /**
+     * Imports many films in one statement, skipping those whose id already exists ({@code ON CONFLICT DO NOTHING}),
+     * and answers how many were written. PostgreSQL honours the named key (R-WRT-36), so no {@code anyUniqueKey()}.
+     * The repository opens the transaction.
+     */
+    @PostMapping("/films/import")
+    Imported importFilms(@RequestBody List<NewFilm> rows) {
+        var insert = QNewFilm.insert(rows).onConflict(QNewFilm.ID).doNothing().build();
+        return new Imported(films.insert(insert));
+    }
+
+    /** The rows {@code POST /films/import} wrote. */
+    record Imported(long written) {}
 
     /** Recipe 3: a report grouped by a computed band, filtered on a hand-built expression (D-115). */
     @GetMapping("/films/bands")
