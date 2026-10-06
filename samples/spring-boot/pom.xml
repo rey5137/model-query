@@ -33,6 +33,14 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!-- Jackson at ${jackson.version} throughout: Boot's BOM would hold annotations and core back -->
+            <dependency>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>${jackson.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <!-- Boot's slf4j 2.x, which Testcontainers' 1.7 would otherwise displace (nearest wins) -->
             <dependency>
                 <groupId>org.springframework.boot</groupId>
