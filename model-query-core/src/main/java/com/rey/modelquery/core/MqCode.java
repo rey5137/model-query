@@ -200,6 +200,29 @@ public enum MqCode {
     /** {@code Enricher.Keys.batchSize(n)} with {@code n} below 1 (R-FCH-15). */
     MQ1707("Enricher.Keys.batchSize(n) with n below 1"),
 
+    /**
+     * An insert column not mapped, mapped twice or from a column with another converter, set twice or set though
+     * the model has it, or not on the root; {@code lockKeys()} on insert-values; or {@code insertReturningKeys} with
+     * {@code commitEachChunk()} (R-WRT-27, R-WRT-29, R-WRT-32, R-WRT-33, D-117).
+     */
+    MQ1801("An insert column is unmapped, mapped or set twice, mapped with another converter, or not on the root; "
+            + "or the insert's chunk options do not apply"),
+
+    /** An insert row with a {@code null} assigned id, or a model naming the id against its generator (R-WRT-26). */
+    MQ1802("An insert's id does not match the root's generator, or a row has a null assigned id"),
+
+    /** A {@code null} insert row (R-WRT-30). */
+    MQ1803("An insert row is null"),
+
+    /**
+     * A conflict clause the insert cannot render as asked: its columns, a {@code doUpdate} assignment or {@code where},
+     * or a target the vendor does not honour (R-WRT-34, R-WRT-36, D-116).
+     */
+    MQ1804("A conflict clause names columns, assignments or filters it cannot apply"),
+
+    /** Two rows of one insert-values call share a conflict-key tuple (R-WRT-37). */
+    MQ1808("Two rows of one insert share a conflict key"),
+
     /** A page size or {@code maxPerParent} that is not positive, or a limit that is negative (R-EXE-06, R-FCH-11). */
     MQ2001("A page or chunk size and maxPerParent must be positive, and a limit must not be negative"),
 

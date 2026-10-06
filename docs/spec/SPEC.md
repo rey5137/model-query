@@ -78,7 +78,7 @@ These hold for the life of the library. A change that breaks one is an architect
 
 | ID | Invariant |
 |---|---|
-| **INV-1** | **Queries are read-only.** A query never writes or deletes and never calls `flush()` (the provider's own auto-flush before a query still applies), and nothing the library returns is a managed entity. The only writes are explicit bulk `update`/`delete` calls (`api/14`, D-14), which load no entity and leave the persistence context flushed and, by default, cleared. |
+| **INV-1** | **Queries are read-only.** A query never writes or deletes and never calls `flush()` (the provider's own auto-flush before a query still applies), and nothing the library returns is a managed entity. The only writes are explicit bulk `update`, `delete` and `insert` calls and `persist` (`api/14`, D-14, D-116). A bulk write loads no entity; every write leaves the persistence context flushed and, after a bulk write, by default cleared; `persist` leaves the entity it created detached. |
 | **INV-2** | **Projection-first.** A query selects the columns a use case declared and nothing else. Results are plain models built from a result row; no lazy proxy, no entity graph, no N+1. |
 | **INV-3** | **A column's type is checked, not trusted.** A `ColumnField`'s Java type matches the entity attribute it reads and the model field it fills — at compile time for generated columns, at first path resolution for hand-written ones (`api/10`). |
 | **INV-4** | **An export visits every row, or every group, exactly once,** with memory bounded by one page, on every supported database (`engine/21`). |
@@ -86,7 +86,7 @@ These hold for the life of the library. A change that breaks one is an architect
 | **INV-6** | **Vendor differences live only behind `VendorProfile`.** No `if (vendor == MYSQL)` outside a profile, and no vendor name in `core` (`vendor/40`). |
 | **INV-7** | **Dependencies flow one way:** `annotations` ← `core` ← `jpa` ← (`hibernate`, `spring-data`) ← `spring-boot-starter`, with `processor` depending only on `annotations` and `test` only on `core` (D-98). `core` imports only `jakarta.persistence` and the JDK; `jpa` never imports `org.hibernate` (`delivery/61`). |
 | **INV-8** | **Framework-optional.** Every feature is reachable with a plain `EntityManager`. Spring is a convenience layer, never a requirement. |
-| **INV-9** | **Definitions are immutable and thread-safe.** `TableField`, `ColumnField`, `AggregateField`, `SelectSet`, `OrderField`, `ModelQuery`, and from M6 `ModelUpdate` and `ModelDelete`, can be `static final`. Per-query state lives only in `JoinContext`, created per build. |
+| **INV-9** | **Definitions are immutable and thread-safe.** `TableField`, `ColumnField`, `AggregateField`, `SelectSet`, `OrderField`, `ModelQuery`, from M6 `ModelUpdate` and `ModelDelete`, and from M10 `ModelInsert`, `ValuesInsert`, `ModelPersist` and `InsertColumns`, can be `static final`; an insert's copy of its rows is shallow, so a mutable value inside a row is the caller's. Per-query state lives only in `JoinContext`, created per build. |
 | **INV-10** | **Diagnostic codes are stable:** once released, an `MQnnnn` code is never reused for a different meaning. |
 
 ## 3. Design principles
@@ -97,7 +97,7 @@ These hold for the life of the library. A change that breaks one is an architect
 | **P-2** | **Make the mistake not compile** — prefer a signature that rejects the wrong call over a runtime check, and a build-time check over a wrong result. |
 | **P-3** | **Explicit over inferred** — "no filter" is `Optional.empty()`, never a `null` that happens to be skipped; an empty selection means "none", not "all". |
 | **P-4** | **Portable by default** — the default rendering works on every Tier-1 vendor; vendor-specific optimisations are opt-in and behind a profile. |
-| **P-5** | **Small surface** — stay on JPA Criteria and the entity mapping. Not a SQL builder, not an ORM, not an entity write path. |
+| **P-5** | **Small surface** — stay on JPA Criteria and the entity mapping. Not a SQL builder, not an ORM, not an entity write path beyond `persist(model)`, which hides the entity (D-116). |
 | **P-6** | **One escape hatch, not a fork** — anything out of scope goes through `QueryCustomizer` rather than a parallel API. |
 | **P-7** | **Boring dependencies** — no Lombok, no Spring, no Hibernate in `core`; new third-party dependencies need a reason. |
 

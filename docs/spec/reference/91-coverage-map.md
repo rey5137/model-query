@@ -75,6 +75,7 @@ Old numbering is never reused.
 
 Two PRs changed `docs/plan.md` on `main` after the spec was split from the original plan. They used that file's own
 numbering, which collides with the original plan's: their §4.6 and R16–R18 are not the ones in §1 and §2 above.
+RFC 0004 (rey5137/model-query#29) is mapped the same way, by its own sections, as D-116 and D-117 amended it.
 
 | PR | Plan § / rule | Now in |
 |---|---|---|
@@ -93,3 +94,12 @@ numbering, which collides with the original plan's: their §4.6 and R16–R18 ar
 | rey5137/model-query#5 | §9.2 Mutations group | `delivery/60` §2 |
 | rey5137/model-query#5 | §11 M8 | `delivery/62` §1, R-RDM-01 |
 | rey5137/model-query#5 | §13 risks, §14 question 4 | `reference/92` §3, Q-6 (resolved by D-15) |
+| rey5137/model-query#29 | RFC 0004 §1 scope, `INV-1`, `INV-9`, `P-5`; R-WRT-24 | SPEC.md §2 INV-1, INV-9, §3 P-5; `api/14` §10.1 |
+| rey5137/model-query#29 | RFC 0004 §2 insert models; R-WRT-25, R-WRT-26 | `api/14` §10.2 |
+| rey5137/model-query#29 | RFC 0004 §3 insert-select; R-WRT-27, R-WRT-28 | `api/14` §10.3 |
+| rey5137/model-query#29 | RFC 0004 §4 insert-values; R-WRT-29 to R-WRT-33 | `api/14` §10.4 |
+| rey5137/model-query#29 | RFC 0004 §5 conflict clauses; R-WRT-34 to R-WRT-38 | `api/14` §10.5 |
+| rey5137/model-query#29 | RFC 0004 §6 `persist`; R-WRT-39, R-WRT-40 | `api/14` §10.6 |
+| rey5137/model-query#29 | RFC 0004 §7 executor methods | `api/14` §10.1 |
+| rey5137/model-query#29 | RFC 0004 §8 codes `MQ1801`–`MQ1808` | `reference/90` §2 |
+| rey5137/model-query#29 | RFC 0004 §8 acceptance criteria | `api/14` §9 AC-WRT-21 to AC-WRT-33 |

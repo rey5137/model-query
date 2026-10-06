@@ -1,19 +1,21 @@
-# 14 — Bulk Updates and Deletes
+# 14 — Writes
 
 **Covers:** `ModelUpdate`, `ModelDelete`, change sets (`Changes<M>`), how a bulk write renders and runs, and the
-executor's `update`/`delete`.
-**Read when:** working on M6, or deciding whether a write belongs in this library at all.
-**Owns:** `R-WRT-*`, `AC-WRT-*`. **Status: M6, before 0.1.0.** `@Incubating` until the M8 API review. Update
-models are generated as in `processor/31` §6; the reasoning is D-14 and D-17.
+executor's `update`/`delete`; from M10 the inserts (`ModelInsert`, `ValuesInsert`, `ModelPersist`, §10).
+**Read when:** working on M6 or M10, or deciding whether a write belongs in this library at all.
+**Owns:** `R-WRT-*`, `AC-WRT-*`. **Status: M6, before 0.1.0; §10 M10, 0.3.0.** `@Incubating` until the M8 API review;
+the insert types stay `@Incubating` (D-85, D-116). Update models are generated as in `processor/31` §6; the reasoning
+is D-14 and D-17, and for inserts D-116 and D-117.
 
 ---
 
 ## 1. Scope
 
-**R-WRT-01** A bulk write is "change the rows these filters match", rendered as one JPA `CriteriaUpdate` or
-`CriteriaDelete`, or a chunked series of them (R-WRT-17). It reuses the `Filters` DSL (`api/12`), join resolution
-(`api/10`), converters and the vendor's limits. It never loads an entity, and runs no lifecycle callback, cascade, Bean
-Validation or Envers audit: those stay with JPA entity writes (INV-1, D-14). Every write method's Javadoc says so.
+**R-WRT-01** A bulk update or delete is "change the rows these filters match", rendered as one JPA `CriteriaUpdate` or
+`CriteriaDelete`, or a chunked series of them (R-WRT-17); a bulk insert is detailed in §10. It reuses the `Filters` DSL
+(`api/12`), join resolution (`api/10`), converters and the vendor's limits. It never loads an entity, and runs no
+lifecycle callback, cascade, Bean Validation or Envers audit: those stay with JPA entity writes (INV-1, D-14). Every
+write method's Javadoc says so.
 
 ## 2. Change sets
 
@@ -303,3 +305,271 @@ public interface ModelQueryExecutor<E> {
 | AC-WRT-18 | On MySQL, a row that stops matching on a root column between the key select and the write is not written; with `lockKeys()` a concurrent change to a matched row waits for the write (R-WRT-11). |
 | AC-WRT-19 | `setExpression` reading a column that a plain assignment writes gives the same result on every Tier-1 vendor (R-WRT-13). |
 | AC-WRT-20 | On MySQL with `model-query-hibernate`, a write whose `exists(...)` sub-query reads a second entity that shares the root's table runs key-first and writes the rows the read returns; on H2 and PostgreSQL it runs as one statement (R-WRT-11, D-109). |
+| AC-WRT-21 | On every Tier-1 vendor, an insert-select writes exactly the rows the equivalent `list` returns, with joined and to-many source columns; chunked over a non-overlapping target it writes each source row once; chunked over an overlapping one, or one whose `tablesOf` is empty, it throws `MQ1806` before the flush (R-WRT-27, R-WRT-28). |
+| AC-WRT-22 | Insert-values with an assigned id, a pooled sequence, a converter, a to-one by id and a `set` constant round-trips; `IDENTITY` round-trips with `insert` and throws `MQ1807` with `insertReturningKeys` (R-WRT-26, R-WRT-29, R-WRT-30, R-WRT-33). |
+| AC-WRT-23 | `insertReturningKeys` returns keys that read back each row by index; with `commitEachChunk()` it throws `MQ1801` before the flush (R-WRT-33). |
+| AC-WRT-24 | Rows per statement never exceed the bind or `VALUES` row limit, the version seed counted (SQL snapshots per vendor); an empty list runs no SQL (R-WRT-29). |
+| AC-WRT-25 | `doNothing` skips a conflicting row; `doUpdate` with `setFromRow` and `where` updates only the matching rows and increments `@Version`; MySQL without `anyUniqueKey()` throws `MQ1804`, and with it counts as R-WRT-35 states; `doNothing` where the provider does not render it throws `MQ1804` on first execution (R-WRT-34, R-WRT-35, R-WRT-36). |
+| AC-WRT-26 | A `commitEachChunk` insert-values failure reports `committedRows()`, `nextRowIndex()` and `inDoubtRowCount()`; a failed insert-select reports source keys (R-WRT-32). |
+| AC-WRT-27 | After any bulk insert the persistence context is cleared by default and kept with `KEEP`, and the root is evicted from the second-level cache (R-WRT-38). |
+| AC-WRT-28 | `persist` with `IDENTITY` returns the key, runs `@PrePersist` and leaves the created entity detached, on Hibernate and on a second provider if the TCK has one; with a `CascadeType.ALL` to-one it detaches the caller's managed target, as documented; an unnamed nullable attribute with a database default is written as NULL (R-WRT-39, R-WRT-40). |
+| AC-WRT-29 | Insert-select with a pooled sequence or a `JOINED` root throws `MQ1805`; insert-values or `persist` with a `K` that is not the id's type throws `MQ1807` (R-WRT-26, §10.1). |
+| AC-WRT-30 | `ModelQueryRepository.insert`, `insertReturningKeys` and `persist` succeed without an ambient transaction (§10.1, `integration/50`). |
+| AC-WRT-31 | A bulk insert on a provider with no insert support throws `MQ4009` and runs no flush; `persist` runs on it (R-WRT-39, `vendor/40`). |
+| AC-WRT-32 | `build()` and `ModelPersist.of` check the definition before any statement: a `where` whose every filter is skipped throws `MQ1601`; a column unmapped, mapped twice or with another converter class, a `set` on a model column, a column set twice, a column not on the root, or `lockKeys()` on insert-values throws `MQ1801`; a `null` row throws `MQ1803`; a `null` assigned id `MQ1802`; two rows sharing a conflict-key tuple `MQ1808`; a conflict column or assignment that R-WRT-34 refuses, or `exists` in the update's `where`, `MQ1804`. Changing a row or the list after `build()` leaves the definition unchanged (R-WRT-27, R-WRT-29, R-WRT-30, R-WRT-32, R-WRT-34, R-WRT-37, INV-9). |
+| AC-WRT-33 | The insert stages compile in the documented orders and reject the rest: a source column of another model than the first `map`'s, a join as `insertFrom`'s source, `onConflict` on an insert-select or after `chunked`, keys from an insert-select or a conflict-clause insert, `keepVersion()` after `doNothing()`, a `doUpdate` assigning nothing, and `set` or chunking on `persist` do not compile (R-WRT-27, R-WRT-29, R-WRT-33, R-WRT-34, R-WRT-40, D-60). |
+
+## 10. Inserts
+
+Added by RFC 0004 (D-116); the API shape is D-117. Three ways to write new rows, all from models, so the caller never
+handles the entity: insert-select (§10.3) and insert-values (§10.4), which are bulk writes, and `persist` (§10.6),
+which is an entity write. Every type and method here is `@Incubating` (D-85).
+
+### 10.1 Scope and types
+
+**R-WRT-24** A bulk insert writes either the rows a filter over a source model matches (insert-select) or rows given as
+insert-model instances (insert-values), as one provider insert statement or a chunked series of them. It loads no
+entity and runs no lifecycle callback, cascade, Bean Validation or Envers audit (R-WRT-01). Every bulk `insert`
+Javadoc says so, and says that `persist` (§10.6) is the method that runs them.
+
+The definitions are immutable (INV-9). `ModelInsert<E, M>` is a sealed class permitting only `ValuesInsert`; an
+insert-select, and an insert-values with a conflict clause, build to it. An insert-values without a conflict clause
+builds to the final `ValuesInsert<E, K, M>`, and `persist` takes the final `ModelPersist<E, K, M>` (type parameters
+in `ModelQuery`'s order). `E` is the written root, `K` its id type, `M` the insert model; an insert-select's source is
+unconstrained. The executor offers, beside `update` and `delete`:
+
+```java
+long insert(ModelInsert<E, ?> i);                              // rows affected (R-WRT-35)
+<K> List<K> insertReturningKeys(ValuesInsert<E, K, ?> i);      // generated keys, in row order (R-WRT-33)
+<K> K persist(ModelPersist<E, K, ?> p);                        // the created row's key (R-WRT-39)
+```
+
+so keys from an insert-select or a conflict-clause insert, and `set`, a conflict clause or chunking on `persist`, do
+not compile (P-2). `ModelQueryRepository` gains the same three (`integration/50`).
+
+`K` is fixed by the generated `insert(rows)` and `persist(row)` from the root's id as the processor sees it (the boxed
+`@Id`, the `@EmbeddedId`, the `@IdClass`, or a `@MappedSuperclass` type variable resolved on the root), which passes
+`Class<K>` into the definition. A composite `K` is the `@IdClass` or the embeddable, what
+`PersistenceUnitUtil#getIdentifier` returns. On the definition's first execution (D-61) `K` must equal the boxed Java
+type of `IdentifiableType#getIdType()`, else `MQ1807` naming `orm.xml`, which the processor cannot see; with no id
+visible to the processor `K` is `Object` and it warns `MQ3504` (`processor/32`). A per-call `Class<K>` is not offered:
+a wrong class would compile (D-117).
+
+### 10.2 Insert models and `InsertColumns`
+
+**R-WRT-25** Every component of an insert model (`@InsertModel`, `processor/30` R-PROC-23) is a column of every row it
+writes, and `null` writes NULL. A column the database or the server fills (a default, an audit timestamp) stays out of
+the model; a server value goes in with `set(column, value)`, one bind per row. One column list per definition is what
+lets rows share a statement (R-WRT-29). An attribute the model does not name takes the database default under
+`insert`, but under `persist` it is written as the no-arg constructor leaves it (R-WRT-39): the same model can write
+different rows through the two.
+
+`InsertColumns<M, E>` is the column list, the type of the generated `INSERT_COLUMNS` and the processor-free entry point
+(INV-8): `InsertColumns.of(root)` takes the root `TableField<E, E>`, and each `<C> add(ColumnField<M, E, C>,
+Function<? super M, ? extends C>)` (or `addKey`, for a column of the model's `@PrimaryKey`) appends one column, in
+declaration order, with the function that reads its value from a row. Each call returns a new immutable list. A column
+added twice, or not on the root (a self-referencing join), throws `MQ1801`. The definitions start from it:
+`ModelInsert.select(columns, sourceRoot)`, `ValuesInsert.builder(columns, keyType, rows)` and
+`ModelPersist.of(columns, keyType, row)`; the generated `insertFrom`, `insert` and `persist` call them.
+
+**R-WRT-26** The id. When the root's `@Id` has a generator, the model leaves it out; when it has none, the model names
+it with `@PrimaryKey`, and a row with a `null` id throws `MQ1802` at `build()`. Naming a generated id is `MQ1802` too:
+H2, PostgreSQL and Oracle accept an explicit `IDENTITY` value without advancing the identity, so a later generated key
+collides. The processor checks what the annotations show (`MQ3501`); the generator itself is reported by the provider
+(`vendor/40` R-VND-14) on the definition's first execution (D-61), since the JPA metamodel does not expose it. A root
+`@Version` is never in the model; the provider writes its seed value, one bind per row.
+
+Supported generators are an allowlist, checked on first execution against the generator the provider reports; any
+other generator, or an unsupported root, throws `MQ1805` naming the generator class or the mapping:
+
+- **Insert-values:** assigned, `IDENTITY`, a sequence (`SequenceStyleGenerator` with any optimizer, MySQL's
+  table-backed sequence included), a table generator and UUID. For all but `IDENTITY` and assigned the engine draws the
+  keys from the provider's generator before the statement and writes them as values (Hibernate accepts an explicit id
+  and then skips its own generator), so the keys are known (R-WRT-33).
+- **Insert-select:** assigned (mapped from the source), `IDENTITY`, and a sequence over a physical sequence with
+  increment 1. Rows of a select cannot be pre-generated: a pooled sequence runs a statement per row (except one CTE on
+  PostgreSQL), Hibernate rejects a table or UUID generator, and any sequence on MySQL writes wrong keys on 6.6.
+- **Either:** a `JOINED` root, a `@SecondaryTable`, a composite id with generated parts, and `@MapsId` in either form
+  (D-116) are `MQ1805`.
+
+### 10.3 Insert-select
+
+```java
+long archived = executor.insert(QOrderArchiveRow.insertFrom(QOrderView.ROOT)
+        .map(QOrderArchiveRow.ORDER_ID, QOrderView.ID)              // the first map fixes the source model
+        .map(QOrderArchiveRow.STATUS, QOrderView.STATUS)
+        .map(QOrderArchiveRow.TOTAL, QOrderView.TOTAL)
+        .map(QOrderArchiveRow.CUSTOMER_ID, QOrderView.CUSTOMER_ID)
+        .set(ARCHIVED_AT, now)
+        .where(f -> f.eq(QOrderView.STATUS, OrderStatus.CLOSED).lt(QOrderView.CLOSED_AT, cutoff))
+        .chunked(ChunkOptions.size(5_000))
+        .build());
+```
+
+**R-WRT-27** `<S> insertFrom(TableField<S, S> sourceRoot)` takes the source query model's root, so a join `TableField`
+does not compile (a self-referencing join of the root's type throws `MQ1203`). Stages follow D-60: `<Q, C> map(
+ColumnField<M, E, C> target, ColumnField<Q, ?, C> source)`, whose first call fixes the source model `Q`, so a source
+column of another model, an aggregate or a grouped source does not compile (P-2); then more `map`s and
+`set(ColumnField<?, E, C>, C)`; then `where(UnaryOperator<Filters<Q>>)` or `all()` (R-WRT-12, `MQ1601`); then the
+options `chunked(...)` and `persistenceContext(...)`, and `build()`. There is no conflict clause (D-116), no
+`keepVersion` and no `startAfter`: a resumed copy narrows the `where` on the source key. No converter runs inside the
+statement (the database copies attribute values), so `build()` requires both columns of a `map` to have the same
+converter class or none, and the first execution (D-61) requires equal entity attribute types. Either failure is
+`MQ1801`, as is, at `build()`, a column of `columns` not mapped, a column mapped twice or not in `columns`, a `set` on a
+column the model has, a column set twice, or a `set` column not on the root. A source column may be joined: the select
+is built with the same `JoinContext` as the read path.
+
+**R-WRT-28** **An insert-select writes exactly the rows the equivalent read returns** (D-17), duplicates from a to-many
+join included: seeding child rows from a parent's matches is that multiplication. `chunked(...)` pages key-first over
+the distinct source-root ids with R-WRT-17's guarantees, so each source row is read once. When the source and the
+target overlap (the same entity, the same hierarchy, or intersecting `tablesOf`, R-VND-13), `chunked` throws `MQ1806`
+on first execution, before the flush: rows a chunk writes could match the next chunk's key select, and the engine only
+gets a count back. A source or target whose `tablesOf` is empty fails closed with `MQ1806` as well, since rows written
+with generated ids above the cursor would otherwise be re-read silently (INV-5). The unchunked statement stays allowed,
+since the database reads the whole select before it inserts. A guard against rows already in the target is a
+correlated `notExists` filter over the target (R-FLT-17): portable, not atomic.
+
+### 10.4 Insert-values
+
+```java
+long n = executor.insert(QNewOrder.insert(rows)          // List<NewOrder>, read once at build() (INV-9)
+        .set(CREATED_AT, now)
+        .chunked(ChunkOptions.size(500))
+        .build());
+
+List<Long> ids = executor.insertReturningKeys(QNewOrder.insert(rows).build());   // ids.get(i) is rows.get(i)'s
+```
+
+**R-WRT-29** `insert(rows)` writes every row in list order, as multi-row `VALUES` statements. Every row of a chunk goes
+in one statement on every built-in vendor (D-116). Rows per statement are the largest count whose statement stays
+within the vendor's bind-parameter limit, counted from the parameters one row takes (columns, `set` constants, the
+binds the provider adds per row such as the version seed, and a conflict clause's binds as an upper bound, as D-80
+counts), and within `VendorProfile.maxValuesRows()`, capped by the `chunked` size when given. `maxValuesRows()`
+defaults to 1,000 and the built-in profiles raise it (`vendor/40`). An empty list runs no SQL and returns 0 (or an
+empty list). Stages follow D-60: `insert(rows)` returns `ValuesInsert.Rows`, which offers `set` (a `null` value is
+`MQ1603`; there is no `setNull`, since a model column writes NULL), `onConflict` (§10.5), `chunked`,
+`persistenceContext` and `build()`; after `chunked` or `persistenceContext` the stage is `ValuesInsert.Options`, where
+`onConflict` is gone. A `set` on a column the model has, a column set twice, or a `set` column not on the root throws
+`MQ1801` at `build()`.
+
+**R-WRT-30** Values pass through the column's converter and are always bind parameters (R-WRT-14). A to-one column
+binds `EntityManager#getReference(target, id)`. `build()` reads each row once, through `InsertColumns`, into an
+immutable array of its column values, and never reads the model instance again; the copy is shallow, so a mutable
+value inside a row is the caller's (INV-9). A `null` row therefore throws `MQ1803` at `build()`, as do `MQ1802`
+(R-WRT-26) and `MQ1808` (R-WRT-37).
+
+**R-WRT-31** The library does not validate rows (R-WRT-24). Because every field of an insert-model row is present, a
+plain `@Valid List<NewOrder>` on the caller's method checks them with the model's own constraints, `@NotNull`
+included. D-15's field-by-field rule is for change sets and does not apply.
+
+**R-WRT-32** By default the statements run in the caller's transaction (R-WRT-18). `ChunkOptions.commitEachChunk()`
+commits each statement (R-WRT-19); `lockKeys()` on insert-values throws `MQ1801` at `build()`, since no key is
+selected. A failed chunk throws `ChunkedWriteException` (`MQ2502`, R-WRT-20). For insert-select it carries source keys:
+`lastCommittedKey()` and `inDoubtKeys()` hold source-root ids. For insert-values it carries `OptionalInt
+nextRowIndex()`, the first row not committed, and `int inDoubtRowCount()`, the rows of the chunk whose commit failed,
+contiguous from `nextRowIndex` (0 when the chunk rolled back); `nextRowIndex()` is empty and `inDoubtRowCount()` 0 for
+every other write. `committedRows()` stays the rows affected (R-WRT-35), which with a conflict clause is not the rows
+processed. Resume with `rows.subList(nextRowIndex, size)`, after checking the in-doubt rows against the table.
+
+**R-WRT-33** `insertReturningKeys(insert)` returns the generated keys in row order. It takes a `ValuesInsert`, so a
+definition with a conflict clause or an insert-select does not compile: a skipped row would leave a key with no row.
+The keys come from R-WRT-26's pre-generation: `IDENTITY` and an assigned id throw `MQ1807` on first execution, the
+message pointing to `persist` (§10.6) and to the rows themselves respectively. With `commitEachChunk()` it throws
+`MQ1801` at that call, before the flush, since a failure would lose the committed rows' keys; `build()` cannot know
+which method the definition is given to. A `K` that is not the id's type is `MQ1807` (§10.1).
+
+### 10.5 Conflict clauses: the conditional insert
+
+```java
+executor.insert(QNewOrder.insert(rows).onConflict(QNewOrder.EXTERNAL_REF).doNothing().build());
+
+executor.insert(QNewOrder.insert(rows)
+        .onConflict(QNewOrder.EXTERNAL_REF)
+        .doUpdate(u -> u.setFromRow(QNewOrder.STATUS, QNewOrder.TOTAL)   // = the incoming row's values
+                        .set(UPDATED_AT, now)
+                        .where(f -> f.ne(QNewOrder.STATUS, OrderStatus.CLOSED)))
+        .build());
+```
+
+**R-WRT-34** A conflict clause is offered on insert-values only (D-116: Hibernate cannot render one on an insert-select,
+which guards with `notExists`, R-WRT-28). `onConflict(ColumnField<M, E, ?> first, ColumnField<M, E, ?>... rest)` names
+the unique key the conflict is detected on; zero columns does not compile, and a column named twice or not in the
+model's `InsertColumns` throws `MQ1804` at `build()`. The columns must be the root's id, its natural id, or a declared
+unique constraint, checked on first execution (`MQ1804`) from the mapping: `@Id`, `@NaturalId`, `@Column(unique =
+true)` and `@Table(uniqueConstraints)`. A unique index that exists only in a migration is not seen and is rejected; the
+Javadoc says to declare it in the mapping. The check stays because on a `MERGE` vendor a non-unique match updates
+several rows.
+
+`onConflict` returns `Conflict`, offering only `doNothing()`, which returns `ConflictOptions`, and
+`doUpdate(Function<ConflictUpdate<E, M>, ConflictUpdate.Action<E, M>>)`, which returns `Upserting`; so a clause without
+an action does not compile. `ConflictUpdate` offers `setFromRow(first, rest...)` (the incoming row's value), `set`
+(`null` is `MQ1603`) and `setNull`, each returning `Assigned`, an `Action` offering more assignments and one
+`where(UnaryOperator<Filters<M>>)` that returns a bare `Action`; so an update assigning nothing does not compile.
+`ConflictOptions` offers `anyUniqueKey()` (R-WRT-36), `chunked`, `persistenceContext` and `build()`, which returns a
+`ModelInsert`; `Upserting` adds `keepVersion()`. The assignments follow R-WRT-13: a key column (the conflict columns or
+the model's `@PrimaryKey`), a column assigned twice or a column not on the root is `MQ1804` at `build()`, as is a
+`setFromRow` column not in the model's `InsertColumns`; a `@Version` column is `MQ1804` on first execution. The `where`
+filters the stored row on root columns only: the conflict action has no join context, so a joined column, `exists` or a
+sub-select is `MQ1804` at `build()`. If every filter in it is skipped, the update applies to every conflicting row (not
+`MQ1601`). A root `@Version` is incremented unless `keepVersion()`; `MQ1606` applies to a version type it cannot
+increment. Constraint names are not offered: Hibernate rejects them on every `MERGE` vendor and for `DO UPDATE` on
+MySQL. `doNothing()` throws `MQ1804` on first execution where the provider reports that it does not render it for the
+dialect (Hibernate 6 on a `MERGE` vendor writes a plain insert), rather than failing per row (D-116).
+
+**R-WRT-35** Rendering is the provider's: `ON CONFLICT` on PostgreSQL; `ON DUPLICATE KEY UPDATE` with a row alias on
+MySQL and MariaDB, `doNothing` rendered as a self-assignment and a `doUpdate`'s `where` as a `CASE` per assignment;
+`MERGE` on H2, Oracle and SQL Server, with the `where` on `WHEN MATCHED`. `insert` returns the provider's count, rows
+inserted plus rows updated, where `conflictTargetHonoured()`. Elsewhere a conflict clause already needs
+`anyUniqueKey()`, whose Javadoc states that it accepts the vendor's count: on MySQL every conflicting row counts 1 when
+skipped, filtered out or left unchanged and 2 when changed (Connector/J's default found rows), so `doNothing` counts
+the rows it skipped. `ChunkedWriteException.committedRows()` follows the same count. The Javadoc says so and the TCK
+pins it per vendor. Under concurrency a `MERGE` vendor raises a unique violation for a key another transaction inserts
+at the same time, rather than skipping it; the Javadoc says so.
+
+**R-WRT-36** **The named key is honoured or the call fails.** MySQL and MariaDB detect a conflict on any unique key, so
+`doUpdate` could update, and `doNothing` skip, a row that matched a different key. `VendorProfile` gains
+`conflictTargetHonoured()`, false by default so a third-party profile fails safe, true in the built-in `H2` and
+`POSTGRESQL` profiles and false in `MYSQL` and `MYSQL_CURSOR_FETCH` (no Oracle or SQL Server profile exists,
+`vendor/41`). Where it is false, a conflict clause throws `MQ1804` on first execution unless the builder says
+`anyUniqueKey()`, whose Javadoc states that it accepts any-unique-key detection, the vendor's count (R-WRT-35) and the
+vendor's key collation.
+
+**R-WRT-37** **Duplicate conflict keys within one call.** Vendors disagree (PostgreSQL skips them for `doNothing` and
+fails for `doUpdate`; MySQL writes the first or the last; `MERGE` vendors fail), and the outcome would depend on the
+chunk size. An insert-values with a conflict clause throws `MQ1808` at `build()`, before any statement, when two rows
+share a conflict-key tuple, compared by `equals` on the model values.
+
+**R-WRT-38** Persistence context: every bulk insert applies R-WRT-15 unchanged (flush before; `CLEAR` by default,
+`KEEP` available; the root evicted from the second-level cache). An insert without `doUpdate` still leaves managed
+state stale, for example an initialized `Order.lines` of a managed parent, or a `@Formula`.
+
+### 10.6 `persist`: one row, any generator
+
+```java
+Long id = executor.persist(QNewOrder.persist(newOrder));
+```
+
+**R-WRT-39** `persist` writes one insert-model row through JPA. `ModelPersist.of` reads the row once, as `build()`
+does (R-WRT-30: `MQ1803`, `MQ1802`). The engine instantiates the root entity with its no-arg constructor and sets each
+model column through the attribute's metamodel member: the field, or for property access the setter paired with the
+getter `Attribute#getJavaMember` returns, after the column's converter. An embeddable path instantiates the embeddable
+with its no-arg constructor; a record or constructor-only embeddable is `MQ1805`. A to-one column binds
+`EntityManager#getReference`. It then calls `persist` and `flush`, reads `PersistenceUnitUtil#getIdentifier`, and
+calls `detach` on the entity, in that order. Constructors and fields are reached with `setAccessible`, so a modular
+application `opens` its entity package to the library; the Javadoc says so. `persist` needs no provider SPI and works
+with every generator, `IDENTITY` included, `@MapsId` included, and every provider. It needs an active transaction
+(`MQ2501`).
+
+It is an entity write: `@PrePersist`/`@PostPersist`, Bean Validation, Envers and the provider's insert run, and the
+provider maintains the second-level cache, so R-WRT-15's eviction does not apply. The first paragraph of its Javadoc
+says that entity attributes the model does not name are written as the no-arg constructor leaves them, often NULL, not
+as the database default (unless the mapping is `insertable = false`, generated, or the provider's dynamic insert), and
+that a domain constructor's invariants do not run. The `flush` writes the caller's pending changes too, as R-WRT-15's
+flush does. `detach` cascades as the mapping says: a to-one with `CascadeType.ALL` or `DETACH` detaches the instance
+`getReference` returned, which is the caller's own managed entity when there is one, and an entity persisted by a
+callback stays managed; the Javadoc documents this as R-WRT-15 documents `CLEAR`. A `K` that is not the id's type is
+`MQ1807` (§10.1).
+
+**R-WRT-40** `persist` takes no `set`, conflict clause or chunking: server values belong in the entity's callbacks or
+in the model. Many rows with `IDENTITY` keys are a loop over `persist`, one statement each, which is what the provider
+does for `IDENTITY` anyway; the Javadoc points to `insert`/`insertReturningKeys` for anything else.

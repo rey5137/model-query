@@ -1,0 +1,323 @@
+package com.rey.modelquery.core;
+
+import com.rey.modelquery.annotations.Incubating;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.function.Function;
+import java.util.function.UnaryOperator;
+
+/**
+ * An immutable bulk-insert definition: an insert-select, the rows a filter over a source model matches, or an
+ * insert-values with a conflict clause. An insert-values without one is a {@link ValuesInsert}, whose keys can be
+ * returned. Like a {@link ModelQuery} it holds no Criteria object, and the rows it was given were read once at
+ * {@code build()}, so one instance can be shared by any number of threads (INV-9).
+ *
+ * <p>A bulk insert loads no entity and runs no lifecycle callback, cascade, Bean Validation or Envers audit; the
+ * executor's {@code persist} is the write that runs them (R-WRT-24).
+ *
+ * @param <E> the root entity the rows are written to
+ * @param <M> the insert model
+ * @implSpec R-WRT-24, R-WRT-27, R-WRT-28, R-WRT-34, R-WRT-37, D-60, D-116, D-117
+ */
+@Incubating
+public sealed class ModelInsert<E, M> permits ValuesInsert {
+
+    private final InsertDraft<E, M> definition;
+
+    ModelInsert(InsertDraft<E, M> definition) {
+        this.definition = definition;
+    }
+
+    /**
+     * Starts an insert-select of {@code columns}' rows from {@code source}, the source query model's root: a join
+     * {@code TableField} does not compile. Each stage returns a new immutable builder; the order is the mappings and
+     * constants, one row choice, then options (D-60).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code source} is a join of a root's own type
+     */
+    public static <M, E, S> SelectStart<E, M> select(InsertColumns<M, E> columns, TableField<S, S> source) {
+        return new SelectStart<>(InsertDraft.select(Objects.requireNonNull(columns, "columns"),
+                InsertRules.requireRoot(source, "insertFrom")));
+    }
+
+    /** The entity the rows are written to. */
+    public Class<E> rootEntity() {
+        return definition.columns().rootEntity();
+    }
+
+    /** The insert's {@code chunked(...)} options, or empty without them (R-WRT-28, R-WRT-29). */
+    public Optional<ChunkOptions> chunkOptions() {
+        return Optional.ofNullable(definition.chunkOptions());
+    }
+
+    /** The insert's own {@code persistenceContext(...)}, which wins over the executor's configured mode (D-62). */
+    public Optional<PersistenceContextMode> persistenceContext() {
+        return Optional.ofNullable(definition.persistenceContext());
+    }
+
+    /**
+     * The entity and how many rows, or where they come from, for the executor's log: never a value or a filter's
+     * values (D-95, R-INS-05). The format is not API.
+     */
+    @Override
+    public String toString() {
+        return definition.toString();
+    }
+
+    InsertDraft<E, M> definition() {
+        return definition;
+    }
+
+    /**
+     * The first stage of an insert-select, before its first {@code map}.
+     *
+     * @param <E> the root entity
+     * @param <M> the insert model
+     */
+    @Incubating
+    public static final class SelectStart<E, M> {
+
+        private final InsertDraft<E, M> draft;
+
+        private SelectStart(InsertDraft<E, M> draft) {
+            this.draft = draft;
+        }
+
+        /**
+         * Copies {@code source}, a column of the source query model {@code Q}, into {@code target}. This first call
+         * fixes {@code Q}, so a later {@code map} from another model, an aggregate or a grouped source does not
+         * compile. Both columns need the same converter class or none, checked at {@code build()}, and equal entity
+         * attribute types, checked on first execution: either failure is {@code MQ1801}, since the database copies
+         * attribute values (R-WRT-27).
+         */
+        public <Q, C> Mapping<E, M, Q> map(ColumnField<M, E, C> target, ColumnField<Q, ?, C> source) {
+            return new Mapping<>(draft.map(Objects.requireNonNull(target, "target"),
+                    Objects.requireNonNull(source, "source")));
+        }
+    }
+
+    /**
+     * The mapping stage of an insert-select: more {@code map}s and {@code set} constants, then exactly one row
+     * choice (R-WRT-12, R-WRT-27).
+     *
+     * @param <E> the root entity
+     * @param <M> the insert model
+     * @param <Q> the source query model
+     */
+    @Incubating
+    public static final class Mapping<E, M, Q> {
+
+        private final InsertDraft<E, M> draft;
+
+        private Mapping(InsertDraft<E, M> draft) {
+            this.draft = draft;
+        }
+
+        /** Copies {@code source} into {@code target}, as {@link SelectStart#map} does. */
+        public <C> Mapping<E, M, Q> map(ColumnField<M, E, C> target, ColumnField<Q, ?, C> source) {
+            return new Mapping<>(draft.map(Objects.requireNonNull(target, "target"),
+                    Objects.requireNonNull(source, "source")));
+        }
+
+        /**
+         * Writes {@code value} to {@code column} in every row, one bind per row: a column the server fills, which the
+         * insert model leaves out. A column the model has, or one set twice, throws {@code MQ1801} at
+         * {@code build()} (R-WRT-25).
+         *
+         * @throws ModelQueryDefinitionException {@code MQ1603} for a {@code null} value
+         */
+        public <C> Mapping<E, M, Q> set(ColumnField<?, E, C> column, C value) {
+            return new Mapping<>(draft.set(Assignment.of(Objects.requireNonNull(column, "column"), value)));
+        }
+
+        /**
+         * Copies the source rows {@code filters} matches: it receives an empty {@link Filters}, and every filter it
+         * adds is ANDed. It runs once, here, as {@link ModelQuery.Builder#where} does. If every filter is skipped,
+         * {@link SelectOptions#build()} throws {@code MQ1601}; {@link #all()} is the only way to copy every row
+         * (R-WRT-12).
+         */
+        public SelectOptions<E, M> where(UnaryOperator<Filters<Q>> filters) {
+            return new SelectOptions<>(draft.where(WriteRows.where(FilterGroup.collect(
+                    draft.source().rootEntity(), Objects.requireNonNull(filters, "filters")))));
+        }
+
+        /** Copies every source row; no {@code where} follows (R-WRT-12). */
+        public SelectOptions<E, M> all() {
+            return new SelectOptions<>(draft.where(WriteRows.everyRow()));
+        }
+    }
+
+    /**
+     * The options stage of an insert-select, after the row choice. There is no conflict clause (D-116), no
+     * {@code keepVersion} and no {@code startAfter}: a resumed copy narrows its {@code where} on the source key.
+     *
+     * @param <E> the root entity
+     * @param <M> the insert model
+     */
+    @Incubating
+    public static final class SelectOptions<E, M> {
+
+        private final InsertDraft<E, M> draft;
+
+        private SelectOptions(InsertDraft<E, M> draft) {
+            this.draft = draft;
+        }
+
+        /**
+         * Copies in chunks, as {@code options} states, key-first over the distinct source-root ids, so each source
+         * row is read once. A source and target that overlap throw {@code MQ1806} on first execution (R-WRT-28).
+         */
+        public SelectOptions<E, M> chunked(ChunkOptions options) {
+            return new SelectOptions<>(draft.chunk(Objects.requireNonNull(options, "options")));
+        }
+
+        /** What the insert does to the persistence context afterwards, over the executor's configured mode (D-62). */
+        public SelectOptions<E, M> persistenceContext(PersistenceContextMode mode) {
+            return new SelectOptions<>(draft.mode(Objects.requireNonNull(mode, "mode")));
+        }
+
+        /**
+         * Checks the definition and returns it.
+         *
+         * @throws ModelQueryDefinitionException {@code MQ1601} when the rows were chosen by a {@code where} whose
+         *     every filter was skipped; {@code MQ1801} for a column of the insert model not mapped, mapped twice, or
+         *     mapped from a column with another converter class, a {@code map} target not in the model's
+         *     {@code InsertColumns}, a {@code set} on a column the model has, a column set twice, or a {@code set}
+         *     column not on the root
+         */
+        public ModelInsert<E, M> build() {
+            return new ModelInsert<>(draft.build());
+        }
+    }
+
+    /**
+     * A conflict clause before its action: {@code doNothing()} or {@code doUpdate(...)}, so a clause without an
+     * action does not compile (R-WRT-34).
+     *
+     * @param <E> the root entity
+     * @param <M> the insert model
+     */
+    @Incubating
+    public static final class Conflict<E, M> {
+
+        private final InsertDraft<E, M> draft;
+        private final List<ColumnField<M, E, ?>> keys;
+
+        Conflict(InsertDraft<E, M> draft, List<ColumnField<M, E, ?>> keys) {
+            this.draft = draft;
+            this.keys = keys;
+        }
+
+        /**
+         * Skips a row whose key is already stored. Where the provider does not render it for the dialect (Hibernate 6
+         * on a {@code MERGE} vendor), the insert throws {@code MQ1804} on first execution (D-116).
+         */
+        public ConflictOptions<E, M> doNothing() {
+            return new ConflictOptions<>(draft.conflict(new InsertDraft.Conflict<>(keys, null, false, false)));
+        }
+
+        /**
+         * Updates the stored row a new row conflicts with, as {@code update} states. A root {@code @Version} is
+         * incremented unless {@code keepVersion()} (R-WRT-34).
+         */
+        public Upserting<E, M> doUpdate(Function<ConflictUpdate<E, M>, ConflictUpdate.Action<E, M>> update) {
+            ConflictUpdate.Action<E, M> action = Objects.requireNonNull(
+                    Objects.requireNonNull(update, "update").apply(new ConflictUpdate<>()), "update's action");
+            return new Upserting<>(draft.conflict(new InsertDraft.Conflict<>(keys, action, false, false)));
+        }
+    }
+
+    /**
+     * The options stage of an insert-values with a conflict clause.
+     *
+     * @param <E> the root entity
+     * @param <M> the insert model
+     */
+    @Incubating
+    public static sealed class ConflictOptions<E, M> permits Upserting {
+
+        final InsertDraft<E, M> draft;
+
+        private ConflictOptions(InsertDraft<E, M> draft) {
+            this.draft = draft;
+        }
+
+        /**
+         * Accepts that the vendor detects a conflict on any unique key, not only the one named, where its profile's
+         * {@code conflictTargetHonoured()} is false (MySQL and MariaDB); without it the insert throws {@code MQ1804}
+         * there on first execution. It accepts the vendor's count with it: on MySQL every conflicting row counts 1
+         * when skipped, filtered out or left unchanged and 2 when changed, at Connector/J's default found rows, and
+         * the vendor's key collation (R-WRT-35, R-WRT-36).
+         */
+        public ConflictOptions<E, M> anyUniqueKey() {
+            return new ConflictOptions<>(withConflict(draft.conflict().anyKey()));
+        }
+
+        /**
+         * Writes in chunks of at most {@code options}' size rows, each one statement. {@code lockKeys()} throws
+         * {@code MQ1801} at {@link #build()}, since insert-values selects no key (R-WRT-29, R-WRT-32).
+         */
+        public ConflictOptions<E, M> chunked(ChunkOptions options) {
+            return new ConflictOptions<>(draft.chunk(Objects.requireNonNull(options, "options")));
+        }
+
+        /** What the insert does to the persistence context afterwards, over the executor's configured mode (D-62). */
+        public ConflictOptions<E, M> persistenceContext(PersistenceContextMode mode) {
+            return new ConflictOptions<>(draft.mode(Objects.requireNonNull(mode, "mode")));
+        }
+
+        /**
+         * Checks the definition, reads every row once into the definition, and returns it (INV-9, R-WRT-30).
+         *
+         * @throws ModelQueryDefinitionException {@code MQ1803} for a {@code null} row, {@code MQ1802} for a row with
+         *     a {@code null} assigned id, {@code MQ1808} for two rows sharing a conflict-key tuple; {@code MQ1801}
+         *     for {@code lockKeys()}, a {@code set} on a column the model has, a column set twice or a {@code set}
+         *     column not on the root; {@code MQ1804} for a conflict column named twice or not in the model's
+         *     {@code InsertColumns}, a {@code doUpdate} assigning a key column, a column twice or a column not on the
+         *     root, a {@code setFromRow} column not in {@code InsertColumns}, or a {@code where} reading a joined
+         *     column or holding {@code exists} or a sub-select
+         */
+        public ModelInsert<E, M> build() {
+            return new ModelInsert<>(draft.build());
+        }
+
+        final InsertDraft<E, M> withConflict(InsertDraft.Conflict<E, M> conflict) {
+            return draft.conflict(conflict);
+        }
+    }
+
+    /**
+     * The options stage after {@code doUpdate}, which may also keep the stored row's version.
+     *
+     * @param <E> the root entity
+     * @param <M> the insert model
+     */
+    @Incubating
+    public static final class Upserting<E, M> extends ConflictOptions<E, M> {
+
+        private Upserting(InsertDraft<E, M> draft) {
+            super(draft);
+        }
+
+        /** Leaves the stored row's {@code @Version} attribute as it is, instead of incrementing it (R-WRT-34). */
+        public Upserting<E, M> keepVersion() {
+            return new Upserting<>(withConflict(draft.conflict().keep()));
+        }
+
+        @Override
+        public Upserting<E, M> anyUniqueKey() {
+            return new Upserting<>(withConflict(draft.conflict().anyKey()));
+        }
+
+        @Override
+        public Upserting<E, M> chunked(ChunkOptions options) {
+            return new Upserting<>(draft.chunk(Objects.requireNonNull(options, "options")));
+        }
+
+        @Override
+        public Upserting<E, M> persistenceContext(PersistenceContextMode mode) {
+            return new Upserting<>(draft.mode(Objects.requireNonNull(mode, "mode")));
+        }
+    }
+}

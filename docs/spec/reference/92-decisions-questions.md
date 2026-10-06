@@ -1382,6 +1382,14 @@ on its PostgreSQL datasource (Boot 3.4 is Hibernate 6.6, where H2 gives `MQ1804`
 → `api/14` §10, `reference/90` (`MQ1801`, `MQ1807`, `MQ1808`), `processor/31` §7, `processor/32` (`MQ3504`),
 `vendor/40` R-VND-14, `vendor/41`, `rfc/0004-bulk-inserts.md`.
 
+*Amended by M10.2:* item 3's key flag is `InsertColumns.addKey(column, fn)` beside `add`. `InsertColumns.of(root)`
+cannot infer `M` from the root, so a hand-written list gives a type witness (`InsertColumns.<M, E>of(root)`); the
+generated `INSERT_COLUMNS` (M10.3) hides it. A column of a join, even one naming a model attribute, is not on the root:
+`MQ1801` when added, mapped or `set`, `MQ1804` inside a conflict clause. A conflict or `setFromRow` column outside
+`InsertColumns`, or named twice, is `MQ1804` at `build()`. Rows are kept as model values, converted when bound (D-37),
+so `MQ1808` compares model values by `equals`. AC-WRT-32 (`build()` checks) and AC-WRT-33 (stage shapes) are added
+beyond RFC 0004's list.
+
 
 ## 2. Open questions
 
