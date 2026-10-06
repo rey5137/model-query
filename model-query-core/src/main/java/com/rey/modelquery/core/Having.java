@@ -27,7 +27,7 @@ public sealed interface Having<M> permits HavingGroup {
     /** {@code aggregate = value}, skipped when {@code value} is empty. */
     <C> Having<M> eq(AggregateField<M, C> aggregate, Optional<? extends C> value);
 
-    /** {@code aggregate <> value OR aggregate IS NULL}, as {@link Filters#ne(ColumnField, Object)}. */
+    /** {@code aggregate <> value OR aggregate IS NULL}, as {@link Filters#ne(ScalarField, Object)}. */
     <C> Having<M> ne(AggregateField<M, C> aggregate, C value);
 
     /** {@link #ne(AggregateField, Object)}, skipped when {@code value} is empty. */
@@ -65,7 +65,7 @@ public sealed interface Having<M> permits HavingGroup {
     <C extends Comparable<? super C>> Having<M> between(
             AggregateField<M, C> aggregate, C fromInclusive, C toInclusive);
 
-    /** The closed range, as {@link Filters#between(ColumnField, Optional, Optional)}; each bound skipped when empty. */
+    /** The closed range, as {@link Filters#between(ScalarField, Optional, Optional)}; each bound skipped when empty. */
     <C extends Comparable<? super C>> Having<M> between(
             AggregateField<M, C> aggregate, Optional<? extends C> fromInclusive, Optional<? extends C> toInclusive);
 
@@ -81,13 +81,13 @@ public sealed interface Having<M> permits HavingGroup {
     /** {@link #notIn(AggregateField, Collection)}, skipped when {@code values} is empty. */
     <C> Having<M> notIn(AggregateField<M, C> aggregate, Optional<? extends Collection<? extends C>> values);
 
-    /** {@code aggregate LIKE pattern}, as {@link Filters#like(ColumnField, String, LikeMode)} (R-FLT-06). */
+    /** {@code aggregate LIKE pattern}, as {@link Filters#like(ScalarField, String, LikeMode)} (R-FLT-06). */
     Having<M> like(AggregateField<M, String> aggregate, String value, LikeMode mode);
 
     /** {@link #like(AggregateField, String, LikeMode)}, skipped when {@code value} is empty. */
     Having<M> like(AggregateField<M, String> aggregate, Optional<String> value, LikeMode mode);
 
-    /** {@code lower(aggregate) LIKE pattern}, as {@link Filters#likeIgnoreCase(ColumnField, String, LikeMode)}. */
+    /** {@code lower(aggregate) LIKE pattern}, as {@link Filters#likeIgnoreCase(ScalarField, String, LikeMode)}. */
     Having<M> likeIgnoreCase(AggregateField<M, String> aggregate, String value, LikeMode mode);
 
     /** {@link #likeIgnoreCase(AggregateField, String, LikeMode)}, skipped when {@code value} is empty. */

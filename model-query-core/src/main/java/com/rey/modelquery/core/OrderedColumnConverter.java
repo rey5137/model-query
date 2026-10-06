@@ -4,7 +4,7 @@ import com.rey.modelquery.annotations.Incubating;
 
 /**
  * A {@link ColumnConverter} that preserves order both ways: {@code a < b} exactly when
- * {@code toModel(a) < toModel(b)}, and the same for {@link #toAttribute}, where "<" is the ordering of the values the
+ * {@code toModel(a) < toModel(b)}, and the same for {@link #toAttribute}, where {@code <} is the ordering of the values the
  * database returns: a {@code Timestamp}-aware one when the model type is a {@link java.util.Date} over a
  * {@code Timestamp}, since a plain {@code Date} compares at whole milliseconds only (see
  * {@link DateTimestampConverter}). It is therefore also injective. The
