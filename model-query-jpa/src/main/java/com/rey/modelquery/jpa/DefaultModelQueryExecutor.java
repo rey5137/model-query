@@ -16,6 +16,8 @@ import com.rey.modelquery.core.KeysetSlice;
 import com.rey.modelquery.core.KeysetSpec;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
+import com.rey.modelquery.core.ModelInsert;
+import com.rey.modelquery.core.ModelPersist;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
@@ -33,6 +35,8 @@ import com.rey.modelquery.core.ScalarField;
 import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.Slice;
+import com.rey.modelquery.core.ValuesInsert;
+import com.rey.modelquery.jpa.spi.InsertSupport;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.jpa.vendor.ResolvedVendor;
@@ -90,7 +94,7 @@ import java.util.stream.Stream;
  *     R-PAG-02, R-PAG-03, R-PAG-04, R-PAG-05, R-PAG-06, R-PAG-07, R-PAG-08, R-PAG-09, R-PAG-10, R-PAG-11, R-PAG-12,
  *     R-PAG-13, R-PAG-14, R-AGG-09, R-EXE-08, R-EXE-11, R-WRT-07, R-WRT-08, R-WRT-14, R-WRT-15, R-WRT-16, R-WRT-17,
  *     R-WRT-18, R-WRT-19, R-WRT-20, R-WRT-23, R-FCH-04, R-FCH-05, R-FCH-06, R-FCH-09, R-FCH-11, R-FCH-12, D-61,
- *     D-62, D-63, D-99
+ *     D-62, D-63, D-99, R-WRT-26, R-WRT-33, R-VND-14
  */
 final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
@@ -651,6 +655,61 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 (on, keys) -> on.createQuery(d.buildWrite(cb, renderOptions, keys, rootTermsOnly)),
                 d.startAfter(), d::modelKey);
         return write(d.persistenceContext(), () -> keyset(keyed, whole, byKeys, d.chunkOptions(), cb, repeated));
+    }
+
+    @Override
+    public long insert(ModelInsert<E, ?> i) {
+        Objects.requireNonNull(i, "i");
+        checkInsertOnce(i, insertSupport(i));
+        requireTransaction("insert", i.chunkOptions());
+        throw notYetBuilt(i);
+    }
+
+    @Override
+    public <K> List<K> insertReturningKeys(ValuesInsert<E, K, ?> i) {
+        Objects.requireNonNull(i, "i");
+        i.checkKeysReturnable();
+        InsertSupport support = insertSupport(i);
+        checkInsertOnce(i, support);
+        InsertChecks.checkKeysGenerated(i, support.target(em.getEntityManagerFactory(), rootEntity).id());
+        requireTransaction("insert", i.chunkOptions());
+        throw notYetBuilt(i);
+    }
+
+    @Override
+    public <K> K persist(ModelPersist<E, K, ?> p) {
+        Objects.requireNonNull(p, "p");
+        checkWriteOnce(p, p::checkMetamodel);
+        throw new UnsupportedOperationException(p + ": persist(...) is built in M10.8");
+    }
+
+    /**
+     * The {@link InsertSupport} serving this executor's factory, else {@code MQ4009}, before any statement and before
+     * the flush (R-VND-14).
+     */
+    private InsertSupport insertSupport(ModelInsert<E, ?> i) {
+        return vendor.providerSupport().flatMap(ProviderSupport::inserts).orElseThrow(() ->
+                new ModelQueryConfigurationException(MqCode.MQ4009, i + ": a bulk insert needs the persistence "
+                        + "provider's InsertSupport, and no ProviderSupport on the class path supplies one for this "
+                        + "EntityManagerFactory; add model-query-hibernate for Hibernate, or use persist(...)"));
+    }
+
+    /**
+     * Checks {@code i} the first time it runs on this executor's factory, before any statement: against the metamodel,
+     * then against the generator and the mappings {@code support} reports for the root (D-61, R-WRT-26).
+     */
+    private void checkInsertOnce(ModelInsert<E, ?> i, InsertSupport support) {
+        checkWriteOnce(i, metamodel -> {
+            i.checkMetamodel(metamodel);
+            InsertChecks.checkTarget(i, support.target(em.getEntityManagerFactory(), rootEntity),
+                    i.sourceEntity().isPresent(), i.writesId(metamodel));
+        });
+    }
+
+    /** The statement paths M10.5 to M10.7 build: insert-select, insert-values and conflict clauses. */
+    private static UnsupportedOperationException notYetBuilt(ModelInsert<?, ?> i) {
+        return new UnsupportedOperationException(i + ": " + (i.sourceEntity().isPresent()
+                ? "insert-select is built in M10.5" : "insert-values is built in M10.6, conflict clauses in M10.7"));
     }
 
     /**

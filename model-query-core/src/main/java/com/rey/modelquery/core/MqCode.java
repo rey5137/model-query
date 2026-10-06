@@ -220,6 +220,21 @@ public enum MqCode {
      */
     MQ1804("A conflict clause names columns, assignments or filters it cannot apply"),
 
+    /**
+     * A generator outside R-WRT-26's allowlist, a {@code JOINED} or {@code @SecondaryTable} root, a composite id with
+     * generated parts, or {@code @MapsId}, on an insert's first execution (R-WRT-26, D-116).
+     */
+    MQ1805("The insert's root has a generator or a mapping the insert cannot write"),
+
+    /** A {@code chunked} insert-select whose source and target overlap, or whose tables are unknown (R-WRT-28). */
+    MQ1806("A chunked insert-select's source and target overlap"),
+
+    /**
+     * Keys requested for an {@code IDENTITY} or assigned id, or a key type that is not the root's id type (R-WRT-33,
+     * D-117).
+     */
+    MQ1807("The insert's keys cannot be returned as asked, or its key type is not the root's id type"),
+
     /** Two rows of one insert-values call share a conflict-key tuple (R-WRT-37). */
     MQ1808("Two rows of one insert share a conflict key"),
 
@@ -327,7 +342,10 @@ public enum MqCode {
      * {@code customImplementation} (R-SPR-02, D-113).
      */
     MQ4008("The starter cannot add the repository fragment because the factory bean definition already sets "
-            + "customImplementation");
+            + "customImplementation"),
+
+    /** A bulk insert on a factory whose persistence provider has no {@code InsertSupport} (R-VND-14). */
+    MQ4009("A bulk insert needs an InsertSupport for the factory's persistence provider");
 
     private final String defaultMessage;
 

@@ -93,12 +93,12 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1706` | `Enricher.byKeys(…).reading(…)` with no `key(…)` | `api/15` R-FCH-15, D-114 |
 | `MQ1707` | `Enricher.Keys.batchSize(n)` with `n` below 1 | `api/15` R-FCH-15 |
 | `MQ1801` | An insert column not mapped, mapped twice, or not in the model's `InsertColumns`; a `map` whose columns have different converter classes (at `build()`) or entity attribute types (on first execution); a `set` on a column the model has, a column set twice, or a column added or set that is not on the written root; `lockKeys()` on insert-values (at `build()`); `insertReturningKeys` on a definition with `commitEachChunk()` (at that call, before the flush) | `api/14` R-WRT-25, R-WRT-27, R-WRT-29, R-WRT-32, R-WRT-33, D-117 |
-| `MQ1802` | An insert model naming a generated id, or lacking an id that has no generator (on first execution); a row with a `null` assigned id (at `build()` or `ModelPersist.of`) | `api/14` R-WRT-26, R-WRT-30, D-117 |
+| `MQ1802` | An insert model naming a generated id, lacking an id that has no generator, or writing part of a composite id (on first execution); a row with a `null` assigned id (at `build()` or `ModelPersist.of`) | `api/14` R-WRT-26, R-WRT-30, D-117 |
 | `MQ1803` | A `null` insert row, at `build()` or `ModelPersist.of` | `api/14` R-WRT-30, D-117 |
 | `MQ1804` | Conflict columns that are not the root's id, natural id or a declared unique constraint, a `doUpdate` assigning `@Version`, a conflict target the vendor does not honour without `anyUniqueKey()`, or `doNothing` the provider does not render for the dialect (on first execution); a conflict column named twice or not in `InsertColumns`, a `doUpdate` assigning a key column, a column twice or a column not on the root, a `setFromRow` column not in `InsertColumns`, or a `doUpdate` `where` with a joined column, `exists` or a sub-select (at `build()`) | `api/14` R-WRT-34, R-WRT-36, D-116, D-117 |
 | `MQ1805` | A generator outside R-WRT-26's allowlist (naming its class), a `JOINED` or `@SecondaryTable` root, a composite id with generated parts, `@MapsId`, or a constructor-only embeddable under `persist`; on first execution | `api/14` R-WRT-26, R-WRT-39, D-116 |
 | `MQ1806` | A `chunked` insert-select whose source and target overlap, or whose source or target has an empty `tablesOf`; on first execution, before the flush | `api/14` R-WRT-28, D-117 |
-| `MQ1807` | Keys requested for an `IDENTITY` or assigned id, or a key type `K` that is not the boxed id type the provider reports (as an `orm.xml` mapping can make it); on first execution | `api/14` R-WRT-33, R-WRT-39, §10.1, D-117 |
+| `MQ1807` | Keys requested for an `IDENTITY` or assigned id, or a key type `K` that is not the boxed id type the provider reports (as an `orm.xml` mapping can make it; `Object` passes, and nothing is compared where the metamodel reports no id type); on first execution | `api/14` R-WRT-33, R-WRT-39, §10.1, D-117 |
 | `MQ1808` | Two rows of one insert-values call with a conflict clause share a conflict-key tuple, compared by `equals`; at `build()` | `api/14` R-WRT-37, D-117 |
 
 ## 3. `MQ2xxx` — execution
@@ -149,6 +149,7 @@ insert models (D-116, D-117). Codes are not repeated here to keep one owner.
 | `MQ4007` | A repository declares `ModelQueryRepository` of an entity other than its domain type | `integration/50` R-SPR-12 |
 | `MQ4008` | The starter cannot add the repository fragment because the factory bean definition already sets `customImplementation` | `integration/50` R-SPR-02, D-113 |
 | `MQ4004` | `commitEachChunk()` with no `ChunkTransactions` configured, or none that serves the write's `EntityManagerFactory` | `api/14` R-WRT-19 |
+| `MQ4009` | A bulk insert on a factory whose persistence provider has no `InsertSupport` (`ProviderSupport#inserts()` empty or no `ProviderSupport`); before any statement and before the flush | `vendor/40` R-VND-14, `api/14` R-WRT-24, D-117 |
 
 ## 6. Glossary
 

@@ -14,4 +14,13 @@ public class InsSourceEntity {
     String code;
 
     String name;
+
+    /** A new row, for a test that persists one. */
+    public static InsSourceEntity of(Long id, String code, String name) {
+        var row = new InsSourceEntity();
+        row.id = id;
+        row.code = code;
+        row.name = name;
+        return row;
+    }
 }

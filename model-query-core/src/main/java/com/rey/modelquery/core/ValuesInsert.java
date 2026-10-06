@@ -1,6 +1,7 @@
 package com.rey.modelquery.core;
 
 import com.rey.modelquery.annotations.Incubating;
+import jakarta.persistence.metamodel.Metamodel;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -14,7 +15,7 @@ import java.util.Objects;
  * @param <E> the root entity the rows are written to
  * @param <K> the root's id type, fixed by the generated {@code insert(rows)} (D-117)
  * @param <M> the insert model
- * @implSpec R-WRT-29, R-WRT-30, R-WRT-32, R-WRT-33, D-60, D-117
+ * @implSpec R-WRT-29, R-WRT-30, R-WRT-32, R-WRT-33, D-60, D-61, D-117
  */
 @Incubating
 public final class ValuesInsert<E, K, M> extends ModelInsert<E, M> {
@@ -43,6 +44,19 @@ public final class ValuesInsert<E, K, M> extends ModelInsert<E, M> {
     /** The root's id type, which keys are returned as. */
     public Class<K> keyType() {
         return keyType;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * @throws ModelQueryDefinitionException also {@code MQ1807} when the key type is not the root's boxed id type, as
+     *     an {@code orm.xml} mapping can make it (R-WRT-33, D-117)
+     */
+    @EngineFacing
+    @Override
+    public void checkMetamodel(Metamodel metamodel) {
+        super.checkMetamodel(metamodel);
+        InsertMetamodel.checkKeyType(metamodel.entity(rootEntity()), keyType, toString());
     }
 
     /**

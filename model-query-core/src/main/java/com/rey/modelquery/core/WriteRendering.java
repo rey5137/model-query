@@ -285,7 +285,7 @@ final class WriteRendering {
     }
 
     /** The names of the id attributes: the one {@code @Id} or {@code @EmbeddedId}, or the {@code @IdClass} ones. */
-    private static Set<String> idNames(EntityType<?> entity) {
+    static Set<String> idNames(EntityType<?> entity) {
         var names = new HashSet<String>();
         if (entity.hasSingleIdAttribute()) {
             for (SingularAttribute<?, ?> attribute : entity.getSingularAttributes()) {

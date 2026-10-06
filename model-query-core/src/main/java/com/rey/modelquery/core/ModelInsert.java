@@ -1,6 +1,9 @@
 package com.rey.modelquery.core;
 
 import com.rey.modelquery.annotations.Incubating;
+import jakarta.persistence.metamodel.EntityType;
+import jakarta.persistence.metamodel.Metamodel;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -18,7 +21,7 @@ import java.util.function.UnaryOperator;
  *
  * @param <E> the root entity the rows are written to
  * @param <M> the insert model
- * @implSpec R-WRT-24, R-WRT-27, R-WRT-28, R-WRT-34, R-WRT-37, D-60, D-116, D-117
+ * @implSpec R-WRT-24, R-WRT-26, R-WRT-27, R-WRT-28, R-WRT-34, R-WRT-37, D-60, D-61, D-116, D-117
  */
 @Incubating
 public sealed class ModelInsert<E, M> permits ValuesInsert {
@@ -54,6 +57,50 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
     /** The insert's own {@code persistenceContext(...)}, which wins over the executor's configured mode (D-62). */
     public Optional<PersistenceContextMode> persistenceContext() {
         return Optional.ofNullable(definition.persistenceContext());
+    }
+
+    /** The entity an insert-select reads its rows from, or empty for an insert-values. */
+    @EngineFacing
+    public Optional<Class<?>> sourceEntity() {
+        TableField<?, ?> source = definition.source();
+        return source == null ? Optional.empty() : Optional.of(source.rootEntity());
+    }
+
+    /**
+     * Checks the definition against {@code metamodel}, which {@code build()} cannot see (INV-7). An executor calls it
+     * on the definition's first execution per {@code EntityManagerFactory}, before any statement (D-61).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1802} when the columns and constants write part of the root's
+     *     id; {@code MQ1801} for an insert-select {@code map} or {@code where} reading a column that is not on the
+     *     source root, or a {@code map} between attributes of different types (R-WRT-26, R-WRT-27)
+     */
+    @EngineFacing
+    public void checkMetamodel(Metamodel metamodel) {
+        EntityType<E> entity = metamodel.entity(rootEntity());
+        InsertMetamodel.writesId(entity, written(), toString());
+        sourceEntity().ifPresent(source -> {
+            InsertMetamodel.checkMappings(metamodel, entity, source, definition.mappings());
+            InsertMetamodel.checkWhere(source, ConditionGroup.conditions(definition.where().where()));
+        });
+    }
+
+    /**
+     * Whether the columns and constants write the root's whole id, which the executor holds against the root's
+     * generator (R-WRT-26).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1802} when they write part of it, as {@link #checkMetamodel}
+     */
+    @EngineFacing
+    public boolean writesId(Metamodel metamodel) {
+        return InsertMetamodel.writesId(metamodel.entity(rootEntity()), written(), toString());
+    }
+
+    /** The attributes the insert writes: its columns, then its {@code set} constants. */
+    private List<String> written() {
+        var names = new ArrayList<String>();
+        definition.columns().columns().forEach(column -> names.add(column.name()));
+        definition.constants().forEach(constant -> names.add(constant.column().name()));
+        return names;
     }
 
     /**

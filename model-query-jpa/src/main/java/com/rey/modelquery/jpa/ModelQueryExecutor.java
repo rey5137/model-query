@@ -7,10 +7,13 @@ import com.rey.modelquery.core.KeysetSlice;
 import com.rey.modelquery.core.KeysetSpec;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
+import com.rey.modelquery.core.ModelInsert;
+import com.rey.modelquery.core.ModelPersist;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.Slice;
+import com.rey.modelquery.core.ValuesInsert;
 import jakarta.persistence.EntityManager;
 import java.util.List;
 import java.util.function.Consumer;
@@ -28,7 +31,7 @@ import java.util.stream.Stream;
  * @implSpec R-QRY-10, R-QRY-09, R-QRY-11, R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-07, R-EXE-09, R-PAG-01,
  *     R-PAG-02, R-PAG-03, R-PAG-07, R-PAG-08, R-PAG-09, R-PAG-10, R-PAG-11, R-PAG-12, R-PAG-13, R-PAG-14, R-PAG-15,
  *     R-AGG-09, R-WRT-01, R-WRT-07, R-WRT-08, R-WRT-15, R-WRT-16, R-WRT-17, R-WRT-18, R-WRT-19, R-WRT-20,
- *     R-WRT-23, D-61
+ *     R-WRT-23, R-WRT-24, R-WRT-26, R-WRT-33, R-WRT-39, R-VND-14, D-61
  */
 @Incubating
 public interface ModelQueryExecutor<E> {
@@ -218,4 +221,51 @@ public interface ModelQueryExecutor<E> {
      */
     @Incubating
     long delete(ModelDelete<E, ?> d);
+
+    /**
+     * Inserts {@code i}'s rows, an insert-select's or an insert-values', and returns the rows affected. It loads no
+     * entity and runs no lifecycle callback, cascade, Bean Validation or Envers audit: {@link #persist} is the write
+     * that runs them (R-WRT-24). It needs the provider's {@link com.rey.modelquery.jpa.spi.InsertSupport}, which
+     * {@code model-query-hibernate} supplies. The first execution of a definition per {@code EntityManagerFactory}
+     * checks it against the JPA metamodel and the root's generator, before any statement (D-61). The persistence
+     * context and the second-level cache are handled as {@link #update} handles them (R-WRT-38).
+     *
+     * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution: {@code MQ1801} for an
+     *     insert-select {@code map} between attributes of different types or reading a column off the source root,
+     *     {@code MQ1802} for an id the model names against the root's generator, {@code MQ1805} for a generator or a
+     *     mapping of the root that the insert cannot write (R-WRT-26, R-WRT-27)
+     * @throws com.rey.modelquery.core.ModelQueryConfigurationException {@code MQ4009}, before any statement, the flush
+     *     included, when no {@code InsertSupport} serves the {@code EntityManager}'s factory (R-VND-14)
+     * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2501}, before any statement, when the
+     *     {@code EntityManager} is not joined to a transaction and the insert is not {@code commitEachChunk()}
+     *     (R-WRT-18)
+     */
+    @Incubating
+    long insert(ModelInsert<E, ?> i);
+
+    /**
+     * Inserts {@code i}'s rows, as {@link #insert} does, and returns their keys in row order: the keys are drawn from
+     * the root's generator before the statement, so a sequence, table or UUID generator can return them, and an
+     * {@code IDENTITY} or assigned id cannot (R-WRT-33).
+     *
+     * @throws com.rey.modelquery.core.ModelQueryDefinitionException {@code MQ1801}, before any statement, for a
+     *     definition with {@code commitEachChunk()}, whose failure would lose the committed rows' keys; on first
+     *     execution, the codes of {@link #insert} and {@code MQ1807} when the key type is not the root's id type;
+     *     {@code MQ1807} for an {@code IDENTITY} or assigned id (R-WRT-33, D-117)
+     * @throws com.rey.modelquery.core.ModelQueryConfigurationException {@code MQ4009}, as {@link #insert} throws it
+     * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2501}, as {@link #insert} throws it
+     */
+    @Incubating
+    <K> List<K> insertReturningKeys(ValuesInsert<E, K, ?> i);
+
+    /**
+     * Writes {@code p}'s row as a new entity through JPA and returns its key. It is an entity write: lifecycle
+     * callbacks, Bean Validation, Envers and the provider's insert run, with any generator, and it needs no provider
+     * support (R-WRT-39).
+     *
+     * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution, {@code MQ1807} when the key
+     *     type is not the root's id type (R-WRT-39, D-117)
+     */
+    @Incubating
+    <K> K persist(ModelPersist<E, K, ?> p);
 }

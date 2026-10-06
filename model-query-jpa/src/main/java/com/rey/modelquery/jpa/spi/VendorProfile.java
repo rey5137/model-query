@@ -11,7 +11,7 @@ import java.time.Duration;
  * discovered with {@code ServiceLoader}; a discovered profile takes precedence over the built-in one for its vendor
  * (R-VND-03). A new behaviour is a new method with a default.
  *
- * @implSpec R-VND-01, R-VND-02, R-VND-03, R-VND-11, R-VND-12
+ * @implSpec R-VND-01, R-VND-02, R-VND-03, R-VND-11, R-VND-12, R-VND-14
  */
 @Incubating
 public interface VendorProfile {
@@ -53,6 +53,24 @@ public interface VendorProfile {
      * itself (R-VND-11).
      */
     default boolean targetTableInSubquery() {
+        return false;
+    }
+
+    /**
+     * The most rows one multi-row {@code VALUES} insert may hold, beyond the bind-parameter limit that already bounds
+     * it (api/14 R-WRT-29). {@code 1_000}, the default, is a limit some databases set; a lower one is only slower
+     * (R-VND-14, D-117).
+     */
+    default int maxValuesRows() {
+        return 1_000;
+    }
+
+    /**
+     * Whether a conflict clause detects a conflict only on the key it names. Where the database detects it on any
+     * unique key (MySQL, MariaDB), an insert with a conflict clause is refused with {@code MQ1804} unless it accepts
+     * that with {@code anyUniqueKey()} (api/14 R-WRT-36). {@code false}, the default, fails safe (R-VND-14, D-117).
+     */
+    default boolean conflictTargetHonoured() {
         return false;
     }
 }

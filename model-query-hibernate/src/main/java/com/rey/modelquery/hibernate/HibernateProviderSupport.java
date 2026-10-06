@@ -4,6 +4,7 @@ import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.jpa.spi.InsertSupport;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceException;
@@ -46,9 +47,10 @@ import org.hibernate.query.criteria.JpaExpression;
  * {@code JpaCriteriaQuery#createCountQuery()}, which renders {@code select count(*) from (<grouped query>)}, null
  * precedence with {@code HibernateCriteriaBuilder#sort}, which the dialect renders natively or emulates, and the
  * configured {@code hibernate.order_by.default_null_ordering}, a cursor stream with its fetch-size hint, and the
- * tables an entity reads from its persister's query spaces. Registered with {@code ServiceLoader}.
+ * tables an entity reads from its persister's query spaces, and bulk inserts through {@link HibernateInsertSupport}.
+ * Registered with {@code ServiceLoader}.
  *
- * @implSpec R-VND-04, R-VND-05, R-EXE-03, R-COL-12, R-PAG-05, R-VND-12, R-VND-13
+ * @implSpec R-VND-04, R-VND-05, R-EXE-03, R-COL-12, R-PAG-05, R-VND-12, R-VND-13, R-VND-14
  */
 @Incubating
 public final class HibernateProviderSupport implements ProviderSupport {
@@ -60,6 +62,11 @@ public final class HibernateProviderSupport implements ProviderSupport {
      */
     private static final Map<EntityManagerFactory, Map<Class<?>, Set<String>>> TABLES =
             Collections.synchronizedMap(new WeakHashMap<>());
+
+    /** In a holder, as {@link DefaultNullPrecedence} is, so the provider stays loadable without Hibernate. */
+    private static final class Inserts {
+        static final InsertSupport INSTANCE = new HibernateInsertSupport();
+    }
 
     /**
      * {@code SessionFactoryOptions.getDefaultNullPrecedence()}, whose return type differs between Hibernate 6 and 7.
@@ -247,6 +254,12 @@ public final class HibernateProviderSupport implements ProviderSupport {
                     case FIRST -> org.hibernate.query.NullPrecedence.FIRST;
                     case LAST -> org.hibernate.query.NullPrecedence.LAST;
                 }));
+    }
+
+    /** {@link HibernateInsertSupport}: the generator from the persister, and the insert statements (R-VND-14). */
+    @Override
+    public Optional<InsertSupport> inserts() {
+        return Optional.of(Inserts.INSTANCE);
     }
 
     private static Optional<SessionFactoryImplementor> sessionFactory(EntityManagerFactory emf) {

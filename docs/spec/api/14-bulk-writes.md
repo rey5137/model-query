@@ -313,7 +313,7 @@ public interface ModelQueryExecutor<E> {
 | AC-WRT-26 | A `commitEachChunk` insert-values failure reports `committedRows()`, `nextRowIndex()` and `inDoubtRowCount()`; a failed insert-select reports source keys (R-WRT-32). |
 | AC-WRT-27 | After any bulk insert the persistence context is cleared by default and kept with `KEEP`, and the root is evicted from the second-level cache (R-WRT-38). |
 | AC-WRT-28 | `persist` with `IDENTITY` returns the key, runs `@PrePersist` and leaves the created entity detached, on Hibernate and on a second provider if the TCK has one; with a `CascadeType.ALL` to-one it detaches the caller's managed target, as documented; an unnamed nullable attribute with a database default is written as NULL (R-WRT-39, R-WRT-40). |
-| AC-WRT-29 | Insert-select with a pooled sequence or a `JOINED` root throws `MQ1805`; insert-values or `persist` with a `K` that is not the id's type throws `MQ1807` (R-WRT-26, §10.1). |
+| AC-WRT-29 | Insert-select with a pooled sequence or a `JOINED` root throws `MQ1805`; insert-values or `persist` with a `K` that is not the id's type throws `MQ1807`; on first execution, before the flush, a model naming a generated id, lacking an assigned one or writing part of a composite one throws `MQ1802`, and an insert-select `map` between attributes of different types, or a `map` or `where` column off the source root, `MQ1801` (R-WRT-26, R-WRT-27, §10.1). |
 | AC-WRT-30 | `ModelQueryRepository.insert`, `insertReturningKeys` and `persist` succeed without an ambient transaction (§10.1, `integration/50`). |
 | AC-WRT-31 | A bulk insert on a provider with no insert support throws `MQ4009` and runs no flush; `persist` runs on it (R-WRT-39, `vendor/40`). |
 | AC-WRT-32 | `build()` and `ModelPersist.of` check the definition before any statement: a `where` whose every filter is skipped throws `MQ1601`; a column unmapped, mapped twice or with another converter class, a `set` on a model column, a column set twice, a column not on the root, or `lockKeys()` on insert-values throws `MQ1801`; a `null` row throws `MQ1803`; a `null` assigned id `MQ1802`; two rows sharing a conflict-key tuple `MQ1808`; a conflict column or assignment that R-WRT-34 refuses, or `exists` in the update's `where`, `MQ1804`. Changing a row or the list after `build()` leaves the definition unchanged (R-WRT-27, R-WRT-29, R-WRT-30, R-WRT-32, R-WRT-34, R-WRT-37, INV-9). |
@@ -352,7 +352,8 @@ not compile (P-2). `ModelQueryRepository` gains the same three (`integration/50`
 `Class<K>` into the definition. A composite `K` is the `@IdClass` or the embeddable, what
 `PersistenceUnitUtil#getIdentifier` returns. On the definition's first execution (D-61) `K` must equal the boxed Java
 type of `IdentifiableType#getIdType()`, else `MQ1807` naming `orm.xml`, which the processor cannot see; with no id
-visible to the processor `K` is `Object` and it warns `MQ3504` (`processor/32`). A per-call `Class<K>` is not offered:
+visible to the processor `K` is `Object`, which passes, and it warns `MQ3504` (`processor/32`). Where the metamodel
+reports no id type, as Hibernate 6 does for an `@IdClass`, nothing is compared. A per-call `Class<K>` is not offered:
 a wrong class would compile (D-117).
 
 ### 10.2 Insert models and `InsertColumns`
@@ -529,10 +530,9 @@ at the same time, rather than skipping it; the Javadoc says so.
 **R-WRT-36** **The named key is honoured or the call fails.** MySQL and MariaDB detect a conflict on any unique key, so
 `doUpdate` could update, and `doNothing` skip, a row that matched a different key. `VendorProfile` gains
 `conflictTargetHonoured()`, false by default so a third-party profile fails safe, true in the built-in `H2` and
-`POSTGRESQL` profiles and false in `MYSQL` and `MYSQL_CURSOR_FETCH` (no Oracle or SQL Server profile exists,
-`vendor/41`). Where it is false, a conflict clause throws `MQ1804` on first execution unless the builder says
-`anyUniqueKey()`, whose Javadoc states that it accepts any-unique-key detection, the vendor's count (R-WRT-35) and the
-vendor's key collation.
+`POSTGRESQL` profiles and false in `MYSQL` and `MYSQL_CURSOR_FETCH` (`vendor/41`). Where it is false, a conflict clause
+throws `MQ1804` on first execution unless the builder says `anyUniqueKey()`, whose Javadoc states that it accepts
+any-unique-key detection, the vendor's count (R-WRT-35) and the vendor's key collation.
 
 **R-WRT-37** **Duplicate conflict keys within one call.** Vendors disagree (PostgreSQL skips them for `doNothing` and
 fails for `doUpdate`; MySQL writes the first or the last; `MERGE` vendors fail), and the outcome would depend on the

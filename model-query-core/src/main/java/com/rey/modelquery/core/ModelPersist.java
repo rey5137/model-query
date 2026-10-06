@@ -1,6 +1,7 @@
 package com.rey.modelquery.core;
 
 import com.rey.modelquery.annotations.Incubating;
+import jakarta.persistence.metamodel.Metamodel;
 import java.util.List;
 import java.util.Objects;
 
@@ -13,7 +14,7 @@ import java.util.Objects;
  * @param <E> the root entity
  * @param <K> the root's id type, fixed by the generated {@code persist(row)} (D-117)
  * @param <M> the insert model
- * @implSpec R-WRT-39, R-WRT-40, D-116, D-117
+ * @implSpec R-WRT-39, R-WRT-40, D-61, D-116, D-117
  */
 @Incubating
 public final class ModelPersist<E, K, M> {
@@ -51,6 +52,18 @@ public final class ModelPersist<E, K, M> {
     /** The root's id type, which the key is returned as. */
     public Class<K> keyType() {
         return keyType;
+    }
+
+    /**
+     * Checks the definition against {@code metamodel}, which {@code ModelPersist.of} cannot see (INV-7). An executor
+     * calls it on the definition's first execution per {@code EntityManagerFactory}, before any statement (D-61).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1807} when the key type is not the root's boxed id type, as an
+     *     {@code orm.xml} mapping can make it (R-WRT-39, D-117)
+     */
+    @EngineFacing
+    public void checkMetamodel(Metamodel metamodel) {
+        InsertMetamodel.checkKeyType(metamodel.entity(rootEntity()), keyType, toString());
     }
 
     /** The entity, for the executor's log: never a value (D-95). The format is not API. */

@@ -13,11 +13,11 @@ import java.util.stream.Stream;
 /**
  * What a persistence provider can do better than portable JPA: detect the database without a connection, count
  * groups in the database, render null precedence natively, report a configured default null ordering, stream a
- * query's rows by cursor and name the tables an entity reads. It varies by provider, not by database, so it is not
- * part of {@link VendorProfile} (D-34, D-108). Discovered with {@code ServiceLoader}; the first that
- * {@linkplain #supports supports} a factory serves it. Implementations are stateless and thread-safe.
+ * query's rows by cursor, name the tables an entity reads and write bulk inserts. It varies by provider, not by
+ * database, so it is not part of {@link VendorProfile} (D-34, D-108). Discovered with {@code ServiceLoader}; the first
+ * that {@linkplain #supports supports} a factory serves it. Implementations are stateless and thread-safe.
  *
- * @implSpec R-VND-04, R-EXE-03, R-VND-12, R-VND-13
+ * @implSpec R-VND-04, R-EXE-03, R-VND-12, R-VND-13, R-VND-14
  */
 @Incubating
 public interface ProviderSupport {
@@ -72,5 +72,13 @@ public interface ProviderSupport {
      */
     default Set<String> tablesOf(EntityManagerFactory emf, Class<?> entity) {
         return Set.of();
+    }
+
+    /**
+     * The provider's bulk-insert support, or empty, the default, when it has none: a bulk insert then throws
+     * {@code MQ4009} before the flush, while {@code persist} needs none (R-VND-14, D-117).
+     */
+    default Optional<InsertSupport> inserts() {
+        return Optional.empty();
     }
 }

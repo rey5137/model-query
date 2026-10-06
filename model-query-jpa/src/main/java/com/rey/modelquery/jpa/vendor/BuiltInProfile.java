@@ -15,13 +15,23 @@ import java.util.Optional;
  * The built-in profiles: a fixed table of the Tier-1 values in vendor/41 §2 and the conservative {@code OTHER}
  * values. A {@code ServiceLoader}-discovered profile for the same vendor takes precedence (R-VND-03).
  *
- * @implSpec R-PRF-11, R-PRF-08, R-PRF-03, R-PRF-07, R-VND-06, R-VND-11
+ * @implSpec R-PRF-11, R-PRF-08, R-PRF-03, R-PRF-07, R-VND-06, R-VND-11, R-VND-14
  */
 enum BuiltInProfile implements VendorProfile {
 
     H2(DatabaseVendor.H2, 10_000, 100_000, NullOrdering.NULLS_FIRST) {
         @Override
         public boolean targetTableInSubquery() {
+            return true;
+        }
+
+        @Override
+        public int maxValuesRows() {
+            return Integer.MAX_VALUE;
+        }
+
+        @Override
+        public boolean conflictTargetHonoured() {
             return true;
         }
     },
@@ -41,22 +51,43 @@ enum BuiltInProfile implements VendorProfile {
         public boolean targetTableInSubquery() {
             return true;
         }
+
+        @Override
+        public int maxValuesRows() {
+            return Integer.MAX_VALUE;
+        }
+
+        @Override
+        public boolean conflictTargetHonoured() {
+            return true;
+        }
     },
 
     /**
      * The default {@link MysqlStreamingMode#ROW_BY_ROW}: Connector/J streams only at {@code Integer.MIN_VALUE}. MySQL
      * refuses a write reading its own table in a sub-query (error 1093), so keeps the default
-     * {@link #targetTableInSubquery()}.
+     * {@link #targetTableInSubquery()}, and detects an insert's conflict on any unique key, so keeps the default
+     * {@link #conflictTargetHonoured()}.
      */
     MYSQL(DatabaseVendor.MYSQL, 10_000, 65_535, NullOrdering.NULLS_FIRST) {
         @Override
         public int streamingFetchSize(int requested) {
             return Integer.MIN_VALUE;
         }
+
+        @Override
+        public int maxValuesRows() {
+            return Integer.MAX_VALUE;
+        }
     },
 
     /** {@link MysqlStreamingMode#CURSOR_FETCH}: a positive fetch size, which needs {@code useCursorFetch=true}. */
-    MYSQL_CURSOR_FETCH(DatabaseVendor.MYSQL, 10_000, 65_535, NullOrdering.NULLS_FIRST),
+    MYSQL_CURSOR_FETCH(DatabaseVendor.MYSQL, 10_000, 65_535, NullOrdering.NULLS_FIRST) {
+        @Override
+        public int maxValuesRows() {
+            return Integer.MAX_VALUE;
+        }
+    },
 
     OTHER(DatabaseVendor.OTHER, 1_000, 2_000, NullOrdering.UNKNOWN);
 

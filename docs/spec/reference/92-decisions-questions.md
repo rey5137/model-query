@@ -1396,6 +1396,13 @@ with an update model's meaning (INV-10, R-DIAG-04), but `MQ3304` covers what an 
 to-one. `@Transient` and `@Child` on an insert model are `MQ3502`: every field is a column (R-WRT-25). `MQ3501` also
 covers a `@PrimaryKey` on an attribute that is not the id, and the id named without `@PrimaryKey`.
 
+*Amended by M10.4:* item 2's comparison is skipped where `getIdType()` is null, as Hibernate 6 reports it for an
+`@IdClass` root, and `K = Object` passes; an `@IdClass` key still never comes back, since a composite id is assigned
+(`MQ1807` from `insertReturningKeys`) or has a generated part (`MQ1805`). Item 10's "only API present in both" has
+one exception: whether a composite id generates a part is read from `CompositeNestedGeneratedValueGenerator`'s
+private `generationPlans` field (6.6 has no accessor), and the read fails closed: a field missing, inaccessible or of
+another type counts as a generated part, so the root is `MQ1805`, never let through.
+
 
 ## 2. Open questions
 

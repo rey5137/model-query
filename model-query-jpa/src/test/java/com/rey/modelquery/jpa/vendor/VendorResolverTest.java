@@ -11,6 +11,7 @@ import com.rey.modelquery.jpa.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.jpa.spi.VendorProfile;
+import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Query;
 import jakarta.persistence.TypedQuery;
 import java.time.Duration;
@@ -154,6 +155,35 @@ class VendorResolverTest {
         assertThat(BuiltInProfile.MYSQL_CURSOR_FETCH.targetTableInSubquery()).isFalse();
         assertThat(BuiltInProfile.OTHER.targetTableInSubquery()).isFalse();
         assertThat(new CustomProfile(DatabaseVendor.H2).targetTableInSubquery()).isFalse();
+    }
+
+    @Test
+    void ac_vnd_12_values_rows_and_conflict_targets_default_safe_and_the_built_in_profiles_raise_them() {
+        // The TCK's InsertVendorFactsTest checks the Tier-1 values against each database.
+        for (BuiltInProfile tier1 : List.of(BuiltInProfile.H2, BuiltInProfile.POSTGRESQL, BuiltInProfile.MYSQL,
+                BuiltInProfile.MYSQL_CURSOR_FETCH)) {
+            assertThat(tier1.maxValuesRows()).as(tier1 + " VALUES rows").isEqualTo(Integer.MAX_VALUE);
+        }
+        assertThat(BuiltInProfile.H2.conflictTargetHonoured()).isTrue();
+        assertThat(BuiltInProfile.POSTGRESQL.conflictTargetHonoured()).isTrue();
+        assertThat(BuiltInProfile.MYSQL.conflictTargetHonoured()).isFalse();
+        assertThat(BuiltInProfile.MYSQL_CURSOR_FETCH.conflictTargetHonoured()).isFalse();
+        assertThat(BuiltInProfile.OTHER.maxValuesRows()).isEqualTo(1_000);
+        assertThat(BuiltInProfile.OTHER.conflictTargetHonoured()).isFalse();
+        assertThat(new CustomProfile(DatabaseVendor.H2).maxValuesRows()).isEqualTo(1_000);
+        assertThat(new CustomProfile(DatabaseVendor.H2).conflictTargetHonoured()).isFalse();
+        ProviderSupport withoutInserts = new ProviderSupport() {
+            @Override
+            public boolean supports(EntityManagerFactory emf) {
+                return true;
+            }
+
+            @Override
+            public <T> Stream<T> resultStream(TypedQuery<T> query, int fetchSize) {
+                return Stream.empty();
+            }
+        };
+        assertThat(withoutInserts.inserts()).isEmpty();
     }
 
     private static void assertProfile(

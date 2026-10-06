@@ -102,6 +102,7 @@ RFC 0004 (rey5137/model-query#29) is mapped the same way, by its own sections, a
 | rey5137/model-query#29 | RFC 0004 §5 conflict clauses; R-WRT-34 to R-WRT-38 | `api/14` §10.5 |
 | rey5137/model-query#29 | RFC 0004 §6 `persist`; R-WRT-39, R-WRT-40 | `api/14` §10.6 |
 | rey5137/model-query#29 | RFC 0004 §7 executor methods | `api/14` §10.1 |
+| rey5137/model-query#29 | RFC 0004 §7 `InsertSupport`, `VendorProfile.maxValuesRows()`, `conflictTargetHonoured()`; R-VND-14, `MQ4009` | `vendor/40` R-VND-14, `vendor/41` §2, `reference/90` §2 |
 | rey5137/model-query#29 | RFC 0004 §8 codes `MQ1801`–`MQ1808` | `reference/90` §2 |
 | rey5137/model-query#29 | RFC 0004 §8 codes `MQ3501`–`MQ3503`; `MQ3504` (D-117) | `processor/32` §1 |
 | rey5137/model-query#29 | RFC 0004 §8 acceptance criteria | `api/14` §9 AC-WRT-21 to AC-WRT-33 |

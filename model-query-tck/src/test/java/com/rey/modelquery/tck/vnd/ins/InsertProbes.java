@@ -30,7 +30,7 @@ import org.hibernate.generator.Generator;
  * The D-116 vendor spike's harness: a factory over the {@code ins_*} probe entities that creates and drops its own
  * schema, and records every statement its sessions run so a probe can assert the plan Hibernate chose.
  */
-final class InsertProbes implements AutoCloseable {
+public final class InsertProbes implements AutoCloseable {
 
     private static final List<Class<?>> ENTITIES = List.of(InsSourceEntity.class, InsIdentityEntity.class,
             InsAssignedEntity.class, InsPooledEntity.class, InsSequenceEntity.class, InsTableEntity.class,
@@ -47,12 +47,25 @@ final class InsertProbes implements AutoCloseable {
     }
 
     /** Opens a factory over the probe entities, its schema created, with {@code ins_source} seeded. */
-    static InsertProbes open(TckDatabase db) {
-        return open(db, null);
+    public static InsertProbes open(TckDatabase db) {
+        return open(db, null, List.of());
     }
 
     /** As {@link #open(TckDatabase)}, also mapping the enhanced entity {@code loader} defines. */
     static InsertProbes open(TckDatabase db, EnhancingClassLoader loader) {
+        return open(db, loader, List.of());
+    }
+
+    /**
+     * As {@link #open(TckDatabase)}, also mapping the roots no bulk insert writes: a {@code JOINED} hierarchy, a
+     * {@code @SecondaryTable} and a composite id with a generated part (R-WRT-26).
+     */
+    public static InsertProbes withUnsupportedRoots(TckDatabase db) {
+        return open(db, null, List.of(InsJoinedEntity.class, InsJoinedChildEntity.class, InsSecondaryEntity.class,
+                InsCompositeEntity.class));
+    }
+
+    private static InsertProbes open(TckDatabase db, EnhancingClassLoader loader, List<Class<?>> extra) {
         List<String> recorded = Collections.synchronizedList(new ArrayList<>());
         DataSource dataSource = ProxyDataSourceBuilder.create(JoinTestSupport.dataSource(db))
                 .afterQuery((info, queries) -> queries.forEach(q -> recorded.add(SqlSnapshots.normalize(q.getQuery()))))
@@ -68,6 +81,7 @@ final class InsertProbes implements AutoCloseable {
                 .build();
         var configuration = new Configuration(bootstrapRegistry);
         ENTITIES.forEach(configuration::addAnnotatedClass);
+        extra.forEach(configuration::addAnnotatedClass);
         if (loader != null) {
             configuration.addAnnotatedClass(loader.enhanced());
         }
@@ -83,7 +97,7 @@ final class InsertProbes implements AutoCloseable {
         return probes;
     }
 
-    SessionFactory factory() {
+    public SessionFactory factory() {
         return factory;
     }
 
@@ -94,12 +108,12 @@ final class InsertProbes implements AutoCloseable {
     }
 
     /** Forgets the statements recorded so far, so {@link #statements()} shows only what runs next. */
-    void forget() {
+    public void forget() {
         recorded.clear();
     }
 
     /** The statements recorded since the last {@link #inTransaction} or {@link #forget}. */
-    List<String> statements() {
+    public List<String> statements() {
         return List.copyOf(recorded);
     }
 
