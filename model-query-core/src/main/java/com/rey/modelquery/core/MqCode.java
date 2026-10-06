@@ -284,8 +284,8 @@ public enum MqCode {
     /** A sort property names no selected column or aggregate, or more than one (R-QRY-14, D-52). */
     MQ2301("A sort property resolves to no selected column or to more than one"),
 
-    /** A bulk write ran without an active transaction (R-WRT-18). */
-    MQ2501("A bulk write needs an active transaction"),
+    /** A bulk write or {@code persist} ran without an active transaction (R-WRT-18, R-WRT-39). */
+    MQ2501("A bulk write or persist needs an active transaction"),
 
     /** A per-chunk write failed; earlier chunks stay committed (R-WRT-20). */
     MQ2502("A per-chunk write failed"),

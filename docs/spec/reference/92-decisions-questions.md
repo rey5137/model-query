@@ -1463,6 +1463,12 @@ than once per factory, since the option belongs to the executor and two executor
 the same reason the R-WRT-36 check (`conflictTargetHonoured() || anyUniqueKey()`) also runs on each execution, since
 the profile is the executor's.
 
+*Amended by M10.8:* `persist` reuses an embeddable the root's no-arg constructor already set and instantiates one only
+where it left `null`, so the embeddable's other attributes are, like the root's, as the constructors leave them. The
+record or constructor-only embeddable check (`MQ1805`) runs with `MQ1807` on first execution, over every embeddable on
+a column's path, before the `MQ2501` check. `ModelPersist` gains the `@EngineFacing` `attributes()` and
+`attributeValues()`, the dotted column names and their converted values, which the executor sets; nothing new is API.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

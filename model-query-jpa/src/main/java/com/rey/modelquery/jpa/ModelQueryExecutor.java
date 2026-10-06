@@ -281,12 +281,31 @@ public interface ModelQueryExecutor<E> {
     <K> List<K> insertReturningKeys(ValuesInsert<E, K, ?> i);
 
     /**
-     * Writes {@code p}'s row as a new entity through JPA and returns its key. It is an entity write: lifecycle
-     * callbacks, Bean Validation, Envers and the provider's insert run, with any generator, and it needs no provider
-     * support (R-WRT-39).
+     * Writes {@code p}'s row as a new entity through JPA and returns its key. Entity attributes the model does not
+     * name are written as the root's no-arg constructor leaves them, often NULL, not as the database default (unless
+     * the mapping is {@code insertable = false}, generated, or the provider's dynamic insert), and a domain
+     * constructor's invariants do not run.
      *
-     * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution, {@code MQ1807} when the key
-     *     type is not the root's id type (R-WRT-39, D-117)
+     * <p>The root is instantiated with its no-arg constructor and each model column set through the attribute's
+     * metamodel member, the field or the setter beside the getter, after the column's converter; an embeddable on the
+     * way is instantiated with its no-arg constructor, and a to-one column binds {@link EntityManager#getReference}.
+     * Constructors, fields and setters are reached with {@code setAccessible}, so a modular application
+     * {@code opens} its entity package to the library. Then {@code persist}, {@code flush},
+     * {@code PersistenceUnitUtil#getIdentifier} and {@code detach} run, in that order.
+     *
+     * <p>It is an entity write: lifecycle callbacks, Bean Validation, Envers and the provider's insert run, with any
+     * generator, {@code IDENTITY} included, the provider maintains the second-level cache, and it needs no provider
+     * support. The flush writes the caller's pending changes too. {@code detach} cascades as the mapping says: a
+     * to-one with {@code CascadeType.ALL} or {@code DETACH} detaches the instance {@code getReference} returned, which
+     * is the caller's own managed entity when there is one, as {@code CLEAR} would; an entity a callback persisted
+     * stays managed. It takes no {@code set}, conflict clause or chunking: many rows are a loop over {@code persist},
+     * one statement each, or {@link #insert} and {@link #insertReturningKeys} (R-WRT-39, R-WRT-40).
+     *
+     * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution, before any statement,
+     *     {@code MQ1807} when the key type is not the root's id type and {@code MQ1805} when a column is set on a
+     *     record or an embeddable with no no-arg constructor (R-WRT-39, D-117)
+     * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2501}, before any statement, when the
+     *     {@code EntityManager} is not joined to a transaction (R-WRT-39)
      */
     @Incubating
     <K> K persist(ModelPersist<E, K, ?> p);

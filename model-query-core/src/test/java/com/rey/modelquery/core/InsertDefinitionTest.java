@@ -279,6 +279,14 @@ class InsertDefinitionTest {
         assertThat(persist).hasToString("Order (persist)");
     }
 
+    @Test
+    void ac_wrt_28_persist_sets_each_attribute_to_its_converted_value_a_null_kept() {
+        ModelPersist<Order, Long, NewOrder> persist = ModelPersist.of(COLUMNS, Long.class,
+                new NewOrder(1L, null, "NEW", true));
+        assertThat(persist.attributes()).containsExactly("id", "ref", "status", "flagged");
+        assertThat(persist.attributeValues()).containsExactly(1L, null, "NEW", "Y");
+    }
+
     // ---- conflict clauses
 
     @Test

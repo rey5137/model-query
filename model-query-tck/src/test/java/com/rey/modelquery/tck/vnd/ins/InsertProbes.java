@@ -65,6 +65,11 @@ public final class InsertProbes implements AutoCloseable {
                 InsCompositeEntity.class));
     }
 
+    /** As {@link #open(TckDatabase)}, also mapping the {@code persist} roots (R-WRT-39). */
+    public static InsertProbes withPersistRoots(TckDatabase db) {
+        return open(db, null, List.of(InsPersistEntity.class, InsRecordEmbeddedEntity.class));
+    }
+
     private static InsertProbes open(TckDatabase db, EnhancingClassLoader loader, List<Class<?>> extra) {
         List<String> recorded = Collections.synchronizedList(new ArrayList<>());
         DataSource dataSource = ProxyDataSourceBuilder.create(JoinTestSupport.dataSource(db))

@@ -119,7 +119,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ2209` | A cursor's fingerprint names another order (sort, direction, null precedence, entity or deployment changed): `<Model>: the keyset cursor belongs to another order (sort, direction, null precedence, entity or deployment changed); start again with KeysetSpec.first` | `engine/21` R-PAG-19 |
 | `MQ2210` | A key column cannot be carried in a cursor, or makes it longer than 8192 characters: `<Model>: keyset column <col> of type <T> cannot be carried in a cursor` or `... makes the cursor longer than 8192 characters` | `engine/21` R-PAG-17, R-PAG-18 |
 | `MQ2301` | A sort property resolves to no selected column or to more than one (on any tier), or asks for `ignoreCase`; a sort on an ungrouped query without a primary key; a sorted copy that fails `build()`, as the cause | `api/11` R-QRY-14, `integration/50` R-SPR-06 |
-| `MQ2501` | A bulk write, other than `commitEachChunk()`, ran without an active transaction | `api/14` R-WRT-18 |
+| `MQ2501` | A bulk write, other than `commitEachChunk()`, or `persist` ran without an active transaction | `api/14` R-WRT-18, R-WRT-39 |
 | `MQ2502` | A per-chunk write failed; `ChunkedWriteException` carries the committed rows, the last committed key and the keys of a chunk in doubt | `api/14` R-WRT-20 |
 | `MQ2601` | A to-one child finds two distinct rows for one key | `api/15` R-FCH-04 |
 | `MQ2602` | An `Enricher.of` returns a page of another size, or `null` | `api/15` R-FCH-08 |

@@ -140,6 +140,40 @@ final class InsertMetamodel {
     }
 
     /**
+     * Checks that every embeddable on the way to {@code path}, an attribute of {@code entity} that {@code persist}
+     * sets, can be instantiated with a no-arg constructor, as {@code persist} instantiates it (R-WRT-39).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1805} for a record or an embeddable with no no-arg constructor
+     */
+    static void checkInstantiable(EntityType<?> entity, String path, String persist) {
+        ManagedType<?> owner = entity;
+        String[] segments = path.split("\\.");
+        for (int i = 0; i < segments.length - 1 && owner != null; i++) {
+            Type<?> type = attribute(owner, segments[i]) instanceof SingularAttribute<?, ?> singular
+                    ? singular.getType() : null;
+            if (type instanceof EmbeddableType<?> embeddable) {
+                Class<?> java = embeddable.getJavaType();
+                if (java.isRecord() || !hasNoArgConstructor(java)) {
+                    throw new ModelQueryDefinitionException(MqCode.MQ1805, persist + ": " + path + " is set on "
+                            + java.getSimpleName() + ", " + (java.isRecord() ? "a record" : "an embeddable with no "
+                            + "no-arg constructor") + ", which persist cannot instantiate and set; write it with "
+                            + "insert, or give the embeddable a no-arg constructor");
+                }
+            }
+            owner = type instanceof ManagedType<?> managed ? managed : null;
+        }
+    }
+
+    private static boolean hasNoArgConstructor(Class<?> type) {
+        try {
+            type.getDeclaredConstructor();
+            return true;
+        } catch (NoSuchMethodException e) {
+            return false;
+        }
+    }
+
+    /**
      * {@code name}, an attribute of {@code entity} an insert-select writes, with the target's id attribute appended
      * when it is a to-one: the select copies the id, as {@code checkMappings} lets a to-one take one (R-WRT-27).
      */

@@ -573,12 +573,12 @@ Long id = executor.persist(QNewOrder.persist(newOrder));
 does (R-WRT-30: `MQ1803`, `MQ1802`). The engine instantiates the root entity with its no-arg constructor and sets each
 model column through the attribute's metamodel member: the field, or for property access the setter paired with the
 getter `Attribute#getJavaMember` returns, after the column's converter. An embeddable path instantiates the embeddable
-with its no-arg constructor; a record or constructor-only embeddable is `MQ1805`. A to-one column binds
-`EntityManager#getReference`. It then calls `persist` and `flush`, reads `PersistenceUnitUtil#getIdentifier`, and
-calls `detach` on the entity, in that order. Constructors and fields are reached with `setAccessible`, so a modular
-application `opens` its entity package to the library; the Javadoc says so. `persist` needs no provider SPI and works
-with every generator, `IDENTITY` included, `@MapsId` included, and every provider. It needs an active transaction
-(`MQ2501`).
+with its no-arg constructor where the root's constructor left it `null`; a record or constructor-only embeddable is
+`MQ1805`, on first execution (D-117). A to-one column binds `EntityManager#getReference`. It then calls `persist`
+and `flush`, reads `PersistenceUnitUtil#getIdentifier`, and calls `detach` on the entity, in that order.
+Constructors and fields are reached with `setAccessible`, so a modular application `opens` its entity package to the
+library; the Javadoc says so. `persist` needs no provider SPI and works with every generator, `IDENTITY` included,
+`@MapsId` included, and every provider. It needs an active transaction (`MQ2501`).
 
 It is an entity write: `@PrePersist`/`@PostPersist`, Bean Validation, Envers and the provider's insert run, and the
 provider maintains the second-level cache, so R-WRT-15's eviction does not apply. The first paragraph of its Javadoc

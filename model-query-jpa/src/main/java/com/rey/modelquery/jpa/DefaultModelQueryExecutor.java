@@ -795,7 +795,18 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     public <K> K persist(ModelPersist<E, K, ?> p) {
         Objects.requireNonNull(p, "p");
         checkWriteOnce(p, p::checkMetamodel);
-        throw new UnsupportedOperationException(p + ": persist(...) is built in M10.8");
+        if (!em.isJoinedToTransaction()) {
+            throw new ModelQueryExecutionException(MqCode.MQ2501, p + ": persist needs an active transaction, and "
+                    + "the EntityManager is not joined to one");
+        }
+        E entity = PersistedEntity.create(em, em.getMetamodel().entity(rootEntity), p.attributes(),
+                p.attributeValues());
+        LOG.log(DEBUG, () -> "persist " + p);
+        em.persist(entity);
+        em.flush();
+        Object key = em.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity);
+        em.detach(entity);
+        return p.keyType().cast(key);
     }
 
     /**
