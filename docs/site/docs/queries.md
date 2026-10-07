@@ -43,6 +43,30 @@ offers:
 | `stream(q, Limit, body)` | Runs `body` on a `Stream` that the library closes for you. |
 | `export(q, ExportOptions, pageTransformer, sink)` | Visits every row exactly once, one page at a time. |
 
+On a repository, `list` is `findAll` and `page` is `findPage`, which takes a Spring `Pageable`; the others keep their
+names. A repository runs queries rooted at its own entity, and `stream` opens a read-only transaction when none is
+active.
+
+=== "Plain JPA"
+
+    ```java
+    var executor = ModelQueryExecutor.create(em, OrderEntity.class, ModelQueryConfig.defaults());
+
+    List<OrderView> rows = executor.list(q, Limit.of(100));
+    Slice<OrderView> page = executor.page(q, PageSpec.of(0, 20), CountMode.COUNT);
+    long total = executor.count(q);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    public interface OrderRepository extends JpaRepository<OrderEntity, Long>, ModelQueryRepository<OrderEntity> {}
+
+    List<OrderView> rows = orders.findAll(q, Limit.of(100));
+    ModelPage<OrderView> page = orders.findPage(q, PageRequest.of(0, 20), CountMode.COUNT);
+    long total = orders.count(q);
+    ```
+
 `count` is not inflated by collection joins: the engine uses `count(distinct root)` only when a to-many join exists.
 
 ## Filters

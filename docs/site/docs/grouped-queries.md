@@ -16,9 +16,19 @@ var totals = QOrderTotals.query()
         .select(QOrderTotals.GROUP_KEYS.with(QOrderTotals.ORDERS, QOrderTotals.REVENUE))
         .orderBy(QOrderTotals.STATUS.asc())
         .build();
-
-List<OrderTotals> rows = executor.list(totals, Limit.unlimited());
 ```
+
+=== "Plain JPA"
+
+    ```java
+    List<OrderTotals> rows = executor.list(totals, Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<OrderTotals> rows = orders.findAll(totals, Limit.unlimited());
+    ```
 
 `GROUP_KEYS` is the generated column set of every `@GroupBy` field, and `QOrderTotals.query()` already groups by it.
 Aggregates are in no generated column set, so you add them explicitly with `with(...)`. That keeps a plain query from

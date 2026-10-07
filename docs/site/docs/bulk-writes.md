@@ -38,9 +38,21 @@ BookPatchChanges c = QBookPatch.changes()
 c.isSet(QBookPatch.TITLE);              // true
 c.unset(QBookPatch.RELEASED);           // drop a field again
 c.isEmpty();
-
-long written = executor.update(QBookPatch.update(c).whereKey(id).build());
 ```
+
+=== "Plain JPA"
+
+    ```java
+    // Needs an active transaction (MQ2501 without one).
+    long written = executor.update(QBookPatch.update(c).whereKey(id).build());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    // Joins the current transaction, or opens one on the repository's transaction manager.
+    long written = books.update(QBookPatch.update(c).whereKey(id).build());
+    ```
 
 A change set also has a no-argument constructor and JavaBean setters, so it binds from a request body: with Jackson,
 `{"released": null}` clears `released` and a body without `released` leaves it alone. This is the PATCH endpoint of the
@@ -84,9 +96,19 @@ ModelUpdate<OrderEntity, OrderPatch> u = QOrderPatch.update(changes)
         .keepVersion()                                          // opt out of the version increment
         .chunked(ChunkOptions.size(1_000))                      // optional: write in key-ordered chunks
         .build();
-
-long rows = executor.update(u);
 ```
+
+=== "Plain JPA"
+
+    ```java
+    long rows = executor.update(u);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    long rows = orders.update(u);
+    ```
 
 - `set(column, null)` fails with `MQ1603`: write NULL with `setNull` or a change set. On an attribute with a JPA
   `AttributeConverter`, `setNull` writes what the converter gives for `null`. Test:
@@ -125,11 +147,23 @@ can call `expectVersion(version)` to add `AND version = ?`; zero affected rows t
 ## Deletes
 
 ```java
-long deleted = executor.delete(QOrderView.delete()
+var drafts = QOrderView.delete()
         .where(f -> f.eq(QOrderView.STATUS, "DRAFT").lt(QOrderView.CREATED_AT, cutoff))
         .chunked(ChunkOptions.size(5_000))
-        .build());
+        .build();
 ```
+
+=== "Plain JPA"
+
+    ```java
+    long deleted = executor.delete(drafts);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    long deleted = orders.delete(drafts);
+    ```
 
 `ModelDelete` has the same `where`, `whereKey(s)`, `all()` and `chunked(...)` options. A soft delete is an update
 (`set(DELETED, true)`).

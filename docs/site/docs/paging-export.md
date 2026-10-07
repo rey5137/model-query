@@ -15,6 +15,22 @@
 A slice never reports a total of zero when it holds rows, and never reports `hasNext == false` just because the
 count was skipped. A `PageSpec` with a non-positive size fails with `MQ2001`, and a negative offset with `MQ2002`.
 
+=== "Plain JPA"
+
+    ```java
+    Slice<OrderView> page = executor.page(query, PageSpec.of(2, 50), CountMode.NO_COUNT);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    // A sorted Pageable replaces the query's orderBy; an unsorted one keeps it.
+    ModelPage<OrderView> page = orders.findPage(query, PageRequest.of(2, 50), CountMode.NO_COUNT);
+    ```
+
+On a repository, `findPage` takes the page from a `Pageable` and returns a `ModelPage`; see
+[Spring Data and the starter](spring.md#pageable-and-sort).
+
 ## Stable order
 
 For `page` and `export`, the engine appends the primary key (or, for a grouped query, the group keys) to your
@@ -42,6 +58,22 @@ and never runs a count.
   that reach the neighbouring pages; a cursor is present exactly when the matching `has…()` is true.
 - A cursor is opaque and only understood by the order that issued it: the order decides its fingerprint, so reusing a
   cursor under a different `orderBy` fails with `MQ2209`. Start again with `KeysetSpec.first`.
+
+=== "Plain JPA"
+
+    ```java
+    KeysetSlice<OrderView> first = executor.page(query, KeysetSpec.first(50));
+    KeysetSlice<OrderView> next = executor.page(query, KeysetSpec.after(first.nextCursor().orElseThrow(), 50));
+    ```
+
+=== "Spring repository"
+
+    ```java
+    // Sort.unsorted() keeps the query's order; pass the same Sort with every cursor it issued.
+    KeysetSlice<OrderView> first = orders.findKeysetPage(query, KeysetSpec.first(50), Sort.unsorted());
+    KeysetSlice<OrderView> next = orders.findKeysetPage(query,
+            KeysetSpec.after(first.nextCursor().orElseThrow(), 50), Sort.unsorted());
+    ```
 
 Through Spring Data, `findKeysetPage(q, keyset, sort)` passes straight through to the executor: `Sort.unsorted()`
 keeps the query's order, a sorted `Sort` replaces it, and the cursor's fingerprint follows whichever applies.
@@ -98,13 +130,25 @@ which the engine refuses with `MQ2206`.
 
 `export` visits every matching row exactly once, one page at a time, with bounded memory:
 
-```java
-long written = executor.export(
-        query,
-        ExportOptions.of(2_000),                 // or ExportOptions.defaults()
-        page -> page,                            // a page transformer; may batch lookups for the whole page
-        item -> writer.write(item));             // receives one item at a time
-```
+=== "Plain JPA"
+
+    ```java
+    long written = executor.export(
+            query,
+            ExportOptions.of(2_000),                 // or ExportOptions.defaults()
+            page -> page,                            // a page transformer; may batch lookups for the whole page
+            item -> writer.write(item));             // receives one item at a time
+    ```
+
+=== "Spring repository"
+
+    ```java
+    long written = orders.export(
+            query,
+            ExportOptions.of(2_000),
+            page -> page,
+            item -> writer.write(item));
+    ```
 
 - The page size defaults to `ModelQueryConfig.exportPageSize()` (`modelquery.export.page-size`, default 1000).
   `ExportOptions.withLimit(Limit)` caps the number of rows.

@@ -204,8 +204,21 @@ private static final ModelQuery<InsPersistEntity, Long, InsPersistView> VIEW = Q
 
 var persist = ModelPersist.of(COLUMNS, Long.class,
         new NewPersist("p1", InsPersistEntity.Status.PAID, true, "#42", "Hanoi", 2L));
-InsPersistView view = executor(em).persist(persist, VIEW);
 ```
+
+=== "Plain JPA"
+
+    ```java
+    // Needs an active transaction (MQ2501 without one).
+    InsPersistView view = executor(em).persist(persist, VIEW);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    // Joins the current transaction, or opens one and commits it before returning.
+    InsPersistView view = repository.persist(persist, VIEW);
+    ```
 
 The same overload is on `ModelQueryRepository` (see below). There is no `returning(...)` builder stage, and no
 entity-mode insert: `persist` in a loop is the way to fire listeners for many rows.
