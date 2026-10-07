@@ -73,6 +73,9 @@ try {
 | `MQ1607` | Bulk write: `Changes.from(...)` names a column that is not writable. |
 | `MQ1608` | Bulk write: `@PrimaryKey` is not the root entity's id. |
 | `MQ1609` | Bulk write: `setExpression` on a column with a converter. |
+| `MQ1610` | Bulk write: an update `throughEntities()` combined with `keepVersion()`, `expectVersion(v)` or `setExpression`, whatever the call order. |
+| `MQ1611` | Write assignment: an unknown path, an id, a `@Version`, a collection, a to-one or a whole embeddable, or overlapping kinds for one path. |
+| `MQ1612` | Write assignment: a type the attribute cannot take, or a supplier returning `null` or the wrong type. |
 | `MQ1801` | Insert: a column is not mapped, is mapped or set twice, is not on the written root, or is not in the model's `InsertColumns`; a `map` between columns with different converters or types; `lockKeys()` on insert-values; `insertReturningKeys` with `commitEachChunk()`. |
 | `MQ1802` | Insert: the model names a generated id, lacks an id that has no generator, or a row has a `null` assigned id; `persist` names a generated id (where the provider reports the generator) or part of a composite id. |
 | `MQ1803` | Insert: a `null` row. |
@@ -81,6 +84,7 @@ try {
 | `MQ1806` | Insert: a `chunked` insert-select whose source and target overlap, or whose tables the provider cannot name, or whose source joins through a link or collection table (`@ManyToMany`, `@ElementCollection`, a `@OneToMany` over a join table). |
 | `MQ1807` | Insert: keys requested for an `IDENTITY` or assigned id, or a key type that is not the id's type. |
 | `MQ1808` | Insert: two rows of one insert-values call with a conflict clause share a conflict-key tuple. |
+| `MQ1809` | `persist(persist, returning)`: a query with a `where` or `having` that recorded a filter, `groupBy`, a fetch plan, `customize`, `orderBy`, `keyset` or `primaryKeyFirst`, or a column the flushed entity cannot fill. |
 
 See [Queries and Filters](queries.md), [Grouped queries](grouped-queries.md), [Bulk writes](bulk-writes.md) and [Inserts](inserts.md).
 
@@ -169,7 +173,7 @@ See [Models and QModels](models.md).
 | `MQ4003` | A property value, or its `ModelQueryConfig` setting, is out of range. |
 | `MQ4004` | `commitEachChunk()` with no `ChunkTransactions` that serves the write's `EntityManagerFactory`. |
 | `MQ4005` | `modelquery.vendor` set with more than one `EntityManagerFactory` and no `ModelQueryConfigurer`. |
-| `MQ4006` | A `ModelQueryConfig` bean of your own drops a `VendorProfile` or `ChunkTransactions` bean, or a set `modelquery.*` property. |
+| `MQ4006` | A `ModelQueryConfig` bean of your own drops a `VendorProfile`, `WriteAssignment` or `ChunkTransactions` bean, or a set `modelquery.*` property. |
 | `MQ4007` | A repository declares `ModelQueryRepository` of an entity other than its domain type. |
 | `MQ4009` | A bulk insert on a factory whose persistence provider has no insert support, before any statement. `persist` still runs. |
 

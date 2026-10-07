@@ -22,8 +22,10 @@ public enum PersistenceContextMode {
     /**
      * Nothing: the root's entities stay managed but stale. Flushing a stale versioned one fails, since its version
      * moved; with {@code keepVersion()}, or on a root with no {@code @Version} attribute, the flush silently writes
-     * the stale values back over the bulk write. An entity-mode write leaves every entity it loaded managed and
-     * current, since it wrote them through the context, so the context then grows with every matched row.
+     * the stale values back over the bulk write. An entity-mode update leaves every entity it loaded managed and
+     * current, since it wrote them through the context, so the context then grows with every matched row. An
+     * entity-mode delete leaves no removed entity managed, since the flush detaches it; only what a cascade or a
+     * listener loaded alongside stays.
      */
     KEEP
 }

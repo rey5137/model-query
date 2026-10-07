@@ -1,6 +1,6 @@
 # API stability
 
-model-query is at 0.3.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
+model-query is at 0.4.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
 marked breaking. From 1.0.0 the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Today: everything is `@Incubating`
@@ -45,7 +45,8 @@ These stay `@Incubating` at 1.0, and freeze in a later 1.x minor once one minor 
 Bulk writes are described in [Bulk writes](bulk-writes.md).
 
 The insert types are new in 0.3.0 and `@Incubating` (D-116), and join the bulk-write types in that list. The freeze
-review moves to the milestone after 0.3.0 (D-111). The incubating insert types are:
+review moves to the milestone after 0.4.0, which waits for the adopter to run 0.4.0 in production (D-111, D-118). The
+incubating insert types are:
 
 - in `core`: `ModelInsert`, `ValuesInsert`, `ModelPersist`, `InsertColumns` and `ConflictUpdate`;
 - the `@InsertModel` annotation, and the generated `insert`, `insertFrom` and `persist` builders;
@@ -56,6 +57,19 @@ review moves to the milestone after 0.3.0 (D-111). The incubating insert types a
 - in the Spring modules: `ModelQueryRepository.insert`, `insertReturningKeys` and `persist`.
 
 Inserts are described in [Inserts](inserts.md).
+
+The entity-write types are new in 0.4.0 and `@Incubating` (D-118), and join the bulk-write types in that list. They are:
+
+- in `core`: `throughEntities()` on the options stage and each resumable stage of `ModelUpdate` and `ModelDelete`;
+- in `model-query-jpa`: `ModelQueryExecutor.persist(persist, returning)`, `WriteAssignment`, `WriteKind` and
+  `ModelQueryConfig.writeAssignments`;
+- in the Spring modules: `ModelQueryRepository.persist(persist, returning)`, and the starter's hand-over of every
+  `WriteAssignment` bean to the config.
+
+`ModelUpdate.entityMode`, `buildEntityLoad`, `assignedAttributes` and `assignedValues`, `ModelDelete.entityMode` and
+`buildEntityLoad`, `ModelQuery.checkReturning` and `mapReturning`, and `ModelInsert.conflictUpdateAdds` are
+`@EngineFacing`, so not API. Entity writes are described in
+[Bulk writes](bulk-writes.md#entity-mode).
 
 The fetch-plan types are new in 0.2.0, `@Incubating`, and not yet placed in the 1.0 freeze list above:
 `FetchPlan`, `ChildField`, `JoinField`, `ChildQuery`, `Enricher` and the `@Child` annotation. The executor-facing

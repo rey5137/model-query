@@ -667,7 +667,8 @@ With `CLEAR` (the default) the engine clears after each chunk's flush, which is 
 `commitEachChunk()` each chunk clears its own `EntityManager`, and the caller's is also cleared once after the last
 chunk, whether or not it failed, as a bulk write clears it after its last statement, since its managed copies of the
 written rows are stale. With `KEEP` nothing is detached: the loaded entities stay managed and current, since they were
-written through the context, and the Javadoc of `KEEP` says the context then grows with every matched row. The engine
+written through the context, and the Javadoc of `KEEP` says an update's context then grows with every matched row; a
+delete leaves no removed entity managed, since the flush detaches it. The engine
 never detaches only "what it loaded": a row the caller already had managed is the same instance, and detaching it
 would surprise the caller. The configured query timeout (R-EXE-11) applies to the key select and the load; the
 flush's statements get none, since JPA has no portable per-statement hint for them.

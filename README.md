@@ -11,10 +11,13 @@ Typed, projection-first queries on top of JPA.
 - A query engine for list, page, count, stream and large exports (offset or keyset paging).
 - Bulk update and delete driven by the same filters, with generated change sets that write only the fields that were
   set (`@Incubating`).
-- Inserts: insert-select, insert-values with returned keys and conflict clauses, and `persist` (`@Incubating`).
+- Inserts: insert-select, insert-values with returned keys and conflict clauses, and `persist`, which can return a
+  model (`@Incubating`).
+- Entity writes: an update or delete `throughEntities()` runs entity callbacks and audit listeners, and write
+  assignments fill server-set columns on every write (`@Incubating`).
 - Vendor-aware behaviour for **H2, PostgreSQL and MySQL**, behind an SPI other databases can implement.
 
-> **Status: 0.3.0.** Every public type is `@Incubating` and may change in a minor release until the 1.0 freeze
+> **Status: 0.4.0.** Every public type is `@Incubating` and may change in a minor release until the 1.0 freeze
 > ([API stability](docs/site/docs/stability.md)). The user guide is at
 > <https://rey5137.github.io/model-query/> (source under [`docs/site/docs/`](docs/site/docs/index.md)); the Javadoc is on
 > [javadoc.io](https://javadoc.io/doc/io.github.rey5137/model-query-core).

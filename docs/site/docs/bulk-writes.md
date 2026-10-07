@@ -1,10 +1,10 @@
 # Bulk writes
 
 !!! warning "Incubating"
-    Bulk updates and deletes are annotated `@Incubating`, as is the rest of the API in 0.x (see
-    [API stability](stability.md)). They are complete and tested, but their API may still change in a minor release;
-    at 1.0 the rest of the API freezes, and bulk writes freeze in a 1.x minor once one minor ships with no change to
-    them.
+    Bulk updates and deletes, entity mode and write assignments (new in 0.4.0) are annotated `@Incubating`, as is the
+    rest of the API in 0.x (see [API stability](stability.md)). They are complete and tested, but their API may still
+    change in a minor release; at 1.0 the rest of the API freezes, and bulk writes freeze in a 1.x minor once one minor
+    ships with no change to them.
 
 A bulk write is "change the rows these filters match". It is rendered as one JPA `CriteriaUpdate` or
 `CriteriaDelete`, or as a series of them in chunks. It reuses the [`Filters`](queries.md) DSL, the same join
@@ -12,7 +12,8 @@ resolution and converters as reads, and the vendor's limits.
 
 !!! important "What a bulk write does not do"
     It never loads an entity, and runs no lifecycle callback, cascade, Bean Validation (other than on a change set
-    you validate yourself) or audit listener. Those stay with ordinary JPA entity writes.
+    you validate yourself) or audit listener. Those stay with ordinary JPA entity writes, or with
+    [entity mode](#entity-mode), which runs them for an update or a delete.
 
 ## Update models and change sets
 
@@ -170,3 +171,94 @@ context by default (`PersistenceContextMode.CLEAR`, `modelquery.bulk-write.persi
     not written. `KEEP` leaves the root's entities managed but stale; on an entity without a `@Version`, or with
     `keepVersion()`, flushing a stale entity writes its old values back over the bulk write. The root entity is also
     evicted from the second-level cache either way.
+
+## Entity mode
+
+`throughEntities()` on an update or a delete writes through the entities instead of one bulk statement, so the things a
+bulk write skips run: `@PreUpdate`/`@PostUpdate`, `@PreRemove`/`@PostRemove`, the provider's event listeners (an audit
+library such as Envers), Bean Validation, cascades (`REMOVE`, `orphanRemoval`), the mapping's `@SQLDelete`, and the
+second-level cache, which the provider maintains, so nothing is evicted. The entity stays hidden: you still write a
+model and filters, never the entity.
+
+An entity-mode write is always chunked, with `ModelQueryConfig.bulkWriteChunkSize()` when you give no `chunked(...)`.
+Each chunk selects its keys as a chunked write does, loads the chunk's entities with one query, sets the assignments (an
+update) or calls `remove` (a delete), and flushes. The provider writes only the entities that changed. Test:
+`EntityUpdateTest.ac_wrt_34_an_entity_mode_update_fires_callbacks_and_the_hibernate_listener_once_per_changed_row_only`:
+
+```java
+var update = ModelUpdate.builder(ROOT).primaryKey(PrimaryKey.of(ID)).set(STATUS, "PAID")
+        .where(f -> f.lte(ID, 4L)).throughEntities().build();
+```
+
+Row 2 of that test is already `PAID`, so it fires no callback and no statement, but it counts. Test:
+`EntityDeleteTest.ac_wrt_35_an_entity_mode_delete_fires_remove_callbacks_and_the_hibernate_listener_once_per_row`:
+
+```java
+var delete = ModelDelete.builder(ROOT).primaryKey(PrimaryKey.of(ID)).where(f -> f.lte(ID, 3L))
+        .throughEntities().build();
+```
+
+What differs from a bulk write:
+
+- The returned count is the entities matched, not the rows the provider wrote; a delete may remove more rows than it
+  counts, through a cascade.
+- `keepVersion()`, `expectVersion(v)` and `setExpression` cannot be honoured on entities: an update combining one with
+  `throughEntities()`, in any order, throws `MQ1610` at `build()`; a delete has no such option. The provider checks
+  and increments a `@Version`, and an `OptimisticLockException` reaches you as it is, or inside a
+  `ChunkedWriteException` under `commitEachChunk()`.
+- It needs a transaction (`MQ2501` without one) unless it commits each chunk. A resume after a `ChunkedWriteException`
+  works as for a chunked write. Test:
+  `EntityUpdateTest.ac_wrt_36_commit_each_chunk_resumes_from_chunked_write_exception_after_an_optimistic_lock_failure`.
+- Under `PersistenceContextMode.CLEAR` the context is cleared after each chunk, so it holds at most one chunk of
+  entities; test: `EntityUpdateTest.ac_wrt_36_each_chunk_loads_with_one_select_and_clear_holds_at_most_one_chunk_of_entities`.
+  Under `KEEP` an update leaves every entity it loaded managed and current, and the context grows with every matched
+  row; a delete leaves none of its removed entities managed, since the flush detaches them.
+- The query timeout applies to the key select and the load, not to the flush.
+- It costs a key select and a load per chunk, then one `UPDATE` or `DELETE` statement per changed or removed entity at
+  the flush, so use it where the callbacks or audit matter, and a bulk write where they do not. There is no entity mode
+  for inserts: `persist` in a loop fires the same listeners.
+
+## Write assignments
+
+A server-set column, such as an updated-at stamp or an audit user, is easy to forget on one write among many. A
+`WriteAssignment` names the attribute once per entity, on the `ModelQueryConfig`, and every write of that entity applies
+it. Test: `WriteAssignmentTest.ac_wrt_39_a_bulk_update_sets_its_update_assignments_after_its_own_values_and_no_insert_one`:
+
+```java
+ModelQueryConfig.defaults().writeAssignments(List.of(
+        WriteAssignment.of(InsAuditedBase.class, "createdBy", String.class, WriteKind.INSERT, created),
+        WriteAssignment.of(InsAuditedBase.class, "updatedBy", String.class, WriteKind.INSERT_AND_UPDATE,
+                updated),
+        WriteAssignment.of(InsAuditedEntity.class, "stamp.touchedBy", String.class, WriteKind.UPDATE,
+                touched),
+        WriteAssignment.of(InsAuditedEntity.class, "callbackBy", String.class,
+                WriteKind.INSERT_AND_UPDATE, written),
+        WriteAssignment.of(InsSourceEntity.class, "code", String.class, WriteKind.INSERT_AND_UPDATE,
+                () -> "never")));
+```
+
+`WriteAssignment.of(entity, attribute, type, kind, supplier)` names an entity class, a dot-separated path to a basic
+attribute (through embeddables), the attribute's type and a supplier. It applies to the class and its subclasses, so one
+on a `@MappedSuperclass` covers every entity extending it. Under Spring Boot, declare each as a bean and the starter
+hands them to the config of every datasource.
+
+| `WriteKind` | Applied by |
+|---|---|
+| `INSERT` | insert-values, insert-select, `persist` |
+| `UPDATE` | bulk update (chunked and entity mode), the `doUpdate` branch of a conflict clause |
+| `INSERT_AND_UPDATE` | both lists above |
+
+Deletes and `doNothing` apply none.
+
+- The supplier is called once per write execution, so every chunk and row of one write gets the same value, and again
+  on a resume. It may be called from several threads, so keep it thread-safe; a `Clock` keeps tests deterministic.
+- An explicit `set`, `setNull` or change-set field for the same attribute wins, and the assignment is skipped.
+- In a bulk update an assignment is one more bound `set` after your own; an update with nothing else to write stays a
+  no-op.
+- Under `persist` and entity mode the value is set on the entity before the flush, so an entity callback that sets the
+  same attribute runs after it and wins. In an entity-mode update an `UPDATE` assignment dirties a matched row only
+  where its value differs from the loaded one: a row already holding the value is not written and fires no update
+  callback, and the count still counts it.
+- The path is checked on the first write per entity and factory, before any statement: an unknown path, an id, a
+  `@Version`, a collection, a to-one, a whole embeddable, or overlapping kinds for one path is `MQ1611`; a type the
+  attribute cannot take, or a supplier returning `null` or the wrong type, is `MQ1612`.

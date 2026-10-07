@@ -185,11 +185,36 @@ The entity is detached even when the flush fails. Before any statement, a model 
 `PersistTest.ac_wrt_26_persist_naming_a_generated_id_or_part_of_a_composite_id_throws_mq1802_before_any_statement`,
 `PersistTest.ac_wrt_28_persist_of_null_to_a_primitive_attribute_throws_mq1308_before_any_statement`.
 
+### Returning a model
+
+`persist(persist, returning)` gives back a query model instead of the key. The model is built from the flushed entity
+before it is detached, with no second select: the generated id, what `@PrePersist` and the entity's constructor set,
+and any [write assignment](bulk-writes.md#write-assignments) value are in it. The query supplies only the selection,
+the mapper, `afterMap` and the finisher, and it can fill root attributes, embeddable paths and the id of a to-one
+association, which it reads without initializing the target. A query with a `where` or `having` that recorded a
+filter, `groupBy`, a fetch plan, `customize`, `orderBy`, `keyset` or `primaryKeyFirst`, or a column the entity cannot
+fill alone (an expression, an aggregate, a join beyond a to-one id or with `on(...)`, a collection), is `MQ1809` on its
+first execution per factory, before any statement. A value the database fills, such as a column default or a trigger,
+is in the model only where the mapping has the provider read it back (`@Generated`). Test:
+`PersistReturningTest.ac_wrt_38_persist_returning_fills_the_generated_id_pre_persist_and_constructor_values_with_one_insert`.
+
+```java
+private static final ModelQuery<InsPersistEntity, Long, InsPersistView> VIEW = QInsPersistView.query()
+        .select(QInsPersistView.ALL.with(QInsPersistView.SOURCE)).build();
+
+var persist = ModelPersist.of(COLUMNS, Long.class,
+        new NewPersist("p1", InsPersistEntity.Status.PAID, true, "#42", "Hanoi", 2L));
+InsPersistView view = executor(em).persist(persist, VIEW);
+```
+
+The same overload is on `ModelQueryRepository` (see below). There is no `returning(...)` builder stage, and no
+entity-mode insert: `persist` in a loop is the way to fire listeners for many rows.
+
 ## With Spring Data
 
-`ModelQueryRepository` has `insert`, `insertReturningKeys` and `persist`. Each opens a transaction on the repository's
-transaction manager when none is active, so the rows are committed when the call returns, and joins an active one
-(R-SPR-10). Test:
+`ModelQueryRepository` has `insert`, `insertReturningKeys` and `persist`, with `persist(persist, returning)` as its
+second form. Each opens a transaction on the repository's transaction manager when none is active, so the rows are
+committed when the call returns, and joins an active one (R-SPR-10). Test:
 `ModelQueryRepositoryTest.ac_wrt_30_insert_insert_returning_keys_and_persist_without_a_transaction_commit_through_the_repository`.
 
 ```java
@@ -201,14 +226,19 @@ List<UUID> keys = uuids.insertReturningKeys(ValuesInsert.builder(CODED_UUIDS, UU
 Long key = persisted.persist(ModelPersist.of(CODED_PERSIST, Long.class, new Coded("p", null)));
 ```
 
-The Spring Boot sample has both endpoints. A `POST` creating one book through `persist`, tested by
+The Spring Boot sample has both endpoints. A `POST` creating one book through `persist` and answering with the
+persisted model, tested by
 `SampleApplicationTest.ac_spr_09_the_post_endpoint_persists_one_book_without_a_surrounding_transaction`:
 
 ```java
+private static final ModelQuery<BookEntity, Long, SavedBook> SAVED = QSavedBook.query()
+        .select(QSavedBook.ALL)
+        .build();
+
 @PostMapping("/books")
-ResponseEntity<Created> create(@RequestBody NewBook book) {
-    Long id = books.persist(QNewBook.persist(book));
-    return ResponseEntity.created(URI.create("/books/" + id)).body(new Created(id));
+ResponseEntity<SavedBook> create(@RequestBody NewBook book) {
+    SavedBook saved = books.persist(QNewBook.persist(book), SAVED);
+    return ResponseEntity.created(URI.create("/books/" + saved.id())).body(saved);
 }
 ```
 

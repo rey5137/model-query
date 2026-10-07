@@ -431,11 +431,11 @@ public final class ModelDelete<E, M> {
          * is the entities matched, not the rows a cascade removed with them. Always chunked: without
          * {@code chunked(...)} the configured bulk-write chunk size applies. With {@link PersistenceContextMode#CLEAR}
          * the persistence context is cleared after each chunk, and with {@code commitEachChunk()} the caller's is also
-         * cleared after the last chunk; with {@code KEEP} it grows with every matched row. The flush checks a
-         * {@code @Version}: its {@code OptimisticLockException} reaches the caller as is, or with
-         * {@code commitEachChunk()} as a {@link ChunkedWriteException} to resume after. The configured query timeout
-         * applies to the key select and the load, not to the flush's statements. A delete has no option this refuses
-         * (R-WRT-41 to R-WRT-47).
+         * cleared after the last chunk; with {@code KEEP} nothing is cleared, and the flush detaches the removed
+         * entities itself. The flush checks a {@code @Version}: its {@code OptimisticLockException} reaches the caller
+         * as is, or with {@code commitEachChunk()} as a {@link ChunkedWriteException} to resume after. The configured
+         * query timeout applies to the key select and the load, not to the flush's statements. A delete has no option
+         * this refuses (R-WRT-41 to R-WRT-47).
          */
         @Incubating
         public Options<E, K, M> throughEntities() {

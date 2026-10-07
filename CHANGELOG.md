@@ -6,6 +6,34 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-07
+
+Nothing is frozen yet: every public type stays `@Incubating`, and the freeze review moves to the next milestone, after an
+adopter runs 0.4.0 in production (D-111, D-118). No existing API changes incompatibly; the additions below are all
+`@Incubating`.
+
+### Added
+- Entity writes (RFC 0005, D-118), described in the "Bulk writes" and "Inserts" pages of the user guide:
+  - `throughEntities()` on a `ModelUpdate` or `ModelDelete`: each chunk loads its entities by key and writes them
+    through the metamodel, so entity callbacks, the provider's listeners, audit libraries, Bean Validation, cascades
+    and `@SQLDelete` run. Always chunked; the count is the entities matched. `MQ1610` for `keepVersion()`,
+    `expectVersion(...)` or `setExpression` combined with it, whatever the call order.
+  - `persist(persist, returning)` on `ModelQueryExecutor` and `ModelQueryRepository`: returns a query model built from
+    the flushed entity with no second select; `MQ1809` for a query clause or column it cannot fill.
+  - `WriteAssignment`, `WriteKind` and `ModelQueryConfig.writeAssignments`: a server-set column named once per
+    entity and applied by bulk update (chunked and entity mode), insert-values, insert-select, `doUpdate` and
+    `persist`, skipped where the write sets the attribute itself. `MQ1611` and `MQ1612` for a path or value that
+    does not fit. In an entity-mode update an assignment dirties a row only where its value differs (R-WRT-49).
+  - The Spring Boot starter hands every `WriteAssignment` bean to the config of each datasource; an application's own
+    `ModelQueryConfig` bean that drops one fails startup with `MQ4006`.
+  - The Spring Boot sample's `POST /books` returns the persisted `SavedBook`, and its updated-at column is a
+    `WriteAssignment` bean.
+- `MQ1610` to `MQ1612` and `MQ1809`; see the diagnostics reference.
+
+### Changed
+- `ModelQueryExecutor`, `ModelQueryRepository`, `ModelUpdate`, `ModelDelete` and `ModelQueryConfig` gain the methods
+  above. They are `@Incubating` or `@EngineFacing`, so `japicmp` ignores them.
+
 ## [0.3.0] - 2026-10-07
 
 Nothing is frozen yet: every public type stays `@Incubating`, and the freeze review moves to the next milestone (D-111,
