@@ -353,7 +353,8 @@ class EntityUpdateTest {
             p.forget();
             withoutTransaction(p, em -> assertThatThrownBy(() -> executor(em).update(update))
                     .isInstanceOfSatisfying(ModelQueryExecutionException.class,
-                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ2501)));
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ2501))
+                    .hasMessageContaining("an entity-mode update needs an active transaction"));
 
             assertThat(p.statements()).isEmpty();
         }

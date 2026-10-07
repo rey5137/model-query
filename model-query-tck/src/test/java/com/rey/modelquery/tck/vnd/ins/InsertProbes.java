@@ -72,9 +72,13 @@ public final class InsertProbes implements AutoCloseable {
                 InsCompositeEntity.class));
     }
 
-    /** As {@link #open(TckDatabase)}, also mapping the root an update or delete {@code throughEntities()} writes. */
+    /**
+     * As {@link #open(TckDatabase)}, also mapping the roots an update or delete {@code throughEntities()} writes: a
+     * listened root, a parent with cascading children, and a root with an {@code @SQLDelete}.
+     */
     public static InsertProbes withEntityWriteRoots(TckDatabase db) {
-        return open(db, null, List.of(InsListenedEntity.class));
+        return open(db, null, List.of(InsListenedEntity.class, InsParentEntity.class, InsChildEntity.class,
+                InsSoftDeletedEntity.class));
     }
 
     private static InsertProbes open(TckDatabase db, EnhancingClassLoader loader, List<Class<?>> extra) {

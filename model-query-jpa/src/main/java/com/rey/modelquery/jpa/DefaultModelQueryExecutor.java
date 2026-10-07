@@ -617,7 +617,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     public long update(ModelUpdate<E, ?> u) {
         Objects.requireNonNull(u, "u");
         checkWriteOnce(u, u::checkMetamodel);
-        requireTransaction("update", u.chunkOptions());
+        requireTransaction(u.entityMode() ? "an entity-mode update" : "a bulk update", u.chunkOptions());
         if (u.writesNothing()) {
             return 0;
         }
@@ -653,13 +653,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     }
 
     /**
-     * Runs an update {@code throughEntities()}: always chunked, in rounds of the {@code chunked} size, else the
-     * configured {@code bulkWriteChunkSize}, within the profile's clamp. Each round selects its keys as a chunked
-     * update does, then loads, assigns and flushes the round's entities (R-WRT-41, R-WRT-42, R-WRT-17). Pending entity
-     * changes are flushed first; the second-level cache is the provider's to maintain, so nothing is evicted
-     * (R-WRT-15, R-WRT-43). The query timeout applies to the key selects and the loads, not to the flushes, which
-     * have no portable per-statement hint (R-WRT-45). An {@code OptimisticLockException} from a flush reaches the
-     * caller as is, or, committing each chunk, wrapped in {@code ChunkedWriteException} (R-WRT-46).
+     * Runs an update {@code throughEntities()}: each round selects its keys as a chunked update does, then loads,
+     * assigns and flushes the round's entities (R-WRT-41, R-WRT-42, R-WRT-17), as {@link #entityRounds} runs them.
      */
     private <M> long updateEntities(ModelUpdate<E, M> u) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
@@ -678,19 +673,60 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 (on, keys) -> throughEntities(on, u.buildEntityLoad(cb, renderOptions, keys), repeated, mode,
                         entity -> PersistedEntity.assign(on, root, entity, attributes, values)),
                 u.startAfter(), u::modelKey);
-        int size = u.chunkOptions().map(chunk -> chunk.size().orElse(bulkWriteChunkSize)).orElse(bulkWriteChunkSize);
+        return entityRounds(keyed, tree, keys -> u.buildEntityLoad(cb, renderOptions, keys), u.chunkOptions(), mode,
+                cb, repeated);
+    }
+
+    /**
+     * Runs a delete {@code throughEntities()}: each round selects its keys as a chunked delete does, then loads the
+     * round's entities, removes each through the {@code EntityManager} and flushes, so cascades ({@code REMOVE},
+     * {@code orphanRemoval}) and the mapping's {@code @SQLDelete} run, and a delete may remove more rows than the
+     * entities it counts (R-WRT-41, R-WRT-42, R-WRT-43), as {@link #entityRounds} runs them.
+     */
+    private <M> long deleteEntities(ModelDelete<E, M> d) {
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        BuiltQuery<M> tree = d.buildKeySelect(cb, renderOptions);
+        // The load renders the tree the key select renders, so it repeats the same memoised expression binds.
+        int repeated = tree.joins().repeatedExpressionBinds();
+        PersistenceContextMode mode = d.persistenceContext().orElse(persistenceContextMode);
+        logWrite("delete throughEntities()", d, Optional.of(d.chunkOptions().orElse(ChunkOptions.defaultSize())),
+                false);
+        var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), d.primaryKey(), d.distinctKeys(),
+                run -> run == null ? d.buildKeySelect(cb, renderOptions) : d.buildKeySelect(cb, renderOptions, run),
+                (on, keys) -> throughEntities(on, d.buildEntityLoad(cb, renderOptions, keys), repeated, mode,
+                        on::remove),
+                d.startAfter(), d::modelKey);
+        return entityRounds(keyed, tree, keys -> d.buildEntityLoad(cb, renderOptions, keys), d.chunkOptions(), mode,
+                cb, repeated);
+    }
+
+    /**
+     * Runs the rounds of an entity write: always chunked, in rounds of the {@code chunked} size, else the configured
+     * {@code bulkWriteChunkSize}, within the profile's clamp, each round {@code keyed}'s key select and then its
+     * {@link #throughEntities} write (R-WRT-41, R-WRT-42). Pending entity changes are flushed first; the second-level
+     * cache is the provider's to maintain, so nothing is evicted (R-WRT-15, R-WRT-43). The query timeout applies to
+     * the key selects and the loads, not to the flushes, which have no portable per-statement hint (R-WRT-45). A
+     * failure, an {@code OptimisticLockException} included, reaches the caller as is, or, committing each chunk,
+     * wrapped in {@code ChunkedWriteException} (R-WRT-46). Committing each chunk under {@code CLEAR}, the caller's
+     * {@code EntityManager} is cleared once at the end, whether or not a round failed (R-WRT-45).
+     *
+     * @param tree the key select over every row the write chooses, whose binds {@code repeated} counts
+     * @param load the load of one round's entities, which sizes the rounds within the bind limit
+     */
+    private <M> long entityRounds(KeysetWrite.Keyed<M> keyed, BuiltQuery<M> tree,
+            Function<List<Object>, CriteriaQuery<E>> load, Optional<ChunkOptions> chunk, PersistenceContextMode mode,
+            CriteriaBuilder cb, int repeated) {
+        int size = chunk.map(options -> options.size().orElse(bulkWriteChunkSize)).orElse(bulkWriteChunkSize);
         if (em.isJoinedToTransaction()) {
             em.flush();
         }
         try {
-            return keyset(keyed, () -> em.createQuery(tree.query()),
-                    keys -> em.createQuery(u.buildEntityLoad(cb, renderOptions, keys)), u.chunkOptions(),
+            return keyset(keyed, () -> em.createQuery(tree.query()), keys -> em.createQuery(load.apply(keys)), chunk,
                     OptionalInt.of(size), cb, repeated);
         } finally {
             // Each chunk ran on its own EntityManager, so the caller's copies of the written rows are stale: cleared
             // once, as a bulk write clears after its last statement (R-WRT-45).
-            if (mode == PersistenceContextMode.CLEAR && u.chunkOptions().map(ChunkOptions::commitsEachChunk)
-                    .orElse(false)) {
+            if (mode == PersistenceContextMode.CLEAR && chunk.map(ChunkOptions::commitsEachChunk).orElse(false)) {
                 em.clear();
             }
         }
@@ -723,17 +759,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     @Override
     public long delete(ModelDelete<E, ?> d) {
         Objects.requireNonNull(d, "d");
-        if (d.entityMode()) {
-            // Stub until entity mode is built (M11.4): never fall back to a bulk statement, which skips the listeners.
-            throw new UnsupportedOperationException(rootEntity.getSimpleName()
-                    + ": a delete throughEntities() is not supported yet");
-        }
         checkWriteOnce(d, d::checkMetamodel);
-        requireTransaction("delete", d.chunkOptions());
+        requireTransaction(d.entityMode() ? "an entity-mode delete" : "a bulk delete", d.chunkOptions());
         if (d.writesNothing()) {
             return 0;
         }
-        return deleteRows(d);
+        return d.entityMode() ? deleteEntities(d) : deleteRows(d);
     }
 
     private <M> long deleteRows(ModelDelete<E, M> d) {
@@ -758,7 +789,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(i, "i");
         InsertSupport support = insertSupport(i);
         checkInsertOnce(i, support);
-        requireTransaction("insert", i.chunkOptions());
+        requireTransaction("a bulk insert", i.chunkOptions());
         if (i.sourceEntity().isPresent()) {
             return insertSelect(i, support);
         }
@@ -801,7 +832,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         InsertSupport support = insertSupport(i);
         checkInsertOnce(i, support);
         InsertChecks.checkKeysGenerated(i, insertTarget(support).id());
-        requireTransaction("insert", i.chunkOptions());
+        requireTransaction("a bulk insert", i.chunkOptions());
         var keys = new ArrayList<Object>(i.rowCount());
         insertValues(i, support, keys);
         return keys.stream().map(i.keyType()::cast).toList();
@@ -1133,8 +1164,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     }
 
     /**
-     * Throws {@code MQ2501} naming {@code operation} when {@code em} is not joined to a transaction, before any
-     * statement, instead of the provider's {@code TransactionRequiredException} at the end (R-WRT-18). A write whose
+     * Throws {@code MQ2501} naming {@code operation}, the write with its article ({@code "a bulk update"}), when
+     * {@code em} is not joined to a transaction, before any statement, instead of the provider's
+     * {@code TransactionRequiredException} at the end (R-WRT-18). A write whose
      * {@code chunk} options commit each chunk needs no transaction but a {@link ChunkTransactions} that serves the
      * factory, else it throws {@code MQ4004} before any statement, the flush included (R-WRT-19, D-62).
      */
@@ -1144,13 +1176,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             return;
         }
         if (!em.isJoinedToTransaction()) {
-            throw new ModelQueryExecutionException(MqCode.MQ2501, rootEntity.getSimpleName() + ": a bulk " + operation
+            throw new ModelQueryExecutionException(MqCode.MQ2501, rootEntity.getSimpleName() + ": " + operation
                     + " needs an active transaction, and the EntityManager is not joined to one");
         }
     }
 
     private void requireChunkTransactions(String operation) {
-        String write = rootEntity.getSimpleName() + ": a bulk " + operation + " with commitEachChunk()";
+        String write = rootEntity.getSimpleName() + ": " + operation + " with commitEachChunk()";
         if (chunkTransactions == null) {
             throw new ModelQueryConfigurationException(MqCode.MQ4004, write + " runs each chunk through a "
                     + "ChunkTransactions, and none is set on ModelQueryConfig.chunkTransactions(...)");

@@ -3,6 +3,7 @@ package com.rey.modelquery.core;
 import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaDelete;
+import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.metamodel.Metamodel;
@@ -234,6 +235,24 @@ public final class ModelDelete<E, M> {
         return definition.entityMode();
     }
 
+    /**
+     * Renders the load of one chunk of a delete {@code throughEntities()}: the root entities whose key is among
+     * {@code keys}, the keys a {@link #buildKeySelect key select} chose, that the {@code where} tree still chooses,
+     * rendered as {@link #buildWrite(CriteriaBuilder, RenderOptions)} renders it, so each entity comes once; a row
+     * that stopped matching since the key select is not loaded (R-WRT-17, R-WRT-42).
+     *
+     * @param keys attribute-value keys, as a key select's rows hold them
+     * @throws IllegalArgumentException for empty {@code keys}
+     */
+    @EngineFacing
+    @Incubating
+    public CriteriaQuery<E> buildEntityLoad(CriteriaBuilder cb, RenderOptions options, List<?> keys) {
+        Objects.requireNonNull(cb, "cb");
+        Objects.requireNonNull(options, "options");
+        return WriteRendering.entityLoad(WriteRendering.selectedKeys(Objects.requireNonNull(keys, "keys")),
+                definition.rows().where(), definition.primaryKey(), rootEntity(), cb, options);
+    }
+
     private BuiltQuery<M> keySelect(CriteriaBuilder cb, RenderOptions options, List<Object> keys) {
         Objects.requireNonNull(cb, "cb");
         Objects.requireNonNull(options, "options");
@@ -407,11 +426,16 @@ public final class ModelDelete<E, M> {
          * Deletes through the entities instead of one bulk statement: each chunk selects its keys as
          * {@link #chunked(ChunkOptions)} does, loads those entities with one query and removes each, then flushes, so
          * {@code @PreRemove}/{@code @PostRemove}, the provider's listeners, audits, cascades ({@code REMOVE},
-         * {@code orphanRemoval}) and the mapping's {@code @SQLDelete} run. A cascade may remove more rows than the
-         * count, which is the rows matched. Always chunked: without {@code chunked(...)} the configured bulk-write
-         * chunk size applies. With {@link PersistenceContextMode#CLEAR} the persistence context is cleared after each
-         * chunk; with {@code KEEP} it grows with every matched row. A delete has no option this refuses (R-WRT-41 to
-         * R-WRT-47).
+         * {@code orphanRemoval}) and the mapping's {@code @SQLDelete} run, and the provider maintains the
+         * second-level cache, so nothing is evicted. A delete may therefore remove more rows than it counts: the count
+         * is the entities matched, not the rows a cascade removed with them. Always chunked: without
+         * {@code chunked(...)} the configured bulk-write chunk size applies. With {@link PersistenceContextMode#CLEAR}
+         * the persistence context is cleared after each chunk, and with {@code commitEachChunk()} the caller's is also
+         * cleared after the last chunk; with {@code KEEP} it grows with every matched row. The flush checks a
+         * {@code @Version}: its {@code OptimisticLockException} reaches the caller as is, or with
+         * {@code commitEachChunk()} as a {@link ChunkedWriteException} to resume after. The configured query timeout
+         * applies to the key select and the load, not to the flush's statements. A delete has no option this refuses
+         * (R-WRT-41 to R-WRT-47).
          */
         @Incubating
         public Options<E, K, M> throughEntities() {

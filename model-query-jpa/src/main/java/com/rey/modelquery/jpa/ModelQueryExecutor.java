@@ -215,6 +215,14 @@ public interface ModelQueryExecutor<E> {
      * chunked (R-WRT-17, R-WRT-19); a row a foreign key protects surfaces the provider's constraint exception
      * (R-WRT-18), as the cause of {@code MQ2502} with {@code commitEachChunk()}.
      *
+     * <p>A delete {@code throughEntities()} runs those rounds, then loads each round's entities with one query, removes
+     * each through the {@code EntityManager} and flushes, so callbacks, listeners, cascades ({@code REMOVE},
+     * {@code orphanRemoval}) and the mapping's {@code @SQLDelete} run. It returns the entities matched, so it may
+     * remove more rows than it counts. It evicts nothing, and clears after each round's flush unless the mode is
+     * {@code KEEP}, and the caller's {@code EntityManager} once more after the last round with
+     * {@code commitEachChunk()}. The query timeout applies to the key selects and the loads, not to the flushes
+     * (R-WRT-41 to R-WRT-47).
+     *
      * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution: {@code MQ1608} when the
      *     definition's primary key is not the root entity's id
      * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2501}, before any statement, when the
@@ -222,7 +230,10 @@ public interface ModelQueryExecutor<E> {
      *     (R-WRT-18); key-first or chunked, {@code MQ2205} when a key select returns a key the round before already
      *     wrote (R-WRT-17)
      * @throws com.rey.modelquery.core.ChunkedWriteException {@code MQ2502} when a round of a
-     *     {@code commitEachChunk()} delete fails (R-WRT-20)
+     *     {@code commitEachChunk()} delete fails (R-WRT-20), a {@code throughEntities()} flush's
+     *     {@code OptimisticLockException} included (R-WRT-46)
+     * @throws jakarta.persistence.OptimisticLockException {@code throughEntities()} and not {@code commitEachChunk()},
+     *     when a flush finds a loaded entity's version moved (R-WRT-46)
      * @throws com.rey.modelquery.core.ModelQueryConfigurationException {@code MQ4004}, before any statement, as
      *     {@link #update} throws it (R-WRT-19)
      */
