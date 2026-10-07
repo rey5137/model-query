@@ -40,6 +40,7 @@ validation:
 nav:
   - Home: index.md
   - Architecture: architecture.md
+  - Compared with JPA, Querydsl and Blaze: comparison.md
   - Getting started:
       - Without Spring: getting-started/plain-jpa.md
       - With Spring Boot: getting-started/spring-boot.md

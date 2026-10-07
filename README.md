@@ -102,6 +102,7 @@ Java 17+, Jakarta Persistence 3.1+, Hibernate ORM 6.6+ (tested on 6.6 and 7.x), 
 
 | Audience | Where |
 |---|---|
+| Why Model Query | [Compared with JPA, Querydsl and Blaze-Persistence](docs/site/docs/comparison.md) |
 | Getting started | [Without Spring](docs/site/docs/getting-started/plain-jpa.md), [with Spring Boot](docs/site/docs/getting-started/spring-boot.md) |
 | Using the library | [Models](docs/site/docs/models.md), [queries](docs/site/docs/queries.md), [paging and export](docs/site/docs/paging-export.md), [grouped queries](docs/site/docs/grouped-queries.md), [bulk writes](docs/site/docs/bulk-writes.md), [vendors](docs/site/docs/vendors.md), [Spring](docs/site/docs/spring.md), [diagnostics](docs/site/docs/diagnostics.md) |
 | Samples | [plain JPA](samples/plain-jpa) (the quick start in [19 lines](samples/plain-jpa/src/main/java/com/rey/modelquery/sample/plainjpa/QuickStart.java)), [Spring Boot](samples/spring-boot) |
