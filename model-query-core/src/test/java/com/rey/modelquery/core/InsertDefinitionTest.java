@@ -403,15 +403,31 @@ class InsertDefinitionTest {
                         .where(f -> f.in(STATUS, List.of("NEW", "PAID")).ne(FLAGGED, true)))
                 .build();
         // where: 3 values; assignments: 3 and the version increment; values: the set, the setNull and the increment
-        assertThat(upsert.conflictBinds()).isEqualTo(3 * 5 + 3);
-        assertThat(upsert.conflictRepeatedBinds()).isEqualTo(3 * 4);
+        assertThat(upsert.conflictBinds(List.of())).isEqualTo(3 * 5 + 3);
+        assertThat(upsert.conflictRepeatedBinds(List.of())).isEqualTo(3 * 4);
 
         ModelInsert<Order, NewOrder> kept = values().onConflict(REF)
                 .doUpdate(u -> u.setFromRow(STATUS)).keepVersion().build();
-        assertThat(kept.conflictBinds()).isZero();
-        assertThat(kept.conflictRepeatedBinds()).isZero();
-        assertThat(values().onConflict(REF).doNothing().build().conflictBinds()).isZero();
-        assertThat(values().build().conflictBinds()).isZero();
+        assertThat(kept.conflictBinds(List.of())).isZero();
+        assertThat(kept.conflictRepeatedBinds(List.of())).isZero();
+        assertThat(values().onConflict(REF).doNothing().build().conflictBinds(List.of())).isZero();
+        assertThat(values().build().conflictBinds(List.of())).isZero();
+    }
+
+    @Test
+    void ac_wrt_39_a_conflict_update_counts_the_write_assignments_it_adds_and_not_those_it_assigns_itself() {
+        ModelInsert<Order, NewOrder> upsert = values().onConflict(REF)
+                .doUpdate(u -> u.setFromRow(STATUS).set(CREATED_BY, "batch").setNull(NOTE)
+                        .where(f -> f.in(STATUS, List.of("NEW", "PAID")).ne(FLAGGED, true)))
+                .build();
+        // The clause sets the note and the status itself; it adds the updatedBy assignment alone
+        List<String> written = List.of("note", "updatedBy", "status");
+        assertThat(upsert.conflictUpdateAdds(written)).containsExactly("updatedBy");
+        assertThat(upsert.conflictBinds(written)).isEqualTo(3 * 6 + 4);
+        assertThat(upsert.conflictRepeatedBinds(written)).isEqualTo(3 * 5);
+        assertThat(values().onConflict(REF).doNothing().build().conflictBinds(written)).isZero();
+        assertThat(values().build().conflictRepeatedBinds(written)).isZero();
+        assertThat(values().build().conflictUpdateAdds(written)).isEmpty();
     }
 
     // ---- ChunkedWriteException

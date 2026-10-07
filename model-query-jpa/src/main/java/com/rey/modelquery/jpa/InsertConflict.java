@@ -7,6 +7,7 @@ import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -15,8 +16,11 @@ import java.util.Optional;
  *
  * @param insert an insert-values with a conflict clause
  * @param options how the update's {@code where} renders, as the executor's other statements do
+ * @param written the {@code UPDATE} write assignments' values by attribute path, which a {@code doUpdate} sets after
+ *     its own unless it sets the attribute itself (R-WRT-49)
  */
-record InsertConflict<E>(ModelInsert<E, ?> insert, RenderOptions options) implements ConflictClause<E> {
+record InsertConflict<E>(ModelInsert<E, ?> insert, RenderOptions options, Map<String, Object> written)
+        implements ConflictClause<E> {
 
     @Override
     public List<String> keyAttributes() {
@@ -30,6 +34,7 @@ record InsertConflict<E>(ModelInsert<E, ?> insert, RenderOptions options) implem
 
     @Override
     public Optional<Predicate> update(Root<E> target, Root<E> excluded, CriteriaBuilder cb, Assignments assign) {
-        return insert.buildConflictUpdate(target, excluded, cb, options, assign::value, assign::expression);
+        return insert.buildConflictUpdate(target, excluded, cb, options, written, assign::value,
+                assign::expression);
     }
 }

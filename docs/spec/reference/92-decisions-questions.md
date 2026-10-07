@@ -714,9 +714,9 @@ ArchUnit checks. `hibernate-validator` and `tomcat-embed-el` are test-scope only
 (`core`, class retention, methods only; D-86 lets it mark a type too): `ModelQuery.buildQuery`, `checkPhases`,
 `checkFetch`, `checkReturning` and `mapReturning` (D-118), and on `ModelUpdate` and `ModelDelete` `checkMetamodel`,
 `writesNothing`, every `buildWrite` and `buildKeySelect` overload, `readsTargetInSubquery`, `distinctKeys`,
-`startAfter`, `modelKey` and `buildEntityLoad`, and on `ModelUpdate` `assignedAttributes` and `assignedValues`
-(D-118). Like `jpa.vendor` (R-REL-10) they may change in any release; `japicmp` excludes them. This makes D-67's
-`readsTargetInSubquery` boolean (now `entitiesReadInSubquery`, D-109) non-API. →
+`startAfter`, `modelKey` and `buildEntityLoad`, on `ModelUpdate` `assignedAttributes` and `assignedValues`, and on
+`ModelInsert` `conflictUpdateAdds` (D-118). Like `jpa.vendor` (R-REL-10) they may change in any release; `japicmp`
+excludes them. This makes D-67's `readsTargetInSubquery` boolean (now `entitiesReadInSubquery`, D-109) non-API. →
 `delivery/61` R-REL-10, R-REL-11.
 
 **D-73 — `lastCommittedKey()` of a keyed write (amends D-68).** For a `whereKey`/`whereKeys` write,
@@ -1534,6 +1534,16 @@ filter, so one whose `Optional` filters were all skipped is not `MQ1809`: it wou
 root column naming an association itself, typed as the target entity, is `MQ1809`, whose message says to select the
 target's id through a join instead, since the entity holds only an uninitialized reference. `ModelQuery.checkReturning`
 and `mapReturning` join D-72's engine-facing members.
+
+*Addendum (M11.6).* Write assignments are checked on the first update, insert or `persist` per root per factory for
+each configured list, never on a delete, which applies none; `MQ1611` and `MQ1612` are `ModelQueryDefinitionException`s
+like every `MQ1xxx`. A supplier is called only where its value is written: not for an update that writes nothing or an
+insert-values of no rows, nor for an attribute the definition sets itself, and an insert and its `doUpdate` share one
+call. A bulk update sets the assignments after the version increment; an insert-select selects each as a bound
+parameter after the `set` constants; a `doUpdate` counts an assignment's binds, MySQL's `CASE` repeat included, and
+one its `where` reads goes last and counts toward R-WRT-34's limit of one such column. `ModelInsert.conflictUpdateAdds`
+joins D-72's engine-facing members, and `buildConflictUpdate`, `conflictBinds`, `conflictRepeatedBinds` and
+`conflictWhereReadsAssigned` take the assignments' paths.
 
 → INV-1, P-5, `api/14` §11 (R-WRT-41 to R-WRT-49), `reference/90` (`MQ1610`–`MQ1612`, `MQ1809`), `integration/50`
 R-SPR-10, `delivery/62`, `docs/plan/mvp-plan.md` §M11, `rfc/0005-entity-writes.md`.

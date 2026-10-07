@@ -58,6 +58,7 @@ import jakarta.persistence.Tuple;
 import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.CriteriaUpdate;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Join;
@@ -81,6 +82,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -111,6 +113,9 @@ import java.util.stream.Stream;
 final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     private static final System.Logger LOG = System.getLogger(DefaultModelQueryExecutor.class.getName());
+
+    /** The prefix of the parameters an insert-select selects its write assignments' values as (R-WRT-49). */
+    private static final String ASSIGNED = "mqAssigned";
     private static final System.Logger.Level DEBUG = System.Logger.Level.DEBUG;
     private static final System.Logger.Level TRACE = System.Logger.Level.TRACE;
 
@@ -618,14 +623,18 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     public long update(ModelUpdate<E, ?> u) {
         Objects.requireNonNull(u, "u");
         checkWriteOnce(u, u::checkMetamodel);
+        WriteAssignments assignments = writeAssignments();
         requireTransaction(u.entityMode() ? "an entity-mode update" : "a bulk update", u.chunkOptions());
         if (u.writesNothing()) {
-            return 0;
+            return 0; // never a write just for the write assignments (R-WRT-49)
         }
+        Set<String> set = u.assignments().stream().map(assignment -> assignment.column().name())
+                .collect(Collectors.toSet());
+        List<WriteAssignments.Written> added = assignments.execution().values(WriteKind.UPDATE, set);
         if (u.entityMode()) {
-            return updateEntities(u);
+            return updateEntities(u, added);
         }
-        long written = updateRows(u);
+        long written = updateRows(u, added);
         if (written == 0 && u.expectedVersion().isPresent()) {
             throw new OptimisticLockException(rootEntity.getSimpleName() + ": no row was written with version "
                     + u.expectedVersion().get() + "; its version moved, or it no longer exists or matches");
@@ -633,13 +642,14 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return written;
     }
 
-    private <M> long updateRows(ModelUpdate<E, M> u) {
+    /** Runs a bulk update, each statement setting {@code added}, the write assignments, after its own (R-WRT-49). */
+    private <M> long updateRows(ModelUpdate<E, M> u, List<WriteAssignments.Written> added) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
         BiFunction<Class<?>, Object, ?> references = em::getReference;
         int repeated = u.repeatedExpressionBinds(cb, renderOptions, references);
-        Supplier<Query> whole = () -> em.createQuery(u.buildWrite(cb, renderOptions, references));
-        Function<List<Object>, Query> byKeys = chunk -> em.createQuery(u.buildWrite(cb, renderOptions, references,
-                chunk));
+        Supplier<Query> whole = () -> em.createQuery(assigning(u.buildWrite(cb, renderOptions, references), added));
+        Function<List<Object>, Query> byKeys = chunk -> em.createQuery(assigning(u.buildWrite(cb, renderOptions,
+                references, chunk), added));
         boolean rootTermsOnly = keyFirst(() -> u.entitiesReadInSubquery(cb, renderOptions));
         logWrite("update", u, u.chunkOptions(), rootTermsOnly);
         if (!rootTermsOnly && u.chunkOptions().isEmpty()) {
@@ -647,24 +657,51 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), u.primaryKey(), u.distinctKeys(),
                 run -> run == null ? u.buildKeySelect(cb, renderOptions) : u.buildKeySelect(cb, renderOptions, run),
-                (on, keys) -> execute(on.createQuery(u.buildWrite(cb, renderOptions, on::getReference, keys,
-                        rootTermsOnly)), repeated),
+                (on, keys) -> execute(on.createQuery(assigning(u.buildWrite(cb, renderOptions, on::getReference,
+                        keys, rootTermsOnly), added)), repeated),
                 u.startAfter(), u::modelKey);
         return write(u.persistenceContext(), () -> keyset(keyed, whole, byKeys, u.chunkOptions(), cb, repeated));
+    }
+
+    /** {@code update} with a plain {@code set} of each of {@code added}'s values, after its own (R-WRT-49). */
+    private static <E> CriteriaUpdate<E> assigning(CriteriaUpdate<E> update, List<WriteAssignments.Written> added) {
+        for (WriteAssignments.Written written : added) {
+            setValue(update, path(update.getRoot(), written.path()), written.value());
+        }
+        return update;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <Y> void setValue(CriteriaUpdate<?> update, Path<Y> path, Object value) {
+        update.set(path, (Y) value);
+    }
+
+    /** The path of {@code attribute}, dotted through embeddables, below {@code root}. */
+    private static Path<?> path(Path<?> root, String attribute) {
+        Path<?> path = root;
+        for (String segment : attribute.split("\\.")) {
+            path = path.get(segment);
+        }
+        return path;
     }
 
     /**
      * Runs an update {@code throughEntities()}: each round selects its keys as a chunked update does, then loads,
      * assigns and flushes the round's entities (R-WRT-41, R-WRT-42, R-WRT-17), as {@link #entityRounds} runs them.
+     * Each entity gets {@code added}, the write assignments, after the definition's values, so every matched row is
+     * dirty and an entity callback setting the same attribute at the flush wins (R-WRT-49).
      */
-    private <M> long updateEntities(ModelUpdate<E, M> u) {
+    private <M> long updateEntities(ModelUpdate<E, M> u, List<WriteAssignments.Written> added) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
         BuiltQuery<M> tree = u.buildKeySelect(cb, renderOptions);
         // The load renders the tree the key select renders, so it repeats the same memoised expression binds.
         int repeated = tree.joins().repeatedExpressionBinds();
-        List<String> attributes = u.assignedAttributes();
-        List<Object> values = u.assignedValues();
-        // R-WRT-49's write assignments join these here, for the attributes the definition does not set.
+        List<String> attributes = new ArrayList<>(u.assignedAttributes());
+        List<Object> values = new ArrayList<>(u.assignedValues());
+        added.forEach(written -> {
+            attributes.add(written.path());
+            values.add(written.value());
+        });
         PersistenceContextMode mode = u.persistenceContext().orElse(persistenceContextMode);
         EntityType<E> root = em.getMetamodel().entity(rootEntity);
         logWrite("update throughEntities()", u, Optional.of(u.chunkOptions().orElse(ChunkOptions.defaultSize())),
@@ -789,35 +826,43 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     public long insert(ModelInsert<E, ?> i) {
         Objects.requireNonNull(i, "i");
         InsertSupport support = insertSupport(i);
-        checkInsertOnce(i, support);
+        WriteAssignments assignments = writeAssignments();
+        checkInsertOnce(i, support, assignments);
         requireTransaction("a bulk insert", i.chunkOptions());
         if (i.sourceEntity().isPresent()) {
-            return insertSelect(i, support);
+            return insertSelect(i, support, assignments);
         }
-        return insertValues(i, support, null);
+        return insertValues(i, support, null, assignments);
     }
 
     /**
      * Runs an insert-select: its source select built as the read path builds it, then written as one statement, or
      * with {@code chunked} key-first over the distinct source-root ids, so each source row is read once; the
      * persistence context is flushed before and cleared after, as for any bulk write (R-WRT-27, R-WRT-28, R-WRT-38).
+     * The write assignments the definition leaves are selected as constants after its own (R-WRT-49).
      */
-    private long insertSelect(ModelInsert<E, ?> i, InsertSupport support) {
+    private long insertSelect(ModelInsert<E, ?> i, InsertSupport support, WriteAssignments assignments) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
-        List<String> attributes = i.selectedAttributes(em.getMetamodel());
-        Map<String, Object> constants = i.selectParameters();
+        List<String> attributes = new ArrayList<>(i.selectedAttributes(em.getMetamodel()));
+        Map<String, Object> constants = new LinkedHashMap<>(i.selectParameters());
+        List<WriteAssignments.Written> added = assignments.execution().values(WriteKind.INSERT, attributes);
+        for (int a = 0; a < added.size(); a++) {
+            attributes.add(added.get(a).path());
+            constants.put(ASSIGNED + a, added.get(a).value());
+        }
         BuiltQuery<?> select = i.buildSelect(cb, renderOptions);
         int repeated = select.joins().repeatedExpressionBinds();
         BiFunction<EntityManager, CriteriaQuery<Tuple>, Query> statement = (on, source) ->
                 support.insertSelect(on, rootEntity, attributes, source, constants);
-        Supplier<Query> whole = () -> statement.apply(em, select.query());
+        CriteriaQuery<Tuple> wholeSource = selecting(select.query(), cb, added);
+        Supplier<Query> whole = () -> statement.apply(em, wholeSource);
         logWrite("insert", i, i.chunkOptions(), false);
         if (i.chunkOptions().isEmpty()) {
             return write(i.persistenceContext(), () -> execute(whole.get(), repeated));
         }
         PrimaryKey<Object, ?> key = i.sourceKey(em.getMetamodel());
         BiFunction<EntityManager, List<Object>, Query> byKeys = (on, keys) -> statement.apply(on,
-                i.buildSelect(cb, renderOptions, key, keys).query());
+                selecting(i.buildSelect(cb, renderOptions, key, keys).query(), cb, added));
         // The source keys are attribute values of plain id columns, which is what the exception reports (R-WRT-32).
         var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), key, Optional.empty(),
                 run -> i.buildKeySelect(cb, renderOptions, key),
@@ -826,16 +871,35 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 i.chunkOptions(), cb, repeated));
     }
 
+    /**
+     * {@code source}, a new source select, selecting each of {@code added} last, as a parameter named after its index,
+     * not a literal, which a provider may inline (R-WRT-14, R-WRT-49).
+     */
+    private static CriteriaQuery<Tuple> selecting(CriteriaQuery<Tuple> source, CriteriaBuilder cb,
+            List<WriteAssignments.Written> added) {
+        if (added.isEmpty()) {
+            return source;
+        }
+        Selection<?> own = source.getSelection();
+        var selected = new ArrayList<Selection<?>>(own.isCompoundSelection() ? own.getCompoundSelectionItems()
+                : List.of(own));
+        for (int a = 0; a < added.size(); a++) {
+            selected.add(cb.parameter(added.get(a).type(), ASSIGNED + a));
+        }
+        return source.multiselect(selected);
+    }
+
     @Override
     public <K> List<K> insertReturningKeys(ValuesInsert<E, K, ?> i) {
         Objects.requireNonNull(i, "i");
         i.checkKeysReturnable();
         InsertSupport support = insertSupport(i);
-        checkInsertOnce(i, support);
+        WriteAssignments assignments = writeAssignments();
+        checkInsertOnce(i, support, assignments);
         InsertChecks.checkKeysGenerated(i, insertTarget(support).id());
         requireTransaction("a bulk insert", i.chunkOptions());
         var keys = new ArrayList<Object>(i.rowCount());
-        insertValues(i, support, keys);
+        insertValues(i, support, keys, assignments);
         return keys.stream().map(i.keyType()::cast).toList();
     }
 
@@ -845,26 +909,43 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * {@code commitEachChunk()} in its own. A sequence, table or UUID id is drawn from the generator before each
      * statement, written as a value and added to {@code keys} when given. A conflict clause goes in every statement.
      * An empty list runs no SQL, not even the flush; otherwise the persistence context is flushed before and cleared
-     * after, as for any bulk write (R-WRT-26, R-WRT-29, R-WRT-32, R-WRT-33, R-WRT-34, R-WRT-38).
+     * after, as for any bulk write (R-WRT-26, R-WRT-29, R-WRT-32, R-WRT-33, R-WRT-34, R-WRT-38). Each row writes the
+     * {@code INSERT} write assignments the definition leaves after its own values, and a {@code doUpdate} the
+     * {@code UPDATE} ones, each supplier called once for the whole insert (R-WRT-49).
      */
-    private long insertValues(ModelInsert<E, ?> i, InsertSupport support, List<Object> keys) {
+    private long insertValues(ModelInsert<E, ?> i, InsertSupport support, List<Object> keys,
+            WriteAssignments assignments) {
         int rows = i.rowCount();
         if (rows == 0) {
             return 0;
         }
         EntityManagerFactory emf = em.getEntityManagerFactory();
         List<String> attributes = new ArrayList<>(i.valueAttributes(em.getMetamodel()));
+        WriteAssignments.Execution execution = assignments.execution();
+        List<Object> added = new ArrayList<>();
+        for (WriteAssignments.Written written : execution.values(WriteKind.INSERT, attributes)) {
+            attributes.add(written.path());
+            added.add(written.value());
+        }
+        Map<String, Object> updated = Map.of();
+        if (conflictUpdates(i)) {
+            // Only those the clause does not assign itself, so no other supplier is called
+            Set<String> set = new HashSet<>(assignments.paths(WriteKind.UPDATE));
+            i.conflictUpdateAdds(set).forEach(set::remove);
+            updated = WriteAssignments.byPath(execution.values(WriteKind.UPDATE, set));
+        }
         boolean drawn = InsertChecks.drawsKeys(insertTarget(support).id());
         if (drawn) {
             attributes.add(idAttribute());
         }
         int providerBinds = support.providerBindsPerRow(emf, rootEntity);
-        int conflictRepeatedBinds = i.conflictRepeatedBinds();
-        int perStatement = rowsPerStatement(i, attributes.size() + providerBinds);
+        int conflictRepeatedBinds = i.conflictRepeatedBinds(updated.keySet());
+        int perStatement = rowsPerStatement(i, attributes.size() + providerBinds, i.conflictBinds(updated.keySet()));
         Optional<ConflictClause<E>> conflict = i.conflictKeys().isEmpty() ? Optional.empty()
-                : Optional.of(new InsertConflict<>(i, renderOptions));
+                : Optional.of(new InsertConflict<>(i, renderOptions, updated));
         ValuesWrite.Statement statement = (on, from, to) -> {
             List<List<Object>> values = i.valueRows(from, to);
+            values.forEach(row -> row.addAll(added));
             if (drawn) {
                 List<Object> drawnKeys = support.generateKeys(on, rootEntity, to - from);
                 for (int r = 0; r < values.size(); r++) {
@@ -885,13 +966,14 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * The most rows one insert-values statement takes: as many as stay within the bind limit at {@code bindsPerRow}
-     * each, the columns, the {@code set} constants, a drawn id and the provider's own binds such as the version seed,
-     * once the conflict clause's binds are bound, and within the profile's {@code maxValuesRows()}, capped by the
-     * chunk size, the given or else the configured one, when chunked; at least one, which {@code execute} refuses
-     * with {@code MQ1307} should it alone pass the bind limit (R-WRT-29, D-80).
+     * each, the columns, the {@code set} constants, the write assignments, a drawn id and the provider's own binds
+     * such as the version seed, once the conflict clause's {@code conflictBinds} are bound, and within the profile's
+     * {@code maxValuesRows()}, capped by the chunk size, the given or else the configured one, when chunked; at least
+     * one, which {@code execute} refuses with {@code MQ1307} should it alone pass the bind limit (R-WRT-29, R-WRT-49,
+     * D-80).
      */
-    private int rowsPerStatement(ModelInsert<E, ?> i, int bindsPerRow) {
-        int free = Math.max(0, renderOptions.maxBindParameters() - i.conflictBinds());
+    private int rowsPerStatement(ModelInsert<E, ?> i, int bindsPerRow, int conflictBinds) {
+        int free = Math.max(0, renderOptions.maxBindParameters() - conflictBinds);
         int rows = Math.min(free / Math.max(1, bindsPerRow), vendor.profile().maxValuesRows());
         if (i.chunkOptions().isPresent()) {
             rows = Math.min(rows, i.chunkOptions().get().size().orElse(bulkWriteChunkSize));
@@ -936,6 +1018,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * before the {@code detach}.
      */
     private <T> T persisted(ModelPersist<E, ?, ?> p, Function<E, T> result) {
+        WriteAssignments assignments = writeAssignments();
         checkWriteOnce(p, metamodel -> {
             p.checkMetamodel(metamodel);
             // Only where the provider reports the root's generator: persist works without insert support (R-WRT-39)
@@ -946,8 +1029,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             throw new ModelQueryExecutionException(MqCode.MQ2501, p + ": persist needs an active transaction, and "
                     + "the EntityManager is not joined to one");
         }
-        E entity = PersistedEntity.create(em, em.getMetamodel().entity(rootEntity), p.attributes(),
-                p.attributeValues());
+        // The write assignments the definition leaves, set before persist(...), so a @PrePersist setting the same
+        // attribute wins (R-WRT-49)
+        List<String> attributes = new ArrayList<>(p.attributes());
+        List<Object> values = new ArrayList<>(p.attributeValues());
+        for (WriteAssignments.Written written : assignments.execution().values(WriteKind.INSERT, p.attributes())) {
+            attributes.add(written.path());
+            values.add(written.value());
+        }
+        E entity = PersistedEntity.create(em, em.getMetamodel().entity(rootEntity), attributes, values);
         LOG.log(DEBUG, () -> "persist " + p);
         em.persist(entity);
         try {
@@ -983,7 +1073,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * run, a conflict clause's target and its update's {@code where} against this executor's configuration and
      * profile (R-WRT-34, R-WRT-36).
      */
-    private void checkInsertOnce(ModelInsert<E, ?> i, InsertSupport support) {
+    private void checkInsertOnce(ModelInsert<E, ?> i, InsertSupport support, WriteAssignments assignments) {
         checkWriteOnce(i, metamodel -> {
             EntityManagerFactory emf = em.getEntityManagerFactory();
             i.checkMetamodel(metamodel);
@@ -1003,8 +1093,14 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             InsertChecks.checkConflictTarget(i, i.conflictKeys(),
                     vendor.profile().conflictTargetHonoured() || i.conflictAnyUniqueKey());
         }
-        InsertChecks.checkConflictWhere(i, i.conflictWhereReadsAssigned(em.getMetamodel()),
+        List<String> updated = conflictUpdates(i) ? assignments.paths(WriteKind.UPDATE) : List.of();
+        InsertChecks.checkConflictWhere(i, i.conflictWhereReadsAssigned(em.getMetamodel(), updated),
                 conflictUpdateWhereOnAssignedColumns, vendor.profile().conflictWhereSeesEarlierAssignments());
+    }
+
+    /** Whether {@code i} has a {@code doUpdate} clause, which applies the {@code UPDATE} write assignments. */
+    private static boolean conflictUpdates(ModelInsert<?, ?> i) {
+        return !i.conflictKeys().isEmpty() && !i.conflictSkips();
     }
 
     /**
@@ -1315,6 +1411,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         traceTimed(rootEntity.getSimpleName(), written + (written == 1 ? " row" : " rows") + " written", start);
         return written;
+    }
+
+    /**
+     * The configured write assignments that apply to the root, checked the first time per root on this executor's
+     * factory, before any statement (R-WRT-49, D-61).
+     */
+    private WriteAssignments writeAssignments() {
+        return WriteAssignments.of(em.getEntityManagerFactory(), em.getMetamodel(), rootEntity,
+                config.writeAssignments());
     }
 
     /** Runs {@code check} the first time {@code definition} runs on this executor's factory, before any statement. */

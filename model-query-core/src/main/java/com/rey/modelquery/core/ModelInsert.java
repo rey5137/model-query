@@ -13,6 +13,7 @@ import jakarta.persistence.metamodel.Attribute;
 import jakarta.persistence.metamodel.EntityType;
 import jakarta.persistence.metamodel.Metamodel;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -330,16 +331,20 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
      * {@code setNull} as a {@code null} value bound likewise, in the order assigned, and the root's {@code @Version}
      * increment unless {@code keepVersion()}; an assignment to a column the {@code where} reads comes after the
      * others, since MySQL renders the {@code where} into each assignment and reads the columns earlier assignments
-     * wrote. A to-one attribute is written by its target's id ({@code customer.id}), as the rows are. Returns the
-     * {@code where} over the stored row, {@code target}, or empty without one or when every filter was skipped
-     * (R-WRT-13, R-WRT-34, R-WRT-35).
+     * wrote. A to-one attribute is written by its target's id ({@code customer.id}), as the rows are. Then each of
+     * {@code written}, the engine's write assignments, as a {@code value}, unless the clause assigns its attribute
+     * itself (R-WRT-49). Returns the {@code where} over the stored row, {@code target}, or empty without one or when
+     * every filter was skipped (R-WRT-13, R-WRT-34, R-WRT-35).
      *
+     * @param written attribute values by attribute path, dotted through embeddables, in the order to assign them
      * @throws IllegalStateException without a {@code doUpdate} clause
      */
     @EngineFacing
     @SuppressWarnings({"unchecked", "rawtypes"})
     public Optional<Predicate> buildConflictUpdate(Root<E> target, Root<E> excluded, CriteriaBuilder cb,
-            RenderOptions options, BiConsumer<Path<?>, Object> value, BiConsumer<Path<?>, Expression<?>> expression) {
+            RenderOptions options, Map<String, ?> written, BiConsumer<Path<?>, Object> value,
+            BiConsumer<Path<?>, Expression<?>> expression) {
+        Objects.requireNonNull(written, "written");
         ConflictUpdate.Action<E, M> update = conflictUpdate();
         if (update == null) {
             throw new IllegalStateException(this + ": no doUpdate(...) clause to render");
@@ -363,6 +368,11 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
                     : null;
             (read.contains(column.name()) ? last : first).add(() -> value.accept(path, bound));
         }
+        for (String attribute : addedAssignments(written.keySet())) {
+            Path<?> path = path(target, attribute);
+            Object bound = written.get(attribute);
+            (read.contains(attribute) ? last : first).add(() -> value.accept(path, bound));
+        }
         if (!conflict.keepVersion()) {
             WriteRendering.version(entity).ifPresent(version -> {
                 Path<?> path = target.get(version.getName());
@@ -381,11 +391,14 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
     /**
      * The columns a {@code doUpdate} clause's {@code where} reads that the update also assigns, the root's
      * {@code @Version} included unless {@code keepVersion()}, in the order assigned; empty for {@code doNothing()},
-     * without a clause or without a {@code where}. Two or more are refused unless the executor's configuration allows
-     * them on a vendor whose {@code where} reads the stored row (R-WRT-34, D-117).
+     * without a clause or without a {@code where}, the attributes of {@code written} the clause does not assign
+     * included, as {@link #buildConflictUpdate} assigns them. Two or more are refused unless the executor's
+     * configuration allows them on a vendor whose {@code where} reads the stored row (R-WRT-34, R-WRT-49, D-117).
+     *
+     * @param written the attribute paths of the engine's write assignments
      */
     @EngineFacing
-    public List<String> conflictWhereReadsAssigned(Metamodel metamodel) {
+    public List<String> conflictWhereReadsAssigned(Metamodel metamodel, Collection<String> written) {
         ConflictUpdate.Action<E, M> update = conflictUpdate();
         if (update == null) {
             return List.of();
@@ -395,6 +408,7 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         var assigned = new ArrayList<String>();
         conflict.update().fromRow().forEach(column -> assigned.add(column.name()));
         conflict.update().assignments().forEach(assignment -> assigned.add(assignment.column().name()));
+        assigned.addAll(addedAssignments(written));
         if (!conflict.keepVersion()) {
             WriteRendering.version(metamodel.entity(rootEntity()))
                     .ifPresent(version -> assigned.add(version.getName()));
@@ -429,21 +443,25 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
     /**
      * The most binds the conflict clause adds to a statement, besides its rows: the {@code where}'s values once per
      * assignment and once more, since MySQL renders it as a {@code CASE} in each assignment, plus each {@code set} or
-     * {@code setNull} value and the version increment; 0 for {@code doNothing()} or without a clause (R-WRT-29,
-     * D-80).
+     * {@code setNull} value, each of {@code written} the clause does not assign and the version increment; 0 for
+     * {@code doNothing()} or without a clause (R-WRT-29, R-WRT-49, D-80).
+     *
+     * @param written the attribute paths of the engine's write assignments
      */
     @EngineFacing
-    public int conflictBinds() {
-        return conflictWhereBinds() * (conflictAssignments() + 1) + conflictValueBinds();
+    public int conflictBinds(Collection<String> written) {
+        return conflictWhereBinds() * (conflictAssignments(written) + 1) + conflictValueBinds(written);
     }
 
     /**
      * The binds of {@link #conflictBinds} that a statement's reported parameters leave out: the {@code where}'s values
      * once per assignment, which MySQL's {@code CASE} per assignment repeats (R-WRT-35, D-80).
+     *
+     * @param written the attribute paths of the engine's write assignments
      */
     @EngineFacing
-    public int conflictRepeatedBinds() {
-        return conflictWhereBinds() * conflictAssignments();
+    public int conflictRepeatedBinds(Collection<String> written) {
+        return conflictWhereBinds() * conflictAssignments(written);
     }
 
     /** The conflict clause's {@code doUpdate} action, or null for {@code doNothing()} or without a clause. */
@@ -464,19 +482,46 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         return binds;
     }
 
-    /** The conflict update's assignments, the version increment counted unless {@code keepVersion()}. */
-    private int conflictAssignments() {
+    /**
+     * The conflict update's assignments, those of {@code written} it adds and the version increment counted unless
+     * {@code keepVersion()}.
+     */
+    private int conflictAssignments(Collection<String> written) {
         ConflictUpdate.Action<E, M> update = conflictUpdate();
-        return update == null ? 0 : update.fromRow().size() + conflictValueBinds();
+        return update == null ? 0 : update.fromRow().size() + conflictValueBinds(written);
     }
 
     /**
-     * The conflict update's {@code set} and {@code setNull} values and the version increment's, counted unless
-     * {@code keepVersion()}.
+     * The conflict update's {@code set} and {@code setNull} values, those of {@code written} it adds and the version
+     * increment's, counted unless {@code keepVersion()}.
      */
-    private int conflictValueBinds() {
+    private int conflictValueBinds(Collection<String> written) {
         ConflictUpdate.Action<E, M> update = conflictUpdate();
-        return update == null ? 0 : update.assignments().size() + (definition.conflict().keepVersion() ? 0 : 1);
+        return update == null ? 0 : update.assignments().size() + addedAssignments(written).size()
+                + (definition.conflict().keepVersion() ? 0 : 1);
+    }
+
+    /**
+     * The attributes of {@code written}, the engine's write assignments, a {@code doUpdate} clause adds, in order:
+     * those it does not assign itself, whose own assignment wins (R-WRT-49); none for {@code doNothing()} or without a
+     * clause. An executor calls the suppliers of these alone.
+     *
+     * @param written the attribute paths of the engine's write assignments
+     */
+    @EngineFacing
+    public List<String> conflictUpdateAdds(Collection<String> written) {
+        return addedAssignments(Objects.requireNonNull(written, "written"));
+    }
+
+    private List<String> addedAssignments(Collection<String> written) {
+        ConflictUpdate.Action<E, M> update = conflictUpdate();
+        if (update == null) {
+            return List.of();
+        }
+        Set<String> own = new HashSet<>();
+        update.fromRow().forEach(column -> own.add(column.name()));
+        update.assignments().forEach(assignment -> own.add(assignment.column().name()));
+        return written.stream().filter(attribute -> !own.contains(attribute)).toList();
     }
 
     /** The path of {@code attribute}, dotted, below {@code root}. */

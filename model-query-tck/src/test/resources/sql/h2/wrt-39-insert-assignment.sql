@@ -1,0 +1,1 @@
+insert into ins_audited(id,name,created_by,updated_by,callback_by,version) values (?,?,?,?,?,?), (?,?,?,?,?,?)
