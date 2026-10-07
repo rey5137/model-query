@@ -58,10 +58,10 @@ whole fixture and assert the multiset of visited keys.
 ## 3. CI
 
 **R-QA-08** Gates on every PR: build, unit tests, TCK on H2 + PostgreSQL 17 + MySQL 8.4, on JDK 17 and 21, ArchUnit
-layering (INV-7), and SQL-snapshot diff.
+layering (INV-7), and SQL-snapshot diff; JDK 21 also runs it against the latest Hibernate 7.x.
 
 **R-QA-09** Nightly: the full matrix — PostgreSQL 14–17, MySQL 8.0/8.4, Hibernate 6.6 and latest 7.x, JDK 17/21/25 —
-plus any Tier-2/3 profiles present.
+plus any Tier-2/3 profiles present. A release runs the same matrix on the tag commit and publishes only when it passes.
 
 **R-QA-10** Also in CI: JaCoCo coverage, mutation testing (PIT) on the `jpa` keyset predicate builder (`Keyset`),
 dependency and CVE scanning, and from 1.0 `japicmp` binary-compatibility checks (`delivery/61`).

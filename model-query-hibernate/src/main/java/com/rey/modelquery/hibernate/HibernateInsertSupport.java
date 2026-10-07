@@ -526,9 +526,16 @@ final class HibernateInsertSupport implements InsertSupport {
 
         /**
          * Binds {@code value} to the parameter {@code name} of {@code statement} as {@code type}, a path's node type or
-         * an attribute's {@code BasicType}.
+         * an attribute's {@code BasicType}. A primitive attribute's value is bound by its boxed class: Hibernate 7
+         * refuses an {@code Integer} for a type whose Java type is {@code int}, and a primitive has no converter or
+         * enum mapping that the boxed class would bind wrongly.
          */
         static void bind(Query statement, String name, Object value, Object type) {
+            if (value != null && type instanceof jakarta.persistence.metamodel.Type<?> javaType
+                    && javaType.getJavaType() != null && javaType.getJavaType().isPrimitive()) {
+                statement.setParameter(name, value);
+                return;
+            }
             try {
                 SET_PARAMETER.invoke(statement.unwrap(MutationQuery.class), name, value, type);
             } catch (InvocationTargetException e) {

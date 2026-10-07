@@ -31,6 +31,22 @@ jobs:
       # TCK on H2, PostgreSQL 17 and MySQL 8.4 through Testcontainers (Docker is available on ubuntu-latest)
       - run: ./mvnw -B -ntp verify
 
+  hibernate-7:
+    name: Build (JDK 21 / Hibernate 7.x)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      # The same R-QA-08 gate against the newest supported Hibernate, so a 7.x-only failure shows on its own commit
+      - run: >
+          ./mvnw -B -ntp verify
+          -Dhibernate.version=7.4.11.Final
+          -Djakarta-persistence.version=3.2.0
+
   ac-audit:
     name: AC audit (R-QA-11)
     runs-on: ubuntu-latest

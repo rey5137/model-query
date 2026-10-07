@@ -25,6 +25,12 @@ No existing API changes incompatibly; the additions below are all `@Incubating` 
 ### Changed
 - `SelectSet` has set-semantics `equals` and `hashCode` (same fields, any order) and a `toString` like
   `[OrderView.id, OrderView.status]`, so a record holding one stays comparable.
+- A release publishes only after the full nightly matrix passes on the tag commit, and every push also builds against
+  Hibernate 7.x.
+
+### Fixed
+- A values `insert` on Hibernate 7 failed with `QueryArgumentException` ("int is not assignable to
+  java.lang.Integer") when a column targets a primitive attribute.
 
 ## [0.4.0] - 2026-10-07
 

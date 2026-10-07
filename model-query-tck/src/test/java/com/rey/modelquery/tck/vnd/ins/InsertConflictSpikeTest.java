@@ -171,7 +171,8 @@ class InsertConflictSpikeTest {
                 insert.select(source);
                 insert.onConflict().conflictOnConstraintAttributes("id").onConflictDoNothing();
                 return s.createMutationQuery(insert).executeUpdate();
-            })).isExactlyInstanceOf(NullPointerException.class).hasMessageContaining("fromClauseIndex");
+            // no message check: once the JIT compiles the throwing code the JVM may drop the helpful NPE message
+            })).isExactlyInstanceOf(NullPointerException.class);
             assertThatThrownBy(() -> p.inTransaction(s -> s.createQuery("insert into InsAssignedEntity (id, code, name)"
                     + " select s.id, s.code, s.name from InsSourceEntity s on conflict (id) do nothing")
                     .executeUpdate())).isExactlyInstanceOf(NullPointerException.class);

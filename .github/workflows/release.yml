@@ -8,7 +8,12 @@ permissions:
   contents: write
 
 jobs:
+  # The full nightly matrix on the tag commit: a release publishes only when every JDK/Hibernate/database leg passes
+  matrix:
+    uses: ./.github/workflows/nightly.yml
+
   publish:
+    needs: matrix
     runs-on: ubuntu-latest
     environment: maven-central
     steps:

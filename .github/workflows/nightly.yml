@@ -4,6 +4,8 @@ on:
   schedule:
     - cron: '0 2 * * *'
   workflow_dispatch:
+  # Release runs this matrix before publishing (R-QA-09)
+  workflow_call:
 
 permissions:
   contents: read
