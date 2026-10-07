@@ -47,6 +47,8 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
 
     private final InsertDraft<E, M> definition;
     private final List<String> conflictKeys;
+    /** The attributes a {@code doUpdate} clause assigns itself, or null without one. */
+    private final Set<String> ownAssignments;
     /** The {@code set} constants as attribute values, read on first use; a benign race recomputes the same list. */
     private volatile List<Object> constantValues;
 
@@ -54,6 +56,15 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         this.definition = definition;
         InsertDraft.Conflict<E, M> conflict = definition.conflict();
         this.conflictKeys = conflict == null ? List.of() : conflict.keys().stream().map(ColumnField::name).toList();
+        ConflictUpdate.Action<E, M> update = conflict == null ? null : conflict.update();
+        if (update == null) {
+            this.ownAssignments = null;
+        } else {
+            Set<String> own = new HashSet<>();
+            update.fromRow().forEach(column -> own.add(column.name()));
+            update.assignments().forEach(assignment -> own.add(assignment.column().name()));
+            this.ownAssignments = own;
+        }
     }
 
     /**
@@ -514,14 +525,10 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
     }
 
     private List<String> addedAssignments(Collection<String> written) {
-        ConflictUpdate.Action<E, M> update = conflictUpdate();
-        if (update == null) {
+        if (ownAssignments == null) {
             return List.of();
         }
-        Set<String> own = new HashSet<>();
-        update.fromRow().forEach(column -> own.add(column.name()));
-        update.assignments().forEach(assignment -> own.add(assignment.column().name()));
-        return written.stream().filter(attribute -> !own.contains(attribute)).toList();
+        return written.stream().filter(attribute -> !ownAssignments.contains(attribute)).toList();
     }
 
     /** The path of {@code attribute}, dotted, below {@code root}. */

@@ -17,7 +17,6 @@ import java.lang.reflect.Member;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * The new entity {@code persist} writes: the root instantiated with its no-arg constructor, each model attribute set
@@ -49,14 +48,14 @@ final class PersistedEntity {
     /**
      * Sets each of {@code attributes} on {@code entity}, a managed {@code root} entity and never a proxy, to the value
      * at its index in {@code values}, which {@code ModelUpdate} has converted: through {@code writes}, the provider's
-     * attribute access, when present, else through each attribute's metamodel member, whose plain field write a
+     * attribute access, when not null, else through each attribute's metamodel member, whose plain field write a
      * bytecode-enhanced or woven entity's change tracking does not see, so its flush may write nothing (R-WRT-42,
      * D-119).
      */
     static void assign(EntityManager em, ManagedType<?> root, Object entity, List<String> attributes,
-            List<Object> values, Optional<EntityWriteSupport> writes) {
+            List<Object> values, EntityWriteSupport writes) {
         for (int i = 0; i < attributes.size(); i++) {
-            set(em, root, entity, attributes.get(i), values.get(i), writes.orElse(null));
+            set(em, root, entity, attributes.get(i), values.get(i), writes);
         }
     }
 

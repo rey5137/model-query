@@ -94,11 +94,13 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.WeakHashMap;
-import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -142,6 +144,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     /** The factories {@code stream} warned of setting no fetch size on, so each is warned of once (R-VND-12). */
     private static final Set<EntityManagerFactory> FETCH_SIZE_UNSET =
             Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
+
+    /** The mapped entity classes of each factory, read from its metamodel once; weak, so a closed factory is freed. */
+    private static final Map<EntityManagerFactory, Set<Class<?>>> MAPPED_ENTITIES =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     private final EntityManager em;
     private final Class<E> rootEntity;
@@ -696,28 +702,26 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      */
     private <M> long updateEntities(ModelUpdate<E, M> u, List<WriteAssignments.Written> added) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
-        BuiltQuery<M> tree = u.buildKeySelect(cb, renderOptions);
-        // The load renders the tree the key select renders, so it repeats the same memoised expression binds.
-        int repeated = tree.joins().repeatedExpressionBinds();
-        List<String> attributes = new ArrayList<>(u.assignedAttributes());
-        List<Object> values = new ArrayList<>(u.assignedValues());
-        added.forEach(written -> {
-            attributes.add(written.path());
-            values.add(written.value());
-        });
-        PersistenceContextMode mode = u.persistenceContext().orElse(persistenceContextMode);
+        List<String> attributes = u.assignedAttributes();
+        List<Object> values = u.assignedValues();
+        if (!added.isEmpty()) {
+            attributes = new ArrayList<>(attributes);
+            values = new ArrayList<>(values);
+            for (WriteAssignments.Written written : added) {
+                attributes.add(written.path());
+                values.add(written.value());
+            }
+        }
+        List<String> assigned = attributes;
+        List<Object> assignedTo = values;
         EntityType<E> root = em.getMetamodel().entity(rootEntity);
-        Optional<EntityWriteSupport> writes = vendor.providerSupport().flatMap(ProviderSupport::entityWrites);
-        logWrite("update throughEntities()", u, Optional.of(u.chunkOptions().orElse(ChunkOptions.defaultSize())),
-                false);
-        var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), u.primaryKey(), u.distinctKeys(),
-                run -> run == null ? u.buildKeySelect(cb, renderOptions) : u.buildKeySelect(cb, renderOptions, run),
-                (on, keys) -> throughEntities(on, u.buildEntityLoad(cb, renderOptions, keys), repeated, mode,
-                        entities -> unproxied(on, entities, writes).forEach(entity ->
-                                PersistedEntity.assign(on, root, entity, attributes, values, writes))),
-                u.startAfter(), u::modelKey);
-        return entityRounds(keyed, tree, keys -> u.buildEntityLoad(cb, renderOptions, keys), u.chunkOptions(), mode,
-                cb, repeated);
+        EntityWriteSupport writes = vendor.providerSupport().flatMap(ProviderSupport::entityWrites).orElse(null);
+        return entityWrite("update", u, u.primaryKey(), u.distinctKeys(), u.chunkOptions(), u.persistenceContext(),
+                u.startAfter(), u::modelKey, run -> run == null ? u.buildKeySelect(cb, renderOptions)
+                        : u.buildKeySelect(cb, renderOptions, run),
+                keys -> u.buildEntityLoad(cb, renderOptions, keys),
+                (on, entities) -> unproxied(on, entities, writes).forEach(entity ->
+                        PersistedEntity.assign(on, root, entity, assigned, assignedTo, writes)));
     }
 
     /**
@@ -728,19 +732,41 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      */
     private <M> long deleteEntities(ModelDelete<E, M> d) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
-        BuiltQuery<M> tree = d.buildKeySelect(cb, renderOptions);
+        return entityWrite("delete", d, d.primaryKey(), d.distinctKeys(), d.chunkOptions(), d.persistenceContext(),
+                d.startAfter(), d::modelKey, run -> run == null ? d.buildKeySelect(cb, renderOptions)
+                        : d.buildKeySelect(cb, renderOptions, run),
+                keys -> d.buildEntityLoad(cb, renderOptions, keys),
+                (on, entities) -> entities.forEach(on::remove));
+    }
+
+    /**
+     * The setup an update or delete {@code throughEntities()} shares: the {@code keySelect} tree, the binds its load
+     * repeats, the persistence-context mode and the log line, then {@link #entityRounds} with {@code perRound}
+     * applied to each round's loaded entities on that round's {@code EntityManager}.
+     */
+    private <M> long entityWrite(String operation, Object write, PrimaryKey<M, ?> key,
+            Optional<List<Object>> distinctKeys, Optional<ChunkOptions> chunk,
+            Optional<PersistenceContextMode> context, Optional<Object> startAfter, UnaryOperator<Object> modelKey,
+            Function<List<Object>, BuiltQuery<M>> keySelect, Function<List<Object>, CriteriaQuery<E>> load,
+            BiConsumer<EntityManager, List<E>> perRound) {
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        BuiltQuery<M> tree = keySelect.apply(null);
         // The load renders the tree the key select renders, so it repeats the same memoised expression binds.
         int repeated = tree.joins().repeatedExpressionBinds();
-        PersistenceContextMode mode = d.persistenceContext().orElse(persistenceContextMode);
-        logWrite("delete throughEntities()", d, Optional.of(d.chunkOptions().orElse(ChunkOptions.defaultSize())),
+        PersistenceContextMode mode = context.orElse(persistenceContextMode);
+        logWrite(operation + " throughEntities()", write, Optional.of(chunk.orElse(ChunkOptions.defaultSize())),
                 false);
-        var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), d.primaryKey(), d.distinctKeys(),
-                run -> run == null ? d.buildKeySelect(cb, renderOptions) : d.buildKeySelect(cb, renderOptions, run),
-                (on, keys) -> throughEntities(on, d.buildEntityLoad(cb, renderOptions, keys), repeated, mode,
-                        entities -> entities.forEach(on::remove)),
-                d.startAfter(), d::modelKey);
-        return entityRounds(keyed, tree, keys -> d.buildEntityLoad(cb, renderOptions, keys), d.chunkOptions(), mode,
-                cb, repeated);
+        var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), key, distinctKeys, keySelect,
+                (on, keys) -> throughEntities(on, load.apply(keys), repeated, mode,
+                        entities -> perRound.accept(on, entities)),
+                startAfter, modelKey);
+        return entityRounds(keyed, tree, load, chunk, mode, cb, repeated);
+    }
+
+    /** The Java classes of {@code on}'s factory's entity types, cached per factory. */
+    private static Set<Class<?>> mappedEntities(EntityManager on) {
+        return MAPPED_ENTITIES.computeIfAbsent(on.getEntityManagerFactory(), factory -> on.getMetamodel()
+                .getEntities().stream().map(EntityType::getJavaType).collect(Collectors.toUnmodifiableSet()));
     }
 
     /**
@@ -748,25 +774,27 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * persistence context held for its row, replaced by the instance behind it through {@code writes}, all checked
      * before any is changed (R-WRT-42, D-119).
      *
-     * @throws ModelQueryExecutionException {@code MQ2503} for a proxy when {@code writes} is empty
+     * @throws ModelQueryExecutionException {@code MQ2503} for a proxy when {@code writes} is null
      */
-    private List<Object> unproxied(EntityManager on, List<E> entities, Optional<EntityWriteSupport> writes) {
+    private List<Object> unproxied(EntityManager on, List<E> entities, EntityWriteSupport writes) {
         Set<Class<?>> mapped = null;
         List<Object> targets = new ArrayList<>(entities.size());
         for (E entity : entities) {
             Class<?> type = entity.getClass();
             if (type != rootEntity) {
                 if (mapped == null) {
-                    mapped = on.getMetamodel().getEntities().stream().map(EntityType::getJavaType)
-                            .collect(Collectors.toSet());
+                    mapped = mappedEntities(on);
                 }
                 if (!mapped.contains(type)) {
-                    targets.add(writes.orElseThrow(() -> new ModelQueryExecutionException(MqCode.MQ2503,
-                            rootEntity.getSimpleName() + ": an update throughEntities() loaded a "
-                                    + type.getName() + ", a proxy the persistence context held for the row, and "
-                                    + "no ProviderSupport serving this persistence provider has an "
-                                    + "EntityWriteSupport to unwrap it; add one (model-query-hibernate for "
-                                    + "Hibernate), or write under PersistenceContextMode.CLEAR")).unproxy(entity));
+                    if (writes == null) {
+                        throw new ModelQueryExecutionException(MqCode.MQ2503,
+                                rootEntity.getSimpleName() + ": an update throughEntities() loaded a "
+                                        + type.getName() + ", a proxy the persistence context held for the row, and "
+                                        + "no ProviderSupport serving this persistence provider has an "
+                                        + "EntityWriteSupport to unwrap it; add one (model-query-hibernate for "
+                                        + "Hibernate), or write under PersistenceContextMode.CLEAR");
+                    }
+                    targets.add(writes.unproxy(entity));
                     continue;
                 }
             }
@@ -884,17 +912,23 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      */
     private long insertSelect(ModelInsert<E, ?> i, InsertSupport support, WriteAssignments assignments) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
-        List<String> attributes = new ArrayList<>(i.selectedAttributes(em.getMetamodel()));
-        Map<String, Object> constants = new LinkedHashMap<>(i.selectParameters());
+        List<String> attributes = i.selectedAttributes(em.getMetamodel());
+        Map<String, Object> constants = i.selectParameters();
         List<WriteAssignments.Written> added = assignments.execution().values(WriteKind.INSERT, attributes);
-        for (int a = 0; a < added.size(); a++) {
-            attributes.add(added.get(a).path());
-            constants.put(ASSIGNED + a, added.get(a).value());
+        if (!added.isEmpty()) {
+            attributes = new ArrayList<>(attributes);
+            constants = new LinkedHashMap<>(constants);
+            for (int a = 0; a < added.size(); a++) {
+                attributes.add(added.get(a).path());
+                constants.put(ASSIGNED + a, added.get(a).value());
+            }
         }
+        List<String> inserted = attributes;
+        Map<String, Object> bound = constants;
         BuiltQuery<?> select = i.buildSelect(cb, renderOptions);
         int repeated = select.joins().repeatedExpressionBinds();
         BiFunction<EntityManager, CriteriaQuery<Tuple>, Query> statement = (on, source) ->
-                support.insertSelect(on, rootEntity, attributes, source, constants);
+                support.insertSelect(on, rootEntity, inserted, source, bound);
         CriteriaQuery<Tuple> wholeSource = selecting(select.query(), cb, added);
         Supplier<Query> whole = () -> statement.apply(em, wholeSource);
         logWrite("insert", i, i.chunkOptions(), false);
@@ -971,9 +1005,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Map<String, Object> updated = Map.of();
         if (conflictUpdates(i)) {
             // Only those the clause does not assign itself, so no other supplier is called
-            Set<String> set = new HashSet<>(assignments.paths(WriteKind.UPDATE));
-            i.conflictUpdateAdds(set).forEach(set::remove);
-            updated = WriteAssignments.byPath(execution.values(WriteKind.UPDATE, set));
+            List<String> paths = assignments.paths(WriteKind.UPDATE);
+            if (!paths.isEmpty()) {
+                Set<String> set = new HashSet<>(paths);
+                i.conflictUpdateAdds(set).forEach(set::remove);
+                updated = WriteAssignments.byPath(execution.values(WriteKind.UPDATE, set));
+            }
         }
         boolean drawn = InsertChecks.drawsKeys(insertTarget(support).id());
         if (drawn) {
@@ -1072,11 +1109,16 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         // The write assignments the definition leaves, set before persist(...), so a @PrePersist setting the same
         // attribute wins (R-WRT-49)
-        List<String> attributes = new ArrayList<>(p.attributes());
-        List<Object> values = new ArrayList<>(p.attributeValues());
-        for (WriteAssignments.Written written : assignments.execution().values(WriteKind.INSERT, p.attributes())) {
-            attributes.add(written.path());
-            values.add(written.value());
+        List<String> attributes = p.attributes();
+        List<Object> values = p.attributeValues();
+        List<WriteAssignments.Written> added = assignments.execution().values(WriteKind.INSERT, attributes);
+        if (!added.isEmpty()) {
+            attributes = new ArrayList<>(attributes);
+            values = new ArrayList<>(values);
+            for (WriteAssignments.Written written : added) {
+                attributes.add(written.path());
+                values.add(written.value());
+            }
         }
         E entity = PersistedEntity.create(em, em.getMetamodel().entity(rootEntity), attributes, values);
         LOG.log(DEBUG, () -> "persist " + p);
@@ -1152,8 +1194,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * @throws ModelQueryDefinitionException {@code MQ1806} when a join goes through a collection table
      */
     private Set<Class<?>> selected(ModelInsert<E, ?> i, Metamodel metamodel) {
-        Set<Class<?>> entities = metamodel.getEntities().stream().map(EntityType::getJavaType)
-                .collect(Collectors.toSet());
+        Set<Class<?>> entities = mappedEntities(em);
         var selected = new LinkedHashSet<Class<?>>();
         var froms = new ArrayDeque<From<?, ?>>(i.buildSelect(em.getCriteriaBuilder(), renderOptions).query()
                 .getRoots());
@@ -1310,7 +1351,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 return true;
             }
         }
-        return metamodel.getEntities().stream().map(EntityType::getJavaType)
+        return mappedEntities(em).stream()
                 .anyMatch(type -> type != rootEntity && rootEntity.isAssignableFrom(type));
     }
 

@@ -17,6 +17,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -172,6 +173,14 @@ final class WriteRendering {
         return new BuiltQuery<>(query, joins, selection, row -> {
             throw new UnsupportedOperationException(model + ": a key select maps no model; read its keys");
         });
+    }
+
+    /** {@link #entityLoad(List, List, PrimaryKey, Class, CriteriaBuilder, RenderOptions)} of an entity write's load. */
+    static <E, M> CriteriaQuery<E> entityLoad(CriteriaBuilder cb, RenderOptions options, List<?> keys,
+            List<Filter> where, PrimaryKey<M, ?> key, Class<E> entity) {
+        Objects.requireNonNull(cb, "cb");
+        Objects.requireNonNull(options, "options");
+        return entityLoad(selectedKeys(Objects.requireNonNull(keys, "keys")), where, key, entity, cb, options);
     }
 
     /**

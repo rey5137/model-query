@@ -247,10 +247,8 @@ public final class ModelDelete<E, M> {
     @EngineFacing
     @Incubating
     public CriteriaQuery<E> buildEntityLoad(CriteriaBuilder cb, RenderOptions options, List<?> keys) {
-        Objects.requireNonNull(cb, "cb");
-        Objects.requireNonNull(options, "options");
-        return WriteRendering.entityLoad(WriteRendering.selectedKeys(Objects.requireNonNull(keys, "keys")),
-                definition.rows().where(), definition.primaryKey(), rootEntity(), cb, options);
+        return WriteRendering.entityLoad(cb, options, keys, definition.rows().where(), definition.primaryKey(),
+                rootEntity());
     }
 
     private BuiltQuery<M> keySelect(CriteriaBuilder cb, RenderOptions options, List<Object> keys) {
