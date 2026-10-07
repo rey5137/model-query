@@ -308,6 +308,12 @@ model's setter is always called, never conditionally, so the field is never `nul
 (R-GEN-09). A nested `@Join` or `@Child` model with its own `@Selected` field fills it in its own mapper, from its own
 row (the scoped row for a `@Join`); an empty `Optional` builds no nested model, so nothing is filled.
 
+**R-GEN-31** *(D-120)* **A record `finisher` carries the set over.** The set is a component like any other, so a
+`finisher` (`api/11` R-QRY-05) that rebuilds a record through its canonical constructor passes the mapped `selected()`
+along, as it passes every component it does not change. The library neither wraps the finisher nor fills the set a
+second time, so a copy built with `null` or another set holds that. A class model's setter-filled field survives a
+finisher that returns the same instance.
+
 ## 8. Acceptance criteria
 
 | ID | Criterion |
@@ -328,3 +334,7 @@ row (the scoped row for a `@Join`); an empty `Optional` builds no nested model, 
 | AC-GEN-14 | `K` is the boxed `@Id` type, the `@IdClass`, the `@EmbeddedId`'s type or a `@MappedSuperclass` variable resolved on the root, and `Object` with `MQ3504` when no id is visible (R-GEN-28, D-117). |
 | AC-GEN-15 | A model with a `@Selected` field generates a private `SELECTED_FIELDS` after every other constant, holding its columns, its joined columns of every depth, its `@Computed` and `@Aggregate` constants and no filter-only column; a model without one generates none (R-GEN-29). |
 | AC-GEN-16 | The mapper gives a record component `Q<M>.SELECTED_FIELDS.selectedIn(row)` and always calls a class model's setter; the set holds the selected columns, a selected `NULL` one included; a nested `@Join` model fills its own `@Selected` from its scoped row and an empty `Optional` builds none; a `@Join` local named like the constant doesn't shadow it (R-GEN-30). |
+| AC-GEN-17 | Against H2: a partial select leaves an unselected column out of the set and keeps a selected `NULL` one, one instance serving every row; a key the engine adds is in it; a join selected by one column also holds the generated joined key constant, and a LEFT-join miss builds no nested model; a to-one `@Child` loaded by a fetch plan fills its own set (R-GEN-29, R-GEN-30, R-GEN-12, R-GEN-13). A `@Join` is always `Optional<X>` (`MQ3005`), so there is no plain-object join. |
+| AC-GEN-18 | Against H2: a grouped query's set holds its group keys and the aggregates it selected; a keyset export ordered by a filter-only column keeps that column out of the set; `withFetch` keeps the set and counts an enricher's column as selected (R-GEN-29, R-GEN-30). |
+| AC-GEN-19 | A record `finisher` that rebuilds the record with `selected()` leaves the set as the mapper filled it (R-GEN-31). |
+| AC-GEN-20 | `persist(persist, returning)` on every Tier-1 vendor fills the set with the selected columns, a `NULL` one included (R-GEN-30, `api/14` R-WRT-48). |

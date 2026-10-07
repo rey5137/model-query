@@ -66,6 +66,9 @@ copy rethrows it as `MQ2301`'s cause. Offset paging, export and `primaryKeyFirst
 **R-QRY-05** `afterMap(BiConsumer<M, Row>)` runs once per row, after the `RowMapper`, and may read any selected column
 from the `Row`. It is the documented home for a field computed from other mapped values — an order status, a
 percentage, a label. Records use `finisher(UnaryOperator<M>)` instead, since their components are final.
+A model that must tell an unselected column from a selected `NULL` one declares a `@Selected SelectSet<M>` field the
+mapper fills (D-120, `processor/30` R-PROC-25); `afterMap` and a `finisher` see it already filled, and a record's
+`finisher` passes it along (`processor/31` R-GEN-31).
 
 **R-QRY-06** `afterMap` must not query, mutate shared state or throw for ordinary data. It runs inside the export loop,
 so work proportional to anything but the single row belongs in the caller's `pageTransformer` (`engine/21`).

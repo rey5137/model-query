@@ -1,6 +1,6 @@
 # API stability
 
-model-query is at 0.4.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
+model-query is at 0.5.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
 marked breaking. From 1.0.0 the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Today: everything is `@Incubating`
@@ -70,6 +70,11 @@ The entity-write types are new in 0.4.0 and `@Incubating` (D-118), and join the 
 `buildEntityLoad`, `ModelQuery.checkReturning` and `mapReturning`, and `ModelInsert.conflictUpdateAdds` are
 `@EngineFacing`, so not API. Entity writes are described in
 [Bulk writes](bulk-writes.md#entity-mode).
+
+The selected-field members are new in 0.5.0 and `@Incubating` (D-120), and join the list above. They are the
+`@Selected` annotation, `SelectSet.contains` and `SelectSet.selectedIn`; `SelectSet`'s set-semantics `equals`, `hashCode`
+and `toString` are not marked and freeze with `SelectSet`. The freeze review moves to the milestone after 0.5.0. See
+[Selected fields](models.md#selected-fields).
 
 The fetch-plan types are new in 0.2.0, `@Incubating`, and not yet placed in the 1.0 freeze list above:
 `FetchPlan`, `ChildField`, `JoinField`, `ChildQuery`, `Enricher` and the `@Child` annotation. The executor-facing

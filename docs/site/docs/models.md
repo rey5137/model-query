@@ -131,6 +131,49 @@ in are on [Sub-queries and expressions](subqueries-expressions.md).
 
 Tested by `GeneratedModelTest`.
 
+## Selected fields
+
+A record gets `null` for a column the query did not select, and so for a selected column that is `NULL`; a class keeps
+the field's initialiser in both cases. To tell them apart, declare one `@Selected SelectSet<Model>` field or record
+component, `Model` being the model itself:
+
+```java
+@QueryModel(root = OrderEntity.class)
+public record OrderView(
+        @PrimaryKey Long id,
+        String status,
+        @Column(attribute = "referrerId") Long referrerKey,
+        @Selected @JsonIgnore SelectSet<OrderView> selected) {}
+```
+
+The generated mapper fills it on every row, never with `null`, with the constants of `QOrderView` it reads that the
+row selected: columns, `@Computed` and `@Aggregate` constants and joined columns of any depth. A selected column that is
+`NULL` is in the set, and a column the query left out is not:
+
+```java
+OrderView order = executor.list(QOrderView.query().select(SelectSet.of(QOrderView.STATUS)).build(), Limit.of(1)).get(0);
+order.selected().contains(QOrderView.STATUS);        // true, whatever the status is
+order.selected().contains(QOrderView.REFERRER_KEY);  // false: never selected, so `null` means nothing
+```
+
+What the set holds is what the row selected, so it can hold more than the caller's own `SelectSet`: the primary key and
+the ordering, group, fetch-plan and join-presence columns the engine adds are in it, because the field holds them. A
+column used only in a filter, or an `orderBy` on a filter-only column, is not, since no field of the model holds it. A
+nested `@Join` or `@Child` model with its own `@Selected` field fills it from its own row, and a LEFT-join miss builds no
+nested model, so there is nothing to fill. Every row of one query shares one set instance.
+
+The field is no column and no constant, and cannot be combined with another field annotation (`MQ3021`); its type must be
+exactly `SelectSet<Model>`, and a model has one (`MQ3020`). An update model and an insert model refuse it (`MQ3302`,
+`MQ3502`). Put `@JsonIgnore` (or your serialiser's equivalent) on it: it is for server-side code that reads a model,
+not for a response body. `@Selected`, `SelectSet.contains` and `SelectSet.selectedIn` are `@Incubating`. `contains` is
+exact, as `Row.isSelected` is, and never looks through a converter.
+
+A record `finisher` builds a copy through the canonical constructor, so it passes `selected()` along like any component
+it does not change: `finisher(o -> new OrderView(o.id(), label(o), o.referrerKey(), o.selected()))`. The library does
+not fill the set a second time, so a copy built with `null` holds `null` (R-GEN-31).
+
+Tested by `SelectedFieldsTest` and `SelectedPersistTest`.
+
 ## Shared accessors across models
 
 A type carries one of `@QueryModel`, `@UpdateModel` and `@InsertModel` (`MQ3503` otherwise), and the processor reads

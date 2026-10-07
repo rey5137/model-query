@@ -6,6 +6,26 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-07
+
+Nothing is frozen yet: every public type stays `@Incubating`, and the freeze review moves to the next milestone (D-120).
+No existing API changes incompatibly; the additions below are all `@Incubating` except `SelectSet`'s equality.
+
+### Added
+- Selected fields (D-120), described in the "Selected fields" section of the "Models and QModels" page:
+  - `@Selected` on one `SelectSet<Model>` field or record component: the generated mapper fills it on every row, never
+    with `null`, with the columns, expressions and aggregates of `Q<Model>` the row selected, joined columns of any depth
+    and the keys the engine adds included, so a selected `NULL` column can be told from an unselected one. A nested
+    `@Join` or `@Child` model fills its own. `MQ3020` for a wrong type or a second field, `MQ3021` for another field
+    annotation on it, and `MQ3302` and `MQ3502` for an update or insert model that declares one.
+  - `SelectSet.contains(SelectField)`, exact as `Row.isSelected` is, and `SelectSet.selectedIn(Row)`, the subset the row
+    selected, in set order, sharing one instance across the rows of a query.
+  - A record `finisher` passes `selected()` along like any component (R-GEN-31).
+
+### Changed
+- `SelectSet` has set-semantics `equals` and `hashCode` (same fields, any order) and a `toString` like
+  `[OrderView.id, OrderView.status]`, so a record holding one stays comparable.
+
 ## [0.4.0] - 2026-10-07
 
 Nothing is frozen yet: every public type stays `@Incubating`, and the freeze review moves to the next milestone, after an

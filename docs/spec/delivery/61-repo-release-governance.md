@@ -85,6 +85,8 @@ constants, so a binary-compatibility report flags both while no caller breaks. E
 `groupBy` key from `ColumnField` to `ScalarField` (source-compatible, binary-incompatible against 0.1), change
 `ModelQuery.groupBy()`'s element type, and add `ScalarField` to `SelectField`'s permits, so an exhaustive `switch` over
 `SelectField` needs a third case and already-compiled code meets a `MatchException`; the changelog says so.
+`@Selected`, `SelectSet.contains` and `SelectSet.selectedIn` (D-120, 0.5.0) are `@Incubating` through 1.0; `SelectSet`'s
+set-semantics `equals`, `hashCode` and `toString` are not marked and freeze with `SelectSet`.
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from

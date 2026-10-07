@@ -4,7 +4,7 @@ Everything in the library works with a plain `EntityManager`. Spring only adds w
 
 ## 1. Add the dependencies
 
-Import the BOM, then add the modules you need. Replace `0.4.0` with the release you use.
+Import the BOM, then add the modules you need. Replace `0.5.0` with the release you use.
 
 ```xml
 <dependencyManagement>
@@ -12,7 +12,7 @@ Import the BOM, then add the modules you need. Replace `0.4.0` with the release 
         <dependency>
             <groupId>io.github.rey5137</groupId>
             <artifactId>model-query-bom</artifactId>
-            <version>0.4.0</version>
+            <version>0.5.0</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
@@ -38,7 +38,7 @@ Register the processor so the `Q` classes are generated at compile time:
     <path>
         <groupId>io.github.rey5137</groupId>
         <artifactId>model-query-processor</artifactId>
-        <version>0.4.0</version>
+        <version>0.5.0</version>
     </path>
 </annotationProcessorPaths>
 ```
