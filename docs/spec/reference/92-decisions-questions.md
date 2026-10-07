@@ -834,6 +834,8 @@ target class. A common `ModelQueryException` superclass is added before 1.0 and 
 R-REL-07, R-REL-11, D-59.
 *Amended by D-118:* `throughEntities()`, the `persist(persist, returning)` overload, `WriteAssignment`, `WriteKind`
 and `ModelQueryConfig.writeAssignments` join the incubating bulk-write types.
+*Amended by D-120:* `@Selected` stays `@Incubating` at 1.0, an exception to "every annotation is frozen", and so do
+`SelectSet.contains` and `SelectSet.selectedIn`; `SelectSet`'s value equality freezes with it.
 
 **D-86 — `@EngineFacing` may mark a type (amends D-72).** From 0.2 `BuiltQuery`, `RowSelection` and `RenderOptions`
 carry it at type level, and `JoinContext.of` and `OrderField.toOrders` at method level; `japicmp` excludes both. A
@@ -1580,6 +1582,30 @@ Javadoc of `throughEntities()` and the user guide say so.
 
 → `api/14` §11 (R-WRT-42, R-WRT-43, R-WRT-45, R-WRT-47, R-WRT-49), `vendor/40` R-VND-14, `reference/90` (`MQ1611`,
 `MQ2503`).
+
+**D-120 — Selected fields on the model (`@Selected`; amends D-85 and D-118).** A row cannot tell an unselected
+column from a selected one that is `NULL`: a record gets `null` (R-GEN-06), a class field keeps its initialiser (R-GEN-09),
+and only `afterMap` with `Row.isSelected` could tell them apart, which needs per-query wiring and fails for a record. A model may declare
+one `@Selected SelectSet<M>` field or record component, `M` being the model itself. "Selected" means the row selected
+it, even when its value is `NULL`. The generated mapper fills it, never with `null`, with every column, expression and
+aggregate constant of `Q<M>` that the mapper reads, joined columns at any depth included, and that the row selected.
+Keys and ordering, group, fetch-plan and presence keys the engine adds count, because the field holds them; the set is
+therefore not the caller's own `SelectSet`. Filter-only columns never count, since no field holds them. A nested
+`@Join` or `@Child` model with its own `@Selected` field fills it from its own row; an empty `Optional` builds none. The
+mapper fills it through `SelectSet.selectedIn(Row)`, the subset of the set `row.isSelected` accepts, in the set's order, which keeps a
+single-entry memo keyed by a selection bit mask, so every row of a query shares one instance and the memo is not
+observable (INV-9). `SelectSet` gains a typed `contains(SelectField<M, ?>)` (P-2), exact as `Row.isSelected` is and never
+through a converter, and set-semantics `equals`, `hashCode` and `toString`, so records holding one stay comparable.
+`@Selected` targets `FIELD` and `RECORD_COMPONENT`; the processor checks the field type by qualified name, so the
+annotations module does not depend on `core` (INV-7). `MQ3020`: the type is not exactly `SelectSet<M>`, or a model has
+two. `MQ3021`: combined with another field annotation. An update model (`MQ3302`) or insert model (`MQ3502`) refuses it.
+Rejected: a narrower read-only type (one more type to freeze, P-5); only the model's own fields (`contains` of a joined
+column would compile and be silently `false`, INV-5); a `Row` method exposing the selection (leaks the `@EngineFacing`
+`RowSelection`); computing the set in each generated QModel (duplicated logic); `afterMap` only (no records); `@Populated`
+and `@Loaded` (the latter clashes with fetch-plan "unloaded"). D-85: `@Selected`, `SelectSet.contains` and
+`SelectSet.selectedIn` stay `@Incubating` through 1.0; `SelectSet` equality freezes with `SelectSet`. Ships as 0.5.0 in
+M12; the freeze moves to M13. → `api/10`, `api/11` R-QRY-05, `processor/30`, `processor/31`, `processor/32`
+(`MQ3020`, `MQ3021`, `MQ3302`, `MQ3502`), `reference/90`, `delivery/61`, `delivery/62`, `docs/plan/mvp-plan.md` §M12.
 
 ## 2. Open questions
 
