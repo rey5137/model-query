@@ -106,3 +106,9 @@ RFC 0004 (rey5137/model-query#29) is mapped the same way, by its own sections, a
 | rey5137/model-query#29 | RFC 0004 §8 codes `MQ1801`–`MQ1808` | `reference/90` §2 |
 | rey5137/model-query#29 | RFC 0004 §8 codes `MQ3501`–`MQ3503`; `MQ3504` (D-117) | `processor/32` §1 |
 | rey5137/model-query#29 | RFC 0004 §8 acceptance criteria | `api/14` §9 AC-WRT-21 to AC-WRT-33 |
+| rey5137/model-query#30 | RFC 0005 §1 scope, `INV-1`, `P-5`, D-118 | SPEC.md §2 INV-1, §3 P-5; `reference/92` D-118 |
+| rey5137/model-query#30 | RFC 0005 §2 entity mode; R-WRT-41 to R-WRT-47 | `api/14` §11.1 |
+| rey5137/model-query#30 | RFC 0005 §3 `persist` returning a model; R-WRT-48 | `api/14` §11.2, `integration/50` R-SPR-10 |
+| rey5137/model-query#30 | RFC 0005 §4 write assignments; R-WRT-49 | `api/14` §11.3, `integration/50` R-SPR-13 |
+| rey5137/model-query#30 | RFC 0005 §5 codes `MQ1610`–`MQ1612`, `MQ1809` | `reference/90` §2 |
+| rey5137/model-query#30 | RFC 0005 §5 acceptance criteria | `api/14` §9 AC-WRT-34 to AC-WRT-39 |

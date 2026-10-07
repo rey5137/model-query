@@ -11,7 +11,9 @@ import com.rey.modelquery.jpa.spi.VendorProfile;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Query;
+import com.rey.modelquery.core.PersistenceContextMode;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalInt;
 import java.util.function.Function;
@@ -209,6 +211,38 @@ class ModelQueryConfigTest {
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ4002))
                 .hasMessageContaining("VendorProfile for H2")
                 .hasMessageContaining("ModelQueryConfig.vendorProfiles(...)");
+    }
+
+    @Test
+    void ac_wrt_39_no_write_assignment_is_set_by_default_and_every_setter_keeps_them() {
+        assertThat(ModelQueryConfig.defaults().writeAssignments()).isEmpty();
+        var updated = WriteAssignment.of(Object.class, "updatedAt", Long.class, WriteKind.INSERT_AND_UPDATE, () -> 1L);
+        var created = WriteAssignment.of(Object.class, "createdAt", Long.class, WriteKind.INSERT, () -> 2L);
+        var given = new ArrayList<>(List.of(updated, created));
+        var config = ModelQueryConfig.defaults().writeAssignments(given);
+        given.clear();
+        assertThat(config.writeAssignments()).containsExactly(updated, created);
+        var others = config.vendor(DatabaseVendor.H2).primaryKeyFirstBatchSize(3).queryTimeout(Duration.ofSeconds(4))
+                .mysqlStreamingMode(MysqlStreamingMode.CURSOR_FETCH)
+                .keysetNullKeys(KeysetNullKeys.HONOUR_NULL_PRECEDENCE).exportPageSize(5).streamFetchSize(6)
+                .vendorProfiles(List.of()).persistenceContextMode(PersistenceContextMode.KEEP).bulkWriteChunkSize(7)
+                .chunkTransactions(new ChunkTransactions() {
+                    @Override
+                    public <T> T inNewTransaction(EntityManagerFactory emf, Function<EntityManager, T> work) {
+                        return work.apply(null);
+                    }
+                }).conflictUpdateWhereOnAssignedColumns(true);
+        assertThat(others.writeAssignments()).containsExactly(updated, created);
+        assertThat(others.writeAssignments(List.of()).writeAssignments()).isEmpty();
+        assertThat(others.writeAssignments(List.of(created)).bulkWriteChunkSize()).isEqualTo(7);
+        assertThatThrownBy(() -> config.writeAssignments().add(updated))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> ModelQueryConfig.defaults().writeAssignments(null))
+                .isInstanceOf(NullPointerException.class).hasMessage("assignments");
+        var withNull = new ArrayList<WriteAssignment>();
+        withNull.add(null);
+        assertThatThrownBy(() -> ModelQueryConfig.defaults().writeAssignments(withNull))
+                .isInstanceOf(NullPointerException.class);
     }
 
     /** A supplied profile, as a plain-JPA caller or the Spring starter passes one. */

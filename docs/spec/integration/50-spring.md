@@ -65,6 +65,7 @@ depends on the argument, the methods are not annotated `@Transactional`; they us
 since neither can commit per chunk (`api/14` R-WRT-33, R-WRT-39): called with no transaction on the repository, they
 succeed where the executor's own methods fail with `MQ2501` (`api/14` R-WRT-18). The methods add no semantics to the
 executor's (R-SPR-01). Change sets bind from request bodies with no extra configuration (`api/14` R-WRT-03).
+`persist(persist, returning)` (M11, `api/14` R-WRT-48) runs in one transaction as `persist` does.
 
 **R-SPR-11** The starter registers a `ChunkTransactions` that finds, for the `EntityManagerFactory` it is given, the
 `JpaTransactionManager` bound to that factory (once per factory, then cached), and runs the chunk in a
@@ -131,7 +132,10 @@ with more than one `EntityManagerFactory` and no `ModelQueryConfigurer` fails st
 one vendor on every database (D-54). A `ModelQueryConfig` bean of the application's own replaces the starter's, so
 startup fails with `MQ4006`, naming what it drops, when a `VendorProfile` or `ChunkTransactions` bean is not the one it
 holds, or a `modelquery.*` property is set. The starter's own `ChunkTransactions` is not counted: such a config's
-`commitEachChunk()` writes throw `MQ4004` (D-74). A `ModelQueryConfigurer` adjusts the starter's config instead.
+`commitEachChunk()` writes throw `MQ4004` (D-74). A `ModelQueryConfigurer` adjusts the starter's config instead. From
+M11 the starter hands every `WriteAssignment` bean to its config, as it does `VendorProfile` beans (`api/14`
+R-WRT-49), and an application's own `ModelQueryConfig` bean that does not hold every `WriteAssignment` bean fails
+startup with `MQ4006`, as one dropping a `VendorProfile` bean does.
 
 ## 4. Acceptance criteria
 
@@ -149,7 +153,7 @@ holds, or a `modelquery.*` property is set. The starter's own `ChunkTransactions
 | AC-SPR-11 | A `ModelQueryConfig` bean of the application with a `modelquery.*` property set, or without a `VendorProfile` bean among its profiles, fails startup with `MQ4006`; one holding every profile bean starts (R-SPR-13). |
 | AC-SPR-13 | A post-processor that type-checks the repositories before the swap leaves them built with `ModelQueryRepositoryFactoryBean`: the context starts and `findPage` works; a `RootBeanDefinition` keeps its `targetType`, now over `ModelQueryRepositoryFactoryBean` with the old generics (R-SPR-02, D-83). |
 | AC-SPR-12 | A repository declaring `ModelQueryRepository` of an entity other than its domain type fails startup with `MQ4007` (R-SPR-12). |
-| AC-SPR-09 | (`Future`, M6) `update`/`delete`, and `insert`, `insertReturningKeys` and `persist` (M10), without an ambient transaction succeed through the repository, the inserted rows committed; `commitEachChunk` commits each chunk separately on the primary and on a secondary datasource of the multi-datasource sample, and a failed third chunk leaves the first two committed (R-SPR-10, R-SPR-11). |
+| AC-SPR-09 | (`Future`, M6) `update`/`delete`, `insert`, `insertReturningKeys` and `persist` (M10), and `persist(persist, returning)` (M11), without an ambient transaction succeed through the repository, the inserted rows committed; `commitEachChunk` commits each chunk separately on the primary and on a secondary datasource of the multi-datasource sample, and a failed third chunk leaves the first two committed (R-SPR-10, R-SPR-11). |
 | AC-SPR-14 | `findKeysetPage(q, KeysetSpec, Sort)` returns the same rows as the executor; a sorted `Sort` changes the fingerprint (R-SPR-14). |
 | AC-SPR-15 | A context whose `@EnableJpaRepositories` names a factory bean class extending `ModelQueryRepositoryFactoryBean` and a `repositoryBaseClass`: the context starts, both repositories are built with that factory bean, the base class's own method works on both, `findPage` and `findAll` work on the repository extending `ModelQueryRepository`, and the other stays a plain repository without the fragment (R-SPR-02, R-SPR-12, D-50, D-83). |
 | AC-SPR-16 | A context naming a `JpaRepositoryFactoryBean` subclass that does not extend `ModelQueryRepositoryFactoryBean`, plus a `repositoryBaseClass`: it starts; both repositories are built by that class (its override is observed); the base class's method works on both; `findPage` and `findAll` work on the `ModelQueryRepository` one; the other has no fragment; a repository type-checked before the post-processor still gets the fragment (R-SPR-02, D-83, D-113). |

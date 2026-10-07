@@ -616,6 +616,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     @Override
     public long update(ModelUpdate<E, ?> u) {
         Objects.requireNonNull(u, "u");
+        if (u.entityMode()) {
+            // Stub until entity mode is built (M11.3): never fall back to a bulk statement, which skips the listeners.
+            throw new UnsupportedOperationException(rootEntity.getSimpleName()
+                    + ": an update throughEntities() is not supported yet");
+        }
         checkWriteOnce(u, u::checkMetamodel);
         requireTransaction("update", u.chunkOptions());
         if (u.writesNothing()) {
@@ -651,6 +656,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     @Override
     public long delete(ModelDelete<E, ?> d) {
         Objects.requireNonNull(d, "d");
+        if (d.entityMode()) {
+            // Stub until entity mode is built (M11.4): never fall back to a bulk statement, which skips the listeners.
+            throw new UnsupportedOperationException(rootEntity.getSimpleName()
+                    + ": a delete throughEntities() is not supported yet");
+        }
         checkWriteOnce(d, d::checkMetamodel);
         requireTransaction("delete", d.chunkOptions());
         if (d.writesNothing()) {
@@ -798,6 +808,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                     + "and the metamodel reports " + ids);
         }
         return ids.get(0);
+    }
+
+    @Override
+    public <R> R persist(ModelPersist<E, ?, ?> persist, ModelQuery<E, ?, R> returning) {
+        Objects.requireNonNull(persist, "persist");
+        Objects.requireNonNull(returning, "returning");
+        // Stub until the overload is built (M11.5): refused before any statement, never a persist without the model.
+        throw new UnsupportedOperationException(rootEntity.getSimpleName()
+                + ": persist(persist, returning) is not supported yet");
     }
 
     @Override

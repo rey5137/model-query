@@ -31,7 +31,7 @@ import java.util.stream.Stream;
  * @implSpec R-QRY-10, R-QRY-09, R-QRY-11, R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-07, R-EXE-09, R-PAG-01,
  *     R-PAG-02, R-PAG-03, R-PAG-07, R-PAG-08, R-PAG-09, R-PAG-10, R-PAG-11, R-PAG-12, R-PAG-13, R-PAG-14, R-PAG-15,
  *     R-AGG-09, R-WRT-01, R-WRT-07, R-WRT-08, R-WRT-15, R-WRT-16, R-WRT-17, R-WRT-18, R-WRT-19, R-WRT-20,
- *     R-WRT-23, R-WRT-24, R-WRT-26, R-WRT-33, R-WRT-39, R-VND-14, D-61
+ *     R-WRT-23, R-WRT-24, R-WRT-26, R-WRT-33, R-WRT-39, R-WRT-41, R-WRT-48, R-VND-14, D-61
  */
 @Incubating
 public interface ModelQueryExecutor<E> {
@@ -311,4 +311,30 @@ public interface ModelQueryExecutor<E> {
      */
     @Incubating
     <K> K persist(ModelPersist<E, K, ?> p);
+
+    /**
+     * Writes {@code persist}'s row as {@link #persist(ModelPersist)} does, up to its flush, then returns
+     * {@code returning}'s model built from the managed entity before it is detached, with no further statement. The
+     * query supplies only the selection, the mapper, {@code afterMap} and the finisher; each selected column is read
+     * through its attribute's metamodel member and the column's converter. It can fill root attributes, embeddable
+     * paths and the id of a to-one association, read without initializing the target; through an {@code INNER} join
+     * field whose foreign key is null it fills {@code null}.
+     *
+     * <p>The model holds what JPA knows after the flush: a value the database fills, such as a column default or a
+     * trigger's, is present only where the mapping has the provider read it back ({@code @Generated}). Everything
+     * {@link #persist(ModelPersist)} documents about callbacks, the flush and {@code detach} holds (R-WRT-48).
+     *
+     * @param persist the row to write
+     * @param returning the query whose model to return; its root is this executor's
+     * @param <R> the returned model
+     * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution per
+     *     {@code EntityManagerFactory}, before any statement, {@code MQ1809} for a query with {@code where},
+     *     {@code having}, {@code groupBy}, a fetch plan, {@code customize}, {@code orderBy}, {@code keyset} or
+     *     {@code primaryKeyFirst}, or a selected column the entity alone cannot fill (a join beyond a to-one id, a join
+     *     with {@code on(...)}, an expression, an aggregate); and what {@link #persist(ModelPersist)} throws
+     * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2501}, before any statement, when the
+     *     {@code EntityManager} is not joined to a transaction (R-WRT-39)
+     */
+    @Incubating
+    <R> R persist(ModelPersist<E, ?, ?> persist, ModelQuery<E, ?, R> returning);
 }

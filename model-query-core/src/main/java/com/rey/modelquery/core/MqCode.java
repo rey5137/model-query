@@ -176,6 +176,24 @@ public enum MqCode {
     /** {@code setExpression} on a column with a {@code ColumnConverter} (R-WRT-14). */
     MQ1609("setExpression(...) does not take a column that has a ColumnConverter"),
 
+    /**
+     * An update {@code throughEntities()} combined with {@code keepVersion()}, {@code expectVersion(v)} or a
+     * {@code setExpression}, at {@code build()} (R-WRT-41, R-WRT-46).
+     */
+    MQ1610("An entity-mode update does not take keepVersion(), expectVersion(...) or setExpression(...)"),
+
+    /**
+     * A write assignment's path is not a basic singular attribute of the root, or two assignments of overlapping
+     * kinds name one root and path, on the first write per root per factory (R-WRT-49).
+     */
+    MQ1611("A write assignment does not name one assignable basic attribute of the root"),
+
+    /**
+     * A write assignment's type does not fit its attribute, or its supplier returned {@code null} or a value of the
+     * wrong type (R-WRT-49).
+     */
+    MQ1612("A write assignment's type or value does not fit its attribute"),
+
     /** A join plan whose join ends up with no selected column (R-FCH-07). */
     MQ1701("A join plan's join has no selected column"),
 
@@ -237,6 +255,12 @@ public enum MqCode {
 
     /** Two rows of one insert-values call share a conflict-key tuple (R-WRT-37). */
     MQ1808("Two rows of one insert share a conflict key"),
+
+    /**
+     * A {@code persist(persist, returning)} query with a clause or a selected column the flushed entity cannot fill,
+     * on first execution per factory (R-WRT-48).
+     */
+    MQ1809("A persist returning query must select only what the flushed entity holds, with no other clause"),
 
     /** A page size or {@code maxPerParent} that is not positive, or a limit that is negative (R-EXE-06, R-FCH-11). */
     MQ2001("A page or chunk size and maxPerParent must be positive, and a limit must not be negative"),

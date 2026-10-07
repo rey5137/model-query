@@ -85,6 +85,9 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1607` | `Changes.from(...)` names a column that is not writable | `api/14` R-WRT-04 |
 | `MQ1608` | A bulk write's `@PrimaryKey` is not the root entity's id; checked on first execution, before the flush | `api/14` R-WRT-08, D-61 |
 | `MQ1609` | `setExpression` on a column with a converter | `api/14` R-WRT-14 |
+| `MQ1610` | An update `throughEntities()` combined with `keepVersion()`, `expectVersion(v)` or any `setExpression`, whatever the call order; at `build()` | `api/14` R-WRT-41, R-WRT-46, D-118 |
+| `MQ1611` | A write assignment whose path is unknown, an id, a `@Version`, a collection, a to-one or a whole embeddable, or two assignments of overlapping kinds for one root and path; on the first write per root per factory, before any statement | `api/14` R-WRT-49, D-118 |
+| `MQ1612` | A write assignment whose type the attribute cannot take after boxing (on the first write per root per factory), or whose supplier returns `null` or a value of the wrong type (at execution); before any statement | `api/14` R-WRT-49, D-118 |
 | `MQ1701` | A join plan whose join ends up with no selected column | `api/15` R-FCH-07 |
 | `MQ1702` | A column a fetch plan needs (a child's key, an enricher's column) is read through a to-many join; checked on first execution (`count` logs a `WARNING` instead) | `api/15` R-FCH-02 |
 | `MQ1703` | A fetch plan names the same child or join twice | `api/15` R-FCH-01 |
@@ -100,6 +103,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1806` | A `chunked` insert-select whose source and target overlap, or whose source or target has an empty `tablesOf`, or whose source joins through a link or collection table (a many-to-many, an element collection, a join-table one-to-many); on first execution, before the flush | `api/14` R-WRT-28, D-117 |
 | `MQ1807` | Keys requested for an `IDENTITY` or assigned id, or a key type `K` that is not the boxed id type the provider reports (as an `orm.xml` mapping can make it; `Object` passes, and nothing is compared where the metamodel reports no id type); on first execution | `api/14` R-WRT-33, R-WRT-39, §10.1, D-117 |
 | `MQ1808` | Two rows of one insert-values call with a conflict clause share a conflict-key tuple, compared by `equals`; at `build()` | `api/14` R-WRT-37, D-117 |
+| `MQ1809` | A `persist(persist, returning)` query with `where`, `having`, `groupBy`, a fetch plan, `customize`, `orderBy`, `keyset` or `primaryKeyFirst`, or a selected column it cannot fill from the flushed entity (a join beyond a to-one id, a join with `on(...)`, an expression, an aggregate); on first execution per factory, before any statement | `api/14` R-WRT-48, D-118 |
 
 ## 3. `MQ2xxx` — execution
 
@@ -145,7 +149,7 @@ insert models (D-116, D-117). Codes are not repeated here to keep one owner.
 | `MQ4002` | Two `VendorProfile`s registered for the same vendor with no precedence rule | `vendor/40` R-VND-03 |
 | `MQ4003` | A property value, or its `ModelQueryConfig` setting, is outside its allowed range | `integration/50` §3 |
 | `MQ4005` | `modelquery.vendor` set with more than one `EntityManagerFactory` and no `ModelQueryConfigurer` | `integration/50` R-SPR-13 |
-| `MQ4006` | A `ModelQueryConfig` bean of the application drops a `VendorProfile` or `ChunkTransactions` bean, or a set `modelquery.*` property | `integration/50` R-SPR-13 |
+| `MQ4006` | A `ModelQueryConfig` bean of the application drops a `VendorProfile`, `WriteAssignment` or `ChunkTransactions` bean, or a set `modelquery.*` property | `integration/50` R-SPR-13 |
 | `MQ4007` | A repository declares `ModelQueryRepository` of an entity other than its domain type | `integration/50` R-SPR-12 |
 | `MQ4008` | The starter cannot add the repository fragment because the factory bean definition already sets `customImplementation` | `integration/50` R-SPR-02, D-113 |
 | `MQ4004` | `commitEachChunk()` with no `ChunkTransactions` configured, or none that serves the write's `EntityManagerFactory` | `api/14` R-WRT-19 |

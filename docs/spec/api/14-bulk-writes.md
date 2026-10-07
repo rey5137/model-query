@@ -1,11 +1,13 @@
 # 14 — Writes
 
 **Covers:** `ModelUpdate`, `ModelDelete`, change sets (`Changes<M>`), how a bulk write renders and runs, and the
-executor's `update`/`delete`; from M10 the inserts (`ModelInsert`, `ValuesInsert`, `ModelPersist`, §10).
-**Read when:** working on M6 or M10, or deciding whether a write belongs in this library at all.
-**Owns:** `R-WRT-*`, `AC-WRT-*`. **Status: M6, before 0.1.0; §10 M10, 0.3.0.** `@Incubating` until the M8 API review;
-the insert types stay `@Incubating` (D-85, D-116). Update models are generated as in `processor/31` §6; the reasoning
-is D-14 and D-17, and for inserts D-116 and D-117.
+executor's `update`/`delete`; from M10 the inserts (`ModelInsert`, `ValuesInsert`, `ModelPersist`, §10); from M11
+entity mode, `persist` returning a model and write assignments (§11).
+**Read when:** working on M6, M10 or M11, or deciding whether a write belongs in this library at all.
+**Owns:** `R-WRT-*`, `AC-WRT-*`. **Status: M6, before 0.1.0; §10 M10, 0.3.0; §11 M11, 0.4.0.** `@Incubating` until
+the M8 API review; the insert types and §11's surface stay `@Incubating` (D-85, D-116, D-118). Update models are
+generated as in `processor/31` §6; the reasoning is D-14 and D-17, for inserts D-116 and D-117, and for entity writes
+D-118.
 
 ---
 
@@ -15,7 +17,9 @@ is D-14 and D-17, and for inserts D-116 and D-117.
 `CriteriaDelete`, or a chunked series of them (R-WRT-17); a bulk insert is detailed in §10. It reuses the `Filters` DSL
 (`api/12`), join resolution (`api/10`), converters and the vendor's limits. It never loads an entity, and runs no
 lifecycle callback, cascade, Bean Validation or Envers audit: those stay with JPA entity writes (INV-1, D-14). Every
-write method's Javadoc says so.
+write method's Javadoc says so. The exception is an update or delete built with `throughEntities()` (§11, D-118): it
+reuses the same filters and chunking, but loads the matched entities chunk by chunk and writes them through the
+`EntityManager`, so callbacks, listeners and audits run.
 
 ## 2. Change sets
 
@@ -190,7 +194,8 @@ Javadoc and the user guide say so. With `KEEP` the root's entities stay managed 
 one fails loudly because its version moved (R-WRT-16); with `keepVersion()`, or on a root with no `@Version` attribute,
 nothing moved, so the flush silently writes the stale values back over the bulk write, and the Javadoc of `KEEP` says
 so. Either way the engine evicts the root entity from the second-level cache with
-`EntityManagerFactory#getCache().evict(root)`, which is portable.
+`EntityManagerFactory#getCache().evict(root)`, which is portable. An entity-mode write keeps the flush before its
+first chunk but clears per chunk and skips the eviction (R-WRT-43, R-WRT-45).
 
 **R-WRT-16** **Bulk updates respect optimistic locking.** When the root has a `@Version` attribute, every update renders
 `version = version + 1` (or the current timestamp for a timestamp version) unless `keepVersion()` is set.
@@ -198,7 +203,8 @@ so. Either way the engine evicts the root entity from the second-level cache wit
 (D-60); on a root with no `@Version` attribute, or with a value of the wrong type, or (without `keepVersion()`) with a
 `@Version` of a type an update cannot increment, the definition's first execution throws `MQ1606` before any statement
 (D-61).
-Zero affected rows then throws JPA's `OptimisticLockException`.
+Zero affected rows then throws JPA's `OptimisticLockException`. In entity mode the provider checks and increments the
+version, and `keepVersion()` and `expectVersion(v)` are `MQ1610` at `build()` (R-WRT-46).
 
 **R-WRT-17** **Chunked writes write no row twice and terminate.** Keyset over the root id: select the next `n` matching
 keys `WHERE <tree> AND pk > :last ORDER BY pk` (a composite id uses the OR-expansion of `vendor/41` §5), write
@@ -207,7 +213,8 @@ affected. A key select that returns a key the round before it wrote throws, as R
 cursor only moves forward, so an update that leaves rows matching cannot loop, and a delete never re-reads what it
 removed. A row that matches for the whole call is written exactly once; a row whose match changes during the call, by
 another transaction, may or may not be written. The chunk size is clamped to the vendor's limits as in R-WRT-08. A key-first write without `chunked` (R-WRT-11) runs the
-same loop with `n` at that clamp (D-63).
+same loop with `n` at that clamp (D-63). An entity-mode write (R-WRT-42) runs the same key select, then loads the
+chunk's entities over `pk IN (…) AND <tree>` instead of writing with it; it is always chunked.
 
 ## 6. Transactions
 
@@ -318,6 +325,12 @@ public interface ModelQueryExecutor<E> {
 | AC-WRT-31 | A bulk insert on a provider with no insert support throws `MQ4009` and runs no flush; `persist` runs on it (R-WRT-39, `vendor/40`). |
 | AC-WRT-32 | `build()` and `ModelPersist.of` check the definition before any statement: a `where` whose every filter is skipped throws `MQ1601`; a column unmapped, mapped twice or with another converter class, a `set` on a model column, a column set twice, a column not on the root, or `lockKeys()` on insert-values throws `MQ1801`; a `null` row throws `MQ1803`; a `null` assigned id `MQ1802`; two rows sharing a conflict-key tuple with no `null` in it `MQ1808`; a conflict column or assignment that R-WRT-34 refuses, or `exists` in the update's `where`, `MQ1804`. Changing a row or the list after `build()` leaves the definition unchanged (R-WRT-27, R-WRT-29, R-WRT-30, R-WRT-32, R-WRT-34, R-WRT-37, INV-9). |
 | AC-WRT-33 | The insert stages compile in the documented orders and reject the rest: a source column of another model than the first `map`'s, a join as `insertFrom`'s source, `onConflict` on an insert-select or after `chunked`, keys from an insert-select or a conflict-clause insert, `keepVersion()` after `doNothing()`, a `doUpdate` assigning nothing, and `set` or chunking on `persist` do not compile (R-WRT-27, R-WRT-29, R-WRT-33, R-WRT-34, R-WRT-40, D-60). |
+| AC-WRT-34 | An entity-mode update fires `@PreUpdate`, `@PostUpdate` and a registered Hibernate `PostUpdateEventListener` once per changed row, with the old state, and, for a root with no `UPDATE` assignment, none for an unchanged row; the count is the rows matched. The Hibernate listener test lives in `model-query-hibernate` or the integration tests, not in `model-query-jpa` (INV-7) (R-WRT-41, R-WRT-42, R-WRT-43, R-WRT-44). |
+| AC-WRT-35 | An entity-mode delete fires `@PreRemove` and `PostDeleteEventListener` per row and cascades `REMOVE` and `orphanRemoval` (R-WRT-42, R-WRT-43). |
+| AC-WRT-36 | An entity-mode write loads one select per chunk, holds at most one chunk of entities under `CLEAR`, and resumes from `ChunkedWriteException` after an `OptimisticLockException` (R-WRT-42, R-WRT-45, R-WRT-46, R-WRT-47). |
+| AC-WRT-37 | `throughEntities()` with `setExpression`, `keepVersion()` or `expectVersion(v)` is `MQ1610` at `build()`, whatever the call order; a delete accepts `throughEntities()` with any option (R-WRT-41, R-WRT-46). |
+| AC-WRT-38 | `persist(persist, returning)` returns the generated id, `@PrePersist` values and constructor defaults with one insert and no select; a `returning` query with a `where` (or another R-WRT-48 clause) or an unfillable column is `MQ1809` before any statement (R-WRT-48). |
+| AC-WRT-39 | A write assignment is applied by each write in the R-WRT-49 table, skipped where the definition sets the attribute, called once per execution (again on resume), and overridden by an entity callback under `persist`; an empty update stays a no-op; an assignment on a superclass applies to a subclass root; `MQ1611` (including two overlapping kinds for one path), `MQ1612` (including a supplier returning `null`); `WriteAssignment.of` rejects a `null` argument, a primitive or array entity class and a blank or malformed path (R-WRT-49). |
 
 ## 10. Inserts
 
@@ -598,8 +611,142 @@ that a domain constructor's invariants do not run. The `flush` writes the caller
 flush does. `detach` cascades as the mapping says: a to-one with `CascadeType.ALL` or `DETACH` detaches the instance
 `getReference` returned, which is the caller's own managed entity when there is one, and an entity persisted by a
 callback stays managed; the Javadoc documents this as R-WRT-15 documents `CLEAR`. A `K` that is not the id's type is
-`MQ1807` (§10.1).
+`MQ1807` (§10.1). `persist(persist, returning)` returns a query model built from the flushed entity instead of the key
+(R-WRT-48); write assignments with an `INSERT` kind are set on the entity before the flush (R-WRT-49).
 
 **R-WRT-40** `persist` takes no `set`, conflict clause or chunking: server values belong in the entity's callbacks or
 in the model. Many rows with `IDENTITY` keys are a loop over `persist`, one statement each, which is what the provider
 does for `IDENTITY` anyway; the Javadoc points to `insert`/`insertReturningKeys` for anything else.
+
+## 11. Entity writes
+
+Added by RFC 0005 (D-118). Entity mode lets an update or delete reach the entity listeners, callbacks and audits that
+a bulk statement skips, `persist` can return a query model, and write assignments fill server-set columns on every
+write. Every type and method here is `@Incubating` (D-85, D-118). The acceptance criteria are in §9 (AC-WRT-34 to
+AC-WRT-39).
+
+### 11.1 Entity mode for update and delete
+
+```java
+repository.update(QPaymentReportServiceDelete.update(changes)
+        .where(f -> f.eq(REPORT_TYPE_ID, reportTypeId).in(SERVICE_ID, serviceIds).eq(IS_DELETED, false))
+        .throughEntities()
+        .chunked(ChunkOptions.size(500))
+        .build());
+
+repository.delete(QExportRoleConfiguration.delete().whereKey(id).throughEntities().build());
+```
+
+**R-WRT-41** `throughEntities()` is offered on the options stage of `ModelUpdate` and `ModelDelete`, beside `chunked`
+and `persistenceContext`, and on each `Resumable` stage; `entityMode()` is `@EngineFacing`. `build()` throws `MQ1610`
+for an update that combines `throughEntities()` with `keepVersion()`, `expectVersion(v)` or any `setExpression`,
+whatever the call order; a delete has no incompatible option. The Javadoc of `throughEntities()` says the error comes
+when the definition is built (for a `static final` constant, at class initialization), not at compile time. An
+entity-mode write is always chunked: without `chunked(...)` it uses `ModelQueryConfig.bulkWriteChunkSize()`, so memory
+is bounded by one chunk of entities.
+
+**R-WRT-42** Each chunk selects its keys exactly as R-WRT-17 does (`WHERE <tree> AND pk > :last ORDER BY pk`), then
+loads the chunk's entities with one `CriteriaQuery<E>` over the R-WRT-17 predicate (`pk IN (…) AND <tree>`), never one
+`find` per key; a composite id uses the `vendor/41` §5 expansion, and for `whereKey(s)` the chunk is the given keys. A
+row that stops matching the filter between the key select and the load is not written. An update applies each
+assignment to the managed entity through the same metamodel member R-WRT-39 uses (field, or the setter paired with the
+getter), after the column's converter; a to-one by id binds `EntityManager#getReference`, so its target is not loaded.
+A delete calls `EntityManager#remove`. The chunk is then flushed. The provider writes only the entities that changed,
+so an assignment that leaves a row as it was writes nothing and fires no update listener.
+
+**R-WRT-43** It is an entity write: `@PreUpdate`/`@PostUpdate`, `@PreRemove`/`@PostRemove`, the provider's event
+listeners, Envers, Bean Validation, cascades (`REMOVE`, `orphanRemoval`) and the mapping's `@SQLDelete` run, and the
+provider maintains the second-level cache, so R-WRT-15's eviction does not apply. A delete may therefore remove more
+rows than it counts, and the Javadoc says so.
+
+**R-WRT-44** The return value is the number of distinct entities loaded, which is the number of rows matched, not the
+number the provider wrote.
+
+**R-WRT-45** The persistence context follows `PersistenceContextMode`. R-WRT-15's flush before the first chunk stays.
+With `CLEAR` (the default) the engine clears after each chunk's flush, which is what keeps memory to one chunk. With
+`KEEP` nothing is detached: the loaded entities stay managed and current, since they were written through the context,
+and the Javadoc of `KEEP` says the context then grows with every matched row. The engine never detaches only "what it
+loaded": a row the caller already had managed is the same instance, and detaching it would surprise the caller.
+
+**R-WRT-46** Optimistic locking is the provider's: a `@Version` attribute is checked and incremented by the flush.
+`keepVersion()` and `expectVersion(v)` cannot be honoured, and `setExpression` cannot be computed in Java, so `build()`
+throws `MQ1610` for a definition that combines any of them with `throughEntities()`. An `OptimisticLockException` from
+a chunk's flush is a failed chunk like any other: it reaches the caller as R-WRT-20 says, wrapped in
+`ChunkedWriteException` with the key to resume after.
+
+**R-WRT-47** An entity-mode write needs an active transaction (`MQ2501`); with `commitEachChunk()` each chunk loads,
+writes and clears inside its own transaction (R-WRT-19). Each resume after a `ChunkedWriteException` is a new
+execution, so it calls every write assignment's supplier again (R-WRT-49). It needs no provider SPI and runs on every
+provider. Inserts have no entity mode: an insert that must fire listeners is `persist`, in a loop for many rows, which
+costs the same as `saveAll` with an `IDENTITY` id.
+
+### 11.2 `persist` returning a model
+
+```java
+static final ModelQuery<ExportJobEntity, Long, ExportJob> JOB = QExportJob.query().select(QExportJob.ALL).build();
+
+ExportJob job = repository.persist(QNewExportJob.persist(row), JOB);
+```
+
+**R-WRT-48** `@Incubating <R> R persist(ModelPersist<E, ?, ?> persist, ModelQuery<E, ?, R> returning)` on
+`ModelQueryExecutor<E>` and `ModelQueryRepository<E>` runs R-WRT-39 up to the flush, then builds the model from the
+managed entity before it is detached, with no further statement. The query supplies only the root, the selection, the
+mapper, `afterMap` and the finisher; a `SelectSet` alone carries neither the root nor the mapper. Each selected column
+is read through its attribute's metamodel member and the column's converter, and the model is instantiated as the read
+path does. It can fill root attributes, embeddable paths and the id of a to-one association (read without initializing
+the target; through an `INNER` join field whose foreign key is null it fills `null`, and the Javadoc says so). The root
+is fixed by `E`, so a query on another entity does not compile. A query with `where`, `having`, `groupBy`, a fetch plan,
+`customize`, `orderBy`, `keyset` or `primaryKeyFirst`, or a selected column it cannot fill from the entity alone (a
+join beyond a to-one id, a join with `on(...)`, an expression, an aggregate), is `MQ1809` on its first execution per
+factory, before any statement; there is no silent fallback to a select. The Javadoc says the model holds what JPA knows
+after the flush: a value the database fills (a column default, a trigger) is present only where the mapping has the
+provider read it back (`@Generated`). The overload is separate rather than a `returning(...)` stage, which would change
+the builder's key type `K` into `M`.
+
+### 11.3 Write assignments
+
+```java
+ModelQueryConfig.defaults()
+        .writeAssignments(List.of(
+                WriteAssignment.of(AuditedEntity.class, "lastUpdatedTimestamp", Timestamp.class,
+                        WriteKind.INSERT_AND_UPDATE, () -> Timestamp.from(clock.instant())),
+                WriteAssignment.of(AuditedEntity.class, "createdTimestamp", Timestamp.class,
+                        WriteKind.INSERT, () -> Timestamp.from(clock.instant()))));
+```
+
+**R-WRT-49** `WriteAssignment` (`@Incubating` final class) and `WriteKind` (`@Incubating enum { INSERT, UPDATE,
+INSERT_AND_UPDATE }`) live in `com.rey.modelquery.jpa`. `static <A> WriteAssignment of(Class<?> entity, String
+attribute, Class<A> type, WriteKind kind, Supplier<? extends A> value)` names an entity class, an attribute path of it,
+the attribute's type and a supplier of its value; `entity()`, `attribute()`, `type()` and `kind()` read them back. `of`
+throws `NullPointerException` for a `null` argument and `IllegalArgumentException` for a primitive or array entity class
+or an attribute that is not dot-separated Java identifiers. An assignment applies to the named class and its subclasses
+(`isAssignableFrom`), so one on a `@MappedSuperclass` covers every entity extending it.
+`ModelQueryConfig.writeAssignments(Collection<? extends WriteAssignment>)` holds them and `writeAssignments()` returns
+them, empty by default; under Spring Boot the starter hands every `WriteAssignment` bean to the config, as it does
+`VendorProfile` beans. The path names a basic singular attribute of the root, possibly through embeddables. It is
+checked on the first write per root per `EntityManagerFactory` (D-61's `checkWriteOnce`), before any statement, not when
+the config is built, since one config can serve several factories: an unknown path, an id, a `@Version`, a collection, a
+to-one, a whole embeddable, or two assignments of overlapping kinds for one root and path, is `MQ1611`; a type the
+attribute cannot take (after boxing) is `MQ1612`. A supplier that returns `null` or a value of the wrong type is
+`MQ1612` at execution, before any statement. The supplier is called once per write execution, so every chunk and every
+row of one write gets the same value; it may be called from several threads at once and must be thread-safe, and a
+`Clock` keeps tests deterministic.
+
+They apply to:
+
+| Write | Kind applied |
+|---|---|
+| bulk update, chunked or not, and entity mode | `UPDATE` |
+| insert-values and insert-select | `INSERT` |
+| the `doUpdate` branch of a conflict clause | `UPDATE` |
+| `persist` | `INSERT` |
+| delete, `doNothing` | none |
+
+In a bulk update an assignment is rendered as a plain `set` of a bound value, after the definition's own assignments;
+insert-values counts its extra bind per row in `rowsPerStatement` (R-WRT-29). An explicit `set`, `setNull` or
+change-set field for the same attribute wins and the assignment is skipped, which is not `MQ1602`, so a backfill can
+still set the column on purpose; keeping the column out of a change set bound from a request stays the model's job
+(R-WRT-13). An update with nothing to write stays a no-op: assignments never turn an empty update into a write. Under
+`persist` and entity mode the value is set on the entity through the metamodel member before the flush, so an entity
+callback that sets the same attribute runs after it and wins, and in entity mode an `UPDATE` assignment makes every
+matched row dirty.

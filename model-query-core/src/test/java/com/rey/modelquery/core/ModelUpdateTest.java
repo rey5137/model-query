@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.Test;
 
 /** Bulk-write definitions checked at build(), before any Criteria query exists (spec api/14 R-WRT-05..R-WRT-14). */
@@ -335,6 +336,95 @@ class ModelUpdateTest {
                         + "the expression's path has the entity attribute's type, not the model's");
         assertThatCode(() -> update().set(FLAGGED, true).setExpression(TOTAL, (path, cb) -> cb.sum(path, 1L))
                 .whereKey(1L).build()).doesNotThrowAnyException();
+    }
+
+    // ---- AC-WRT-37
+
+    @Test
+    void ac_wrt_37_keep_version_with_through_entities_throws_mq1610_in_either_order() {
+        assertMq1610(() -> update().set(STATUS, "PAID").where(f -> f.eq(STATUS, "NEW")).throughEntities()
+                .keepVersion().build(), "keepVersion()");
+        assertMq1610(() -> update().set(STATUS, "PAID").where(f -> f.eq(STATUS, "NEW")).keepVersion()
+                .throughEntities().build(), "keepVersion()");
+        assertMq1610(() -> update().set(STATUS, "PAID").whereKey(1L).throughEntities().keepVersion().build(),
+                "keepVersion()");
+        assertMq1610(() -> update().set(STATUS, "PAID").whereKeys(List.of(1L, 2L)).keepVersion().throughEntities()
+                .build(), "keepVersion()");
+        assertMq1610(() -> update().set(STATUS, "PAID").all().chunked(ChunkOptions.size(10), 5L).keepVersion()
+                .persistenceContext(PersistenceContextMode.KEEP).throughEntities().build(), "keepVersion()");
+    }
+
+    @Test
+    void ac_wrt_37_expect_version_with_through_entities_throws_mq1610() {
+        // After throughEntities() the stage is the plain options stage, so expectVersion can only come first.
+        assertMq1610(() -> update().set(STATUS, "PAID").whereKey(1L).expectVersion(3L).throughEntities().build(),
+                "expectVersion(...)");
+        assertMq1610(() -> update().set(STATUS, "PAID").whereKey(1L).where(f -> f.eq(STATUS, "NEW"))
+                .expectVersion(3L).chunked(ChunkOptions.size(10)).throughEntities().build(), "expectVersion(...)");
+    }
+
+    @Test
+    void ac_wrt_37_set_expression_with_through_entities_throws_mq1610_whatever_comes_between() {
+        assertMq1610(() -> update().setExpression(TOTAL, (path, cb) -> cb.sum(path, 1L)).whereKey(1L)
+                .throughEntities().build(), "setExpression(total, ...)");
+        assertMq1610(() -> update().set(STATUS, "PAID").setExpression(TOTAL, (path, cb) -> cb.sum(path, 1L))
+                .set(NOTE, "n").all().throughEntities().chunked(ChunkOptions.size(10), 5L).build(),
+                "setExpression(total, ...)");
+    }
+
+    @Test
+    void ac_wrt_37_every_refused_option_is_named() {
+        assertThatThrownBy(() -> update().setExpression(TOTAL, (path, cb) -> cb.sum(path, 1L)).whereKey(1L)
+                .expectVersion(3L).keepVersion().throughEntities().build())
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1610))
+                .hasMessage("MQ1610: OrderPatch: throughEntities() with setExpression(total, ...), keepVersion(), "
+                        + "expectVersion(...); an entity-mode update sets each attribute in Java and leaves the "
+                        + "@Version to the provider's flush");
+    }
+
+    @Test
+    void ac_wrt_37_an_update_through_entities_with_other_options_builds_in_any_order() {
+        ModelUpdate<Order, OrderPatch> after = update().set(STATUS, "PAID").all().throughEntities()
+                .chunked(ChunkOptions.size(10), 5L).persistenceContext(PersistenceContextMode.KEEP).build();
+        assertThat(after.entityMode()).isTrue();
+        assertThat(after.startAfter()).contains(5L);
+        assertThat(after.persistenceContext()).contains(PersistenceContextMode.KEEP);
+        ModelUpdate<Order, OrderPatch> before = update().set(STATUS, "PAID").where(f -> f.eq(STATUS, "NEW"))
+                .persistenceContext(PersistenceContextMode.KEEP).chunked(ChunkOptions.size(10), 5L)
+                .throughEntities().build();
+        assertThat(before.entityMode()).isTrue();
+        assertThat(before.startAfter()).contains(5L);
+        assertThat(update().set(STATUS, "PAID").whereKey(1L).where(f -> f.eq(STATUS, "NEW")).throughEntities()
+                .build().entityMode()).isTrue();
+        assertThat(update().set(STATUS, "PAID").whereKey(1L).expectVersion(3L).keepVersion().build().entityMode())
+                .isFalse();
+    }
+
+    @Test
+    void ac_wrt_37_a_delete_accepts_through_entities_with_any_option_in_any_order() {
+        ModelDelete<Order, OrderPatch> after = delete().all().throughEntities().chunked(ChunkOptions.size(10), 5L)
+                .persistenceContext(PersistenceContextMode.KEEP).build();
+        assertThat(after.entityMode()).isTrue();
+        assertThat(after.startAfter()).contains(5L);
+        assertThat(after.persistenceContext()).contains(PersistenceContextMode.KEEP);
+        ModelDelete<Order, OrderPatch> before = delete().where(f -> f.eq(STATUS, "NEW"))
+                .persistenceContext(PersistenceContextMode.KEEP).chunked(ChunkOptions.size(10), 5L)
+                .throughEntities().build();
+        assertThat(before.entityMode()).isTrue();
+        assertThat(before.startAfter()).contains(5L);
+        assertThat(delete().whereKey(1L).throughEntities().build().entityMode()).isTrue();
+        assertThat(delete().whereKeys(List.of(1L, 2L)).where(f -> f.eq(STATUS, "NEW")).throughEntities()
+                .chunked(ChunkOptions.size(10)).build().entityMode()).isTrue();
+        assertThat(delete().whereKey(1L).build().entityMode()).isFalse();
+    }
+
+    private static void assertMq1610(ThrowingCallable build, String refused) {
+        assertThatThrownBy(build)
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1610))
+                .hasMessage("MQ1610: OrderPatch: throughEntities() with " + refused + "; an entity-mode update sets "
+                        + "each attribute in Java and leaves the @Version to the provider's flush");
     }
 
     @Test

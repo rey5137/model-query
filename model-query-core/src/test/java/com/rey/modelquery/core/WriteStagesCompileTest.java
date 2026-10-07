@@ -10,7 +10,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 /**
  * The staged write builders reject a wrong order at compile time (spec api/14 R-WRT-06, R-WRT-12, R-WRT-16, R-WRT-20,
- * D-60, D-68).
+ * R-WRT-41, D-60, D-68).
  */
 class WriteStagesCompileTest {
 
@@ -90,6 +90,25 @@ class WriteStagesCompileTest {
                 .isNotEmpty();
         assertThat(compile(out, "UPDATE.whereKey(1L).chunked(ChunkOptions.defaultSize(), 1L).build()")).isNotEmpty();
         assertThat(compile(out, "DELETE.whereKeys(List.of(1L)).chunked(ChunkOptions.defaultSize(), 1L).build()"))
+                .isNotEmpty();
+    }
+
+    @Test
+    void ac_wrt_37_through_entities_keeps_each_stage_it_is_offered_on(@TempDir Path out) throws IOException {
+        assertThat(compile(out, "UPDATE.set(STATUS, \"PAID\").where(f -> f.eq(STATUS, \"NEW\")).throughEntities()"
+                + ".chunked(ChunkOptions.size(10), 42L).persistenceContext(PersistenceContextMode.KEEP).build()"))
+                .isEmpty();
+        assertThat(compile(out, "UPDATE.set(STATUS, \"PAID\").whereKey(1L).throughEntities()"
+                + ".chunked(ChunkOptions.size(10)).build()")).isEmpty();
+        assertThat(compile(out, "DELETE.all().throughEntities().chunked(ChunkOptions.defaultSize(), 42L)"
+                + ".persistenceContext(PersistenceContextMode.KEEP).throughEntities().build()")).isEmpty();
+        assertThat(compile(out, "DELETE.whereKeys(List.of(1L)).throughEntities().build()")).isEmpty();
+        // Off a single key it returns the plain options stage, as keepVersion() does (D-64).
+        assertThat(compile(out, "UPDATE.set(STATUS, \"PAID\").whereKey(1L).throughEntities().expectVersion(3L)"
+                + ".build()")).isNotEmpty();
+        assertThat(compile(out, "UPDATE.set(STATUS, \"PAID\").whereKey(1L).throughEntities()"
+                + ".where(f -> f.eq(STATUS, \"NEW\")).build()")).isNotEmpty();
+        assertThat(compile(out, "DELETE.whereKey(1L).throughEntities().chunked(ChunkOptions.size(10), 42L).build()"))
                 .isNotEmpty();
     }
 

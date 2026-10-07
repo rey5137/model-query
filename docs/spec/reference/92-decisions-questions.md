@@ -83,6 +83,8 @@ never left stale (`api/14` R-WRT-15). Change sets exist because "only the fields
 case and cannot be expressed with one `set(...)` per field. Rejected: entity-level writes (they duplicate JPA) and an
 "ignore nulls" copy (it makes clearing a field impossible). Accepted into the plan by rey5137/model-query#5 before the
 RFC process existed; `Future` (M6) until built. → INV-1, `api/14`, `processor/31` §6.
+*Amended by D-118:* an update or delete `throughEntities()` is the second entity write after `persist` (D-116): it
+loads and writes the root's entities chunk by chunk so listeners and audits run, and keeps the entity hidden.
 
 **D-15 — Change sets validate set fields only, against the update model's constraints.**
 Copying `@NotNull` onto a change set would reject every PATCH that omits the field, because an unset field is `null`
@@ -829,6 +831,8 @@ against is frozen. `Filters` and `Having` become `sealed`, so a new operator can
 freeze in a 1.x minor once one minor ships with no change to them. Deferred as additive: a `TableField.join` taking the
 target class. A common `ModelQueryException` superclass is added before 1.0 and frozen (D-106). → `delivery/61`
 R-REL-07, R-REL-11, D-59.
+*Amended by D-118:* `throughEntities()`, the `persist(persist, returning)` overload, `WriteAssignment`, `WriteKind`
+and `ModelQueryConfig.writeAssignments` join the incubating bulk-write types.
 
 **D-86 — `@EngineFacing` may mark a type (amends D-72).** From 0.2 `BuiltQuery`, `RowSelection` and `RenderOptions`
 carry it at type level, and `JoinContext.of` and `OrderField.toOrders` at method level; `japicmp` excludes both. A
@@ -1123,6 +1127,8 @@ and documented. Items 2–5 and 8 get their own `architect-review` before their 
 request-time parameters as tested recipes rather than library API. → `delivery/62` §1, `docs/plan/mvp-plan.md` §10–11.
 *Amended by D-116:* the freeze review and the D-85 freeze move to M11, after M10 ships inserts as 0.3.0; the adopter
 migrates onto 0.3.0 before it.
+*Amended by D-118:* M11 ships entity writes as 0.4.0, and the freeze review and the D-85 freeze move to M12, which
+waits for the adopter to run 0.4.0 in production.
 
 **D-112 — Sub-selects and correlated `exists` (M9.11a review, D-111 items 2 and 5).** `SubSelect<S, C>` is one column
 of any root with its own filters, immutable, so it can be a constant. `in`/`notIn` take it uncorrelated, with an
@@ -1225,6 +1231,9 @@ generated builders and the repository methods join the incubating bulk-write typ
 `insertFrom` and `persist` carry `@Incubating`, as `update(...)` does, so "every type generated code links against is
 frozen" still holds. D-111: M10 ships inserts as 0.3.0, and the freeze review and the D-85 freeze move to M11, which
 starts once the D-111 adopter runs on 0.3.0.
+*Amended by D-118:* `persist` is no longer the one entity write: an update or delete `throughEntities()` is the second,
+and `persist` may return a query model (`persist(persist, returning)`). The freeze moves again, to M12, after M11
+ships entity writes as 0.4.0.
 
 *Vendor spike.* Plain HQL, criteria and JPA, no insert API, on Hibernate 6.6.58 and 7.4.11, pinned per Tier-1 vendor
 by `tck/vnd/ins` (`InsertGeneratorSpikeTest`, `InsertConflictSpikeTest`, `PersistEnhancedSpikeTest`; SQL snapshots
@@ -1474,6 +1483,39 @@ a column's path, before the `MQ2501` check. `ModelPersist` gains the `@EngineFac
 
 *Amended at the M10 gate:* a join through a collection table (`@ManyToMany`, `@ElementCollection`) is not checked for
 overlap; `chunked` fails closed with `MQ1806` on it.
+
+**D-118 — Entity writes (RFC 0005, M11.1 review; amends D-14, D-85, D-116 and P-5).** The D-111 adopter's audit runs
+as Hibernate event listeners, which a bulk statement never reaches, so a bulk update or delete on an audited table
+silently loses audit records. Entity mode is the second exception to D-14 after `persist`, accepted because it keeps
+the entity hidden and reuses the filter DSL, change sets and chunking, not to duplicate JPA: rows are loaded by key per
+chunk, changed through the metamodel and flushed, so every listener, callback and audit library runs unchanged. The
+persistence context follows `PersistenceContextMode` rather than detaching only what was loaded, which would detach a
+caller's own managed instance. `persist` may return a query model built from the flushed entity, with no second
+select, and refuses what it cannot fill rather than falling back to one. Server-set columns are `WriteAssignment`s per
+entity on the config, since a per-model annotation must be repeated on every model and a forgotten one is the bug it
+fixes; an explicit `set` wins. Rejected: a write-event SPI (every listener library would need an adapter, and a bulk
+statement has no old state without an extra select), an entity mode for inserts (`persist` in a loop is the same
+cost), `IDENTITY` keys from a multi-row insert (outside JPA, and MySQL's key arithmetic depends on
+`innodb_autoinc_lock_mode`), saving a parent with its children (cascade through an insert model, deferred past 1.0),
+and a `returning(...)` builder stage (it would retype the builder). D-85: `throughEntities()`, the `persist` overload,
+`WriteAssignment`, `WriteKind` and `ModelQueryConfig.writeAssignments` join the incubating bulk-write types. D-111:
+M11 ships entity writes as 0.4.0, and the freeze review and the D-85 freeze move to M12, which waits for the adopter
+to run 0.4.0 in production.
+
+*Placement (M11.1 review).* `throughEntities()` is an options-stage method, also on each `Resumable` stage, and the
+incompatible options are `MQ1610` at `build()`, whatever the call order. `setExpression` precedes the row choice and
+`update(changes)` returns the assignment stage, so a separate stage could not make them unexpressible without doubling
+the update stage types. Assignments name a string attribute path and a `Class<A>`, checked per root on the first write
+per factory (a `ColumnField` needs a model the server-set column is kept out of; a static `SingularAttribute` is null
+before bootstrap; a config can serve several factories). They live in `jpa` and match the named class and its
+subclasses. `persist` returns a model through a `ModelQuery<E, ?, R>`, not a `SelectSet`, which carries neither the
+root nor the mapper.
+
+*Addendum (M11.2).* An application's own `ModelQueryConfig` bean that drops a `WriteAssignment` bean fails startup
+with `MQ4006`, as a dropped `VendorProfile` bean does (`integration/50` R-SPR-13).
+
+→ INV-1, P-5, `api/14` §11 (R-WRT-41 to R-WRT-49), `reference/90` (`MQ1610`–`MQ1612`, `MQ1809`), `integration/50`
+R-SPR-10, `delivery/62`, `docs/plan/mvp-plan.md` §M11, `rfc/0005-entity-writes.md`.
 
 ## 2. Open questions
 

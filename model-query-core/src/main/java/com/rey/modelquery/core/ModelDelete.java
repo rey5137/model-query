@@ -23,7 +23,7 @@ import java.util.function.UnaryOperator;
  *
  * @param <E> the root entity
  * @param <M> the model whose key and filter columns the delete uses
- * @implSpec R-WRT-08, R-WRT-09, R-WRT-10, R-WRT-11, R-WRT-12, R-WRT-15, D-60, D-61, D-62, D-63
+ * @implSpec R-WRT-08, R-WRT-09, R-WRT-10, R-WRT-11, R-WRT-12, R-WRT-15, R-WRT-41, D-60, D-61, D-62, D-63
  */
 @Incubating
 public final class ModelDelete<E, M> {
@@ -223,6 +223,17 @@ public final class ModelDelete<E, M> {
         return Optional.ofNullable(definition.persistenceContext());
     }
 
+    /**
+     * Whether the delete was built {@code throughEntities()}: an executor then loads the matched entities chunk by
+     * chunk and removes them through the {@code EntityManager} instead of rendering a bulk statement (R-WRT-41,
+     * R-WRT-42).
+     */
+    @EngineFacing
+    @Incubating
+    public boolean entityMode() {
+        return definition.entityMode();
+    }
+
     private BuiltQuery<M> keySelect(CriteriaBuilder cb, RenderOptions options, List<Object> keys) {
         Objects.requireNonNull(cb, "cb");
         Objects.requireNonNull(options, "options");
@@ -260,18 +271,23 @@ public final class ModelDelete<E, M> {
             WriteRows rows,
             ChunkOptions chunkOptions,
             PersistenceContextMode persistenceContext,
-            Object startAfter) {
+            Object startAfter,
+            boolean entityMode) {
 
         Draft<E, K, M> rows(WriteRows rows) {
-            return new Draft<>(root, primaryKey, rows, chunkOptions, persistenceContext, startAfter);
+            return new Draft<>(root, primaryKey, rows, chunkOptions, persistenceContext, startAfter, entityMode);
         }
 
         Draft<E, K, M> chunk(ChunkOptions options, Object after) {
-            return new Draft<>(root, primaryKey, rows, options, persistenceContext, after);
+            return new Draft<>(root, primaryKey, rows, options, persistenceContext, after, entityMode);
         }
 
         Draft<E, K, M> mode(PersistenceContextMode mode) {
-            return new Draft<>(root, primaryKey, rows, chunkOptions, mode, startAfter);
+            return new Draft<>(root, primaryKey, rows, chunkOptions, mode, startAfter, entityMode);
+        }
+
+        Draft<E, K, M> throughEntities() {
+            return new Draft<>(root, primaryKey, rows, chunkOptions, persistenceContext, startAfter, true);
         }
 
         /**
@@ -285,7 +301,7 @@ public final class ModelDelete<E, M> {
                     : rows.withKeys(WriteRendering.distinctKeys(primaryKey, rows.keys()));
             Object after = startAfter == null ? null
                     : WriteRendering.distinctKeys(primaryKey, List.of(startAfter)).get(0);
-            return new Draft<>(root, primaryKey, chosen, chunkOptions, persistenceContext, after);
+            return new Draft<>(root, primaryKey, chosen, chunkOptions, persistenceContext, after, entityMode);
         }
     }
 
@@ -306,7 +322,7 @@ public final class ModelDelete<E, M> {
         /** The model's key, which {@code whereKey} and {@code whereKeys} take values of (R-WRT-08). */
         public <K, M> Builder<E, K, M> primaryKey(PrimaryKey<M, K> primaryKey) {
             return new Builder<>(new Draft<>(root, Objects.requireNonNull(primaryKey, "primaryKey"), null, null,
-                    null, null));
+                    null, null, false));
         }
     }
 
@@ -388,6 +404,21 @@ public final class ModelDelete<E, M> {
         }
 
         /**
+         * Deletes through the entities instead of one bulk statement: each chunk selects its keys as
+         * {@link #chunked(ChunkOptions)} does, loads those entities with one query and removes each, then flushes, so
+         * {@code @PreRemove}/{@code @PostRemove}, the provider's listeners, audits, cascades ({@code REMOVE},
+         * {@code orphanRemoval}) and the mapping's {@code @SQLDelete} run. A cascade may remove more rows than the
+         * count, which is the rows matched. Always chunked: without {@code chunked(...)} the configured bulk-write
+         * chunk size applies. With {@link PersistenceContextMode#CLEAR} the persistence context is cleared after each
+         * chunk; with {@code KEEP} it grows with every matched row. A delete has no option this refuses (R-WRT-41 to
+         * R-WRT-47).
+         */
+        @Incubating
+        public Options<E, K, M> throughEntities() {
+            return new Options<>(draft.throughEntities());
+        }
+
+        /**
          * Checks the definition and returns it, its keys converted, deduplicated and copied (D-66).
          *
          * @throws ModelQueryDefinitionException {@code MQ1601} when the rows were chosen by a {@code where} whose
@@ -454,6 +485,12 @@ public final class ModelDelete<E, M> {
         @Override
         public Resumable<E, K, M> persistenceContext(PersistenceContextMode mode) {
             return new Resumable<>(draft.mode(Objects.requireNonNull(mode, "mode")));
+        }
+
+        @Incubating
+        @Override
+        public Resumable<E, K, M> throughEntities() {
+            return new Resumable<>(draft.throughEntities());
         }
     }
 }

@@ -36,8 +36,8 @@ import java.util.function.UnaryOperator;
  *
  * @param <E> the root entity
  * @param <M> the update model
- * @implSpec R-WRT-05, R-WRT-07, R-WRT-08, R-WRT-10, R-WRT-11, R-WRT-13, R-WRT-14, R-WRT-15, R-WRT-16, D-60, D-61, D-62,
- *     D-63
+ * @implSpec R-WRT-05, R-WRT-07, R-WRT-08, R-WRT-10, R-WRT-11, R-WRT-13, R-WRT-14, R-WRT-15, R-WRT-16, R-WRT-41,
+ *     R-WRT-46, D-60, D-61, D-62, D-63
  */
 @Incubating
 public final class ModelUpdate<E, M> {
@@ -304,6 +304,17 @@ public final class ModelUpdate<E, M> {
         return Optional.ofNullable(definition.persistenceContext());
     }
 
+    /**
+     * Whether the update was built {@code throughEntities()}: an executor then loads the matched entities chunk by
+     * chunk and writes them through the {@code EntityManager} instead of rendering a bulk statement (R-WRT-41,
+     * R-WRT-42).
+     */
+    @EngineFacing
+    @Incubating
+    public boolean entityMode() {
+        return definition.entityMode();
+    }
+
     /** A rendered update: the statement and the context that rendered it, whose repeated expression binds an executor
      * counts (R-COL-19, D-80). */
     private record Rendered<E>(CriteriaUpdate<E> update, JoinContext joins) {}
@@ -488,38 +499,44 @@ public final class ModelUpdate<E, M> {
             boolean keepVersion,
             ChunkOptions chunkOptions,
             PersistenceContextMode persistenceContext,
-            Object startAfter) {
+            Object startAfter,
+            boolean entityMode) {
 
         Draft<E, K, M> assign(List<Assignment<M, ?>> more) {
             var all = new ArrayList<>(assignments);
             all.addAll(more);
             return new Draft<>(root, primaryKey, List.copyOf(all), rows, expectedVersion, keepVersion, chunkOptions,
-                    persistenceContext, startAfter);
+                    persistenceContext, startAfter, entityMode);
         }
 
         Draft<E, K, M> rows(WriteRows rows) {
             return new Draft<>(root, primaryKey, assignments, rows, expectedVersion, keepVersion, chunkOptions,
-                    persistenceContext, startAfter);
+                    persistenceContext, startAfter, entityMode);
         }
 
         Draft<E, K, M> expect(Object version) {
             return new Draft<>(root, primaryKey, assignments, rows, version, keepVersion, chunkOptions,
-                    persistenceContext, startAfter);
+                    persistenceContext, startAfter, entityMode);
         }
 
         Draft<E, K, M> keep() {
             return new Draft<>(root, primaryKey, assignments, rows, expectedVersion, true, chunkOptions,
-                    persistenceContext, startAfter);
+                    persistenceContext, startAfter, entityMode);
         }
 
         Draft<E, K, M> chunk(ChunkOptions options, Object after) {
             return new Draft<>(root, primaryKey, assignments, rows, expectedVersion, keepVersion, options,
-                    persistenceContext, after);
+                    persistenceContext, after, entityMode);
+        }
+
+        Draft<E, K, M> throughEntities() {
+            return new Draft<>(root, primaryKey, assignments, rows, expectedVersion, keepVersion, chunkOptions,
+                    persistenceContext, startAfter, true);
         }
 
         Draft<E, K, M> mode(PersistenceContextMode mode) {
             return new Draft<>(root, primaryKey, assignments, rows, expectedVersion, keepVersion, chunkOptions, mode,
-                    startAfter);
+                    startAfter, entityMode);
         }
 
         /**
@@ -534,14 +551,14 @@ public final class ModelUpdate<E, M> {
             Object after = startAfter == null ? null
                     : WriteRendering.distinctKeys(primaryKey, List.of(startAfter)).get(0);
             return new Draft<>(root, primaryKey, assignments, chosen, expectedVersion, keepVersion, chunkOptions,
-                    persistenceContext, after);
+                    persistenceContext, after, entityMode);
         }
 
         /**
          * Checks and builds.
          *
          * @throws ModelQueryDefinitionException {@code MQ1601}, {@code MQ1602}, {@code MQ1604}, {@code MQ1605},
-         *     {@code MQ1606} or {@code MQ1609}, as {@link Options#build()} states
+         *     {@code MQ1606}, {@code MQ1609} or {@code MQ1610}, as {@link Options#build()} states
          */
         ModelUpdate<E, M> build() {
             String model = primaryKey.columns().get(0).model().getSimpleName();
@@ -573,11 +590,35 @@ public final class ModelUpdate<E, M> {
                             + "the server sets belongs in a hand-written ColumnField, not in the update model");
                 }
             }
+            if (entityMode) {
+                checkEntityMode(model);
+            }
             if (keepVersion && expectedVersion != null && assignments.isEmpty()) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1606, model + ": expectVersion(...) with "
                         + "keepVersion() and nothing to write; check Changes#isEmpty() before updating");
             }
             return new ModelUpdate<>(canonical());
+        }
+
+        /** Refuses what an entity-mode update cannot honour, whatever the order it was called in (R-WRT-46). */
+        private void checkEntityMode(String model) {
+            var refused = new ArrayList<String>();
+            for (Assignment<M, ?> assignment : assignments) {
+                if (assignment instanceof Assignment.Expression<M, ?>) {
+                    refused.add("setExpression(" + assignment.column().name() + ", ...)");
+                }
+            }
+            if (keepVersion) {
+                refused.add("keepVersion()");
+            }
+            if (expectedVersion != null) {
+                refused.add("expectVersion(...)");
+            }
+            if (!refused.isEmpty()) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1610, model + ": throughEntities() with "
+                        + String.join(", ", refused) + "; an entity-mode update sets each attribute in Java and leaves "
+                        + "the @Version to the provider's flush");
+            }
         }
     }
 
@@ -598,7 +639,7 @@ public final class ModelUpdate<E, M> {
         /** The update model's key, which {@code whereKey} and {@code whereKeys} take values of (R-WRT-08). */
         public <K, M> Builder<E, K, M> primaryKey(PrimaryKey<M, K> primaryKey) {
             return new Builder<>(new Draft<>(root, Objects.requireNonNull(primaryKey, "primaryKey"), List.of(), null,
-                    null, false, null, null, null));
+                    null, false, null, null, null, false));
         }
     }
 
@@ -725,6 +766,23 @@ public final class ModelUpdate<E, M> {
         }
 
         /**
+         * Writes through the entities instead of one bulk statement: each chunk selects its keys as
+         * {@link #chunked(ChunkOptions)} does, loads those entities with one query, sets the assignments on them and
+         * flushes, so entity callbacks, the provider's listeners, audits, Bean Validation and cascades run. Always
+         * chunked: without {@code chunked(...)} the configured bulk-write chunk size applies. The count is the rows
+         * matched, not the rows the provider wrote. With {@link PersistenceContextMode#CLEAR} the persistence context
+         * is cleared after each chunk; with {@code KEEP} it grows with every matched row (R-WRT-41 to R-WRT-47).
+         *
+         * <p>{@code keepVersion()}, {@code expectVersion(...)} and {@code setExpression(...)} cannot be honoured on
+         * entities: combined with this, in any order, {@link #build()} throws {@code MQ1610}. That happens when the
+         * definition is built (for a {@code static final} constant, at class initialization), not at compile time.
+         */
+        @Incubating
+        public Options<E, K, M> throughEntities() {
+            return new Options<>(draft.throughEntities());
+        }
+
+        /**
          * Checks the definition and returns it, its keys converted, deduplicated and copied (D-66).
          *
          * @throws IllegalArgumentException for a composite key with the wrong number of components
@@ -732,7 +790,8 @@ public final class ModelUpdate<E, M> {
          *     every filter was skipped, {@code MQ1602} for a column assigned twice, {@code MQ1604} for a column not
          *     on the root, as through a self-referencing join, {@code MQ1605} for a column of the primary key,
          *     {@code MQ1606} for {@code expectVersion} with {@code keepVersion} and nothing to write, {@code MQ1609}
-         *     for {@code setExpression} on a column with a converter
+         *     for {@code setExpression} on a column with a converter, {@code MQ1610} for {@code throughEntities()}
+         *     with {@code keepVersion()}, {@code expectVersion(...)} or a {@code setExpression(...)}
          */
         public ModelUpdate<E, M> build() {
             return draft.build();
@@ -845,6 +904,12 @@ public final class ModelUpdate<E, M> {
         @Override
         public Resumable<E, K, M> persistenceContext(PersistenceContextMode mode) {
             return new Resumable<>(draft.mode(Objects.requireNonNull(mode, "mode")));
+        }
+
+        @Incubating
+        @Override
+        public Resumable<E, K, M> throughEntities() {
+            return new Resumable<>(draft.throughEntities());
         }
     }
 }
