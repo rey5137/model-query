@@ -4,7 +4,6 @@ import com.rey.modelquery.annotations.Incubating;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -93,13 +92,13 @@ public final class SelectSet<M> {
         if (seen != null && Arrays.equals(seen.mask(), mask)) {
             return seen.subset();
         }
-        var subset = new ArrayList<SelectField<M, ?>>(selected);
+        var subset = new LinkedHashSet<SelectField<M, ?>>();
         for (int i = 0; i < fields.size(); i++) {
             if ((mask[i >>> 6] & (1L << i)) != 0) {
                 subset.add(fields.get(i));
             }
         }
-        var result = new SelectSet<M>(new LinkedHashSet<>(subset));
+        var result = new SelectSet<M>(subset);
         memo = new Memo<>(mask, result);
         return result;
     }
@@ -108,7 +107,7 @@ public final class SelectSet<M> {
     @Override
     public boolean equals(Object other) {
         return this == other || other instanceof SelectSet<?> set && fields.size() == set.fields.size()
-                && new HashSet<>(fields).equals(new HashSet<>(set.fields));
+                && fields.containsAll(set.fields);
     }
 
     @Override
