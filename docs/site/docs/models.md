@@ -131,6 +131,40 @@ in are on [Sub-queries and expressions](subqueries-expressions.md).
 
 Tested by `GeneratedModelTest`.
 
+## Shared accessors across models
+
+A type carries one of `@QueryModel`, `@UpdateModel` and `@InsertModel` (`MQ3503` otherwise), and the processor reads
+only the fields a model declares itself, never a superclass's: a field inherited from a base class is not a column.
+When a read model and a write model over one entity share fields, declare them in each record and share the accessors
+through an interface instead:
+
+```java
+public interface CustomerContact {
+    String name();
+
+    String country();
+
+    default String label() {
+        return name() + " (" + country() + ")";
+    }
+}
+
+@QueryModel(root = CustomerEntity.class)
+public record CustomerCard(@PrimaryKey Long id, String name, String country) implements CustomerContact {}
+
+@UpdateModel(root = CustomerEntity.class)
+public record CustomerContactPatch(@PrimaryKey Long id, String name, String country) implements CustomerContact {}
+```
+
+Code written against `CustomerContact` (a label, a validator, a mapper to a DTO) then takes either model, and each
+model keeps its own generated class: `QCustomerCard` for queries, `QCustomerContactPatch` and its change set for
+updates. Each record still lists its own components, which is what keeps an update model to the attributes its
+endpoint may write. Tested by `SharedAccessorModelTest`.
+
+For internal code that only needs to write back what it read, `@QueryModel(generateChanges = true)` gives one model a
+change set over its root, non-key columns as well; don't bind that change set from a request, since it can write every
+root column the model reads.
+
 ## Keep the prefix consistent
 
 The default class name is `Q` plus the model name. If you change `prefix` or `suffix` through the
