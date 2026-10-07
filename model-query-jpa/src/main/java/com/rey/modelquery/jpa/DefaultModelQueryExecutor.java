@@ -37,6 +37,7 @@ import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.core.ValuesInsert;
 import com.rey.modelquery.jpa.spi.ConflictClause;
+import com.rey.modelquery.jpa.spi.EntityWriteSupport;
 import com.rey.modelquery.jpa.spi.InsertSupport;
 import com.rey.modelquery.jpa.spi.InsertTarget;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
@@ -689,7 +690,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * Runs an update {@code throughEntities()}: each round selects its keys as a chunked update does, then loads,
      * assigns and flushes the round's entities (R-WRT-41, R-WRT-42, R-WRT-17), as {@link #entityRounds} runs them.
      * Each entity gets {@code added}, the write assignments, after the definition's values, so every matched row is
-     * dirty and an entity callback setting the same attribute at the flush wins (R-WRT-49).
+     * dirty and an entity callback setting the same attribute at the flush wins (R-WRT-49). The values are set through
+     * the provider's {@link EntityWriteSupport} when it has one, on the instance behind a proxy the load returned
+     * (R-WRT-42, D-119).
      */
     private <M> long updateEntities(ModelUpdate<E, M> u, List<WriteAssignments.Written> added) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
@@ -704,12 +707,14 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         });
         PersistenceContextMode mode = u.persistenceContext().orElse(persistenceContextMode);
         EntityType<E> root = em.getMetamodel().entity(rootEntity);
+        Optional<EntityWriteSupport> writes = vendor.providerSupport().flatMap(ProviderSupport::entityWrites);
         logWrite("update throughEntities()", u, Optional.of(u.chunkOptions().orElse(ChunkOptions.defaultSize())),
                 false);
         var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), u.primaryKey(), u.distinctKeys(),
                 run -> run == null ? u.buildKeySelect(cb, renderOptions) : u.buildKeySelect(cb, renderOptions, run),
                 (on, keys) -> throughEntities(on, u.buildEntityLoad(cb, renderOptions, keys), repeated, mode,
-                        entity -> PersistedEntity.assign(on, root, entity, attributes, values)),
+                        entities -> unproxied(on, entities, writes).forEach(entity ->
+                                PersistedEntity.assign(on, root, entity, attributes, values, writes))),
                 u.startAfter(), u::modelKey);
         return entityRounds(keyed, tree, keys -> u.buildEntityLoad(cb, renderOptions, keys), u.chunkOptions(), mode,
                 cb, repeated);
@@ -732,16 +737,49 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), d.primaryKey(), d.distinctKeys(),
                 run -> run == null ? d.buildKeySelect(cb, renderOptions) : d.buildKeySelect(cb, renderOptions, run),
                 (on, keys) -> throughEntities(on, d.buildEntityLoad(cb, renderOptions, keys), repeated, mode,
-                        on::remove),
+                        entities -> entities.forEach(on::remove)),
                 d.startAfter(), d::modelKey);
         return entityRounds(keyed, tree, keys -> d.buildEntityLoad(cb, renderOptions, keys), d.chunkOptions(), mode,
                 cb, repeated);
     }
 
     /**
+     * {@code entities}, a round's load on {@code on}, with each whose class is no mapped entity class, a proxy the
+     * persistence context held for its row, replaced by the instance behind it through {@code writes}, all checked
+     * before any is changed (R-WRT-42, D-119).
+     *
+     * @throws ModelQueryExecutionException {@code MQ2503} for a proxy when {@code writes} is empty
+     */
+    private List<Object> unproxied(EntityManager on, List<E> entities, Optional<EntityWriteSupport> writes) {
+        Set<Class<?>> mapped = null;
+        List<Object> targets = new ArrayList<>(entities.size());
+        for (E entity : entities) {
+            Class<?> type = entity.getClass();
+            if (type != rootEntity) {
+                if (mapped == null) {
+                    mapped = on.getMetamodel().getEntities().stream().map(EntityType::getJavaType)
+                            .collect(Collectors.toSet());
+                }
+                if (!mapped.contains(type)) {
+                    targets.add(writes.orElseThrow(() -> new ModelQueryExecutionException(MqCode.MQ2503,
+                            rootEntity.getSimpleName() + ": an update throughEntities() loaded a "
+                                    + type.getName() + ", a proxy the persistence context held for the row, and "
+                                    + "no ProviderSupport serving this persistence provider has an "
+                                    + "EntityWriteSupport to unwrap it; add one (model-query-hibernate for "
+                                    + "Hibernate), or write under PersistenceContextMode.CLEAR")).unproxy(entity));
+                    continue;
+                }
+            }
+            targets.add(entity);
+        }
+        return targets;
+    }
+
+    /**
      * Runs the rounds of an entity write: always chunked, in rounds of the {@code chunked} size, else the configured
      * {@code bulkWriteChunkSize}, within the profile's clamp, each round {@code keyed}'s key select and then its
-     * {@link #throughEntities} write (R-WRT-41, R-WRT-42). Pending entity changes are flushed first; the second-level
+     * {@link #throughEntities} write (R-WRT-41, R-WRT-42). Pending entity changes are flushed first and, under
+     * {@code CLEAR}, the context cleared, so the first load returns no proxy it held (D-119); the second-level
      * cache is the provider's to maintain, so nothing is evicted (R-WRT-15, R-WRT-43). The query timeout applies to
      * the key selects and the loads, not to the flushes, which have no portable per-statement hint (R-WRT-45). A
      * failure, an {@code OptimisticLockException} included, reaches the caller as is, or, committing each chunk,
@@ -758,6 +796,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         if (em.isJoinedToTransaction()) {
             em.flush();
         }
+        if (mode == PersistenceContextMode.CLEAR) {
+            em.clear();
+        }
         try {
             return keyset(keyed, () -> em.createQuery(tree.query()), keys -> em.createQuery(load.apply(keys)), chunk,
                     OptionalInt.of(size), cb, repeated);
@@ -772,19 +813,19 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * One round of an entity write on {@code on}: loads the entities of {@code load} with one statement, applies
-     * {@code write} to each, flushes, and returns how many it loaded, the rows matched; the provider writes only
+     * {@code write} to them, flushes, and returns how many it loaded, the rows matched; the provider writes only
      * those that changed (R-WRT-42, R-WRT-44). Afterwards, whether or not it threw, clears {@code on} under
      * {@code CLEAR}, so at most one round of entities is managed; under {@code KEEP} they stay managed (R-WRT-45).
      */
     private long throughEntities(EntityManager on, CriteriaQuery<E> load, int repeated, PersistenceContextMode mode,
-            Consumer<E> write) {
+            Consumer<List<E>> write) {
         String label = rootEntity.getSimpleName();
         try {
             TypedQuery<E> query = on.createQuery(load);
             withinBindLimit(label, query.getParameters().size() + repeated, 0);
             queryTimeout.ifPresent(timeout -> vendor.profile().applyTimeout(query, timeout));
             List<E> entities = rows(label, query);
-            entities.forEach(write);
+            write.accept(entities);
             on.flush();
             return entities.size();
         } finally {

@@ -86,7 +86,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1608` | A bulk write's `@PrimaryKey` is not the root entity's id; checked on first execution, before the flush | `api/14` R-WRT-08, D-61 |
 | `MQ1609` | `setExpression` on a column with a converter | `api/14` R-WRT-14 |
 | `MQ1610` | An update `throughEntities()` combined with `keepVersion()`, `expectVersion(v)` or any `setExpression`, whatever the call order; at `build()` | `api/14` R-WRT-41, R-WRT-46, D-118 |
-| `MQ1611` | A write assignment whose path is unknown, an id, a `@Version`, a collection, a to-one or a whole embeddable, or two assignments of overlapping kinds for one root and path; on the first write per root per factory, before any statement | `api/14` R-WRT-49, D-118 |
+| `MQ1611` | A write assignment whose path is unknown, an id, a `@Version`, a collection, a to-one or a whole embeddable, two assignments of overlapping kinds for one root and path, or an assignment naming a strict subclass of the root; on the first write per root per factory, before any statement | `api/14` R-WRT-49, D-118, D-119 |
 | `MQ1612` | A write assignment whose type the attribute cannot take after boxing (on the first write per root per factory), or whose supplier returns `null` or a value of the wrong type (at execution); before any statement | `api/14` R-WRT-49, D-118 |
 | `MQ1701` | A join plan whose join ends up with no selected column | `api/15` R-FCH-07 |
 | `MQ1702` | A column a fetch plan needs (a child's key, an enricher's column) is read through a to-many join; checked on first execution (`count` logs a `WARNING` instead) | `api/15` R-FCH-02 |
@@ -125,6 +125,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ2301` | A sort property resolves to no selected column or to more than one (on any tier), or asks for `ignoreCase`; a sort on an ungrouped query without a primary key; a sorted copy that fails `build()`, as the cause | `api/11` R-QRY-14, `integration/50` R-SPR-06 |
 | `MQ2501` | A bulk write, other than `commitEachChunk()`, or `persist` ran without an active transaction | `api/14` R-WRT-18, R-WRT-39 |
 | `MQ2502` | A per-chunk write failed; `ChunkedWriteException` carries the committed rows, the last committed key and the keys of a chunk in doubt | `api/14` R-WRT-20 |
+| `MQ2503` | An entity-mode update loaded an instance whose class is no mapped entity class, a proxy the persistence context held for the row, and the factory's `ProviderSupport` has no `EntityWriteSupport` to unwrap it; before any entity of the chunk is changed | `api/14` R-WRT-42, R-WRT-45, D-119 |
 | `MQ2601` | A to-one child finds two distinct rows for one key | `api/15` R-FCH-04 |
 | `MQ2602` | An `Enricher.of` returns a page of another size, or `null` | `api/15` R-FCH-08 |
 | `MQ2603` | A parent has more children than `maxPerParent`, or a round reaches its row cap | `api/15` R-FCH-11 |

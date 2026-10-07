@@ -177,10 +177,11 @@ public interface ModelQueryExecutor<E> {
      * to any of them is silently not written; with {@code KEEP} the root's entities stay managed but stale.
      *
      * <p>An update {@code throughEntities()} runs those rounds, then loads each round's entities with one query, sets
-     * the assignments on them and flushes, so callbacks and listeners run; it returns the rows matched. It evicts
-     * nothing, and clears after each round's flush unless the mode is {@code KEEP}, and the caller's
-     * {@code EntityManager} once more after the last round with {@code commitEachChunk()}. The query timeout applies
-     * to the key selects and the loads, not to the flushes (R-WRT-41 to R-WRT-47).
+     * the assignments on them, through the provider's {@link com.rey.modelquery.jpa.spi.EntityWriteSupport} when it
+     * has one, and flushes, so callbacks and listeners run; it returns the rows matched. It evicts nothing, and clears
+     * right after flushing the pending changes and after each round's flush unless the mode is {@code KEEP}, and the
+     * caller's {@code EntityManager} once more after the last round with {@code commitEachChunk()}. The query timeout
+     * applies to the key selects and the loads, not to the flushes (R-WRT-41 to R-WRT-47, D-119).
      *
      * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution: {@code MQ1608} when the
      *     definition's primary key is not the root entity's id, {@code MQ1605} when a column writes an id or the
@@ -190,7 +191,9 @@ public interface ModelQueryExecutor<E> {
      * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2501}, before any statement, when the
      *     {@code EntityManager} is not joined to a transaction and the write is not {@code commitEachChunk()}
      *     (R-WRT-18); key-first or chunked, {@code MQ2205} when a key select returns a key the round before already
-     *     wrote (R-WRT-17)
+     *     wrote (R-WRT-17); {@code throughEntities()}, {@code MQ2503} before a round changes any entity, when its load
+     *     returns a proxy the persistence context held and the provider has no {@code EntityWriteSupport} to unwrap it
+     *     (R-WRT-42)
      * @throws com.rey.modelquery.core.ChunkedWriteException {@code MQ2502} when a round of a
      *     {@code commitEachChunk()} write fails, carrying the committed rows, the last committed key and the keys of a
      *     round whose commit failed (R-WRT-20)

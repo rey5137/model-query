@@ -832,6 +832,11 @@ public final class ModelUpdate<E, M> {
          * {@code commitEachChunk()} as a {@link ChunkedWriteException} to resume after. The configured query timeout
          * applies to the key select and the load, not to the flush's statements (R-WRT-41 to R-WRT-47).
          *
+         * <p>The provider's own write rules hold, as for any entity change: an attribute mapped
+         * {@code @Column(updatable = false)}, or any attribute of a Hibernate {@code @Immutable} entity, a write
+         * assignment's included, is written by the bulk statement but not here, while the count still says the row
+         * matched (R-WRT-43, D-119).
+         *
          * <p>{@code keepVersion()}, {@code expectVersion(...)} and {@code setExpression(...)} cannot be honoured on
          * entities: combined with this, in any order, {@link #build()} throws {@code MQ1610}. That happens when the
          * definition is built (for a {@code static final} constant, at class initialization), not at compile time.

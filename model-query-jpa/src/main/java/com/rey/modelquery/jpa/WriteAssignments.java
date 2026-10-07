@@ -57,8 +57,9 @@ final class WriteAssignments {
      * time per root on {@code emf}, before any statement.
      *
      * @throws ModelQueryDefinitionException {@code MQ1611} for a path that is unknown or names an id, a
-     *     {@code @Version}, a collection, a to-one or a whole embeddable, or for two assignments of overlapping kinds
-     *     for one path; {@code MQ1612} for a type the attribute cannot take after boxing
+     *     {@code @Version}, a collection, a to-one or a whole embeddable, for two assignments of overlapping kinds
+     *     for one path, or for an assignment naming a strict subclass of {@code root} (D-119); {@code MQ1612} for a
+     *     type the attribute cannot take after boxing
      */
     static WriteAssignments of(EntityManagerFactory emf, Metamodel metamodel, Class<?> root,
             List<WriteAssignment> configured) {
@@ -78,6 +79,13 @@ final class WriteAssignments {
         var resolved = new ArrayList<Resolved>();
         for (WriteAssignment assignment : configured) {
             if (!assignment.entity().isAssignableFrom(root.getJavaType())) {
+                if (root.getJavaType().isAssignableFrom(assignment.entity())) {
+                    // The write reaches every subclass's rows, and one statement cannot set it on only some of them
+                    throw new ModelQueryDefinitionException(MqCode.MQ1611, assignment + ": "
+                            + assignment.entity().getSimpleName() + " is a subclass of the root "
+                            + root.getJavaType().getSimpleName() + ", whose writes reach the rows of every subclass; "
+                            + "name the root or a superclass of it, or write through the subclass's own root");
+                }
                 continue;
             }
             Class<?> attributeType = boxed(attribute(root, assignment).getJavaType());

@@ -314,6 +314,12 @@ public enum MqCode {
     /** A per-chunk write failed; earlier chunks stay committed (R-WRT-20). */
     MQ2502("A per-chunk write failed"),
 
+    /**
+     * An entity-mode update loaded a proxy the persistence context held for a row, and no provider support can unwrap
+     * it, before any entity of the chunk is changed (R-WRT-42, R-WRT-45, D-119).
+     */
+    MQ2503("An entity-mode update loaded a proxy that no ProviderSupport can unwrap"),
+
     /** A to-one child finds two distinct rows for one key (R-FCH-04). */
     MQ2601("A to-one child found two distinct rows for one key"),
 

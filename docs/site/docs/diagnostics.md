@@ -74,7 +74,7 @@ try {
 | `MQ1608` | Bulk write: `@PrimaryKey` is not the root entity's id. |
 | `MQ1609` | Bulk write: `setExpression` on a column with a converter. |
 | `MQ1610` | Bulk write: an update `throughEntities()` combined with `keepVersion()`, `expectVersion(v)` or `setExpression`, whatever the call order. |
-| `MQ1611` | Write assignment: an unknown path, an id, a `@Version`, a collection, a to-one or a whole embeddable, or overlapping kinds for one path. |
+| `MQ1611` | Write assignment: an unknown path, an id, a `@Version`, a collection, a to-one or a whole embeddable, overlapping kinds for one path, or an entity class that is a subclass of the write's root. |
 | `MQ1612` | Write assignment: a type the attribute cannot take, or a supplier returning `null` or the wrong type. |
 | `MQ1801` | Insert: a column is not mapped, is mapped or set twice, is not on the written root, or is not in the model's `InsertColumns`; a `map` between columns with different converters or types; `lockKeys()` on insert-values; `insertReturningKeys` with `commitEachChunk()`. |
 | `MQ1802` | Insert: the model names a generated id, lacks an id that has no generator, or a row has a `null` assigned id; `persist` names a generated id (where the provider reports the generator) or part of a composite id. |
@@ -103,6 +103,7 @@ See [Queries and Filters](queries.md), [Grouped queries](grouped-queries.md), [B
 | `MQ2301` | A sort property resolves to no column or to several, asks for `ignoreCase`, or names a sort on a query without a primary key. |
 | `MQ2501` | A bulk write ran without an active transaction. |
 | `MQ2502` | A chunk of a chunked write failed; `ChunkedWriteException` says what was committed. |
+| `MQ2503` | An entity-mode update loaded a proxy your persistence context held for a row, and no `ProviderSupport` can unwrap it; add `model-query-hibernate` for Hibernate, or write under `CLEAR`. Nothing in the chunk was changed. |
 | `MQ2601` | A to-one `@Child` found two distinct rows for one key. |
 | `MQ2602` | An `Enricher.of` returned `null`, or a page of another size than it was given. |
 | `MQ2603` | A parent has more children than `maxPerParent`, or one statement of a child load read its row cap. |

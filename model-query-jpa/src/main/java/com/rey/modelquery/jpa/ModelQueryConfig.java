@@ -363,8 +363,10 @@ public final class ModelQueryConfig {
 
     /**
      * This configuration with {@code assignments} in place of any set before: server-set values, such as an audit
-     * timestamp, that every write of a matching root assigns as its {@link WriteKind} says (R-WRT-49). An assignment
-     * matches its entity class and every subclass. Its path and type are checked on the first write per root per
+     * timestamp, that every write of a matching root assigns as its {@link WriteKind} says (R-WRT-49). It replaces
+     * the assignments configured before rather than appending to them, so pass every assignment in one call. An
+     * assignment matches its entity class and every subclass; one naming a strict subclass of a write's root is
+     * {@code MQ1611} (D-119). Its path and type are checked on the first write per root per
      * {@code EntityManagerFactory}, not here, since one configuration can serve several factories.
      */
     @Incubating

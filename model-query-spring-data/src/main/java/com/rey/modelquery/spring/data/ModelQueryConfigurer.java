@@ -7,7 +7,9 @@ import jakarta.persistence.EntityManagerFactory;
 /**
  * Chooses the {@link ModelQueryConfig} of each {@code EntityManagerFactory}: a context with several databases may need
  * a vendor, a timeout or a profile per factory, where the shared config serves them all. At most one configurer bean
- * exists in a context (R-SPR-13, D-56).
+ * exists in a context (R-SPR-13, D-56). The shared config's {@code VendorProfile} and {@code WriteAssignment} beans
+ * are not checked here: {@code writeAssignments(...)} and {@code vendorProfiles(...)} replace a list rather than
+ * append to it, so pass the shared entries along to keep them.
  *
  * @implSpec R-SPR-13
  */

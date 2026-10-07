@@ -1548,6 +1548,39 @@ joins D-72's engine-facing members, and `buildConflictUpdate`, `conflictBinds`, 
 → INV-1, P-5, `api/14` §11 (R-WRT-41 to R-WRT-49), `reference/90` (`MQ1610`–`MQ1612`, `MQ1809`), `integration/50`
 R-SPR-10, `delivery/62`, `docs/plan/mvp-plan.md` §M11, `rfc/0005-entity-writes.md`.
 
+**D-119 — Entity-mode writes on proxies and enhanced entities (M11 gate review; amends R-WRT-42, R-WRT-43, R-WRT-45,
+R-WRT-47, R-WRT-49 and D-118).** An entity-mode update set each assignment with a reflective field write on whatever
+instance the load returned, and two ordinary cases defeated it silently while the count still said matched. The load
+hands back the uninitialised proxy the persistence context already held for a matched row (a caller's `getReference`,
+or a lazy to-one), so the write landed in the proxy's own copy of the field: no `UPDATE`, no `@PreUpdate`. A
+bytecode-enhanced entity's inline dirty tracking never sees a reflective write, so its flush wrote nothing either.
+Under `CLEAR` the engine now also clears the context right after R-WRT-15's flush, which a caller cannot tell from the
+first chunk's own clear, and leaves the first load no proxy to return. A loaded instance whose class is no mapped
+entity class, under `KEEP` or not, is replaced by the instance behind it through the provider; with no provider able
+to, the update throws `MQ2503` before it changes any entity of the chunk rather than count a row it did not write.
+Assignments go through the provider's attribute access where it has one, so enhanced dirty tracking, lazy-attribute
+interception and embeddable owners see them; the reflective write stays the fallback, and its Javadoc names the
+enhanced or woven change tracking it cannot see. Both are `ProviderSupport#entityWrites()`, an
+`Optional<EntityWriteSupport>` empty by default, in `jpa.spi` with `jakarta.persistence` types only (INV-7);
+`model-query-hibernate`'s uses `Hibernate.unproxy` and the persister's property access, and marks a changed attribute
+dirty on a self-tracking entity, since that property access alone does not. A delete needs neither:
+`EntityManager#remove` takes a proxy. Rejected: refusing every proxy, since a caller's `getReference` is ordinary JPA
+and JPA has no portable way to reach the instance behind one. D-85: `ProviderSupport#entityWrites()` and
+`EntityWriteSupport` join the incubating bulk-write types.
+
+*Subclass assignments.* A write assignment naming a strict subclass of a write's root (`CardPayment` under a `Payment`
+root, `SINGLE_TABLE`) is `MQ1611` on that root's first write instead of skipped: the write reaches the subclass's rows
+too, and one statement cannot apply the assignment to only those, so skipping it silently lost the column. One naming
+an unrelated class is still skipped, so one config serves every root.
+
+*Provider write rules.* Entity mode writes through the provider, so the mapping's own write rules hold: a
+`@Column(updatable = false)` attribute or a Hibernate `@Immutable` entity, an `UPDATE` write assignment on one
+included, is written by a bulk update but not by entity mode, while the count still says matched (R-WRT-44). The
+Javadoc of `throughEntities()` and the user guide say so.
+
+→ `api/14` §11 (R-WRT-42, R-WRT-43, R-WRT-45, R-WRT-47, R-WRT-49), `vendor/40` R-VND-14, `reference/90` (`MQ1611`,
+`MQ2503`).
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

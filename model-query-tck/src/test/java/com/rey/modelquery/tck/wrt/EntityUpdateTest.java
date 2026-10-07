@@ -22,6 +22,8 @@ import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
+import com.rey.modelquery.tck.vnd.ins.EnhancingClassLoader;
+import com.rey.modelquery.tck.vnd.ins.InsEnhancedEntity;
 import com.rey.modelquery.tck.vnd.ins.InsListenedEntity;
 import com.rey.modelquery.tck.vnd.ins.InsSourceEntity;
 import com.rey.modelquery.tck.vnd.ins.InsertProbes;
@@ -50,13 +52,17 @@ import org.junit.jupiter.api.AfterEach;
  * An update {@code throughEntities()} on every Tier-1 vendor: each chunk's keys selected as a chunked update selects
  * them, its entities loaded with one select, assigned through the metamodel member and flushed, so JPA callbacks and
  * Hibernate event listeners run for each changed row and none for an unchanged one; the count is the rows matched;
- * the persistence context cleared per chunk or kept; an {@code OptimisticLockException} a failed chunk to resume after
- * (spec api/14 R-WRT-41 to R-WRT-47). The Hibernate listener lives here, never in {@code model-query-jpa} (INV-7).
+ * the persistence context cleared per chunk or kept; an {@code OptimisticLockException} a failed chunk to resume after;
+ * a row the context held as a proxy and a bytecode-enhanced entity written as any other (spec api/14 R-WRT-41 to
+ * R-WRT-47, D-119). The Hibernate listener lives here, never in {@code model-query-jpa} (INV-7).
  */
 class EntityUpdateTest {
 
     /** An update model over {@link InsListenedEntity}: the amount as {@code #42}, the source by id. */
     record Patch(Long id, String status, String amount, String note, Long source) {}
+
+    /** An update model over the bytecode-enhanced copy of {@link InsEnhancedEntity}. */
+    record Enhanced(Long id, String status, String note) {}
 
     private static final TableField<InsListenedEntity, InsListenedEntity> ROOT =
             TableField.root(InsListenedEntity.class);
@@ -202,6 +208,94 @@ class EntityUpdateTest {
             // The model converter's #42 is the entity's 42.
             assertThat(p.rows(ROWS)).containsExactly("1|NEW|1|kept|1|0", "2|PAID|2|null|2|1",
                     "3|NEW|42|kept|1|1");
+        }
+    }
+
+    @TckTest
+    void ac_wrt_34_an_entity_mode_update_writes_a_row_the_context_held_as_a_proxy_under_clear_and_keep(
+            TckDatabase db) {
+        try (InsertProbes p = InsertProbes.withEntityWriteRoots(db)) {
+            seed(p, 2, id -> "NEW");
+            for (PersistenceContextMode mode : List.of(PersistenceContextMode.CLEAR, PersistenceContextMode.KEEP)) {
+                long id = mode == PersistenceContextMode.CLEAR ? 1L : 2L;
+                var update = ModelUpdate.builder(ROOT).primaryKey(PrimaryKey.of(ID)).set(STATUS, "PAID")
+                        .whereKey(id).throughEntities().persistenceContext(mode).build();
+                InsListenedEntity.reset();
+
+                long written = inCommittedTransaction(p, em -> {
+                    // An uninitialised proxy in the context, as a caller's getReference or a lazy to-one leaves
+                    InsListenedEntity proxy = em.getReference(InsListenedEntity.class, id);
+                    assertThat(proxy.getClass()).isNotEqualTo(InsListenedEntity.class);
+                    long rows = executor(em).update(update);
+                    if (mode == PersistenceContextMode.KEEP) {
+                        // Unwrapped, not detached: the proxy reads the written entity.
+                        assertThat(em.contains(proxy)).isTrue();
+                        assertThat(proxy.status()).isEqualTo("PAID");
+                    }
+                    return rows;
+                });
+
+                assertThat(written).isEqualTo(1);
+                assertThat(writes(p.statements(), "update")).hasSize(1);
+                assertThat(InsListenedEntity.CALLBACKS).containsExactly("pre:" + id + ":PAID", "post:" + id + ":1");
+            }
+            assertThat(p.rows(ROWS)).containsExactly("1|PAID|1|null|1|1", "2|PAID|2|null|1|1");
+        }
+    }
+
+    @TckTest
+    void ac_wrt_34_under_keep_a_proxy_no_entity_write_support_unwraps_is_mq2503_before_the_chunk_changes(
+            TckDatabase db) {
+        var update = ModelUpdate.builder(ROOT).primaryKey(PrimaryKey.of(ID)).set(STATUS, "PAID")
+                .where(f -> f.lte(ID, 2L)).throughEntities().persistenceContext(PersistenceContextMode.KEEP).build();
+
+        // Hibernate's ProviderSupport, but with no EntityWriteSupport
+        NoTablesProviderSupport.serving(() -> {
+            try (InsertProbes p = InsertProbes.withEntityWriteRoots(db)) {
+                seed(p, 2, id -> "NEW");
+                assertThatThrownBy(() -> inCommittedTransaction(p, em -> {
+                    em.getReference(InsListenedEntity.class, 2L);
+                    return executor(em).update(update);
+                })).isInstanceOfSatisfying(ModelQueryExecutionException.class, e -> {
+                    assertThat(e.code()).isEqualTo(MqCode.MQ2503);
+                    assertThat(e.getMessage()).contains("InsListenedEntity: an update throughEntities() loaded a ")
+                            .contains("no ProviderSupport serving this persistence provider has an "
+                                    + "EntityWriteSupport");
+                });
+
+                // Row 1 came first in the chunk, and was not changed either.
+                assertThat(writes(p.statements(), "update")).isEmpty();
+                assertThat(InsListenedEntity.CALLBACKS).isEmpty();
+                assertThat(p.rows(ROWS)).containsExactly("1|NEW|1|null|1|0", "2|NEW|2|null|1|0");
+            }
+        });
+    }
+
+    @TckTest
+    void ac_wrt_34_an_entity_mode_update_writes_a_bytecode_enhanced_entity_through_its_dirty_tracking(
+            TckDatabase db) {
+        var loader = new EnhancingClassLoader(InsEnhancedEntity.class);
+        Class<?> enhanced = loader.enhanced();
+        var listener = new PostUpdates();
+
+        try (InsertProbes p = InsertProbes.open(db, loader)) {
+            p.jdbc("insert into ins_enhanced (id, code, note, status, name, version) values "
+                    + "(1, 'e1', 'old', 'NEW', 'n1', 0), (2, 'e2', 'old', 'PAID', 'n2', 0)");
+            p.factory().unwrap(SessionFactoryImplementor.class).getServiceRegistry()
+                    .requireService(EventListenerRegistry.class).appendListeners(EventType.POST_UPDATE, listener);
+
+            // Row 2 is PAID already: its tracker reports nothing changed, so it is not written.
+            long written = inCommittedTransaction(p, em -> updateEnhanced(em, enhanced, "status", "PAID", 2L));
+            assertThat(written).isEqualTo(2);
+            assertThat(writes(p.statements(), "update")).hasSize(1);
+            assertThat(listener.events).containsExactly("1:NEW->PAID");
+
+            // The note is a lazy attribute the load leaves unfetched: written all the same.
+            long noted = inCommittedTransaction(p, em -> updateEnhanced(em, enhanced, "note", "fresh", 1L));
+            assertThat(noted).isEqualTo(1);
+            assertThat(writes(p.statements(), "update")).hasSize(1);
+            assertThat(p.rows("select id, note, status, version from ins_enhanced order by id"))
+                    .containsExactly("1|fresh|PAID|2", "2|old|PAID|0");
         }
     }
 
@@ -379,6 +473,19 @@ class EntityUpdateTest {
 
     private static List<String> ids(int from, int to) {
         return IntStream.rangeClosed(from, to).mapToObj(String::valueOf).toList();
+    }
+
+    /**
+     * Runs an update {@code throughEntities()} of {@code type}, the enhanced entity, setting {@code attribute} to
+     * {@code value} on each row with an id up to {@code to}.
+     */
+    private static <E> long updateEnhanced(EntityManager em, Class<E> type, String attribute, String value, long to) {
+        TableField<E, E> root = TableField.root(type);
+        ColumnField<Enhanced, E, Long> id = ColumnField.of(Enhanced.class, root, "id", Long.class);
+        var update = ModelUpdate.builder(root).primaryKey(PrimaryKey.of(id))
+                .set(ColumnField.of(Enhanced.class, root, attribute, String.class), value).where(f -> f.lte(id, to))
+                .throughEntities().build();
+        return ModelQueryExecutor.create(em, type, ModelQueryConfig.defaults()).update(update);
     }
 
     private static ModelQueryExecutor<InsListenedEntity> executor(EntityManager em) {

@@ -135,6 +135,15 @@ as MySQL's `CASE` per assignment does, `true` by default so a third-party profil
 `where` reading two or more assigned columns is refused even when the executor allows it (`api/14` R-WRT-34). Tier-1
 values are in `vendor/41` §2.
 
+Entity-mode updates split the same way (D-119). `ProviderSupport#entityWrites()` returns an
+`Optional<EntityWriteSupport>`, empty by default; `EntityWriteSupport` lives in `jpa.spi` and uses `jakarta.persistence`
+types only (INV-7). `Object unproxy(Object entity)` returns the initialised instance behind a proxy the persistence
+context holds, and `void set(EntityManager em, Object entity, String attribute, Object value)` sets an attribute of a
+managed entity, dotted through embeddables, as the provider's own attribute access does, so its change tracking sees the
+change (`api/14` R-WRT-42). `model-query-hibernate` ships one: `Hibernate.unproxy`, and the persister's property access,
+which also marks a changed attribute dirty on an entity that tracks its own dirtiness, since the property access alone
+does not.
+
 ## 2. Detection
 
 **R-VND-04** Resolution order:

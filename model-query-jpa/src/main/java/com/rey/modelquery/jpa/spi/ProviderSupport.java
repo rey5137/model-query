@@ -13,11 +13,12 @@ import java.util.stream.Stream;
 /**
  * What a persistence provider can do better than portable JPA: detect the database without a connection, count
  * groups in the database, render null precedence natively, report a configured default null ordering, stream a
- * query's rows by cursor, name the tables an entity reads and write bulk inserts. It varies by provider, not by
- * database, so it is not part of {@link VendorProfile} (D-34, D-108). Discovered with {@code ServiceLoader}; the first
- * that {@linkplain #supports supports} a factory serves it. Implementations are stateless and thread-safe.
+ * query's rows by cursor, name the tables an entity reads, write bulk inserts and change a managed entity. It varies
+ * by provider, not by database, so it is not part of {@link VendorProfile} (D-34, D-108). Discovered with
+ * {@code ServiceLoader}; the first that {@linkplain #supports supports} a factory serves it. Implementations are
+ * stateless and thread-safe.
  *
- * @implSpec R-VND-04, R-EXE-03, R-VND-12, R-VND-13, R-VND-14
+ * @implSpec R-VND-04, R-EXE-03, R-VND-12, R-VND-13, R-VND-14, D-119
  */
 @Incubating
 public interface ProviderSupport {
@@ -79,6 +80,15 @@ public interface ProviderSupport {
      * {@code MQ4009} before the flush, while {@code persist} needs none (R-VND-14, D-117).
      */
     default Optional<InsertSupport> inserts() {
+        return Optional.empty();
+    }
+
+    /**
+     * The provider's support for an update {@code throughEntities()}, or empty, the default, when it has none: the
+     * engine then writes each attribute through its metamodel member, which a bytecode-enhanced or woven entity's
+     * change tracking does not see, and refuses a loaded proxy with {@code MQ2503} (api/14 R-WRT-42, D-119).
+     */
+    default Optional<EntityWriteSupport> entityWrites() {
         return Optional.empty();
     }
 }

@@ -136,7 +136,9 @@ holds, or a `modelquery.*` property is set. The starter's own `ChunkTransactions
 `commitEachChunk()` writes throw `MQ4004` (D-74). A `ModelQueryConfigurer` adjusts the starter's config instead. From
 M11 the starter hands every `WriteAssignment` bean to its config, as it does `VendorProfile` beans (`api/14`
 R-WRT-49), and an application's own `ModelQueryConfig` bean that does not hold every `WriteAssignment` bean fails
-startup with `MQ4006`, as one dropping a `VendorProfile` bean does.
+startup with `MQ4006`, as one dropping a `VendorProfile` bean does. The configurer is not checked: its
+`writeAssignments(...)` or `vendorProfiles(...)` replaces the shared config's list rather than appending to it, so a
+configurer that sets either keeps the shared entries only by passing them along.
 
 ## 4. Acceptance criteria
 

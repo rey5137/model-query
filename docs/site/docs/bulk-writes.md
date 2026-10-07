@@ -209,10 +209,23 @@ What differs from a bulk write:
 - It needs a transaction (`MQ2501` without one) unless it commits each chunk. A resume after a `ChunkedWriteException`
   works as for a chunked write. Test:
   `EntityUpdateTest.ac_wrt_36_commit_each_chunk_resumes_from_chunked_write_exception_after_an_optimistic_lock_failure`.
-- Under `PersistenceContextMode.CLEAR` the context is cleared after each chunk, so it holds at most one chunk of
-  entities; test: `EntityUpdateTest.ac_wrt_36_each_chunk_loads_with_one_select_and_clear_holds_at_most_one_chunk_of_entities`.
+- Under `PersistenceContextMode.CLEAR` the context is cleared right after your pending changes are flushed and after
+  each chunk, so it holds at most one chunk of entities; test:
+  `EntityUpdateTest.ac_wrt_36_each_chunk_loads_with_one_select_and_clear_holds_at_most_one_chunk_of_entities`.
   Under `KEEP` an update leaves every entity it loaded managed and current, and the context grows with every matched
   row; a delete leaves none of its removed entities managed, since the flush detaches them.
+- A row your context held as an uninitialised proxy, from `em.getReference` or a lazy to-one, is written like any
+  other: under `CLEAR` the clear before the first chunk drops the proxy, and under `KEEP` the engine unwraps it through
+  the provider. A provider with no `EntityWriteSupport` cannot unwrap it, and the update throws `MQ2503` before it
+  changes the chunk. Test:
+  `EntityUpdateTest.ac_wrt_34_an_entity_mode_update_writes_a_row_the_context_held_as_a_proxy_under_clear_and_keep`.
+- Each attribute is set through the provider's own attribute access, `model-query-hibernate`'s with Hibernate, so a
+  bytecode-enhanced entity's dirty tracking sees the change. Without one, the engine sets the field by reflection, which
+  enhanced or woven change tracking does not see, so the flush may write nothing. Test:
+  `EntityUpdateTest.ac_wrt_34_an_entity_mode_update_writes_a_bytecode_enhanced_entity_through_its_dirty_tracking`.
+- The mapping's own write rules hold, as for any entity change: an attribute mapped `@Column(updatable = false)`, or
+  any attribute of a Hibernate `@Immutable` entity, a write assignment's included, is written by a bulk update but not
+  by entity mode, and the count still counts the row.
 - The query timeout applies to the key select and the load, not to the flush.
 - It costs a key select and a load per chunk, then one `UPDATE` or `DELETE` statement per changed or removed entity at
   the flush, so use it where the callbacks or audit matter, and a bulk write where they do not. There is no entity mode
@@ -239,7 +252,9 @@ ModelQueryConfig.defaults().writeAssignments(List.of(
 
 `WriteAssignment.of(entity, attribute, type, kind, supplier)` names an entity class, a dot-separated path to a basic
 attribute (through embeddables), the attribute's type and a supplier. It applies to the class and its subclasses, so one
-on a `@MappedSuperclass` covers every entity extending it. Under Spring Boot, declare each as a bean and the starter
+on a `@MappedSuperclass` covers every entity extending it. One naming a subclass of a write's root, such as
+`CardPayment` under a `Payment` root, is `MQ1611`: that write reaches every subclass's rows, so name the root or a
+superclass. Under Spring Boot, declare each as a bean and the starter
 hands them to the config of every datasource.
 
 | `WriteKind` | Applied by |
@@ -260,5 +275,6 @@ Deletes and `doNothing` apply none.
   where its value differs from the loaded one: a row already holding the value is not written and fires no update
   callback, and the count still counts it.
 - The path is checked on the first write per entity and factory, before any statement: an unknown path, an id, a
-  `@Version`, a collection, a to-one, a whole embeddable, or overlapping kinds for one path is `MQ1611`; a type the
+  `@Version`, a collection, a to-one, a whole embeddable, overlapping kinds for one path, or a strict subclass of the
+  root is `MQ1611`; a type the
   attribute cannot take, or a supplier returning `null` or the wrong type, is `MQ1612`.

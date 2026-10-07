@@ -52,7 +52,7 @@ public final class InsertProbes implements AutoCloseable {
     }
 
     /** As {@link #open(TckDatabase)}, also mapping the enhanced entity {@code loader} defines. */
-    static InsertProbes open(TckDatabase db, EnhancingClassLoader loader) {
+    public static InsertProbes open(TckDatabase db, EnhancingClassLoader loader) {
         return open(db, loader, List.of());
     }
 

@@ -1,5 +1,6 @@
 package com.rey.modelquery.tck.wrt;
 
+import static com.rey.modelquery.tck.wrt.BulkWriteTest.inRolledBackTransaction;
 import static com.rey.modelquery.tck.wrt.BulkWriteTest.writes;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -24,17 +25,25 @@ import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.WriteAssignment;
 import com.rey.modelquery.jpa.WriteKind;
+import com.rey.modelquery.tck.col.JoinTestSupport;
+import com.rey.modelquery.tck.col.KeysetTypeEntity;
+import com.rey.modelquery.tck.col.OrderEntity;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
 import com.rey.modelquery.tck.vnd.ins.InsAuditedBase;
 import com.rey.modelquery.tck.vnd.ins.InsAuditedEntity;
+import com.rey.modelquery.tck.vnd.ins.InsJoinedChildEntity;
+import com.rey.modelquery.tck.vnd.ins.InsJoinedEntity;
 import com.rey.modelquery.tck.vnd.ins.InsSourceEntity;
 import com.rey.modelquery.tck.vnd.ins.InsertProbes;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import java.math.BigDecimal;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -46,14 +55,18 @@ import org.junit.jupiter.api.AfterEach;
  * Write assignments on every Tier-1 vendor: each applied by the writes of its kind, a bulk update, chunked or not, and
  * entity mode, insert-values, insert-select, a {@code doUpdate} and {@code persist}, after the definition's own values
  * and skipped where it sets the attribute; the supplier called once per execution; an entity callback winning under
- * {@code persist} and entity mode; a superclass's assignment applied to a root extending it; and the checks on the
- * first write, {@code MQ1611} and {@code MQ1612}, before any statement (spec api/14 R-WRT-49).
+ * {@code persist} and entity mode; a superclass's assignment applied to a root extending it; a {@code Timestamp} one
+ * through insert-select and {@code doUpdate}; and the checks on the first write, {@code MQ1611}, a subclass of the
+ * root's included, and {@code MQ1612}, before any statement (spec api/14 R-WRT-49, D-119).
  */
 class WriteAssignmentTest {
 
     record Audited(Long id, String name, String createdBy, String updatedBy) {}
 
     record Source(Long id, String name) {}
+
+    /** A model of the {@code JOINED} root, and of {@code keyset_types} and {@code orders} by id. */
+    record Keyed(Long id, String name) {}
 
     private static final TableField<InsAuditedEntity, InsAuditedEntity> ROOT = TableField.root(InsAuditedEntity.class);
     private static final TableField<InsSourceEntity, InsSourceEntity> SOURCE = TableField.root(InsSourceEntity.class);
@@ -418,7 +431,85 @@ class WriteAssignmentTest {
         }
     }
 
+    @TckTest
+    void ac_wrt_39_a_timestamp_assignment_is_written_by_an_insert_select_and_a_do_update(TckDatabase db) {
+        // Not a String: PostgreSQL types an untyped select-list parameter as text, which a timestamp column refuses.
+        Timestamp stamped = Timestamp.valueOf("2024-05-06 07:08:09");
+        var config = ModelQueryConfig.defaults().writeAssignments(List.of(WriteAssignment.of(KeysetTypeEntity.class,
+                "stamp", Timestamp.class, WriteKind.INSERT_AND_UPDATE, () -> stamped)));
+        TableField<KeysetTypeEntity, KeysetTypeEntity> types = TableField.root(KeysetTypeEntity.class);
+        TableField<OrderEntity, OrderEntity> orders = TableField.root(OrderEntity.class);
+        var id = ColumnField.of(Keyed.class, types, "id", Long.class);
+        var orderId = ColumnField.of(Keyed.class, orders, "id", Long.class);
+        var tie = ColumnField.of(Keyed.class, types, "tie", Integer.class);
+        var amount = ColumnField.of(Keyed.class, types, "amount", BigDecimal.class);
+        var token = ColumnField.of(Keyed.class, types, "token", UUID.class);
+        var payload = ColumnField.of(Keyed.class, types, "payload", byte[].class);
+        var shape = ColumnField.of(Keyed.class, types, "shape", KeysetTypeEntity.Shape.class);
+        UUID tokenValue = UUID.fromString("00000000-0000-0000-0000-00000000abcd");
+        var select = ModelInsert.select(InsertColumns.<Keyed, KeysetTypeEntity>of(types).addKey(id, Keyed::id), orders)
+                .map(id, orderId).set(tie, 1).set(amount, BigDecimal.ONE).set(token, tokenValue)
+                .set(payload, new byte[] {1}).set(shape, new KeysetTypeEntity.Shape("square"))
+                .where(f -> f.lt(orderId, 4L)).build();
+        // The insert sets the stamp itself, so only the doUpdate takes the assignment.
+        var stamp = ColumnField.of(Keyed.class, types, "stamp", Timestamp.class);
+        var columns = InsertColumns.<Keyed, KeysetTypeEntity>of(types).addKey(id, Keyed::id)
+                .add(tie, row -> 1).add(amount, row -> BigDecimal.ONE).add(stamp, row -> new Timestamp(0))
+                .add(token, row -> tokenValue).add(payload, row -> new byte[] {1})
+                .add(shape, row -> new KeysetTypeEntity.Shape("circle"));
+        var upsert = ValuesInsert.builder(columns, Long.class, List.of(new Keyed(1L, null))).onConflict(id)
+                .doUpdate(u -> u.set(token, tokenValue)).anyUniqueKey().build();
+        var stamps = new ArrayList<Long>();
+
+        inRolledBackTransaction(JoinTestSupport.dataSource(db), em -> {
+            em.createNativeQuery("delete from keyset_types").executeUpdate();
+            var executor = ModelQueryExecutor.create(em, KeysetTypeEntity.class, config);
+            assertThat(executor.insert(select)).isEqualTo(3);
+            stamps.add(stampedRows(em, stamped));
+            em.createNativeQuery("delete from keyset_types where id > 1").executeUpdate();
+            em.createQuery("update KeysetTypeEntity k set k.stamp = :stamp").setParameter("stamp", new Timestamp(0))
+                    .executeUpdate();
+            executor.insert(upsert);
+            stamps.add(stampedRows(em, stamped));
+        });
+
+        // Three rows inserted with the stamp, then row 1, stamped otherwise, updated with it.
+        assertThat(stamps).containsExactly(3L, 1L);
+    }
+
+    /** The rows of {@code keyset_types} whose stamp is {@code stamp}. */
+    private static long stampedRows(EntityManager em, Timestamp stamp) {
+        em.clear();
+        return em.createQuery("select count(k) from KeysetTypeEntity k where k.stamp = :stamp", Long.class)
+                .setParameter("stamp", stamp).getSingleResult();
+    }
+
     // ---- AC-WRT-39: MQ1611 and MQ1612
+
+    @TckTest
+    void ac_wrt_39_an_assignment_on_a_strict_subclass_of_the_root_is_mq1611_before_any_statement(TckDatabase db) {
+        TableField<InsJoinedEntity, InsJoinedEntity> joined = TableField.root(InsJoinedEntity.class);
+        var id = ColumnField.of(Keyed.class, joined, "id", Long.class);
+        var update = ModelUpdate.builder(joined).primaryKey(PrimaryKey.of(id))
+                .set(ColumnField.of(Keyed.class, joined, "name", String.class), "N").whereKey(1L).build();
+        // The write reaches the subclass's rows too; the assignment on an unrelated root is skipped, as before.
+        var config = ModelQueryConfig.defaults().writeAssignments(List.of(
+                WriteAssignment.of(InsSourceEntity.class, "code", String.class, WriteKind.UPDATE, () -> "never"),
+                WriteAssignment.of(InsJoinedChildEntity.class, "detail", String.class, WriteKind.UPDATE,
+                        () -> "d")));
+
+        try (InsertProbes p = InsertProbes.withUnsupportedRoots(db)) {
+            assertThatThrownBy(() -> {
+                p.forget();
+                p.factory().inTransaction(em ->
+                        ModelQueryExecutor.create(em, InsJoinedEntity.class, config).update(update));
+            }).isInstanceOfSatisfying(ModelQueryDefinitionException.class, e -> {
+                assertThat(e.code()).isEqualTo(MqCode.MQ1611);
+                assertThat(e.getMessage()).contains("InsJoinedChildEntity is a subclass of the root InsJoinedEntity");
+            });
+            assertThat(p.statements()).isEmpty();
+        }
+    }
 
     @TckTest
     void ac_wrt_39_a_path_that_is_not_one_basic_attribute_or_overlapping_kinds_is_mq1611_before_any_statement(

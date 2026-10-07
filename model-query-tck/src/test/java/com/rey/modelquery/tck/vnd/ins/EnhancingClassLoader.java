@@ -8,21 +8,21 @@ import org.hibernate.bytecode.internal.BytecodeProviderInitiator;
 
 /**
  * Loads one entity class bytecode-enhanced by Hibernate's own enhancer, as the build plugin would, and every other
- * class from its parent; the D-116 {@code persist} probe maps the enhanced copy.
+ * class from its parent; the D-116 {@code persist} probe and the D-119 entity-mode update map the enhanced copy.
  */
-final class EnhancingClassLoader extends ClassLoader {
+public final class EnhancingClassLoader extends ClassLoader {
 
     private final String enhancedName;
     private final Enhancer enhancer =
             BytecodeProviderInitiator.buildDefaultBytecodeProvider().getEnhancer(new DefaultEnhancementContext());
 
-    EnhancingClassLoader(Class<?> entity) {
+    public EnhancingClassLoader(Class<?> entity) {
         super(entity.getClassLoader());
         this.enhancedName = entity.getName();
     }
 
     /** The enhanced copy of the entity this loader was built for. */
-    Class<?> enhanced() {
+    public Class<?> enhanced() {
         try {
             return loadClass(enhancedName);
         } catch (ClassNotFoundException e) {

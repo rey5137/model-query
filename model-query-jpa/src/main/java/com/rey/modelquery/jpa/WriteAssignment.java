@@ -13,9 +13,9 @@ import java.util.function.Supplier;
  *
  * <p>The attribute path names a basic singular attribute of the root, possibly through embeddables
  * ({@code "audit.updatedAt"}). It is checked on the first write per root per {@code EntityManagerFactory}, before any
- * statement: an unknown path, an id, a {@code @Version}, a collection, a to-one, a whole embeddable, or two assignments
- * of overlapping kinds for one root and path, throws {@code MQ1611}; a type the attribute cannot take, after boxing,
- * {@code MQ1612}.
+ * statement: an unknown path, an id, a {@code @Version}, a collection, a to-one, a whole embeddable, two assignments
+ * of overlapping kinds for one root and path, or an entity class that is a strict subclass of the root, whose writes
+ * reach every subclass's rows, throws {@code MQ1611}; a type the attribute cannot take, after boxing, {@code MQ1612}.
  *
  * <p>The supplier is called once per write execution, so every chunk and row of one write gets the same value, and
  * again on each resume after a {@code ChunkedWriteException}. It may be called from several threads at once and must
