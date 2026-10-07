@@ -3,6 +3,7 @@ package com.rey.modelquery.jpa;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.MqCode;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceUnitUtil;
 import jakarta.persistence.metamodel.Attribute;
 import jakarta.persistence.metamodel.EntityType;
 import jakarta.persistence.metamodel.IdentifiableType;
@@ -22,7 +23,8 @@ import java.util.List;
  * {@link Attribute#getJavaMember} returns. An embeddable on the way is the one the constructor left, else a new one
  * from its no-arg constructor; a to-one is {@link EntityManager#getReference} of its target's id. Constructors, fields
  * and setters are reached with {@code setAccessible} (R-WRT-39). An update {@code throughEntities()} sets its
- * assignments on each managed entity it loaded the same way (R-WRT-42).
+ * assignments on each managed entity it loaded the same way (R-WRT-42), and {@code persist} returning a model reads its
+ * columns back from the flushed entity through the same members (R-WRT-48).
  */
 final class PersistedEntity {
 
@@ -50,6 +52,32 @@ final class PersistedEntity {
         for (int i = 0; i < attributes.size(); i++) {
             set(em, root, entity, attributes.get(i), values.get(i));
         }
+    }
+
+    /**
+     * The value of {@code path} on {@code entity}, a managed {@code root} entity, read through each attribute's
+     * metamodel member: {@code null} under an embeddable the entity holds as {@code null}, and for a to-one, which
+     * {@code ModelQuery.checkReturning} lets the path end at only by naming its target's id, the target's id from
+     * {@link PersistenceUnitUtil#getIdentifier}, which reads a reference without initializing it (R-WRT-48).
+     */
+    static Object get(PersistenceUnitUtil util, ManagedType<?> root, Object entity, String path) {
+        ManagedType<?> type = root;
+        Object value = entity;
+        for (String segment : path.split("\\.")) {
+            if (value == null) {
+                return null;
+            }
+            Attribute<?, ?> attribute = type.getAttribute(segment);
+            value = read(attribute, value);
+            if (attribute instanceof SingularAttribute<?, ?> toOne && toOne.isAssociation()) {
+                return value == null ? null : util.getIdentifier(value);
+            }
+            if (attribute instanceof SingularAttribute<?, ?> singular
+                    && singular.getType() instanceof ManagedType<?> embeddable) {
+                type = embeddable;
+            }
+        }
+        return value;
     }
 
     private static void set(EntityManager em, ManagedType<?> root, Object entity, String path, Object value) {

@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 
 /**
  * The selections of one query and the {@link Row} view over the {@link Tuple} they produce. Each selection gets a
@@ -106,11 +107,27 @@ public final class RowSelection {
 
     /** The row view of one tuple produced by {@link #selections(JoinContext)}. */
     public Row row(Tuple tuple) {
-        return new TupleRow(aliases, byPath, Objects.requireNonNull(tuple, "tuple"), null);
+        return new ValueRow(aliases, byPath, Objects.requireNonNull(tuple, "tuple")::get, null);
     }
 
-    private record TupleRow(Map<SelectField<?, ?>, String> aliases, Map<PathKey, String> byPath, Tuple tuple,
-            JoinKey scope) implements Row {
+    /**
+     * The row view of the values {@code values} gives each selected column, as read before any converter, the way a
+     * tuple holds them; asked once per alias, so columns sharing an attribute share its value (R-WRT-48).
+     */
+    Row row(Function<? super SelectField<?, ?>, Object> values) {
+        Objects.requireNonNull(values, "values");
+        var byAlias = new HashMap<String, Object>();
+        aliases.forEach((column, alias) -> {
+            if (!byAlias.containsKey(alias)) {
+                byAlias.put(alias, values.apply(column));
+            }
+        });
+        return new ValueRow(aliases, byPath, byAlias::get, null);
+    }
+
+    /** A row reading each column's value by its alias from {@code values}: a tuple's, or values read elsewhere. */
+    private record ValueRow(Map<SelectField<?, ?>, String> aliases, Map<PathKey, String> byPath,
+            Function<String, Object> values, JoinKey scope) implements Row {
 
         @Override
         public <C> C get(SelectField<?, C> column) {
@@ -122,7 +139,7 @@ public final class RowSelection {
         @Override
         public Object raw(SelectField<?, ?> column) {
             String alias = alias(column);
-            return alias == null ? null : tuple.get(alias);
+            return alias == null ? null : values.apply(alias);
         }
 
         @Override
@@ -134,7 +151,7 @@ public final class RowSelection {
         public Row scoped(TableField<?, ?> join) {
             JoinKey key = Objects.requireNonNull(join, "join").key();
             // Inside a scope, join is a path of the nested model, so it is re-rooted too: scopes compose.
-            return new TupleRow(aliases, byPath, tuple, scope == null ? key : key.reroot(scope));
+            return new ValueRow(aliases, byPath, values, scope == null ? key : key.reroot(scope));
         }
 
         private String alias(SelectField<?, ?> column) {

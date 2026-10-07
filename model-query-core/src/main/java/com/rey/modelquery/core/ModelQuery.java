@@ -515,6 +515,67 @@ public final class ModelQuery<E, K, M> {
         }
     }
 
+    /**
+     * Checks that this query can return the model of a {@code persist} from the flushed entity alone: it has no
+     * clause but the selection, the mapper, {@code afterMap} and the finisher, a {@code where} or {@code having}
+     * counting only when it recorded a filter, and each selected column resolves, on a scratch query, to a basic or
+     * embedded root attribute, through embeddables, or the id of a to-one association joined from the root without
+     * {@code on(...)}. Call it once per factory, on first execution, before any statement (D-118).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1809} naming the first clause, else the first column, refused;
+     *     as {@link ColumnField#path} does for a column whose path does not resolve
+     * @implSpec R-WRT-48
+     */
+    @EngineFacing
+    public void checkReturning(CriteriaBuilder cb) {
+        Objects.requireNonNull(cb, "cb");
+        var clauses = new ArrayList<String>();
+        if (!where.isEmpty()) {
+            clauses.add("where(...)");
+        }
+        if (!having.isEmpty()) {
+            clauses.add("having(...)");
+        }
+        if (!groupBy.isEmpty()) {
+            clauses.add("groupBy(...)");
+        }
+        if (fetch != null) {
+            clauses.add("a fetch plan");
+        }
+        if (customizer != null) {
+            clauses.add("customize(...)");
+        }
+        if (!orderBy.isEmpty()) {
+            clauses.add("orderBy(...)");
+        }
+        if (keyset) {
+            clauses.add("keyset()");
+        }
+        if (primaryKeyFirst != null) {
+            clauses.add("primaryKeyFirst(...)");
+        }
+        if (!clauses.isEmpty()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1809, modelName() + ": persist returning a model takes "
+                    + "only the selection, the mapper, afterMap and the finisher of its query, which has "
+                    + String.join(", ", clauses) + "; build a query without them");
+        }
+        CriteriaQuery<Tuple> query = cb.createTupleQuery();
+        Root<E> from = query.from(root.rootEntity());
+        ReturningColumns.check(modelName(), modelColumns, from.getModel(), JoinContext.of(from, cb, query, UNLIMITED));
+    }
+
+    /**
+     * The model {@code attributeValues} fills: it gives each selected column's value by the column's
+     * {@link ColumnField#path() attribute path}, as the entity holds it, before the column's converter; the
+     * {@code RowMapper}, {@code afterMap} and the finisher then run as on a read. Only after {@link #checkReturning}
+     * passed, so every selected column is a {@link ColumnField} (R-WRT-48).
+     */
+    @EngineFacing
+    public M mapReturning(Function<String, Object> attributeValues) {
+        Objects.requireNonNull(attributeValues, "attributeValues");
+        return toModel(modelSelection.row(column -> attributeValues.apply(((ColumnField<?, ?, ?>) column).path())));
+    }
+
     /** The roots of {@code query} and every join below them that can remove rows, which is any but a LEFT join. */
     private static int narrowingJoins(CriteriaQuery<?> query) {
         int count = 0;

@@ -702,12 +702,14 @@ is read through its attribute's metamodel member and the column's converter, and
 path does. It can fill root attributes, embeddable paths and the id of a to-one association (read without initializing
 the target; through an `INNER` join field whose foreign key is null it fills `null`, and the Javadoc says so). The root
 is fixed by `E`, so a query on another entity does not compile. A query with `where`, `having`, `groupBy`, a fetch plan,
-`customize`, `orderBy`, `keyset` or `primaryKeyFirst`, or a selected column it cannot fill from the entity alone (a
-join beyond a to-one id, a join with `on(...)`, an expression, an aggregate), is `MQ1809` on its first execution per
-factory, before any statement; there is no silent fallback to a select. The Javadoc says the model holds what JPA knows
-after the flush: a value the database fills (a column default, a trigger) is present only where the mapping has the
-provider read it back (`@Generated`). The overload is separate rather than a `returning(...)` stage, which would change
-the builder's key type `K` into `M`.
+`customize`, `orderBy`, `keyset` or `primaryKeyFirst`, or a selected column it cannot fill from the entity alone (a join
+beyond a to-one id, a join with `on(...)`, an expression, an aggregate, a collection attribute, or an association
+attribute itself, whose message says to select the target's id), is `MQ1809` on its first execution per factory, before
+any statement; there is no silent fallback to a select. A `where` or `having` counts only when it recorded a filter, so
+one whose filters were all skipped is accepted (D-118). The Javadoc says the model holds what JPA knows after the flush:
+a value the database fills (a column default, a trigger) is present only where the mapping has the provider read it back
+(`@Generated`). The overload is separate rather than a `returning(...)` stage, which would change the builder's key type
+`K` into `M`.
 
 ### 11.3 Write assignments
 

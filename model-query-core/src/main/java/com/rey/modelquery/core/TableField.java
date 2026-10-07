@@ -236,6 +236,11 @@ public final class TableField<P, T> {
         return above.isEmpty() ? property : above + "." + property;
     }
 
+    /** Whether {@link #on} gave this join a condition. */
+    boolean hasCondition() {
+        return condition != null;
+    }
+
     /** The key named by {@link #presentBy}, or {@code null}. */
     PrimaryKey<?, ?> presenceKey() {
         return presenceKey;

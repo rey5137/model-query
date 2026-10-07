@@ -51,6 +51,7 @@ import jakarta.persistence.JoinTable;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OptimisticLockException;
 import jakarta.persistence.PersistenceException;
+import jakarta.persistence.PersistenceUnitUtil;
 import jakarta.persistence.Query;
 import jakarta.persistence.QueryTimeoutException;
 import jakarta.persistence.Tuple;
@@ -913,14 +914,28 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     public <R> R persist(ModelPersist<E, ?, ?> persist, ModelQuery<E, ?, R> returning) {
         Objects.requireNonNull(persist, "persist");
         Objects.requireNonNull(returning, "returning");
-        // Stub until the overload is built (M11.5): refused before any statement, never a persist without the model.
-        throw new UnsupportedOperationException(rootEntity.getSimpleName()
-                + ": persist(persist, returning) is not supported yet");
+        // Keyed by the query itself, which the caller holds, so the weak set keeps the entry while it lives
+        checkWriteOnce(returning, metamodel -> returning.checkReturning(em.getCriteriaBuilder()));
+        // Read from the managed entity, a to-one's id without initializing it: through an INNER join field whose
+        // foreign key is null the column is null, where a read would drop the row (R-WRT-48)
+        PersistenceUnitUtil util = em.getEntityManagerFactory().getPersistenceUnitUtil();
+        EntityType<E> root = em.getMetamodel().entity(rootEntity);
+        return persisted(persist, entity -> returning.mapReturning(path -> PersistedEntity.get(util, root, entity,
+                path)));
     }
 
     @Override
     public <K> K persist(ModelPersist<E, K, ?> p) {
         Objects.requireNonNull(p, "p");
+        return persisted(p, entity -> p.keyType().cast(em.getEntityManagerFactory().getPersistenceUnitUtil()
+                .getIdentifier(entity)));
+    }
+
+    /**
+     * Writes {@code p}'s row (R-WRT-39) and returns {@code result} of the created entity, called after the flush and
+     * before the {@code detach}.
+     */
+    private <T> T persisted(ModelPersist<E, ?, ?> p, Function<E, T> result) {
         checkWriteOnce(p, metamodel -> {
             p.checkMetamodel(metamodel);
             // Only where the provider reports the root's generator: persist works without insert support (R-WRT-39)
@@ -937,8 +952,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         em.persist(entity);
         try {
             em.flush();
-            Object key = em.getEntityManagerFactory().getPersistenceUnitUtil().getIdentifier(entity);
-            return p.keyType().cast(key);
+            return result.apply(entity);
         } finally {
             em.detach(entity);
         }

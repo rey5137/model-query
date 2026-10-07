@@ -711,12 +711,12 @@ ArchUnit checks. `hibernate-validator` and `tomcat-embed-el` are test-scope only
 → `api/14` R-WRT-21, R-WRT-22, `processor/31` R-GEN-23, `delivery/61` R-REL-03.
 
 **D-72 — Engine-facing members.** Members of public `core` types that only an executor calls carry `@EngineFacing`
-(`core`, class retention, methods only; D-86 lets it mark a type too): `ModelQuery.buildQuery`, `checkPhases` and `checkFetch`,
-and on `ModelUpdate` and `ModelDelete` `checkMetamodel`, `writesNothing`, every `buildWrite` and `buildKeySelect`
-overload, `readsTargetInSubquery`, `distinctKeys`, `startAfter`, `modelKey` and `buildEntityLoad`, and on
-`ModelUpdate` `assignedAttributes` and `assignedValues` (D-118). Like `jpa.vendor` (R-REL-10) they may
-change in any release; `japicmp` excludes them. This makes D-67's `readsTargetInSubquery` boolean (now
-`entitiesReadInSubquery`, D-109) non-API. →
+(`core`, class retention, methods only; D-86 lets it mark a type too): `ModelQuery.buildQuery`, `checkPhases`,
+`checkFetch`, `checkReturning` and `mapReturning` (D-118), and on `ModelUpdate` and `ModelDelete` `checkMetamodel`,
+`writesNothing`, every `buildWrite` and `buildKeySelect` overload, `readsTargetInSubquery`, `distinctKeys`,
+`startAfter`, `modelKey` and `buildEntityLoad`, and on `ModelUpdate` `assignedAttributes` and `assignedValues`
+(D-118). Like `jpa.vendor` (R-REL-10) they may change in any release; `japicmp` excludes them. This makes D-67's
+`readsTargetInSubquery` boolean (now `entitiesReadInSubquery`, D-109) non-API. →
 `delivery/61` R-REL-10, R-REL-11.
 
 **D-73 — `lastCommittedKey()` of a keyed write (amends D-68).** For a `whereKey`/`whereKeys` write,
@@ -1528,6 +1528,12 @@ engine-facing members.
 transaction reaches the caller unwrapped, `commitEachChunk()` under `CLEAR` clears the caller's `EntityManager` once
 after the last chunk, and the query timeout applies to the key select and the load, not to the flush.
 `ModelDelete.buildEntityLoad` joins D-72's engine-facing members.
+
+*Addendum (M11.5).* A `persist` returning query's `where` or `having` counts as present only when it recorded a
+filter, so one whose `Optional` filters were all skipped is not `MQ1809`: it would add no predicate to a read either. A
+root column naming an association itself, typed as the target entity, is `MQ1809`, whose message says to select the
+target's id through a join instead, since the entity holds only an uninitialized reference. `ModelQuery.checkReturning`
+and `mapReturning` join D-72's engine-facing members.
 
 → INV-1, P-5, `api/14` §11 (R-WRT-41 to R-WRT-49), `reference/90` (`MQ1610`–`MQ1612`, `MQ1809`), `integration/50`
 R-SPR-10, `delivery/62`, `docs/plan/mvp-plan.md` §M11, `rfc/0005-entity-writes.md`.

@@ -336,7 +336,8 @@ public interface ModelQueryExecutor<E> {
      * query supplies only the selection, the mapper, {@code afterMap} and the finisher; each selected column is read
      * through its attribute's metamodel member and the column's converter. It can fill root attributes, embeddable
      * paths and the id of a to-one association, read without initializing the target; through an {@code INNER} join
-     * field whose foreign key is null it fills {@code null}.
+     * field whose foreign key is null it fills {@code null}, so an {@code Optional} nested model is empty, where a read
+     * would drop the row.
      *
      * <p>The model holds what JPA knows after the flush: a value the database fills, such as a column default or a
      * trigger's, is present only where the mapping has the provider read it back ({@code @Generated}). Everything
@@ -346,10 +347,11 @@ public interface ModelQueryExecutor<E> {
      * @param returning the query whose model to return; its root is this executor's
      * @param <R> the returned model
      * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution per
-     *     {@code EntityManagerFactory}, before any statement, {@code MQ1809} for a query with {@code where},
-     *     {@code having}, {@code groupBy}, a fetch plan, {@code customize}, {@code orderBy}, {@code keyset} or
-     *     {@code primaryKeyFirst}, or a selected column the entity alone cannot fill (a join beyond a to-one id, a join
-     *     with {@code on(...)}, an expression, an aggregate); and what {@link #persist(ModelPersist)} throws
+     *     {@code EntityManagerFactory}, before any statement, {@code MQ1809} for a query with {@code where} or
+     *     {@code having} that recorded a filter, {@code groupBy}, a fetch plan, {@code customize}, {@code orderBy},
+     *     {@code keyset} or {@code primaryKeyFirst}, or a selected column the entity alone cannot fill (a join beyond
+     *     a to-one id, a join with {@code on(...)}, an expression, an aggregate, a collection or an association
+     *     attribute itself); and what {@link #persist(ModelPersist)} throws
      * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2501}, before any statement, when the
      *     {@code EntityManager} is not joined to a transaction (R-WRT-39)
      */
