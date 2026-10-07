@@ -1,12 +1,12 @@
 # RFC 0005 — Entity writes, persist returning a model, write assignments
 
-- **Status:** draft
+- **Status:** accepted (merged in [#30](https://github.com/rey5137/model-query/pull/30); unresolved questions 1 and 2 go to the M11.1 `architect-review`)
 - **Affects:** `INV-1`, `P-5` (wording); `api/14` §1 R-WRT-01, R-WRT-15, R-WRT-16, R-WRT-17, R-WRT-39 (extended), new
   §11 with `R-WRT-41`…`R-WRT-49` and `AC-WRT-34`…; `integration/50` (R-SPR-10 and AC-SPR-09 extended to the new
   repository methods; the starter hands `WriteAssignment` beans to the config, as it does `VendorProfile` beans);
   `reference/90` (new `MQ1610`…`MQ1612`, `MQ1809`); `reference/92` (new D-118, amends D-14, D-85, D-116 and P-5).
   `docs/plan/mvp-plan.md`: a new milestone M11 — Entity writes → 0.4.0, the freeze renumbered to M12.
-- **Discussion:** to be opened
+- **Discussion:** [#30](https://github.com/rey5137/model-query/pull/30)
 - **Target:** 0.4.0. Every new public type and method is `@Incubating`; D-85 lists them as exempt from the 1.0 freeze.
 
 ## Summary

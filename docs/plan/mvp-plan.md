@@ -296,16 +296,43 @@ M10.2a's `D-n` is recorded.
 **Exit:** the M10 rows' criteria green on Tier 1, nothing frozen, and the `0.3.0` CHANGELOG section ready, so the user
 can push the `v0.3.0` tag.
 
-## 12. M11 — Freeze → 1.0.0
+## 12. M11 — Entity writes → 0.4.0
 
-Spec: D-85 (amended by D-106 and D-116), D-86, D-111, D-116. Starts only when the user says the D-111 adopter has migrated onto 0.3.0
-and run it in production long enough. Model: `architect-review` at M11.1. Both slices are attended. Tagging `v1.0.0`
+Spec: RFC 0005 (accepted, `rfc/0005-entity-writes.md`), D-118 (its §6; amends D-14, D-85, D-116, P-5), `api/14`
+(new §11 R-WRT-41…R-WRT-49, `AC-WRT-34`…`AC-WRT-39`; R-WRT-01, -15, -16, -17, -39 extended), INV-1 and P-5 wording,
+`integration/50` R-SPR-10 and AC-SPR-09, `reference/90` (`MQ1610`…`MQ1612`, `MQ1809`), `reference/92`. Each slice
+writes its rules, `AC-*` rows and `MQ` codes into the owning spec file first, then builds. Model: `architect-review` at
+M11.1 (RFC 0005 "Unresolved" 1 and 2; the `persist` overload generics; the `WriteAssignment` surface), before any
+public type is written. Nothing is frozen: every new public type and method is `@Incubating` and D-85 exempts it from
+the 1.0 freeze (D-118). Tagging `v0.4.0` is the user's step after the gate, never a slice's.
+
+M11.1 is attended (its result may need the user's decision); M11.2 onwards may run unattended once M11.1's decisions
+are recorded in D-118.
+
+| Slice | Contents | Done when |
+|---|---|---|
+| M11.1 | Entity-write API design: `architect-review` of `throughEntities()` placement (options stage checked at `build()` with `MQ1610`, or its own stage so `setExpression`, `keepVersion` and `expectVersion` don't compile after it), `WriteAssignment` paths (a string checked at first execution or a typed field), `WriteAssignment`/`WriteKind` and `ModelQueryConfig.writeAssignments` shape, and the `<M> M persist(ModelPersist<E, ?, ?>, SelectSet<M>)` overload on executor and repository; recorded in D-118 and folded into RFC 0005. Review only, no code | every point has a recorded decision |
+| M11.2 | Spec and `core` types: `api/14` §11 and the R-WRT-01/-15/-16/-17/-39 extensions, INV-1/P-5 wording, D-118 (and the D-14, D-85, D-116, P-5 amendment notes), `MQ1610`–`MQ1612` and `MQ1809` in `reference/90`; `throughEntities()` on `ModelUpdate` and `ModelDelete` with the `MQ1610` checks (AC-WRT-37), `WriteAssignment`, `WriteKind`, `ModelQueryConfig.writeAssignments`, the `persist` overload on `ModelQueryExecutor` | `core` unit tests for AC-WRT-37 and the `WriteAssignment` construction checks green; ArchUnit green |
+| M11.3 | Entity-mode update (R-WRT-41, -42, -44, -45, -46, -47): always chunked, the R-WRT-17 key select, one `IN` load per chunk, assignments and change sets through the metamodel member after the converter, to-one `getReference`, flush, `CLEAR` per chunk or `KEEP`, count = rows matched, `OptimisticLockException` as a failed chunk in `ChunkedWriteException`, `commitEachChunk`, `MQ2501` | AC-WRT-34 and AC-WRT-36 green on Tier 1 |
+| M11.4 | Entity-mode delete (R-WRT-42, -43): `remove` per loaded entity, cascades `REMOVE` and `orphanRemoval`, `@SQLDelete`, no R-WRT-15 eviction, Javadoc on rows removed beyond the count | AC-WRT-35 green on Tier 1 |
+| M11.5 | `persist` returning a model (R-WRT-48): build `M` from the managed entity after the flush and before the detach through the metamodel members and converters (root attributes, embeddable paths, to-one ids without initializing), the read path's instantiation, `MQ1809` on first execution before any statement | AC-WRT-38 green on Hibernate and on a second provider if the TCK has one |
+| M11.6 | Write assignments (R-WRT-49): first-execution checks (`MQ1611`, `MQ1612`), the supplier called once per execution, applied per the RFC table to bulk update (chunked and entity mode), insert-values, insert-select, `doUpdate` and `persist`, skipped where the definition sets the attribute, set on the entity before the flush under `persist` and entity mode | AC-WRT-39 green on Tier 1; SQL snapshots per vendor for an update and an insert with an assignment |
+| M11.7 | Spring: `ModelQueryRepository.persist(persist, select)` (R-SPR-10, AC-SPR-09), the starter hands every `WriteAssignment` bean to the config per datasource; the Spring Boot sample's `POST` endpoint returns the persisted model and an updated-at column moves to a `WriteAssignment` | AC-SPR-09 for the overload green; a starter test for the beans green; the sample's tests pass |
+| M11.8 | Docs and 0.4.0 release prep: "Bulk writes" gains entity mode and write assignments, "Inserts" gains `persist` returning a model (every code block copied from a test that runs, the test named), the stability page lists the D-118 incubating types, `japicmp` exclusions for the overload added to the interfaces, `[Unreleased]` folded into the `0.4.0` CHANGELOG section, README, docs site and stability page say 0.4.0, `M11` added to the audit's started scope | `mkdocs build --strict` green; `JapicmpExclusionsTest` green; AC audit green with M11 started |
+
+**Exit:** the M11 rows' criteria green on Tier 1, nothing frozen, and the `0.4.0` CHANGELOG section ready, so the user
+can push the `v0.4.0` tag.
+
+## 13. M12 — Freeze → 1.0.0
+
+Spec: D-85 (amended by D-106, D-116 and D-118), D-86, D-111, D-116, D-118. Starts only when the user says the D-111 adopter has migrated onto 0.4.0
+and run it in production long enough. Model: `architect-review` at M12.1. Both slices are attended. Tagging `v1.0.0`
 is the user's step after the gate, never a slice's.
 
 | Slice | Contents | Done when |
 |---|---|---|
-| M11.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption and M10 insert types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
-| M11.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M11` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M10 started |
+| M12.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
+| M12.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M12` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M12 started |
 
-**Exit:** the M11 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M11.1 decision, so the user can
+**Exit:** the M12 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M12.1 decision, so the user can
 push the `v1.0.0` tag.
