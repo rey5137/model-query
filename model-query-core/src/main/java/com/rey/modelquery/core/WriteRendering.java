@@ -174,6 +174,21 @@ final class WriteRendering {
         });
     }
 
+    /**
+     * The load of one entity-mode chunk: the {@code entity} rows whose key is among {@code keys} and that the
+     * {@code where} tree still chooses, as {@link #rows} chooses them, so a tree needing a join renders inside one
+     * {@code EXISTS} and each entity comes once (R-WRT-17, R-WRT-42).
+     */
+    static <E, M> CriteriaQuery<E> entityLoad(List<Object> keys, List<Filter> where, PrimaryKey<M, ?> key,
+            Class<E> entity, CriteriaBuilder cb, RenderOptions options) {
+        CriteriaQuery<E> query = cb.createQuery(entity);
+        Root<E> from = query.from(entity);
+        JoinContext ctx = JoinContext.of(from, cb, query, options);
+        query.select(from);
+        List<Predicate> predicates = rows(keys, where, key, query, from, ctx, cb, options, false);
+        return query.where(predicates.toArray(Predicate[]::new));
+    }
+
     /** {@code where} rendered over a second root of {@code entity} in a sub-query of {@code statement}. */
     private static Probe probe(List<Filter> where, CommonAbstractCriteria statement, Class<?> entity,
             CriteriaBuilder cb, RenderOptions options) {

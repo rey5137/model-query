@@ -616,15 +616,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     @Override
     public long update(ModelUpdate<E, ?> u) {
         Objects.requireNonNull(u, "u");
-        if (u.entityMode()) {
-            // Stub until entity mode is built (M11.3): never fall back to a bulk statement, which skips the listeners.
-            throw new UnsupportedOperationException(rootEntity.getSimpleName()
-                    + ": an update throughEntities() is not supported yet");
-        }
         checkWriteOnce(u, u::checkMetamodel);
         requireTransaction("update", u.chunkOptions());
         if (u.writesNothing()) {
             return 0;
+        }
+        if (u.entityMode()) {
+            return updateEntities(u);
         }
         long written = updateRows(u);
         if (written == 0 && u.expectedVersion().isPresent()) {
@@ -648,9 +646,78 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), u.primaryKey(), u.distinctKeys(),
                 run -> run == null ? u.buildKeySelect(cb, renderOptions) : u.buildKeySelect(cb, renderOptions, run),
-                (on, keys) -> on.createQuery(u.buildWrite(cb, renderOptions, on::getReference, keys, rootTermsOnly)),
+                (on, keys) -> execute(on.createQuery(u.buildWrite(cb, renderOptions, on::getReference, keys,
+                        rootTermsOnly)), repeated),
                 u.startAfter(), u::modelKey);
         return write(u.persistenceContext(), () -> keyset(keyed, whole, byKeys, u.chunkOptions(), cb, repeated));
+    }
+
+    /**
+     * Runs an update {@code throughEntities()}: always chunked, in rounds of the {@code chunked} size, else the
+     * configured {@code bulkWriteChunkSize}, within the profile's clamp. Each round selects its keys as a chunked
+     * update does, then loads, assigns and flushes the round's entities (R-WRT-41, R-WRT-42, R-WRT-17). Pending entity
+     * changes are flushed first; the second-level cache is the provider's to maintain, so nothing is evicted
+     * (R-WRT-15, R-WRT-43). The query timeout applies to the key selects and the loads, not to the flushes, which
+     * have no portable per-statement hint (R-WRT-45). An {@code OptimisticLockException} from a flush reaches the
+     * caller as is, or, committing each chunk, wrapped in {@code ChunkedWriteException} (R-WRT-46).
+     */
+    private <M> long updateEntities(ModelUpdate<E, M> u) {
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        BuiltQuery<M> tree = u.buildKeySelect(cb, renderOptions);
+        // The load renders the tree the key select renders, so it repeats the same memoised expression binds.
+        int repeated = tree.joins().repeatedExpressionBinds();
+        List<String> attributes = u.assignedAttributes();
+        List<Object> values = u.assignedValues();
+        // R-WRT-49's write assignments join these here, for the attributes the definition does not set.
+        PersistenceContextMode mode = u.persistenceContext().orElse(persistenceContextMode);
+        EntityType<E> root = em.getMetamodel().entity(rootEntity);
+        logWrite("update throughEntities()", u, Optional.of(u.chunkOptions().orElse(ChunkOptions.defaultSize())),
+                false);
+        var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), u.primaryKey(), u.distinctKeys(),
+                run -> run == null ? u.buildKeySelect(cb, renderOptions) : u.buildKeySelect(cb, renderOptions, run),
+                (on, keys) -> throughEntities(on, u.buildEntityLoad(cb, renderOptions, keys), repeated, mode,
+                        entity -> PersistedEntity.assign(on, root, entity, attributes, values)),
+                u.startAfter(), u::modelKey);
+        int size = u.chunkOptions().map(chunk -> chunk.size().orElse(bulkWriteChunkSize)).orElse(bulkWriteChunkSize);
+        if (em.isJoinedToTransaction()) {
+            em.flush();
+        }
+        try {
+            return keyset(keyed, () -> em.createQuery(tree.query()),
+                    keys -> em.createQuery(u.buildEntityLoad(cb, renderOptions, keys)), u.chunkOptions(),
+                    OptionalInt.of(size), cb, repeated);
+        } finally {
+            // Each chunk ran on its own EntityManager, so the caller's copies of the written rows are stale: cleared
+            // once, as a bulk write clears after its last statement (R-WRT-45).
+            if (mode == PersistenceContextMode.CLEAR && u.chunkOptions().map(ChunkOptions::commitsEachChunk)
+                    .orElse(false)) {
+                em.clear();
+            }
+        }
+    }
+
+    /**
+     * One round of an entity write on {@code on}: loads the entities of {@code load} with one statement, applies
+     * {@code write} to each, flushes, and returns how many it loaded, the rows matched; the provider writes only
+     * those that changed (R-WRT-42, R-WRT-44). Afterwards, whether or not it threw, clears {@code on} under
+     * {@code CLEAR}, so at most one round of entities is managed; under {@code KEEP} they stay managed (R-WRT-45).
+     */
+    private long throughEntities(EntityManager on, CriteriaQuery<E> load, int repeated, PersistenceContextMode mode,
+            Consumer<E> write) {
+        String label = rootEntity.getSimpleName();
+        try {
+            TypedQuery<E> query = on.createQuery(load);
+            withinBindLimit(label, query.getParameters().size() + repeated, 0);
+            queryTimeout.ifPresent(timeout -> vendor.profile().applyTimeout(query, timeout));
+            List<E> entities = rows(label, query);
+            entities.forEach(write);
+            on.flush();
+            return entities.size();
+        } finally {
+            if (mode == PersistenceContextMode.CLEAR) {
+                on.clear();
+            }
+        }
     }
 
     @Override
@@ -681,7 +748,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), d.primaryKey(), d.distinctKeys(),
                 run -> run == null ? d.buildKeySelect(cb, renderOptions) : d.buildKeySelect(cb, renderOptions, run),
-                (on, keys) -> on.createQuery(d.buildWrite(cb, renderOptions, keys, rootTermsOnly)),
+                (on, keys) -> execute(on.createQuery(d.buildWrite(cb, renderOptions, keys, rootTermsOnly)), repeated),
                 d.startAfter(), d::modelKey);
         return write(d.persistenceContext(), () -> keyset(keyed, whole, byKeys, d.chunkOptions(), cb, repeated));
     }
@@ -721,7 +788,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 i.buildSelect(cb, renderOptions, key, keys).query());
         // The source keys are attribute values of plain id columns, which is what the exception reports (R-WRT-32).
         var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), key, Optional.empty(),
-                run -> i.buildKeySelect(cb, renderOptions, key), byKeys, Optional.empty(), sourceKey -> sourceKey);
+                run -> i.buildKeySelect(cb, renderOptions, key),
+                (on, keys) -> execute(byKeys.apply(on, keys), repeated), Optional.empty(), sourceKey -> sourceKey);
         return write(i.persistenceContext(), () -> keyset(keyed, whole, keys -> byKeys.apply(em, keys),
                 i.chunkOptions(), cb, repeated));
     }
@@ -1154,6 +1222,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             Optional<ChunkOptions> chunk, CriteriaBuilder cb, int repeated) {
         OptionalInt size = chunk.isEmpty() ? OptionalInt.empty()
                 : OptionalInt.of(chunk.get().size().orElse(bulkWriteChunkSize));
+        return keyset(keyed, whole, byKeys, chunk, size, cb, repeated);
+    }
+
+    /** As above, in rounds of {@code size} keys, or of the profile's clamp when empty, always within the clamp. */
+    private <M> long keyset(KeysetWrite.Keyed<M> keyed, Supplier<Query> whole, Function<List<Object>, Query> byKeys,
+            Optional<ChunkOptions> chunk, OptionalInt size, CriteriaBuilder cb, int repeated) {
         int n = keyed.distinctKeys()
                 .map(all -> all.size() == 1 ? 1
                         : keyChunkSize(byKeys.apply(all.subList(0, 1)), all.get(0), size, repeated))
@@ -1161,8 +1235,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                         keyed.key().columns().size(), size));
         boolean perChunk = chunk.map(ChunkOptions::commitsEachChunk).orElse(false);
         return new KeysetWrite(cb, (on, built, keyset, cursor) -> create(rootEntity.getSimpleName(), on, built.query(),
-                keyset, cursor, built.joins()), statement -> execute(statement, repeated), this::timeoutCancellation,
-                em, perChunk ? chunkTransactions : null)
+                keyset, cursor, built.joins()), this::timeoutCancellation, em, perChunk ? chunkTransactions : null)
                         .run(keyed, n, chunk.map(ChunkOptions::locksKeys).orElse(false));
     }
 

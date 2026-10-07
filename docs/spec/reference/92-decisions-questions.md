@@ -713,7 +713,8 @@ ArchUnit checks. `hibernate-validator` and `tomcat-embed-el` are test-scope only
 **D-72 — Engine-facing members.** Members of public `core` types that only an executor calls carry `@EngineFacing`
 (`core`, class retention, methods only; D-86 lets it mark a type too): `ModelQuery.buildQuery`, `checkPhases` and `checkFetch`,
 and on `ModelUpdate` and `ModelDelete` `checkMetamodel`, `writesNothing`, every `buildWrite` and `buildKeySelect`
-overload, `readsTargetInSubquery`, `distinctKeys`, `startAfter` and `modelKey`. Like `jpa.vendor` (R-REL-10) they may
+overload, `readsTargetInSubquery`, `distinctKeys`, `startAfter` and `modelKey`, and on `ModelUpdate`
+`buildEntityLoad`, `assignedAttributes` and `assignedValues` (D-118). Like `jpa.vendor` (R-REL-10) they may
 change in any release; `japicmp` excludes them. This makes D-67's `readsTargetInSubquery` boolean (now
 `entitiesReadInSubquery`, D-109) non-API. →
 `delivery/61` R-REL-10, R-REL-11.
@@ -1513,6 +1514,15 @@ root nor the mapper.
 
 *Addendum (M11.2).* An application's own `ModelQueryConfig` bean that drops a `WriteAssignment` bean fails startup
 with `MQ4006`, as a dropped `VendorProfile` bean does (`integration/50` R-SPR-13).
+
+*Addendum (M11.3).* In the caller's transaction an `OptimisticLockException` from an entity-mode flush reaches the
+caller unwrapped, as any failure of a write that does not commit per chunk does; only a `commitEachChunk()` write
+wraps it in `ChunkedWriteException` (R-WRT-20, R-WRT-46). With `commitEachChunk()` under `CLEAR` the caller's
+`EntityManager` is also cleared once after the last chunk, as a bulk write clears it after its last statement, since
+its managed copies of the written rows are stale; under `KEEP` they stay stale, as after a bulk write (R-WRT-45). The
+query timeout applies to the key select and the load; the flush's statements get none, as JPA has no portable
+per-statement hint (R-WRT-45). `ModelUpdate.buildEntityLoad`, `assignedAttributes` and `assignedValues` join D-72's
+engine-facing members.
 
 → INV-1, P-5, `api/14` §11 (R-WRT-41 to R-WRT-49), `reference/90` (`MQ1610`–`MQ1612`, `MQ1809`), `integration/50`
 R-SPR-10, `delivery/62`, `docs/plan/mvp-plan.md` §M11, `rfc/0005-entity-writes.md`.

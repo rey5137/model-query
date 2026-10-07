@@ -2,6 +2,7 @@ package com.rey.modelquery.core;
 
 import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.CriteriaUpdate;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Path;
@@ -18,6 +19,7 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
@@ -313,6 +315,59 @@ public final class ModelUpdate<E, M> {
     @Incubating
     public boolean entityMode() {
         return definition.entityMode();
+    }
+
+    /**
+     * Renders the load of one chunk of an update {@code throughEntities()}: the root entities whose key is among
+     * {@code keys}, the keys a {@link #buildKeySelect key select} chose, that the {@code where} tree still chooses,
+     * rendered as {@link #buildWrite(CriteriaBuilder, RenderOptions, BiFunction)} renders it, so each entity comes
+     * once; a row that stopped matching since the key select is not loaded (R-WRT-17, R-WRT-42).
+     *
+     * @param keys attribute-value keys, as a key select's rows hold them
+     * @throws IllegalArgumentException for empty {@code keys}
+     */
+    @EngineFacing
+    @Incubating
+    public CriteriaQuery<E> buildEntityLoad(CriteriaBuilder cb, RenderOptions options, List<?> keys) {
+        Objects.requireNonNull(cb, "cb");
+        Objects.requireNonNull(options, "options");
+        return WriteRendering.entityLoad(WriteRendering.selectedKeys(Objects.requireNonNull(keys, "keys")),
+                definition.rows().where(), definition.primaryKey(), rootEntity(), cb, options);
+    }
+
+    /**
+     * The root attribute each value or NULL assignment writes, in the order assigned, which an update
+     * {@code throughEntities()} sets on each loaded entity; a list that throws on mutation (R-WRT-42). An entity-mode
+     * update has no {@code setExpression} assignment ({@code MQ1610}).
+     */
+    @EngineFacing
+    @Incubating
+    public List<String> assignedAttributes() {
+        return valueAssignments().stream().map(assignment -> assignment.column().name()).toList();
+    }
+
+    /**
+     * The values of {@link #assignedAttributes()}, at the same index: each passed through its column's converter, a
+     * NULL assignment's {@code null}, and a to-one's the target's id, as a bulk update binds them (R-WRT-14,
+     * R-WRT-42). A list that throws on mutation; each call converts again.
+     */
+    @EngineFacing
+    @Incubating
+    public List<Object> assignedValues() {
+        var values = new ArrayList<Object>();
+        for (Assignment<M, ?> assignment : valueAssignments()) {
+            values.add(assignment instanceof Assignment.Value<M, ?> value ? attributeValue(value) : null);
+        }
+        return Collections.unmodifiableList(values);
+    }
+
+    private List<Assignment<M, ?>> valueAssignments() {
+        return definition.assignments().stream().filter(assignment -> !(assignment instanceof Assignment.Expression))
+                .toList();
+    }
+
+    private static <C> Object attributeValue(Assignment.Value<?, C> value) {
+        return value.column().toAttribute(value.value());
     }
 
     /** A rendered update: the statement and the context that rendered it, whose repeated expression binds an executor
@@ -771,7 +826,11 @@ public final class ModelUpdate<E, M> {
          * flushes, so entity callbacks, the provider's listeners, audits, Bean Validation and cascades run. Always
          * chunked: without {@code chunked(...)} the configured bulk-write chunk size applies. The count is the rows
          * matched, not the rows the provider wrote. With {@link PersistenceContextMode#CLEAR} the persistence context
-         * is cleared after each chunk; with {@code KEEP} it grows with every matched row (R-WRT-41 to R-WRT-47).
+         * is cleared after each chunk, and with {@code commitEachChunk()} the caller's is also cleared after the last
+         * chunk; with {@code KEEP} it grows with every matched row. The flush checks and increments a
+         * {@code @Version}: its {@code OptimisticLockException} reaches the caller as is, or with
+         * {@code commitEachChunk()} as a {@link ChunkedWriteException} to resume after. The configured query timeout
+         * applies to the key select and the load, not to the flush's statements (R-WRT-41 to R-WRT-47).
          *
          * <p>{@code keepVersion()}, {@code expectVersion(...)} and {@code setExpression(...)} cannot be honoured on
          * entities: combined with this, in any order, {@link #build()} throws {@code MQ1610}. That happens when the

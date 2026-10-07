@@ -663,16 +663,22 @@ rows than it counts, and the Javadoc says so.
 number the provider wrote.
 
 **R-WRT-45** The persistence context follows `PersistenceContextMode`. R-WRT-15's flush before the first chunk stays.
-With `CLEAR` (the default) the engine clears after each chunk's flush, which is what keeps memory to one chunk. With
-`KEEP` nothing is detached: the loaded entities stay managed and current, since they were written through the context,
-and the Javadoc of `KEEP` says the context then grows with every matched row. The engine never detaches only "what it
-loaded": a row the caller already had managed is the same instance, and detaching it would surprise the caller.
+With `CLEAR` (the default) the engine clears after each chunk's flush, which is what keeps memory to one chunk; with
+`commitEachChunk()` each chunk clears its own `EntityManager`, and the caller's is also cleared once after the last
+chunk, whether or not it failed, as a bulk write clears it after its last statement, since its managed copies of the
+written rows are stale. With `KEEP` nothing is detached: the loaded entities stay managed and current, since they were
+written through the context, and the Javadoc of `KEEP` says the context then grows with every matched row. The engine
+never detaches only "what it loaded": a row the caller already had managed is the same instance, and detaching it
+would surprise the caller. The configured query timeout (R-EXE-11) applies to the key select and the load; the
+flush's statements get none, since JPA has no portable per-statement hint for them.
 
 **R-WRT-46** Optimistic locking is the provider's: a `@Version` attribute is checked and incremented by the flush.
 `keepVersion()` and `expectVersion(v)` cannot be honoured, and `setExpression` cannot be computed in Java, so `build()`
 throws `MQ1610` for a definition that combines any of them with `throughEntities()`. An `OptimisticLockException` from
-a chunk's flush is a failed chunk like any other: it reaches the caller as R-WRT-20 says, wrapped in
-`ChunkedWriteException` with the key to resume after.
+a chunk's flush is a failed chunk like any other. In the caller's transaction (no `commitEachChunk()`) it reaches the
+caller unwrapped, as any failure of a write that does not commit per chunk does, and the provider marks the caller's
+transaction for rollback; only a `commitEachChunk()` write wraps it, as R-WRT-20 says, in `ChunkedWriteException` with
+the key to resume after.
 
 **R-WRT-47** An entity-mode write needs an active transaction (`MQ2501`); with `commitEachChunk()` each chunk loads,
 writes and clears inside its own transaction (R-WRT-19). Each resume after a `ChunkedWriteException` is a new

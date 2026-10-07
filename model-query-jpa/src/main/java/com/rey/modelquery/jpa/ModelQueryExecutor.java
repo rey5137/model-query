@@ -176,6 +176,12 @@ public interface ModelQueryExecutor<E> {
      * second-level cache (R-WRT-15). Clearing detaches every managed entity, not only the root's, so a later change
      * to any of them is silently not written; with {@code KEEP} the root's entities stay managed but stale.
      *
+     * <p>An update {@code throughEntities()} runs those rounds, then loads each round's entities with one query, sets
+     * the assignments on them and flushes, so callbacks and listeners run; it returns the rows matched. It evicts
+     * nothing, and clears after each round's flush unless the mode is {@code KEEP}, and the caller's
+     * {@code EntityManager} once more after the last round with {@code commitEachChunk()}. The query timeout applies
+     * to the key selects and the loads, not to the flushes (R-WRT-41 to R-WRT-47).
+     *
      * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution: {@code MQ1608} when the
      *     definition's primary key is not the root entity's id, {@code MQ1605} when a column writes an id or the
      *     {@code @Version} attribute, {@code MQ1606} for {@code expectVersion} on a root with no {@code @Version}
@@ -192,7 +198,8 @@ public interface ModelQueryExecutor<E> {
      *     flush included, for {@code commitEachChunk()} with no {@link ChunkTransactions} or one that cannot serve
      *     the {@code EntityManager}'s factory (R-WRT-19)
      * @throws jakarta.persistence.OptimisticLockException when {@code expectVersion} was given and no row was
-     *     written: the row's version moved, or the row no longer matches (R-WRT-16)
+     *     written: the row's version moved, or the row no longer matches (R-WRT-16); or, {@code throughEntities()}
+     *     and not {@code commitEachChunk()}, when a flush finds a loaded entity's version moved (R-WRT-46)
      */
     @Incubating
     long update(ModelUpdate<E, ?> u);

@@ -10,7 +10,6 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.PersistenceException;
-import jakarta.persistence.Query;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
@@ -21,9 +20,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.BiFunction;
 import java.util.function.Function;
-import java.util.function.ToIntFunction;
 import java.util.function.UnaryOperator;
 
 /**
@@ -32,10 +29,11 @@ import java.util.function.UnaryOperator;
  * order after the last round's, or after the write's {@code startAfter} key. It stops on the number of rows a select
  * returned, never on the rows a write affected, so an update that leaves its rows matching cannot loop, and a delete
  * never re-reads what it removed; the cursor only moves forward because a write never assigns a key column
- * ({@code MQ1605}). With {@code commitEachChunk()} each round, its key select and its write, runs in a new transaction
- * of the configured {@link ChunkTransactions}. Holds no state between runs.
+ * ({@code MQ1605}). A round's write is a bulk statement, or for an entity-mode write the load, assignment and flush of
+ * the round's entities (R-WRT-42). With {@code commitEachChunk()} each round, its key select and its write, runs in a
+ * new transaction of the configured {@link ChunkTransactions}. Holds no state between runs.
  *
- * @implSpec R-WRT-11, R-WRT-17, R-WRT-19, R-WRT-20, R-PAG-14, D-63
+ * @implSpec R-WRT-11, R-WRT-17, R-WRT-19, R-WRT-20, R-WRT-42, R-PAG-14, D-63
  */
 final class KeysetWrite {
 
@@ -47,14 +45,21 @@ final class KeysetWrite {
      * @param distinctKeys the definition's distinct keys, or empty when it chose its rows without keys
      * @param keySelect the key select over a run of {@code distinctKeys}, or over every row the definition chooses
      *     for {@code null}
-     * @param write the write, on the given {@code EntityManager}, over a non-empty run of the keys a key select chose
+     * @param write the write, on the given {@code EntityManager}, over a non-empty run of the keys a key select
+     *     chose, returning the rows it wrote, or for an entity-mode write the entities it loaded
      * @param startAfter the attribute-value key the first key select starts after, or empty to start at the first
      * @param modelKey the model key of an attribute-value key, as {@link ChunkedWriteException} reports keys
      * @param <M> the model whose key columns the key select reads
      */
     record Keyed<M>(Object label, PrimaryKey<M, ?> key, Optional<List<Object>> distinctKeys,
-            Function<List<Object>, BuiltQuery<M>> keySelect, BiFunction<EntityManager, List<Object>, Query> write,
-            Optional<Object> startAfter, UnaryOperator<Object> modelKey) {}
+            Function<List<Object>, BuiltQuery<M>> keySelect, ChunkWrite write, Optional<Object> startAfter,
+            UnaryOperator<Object> modelKey) {}
+
+    /** A round's write over the keys its key select chose, on the round's {@code EntityManager}. */
+    @FunctionalInterface
+    interface ChunkWrite {
+        long write(EntityManager on, List<Object> keys);
+    }
 
     /** Creates a key select's statement, told its keyset and cursor (both {@code null} without one, D-82). */
     @FunctionalInterface
@@ -64,7 +69,6 @@ final class KeysetWrite {
 
     private final CriteriaBuilder cb;
     private final Select select;
-    private final ToIntFunction<Query> execute;
     /** How a key select's statement reports a timeout cancellation, decided by the executor (R-EXE-11). */
     private final UnaryOperator<PersistenceException> timeouts;
     private final EntityManager caller;
@@ -75,16 +79,14 @@ final class KeysetWrite {
     /**
      * @param select creates a key select's query on the given {@code EntityManager}, with the configured timeout
      *     applied
-     * @param execute runs a write statement, with the configured timeout applied, and returns the rows it affected
      * @param timeouts how a key select's statement reports a timeout cancellation, as the executor translates it
      * @param caller the caller's {@code EntityManager}, which every round runs on without {@code transactions}
      * @param transactions runs each round in a new transaction, for {@code commitEachChunk()}, or {@code null}
      */
-    KeysetWrite(CriteriaBuilder cb, Select select, ToIntFunction<Query> execute,
-            UnaryOperator<PersistenceException> timeouts, EntityManager caller, ChunkTransactions transactions) {
+    KeysetWrite(CriteriaBuilder cb, Select select, UnaryOperator<PersistenceException> timeouts, EntityManager caller,
+            ChunkTransactions transactions) {
         this.cb = cb;
         this.select = select;
-        this.execute = execute;
         this.timeouts = timeouts;
         this.caller = caller;
         this.transactions = transactions;
@@ -92,7 +94,7 @@ final class KeysetWrite {
     }
 
     /**
-     * Runs {@code write} in rounds of at most {@code n} keys and returns the summed rows affected. With
+     * Runs {@code write} in rounds of at most {@code n} keys and returns what the rounds wrote, summed. With
      * {@code lockKeys} each key select takes {@code LockModeType.PESSIMISTIC_WRITE}, so a concurrent change to a
      * selected row waits for the write (R-WRT-11).
      *
@@ -194,7 +196,7 @@ final class KeysetWrite {
     }
 
     private <M> long writeKeys(EntityManager on, Keyed<M> write, List<Object> keys) {
-        return keys.isEmpty() ? 0 : execute.applyAsInt(write.write().apply(on, keys));
+        return keys.isEmpty() ? 0 : write.write().write(on, keys);
     }
 
     /** A cursor of the key values of {@code attributeKey}, as {@link Keys#keyOf} returns a key. */
@@ -275,7 +277,7 @@ final class KeysetWrite {
         private ChunkedWriteException failed(Round ran, RuntimeException cause) {
             List<Object> inDoubt = ran == null ? List.of() : ran.keys().stream().map(write.modelKey()).toList();
             Object last = lastKey == null ? null : write.modelKey().apply(lastKey);
-            String detail = write.label() + ": chunk " + (committed + 1) + " of a bulk write committing each chunk "
+            String detail = write.label() + ": chunk " + (committed + 1) + " of a write committing each chunk "
                     + "failed; the " + committed + " chunks before it stay committed, " + written + " rows"
                     + (last == null ? "" : ", up to key " + last)
                     + (inDoubt.isEmpty() ? ", and the failed chunk rolled back"

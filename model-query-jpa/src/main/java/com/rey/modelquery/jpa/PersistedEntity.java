@@ -21,7 +21,8 @@ import java.util.List;
  * through the attribute's metamodel member, the field, or for property access the setter paired with the getter
  * {@link Attribute#getJavaMember} returns. An embeddable on the way is the one the constructor left, else a new one
  * from its no-arg constructor; a to-one is {@link EntityManager#getReference} of its target's id. Constructors, fields
- * and setters are reached with {@code setAccessible} (R-WRT-39).
+ * and setters are reached with {@code setAccessible} (R-WRT-39). An update {@code throughEntities()} sets its
+ * assignments on each managed entity it loaded the same way (R-WRT-42).
  */
 final class PersistedEntity {
 
@@ -38,6 +39,17 @@ final class PersistedEntity {
             set(em, root, entity, attributes.get(i), values.get(i));
         }
         return entity;
+    }
+
+    /**
+     * Sets each of {@code attributes} on {@code entity}, a managed {@code root} entity, to the value at its index in
+     * {@code values}, which {@code ModelUpdate} has converted (R-WRT-42).
+     */
+    static void assign(EntityManager em, ManagedType<?> root, Object entity, List<String> attributes,
+            List<Object> values) {
+        for (int i = 0; i < attributes.size(); i++) {
+            set(em, root, entity, attributes.get(i), values.get(i));
+        }
     }
 
     private static void set(EntityManager em, ManagedType<?> root, Object entity, String path, Object value) {
@@ -76,8 +88,8 @@ final class PersistedEntity {
             Object id) {
         if (idPath != null && !(toOne.getType() instanceof IdentifiableType<?> target && target.hasSingleIdAttribute()
                 && idPath.equals(target.getId(target.getIdType().getJavaType()).getName()))) {
-            throw new IllegalStateException(describe(toOne) + ": persist sets a to-one by its target's id, and the "
-                    + "column names " + idPath + " on it");
+            throw new IllegalStateException(describe(toOne) + ": an entity write sets a to-one by its target's id, "
+                    + "and the column names " + idPath + " on it");
         }
         write(toOne, owner, id == null ? null : em.getReference(toOne.getType().getJavaType(), id));
     }
@@ -90,7 +102,8 @@ final class PersistedEntity {
         } catch (InvocationTargetException e) {
             throw rethrown(e, type.getSimpleName() + "'s no-arg constructor");
         } catch (ReflectiveOperationException e) {
-            throw new IllegalStateException(type.getSimpleName() + ": persist cannot call its no-arg constructor", e);
+            throw new IllegalStateException(type.getSimpleName() + ": an entity write cannot call its no-arg "
+                    + "constructor", e);
         }
     }
 
@@ -107,7 +120,7 @@ final class PersistedEntity {
         } catch (InvocationTargetException e) {
             throw rethrown(e, describe(attribute) + "'s getter");
         } catch (IllegalAccessException e) {
-            throw new IllegalStateException(describe(attribute) + ": persist cannot read it", e);
+            throw new IllegalStateException(describe(attribute) + ": an entity write cannot read it", e);
         }
     }
 
@@ -130,7 +143,7 @@ final class PersistedEntity {
         } catch (InvocationTargetException e) {
             throw rethrown(e, describe(attribute) + "'s setter");
         } catch (IllegalAccessException | IllegalArgumentException e) {
-            throw new IllegalStateException(describe(attribute) + ": persist cannot set it to a "
+            throw new IllegalStateException(describe(attribute) + ": an entity write cannot set it to a "
                     + (value == null ? "null" : value.getClass().getSimpleName()), e);
         }
     }
