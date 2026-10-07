@@ -50,6 +50,11 @@ jobs:
           distribution: temurin
           java-version: 17
           cache: maven
+          # central-publishing-maven-plugin reads the server entry even with skipPublishing on a non-SNAPSHOT
+          # version; the credential env vars stay unset since nothing is uploaded
+          server-id: central
+          server-username-env-var: CENTRAL_USERNAME
+          server-password-env-var: CENTRAL_TOKEN
       # AC-REL-04 dry run: sign with a throwaway key generated here (no passphrase), skip the upload to Central, then
       # check every published module has signed main, -sources and -javadoc jars and that the BOM lists them all
       - name: Generate a throwaway signing key
