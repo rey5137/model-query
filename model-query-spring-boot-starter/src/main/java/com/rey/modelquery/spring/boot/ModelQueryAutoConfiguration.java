@@ -6,6 +6,7 @@ import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.jpa.ChunkTransactions;
 import com.rey.modelquery.jpa.KeysetNullKeys;
 import com.rey.modelquery.jpa.ModelQueryConfig;
+import com.rey.modelquery.jpa.WriteAssignment;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.spring.data.ModelQueryConfigurer;
 import com.rey.modelquery.spring.data.ModelQueryRepository;
@@ -51,11 +52,12 @@ import org.springframework.util.ClassUtils;
 
 /**
  * Auto-configuration for Model Query: reads {@code modelquery.*} into the context's one {@link ModelQueryConfig}, hands
- * it the {@link VendorProfile} beans and the {@link ChunkTransactions} bean, registering one that commits each chunk
- * on the write's own {@code JpaTransactionManager} unless the application defines its own, and makes the default
- * Spring Data JPA repositories use {@link ModelQueryRepositoryFactoryBean}. It adds no behaviour of its own (INV-8).
+ * it the {@link VendorProfile} beans, the {@link WriteAssignment} beans and the {@link ChunkTransactions} bean,
+ * registering one that commits each chunk on the write's own {@code JpaTransactionManager} unless the application
+ * defines its own, and makes the default Spring Data JPA repositories use {@link ModelQueryRepositoryFactoryBean}. It
+ * adds no behaviour of its own (INV-8).
  *
- * @implSpec R-SPR-02, R-SPR-08, R-SPR-09, R-SPR-11, R-SPR-13, R-VND-03
+ * @implSpec R-SPR-02, R-SPR-08, R-SPR-09, R-SPR-11, R-SPR-13, R-VND-03, R-WRT-49
  */
 @Incubating
 @AutoConfiguration
@@ -237,9 +239,10 @@ public class ModelQueryAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     ModelQueryConfig modelQueryConfig(ModelQueryProperties properties, ObjectProvider<VendorProfile> profiles,
-            ObjectProvider<ModelQueryConfigurer> configurer, ObjectProvider<ChunkTransactions> chunkTransactions,
-            ConfigurableListableBeanFactory beanFactory) {
-        ModelQueryConfig config = ModelQueryConfig.defaults().vendorProfiles(profiles.orderedStream().toList());
+            ObjectProvider<WriteAssignment> assignments, ObjectProvider<ModelQueryConfigurer> configurer,
+            ObjectProvider<ChunkTransactions> chunkTransactions, ConfigurableListableBeanFactory beanFactory) {
+        ModelQueryConfig config = ModelQueryConfig.defaults().vendorProfiles(profiles.orderedStream().toList())
+                .writeAssignments(assignments.orderedStream().toList());
         config = ifSet(config, chunkTransactions.getIfAvailable(), ModelQueryConfig::chunkTransactions);
         if (properties.getVendor() != null) {
             if (beanFactory.getBeanNamesForType(EntityManagerFactory.class).length > 1
@@ -280,20 +283,20 @@ public class ModelQueryAutoConfiguration {
 
     /**
      * Refuses a {@link ModelQueryConfig} bean of the application's own that would silently drop what the starter
-     * reads: a {@link VendorProfile} bean the config does not hold, a {@link ChunkTransactions} bean of the
-     * application's own it does not hold, or a {@code modelquery.*} property, which only the starter's own config
-     * reads (R-SPR-11, R-SPR-13, D-54).
+     * reads: a {@link VendorProfile} or {@link WriteAssignment} bean the config does not hold, a
+     * {@link ChunkTransactions} bean of the application's own it does not hold, or a {@code modelquery.*} property,
+     * which only the starter's own config reads (R-SPR-11, R-SPR-13, D-54, D-118).
      *
      * @throws ModelQueryConfigurationException {@code MQ4006} on startup, naming what the config drops
      */
     @Bean
     SmartInitializingSingleton modelQueryConfigCheck(ObjectProvider<VendorProfile> profiles,
-            ObjectProvider<ChunkTransactions> chunkTransactions, Environment environment,
-            ConfigurableListableBeanFactory beanFactory) {
+            ObjectProvider<WriteAssignment> assignments, ObjectProvider<ChunkTransactions> chunkTransactions,
+            Environment environment, ConfigurableListableBeanFactory beanFactory) {
         return () -> {
             for (String name : beanFactory.getBeanNamesForType(ModelQueryConfig.class, false, false)) {
                 if (!isOwn(beanFactory, name)) {
-                    checkOwnConfig(name, beanFactory.getBean(name, ModelQueryConfig.class), profiles,
+                    checkOwnConfig(name, beanFactory.getBean(name, ModelQueryConfig.class), profiles, assignments,
                             chunkTransactions, environment);
                 }
             }
@@ -311,11 +314,15 @@ public class ModelQueryAutoConfiguration {
     }
 
     private static void checkOwnConfig(String name, ModelQueryConfig config, ObjectProvider<VendorProfile> profiles,
-            ObjectProvider<ChunkTransactions> chunkTransactions, Environment environment) {
+            ObjectProvider<WriteAssignment> assignments, ObjectProvider<ChunkTransactions> chunkTransactions,
+            Environment environment) {
         List<String> dropped = new ArrayList<>();
         profiles.orderedStream()
                 .filter(profile -> config.vendorProfiles().stream().noneMatch(held -> held == profile))
                 .forEach(profile -> dropped.add("VendorProfile bean " + profile.getClass().getName()));
+        assignments.orderedStream()
+                .filter(assignment -> config.writeAssignments().stream().noneMatch(held -> held == assignment))
+                .forEach(assignment -> dropped.add("WriteAssignment bean " + assignment));
         // The starter's own callback is a default, not something the application asked for, so dropping it is not
         // refused: such a config's commitEachChunk() writes throw MQ4004 instead.
         chunkTransactions.orderedStream()

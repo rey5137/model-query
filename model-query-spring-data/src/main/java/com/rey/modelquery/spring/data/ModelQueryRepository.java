@@ -116,4 +116,12 @@ public interface ModelQueryRepository<E> {
      */
     @Incubating
     <K> K persist(ModelPersist<E, K, ?> p);
+
+    /**
+     * {@link ModelQueryExecutor#persist(ModelPersist, ModelQuery)}, in one transaction joined or opened as
+     * {@link #persist(ModelPersist)} runs; the model is built inside it, before the entity is detached (R-SPR-10,
+     * R-WRT-48).
+     */
+    @Incubating
+    <R> R persist(ModelPersist<E, ?, ?> persist, ModelQuery<E, ?, R> returning);
 }

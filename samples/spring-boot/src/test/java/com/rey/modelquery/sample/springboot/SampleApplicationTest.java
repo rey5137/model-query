@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ChunkedWriteException;
 import com.rey.modelquery.core.CountMode;
@@ -29,6 +30,7 @@ import com.rey.modelquery.sample.springboot.h2.ProfileEntity;
 import com.rey.modelquery.sample.springboot.h2.ProfileRepository;
 import com.rey.modelquery.sample.springboot.h2.QBookView;
 import com.rey.modelquery.sample.springboot.h2.RefreshingRepository;
+import com.rey.modelquery.sample.springboot.h2.SavedBook;
 import com.rey.modelquery.sample.springboot.h2.ReviewEntity;
 import com.rey.modelquery.sample.springboot.h2.ReviewRepository;
 import com.rey.modelquery.sample.springboot.mysql.ProfileLookupCounter;
@@ -46,6 +48,8 @@ import com.rey.modelquery.spring.data.ModelQueryRepository;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Query;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
@@ -190,12 +194,24 @@ class SampleApplicationTest {
             var jdbc = new JdbcTemplate(context.getBean("h2DataSource", DataSource.class));
 
             // No transaction around the request: the repository opens the one persist needs.
-            mvc.perform(post("/books").contentType(MediaType.APPLICATION_JSON)
+            Instant before = Instant.now();
+            String json = mvc.perform(post("/books").contentType(MediaType.APPLICATION_JSON)
                             .content("{\"id\": 7, \"title\": \"Persisted\", \"released\": 1999}"))
                     .andExpect(status().isCreated()).andExpect(header().string("Location", "/books/7"))
-                    .andExpect(content().string("{\"id\":7}"));
+                    .andReturn().getResponse().getContentAsString();
+            Instant after = Instant.now();
             assertThat(jdbc.queryForMap("select title, released from books where id = 7"))
                     .containsEntry("TITLE", "Persisted").containsEntry("RELEASED", 1999);
+
+            // The answer is the persisted model, with the updatedAt the write assignment bean stamped and stored.
+            SavedBook saved = new ObjectMapper().registerModule(new JavaTimeModule()).readValue(json, SavedBook.class);
+            Instant stamped = saved.updatedAt();
+            assertThat(saved).isEqualTo(new SavedBook(7L, "Persisted", 1999, stamped));
+            assertThat(stamped).isBetween(before, after);
+            Instant stored = jdbc.queryForObject("select updatedAt from books where id = 7", OffsetDateTime.class)
+                    .toInstant();
+            // The column keeps microseconds; the clock may give nanoseconds.
+            assertThat(Duration.between(stamped, stored).abs()).isLessThan(Duration.ofNanos(1_000));
         }
     }
 
@@ -251,6 +267,29 @@ class SampleApplicationTest {
                     .andExpect(status().isNoContent());
             mvc.perform(patch("/books/99").contentType(MediaType.APPLICATION_JSON).content("{\"released\": 1}"))
                     .andExpect(status().isNotFound());
+        }
+    }
+
+    @Test
+    void r_spr_13_the_patch_endpoint_stamps_updated_at_through_the_write_assignment_bean() throws Exception {
+        try (ConfigurableApplicationContext context = startSample(List.of())) {
+            context.getBean(BookRepository.class).save(new BookEntity(1L, "Original", 1990));
+            MockMvc mvc = mvc(context, "bookController");
+            var jdbc = new JdbcTemplate(context.getBean("h2DataSource", DataSource.class));
+            // A JPA save is not a model-query write: no assignment applies to it.
+            assertThat(jdbc.queryForObject("select updatedAt from books where id = 1", OffsetDateTime.class))
+                    .isNull();
+
+            Instant before = Instant.now();
+            mvc.perform(patch("/books/1").contentType(MediaType.APPLICATION_JSON).content("{\"released\": 2001}"))
+                    .andExpect(status().isNoContent());
+            Instant after = Instant.now();
+
+            // The bulk update set updatedAt, which neither the change set nor the endpoint names; the column keeps
+            // microseconds.
+            Instant stored = jdbc.queryForObject("select updatedAt from books where id = 1", OffsetDateTime.class)
+                    .toInstant();
+            assertThat(stored).isBetween(before.minusNanos(1_000), after.plusNanos(1_000));
         }
     }
 

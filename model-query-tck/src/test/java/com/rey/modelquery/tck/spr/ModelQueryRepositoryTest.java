@@ -113,6 +113,19 @@ class ModelQueryRepositoryTest {
             InsertColumns.<Coded, InsPersistEntity>of(PERSISTED)
                     .add(ColumnField.of(Coded.class, PERSISTED, "code", String.class), Coded::code);
 
+    /** What {@code persist(persist, returning)} returns of the {@code persist} root. */
+    record Persisted(Long id, String code) {}
+
+    private static final ColumnField<Persisted, InsPersistEntity, Long> PERSISTED_ID =
+            ColumnField.of(Persisted.class, PERSISTED, "id", Long.class);
+    private static final ColumnField<Persisted, InsPersistEntity, String> PERSISTED_CODE =
+            ColumnField.of(Persisted.class, PERSISTED, "code", String.class);
+    private static final ModelQuery<InsPersistEntity, ?, Persisted> PERSISTED_VIEW = ModelQuery
+            .builder(PERSISTED, row -> new Persisted(row.get(PERSISTED_ID), row.get(PERSISTED_CODE)))
+            .select(SelectSet.of(PERSISTED_ID, PERSISTED_CODE))
+            .primaryKey(PrimaryKey.of(PERSISTED_ID))
+            .build();
+
     // ---- AC-SPR-01
 
     @TckTest
@@ -299,6 +312,50 @@ class ModelQueryRepositoryTest {
                 persisted.persist(ModelPersist.of(CODED_PERSIST, Long.class, new Coded("rolled-back", null)));
             });
 
+            assertThat(jdbc.queryForList("select code from ins_persist", String.class)).isEmpty();
+        }
+    }
+
+    @TckTest
+    void ac_spr_09_persist_returning_a_model_without_a_transaction_commits_through_the_repository(TckDatabase db) {
+        DataSource dataSource = JoinTestSupport.dataSource(db);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean("dataSource", DataSource.class, () -> dataSource);
+            context.register(InsertTransactions.class);
+            context.refresh();
+            var persisted = context.getBean(InsPersistRepository.class);
+
+            Persisted model = persisted.persist(ModelPersist.of(CODED_PERSIST, Long.class, new Coded("m", null)),
+                    PERSISTED_VIEW);
+
+            // Committed, not rolled back with a lost transaction: read over a connection of its own.
+            assertThat(model.id()).isNotNull();
+            assertThat(model.code()).isEqualTo("m");
+            assertThat(jdbc.queryForObject("select code from ins_persist where id = ?", String.class, model.id()))
+                    .isEqualTo("m");
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+        }
+    }
+
+    @TckTest
+    void ac_spr_09_persist_returning_a_model_joins_an_active_transaction(TckDatabase db) {
+        DataSource dataSource = JoinTestSupport.dataSource(db);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean("dataSource", DataSource.class, () -> dataSource);
+            context.register(InsertTransactions.class);
+            context.refresh();
+            var persisted = context.getBean(InsPersistRepository.class);
+            var outer = new TransactionTemplate(context.getBean(TRANSACTIONS, PlatformTransactionManager.class));
+
+            Persisted model = outer.execute(status -> {
+                status.setRollbackOnly();
+                return persisted.persist(ModelPersist.of(CODED_PERSIST, Long.class, new Coded("rolled-back", null)),
+                        PERSISTED_VIEW);
+            });
+
+            assertThat(model.code()).isEqualTo("rolled-back");
             assertThat(jdbc.queryForList("select code from ins_persist", String.class)).isEmpty();
         }
     }

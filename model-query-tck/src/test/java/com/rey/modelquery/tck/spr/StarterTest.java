@@ -20,6 +20,8 @@ import com.rey.modelquery.jpa.ChunkTransactions;
 import com.rey.modelquery.jpa.KeysetNullKeys;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.MysqlStreamingMode;
+import com.rey.modelquery.jpa.WriteAssignment;
+import com.rey.modelquery.jpa.WriteKind;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.spring.boot.ModelQueryAutoConfiguration;
@@ -89,6 +91,11 @@ class StarterTest {
             .builder(CUSTOMERS).primaryKey(PrimaryKey.of(CUSTOMER_ID)).where(f -> f.gt(CUSTOMER_ID, TEMPORARY))
             .chunked(ChunkOptions.size(2).commitEachChunk()).build();
 
+    private static final WriteAssignment PAID = WriteAssignment.of(OrderEntity.class, "status", String.class,
+            WriteKind.UPDATE, () -> "PAID");
+    private static final WriteAssignment PLACED = WriteAssignment.of(OrderEntity.class, "status", String.class,
+            WriteKind.INSERT, () -> "NEW");
+
     private final ApplicationContextRunner configOnly =
             new ApplicationContextRunner().withConfiguration(AutoConfigurations.of(ModelQueryAutoConfiguration.class));
 
@@ -143,6 +150,31 @@ class StarterTest {
                 .run(context -> assertThat(context.getBean(ModelQueryConfig.class)).isSameAs(own));
     }
 
+    // ---- write assignments (R-SPR-13, R-WRT-49)
+
+    @Test
+    void r_spr_13_the_starter_hands_every_write_assignment_bean_to_its_config() {
+        configOnly.withBean("paid", WriteAssignment.class, () -> PAID)
+                .withBean("placed", WriteAssignment.class, () -> PLACED)
+                .run(context -> assertThat(context.getBean(ModelQueryConfig.class).writeAssignments())
+                        .containsExactlyInAnyOrder(PAID, PLACED));
+    }
+
+    @Test
+    void r_spr_13_a_configurer_is_given_the_shared_config_holding_the_write_assignment_beans() {
+        List<List<WriteAssignment>> seen = new ArrayList<>();
+        ModelQueryConfigurer configurer = (shared, factory) -> {
+            seen.add(shared.writeAssignments());
+            return shared;
+        };
+        withRepositories.withUserConfiguration(SecondFactory.class)
+                .withBean(ModelQueryConfigurer.class, () -> configurer)
+                .withBean(WriteAssignment.class, () -> PAID).run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(seen).containsExactly(List.of(PAID));
+                });
+    }
+
     // ---- AC-SPR-11
 
     @Test
@@ -188,6 +220,27 @@ class StarterTest {
         BeanProfile profile = new BeanProfile(new ArrayList<>());
         configOnly.withBean(VendorProfile.class, () -> profile)
                 .withBean(ModelQueryConfig.class, () -> ModelQueryConfig.defaults().vendorProfiles(List.of(profile)))
+                .run(context -> assertThat(context).hasNotFailed());
+    }
+
+    @Test
+    void ac_spr_11_a_config_bean_of_the_application_without_a_write_assignment_bean_fails_startup_with_mq4006() {
+        configOnly.withBean(ModelQueryConfig.class, () -> ModelQueryConfig.defaults().writeAssignments(List.of(PAID)))
+                .withBean("paid", WriteAssignment.class, () -> PAID)
+                .withBean("placed", WriteAssignment.class, () -> PLACED)
+                .run(context -> {
+                    assertThat(rootCode(context.getStartupFailure())).isEqualTo(MqCode.MQ4006);
+                    assertThat(context.getStartupFailure()).hasMessageContaining("WriteAssignment bean " + PLACED)
+                            .message().doesNotContain("WriteAssignment bean " + PAID);
+                });
+    }
+
+    @Test
+    void ac_spr_11_a_config_bean_of_the_application_holding_the_write_assignment_beans_starts() {
+        configOnly.withBean("paid", WriteAssignment.class, () -> PAID)
+                .withBean("placed", WriteAssignment.class, () -> PLACED)
+                .withBean(ModelQueryConfig.class,
+                        () -> ModelQueryConfig.defaults().writeAssignments(List.of(PLACED, PAID)))
                 .run(context -> assertThat(context).hasNotFailed());
     }
 

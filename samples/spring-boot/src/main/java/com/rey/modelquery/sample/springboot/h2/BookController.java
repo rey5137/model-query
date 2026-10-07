@@ -1,6 +1,7 @@
 package com.rey.modelquery.sample.springboot.h2;
 
 import com.rey.modelquery.core.Limit;
+import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.Op;
 import com.rey.modelquery.core.SubSelect;
 import jakarta.validation.Valid;
@@ -25,6 +26,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 class BookController {
 
+    /** The model {@code POST /books} answers with, built from the persisted entity rather than read back. */
+    private static final ModelQuery<BookEntity, Long, SavedBook> SAVED = QSavedBook.query()
+            .select(QSavedBook.ALL)
+            .build();
+
     private final BookRepository books;
     private final ReviewRepository reviews;
     private final BookSearchService search;
@@ -37,16 +43,14 @@ class BookController {
 
     /**
      * Creates one book through JPA, so lifecycle callbacks and Bean Validation run, and answers {@code 201} with its
-     * key and location. The repository opens the transaction {@code persist} needs (R-SPR-10).
+     * location and the book as persisted, {@code updatedAt} included, with no query after the insert (R-WRT-48). The
+     * repository opens the transaction {@code persist} needs (R-SPR-10).
      */
     @PostMapping("/books")
-    ResponseEntity<Created> create(@RequestBody NewBook book) {
-        Long id = books.persist(QNewBook.persist(book));
-        return ResponseEntity.created(URI.create("/books/" + id)).body(new Created(id));
+    ResponseEntity<SavedBook> create(@RequestBody NewBook book) {
+        SavedBook saved = books.persist(QNewBook.persist(book), SAVED);
+        return ResponseEntity.created(URI.create("/books/" + saved.id())).body(saved);
     }
-
-    /** The key of the book {@code POST /books} created. */
-    record Created(Long id) {}
 
     /** Writes the fields of {@code changes} to book {@code id}; a field sent as {@code null} is written as NULL. */
     @PatchMapping("/books/{id}")

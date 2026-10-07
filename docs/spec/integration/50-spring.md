@@ -23,6 +23,7 @@ public interface ModelQueryRepository<E> {
     long insert(ModelInsert<E, ?> i);                // M10, transactional per R-SPR-10
     <K> List<K> insertReturningKeys(ValuesInsert<E, K, ?> i);   // M10, transactional per R-SPR-10
     <K> K persist(ModelPersist<E, K, ?> p);          // M10, transactional per R-SPR-10
+    <R> R persist(ModelPersist<E, ?, ?> persist, ModelQuery<E, ?, R> returning);   // M11, transactional per R-SPR-10
 }
 
 interface OrderRepository extends JpaRepository<OrderEntity, Long>, ModelQueryRepository<OrderEntity> {}
@@ -58,10 +59,10 @@ streaming (`vendor/41` R-PRF-03), and joins an active one. The transaction ends 
 runs inside it. It comes from the transaction manager of the repository's own `@EnableJpaRepositories` (D-54).
 
 **R-SPR-10** `update(...)`, `delete(...)` (`Future`, M6), `insert(...)`, `insertReturningKeys(...)` and `persist(...)`
-(M10) join the current transaction or open one, like the modifying methods of `SimpleJpaRepository`, except for a
+(M10; `persist(persist, returning)` M11) join the current transaction or open one, like the modifying methods of `SimpleJpaRepository`, except for a
 `commitEachChunk()` write, which opens none, because each chunk commits on its own (`api/14` R-WRT-19). Because that
 depends on the argument, the methods are not annotated `@Transactional`; they use a `TransactionTemplate`
-(`PROPAGATION_REQUIRED`) unless the write is `commitEachChunk()`. `insertReturningKeys` and `persist` always run in one,
+(`PROPAGATION_REQUIRED`) unless the write is `commitEachChunk()`. `insertReturningKeys` and both `persist` overloads always run in one,
 since neither can commit per chunk (`api/14` R-WRT-33, R-WRT-39): called with no transaction on the repository, they
 succeed where the executor's own methods fail with `MQ2501` (`api/14` R-WRT-18). The methods add no semantics to the
 executor's (R-SPR-01). Change sets bind from request bodies with no extra configuration (`api/14` R-WRT-03).
@@ -150,7 +151,7 @@ startup with `MQ4006`, as one dropping a `VendorProfile` bean does.
 | AC-SPR-07 | Every property in §3 is settable on `ModelQueryConfig` without Spring (R-SPR-08). |
 | AC-SPR-08 | `modelquery.keyset.null-keys=honour-null-precedence` logs one startup warning (R-SPR-09). |
 | AC-SPR-10 | `modelquery.vendor` with two factories and no `ModelQueryConfigurer` fails startup with `MQ4005` (R-SPR-13). |
-| AC-SPR-11 | A `ModelQueryConfig` bean of the application with a `modelquery.*` property set, or without a `VendorProfile` bean among its profiles, fails startup with `MQ4006`; one holding every profile bean starts (R-SPR-13). |
+| AC-SPR-11 | A `ModelQueryConfig` bean of the application with a `modelquery.*` property set, or without a `VendorProfile` bean among its profiles or a `WriteAssignment` bean among its assignments, fails startup with `MQ4006`; one holding every profile and assignment bean starts (R-SPR-13). |
 | AC-SPR-13 | A post-processor that type-checks the repositories before the swap leaves them built with `ModelQueryRepositoryFactoryBean`: the context starts and `findPage` works; a `RootBeanDefinition` keeps its `targetType`, now over `ModelQueryRepositoryFactoryBean` with the old generics (R-SPR-02, D-83). |
 | AC-SPR-12 | A repository declaring `ModelQueryRepository` of an entity other than its domain type fails startup with `MQ4007` (R-SPR-12). |
 | AC-SPR-09 | (`Future`, M6) `update`/`delete`, `insert`, `insertReturningKeys` and `persist` (M10), and `persist(persist, returning)` (M11), without an ambient transaction succeed through the repository, the inserted rows committed; `commitEachChunk` commits each chunk separately on the primary and on a secondary datasource of the multi-datasource sample, and a failed third chunk leaves the first two committed (R-SPR-10, R-SPR-11). |

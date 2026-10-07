@@ -135,6 +135,13 @@ final class ModelQueryRepositoryFragment<E> implements ModelQueryRepository<E> {
         return inTransaction(() -> executor.get().persist(p));
     }
 
+    @Override
+    public <R> R persist(ModelPersist<E, ?, ?> persist, ModelQuery<E, ?, R> returning) {
+        Objects.requireNonNull(persist, "persist");
+        Objects.requireNonNull(returning, "returning");
+        return inTransaction(() -> executor.get().persist(persist, returning));
+    }
+
     /**
      * Runs {@code write} in a transaction joined or opened on the repository's manager, unless {@code chunk} commits
      * each chunk: that write opens none, since each chunk commits on its own (R-SPR-10, R-WRT-19).
