@@ -61,6 +61,12 @@ enum DiagnosticCode {
     /** {@code @Computed} is combined with an annotation it can't share a field with, or is on a primitive field. */
     MQ3019("@Computed combined with an annotation it can't share a field with, or on a primitive field"),
 
+    /** A {@code @Selected} field is not exactly {@code SelectSet<Model>}, or a model has two of them. */
+    MQ3020("@Selected field is not a SelectSet of the model itself, or the model has two"),
+
+    /** {@code @Selected} is combined with another annotation of the library on its field. */
+    MQ3021("@Selected combined with another field annotation"),
+
     /** An {@code @Aggregate} field is primitive, though an aggregate can be {@code NULL}. */
     MQ3201("@Aggregate field is primitive"),
 
@@ -91,8 +97,11 @@ enum DiagnosticCode {
     /** An update- or insert-model field maps through an association, or to a collection. */
     MQ3301("Update- or insert-model field maps through a join or a collection"),
 
-    /** {@code @Join}, {@code @Aggregate} or {@code @GroupBy} on an update model, which only writes root columns. */
-    MQ3302("@Join, @Aggregate or @GroupBy on an update model"),
+    /**
+     * {@code @Join}, {@code @Aggregate}, {@code @GroupBy}, {@code @Computed} or {@code @Selected} on an update model,
+     * which only writes root columns.
+     */
+    MQ3302("@Join, @Aggregate, @GroupBy, @Computed or @Selected on an update model"),
 
     /**
      * An update-model field writes the id without {@code @PrimaryKey}, or an update- or insert-model field writes the
@@ -143,8 +152,9 @@ enum DiagnosticCode {
      */
     MQ3501("Insert model's @PrimaryKey does not match the root entity's id and its generator"),
     /**
-     * {@code @Join}, {@code @FilterColumn}, {@code @Aggregate}, {@code @GroupBy}, {@code @Computed} or {@code @Child}
-     * on an insert model, which reads no row of its root, or {@code @Transient}, since every field is a column.
+     * {@code @Join}, {@code @FilterColumn}, {@code @Aggregate}, {@code @GroupBy}, {@code @Computed}, {@code @Child}
+     * or {@code @Selected} on an insert model, which reads no row of its root, or {@code @Transient}, since every
+     * field is a column.
      */
     MQ3502("Annotation not allowed on an insert model"),
     /** A type carrying more than one of {@code @QueryModel}, {@code @UpdateModel} and {@code @InsertModel}. */

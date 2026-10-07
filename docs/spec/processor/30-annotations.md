@@ -24,6 +24,7 @@
 | `@GroupBy` | field or component | The column joins the generated `GROUP_KEYS` set and the query's group-by |
 | `@ExcludeFromDefaults` | field or component | Leave the column out of `DEFAULT` (heavy BLOB/TEXT columns) |
 | `@Transient` | field or component | Not a column |
+| `@Selected` | field or component | The one `SelectSet<Model>` the mapper fills with the columns the row selected (§6, R-PROC-25) |
 
 **R-PROC-01** The annotations module has no dependencies beyond the JDK (INV-7), so a model can be annotated in a module
 that does not depend on JPA or on the engine. Join types and aggregate functions are therefore its own enums, `JoinKind`
@@ -147,6 +148,15 @@ R-PROC-07 (D-93).
 every other constant of the model so the definition may read any of them (`processor/31` R-GEN-27). `attribute` and
 `expression` together are `MQ3208`. `MQ3202`, `MQ3205` and `MQ3206` read the expression's type.
 
+**R-PROC-25** *(D-120)* **`@Selected`.** A `@QueryModel` may declare one field or record component marked `@Selected` (no
+members, `@Incubating`), typed exactly `SelectSet<M>` with `M` the model itself; the generated mapper fills it with the
+columns, expressions and aggregates the row selected (`processor/31` R-GEN-29, R-GEN-30). It is no column: it has no
+constant, is in no `SelectSet` and no key, and a record keeps its place in the canonical constructor. The processor
+checks the type by its qualified name, `com.rey.modelquery.core.SelectSet`, since the annotations module does not depend
+on `core` (R-PROC-01). A type that is not exactly `SelectSet<M>`, or a second `@Selected` field, is `MQ3020`. It cannot be
+combined with `@PrimaryKey`, `@Column`, `@Join`, `@Child`, `@Aggregate`, `@GroupBy`, `@Computed`, `@ExcludeFromDefaults` or
+`@Transient` (`MQ3021`). An `@UpdateModel` or `@InsertModel` refuses it (`MQ3302`, `MQ3502`).
+
 ## 7. Update models
 
 **R-PROC-18** `@UpdateModel(root = …)` declares the root-entity attributes a bulk update may write (`api/14` §2). The
@@ -202,3 +212,4 @@ generates `Q<Model>`. A type with two or more is reported once (`MQ3503`) and ge
 | AC-PROC-15 | An `@InsertModel` with a converter, a to-one by id, an embedded path and an `@EmbeddedId` named whole or by its components generates, as does an `updatable = false` column; `@Join`, `@FilterColumn`, `@Aggregate`, `@GroupBy`, `@Computed`, `@Child` and `@Transient` are `MQ3502`, a column through a join, a collection, the `@Version`, an inverse to-one or a to-one id of the wrong type takes the update model's code, and an `insertable = false` column is `MQ3304` (R-PROC-23). |
 | AC-PROC-16 | A type carrying two or three of `@QueryModel`, `@UpdateModel` and `@InsertModel` reports `MQ3503` once, on the type, and generates no file (R-PROC-24). |
 | AC-PROC-17 | An `@Id` carrying an annotation meta-annotated `@IdGeneratorType` or `@ValueGenerationType`, with no `@GeneratedValue`, is generated: an insert model leaves it out, and naming it is `MQ3501` (R-PROC-23). |
+| AC-PROC-18 | `@Selected SelectSet<M>` on a record component and on a class field is no column, constant, `SelectSet` member or key, and generates; a type other than exactly `SelectSet<M>` or a second `@Selected` is `MQ3020`, another library annotation on the field is `MQ3021`, and an update or insert model refuses it (R-PROC-25). |

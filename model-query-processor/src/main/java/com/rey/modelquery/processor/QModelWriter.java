@@ -15,6 +15,7 @@ import com.squareup.javapoet.TypeName;
 import com.squareup.javapoet.TypeSpec;
 import com.squareup.javapoet.TypeVariableName;
 import com.squareup.javapoet.WildcardTypeName;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -33,9 +34,13 @@ import javax.lang.model.util.Types;
  *
  * @implSpec R-GEN-04, R-GEN-05, R-GEN-06, R-GEN-09, R-GEN-10, R-GEN-12, R-GEN-13, R-GEN-14, R-GEN-15, R-GEN-17,
  *     R-GEN-18, R-GEN-19, R-GEN-21, R-GEN-22, R-GEN-24, R-GEN-27, R-PROC-07, R-PROC-09, R-PROC-10, R-PROC-11,
- *     R-PROC-12, R-PROC-13, R-PROC-15, R-PROC-16, R-PROC-17, R-PROC-21, R-PROC-22, R-PROC-23, R-GEN-28
+ *     R-PROC-12, R-PROC-13, R-PROC-15, R-PROC-16, R-PROC-17, R-PROC-21, R-PROC-22, R-PROC-23, R-PROC-25, R-GEN-28,
+ *     R-GEN-29, R-GEN-30
  */
 final class QModelWriter {
+
+    /** The name of the private set of every field the mapper reads, which a {@code @Selected} field is filled from. */
+    static final String SELECTED_FIELDS = "SELECTED_FIELDS";
 
     private static final String CORE = "com.rey.modelquery.core";
     private static final ClassName TABLE_FIELD = ClassName.get(CORE, "TableField");
@@ -185,6 +190,11 @@ final class QModelWriter {
         for (ModelField child : writeOnly ? List.<ModelField>of() : model.children()) {
             type.addField(fetchFields.childField(model, child));
         }
+        // The set a @Selected field is filled from is declared after every other constant: it holds them, so a class
+        // initialiser that reached it earlier would read them null (R-GEN-29).
+        if (model.hasSelected()) {
+            type.addField(selectedFields(modelName, model, joined));
+        }
         if (writeOnly) {
             if (model.insertModel()) {
                 inserts(model, modelName, entity, type);
@@ -210,9 +220,9 @@ final class QModelWriter {
                 .returns(modelName)
                 .addParameter(ROW, "row");
         if (model.isRecord()) {
-            mapRecord(model, modelName, map);
+            mapRecord(model, modelName, generated, map);
         } else {
-            mapClass(model, modelName, map);
+            mapClass(model, modelName, generated, map);
         }
         type.addMethod(map.build());
         if (keyed) {
@@ -448,11 +458,37 @@ final class QModelWriter {
                 .build();
     }
 
+    /**
+     * The private set of every column, expression and aggregate constant the mapper reads, the joined columns of
+     * every depth included, for a {@code @Selected} field to be filled from (R-GEN-29).
+     */
+    private static FieldSpec selectedFields(ClassName modelName, ModelDefinition model, List<JoinedTable> joined) {
+        var fields = new ArrayList<CodeBlock>();
+        model.columns().forEach(field -> fields.add(CodeBlock.of("$L", field.constant())));
+        joined.forEach(table -> table.columns().forEach(column -> fields.add(CodeBlock.of("$L", column.constant()))));
+        model.computed().forEach(field -> fields.add(CodeBlock.of("$L", field.constant())));
+        model.aggregates().forEach(field -> fields.add(CodeBlock.of("$L", field.constant())));
+        return FieldSpec.builder(ParameterizedTypeName.get(SELECT_SET, modelName), SELECTED_FIELDS,
+                        Modifier.PRIVATE, Modifier.STATIC, Modifier.FINAL)
+                .initializer("$T.of($L)", SELECT_SET, fields.stream().collect(CodeBlock.joining(",$W")))
+                .build();
+    }
+
+    /**
+     * What a {@code @Selected} field is filled with: the set's subset the row selected, read through the generated
+     * class by name, so that a {@code @Join} local of the same name can't shadow it (R-GEN-30).
+     */
+    private static CodeBlock selected(ClassName generated) {
+        return CodeBlock.of("$T.$L.selectedIn(row)", generated, SELECTED_FIELDS);
+    }
+
     /** Passes every component to the canonical constructor in order; an unselected column reads as null (R-GEN-06). */
-    private void mapRecord(ModelDefinition model, ClassName modelName, MethodSpec.Builder map) {
+    private void mapRecord(
+            ModelDefinition model, ClassName modelName, ClassName generated, MethodSpec.Builder map) {
         scopeJoins(model, map);
         CodeBlock arguments = model.fields().stream()
                 .map(field -> field.join() != null ? nested(field) : field.child() != null ? unloaded(field)
+                        : field.selected() ? selected(generated)
                         : field.column() || field.computed() || field.aggregate() != null
                         ? CodeBlock.of("row.get($L)", field.constant()) : CodeBlock.of(unset(field.type())))
                 .collect(CodeBlock.joining(",$W"));
@@ -461,9 +497,11 @@ final class QModelWriter {
 
     /**
      * Calls a setter only for a selected column, so a field initialiser survives for the others (R-GEN-09), and
-     * always for a {@code @Join} field, which is never left {@code null} (R-GEN-15), and a {@code @Child} field.
+     * always for a {@code @Join} field, which is never left {@code null} (R-GEN-15), a {@code @Child} field and a
+     * {@code @Selected} field (R-GEN-30).
      */
-    private void mapClass(ModelDefinition model, ClassName modelName, MethodSpec.Builder map) {
+    private void mapClass(
+            ModelDefinition model, ClassName modelName, ClassName generated, MethodSpec.Builder map) {
         map.addStatement("$T m = new $T()", modelName, modelName);
         for (ModelField field : model.fields()) {
             if (!field.column() && !field.computed() && field.aggregate() == null) {
@@ -472,6 +510,9 @@ final class QModelWriter {
             map.beginControlFlow("if (row.isSelected($L))", field.constant())
                     .addStatement("m.$L(row.get($L))", setter(field), field.constant())
                     .endControlFlow();
+        }
+        for (ModelField field : model.selected()) {
+            map.addStatement("m.$L($L)", setter(field), selected(generated));
         }
         scopeJoins(model, map);
         for (ModelField field : model.joins()) {

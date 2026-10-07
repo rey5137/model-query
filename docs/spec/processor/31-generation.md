@@ -293,6 +293,21 @@ or a `@MappedSuperclass` type variable resolved on the root; and pass `K.class` 
 `K` is `Object`, and `MQ3504` warns (`processor/32`). `INSERT_COLUMNS`, `insertFrom`, `insert` and `persist` carry
 `@Incubating`.
 
+**R-GEN-29** *(D-120)* **The `@Selected` set.** A `@QueryModel` with a `@Selected` field (`processor/30` R-PROC-25)
+generates one more constant, `private static final SelectSet<M> SELECTED_FIELDS`, holding every column constant of the
+model, every joined column constant at any depth, every `@Computed` constant and every `@Aggregate` constant, which are
+the constants its mapper reads; filter-only columns are not in it, and neither is the `@Selected` field. It is declared
+after every other constant of the generated class, since it holds them and a class initialiser that reached it earlier
+would read them `null`. `SELECTED_FIELDS` is reserved for such a model only (`MQ3015`), so a model without
+`@Selected` loses no constant name. A model with no `@Selected` field generates no `SELECTED_FIELDS`.
+
+**R-GEN-30** *(D-120)* **Filling it.** The mapper fills the `@Selected` field from the row through the generated class by
+name, `Q<M>.SELECTED_FIELDS.selectedIn(row)` (`api/10` R-COL-22), never by a bare name: a `@Join` field's scoped-row
+local is named after the field, and could shadow a bare constant. A record component takes it as an argument; a class
+model's setter is always called, never conditionally, so the field is never `null` and never left at its initialiser
+(R-GEN-09). A nested `@Join` or `@Child` model with its own `@Selected` field fills it in its own mapper, from its own
+row (the scoped row for a `@Join`); an empty `Optional` builds no nested model, so nothing is filled.
+
 ## 8. Acceptance criteria
 
 | ID | Criterion |
@@ -311,3 +326,5 @@ or a `@MappedSuperclass` type variable resolved on the root; and pass `K.class` 
 | AC-GEN-12 | The generated change set carries `@ValidChanges` naming its model when Bean Validation is on the classpath, no annotation when it is not, and never the model's field constraints (R-GEN-23). |
 | AC-GEN-13 | Golden files pin `QNewOrder` and `QOrderArchiveRow` for a record insert model over a generated id (a converter, a to-one by id, an embedded path) and a class one over an assigned id (`addKey`, getters, `isX`); the generated `insert`, `insertFrom` and `persist` compile and build against core, and all four members are `@Incubating` (R-GEN-28). |
 | AC-GEN-14 | `K` is the boxed `@Id` type, the `@IdClass`, the `@EmbeddedId`'s type or a `@MappedSuperclass` variable resolved on the root, and `Object` with `MQ3504` when no id is visible (R-GEN-28, D-117). |
+| AC-GEN-15 | A model with a `@Selected` field generates a private `SELECTED_FIELDS` after every other constant, holding its columns, its joined columns of every depth, its `@Computed` and `@Aggregate` constants and no filter-only column; a model without one generates none (R-GEN-29). |
+| AC-GEN-16 | The mapper gives a record component `Q<M>.SELECTED_FIELDS.selectedIn(row)` and always calls a class model's setter; the set holds the selected columns, a selected `NULL` one included; a nested `@Join` model fills its own `@Selected` from its scoped row and an empty `Optional` builds none; a `@Join` local named like the constant doesn't shadow it (R-GEN-30). |

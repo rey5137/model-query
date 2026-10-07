@@ -13,6 +13,7 @@ import com.rey.modelquery.annotations.Join;
 import com.rey.modelquery.annotations.JoinKind;
 import com.rey.modelquery.annotations.PrimaryKey;
 import com.rey.modelquery.annotations.QueryModel;
+import com.rey.modelquery.annotations.Selected;
 import com.rey.modelquery.annotations.Transient;
 import com.rey.modelquery.annotations.UpdateModel;
 import com.rey.modelquery.processor.ModelDefinition.AggregateDefinition;
@@ -110,10 +111,11 @@ final class QueryModelReader {
             AggregateDefinition aggregate = child == null ? aggregate(field) : null;
             // A @Computed field is no column: its constant is an ExpressionField, emitted after every column (R-GEN-27).
             TypeMirror definition = computed(field);
+            boolean selected = field.getAnnotation(Selected.class) != null;
             fields.add(new ModelField(
                     field,
                     definition == null && field.getAnnotation(Transient.class) == null && join == null
-                            && aggregate == null && child == null,
+                            && aggregate == null && child == null && !selected,
                     column == null || column.attribute().isEmpty() ? name : column.attribute(),
                     constantName(name),
                     field.getAnnotation(PrimaryKey.class) != null,
@@ -123,7 +125,8 @@ final class QueryModelReader {
                     join,
                     aggregate,
                     child == null && field.getAnnotation(GroupBy.class) != null,
-                    child));
+                    child,
+                    selected));
         }
         return new ModelDefinition(
                 type, (TypeElement) rootType.asElement(), prefix + type.getSimpleName() + suffix, selectSets,

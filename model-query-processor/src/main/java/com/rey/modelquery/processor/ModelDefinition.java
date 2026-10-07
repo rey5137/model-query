@@ -113,6 +113,19 @@ record ModelDefinition(
         return fields.stream().filter(field -> (field.column() || field.computed()) && field.groupBy()).toList();
     }
 
+    /** The fields carrying {@code @Selected}, in declaration order: one in a valid model (R-PROC-25). */
+    List<ModelField> selected() {
+        return fields.stream().filter(ModelField::selected).toList();
+    }
+
+    /**
+     * Whether the generated class holds the set of every field its mapper reads, which a query model with a
+     * {@code @Selected} field fills (R-GEN-29).
+     */
+    boolean hasSelected() {
+        return queryModel() && fields.stream().anyMatch(ModelField::selected);
+    }
+
     /** The {@code @PrimaryKey} columns, in declaration order. */
     List<ModelField> keys() {
         return fields.stream().filter(field -> field.column() && field.primaryKey()).toList();
@@ -145,11 +158,12 @@ record ModelDefinition(
      * @param groupBy whether the field carries {@code @GroupBy}
      * @param child what {@code @Child} says of the field, or {@code null} when it carries none; a {@code @Child}
      *     field has no {@code join} and no {@code aggregate}, whatever else it carries
+     * @param selected whether the field carries {@code @Selected}, which makes it no column (R-PROC-25)
      */
     record ModelField(
             VariableElement element, boolean column, String attribute, String constant, boolean primaryKey,
             boolean excludedFromDefaults, TypeMirror converter, TypeMirror definition, JoinDefinition join,
-            AggregateDefinition aggregate, boolean groupBy, ChildDefinition child) {
+            AggregateDefinition aggregate, boolean groupBy, ChildDefinition child, boolean selected) {
 
         String name() {
             return element.getSimpleName().toString();

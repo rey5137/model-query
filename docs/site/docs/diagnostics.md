@@ -137,6 +137,8 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3017` | The model's `root`, or the root of a model it nests, is not a class, and no annotation processor generated it. A root another processor generates is fine: the model waits for it. |
 | `MQ3018` | A `@Computed` or `@Aggregate(expression)` class is not a usable `ExpressionDefinition<Model, FieldType>`: its type arguments are not the model and the field's boxed type, or it has neither a public `INSTANCE` nor a visible no-arg constructor. |
 | `MQ3019` | `@Computed` combined with `@PrimaryKey`, `@Column`, `@Join`, `@Child`, `@Aggregate` or `@Transient`, or on a primitive field. |
+| `MQ3020` | `@Selected` field that is not exactly `SelectSet<Model>`, or a second `@Selected` field in the model. |
+| `MQ3021` | `@Selected` combined with another field annotation of the library. |
 | `MQ3201` | Aggregate model: field is primitive. |
 | `MQ3202` | Aggregate model: field type does not match the function's result type. |
 | `MQ3203` | Aggregate model: no `@GroupBy` field and is not `singleGroup`. |
@@ -146,7 +148,7 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3207` | Aggregate model: `@QueryModel(singleGroup = true)` combined with `@GroupBy` fields. |
 | `MQ3208` | Aggregate model: `@Aggregate` takes `attribute` or `expression`, not both. |
 | `MQ3301` | Update model: field maps through a join or a collection. |
-| `MQ3302` | Update model: `@Join`, `@Aggregate`, `@GroupBy` or `@Computed` not allowed. |
+| `MQ3302` | Update model: `@Join`, `@Aggregate`, `@GroupBy`, `@Computed` or `@Selected` not allowed. |
 | `MQ3303` | Update model: field maps to the primary key or `@Version` attribute. |
 | `MQ3304` | Update model: field maps to an attribute that can't be written. |
 | `MQ3305` | Update model: to-one attribute written by id with the wrong id type. |
@@ -159,7 +161,7 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3405` | A `List` `@Child` without `foreignKey` (unless it has `through`), or whose model has no `@PrimaryKey`; or an `Optional` `@Child` whose `through` crosses a collection, on a model with no `@PrimaryKey`. |
 | `MQ3406` | `@Child(through)` whose path is blank, crosses something other than an association, or ends at another type than the child model's root; whose `key` is not the parent root's single `@Id`; or whose child model is grouped. |
 | `MQ3501` | Insert model: names a generated id, or does not name all of an id that has no generator with `@PrimaryKey`. |
-| `MQ3502` | Insert model: `@Join`, `@FilterColumn`, `@Aggregate`, `@GroupBy`, `@Computed`, `@Child` or `@Transient` field. |
+| `MQ3502` | Insert model: `@Join`, `@FilterColumn`, `@Aggregate`, `@GroupBy`, `@Computed`, `@Child`, `@Selected` or `@Transient` field. |
 | `MQ3503` | A type carries more than one of `@QueryModel`, `@UpdateModel` and `@InsertModel`. |
 | `MQ3504` | Warning: the insert model's root shows the processor no id type, so the generated `insert` and `persist` type their keys as `Object`. |
 

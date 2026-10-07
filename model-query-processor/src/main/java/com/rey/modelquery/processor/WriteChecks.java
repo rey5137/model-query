@@ -37,8 +37,8 @@ final class WriteChecks {
     }
 
     /**
-     * {@code MQ3302} for each {@code @Join}, {@code @Aggregate} or {@code @GroupBy} on an update model, which writes
-     * the root's own columns only.
+     * {@code MQ3302} for each {@code @Join}, {@code @Aggregate}, {@code @GroupBy}, {@code @Computed} or
+     * {@code @Selected} on an update model, which writes the root's own columns only.
      */
     void checkUpdateOnly(ModelDefinition model, Diagnostics diagnostics) {
         for (ModelField field : model.fields()) {
@@ -60,13 +60,17 @@ final class WriteChecks {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3302,
                         where + "@Computed isn't allowed on @UpdateModel; an update writes columns, not expressions");
             }
+            if (field.selected()) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3302, where
+                        + "@Selected isn't allowed on @UpdateModel; an update reads no row into the model");
+            }
         }
     }
 
     /**
      * {@code MQ3502} for each {@code @Join}, {@code @FilterColumn}, {@code @Aggregate}, {@code @GroupBy},
-     * {@code @Computed} or {@code @Child} on an insert model, which reads no row of its root, and each
-     * {@code @Transient}, since every field is a column (R-PROC-23, R-WRT-25).
+     * {@code @Computed}, {@code @Child} or {@code @Selected} on an insert model, which reads no row of its root, and
+     * each {@code @Transient}, since every field is a column (R-PROC-23, R-WRT-25).
      */
     void checkInsertOnly(ModelDefinition model, Diagnostics diagnostics) {
         for (ModelField field : model.fields()) {
@@ -92,6 +96,9 @@ final class WriteChecks {
             }
             if (field.computed()) {
                 readsRow(diagnostics, field, where, "@Computed");
+            }
+            if (field.selected()) {
+                readsRow(diagnostics, field, where, "@Selected");
             }
         }
         for (ModelDefinition.FilterColumnDefinition column : model.filterColumns()) {

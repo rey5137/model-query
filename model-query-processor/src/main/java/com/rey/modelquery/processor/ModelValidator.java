@@ -1,6 +1,13 @@
 package com.rey.modelquery.processor;
 
+import com.rey.modelquery.annotations.Aggregate;
+import com.rey.modelquery.annotations.Child;
 import com.rey.modelquery.annotations.Column;
+import com.rey.modelquery.annotations.Computed;
+import com.rey.modelquery.annotations.ExcludeFromDefaults;
+import com.rey.modelquery.annotations.GroupBy;
+import com.rey.modelquery.annotations.Join;
+import com.rey.modelquery.annotations.PrimaryKey;
 import com.rey.modelquery.annotations.QueryModel;
 import com.rey.modelquery.annotations.Transient;
 import com.rey.modelquery.processor.EntityMetamodel.Resolution;
@@ -8,6 +15,7 @@ import com.rey.modelquery.processor.ModelDefinition.AggregateDefinition;
 import com.rey.modelquery.processor.ModelDefinition.FilterColumnDefinition;
 import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
+import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -39,11 +47,23 @@ final class ModelValidator {
     /** Constants every QModel may declare itself, which a field's constant must not take ({@code MQ3015}). */
     private static final Set<String> RESERVED = Set.of("ROOT", "ALL", "DEFAULT", "KEY", "MAPPER", "GROUP_KEYS");
 
+    /** {@link #RESERVED} and the set a {@code @Selected} model's mapper reads, which only that model declares. */
+    private static final Set<String> RESERVED_BY_SELECTED = Set.of(
+            "ROOT", "ALL", "DEFAULT", "KEY", "MAPPER", "GROUP_KEYS", QModelWriter.SELECTED_FIELDS);
+
     /** The only constant an update model's generated class declares itself (R-GEN-19). */
     private static final Set<String> RESERVED_BY_UPDATE = Set.of("ROOT");
 
     /** The constants an insert model's generated class declares itself (R-GEN-28). */
     private static final Set<String> RESERVED_BY_INSERT = Set.of("ROOT", "INSERT_COLUMNS");
+
+    /** The type of a {@code @Selected} field, which the annotations module can't name (INV-7). */
+    private static final String SELECT_SET = "com.rey.modelquery.core.SelectSet";
+
+    /** What {@code @Selected} can't share a field with: every other annotation of the library that sits on one. */
+    private static final List<Class<? extends Annotation>> NOT_WITH_SELECTED = List.of(
+            Column.class, PrimaryKey.class, Transient.class, ExcludeFromDefaults.class, Join.class, Child.class,
+            Aggregate.class, GroupBy.class, Computed.class);
 
     private static final String LONG = "java.lang.Long";
     private static final String DOUBLE = "java.lang.Double";
@@ -79,11 +99,15 @@ final class ModelValidator {
         if (model.queryModel()) {
             checkShape(model, diagnostics);
         }
+        // A model with a @Selected field generates one more constant, which no field's may take (R-GEN-29).
         Set<String> reserved = switch (model.kind()) {
-            case QUERY -> RESERVED;
+            case QUERY -> model.hasSelected() ? RESERVED_BY_SELECTED : RESERVED;
             case UPDATE -> RESERVED_BY_UPDATE;
             case INSERT -> RESERVED_BY_INSERT;
         };
+        if (model.queryModel()) {
+            checkSelected(model, diagnostics);
+        }
         if (model.updateModel()) {
             writeChecks.checkUpdateOnly(model, diagnostics);
         }
@@ -111,7 +135,7 @@ final class ModelValidator {
             ModelDefinition nested = checkJoin(model, join, where, diagnostics);
             if (nested != null) {
                 List<JoinedTable> tables = nestedModels.tables(model, join, nested);
-                claimJoined(tables, constants, where, diagnostics);
+                claimJoined(tables, constants, reserved, where, diagnostics);
                 joined.addAll(tables);
             }
         }
@@ -181,6 +205,42 @@ final class ModelValidator {
                         model.name() + " " + column.definition().label() + ": ", diagnostics);
             }
         }
+    }
+
+    /**
+     * {@code MQ3020} for a {@code @Selected} field whose type is not exactly {@code SelectSet<Model>}, and for a
+     * second {@code @Selected} field, and {@code MQ3021} for each annotation of the library it is combined with
+     * (R-PROC-25). The type is checked by name, since the annotations module doesn't depend on {@code core}.
+     */
+    private static void checkSelected(ModelDefinition model, Diagnostics diagnostics) {
+        boolean first = true;
+        for (ModelField field : model.selected()) {
+            String where = model.name() + "." + field.name() + ": ";
+            if (!first) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3020, where
+                        + "a model has one @Selected field; remove this one");
+            }
+            first = false;
+            if (!isSelectSetOf(model, field.type())) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3020, where + "@Selected field is "
+                        + display(field.type()) + ", not SelectSet<" + model.name() + ">");
+            }
+            for (Class<? extends Annotation> other : NOT_WITH_SELECTED) {
+                if (field.element().getAnnotation(other) != null) {
+                    diagnostics.error(field.element(), DiagnosticCode.MQ3021,
+                            where + "@Selected can't be combined with @" + other.getSimpleName());
+                }
+            }
+        }
+    }
+
+    /** Whether {@code type} is {@code SelectSet<M>} for the model {@code M} itself, and nothing wider or raw. */
+    private static boolean isSelectSetOf(ModelDefinition model, TypeMirror type) {
+        return type instanceof DeclaredType declared
+                && ((TypeElement) declared.asElement()).getQualifiedName().contentEquals(SELECT_SET)
+                && declared.getTypeArguments().size() == 1
+                && declared.getTypeArguments().get(0) instanceof DeclaredType argument
+                && argument.asElement().equals(model.type());
     }
 
     /** {@code MQ3015} for a field whose constant is reserved, or already generated for something else. */
@@ -623,8 +683,8 @@ final class ModelValidator {
     }
 
     /** {@code MQ3015} for a join one of whose constants is reserved, or already generated for an earlier join. */
-    private static void claimJoined(
-            List<JoinedTable> tables, Map<String, String> constants, String where, Diagnostics diagnostics) {
+    private static void claimJoined(List<JoinedTable> tables, Map<String, String> constants, Set<String> reserved,
+            String where, Diagnostics diagnostics) {
         for (JoinedTable table : tables) {
             var generated = new LinkedHashMap<String, String>();
             generated.put(table.table(), "the join " + table.path());
@@ -638,7 +698,7 @@ final class ModelValidator {
             boolean reported = false;
             for (var constant : generated.entrySet()) {
                 String earlier = constants.putIfAbsent(constant.getKey(), constant.getValue());
-                String problem = RESERVED.contains(constant.getKey()) ? " is reserved by the generated class"
+                String problem = reserved.contains(constant.getKey()) ? " is reserved by the generated class"
                         : earlier != null ? " is also generated for " + earlier : null;
                 if (problem != null && !reported) {
                     diagnostics.error(table.join().element(), DiagnosticCode.MQ3015, where + "constant "

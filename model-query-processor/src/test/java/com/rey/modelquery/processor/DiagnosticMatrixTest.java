@@ -66,8 +66,10 @@ class DiagnosticMatrixTest {
                 import com.rey.modelquery.annotations.JoinKind;
                 import com.rey.modelquery.annotations.PrimaryKey;
                 import com.rey.modelquery.annotations.QueryModel;
+                import com.rey.modelquery.annotations.Selected;
                 import com.rey.modelquery.annotations.Transient;
                 import com.rey.modelquery.annotations.UpdateModel;
+                import com.rey.modelquery.core.SelectSet;
                 import com.rey.modelquery.processor.fixture.CustomerEntity;
                 import com.rey.modelquery.processor.fixture.ItemEntity;
                 import com.rey.modelquery.processor.fixture.OrderEntity;
@@ -402,6 +404,21 @@ class DiagnosticMatrixTest {
                     with(DOUBLED, c.model("OrderView", ORDER, ID,
                             "@Column @Computed(Doubled.class) BigDecimal doubled")),
                     "MQ3019: OrderView.doubled: @Computed can't be combined with @Column")),
+            of("MQ3020", c -> fails(
+                    with(c.model("OrderView", ORDER, ID, "@Selected SelectSet<CustomerView> wrong"),
+                            c.model("RawView", ORDER, ID, "@Selected SelectSet raw"),
+                            c.model("SetView", ORDER, ID, "@Selected java.util.Set<String> other"),
+                            c.model("CustomerView", CUSTOMER, ID, "@Selected SelectSet<CustomerView> first",
+                                    "@Selected SelectSet<CustomerView> second")),
+                    "MQ3020: OrderView.wrong: @Selected field is SelectSet<CustomerView>, not SelectSet<OrderView>",
+                    "MQ3020: RawView.raw: @Selected field is SelectSet, not SelectSet<RawView>",
+                    "MQ3020: SetView.other: @Selected field is Set<String>, not SelectSet<SetView>",
+                    "MQ3020: CustomerView.second: a model has one @Selected field; remove this one")),
+            of("MQ3021", c -> fails(
+                    with(c.model("OrderView", ORDER, ID, "@Selected @Column SelectSet<OrderView> selected"),
+                            c.model("CustomerView", CUSTOMER, ID, "@Selected @Transient SelectSet<CustomerView> set")),
+                    "MQ3021: OrderView.selected: @Selected can't be combined with @Column",
+                    "MQ3021: CustomerView.set: @Selected can't be combined with @Transient")),
             of("MQ3201", c -> fails(
                     with(SALE_ENTITY, c.model("SalesSummary", SINGLE,
                             "@Aggregate(fn = AggregateFunction.SUM, attribute = \"weight\") double weight")),
@@ -448,7 +465,8 @@ class DiagnosticMatrixTest {
             of("MQ3302", c -> fails(
                     with(TICKET_ENTITY, c.customerView(), c.model("TicketPatch", PATCH, ID,
                             "@Join Optional<CustomerView> customer", COUNT + " Long lines", "@GroupBy String code",
-                            "@Computed(CustomerView.class) BigDecimal computed")),
+                            "@Computed(CustomerView.class) BigDecimal computed",
+                            "@Selected SelectSet<TicketPatch> selected")),
                     "MQ3302: TicketPatch.customer: @Join isn't allowed on @UpdateModel; write the foreign key with "
                             + "@Column(attribute = \"customer\") Long customerId",
                     "MQ3302: TicketPatch.lines: @Aggregate isn't allowed on @UpdateModel; an update writes columns, "
@@ -456,7 +474,9 @@ class DiagnosticMatrixTest {
                     "MQ3302: TicketPatch.code: @GroupBy isn't allowed on @UpdateModel; an update writes columns, "
                             + "not groups",
                     "MQ3302: TicketPatch.computed: @Computed isn't allowed on @UpdateModel; an update writes columns, "
-                            + "not expressions")),
+                            + "not expressions",
+                    "MQ3302: TicketPatch.selected: @Selected isn't allowed on @UpdateModel; an update reads no row "
+                            + "into the model")),
             of("MQ3303", c -> fails(
                     with(TICKET_ENTITY, c.model("TicketPatch", PATCH, ID, "Long version",
                             "@Column(attribute = \"id\") Long ticketId")),
@@ -532,7 +552,8 @@ class DiagnosticMatrixTest {
                             INSERT_TICKET + "\n@FilterColumn(name = \"CUSTOMER_NAME\", path = \"customer.name\")", ID,
                             "@Join Optional<CustomerView> customer", COUNT + " Long lines", "@GroupBy String code",
                             "@Computed(CustomerView.class) BigDecimal computed",
-                            "@Child(foreignKey = \"id\") List<CustomerView> notes", "@Transient String draft")),
+                            "@Child(foreignKey = \"id\") List<CustomerView> notes", "@Transient String draft",
+                            "@Selected SelectSet<TicketRow> selected")),
                     "MQ3502: TicketRow.customer: @Join isn't allowed on @InsertModel; write the foreign key with "
                             + "@Column(attribute = \"customer\") Long customerId",
                     "MQ3502: TicketRow.lines: @Aggregate isn't allowed on @InsertModel; an insert reads no row of its "
@@ -545,6 +566,8 @@ class DiagnosticMatrixTest {
                             + "root",
                     "MQ3502: TicketRow.draft: @Transient isn't allowed on @InsertModel; every field is a column of "
                             + "the rows an insert writes",
+                    "MQ3502: TicketRow.selected: @Selected isn't allowed on @InsertModel; an insert reads no row of "
+                            + "its root",
                     "MQ3502: TicketRow @FilterColumn(CUSTOMER_NAME): @FilterColumn isn't allowed on @InsertModel; an "
                             + "insert reads no row of its root")),
             of("MQ3503", c -> fails(
