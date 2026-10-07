@@ -11,6 +11,7 @@ import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.PersistenceContextMode;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ChunkTransactions;
@@ -294,6 +295,32 @@ class EntityDeleteTest {
                 assertThat(entityCount(em)).isZero();
                 assertThat(em.find(InsListenedEntity.class, 1L)).isNull();
             });
+        }
+    }
+
+    @TckTest
+    void ac_wrt_36_keep_leaves_no_removed_entity_managed_and_detaches_nothing_else(TckDatabase db) {
+        var delete = ModelDelete.builder(ROOT).primaryKey(PrimaryKey.of(ID)).where(f -> f.lte(ID, 5L))
+                .throughEntities().chunked(ChunkOptions.size(2)).persistenceContext(PersistenceContextMode.KEEP)
+                .build();
+
+        try (InsertProbes p = InsertProbes.withEntityWriteRoots(db)) {
+            seed(p, 6);
+            inCommittedTransaction(p, em -> {
+                // The caller already holds row 1, which the delete removes, and row 6, which it does not match.
+                InsListenedEntity one = em.find(InsListenedEntity.class, 1L);
+                InsListenedEntity six = em.find(InsListenedEntity.class, 6L);
+                long rows = executor(em).delete(delete);
+
+                assertThat(rows).isEqualTo(5);
+                // Each flush detached the entities it removed; the row the delete did not match stays managed.
+                assertThat(em.contains(one)).isFalse();
+                assertThat(em.contains(six)).isTrue();
+                assertThat(entityCount(em)).isEqualTo(1);
+                return rows;
+            });
+
+            assertThat(p.rows(IDS)).containsExactly("6");
         }
     }
 
