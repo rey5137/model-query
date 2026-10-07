@@ -87,7 +87,9 @@ ModelUpdate<OrderEntity, OrderPatch> u = QOrderPatch.update(changes)
 long rows = executor.update(u);
 ```
 
-- `set(column, null)` fails with `MQ1603`: write NULL with `setNull` or a change set.
+- `set(column, null)` fails with `MQ1603`: write NULL with `setNull` or a change set. On an attribute with a JPA
+  `AttributeConverter`, `setNull` writes what the converter gives for `null`. Test:
+  `UpdateNullConvertedTest.ac_wrt_01_null_on_a_jpa_converted_attribute_writes_what_the_converter_gives_null`.
 - Primary-key and `@Version` columns cannot be assigned (`MQ1605`), and a column assigned twice fails with `MQ1602`.
 - An update with nothing to write returns 0 without running SQL.
 - Values are bound parameters and pass through the column's converter. A to-one association set by id binds a

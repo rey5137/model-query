@@ -54,9 +54,10 @@ once. Test: `InsertSelectTest.ac_wrt_21_a_chunked_insert_select_over_a_separate_
 written[0] = archives(em).insert(archive(PAID_IN_DE).chunked(ChunkOptions.size(5)).build());
 ```
 
-If the target overlaps the source (the same entity or a shared table), or the provider cannot name the tables, a
-chunked insert-select fails with `MQ1806` before the flush; guard such a copy with `notExists` over the target
-instead. Test: `InsertSelectTest.ac_wrt_21_a_chunked_insert_select_over_its_own_entity_or_a_shared_table_throws_mq1806_before_the_flush`.
+If the target overlaps the source (the same entity or a shared table), the provider cannot name the tables, or the
+source joins through a link or collection table (a `@ManyToMany`, an `@ElementCollection`, or a `@OneToMany` over a
+join table), a chunked insert-select fails with `MQ1806` before the flush; guard such a copy with `notExists` over the
+target, or leave it unchunked. A `@OneToMany` with `mappedBy` or a join column, and any to-one join, stay allowed. Test: `InsertSelectTest.ac_wrt_21_a_chunked_insert_select_over_its_own_entity_or_a_shared_table_throws_mq1806_before_the_flush`.
 An insert-select needs a generator Hibernate renders inline: a pooled sequence or a `JOINED` root fails with `MQ1805`.
 
 ## Insert-values
@@ -177,6 +178,12 @@ Long key = executor(em, InsPersistEntity.class).persist(persist);
 ```
 
 A `CascadeType.ALL` to-one detaches the caller's managed target as well, as the mapping's cascade says.
+
+The entity is detached even when the flush fails. Before any statement, a model writing part of a composite id is
+`MQ1802`, and so, on Hibernate, is one naming an id its generator generates; a `null` set on a primitive attribute is
+`MQ1308`. An embeddable with no no-argument constructor is `MQ1805` under `persist`; `insert` writes it. Tests:
+`PersistTest.ac_wrt_26_persist_naming_a_generated_id_or_part_of_a_composite_id_throws_mq1802_before_any_statement`,
+`PersistTest.ac_wrt_28_persist_of_null_to_a_primitive_attribute_throws_mq1308_before_any_statement`.
 
 ## With Spring Data
 

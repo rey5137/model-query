@@ -6,7 +6,7 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
-## [0.3.0] - 2026-10-06
+## [0.3.0] - 2026-10-07
 
 Nothing is frozen yet: every public type stays `@Incubating`, and the freeze review moves to the next milestone (D-111,
 D-116). No existing API changes incompatibly; the additions below are all `@Incubating`.
@@ -16,7 +16,8 @@ D-116). No existing API changes incompatibly; the additions below are all `@Incu
   - `@InsertModel`, and generated `QModel.insert(rows)`, `insertFrom(...)` and `persist(row)` builders, with
     `MQ3501` to `MQ3504` for definition errors.
   - Insert-select, unchunked and chunked key-first over the source's distinct ids (`ModelInsert.select`), which writes
-    exactly the rows the equivalent read returns; `MQ1806` when a chunked copy overlaps its target.
+    exactly the rows the equivalent read returns; `MQ1806` when a chunked copy overlaps its target or joins
+    through a link or collection table.
   - Insert-values (`ValuesInsert`) as multi-row `VALUES` statements within the vendor's bind and row limits, with
     converters, to-one columns by id and `commitEachChunk` with `nextRowIndex()` to resume.
   - `insertReturningKeys`, returning keys drawn before the insert, in row order; `MQ1807` for an `IDENTITY` id.
@@ -24,7 +25,8 @@ D-116). No existing API changes incompatibly; the additions below are all `@Incu
     `setNull`, `where` and `keepVersion()`, `anyUniqueKey()` for MySQL, and the
     `ModelQueryConfig.conflictUpdateWhereOnAssignedColumns` option; `MQ1804` when a vendor cannot honour the clause.
   - `persist(ModelPersist)`, one row through JPA with its lifecycle callbacks, the portable way to get an `IDENTITY`
-    key.
+    key; `MQ1802` for a model writing part of a composite id or, where the provider reports the generator, a generated
+    id, and `MQ1308` for a `null` set on a primitive attribute, both before any statement.
   - `ModelQueryExecutor.insert`, `insertReturningKeys` and `persist`, and the same three on `ModelQueryRepository`,
     which opens a transaction when none is active (R-SPR-10).
   - Provider SPI: `ProviderSupport.inserts()` with `InsertSupport`, `InsertTarget`, `IdGeneration` and
@@ -39,6 +41,10 @@ D-116). No existing API changes incompatibly; the additions below are all `@Incu
 - `ModelQueryExecutor`, `ModelQueryRepository`, `VendorProfile` and `ProviderSupport` gain the methods above. They are
   `@Incubating`, and the new `VendorProfile` and `ProviderSupport` methods have defaults, so existing implementations
   compile unchanged.
+
+### Fixed
+- An update setting `null` on an attribute with a JPA `AttributeConverter` now writes what the converter gives for
+  `null`, instead of a SQL `NULL` that bypassed it (R-WRT-01).
 
 ## [0.2.0] - 2026-10-06
 

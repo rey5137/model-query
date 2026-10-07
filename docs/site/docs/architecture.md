@@ -30,9 +30,9 @@ flowchart BT
 
 | Layer | Modules | Role |
 |---|---|---|
-| Compile time | `annotations`, `processor` | You annotate a model; the processor generates its `Q` class |
-| Definition | `core` | Immutable query definitions: columns, joins, filters, select sets, fetch plans, enrichers |
-| Execution | `jpa`, `hibernate` | The executor turns a definition into JPA criteria, pages, streams, exports and bulk writes |
+| Compile time | `annotations`, `processor` | You annotate a query, update or insert model; the processor generates its `Q` class |
+| Definition | `core` | Immutable definitions: queries (columns, joins, filters, select sets, fetch plans, enrichers) and writes (`ModelUpdate`, `ModelDelete`, `ModelInsert`, `ModelPersist`) |
+| Execution | `jpa`, `hibernate` | The executor turns a definition into JPA criteria, pages, streams, exports, bulk writes and inserts; `hibernate` adds the insert support |
 | Integration | `spring-data`, `spring-boot-starter` | `ModelQueryRepository` and auto-configuration; no behaviour of their own |
 | Testing | `test` | Assertions over a recorded `ModelQuery`, without a database |
 
@@ -82,3 +82,46 @@ flowchart TB
 The same definition runs as `list`, `page`, `count`, `stream` or `export`. Offset, keyset and primary-key-first
 paging are strategies inside the executor. An export visits every row exactly once, with memory bounded by one page;
 see [paging and export](paging-export.md).
+
+## Writes
+
+Writes are definitions too, and run through the same executor and repository. None of them loads an entity except
+`persist`, which writes one.
+
+```mermaid
+flowchart TB
+    subgraph compile[Compile time]
+        um["@UpdateModel / @InsertModel"] --> proc[Annotation processor] --> q["Generated Q class<br/>(change sets, insert and persist builders)"]
+    end
+
+    subgraph define[Definition, model-query-core]
+        upd["ModelUpdate / ModelDelete"]
+        ins["ModelInsert<br/>(insert-select, ValuesInsert)"]
+        per[ModelPersist]
+    end
+
+    subgraph run[Execution, model-query-jpa]
+        exec[ModelQueryExecutor]
+        crit["CriteriaUpdate / CriteriaDelete"]
+        spi["ProviderSupport.inserts()<br/>InsertSupport"]
+        jpa["EntityManager.persist<br/>flush, detach"]
+        vendor["VendorProfile<br/>(VALUES rows, conflict target)"] -.-> spi
+    end
+
+    hib["HibernateProviderSupport<br/>(model-query-hibernate)"] -.-> spi
+
+    q --> upd & ins & per
+    upd --> exec --> crit
+    ins --> exec --> spi
+    per --> exec --> jpa
+    repo["ModelQueryRepository<br/>(opens a transaction if none)"] --> exec
+    crit & spi & jpa --> db[(Database)]
+```
+
+1. **Update and delete** become JPA criteria bulk statements, optionally chunked key-first; see
+   [bulk writes](bulk-writes.md).
+2. **Insert-select and insert-values** go through the provider's `InsertSupport`, which Hibernate supplies. The
+   `VendorProfile` sets the `VALUES` row and bind limits and says whether a conflict target is honoured. Without insert support a
+   bulk insert fails with `MQ4009`; see [inserts](inserts.md).
+3. **`persist`** instantiates the entity, persists and flushes it through the `EntityManager`, and detaches it, so
+   lifecycle callbacks run and an `IDENTITY` key comes back on any provider.
