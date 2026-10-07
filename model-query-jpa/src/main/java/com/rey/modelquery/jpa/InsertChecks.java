@@ -40,7 +40,17 @@ final class InsertChecks {
                     + "the insert does not write it; name it in the model with @PrimaryKey"
                     + (select ? " and map it from the source" : ""));
         }
-        if (!assigned && writesId) {
+        checkIdNotGenerated(insert, target, writesId);
+    }
+
+    /**
+     * Checks that {@code insert}, an insert or a {@code persist}, does not write an id that {@code target}'s generator
+     * generates.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1802} for an id the model names against its generator
+     */
+    static void checkIdNotGenerated(Object insert, InsertTarget target, boolean writesId) {
+        if (writesId && !(target.id() instanceof IdGeneration.Assigned)) {
             throw new ModelQueryDefinitionException(MqCode.MQ1802, insert + ": writes the root's id, which "
                     + describe(target.id()) + " generates; leave it out of the model, since an explicit value would "
                     + "not advance the generator and a later generated key could collide");

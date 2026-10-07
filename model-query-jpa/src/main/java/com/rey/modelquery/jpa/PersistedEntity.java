@@ -1,5 +1,7 @@
 package com.rey.modelquery.jpa;
 
+import com.rey.modelquery.core.ModelQueryDefinitionException;
+import com.rey.modelquery.core.MqCode;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.metamodel.Attribute;
 import jakarta.persistence.metamodel.EntityType;
@@ -110,6 +112,11 @@ final class PersistedEntity {
     }
 
     private static void write(Attribute<?, ?> attribute, Object owner, Object value) {
+        if (value == null && attribute.getJavaType().isPrimitive()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1308, describe(attribute) + " is a primitive "
+                    + attribute.getJavaType().getSimpleName() + ", which a null cannot be set to; use the wrapper "
+                    + "type, or give the row a value");
+        }
         Member member = attribute.getJavaMember();
         try {
             if (member instanceof Field field) {

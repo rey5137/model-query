@@ -39,6 +39,9 @@ public class InsPersistEntity {
 
     Long amount;
 
+    @Convert(converter = NoneForNull.class)
+    String note;
+
     @Column(columnDefinition = "varchar(20) default 'DFLT'")
     String region;
 
@@ -71,6 +74,19 @@ public class InsPersistEntity {
         @Override
         public Boolean convertToEntityAttribute(String column) {
             return column == null ? null : column.equals("Y");
+        }
+    }
+
+    /** Stores {@code null} as {@code NONE} and back, a converter that gives null a column value. */
+    public static class NoneForNull implements AttributeConverter<String, String> {
+        @Override
+        public String convertToDatabaseColumn(String attribute) {
+            return attribute == null ? "NONE" : attribute;
+        }
+
+        @Override
+        public String convertToEntityAttribute(String column) {
+            return "NONE".equals(column) ? null : column;
         }
     }
 }

@@ -366,6 +366,19 @@ class InsertSelectTest {
     }
 
     @TckTest
+    void ac_wrt_21_a_chunked_insert_select_joining_a_one_to_many_join_table_throws_mq1806_before_the_flush(
+            TckDatabase db) {
+        // A one-to-many through @JoinTable reads the link table, unnamed by tablesOf, as a many-to-many does
+        TableField<OrderEntity, LabelEntity> viaTable = TableField.join(ORDERS, "labelList", INNER);
+        var viaTableName = ColumnField.of(Line.class, viaTable, "name", String.class);
+        var linked = archive(f -> f.eq(LINE_STATUS, "PAID").eq(viaTableName, "rush"))
+                .chunked(ChunkOptions.size(10)).build();
+
+        assertRefusedBeforeTheFlush(db, OrderArchiveEntity.class, executor -> executor.insert(linked),
+                "joins through the collection table of labelList");
+    }
+
+    @TckTest
     void ac_wrt_21_a_chunked_insert_select_over_its_own_entity_or_a_shared_table_throws_mq1806_before_the_flush(
             TckDatabase db) {
         // Archive rows copied into the archive: the same entity

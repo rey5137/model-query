@@ -60,16 +60,29 @@ public final class ModelPersist<E, K, M> {
      * calls it on the definition's first execution per {@code EntityManagerFactory}, before any statement (D-61).
      *
      * @throws ModelQueryDefinitionException {@code MQ1807} when the key type is not the root's boxed id type, as an
-     *     {@code orm.xml} mapping can make it (R-WRT-39, D-117); {@code MQ1805} when a column is set on a record or
+     *     {@code orm.xml} mapping can make it (R-WRT-39, D-117); {@code MQ1802} when the columns write part of the
+     *     root's id; {@code MQ1805} when a column is set on a record or
      *     an embeddable with no no-arg constructor (R-WRT-39)
      */
     @EngineFacing
     public void checkMetamodel(Metamodel metamodel) {
         EntityType<E> entity = metamodel.entity(rootEntity());
         InsertMetamodel.checkKeyType(entity, keyType, toString());
+        writesId(metamodel);
         for (String attribute : attributes()) {
             InsertMetamodel.checkInstantiable(entity, attribute, toString());
         }
+    }
+
+    /**
+     * Whether the columns write the root's whole id, which the executor holds against the root's generator where the
+     * provider reports it (R-WRT-39).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1802} when they write part of it
+     */
+    @EngineFacing
+    public boolean writesId(Metamodel metamodel) {
+        return InsertMetamodel.writesId(metamodel.entity(rootEntity()), attributes(), toString());
     }
 
     /**

@@ -1374,6 +1374,9 @@ decisions; nothing frozen (every type `@Incubating`).
     per-row fallback (D-116).
 12. *Overlap fails closed.* A chunked insert-select whose source or target has an empty `tablesOf` throws `MQ1806`:
     rows written with generated ids above the cursor would otherwise be re-read silently (INV-5).
+    The same holds for a source that joins through a link or collection table, which `tablesOf` does not name: a
+    many-to-many, an element collection, or a one-to-many not shown by `mappedBy` or a join column to be a foreign key
+    on its target. The reason is the unnamed table, not the fan-out, which R-WRT-28 keeps.
 
 RFC text this corrects: R-WRT-33 (`commitEachChunk` check), R-WRT-27 (mismatched source model compiled), R-WRT-26
 (the IDENTITY reason; "physical" sequence), R-WRT-35 (MySQL `doNothing` count), R-WRT-36 and R-WRT-29 (no Oracle or

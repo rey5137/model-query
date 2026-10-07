@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.InsertColumns;
 import com.rey.modelquery.core.ModelPersist;
+import com.rey.modelquery.core.ValuesInsert;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
@@ -16,12 +17,23 @@ import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
+import com.rey.modelquery.tck.vnd.ins.InsCompositeEntity;
+import com.rey.modelquery.tck.vnd.ins.InsCtorEmbeddedEntity;
+import com.rey.modelquery.tck.vnd.ins.InsGeneratedUuidEntity;
+import com.rey.modelquery.tck.vnd.ins.InsGeneratedUuidRow;
 import com.rey.modelquery.tck.vnd.ins.InsPersistEntity;
+import com.rey.modelquery.tck.vnd.ins.InsPropertyChildEntity;
 import com.rey.modelquery.tck.vnd.ins.InsRecordEmbeddedEntity;
 import com.rey.modelquery.tck.vnd.ins.InsSourceEntity;
+import com.rey.modelquery.tck.vnd.ins.InsUuidEntity;
 import com.rey.modelquery.tck.vnd.ins.InsertProbes;
+import com.rey.modelquery.tck.vnd.ins.QInsGeneratedUuidRow;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceException;
+import java.util.List;
+import java.util.UUID;
 import java.util.function.Consumer;
+import org.hibernate.Session;
 
 /**
  * {@code persist} on every Tier-1 vendor: an {@code IDENTITY} key returned, {@code @PrePersist} run and the created
@@ -35,6 +47,16 @@ class PersistTest {
     /** A {@code persist} row: the amount as {@code #42}, the source by id. */
     record NewPersist(String code, InsPersistEntity.Status status, Boolean flagged, String amount, String city,
             String zip, Long source) {}
+
+    record CodeRow(String code) {}
+
+    record RankRow(Integer rank) {}
+
+    record IdRow(Long id, String code) {}
+
+    record SpotRow(Integer x, Integer rank) {}
+
+    record LabelRow(String label) {}
 
     /** A row of the record-embeddable root. */
     record NewPoint(Integer x) {}
@@ -199,6 +221,137 @@ class PersistTest {
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ1805))
                     .hasMessageContaining("point.x is set on Point, a record"));
             assertThat(p.statements()).isEmpty();
+        }
+    }
+
+    // ---- AC-WRT-28 (R-WRT-39): detach, generators, primitives, setters, ids
+
+    @TckTest
+    void ac_wrt_28_persist_leaves_the_entity_detached_when_the_flush_fails(TckDatabase db) {
+        TableField<InsUuidEntity, InsUuidEntity> root = TableField.root(InsUuidEntity.class);
+        var columns = InsertColumns.<CodeRow, InsUuidEntity>of(root)
+                .add(ColumnField.of(CodeRow.class, root, "code", String.class), CodeRow::code);
+        var persist = ModelPersist.of(columns, UUID.class, new CodeRow("dup"));
+
+        try (InsertProbes p = InsertProbes.withPersistRoots(db)) {
+            inProbeTransaction(p, em -> {
+                var executor = executor(em, InsUuidEntity.class);
+                executor.persist(persist);
+
+                // The same unique code again fails the flush, and the entity it created is not left managed
+                assertThatThrownBy(() -> executor.persist(persist)).isInstanceOf(PersistenceException.class);
+                assertThat(em.unwrap(Session.class).getStatistics().getEntityCount()).isZero();
+            });
+        }
+    }
+
+    @TckTest
+    void ac_wrt_28_persist_and_insert_write_a_root_whose_id_has_a_hibernate_uuid_generator(TckDatabase db) {
+        try (InsertProbes p = InsertProbes.withPersistRoots(db)) {
+            inProbeTransaction(p, em -> {
+                var executor = executor(em, InsGeneratedUuidEntity.class);
+
+                UUID key = executor.persist(QInsGeneratedUuidRow.persist(new InsGeneratedUuidRow("one")));
+                long inserted = executor.insert(QInsGeneratedUuidRow.insert(List.of(
+                        new InsGeneratedUuidRow("two"), new InsGeneratedUuidRow("three"))).build());
+                em.getTransaction().commit();
+                em.getTransaction().begin();
+
+                assertThat(key).isNotNull();
+                assertThat(inserted).isEqualTo(2);
+                assertThat(p.rows("select label from ins_generated_uuid order by label"))
+                        .containsExactly("one", "three", "two");
+            });
+        }
+    }
+
+    @TckTest
+    void ac_wrt_28_persist_of_null_to_a_primitive_attribute_throws_mq1308_before_any_statement(TckDatabase db) {
+        TableField<InsCtorEmbeddedEntity, InsCtorEmbeddedEntity> root = TableField.root(InsCtorEmbeddedEntity.class);
+        var columns = InsertColumns.<RankRow, InsCtorEmbeddedEntity>of(root)
+                .add(ColumnField.of(RankRow.class, root, "ranking", Integer.class), RankRow::rank);
+        var persist = ModelPersist.of(columns, Long.class, new RankRow(null));
+
+        try (InsertProbes p = InsertProbes.withPersistRoots(db)) {
+            inProbeTransaction(p, em -> assertThatThrownBy(
+                    () -> executor(em, InsCtorEmbeddedEntity.class).persist(persist))
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1308))
+                    .hasMessageContaining("ranking is a primitive int"));
+            assertThat(p.statements()).isEmpty();
+        }
+    }
+
+    @TckTest
+    void ac_wrt_26_persist_naming_a_generated_id_or_part_of_a_composite_id_throws_mq1802_before_any_statement(
+            TckDatabase db) {
+        TableField<InsPersistEntity, InsPersistEntity> root = TableField.root(InsPersistEntity.class);
+        var named = ModelPersist.of(InsertColumns.<IdRow, InsPersistEntity>of(root)
+                .add(ColumnField.of(IdRow.class, root, "id", Long.class), IdRow::id)
+                .add(ColumnField.of(IdRow.class, root, "code", String.class), IdRow::code),
+                Long.class, new IdRow(99L, "p9"));
+        TableField<InsCompositeEntity, InsCompositeEntity> composite = TableField.root(InsCompositeEntity.class);
+        var partial = ModelPersist.of(InsertColumns.<IdRow, InsCompositeEntity>of(composite)
+                .add(ColumnField.of(IdRow.class, composite, "tenant", Long.class), IdRow::id),
+                InsCompositeEntity.Key.class, new IdRow(1L, null));
+
+        try (InsertProbes p = InsertProbes.withPersistRoots(db)) {
+            inProbeTransaction(p, em -> {
+                assertThatThrownBy(() -> executor(em, InsPersistEntity.class).persist(named))
+                        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ1802))
+                        .hasMessageContaining("writes the root's id");
+                assertThatThrownBy(() -> executor(em, InsCompositeEntity.class).persist(partial))
+                        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ1802))
+                        .hasMessageContaining("writes part of the id");
+            });
+            assertThat(p.statements()).isEmpty();
+        }
+    }
+
+    @TckTest
+    void ac_wrt_29_a_constructor_only_embeddable_is_mq1805_under_persist_and_written_by_insert(TckDatabase db) {
+        TableField<InsCtorEmbeddedEntity, InsCtorEmbeddedEntity> root = TableField.root(InsCtorEmbeddedEntity.class);
+        var columns = InsertColumns.<SpotRow, InsCtorEmbeddedEntity>of(root)
+                .add(ColumnField.of(SpotRow.class, root, "spot.x", Integer.class), SpotRow::x)
+                .add(ColumnField.of(SpotRow.class, root, "ranking", Integer.class), SpotRow::rank);
+        var persist = ModelPersist.of(columns, Long.class, new SpotRow(4, 1));
+
+        try (InsertProbes p = InsertProbes.withPersistRoots(db)) {
+            inProbeTransaction(p, em -> {
+                var executor = executor(em, InsCtorEmbeddedEntity.class);
+
+                assertThatThrownBy(() -> executor.persist(persist))
+                        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ1805))
+                        .hasMessageContaining("spot.x is set on Spot, an embeddable with no no-arg constructor");
+                assertThat(p.statements()).isEmpty();
+
+                assertThat(executor.insert(ValuesInsert.builder(columns, Long.class, List.of(new SpotRow(4, 1)))
+                        .build())).isEqualTo(1);
+                em.getTransaction().commit();
+                em.getTransaction().begin();
+                assertThat(p.rows("select x, ranking from ins_ctor_embedded")).containsExactly("4|1");
+            });
+        }
+    }
+
+    @TckTest
+    void ac_wrt_28_persist_sets_a_property_through_a_setter_declared_above_the_overridden_getter(TckDatabase db) {
+        TableField<InsPropertyChildEntity, InsPropertyChildEntity> root = TableField.root(InsPropertyChildEntity.class);
+        var columns = InsertColumns.<LabelRow, InsPropertyChildEntity>of(root)
+                .add(ColumnField.of(LabelRow.class, root, "label", String.class), LabelRow::label);
+        var persist = ModelPersist.of(columns, Long.class, new LabelRow("kid"));
+
+        try (InsertProbes p = InsertProbes.withPersistRoots(db)) {
+            inProbeTransaction(p, em -> {
+                Long key = executor(em, InsPropertyChildEntity.class).persist(persist);
+                em.getTransaction().commit();
+                em.getTransaction().begin();
+
+                assertThat(p.rows("select label from ins_property_child where id = " + key)).containsExactly("kid");
+            });
         }
     }
 

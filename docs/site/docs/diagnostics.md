@@ -49,7 +49,7 @@ try {
 | `MQ1305` | A Filters.add predicate returned `null`. |
 | `MQ1306` | One `in` or `notIn` filter has more values than `maxBindParameters()`. |
 | `MQ1307` | A statement binds more values than `maxBindParameters()` together; narrow its filters. A keyset page, export page or write round is refused before it runs when its own binds plus the worst cursor would pass the limit; the message says how many binds each side has. |
-| `MQ1308` | A value cannot be converted to its column's attribute type, for example an `Instant` beyond the range of `Timestamp`. |
+| `MQ1308` | A value cannot be converted to its column's attribute type, for example an `Instant` beyond the range of `Timestamp`; `persist` setting a primitive attribute to `null`. |
 | `MQ1401` | Grouped query: selected non-aggregate column is not in the group-by. |
 | `MQ1402` | Grouped query: keyset paging or primary-key-first not allowed. |
 | `MQ1403` | Grouped query: Agg.sum or Agg.sumAsLong over a column whose SQL sum type differs from the result type. |
@@ -74,11 +74,11 @@ try {
 | `MQ1608` | Bulk write: `@PrimaryKey` is not the root entity's id. |
 | `MQ1609` | Bulk write: `setExpression` on a column with a converter. |
 | `MQ1801` | Insert: a column is not mapped, is mapped or set twice, is not on the written root, or is not in the model's `InsertColumns`; a `map` between columns with different converters or types; `lockKeys()` on insert-values; `insertReturningKeys` with `commitEachChunk()`. |
-| `MQ1802` | Insert: the model names a generated id, lacks an id that has no generator, or a row has a `null` assigned id. |
+| `MQ1802` | Insert: the model names a generated id, lacks an id that has no generator, or a row has a `null` assigned id; `persist` names a generated id (where the provider reports the generator) or part of a composite id. |
 | `MQ1803` | Insert: a `null` row. |
 | `MQ1804` | Insert conflict clause: the conflict columns are not the id, a natural id or a declared unique constraint; a vendor that detects a conflict on any unique key without `anyUniqueKey()`; `doNothing` the provider does not render; a `doUpdate` assigning a key column or reading two or more assigned columns in its `where` without `conflictUpdateWhereOnAssignedColumns(true)`. |
 | `MQ1805` | Insert: a generator that is not supported for the call (a pooled sequence or a table or UUID generator on an insert-select), a `JOINED` or `@SecondaryTable` root, a composite id with generated parts, `@MapsId`, or a constructor-only embeddable under `persist`. |
-| `MQ1806` | Insert: a `chunked` insert-select whose source and target overlap, or whose tables the provider cannot name, or whose source joins through a collection table (`@ManyToMany`, `@ElementCollection`). |
+| `MQ1806` | Insert: a `chunked` insert-select whose source and target overlap, or whose tables the provider cannot name, or whose source joins through a link or collection table (`@ManyToMany`, `@ElementCollection`, a `@OneToMany` over a join table). |
 | `MQ1807` | Insert: keys requested for an `IDENTITY` or assigned id, or a key type that is not the id's type. |
 | `MQ1808` | Insert: two rows of one insert-values call with a conflict clause share a conflict-key tuple. |
 

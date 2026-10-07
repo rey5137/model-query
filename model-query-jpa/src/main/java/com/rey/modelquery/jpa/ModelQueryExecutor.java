@@ -246,7 +246,7 @@ public interface ModelQueryExecutor<E> {
      *     {@code MQ1802} for an id the model names against the root's generator, {@code MQ1805} for a generator or a
      *     mapping of the root that the insert cannot write, {@code MQ1806} for a chunked insert-select whose target
      *     is of one entity hierarchy with, or shares a table with, the source root or an entity the select joins, or
-     *     whose tables the provider does not name, {@code MQ1804} for conflict columns that are not exactly a unique
+     *     whose tables the provider does not name, or whose source joins through a link or collection table, {@code MQ1804} for conflict columns that are not exactly a unique
      *     key the mapping declares, a conflict update assigning an id or the {@code @Version}, a vendor detecting a
      *     conflict on any unique key without {@code anyUniqueKey()}, a {@code doNothing()} the provider does not
      *     render, or a conflict update whose {@code where} reads two or more of the columns it assigns, the version
@@ -302,8 +302,10 @@ public interface ModelQueryExecutor<E> {
      * one statement each, or {@link #insert} and {@link #insertReturningKeys} (R-WRT-39, R-WRT-40).
      *
      * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution, before any statement,
-     *     {@code MQ1807} when the key type is not the root's id type and {@code MQ1805} when a column is set on a
-     *     record or an embeddable with no no-arg constructor (R-WRT-39, D-117)
+     *     {@code MQ1807} when the key type is not the root's id type, {@code MQ1805} when a column is set on a
+     *     record or an embeddable with no no-arg constructor, and {@code MQ1802} when the model writes part of the id,
+     *     or, where the provider reports the root's generator, an id it generates; {@code MQ1308}, before the
+     *     statement, for a {@code null} set on a primitive attribute (R-WRT-39, D-117)
      * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2501}, before any statement, when the
      *     {@code EntityManager} is not joined to a transaction (R-WRT-39)
      */

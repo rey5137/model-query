@@ -45,6 +45,10 @@ import com.rey.modelquery.jpa.vendor.ResolvedVendor;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinColumns;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.OptimisticLockException;
 import jakarta.persistence.PersistenceException;
 import jakarta.persistence.Query;
@@ -66,6 +70,7 @@ import jakarta.persistence.metamodel.IdentifiableType;
 import jakarta.persistence.metamodel.Metamodel;
 import jakarta.persistence.metamodel.PluralAttribute;
 import jakarta.persistence.metamodel.SingularAttribute;
+import java.lang.reflect.AnnotatedElement;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.util.ArrayDeque;
@@ -798,7 +803,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     @Override
     public <K> K persist(ModelPersist<E, K, ?> p) {
         Objects.requireNonNull(p, "p");
-        checkWriteOnce(p, p::checkMetamodel);
+        checkWriteOnce(p, metamodel -> {
+            p.checkMetamodel(metamodel);
+            // Only where the provider reports the root's generator: persist works without insert support (R-WRT-39)
+            vendor.providerSupport().flatMap(ProviderSupport::inserts).ifPresent(support ->
+                    InsertChecks.checkIdNotGenerated(p, insertTarget(support), p.writesId(metamodel)));
+        });
         if (!em.isJoinedToTransaction()) {
             throw new ModelQueryExecutionException(MqCode.MQ2501, p + ": persist needs an active transaction, and "
                     + "the EntityManager is not joined to one");
@@ -895,10 +905,28 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return selected;
     }
 
-    /** Whether a join over {@code attribute} reads a link or collection table, which {@code tablesOf} does not name. */
+    /**
+     * Whether a join over {@code attribute} reads a link or collection table, which {@code tablesOf} does not name: a
+     * many-to-many, an element collection, or a one-to-many not shown to be a foreign key on the target by
+     * {@code mappedBy} or a join column, which is a join table by default.
+     */
     private static boolean readsCollectionTable(Attribute<?, ?> attribute) {
-        return attribute.getPersistentAttributeType() == Attribute.PersistentAttributeType.MANY_TO_MANY
-                || attribute.getPersistentAttributeType() == Attribute.PersistentAttributeType.ELEMENT_COLLECTION;
+        return switch (attribute.getPersistentAttributeType()) {
+            case MANY_TO_MANY, ELEMENT_COLLECTION -> true;
+            case ONE_TO_MANY -> !isForeignKeyOnTarget(attribute);
+            default -> false;
+        };
+    }
+
+    /** Whether annotations show the one-to-many {@code attribute} to be a foreign key on its target's table. */
+    private static boolean isForeignKeyOnTarget(Attribute<?, ?> attribute) {
+        if (!(attribute.getJavaMember() instanceof AnnotatedElement member)
+                || member.isAnnotationPresent(JoinTable.class)) {
+            return false;
+        }
+        OneToMany oneToMany = member.getAnnotation(OneToMany.class);
+        return oneToMany != null && !oneToMany.mappedBy().isEmpty()
+                || member.isAnnotationPresent(JoinColumn.class) || member.isAnnotationPresent(JoinColumns.class);
     }
 
     /** The type a join over {@code attribute} reaches: a collection's element, else the attribute's own type. */

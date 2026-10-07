@@ -67,7 +67,9 @@ public final class InsertProbes implements AutoCloseable {
 
     /** As {@link #open(TckDatabase)}, also mapping the {@code persist} roots (R-WRT-39). */
     public static InsertProbes withPersistRoots(TckDatabase db) {
-        return open(db, null, List.of(InsPersistEntity.class, InsRecordEmbeddedEntity.class));
+        return open(db, null, List.of(InsPersistEntity.class, InsRecordEmbeddedEntity.class,
+                InsCtorEmbeddedEntity.class, InsPropertyChildEntity.class, InsGeneratedUuidEntity.class,
+                InsCompositeEntity.class));
     }
 
     private static InsertProbes open(TckDatabase db, EnhancingClassLoader loader, List<Class<?>> extra) {

@@ -428,8 +428,10 @@ the source root or an entity the select joins (the same entity, the same hierarc
 R-VND-13), `chunked` throws `MQ1806` on first execution, before the flush: rows a chunk writes could match the next
 chunk's key select or change what its joins return, and the engine only gets a count back. A source or target whose
 `tablesOf` is empty fails closed with `MQ1806` as well, since rows written with generated ids above the cursor would
-otherwise be re-read silently (INV-5). A join through a collection table (`@ManyToMany`, `@ElementCollection`) is not checked for overlap, since
-`tablesOf` names entity tables only; `chunked` fails closed with `MQ1806` on it (M10 gate). The unchunked statement
+otherwise be re-read silently (INV-5). A join through a link or collection table (`@ManyToMany`, `@ElementCollection`, or an `@OneToMany` not shown by
+`mappedBy` or a join column to be a foreign key on its target) is not checked for overlap, since `tablesOf` names
+entity tables only; `chunked` fails closed with `MQ1806` on it (M10 gate). A foreign-key `@OneToMany` and a to-one join
+are named by their entity's table, so they stay allowed. The unchunked statement
 stays allowed, since the database reads the whole select before it inserts. A guard against rows already in the target is a correlated `notExists` filter over the
 target (R-FLT-17): portable, not atomic. A sub-query is not part of the select's FROM, so such a guard does not make
 `chunked` throw `MQ1806`. Chunked, it gives the same rows as the unchunked statement only when it is correlated on a
@@ -582,7 +584,11 @@ with its no-arg constructor where the root's constructor left it `null`; a recor
 and `flush`, reads `PersistenceUnitUtil#getIdentifier`, and calls `detach` on the entity, in that order.
 Constructors and fields are reached with `setAccessible`, so a modular application `opens` its entity package to the
 library; the Javadoc says so. `persist` needs no provider SPI and works with every generator, `IDENTITY` included,
-`@MapsId` included, and every provider. It needs an active transaction (`MQ2501`).
+`@MapsId` included, and every provider. It needs an active transaction (`MQ2501`). A model that writes part of a
+composite id is `MQ1802`, and, where the provider reports the root's generator (`InsertSupport`), so is one that names
+an id the generator generates, which `persist` would otherwise refuse as a detached entity; an assigned id the model
+does not name is not checked, since a constructor or `@PrePersist` may set it. A `null` set on a primitive attribute is
+`MQ1308`, before the statement.
 
 It is an entity write: `@PrePersist`/`@PostPersist`, Bean Validation, Envers and the provider's insert run, and the
 provider maintains the second-level cache, so R-WRT-15's eviction does not apply. The first paragraph of its Javadoc

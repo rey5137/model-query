@@ -382,7 +382,11 @@ public final class ModelUpdate<E, M> {
             Object attribute = column.toAttribute(value.value());
             setValue(update, path, target == null ? attribute : references.apply(target.getJavaType(), attribute));
         } else {
-            setTo(update, path, cb.nullLiteral(path.getJavaType()));
+            if (target == null) {
+                setValue(update, path, null); // the provider's own null, so a JPA converter sees it
+            } else {
+                setTo(update, path, cb.nullLiteral(path.getJavaType()));
+            }
         }
     }
 

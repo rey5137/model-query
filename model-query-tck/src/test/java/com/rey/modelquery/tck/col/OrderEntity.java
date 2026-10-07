@@ -8,6 +8,7 @@ import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinTable;
 import jakarta.persistence.ManyToMany;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
@@ -59,6 +60,12 @@ public class OrderEntity {
     // The inverse side of LabelEntity.orders, for a child loaded through it (R-FCH-14).
     @ManyToMany(mappedBy = "orders")
     List<LabelEntity> labels;
+
+    // The link table of labels again as a unidirectional one-to-many, which names no foreign key on the labels.
+    @OneToMany
+    @JoinTable(name = "order_labels", joinColumns = @JoinColumn(name = "order_id"),
+            inverseJoinColumns = @JoinColumn(name = "label_id"))
+    List<LabelEntity> labelList;
 
     // A collection of basic values, for resolving paths only: no table is behind it, so it is never queried.
     @ElementCollection
