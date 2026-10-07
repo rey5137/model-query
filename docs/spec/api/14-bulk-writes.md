@@ -756,5 +756,6 @@ change-set field for the same attribute wins and the assignment is skipped, whic
 still set the column on purpose; keeping the column out of a change set bound from a request stays the model's job
 (R-WRT-13). An update with nothing to write stays a no-op: assignments never turn an empty update into a write. Under
 `persist` and entity mode the value is set on the entity through the metamodel member before the flush, so an entity
-callback that sets the same attribute runs after it and wins, and in entity mode an `UPDATE` assignment makes every
-matched row dirty.
+callback that sets the same attribute runs after it and wins. In entity mode an `UPDATE` assignment dirties a matched
+row only where its value differs from the loaded one: the provider compares by value, so a row already holding the
+supplied value is not written and fires no update callback, and the count stays the distinct entities loaded.
