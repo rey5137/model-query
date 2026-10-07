@@ -2,7 +2,9 @@ package com.rey.modelquery.core;
 
 import com.rey.modelquery.annotations.Incubating;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
@@ -13,12 +15,16 @@ import java.util.Set;
  * constant cannot be changed by one caller (INV-9). A selection appears at most once, at its first position.
  *
  * @param <M> the model the selections belong to
- * @implSpec R-COL-09
+ * @implSpec R-COL-09, R-COL-21, R-COL-22
  */
 @Incubating
 public final class SelectSet<M> {
 
+    /** A selection's bit mask over this set's fields and the subset it selects: one immutable memo entry. */
+    private record Memo<M>(long[] mask, SelectSet<M> subset) {}
+
     private final List<SelectField<M, ?>> fields;
+    private volatile Memo<M> memo;
 
     private SelectSet(Set<SelectField<M, ?>> columns) {
         this.fields = List.copyOf(columns);
@@ -57,6 +63,67 @@ public final class SelectSet<M> {
     /** The selections in order, as a list that throws on mutation (CC-IMM-03). */
     public List<SelectField<M, ?>> fields() {
         return fields;
+    }
+
+    /** Whether {@code field} is in the set, by field equality and never through a converter (R-COL-21). */
+    @Incubating
+    public boolean contains(SelectField<M, ?> field) {
+        return fields.contains(Objects.requireNonNull(field, "field"));
+    }
+
+    /**
+     * The fields of this set that {@code row} selected, in set order; {@code this} when all are, never {@code null}. A
+     * row of the same selection gets the same instance (R-COL-22).
+     */
+    @Incubating
+    public SelectSet<M> selectedIn(Row row) {
+        Objects.requireNonNull(row, "row");
+        long[] mask = new long[(fields.size() + 63) >>> 6];
+        int selected = 0;
+        for (int i = 0; i < fields.size(); i++) {
+            if (row.isSelected(fields.get(i))) {
+                mask[i >>> 6] |= 1L << i;
+                selected++;
+            }
+        }
+        if (selected == fields.size()) {
+            return this;
+        }
+        Memo<M> seen = memo;
+        if (seen != null && Arrays.equals(seen.mask(), mask)) {
+            return seen.subset();
+        }
+        var subset = new ArrayList<SelectField<M, ?>>(selected);
+        for (int i = 0; i < fields.size(); i++) {
+            if ((mask[i >>> 6] & (1L << i)) != 0) {
+                subset.add(fields.get(i));
+            }
+        }
+        var result = new SelectSet<M>(new LinkedHashSet<>(subset));
+        memo = new Memo<>(mask, result);
+        return result;
+    }
+
+    /** Whether {@code other} is a set of the same selections, in any order (R-COL-21). */
+    @Override
+    public boolean equals(Object other) {
+        return this == other || other instanceof SelectSet<?> set && fields.size() == set.fields.size()
+                && new HashSet<>(fields).equals(new HashSet<>(set.fields));
+    }
+
+    @Override
+    public int hashCode() {
+        int hash = 0;
+        for (SelectField<M, ?> field : fields) {
+            hash += field.hashCode();
+        }
+        return hash;
+    }
+
+    /** The selections in order, like {@code [OrderView.id, OrderView.status]} (R-COL-21). */
+    @Override
+    public String toString() {
+        return fields.toString();
     }
 
     /** Whether the set selects nothing (P-3). */

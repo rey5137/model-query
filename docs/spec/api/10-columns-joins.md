@@ -231,11 +231,26 @@ public final class SelectSet<M> {
     public SelectSet<M> with(SelectSet<M> other);
     public SelectSet<M> without(SelectField<M, ?>... columns);
     public List<SelectField<M, ?>> fields();                // unmodifiable
+    @Incubating public boolean contains(SelectField<M, ?> field);
+    @Incubating public SelectSet<M> selectedIn(Row row);
 }
 ```
 
 **R-COL-09** A `SelectSet` is immutable. `with` and `without` return copies, so a shared constant cannot be changed by
 one caller and affect every later query (INV-9).
+
+**R-COL-21** *(D-120)* **Membership and equality.** `contains(field)` is exact membership by field equality, never
+through a converter, as `Row.isSelected` is; it is `@Incubating`. Two sets are equal when they hold the same fields,
+whatever their order, and `hashCode` agrees (set semantics), so a record holding one stays comparable. `toString` lists
+the fields in set order, like `[OrderView.id, OrderView.status]`. Equality is not separately marked: it freezes with
+`SelectSet`.
+
+**R-COL-22** *(D-120)* **`selectedIn(Row)`.** Returns the subset of this set's fields for which `Row.isSelected` is
+true (a scoped row answers for its nested model's columns), in set order; returns `this` when all are selected; never
+`null`. It is `@Incubating`. It keeps a single-entry memo keyed by the selection as a `long[]` bit mask, held in a
+`volatile` immutable holder, so the rows of one query share one instance and the memo is not observable (INV-9). It is
+safe under concurrent calls with different selections: a call that loses the race returns a correct result and the
+last stored entry wins.
 
 ## 5. `Row` and `RowMapper`
 
@@ -327,3 +342,5 @@ default null ordering the persistence provider is configured with replaces the p
 | AC-COL-18 | An `AggregateField` passed to a `Filters` operator, to `groupBy(...)` or to an `Expr` factory, and `Expr.cases` with no `when` before `otherwise`, each have a compile-failure case. Two expressions built from equal calls are equal and hash alike, whatever `named` says; they differ by a value, a `BigDecimal` scale, the declared type and a function name. An expression constant is used by 8 threads with identical results (R-COL-16, R-COL-20, INV-9). |
 | AC-COL-19 | On every Tier-1 vendor, each factory returns the expected value and Java type: `coalesce` and `nullIf` over NULL and non-NULL; same-type and mixed `times` (`Integer × BigDecimal` gives `BigDecimal`); `dividedBy` over decimals; `concat` with a NULL operand (NULL); a CASE with column and value branches; a CASE whose every branch is a value with three decimal places, returned exactly; `function` with an `Expr.constant` mode argument. `MQ1501` to `MQ1507` each have a case (R-COL-17, R-COL-18). |
 | AC-COL-20 | A selected expression round-trips through `Row.get` for a class and a record model. Two equal expressions under different `named` properties are one selection, and each reads the value. The PostgreSQL statement log shows one rendering of an expression used in select, order and filter of one statement (R-COL-19, R-COL-20, R-COL-10). |
+| AC-COL-21 | `contains` is exact: a field equal by value is found, a column with another converter or table is not. Sets with the same fields in another order are equal and hash alike; `toString` reads `[OrderView.id, OrderView.status]` (R-COL-21). |
+| AC-COL-22 | `selectedIn` returns the selected subset in set order, `this` when all are selected, an empty set when none; it works on a scoped row and on a set of more than 64 fields, returns one shared instance for rows of one selection, and is correct under 8 threads with different selections (R-COL-22, INV-9). |
