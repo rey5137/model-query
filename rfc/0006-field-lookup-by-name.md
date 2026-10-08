@@ -4,7 +4,7 @@
 - **Affects:** `processor/31` (new R-GEN-32, R-GEN-33, AC-GEN-21..AC-GEN-24); `api/10` (new R-COL-23, R-COL-24,
   AC-COL-*); `reference/90` (new `MQ1105`); `reference/92` (new D-121). Reuses the property paths of `api/11`
   R-QRY-14 unchanged.
-- **Discussion:** TBD
+- **Discussion:** [#31](https://github.com/rey5137/model-query/discussions/31#discussioncomment-18807679)
 - **Target:** 0.6. One public addition per generated class, `Q<M>.fields()`, and one core type, `FieldIndex<M>`,
   both `@Incubating`.
 
