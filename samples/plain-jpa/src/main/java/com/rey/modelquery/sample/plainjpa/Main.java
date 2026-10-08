@@ -1,14 +1,24 @@
 package com.rey.modelquery.sample.plainjpa;
 
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 /**
  * Plain JPA sample entry point: seeds a small shop and prints what the generated query models read from it.
  */
 public final class Main {
 
+    // Held in fields: java.util.logging keeps loggers weakly, so a dropped one would lose its level
+    private static final Logger HIBERNATE = Logger.getLogger("org.hibernate");
+    private static final Logger MODEL_QUERY = Logger.getLogger("com.rey.modelquery");
+
     private Main() {
     }
 
     public static void main(String[] args) {
+        // Only the tour's output: no startup logs from Hibernate or the vendor resolver
+        HIBERNATE.setLevel(Level.WARNING);
+        MODEL_QUERY.setLevel(Level.WARNING);
         ShopTour.Result tour = ShopTour.run();
 
         System.out.println("Paid orders, page 1 of " + tour.paidPage().total().orElse(0) + ":");

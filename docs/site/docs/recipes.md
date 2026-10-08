@@ -3,6 +3,58 @@
 Recipes for moving an existing reporting service onto model-query, one adoption case at a time. Each recipe's code is
 copied from a test that runs, named under the code.
 
+## Replace a dynamic JPQL DTO query
+
+A typical read before migration: a JPQL constructor expression, a query string that grows with each optional filter,
+and every parameter bound a second time.
+
+```java
+var jpql = new StringBuilder("select new com.rey.modelquery.sample.plainjpa.OrderRow(o.id, o.status, o.total,"
+        + " c.name) from OrderEntity o left join o.customer c where 1 = 1");
+status.ifPresent(s -> jpql.append(" and o.status = :status"));
+country.ifPresent(s -> jpql.append(" and c.country = :country"));
+jpql.append(" order by o.id");
+var query = em.createQuery(jpql.toString(), OrderRow.class);
+status.ifPresent(s -> query.setParameter("status", s));
+country.ifPresent(s -> query.setParameter("country", s));
+return query.setMaxResults(100).getResultList();
+```
+
+Move the columns and the join into a model once. The joined model's columns become constants of the outer one
+(`QOrderView.CUSTOMER_COUNTRY`), and an empty `Optional` skips its filter, so the query needs no branches:
+
+```java
+@QueryModel(root = OrderEntity.class)
+public class OrderView {
+    @PrimaryKey
+    private Long id;
+    private String status;
+    private BigDecimal total;
+    @Join
+    private Optional<CustomerView> customer = Optional.empty();
+    // getters and setters
+}
+
+@QueryModel(root = CustomerEntity.class)
+public record CustomerView(@PrimaryKey Long id, String name, String country) {}
+```
+
+```java
+var query = QOrderView.query()
+        .select(QOrderView.ALL.with(QOrderView.CUSTOMER))
+        .where(f -> f.eq(QOrderView.STATUS, status)
+                .eq(QOrderView.CUSTOMER_COUNTRY, country))
+        .orderBy(QOrderView.ID.asc())
+        .build();
+return executor.list(query, Limit.of(100));
+```
+
+A Querydsl query migrates the same way: the `Projections.constructor(...)` arguments become the model's fields, the
+`leftJoin` becomes the `@Join`, and each `BooleanBuilder` branch becomes one filter call.
+
+Tested by `MigrationRecipeTest` in `samples/plain-jpa`, which checks that both versions return the same rows for every
+filter combination.
+
 ## Keep your own repository factory bean
 
 The case in one line: an existing service that already sets its own `repositoryFactoryBeanClass` and

@@ -94,6 +94,10 @@ per `EntityManager` and entity type.
 ## 4. A full example
 
 The repository ships a runnable sample, `samples/plain-jpa`, with a small shop on in-memory H2: a filtered page, an
-`exists` filter on a collection, and a grouped summary, all read through generated `Q` classes.
+`exists` filter on a collection, and a grouped summary, all read through generated `Q` classes. Run it from the repository root:
+
+```bash
+./mvnw -q -pl samples/plain-jpa -am package -DskipTests -Prun
+```
 
 Next: [Models and QModels](../models.md).
