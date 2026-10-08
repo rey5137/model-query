@@ -32,6 +32,9 @@ public enum MqCode {
     /** {@code as(...)}, {@code on(...)} or {@code presentBy(...)} on a root {@code TableField} (R-COL-03, R-COL-04). */
     MQ1104("as(...), on(...) and presentBy(...) apply to a join, not to a root"),
 
+    /** {@code FieldIndex.only} names a key the index doesn't hold, or leaves a kept set empty (R-COL-24). */
+    MQ1105("FieldIndex.only names a key the index doesn't hold, or leaves a kept set empty"),
+
     /** {@code keyset()} or {@code primaryKeyFirst(...)} without a primary key (R-QRY-03). */
     MQ1201("keyset() and primaryKeyFirst(...) require a primary key"),
 

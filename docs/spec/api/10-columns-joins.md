@@ -252,6 +252,27 @@ true (a scoped row answers for its nested model's columns), in set order; return
 safe under concurrent calls with different selections: a call that loses the race returns a correct result and the
 last stored entry wins.
 
+**R-COL-23** *(D-121)* **`FieldIndex.resolve(names)`.** A `FieldIndex<M>` (`@Incubating`) holds a model's select fields,
+filter-only columns, sets and children under exact, case-sensitive keys (RFC 0006). `resolve(names)` turns each name
+into a select field, a set or a child, looked up in that order of kinds, and collects every name that matches none of
+them in `unknown`, distinct, in input order. `select` holds the select fields in input order, a set expanded in place,
+the first occurrence of a field kept. `children` holds each child once, in input order. A filter-only column counts as
+unknown, and so does `""`; a `null` element throws `NullPointerException`; otherwise `resolve` never throws. An input
+with no select field or set gives an empty `select`. The `Resolution` lists are copies (CC-IMM). `select(name)`,
+`filter(name)` (a column, filter-only ones included, or an expression), `set(name)` and `child(name)` look one name up
+by kind; `names()` is what `resolve` accepts and `filterNames()` what `filter` accepts. The key of a select field is a
+column's property path, else its attribute path, an expression's name and an aggregate's `named` property, else its
+name: tier 1 of `orderedBy` (R-QRY-14), through one helper both use. A filter-only column's key is its attribute path;
+a join set's key is its join's property path. `AggregateField.named(String)` sets the property, outside `equals` and
+`hashCode`, as `ExpressionField.named` does (R-COL-20). Within one kind, a key given twice with an equal field keeps one
+entry; with a different field, `FieldIndex.Builder.build()` throws `IllegalStateException`. The filter names (select
+columns and expressions, then filter-only columns) are one kind for this rule.
+
+**R-COL-24** *(D-121)* **`FieldIndex.only(names)`.** Returns an index holding just those keys, for a public API that
+exposes part of a model. A kept set holds only the select fields the narrowed index keeps, so `only(List.of("ALL",
+"id"))` can't select more than `id`. A name that is not a key (of `names()` or `filterNames()`), or a kept set left
+empty, throws `MQ1105` naming it and the index's `names()` and `filterNames()`.
+
 ## 5. `Row` and `RowMapper`
 
 ```java
@@ -344,3 +365,7 @@ default null ordering the persistence provider is configured with replaces the p
 | AC-COL-20 | A selected expression round-trips through `Row.get` for a class and a record model. Two equal expressions under different `named` properties are one selection, and each reads the value. The PostgreSQL statement log shows one rendering of an expression used in select, order and filter of one statement (R-COL-19, R-COL-20, R-COL-10). |
 | AC-COL-21 | `contains` is exact: a field equal by value is found, a column with another converter or table is not. Sets with the same fields in another order are equal and hash alike; `toString` reads `[OrderView.id, OrderView.status]` (R-COL-21). |
 | AC-COL-22 | `selectedIn` returns the selected subset in set order, `this` when all are selected, an empty set when none; it works on a scoped row and on a set of more than 64 fields, returns one shared instance for rows of one selection, and is correct under 8 threads with different selections (R-COL-22, INV-9). |
+| AC-COL-23 | `resolve` returns known names' fields in input order with a set expanded in place and a repeated field once, children once each in input order, and unknown names distinct in input order; a filter-only name and `""` are unknown, a `null` element throws `NullPointerException`, an empty input gives an empty `select`, and the `Resolution` lists are copies. `select`, `filter`, `set`, `child`, `names()` and `filterNames()` agree with it (R-COL-23). |
+| AC-COL-24 | `only` narrows a kept set to the kept select fields and keeps filter-only columns and children by name; an unknown name, or a set left empty, throws `MQ1105` naming the name and the index's names (R-COL-24). |
+| AC-COL-25 | The builder derives each key as R-COL-23 says (property path, else attribute path; a filter-only column by its attribute path; a join set by its join's property path), keeps an equal field given twice once, and throws `IllegalStateException` for a different field under one key. |
+| AC-COL-26 | `AggregateField.named` is outside `equals` and `hashCode`, is kept by `as`, and is the aggregate's index key; a sort property equal to the `named` property or to the name selects the aggregate (R-COL-23, R-QRY-14). |

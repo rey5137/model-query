@@ -230,20 +230,28 @@ public final class ModelQuery<E, K, M> {
 
     /**
      * The one selected column {@code property} names, matched on every tier: property path, attribute path and
-     * aggregate name (R-QRY-14, D-55, D-58).
+     * aggregate {@code named} property or name (R-QRY-14, D-55, D-58, D-121).
      */
     private SelectField<M, ?> resolve(String property) {
         var matches = new LinkedHashMap<SelectField<M, ?>, List<String>>();
         for (SelectField<M, ?> column : columns.fields()) {
             if (column instanceof ColumnField<M, ?, ?> plain) {
-                if (property.equals(plain.propertyPath())) {
+                if (property.equals(FieldIndex.propertyKey(plain))) {
                     matches.computeIfAbsent(column, c -> new ArrayList<>()).add("property path");
                 }
                 if (plain.path().equals(property)) {
                     matches.computeIfAbsent(column, c -> new ArrayList<>()).add("attribute path");
                 }
-            } else if (column.name().equals(property)) {
-                matches.computeIfAbsent(column, c -> new ArrayList<>()).add("aggregate name");
+            } else if (property.equals(FieldIndex.propertyKey(column))) {
+                matches.computeIfAbsent(column, c -> new ArrayList<>()).add("aggregate named");
+            }
+        }
+        if (matches.isEmpty()) {
+            // An aggregate's canonical name is tried only when no field is named so (R-QRY-14).
+            for (SelectField<M, ?> column : columns.fields()) {
+                if (!(column instanceof ColumnField<?, ?, ?>) && column.name().equals(property)) {
+                    matches.computeIfAbsent(column, c -> new ArrayList<>()).add("aggregate name");
+                }
             }
         }
         if (matches.size() == 1) {
@@ -252,7 +260,8 @@ public final class ModelQuery<E, K, M> {
         if (matches.isEmpty()) {
             throw new ModelQueryExecutionException(MqCode.MQ2301, modelName() + ": sort property '" + property
                     + "' names no selected column or aggregate; a sort property is a selected column's property "
-                    + "path or attribute path from the root, or an aggregate's name, exact and case-sensitive");
+                    + "path or attribute path from the root, or an aggregate's named property or name, exact and "
+                    + "case-sensitive");
         }
         List<String> candidates = matches.entrySet().stream()
                 .map(match -> candidateName(match.getKey()) + " (" + String.join(", ", match.getValue()) + ")")
@@ -264,7 +273,7 @@ public final class ModelQuery<E, K, M> {
 
     /**
      * What a sort can name {@code column} by: its attribute path, preceded by its property path when that differs, or
-     * an aggregate's name.
+     * an aggregate's {@code named} property, else its name.
      */
     private static String candidateName(SelectField<?, ?> column) {
         if (column instanceof ColumnField<?, ?, ?> plain) {
@@ -273,7 +282,8 @@ public final class ModelQuery<E, K, M> {
                     ? plain.path()
                     : propertyPath + " reading " + plain.path();
         }
-        return column.name();
+        String named = FieldIndex.propertyKey(column);
+        return named != null ? named : column.name();
     }
 
     /**

@@ -35,6 +35,7 @@ try {
 | `MQ1102` | `on(...)` used without `as(...)`. |
 | `MQ1103` | Two `Agg.of` fields share a name with different expressions. |
 | `MQ1104` | `as(...)`, `on(...)` or `presentBy(...)` on a root TableField, which is not a join. |
+| `MQ1105` | `FieldIndex.only` names a key the index doesn't hold, or leaves a kept set empty. |
 | `MQ1201` | `keyset()` or `primaryKeyFirst(...)` without a primary key. |
 | `MQ1202` | `build()` without `select(...)` or `fetch(...)`. |
 | `MQ1203` | Builder given a join instead of a root TableField. |

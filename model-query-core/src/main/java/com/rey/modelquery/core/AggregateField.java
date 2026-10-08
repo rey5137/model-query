@@ -4,6 +4,7 @@ import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.BiFunction;
 
 /**
@@ -20,7 +21,7 @@ import java.util.function.BiFunction;
  * @param <M> the model the selection belongs to
  * @param <C> the aggregate's result type, which is what the database returns (R-AGG-03), or the model type for a
  *     {@code min} or {@code max} over a column with an {@link OrderedColumnConverter} (R-AGG-04)
- * @implSpec R-AGG-01, R-AGG-02, R-AGG-04, D-3, D-84
+ * @implSpec R-AGG-01, R-AGG-02, R-AGG-04, R-COL-23, D-3, D-84, D-121
  */
 @Incubating
 public final class AggregateField<M, C> implements SelectField<M, C> {
@@ -57,11 +58,19 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
     private final ColumnField<?, ?, C> converted;
     /** The expression this aggregate is over, or {@code null} for a column, a table or an {@code Agg.of} (R-AGG-13). */
     private final ExpressionField<?, ?> sourceExpression;
+    /** The model field the aggregate fills, or {@code null}; not part of {@link #equals}, as in an expression. */
+    private final String property;
     private final BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression;
     private final int hash;
 
     AggregateField(Kind kind, JoinKey source, String attribute, String alias, Class<C> type,
             ColumnField<?, ?, C> converted, ExpressionField<?, ?> sourceExpression,
+            BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
+        this(kind, source, attribute, alias, type, converted, sourceExpression, null, expression);
+    }
+
+    private AggregateField(Kind kind, JoinKey source, String attribute, String alias, Class<C> type,
+            ColumnField<?, ?, C> converted, ExpressionField<?, ?> sourceExpression, String property,
             BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
         this.kind = kind;
         this.source = source;
@@ -70,6 +79,7 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         this.type = type;
         this.converted = converted;
         this.sourceExpression = sourceExpression;
+        this.property = property;
         this.expression = expression;
         this.hash = Objects.hash(kind, source, attribute, alias, converterClass(), sourceExpression);
     }
@@ -80,7 +90,22 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
      */
     public AggregateField<M, C> as(String alias) {
         return new AggregateField<>(kind, source, attribute, Objects.requireNonNull(alias, "alias"), type, converted,
-                sourceExpression, expression);
+                sourceExpression, property, expression);
+    }
+
+    /**
+     * This aggregate under {@code property} as the name a sort or a {@link FieldIndex} knows it by, in place of the
+     * canonical {@link #name()}; not part of {@link #equals}, so it stays equal to the same aggregate written without
+     * it (R-AGG-01, R-COL-23).
+     */
+    public AggregateField<M, C> named(String property) {
+        return new AggregateField<>(kind, source, attribute, alias, type, converted, sourceExpression,
+                Objects.requireNonNull(property, "property"), expression);
+    }
+
+    /** The name given to {@link #named}; empty with none. */
+    public Optional<String> property() {
+        return Optional.ofNullable(property);
     }
 
     @Override

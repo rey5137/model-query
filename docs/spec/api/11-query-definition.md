@@ -122,9 +122,10 @@ they do not count.
 
 **R-QRY-14** `ModelQuery.orderedBy(SortSpec)` returns a copy of the definition ordered by the spec's keys, each a
 property name, a direction and a `NullPrecedence`; an empty spec returns the definition unchanged. A property names
-one of the query's selected columns, expressions or aggregates, never an attribute the query doesn't select: first by the column's
-property path, the model field names from the root model (`customer.name` for field `name` of the nested model under
-the `@Join` field `customer`), then by its attribute path from the root; an aggregate matches by its name, an expression by its `named` property. A bare
+one of the query's selected columns, expressions or aggregates, never an attribute the query doesn't select: first by
+the column's property path, the model field names from the root model (`customer.name` for field `name` of the nested
+model under the `@Join` field `customer`), then by its attribute path from the root; an aggregate matches by its
+`named` property first, then by its name (D-121), an expression by its `named` property. A bare
 attribute name never matches a joined column. A column without a property (hand-written, not given one with
 `named(String)`) matches by attribute path only (D-55). Matching is exact and case-sensitive, and every tier is
 tried: a property matching no column, or different columns on one tier or on different tiers, throws `MQ2301` naming it

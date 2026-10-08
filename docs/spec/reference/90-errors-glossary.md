@@ -40,6 +40,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1102` | `on(...)` used without `as(...)` | `api/10` R-COL-04 |
 | `MQ1103` | Two `Agg.of` fields share a name with different expressions | `api/13` R-AGG-02 |
 | `MQ1104` | `as(...)`, `on(...)` or `presentBy(...)` on a root `TableField`, which is not a join | `api/10` R-COL-03, R-COL-04 |
+| `MQ1105` | `FieldIndex.only` names a key the index doesn't hold, or leaves a kept set empty | `api/10` R-COL-24 |
 | `MQ1201` | `keyset()` or `primaryKeyFirst(...)` without a primary key | `api/11` R-QRY-03 |
 | `MQ1202` | `build()` without `select` or `fetch` | `api/11` R-QRY-02 |
 | `MQ1203` | `ModelQuery.builder`, `ModelUpdate.builder` or `ModelDelete.builder` given a join instead of a root `TableField` | `api/11` R-QRY-02, `api/14` R-WRT-12 |

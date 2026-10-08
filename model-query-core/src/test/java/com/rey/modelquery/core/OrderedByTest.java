@@ -90,7 +90,7 @@ class OrderedByTest {
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ2301))
                     .hasMessage("MQ2301: OrderView: sort property '" + property + "' names no selected column or "
                             + "aggregate; a sort property is a selected column's property path or attribute path "
-                            + "from the root, or an aggregate's name, exact and case-sensitive");
+                            + "from the root, or an aggregate's named property or name, exact and case-sensitive");
         }
     }
 
@@ -218,7 +218,7 @@ class OrderedByTest {
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ2301))
                     .hasMessage("MQ2301: OrderView: sort property '" + property + "' names no selected column or "
                             + "aggregate; a sort property is a selected column's property path or attribute path "
-                            + "from the root, or an aggregate's name, exact and case-sensitive");
+                            + "from the root, or an aggregate's named property or name, exact and case-sensitive");
         }
     }
 
@@ -298,6 +298,35 @@ class OrderedByTest {
 
         assertThat(sorted.orderBy()).containsExactly(ORDERS.desc(), STATUS.asc());
         assertThat(sorted.isGrouped()).isTrue();
+    }
+
+    @Test
+    void ac_col_26_an_aggregate_sorts_by_its_named_property_first_and_still_by_its_name() {
+        AggregateField<OrderView, Long> count = Agg.count(ROOT);
+        var named = count.named("orders");
+        var grouped = ModelQuery.builder(ROOT, row -> new OrderView())
+                .select(SelectSet.of(STATUS, named))
+                .groupBy(STATUS)
+                .build();
+
+        assertThat(grouped.orderedBy(SortSpec.of(Key.desc("orders"))).orderBy()).containsExactly(named.desc());
+        assertThat(grouped.orderedBy(SortSpec.of(Key.desc(count.name()))).orderBy()).containsExactly(named.desc());
+        // A named aggregate and a column sharing the property are ambiguous, as two columns would be.
+        var clash = ModelQuery.builder(ROOT, row -> new OrderView())
+                .select(SelectSet.of(STATUS, count.named("status")))
+                .groupBy(STATUS)
+                .build();
+        assertThatThrownBy(() -> clash.orderedBy(SortSpec.of(Key.asc("status"))))
+                .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ2301))
+                .hasMessageContaining("names more than one selected column");
+        // A named property wins over another aggregate's canonical name.
+        var renamed = Agg.count(STATUS).named(count.name());
+        var both = ModelQuery.builder(ROOT, row -> new OrderView())
+                .select(SelectSet.of(STATUS, count, renamed))
+                .groupBy(STATUS)
+                .build();
+        assertThat(both.orderedBy(SortSpec.of(Key.asc(count.name()))).orderBy()).containsExactly(renamed.asc());
     }
 
     @Test
