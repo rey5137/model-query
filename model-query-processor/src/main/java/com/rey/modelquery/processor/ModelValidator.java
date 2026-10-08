@@ -205,6 +205,14 @@ final class ModelValidator {
                         model.name() + " " + column.definition().label() + ": ", diagnostics);
             }
         }
+        // An insert or update model generates no fields() (R-GEN-32).
+        if (model.queryModel()) {
+            for (FilterIndex.Shadowed shadowed : FilterIndex.of(model, joined, filters).shadowed()) {
+                diagnostics.warning(model.type(), DiagnosticCode.MQ3022, model.name() + " "
+                        + shadowed.column().definition().label() + ": its key '" + shadowed.key() + "' is already "
+                        + "held by " + shadowed.holder() + "; fields() leaves it out, and it stays a constant");
+            }
+        }
     }
 
     /**

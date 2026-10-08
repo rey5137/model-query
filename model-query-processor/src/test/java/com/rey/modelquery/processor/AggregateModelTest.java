@@ -102,7 +102,8 @@ class AggregateModelTest {
         assertThat(generated)
                 .contains("SelectSet<SalesSummary> GROUP_KEYS = SelectSet.of(REGION);")
                 .contains("SelectSet<SalesSummary> ALL = SelectSet.of(REGION);")
-                .contains("AggregateField<SalesSummary, Long> LINES = Agg.count(ROOT);")
+                .contains("AggregateField<SalesSummary, Long> LINES = Agg.<SalesSummary>count(ROOT) "
+                        + ".named(\"lines\");")
                 .contains("Builder<SaleEntity, Object, SalesSummary> query() { "
                         + "return ModelQuery.builder(ROOT, MAPPER).groupBy(GROUP_KEYS); }")
                 .contains("if (row.isSelected(LINES)) { m.setLines(row.get(LINES)); }")
@@ -132,9 +133,9 @@ class AggregateModelTest {
                 """);
 
         assertThat(compilation).succeededWithoutWarnings();
-        assertThat(generatedFlat(compilation, "shop.QSalesSummary")).contains("Agg.of(\"PRICED\", Long.class, "
-                + "(ctx, cb) -> cb.count(ColumnField.of(SalesSummary.class, ROOT, \"amount\", "
-                + "BigDecimal.class).path(ctx)));");
+        assertThat(generatedFlat(compilation, "shop.QSalesSummary")).contains("Agg.<SalesSummary, Long>of("
+                + "\"PRICED\", Long.class, (ctx, cb) -> cb.count(ColumnField.of(SalesSummary.class, ROOT, \"amount\", "
+                + "BigDecimal.class).path(ctx))).named(\"priced\");");
     }
 
     // The M9 gate finding (R-GEN-27, R-PROC-21, R-PROC-22): an aggregate over an expression is emitted after the

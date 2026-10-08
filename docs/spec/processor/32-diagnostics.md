@@ -31,6 +31,7 @@
 | `MQ3019` | `@Computed` combined with `@PrimaryKey`, `@Column`, `@Join`, `@Child`, `@Aggregate` or `@Transient`, or on a primitive field, since an expression may be NULL (D-115) | `OrderView.net: @Computed can't be combined with @Column` or `OrderView.net: @Computed field is primitive; an expression may be NULL` |
 | `MQ3020` | A `@Selected` field is not exactly `SelectSet<Model>`, or a model has two `@Selected` fields (D-120) | `OrderView.selected: @Selected field is SelectSet<CustomerView>, not SelectSet<OrderView>` or `OrderView.second: a model has one @Selected field; remove this one` |
 | `MQ3021` | `@Selected` combined with `@PrimaryKey`, `@Column`, `@Join`, `@Child`, `@Aggregate`, `@GroupBy`, `@Computed`, `@ExcludeFromDefaults` or `@Transient` (D-120) | `OrderView.selected: @Selected can't be combined with @Column` |
+| `MQ3022` | **Warning.** A `@FilterColumn` whose key in `fields()` (its `path`) a mapped column, a `@Computed` field or an earlier `@FilterColumn` already holds: the column is left out of `fields()` and stays a constant (D-121) | `OrderView @FilterColumn(STATUS_RAW): its key 'status' is already held by the column 'status'; fields() leaves it out, and it stays a constant` |
 | `MQ3201` | `@Aggregate` field is primitive | `ProductSales.revenue: SUM is NULL over zero rows; use BigDecimal, not a primitive` |
 | `MQ3202` | `@Aggregate` field type does not match the function's result type | `ProductSales.lines: COUNT returns Long, field is Integer` |
 | `MQ3203` | `@Aggregate` model has no `@GroupBy` field and is not `singleGroup` | `ProductSales: has @Aggregate fields but no @GroupBy; add one or set @QueryModel(singleGroup = true)` |
@@ -107,3 +108,4 @@ the generated class.
 | AC-DIAG-08 | `MQ3018`, `MQ3019`, `MQ3208` and the widened `MQ3005` each have a compile-testing case, and `MQ3202`/`MQ3205` over an expression's type (R-PROC-21, R-PROC-22). |
 | AC-DIAG-09 | `MQ3501`, `MQ3502`, `MQ3503` and the warning `MQ3504` each have a compile-testing case on an insert model, `MQ3504` leaving the QModel generated; `MQ3503` is reported once, on the type (R-PROC-23, R-PROC-24, R-DIAG-02). |
 | AC-DIAG-10 | `MQ3020` (a wrong type, a raw type, a second `@Selected`), `MQ3021`, and `@Selected` under `MQ3302` and `MQ3502` each have a compile-testing case (R-PROC-25, D-120). |
+| AC-DIAG-11 | `MQ3022` has a compile-testing case for a filter column shadowed by a mapped column and for a second filter column on one path, each leaving the QModel generated with the column a constant (R-GEN-33, D-121). |

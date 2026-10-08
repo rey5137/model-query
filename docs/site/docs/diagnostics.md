@@ -140,6 +140,7 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3019` | `@Computed` combined with `@PrimaryKey`, `@Column`, `@Join`, `@Child`, `@Aggregate` or `@Transient`, or on a primitive field. |
 | `MQ3020` | `@Selected` field that is not exactly `SelectSet<Model>`, or a second `@Selected` field in the model. |
 | `MQ3021` | `@Selected` combined with another field annotation of the library. |
+| `MQ3022` | Warning: a `@FilterColumn` whose key in `fields()` a mapped column, a `@Computed` field or another `@FilterColumn` already holds is left out of `fields()` and stays a constant. |
 | `MQ3201` | Aggregate model: field is primitive. |
 | `MQ3202` | Aggregate model: field type does not match the function's result type. |
 | `MQ3203` | Aggregate model: no `@GroupBy` field and is not `singleGroup`. |

@@ -239,12 +239,13 @@ class BuiltInConverterTest {
         assertThat(generatedFlat(compilation, "shop.QEventSummary"))
                 .contains("AggregateField<EventSummary, Instant> FIRST = Agg.min( ColumnField.of("
                         + "EventSummary.class, ROOT, \"createdAt\", Instant.class, Timestamp.class, "
-                        + "InstantTimestampConverter.INSTANCE));")
+                        + "InstantTimestampConverter.INSTANCE)).named(\"first\");")
                 .contains("AggregateField<EventSummary, Date> LAST = Agg.max( ColumnField.of("
                         + "EventSummary.class, ROOT, \"createdAt\", Date.class, Timestamp.class, "
-                        + "DateTimestampConverter.INSTANCE));")
+                        + "DateTimestampConverter.INSTANCE)).named(\"last\");")
                 .contains("AggregateField<EventSummary, Long> INSTANTS = Agg.countDistinct( ColumnField.of("
-                        + "EventSummary.class, ROOT, \"createdAt\", Timestamp.class));");
+                        + "EventSummary.class, ROOT, \"createdAt\", Timestamp.class)) "
+                        + ".named(\"instants\");");
     }
 
     @Test

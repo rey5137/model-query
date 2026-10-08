@@ -2,6 +2,7 @@ package shop;
 
 import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.FieldIndex;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.OrderedColumnField;
@@ -47,8 +48,24 @@ public final class QOrderSummary {
         return new OrderSummary(row.get(ID), row.get(STATUS), row.get(CITY), row.get(NOTES), null);
     }
 
+    /**
+     * This model's fields by name, built on the first call ({@code R-GEN-32}); incubating.
+     */
+    @Incubating
+    public static FieldIndex<OrderSummary> fields() {
+        return Index.INSTANCE;
+    }
+
     @Incubating
     public static ModelDelete.Builder<OrderEntity, Long, OrderSummary> delete() {
         return ModelDelete.builder(ROOT).primaryKey(KEY);
+    }
+
+    private static final class Index {
+        static final FieldIndex<OrderSummary> INSTANCE = FieldIndex.builder(OrderSummary.class)
+                .select(ID, STATUS, CITY, NOTES)
+                .set("ALL", ALL)
+                .set("DEFAULT", DEFAULT)
+                .build();
     }
 }

@@ -3,6 +3,7 @@ package shop;
 import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ChildField;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.FieldIndex;
 import com.rey.modelquery.core.JoinField;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
@@ -143,8 +144,26 @@ public final class QCustomerView {
         return m;
     }
 
+    /**
+     * This model's fields by name, built on the first call ({@code R-GEN-32}); incubating.
+     */
+    @Incubating
+    public static FieldIndex<CustomerView> fields() {
+        return Index.INSTANCE;
+    }
+
     @Incubating
     public static ModelDelete.Builder<CustomerEntity, Long, CustomerView> delete() {
         return ModelDelete.builder(ROOT).primaryKey(KEY);
+    }
+
+    private static final class Index {
+        static final FieldIndex<CustomerView> INSTANCE = FieldIndex.builder(CustomerView.class)
+                .select(ID, NAME, COUNTRY_CODE, COUNTRY_NAME)
+                .set("ALL", ALL)
+                .set("DEFAULT", DEFAULT)
+                .joinSet(COUNTRY_TABLE, COUNTRY)
+                .child(INVOICES)
+                .build();
     }
 }

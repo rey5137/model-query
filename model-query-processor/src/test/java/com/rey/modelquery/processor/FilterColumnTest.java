@@ -107,7 +107,11 @@ class FilterColumnTest {
                 public record BasketView(@PrimaryKey Long id, @Join Optional<CustomerView> customer) {}
                 """);
 
-        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(compilation).succeeded();
+        assertThat(compilation).hadWarningCount(1);
+        assertThat(compilation).hadWarningContaining(
+                "MQ3022: BasketView @FilterColumn(COUNTRY): its key 'customer.country.name' is already held by "
+                        + "the column 'customer.country.name'");
         String generated = basket(compilation);
         assertThat(generated)
                 .contains("ColumnField<BasketView, CustomerEntity, String> CUSTOMER_EMAIL = "
@@ -166,7 +170,12 @@ class FilterColumnTest {
                 public record BasketView(@PrimaryKey Long id) {}
                 """);
 
-        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(compilation).succeeded();
+        assertThat(compilation).hadWarningCount(2);
+        assertThat(compilation).hadWarningContaining(
+                "MQ3022: BasketView @FilterColumn(SKU_B): its key 'lines.sku' is already held by @FilterColumn(SKU_A)");
+        assertThat(compilation).hadWarningContaining(
+                "MQ3022: BasketView @FilterColumn(SKU): its key 'lines.sku' is already held by @FilterColumn(SKU_A)");
         String generated = basket(compilation);
         assertThat(generated)
                 .contains("TableField<BasketEntity, LineEntity> LINE_A_TABLE = "
@@ -208,7 +217,11 @@ class FilterColumnTest {
                         @Join(attribute = "customer", alias = "rep") Optional<CustomerView> agent) {}
                 """);
 
-        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(compilation).succeeded();
+        assertThat(compilation).hadWarningCount(4);
+        assertThat(compilation).hadWarningContaining(
+                "MQ3022: BasketView @FilterColumn(PAYER_EMAIL): its key 'customer.email' is already held by "
+                        + "@FilterColumn(BUYER_EMAIL)");
         String generated = basket(compilation);
         assertThat(generated)
                 // No alias is the first @Join on the attribute; an alias is the @Join it names, written or automatic.
@@ -238,7 +251,11 @@ class FilterColumnTest {
                 public record BasketView(@PrimaryKey Long id) {}
                 """);
 
-        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(compilation).succeeded();
+        assertThat(compilation).hadWarningCount(1);
+        assertThat(compilation).hadWarningContaining(
+                "MQ3022: BasketView @FilterColumn(QTY_ORIGIN): its key 'lines.origin.name' is already held by "
+                        + "@FilterColumn(ORIGIN)");
         String generated = basket(compilation);
         assertThat(generated)
                 // A LEFT path is on the collection's constant, which no filter column replaces.

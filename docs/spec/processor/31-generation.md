@@ -314,6 +314,42 @@ along, as it passes every component it does not change. The library neither wrap
 second time, so a copy built with `null` or another set holds that. A class model's setter-filled field survives a
 finisher that returns the same instance.
 
+**R-GEN-32** *(D-121)* Every `@QueryModel` generates a `public static FieldIndex<M> fields()` method that returns one
+instance, held in a private nested holder class and initialised on the first `fields()` call. It is a method and not
+a constant, so it can't clash with a column constant (a model field named `fields` generates the constant `FIELDS`,
+which Java keeps apart from the method `fields()`), and the holder is lazy, so a `Q<M>` that is never asked for its
+index never builds one. Calling `fields()` from `Q<M>`'s own static initialiser (for example from a converter's or an
+`ExpressionDefinition`'s initialiser) fails with `ExceptionInInitializerError`, not a silent `null`. Update and insert
+models generate no `fields()`.
+
+**R-GEN-33** *(D-121)* The generated code passes constants, never key strings, apart from the reserved set names `ALL`
+and `DEFAULT`. `FieldIndex` derives each key from the constant itself, with tier 1 of the rule `orderedBy` uses
+(R-QRY-14), through one helper both share. The index holds the following, in declaration order:
+
+| Kind | Key, derived by core | Included |
+|---|---|---|
+| Select | A column's property path (the field name, or `join.field` for a `@Join` model's column at any depth), else its attribute path. An expression's `named` property, else its name. An aggregate's `named` property, else its name | Every field the mapper reads (R-GEN-29): mapped columns, `@Computed` and `@Aggregate` constants |
+| Filter-only column | Its attribute path (`@FilterColumn.path`): a filter-only column has no property (D-55). The alias isn't part of the key | `@FilterColumn` constants. They can be filtered on but not selected |
+| Column set | `ALL` and `DEFAULT` as passed; a join set by its join's property path (`TableField.propertyPath()`) | `ALL`, `DEFAULT` and each `@Join` set, when the model generates sets. Not `GROUP_KEYS`, not `SELECTED_FIELDS` |
+| Child | `ChildField.name()`, the `@Child` field's name | Every `ChildField` |
+
+Keys are exact and case-sensitive, as in R-QRY-14. A select key and a set key can be the same string (`customer` is a
+set; `customer.name` is a column), because they are looked up by kind. Within one kind, the same key with an equal
+field keeps one entry; the same key with a different field makes `build()` throw `IllegalStateException`. The processor
+never passes such a pair: a filter-only column whose key a mapped column or a `@Computed` field already holds
+(`@FilterColumn(name = "STATUS_RAW", path = "status")`), or a second filter-only column on one path, is left out of the index with the
+warning `MQ3022`, and stays a constant. It isn't an error, because such models compile on 0.5.
+
+The vocabulary is tier 1 only, a subset of the names a sort accepts: an attribute path that differs from the property
+path (`customer.fullName` for the property `customer.name`) is unknown to the index. A name that resolves through
+`fields()` names the same field as the same name used as a sort property whenever the sort resolves it. The sort can
+still refuse a name that is ambiguous across its tiers, for example two `@Join`s on one attribute, both selected.
+
+**Aggregate names.** An aggregate's `name()` is the canonical text of its function (`sum(total)`, `count(OrderEntity)`
+for `COUNT(*)`), which would become a client-facing key and leak entity names. The processor emits `.named(field)` for
+every `@Aggregate` constant (`AggregateField.named`, `api/13` R-AGG-01), outside `equals`, and R-QRY-14's aggregate
+tier matches the `named` property first, then the name, so existing sorts keep working.
+
 ## 8. Acceptance criteria
 
 | ID | Criterion |
@@ -338,3 +374,8 @@ finisher that returns the same instance.
 | AC-GEN-18 | Against H2: a grouped query's set holds its group keys and the aggregates it selected; a keyset export ordered by a filter-only column keeps that column out of the set; `withFetch` keeps the set and counts an enricher's column as selected (R-GEN-29, R-GEN-30). |
 | AC-GEN-19 | A record `finisher` that rebuilds the record with `selected()` leaves the set as the mapper filled it (R-GEN-31). |
 | AC-GEN-20 | `persist(persist, returning)` on every Tier-1 vendor fills the set with the selected columns, a `NULL` one included (R-GEN-30, `api/14` R-WRT-48). |
+| AC-GEN-21 | `fields()` holds every select field, set, filter column and child of a model with a `@Join`, a nested `@Join`, a `@Child`, a `@FilterColumn`, a `@Computed` and an `@Aggregate`, keyed as R-GEN-33 says; the generated source passes constants by kind in declaration order, and an aggregate is keyed by its field name (R-GEN-32, R-GEN-33). |
+| AC-GEN-22 | A model with a field named `fields` compiles, and its `FIELDS` constant and `fields()` method both work (R-GEN-32). |
+| AC-GEN-23 | A property path resolved through `fields()` and the same path used as a sort property name the same field, for a column, a nested `@Join` column, an expression and a `named` aggregate (R-GEN-33). |
+| AC-GEN-24 | Update and insert models generate no `fields()` (R-GEN-32). |
+| AC-GEN-25 | A model whose entity and converter are named `Index` compiles, and its `fields()` works (R-GEN-32). |

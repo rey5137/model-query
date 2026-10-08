@@ -50,6 +50,7 @@ final class QModelWriter {
     private static final ClassName AGGREGATE_FIELD = ClassName.get(CORE, "AggregateField");
     private static final ClassName EXPRESSION_FIELD = ClassName.get(CORE, "ExpressionField");
     private static final ClassName SELECT_SET = ClassName.get(CORE, "SelectSet");
+    private static final ClassName FIELD_INDEX = ClassName.get(CORE, "FieldIndex");
     private static final ClassName PRIMARY_KEY = ClassName.get(CORE, "PrimaryKey");
     private static final ClassName ROW_MAPPER = ClassName.get(CORE, "RowMapper");
     private static final ClassName ROW = ClassName.get(CORE, "Row");
@@ -225,10 +226,62 @@ final class QModelWriter {
             mapClass(model, modelName, generated, map);
         }
         type.addMethod(map.build());
+        // After the mapper, whose constants it names; the holder is read on the first call, not when this class loads.
+        fieldIndex(model, modelName, generated, joined, FilterIndex.of(model, joined, filters), type);
         if (keyed) {
             writes(model, modelName, entity, keyType, type);
         }
         return file(generated, type);
+    }
+
+    /**
+     * {@code fields()} and the private holder that builds the model's {@code FieldIndex} on the first call. It passes
+     * constants by kind in declaration order, never key strings apart from the set names {@code ALL} and
+     * {@code DEFAULT}, and omits a call with nothing to pass (R-GEN-32, R-GEN-33).
+     */
+    private static void fieldIndex(
+            ModelDefinition model, ClassName modelName, ClassName generated, List<JoinedTable> joined,
+            FilterIndex filters, TypeSpec.Builder type) {
+        TypeName index = ParameterizedTypeName.get(FIELD_INDEX, modelName);
+        // What the mapper reads, in the order of SELECTED_FIELDS (R-GEN-29).
+        var select = new ArrayList<String>();
+        model.columns().forEach(field -> select.add(field.constant()));
+        joined.forEach(table -> table.columns().forEach(column -> select.add(column.constant())));
+        model.computed().forEach(field -> select.add(field.constant()));
+        model.aggregates().forEach(field -> select.add(field.constant()));
+        CodeBlock.Builder init = CodeBlock.builder().add("$T.builder($T.class)$>$>", FIELD_INDEX, modelName);
+        indexCall(init, "select", select);
+        indexCall(init, "filterOnly", filters.kept().stream().map(column -> column.definition().name()).toList());
+        if (model.selectSets()) {
+            init.add("\n.set($S, ALL)\n.set($S, DEFAULT)", "ALL", "DEFAULT");
+            joined.forEach(table -> init.add("\n.joinSet($L, $L)", table.table(), table.prefix()));
+        }
+        indexCall(init, "child", model.children().stream().map(ModelField::constant).toList());
+        init.add("\n.build()$<$<");
+        // The holder is named Index and may share a name with a user's type; JavaPoet qualifies the one it must.
+        ClassName holder = generated.nestedClass("Index");
+        type.addMethod(MethodSpec.methodBuilder("fields")
+                .addJavadoc("This model's fields by name, built on the first call ({@code R-GEN-32}); incubating.\n")
+                .addAnnotation(INCUBATING)
+                .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+                .returns(index)
+                .addStatement("return $T.INSTANCE", holder)
+                .build());
+        type.addType(TypeSpec.classBuilder(holder.simpleName())
+                .addModifiers(Modifier.PRIVATE, Modifier.STATIC, Modifier.FINAL)
+                .addField(FieldSpec.builder(index, "INSTANCE", Modifier.STATIC, Modifier.FINAL)
+                        .initializer(init.build())
+                        .build())
+                .build());
+    }
+
+    /** Adds {@code .name(constants)} to {@code init}, or nothing when there are no constants. */
+    private static void indexCall(CodeBlock.Builder init, String name, List<String> constants) {
+        if (!constants.isEmpty()) {
+            // Each name is an argument, never part of the format: a field name may hold a '$'.
+            init.add("\n.$L($L)", name, constants.stream().map(constant -> CodeBlock.of("$L", constant))
+                    .collect(CodeBlock.joining(",$W")));
+        }
     }
 
     private static JavaFile file(ClassName generated, TypeSpec.Builder type) {
@@ -396,6 +449,8 @@ final class QModelWriter {
      */
     private FieldSpec aggregate(ClassName modelName, ModelDefinition model, ModelField field) {
         AggregateDefinition aggregate = field.aggregate();
+        // Named after the field, so a client-facing key never carries the canonical text of the function (R-GEN-33).
+        CodeBlock named = CodeBlock.of("$Z.named($S)", field.name());
         TypeName result = column(field.type());
         FieldSpec.Builder constant = FieldSpec.builder(
                 ParameterizedTypeName.get(AGGREGATE_FIELD, modelName, result), field.constant(), CONSTANT);
@@ -404,10 +459,12 @@ final class QModelWriter {
             ExpressionDefinitionType definition = ExpressionDefinitionType.of(types, aggregate.expression());
             TypeMirror sourceType = definition.value();
             String function = aggregateFunction(aggregate, sourceType);
-            return constant.initializer("$T.$L($L)", AGG, function, definitionExpression(definition)).build();
+            return constant.initializer("$T.$L($L)$L", AGG, function, definitionExpression(definition), named)
+                    .build();
         }
         if (aggregate.attribute().isEmpty() && aggregate.fn().equals("COUNT")) {
-            return constant.initializer("$T.count(ROOT)", AGG).build();
+            // The model can't be inferred from ROOT, once .named() is chained on the call.
+            return constant.initializer("$T.<$T>count(ROOT)$L", AGG, modelName, named).build();
         }
         TypeMirror attributeType = metamodel.resolve(model.root(), aggregate.attribute()).attribute().type();
         // MIN or MAX typed as the field reads its Timestamp attribute through the built-in converter (D-84).
@@ -423,10 +480,10 @@ final class QModelWriter {
                 : aggregateFunction(aggregate, attributeType);
         if (function == null) {
             // Agg has no count(column), so it counts the column's non-null values as an expression of its own.
-            return constant.initializer("$T.of($S, $T.class,$W(ctx, cb) -> cb.count($Z$L.path(ctx)))",
-                    AGG, field.constant(), Long.class, source).build();
+            return constant.initializer("$T.<$T, $T>of($S, $T.class,$W(ctx, cb) -> cb.count($Z$L.path(ctx)))$L",
+                    AGG, modelName, Long.class, field.constant(), Long.class, source, named).build();
         }
-        return constant.initializer("$T.$L($Z$L)", AGG, function, source).build();
+        return constant.initializer("$T.$L($Z$L)$L", AGG, function, source, named).build();
     }
 
     /**

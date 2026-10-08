@@ -3,6 +3,7 @@ package models;
 import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ChildField;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.FieldIndex;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.OrderedColumnField;
@@ -136,8 +137,25 @@ public final class QShelfCard {
         return new ShelfCard(row.get(ID), List.of(), Optional.empty());
     }
 
+    /**
+     * This model's fields by name, built on the first call ({@code R-GEN-32}); incubating.
+     */
+    @Incubating
+    public static FieldIndex<ShelfCard> fields() {
+        return Index.INSTANCE;
+    }
+
     @Incubating
     public static ModelDelete.Builder<ShelfEntity, Long, ShelfCard> delete() {
         return ModelDelete.builder(ROOT).primaryKey(KEY);
+    }
+
+    private static final class Index {
+        static final FieldIndex<ShelfCard> INSTANCE = FieldIndex.builder(ShelfCard.class)
+                .select(ID)
+                .set("ALL", ALL)
+                .set("DEFAULT", DEFAULT)
+                .child(ITEMS, PAYER)
+                .build();
     }
 }

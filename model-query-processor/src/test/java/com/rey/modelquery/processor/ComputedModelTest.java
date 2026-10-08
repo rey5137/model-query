@@ -238,7 +238,7 @@ class ComputedModelTest {
         assertThat(generatedFlat(compilation, "shop.QOrderBand"))
                 .contains("ExpressionField<OrderBand, String> BAND = Band.INSTANCE.expression().named(\"band\");")
                 .contains("AggregateField<OrderBand, BigDecimal> DOUBLED = "
-                        + "Agg.sum(BandDoubled.INSTANCE.expression());")
+                        + "Agg.sum(BandDoubled.INSTANCE.expression()) .named(\"doubled\");")
                 .contains("SelectSet<OrderBand> ALL = SelectSet.of(BAND);")
                 .contains("SelectSet<OrderBand> GROUP_KEYS = SelectSet.of(BAND);")
                 .contains("return ModelQuery.builder(ROOT, MAPPER).groupBy(GROUP_KEYS);")
@@ -290,8 +290,10 @@ class ComputedModelTest {
 
         assertThat(compilation).succeededWithoutWarnings();
         assertThat(generatedFlat(compilation, "shop.QOrderBand"))
-                .contains("AggregateField<OrderBand, Long> ROWS = Agg.countDistinct(LongDef.INSTANCE.expression());")
-                .contains("AggregateField<OrderBand, Long> UNITS = Agg.sumAsLong(IntDef.INSTANCE.expression());");
+                .contains("AggregateField<OrderBand, Long> ROWS = Agg.countDistinct(LongDef.INSTANCE.expression()) "
+                        + ".named(\"rows\");")
+                .contains("AggregateField<OrderBand, Long> UNITS = Agg.sumAsLong(IntDef.INSTANCE.expression()) "
+                        + ".named(\"units\");");
     }
 
     // ---- AC-DIAG-08

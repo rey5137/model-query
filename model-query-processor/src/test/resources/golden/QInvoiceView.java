@@ -3,6 +3,7 @@ package shop;
 import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ChildField;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.FieldIndex;
 import com.rey.modelquery.core.JoinField;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
@@ -201,8 +202,31 @@ public final class QInvoiceView {
                 : Optional.of(QCustomerView.MAPPER.map(payer)), Optional.empty());
     }
 
+    /**
+     * This model's fields by name, built on the first call ({@code R-GEN-32}); incubating.
+     */
+    @Incubating
+    public static FieldIndex<InvoiceView> fields() {
+        return Index.INSTANCE;
+    }
+
     @Incubating
     public static ModelDelete.Builder<InvoiceEntity, Long, InvoiceView> delete() {
         return ModelDelete.builder(ROOT).primaryKey(KEY);
+    }
+
+    private static final class Index {
+        static final FieldIndex<InvoiceView> INSTANCE = FieldIndex.builder(InvoiceView.class)
+                .select(ID, STATUS, CUSTOMER_ID, CUSTOMER_NAME, CUSTOMER_COUNTRY_CODE,
+                        CUSTOMER_COUNTRY_NAME, BUYER_ID, BUYER_NAME, BUYER_COUNTRY_CODE,
+                        BUYER_COUNTRY_NAME)
+                .set("ALL", ALL)
+                .set("DEFAULT", DEFAULT)
+                .joinSet(CUSTOMER_TABLE, CUSTOMER)
+                .joinSet(CUSTOMER_COUNTRY_TABLE, CUSTOMER_COUNTRY)
+                .joinSet(BUYER_TABLE, BUYER)
+                .joinSet(BUYER_COUNTRY_TABLE, BUYER_COUNTRY)
+                .child(BILLING_COUNTRY)
+                .build();
     }
 }

@@ -229,7 +229,9 @@ class SelectedModelTest {
                 + "ID, STATUS, CUSTOMER_ID, CUSTOMER_NAME, DOUBLED);";
         assertThat(source).contains(declaration);
         // Nothing is declared after it but the mapper, which only names a method: no constant it holds is read early.
-        String after = source.substring(source.indexOf(declaration) + declaration.length());
+        String all = source.substring(source.indexOf(declaration) + declaration.length());
+        // fields() and its holder (R-GEN-32) come after the mapper, and read the constants only when first called.
+        String after = all.substring(0, all.indexOf(" /** * This model's fields"));
         assertThat(after.split("static final", -1)).hasSize(2);
         assertThat(after).startsWith(" public static final RowMapper<OrderView> MAPPER");
         // A filter-only column and the @Selected component are in no column constant, so not in it.

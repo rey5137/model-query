@@ -67,6 +67,12 @@ enum DiagnosticCode {
     /** {@code @Selected} is combined with another annotation of the library on its field. */
     MQ3021("@Selected combined with another field annotation"),
 
+    /**
+     * A {@code @FilterColumn} whose key in {@code fields()} a mapped column, a {@code @Computed} field or another
+     * filter column already holds, so it is left out of the index; a warning.
+     */
+    MQ3022("Filter column left out of fields() because its key is already held; a warning"),
+
     /** An {@code @Aggregate} field is primitive, though an aggregate can be {@code NULL}. */
     MQ3201("@Aggregate field is primitive"),
 

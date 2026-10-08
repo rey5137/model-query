@@ -3,6 +3,7 @@ package models;
 import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ChildField;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.FieldIndex;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.OrderedColumnField;
@@ -94,8 +95,25 @@ public final class QCustomerCard {
         return new CustomerCard(row.get(ID), row.get(NAME), List.of());
     }
 
+    /**
+     * This model's fields by name, built on the first call ({@code R-GEN-32}); incubating.
+     */
+    @Incubating
+    public static FieldIndex<CustomerCard> fields() {
+        return Index.INSTANCE;
+    }
+
     @Incubating
     public static ModelDelete.Builder<CustomerEntity, Long, CustomerCard> delete() {
         return ModelDelete.builder(ROOT).primaryKey(KEY);
+    }
+
+    private static final class Index {
+        static final FieldIndex<CustomerCard> INSTANCE = FieldIndex.builder(CustomerCard.class)
+                .select(ID, NAME)
+                .set("ALL", ALL)
+                .set("DEFAULT", DEFAULT)
+                .child(ORDERS)
+                .build();
     }
 }

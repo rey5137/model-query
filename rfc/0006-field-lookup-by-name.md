@@ -91,9 +91,9 @@ and `DEFAULT`. `FieldIndex` derives each key from the constant itself, with tier
 Keys are exact and case-sensitive, as in R-QRY-14. A select key and a set key can be the same string (`customer` is a
 set; `customer.name` is a column), because they are looked up by kind. Within one kind, the same key with an equal
 field keeps one entry; the same key with a different field makes `build()` throw `IllegalStateException`. The processor
-never passes such a pair: a filter-only column whose key a mapped column already holds (`@FilterColumn(name =
-"STATUS_RAW", path = "status")`), or a second filter-only column on one path, is left out of the index with the
-warning `MQ3022`, and stays a constant. It isn't an error, because such models compile on 0.5.
+never passes such a pair: a filter-only column whose key a mapped column or a `@Computed` field already holds
+(`@FilterColumn(name = "STATUS_RAW", path = "status")`), or a second filter-only column on one path, is left out of the
+index with the warning `MQ3022`, and stays a constant. It isn't an error, because such models compile on 0.5.
 
 The vocabulary is tier 1 only, a subset of the names a sort accepts: an attribute path that differs from the property
 path (`customer.fullName` for the property `customer.name`) is unknown to the index. A name that resolves through
@@ -203,7 +203,7 @@ of writing them as `null`. A resolved child is matched by identity (`child.equal
 | AC-GEN-23 | `processor/31` | A property path resolved through `fields()` and the same path used as a sort property name the same field, for a column, a nested `@Join` column, an expression and a `named` aggregate |
 | AC-GEN-24 | `processor/31` | Update and insert models generate no `fields()` |
 | AC-GEN-25 | `processor/31` | A model whose entity and converter are named `Index` compiles, and its `fields()` works |
-| `MQ3022` | `processor/32` | Warning: a filter-only column whose key a mapped column or another filter-only column already holds is left out of `fields()` |
+| `MQ3022` | `processor/32` | Warning: a filter-only column whose key a mapped column, a `@Computed` field or another filter-only column already holds is left out of `fields()` |
 | R-COL-23, R-COL-24 | `api/10` | `resolve` and `only` |
 | AC-COL-23.. | `api/10` | `resolve` with known, unknown, filter-only, set, child, repeated, empty and `""` names and its ordering; `only` narrowing a set, and `only` with an unknown name or a set left empty throwing `MQ1105`; the builder's duplicate-key rule; `AggregateField.named` outside `equals` |
 | `MQ1105` | `reference/90` §2 | `FieldIndex.only` names a key the index doesn't hold, or leaves a kept set empty |
