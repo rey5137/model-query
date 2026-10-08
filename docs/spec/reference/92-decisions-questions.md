@@ -1607,6 +1607,23 @@ and `@Loaded` (the latter clashes with fetch-plan "unloaded"). D-85: `@Selected`
 M12; the freeze moves to M13. → `api/10`, `api/11` R-QRY-05, `processor/30`, `processor/31`, `processor/32`
 (`MQ3020`, `MQ3021`, `MQ3302`, `MQ3502`), `reference/90`, `delivery/61`, `delivery/62`, `docs/plan/mvp-plan.md` §M12.
 
+**D-121 — Field lookup by name (`FieldIndex`, `Q<M>.fields()`; RFC 0006).** Every query model generates a static
+`fields()` returning a `FieldIndex<M>`, held in a private nested holder class so it is built on first use and a call
+during `Q<M>`'s own initialisation fails loudly (INV-5). The index is keyed by kind: select fields, filter-only columns,
+column sets and children. Core derives each key from the constant, with the tier-1 rule `orderedBy` uses (R-QRY-14)
+through one shared helper: a property path, else an attribute path (D-55); an expression's or aggregate's `named`
+property, else its name. `AggregateField` gains `named`, outside `equals` (R-AGG-01), emitted by the processor and
+matched first by the sort's aggregate tier. Join sets are keyed by their join's property path; `ALL` and `DEFAULT` by
+name. The vocabulary is a subset of the sort's. A filter-only column sharing a key is left out with the warning
+`MQ3022`, never an error, since such models compile on 0.5. `resolve` never throws and reports unknown names; `only`
+narrows sets to the fields it keeps and throws `MQ1105` on a name it doesn't hold. The builder is public
+`@Incubating`, not `@EngineFacing`: generated code in users' jars is a binary contract. Rejected: aliases (the API's
+naming, kept in the app), a `FIELDS` constant (clashes with a field named `fields`), an eager static field, an
+untyped `eq(ScalarField<M, ?>, Object)` (P-2), value parsing and a field grammar (a later RFC), child sub-fields and
+Spring binding (not in 0.6). Ships as 0.6.0 in M13. → `rfc/0006`, `api/10` R-COL-23/24, `api/11` R-QRY-14,
+`processor/31` R-GEN-32/33, `processor/32` (`MQ3022`), `reference/90` (`MQ1105`), `delivery/61`,
+`docs/plan/mvp-plan.md` §M13.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
