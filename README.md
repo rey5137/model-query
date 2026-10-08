@@ -3,6 +3,8 @@
 [![CI](https://github.com/rey5137/model-query/actions/workflows/ci.yml/badge.svg)](https://github.com/rey5137/model-query/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
+![Model Query: typed DTO queries on JPA](docs/site/docs/assets/banner.png)
+
 Typed, projection-first queries on top of JPA.
 
 - Typed column and join definitions (`ColumnField`, `TableField`) that map query results straight into plain model

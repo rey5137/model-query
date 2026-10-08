@@ -1,5 +1,7 @@
 # Model Query
 
+![Model Query: typed DTO queries on JPA](assets/banner.png)
+
 Typed, projection-first queries on top of JPA. You describe a result as a plain class or record, and the library
 selects exactly those columns, applies your filters, and maps rows straight into the model, with no entity loading.
 
