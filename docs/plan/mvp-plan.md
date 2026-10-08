@@ -342,16 +342,35 @@ user's step after the gate, never a slice's.
 **Exit:** the M12 rows' criteria green on Tier 1, nothing new frozen, and the `0.5.0` CHANGELOG section ready, so the
 user can push the `v0.5.0` tag.
 
-## 14. M13 — Freeze → 1.0.0
+## 14. M13 — Field index → 0.6.0
 
-Spec: D-85 (amended by D-106, D-116 and D-118), D-86, D-111, D-116, D-118. Starts only when the user says the D-111 adopter has migrated onto 0.5.0
-and run it in production long enough. Model: `architect-review` at M13.1. Both slices are attended. Tagging `v1.0.0`
+Spec: RFC 0006 (rev 2) and D-121, `api/10` (new R-COL-23 `resolve`, R-COL-24 `only`, `AC-COL` rows), `processor/31`
+(new R-GEN-32 `fields()`, R-GEN-33 what the index holds, AC-GEN-21…AC-GEN-24), `reference/90` (`MQ1105`),
+`delivery/61` (`@Incubating` note). Each build slice writes its rules, `AC-*` rows and `MQ` code into the owning spec
+file first, then builds. Model: `architect-review` at M13.1 (public API shape and the generated-code contract); none
+at a build slice. Nothing new is frozen: `FieldIndex` and `fields()` are `@Incubating`. Tagging `v0.6.0` is the user's
+step after the gate, never a slice's.
+
+| Slice | Contents | Done when |
+|---|---|---|
+| M13.1 | Design review: `architect-review` of RFC 0006 rev 2 (the builder's surface, the holder, wildcard generics in `select`/`filter`, key derivation from `ColumnField.propertyPath()` shared with `ModelQuery.resolve`); decisions folded into the RFC, which moves to accepted, and recorded as D-121. Review only, no code | RFC 0006 accepted; D-121 in `reference/92` |
+| M13.2 | Core: `FieldIndex<M>` and its builder, keys derived by kind (R-GEN-33 table) through one helper shared with `orderedBy`'s property-path tier, `select`, `filter` (columns, filter-only columns, expressions), `set`, `child`, `resolve` returning `Resolution` (never throws, unknowns in input order, sets merged into `select`), `only` (`MQ1105` naming the key and the index's keys), `names()`; R-COL-23/24, `MQ1105` | `core` unit tests for every `AC-COL` row green: known, unknown, filter-only, set and child names, empty input, `only` narrowing and `MQ1105`, duplicate key from the builder |
+| M13.3 | Processor: `fields()` and its holder on every `@QueryModel` (not on update or insert models), constants passed by kind in declaration order, nested `@Join` columns and join sets, `@Child`, `@FilterColumn`, `@Computed`, `@Aggregate`; R-GEN-32/33 | compile-testing for AC-GEN-21, AC-GEN-22 (a field named `fields`) and AC-GEN-24 green; AC-GEN-23 (`fields()` path equals sort property) green in `jpa` |
+| M13.4 | Integration and docs: a `jpa` test resolving `?fields=` names into a query whose joins follow the selection, with `@Selected` leaving unselected fields out; user-guide recipe "Client-chosen fields" (whitelist with `only`, `resolve`, a response writer, aliases kept in the app); stability page lists `FieldIndex` and `fields()` as incubating; `[Unreleased]` folded into the `0.6.0` CHANGELOG section, README, docs site and stability page say 0.6.0, `M13` added to the audit's started scope | AC rows green on Tier 1; `mkdocs build --strict` green; `JapicmpExclusionsTest` green; AC audit green with M13 started |
+
+**Exit:** the M13 rows' criteria green on Tier 1, nothing new frozen, and the `0.6.0` CHANGELOG section ready, so the
+user can push the `v0.6.0` tag.
+
+## 15. M14 — Freeze → 1.0.0
+
+Spec: D-85 (amended by D-106, D-116 and D-118), D-86, D-111, D-116, D-118. Starts only when the user says the D-111 adopter has migrated onto 0.5.0 or later
+and run it in production long enough. Model: `architect-review` at M14.1. Both slices are attended. Tagging `v1.0.0`
 is the user's step after the gate, never a slice's.
 
 | Slice | Contents | Done when |
 |---|---|---|
-| M13.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
-| M13.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M13` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M12 started |
+| M14.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field and M13 field-index types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
+| M14.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M14` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M13 started |
 
-**Exit:** the M13 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M13.1 decision, so the user can
+**Exit:** the M14 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M14.1 decision, so the user can
 push the `v1.0.0` tag.

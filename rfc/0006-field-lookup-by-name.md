@@ -1,12 +1,13 @@
 # RFC 0006 — Looking up a model's fields by name
 
-- **Status:** draft
+- **Status:** draft (revision 2: the unresolved questions are decided for M13; pending the M13.1 `architect-review`)
 - **Affects:** `processor/31` (new R-GEN-32, R-GEN-33, AC-GEN-21..AC-GEN-24); `api/10` (new R-COL-23, R-COL-24,
   AC-COL-*); `reference/90` (new `MQ1105`); `reference/92` (new D-121). Reuses the property paths of `api/11`
   R-QRY-14 unchanged.
 - **Discussion:** [#31](https://github.com/rey5137/model-query/discussions/31#discussioncomment-18807679)
-- **Target:** 0.6. One public addition per generated class, `Q<M>.fields()`, and one core type, `FieldIndex<M>`,
-  both `@Incubating`.
+- **Target:** 0.6.0 (M13). One public addition per generated class, `Q<M>.fields()`, and one core type,
+  `FieldIndex<M>`, both `@Incubating`. Not 0.5.1: a patch release takes fixes only (R-REL-07, SemVer), and this adds
+  public API.
 
 ## Summary
 
@@ -55,16 +56,13 @@ public final class QOrderView {
     }
 
     private static final class Index {
-        static final FieldIndex<OrderView> INSTANCE = FieldIndex.<OrderView>builder(OrderView.class)
-                .column("id", ID)
-                .column("status", STATUS)
-                .column("customer.id", CUSTOMER_ID)
-                .column("customer.name", CUSTOMER_NAME)
-                .filterColumn("customer.country", CUSTOMER_COUNTRY)
+        static final FieldIndex<OrderView> INSTANCE = FieldIndex.builder(OrderView.class)
+                .select(ID, STATUS, CUSTOMER_ID, CUSTOMER_NAME)
+                .filterOnly(CUSTOMER_COUNTRY)
                 .set("ALL", ALL)
                 .set("DEFAULT", DEFAULT)
                 .set("customer", CUSTOMER)
-                .child("items", ITEMS)
+                .child(ITEMS)
                 .build();
     }
 }
@@ -76,17 +74,22 @@ with a column constant (a model field named `fields` generates the constant `FIE
 method `fields()`), and so the holder initialises only after every constant of the outer class is set. Update and
 insert models generate no `fields()`.
 
-**R-GEN-33** *(D-121)* The index holds the following, in declaration order:
+**R-GEN-33** *(D-121)* The generated code passes the constants, never key strings; `FieldIndex` derives each key
+from the constant itself, with the rule `orderedBy` uses (R-QRY-14), so a name that resolves through `fields()` and
+the same name used as a sort property can't disagree. The index holds the following, in declaration order:
 
-| Kind | Key | Included |
+| Kind | Key, derived by core | Included |
 |---|---|---|
-| Column | Its property path (R-QRY-14 tier 1): the field name, or `join.field` for a `@Join` model's column at any depth | Every mapped column, `@Computed` and `@Aggregate` constant, which are the ones `SELECTED_FIELDS` holds (R-GEN-29) |
-| Filter column | The `@FilterColumn`'s property path | Filter-only columns. They can be filtered on but not selected |
-| Column set | The constant's name for `ALL` and `DEFAULT`; the `@Join` field's property path for a join set | Every generated `SelectSet` constant |
-| Child | The `@Child` field's property path | Every `ChildField` |
+| Column | Its property path (R-QRY-14 tier 1): the field name, or `join.field` for a `@Join` model's column at any depth | Every mapped column, `@Computed` and `@Aggregate` constant: the fields the mapper reads (R-GEN-29) |
+| Expression | Its `named` property, else its name | `@Computed` constants |
+| Aggregate | Its name, as a sort names it | `@Aggregate` constants |
+| Filter-only column | Its property path | `@FilterColumn` constants. They can be filtered on but not selected |
+| Column set | The key the generated code passes: `ALL`, `DEFAULT`, or the `@Join` field's property path | Every generated `SelectSet` constant |
+| Child | `ChildField.name()`, the `@Child` field's name | Every `ChildField` |
 
 Keys are exact and case-sensitive, as in R-QRY-14. A column key and a set key can be the same string (`customer` is a
-set; `customer.name` is a column), because they are looked up by kind.
+set; `customer.name` is a column), because they are looked up by kind. Two entries of one kind with the same key are a
+processor bug, and `build()` throws `IllegalStateException`.
 
 ### 2. `FieldIndex<M>`
 
@@ -94,7 +97,8 @@ set; `customer.name` is a column), because they are looked up by kind.
 @Incubating
 public final class FieldIndex<M> {
     public Optional<SelectField<M, ?>> select(String path);            // a selectable column, expression or aggregate
-    public Optional<ColumnField<M, ?, ?>> filter(String path);         // any column, filter-only ones included
+    public Optional<ScalarField<M, ?>> filter(String path);            // a column (filter-only ones included) or an
+                                                                       // expression: what Filters takes (D-115)
     public Optional<SelectSet<M>> set(String name);
     public Optional<ChildField<M, ?>> child(String path);
 
@@ -175,17 +179,24 @@ new API is `@Incubating`.
   but both need decisions this RFC doesn't need: a grammar, and a value-conversion SPI for dates, enums and converted
   columns. They can build on `FieldIndex` in a later RFC.
 - **Aliases in the index (`customerName` → `customer.name`).** That puts the API's naming into the library. An
-  application that needs other names keeps a small map in front of `resolve`. See the unresolved questions.
+  application that needs other names keeps a small map in front of `resolve` (decided question 1).
 
-## Unresolved questions
+## Decided questions (revision 2)
 
-1. **Aliases.** Should `only` take a map of public name to path, so an API can rename without its own map? It's cheap
-   to add, but it starts to make the index an API contract and not a model description. The maintainer decides
-   before acceptance.
-2. **Children's own selection.** `resolve` returns the `ChildField`s, but a child's own fields
-   (`items.code,items.quantity`) would need a `FetchPlan` per child. Either `resolve` builds the fetch plans, or it
-   returns the child names and leaves the plans to the caller. This is left open until there's a real use.
-3. **Column types.** Exposing each column's Java type (`Class<C>`) from the index would let an application convert
-   filter values generically. Whether that belongs here or in the value-conversion RFC is left open.
-4. **Spring Data integration.** Whether the starter should bind a `fields` request parameter the way it binds `Sort`
-   is left for after acceptance.
+1. **Aliases: no.** The index describes the model; public names are the API's. An application that renames keeps a
+   small map in front of `resolve`. Recorded in D-121.
+2. **Children's own selection: not in 0.6.** `resolve` returns the `ChildField`s and the caller builds their
+   `FetchPlan`s. A dotted name under a child (`items.code`) is unknown. A later RFC can add it once there's a real use.
+3. **Column types: nothing new.** Every `SelectField` already has `type()`, so an application can convert a filter
+   value itself. Typed conversion helpers belong to the value-conversion RFC.
+4. **Spring Data: not in 0.6.** Binding a `fields` request parameter waits for adopter feedback on the core API.
+
+## Open for the M13.1 review
+
+1. **The builder's surface.** `FieldIndex.builder` exists for generated code. It is public `@Incubating` like
+   `ColumnField.of`; the review decides whether it is `@EngineFacing` instead, or a package-private factory reached
+   some other way.
+2. **The holder.** A private nested class named `Index` against a private static field declared after every constant
+   (as `SELECTED_FIELDS` is, R-GEN-29) and returned by `fields()`.
+3. **Generics.** `select` and `filter` return wildcard fields, so `f.eq(field, value)` needs a captured helper in the
+   caller. The review decides whether the index offers one.
