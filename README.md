@@ -19,9 +19,11 @@ Typed, projection-first queries on top of JPA.
   assignments fill server-set columns on every write (`@Incubating`).
 - Selected fields: a `@Selected SelectSet<Model>` field tells an unselected column from a selected `NULL` one
   (`@Incubating`).
+- Client-chosen fields: a generated `fields()` resolves names such as `?fields=id,customer.name` into a typed
+  `SelectSet` (`@Incubating`).
 - Vendor-aware behaviour for **H2, PostgreSQL and MySQL**, behind an SPI other databases can implement.
 
-> **Status: 0.5.0.** Every public type is `@Incubating` and may change in a minor release until the 1.0 freeze
+> **Status: 0.6.0.** Every public type is `@Incubating` and may change in a minor release until the 1.0 freeze
 > ([API stability](docs/site/docs/stability.md)). The user guide is at
 > <https://rey5137.github.io/model-query/> (source under [`docs/site/docs/`](docs/site/docs/index.md)); the Javadoc is on
 > [javadoc.io](https://javadoc.io/doc/io.github.rey5137/model-query-core).

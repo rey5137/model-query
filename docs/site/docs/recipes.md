@@ -887,3 +887,76 @@ that reads a column through a to-many join is refused for offset export, keyset 
 R-PAG-13).
 
 Tested by `SampleApplicationTest`, `PrimaryKeyFirstTest`, `OffsetExportTest` and `ModelQueryTest`.
+
+## Client-chosen fields
+
+The case in one line: a search endpoint whose clients pick the fields they get back (`?fields=id,status,referrer.name`),
+without a hand-kept map from strings to constants (D-121, RFC 0006). The generated `Q<Model>.fields()` returns a
+`FieldIndex<Model>` keyed by the names a sort already uses. The index resolves names and nothing else; the whitelist,
+the response shape and the parsing of values stay in your application. The API is `@Incubating`.
+
+Narrow the index once with `only`, so the endpoint exposes part of the model and keeps the rest private. A name that
+isn't in the index, or a column set left empty, throws `MQ1105` at startup, because it is your own definition
+(R-COL-24):
+
+```java
+private static final FieldIndex<SelOrder> API_FIELDS =
+        QSelOrder.fields().only(List.of("id", "status", "referrer", "referrer.name", "referrerChild"));
+```
+
+`resolve` turns the client's names into a `SelectSet`, the children they named and the names it didn't know. It never
+throws for a name, so the endpoint decides what an unknown one means, usually a `400`. With no select field named, the
+`select` is empty and the query falls back to the model's default set (R-COL-23):
+
+```java
+var resolved = API_FIELDS.resolve(requested);
+if (!resolved.unknown().isEmpty()) {
+    throw new BadRequest("Unknown fields: " + resolved.unknown() + ", expected one of " + API_FIELDS.names());
+}
+SelectSet<SelOrder> select = resolved.select().isEmpty() ? QSelOrder.DEFAULT : resolved.select();
+var query = QSelOrder.query().select(select).orderBy(QSelOrder.ID.asc()).build();
+```
+
+The joins follow the selection: asking for `referrer.name` adds the `customers` join, and asking for `id` and `status`
+adds none. A model with a `@Selected` set (see [Selected fields](models.md#selected-fields)) lets the response writer
+leave out what the client didn't ask for, instead of writing it as `null`:
+
+```java
+static Map<String, Object> write(SelOrder order) {
+    var out = new LinkedHashMap<String, Object>();
+    if (order.selected().contains(QSelOrder.ID)) {
+        out.put("id", order.id());
+    }
+    if (order.selected().contains(QSelOrder.STATUS)) {
+        out.put("status", order.status());
+    }
+    return out;
+}
+```
+
+A resolved child is matched by identity, because `FetchPlan.child` needs the child's typed model, which a
+`ChildField<M, ?>` doesn't carry:
+
+```java
+FetchPlan<SelOrder> plan = FetchPlan.of(select);
+if (resolved.children().contains(QSelOrder.REFERRER_CHILD)) {
+    plan = plan.child(QSelOrder.REFERRER_CHILD, FetchPlan.of(QSelCustomer.DEFAULT));
+}
+var withChildren = query.withFetch(plan);
+```
+
+Filter values need the same care. `fields()` also holds the model's filter-only columns (`filter(name)`), and a filter
+takes a typed column, so an application that converts a client's value writes a two-line capture helper. The library
+adds no untyped `eq(field, Object)`, which would let a wrongly typed value compile:
+
+```java
+static <M, C> Filters<M> eqValue(Filters<M> f, ScalarField<M, C> column, Object value) {
+    return f.eq(column, column.type().cast(value));
+}
+```
+
+Aliases such as `customer_name` for `referrer.name` are an application choice. Keep the map from alias to index name in
+the application and pass the index name to `resolve`: the index keys stay the ones `orderedBy(SortSpec)` accepts, so
+`sort=referrer.name` and `fields=referrer.name` mean one field.
+
+Tested by `ClientChosenFieldsTest` and `GeneratedFieldIndexTest`.

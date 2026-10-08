@@ -6,6 +6,32 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-08
+
+Nothing is frozen yet: every public type stays `@Incubating`, and the freeze review stays after this release (M14).
+No existing API changes incompatibly; the additions below are all `@Incubating`.
+
+### Added
+- Field lookup by name (D-121, RFC 0006), described in the "Client-chosen fields" recipe:
+  - `FieldIndex<M>`, an immutable index of a model's fields by the names a sort already uses (`customer.name`):
+    `select`, `filter`, `set` and `child` look a name up by kind, `resolve` turns a list of names into a `SelectSet`,
+    the children named and the unknown names without throwing, `only` narrows the index to an application's whitelist
+    (`MQ1105` for an unknown name or an emptied set), and `names()` and `filterNames()` list the keys. Its public
+    `Builder` (`select`, `filterOnly`, `set`, `joinSet`, `child`) is what generated code calls.
+  - A generated `Q<Model>.fields()` on every query model, built on first use.
+  - `AggregateField.named`, the aggregate's key in the index, outside `equals` and `hashCode`.
+  - `MQ1105` (core) and the warning `MQ3022` (processor).
+
+### Changed
+- Generated `@Aggregate` constants now carry `.named(field)`, and a sort property name matches a `named` aggregate
+  first (R-QRY-14).
+
+### Upgrade notes
+- `MQ3022` can now warn on a model that compiled cleanly on 0.5: two `@FilterColumn`s on one path (aliased joins
+  included, such as a buyer's and a payer's email), or a filter column on a path a mapped column or a `@Computed` field
+  already holds. Only the first is in `fields()`; the others stay constants and keep working. A build with `-Werror`
+  fails until one of them is renamed.
+
 ## [0.5.0] - 2026-10-07
 
 Nothing is frozen yet: every public type stays `@Incubating`, and the freeze review moves to the next milestone (D-120).

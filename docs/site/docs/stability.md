@@ -1,6 +1,6 @@
 # API stability
 
-model-query is at 0.5.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
+model-query is at 0.6.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
 marked breaking. From 1.0.0 the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Today: everything is `@Incubating`
@@ -75,6 +75,10 @@ The selected-field members are new in 0.5.0 and `@Incubating` (D-120), and join 
 `@Selected` annotation, `SelectSet.contains` and `SelectSet.selectedIn`; `SelectSet`'s set-semantics `equals`, `hashCode`
 and `toString` are not marked and freeze with `SelectSet`. The freeze review moves to the milestone after 0.5.0. See
 [Selected fields](models.md#selected-fields).
+
+The field-index members are new in 0.6.0 and `@Incubating` (D-121), and join the list above. They are `FieldIndex`, its
+`Builder` and `Resolution`, `AggregateField.named`, and the generated `fields()` method of every query model. See
+[Client-chosen fields](recipes.md#client-chosen-fields).
 
 The fetch-plan types are new in 0.2.0, `@Incubating`, and not yet placed in the 1.0 freeze list above:
 `FetchPlan`, `ChildField`, `JoinField`, `ChildQuery`, `Enricher` and the `@Child` annotation. The executor-facing
