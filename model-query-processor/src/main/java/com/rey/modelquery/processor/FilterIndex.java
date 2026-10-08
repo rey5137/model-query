@@ -6,7 +6,6 @@ import com.rey.modelquery.processor.ModelDefinition.ModelField;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Which of a model's filter columns its {@code fields()} index holds. A filter-only column is keyed by its attribute
@@ -53,15 +52,11 @@ record FilterIndex(List<Column> kept, List<Shadowed> shadowed) {
         }
         var kept = new ArrayList<Column>();
         var shadowed = new ArrayList<Shadowed>();
-        Map<String, String> filterHolders = new HashMap<>();
         for (Column column : filters.columns()) {
             String key = column.definition().path();
             String holder = holders.get(key);
             if (holder == null) {
-                holder = filterHolders.get(key);
-            }
-            if (holder == null) {
-                filterHolders.put(key, "@FilterColumn(" + column.definition().name() + ")");
+                holders.put(key, "@FilterColumn(" + column.definition().name() + ")");
                 kept.add(column);
             } else {
                 shadowed.add(new Shadowed(column, key, holder));
