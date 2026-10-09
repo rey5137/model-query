@@ -361,16 +361,38 @@ step after the gate, never a slice's.
 **Exit:** the M13 rows' criteria green on Tier 1, nothing new frozen, and the `0.6.0` CHANGELOG section ready, so the
 user can push the `v0.6.0` tag.
 
-## 15. M14 — Freeze → 1.0.0
+## 15. M14 — Fewer models → 0.7.0
 
-Spec: D-85 (amended by D-106, D-116 and D-118), D-86, D-111, D-116, D-118. Starts only when the user says the D-111 adopter has migrated onto 0.5.0 or later
-and run it in production long enough. Model: `architect-review` at M14.1. Both slices are attended. Tagging `v1.0.0`
+Spec: RFC 0007 and D-123, D-122 (already on `main`, ships in this release), `engine/20` (new R-EXE-12, `AC-EXE`
+rows), `api/11` R-QRY-03 (the new `MQ2203` triggers), `processor/30` (annotation table, new R-PROC-26, `AC-PROC`
+row), `processor/31` (new R-GEN-34, `AC-GEN` rows), `processor/32` and `reference/90` (new `MQ2003` and `MQ3505`,
+`MQ2203`, `MQ3501`, `MQ3504` and `MQ3015` extended), `integration/50` (new R-SPR-15, AC-SPR-18), `delivery/61`
+R-REL-07 (abstract methods on the `@Incubating` interfaces). Each build slice writes its rules, `AC-*` rows and `MQ`
+codes into the owning spec file first, then builds; new rows continue from AC-EXE-11, AC-PROC-19, AC-GEN-26 and
+AC-DIAG-12. Model: the design was reviewed by `architect-review` before D-123; none at a slice. Nothing new is
+frozen: `generateInserts`, its generated members and the six single-row methods are `@Incubating`. Tagging `v0.7.0`
 is the user's step after the gate, never a slice's.
 
 | Slice | Contents | Done when |
 |---|---|---|
-| M14.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field and M13 field-index types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
-| M14.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M14` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M13 started |
+| M14.1 | Engine: `one(q)`, `first(q)` and `one(q, key)` abstract and `@Incubating` on `ModelQueryExecutor`, built in `DefaultModelQueryExecutor` on `list`'s statement. `one`: limit 2, `MQ2003` on a second row before the fetch plan runs, the message naming a predicate-only to-many join and pointing at `Filters.exists`. `first`: limit 1, `orderBy` then the key (group keys for a grouped query) where the `orderBy` doesn't cover it, implicit columns `nullsLast` explicitly; neither is `MQ2203`. `one(q, key)`: key converted as `whereKey`, ANDed with `q`'s filter; `null` key or component, or a wrong component count, `IllegalArgumentException`; keyless or grouped `MQ2203`. Fetch plans and customizers as `list`; any other `ModelQueryExecutor` implementor in the repo (test doubles) gains the three methods; R-EXE-12, R-QRY-03, `MQ2003`, `MQ2203`, R-REL-07 | `jpa` unit tests and the TCK single-row group green on Tier 1: an enricher never sees the extra row, `first` on a nullable non-id `@PrimaryKey` gives the same row on every vendor, grouped `first` by group keys, contradictory filters give empty; `JapicmpExclusionsTest` green |
+| M14.2 | Processor: `@QueryModel.generateInserts` (default `false`); on `true` the query model gets `INSERT_COLUMNS`, `insert`, `insertFrom` and `persist` as an `@InsertModel` does (R-GEN-28), each `@Incubating`, over root columns only, leaving out the R-PROC-26 list without a diagnostic and naming each left-out field and why in the `INSERT_COLUMNS` Javadoc; `addKey` and the `insert`/`persist` key type follow the root's id, a non-id `@PrimaryKey` written with `add`; `MQ3505` (grouped, or no writable root column), `MQ3501` only when the model's `@PrimaryKey` fields don't cover an assigned id, `MQ3504` as on an insert model, `INSERT_COLUMNS` reserved under `MQ3015`; `generateChanges` combines; R-PROC-26, R-GEN-34 | compile-testing green for every new and extended diagnostic, the left-out list, a composite id and a non-id `@PrimaryKey`; a TCK case inserting, insert-selecting and persisting through a `generateInserts` query model green on Tier 1 (the generated models live in `tck`) |
+| M14.3 | Spring: `findOne`, `findFirst` and `findByKey` on `ModelQueryRepository`, abstract and `@Incubating`, delegate-only (R-SPR-01); R-SPR-15, AC-SPR-18 (a repository extending `JpaRepository`, `JpaSpecificationExecutor`, `QueryByExampleExecutor` and `ModelQueryRepository` routes each `findOne` to the right one), AC-SPR-09 for the three methods | `spring` tests green, AC-SPR-18 and AC-SPR-09 for the new methods |
+| M14.4 | Docs and release: user-guide sections "One model for reading and creating" (`generateInserts`, the left-out list, `MQ3503` points here, a public create endpoint keeps its own `@InsertModel`, foreign keys need an `@InsertModel`, `one(q, persist(...))` doesn't compile for a composite key) and "Reading one row" (`one`, `first`'s tie-breaker, `one(q, key)`, `MQ2003` and `Filters.exists`); stability page lists the D-123 incubating members; `[Unreleased]` folded into the `0.7.0` CHANGELOG section with D-122's fix and the note that a class implementing `ModelQueryExecutor` must add the three methods (`AbstractMethodError` if compiled before 0.7.0); README, docs site and stability page say 0.7.0; `M14` added to the audit's started scope | AC rows green on Tier 1; `mkdocs build --strict` green; `JapicmpExclusionsTest` green; AC audit green with M14 started |
 
-**Exit:** the M14 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M14.1 decision, so the user can
+**Exit:** the M14 rows' criteria green on Tier 1, nothing new frozen, and the `0.7.0` CHANGELOG section ready, so the
+user can push the `v0.7.0` tag.
+
+## 16. M15 — Freeze → 1.0.0
+
+Spec: D-85 (amended by D-106, D-116 and D-118), D-86, D-111, D-116, D-118. Starts only when the user says the D-111 adopter has migrated onto 0.5.0 or later
+and run it in production long enough. Model: `architect-review` at M15.1. Both slices are attended. Tagging `v1.0.0`
+is the user's step after the gate, never a slice's.
+
+| Slice | Contents | Done when |
+|---|---|---|
+| M15.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field, M13 field-index and M14 single-model types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
+| M15.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M15` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M15 started |
+
+**Exit:** the M15 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M15.1 decision, so the user can
 push the `v1.0.0` tag.
