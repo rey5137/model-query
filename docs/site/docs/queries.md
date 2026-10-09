@@ -69,6 +69,38 @@ active.
 
 `count` is not inflated by collection joins: the engine uses `count(distinct root)` only when a to-many join exists.
 
+## Reading one row
+
+Three methods read at most one model and return an `Optional` (D-123, `@Incubating`):
+
+| Method | Meaning |
+|---|---|
+| `one(q)` | The single matching row, or empty. A second row throws `MQ2003`. |
+| `first(q)` | The first row in a stable order, or empty. Never `MQ2003`. |
+| `one(q, key)` | The row with that primary key that also matches `q`'s filter, or empty. |
+
+```java
+Optional<OrderView> order = executor.one(q);
+Optional<OrderView> newest = executor.first(q);
+Optional<OrderView> byKey = executor.one(q, 42L);
+```
+
+`one` reads at a limit of 2, so a second row is found and not hidden; `MQ2003` is thrown before any row is mapped, and
+the [fetch plan](fetch-plans.md) runs once, on the one row left. `one` counts rows as `list` returns them, so a
+predicate-only to-many join can repeat the root row and give `MQ2003`. The message names the join; replace it with
+[`Filters.exists`](#exists), which joins nothing on the outer query.
+
+`first` orders by the query's `orderBy`, then by the primary key (the group keys, for a grouped query) wherever the
+`orderBy` does not already cover it, with `nullsLast` stated for those implicit columns. That tie-breaker makes the
+same row come back on every database, even when a group key is `NULL`. A query with neither an
+`orderBy` nor a key is `MQ2203`, an aggregate-only query excepted since it has one row.
+
+`one(q, key)` adds `primary key = key` to `q`'s filter, converting the key as `whereKey` does; contradictory filters
+give empty. A `null` key or component, or the wrong number of components for a composite key, throws
+`IllegalArgumentException`, a query without a primary key (or a grouped one) is `MQ2203`, and a `@PrimaryKey` on a
+non-id column that matches two rows is `MQ2003`. On a Spring repository the three are `findOne`, `findFirst` and
+`findByKey`; see [Spring Data](spring.md#the-repository).
+
 ## Filters
 
 `where` hands you a `Filters` builder that ANDs every filter you add. Every method that takes a value has two forms:

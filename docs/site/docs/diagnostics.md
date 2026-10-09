@@ -164,7 +164,7 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3406` | `@Child(through)` whose path is blank, crosses something other than an association, or ends at another type than the child model's root; whose `key` is not the parent root's single `@Id`; or whose child model is grouped. |
 | `MQ3501` | Insert model: names a generated id, or does not name all of an id that has no generator with `@PrimaryKey`. |
 | `MQ3502` | Insert model: `@Join`, `@FilterColumn`, `@Aggregate`, `@GroupBy`, `@Computed`, `@Child`, `@Selected` or `@Transient` field. |
-| `MQ3503` | A type carries more than one of `@QueryModel`, `@UpdateModel` and `@InsertModel`. |
+| `MQ3503` | A type carries more than one of `@QueryModel`, `@UpdateModel` and `@InsertModel`. To read and create one row shape with one model, use [`@QueryModel(generateInserts = true)`](models.md#one-model-for-reading-and-creating). |
 | `MQ3504` | Warning: the insert model's root shows the processor no id type, so the generated `insert` and `persist` type their keys as `Object`. |
 
 See [Models and QModels](models.md).

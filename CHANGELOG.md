@@ -4,7 +4,30 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html); the public API may change in any `0.x`
 release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
-## [Unreleased]
+## [0.7.0] - 2026-10-09
+
+Nothing is frozen yet: every public type stays `@Incubating`. No existing API changes incompatibly except for classes
+that implement `ModelQueryExecutor` themselves (see the upgrade notes); the additions below are all `@Incubating`.
+
+### Added
+- Fewer models, fewer calls (D-123, RFC 0007), described in "One model for reading and creating" and "Reading one row":
+  - `@QueryModel(generateInserts = true)` generates `INSERT_COLUMNS`, `insert`, `insertFrom` and `persist` on a query
+    model, over its root columns. It leaves out joins, children, computed, selected and transient fields, filter-only
+    columns, to-one columns, version columns, columns an insert cannot write and generated ids, and the `INSERT_COLUMNS`
+    Javadoc names each. `addKey` follows the root's id. `MQ3505` for a grouped model or one with no writable root
+    column.
+  - `ModelQueryExecutor.one(q)`, `first(q)` and `one(q, key)`, each an `Optional`. `one` reads at a limit of 2 and
+    throws `MQ2003` on a second row before the fetch plan runs; through a predicate-only to-many join the message
+    points at `Filters.exists`. `first` orders by the `orderBy`, then the key (group keys for a grouped query) with
+    `nullsLast`, so every database returns the same row. `one(q, key)` ANDs the key with the filter.
+  - `ModelQueryRepository.findOne`, `findFirst` and `findByKey`, delegating to the three executor methods.
+
+### Changed
+- A query model's generated change set and inserts leave a to-one column out (D-124): a query model cannot name a
+  foreign key as a scalar, so the setter could never succeed. The change set's Javadoc names the column and the reason.
+  `@UpdateModel` and `@InsertModel` still write a to-one by id.
+- A whole-entity or converted to-one column on the root reads through a `LEFT` join of the association, so a row
+  with a `NULL` foreign key comes back with `null` instead of being dropped.
 
 ### Fixed
 
@@ -14,6 +37,13 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
   each of the three codes names both types in full when their simple names are equal.
   An insert-select `set` of a `Date` on a `DATE` or `TIME` attribute now binds as that attribute's type rather than a
   timestamp, which Hibernate refused.
+
+### Upgrade notes
+- `one`, `first` and `one(q, key)` are abstract on `ModelQueryExecutor`, as a default built on `list` would run the
+  fetch plan on the extra row. A class that implements `ModelQueryExecutor` itself (a decorator or test double) must add
+  the three methods; one compiled before 0.7.0 throws `AbstractMethodError` when a new method is called.
+- A query model with `generateChanges = true` and a to-one column no longer gets a setter for it, so a call to that
+  setter stops compiling. Write the foreign key through an `@UpdateModel`.
 
 ## [0.6.0] - 2026-10-08
 
