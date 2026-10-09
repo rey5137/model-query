@@ -47,6 +47,11 @@ public final class TckFixture {
      * {@code (3, i % 2 + 1)} or absent.
      */
     public static final int DELIVERIES = 6;
+    /**
+     * Rows of {@code dated_rows}: day {@code i} of 2020 (rows 7 and 8 share day 7), minute {@code i} after 08:00, hour
+     * {@code i} (plus 123 microseconds on rows 3, 6 and 9) (AC-COL-28).
+     */
+    public static final int DATED_ROWS = 10;
     public static final int LABELS = 10;
     /** Orders 1 to this one carry labels, many-to-many: one or two each, every label on many orders. */
     public static final int LABELED_ORDERS = 200;
@@ -252,6 +257,13 @@ public final class TckFixture {
                         ps.setLong(9, i % 2 + 1);
                     }
                 });
+        // java.util.Date attributes over DATE, TIME and TIMESTAMP columns (AC-COL-28).
+        insert(c, "INSERT INTO dated_rows (id, born_on, rings_at, logged_at) VALUES (?,?,?,?)", DATED_ROWS, (ps, i) -> {
+            ps.setLong(1, i);
+            ps.setDate(2, java.sql.Date.valueOf(BASE.toLocalDate().plusDays((i == 8 ? 7 : i) - 1)));
+            ps.setTime(3, java.sql.Time.valueOf(BASE.toLocalTime().plusHours(8).plusMinutes(i)));
+            ps.setTimestamp(4, Timestamp.valueOf(BASE.plusHours(i).plusNanos(i % 3 == 0 ? 123_000 : 0)));
+        });
     }
 
     /** The code of {@code string_key_products} row {@code row} (1-based), a permutation with mixed case. */

@@ -6,6 +6,15 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
+### Fixed
+
+- A model field declared `java.util.Date` over an entity attribute declared `java.util.Date` compiled and then failed
+  `MQ1001` at first use on Hibernate, which reports such an attribute as `java.sql.Date`, `Time` or `Timestamp`. A
+  `Date` column now matches all three (D-122), as do a `Date` `Expr.coalesce` (`MQ1507`) and `Agg.of` (`MQ1405`), and
+  each of the three codes names both types in full when their simple names are equal.
+  An insert-select `set` of a `Date` on a `DATE` or `TIME` attribute now binds as that attribute's type rather than a
+  timestamp, which Hibernate refused.
+
 ## [0.6.0] - 2026-10-08
 
 Nothing is frozen yet: every public type stays `@Incubating`, and the freeze review stays after this release (M14).

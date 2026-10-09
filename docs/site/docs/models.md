@@ -37,6 +37,14 @@ at whole milliseconds, so write an inclusive upper bound as half-open, `lt(nextD
 a stored `23:59:59.999500`. An `Instant` beyond the range of `Timestamp` is refused with `MQ1308`. A converter you
 name takes precedence.
 
+A `Date` field over an entity attribute that is itself a `java.util.Date`, with or without `@Temporal`, needs nothing
+either. Hibernate reads such an attribute as a `java.sql.Date`, `Time` or `Timestamp`, so that is the class the field
+holds; each is a `Date`. On a `@Temporal(DATE)` attribute, filter with a date at midnight: whether a time of day in the
+value is kept or dropped before it is compared depends on the JPA provider. A `java.sql.Date` prints as `yyyy-MM-dd`,
+and `Timestamp.equals` is false for a plain `Date`, so compare such values by `getTime()`. A `ColumnConverter` over one
+of these attributes is given the `java.sql` instance; `toInstant()` throws on a `java.sql.Date` or `Time`, so convert
+with `getTime()`.
+
 A class model needs a no-argument constructor visible from its package and setters. Record components that are
 primitive are only allowed on the primary key of a plain model; use the boxed type elsewhere, because a column can be
 NULL.

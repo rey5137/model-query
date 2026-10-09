@@ -238,6 +238,20 @@ final class InsertMetamodel {
         }
     }
 
+    /**
+     * The type a value written to {@code path} of {@code entity} binds as: the attribute's reported type where it is
+     * one a {@code declared} type column reads, so a {@code Date} constant binds as the {@code java.sql} type its
+     * {@code DATE} or {@code TIME} attribute is stored as (D-122), else {@code declared}.
+     */
+    static Class<?> storedType(EntityType<?> entity, String path, Class<?> declared) {
+        Attribute<?, ?> attribute = attribute(entity, path);
+        if (attribute == null || attribute.getJavaType() == null) {
+            return declared;
+        }
+        Class<?> stored = ColumnField.boxed(attribute.getJavaType());
+        return ColumnField.reads(declared, stored) ? stored : declared;
+    }
+
     /** The attribute {@code path} names from {@code type}, dotted through joins and embeddables, or {@code null}. */
     private static Attribute<?, ?> attribute(ManagedType<?> type, String path) {
         ManagedType<?> owner = type;

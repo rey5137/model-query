@@ -133,7 +133,8 @@ with its converted type. A supertype is rejected: a `Number` column over an `Int
 converter allow-list is empty until a real case needs an entry; a model type other than the attribute's goes through a
 `ColumnConverter` (D-37), and `core` ships ordered ones for a `Timestamp` attribute (D-84). Loosening the check later
 breaks no one; tightening it would. Rejected: accepting any assignable supertype (hides a wrong column until a value
-fails to map). → `api/10` R-COL-08, AC-COL-04.
+fails to map). D-122 loosens it for one case: a `java.util.Date` attribute type reads the `java.sql` subtype the
+provider reports. → `api/10` R-COL-08, AC-COL-04.
 
 **D-21 — The phase-consistency warning runs on first execution, not in `build()`.**
 Checking that a `QueryCustomizer` narrows every phase alike means running it against a real `CriteriaBuilder`, which
@@ -1623,6 +1624,26 @@ untyped `eq(ScalarField<M, ?>, Object)` (P-2), value parsing and a field grammar
 Spring binding (not in 0.6). Ships as 0.6.0 in M13. → `rfc/0006`, `api/10` R-COL-23/24, `api/11` R-QRY-14,
 `processor/31` R-GEN-32/33, `processor/32` (`MQ3022`), `reference/90` (`MQ1105`), `delivery/61`,
 `docs/plan/mvp-plan.md` §M13.
+
+**D-122 — A `java.util.Date` column matches the `java.sql` type the provider reports (amends R-COL-08 and D-20).** JPA stores a
+`Date` attribute as a `DATE`, `TIME` or `TIMESTAMP`, and Hibernate reports it as `java.sql.Date`, `Time` or
+`Timestamp` (`@Temporal`, defaulting to `TIMESTAMP`), while the processor reads the Java field's declared `Date`. A model
+mirroring its entity compiled and then failed `MQ1001` at first use. The run-time check now accepts any of the three for a
+column whose attribute type is `java.util.Date`; each is a `Date`, so `Row.get` returns it as the field's type and a
+filter binds a plain `Date`, which the provider takes. The processor keeps reading declared types, so it holds no
+provider's typing rules and stays right for a provider that reports `Date` itself. `MQ1001` qualifies the two type names
+when their simple names agree. The check keys on the column's attribute type, so a hand-written `Date` column with
+no converter over a declared `Timestamp` attribute now passes too; it reads a `Timestamp`, which is a `Date`. A
+`ColumnConverter` whose attribute type is `Date` is given the `java.sql` instance, on which `toInstant()` throws for
+`java.sql.Date` and `Time`; it reads `getTime()` instead. The same rule and naming apply to an expression's resolved
+type (`MQ1507`, a `coalesce` over `Date` columns) and to `Agg.of`'s (`MQ1405`). An insert-select types a constant's parameter
+as its target attribute's metamodel type where that is one a `Date` column reads, so a `Date` constant on a `DATE` or
+`TIME` attribute is not taken as a timestamp. Rejected: deriving the `java.sql` type in the processor from `@Temporal` (Hibernate's
+rules in a provider-neutral processor, blind to `orm.xml` and `@JavaType`, and models would have to declare `java.sql`
+types), as an optional processor module (a new SPI, and one model compiling two ways), and built-in converters from
+`Date` to each `java.sql` type (never chosen while both sides read `Date`; the `DATE` and `TIME` ones truncate, so
+they could not be ordered). A wrong `java.sql` model type stays a first-use `MQ1001`, not a compile error. → `api/10`
+R-COL-08, R-COL-17, AC-COL-28; `api/13` R-AGG-02.
 
 ## 2. Open questions
 

@@ -925,7 +925,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         List<String> inserted = attributes;
         Map<String, Object> bound = constants;
-        BuiltQuery<?> select = i.buildSelect(cb, renderOptions);
+        Metamodel metamodel = em.getMetamodel();
+        BuiltQuery<?> select = i.buildSelect(cb, renderOptions, metamodel);
         int repeated = select.joins().repeatedExpressionBinds();
         BiFunction<EntityManager, CriteriaQuery<Tuple>, Query> statement = (on, source) ->
                 support.insertSelect(on, rootEntity, inserted, source, bound);
@@ -935,9 +936,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         if (i.chunkOptions().isEmpty()) {
             return write(i.persistenceContext(), () -> execute(whole.get(), repeated));
         }
-        PrimaryKey<Object, ?> key = i.sourceKey(em.getMetamodel());
+        PrimaryKey<Object, ?> key = i.sourceKey(metamodel);
         BiFunction<EntityManager, List<Object>, Query> byKeys = (on, keys) -> statement.apply(on,
-                selecting(i.buildSelect(cb, renderOptions, key, keys).query(), cb, added));
+                selecting(i.buildSelect(cb, renderOptions, metamodel, key, keys).query(), cb, added));
         // The source keys are attribute values of plain id columns, which is what the exception reports (R-WRT-32).
         var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), key, Optional.empty(),
                 run -> i.buildKeySelect(cb, renderOptions, key),
@@ -1196,8 +1197,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private Set<Class<?>> selected(ModelInsert<E, ?> i, Metamodel metamodel) {
         Set<Class<?>> entities = mappedEntities(em);
         var selected = new LinkedHashSet<Class<?>>();
-        var froms = new ArrayDeque<From<?, ?>>(i.buildSelect(em.getCriteriaBuilder(), renderOptions).query()
-                .getRoots());
+        var froms = new ArrayDeque<From<?, ?>>(i.buildSelect(em.getCriteriaBuilder(), renderOptions, metamodel)
+                .query().getRoots());
         while (!froms.isEmpty()) {
             From<?, ?> from = froms.poll();
             Class<?> type = from instanceof Join<?, ?> join ? joinedType(join.getAttribute()) : from.getJavaType();
