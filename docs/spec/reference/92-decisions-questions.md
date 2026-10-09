@@ -1686,6 +1686,49 @@ no opt-in: rejected are a `writeForeignKeys` member, a per-field opt-in, and cas
 into `@Join` or `@Child` (deferred past 1.0 by D-118; D-14, INV-1, INV-5). → `processor/30` R-PROC-19, `processor/31`
 R-GEN-19, R-GEN-21, AC-PROC-20, AC-GEN-28, Q-14.
 
+**D-125 — Insert columns a database fills (`@Generated`, `@ExcludeFromInserts`; RFC 0008 §1-§2).** `generateInserts`
+wrote every writable root column, so a `null` overrode a `DEFAULT`. R-PROC-26 now also leaves out a non-id root column
+whose attribute carries `org.hibernate.annotations.Generated` with `writable = false`, an empty `sql` and `INSERT`
+among its events (its `value` when present and not `INSERT`, Hibernate 6, otherwise its `event`), read by full name
+with `getElementValuesWithDefaults`; an unresolved annotation type leaves the column written. Every timestamp
+annotation stays written: Hibernate writes a DB-sourced one itself, but an SQM insert applies only the id generator and
+the version seed, so leaving it out would write `NULL`. The new `@Incubating` field annotation `@ExcludeFromInserts`
+(R-PROC-27, `CLASS` retention, no elements, no constant) leaves any other column out of `INSERT_COLUMNS`, `insert`,
+`insertFrom` and `persist` while the model still reads it; the server-time recipe is `insert(rows).set(CREATED_AT,
+now)`. Under `persist` an excluded column gets the no-arg constructor's value. `MQ3506` refuses it on a model without
+`generateInserts`, on an `@UpdateModel` or `@InsertModel` (an accepted no-op would read as excluded while `NULL` is
+written; relaxing later is compatible, the reverse is not), and on a field R-PROC-26 already leaves out; on a
+`@Selected` field it is `MQ3021`, on a grouped model only `MQ3505` applies, and on an assigned id `MQ3501` gains a
+message. Declined: `@ExcludeFromChanges` (a change set writes only the fields set on it, and "read but never patch" is
+authorization, given by a per-endpoint `@UpdateModel`, R-PROC-19), a run-time `skipNulls` (P-3; per-row statement
+shapes break the batch and R-WRT-33's key order; SQLite), `InsertColumns#without`, a string list on `@QueryModel`,
+skipping every `@ValueGenerationType` or DB-sourced timestamp, and honouring `@ColumnDefault`. A 0.7.0 model whose
+entity has such a `@Generated` column stops writing it (`delivery/61`). Ships as 0.8.0 with D-126. → `rfc/0008`,
+`processor/30` R-PROC-26, R-PROC-27, `processor/31` R-GEN-34, `processor/32` (`MQ3501`, `MQ3021`, `MQ3506`),
+AC-PROC-21, AC-PROC-22, AC-GEN-29, AC-DIAG-13, AC-WRT-40.
+
+**D-126 — Reading many keys (`byKeys`, `findAllByKeys`; RFC 0008 §3).** The executor gains `byKeys(q, keys)` and the
+repository `findAllByKeys(q, keys)`, abstract and `@Incubating` (R-REL-07), returning an unmodifiable `Map<K, M>` in
+the keys' first-occurrence order; a key with no row, or one `q`'s filter excludes, is absent. Keys convert as in
+`whereKey`; rows are matched back by the converted attribute value, every distinct caller key that matched gets an
+entry (two keys converting to one value share one model, `afterMap` once), and a row matching no requested value (a
+case-insensitive or padding collation, a `BigDecimal` scale) is the new `MQ2005` rather than a silent drop. The keys
+are chunked as R-PAG-07 step 2 chunks its keys, without `primaryKeyFirstBatchSize` (`api/12` R-FLT-09's third
+library-built key list), each statement built in `Phase.MODEL` so a customizer filters it as it filters `one(q,
+key)`; `MODEL_BY_KEYS` would pass caller keys a tenant filter on `MODEL` should stop. All chunks are read and checked
+(`MQ2003` for a key matching two rows) before any row is mapped, and the fetch plan runs once. Checks before the
+empty-keys shortcut: `NullPointerException`, `MQ2203` (no primary key), then key conversion. An `orderBy` is ignored,
+no statement renders one (chunks can't be ordered across statements, and the map is in key order), and the call logs
+a `WARNING` once per `ModelQuery`, so one definition serves `list` and `byKeys`. `count`, `one(q)` and `one(q, key)`,
+which ignored an `orderBy` silently, now log the same way when called directly (not `page`'s own count), and both
+`one` methods stop rendering it (amends R-EXE-05, R-EXE-12). Primary-key-first's `readByKeys` is not reused as it
+stands, since it skips unmatched rows. Rejected: `List<M>` (missing keys silent), ordering within chunks (order
+changes past one chunk), refusing an `orderBy` (a `list` definition would need an unordered twin), ignoring it silently, overloading `one(q, Collection)` (a composite key is a `List`, a keyless query's key is
+`Object`), and translating `MQ2003` into Spring's `IncorrectResultSizeDataAccessException` (D-50, INV-8; the Spring
+guide shows a user-side `PersistenceExceptionTranslator` on `code()`). → `rfc/0008`, `engine/20` R-EXE-05, R-EXE-12, R-EXE-13,
+`integration/50` R-SPR-15, `api/11` R-QRY-03, R-QRY-10, `api/12` R-FLT-09, `api/15` R-FCH-05, `reference/90`
+(`MQ2003`, `MQ2005`, `MQ2203`), AC-EXE-14, AC-EXE-15, AC-SPR-19.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
