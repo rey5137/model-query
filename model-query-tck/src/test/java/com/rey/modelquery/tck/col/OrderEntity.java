@@ -76,4 +76,13 @@ public class OrderEntity {
     // Columns mapped above, read again through embedded values (R-COL-08, D-41).
     @Embedded
     OrderSummary summary;
+
+    public Long getId() {
+        return id;
+    }
+
+    /** Sets the id, for a query-by-example probe. */
+    public void setId(Long id) {
+        this.id = id;
+    }
 }

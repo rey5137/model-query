@@ -16,6 +16,9 @@ public interface ModelQueryRepository<E> {
     <M> KeysetSlice<M> findKeysetPage(ModelQuery<E, ?, M> q, KeysetSpec keyset, Sort sort);   // sort unsorted: definition's order
     <M> List<M> findAll(ModelQuery<E, ?, M> q, Limit limit);
     long count(ModelQuery<E, ?, ?> q);
+    <M> Optional<M> findOne(ModelQuery<E, ?, M> q);                // M14, R-SPR-15
+    <M> Optional<M> findFirst(ModelQuery<E, ?, M> q);              // M14, R-SPR-15
+    <K, M> Optional<M> findByKey(ModelQuery<E, K, M> q, K key);    // M14, R-SPR-15
     <M, R> R stream(ModelQuery<E, ?, M> q, Limit limit, Function<Stream<M>, R> body);
     <M, S> long export(ModelQuery<E, ?, M> q, ExportOptions options, Function<List<M>, List<S>> t, Consumer<S> sink);
     long update(ModelUpdate<E, ?> u);                // Future (M6), transactional per R-SPR-10
@@ -105,6 +108,13 @@ its own (R-SPR-01). `Sort.unsorted()` keeps the definition's order, and a sorted
 it apart from the `Pageable` `findPage`, so a mock matching `any()` is unambiguous. The query still needs `keyset()`,
 or the call is `MQ2207` (`engine/21` R-PAG-16).
 
+**R-SPR-15** `findOne(q)`, `findFirst(q)` and `findByKey(q, key)` return the executor's `one(q)`, `first(q)` and
+`one(q, key)` (`engine/20` R-EXE-12) and add no semantics of their own (R-SPR-01). They are abstract and `@Incubating`
+(`delivery/61` R-REL-07). `findOne(ModelQuery)` overloads Spring Data's `findOne(Example)` and
+`findOne(Specification)`, which a repository may also extend: the erasures differ and `ModelQuery` is a final class,
+so each call resolves to one method (a lambda still goes to `Specification`), and only a bare `null` is ambiguous.
+Fragment methods are not derived queries, so `findFirst` and `findByKey` are not parsed as query names.
+
 ## 3. Properties
 
 | Property | Default | Meaning |
@@ -156,8 +166,9 @@ configurer that sets either keeps the shared entries only by passing them along.
 | AC-SPR-11 | A `ModelQueryConfig` bean of the application with a `modelquery.*` property set, or without a `VendorProfile` bean among its profiles or a `WriteAssignment` bean among its assignments, fails startup with `MQ4006`; one holding every profile and assignment bean starts (R-SPR-13). |
 | AC-SPR-13 | A post-processor that type-checks the repositories before the swap leaves them built with `ModelQueryRepositoryFactoryBean`: the context starts and `findPage` works; a `RootBeanDefinition` keeps its `targetType`, now over `ModelQueryRepositoryFactoryBean` with the old generics (R-SPR-02, D-83). |
 | AC-SPR-12 | A repository declaring `ModelQueryRepository` of an entity other than its domain type fails startup with `MQ4007` (R-SPR-12). |
-| AC-SPR-09 | (`Future`, M6) `update`/`delete`, `insert`, `insertReturningKeys` and `persist` (M10), and `persist(persist, returning)` (M11), without an ambient transaction succeed through the repository, the inserted rows committed; `commitEachChunk` commits each chunk separately on the primary and on a secondary datasource of the multi-datasource sample, and a failed third chunk leaves the first two committed (R-SPR-10, R-SPR-11). |
+| AC-SPR-09 | (`Future`, M6) `update`/`delete`, `insert`, `insertReturningKeys` and `persist` (M10), and `persist(persist, returning)` (M11), without an ambient transaction succeed through the repository, the inserted rows committed; `commitEachChunk` commits each chunk separately on the primary and on a secondary datasource of the multi-datasource sample, and a failed third chunk leaves the first two committed (R-SPR-10, R-SPR-11). `findOne`, `findFirst` and `findByKey` (M14) without an ambient transaction return the executor's row or empty through the repository, and `findOne` over two rows throws the executor's `MQ2003` (R-SPR-15). |
 | AC-SPR-14 | `findKeysetPage(q, KeysetSpec, Sort)` returns the same rows as the executor; a sorted `Sort` changes the fingerprint (R-SPR-14). |
 | AC-SPR-15 | A context whose `@EnableJpaRepositories` names a factory bean class extending `ModelQueryRepositoryFactoryBean` and a `repositoryBaseClass`: the context starts, both repositories are built with that factory bean, the base class's own method works on both, `findPage` and `findAll` work on the repository extending `ModelQueryRepository`, and the other stays a plain repository without the fragment (R-SPR-02, R-SPR-12, D-50, D-83). |
 | AC-SPR-16 | A context naming a `JpaRepositoryFactoryBean` subclass that does not extend `ModelQueryRepositoryFactoryBean`, plus a `repositoryBaseClass`: it starts; both repositories are built by that class (its override is observed); the base class's method works on both; `findPage` and `findAll` work on the `ModelQueryRepository` one; the other has no fragment; a repository type-checked before the post-processor still gets the fragment (R-SPR-02, D-83, D-113). |
 | AC-SPR-17 | AC-SPR-15's subclass keeps an unchanged definition and its composition holds exactly one `ModelQueryRepository` implementation; a subclass definition already setting `customImplementation` fails with `MQ4008`; `MQ4007` holds on the new route (R-SPR-02, R-SPR-12, D-113). |
+| AC-SPR-18 | A repository extending `JpaRepository`, `JpaSpecificationExecutor`, `QueryByExampleExecutor` and `ModelQueryRepository` starts, `findFirst` and `findByKey` not parsed as derived queries, and routes `findOne(Example)`, `findOne(Specification)` and `findOne(ModelQuery)` each to its own implementation (R-SPR-15). |
