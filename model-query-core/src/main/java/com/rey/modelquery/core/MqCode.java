@@ -274,6 +274,9 @@ public enum MqCode {
     /** {@code one} read a second row (R-EXE-12). */
     MQ2003("A single-row read found more than one row"),
 
+    /** {@code byKeys} read a row whose key equals none of the requested values (R-EXE-13). */
+    MQ2005("A row read by byKeys has a key equal to none of the requested values"),
+
     /** Streaming on a vendor whose driver buffers the whole result outside a transaction (R-EXE-08). */
     MQ2101("Streaming requires a transaction on this vendor"),
 

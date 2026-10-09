@@ -83,6 +83,7 @@ import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
@@ -150,6 +151,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     /** The factories {@code stream} warned of setting no fetch size on, so each is warned of once (R-VND-12). */
     private static final Set<EntityManagerFactory> FETCH_SIZE_UNSET =
             Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
+
+    /** The calls, per query, that warned of an ignored {@code orderBy}, so each is warned of once (R-EXE-13). */
+    private static final Map<ModelQuery<?, ?, ?>, Set<String>> ORDER_IGNORED =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     /** The mapped entity classes of each factory, read from its metamodel once; weak, so a closed factory is freed. */
     private static final Map<EntityManagerFactory, Set<Class<?>>> MAPPED_ENTITIES =
@@ -241,7 +246,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(q, "q");
         checkFirstRun(q);
         LOG.log(DEBUG, () -> "one " + q);
-        return atMostOne(q, q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions), "one(query)");
+        warnOfIgnoredOrder(q, "one(query)");
+        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
+        built.query().orderBy(List.<Order>of()); // at most one row is read, so no order (R-EXE-12)
+        return atMostOne(q, built, "one(query)");
     }
 
     @Override
@@ -283,11 +291,107 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 MqCode.MQ2203, q + ": one(query, key) needs a primary key to filter on, and " + (q.isGrouped()
                         ? "a grouped query has none" : "primaryKey(...) was not set")));
         CriteriaBuilder cb = em.getCriteriaBuilder();
+        warnOfIgnoredOrder(q, "one(query, key)");
         BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL, renderOptions);
+        built.query().orderBy(List.<Order>of()); // at most one row is read, so no order (R-EXE-12)
         Predicate byKey = primaryKey.equal(key, built.joins(), cb);
         Predicate own = built.query().getRestriction();
         built.query().where(own == null ? byKey : cb.and(own, byKey));
         return atMostOne(q, built, "one(query, key)");
+    }
+
+    /** Warns once per query and call that {@code call} ignores {@code q}'s {@code orderBy} (R-EXE-05, R-EXE-13). */
+    private void warnOfIgnoredOrder(ModelQuery<?, ?, ?> q, String call) {
+        if (q.orderBy().isEmpty()) {
+            return;
+        }
+        boolean first;
+        synchronized (ORDER_IGNORED) {
+            first = ORDER_IGNORED.computeIfAbsent(q, key -> new HashSet<>()).add(call);
+        }
+        if (first) {
+            LOG.log(System.Logger.Level.WARNING, "{0}: {1} ignores the query''s orderBy{2}", q, call,
+                    call.startsWith("byKeys") ? "; the map is in key order" : "");
+        }
+    }
+
+    // ---- reads by many keys
+
+    @Override
+    public <K, M> Map<K, M> byKeys(ModelQuery<E, K, M> q, Collection<? extends K> keys) {
+        Objects.requireNonNull(q, "q");
+        Objects.requireNonNull(keys, "keys");
+        checkFirstRun(q);
+        LOG.log(DEBUG, () -> "byKeys " + q + ": " + keys.size() + " keys");
+        PrimaryKey<M, K> primaryKey = q.primaryKey().orElseThrow(() -> new ModelQueryExecutionException(
+                MqCode.MQ2203, q + ": byKeys(query, keys) needs a primary key to filter on, and " + (q.isGrouped()
+                        ? "a grouped query has none" : "primaryKey(...) was not set")));
+        // Each caller key to the attribute value it matches by (R-COL-11); keys converting to one value share a row.
+        Map<K, Object> converted = new LinkedHashMap<>();
+        for (K key : keys) {
+            if (!converted.containsKey(key)) {
+                converted.put(key, primaryKey.attributeKey(key));
+            }
+        }
+        if (converted.isEmpty()) {
+            return Map.of();
+        }
+        warnOfIgnoredOrder(q, "byKeys(query, keys)");
+        Set<Object> requested = new LinkedHashSet<>(converted.values());
+        List<Object> distinct = List.copyOf(requested);
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        // The statement's own binds, before any key is added; primaryKeyFirstBatchSize does not apply (R-EXE-13).
+        BuiltQuery<M> counted = q.buildQuery(cb, Phase.MODEL, renderOptions);
+        int ownBinds = em.createQuery(counted.query()).getParameters().size()
+                + counted.joins().repeatedExpressionBinds();
+        int chunk = keyLimits.clamp(ownBinds, primaryKey.columns().size(), OptionalInt.empty());
+        Map<Object, ReadRow<M>> found = new HashMap<>();
+        for (int from = 0; from < distinct.size(); from += chunk) {
+            List<Object> chunkKeys = distinct.subList(from, Math.min(distinct.size(), from + chunk));
+            BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL, renderOptions);
+            Predicate byKey = primaryKey.in(chunkKeys, built.joins(), cb, false);
+            Predicate own = built.query().getRestriction();
+            built.query().where(own == null ? byKey : cb.and(own, byKey));
+            built.query().orderBy(List.<Order>of()); // chunks cannot be ordered across statements (R-EXE-13)
+            for (Tuple tuple : rows(q, create(q, built))) {
+                Row row = built.selection().row(tuple);
+                Object rowKey = Keys.keyOf(q, primaryKey, row);
+                if (!requested.contains(rowKey)) {
+                    throw new ModelQueryExecutionException(MqCode.MQ2005, q + ": byKeys(query, keys) read a row whose "
+                            + "key " + rowKey + " equals none of the requested keys, as a case-insensitive or padding "
+                            + "collation, or a BigDecimal scale, can match; compare the key as the database does");
+                }
+                if (found.putIfAbsent(rowKey, new ReadRow<>(built, row)) != null) {
+                    throw new ModelQueryExecutionException(MqCode.MQ2003, q + ": byKeys(query, keys) found more than "
+                            + "one row for key " + rowKey + filterOnlyToManyJoin(built).map(join -> "; if the to-many "
+                                    + "join " + joinName(join) + ", which no selected column reads, repeats the row "
+                                    + "once per matching child, filter with Filters.exists(...) instead").orElse(""));
+                }
+            }
+        }
+        // Every chunk is read and checked; only now are rows mapped, in key order, and the fetch plan run once.
+        List<Object> foundValues = new ArrayList<>(found.size());
+        List<Loaded<M>> rows = new ArrayList<>(found.size());
+        for (Object value : distinct) {
+            ReadRow<M> row = found.get(value);
+            if (row != null) {
+                foundValues.add(value);
+                rows.add(new Loaded<>(row.built().map(row.row()), row.row()));
+            }
+        }
+        List<M> models = models(q, rows);
+        Map<Object, M> byValue = new HashMap<>();
+        for (int i = 0; i < foundValues.size(); i++) {
+            byValue.put(foundValues.get(i), models.get(i));
+        }
+        Map<K, M> result = new LinkedHashMap<>();
+        converted.forEach((key, value) -> {
+            M model = byValue.get(value);
+            if (model != null) {
+                result.put(key, model);
+            }
+        });
+        return Collections.unmodifiableMap(result);
     }
 
     /**
@@ -695,6 +799,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(q, "q");
         checkFirstRun(q, false);
         LOG.log(DEBUG, () -> "count " + q);
+        warnOfIgnoredOrder(q, "count(query)");
         return countRows(q);
     }
 
@@ -1810,6 +1915,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /** A step-2 row, with the statement that read it. */
     private record Found<M>(BuiltQuery<M> built, Tuple tuple) {}
+
+    /** A {@code byKeys} row, decoded, with the statement that read it. */
+    private record ReadRow<M>(BuiltQuery<M> built, Row row) {}
 
     /**
      * The most keys one step-2 statement takes: the configured batch size, if any, within the largest power of two

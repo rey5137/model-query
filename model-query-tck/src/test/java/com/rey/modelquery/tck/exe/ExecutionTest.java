@@ -231,7 +231,9 @@ class ExecutionTest {
         });
         assertThat(sql).hasSize(2).noneMatch(s -> s.contains("count(*)"));
         assertThat(counts).containsExactly(groups(db, false), groups(db, true));
-        assertThat(warnings).hasSize(2).allMatch(w -> w.contains("counts its rows in memory"));
+        // PER_CUSTOMER is ordered, so each count also warns once of the ignored orderBy per query (R-EXE-05).
+        assertThat(warnings).filteredOn(w -> w.contains("counts its rows in memory")).hasSize(2);
+        assertThat(warnings).filteredOn(w -> w.contains("ignores the query's orderBy")).hasSize(2);
     }
 
     /** The reference count, from JPQL run directly. */

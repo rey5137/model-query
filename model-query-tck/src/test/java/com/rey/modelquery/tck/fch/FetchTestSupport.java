@@ -25,7 +25,7 @@ import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
 
 /** What the fetch-plan TCK cases share: executors, the expected children read by JDBC, and a narrowed profile. */
-final class FetchTestSupport {
+public final class FetchTestSupport {
 
     private FetchTestSupport() {}
 
@@ -60,7 +60,7 @@ final class FetchTestSupport {
     }
 
     /** {@code db}'s built-in profile with an IN list of at most {@code maxInListSize} values (R-VND-03). */
-    static VendorProfile limited(TckDatabase db, int maxInListSize) {
+    public static VendorProfile limited(TckDatabase db, int maxInListSize) {
         return limited(db, maxInListSize, 0);
     }
 
