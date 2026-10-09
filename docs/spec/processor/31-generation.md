@@ -293,6 +293,16 @@ or a `@MappedSuperclass` type variable resolved on the root; and pass `K.class` 
 `K` is `Object`, and `MQ3504` warns (`processor/32`). `INSERT_COLUMNS`, `insertFrom`, `insert` and `persist` carry
 `@Incubating`.
 
+**R-GEN-34** *(D-123)* For `@QueryModel(generateInserts = true)` (`processor/30` R-PROC-26) the query model's
+`Q<Model>` also declares `INSERT_COLUMNS`, `insertFrom`, `insert` and `persist` as R-GEN-28 generates them, each
+`@Incubating`, beside its query members and over the root columns R-PROC-26 writes, in declaration order. A column is
+added with `addKey` when it maps to the root's id (the `@Id` attribute, an `@IdClass` attribute, or the `@EmbeddedId`
+whole or by a component), whatever `@PrimaryKey` says: a `@PrimaryKey` on a non-id unique column (R-GEN-22) is added
+with `add`. `insert` and `persist` fix `K` to the root's id as R-GEN-28 does, not to `KEY`'s type, so for a composite
+key `KEY` is a `PrimaryKey<M, List<Object>>` while `persist` returns the `@IdClass` or `@EmbeddedId` type. The
+`INSERT_COLUMNS` Javadoc lists each field and filter column left out, with the reason. An insert model's generated
+code is unchanged.
+
 **R-GEN-29** *(D-120)* **The `@Selected` set.** A `@QueryModel` with a `@Selected` field (`processor/30` R-PROC-25)
 generates one more constant, `private static final SelectSet<M> SELECTED_FIELDS`, holding every column constant of the
 model, every joined column constant at any depth, every `@Computed` constant and every `@Aggregate` constant, which are
@@ -379,3 +389,5 @@ tier matches the `named` property first, then the name, so existing sorts keep w
 | AC-GEN-23 | A property path resolved through `fields()` and the same path used as a sort property name the same field, for a column, a nested `@Join` column, an expression and a `named` aggregate (R-GEN-33). |
 | AC-GEN-24 | Update and insert models generate no `fields()` (R-GEN-32). |
 | AC-GEN-25 | A model whose entity and converter are named `Index` compiles, and its `fields()` works (R-GEN-32). |
+| AC-GEN-26 | On a `generateInserts` query model `addKey` follows the root's id: an `@IdClass` id is added with `addKey` by its attributes and types `insert` and `persist` by the id class while `KEY` stays composite, and a `@PrimaryKey` on a non-id unique column over a generated id is added with `add`, `K` being the id's type (R-GEN-34). |
+| AC-GEN-27 | On every Tier-1 vendor a `generateInserts` query model inserts rows, insert-selects rows from another root and persists a row, its `@Version` left to the provider, and the same model reads them back (R-GEN-34). |

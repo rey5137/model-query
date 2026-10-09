@@ -61,4 +61,17 @@ public @interface QueryModel {
      */
     @Incubating
     boolean generateChanges() default false;
+
+    /**
+     * Whether to also generate {@code INSERT_COLUMNS}, {@code insert(rows)}, {@code insertFrom(sourceRoot)} and
+     * {@code persist(row)} over the model's root columns, as an {@link InsertModel} does. Joined, child, computed,
+     * selected, transient and filter-only fields, to-one and version columns, columns an insert can't write and a
+     * generated id are left out; the generated {@code INSERT_COLUMNS} Javadoc lists each. No foreign key is written,
+     * so a model that sets one keeps its own {@link InsertModel}. Meant for internal use: a model bound from a request
+     * can write every listed column.
+     *
+     * @return {@code true} to generate the insert members
+     */
+    @Incubating
+    boolean generateInserts() default false;
 }

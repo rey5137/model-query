@@ -154,7 +154,8 @@ enum DiagnosticCode {
 
     /**
      * An insert model that names its root's generated id, or does not name with {@code @PrimaryKey} an id that has
-     * no {@code @GeneratedValue}, or whose {@code @PrimaryKey} is not the id.
+     * no {@code @GeneratedValue}, or whose {@code @PrimaryKey} is not the id; a {@code generateInserts} query model
+     * whose {@code @PrimaryKey} doesn't name all of an assigned id.
      */
     MQ3501("Insert model's @PrimaryKey does not match the root entity's id and its generator"),
     /**
@@ -165,8 +166,13 @@ enum DiagnosticCode {
     MQ3502("Annotation not allowed on an insert model"),
     /** A type carrying more than one of {@code @QueryModel}, {@code @UpdateModel} and {@code @InsertModel}. */
     MQ3503("More than one model annotation on one type"),
-    /** An insert model whose root shows the processor no id type, so its keys are typed {@code Object}; a warning. */
-    MQ3504("Insert model's root has no id type the processor can see; a warning");
+    /**
+     * An insert model, or a {@code generateInserts} query model, whose root shows the processor no id type, so its
+     * keys are typed {@code Object}; a warning.
+     */
+    MQ3504("Insert model's root has no id type the processor can see; a warning"),
+    /** {@code generateInserts} on a grouped model, or on one with no root column it can write. */
+    MQ3505("generateInserts needs an ungrouped model with a writable root column");
 
     private final String defaultMessage;
 

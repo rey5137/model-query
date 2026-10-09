@@ -231,6 +231,9 @@ final class QModelWriter {
         if (keyed) {
             writes(model, modelName, entity, keyType, type);
         }
+        if (model.inserts()) {
+            inserts(model, modelName, entity, type);
+        }
         return file(generated, type);
     }
 
@@ -330,22 +333,33 @@ final class QModelWriter {
     }
 
     /**
-     * {@code INSERT_COLUMNS}, the model's columns in declaration order, each read from a row by its record accessor
-     * or getter, and the {@code insertFrom}, {@code insert} and {@code persist} that start from it. {@code K} is the
-     * root's id type as the processor sees it, else {@code Object} ({@code MQ3504}). All four are {@code @Incubating},
-     * as the insert API is (R-GEN-28, D-117).
+     * {@code INSERT_COLUMNS}, the columns {@link InsertedColumns} writes in declaration order, each read from a row by
+     * its record accessor or getter, and the {@code insertFrom}, {@code insert} and {@code persist} that start from
+     * it. {@code K} is the root's id type as the processor sees it, else {@code Object} ({@code MQ3504}). All four are
+     * {@code @Incubating}, as the insert API is (R-GEN-28, D-117). On a {@code generateInserts} query model the
+     * constant's Javadoc names what it leaves out (R-GEN-34).
      */
     private void inserts(ModelDefinition model, ClassName modelName, ClassName entity, TypeSpec.Builder type) {
+        InsertedColumns inserted = InsertedColumns.of(model, metamodel);
         CodeBlock.Builder columns = CodeBlock.builder().add("$T.<$T, $T>of(ROOT)", INSERT_COLUMNS, modelName, entity);
-        for (ModelField field : model.columns()) {
-            columns.add("\n$>$>.$L($L, $T::$L)$<$<", field.primaryKey() ? "addKey" : "add", field.constant(), modelName,
+        for (InsertedColumns.Written column : inserted.written()) {
+            ModelField field = column.field();
+            columns.add("\n$>$>.$L($L, $T::$L)$<$<", column.key() ? "addKey" : "add", field.constant(), modelName,
                     model.isRecord() ? field.name() : ChangesWriter.getter(field));
         }
-        type.addField(FieldSpec.builder(ParameterizedTypeName.get(INSERT_COLUMNS, modelName, entity),
+        FieldSpec.Builder constant = FieldSpec.builder(ParameterizedTypeName.get(INSERT_COLUMNS, modelName, entity),
                         "INSERT_COLUMNS", CONSTANT)
                 .addAnnotation(INCUBATING)
-                .initializer(columns.build())
-                .build());
+                .initializer(columns.build());
+        if (model.queryModel()) {
+            constant.addJavadoc("The root columns {@code insert}, {@code insertFrom} and {@code persist} write.\n");
+            if (!inserted.leftOut().isEmpty()) {
+                constant.addJavadoc("<p>Left out:\n<ul>\n");
+                inserted.leftOut().forEach(field -> constant.addJavadoc("<li>$L</li>\n", field));
+                constant.addJavadoc("</ul>\n");
+            }
+        }
+        type.addField(constant.build());
         TypeMirror id = metamodel.id(model.root()).type();
         TypeName key = id == null ? TypeName.OBJECT
                 : column(id.getKind() == TypeKind.TYPEVAR ? types.erasure(id) : id);

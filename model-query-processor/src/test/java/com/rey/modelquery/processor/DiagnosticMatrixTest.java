@@ -28,7 +28,8 @@ import org.junit.jupiter.params.provider.MethodSource;
  * raise on an {@code @UpdateModel}, and {@code MQ3306} on a {@code generateChanges} query model too. The
  * {@code @Child} codes {@code MQ3401}..{@code MQ3406} raise on a query model with a child over another root. The
  * insert-model codes {@code MQ3501}..{@code MQ3504} raise on an {@code @InsertModel}, which a class model writes
- * through its getters, so a class without Lombok gets getters beside its setters.
+ * through its getters, so a class without Lombok gets getters beside its setters; {@code MQ3505} raises on a
+ * {@code generateInserts} query model.
  * {@code MQ3017} raises on a {@code root} of {@code int.class}, since a missing class adds javac's own errors;
  * {@link RoundDeferralTest} covers that one.
  */
@@ -579,7 +580,13 @@ class DiagnosticMatrixTest {
                             "String name", "boolean active")),
                     "models.QLegacyRow",
                     "MQ3504: LegacyRow: LegacyEntity has no id type the processor can see; insert(rows) and "
-                            + "persist(row) return its keys as Object")));
+                            + "persist(row) return its keys as Object")),
+            of("MQ3505", c -> fails(
+                    with(SALE_ENTITY, c.model("SalesSummary",
+                            "@QueryModel(root = SaleEntity.class, generateInserts = true)", "@GroupBy String region",
+                            COUNT + " Long lines")),
+                    "MQ3505: SalesSummary: generateInserts needs an ungrouped model with at least one root column it "
+                            + "can write")));
 
     static Stream<Arguments> matrix() {
         var runs = new ArrayList<Arguments>();

@@ -58,6 +58,7 @@ final class QueryModelReader {
     private static final String GENERATE_SELECT_SETS = "generateSelectSets";
     private static final String SINGLE_GROUP = "singleGroup";
     private static final String GENERATE_CHANGES = "generateChanges";
+    private static final String GENERATE_INSERTS = "generateInserts";
     private static final String CONVERTER = "converter";
     private static final String OPTIONAL = "java.util.Optional";
     private static final String LIST = "java.util.List";
@@ -91,6 +92,7 @@ final class QueryModelReader {
         boolean selectSets = kind == Kind.QUERY && !Boolean.FALSE.equals(explicit(annotation, GENERATE_SELECT_SETS));
         boolean singleGroup = Boolean.TRUE.equals(explicit(annotation, SINGLE_GROUP));
         boolean generateChanges = Boolean.TRUE.equals(explicit(annotation, GENERATE_CHANGES));
+        boolean generateInserts = Boolean.TRUE.equals(explicit(annotation, GENERATE_INSERTS));
 
         List<VariableElement> declared = ElementFilter.fieldsIn(type.getEnclosedElements()).stream()
                 .filter(field -> !field.getModifiers().contains(Modifier.STATIC))
@@ -130,7 +132,7 @@ final class QueryModelReader {
         }
         return new ModelDefinition(
                 type, (TypeElement) rootType.asElement(), prefix + type.getSimpleName() + suffix, selectSets,
-                singleGroup, fields, filterColumns(type), kind, generateChanges);
+                singleGroup, fields, filterColumns(type), kind, generateChanges, generateInserts);
     }
 
     /** The annotation a model of {@code kind} carries. */

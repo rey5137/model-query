@@ -13,9 +13,10 @@ import javax.lang.model.util.Types;
 /**
  * The checks of a model that writes: an {@code @UpdateModel}, a {@code @QueryModel} with
  * {@code generateChanges = true} ({@code MQ3301}..{@code MQ3307}), or an {@code @InsertModel} ({@code MQ3301},
- * {@code MQ3303}..{@code MQ3305} on its columns, {@code MQ3501}, {@code MQ3502} and {@code MQ3504}).
+ * {@code MQ3303}..{@code MQ3305} on its columns, {@code MQ3501}, {@code MQ3502} and {@code MQ3504}), or a
+ * {@code @QueryModel} with {@code generateInserts = true} ({@code MQ3501}, {@code MQ3504} and {@code MQ3505}).
  *
- * @implSpec R-GEN-19, R-GEN-22, R-GEN-23, R-PROC-23, R-DIAG-01, R-DIAG-02
+ * @implSpec R-GEN-19, R-GEN-22, R-GEN-23, R-PROC-23, R-PROC-26, R-DIAG-01, R-DIAG-02
  */
 final class WriteChecks {
 
@@ -120,11 +121,7 @@ final class WriteChecks {
     void checkInsertKey(ModelDefinition model, Diagnostics diagnostics) {
         EntityMetamodel.Id id = metamodel.id(model.root());
         String root = model.root().getSimpleName().toString();
-        if (id.type() == null) {
-            diagnostics.warning(model.type(), DiagnosticCode.MQ3504, model.name() + ": " + root
-                    + " has no id type the processor can see; insert(rows) and persist(row) return its keys as "
-                    + "Object");
-        }
+        warnUntypedId(model, id, diagnostics);
         if (id.attributes().isEmpty()) {
             return;
         }
@@ -154,6 +151,43 @@ final class WriteChecks {
         if (!reported && !id.generated() && !id.is(keys)) {
             diagnostics.error(model.type(), DiagnosticCode.MQ3501, model.name() + ": " + root + "'s id " + id.label()
                     + " has no @GeneratedValue or generator annotation; name it with @PrimaryKey");
+        }
+    }
+
+    /**
+     * {@code MQ3505} for a {@code generateInserts} query model that is grouped or writes no root column; otherwise
+     * {@code MQ3501} only when the root's id is assigned and the model's {@code @PrimaryKey} fields don't name all of
+     * it, since {@code addKey} follows the id and another {@code @PrimaryKey} is written with {@code add}; and
+     * {@code MQ3504} as on an insert model (R-PROC-26, D-123).
+     */
+    void checkGeneratedInserts(ModelDefinition model, Diagnostics diagnostics) {
+        List<InsertedColumns.Written> written = InsertedColumns.of(model, metamodel).written();
+        if (model.grouped() || written.isEmpty()) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3505, model.name()
+                    + ": generateInserts needs an ungrouped model with at least one root column it can write");
+            // No insert member can be generated, so what would key it is beside the point.
+            return;
+        }
+        EntityMetamodel.Id id = metamodel.id(model.root());
+        warnUntypedId(model, id, diagnostics);
+        // Only a @PrimaryKey the insert writes names the id: a to-one @MapsId or insertable = false one is left out.
+        Set<String> keys = written.stream().map(InsertedColumns.Written::field).filter(ModelField::primaryKey)
+                .map(ModelField::attribute).collect(Collectors.toSet());
+        boolean named = keys.containsAll(id.attributes())
+                || !id.components().isEmpty() && keys.containsAll(id.components());
+        if (!id.generated() && !named) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3501, model.name() + ": "
+                    + model.root().getSimpleName() + "'s id " + id.label() + " has no @GeneratedValue or generator "
+                    + "annotation; generateInserts writes it, so name it with @PrimaryKey");
+        }
+    }
+
+    /** {@code MQ3504} when the processor sees no id type, so {@code insert} and {@code persist} type it Object. */
+    private static void warnUntypedId(ModelDefinition model, EntityMetamodel.Id id, Diagnostics diagnostics) {
+        if (id.type() == null) {
+            diagnostics.warning(model.type(), DiagnosticCode.MQ3504, model.name() + ": "
+                    + model.root().getSimpleName() + " has no id type the processor can see; insert(rows) and "
+                    + "persist(row) return its keys as Object");
         }
     }
 
