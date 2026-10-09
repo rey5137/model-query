@@ -271,6 +271,9 @@ public enum MqCode {
     /** A negative offset (R-EXE-06). */
     MQ2002("An offset must not be negative"),
 
+    /** {@code one} read a second row (R-EXE-12). */
+    MQ2003("A single-row read found more than one row"),
+
     /** Streaming on a vendor whose driver buffers the whole result outside a transaction (R-EXE-08). */
     MQ2101("Streaming requires a transaction on this vendor"),
 
@@ -280,7 +283,7 @@ public enum MqCode {
     /** A keyset column is NULL and has no explicit null precedence (R-PAG-05). */
     MQ2202("A keyset column is NULL and the column has no explicit null precedence"),
 
-    /** An operation needing a primary key on a query without one (R-QRY-03). */
+    /** An operation needing a primary key on a query without one (R-QRY-03, R-EXE-12). */
     MQ2203("An operation needing a primary key ran on a query without one"),
 
     /** Key-based paging over a selection read through a to-many join (R-PAG-13). */

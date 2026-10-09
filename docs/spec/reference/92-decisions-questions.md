@@ -1657,7 +1657,8 @@ a model that sets one keeps its own `@InsertModel`. `addKey` follows the root's 
 `findFirst` and `findByKey`, delegate-only (R-SPR-01). `one` renders `list`'s statement with a limit of 2, throws
 `MQ2003` on a second row before the fetch plan runs, and counts `list` rows, so a predicate-only to-many join gives
 `MQ2003` naming the join and pointing at `Filters.exists`. `first` appends the key, or the group keys for a grouped
-query, as a tie-breaker after any `orderBy`, with explicit `nullsLast`; neither an `orderBy` nor a key is `MQ2203`. A
+query, as a tie-breaker after any `orderBy`, with explicit `nullsLast`; neither an `orderBy` nor a key is `MQ2203`, except on
+an aggregate-only query, which has one row. A
 key passed to `one(q, key)` converts as in `whereKey`; a `null` key or component, or a wrong component count, throws
 `IllegalArgumentException`, and a keyless or grouped query is `MQ2203`. The methods are abstract on the `@Incubating`
 interfaces (R-REL-07, D-110), not defaults: a default on `list` would run the fetch plan on the extra row. Rejected:

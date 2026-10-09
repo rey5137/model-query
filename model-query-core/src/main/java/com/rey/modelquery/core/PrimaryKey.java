@@ -13,7 +13,7 @@ import java.util.Objects;
  *
  * @param <M> the model the key belongs to
  * @param <K> the key's Java type; {@code List<Object>} (component values, in declaration order) for a composite key
- * @implSpec R-QRY-03, R-QRY-04
+ * @implSpec R-QRY-03, R-QRY-04, R-EXE-12
  */
 @Incubating
 public final class PrimaryKey<M, K> {
@@ -70,5 +70,35 @@ public final class PrimaryKey<M, K> {
             each[i] = cb.and(equal);
         }
         return collapseSingle && each.length == 1 ? each[0] : cb.or(each);
+    }
+
+    /**
+     * {@code key = modelKey}, as {@link #columns()} paths in {@code ctx}: the model key converted through each
+     * column's converter as {@code whereKey} converts it (R-WRT-08, D-63), for {@code one(q, key)} (R-EXE-12).
+     *
+     * @throws IllegalArgumentException for a {@code null} key or component, or a composite key that is not a list of
+     *     as many components as the key has columns
+     */
+    @EngineFacing
+    public Predicate equal(Object modelKey, JoinContext ctx, CriteriaBuilder cb) {
+        if (modelKey == null) {
+            throw new IllegalArgumentException("the key is null");
+        }
+        if (columns.size() > 1) {
+            if (!(modelKey instanceof List<?> values) || values.size() != columns.size()) {
+                throw new IllegalArgumentException("a key of " + columns.size() + " components is a list of "
+                        + columns.size() + " values, not " + modelKey);
+            }
+            // List.of(...).contains(null) throws, so each component is tested.
+            if (values.stream().anyMatch(Objects::isNull)) {
+                throw new IllegalArgumentException("a key component is null: " + modelKey);
+            }
+        }
+        Object key = WriteRendering.distinctKeys(this, List.of(modelKey)).get(0);
+        // A converter can turn a value into NULL, and key = NULL matches no row.
+        if (key == null || key instanceof List<?> converted && converted.stream().anyMatch(Objects::isNull)) {
+            throw new IllegalArgumentException("a key component converts to null: " + modelKey);
+        }
+        return in(List.of(key), ctx, cb, true);
     }
 }

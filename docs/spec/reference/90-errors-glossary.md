@@ -112,10 +112,11 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 |---|---|---|
 | `MQ2001` | `pageSize`, `ExportOptions.pageSize`, `ChunkOptions.size` or `ChildQuery.maxPerParent` is not positive, a `KeysetSpec` size is outside `1..Integer.MAX_VALUE - 1`, or a `Limit` is negative | `engine/20` R-EXE-06, `engine/21` R-PAG-16, `api/15` R-FCH-04 |
 | `MQ2002` | Negative offset | `engine/20` R-EXE-06 |
+| `MQ2003` | `one(q)` or `one(q, key)` read a second row: `<Model>: one(query) found more than one row`; through a predicate-only to-many join the message names the join and points at `Filters.exists`. Thrown before any row is mapped or the fetch plan runs | `engine/20` R-EXE-12 |
 | `MQ2101` | Streaming requires a transaction on this vendor | `engine/20` R-EXE-08 |
 | `MQ2201` | A row's primary key mapped to `null` during export or primary-key-first paging | `engine/21` R-PAG-03 |
 | `MQ2202` | A keyset column is NULL and the column has no explicit null precedence | `engine/21` R-PAG-05 |
-| `MQ2203` | An operation needing a primary key (offset export of an ungrouped query, the `PRIMARY_KEY` phase) on a query without one; a grouped query never has one (`api/13` R-AGG-09) | `api/11` R-QRY-03 |
+| `MQ2203` | An operation needing a primary key (offset export of an ungrouped query, the `PRIMARY_KEY` phase, `one(q, key)`, `first(q)` without an `orderBy`) on a query without one; a grouped query never has one (`api/13` R-AGG-09), though `first` orders it by its group keys | `api/11` R-QRY-03, `engine/20` R-EXE-12 |
 | `MQ2204` | Offset export of an ungrouped query, keyset paging or the primary-key-first phase over a selection, including an expression, read through a to-many join | `engine/21` R-PAG-13 |
 | `MQ2205` | A keyset page holds the cursor's own primary key, or a keyset export page holds a key of the page before: a cursor value did not survive being bound, or a row's keyset value moved after the cursor; or a bulk write's key select returns a key the round before wrote | `engine/21` R-PAG-14, R-PAG-24, `api/14` R-WRT-17 |
 | `MQ2206` | A customizer narrows the phases of a query with `primaryKeyFirst(...)` differently | `engine/21` R-PAG-15 |

@@ -89,6 +89,11 @@ constants, so a binary-compatibility report flags both while no caller breaks. E
 set-semantics `equals`, `hashCode` and `toString` are not marked and freeze with `SelectSet`.
 `FieldIndex`, its `Builder` and `Resolution`, `AggregateField.named` and the generated `fields()` (D-121, 0.6.0) are
 `@Incubating` through 1.0.
+`ModelQueryExecutor.one(q)`, `first(q)` and `one(q, key)` (D-123, 0.7.0) are abstract and `@Incubating` through 1.0,
+as D-110 allows: `DefaultModelQueryExecutor` is the only library implementation. They are not default methods, since a
+default built on `list` would run the fetch plan on the extra row (`engine/20` R-EXE-12). A class that implements
+`ModelQueryExecutor` itself (a decorator or test double) must add them; one compiled before 0.7.0 throws
+`AbstractMethodError` only when a new method is called, and the changelog says so.
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from
