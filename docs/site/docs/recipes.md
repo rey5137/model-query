@@ -46,8 +46,19 @@ var query = QOrderView.query()
                 .eq(QOrderView.CUSTOMER_COUNTRY, country))
         .orderBy(QOrderView.ID.asc())
         .build();
-return executor.list(query, Limit.of(100));
 ```
+
+=== "Plain JPA"
+
+    ```java
+    return executor.list(query, Limit.of(100));
+    ```
+
+=== "Spring repository"
+
+    ```java
+    return orders.findAll(query, Limit.of(100));
+    ```
 
 A Querydsl query migrates the same way: the `Projections.constructor(...)` arguments become the model's fields, the
 `leftJoin` becomes the `@Join`, and each `BooleanBuilder` branch becomes one filter call.

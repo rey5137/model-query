@@ -79,11 +79,21 @@ Three methods read at most one model and return an `Optional` (D-123, `@Incubati
 | `first(q)` | The first row in a stable order, or empty. Never `MQ2003`. |
 | `one(q, key)` | The row with that primary key that also matches `q`'s filter, or empty. |
 
-```java
-Optional<OrderView> order = executor.one(q);
-Optional<OrderView> newest = executor.first(q);
-Optional<OrderView> byKey = executor.one(q, 42L);
-```
+=== "Plain JPA"
+
+    ```java
+    Optional<OrderView> order = executor.one(q);
+    Optional<OrderView> newest = executor.first(q);
+    Optional<OrderView> byKey = executor.one(q, 42L);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    Optional<OrderView> order = orders.findOne(q);
+    Optional<OrderView> newest = orders.findFirst(q);
+    Optional<OrderView> byKey = orders.findByKey(q, 42L);
+    ```
 
 `one` reads at a limit of 2, so a second row is found and not hidden; `MQ2003` is thrown before any row is mapped, and
 the [fetch plan](fetch-plans.md) runs once, on the one row left. `one` counts rows as `list` returns them, so a
@@ -108,9 +118,17 @@ non-id column that matches two rows is `MQ2003`. On a Spring repository the thre
 `byKeys(q, keys)` reads the models of many primary keys at once and returns them as an unmodifiable `Map<K, M>`
 (D-126, `@Incubating`):
 
-```java
-Map<Long, OrderView> byId = executor.byKeys(q, List.of(1L, 2L, 3L));
-```
+=== "Plain JPA"
+
+    ```java
+    Map<Long, OrderView> byId = executor.byKeys(q, List.of(1L, 2L, 3L));
+    ```
+
+=== "Spring repository"
+
+    ```java
+    Map<Long, OrderView> byId = orders.findAllByKeys(q, List.of(1L, 2L, 3L));
+    ```
 
 The map iterates in the order of the keys' first occurrence, and a key with no row — or one `q`'s filter excludes — is
 absent rather than a `null` entry. Each key is converted as `whereKey` converts it, so two keys a converter maps to

@@ -158,11 +158,21 @@ The generated mapper fills it on every row, never with `null`, with the constant
 row selected: columns, `@Computed` and `@Aggregate` constants and joined columns of any depth. A selected column that is
 `NULL` is in the set, and a column the query left out is not:
 
-```java
-OrderView order = executor.list(QOrderView.query().select(SelectSet.of(QOrderView.STATUS)).build(), Limit.of(1)).get(0);
-order.selected().contains(QOrderView.STATUS);        // true, whatever the status is
-order.selected().contains(QOrderView.REFERRER_KEY);  // false: never selected, so `null` means nothing
-```
+=== "Plain JPA"
+
+    ```java
+    OrderView order = executor.list(QOrderView.query().select(SelectSet.of(QOrderView.STATUS)).build(), Limit.of(1)).get(0);
+    order.selected().contains(QOrderView.STATUS);        // true, whatever the status is
+    order.selected().contains(QOrderView.REFERRER_KEY);  // false: never selected, so `null` means nothing
+    ```
+
+=== "Spring repository"
+
+    ```java
+    OrderView order = orders.findAll(QOrderView.query().select(SelectSet.of(QOrderView.STATUS)).build(), Limit.of(1)).get(0);
+    order.selected().contains(QOrderView.STATUS);        // true, whatever the status is
+    order.selected().contains(QOrderView.REFERRER_KEY);  // false: never selected, so `null` means nothing
+    ```
 
 What the set holds is what the row selected, so it can hold more than the caller's own `SelectSet`: the primary key and
 the ordering, group, fetch-plan and join-presence columns the engine adds are in it, because the field holds them. A
@@ -227,10 +237,21 @@ as an `@InsertModel` has them (see [Inserts](inserts.md#insert-models)), over th
 public record CustomerView(@PrimaryKey @Column(attribute = "id") Long id,
                            @Column(attribute = "name") String name,
                            @Column(attribute = "email") String email) {}
-
-executor.insert(QCustomerView.insert(rows).build());
-Long id = executor.persist(QCustomerView.persist(row));
 ```
+
+=== "Plain JPA"
+
+    ```java
+    executor.insert(QCustomerView.insert(rows).build());
+    Long id = executor.persist(QCustomerView.persist(row));
+    ```
+
+=== "Spring repository"
+
+    ```java
+    customers.insert(QCustomerView.insert(rows).build());
+    Long id = customers.persist(QCustomerView.persist(row));
+    ```
 
 The flag leaves these out, with no diagnostic:
 
@@ -261,10 +282,19 @@ public record OrderView(
 The field is still a column of the model and keeps its constant, so a caller can set it on the write; the recipe for a
 server-set timestamp:
 
-```java
-Instant now = Instant.now();
-executor.insert(QOrderView.insert(rows).set(QOrderView.CREATED_AT, now).build());
-```
+=== "Plain JPA"
+
+    ```java
+    Instant now = Instant.now();
+    executor.insert(QOrderView.insert(rows).set(QOrderView.CREATED_AT, now).build());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    Instant now = Instant.now();
+    orders.insert(QOrderView.insert(rows).set(QOrderView.CREATED_AT, now).build());
+    ```
 
 `persist` takes no `set`, so it writes an excluded column as the no-arg constructor leaves it (R-WRT-25): `status
 DEFAULT 'NEW'` reads back `NULL` unless the entity has a field initializer or `@DynamicInsert`. On a model without

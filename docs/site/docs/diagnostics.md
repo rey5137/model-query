@@ -15,14 +15,27 @@ The three exceptions extend `ModelQueryException`, so one clause catches every f
 `code()` says which one it was. The one exception is the JPA `OptimisticLockException` an `expectVersion` update
 throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 
-```java
-try {
-    return executor.page(query, PageSpec.of(0, 50), CountMode.NO_COUNT);
-} catch (ModelQueryException e) {
-    log.warn("query failed with {}", e.code(), e);
-    throw e;
-}
-```
+=== "Plain JPA"
+
+    ```java
+    try {
+        return executor.page(query, PageSpec.of(0, 50), CountMode.NO_COUNT);
+    } catch (ModelQueryException e) {
+        log.warn("query failed with {}", e.code(), e);
+        throw e;
+    }
+    ```
+
+=== "Spring repository"
+
+    ```java
+    try {
+        return orders.findPage(query, PageRequest.of(0, 50), CountMode.NO_COUNT);
+    } catch (ModelQueryException e) {
+        log.warn("query failed with {}", e.code(), e);
+        throw e;
+    }
+    ```
 
 ## `MQ1xxx`: query and write definitions
 
