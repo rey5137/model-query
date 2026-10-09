@@ -65,6 +65,7 @@ import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Order;
+import jakarta.persistence.criteria.ParameterExpression;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Selection;
@@ -76,11 +77,14 @@ import jakarta.persistence.metamodel.PluralAttribute;
 import jakarta.persistence.metamodel.SingularAttribute;
 import java.lang.reflect.AnnotatedElement;
 import java.sql.SQLException;
+import java.sql.Time;
+import java.sql.Timestamp;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -1028,9 +1032,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             }
         }
         List<String> inserted = attributes;
-        Map<String, Object> bound = constants;
         Metamodel metamodel = em.getMetamodel();
         BuiltQuery<?> select = i.buildSelect(cb, renderOptions, metamodel);
+        Map<String, Object> bound = asParameterTypes(constants, select.query());
         int repeated = select.joins().repeatedExpressionBinds();
         BiFunction<EntityManager, CriteriaQuery<Tuple>, Query> statement = (on, source) ->
                 support.insertSelect(on, rootEntity, inserted, source, bound);
@@ -1049,6 +1053,25 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 (on, keys) -> execute(byKeys.apply(on, keys), repeated), Optional.empty(), sourceKey -> sourceKey);
         return write(i.persistenceContext(), () -> keyset(keyed, whole, keys -> byKeys.apply(em, keys),
                 i.chunkOptions(), cb, repeated));
+    }
+
+    /**
+     * {@code constants} with each plain {@code java.util.Date} made the {@code java.sql} type its parameter in
+     * {@code select} is typed as, which a provider may require of the value it binds (Hibernate 7 does, D-122).
+     */
+    private static Map<String, Object> asParameterTypes(Map<String, Object> constants, CriteriaQuery<?> select) {
+        var bound = new LinkedHashMap<>(constants);
+        for (ParameterExpression<?> parameter : select.getParameters()) {
+            if (bound.get(parameter.getName()) instanceof Date date) {
+                Class<?> type = parameter.getParameterType();
+                long time = date.getTime();
+                bound.put(parameter.getName(), type == java.sql.Date.class && !(date instanceof java.sql.Date)
+                        ? new java.sql.Date(time)
+                        : type == Time.class && !(date instanceof Time) ? new Time(time)
+                        : type == Timestamp.class && !(date instanceof Timestamp) ? new Timestamp(time) : date);
+            }
+        }
+        return bound;
     }
 
     /**
