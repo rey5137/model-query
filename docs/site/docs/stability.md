@@ -1,6 +1,6 @@
 # API stability
 
-model-query is at 0.7.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
+model-query is at 0.8.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
 marked breaking. From 1.0.0 the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Today: everything is `@Incubating`
@@ -87,6 +87,14 @@ They are `ModelQueryExecutor.one`, `first` and `one(q, key)`, `@QueryModel.gener
 `ModelQueryExecutor` itself must add them. See
 [One model for reading and creating](models.md#one-model-for-reading-and-creating) and
 [Reading one row](queries.md#reading-one-row).
+
+The insert-column and multi-key members are new in 0.8.0 and `@Incubating` (D-125, D-126), and join the list above.
+They are the `@ExcludeFromInserts` annotation and the `generateInserts` rules that leave out a non-writable
+`@Generated` column, `ModelQueryExecutor.byKeys` and `ModelQueryRepository.findAllByKeys`. `byKeys` is abstract, not a
+default, so a class that implements `ModelQueryExecutor` itself must add it. `PrimaryKey.attributeKey` is
+`@EngineFacing`, so it is not API. See
+[One model for reading and creating](models.md#one-model-for-reading-and-creating) and
+[Reading many keys](queries.md#reading-many-keys).
 
 The fetch-plan types are new in 0.2.0, `@Incubating`, and not yet placed in the 1.0 freeze list above:
 `FetchPlan`, `ChildField`, `JoinField`, `ChildQuery`, `Enricher` and the `@Child` annotation. The executor-facing

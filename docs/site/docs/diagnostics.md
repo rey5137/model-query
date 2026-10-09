@@ -94,6 +94,7 @@ See [Queries and Filters](queries.md), [Grouped queries](grouped-queries.md), [B
 | Code | What went wrong |
 |---|---|
 | `MQ2001`, `MQ2002` | A page, export or chunk size is not positive, a limit is negative, or an offset is negative. |
+| `MQ2005` | `byKeys` read a row whose key equals none of the requested values: the column's collation is case-insensitive or ignores trailing spaces, or a `BigDecimal` key's scale differs. |
 | `MQ2101` | Streaming needs a transaction on this database (PostgreSQL). |
 | `MQ2201` | A row's primary key mapped to `null` during export or primary-key-first paging. |
 | `MQ2202` | A keyset column is NULL and has no explicit `nullsFirst()`/`nullsLast()`. |
@@ -162,10 +163,11 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3404` | `@Child` key of several attributes, an embedded value or an array: it takes one attribute each side. |
 | `MQ3405` | A `List` `@Child` without `foreignKey` (unless it has `through`), or whose model has no `@PrimaryKey`; or an `Optional` `@Child` whose `through` crosses a collection, on a model with no `@PrimaryKey`. |
 | `MQ3406` | `@Child(through)` whose path is blank, crosses something other than an association, or ends at another type than the child model's root; whose `key` is not the parent root's single `@Id`; or whose child model is grouped. |
-| `MQ3501` | Insert model: names a generated id, or does not name all of an id that has no generator with `@PrimaryKey`. |
+| `MQ3501` | Insert model: names a generated id, or does not name all of an id that has no generator with `@PrimaryKey`. On a `generateInserts` query model, an assigned id that no written column covers, including one an `@ExcludeFromInserts` field is. |
 | `MQ3502` | Insert model: `@Join`, `@FilterColumn`, `@Aggregate`, `@GroupBy`, `@Computed`, `@Child`, `@Selected` or `@Transient` field. |
 | `MQ3503` | A type carries more than one of `@QueryModel`, `@UpdateModel` and `@InsertModel`. To read and create one row shape with one model, use [`@QueryModel(generateInserts = true)`](models.md#one-model-for-reading-and-creating). |
 | `MQ3504` | Warning: the insert model's root shows the processor no id type, so the generated `insert` and `persist` type their keys as `Object`. |
+| `MQ3506` | `@ExcludeFromInserts` on a model without `generateInserts`, on an update or insert model, or on a field `generateInserts` already leaves out. |
 
 See [Models and QModels](models.md).
 

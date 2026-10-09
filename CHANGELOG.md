@@ -4,6 +4,43 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html); the public API may change in any `0.x`
 release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
+## [0.8.0] - 2026-10-09
+
+Nothing is frozen yet: every public type stays `@Incubating`, and the freeze review moves to a later milestone. The
+additions below are all `@Incubating`. Two behaviour changes (see the upgrade notes) change the SQL a 0.7.0 model
+writes.
+
+### Added
+- Insert columns a database fills (D-125, RFC 0008), described in "One model for reading and creating":
+  - `@QueryModel(generateInserts = true)` leaves out a non-id root column whose attribute carries Hibernate's
+    `@Generated` with `writable = false`, an empty `sql` and `INSERT` among its events: the database fills it, and a
+    computed `GENERATED ALWAYS AS` column refuses a value. `@Generated(writable = true)`, `@Generated(sql = …)`,
+    `@Generated(event = UPDATE)` and every timestamp annotation stay written.
+  - The new `@ExcludeFromInserts` annotation leaves any other column — a plain `DEFAULT` clause — out of
+    `INSERT_COLUMNS`, `insert`, `insertFrom` and `persist` while the model still reads it, so a server-set column uses
+    `insert(rows).set(CREATED_AT, now)`. `MQ3506` refuses it where it does nothing.
+- Reading many keys (D-126, RFC 0008), described in "Reading many keys":
+  - `ModelQueryExecutor.byKeys(q, keys)` reads many primary keys into an unmodifiable `Map<K, M>` in the keys'
+    first-occurrence order, with a missing key absent. Keys are chunked as `whereKeys` spreads its keys; a key matching
+    two rows is `MQ2003`, and the new `MQ2005` names a row that matches no requested value.
+  - `ModelQueryRepository.findAllByKeys(q, keys)` delegates to it.
+- `MQ2005` and `MQ3506`, and `MQ3501`'s message for an `@ExcludeFromInserts` field that is an assigned id.
+
+### Changed
+- A 0.7.0 `generateInserts` model whose entity has a non-writable `@Generated` insert column stops writing that column:
+  under `insert` a value the caller set on it is dropped, as `persist` already dropped it; a `GENERATED ALWAYS AS`
+  column that failed loudly under 0.7.0 now works.
+- `count(q)`, `one(q)` and `one(q, key)` on an ordered query log one `WARNING` per `ModelQuery`, which they did not
+  before, and both `one` statements render no `ORDER BY`.
+
+### Upgrade notes
+- `byKeys(q, keys)` is abstract on `ModelQueryExecutor`, like `one` and `first`. A class that implements
+  `ModelQueryExecutor` itself (a decorator or test double) must add it; one compiled before 0.8.0 throws
+  `AbstractMethodError` only when `byKeys` is called.
+- A model whose entity maps a non-writable `@Generated` insert column now drops that column from its inserts, so a
+  value set on it under `insert` no longer reaches the database. Name the column in an `@InsertModel` if it must be
+  written.
+
 ## [0.7.0] - 2026-10-09
 
 Nothing is frozen yet: every public type stays `@Incubating`. No existing API changes incompatibly except for classes
