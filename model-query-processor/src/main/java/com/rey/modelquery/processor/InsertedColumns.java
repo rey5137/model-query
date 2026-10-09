@@ -64,6 +64,12 @@ record InsertedColumns(List<Written> written, List<String> leftOut) {
         return field.element().getAnnotation(Transient.class) != null ? "{@code @Transient}, no column" : "no column";
     }
 
+    /** Whether a column resolves to a to-one association, which a query model's writes leave out (D-124). */
+    static boolean toOne(Resolution resolution) {
+        return resolution.problem() == null && resolution.attribute() != null
+                && resolution.attribute().kind() == EntityAttribute.Kind.TO_ONE;
+    }
+
     /**
      * Why a root column is left out, or {@code null} when it is written. A path that does not resolve is written: it
      * is {@code MQ3001} or {@code MQ3002}, and nothing is generated.
@@ -73,7 +79,7 @@ record InsertedColumns(List<Written> written, List<String> leftOut) {
         if (resolution.problem() != null || attribute == null) {
             return null;
         }
-        if (attribute.kind() == EntityAttribute.Kind.TO_ONE) {
+        if (toOne(resolution)) {
             return "a to-one; only an {@code @InsertModel} writes a foreign key";
         }
         if (id.generated() && id.covers(path)) {

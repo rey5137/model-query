@@ -4,6 +4,7 @@ import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.metamodel.Attribute;
@@ -201,7 +202,7 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
             path = embeddedPath(from);
         } else {
             try {
-                path = from.get(attribute);
+                path = ctx.readsToOneLeft() && toOne(from) ? leftJoined(ctx) : from.get(attribute);
             } catch (IllegalArgumentException e) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1002, String.format(
                         "%s.%s: entity %s has no attribute '%s'",
@@ -220,6 +221,22 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
                     attribute, actual == null ? "of unknown type" : name(actual, attributeType)));
         }
         return path;
+    }
+
+    /** Whether the attribute is a singular association of {@code from}'s type, whose path would join it inner. */
+    private boolean toOne(From<?, T> from) {
+        ManagedType<?> owner = managedType(from);
+        return owner != null && owner.getAttribute(attribute) instanceof SingularAttribute<?, ?> singular
+                && singular.isAssociation();
+    }
+
+    /**
+     * The {@code LEFT} join of the to-one association that a read selects, filters and orders by (D-124). A
+     * {@code @Join} of the same association shares it; the context keys it, so every clause gets the same {@code From}.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private Path<C> leftJoined(JoinContext ctx) {
+        return (Path<C>) ((TableField) TableField.join((TableField) table, attribute, JoinType.LEFT)).resolve(ctx, this);
     }
 
     /**

@@ -84,6 +84,7 @@ public final class JoinContext {
      * the correlated outer root; {@code null} everywhere else (R-FLT-17).
      */
     private final JoinContext outer;
+    private boolean readsToOneLeft;
 
     private JoinContext(From<?, ?> root, Class<?> rootType, CriteriaBuilder cb, CommonAbstractCriteria query,
             JoinKey rootKey, Set<JoinKey> required, RenderOptions renderOptions, Set<Class<?>> existsJoined) {
@@ -123,9 +124,26 @@ public final class JoinContext {
      * under the join, while this context keeps the joins up to it (R-FCH-14, D-100). It shares the render options and
      * the {@code exists} bookkeeping, but not the join cache, so the joins it makes sit below {@code join}.
      */
+    /**
+     * A context of a read: a column over a to-one association resolves through a {@code LEFT} join, so a row whose
+     * foreign key is {@code NULL} is kept (D-124). A write's context keeps the implicit path, as a bulk statement
+     * takes no join.
+     */
+    static JoinContext readOf(Root<?> root, CriteriaBuilder cb, CommonAbstractCriteria query, RenderOptions options) {
+        JoinContext ctx = of(root, cb, query, options);
+        ctx.readsToOneLeft = true;
+        return ctx;
+    }
+
     JoinContext rootedAt(From<?, ?> join, Class<?> entity) {
-        return new JoinContext(join, entity, cb, query, null, Set.of(), renderOptions, existsJoined, null,
+        JoinContext ctx = new JoinContext(join, entity, cb, query, null, Set.of(), renderOptions, existsJoined, null,
                 repeatedExpressionBinds);
+        ctx.readsToOneLeft = readsToOneLeft;
+        return ctx;
+    }
+
+    boolean readsToOneLeft() {
+        return readsToOneLeft;
     }
 
     /** Whether an {@code exists} sub-query of this build rendered so far, at any depth (R-WRT-11). */

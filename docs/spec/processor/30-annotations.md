@@ -165,8 +165,9 @@ association written by id, `@Column(attribute = "customer") Long customerId`) an
 `@Aggregate` and `@GroupBy` (`processor/32` §1).
 
 **R-PROC-19** `@QueryModel(generateChanges = true)` also generates a change set over the query model's root, non-key
-columns; joined and filter-only columns are left out. It is meant for internal use: an endpoint binding it from a
-request can write every root column of the model, so the user guide recommends one `@UpdateModel` per endpoint.
+columns; joined, filter-only and to-one columns are left out, as `generateInserts` leaves them (D-124). It is meant
+for internal use: an endpoint binding it from a request can write every root column of the model, so the user guide
+recommends one `@UpdateModel` per endpoint.
 
 ## 8. Insert models
 
@@ -237,3 +238,4 @@ request can write every listed column, so a public create endpoint keeps its own
 | AC-PROC-17 | An `@Id` carrying an annotation meta-annotated `@IdGeneratorType` or `@ValueGenerationType`, with no `@GeneratedValue`, is generated: an insert model leaves it out, and naming it is `MQ3501` (R-PROC-23). |
 | AC-PROC-18 | `@Selected SelectSet<M>` on a record component and on a class field is no column, constant, `SelectSet` member or key, and generates; a type other than exactly `SelectSet<M>` or a second `@Selected` is `MQ3020`, another library annotation on the field is `MQ3021`, and an update or insert model refuses it (R-PROC-25). |
 | AC-PROC-19 | `generateInserts = true` generates `INSERT_COLUMNS`, `insert`, `insertFrom` and `persist` over the root columns, leaving out with no diagnostic a `@Join`, `@Child`, `@Computed`, `@Selected` and `@Transient` field, a `@FilterColumn`, a to-one, the `@Version`, an `insertable = false` column and a generated id, each named with its reason in the `INSERT_COLUMNS` Javadoc; with `generateChanges = true` as well the model gets both sets of members (R-PROC-26). |
+| AC-PROC-20 | `generateChanges = true` on a query model with a whole-entity and a converted to-one column compiles with no error, generates no setter for either, and `generateChanges` and `generateInserts` together leave out the same to-one columns (R-PROC-19, D-124). |

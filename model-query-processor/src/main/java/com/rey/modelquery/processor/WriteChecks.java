@@ -228,7 +228,7 @@ final class WriteChecks {
                 diagnostics.error(model.type(), DiagnosticCode.MQ3306, model.name() + ": " + required);
             }
         }
-        for (ModelField field : model.writable()) {
+        for (ModelField field : ChangedColumns.of(model, metamodel).written()) {
             String where = model.name() + "." + field.name() + ": ";
             if (CHANGES_MEMBERS.contains(field.name())) {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3307, where + "generates " + field.name() + "("

@@ -1669,6 +1669,22 @@ Ships as 0.7.0 with D-122. → `rfc/0007`, `processor/30` R-PROC-26, `processor/
 (`MQ3501`, `MQ3504`, `MQ3505`), `api/11` R-QRY-03, `engine/20` R-EXE-12, `reference/90` (`MQ2003`, `MQ2203`),
 `integration/50` R-SPR-15, AC-SPR-18, `delivery/61` R-REL-07.
 
+**D-124 — Neither change set nor insert writes a to-one from a query model (amends D-70 and R-GEN-19; clarifies
+D-123).** A query model cannot name a foreign key as a scalar (`MQ3002`, D-44), so a column over a to-one holds the
+target entity, whole (`MQ3016`) or converted (`MQ3014`). The engine writes a to-one only by its id type (`MQ1001`), so
+the setter `generateChanges` generated for such a column could never succeed, nor could `from` copying it.
+`generateChanges` now leaves a to-one column out as `generateInserts` does, and the change set's Javadoc names it with
+the reason; the column is still read. An `@UpdateModel` or `@InsertModel` still writes a to-one by id (R-GEN-19,
+R-PROC-23). A model that writes a foreign key keeps one of those, or reads an entity that maps the column twice, the
+association `insertable = false, updatable = false` and a basic attribute beside it, which both flags write as a plain
+column. A whole-entity to-one column on the root (not inside an embedded value) is read through a LEFT join of the
+association in every clause of a read, never the implicit inner join of `root.get`, so a row with a `NULL` foreign key
+reads back with `null` rather than being dropped; a bulk write takes no join and is unchanged. A converter is never
+given that `null`. No new code and
+no opt-in: rejected are a `writeForeignKeys` member, a per-field opt-in, and cascading writes
+into `@Join` or `@Child` (deferred past 1.0 by D-118; D-14, INV-1, INV-5). → `processor/30` R-PROC-19, `processor/31`
+R-GEN-19, R-GEN-21, AC-PROC-20, AC-GEN-28, Q-14.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -1724,6 +1740,13 @@ detect it? → `api/14` R-WRT-11.
 (D-101); a test cannot read a child query's filters, order or `maxPerParent`, which sit behind the `@EngineFacing`
 `ChildLoad`. Should `FetchPlan` gain a public read-only view of its children, or should child queries be tested only
 against a database? → `api/16` R-INS-06, `api/15`.
+
+**Q-14 — Reading a to-one by id on a query model.** A query model reads a foreign key only through the whole entity
+(`MQ3016`), a converter, or an entity that maps the column twice (D-124). Should `@Column(attribute = "customer") Long
+customerId` read the id on a query model, as an update model writes it? Open: whether it renders a LEFT join or the
+foreign-key column, and a TCK case with a `NULL` foreign key on every vendor. Related: a `@GroupBy` on a whole-entity
+to-one column fails on PostgreSQL, since Hibernate groups by the foreign key but selects every entity column;
+whether that is a diagnostic or a group by the id is open. → D-44, D-124.
 
 ## 3. Risks
 

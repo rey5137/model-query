@@ -238,6 +238,65 @@ class GenerateInsertsTest {
                 """.formatted(annotation, name, components));
     }
 
+    // ---- AC-PROC-20
+
+    private static final JavaFileObject CUSTOMER_REF_CONVERTER = source("gi.CustomerRefConverter", """
+            package gi;
+
+            import com.rey.modelquery.core.ColumnConverter;
+
+            public final class CustomerRefConverter implements ColumnConverter<String, CustomerEntity> {
+                public static final CustomerRefConverter INSTANCE = new CustomerRefConverter();
+
+                @Override
+                public String toModel(CustomerEntity attribute) {
+                    return attribute == null ? null : attribute.toString();
+                }
+
+                @Override
+                public CustomerEntity toAttribute(String model) {
+                    return null;
+                }
+            }
+            """);
+
+    private static JavaFileObject toOneModel(String annotation) {
+        return model("TicketRow", annotation, "@PrimaryKey Long id, String title, CustomerEntity customer, "
+                + "@Column(attribute = \"assignee\", converter = CustomerRefConverter.class) String assignee");
+    }
+
+    /** The Javadoc line that names {@code field} as a to-one the writes of {@code model} leave out. */
+    private static String toOneLeftOut(String field, String model) {
+        return "<li>{@code " + field + "}: a to-one; only an {@code @" + model + "} writes a foreign key</li>";
+    }
+
+    @Test
+    void ac_proc_20_generate_changes_leaves_out_a_whole_entity_and_a_converted_to_one_and_names_them() {
+        Compilation compilation = compile(CUSTOMER_ENTITY, TICKET_ENTITY, CUSTOMER_REF_CONVERTER,
+                toOneModel("@QueryModel(root = TicketEntity.class, generateChanges = true)"));
+
+        assertThat(compilation.status()).isEqualTo(Compilation.Status.SUCCESS);
+        assertThat(errors(compilation)).isEmpty();
+        assertThat(generated(compilation, "gi.TicketRowChanges"))
+                .contains("public TicketRowChanges title(String value)")
+                .doesNotContain("customer(").doesNotContain("assignee(").doesNotContain("Customer(")
+                .doesNotContain("Assignee(")
+                .contains(toOneLeftOut("customer", "UpdateModel")).contains(toOneLeftOut("assignee", "UpdateModel"));
+    }
+
+    @Test
+    void ac_proc_20_generate_changes_and_generate_inserts_leave_out_the_same_to_ones() {
+        Compilation compilation = compile(CUSTOMER_ENTITY, TICKET_ENTITY, CUSTOMER_REF_CONVERTER, toOneModel(
+                "@QueryModel(root = TicketEntity.class, generateChanges = true, generateInserts = true)"));
+
+        assertThat(compilation.status()).isEqualTo(Compilation.Status.SUCCESS);
+        assertThat(errors(compilation)).isEmpty();
+        assertThat(generated(compilation, "gi.QTicketRow"))
+                .contains(toOneLeftOut("customer", "InsertModel")).contains(toOneLeftOut("assignee", "InsertModel"));
+        assertThat(generated(compilation, "gi.TicketRowChanges"))
+                .contains(toOneLeftOut("customer", "UpdateModel")).contains(toOneLeftOut("assignee", "UpdateModel"));
+    }
+
     // ---- AC-PROC-19
 
     @Test
