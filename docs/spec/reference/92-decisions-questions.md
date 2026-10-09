@@ -1645,6 +1645,29 @@ types), as an optional processor module (a new SPI, and one model compiling two 
 they could not be ordered). A wrong `java.sql` model type stays a first-use `MQ1001`, not a compile error. → `api/10`
 R-COL-08, R-COL-17, AC-COL-28; `api/13` R-AGG-02.
 
+**D-123 — Fewer models, fewer calls (`generateInserts`, `one`, `first`, `one(q, key)`; RFC 0007).** `@QueryModel`
+gains `generateInserts`, the insert twin of `generateChanges`: it generates `INSERT_COLUMNS`, `insert`, `insertFrom`
+and `persist` on the query model, each `@Incubating`, so a screen that reads and creates one row shape keeps one
+model. It writes root columns only and leaves out `@Join`, `@Child`, `@Computed`, `@Selected`, `@Transient` and
+filter-only fields, to-one columns, version columns, columns an insert can't write and generated ids, listing each in
+the `INSERT_COLUMNS` Javadoc. It writes no foreign key: a query model cannot name one as a scalar (`MQ3002`, D-44), so
+a model that sets one keeps its own `@InsertModel`. `addKey` follows the root's id, not `@PrimaryKey`; a non-id
+`@PrimaryKey` is written with `add`. `MQ3505` refuses a grouped model or one with no writable root column;
+`MQ3503` is unchanged. The executor gains `one(q)`, `first(q)` and `one(q, key)`, and the repository `findOne`,
+`findFirst` and `findByKey`, delegate-only (R-SPR-01). `one` renders `list`'s statement with a limit of 2, throws
+`MQ2003` on a second row before the fetch plan runs, and counts `list` rows, so a predicate-only to-many join gives
+`MQ2003` naming the join and pointing at `Filters.exists`. `first` appends the key, or the group keys for a grouped
+query, as a tie-breaker after any `orderBy`, with explicit `nullsLast`; neither an `orderBy` nor a key is `MQ2203`. A
+key passed to `one(q, key)` converts as in `whereKey`; a `null` key or component, or a wrong component count, throws
+`IllegalArgumentException`, and a keyless or grouped query is `MQ2203`. The methods are abstract on the `@Incubating`
+interfaces (R-REL-07, D-110), not defaults: a default on `list` would run the fetch plan on the extra row. Rejected:
+allowing `@QueryModel` and `@InsertModel` together (clashing generated members), writing foreign keys from a query
+model, `first` in natural order or without a tie-breaker (a different row per vendor), `one` at a limit of 1 (hides
+the duplicate) or deduplicating by key (hides a real second row, INV-5), a nullable return or a throwing `getOne`.
+Ships as 0.7.0 with D-122. → `rfc/0007`, `processor/30` R-PROC-26, `processor/31` R-GEN-34, `processor/32`
+(`MQ3501`, `MQ3504`, `MQ3505`), `api/11` R-QRY-03, `engine/20` R-EXE-12, `reference/90` (`MQ2003`, `MQ2203`),
+`integration/50` R-SPR-15, AC-SPR-18, `delivery/61` R-REL-07.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
