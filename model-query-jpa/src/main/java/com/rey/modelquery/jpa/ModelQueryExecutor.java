@@ -15,7 +15,9 @@ import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.core.ValuesInsert;
 import jakarta.persistence.EntityManager;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -32,7 +34,7 @@ import java.util.stream.Stream;
  * @implSpec R-QRY-10, R-QRY-09, R-QRY-11, R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-07, R-EXE-09, R-PAG-01,
  *     R-PAG-02, R-PAG-03, R-PAG-07, R-PAG-08, R-PAG-09, R-PAG-10, R-PAG-11, R-PAG-12, R-PAG-13, R-PAG-14, R-PAG-15,
  *     R-AGG-09, R-WRT-01, R-WRT-07, R-WRT-08, R-WRT-15, R-WRT-16, R-WRT-17, R-WRT-18, R-WRT-19, R-WRT-20,
- *     R-WRT-23, R-WRT-24, R-WRT-26, R-WRT-33, R-WRT-39, R-WRT-41, R-WRT-48, R-VND-14, D-61
+ *     R-EXE-13, R-WRT-23, R-WRT-24, R-WRT-26, R-WRT-33, R-WRT-39, R-WRT-41, R-WRT-48, R-VND-14, D-61
  */
 @Incubating
 public interface ModelQueryExecutor<E> {
@@ -182,6 +184,27 @@ public interface ModelQueryExecutor<E> {
      */
     @Incubating
     <K, M> Optional<M> one(ModelQuery<E, K, M> q, K key);
+
+    /**
+     * The models of {@code keys}, by key: each key is converted as {@code whereKey} converts it and ANDed with
+     * {@code q}'s filter, as {@link #one(ModelQuery, Object)} does, so a filter that excludes a key's row leaves that
+     * key out. The map is unmodifiable and iterates in the order of the keys' first occurrence (Java 17 has no
+     * {@code SequencedMap}); a key with no row is absent, and keys a converter maps to one value share one model,
+     * read once. The keys are spread over statements as primary-key-first step 2 spreads its keys, without
+     * {@code primaryKeyFirstBatchSize}; every chunk is read and checked before any row is mapped, and the fetch plan
+     * runs once over every row. {@code q}'s {@code orderBy} is ignored, with a {@code WARNING} once per
+     * {@code ModelQuery}, since the map is in key order. Memory is the whole result (R-EXE-13).
+     *
+     * @throws NullPointerException for a {@code null} {@code q} or {@code keys}
+     * @throws IllegalArgumentException for a {@code null} key or component, or a composite key with the wrong number
+     *     of components
+     * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2203} for a query without a primary key,
+     *     a grouped one included, also for no keys; {@code MQ2003} when a key matches two rows; {@code MQ2005} when a
+     *     row's key equals none of the requested values (a case-insensitive or padding collation)
+     * @implSpec R-EXE-13
+     */
+    @Incubating
+    <K, M> Map<K, M> byKeys(ModelQuery<E, K, M> q, Collection<? extends K> keys);
 
     /**
      * Writes {@code u}'s assignments to the rows it chooses, in one {@code CriteriaUpdate} per run of keys, and returns

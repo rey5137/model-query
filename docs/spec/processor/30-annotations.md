@@ -24,6 +24,7 @@
 | `@GroupBy` | field or component | The column joins the generated `GROUP_KEYS` set and the query's group-by |
 | `@ExcludeFromDefaults` | field or component | Leave the column out of `DEFAULT` (heavy BLOB/TEXT columns) |
 | `@Transient` | field or component | Not a column |
+| `@ExcludeFromInserts` | field or component | Leave the column out of the inserts `generateInserts` generates (R-PROC-27) |
 | `@Selected` | field or component | The one `SelectSet<Model>` the mapper fills with the columns the row selected (§6, R-PROC-25) |
 
 **R-PROC-01** The annotations module has no dependencies beyond the JDK (INV-7), so a model can be annotated in a module
@@ -203,7 +204,18 @@ a root attribute or a dotted embedded path in it. It leaves out, without a diagn
 - the id when it carries `@GeneratedValue` or a generator annotation, as an insert model must (R-PROC-23);
 - the `@Version` column, and one an insert cannot write (`insertable = false`, or the inverse side of a to-one), which
   an insert model would refuse (`MQ3303`, `MQ3304`). This is unlike `generateChanges`, which keeps them and relies on
-  `MQ1605` (D-70).
+  `MQ1605` (D-70);
+- a non-id root column whose attribute carries `org.hibernate.annotations.Generated` (not `jakarta.annotation.Generated`
+  or `javax.annotation.processing.Generated`) with `writable = false`, an empty `sql`, and `INSERT` among its events:
+  its `value` when present and not `INSERT` (Hibernate 6), otherwise its `event` (D-125). The database fills it. The
+  processor reads the annotation by its full name and its values with `Elements.getElementValuesWithDefaults`, reading
+  enum constants by simple name; a missing `value` (Hibernate 7) counts as `INSERT`, and `GenerationTime.ALWAYS` has
+  `INSERT` among its events. When the annotation type doesn't resolve the column stays written, and `orm.xml` is not
+  seen. **Every timestamp annotation stays written**, whatever its `source`: `@CreationTimestamp`, `@UpdateTimestamp`
+  and `@CurrentTimestamp` make Hibernate write the value in its own INSERT, but a Hibernate SQM insert applies only the
+  id generator and the version seed, so leaving a timestamp out would write `NULL` or fail `NOT NULL`; a model that
+  wants the server's time excludes the field (R-PROC-27) and sets it on the write (AC-WRT-40). An `@InsertModel` is
+  unchanged: it names its columns.
 
 The generated `INSERT_COLUMNS` Javadoc names each field and filter column left out and why, so a missing column is
 visible in the IDE. `MQ3505` refuses the flag on a grouped model (`@Aggregate` or `@GroupBy` fields, or
@@ -216,6 +228,20 @@ column that writes the id leaves the read key as the model's `@PrimaryKey` field
 constant name (`MQ3015`). `generateChanges` and `generateInserts` combine freely; `@QueryModel` and `@InsertModel` on
 one type stay `MQ3503` (R-PROC-24). As with `generateChanges` (R-PROC-19), an endpoint that binds the model from a
 request can write every listed column, so a public create endpoint keeps its own `@InsertModel`.
+
+**R-PROC-27** *(D-125)* **`@ExcludeFromInserts`.** A field or record component of a `@QueryModel(generateInserts =
+true)` marked `@ExcludeFromInserts` (`@Incubating`, `CLASS` retention, no elements; `model-query-annotations`) is left
+out of `INSERT_COLUMNS`, `insertFrom`, `insert` and `persist`, so the database default applies under `insert` and the
+no-arg constructor's value under `persist` (R-WRT-25: `NULL` unless the entity has a field initializer or
+`@DynamicInsert`). The field stays a column of the query model and keeps its constant, so `insert(rows).set(CREATED_AT,
+now)` is allowed (an excluded field's constant is no model column for AC-WRT-32); no constant is added, so no name is
+reserved under `MQ3015`. The `INSERT_COLUMNS` Javadoc gives the reason "`@ExcludeFromInserts`". `MQ3506` (error): on a
+field of a `@QueryModel` without `generateInserts = true`, or of an `@UpdateModel` or `@InsertModel`; or on a field
+R-PROC-26 already leaves out (`@Join`, `@Child`, `@Computed`, `@Transient`, a to-one, the `@Version`,
+`insertable = false`, a generated id, or a `@Generated` column), since it would do nothing. On a `@Selected` field it is
+`MQ3021` (every other annotation of the library), not `MQ3506`. On a grouped model `MQ3505` stays the only insert
+check, so the "already left out" case does not fire there. Excluding an assigned id is `MQ3501` with its own message;
+excluding every writable column is `MQ3505`. There is no `@ExcludeFromChanges` (R-PROC-19).
 
 ## 9. Acceptance criteria
 
@@ -241,3 +267,5 @@ request can write every listed column, so a public create endpoint keeps its own
 | AC-PROC-18 | `@Selected SelectSet<M>` on a record component and on a class field is no column, constant, `SelectSet` member or key, and generates; a type other than exactly `SelectSet<M>` or a second `@Selected` is `MQ3020`, another library annotation on the field is `MQ3021`, and an update or insert model refuses it (R-PROC-25). |
 | AC-PROC-19 | `generateInserts = true` generates `INSERT_COLUMNS`, `insert`, `insertFrom` and `persist` over the root columns, leaving out with no diagnostic a `@Join`, `@Child`, `@Computed`, `@Selected` and `@Transient` field, a `@FilterColumn`, a to-one, the `@Version`, an `insertable = false` column and a generated id, each named with its reason in the `INSERT_COLUMNS` Javadoc; with `generateChanges = true` as well the model gets both sets of members (R-PROC-26). |
 | AC-PROC-20 | `generateChanges = true` on a query model with a whole-entity and a converted to-one column compiles with no error, generates no setter for either, and `generateChanges` and `generateInserts` together leave out the same to-one columns (R-PROC-19, D-124). |
+| AC-PROC-21 | `@ExcludeFromInserts` on a field leaves it out of `INSERT_COLUMNS`, `insertFrom`, `insert` and `persist` while the query members keep its column and constant (R-PROC-27, D-125). |
+| AC-PROC-22 | `generateInserts` leaves out a plain `@Generated`, written are `@Generated(writable = true)`, `@Generated(sql = …)`, `@Generated(event = UPDATE)`, the Hibernate 6.x `@Generated(GenerationTime.UPDATE)` and `NEVER`, every timestamp annotation, and a `@Generated` whose type doesn't resolve; run on the Hibernate 6.6 and 7.x annotation shapes (R-PROC-26, D-125). |

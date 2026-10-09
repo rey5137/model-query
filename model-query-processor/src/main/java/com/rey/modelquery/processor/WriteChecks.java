@@ -14,7 +14,8 @@ import javax.lang.model.util.Types;
  * The checks of a model that writes: an {@code @UpdateModel}, a {@code @QueryModel} with
  * {@code generateChanges = true} ({@code MQ3301}..{@code MQ3307}), or an {@code @InsertModel} ({@code MQ3301},
  * {@code MQ3303}..{@code MQ3305} on its columns, {@code MQ3501}, {@code MQ3502} and {@code MQ3504}), or a
- * {@code @QueryModel} with {@code generateInserts = true} ({@code MQ3501}, {@code MQ3504} and {@code MQ3505}).
+ * {@code @QueryModel} with {@code generateInserts = true} ({@code MQ3501}, {@code MQ3504} and {@code MQ3505});
+ * {@code MQ3506} on any of them.
  *
  * @implSpec R-GEN-19, R-GEN-22, R-GEN-23, R-PROC-23, R-PROC-26, R-DIAG-01, R-DIAG-02
  */
@@ -171,15 +172,61 @@ final class WriteChecks {
         }
         EntityMetamodel.Id id = metamodel.id(model.root());
         warnUntypedId(model, id, diagnostics);
+        boolean excludedId = excludedAssignedId(model, id, diagnostics);
         // Only a column the insert writes covers the id: a to-one @MapsId or insertable = false one is left out.
         Set<String> columns = written.stream().filter(InsertedColumns.Written::key).map(column -> column.field()
                 .attribute()).collect(Collectors.toSet());
         boolean covered = columns.containsAll(id.attributes())
                 || !id.components().isEmpty() && columns.containsAll(id.components());
-        if (!id.generated() && !covered) {
+        if (!id.generated() && !covered && !excludedId) {
             diagnostics.error(model.type(), DiagnosticCode.MQ3501, model.name() + ": "
                     + model.root().getSimpleName() + "'s id " + id.label() + " has no @GeneratedValue or generator "
                     + "annotation; generateInserts writes it, so map it in the model");
+        }
+    }
+
+    /**
+     * {@code MQ3501} on each {@code @ExcludeFromInserts} field that maps the root's assigned id, which the insert must
+     * write (D-125). Returns whether one was reported, so the general {@code MQ3501} does not repeat it.
+     */
+    private boolean excludedAssignedId(ModelDefinition model, EntityMetamodel.Id id, Diagnostics diagnostics) {
+        boolean reported = false;
+        for (ModelField field : model.fields()) {
+            if (!id.generated() && InsertedColumns.excluded(field) && field.column() && id.covers(field.attribute())
+                    && InsertedColumns.alreadyLeftOut(field, model, metamodel) == null) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3501, model.name() + "." + field.name()
+                        + " is @ExcludeFromInserts, but " + model.root().getSimpleName() + "'s id " + id.label()
+                        + " is assigned, so generateInserts must write it");
+                reported = true;
+            }
+        }
+        return reported;
+    }
+
+    /**
+     * {@code MQ3506} for an {@code @ExcludeFromInserts} that does nothing or is refused: on a model that doesn't
+     * generate inserts (a {@code @QueryModel} without {@code generateInserts}, an update or insert model), or on a
+     * field R-PROC-26 already leaves out. A {@code @Selected} field is {@code MQ3021}, and a grouped model has only
+     * {@code MQ3505} (R-PROC-27, D-125).
+     */
+    void checkExcluded(ModelDefinition model, Diagnostics diagnostics) {
+        boolean generates = model.queryModel() && model.generateInserts();
+        for (ModelField field : model.fields()) {
+            if (!InsertedColumns.excluded(field) || field.selected()) {
+                continue;
+            }
+            String where = model.name() + "." + field.name() + ": @ExcludeFromInserts ";
+            if (!generates) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3506,
+                        where + "needs generateInserts = true on the @QueryModel");
+            } else if (!model.grouped()) {
+                String reason = InsertedColumns.alreadyLeftOut(field, model, metamodel);
+                if (reason != null) {
+                    diagnostics.error(field.element(), DiagnosticCode.MQ3506,
+                            where + "does nothing; generateInserts already leaves it out ("
+                            + reason.replaceAll("\\{@code ([^}]*)\\}", "$1") + ")");
+                }
+            }
         }
     }
 

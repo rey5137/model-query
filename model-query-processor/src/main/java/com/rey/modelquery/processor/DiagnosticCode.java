@@ -172,7 +172,12 @@ enum DiagnosticCode {
      */
     MQ3504("Insert model's root has no id type the processor can see; a warning"),
     /** {@code generateInserts} on a grouped model, or on one with no root column it can write. */
-    MQ3505("generateInserts needs an ungrouped model with a writable root column");
+    MQ3505("generateInserts needs an ungrouped model with a writable root column"),
+    /**
+     * {@code @ExcludeFromInserts} on a field of a model that doesn't generate inserts, or on a field
+     * {@code generateInserts} already leaves out.
+     */
+    MQ3506("@ExcludeFromInserts that does nothing or is not allowed here");
 
     private final String defaultMessage;
 

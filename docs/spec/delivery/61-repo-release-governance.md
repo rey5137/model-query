@@ -94,6 +94,11 @@ as D-110 allows: `DefaultModelQueryExecutor` is the only library implementation.
 default built on `list` would run the fetch plan on the extra row (`engine/20` R-EXE-12). A class that implements
 `ModelQueryExecutor` itself (a decorator or test double) must add them; one compiled before 0.7.0 throws
 `AbstractMethodError` only when a new method is called, and the changelog says so.
+`ModelQueryExecutor.byKeys(q, keys)` (D-126, 0.8.0) is abstract and `@Incubating` the same way, for the same reason:
+a default built on `list` would need the IN filter and the chunking the executor moves in (`engine/20` R-EXE-13). The
+only implementations are `DefaultModelQueryExecutor` and `ModelQueryRepositoryFragment`. A class that implements
+`ModelQueryExecutor` itself must add it; one compiled before 0.8.0 throws `AbstractMethodError` only when `byKeys` is
+called.
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from

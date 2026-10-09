@@ -1,5 +1,6 @@
 package com.rey.modelquery.tck.spr;
 
+import static jakarta.persistence.criteria.JoinType.INNER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -27,6 +28,7 @@ import com.rey.modelquery.spring.data.ModelQueryRepositoryFactoryBean;
 import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
+import com.rey.modelquery.tck.col.OrderItemEntity;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
@@ -81,6 +83,9 @@ class ModelQueryRepositoryTest {
             ColumnField.of(OrderRow.class, ORDERS, "status", String.class);
     private static final ColumnField<OrderRow, OrderEntity, BigDecimal> TOTAL =
             ColumnField.of(OrderRow.class, ORDERS, "total", BigDecimal.class);
+    private static final TableField<OrderEntity, OrderItemEntity> ITEMS = TableField.join(ORDERS, "items", INNER);
+    private static final ColumnField<OrderRow, OrderItemEntity, String> ITEM_PRODUCT_FILTER =
+            ColumnField.of(OrderRow.class, ITEMS, "productCode", String.class);
 
     private static final ModelQuery<OrderEntity, ?, OrderRow> NEW_ORDERS = ModelQuery
             .builder(ORDERS, row -> new OrderRow(row.get(ID), row.get(STATUS), row.get(TOTAL)))
@@ -95,6 +100,15 @@ class ModelQueryRepositoryTest {
             .builder(ORDERS, row -> new OrderRow(row.get(ID), row.get(STATUS), row.get(TOTAL)))
             .select(SelectSet.of(ID, STATUS, TOTAL))
             .primaryKey(PrimaryKey.of(ID));
+
+    /**
+     * Every order, keyed by its decimal total: a {@code byKeys} query whose requested keys can differ from the row's
+     * in scale (R-EXE-13).
+     */
+    private static final ModelQuery.Builder<OrderEntity, BigDecimal, OrderRow> ORDERS_BY_TOTAL = ModelQuery
+            .builder(ORDERS, row -> new OrderRow(row.get(ID), row.get(STATUS), row.get(TOTAL)))
+            .select(SelectSet.of(ID, STATUS, TOTAL))
+            .primaryKey(PrimaryKey.of(TOTAL));
 
     private static final String TRANSACTIONS = "orderTransactions";
 
@@ -405,6 +419,60 @@ class ModelQueryRepositoryTest {
             });
         }
         assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+    }
+
+    @TckTest
+    void ac_spr_09_find_all_by_keys_without_a_transaction_reads_through_the_repository(TckDatabase db) {
+        for (Class<?> configuration : List.of(DefaultTransactions.class, NoDefaultTransactions.class)) {
+            withRepository(JoinTestSupport.dataSource(db), configuration, (repository, context) -> {
+                Map<Long, OrderRow> models = repository.findAllByKeys(ORDER_ROWS.build(), List.of(7L, -1L, 42L));
+                assertThat(models.keySet()).containsExactly(7L, 42L);
+                assertThat(models.get(42L).id()).isEqualTo(42L);
+                return null;
+            });
+        }
+        assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+    }
+
+    // ---- AC-SPR-19
+
+    @TckTest
+    void ac_spr_19_find_all_by_keys_runs_the_executors_sql_and_returns_its_map(TckDatabase db) {
+        Map<Long, OrderRow> models = assertSameAsExecutor(db,
+                executor -> executor.byKeys(ORDER_ROWS.build(), List.of(7L, -1L, 42L)),
+                repository -> repository.findAllByKeys(ORDER_ROWS.build(), List.of(7L, -1L, 42L)));
+
+        // First-occurrence key order, and the key -1 of no row absent (R-EXE-13, R-SPR-15).
+        assertThat(models.keySet()).containsExactly(7L, 42L);
+        assertThat(models.get(7L).id()).isEqualTo(7L);
+    }
+
+    @TckTest
+    void ac_spr_19_a_key_matching_two_rows_surfaces_the_executors_mq2003_unchanged(TckDatabase db) {
+        // Order 1 holds four items of product P001, so the filter's join repeats it four times.
+        ModelQuery<OrderEntity, Long, OrderRow> repeated = ORDER_ROWS
+                .where(f -> f.eq(ITEM_PRODUCT_FILTER, "P001")).build();
+        withRepository(JoinTestSupport.dataSource(db), DefaultTransactions.class, (repository, context) -> {
+            assertThatThrownBy(() -> repository.findAllByKeys(repeated, List.of(1L)))
+                    .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ2003))
+                    .hasMessage(MqCode.MQ2003.code() + ": OrderRow: byKeys(query, keys) found more than one row "
+                            + "for key 1; if the to-many join OrderEntity.items, which no selected column reads, "
+                            + "repeats the row once per matching child, filter with Filters.exists(...) instead");
+            return null;
+        });
+    }
+
+    @TckTest
+    void ac_spr_19_a_big_decimal_scale_mismatch_surfaces_the_executors_mq2005_unchanged(TckDatabase db) {
+        // Order 1's total is 13.17: bound as 13.170 it still matches, but the row's key equals no requested value.
+        ModelQuery<OrderEntity, BigDecimal, OrderRow> byTotal = ORDERS_BY_TOTAL.build();
+        withRepository(JoinTestSupport.dataSource(db), DefaultTransactions.class, (repository, context) -> {
+            assertThatThrownBy(() -> repository.findAllByKeys(byTotal, List.of(new BigDecimal("13.170"))))
+                    .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ2005));
+            return null;
+        });
     }
 
     // ---- support

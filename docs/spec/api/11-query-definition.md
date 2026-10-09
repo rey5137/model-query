@@ -34,7 +34,8 @@ fetch plan that carries one (`api/15` R-FCH-02), throws `MQ1202`.
 
 ## 2. Primary keys
 
-**R-QRY-03** `primaryKey(...)` is required for `keyset()`, `primaryKeyFirst(...)`, offset `export` and `@Join` presence
+**R-QRY-03** `primaryKey(...)` is required for `keyset()`, `primaryKeyFirst(...)`, offset `export`, `byKeys(q, keys)`
+(`MQ2203` otherwise, `engine/20` R-EXE-13) and `@Join` presence
 (`processor/31`). It is optional for `list`, `page` and `count`, and optional for every grouped query
 (`api/13` R-AGG-07). `keyset()` without a primary key is a build-time error, `MQ1201`. A keyset page
 (`engine/21` R-PAG-16) also needs `keyset()`: `page(query, KeysetSpec)` on a query without it throws `MQ2207` before
@@ -162,7 +163,7 @@ public interface ModelQueryExecutor<E> {
 is enough to use the library without Spring (INV-8). The executor resolves the factory's `VendorProfile` once and passes
 its facts to every build as `RenderOptions` (D-34). Semantics of each method are `engine/20`. The bulk `update` and
 `delete` methods are `api/14` §8 (`Future`, M6). A query that carries a `FetchPlan` (`api/15`) loads its children, join
-plans and enrichers on `list`, `page`, `export`, `one` and `first`, and `stream` refuses it (`api/15` R-FCH-09).
+plans and enrichers on `list`, `page`, `export`, `one`, `first` and `byKeys`, and `stream` refuses it (`api/15` R-FCH-09).
 
 ## 7. Acceptance criteria
 

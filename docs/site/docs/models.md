@@ -223,12 +223,12 @@ A screen that reads one row shape and creates it keeps one model with `@QueryMod
 as an `@InsertModel` has them (see [Inserts](inserts.md#insert-models)), over the model's root columns:
 
 ```java
-@QueryModel(entity = Customer.class, generateInserts = true)
+@QueryModel(root = Customer.class, generateInserts = true)
 public record CustomerView(@PrimaryKey @Column(attribute = "id") Long id,
                            @Column(attribute = "name") String name,
                            @Column(attribute = "email") String email) {}
 
-executor.insert(QCustomerView.insert(rows));
+executor.insert(QCustomerView.insert(rows).build());
 Long id = executor.persist(QCustomerView.persist(row));
 ```
 
@@ -236,10 +236,43 @@ The flag leaves these out, with no diagnostic:
 
 - `@Join`, `@Child`, `@Computed`, `@Selected` and `@Transient` fields, and `@FilterColumn`s;
 - a to-one column, whole-entity or through a converter (a query model cannot name a foreign key as a scalar);
-- a generated id, the `@Version` column, and a column an insert cannot write (`insertable = false`).
+- a generated id, the `@Version` column, and a column an insert cannot write (`insertable = false`);
+- a non-id root column whose attribute carries Hibernate's `@Generated` with `writable = false`, an empty `sql` and
+  `INSERT` among its events (D-125): the database fills it, so Hibernate never writes it either, and a computed
+  (`GENERATED ALWAYS AS`) column would refuse a value. Every timestamp annotation (`@CreationTimestamp`,
+  `@UpdateTimestamp`, `@CurrentTimestamp`) stays written whatever its `source`, since a Hibernate insert does not fill
+  it: exclude the field below to let the server set it.
 
-The Javadoc of `INSERT_COLUMNS` names each field left out and why, so a missing column is visible in the IDE. Things to
-know:
+The Javadoc of `INSERT_COLUMNS` names each field left out and why, so a missing column is visible in the IDE.
+
+A column whose default only the DDL declares — a plain `DEFAULT` clause or `@ColumnDefault` — looks like any other to
+the processor, so mark the field `@ExcludeFromInserts` (`@Incubating`, D-125) to leave it out of `INSERT_COLUMNS`,
+`insert`, `insertFrom` and `persist` too; `insert` then writes no value for it and the database default applies:
+
+```java
+@QueryModel(root = OrderEntity.class, generateInserts = true)
+public record OrderView(
+        @PrimaryKey Long id,
+        String customer,
+        @ExcludeFromInserts String status,        // DEFAULT 'NEW'
+        @ExcludeFromInserts Instant createdAt) {} // DEFAULT now()
+```
+
+The field is still a column of the model and keeps its constant, so a caller can set it on the write; the recipe for a
+server-set timestamp:
+
+```java
+Instant now = Instant.now();
+executor.insert(QOrderView.insert(rows).set(QOrderView.CREATED_AT, now).build());
+```
+
+`persist` takes no `set`, so it writes an excluded column as the no-arg constructor leaves it (R-WRT-25): `status
+DEFAULT 'NEW'` reads back `NULL` unless the entity has a field initializer or `@DynamicInsert`. On a model without
+`generateInserts`, on an `@UpdateModel` or `@InsertModel`, or on a field the flag already leaves out,
+`@ExcludeFromInserts` is `MQ3506`; on a `@Selected` field it is `MQ3021`. `MQ3501` refuses an excluded assigned id,
+and excluding every writable column is `MQ3505`.
+
+Things to know:
 
 - A grouped model (`@Aggregate`, `@GroupBy` or `singleGroup = true`), or one with no writable root column, is `MQ3505`.
 - `@QueryModel` and `@InsertModel` on one type stay `MQ3503`; set `generateInserts` instead.

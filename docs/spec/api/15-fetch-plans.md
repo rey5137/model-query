@@ -101,7 +101,8 @@ vendor's limits (R-PAG-07, D-32; `primaryKeyFirstBatchSize` does not apply), eac
 `where foreignKey IN keys` with the `ChildQuery` filters and order. A child row whose key equals none of its round's keys
 (a case-insensitive or padding collation) throws `MQ2604` naming the field and the value. The child plan then runs once
 over all the page's child rows (its children, joins and enrichers), and the children are grouped by key and set on each
-parent in child order. A page with no keys runs no child query.
+parent in child order. A page with no keys runs no child query. "Per page" includes the result of `byKeys`, whose
+fetch plan runs once over every row of every chunk (`engine/20` R-EXE-13).
 
 **R-FCH-06** A child query runs on the parent's `EntityManager`, inside the caller's transaction if any, through an
 executor for the child's root entity (rooted at the parent's for `through`) with the parent executor's

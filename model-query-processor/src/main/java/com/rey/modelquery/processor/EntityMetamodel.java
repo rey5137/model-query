@@ -10,14 +10,17 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.Element;
+import javax.lang.model.element.AnnotationValue;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.ExecutableType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
+import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
 
 /**
@@ -45,13 +48,16 @@ final class EntityMetamodel {
     private static final String GENERATED_VALUE = JPA + "GeneratedValue";
     private static final List<String> GENERATOR_META = List.of("org.hibernate.annotations.IdGeneratorType",
             "org.hibernate.annotations.ValueGenerationType");
+    private static final String HIBERNATE_GENERATED = "org.hibernate.annotations.Generated";
     private static final List<String> COLUMNS = List.of(JPA + "Column", JPA + "JoinColumn");
 
     private final Types types;
+    private final Elements elements;
     private final Map<TypeElement, Id> idCache = new HashMap<>();
 
-    EntityMetamodel(Types types) {
+    EntityMetamodel(Types types, Elements elements) {
         this.types = types;
+        this.elements = elements;
     }
 
     /**
@@ -305,7 +311,8 @@ final class EntityMetamodel {
                     .map(String.class::cast)
                     .findFirst().orElse(null);
             return new EntityAttribute(
-                    name, type, EntityAttribute.Kind.TO_ONE, entity(type), version, updatable, insertable, mappedBy);
+                    name, type, EntityAttribute.Kind.TO_ONE, entity(type), version, updatable, insertable, mappedBy,
+                    false);
         }
         if (hasAny(member, TO_MANY)) {
             // The element of a Collection<E>, the value of a Map<K, E>.
@@ -313,16 +320,51 @@ final class EntityMetamodel {
                     ? ((DeclaredType) type).getTypeArguments() : List.of();
             DeclaredType target = arguments.isEmpty() ? null : entity(arguments.get(arguments.size() - 1));
             return new EntityAttribute(
-                    name, type, EntityAttribute.Kind.COLLECTION, target, version, updatable, insertable, null);
+                    name, type, EntityAttribute.Kind.COLLECTION, target, version, updatable, insertable, null, false);
         }
         if (hasAny(member, List.of(ELEMENT_COLLECTION))) {
             return new EntityAttribute(
-                    name, type, EntityAttribute.Kind.COLLECTION, null, version, updatable, insertable, null);
+                    name, type, EntityAttribute.Kind.COLLECTION, null, version, updatable, insertable, null, false);
         }
         boolean embedded = type.getKind() == TypeKind.DECLARED && (hasAny(member, EMBEDDED)
                 || hasAny(((DeclaredType) type).asElement(), List.of(EMBEDDABLE)));
         return new EntityAttribute(name, type, embedded ? EntityAttribute.Kind.EMBEDDED : EntityAttribute.Kind.BASIC,
-                null, version, updatable, insertable, null);
+                null, version, updatable, insertable, null, filledByDatabase(member));
+    }
+
+    /**
+     * Whether {@code member} carries {@code org.hibernate.annotations.Generated} (by full name, so the JDK's and
+     * Jakarta's {@code @Generated} don't count) with {@code writable = false}, an empty {@code sql} and {@code INSERT}
+     * among its events: its {@code value} when present and not {@code INSERT} (Hibernate 6), otherwise its
+     * {@code event}. A type that doesn't resolve leaves the column written (R-PROC-26, D-125).
+     */
+    private boolean filledByDatabase(Element member) {
+        for (AnnotationMirror mirror : member.getAnnotationMirrors()) {
+            if (mirror.getAnnotationType().getKind() != TypeKind.DECLARED || !isNamed(mirror, HIBERNATE_GENERATED)) {
+                continue;
+            }
+            Map<String, Object> values = new HashMap<>();
+            elements.getElementValuesWithDefaults(mirror).forEach((key, value) ->
+                    values.put(key.getSimpleName().toString(), value.getValue()));
+            if (!Boolean.FALSE.equals(values.getOrDefault("writable", Boolean.FALSE))
+                    || !"".equals(values.getOrDefault("sql", ""))) {
+                return false;
+            }
+            String time = constant(values.get("value"));
+            if (time != null && !time.equals("INSERT")) {
+                // Hibernate 6's GenerationTime: only ALWAYS has INSERT among its events.
+                return time.equals("ALWAYS");
+            }
+            // Hibernate 7 has no value; an absent event counts as INSERT, as does Hibernate 6's default value.
+            return !(values.get("event") instanceof List<?> events) || events.stream()
+                    .anyMatch(event -> "INSERT".equals(constant(((AnnotationValue) event).getValue())));
+        }
+        return false;
+    }
+
+    /** The simple name of an enum constant an annotation value holds, or {@code null} for anything else. */
+    private static String constant(Object value) {
+        return value instanceof VariableElement element ? element.getSimpleName().toString() : null;
     }
 
     /** Whether a {@code @Column} or {@code @JoinColumn} on {@code member} sets {@code element} to {@code false}. */
