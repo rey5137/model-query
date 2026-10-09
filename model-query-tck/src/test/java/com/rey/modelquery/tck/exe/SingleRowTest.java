@@ -1,6 +1,7 @@
 package com.rey.modelquery.tck.exe;
 
 import static jakarta.persistence.criteria.JoinType.INNER;
+import static jakarta.persistence.criteria.JoinType.LEFT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -58,6 +59,9 @@ class SingleRowTest {
 
     private static final ColumnField<Group, CustomerEntity, Long> GROUP_CUSTOMER =
             ColumnField.of(Group.class, CUSTOMER, "id", Long.class);
+    private static final TableField<OrderEntity, CustomerEntity> REFERRER = TableField.join(ORDERS, "referrer", LEFT);
+    private static final ColumnField<Group, CustomerEntity, Long> GROUP_REFERRER =
+            ColumnField.of(Group.class, REFERRER, "id", Long.class);
     private static final AggregateField<Group, BigDecimal> GROUP_TOTAL =
             Agg.sum(ColumnField.of(Group.class, ORDERS, "total", BigDecimal.class));
 
@@ -144,6 +148,15 @@ class SingleRowTest {
                     .isEqualTo(executor.list(groups.orderBy(GROUP_TOTAL.desc(), GROUP_CUSTOMER.asc()).build(),
                             Limit.of(1)).stream().findFirst());
         });
+    }
+
+    @TckTest
+    void ac_exe_12_a_key_read_through_a_left_join_sorts_nulls_last_though_its_attribute_is_the_id(TckDatabase db) {
+        // The referrer's @Id is never NULL, but the LEFT join makes it NULL for two thirds of the orders.
+        var groups = ModelQuery.builder(ORDERS, row -> new Group(row.get(GROUP_REFERRER), row.get(GROUP_TOTAL)))
+                .select(SelectSet.of(GROUP_REFERRER, GROUP_TOTAL))
+                .groupBy(GROUP_REFERRER);
+        withExecutor(db, executor -> assertThat(executor.first(groups.build())).map(Group::customerId).isPresent());
     }
 
     // ---- AC-EXE-13

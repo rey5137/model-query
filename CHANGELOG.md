@@ -19,7 +19,7 @@ that implement `ModelQueryExecutor` themselves (see the upgrade notes); the addi
   - `ModelQueryExecutor.one(q)`, `first(q)` and `one(q, key)`, each an `Optional`. `one` reads at a limit of 2 and
     throws `MQ2003` on a second row before the fetch plan runs; through a predicate-only to-many join the message
     points at `Filters.exists`. `first` orders by the `orderBy`, then the key (group keys for a grouped query) with
-    `nullsLast`, so every database returns the same row. `one(q, key)` ANDs the key with the filter.
+    `nullsLast` where the key can be `NULL`, so every database returns the same row. `one(q, key)` ANDs the key with the filter.
   - `ModelQueryRepository.findOne`, `findFirst` and `findByKey`, delegating to the three executor methods.
 
 ### Changed
@@ -27,7 +27,9 @@ that implement `ModelQueryExecutor` themselves (see the upgrade notes); the addi
   foreign key as a scalar, so the setter could never succeed. The change set's Javadoc names the column and the reason.
   `@UpdateModel` and `@InsertModel` still write a to-one by id.
 - A whole-entity or converted to-one column on the root reads through a `LEFT` join of the association, so a row
-  with a `NULL` foreign key comes back with `null` instead of being dropped.
+  with a `NULL` foreign key comes back with `null` instead of being dropped. A filter on a to-one column now adds that
+  `LEFT` join, and a keyset export ordered by a to-one column now sees the `NULL`-foreign-key rows, so it throws
+  `MQ2202` unless the order sets `nullsFirst` or `nullsLast` (they used to be silently dropped).
 
 ### Fixed
 

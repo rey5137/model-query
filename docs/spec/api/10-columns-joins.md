@@ -342,6 +342,15 @@ public enum NullPrecedence { DEFAULT, FIRST, LAST }        // DEFAULT = whatever
 `VendorProfile.defaultAscendingNullOrdering()`, and is refused when that is `UNKNOWN` (`engine/21` R-PAG-05). A
 default null ordering the persistence provider is configured with replaces the profile's (D-36).
 
+**R-COL-25** *(D-124)* **To-one columns read through a LEFT join.** In a read, a column whose attribute is a to-one
+association, whole-entity (`MQ3016`) or converted (`MQ3014`), resolves through a `LEFT` join of the association, not the
+implicit inner join of `root.get`, so a row with a `NULL` foreign key reads back with `null` instead of being dropped.
+The rule holds on any table the column belongs to (the root, a `@Join`ed table or a child's root) and in every clause
+of the read (select, filter, order, group, keyset), so a filter on such a column adds the `LEFT` join and an order on
+it sees the `NULL`-foreign-key rows (a keyset order on it then needs `nullsFirst` or `nullsLast`, `engine/21`
+R-PAG-05). It does not hold inside an embedded value (a dotted attribute path), which keeps `root.get`, nor in a bulk
+write, which takes no join. A converter is never given the `null`.
+
 ## 7. Acceptance criteria
 
 | ID | Criterion |

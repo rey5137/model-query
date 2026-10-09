@@ -1657,7 +1657,8 @@ a model that sets one keeps its own `@InsertModel`. `addKey` follows the root's 
 `findFirst` and `findByKey`, delegate-only (R-SPR-01). `one` renders `list`'s statement with a limit of 2, throws
 `MQ2003` on a second row before the fetch plan runs, and counts `list` rows, so a predicate-only to-many join gives
 `MQ2003` naming the join and pointing at `Filters.exists`. `first` appends the key, or the group keys for a grouped
-query, as a tie-breaker after any `orderBy`, with explicit `nullsLast`; neither an `orderBy` nor a key is `MQ2203`, except on
+query, as a tie-breaker after any `orderBy`, with explicit `nullsLast` only for a column that can be NULL (an
+`@Id` or non-optional column sorts plain ascending, so an index can serve `LIMIT 1`); neither an `orderBy` nor a key is `MQ2203`, except on
 an aggregate-only query, which has one row. A
 key passed to `one(q, key)` converts as in `whereKey`; a `null` key or component, or a wrong component count, throws
 `IllegalArgumentException`, and a keyless or grouped query is `MQ2203`. The methods are abstract on the `@Incubating`
@@ -1677,8 +1678,8 @@ the setter `generateChanges` generated for such a column could never succeed, no
 the reason; the column is still read. An `@UpdateModel` or `@InsertModel` still writes a to-one by id (R-GEN-19,
 R-PROC-23). A model that writes a foreign key keeps one of those, or reads an entity that maps the column twice, the
 association `insertable = false, updatable = false` and a basic attribute beside it, which both flags write as a plain
-column. A whole-entity to-one column on the root (not inside an embedded value) is read through a LEFT join of the
-association in every clause of a read, never the implicit inner join of `root.get`, so a row with a `NULL` foreign key
+column. A whole-entity or converted to-one column (on the root, an `@Join`ed table or a child root, not inside an embedded
+value) is read through a LEFT join of the association in every clause of a read (`api/10` R-COL-25), never the implicit inner join of `root.get`, so a row with a `NULL` foreign key
 reads back with `null` rather than being dropped; a bulk write takes no join and is unchanged. A converter is never
 given that `null`. No new code and
 no opt-in: rejected are a `writeForeignKeys` member, a per-field opt-in, and cascading writes

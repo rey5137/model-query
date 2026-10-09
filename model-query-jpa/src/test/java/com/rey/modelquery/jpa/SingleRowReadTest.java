@@ -12,7 +12,9 @@ import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import jakarta.persistence.EntityManager;
@@ -180,6 +182,17 @@ class SingleRowReadTest {
             assertThat(executor.first(BY_A.build())).contains(new Row(3L, 1));
             assertThat(executor.first(ROWS.build())).contains(new Row(1L, null));
         });
+    }
+
+    @Test
+    void ac_exe_12_first_sorts_nulls_last_only_for_a_key_column_that_can_be_null() {
+        try (EntityManager em = sessions.createEntityManager()) {
+            var built = ROWS.build().buildQuery(em.getCriteriaBuilder(), Phase.MODEL, RenderOptions.portable());
+            // The @Id and a nullable=false column take a plain ascending order; a nullable one needs nullsLast.
+            assertThat(DefaultModelQueryExecutor.mayBeNull(ID, built.joins())).isFalse();
+            assertThat(DefaultModelQueryExecutor.mayBeNull(C, built.joins())).isFalse();
+            assertThat(DefaultModelQueryExecutor.mayBeNull(A, built.joins())).isTrue();
+        }
     }
 
     @Test

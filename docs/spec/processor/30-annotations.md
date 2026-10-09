@@ -208,9 +208,11 @@ a root attribute or a dotted embedded path in it. It leaves out, without a diagn
 The generated `INSERT_COLUMNS` Javadoc names each field and filter column left out and why, so a missing column is
 visible in the IDE. `MQ3505` refuses the flag on a grouped model (`@Aggregate` or `@GroupBy` fields, or
 `singleGroup = true`: a grouped row is not an entity row) and on one with no root column left to write, and is then its
-only insert check. Otherwise `MQ3501` fires only when the root's id is assigned and the model's written `@PrimaryKey`
-fields do not name all of it (an id left out above, a to-one `@MapsId` or `insertable = false` one, names nothing);
-a `@PrimaryKey` on another attribute is not `MQ3501`, since `addKey` follows the root's id (R-GEN-34). `MQ3504` warns when the root shows no id type, as on an insert model, and `INSERT_COLUMNS` is a reserved
+only insert check. Otherwise `MQ3501` fires only when the root's id is assigned and the columns written, annotated `@PrimaryKey` or not,
+do not cover all of it (an id left out above, a to-one `@MapsId` or `insertable = false` one, is not written);
+a `@PrimaryKey` on another attribute is not `MQ3501`, since `addKey` follows the root's id (R-GEN-34), and a plain
+column that writes the id leaves the read key as the model's `@PrimaryKey` fields, or none when it has none
+(the id is never inferred as a read key). `MQ3504` warns when the root shows no id type, as on an insert model, and `INSERT_COLUMNS` is a reserved
 constant name (`MQ3015`). `generateChanges` and `generateInserts` combine freely; `@QueryModel` and `@InsertModel` on
 one type stay `MQ3503` (R-PROC-24). As with `generateChanges` (R-PROC-19), an endpoint that binds the model from a
 request can write every listed column, so a public create endpoint keeps its own `@InsertModel`.

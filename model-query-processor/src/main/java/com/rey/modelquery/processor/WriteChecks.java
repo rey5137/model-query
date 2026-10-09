@@ -156,8 +156,9 @@ final class WriteChecks {
 
     /**
      * {@code MQ3505} for a {@code generateInserts} query model that is grouped or writes no root column; otherwise
-     * {@code MQ3501} only when the root's id is assigned and the model's {@code @PrimaryKey} fields don't name all of
-     * it, since {@code addKey} follows the id and another {@code @PrimaryKey} is written with {@code add}; and
+     * {@code MQ3501} only when the root's id is assigned and the columns written don't cover all of it (annotated
+     * {@code @PrimaryKey} or not), since {@code addKey} follows the id and another {@code @PrimaryKey} is written with
+     * {@code add}; and
      * {@code MQ3504} as on an insert model (R-PROC-26, D-123).
      */
     void checkGeneratedInserts(ModelDefinition model, Diagnostics diagnostics) {
@@ -170,15 +171,15 @@ final class WriteChecks {
         }
         EntityMetamodel.Id id = metamodel.id(model.root());
         warnUntypedId(model, id, diagnostics);
-        // Only a @PrimaryKey the insert writes names the id: a to-one @MapsId or insertable = false one is left out.
-        Set<String> keys = written.stream().map(InsertedColumns.Written::field).filter(ModelField::primaryKey)
-                .map(ModelField::attribute).collect(Collectors.toSet());
-        boolean named = keys.containsAll(id.attributes())
-                || !id.components().isEmpty() && keys.containsAll(id.components());
-        if (!id.generated() && !named) {
+        // Only a column the insert writes covers the id: a to-one @MapsId or insertable = false one is left out.
+        Set<String> columns = written.stream().filter(InsertedColumns.Written::key).map(column -> column.field()
+                .attribute()).collect(Collectors.toSet());
+        boolean covered = columns.containsAll(id.attributes())
+                || !id.components().isEmpty() && columns.containsAll(id.components());
+        if (!id.generated() && !covered) {
             diagnostics.error(model.type(), DiagnosticCode.MQ3501, model.name() + ": "
                     + model.root().getSimpleName() + "'s id " + id.label() + " has no @GeneratedValue or generator "
-                    + "annotation; generateInserts writes it, so name it with @PrimaryKey");
+                    + "annotation; generateInserts writes it, so map it in the model");
         }
     }
 

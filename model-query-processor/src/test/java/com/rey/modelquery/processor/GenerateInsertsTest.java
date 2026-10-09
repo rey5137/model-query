@@ -445,15 +445,15 @@ class GenerateInsertsTest {
     void ac_diag_12_mq3501_fires_when_the_primary_key_does_not_name_an_assigned_id() {
         Compilation compilation = compile(ARCHIVE_ENTITY, STOCK_ID, STOCK_ENTITY,
                 model("ArchiveView", "@QueryModel(root = ArchiveEntity.class, generateInserts = true)",
-                        "@PrimaryKey String ref, Long orderId, String status"),
+                        "@PrimaryKey String ref, String status"),
                 model("StockView", "@QueryModel(root = StockEntity.class, generateInserts = true)",
-                        "@PrimaryKey Long warehouseId, Long productId, Integer quantity"));
+                        "@PrimaryKey Long warehouseId, Integer quantity"));
 
         assertThat(errors(compilation)).containsExactlyInAnyOrder(
                 "MQ3501: ArchiveView: ArchiveEntity's id 'orderId' has no @GeneratedValue or generator annotation; "
-                        + "generateInserts writes it, so name it with @PrimaryKey",
+                        + "generateInserts writes it, so map it in the model",
                 "MQ3501: StockView: StockEntity's id 'productId', 'warehouseId' has no @GeneratedValue or generator "
-                        + "annotation; generateInserts writes it, so name it with @PrimaryKey");
+                        + "annotation; generateInserts writes it, so map it in the model");
     }
 
     @Test
@@ -479,7 +479,20 @@ class GenerateInsertsTest {
 
         assertThat(errors(compilation)).containsExactly(
                 "MQ3501: LedgerView: LedgerEntity's id 'entryId' has no @GeneratedValue or generator annotation; "
-                        + "generateInserts writes it, so name it with @PrimaryKey");
+                        + "generateInserts writes it, so map it in the model");
+    }
+
+    @Test
+    void ac_diag_12_mq3501_does_not_fire_when_an_unannotated_column_writes_the_assigned_id() {
+        Compilation compilation = compile(ARCHIVE_ENTITY, model("ArchiveView",
+                "@QueryModel(root = ArchiveEntity.class, generateInserts = true)",
+                "@PrimaryKey String ref, Long orderId, String status"));
+
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(generatedFlat(compilation, "gi.QArchiveView"))
+                .contains(".add(REF, ArchiveView::ref) .addKey(ORDER_ID, ArchiveView::orderId)")
+                .contains("ModelPersist<ArchiveEntity, Long, ArchiveView> persist(")
+                .contains("PrimaryKey<ArchiveView, String>");
     }
 
     @Test

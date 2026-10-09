@@ -96,10 +96,13 @@ extra row, so none is one (`delivery/61` R-REL-07).
   then runs once, on the single row left, so an enricher never sees the extra row. `one` counts rows as `list`
   returns them: `list` does not deduplicate, so a predicate-only to-many join (R-EXE-04, `engine/21` R-PAG-02) can
   repeat the root row and give `MQ2003`. The message then names the join and points at `Filters.exists`.
-- `first(q)` renders with a limit of 1 and a stable order, as `engine/21` R-PAG-01 does for paging: `q`'s `orderBy`,
-  then the primary key (or, for a grouped query, its group keys) wherever the `orderBy` does not already cover it.
-  With no `orderBy`, that is the key ascending. The implicit columns sort `nullsLast` explicitly (`api/10` R-COL-12),
-  since a non-id `@PrimaryKey` may be NULL and vendors place NULL differently (INV-6). A query with neither an
+- `first(q)` renders with a limit of 1 and a stable order: `q`'s `orderBy`, then the primary key (or, for a grouped
+  query, its group keys) wherever the `orderBy` does not already cover it. With no `orderBy`, that is the key
+  ascending. An implicit column that can be NULL sorts `nullsLast` explicitly (`api/10` R-COL-12), since vendors place
+  NULL differently (INV-6); a column that cannot (an `@Id`, a non-optional or a primitive attribute, not read through
+  a LEFT join) sorts plain ascending, so an index can satisfy `ORDER BY ... LIMIT 1` where the vendor renders
+  `nullsLast` as a `CASE`. When the selection reads through a to-many join the key spans several rows, so the chosen
+  row is not deterministic, as with offset paging (`engine/21` R-PAG-13 refuses only key-based paging). A query with neither an
   `orderBy` nor a key throws `MQ2203` (`api/11` R-QRY-03) before any statement; a grouped query's key is its group
   keys, and one that only aggregates (no `groupBy`) has exactly one row, so it needs neither.
 - `one(q, key)` adds `primary key = key` to `q`'s filter, converting each component as `whereKey` does

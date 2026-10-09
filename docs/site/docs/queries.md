@@ -93,7 +93,9 @@ predicate-only to-many join can repeat the root row and give `MQ2003`. The messa
 `first` orders by the query's `orderBy`, then by the primary key (the group keys, for a grouped query) wherever the
 `orderBy` does not already cover it, with `nullsLast` stated for those implicit columns. That tie-breaker makes the
 same row come back on every database, even when a group key is `NULL`. A query with neither an
-`orderBy` nor a key is `MQ2203`, an aggregate-only query excepted since it has one row.
+`orderBy` nor a key is `MQ2203`, an aggregate-only query excepted since it has one row. When the selection reads
+through a to-many join, the key spans several rows and the row `first` picks is not deterministic, as with offset
+paging.
 
 `one(q, key)` adds `primary key = key` to `q`'s filter, converting the key as `whereKey` does; contradictory filters
 give empty. A `null` key or component, or the wrong number of components for a composite key, throws

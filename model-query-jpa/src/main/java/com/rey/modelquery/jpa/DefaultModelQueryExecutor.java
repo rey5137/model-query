@@ -63,6 +63,7 @@ import jakarta.persistence.criteria.CriteriaUpdate;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
@@ -252,11 +253,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         CriteriaBuilder cb = em.getCriteriaBuilder();
         BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL, renderOptions);
-        // The key closes the order, NULLs last on every vendor, since a non-id key may be NULL (R-EXE-12, INV-6).
+        // The key closes the order; a column that can be NULL sorts NULLs last on every vendor (R-EXE-12, INV-6).
         List<Order> orders = new ArrayList<>(built.query().getOrderList());
         for (SelectField<M, ?> column : tieBreakers) {
             if (!isOrdered(q, column)) {
-                orders.addAll(column.asc().nullsLast().toOrders(built.joins(), cb, q.isGrouped()));
+                OrderField<M, ?> order = mayBeNull(column, built.joins()) ? column.asc().nullsLast() : column.asc();
+                orders.addAll(order.toOrders(built.joins(), cb, q.isGrouped()));
             }
         }
         built.query().orderBy(orders);
@@ -313,14 +315,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      */
     private static Optional<Join<?, ?>> filterOnlyToManyJoin(BuiltQuery<?> built) {
         Set<Join<?, ?>> selectedThrough = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (SelectField<?, ?> field : built.selection().fields()) {
-            for (ColumnField<?, ?, ?> column : selectedColumns(field)) {
-                Join<?, ?> join = toManyJoin(column, built.joins());
-                if (join != null) {
-                    selectedThrough.add(join);
-                }
-            }
-        }
+        selectedThrough.addAll(selectedToManyJoins(built));
         return toManyJoinOutside(built.query().getRoots().iterator().next(), selectedThrough);
     }
 
@@ -1703,6 +1698,23 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 : q.primaryKey().<List<? extends SelectField<M, ?>>>map(key -> key.columns()).orElse(List.of());
     }
 
+    /**
+     * Whether {@code column} can read NULL: false only for a path to an id, a non-optional or a primitive attribute
+     * that no LEFT join sits above, so the common key orders plainly and an index can satisfy it (R-EXE-12).
+     */
+    static boolean mayBeNull(SelectField<?, ?> column, JoinContext joins) {
+        if (!(column.expression(joins) instanceof Path<?> path)
+                || !(path.getModel() instanceof SingularAttribute<?, ?> attribute)) {
+            return true;
+        }
+        for (Path<?> up = path.getParentPath(); up != null; up = up.getParentPath()) {
+            if (up instanceof Join<?, ?> join && join.getJoinType() != JoinType.INNER) {
+                return true;
+            }
+        }
+        return !(attribute.isId() || !attribute.isOptional() || attribute.getJavaType().isPrimitive());
+    }
+
     /** Whether {@code q}'s own {@code orderBy} already orders by {@code column}. */
     private static <M> boolean isOrdered(ModelQuery<?, ?, M> q, SelectField<M, ?> column) {
         return q.orderBy().stream().map(OrderField::column).anyMatch(column::equals);
@@ -2000,14 +2012,21 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /** Whether {@code built}'s selection reads any column through a to-many join (R-PAG-13). */
     private static boolean readsThroughToMany(BuiltQuery<?> built) {
+        return !selectedToManyJoins(built).isEmpty();
+    }
+
+    /** The to-many joins {@code built}'s selected columns are read through, one per such column (R-PAG-13). */
+    private static List<Join<?, ?>> selectedToManyJoins(BuiltQuery<?> built) {
+        List<Join<?, ?>> joins = new ArrayList<>();
         for (SelectField<?, ?> field : built.selection().fields()) {
             for (ColumnField<?, ?, ?> column : selectedColumns(field)) {
-                if (toManyJoin(column, built.joins()) != null) {
-                    return true;
+                Join<?, ?> join = toManyJoin(column, built.joins());
+                if (join != null) {
+                    joins.add(join);
                 }
             }
         }
-        return false;
+        return joins;
     }
 
     /** The columns a selected field reads: a column itself, an expression's operands, or none for an aggregate. */

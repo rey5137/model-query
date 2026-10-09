@@ -254,7 +254,8 @@ know:
 - `addKey` follows the root's id, and `insert` and `persist` are typed by it. For a composite key the model's `KEY`
   is a `PrimaryKey<M, List<Object>>` while `persist` returns the `@IdClass` or `@EmbeddedId` type, so
   `one(q, QCustomerView.persist(row))` does not compile there; read it back with a filter on the key's columns.
-  A `@PrimaryKey` on a non-id unique column is written with `add`.
+  A `@PrimaryKey` on a non-id unique column is written with `add`. An assigned id must be written by some column, annotated
+  `@PrimaryKey` or not (`MQ3501` otherwise); a plain column that writes it does not change the read key.
 
 ## Keep the prefix consistent
 
