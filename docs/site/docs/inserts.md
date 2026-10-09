@@ -35,7 +35,7 @@ target's columns. It writes exactly the rows the equivalent `list` would return,
 included. Test: `InsertSelectTest.ac_wrt_21_an_insert_select_writes_the_rows_the_list_returns_with_joined_and_to_many_columns`.
 
 ```java
-ModelInsert.select(ARCHIVE_COLUMNS, ORDERS)
+var insert = ModelInsert.select(ARCHIVE_COLUMNS, ORDERS)
         .map(ARCHIVE_ID, LINE_ITEM_ID)
         .map(ARCHIVE_ORDER_ID, LINE_ORDER_ID)
         .map(ARCHIVE_CUSTOMER, LINE_CUSTOMER_ID)
@@ -44,18 +44,39 @@ ModelInsert.select(ARCHIVE_COLUMNS, ORDERS)
         .map(ARCHIVE_PRODUCT, LINE_PRODUCT)
         .set(ARCHIVED_BY, "tck")            // a constant for a column the model leaves out
         .where(PAID_IN_DE)
-// ... then, in the test:
-written[0] = archives(em).insert(archive(PAID_IN_DE).build());
+        .build();
 ```
+
+=== "Plain JPA"
+
+    ```java
+    long written = executor.insert(insert);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    long written = archives.insert(insert);
+    ```
 
 ### Chunked
 
 Add `chunked(ChunkOptions)` to write in key-first chunks over the distinct source ids, so each source row is written
 once. Test: `InsertSelectTest.ac_wrt_21_a_chunked_insert_select_over_a_separate_target_writes_each_source_row_once`.
 
-```java
-written[0] = archives(em).insert(archive(PAID_IN_DE).chunked(ChunkOptions.size(5)).build());
-```
+=== "Plain JPA"
+
+    ```java
+    var chunked = insertSelect.chunked(ChunkOptions.size(5)).build();   // the builder above, before build()
+    long written = executor.insert(chunked);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    var chunked = insertSelect.chunked(ChunkOptions.size(5)).build();   // the builder above, before build()
+    long written = archives.insert(chunked);
+    ```
 
 If the target overlaps the source (the same entity or a shared table), the provider cannot name the tables, or the
 source joins through a link or collection table (a `@ManyToMany`, an `@ElementCollection`, or a `@OneToMany` over a
@@ -69,10 +90,19 @@ An insert-select needs a generator Hibernate renders inline: a pooled sequence o
 the vendor's bind and `VALUES` limits. An empty list runs no SQL. Test:
 `InsertValuesTest.ac_wrt_22_insert_values_with_an_assigned_id_a_converter_a_to_one_by_id_and_a_set_constant_round_trips`.
 
-```java
-var insert = ValuesInsert.builder(NEW_ARCHIVE, Long.class, rows).set(ARCHIVED_BY, "tck").build();
-written[0] = archives(em, ModelQueryConfig.defaults()).insert(insert);
-```
+=== "Plain JPA"
+
+    ```java
+    var insert = ValuesInsert.builder(NEW_ARCHIVE, Long.class, rows).set(ARCHIVED_BY, "tck").build();
+    long written = executor.insert(insert);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    var insert = ValuesInsert.builder(NEW_ARCHIVE, Long.class, rows).set(ARCHIVED_BY, "tck").build();
+    long written = archives.insert(insert);
+    ```
 
 The library does not validate rows. A to-one column binds its target's id, so no row is loaded.
 
@@ -84,10 +114,19 @@ the id's type, fails with `MQ1807` (use `persist` for `IDENTITY`). It cannot be 
 compile) or `commitEachChunk()` (`MQ1801`). Test:
 `InsertValuesTest.ac_wrt_23_insert_returning_keys_returns_drawn_keys_that_read_back_each_row_by_index`.
 
-```java
-List<K> keys = executor(em, root).insertReturningKeys(coded(root, keyType, rows)
-        .chunked(ChunkOptions.size(2)).build());
-```
+=== "Plain JPA"
+
+    ```java
+    var insert = ValuesInsert.builder(CODED, Long.class, rows).chunked(ChunkOptions.size(2)).build();
+    List<Long> keys = executor.insertReturningKeys(insert);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    var insert = ValuesInsert.builder(CODED, Long.class, rows).chunked(ChunkOptions.size(2)).build();
+    List<Long> keys = coded.insertReturningKeys(insert);
+    ```
 
 ### Chunks and failures
 
@@ -174,11 +213,21 @@ only the entity it created. Lifecycle callbacks such as `@PrePersist` run, and `
 transaction (`MQ2501` without one) and takes no `set`, conflict clause or chunking. It also runs on a provider with no
 insert support. Test: `PersistTest.ac_wrt_28_persist_with_identity_returns_the_key_runs_pre_persist_and_leaves_the_entity_detached`.
 
-```java
-var persist = ModelPersist.of(COLUMNS, Long.class,
-        new NewPersist("p1", InsPersistEntity.Status.PAID, true, "#42", "Hanoi", "100000", 2L));
-Long key = executor(em, InsPersistEntity.class).persist(persist);
-```
+=== "Plain JPA"
+
+    ```java
+    var persist = ModelPersist.of(COLUMNS, Long.class,
+            new NewPersist("p1", InsPersistEntity.Status.PAID, true, "#42", "Hanoi", "100000", 2L));
+    Long key = executor.persist(persist);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    var persist = ModelPersist.of(COLUMNS, Long.class,
+            new NewPersist("p1", InsPersistEntity.Status.PAID, true, "#42", "Hanoi", "100000", 2L));
+    Long key = persisted.persist(persist);
+    ```
 
 A `CascadeType.ALL` to-one detaches the caller's managed target as well, as the mapping's cascade says.
 

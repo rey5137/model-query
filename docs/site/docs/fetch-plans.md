@@ -52,11 +52,21 @@ another plan, for a plan that depends on the call, such as an export's columns.
 
 Run the query as usual. The plan runs on the models a call returns, at every level:
 
-```java
-List<CustomerOrders> list = executor.list(q, Limit.of(100));
-Slice<CustomerOrders> page = executor.page(q, PageSpec.of(0, 50), CountMode.NO_COUNT);
-executor.export(q, ExportOptions.of(500), p -> p, sink);
-```
+=== "Plain JPA"
+
+    ```java
+    List<CustomerOrders> list = executor.list(q, Limit.of(100));
+    Slice<CustomerOrders> page = executor.page(q, PageSpec.of(0, 50), CountMode.NO_COUNT);
+    executor.export(q, ExportOptions.of(500), p -> p, sink);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<CustomerOrders> list = customerRepository.findAll(q, Limit.of(100));
+    ModelPage<CustomerOrders> page = customerRepository.findPage(q, PageRequest.of(0, 50), CountMode.NO_COUNT);
+    customerRepository.export(q, ExportOptions.of(500), p -> p, sink);
+    ```
 
 A plan works with every paging mode. With `keyset()` or `primaryKeyFirst(...)`, the children load for the models of
 each page, after the page's own statements:
@@ -67,15 +77,19 @@ var deep = QCustomerOrders.query()
         .orderBy(QCustomerOrders.NAME.asc())
         .keyset()                  // or .primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(10_000))
         .build();
-executor.export(deep, ExportOptions.of(500), p -> p, sink);
 ```
 
-The same calls on a Spring repository run it too, since the plan is part of the query:
+=== "Plain JPA"
 
-```java
-ModelPage<CustomerOrders> page = customerRepository.findPage(q, PageRequest.of(0, 50), CountMode.COUNT);
-List<CustomerOrders> top = customerRepository.findAll(q, Limit.of(10));
-```
+    ```java
+    executor.export(deep, ExportOptions.of(500), p -> p, sink);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    customerRepository.export(deep, ExportOptions.of(500), p -> p, sink);
+    ```
 
 `count` and `ONLY_COUNT` load no children. `stream` refuses a plan that has any (`MQ2605`); use `export`, which runs
 the plan on each page; on the last page it runs on the whole page and the export's `limit` cuts after, since a

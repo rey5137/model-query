@@ -99,3 +99,12 @@ The test rules are owned by `spec/delivery/60`; in short:
 **CC-TEST-04** No mocks of JPA or JDBC internals (R-QA-01); TCK tests use Testcontainers.
 
 **CC-TEST-05** SQL snapshots are reviewed as diffs, never regenerated blindly (R-QA-04).
+
+## 7. Docs site
+
+**CC-DOC-01** A `docs/site` code block that runs a query or a write shows it in two tabs, in this order:
+`=== "Plain JPA"` (the `ModelQueryExecutor` or write call) and `=== "Spring repository"` (the `ModelQueryRepository`
+method). When the repository has no method for the call, the Spring tab shows the executor reached from Spring
+instead. Exempt are blocks that only declare (models, entities, annotations, `Filters`, a query built but not run),
+non-Java output (SQL, XML, YAML, diagrams), and pages or sections about one stack only (`getting-started/*`,
+`spring.md`, controllers, repository factory beans).
