@@ -16,10 +16,12 @@ import javax.lang.model.type.TypeMirror;
  * @param insertable {@code false} when its {@code @Column} or {@code @JoinColumn} says {@code insertable = false}
  * @param mappedBy what {@code @OneToOne(mappedBy)} names on the inverse side of a to-one; {@code null} on the owning
  *     side and for any other attribute
+ * @param filledByDatabase whether the attribute carries a non-writable Hibernate {@code @Generated} whose events
+ *     include {@code INSERT} (R-PROC-26, D-125)
  */
 record EntityAttribute(
         String name, TypeMirror type, Kind kind, DeclaredType target, boolean version, boolean updatable,
-        boolean insertable, String mappedBy) {
+        boolean insertable, String mappedBy, boolean filledByDatabase) {
 
     /** Whether a join may follow the attribute: a to-one or collection association of a known target. */
     boolean joinable() {

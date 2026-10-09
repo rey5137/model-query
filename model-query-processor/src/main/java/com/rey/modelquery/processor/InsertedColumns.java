@@ -1,5 +1,6 @@
 package com.rey.modelquery.processor;
 
+import com.rey.modelquery.annotations.ExcludeFromInserts;
 import com.rey.modelquery.annotations.Transient;
 import com.rey.modelquery.processor.EntityMetamodel.Resolution;
 import com.rey.modelquery.processor.ModelDefinition.FilterColumnDefinition;
@@ -14,7 +15,7 @@ import java.util.List;
  *
  * @param written the columns written, in declaration order
  * @param leftOut each field or filter column left out, as the Javadoc names it: its name, then the reason
- * @implSpec R-PROC-26, R-GEN-28, R-GEN-34
+ * @implSpec R-PROC-26, R-PROC-27, R-GEN-28, R-GEN-34
  */
 record InsertedColumns(List<Written> written, List<String> leftOut) {
 
@@ -30,8 +31,10 @@ record InsertedColumns(List<Written> written, List<String> leftOut) {
         var written = new ArrayList<Written>();
         var leftOut = new ArrayList<String>();
         for (ModelField field : model.fields()) {
-            String reason = field.column() ? leftOut(metamodel.resolve(model.root(), field.attribute()), id,
-                    field.attribute()) : notAColumn(field);
+            String reason = alreadyLeftOut(field, model, metamodel);
+            if (reason == null && excluded(field)) {
+                reason = "{@code @ExcludeFromInserts}";
+            }
             if (reason == null) {
                 written.add(new Written(field, id.covers(field.attribute())));
             } else {
@@ -42,6 +45,20 @@ record InsertedColumns(List<Written> written, List<String> leftOut) {
             leftOut.add("{@code " + column.label() + "}: filter-only, no field of the model");
         }
         return new InsertedColumns(written, leftOut);
+    }
+
+    /** Whether the field carries {@code @ExcludeFromInserts}. */
+    static boolean excluded(ModelField field) {
+        return field.element().getAnnotation(ExcludeFromInserts.class) != null;
+    }
+
+    /**
+     * Why R-PROC-26 leaves the field of a {@code generateInserts} query model out whatever {@code @ExcludeFromInserts}
+     * says, or {@code null} when it would be written.
+     */
+    static String alreadyLeftOut(ModelField field, ModelDefinition model, EntityMetamodel metamodel) {
+        return field.column() ? leftOut(metamodel.resolve(model.root(), field.attribute()),
+                metamodel.id(model.root()), field.attribute()) : notAColumn(field);
     }
 
     /** Why a field that is no column is left out. */
@@ -88,6 +105,9 @@ record InsertedColumns(List<Written> written, List<String> leftOut) {
         if (attribute.version()) {
             return "the {@code @Version}, which the provider writes";
         }
-        return attribute.insertable() ? null : "{@code @Column(insertable = false)}";
+        if (!attribute.insertable()) {
+            return "{@code @Column(insertable = false)}";
+        }
+        return attribute.filledByDatabase() ? "filled by the database: {@code @Generated}" : null;
     }
 }

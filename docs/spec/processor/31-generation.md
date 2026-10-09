@@ -302,8 +302,9 @@ added with `addKey` when it maps to the root's id (the `@Id` attribute, an `@IdC
 whole or by a component), whatever `@PrimaryKey` says: a `@PrimaryKey` on a non-id unique column (R-GEN-22) is added
 with `add`. `insert` and `persist` fix `K` to the root's id as R-GEN-28 does, not to `KEY`'s type, so for a composite
 key `KEY` is a `PrimaryKey<M, List<Object>>` while `persist` returns the `@IdClass` or `@EmbeddedId` type. The
-`INSERT_COLUMNS` Javadoc lists each field and filter column left out, with the reason. An insert model's generated
-code is unchanged.
+`INSERT_COLUMNS` Javadoc lists each field and filter column left out, with the reason: "filled by the database:
+`@Generated`" for a database-generated column and "`@ExcludeFromInserts`" for an excluded one (R-PROC-26, R-PROC-27,
+D-125). An insert model's generated code is unchanged.
 
 **R-GEN-29** *(D-120)* **The `@Selected` set.** A `@QueryModel` with a `@Selected` field (`processor/30` R-PROC-25)
 generates one more constant, `private static final SelectSet<M> SELECTED_FIELDS`, holding every column constant of the
@@ -394,3 +395,4 @@ tier matches the `named` property first, then the name, so existing sorts keep w
 | AC-GEN-26 | On a `generateInserts` query model `addKey` follows the root's id: an `@IdClass` id is added with `addKey` by its attributes and types `insert` and `persist` by the id class while `KEY` stays composite, and a `@PrimaryKey` on a non-id unique column over a generated id is added with `add`, `K` being the id's type (R-GEN-34). |
 | AC-GEN-27 | On every Tier-1 vendor a `generateInserts` query model inserts rows, insert-selects rows from another root and persists a row, its `@Version` left to the provider, and the same model reads them back (R-GEN-34). |
 | AC-GEN-28 | A `generateChanges` query model with a to-one column, whole or converted, generates no setter for it and names it in the change set's Javadoc; on every Tier-1 vendor `update(Changes.from(view, columns))` over the root non-key columns writes them, `from` naming the to-one column is `MQ1607`, and a row whose foreign key is `NULL` reads back through the whole-entity column with `null` (R-GEN-21, D-124). |
+| AC-GEN-29 | The `INSERT_COLUMNS` Javadoc of a `generateInserts` query model names a `@Generated` column with "filled by the database: `@Generated`" and an `@ExcludeFromInserts` one with "`@ExcludeFromInserts`" (R-GEN-34, D-125). |

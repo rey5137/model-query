@@ -42,7 +42,7 @@ public final class ModelQueryProcessor extends AbstractProcessor {
         var types = processingEnv.getTypeUtils();
         var reader = new QueryModelReader(processingEnv.getOptions());
         var nestedModels = new NestedModels(reader);
-        var metamodel = new EntityMetamodel(types);
+        var metamodel = new EntityMetamodel(types, processingEnv.getElementUtils());
         var elements = processingEnv.getElementUtils();
         var builtIns = new BuiltInConverters(elements);
         var round = new Round(reader, nestedModels, new ModelValidator(types, metamodel, nestedModels, builtIns),

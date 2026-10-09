@@ -5,6 +5,7 @@ import com.rey.modelquery.annotations.Child;
 import com.rey.modelquery.annotations.Column;
 import com.rey.modelquery.annotations.Computed;
 import com.rey.modelquery.annotations.ExcludeFromDefaults;
+import com.rey.modelquery.annotations.ExcludeFromInserts;
 import com.rey.modelquery.annotations.GroupBy;
 import com.rey.modelquery.annotations.Join;
 import com.rey.modelquery.annotations.PrimaryKey;
@@ -66,8 +67,8 @@ final class ModelValidator {
 
     /** What {@code @Selected} can't share a field with: every other annotation of the library that sits on one. */
     private static final List<Class<? extends Annotation>> NOT_WITH_SELECTED = List.of(
-            Column.class, PrimaryKey.class, Transient.class, ExcludeFromDefaults.class, Join.class, Child.class,
-            Aggregate.class, GroupBy.class, Computed.class);
+            Column.class, PrimaryKey.class, Transient.class, ExcludeFromDefaults.class, ExcludeFromInserts.class,
+            Join.class, Child.class, Aggregate.class, GroupBy.class, Computed.class);
 
     private static final String LONG = "java.lang.Long";
     private static final String DOUBLE = "java.lang.Double";
@@ -116,6 +117,7 @@ final class ModelValidator {
             reserved = Set.copyOf(withInserts);
             writeChecks.checkGeneratedInserts(model, diagnostics);
         }
+        writeChecks.checkExcluded(model, diagnostics);
         if (model.queryModel()) {
             checkSelected(model, diagnostics);
         }

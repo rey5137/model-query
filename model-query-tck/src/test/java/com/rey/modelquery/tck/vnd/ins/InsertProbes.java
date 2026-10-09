@@ -86,6 +86,11 @@ public final class InsertProbes implements AutoCloseable {
         return open(db, null, List.of(InsAuditedEntity.class));
     }
 
+    /** As {@link #open(TckDatabase)}, also mapping the root with a defaulted column (R-PROC-27). */
+    public static InsertProbes withStampedRoot(TckDatabase db) {
+        return open(db, null, List.of(InsStampedEntity.class));
+    }
+
     private static InsertProbes open(TckDatabase db, EnhancingClassLoader loader, List<Class<?>> extra) {
         List<String> recorded = Collections.synchronizedList(new ArrayList<>());
         DataSource dataSource = ProxyDataSourceBuilder.create(JoinTestSupport.dataSource(db))
