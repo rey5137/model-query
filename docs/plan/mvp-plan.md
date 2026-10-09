@@ -384,16 +384,38 @@ is the user's step after the gate, never a slice's.
 **Exit:** the M14 rows' criteria green on Tier 1, nothing new frozen, and the `0.7.0` CHANGELOG section ready, so the
 user can push the `v0.7.0` tag.
 
-## 16. M15 — Freeze → 1.0.0
+## 16. M15 — Insert columns and many keys → 0.8.0
+
+Spec: RFC 0008, D-125 and D-126, `processor/30` (R-PROC-26 extended, new R-PROC-27, `AC-PROC` rows), `processor/31`
+R-GEN-34 (the `INSERT_COLUMNS` Javadoc reasons), `processor/32` (new `MQ3506`, `MQ3501` and `MQ3021` extended),
+`api/14` (AC-WRT-40), `engine/20` (new R-EXE-13, R-EXE-05 and R-EXE-12 amended, `AC-EXE` rows), `api/11` R-QRY-03
+and R-QRY-10, `api/12` R-FLT-09, `api/15` R-FCH-05, `reference/90` (new `MQ2005`, `MQ2003` and `MQ2203` extended),
+`integration/50` (R-SPR-15, AC-SPR-19), `delivery/61` (the behaviour changes). Each build slice writes its rules,
+`AC-*` rows and `MQ` codes into the owning spec file first, then builds; new rows are the ids RFC 0008 §New ids
+names (AC-PROC-21/22, AC-GEN-29, AC-DIAG-13, AC-WRT-40, AC-EXE-14/15, AC-SPR-19). Model: the design was reviewed by
+`architect-review` before D-125 and D-126; none at a slice. Nothing new is frozen: `@ExcludeFromInserts`, `byKeys`
+and `findAllByKeys` are `@Incubating`. Tagging `v0.8.0` is the user's step after the gate, never a slice's.
+
+| Slice | Contents | Done when |
+|---|---|---|
+| M15.1 | Processor (D-125): R-PROC-26 also leaves out a non-id root column whose attribute carries `org.hibernate.annotations.Generated` with `writable = false`, an empty `sql` and `INSERT` among its events (`value` when present and not `INSERT`, Hibernate 6, else `event`), read by full name with `getElementValuesWithDefaults`, an unresolved type left written, every timestamp annotation written; `@ExcludeFromInserts` in `model-query-annotations` (`@Incubating`, field target, `CLASS` retention, no elements), honoured by `INSERT_COLUMNS`, `insert`, `insertFrom` and `persist` while the query members keep the field; the `INSERT_COLUMNS` Javadoc names each left-out field and its reason; `MQ3506` (no `generateInserts`, an `@UpdateModel` or `@InsertModel`, a field R-PROC-26 already leaves out), `MQ3021` on a `@Selected` field, only `MQ3505` on a grouped model or when every column is excluded, `MQ3501`'s excluded-assigned-id message; R-PROC-26, R-PROC-27, R-GEN-34 | compile-testing green for AC-PROC-21, AC-PROC-22 (each `@Generated` shape of Hibernate 6.6 and 7.x, written and left out), AC-GEN-29 and AC-DIAG-13; TCK on Tier 1: AC-WRT-40 (`insert(rows).set(CREATED_AT, now)`) and an excluded `DEFAULT` column through `insert` (default read back) and `persist` (constructor's value); existing golden files unchanged or updated with the reason |
+| M15.2 | Engine (D-126): `byKeys(q, keys)` abstract and `@Incubating` on `ModelQueryExecutor`, built in `DefaultModelQueryExecutor`: checks `NullPointerException`, `MQ2203`, key conversion as `whereKey`, then the empty-keys shortcut (no SQL); chunks as R-PAG-07 step 2 without `primaryKeyFirstBatchSize` (R-FLT-09's third key list), each statement in `Phase.MODEL`, no `ORDER BY`; every chunk read and checked (`MQ2003` on a key matching two rows, `MQ2005` on a row matching no requested value) before mapping; rows matched back by converted attribute value, an unmodifiable `Map<K, M>` in first-occurrence key order, keys converting to one value sharing one model with `afterMap` once, the fetch plan run once; an `orderBy` ignored with one `WARNING` per `ModelQuery`, which `count`, `one(q)` and `one(q, key)` now log too when called directly (not `page`'s count, not `first`), both `one` statements rendering no `ORDER BY`; test-double executors gain the method; R-EXE-13, R-EXE-05, R-EXE-12, R-QRY-03, R-QRY-10, R-FLT-09, R-FCH-05, `MQ2003`, `MQ2005`, `MQ2203`, R-REL-07 | `jpa` unit tests and the TCK group green on Tier 1 for AC-EXE-14 (incl. `MQ2005` on a case-insensitive string key on MySQL and SQL Server, and a configured `primaryKeyFirstBatchSize` not changing the chunks) and AC-EXE-15; `JapicmpExclusionsTest` green |
+| M15.3 | Spring: `findAllByKeys(q, keys)` on `ModelQueryRepository`, abstract and `@Incubating`, delegate-only (R-SPR-01); R-SPR-15, AC-SPR-19, AC-SPR-09 for the new method | `spring` tests green, AC-SPR-19 and AC-SPR-09 for `findAllByKeys` |
+| M15.4 | Docs and release: `models.md` §One model for reading and creating gains the `@Generated` left-out rule, `@ExcludeFromInserts`, the server-time recipe (`insert(rows).set(CREATED_AT, now)`) and `persist`'s constructor value; `queries.md` "Reading many keys" (`byKeys`, key order, missing keys absent, `MQ2005`, the ignored `orderBy` and its `WARNING`); `spring.md` `findAllByKeys` and a user-side `PersistenceExceptionTranslator` on `code()` for `MQ2003`; stability page lists the D-125/D-126 incubating members; `delivery/61` and `[Unreleased]` folded into the `0.8.0` CHANGELOG section naming the behaviour changes (a 0.7.0 model stops writing a non-writable `@Generated` column, a value set on it under `insert` dropped; a `GENERATED ALWAYS AS` column now works; `count` and `one` warn on an `orderBy` and the `one` statements lose their `ORDER BY`); README, docs site and stability page say 0.8.0; `M15` added to the audit's started scope | AC rows green on Tier 1; `mkdocs build --strict` green; `JapicmpExclusionsTest` green; AC audit green with M15 started |
+
+**Exit:** the M15 rows' criteria green on Tier 1, nothing new frozen, and the `0.8.0` CHANGELOG section ready, so the
+user can push the `v0.8.0` tag.
+
+## 17. M16 — Freeze → 1.0.0
 
 Spec: D-85 (amended by D-106, D-116 and D-118), D-86, D-111, D-116, D-118. Starts only when the user says the D-111 adopter has migrated onto 0.5.0 or later
-and run it in production long enough. Model: `architect-review` at M15.1. Both slices are attended. Tagging `v1.0.0`
+and run it in production long enough. Model: `architect-review` at M16.1. Both slices are attended. Tagging `v1.0.0`
 is the user's step after the gate, never a slice's.
 
 | Slice | Contents | Done when |
 |---|---|---|
-| M15.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field, M13 field-index and M14 single-model types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
-| M15.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M15` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M15 started |
+| M16.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field, M13 field-index, M14 single-model and M15 insert-column and multi-key types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
+| M16.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M16` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M16 started |
 
-**Exit:** the M15 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M15.1 decision, so the user can
+**Exit:** the M16 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M16.1 decision, so the user can
 push the `v1.0.0` tag.
