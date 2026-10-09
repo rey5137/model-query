@@ -130,6 +130,7 @@ public final class JoinTestSupport {
                 .addAnnotatedClass(CompositeKeyItemEntity.class)
                 .addAnnotatedClass(CompositeKeyCopyEntity.class)
                 .addAnnotatedClass(StampedOrderEntity.class)
+                .addAnnotatedClass(DatedRowEntity.class)
                 .addAnnotatedClass(LabelEntity.class)
                 .addAnnotatedClass(CustomerNoteEntity.class)
                 .addAnnotatedClass(PatronEntity.class)

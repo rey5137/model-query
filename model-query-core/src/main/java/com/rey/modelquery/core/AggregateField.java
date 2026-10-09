@@ -141,10 +141,10 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         }
         // A mismatch would otherwise surface as a ClassCastException in Row.get, far from the definition.
         Class<?> actual = result.getJavaType();
-        if (kind == Kind.OF && actual != null && ColumnField.boxed(actual) != type) {
+        if (kind == Kind.OF && actual != null && !ColumnField.reads(type, actual)) {
             throw new ModelQueryDefinitionException(MqCode.MQ1405, String.format(
-                    "Agg.of(\"%s\"): declared %s, the expression is %s", attribute, type.getSimpleName(),
-                    actual.getSimpleName()));
+                    "Agg.of(\"%s\"): declared %s, the expression is %s", attribute, ColumnField.name(type, actual),
+                    ColumnField.name(actual, type)));
         }
         return result;
     }

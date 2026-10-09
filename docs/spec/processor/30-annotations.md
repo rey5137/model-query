@@ -10,7 +10,7 @@
 
 | Annotation | Target | Purpose |
 |---|---|---|
-| `@QueryModel(root = X.class, generateSelectSets = true, prefix = "Q", suffix = "", singleGroup = false, generateChanges = false)` | model class or record | Enables generation |
+| `@QueryModel(root = X.class, generateSelectSets = true, prefix = "Q", suffix = "", singleGroup = false, generateChanges = false, generateInserts = false)` | model class or record | Enables generation |
 | `@UpdateModel(root = X.class, prefix = "Q")` | class or record | The attributes a bulk update may write; generates columns and a change set (§7) |
 | `@InsertModel(root = X.class, prefix = "Q")` | class or record | The attributes an insert writes, one instance per row; generates columns, `INSERT_COLUMNS` and the insert builders (§8) |
 | `@PrimaryKey` | field or record component | Primary-key column(s); composite keys supported |
@@ -165,8 +165,9 @@ association written by id, `@Column(attribute = "customer") Long customerId`) an
 `@Aggregate` and `@GroupBy` (`processor/32` §1).
 
 **R-PROC-19** `@QueryModel(generateChanges = true)` also generates a change set over the query model's root, non-key
-columns; joined and filter-only columns are left out. It is meant for internal use: an endpoint binding it from a
-request can write every root column of the model, so the user guide recommends one `@UpdateModel` per endpoint.
+columns; joined, filter-only and to-one columns are left out, as `generateInserts` leaves them (D-124). It is meant
+for internal use: an endpoint binding it from a request can write every root column of the model, so the user guide
+recommends one `@UpdateModel` per endpoint.
 
 ## 8. Insert models
 
@@ -191,6 +192,31 @@ apply, since an insert writes the column first.
 **R-PROC-24** *(D-116)* One type carries at most one of `@QueryModel`, `@UpdateModel` and `@InsertModel`, since each
 generates `Q<Model>`. A type with two or more is reported once (`MQ3503`) and generates nothing.
 
+**R-PROC-26** *(D-123)* `@QueryModel(generateInserts = true)` also generates `INSERT_COLUMNS`, `insert`,
+`insertFrom` and `persist` on the query model, as an insert model does (`processor/31` R-GEN-34), so a screen that
+reads and creates one row shape keeps one model. It writes the model's **root columns**: fields whose attribute path is
+a root attribute or a dotted embedded path in it. It leaves out, without a diagnostic:
+- `@Join`, `@Child`, `@Computed`, `@Selected` and `@Transient` fields, and the `@FilterColumn`s;
+- a to-one column (the whole entity, `MQ3016`, or one through a converter): a query model cannot name a foreign key as
+  a scalar (`MQ3002`, D-44), so the flag writes no foreign key, and a model that must set one keeps its own
+  `@InsertModel`;
+- the id when it carries `@GeneratedValue` or a generator annotation, as an insert model must (R-PROC-23);
+- the `@Version` column, and one an insert cannot write (`insertable = false`, or the inverse side of a to-one), which
+  an insert model would refuse (`MQ3303`, `MQ3304`). This is unlike `generateChanges`, which keeps them and relies on
+  `MQ1605` (D-70).
+
+The generated `INSERT_COLUMNS` Javadoc names each field and filter column left out and why, so a missing column is
+visible in the IDE. `MQ3505` refuses the flag on a grouped model (`@Aggregate` or `@GroupBy` fields, or
+`singleGroup = true`: a grouped row is not an entity row) and on one with no root column left to write, and is then its
+only insert check. Otherwise `MQ3501` fires only when the root's id is assigned and the columns written, annotated `@PrimaryKey` or not,
+do not cover all of it (an id left out above, a to-one `@MapsId` or `insertable = false` one, is not written);
+a `@PrimaryKey` on another attribute is not `MQ3501`, since `addKey` follows the root's id (R-GEN-34), and a plain
+column that writes the id leaves the read key as the model's `@PrimaryKey` fields, or none when it has none
+(the id is never inferred as a read key). `MQ3504` warns when the root shows no id type, as on an insert model, and `INSERT_COLUMNS` is a reserved
+constant name (`MQ3015`). `generateChanges` and `generateInserts` combine freely; `@QueryModel` and `@InsertModel` on
+one type stay `MQ3503` (R-PROC-24). As with `generateChanges` (R-PROC-19), an endpoint that binds the model from a
+request can write every listed column, so a public create endpoint keeps its own `@InsertModel`.
+
 ## 9. Acceptance criteria
 
 | ID | Criterion |
@@ -213,3 +239,5 @@ generates `Q<Model>`. A type with two or more is reported once (`MQ3503`) and ge
 | AC-PROC-16 | A type carrying two or three of `@QueryModel`, `@UpdateModel` and `@InsertModel` reports `MQ3503` once, on the type, and generates no file (R-PROC-24). |
 | AC-PROC-17 | An `@Id` carrying an annotation meta-annotated `@IdGeneratorType` or `@ValueGenerationType`, with no `@GeneratedValue`, is generated: an insert model leaves it out, and naming it is `MQ3501` (R-PROC-23). |
 | AC-PROC-18 | `@Selected SelectSet<M>` on a record component and on a class field is no column, constant, `SelectSet` member or key, and generates; a type other than exactly `SelectSet<M>` or a second `@Selected` is `MQ3020`, another library annotation on the field is `MQ3021`, and an update or insert model refuses it (R-PROC-25). |
+| AC-PROC-19 | `generateInserts = true` generates `INSERT_COLUMNS`, `insert`, `insertFrom` and `persist` over the root columns, leaving out with no diagnostic a `@Join`, `@Child`, `@Computed`, `@Selected` and `@Transient` field, a `@FilterColumn`, a to-one, the `@Version`, an `insertable = false` column and a generated id, each named with its reason in the `INSERT_COLUMNS` Javadoc; with `generateChanges = true` as well the model gets both sets of members (R-PROC-26). |
+| AC-PROC-20 | `generateChanges = true` on a query model with a whole-entity and a converted to-one column compiles with no error, generates no setter for either, and `generateChanges` and `generateInserts` together leave out the same to-one columns (R-PROC-19, D-124). |

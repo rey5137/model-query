@@ -56,7 +56,8 @@ key when the same function over the same column is needed twice.
 
 **R-AGG-02** `Agg.of(...)` is keyed by its `name`, because a lambda cannot be compared. Two `Agg.of` fields sharing a
 name with different expression instances throw `MQ1103` when the query is built. An `Agg.of` function that returns
-`null`, or an expression whose Java type is not the declared type, throws `MQ1405` when the query is built, rather than
+`null`, or an expression whose Java type is not the declared type (a declared `java.util.Date` also takes a `java.sql.Date`,
+`Time` or `Timestamp`, D-122), throws `MQ1405` when the query is built, rather than
 a `ClassCastException` when a row is read. `Agg.of` is for aggregate expressions `Agg` over an expression cannot express (R-AGG-13).
 
 ## 2. Result types

@@ -111,7 +111,9 @@ reads the columns it knows, so a filter-only column never affects the result eve
 
 **R-COL-08** *(was R11)* **Column types match entity attributes.** Generated columns are checked by the processor
 (`processor/32`). Hand-written columns are checked at first path resolution — `path.getJavaType()` against
-`ColumnField.type`, through a converter allow-list (D-20) — and throw `MQ1001` on a mismatch (INV-3). The same
+`ColumnField.type`, through a converter allow-list (D-20) — and throw `MQ1001` on a mismatch (INV-3). A column
+whose attribute type is `java.util.Date` also matches a reported `java.sql.Date`, `java.sql.Time` or `java.sql.Timestamp`:
+JPA stores a `Date` attribute as one of the three, and a provider may report that type, as Hibernate does (D-122). The same
 resolution throws `MQ1002` for an attribute, of a column or a join, that the entity does not have, and `MQ1003` for a
 column whose path starts at a root the query is not rooted at, which would otherwise read the query root's attribute of
 the same name. An attribute may be a dotted path through embedded values (`"address.city"`); a segment that is unknown
@@ -193,7 +195,8 @@ expression may span tables. `cases` takes the model class so the condition lambd
   `cases(...).when(...).otherwise|orNull`, `plus`, `minus`, `times`, `dividedBy`, `negate`, `concat`, `function`,
   `constant`. It reads columns of one vocabulary `M`, and holds no aggregate, join, order or SQL text of its own.
 - **Arithmetic** takes operands of one numeric type, or declares the result type when they differ; the provider's
-  resolved type must equal the declared one, else `MQ1507` at first resolution. `dividedBy` over two integral operands
+  resolved type must equal the declared one, else `MQ1507` at first resolution; a declared `java.util.Date` also takes
+  a resolved `java.sql.Date`, `Time` or `Timestamp`, as R-COL-08 does (D-122). `dividedBy` over two integral operands
   is `MQ1503`.
 - **`concat`** is NULL when any operand is NULL.
 - **CASE conditions** are a `Filters` group with local skipping (`api/12` R-FLT-01). A condition left with no filter is
@@ -339,6 +342,15 @@ public enum NullPrecedence { DEFAULT, FIRST, LAST }        // DEFAULT = whatever
 `VendorProfile.defaultAscendingNullOrdering()`, and is refused when that is `UNKNOWN` (`engine/21` R-PAG-05). A
 default null ordering the persistence provider is configured with replaces the profile's (D-36).
 
+**R-COL-25** *(D-124)* **To-one columns read through a LEFT join.** In a read, a column whose attribute is a to-one
+association, whole-entity (`MQ3016`) or converted (`MQ3014`), resolves through a `LEFT` join of the association, not the
+implicit inner join of `root.get`, so a row with a `NULL` foreign key reads back with `null` instead of being dropped.
+The rule holds on any table the column belongs to (the root, a `@Join`ed table or a child's root) and in every clause
+of the read (select, filter, order, group, keyset), so a filter on such a column adds the `LEFT` join and an order on
+it sees the `NULL`-foreign-key rows (a keyset order on it then needs `nullsFirst` or `nullsLast`, `engine/21`
+R-PAG-05). It does not hold inside an embedded value (a dotted attribute path), which keeps `root.get`, nor in a bulk
+write, which takes no join. A converter is never given the `null`.
+
 ## 7. Acceptance criteria
 
 | ID | Criterion |
@@ -370,3 +382,4 @@ default null ordering the persistence provider is configured with replaces the p
 | AC-COL-25 | The builder derives each key as R-COL-23 says (property path, else attribute path; a filter-only column by its attribute path; a join set by its join's property path), keeps an equal field given twice once, and throws `IllegalStateException` for a different field under one key. |
 | AC-COL-26 | `AggregateField.named` is outside `equals` and `hashCode`, is kept by `as`, and is the aggregate's index key; a sort property equal to the `named` property or to the name selects the aggregate (R-COL-23, R-QRY-14). |
 | AC-COL-27 | Names from a `?fields=`-style list resolved through the generated `fields()` narrowed by `only(...)` and put into a query: the executed statement joins only the tables the selected fields need, a `@Selected` field holds exactly the selected columns and the unselected fields stay unfilled, an unknown name is reported in `unknown` and not thrown, and with only a child name `select` is empty and the application's fallback to `DEFAULT` runs (R-COL-23, R-COL-24, R-GEN-32). |
+| AC-COL-28 | A generated model whose `Date` fields mirror an entity's `Date` attributes stored as `DATE`, `TIME` and `TIMESTAMP` (`@Temporal(DATE)`, `@Temporal(TIME)`, none) compiles, reads each value as the `java.sql` type the provider returns, filters each with a `Date` value, and keyset-pages over the `DATE` one (R-COL-08, D-122). |

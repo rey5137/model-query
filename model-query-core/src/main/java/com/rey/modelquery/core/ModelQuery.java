@@ -383,7 +383,7 @@ public final class ModelQuery<E, K, M> {
     BuiltQuery<M> buildThroughQuery(CriteriaBuilder cb, RenderOptions options, TableField<?, ?> through,
             ColumnField<?, ?, ?> parentKey) {
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
-        JoinContext parent = JoinContext.of(query.from(through.pathRoot()), cb, query, options);
+        JoinContext parent = JoinContext.readOf(query.from(through.pathRoot()), cb, query, options);
         From<?, ?> join = through.resolve(parent);
         Expression<?> key = parentKey.path(parent);
         BuiltQuery<M> built = assemble(query, parent.rootedAt(join, root.rootEntity()), Phase.MODEL, key);
@@ -401,7 +401,7 @@ public final class ModelQuery<E, K, M> {
         }
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root<E> from = query.from(root.rootEntity());
-        return assemble(query, JoinContext.of(from, cb, query, options), phase, null);
+        return assemble(query, JoinContext.readOf(from, cb, query, options), phase, null);
     }
 
     /**

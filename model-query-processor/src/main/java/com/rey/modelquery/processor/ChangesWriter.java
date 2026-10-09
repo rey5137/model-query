@@ -49,11 +49,16 @@ final class ChangesWriter {
     private static final WildcardTypeName ANY = WildcardTypeName.subtypeOf(Object.class);
 
     private final Types types;
+    private final EntityMetamodel metamodel;
     private final boolean validChanges;
 
-    /** @param validChanges whether {@link #VALID_CHANGES} and {@link #CONSTRAINT} resolve on the classpath */
-    ChangesWriter(Types types, boolean validChanges) {
+    /**
+     * @param metamodel the entities' attributes, to tell a to-one column
+     * @param validChanges whether {@link #VALID_CHANGES} and {@link #CONSTRAINT} resolve on the classpath
+     */
+    ChangesWriter(Types types, EntityMetamodel metamodel, boolean validChanges) {
         this.types = types;
+        this.metamodel = metamodel;
         this.validChanges = validChanges;
     }
 
@@ -63,7 +68,8 @@ final class ChangesWriter {
         String packageName = modelName.packageName();
         ClassName qModel = ClassName.get(packageName, model.generatedName());
         ClassName changes = ClassName.get(packageName, model.changesName());
-        List<ModelField> writable = model.writable();
+        ChangedColumns changed = ChangedColumns.of(model, metamodel);
+        List<ModelField> writable = changed.written();
         // The bit set is named "set" unless a writable field already is.
         String bits = writable.stream().anyMatch(field -> field.name().equals("set")) ? "setColumns" : "set";
         TypeName assignment = ParameterizedTypeName.get(ASSIGNMENT, modelName, ANY);
@@ -79,6 +85,11 @@ final class ChangesWriter {
                 .addField(FieldSpec.builder(BitSet.class, bits, Modifier.PRIVATE, Modifier.FINAL)
                         .initializer("new $T()", BitSet.class)
                         .build());
+        if (!changed.leftOut().isEmpty()) {
+            type.addJavadoc("The columns of {@link $T} it writes; left out:\n<ul>\n", modelName);
+            changed.leftOut().forEach(column -> type.addJavadoc("<li>$L</li>\n", column));
+            type.addJavadoc("</ul>\n");
+        }
         if (validChanges) {
             type.addAnnotation(AnnotationSpec.builder(ClassName.bestGuess(VALID_CHANGES))
                     .addMember("value", "$T.class", modelName)

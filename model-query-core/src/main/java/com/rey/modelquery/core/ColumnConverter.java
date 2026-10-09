@@ -12,9 +12,13 @@ import com.rey.modelquery.annotations.Incubating;
  * not take a converted column, except {@code min}, {@code max} and {@code countDistinct} over one whose converter is an
  * {@link OrderedColumnConverter}.
  *
+ * <p>A converter whose attribute type is {@code java.util.Date} may be given a {@code java.sql.Date}, {@code Time} or
+ * {@code Timestamp}, the type a provider reports for a temporal attribute (D-122). {@code toInstant()} throws on the
+ * first two; read {@code getTime()}.
+ *
  * @param <C> the model type, the column's {@link ColumnField#type()}
  * @param <F> the entity attribute's type
- * @implSpec R-COL-14, D-37, D-84
+ * @implSpec R-COL-14, D-37, D-84, D-122
  */
 @Incubating
 public interface ColumnConverter<C, F> {

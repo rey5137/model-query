@@ -16,6 +16,7 @@ import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.core.ValuesInsert;
 import jakarta.persistence.EntityManager;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Stream;
@@ -140,6 +141,47 @@ public interface ModelQueryExecutor<E> {
      */
     <M, S> long export(ModelQuery<E, ?, M> q, ExportOptions options,
             Function<List<M>, List<S>> pageTransformer, Consumer<S> sink);
+
+    /**
+     * The one row of {@code q}, or empty when it has none. It runs {@code list}'s statement with a limit of 2, and a
+     * second row throws before any row is mapped or the fetch plan runs, so neither {@code afterMap} nor an enricher
+     * sees it; the fetch plan then runs once, on the row left (R-EXE-12). Rows count as {@code list} returns them, so a
+     * to-many join used only by a filter can repeat the root row; {@code Filters.exists(...)} filters without one.
+     *
+     * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2003} when {@code q} has a second row,
+     *     naming a to-many join used only by a filter, if any
+     * @implSpec R-EXE-12
+     */
+    @Incubating
+    <M> Optional<M> one(ModelQuery<E, ?, M> q);
+
+    /**
+     * The first row of {@code q} in a stable order, or empty when it has none: {@code q}'s {@code orderBy}, then the
+     * primary key, or the group keys of a grouped query, wherever the {@code orderBy} does not cover them, each
+     * ascending with NULLs last, so every vendor returns the same row (R-EXE-12, INV-6). It runs {@code list}'s
+     * statement with that order and a limit of 1, and the fetch plan on the row read.
+     *
+     * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2203} for a query with neither an
+     *     {@code orderBy} nor a key, before any statement; a query that only aggregates has one row and needs neither
+     * @implSpec R-EXE-12
+     */
+    @Incubating
+    <M> Optional<M> first(ModelQuery<E, ?, M> q);
+
+    /**
+     * The row of {@code q} whose primary key is {@code key}, or empty: {@code key} is converted as {@code whereKey}
+     * converts it and ANDed with {@code q}'s filter, so a filter that contradicts it gives empty; otherwise as
+     * {@link #one(ModelQuery)} (R-EXE-12). A keyless query has {@code K = Object} and a grouped query drops its key,
+     * so in both any key compiles and fails at run time.
+     *
+     * @throws IllegalArgumentException for a {@code null} key or component, or a composite key with the wrong number
+     *     of components
+     * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2203} for a query without a primary key,
+     *     a grouped one included, before any statement; {@code MQ2003} when a non-id primary key matches two rows
+     * @implSpec R-EXE-12
+     */
+    @Incubating
+    <K, M> Optional<M> one(ModelQuery<E, K, M> q, K key);
 
     /**
      * Writes {@code u}'s assignments to the rows it chooses, in one {@code CriteriaUpdate} per run of keys, and returns

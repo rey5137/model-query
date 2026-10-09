@@ -38,7 +38,9 @@ fetch plan that carries one (`api/15` R-FCH-02), throws `MQ1202`.
 (`processor/31`). It is optional for `list`, `page` and `count`, and optional for every grouped query
 (`api/13` R-AGG-07). `keyset()` without a primary key is a build-time error, `MQ1201`. A keyset page
 (`engine/21` R-PAG-16) also needs `keyset()`: `page(query, KeysetSpec)` on a query without it throws `MQ2207` before
-any query runs, while `keyset()` puts `export` into keyset mode as well (`engine/21` R-PAG-14).
+any query runs, while `keyset()` puts `export` into keyset mode as well (`engine/21` R-PAG-14). `one(q, key)` needs
+a primary key, and `first(q)` needs one or an `orderBy`, a grouped query's key being its group keys and an
+aggregate-only query needing neither; without, each throws `MQ2203` before any statement (`engine/20` R-EXE-12).
 
 **R-QRY-04** The primary-key columns are added to the selection automatically whenever they are needed. A caller never
 has to put them in a `SelectSet` to make paging work. `MODEL` and `MODEL_BY_KEYS` therefore select the key of every
@@ -150,6 +152,9 @@ public interface ModelQueryExecutor<E> {
     <M, R> R stream(ModelQuery<E, ?, M> q, Limit limit, Function<Stream<M>, R> body);
     <M, S> long export(ModelQuery<E, ?, M> q, ExportOptions options,
                        Function<List<M>, List<S>> pageTransformer, Consumer<S> sink);
+    <M> Optional<M> one(ModelQuery<E, ?, M> q);                                     // @Incubating, MQ2003
+    <M> Optional<M> first(ModelQuery<E, ?, M> q);                                   // @Incubating, orderBy then key
+    <K, M> Optional<M> one(ModelQuery<E, K, M> q, K key);                           // @Incubating, filter AND key
 }
 ```
 
@@ -157,7 +162,7 @@ public interface ModelQueryExecutor<E> {
 is enough to use the library without Spring (INV-8). The executor resolves the factory's `VendorProfile` once and passes
 its facts to every build as `RenderOptions` (D-34). Semantics of each method are `engine/20`. The bulk `update` and
 `delete` methods are `api/14` §8 (`Future`, M6). A query that carries a `FetchPlan` (`api/15`) loads its children, join
-plans and enrichers on `list`, `page` and `export`, and `stream` refuses it (`api/15` R-FCH-09).
+plans and enrichers on `list`, `page`, `export`, `one` and `first`, and `stream` refuses it (`api/15` R-FCH-09).
 
 ## 7. Acceptance criteria
 

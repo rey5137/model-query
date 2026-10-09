@@ -37,6 +37,14 @@ at whole milliseconds, so write an inclusive upper bound as half-open, `lt(nextD
 a stored `23:59:59.999500`. An `Instant` beyond the range of `Timestamp` is refused with `MQ1308`. A converter you
 name takes precedence.
 
+A `Date` field over an entity attribute that is itself a `java.util.Date`, with or without `@Temporal`, needs nothing
+either. Hibernate reads such an attribute as a `java.sql.Date`, `Time` or `Timestamp`, so that is the class the field
+holds; each is a `Date`. On a `@Temporal(DATE)` attribute, filter with a date at midnight: whether a time of day in the
+value is kept or dropped before it is compared depends on the JPA provider. A `java.sql.Date` prints as `yyyy-MM-dd`,
+and `Timestamp.equals` is false for a plain `Date`, so compare such values by `getTime()`. A `ColumnConverter` over one
+of these attributes is given the `java.sql` instance; `toInstant()` throws on a `java.sql.Date` or `Time`, so convert
+with `getTime()`.
+
 A class model needs a no-argument constructor visible from its package and setters. Record components that are
 primitive are only allowed on the primary key of a plain model; use the boxed type elsewhere, because a column can be
 NULL.
@@ -207,6 +215,47 @@ endpoint may write. Tested by `SharedAccessorModelTest`.
 For internal code that only needs to write back what it read, `@QueryModel(generateChanges = true)` gives one model a
 change set over its root, non-key columns as well; don't bind that change set from a request, since it can write every
 root column the model reads.
+
+## One model for reading and creating
+
+A screen that reads one row shape and creates it keeps one model with `@QueryModel(generateInserts = true)` (D-123,
+`@Incubating`). The processor then generates `INSERT_COLUMNS`, `insert`, `insertFrom` and `persist` on the query model,
+as an `@InsertModel` has them (see [Inserts](inserts.md#insert-models)), over the model's root columns:
+
+```java
+@QueryModel(entity = Customer.class, generateInserts = true)
+public record CustomerView(@PrimaryKey @Column(attribute = "id") Long id,
+                           @Column(attribute = "name") String name,
+                           @Column(attribute = "email") String email) {}
+
+executor.insert(QCustomerView.insert(rows));
+Long id = executor.persist(QCustomerView.persist(row));
+```
+
+The flag leaves these out, with no diagnostic:
+
+- `@Join`, `@Child`, `@Computed`, `@Selected` and `@Transient` fields, and `@FilterColumn`s;
+- a to-one column, whole-entity or through a converter (a query model cannot name a foreign key as a scalar);
+- a generated id, the `@Version` column, and a column an insert cannot write (`insertable = false`).
+
+The Javadoc of `INSERT_COLUMNS` names each field left out and why, so a missing column is visible in the IDE. Things to
+know:
+
+- A grouped model (`@Aggregate`, `@GroupBy` or `singleGroup = true`), or one with no writable root column, is `MQ3505`.
+- `@QueryModel` and `@InsertModel` on one type stay `MQ3503`; set `generateInserts` instead.
+- `generateChanges` leaves a to-one column out for the same reason (D-124), and the change set's Javadoc says so. The
+  column is still read: a whole-entity or converted to-one column reads through a `LEFT` join, so a row whose foreign
+  key is `NULL` comes back with `null` rather than disappearing.
+- A model that binds a request can write every listed column, so a public create endpoint keeps its own
+  `@InsertModel` listing only what a caller may set (as with `generateChanges`).
+- A foreign key needs an `@InsertModel` (an `@UpdateModel` for an update), which writes a to-one by the target's id.
+  Otherwise let the entity map the column twice: a basic `Long customerId` with `insertable`/`updatable` on, and the
+  `@ManyToOne` read-only (`insertable = false, updatable = false`), or the reverse.
+- `addKey` follows the root's id, and `insert` and `persist` are typed by it. For a composite key the model's `KEY`
+  is a `PrimaryKey<M, List<Object>>` while `persist` returns the `@IdClass` or `@EmbeddedId` type, so
+  `one(q, QCustomerView.persist(row))` does not compile there; read it back with a filter on the key's columns.
+  A `@PrimaryKey` on a non-id unique column is written with `add`. An assigned id must be written by some column, annotated
+  `@PrimaryKey` or not (`MQ3501` otherwise); a plain column that writes it does not change the read key.
 
 ## Keep the prefix consistent
 

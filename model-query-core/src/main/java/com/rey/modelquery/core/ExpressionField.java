@@ -61,10 +61,10 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         return (Expression<C>) ctx.expression(this, () -> {
             Expression<?> rendered = node.render(ctx);
             Class<?> actual = rendered.getJavaType();
-            if (actual == null || ColumnField.boxed(actual) != type) {
+            if (actual == null || !ColumnField.reads(type, actual)) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1507, node.text() + ": declared "
-                        + type.getSimpleName() + ", the provider resolves "
-                        + (actual == null ? "no type" : actual.getSimpleName())
+                        + ColumnField.name(type, actual) + ", the provider resolves "
+                        + (actual == null ? "no type" : ColumnField.name(actual, type))
                         + "; declare the type the database returns, or cast the operands");
             }
             return rendered;

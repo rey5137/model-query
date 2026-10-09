@@ -20,11 +20,12 @@ import javax.lang.model.type.TypeMirror;
  * @param filterColumns the model's {@code @FilterColumn}s, in declaration order
  * @param kind which of the three model annotations the type carries
  * @param generateChanges whether {@code @QueryModel(generateChanges)} asks for a change set
+ * @param generateInserts whether {@code @QueryModel(generateInserts)} asks for the insert members (R-PROC-26)
  */
 record ModelDefinition(
         TypeElement type, TypeElement root, String generatedName, boolean selectSets, boolean singleGroup,
         List<ModelField> fields, List<FilterColumnDefinition> filterColumns, Kind kind,
-        boolean generateChanges) {
+        boolean generateChanges, boolean generateInserts) {
 
     ModelDefinition {
         fields = List.copyOf(fields);
@@ -78,6 +79,16 @@ record ModelDefinition(
     /** Whether a change set is generated: always for an update model, on request for a query model (R-GEN-21). */
     boolean changes() {
         return updateModel() || generateChanges;
+    }
+
+    /** Whether {@code INSERT_COLUMNS} and the insert builders are generated: on an insert model, or on request. */
+    boolean inserts() {
+        return insertModel() || generateInserts;
+    }
+
+    /** Whether the model has groups: {@code @Aggregate} or {@code @GroupBy} fields, or {@code singleGroup}. */
+    boolean grouped() {
+        return singleGroup || fields.stream().anyMatch(field -> field.aggregate() != null || field.groupBy());
     }
 
     /** The change set's simple name, in the model's package: {@code OrderPatchChanges}. */

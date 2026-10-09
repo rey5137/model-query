@@ -27,6 +27,10 @@ public class CustomerEntity {
     @OneToMany(mappedBy = "customer")
     List<OrderEntity> orders;
 
+    public Long getId() {
+        return id;
+    }
+
     /** Changes the managed entity's name, so a test can leave a change pending. */
     public void rename(String name) {
         this.name = name;

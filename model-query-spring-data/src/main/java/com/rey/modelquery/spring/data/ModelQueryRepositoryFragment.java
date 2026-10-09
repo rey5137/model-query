@@ -92,6 +92,21 @@ final class ModelQueryRepositoryFragment<E> implements ModelQueryRepository<E> {
     }
 
     @Override
+    public <M> Optional<M> findOne(ModelQuery<E, ?, M> q) {
+        return executor.get().one(q);
+    }
+
+    @Override
+    public <M> Optional<M> findFirst(ModelQuery<E, ?, M> q) {
+        return executor.get().first(q);
+    }
+
+    @Override
+    public <K, M> Optional<M> findByKey(ModelQuery<E, K, M> q, K key) {
+        return executor.get().one(q, key);
+    }
+
+    @Override
     public <M, R> R stream(ModelQuery<E, ?, M> q, Limit limit, Function<Stream<M>, R> body) {
         // The executor runs body and closes the stream before it returns, so the transaction covers all of the
         // caller's reading: PostgreSQL's cursor lives only inside one (R-SPR-03, R-EXE-08).

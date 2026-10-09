@@ -25,6 +25,9 @@ database default under `insert`, and the value the no-argument constructor gives
 has no generator the model names it; when it has one the model leaves it out. Values pass through the column's
 converter and are always bind parameters.
 
+A screen that also reads the row can skip the second model: see
+[One model for reading and creating](models.md#one-model-for-reading-and-creating).
+
 ## Insert-select
 
 `ModelInsert.select(columns, sourceRoot)` maps source columns, which may sit on joins and to-many paths, onto the

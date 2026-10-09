@@ -1,5 +1,6 @@
 package com.rey.modelquery.core;
 
+import jakarta.persistence.Temporal;
 import jakarta.persistence.metamodel.Attribute;
 import jakarta.persistence.metamodel.EmbeddableType;
 import jakarta.persistence.metamodel.EntityType;
@@ -9,8 +10,12 @@ import jakarta.persistence.metamodel.Metamodel;
 import jakarta.persistence.metamodel.PluralAttribute;
 import jakarta.persistence.metamodel.SingularAttribute;
 import jakarta.persistence.metamodel.Type;
+import java.lang.reflect.AnnotatedElement;
+import java.sql.Time;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -236,6 +241,31 @@ final class InsertMetamodel {
                         + root.getSimpleName() + ", but the insert-select reads " + source.getSimpleName());
             }
         }
+    }
+
+    /**
+     * The type a value written to {@code path} of {@code entity} binds as: the attribute's reported type where it is
+     * one a {@code declared} type column reads, so a {@code Date} constant binds as the {@code java.sql} type its
+     * {@code DATE} or {@code TIME} attribute is stored as (D-122), else {@code declared}. Hibernate 7 reports a
+     * {@code java.util.Date} attribute as {@code java.util.Date} whatever its storage, so there the {@code java.sql}
+     * type comes from the attribute's {@code @Temporal}.
+     */
+    static Class<?> storedType(EntityType<?> entity, String path, Class<?> declared) {
+        Attribute<?, ?> attribute = attribute(entity, path);
+        if (attribute == null || attribute.getJavaType() == null) {
+            return declared;
+        }
+        Class<?> stored = ColumnField.boxed(attribute.getJavaType());
+        Temporal temporal = stored == Date.class && attribute.getJavaMember() instanceof AnnotatedElement member
+                ? member.getAnnotation(Temporal.class) : null;
+        if (temporal != null) {
+            stored = switch (temporal.value()) {
+                case DATE -> java.sql.Date.class;
+                case TIME -> Time.class;
+                case TIMESTAMP -> Timestamp.class;
+            };
+        }
+        return ColumnField.reads(declared, stored) ? stored : declared;
     }
 
     /** The attribute {@code path} names from {@code type}, dotted through joins and embeddables, or {@code null}. */

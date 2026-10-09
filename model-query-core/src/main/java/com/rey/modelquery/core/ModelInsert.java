@@ -259,25 +259,27 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
      * order of {@link #selectedAttributes}, then each {@code set} constant as a named parameter
      * ({@link #selectParameters}), with the {@code where} rendered as a read renders it, joins included. Duplicates
      * from a to-many join stay: the insert writes the rows the equivalent read returns (R-WRT-27, R-WRT-28). The
-     * returned query maps no model.
+     * returned query maps no model. A constant's parameter is typed as its target attribute's {@code metamodel}
+     * type where that is the stored type of a {@code java.util.Date} column (D-122), so its type matches the
+     * attribute's.
      *
      * @throws IllegalStateException for an insert-values
      */
     @EngineFacing
-    public BuiltQuery<M> buildSelect(CriteriaBuilder cb, RenderOptions options) {
-        return select(cb, options, null, null);
+    public BuiltQuery<M> buildSelect(CriteriaBuilder cb, RenderOptions options, Metamodel metamodel) {
+        return select(cb, options, metamodel, null, null);
     }
 
     /**
-     * As {@link #buildSelect(CriteriaBuilder, RenderOptions)}, narrowed to the source rows whose {@code key}, the
-     * {@link #sourceKey}, is one of {@code keys}: one chunk of a chunked insert-select (R-WRT-28).
+     * As {@link #buildSelect(CriteriaBuilder, RenderOptions, Metamodel)}, narrowed to the source rows whose
+     * {@code key}, the {@link #sourceKey}, is one of {@code keys}: one chunk of a chunked insert-select (R-WRT-28).
      *
      * @throws IllegalArgumentException for empty {@code keys}, which would leave the rows unchosen
      */
     @EngineFacing
-    public BuiltQuery<M> buildSelect(CriteriaBuilder cb, RenderOptions options, PrimaryKey<Object, ?> key,
-            List<?> keys) {
-        return select(cb, options, Objects.requireNonNull(key, "key"), WriteRendering.selectedKeys(keys));
+    public BuiltQuery<M> buildSelect(CriteriaBuilder cb, RenderOptions options, Metamodel metamodel,
+            PrimaryKey<Object, ?> key, List<?> keys) {
+        return select(cb, options, metamodel, Objects.requireNonNull(key, "key"), WriteRendering.selectedKeys(keys));
     }
 
     /**
@@ -540,10 +542,11 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         return path;
     }
 
-    private BuiltQuery<M> select(CriteriaBuilder cb, RenderOptions options, PrimaryKey<Object, ?> key,
-            List<Object> keys) {
+    private BuiltQuery<M> select(CriteriaBuilder cb, RenderOptions options, Metamodel metamodel,
+            PrimaryKey<Object, ?> key, List<Object> keys) {
         Objects.requireNonNull(cb, "cb");
         Objects.requireNonNull(options, "options");
+        Objects.requireNonNull(metamodel, "metamodel");
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root<?> from = query.from(requireSource().rootEntity());
         JoinContext joins = JoinContext.of(from, cb, query, options);
@@ -556,8 +559,11 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         sources.forEach(source -> selected.add(source.path(joins)));
         // A parameter, not cb.literal, which a provider may inline: a value is always bound (R-WRT-14).
         List<Assignment<?, ?>> constants = definition.constants();
+        EntityType<E> target = constants.isEmpty() ? null : metamodel.entity(rootEntity());
         for (int c = 0; c < constants.size(); c++) {
-            selected.add(cb.parameter(constants.get(c).column().attributeType(), CONSTANT + c));
+            ColumnField<?, ?, ?> column = constants.get(c).column();
+            selected.add(cb.parameter(InsertMetamodel.storedType(target, column.name(), column.attributeType()),
+                    CONSTANT + c));
         }
         query.multiselect(selected);
         var predicates = new ArrayList<Predicate>();

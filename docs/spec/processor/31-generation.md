@@ -221,7 +221,8 @@ public final class OrderPatchChanges implements Changes<OrderPatch> {
 ```
 
 **R-GEN-19** Writable are root attributes, including embedded ones as a dotted `@Column(attribute = "address.city")`,
-and to-one associations written by id. `@PrimaryKey` fields get a column constant but no setter. `@FilterColumn` works
+and, on an `@UpdateModel`, to-one associations written by id; a query model's change set leaves a to-one column out
+(D-124). `@PrimaryKey` fields get a column constant but no setter. `@FilterColumn` works
 as on query models; a joined filter column renders through `api/14` R-WRT-10.
 
 **R-GEN-20** A change set is mutable by design and is never a `static final` constant; INV-9 covers definitions, not
@@ -229,7 +230,8 @@ change sets.
 
 **R-GEN-21** For `@QueryModel(generateChanges = true)`, `QOrderView` gains `changes()` and `update(changes)`, and
 `OrderViewChanges` gains `static OrderViewChanges from(OrderView model, SelectSet<OrderView> columns)`, which reads the
-model's getters or record accessors (`api/14` R-WRT-04).
+model's getters or record accessors (`api/14` R-WRT-04). A to-one column gets no setter, as with `generateInserts`
+(R-GEN-34), and the change set's Javadoc names it with the reason (D-124).
 
 **R-GEN-22** `QOrderView.delete()` is generated for every query model whose `@PrimaryKey` is the root entity's id,
 since a delete writes no columns. A query model whose key is not the id (a unique column on a view, say) gets no
@@ -292,6 +294,16 @@ the root's id as the processor sees it, boxed: the `@Id` attribute's type, the `
 or a `@MappedSuperclass` type variable resolved on the root; and pass `K.class` (`api/14` §10.1). With no id visible
 `K` is `Object`, and `MQ3504` warns (`processor/32`). `INSERT_COLUMNS`, `insertFrom`, `insert` and `persist` carry
 `@Incubating`.
+
+**R-GEN-34** *(D-123)* For `@QueryModel(generateInserts = true)` (`processor/30` R-PROC-26) the query model's
+`Q<Model>` also declares `INSERT_COLUMNS`, `insertFrom`, `insert` and `persist` as R-GEN-28 generates them, each
+`@Incubating`, beside its query members and over the root columns R-PROC-26 writes, in declaration order. A column is
+added with `addKey` when it maps to the root's id (the `@Id` attribute, an `@IdClass` attribute, or the `@EmbeddedId`
+whole or by a component), whatever `@PrimaryKey` says: a `@PrimaryKey` on a non-id unique column (R-GEN-22) is added
+with `add`. `insert` and `persist` fix `K` to the root's id as R-GEN-28 does, not to `KEY`'s type, so for a composite
+key `KEY` is a `PrimaryKey<M, List<Object>>` while `persist` returns the `@IdClass` or `@EmbeddedId` type. The
+`INSERT_COLUMNS` Javadoc lists each field and filter column left out, with the reason. An insert model's generated
+code is unchanged.
 
 **R-GEN-29** *(D-120)* **The `@Selected` set.** A `@QueryModel` with a `@Selected` field (`processor/30` R-PROC-25)
 generates one more constant, `private static final SelectSet<M> SELECTED_FIELDS`, holding every column constant of the
@@ -379,3 +391,6 @@ tier matches the `named` property first, then the name, so existing sorts keep w
 | AC-GEN-23 | A property path resolved through `fields()` and the same path used as a sort property name the same field, for a column, a nested `@Join` column, an expression and a `named` aggregate (R-GEN-33). |
 | AC-GEN-24 | Update and insert models generate no `fields()` (R-GEN-32). |
 | AC-GEN-25 | A model whose entity and converter are named `Index` compiles, and its `fields()` works (R-GEN-32). |
+| AC-GEN-26 | On a `generateInserts` query model `addKey` follows the root's id: an `@IdClass` id is added with `addKey` by its attributes and types `insert` and `persist` by the id class while `KEY` stays composite, and a `@PrimaryKey` on a non-id unique column over a generated id is added with `add`, `K` being the id's type (R-GEN-34). |
+| AC-GEN-27 | On every Tier-1 vendor a `generateInserts` query model inserts rows, insert-selects rows from another root and persists a row, its `@Version` left to the provider, and the same model reads them back (R-GEN-34). |
+| AC-GEN-28 | A `generateChanges` query model with a to-one column, whole or converted, generates no setter for it and names it in the change set's Javadoc; on every Tier-1 vendor `update(Changes.from(view, columns))` over the root non-key columns writes them, `from` naming the to-one column is `MQ1607`, and a row whose foreign key is `NULL` reads back through the whole-entity column with `null` (R-GEN-21, D-124). |

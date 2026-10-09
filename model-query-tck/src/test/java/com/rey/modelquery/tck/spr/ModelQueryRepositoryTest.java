@@ -1,6 +1,7 @@
 package com.rey.modelquery.tck.spr;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ColumnField;
@@ -12,7 +13,9 @@ import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelInsert;
 import com.rey.modelquery.core.ModelPersist;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.ModelUpdate;
+import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
@@ -87,6 +90,12 @@ class ModelQueryRepositoryTest {
             .where(f -> f.eq(STATUS, Optional.of("NEW")))
             .build();
 
+    /** Every order, keyed by id, in no order: a query {@code findByKey} takes (R-SPR-15). */
+    private static final ModelQuery.Builder<OrderEntity, Long, OrderRow> ORDER_ROWS = ModelQuery
+            .builder(ORDERS, row -> new OrderRow(row.get(ID), row.get(STATUS), row.get(TOTAL)))
+            .select(SelectSet.of(ID, STATUS, TOTAL))
+            .primaryKey(PrimaryKey.of(ID));
+
     private static final String TRANSACTIONS = "orderTransactions";
 
     /** The ids above which a test inserts orders of its own, and removes them again. */
@@ -154,6 +163,20 @@ class ModelQueryRepositoryTest {
                         page -> page.stream().map(OrderRow::id).toList(), sink::add)),
                 repository -> exported(sink -> repository.export(NEW_ORDERS, ExportOptions.of(300),
                         page -> page.stream().map(OrderRow::id).toList(), sink::add)));
+    }
+
+    @TckTest
+    void ac_spr_01_find_one_find_first_and_find_by_key_run_the_executors_sql_and_return_its_rows(TckDatabase db) {
+        ModelQuery<OrderEntity, Long, OrderRow> seventh = ORDER_ROWS.where(f -> f.eq(ID, 7L)).build();
+        ModelQuery<OrderEntity, Long, OrderRow> keyed = ORDER_ROWS.build();
+        List<Optional<OrderRow>> rows = assertSameAsExecutor(db,
+                executor -> List.of(executor.one(seventh), executor.first(NEW_ORDERS), executor.one(keyed, 42L)),
+                repository -> List.of(repository.findOne(seventh), repository.findFirst(NEW_ORDERS),
+                        repository.findByKey(keyed, 42L)));
+
+        assertThat(rows).allSatisfy(row -> assertThat(row).isPresent());
+        assertThat(rows.get(0)).map(OrderRow::id).contains(7L);
+        assertThat(rows.get(2)).map(OrderRow::id).contains(42L);
     }
 
     // ---- AC-SPR-03
@@ -358,6 +381,30 @@ class ModelQueryRepositoryTest {
             assertThat(model.code()).isEqualTo("rolled-back");
             assertThat(jdbc.queryForList("select code from ins_persist", String.class)).isEmpty();
         }
+    }
+
+    @TckTest
+    void ac_spr_09_find_one_find_first_and_find_by_key_without_a_transaction_read_through_the_repository(
+            TckDatabase db) {
+        for (Class<?> configuration : List.of(DefaultTransactions.class, NoDefaultTransactions.class)) {
+            withRepository(JoinTestSupport.dataSource(db), configuration, (repository, context) -> {
+                ModelQuery<OrderEntity, Long, OrderRow> none = ORDER_ROWS.where(f -> f.eq(ID, -1L)).build();
+                assertThat(repository.findOne(ORDER_ROWS.where(f -> f.eq(ID, 7L)).build()))
+                        .map(OrderRow::id).contains(7L);
+                assertThat(repository.findOne(none)).isEmpty();
+                assertThat(repository.findFirst(NEW_ORDERS))
+                        .contains(repository.findAll(NEW_ORDERS, Limit.of(1)).get(0));
+                assertThat(repository.findFirst(none)).isEmpty();
+                assertThat(repository.findByKey(ORDER_ROWS.build(), 42L)).map(OrderRow::id).contains(42L);
+                assertThat(repository.findByKey(ORDER_ROWS.build(), -1L)).isEmpty();
+                assertThatThrownBy(() -> repository.findOne(NEW_ORDERS))
+                        .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ2003))
+                        .hasMessage(MqCode.MQ2003.code() + ": OrderRow: one(query) found more than one row");
+                return null;
+            });
+        }
+        assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
     }
 
     // ---- support

@@ -4,6 +4,7 @@ import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.metamodel.Attribute;
@@ -11,6 +12,9 @@ import jakarta.persistence.metamodel.ManagedType;
 import jakarta.persistence.metamodel.PluralAttribute;
 import jakarta.persistence.metamodel.SingularAttribute;
 import jakarta.persistence.metamodel.Type;
+import java.sql.Time;
+import java.sql.Timestamp;
+import java.util.Date;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -198,7 +202,7 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
             path = embeddedPath(from);
         } else {
             try {
-                path = from.get(attribute);
+                path = ctx.readsToOneLeft() && toOne(from) ? leftJoined(ctx) : from.get(attribute);
             } catch (IllegalArgumentException e) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1002, String.format(
                         "%s.%s: entity %s has no attribute '%s'",
@@ -206,17 +210,33 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
             }
         }
         Class<?> actual = path.getJavaType();
-        if (actual == null || boxed(actual) != attributeType) {
+        if (actual == null || !reads(attributeType, actual)) {
             throw new ModelQueryDefinitionException(MqCode.MQ1001, String.format(
                     "%s.%s: declared %s, entity attribute %s.%s is %s",
                     model.getSimpleName(), attribute,
-                    converter == null ? type.getSimpleName()
-                            : "attribute type " + attributeType.getSimpleName() + " for "
+                    converter == null ? name(type, actual)
+                            : "attribute type " + name(attributeType, actual) + " for "
                                     + converter.getClass().getSimpleName(),
                     from.getJavaType().getSimpleName(),
-                    attribute, actual == null ? "of unknown type" : actual.getSimpleName()));
+                    attribute, actual == null ? "of unknown type" : name(actual, attributeType)));
         }
         return path;
+    }
+
+    /** Whether the attribute is a singular association of {@code from}'s type, whose path would join it inner. */
+    private boolean toOne(From<?, T> from) {
+        ManagedType<?> owner = managedType(from);
+        return owner != null && owner.getAttribute(attribute) instanceof SingularAttribute<?, ?> singular
+                && singular.isAssociation();
+    }
+
+    /**
+     * The {@code LEFT} join of the to-one association that a read selects, filters and orders by (D-124). A
+     * {@code @Join} of the same association shares it; the context keys it, so every clause gets the same {@code From}.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private Path<C> leftJoined(JoinContext ctx) {
+        return (Path<C>) ((TableField) TableField.join((TableField) table, attribute, JoinType.LEFT)).resolve(ctx, this);
     }
 
     /**
@@ -450,6 +470,28 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
 
     static Class<?> boxed(Class<?> type) {
         return WRAPPERS.getOrDefault(type, type);
+    }
+
+    /**
+     * Whether a value the provider reports as {@code actual}, boxed, is of the {@code declared} type. A
+     * {@code java.util.Date} attribute is temporal in JPA, stored as a {@code DATE}, {@code TIME} or {@code TIMESTAMP},
+     * and a provider may report the {@code java.sql} type of its storage (Hibernate does, {@code @Temporal} or not): a
+     * declared {@code Date} reads all three, since each is a {@code Date} (R-COL-08, D-122).
+     */
+    static boolean reads(Class<?> declared, Class<?> actual) {
+        Class<?> boxed = boxed(actual);
+        return boxed == declared
+                || declared == Date.class
+                        && (boxed == java.sql.Date.class || boxed == Time.class || boxed == Timestamp.class);
+    }
+
+    /**
+     * {@code type}'s simple name, or its qualified one when it agrees with {@code other}'s, as {@code java.sql.Date}'s
+     * and {@code java.util.Date}'s do; {@code other} may be {@code null}.
+     */
+    static String name(Class<?> type, Class<?> other) {
+        return other != null && type != other && type.getSimpleName().equals(other.getSimpleName()) ? type.getName()
+                : type.getSimpleName();
     }
 
     @Override

@@ -18,6 +18,7 @@ import com.rey.modelquery.processor.ModelDefinition.ModelField;
 import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,8 +55,11 @@ final class ModelValidator {
     /** The only constant an update model's generated class declares itself (R-GEN-19). */
     private static final Set<String> RESERVED_BY_UPDATE = Set.of("ROOT");
 
+    /** The constant an insert model's, or a {@code generateInserts} query model's, class declares (R-GEN-28). */
+    private static final String INSERT_COLUMNS = "INSERT_COLUMNS";
+
     /** The constants an insert model's generated class declares itself (R-GEN-28). */
-    private static final Set<String> RESERVED_BY_INSERT = Set.of("ROOT", "INSERT_COLUMNS");
+    private static final Set<String> RESERVED_BY_INSERT = Set.of("ROOT", INSERT_COLUMNS);
 
     /** The type of a {@code @Selected} field, which the annotations module can't name (INV-7). */
     private static final String SELECT_SET = "com.rey.modelquery.core.SelectSet";
@@ -105,6 +109,13 @@ final class ModelValidator {
             case UPDATE -> RESERVED_BY_UPDATE;
             case INSERT -> RESERVED_BY_INSERT;
         };
+        // A generateInserts query model declares INSERT_COLUMNS too (R-PROC-26).
+        if (model.queryModel() && model.inserts()) {
+            var withInserts = new HashSet<>(reserved);
+            withInserts.add(INSERT_COLUMNS);
+            reserved = Set.copyOf(withInserts);
+            writeChecks.checkGeneratedInserts(model, diagnostics);
+        }
         if (model.queryModel()) {
             checkSelected(model, diagnostics);
         }
