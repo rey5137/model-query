@@ -111,7 +111,7 @@
         <maven-gpg-plugin.version>3.2.8</maven-gpg-plugin.version>
         <central-publishing-maven-plugin.version>0.11.0</central-publishing-maven-plugin.version>
         <versions-maven-plugin.version>2.22.0</versions-maven-plugin.version>
-        <japicmp.version>0.26.2</japicmp.version>
+        <japicmp.version>0.26.3</japicmp.version>
 
         <!-- API compatibility check (R-REL-11, AC-REL-06). Unset until 1.0.0 is released; then set japicmp.baseline
              to that version and japicmp.skip to false (or pass -Djapicmp.baseline=<version>, which switches the
