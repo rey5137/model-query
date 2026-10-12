@@ -1,17 +1,53 @@
-# RFC 0002 — Database functions in filters
+# RFC 0002 — Database functions in filters (trimmed: literal filters and bound function arguments)
 
-- **Status:** draft
-- **Affects:** INV-9 (adds `FunctionCall`); SPEC.md §4; `api/10` §2–3 and R-COL-06; `api/11` (`JoinContext` gains
-  a builder and a bind method); `api/12` §1, R-FLT-03, R-FLT-08, R-FLT-09, R-FLT-11, AC-FLT-02; `api/13`
-  R-AGG-06 (wording); `api/14` R-WRT-17 and D-17 (bulk writes reuse `Filters`); `reference/90` (new codes, MQ1301
-  widened, glossary); `reference/91` (coverage); `reference/92` (new D-19, Q-5 narrowed, risk table). Adds `api/12` §9
-  with `R-FLT-15..26`; the acceptance criteria move to §10 and gain `AC-FLT-12..24`. Depends on the resolution of
-  issue #7 (R-PROC-07).
-- **Discussion:** TBD
-- **Target:** 0.2, `@Incubating`. It widens `Filters` parameter types, which is source-compatible for every existing
-  call (see Compatibility).
+- **Status:** accepted, trimmed (after the 2026-10-12 `architect-review`; recorded as D-128). Most of the original
+  proposal was superseded by D-115 (`Expr`, `ExpressionField`, `Filters.compare`); what is left ships in M19.
+- **Affects:** `api/10` (new R-COL-26 `Expr.value`, R-COL-27 column-typed `Expr.constant`, `MQ1502` widened;
+  AC-COL-31, AC-COL-32); `api/12` (new R-FLT-19, field-form `in`/`notIn`; AC-FLT-20; R-FLT-09 counts an expression's
+  binds); `vendor/40` (an optional `ProviderSupport` capability that renders a column-typed constant);
+  `reference/90` (new `MQ1508`; `MQ1509` only if the escaping spike needs it); `reference/92` (D-128);
+  `delivery/61` (incubating members); `docs/site` (recipes, the plan-cache note)
+- **Discussion:** closed
+- **Target:** 0.9.0 (M19), `@Incubating`, additive.
 
-## Summary
+## Outcome (D-128)
+
+D-115 already gives a filter a database function over columns (`Expr.function`), text constants (`Expr.constant`)
+and field-against-expression comparison (`Filters.compare(col, Op, ScalarField)`, R-FLT-18). This RFC keeps only
+what D-115 left out:
+
+1. **Literal filters** are `compare` and `in`/`notIn` against `Expr.constant`. `Filters` gains fixed-arity field
+   forms `in(col, first, second)`, `in(col, first, second, third)` and the same for `notIn`, with the value forms'
+   semantics (`notIn` includes `NULL` rows), both sides over the same model, no `Optional` form. No varargs (an
+   interface method cannot carry `@SafeVarargs`, as in D-87), no `List` form (a raw `List` would bind to
+   `in(col, Collection)`), and no `eq`/`ne`/`lt`… field overloads: `compare` is the idiom, and a field-form `ne`
+   would include `NULL` rows where a partial-index predicate needs a plain `<>`.
+2. **Enum and converted constants:** `Expr.constant(ColumnField<M, ?, C> typedBy, C value)`. The value goes through
+   the column's `ColumnConverter` (`MQ1308` on failure), then through the attribute's JPA mapping (`@Enumerated`,
+   `AttributeConverter`) via a new optional `ProviderSupport` capability, reached by core through a `JoinContext`
+   hook (INV-7). The stored value must be a `String`, `Number` or `Boolean`; anything else, or a provider without the
+   capability, is `MQ1508`. `typedBy` is a type witness only (not in `columns()`, no join) but part of equality.
+3. **Bound function arguments:** `Expr.value(C value)` is an `ExpressionField` rendered as a statement parameter,
+   bound by the executor on every statement that renders it. `null` is `MQ1502`, which is widened to refuse
+   `Optional`, `Collection` and `Map` values.
+4. **Deferred:** `CAST(? AS jsonb)` and other cast syntax. M19.2 spikes function-style casts and documents only what
+   passes on a real database.
+
+Carried over from the original proposal: a volatile function is evaluated by each statement that renders it, so an
+export or a paged read can see different values per page (documentation rule, INV-4); R-FLT-09's chunk sizing counts
+an expression's binds per chunk (`MQ1307`); a collection is never a single bound value.
+
+**Plan cache.** Each distinct constant is a distinct statement text. Use `Expr.value` for per-request values, and a
+constant only where the planner must see the literal (a partial index's predicate, a selective enum value).
+
+## Original proposal (historical)
+
+The text below is the original draft, kept for its reasoning. Its ids — `R-FLT-15..26`, `AC-FLT-12..24`,
+`MQ1303`–`MQ1306`, `D-19` — were **never assigned** with these meanings (INV-10); several have since shipped with
+other meanings. `Operand`, `Fn` and `FunctionCall` were not built: D-115's `ExpressionField` covers them.
+
+### Original summary
+
 
 A filter can compare the result of a database function instead of a bare column: `unaccent(name) = ?`,
 `jsonb_exists(tags, ?)`, `reporting.is_active(status, valid_to)`. A new `FunctionCall<M, C>` is a typed expression
@@ -19,7 +55,7 @@ over a model's columns, built with `Fn`. It is accepted on the left side of ever
 `Optional`-skip contract, the join rules, `exists` re-rooting and bind-only values. Nothing about it is raw Criteria,
 and nothing is inlined into SQL.
 
-## Motivation
+### Motivation
 
 `Filters` compares columns only. The one way to call a function is the escape hatch:
 
@@ -46,9 +82,9 @@ The common cases are all real reporting needs: accent- and case-insensitive sear
 function that encodes a business rule, and `coalesce` over a nullable column. Each is one function around a column the
 model already has.
 
-## Design
+### Design
 
-### 1. `Operand`: what a filter compares
+#### 1. `Operand`: what a filter compares
 
 All four types below are top-level types in `com.rey.modelquery.core`. The library has no `module-info`, so a sealed
 type and its permitted subtypes must share a package (JLS 8.1.6).
@@ -86,7 +122,7 @@ To render an operand, `JoinContext` gains `criteriaBuilder()` and `<T> Parameter
 `bind` registers a value for the engine to bind after the query is built. Both are public, so `add(...)` gets the same
 tools, and the Motivation's `cb = …` is no longer improvised.
 
-### 2. `Fn` and `FunctionCall`
+#### 2. `Fn` and `FunctionCall`
 
 ```java
 @Incubating
@@ -129,7 +165,7 @@ static FunctionCall<OrderView, Boolean> hasTag(String tag) {
         .when(tag != null, g -> g.isTrue(hasTag(tag))))
 ```
 
-### 3. Rules
+#### 3. Rules
 
 These rules go into a new `api/12` §9, and the current §9, Acceptance criteria, becomes §10.
 
@@ -214,7 +250,7 @@ instant once instead: `Fn.value(clock.instant())`, or a plain `lt(CREATED_AT, no
 or read from a `Row` (see Unresolved questions). `Filters` stays `WHERE` only (R-FLT-14): a function over an aggregate
 is `Agg.of` in `having`.
 
-### 4. Portability
+#### 4. Portability
 
 `Fn`'s portable functions render the same on every Tier-1 vendor and are covered by the TCK. `Fn.call` is exactly as
 portable as the function it names. That is the caller's choice about their own database, like `Agg.of` and
@@ -228,7 +264,7 @@ With Hibernate, a name registered in the dialect's function registry is rendered
 (R-FLT-19). Any other name is passed through as `name(args)`. Other providers pass every name through. SQL snapshots
 are pinned for Hibernate.
 
-### 5. Changed and new ids
+#### 5. Changed and new ids
 
 - **INV-9:** the list of immutable types gains `FunctionCall`.
 - **SPEC.md §4:** the Filters row gains "database functions over columns (`Fn`)". Its Future items stay: JSON *path*
@@ -298,7 +334,7 @@ are pinned for Hibernate.
 
 The volatile-function guidance (R-FLT-25) is a documentation rule, checked in review, with no test.
 
-## Compatibility
+### Compatibility
 
 Source-compatible. `Operand<M, C>` (Design §1) is a supertype of `ColumnField<M, ?, C>`, so every existing call
 still compiles and resolves to the same method. `C` is invariant in `Operand` and
@@ -309,7 +345,7 @@ If this lands after 0.1 is, it is a binary break of `Filters`, which `@Incubatin
 
 Queries that use no function render the same SQL. Their snapshots do not change.
 
-## Alternatives
+### Alternatives
 
 - **Keep `add(...)` and document the recipe.** The table in Motivation is what that costs, at every call site.
   Rejected.
@@ -328,7 +364,7 @@ Queries that use no function render the same SQL. Their snapshots do not change.
   choose the call from its own configuration. Rejected.
 - **Do nothing.** Every adopter writes the `add(...)` recipe and meets its failures.
 
-## Unresolved questions
+### Unresolved questions
 
 1. **Selecting and ordering by a function** (the rest of Q-5). Making `FunctionCall` a `SelectField` would let a
    report select `date_trunc('month', created_at)` and group by it. It raises questions this RFC avoids: keyset over a
