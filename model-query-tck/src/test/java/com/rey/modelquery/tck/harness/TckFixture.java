@@ -80,6 +80,9 @@ public final class TckFixture {
     private static final List<String> CONSTANT_ACTIVE = Arrays.asList("Y", "N", "Y", null, "N", "Y");
     private static final List<String> CONSTANT_LABELS = Arrays.asList("plain", "O'Brien", "back\\slash", null,
             "padded", "mixed'and\\slash");
+    /** The {@code constant_rows.tags} JSON arrays: rows 1, 3 and 6 hold {@code "vip"} (TCK AC-COL-31). */
+    private static final List<String> CONSTANT_TAGS = Arrays.asList("[\"vip\"]", "[\"basic\"]",
+            "[\"vip\",\"basic\"]", null, "[\"basic\"]", "[\"vip\"]");
 
     private TckFixture() {}
 
@@ -92,7 +95,7 @@ public final class TckFixture {
                     statement.execute(ddl);
                 }
             }
-            seed(connection);
+            seed(connection, vendor);
             connection.commit();
         } catch (SQLException | RuntimeException e) {
             connection.rollback();
@@ -111,7 +114,8 @@ public final class TckFixture {
                     .replace("@COLLATE@", vendor.textCollation())
                     .replace("@CI_TEXT@", vendor.caseInsensitiveText())
                     .replace("@BINARY@", vendor.binaryType())
-                    .replace("@MICRO_TS@", vendor.microTimestamp());
+                    .replace("@MICRO_TS@", vendor.microTimestamp())
+                    .replace("@JSONB@", vendor.jsonbType());
             List<String> statements = new ArrayList<>(vendor.setup());
             statements.addAll(List.of(script.split(";\\s*\\n")));
             return statements.toArray(String[]::new);
@@ -120,7 +124,7 @@ public final class TckFixture {
         }
     }
 
-    private static void seed(Connection c) throws SQLException {
+    private static void seed(Connection c, TckVendor vendor) throws SQLException {
         insert(c, "INSERT INTO customers (id, name, email, country, vip, created_at) VALUES (?,?,?,?,?,?)", CUSTOMERS, (ps, i) -> {
             ps.setLong(1, i);
             ps.setString(2, "Customer " + pad(i, 4));
@@ -278,20 +282,26 @@ public final class TckFixture {
             ps.setTime(3, java.sql.Time.valueOf(BASE.toLocalTime().plusHours(8).plusMinutes(i)));
             ps.setTimestamp(4, Timestamp.valueOf(BASE.plusHours(i).plusNanos(i % 3 == 0 ? 123_000 : 0)));
         });
-        // One row per column-typed constant's mapping (TCK AC-FLT-20, AC-COL-32).
-        insert(c, "INSERT INTO constant_rows (id, status, rank_no, active, label) VALUES (?,?,?,?,?)", CONSTANT_ROWS,
-                (ps, i) -> {
-                    int row = i - 1;
-                    ps.setLong(1, i);
-                    nullableText(ps, 2, CONSTANT_STATUSES.get(row));
-                    if (CONSTANT_RANKS.get(row) == null) {
-                        ps.setNull(3, Types.INTEGER);
-                    } else {
-                        ps.setInt(3, CONSTANT_RANKS.get(row));
-                    }
-                    nullableText(ps, 4, CONSTANT_ACTIVE.get(row));
-                    nullableText(ps, 5, CONSTANT_LABELS.get(row));
-                });
+        // One row per column-typed constant's mapping (TCK AC-FLT-20, AC-COL-32), plus a jsonb tags column on
+        // PostgreSQL for a bound argument (TCK AC-COL-31).
+        // PostgreSQL will not implicitly cast a text parameter to jsonb, so the tags parameter casts explicitly there.
+        String constantRows = vendor == TckVendor.POSTGRESQL
+                ? "INSERT INTO constant_rows (id, status, rank_no, active, label, tags)"
+                        + " VALUES (?,?,?,?,?,CAST(? AS jsonb))"
+                : "INSERT INTO constant_rows (id, status, rank_no, active, label, tags) VALUES (?,?,?,?,?,?)";
+        insert(c, constantRows, CONSTANT_ROWS, (ps, i) -> {
+            int row = i - 1;
+            ps.setLong(1, i);
+            nullableText(ps, 2, CONSTANT_STATUSES.get(row));
+            if (CONSTANT_RANKS.get(row) == null) {
+                ps.setNull(3, Types.INTEGER);
+            } else {
+                ps.setInt(3, CONSTANT_RANKS.get(row));
+            }
+            nullableText(ps, 4, CONSTANT_ACTIVE.get(row));
+            nullableText(ps, 5, CONSTANT_LABELS.get(row));
+            nullableText(ps, 6, CONSTANT_TAGS.get(row));
+        });
     }
 
     /** Sets {@code index} to {@code value}, or NULL when it is {@code null}. */

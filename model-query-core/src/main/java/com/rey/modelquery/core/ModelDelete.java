@@ -90,8 +90,8 @@ public final class ModelDelete<E, M> {
      * the key columns (R-WRT-10).
      */
     @EngineFacing
-    public CriteriaDelete<E> buildWrite(CriteriaBuilder cb, RenderOptions options) {
-        return render(cb, options, WriteRendering.keysToRender(distinctKeys().orElse(null), null), false).delete();
+    public Rendered<E> buildWrite(CriteriaBuilder cb, RenderOptions options) {
+        return render(cb, options, WriteRendering.keysToRender(distinctKeys().orElse(null), null), false);
     }
 
     /**
@@ -116,9 +116,9 @@ public final class ModelDelete<E, M> {
      *     {@code whereKeys}
      */
     @EngineFacing
-    public CriteriaDelete<E> buildWrite(CriteriaBuilder cb, RenderOptions options, List<?> chunk) {
+    public Rendered<E> buildWrite(CriteriaBuilder cb, RenderOptions options, List<?> chunk) {
         Objects.requireNonNull(chunk, "chunk");
-        return render(cb, options, WriteRendering.keysToRender(distinctKeys().orElse(null), chunk), false).delete();
+        return render(cb, options, WriteRendering.keysToRender(distinctKeys().orElse(null), chunk), false);
     }
 
     /**
@@ -133,10 +133,9 @@ public final class ModelDelete<E, M> {
      * @throws IllegalArgumentException for empty {@code keys}
      */
     @EngineFacing
-    public CriteriaDelete<E> buildWrite(CriteriaBuilder cb, RenderOptions options, List<?> keys,
+    public Rendered<E> buildWrite(CriteriaBuilder cb, RenderOptions options, List<?> keys,
             boolean rootTermsOnly) {
-        return render(cb, options, WriteRendering.selectedKeys(Objects.requireNonNull(keys, "keys")), rootTermsOnly)
-                .delete();
+        return render(cb, options, WriteRendering.selectedKeys(Objects.requireNonNull(keys, "keys")), rootTermsOnly);
     }
 
     /**
@@ -262,9 +261,16 @@ public final class ModelDelete<E, M> {
         return definition.primaryKey().columns().get(0).model().getSimpleName();
     }
 
-    /** A rendered delete: the statement and the context that rendered it, whose repeated expression binds an executor
-     * counts (R-COL-19, D-80). */
-    private record Rendered<E>(CriteriaDelete<E> delete, JoinContext joins) {}
+    /**
+     * A rendered delete: the statement and the context that rendered it. An executor binds the context's
+     * {@code Expr.value} parameters on the statement it creates and counts its repeated expression binds (R-COL-26,
+     * R-COL-19, D-80).
+     *
+     * @param delete the statement
+     * @param joins the context that rendered it
+     */
+    @EngineFacing
+    public record Rendered<E>(CriteriaDelete<E> delete, JoinContext joins) {}
 
     private Rendered<E> render(CriteriaBuilder cb, RenderOptions options, List<Object> keys,
             boolean rootTermsOnly) {

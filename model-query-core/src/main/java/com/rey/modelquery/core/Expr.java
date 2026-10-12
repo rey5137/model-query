@@ -5,10 +5,13 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collection;
 import java.util.Date;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
@@ -18,8 +21,9 @@ import java.util.regex.Pattern;
  * {@link jakarta.persistence.criteria.CriteriaBuilder} construct (R-COL-17). It mirrors {@link Agg}: it builds the
  * field, and {@code ExpressionField} is the field type.
  *
- * <p>A value given to a factory binds, typed by its operand, and {@link #constant} is SQL definition text (R-COL-18).
- * A column with a {@link ColumnConverter} is {@code MQ1501}; a null, array, {@code Date}, {@code Calendar}, enum or
+ * <p>A value given to a factory binds, typed by its operand, {@link #value} a statement parameter (R-COL-26), and
+ * {@link #constant} is SQL definition text (R-COL-18). A column with a {@link ColumnConverter} is {@code MQ1501}; a
+ * null, {@code Optional}, array, {@code Collection}, {@code Map}, {@code Date}, {@code Calendar}, enum or
  * entity value is {@code MQ1502}; a {@code dividedBy} over two integral operands is {@code MQ1503}; a CASE condition
  * with no filter is {@code MQ1504}, and one using {@code add}, {@code exists} or a sub-select is {@code MQ1505}; a
  * function name that is not a plain identifier or is a built-in aggregate is {@code MQ1506} (R-COL-17).
@@ -228,6 +232,21 @@ public final class Expr {
     }
 
     /**
+     * {@code value} as a statement parameter, for a function argument or an operand the planner must not see as a
+     * literal (R-COL-26): the expression is typed by {@code value}'s class, reads no column and adds no join, and its
+     * value binds on every statement that renders it.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1502} when {@code value} is null, an {@code Optional}, a
+     *     {@code Collection} or a {@code Map}, or another type a factory cannot bind (R-COL-18)
+     */
+    @SuppressWarnings("unchecked")
+    public static <M, C> ExpressionField<M, C> value(C value) {
+        checkValue(value);
+        Class<C> type = (Class<C>) value.getClass();
+        return new ExpressionField<>(new ExpressionField.Value(value, type), type, null);
+    }
+
+    /**
      * A CASE builder whose {@code when(...)} chains at least once; a CASE with no WHEN does not compile. {@code type}
      * is boxed, so {@code cases(M.class, int.class)} is the {@code Integer.class} CASE.
      */
@@ -288,11 +307,12 @@ public final class Expr {
                     + "non-null value, and Expr.constant is definition text");
         }
         Class<?> type = value.getClass();
-        if (type.isArray() || value instanceof Date || value instanceof Calendar || value instanceof Enum<?>
-                || type.isAnnotationPresent(jakarta.persistence.Entity.class)) {
+        if (type.isArray() || value instanceof Optional<?> || value instanceof Collection<?>
+                || value instanceof Map<?, ?> || value instanceof Date || value instanceof Calendar
+                || value instanceof Enum<?> || type.isAnnotationPresent(jakarta.persistence.Entity.class)) {
             throw new ModelQueryDefinitionException(MqCode.MQ1502, "an expression cannot bind a value of type "
                     + type.getSimpleName() + "; bind a String, number, boolean or temporal type, or Expr.constant "
-                    + "for definition text");
+                    + "for definition text, and an Optional, a Collection or a Map is not a single value");
         }
     }
 

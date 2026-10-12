@@ -143,7 +143,7 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
 
     /** The structure behind an expression: equal nodes are equal expressions (R-COL-20). */
     sealed interface Node
-            permits Coalesce, NullIf, Arith, Negate, Concat, Fn, Const, TypedConst, Case {
+            permits Coalesce, NullIf, Arith, Negate, Concat, Fn, Const, TypedConst, Value, Case {
 
         Class<?> type();
 
@@ -403,6 +403,33 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         @Override
         public String text() {
             return String.valueOf(value);
+        }
+    }
+
+    /**
+     * A bound value: a statement parameter the executor binds on every statement that renders it (R-COL-26). The
+     * expression is typed by {@code value}'s class, of no column and no join; equality is by class and value
+     * (R-COL-20).
+     */
+    record Value(Object value, Class<?> type) implements Node {
+        @Override
+        public Expression<?> render(JoinContext ctx) {
+            return ctx.parameter(type, value);
+        }
+
+        @Override
+        public List<ColumnField<?, ?, ?>> columns() {
+            return List.of();
+        }
+
+        @Override
+        public int binds() {
+            return 1; // the value binds once per rendering (R-COL-26)
+        }
+
+        @Override
+        public String text() {
+            return "?"; // a value is shown as a bind, never its text (R-INS-09)
         }
     }
 

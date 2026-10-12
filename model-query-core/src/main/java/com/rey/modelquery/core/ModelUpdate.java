@@ -154,10 +154,9 @@ public final class ModelUpdate<E, M> {
      * @throws ModelQueryDefinitionException the codes of {@link #checkMetamodel}, which an executor has run already
      */
     @EngineFacing
-    public CriteriaUpdate<E> buildWrite(CriteriaBuilder cb, RenderOptions options,
+    public Rendered<E> buildWrite(CriteriaBuilder cb, RenderOptions options,
             BiFunction<Class<?>, Object, ?> references) {
-        return render(cb, options, references, WriteRendering.keysToRender(distinctKeys().orElse(null), null),
-                false).update();
+        return render(cb, options, references, WriteRendering.keysToRender(distinctKeys().orElse(null), null), false);
     }
 
     /**
@@ -170,11 +169,10 @@ public final class ModelUpdate<E, M> {
      *     {@code whereKeys}
      */
     @EngineFacing
-    public CriteriaUpdate<E> buildWrite(CriteriaBuilder cb, RenderOptions options,
+    public Rendered<E> buildWrite(CriteriaBuilder cb, RenderOptions options,
             BiFunction<Class<?>, Object, ?> references, List<?> chunk) {
         Objects.requireNonNull(chunk, "chunk");
-        return render(cb, options, references, WriteRendering.keysToRender(distinctKeys().orElse(null), chunk),
-                false).update();
+        return render(cb, options, references, WriteRendering.keysToRender(distinctKeys().orElse(null), chunk), false);
     }
 
     /**
@@ -190,10 +188,10 @@ public final class ModelUpdate<E, M> {
      * @throws IllegalArgumentException for empty {@code keys}
      */
     @EngineFacing
-    public CriteriaUpdate<E> buildWrite(CriteriaBuilder cb, RenderOptions options,
+    public Rendered<E> buildWrite(CriteriaBuilder cb, RenderOptions options,
             BiFunction<Class<?>, Object, ?> references, List<?> keys, boolean rootTermsOnly) {
         return render(cb, options, references, WriteRendering.selectedKeys(Objects.requireNonNull(keys, "keys")),
-                rootTermsOnly).update();
+                rootTermsOnly);
     }
 
     /**
@@ -368,9 +366,16 @@ public final class ModelUpdate<E, M> {
         return value.column().toAttribute(value.value());
     }
 
-    /** A rendered update: the statement and the context that rendered it, whose repeated expression binds an executor
-     * counts (R-COL-19, D-80). */
-    private record Rendered<E>(CriteriaUpdate<E> update, JoinContext joins) {}
+    /**
+     * A rendered update: the statement and the context that rendered it. An executor binds the context's
+     * {@code Expr.value} parameters on the statement it creates and counts its repeated expression binds (R-COL-26,
+     * R-COL-19, D-80).
+     *
+     * @param update the statement
+     * @param joins the context that rendered it
+     */
+    @EngineFacing
+    public record Rendered<E>(CriteriaUpdate<E> update, JoinContext joins) {}
 
     @SuppressWarnings({"unchecked", "rawtypes"})
     private Rendered<E> render(CriteriaBuilder cb, RenderOptions options,

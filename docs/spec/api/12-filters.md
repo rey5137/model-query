@@ -144,7 +144,9 @@ primary-key-first step 2 (`engine/21` R-PAG-07), bulk-write key chunks (`api/14`
 `byKeys(q, keys)` (`engine/20` R-EXE-13; chunked as step 2 without `primaryKeyFirstBatchSize`), each chunk at most the
 largest power of two within the limits. The engine counts one bind per value; a provider that pads IN lists, such as
 Hibernate with `hibernate.query.in_clause_parameter_padding`, binds up to the next power of two, which keeps a key chunk
-within the limits but which a user's own lists must leave room for (`vendor/41`).
+within the limits but which a user's own lists must leave room for (`vendor/41`). A statement's chunk sizing counts an
+expression's binds too, once per rendering (an `Expr.value` binds one, R-COL-26; a memoised expression renders once,
+R-COL-19).
 
 ## 6. Joins created inside `or` and `not`
 
