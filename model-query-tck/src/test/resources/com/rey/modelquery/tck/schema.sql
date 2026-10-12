@@ -155,10 +155,13 @@ CREATE VIEW order_view AS SELECT id, customer_id, status, total FROM orders;
 -- a STRING enum, an ORDINAL enum (Hibernate maps one to TINYINT, which every Tier-1 vendor stores in an INT column)
 -- and a Boolean over a Y/N text column.
 -- The ordinal's column is rank_no: RANK is a reserved word on MySQL 8.
+-- `tags` is a jsonb array on PostgreSQL, so `jsonb_exists(tags, ?)` filters it (TCK AC-COL-31), and a text column
+-- nothing queries elsewhere.
 CREATE TABLE constant_rows (
     id      BIGINT NOT NULL PRIMARY KEY,
     status  VARCHAR(20) @COLLATE@ NULL,
     rank_no INT NULL,
     active  VARCHAR(1) @COLLATE@ NULL,
-    label   VARCHAR(50) @COLLATE@ NULL
+    label   VARCHAR(50) @COLLATE@ NULL,
+    tags    @JSONB@ NULL
 );

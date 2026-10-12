@@ -33,4 +33,10 @@ public class ConstantRowEntity {
 
     @Column(name = "label")
     String label;
+
+    /**
+     * A jsonb array on PostgreSQL, a text column elsewhere; only {@code jsonb_exists(tags, ?)} reads it (AC-COL-31).
+     */
+    @Column(name = "tags")
+    String tags;
 }

@@ -208,7 +208,7 @@ expression may span tables. `cases` takes the model class so the condition lambd
 **R-COL-18** *(D-115)* **Values bind, constants are text.**
 - A value given to a factory (a `coalesce` fallback, a `nullIf` sentinel, an arithmetic or `concat` operand, a CASE
   result) is a bind parameter typed by its operand (`api/12` R-FLT-08).
-- `null`, arrays, `Date`, `Calendar`, enums and entities are `MQ1502`.
+- `null`, `Optional`, arrays, `Collection`, `Map`, `Date`, `Calendar`, enums and entities are `MQ1502`.
 - `Expr.constant(String|int|long|boolean)` is SQL text of the definition, rendered by the provider's literal formatter,
   for a function's mode argument or a key a functional index must match. It is never a request value.
 
@@ -351,6 +351,20 @@ it sees the `NULL`-foreign-key rows (a keyset order on it then needs `nullsFirst
 R-PAG-05). It does not hold inside an embedded value (a dotted attribute path), which keeps `root.get`, nor in a bulk
 write, which takes no join. A converter is never given the `null`.
 
+**R-COL-26** *(D-128)* **A bound argument.** `Expr.value` renders a value as a statement parameter, for a function
+argument or an operand the planner must not see as a literal:
+
+```java
+@Incubating public static <M, C> ExpressionField<M, C> value(C value);
+```
+
+- The expression is typed by `value.getClass()`, reads no column and adds no join; its value binds on every statement
+  that renders it (R-FLT-08), one bind per rendering.
+- Two are equal when their classes and values are equal (R-COL-20); `null`, an `Optional`, a `Collection`, a `Map` and
+  the R-COL-18 types are `MQ1502` — a collection is never a single bound value.
+- A function reading it is evaluated by each statement that renders it, so the pages of a paged read or of an export
+  may see different values (INV-4); a value that must be stable across a run is read from a column.
+
 **R-COL-27** *(D-128)* **A column-typed constant.** `Expr.constant` also takes a column as a type witness, for a value
 the planner must see as a literal (a partial index's predicate, a selective enum value):
 
@@ -368,7 +382,7 @@ the planner must see as a literal (a partial index's predicate, a selective enum
 - The expression's declared type is `typedBy`'s model type, and the rendered literal's provider type is the stored
   value's; those two are not compared, so `MQ1507` does not apply (R-COL-17).
 - The result renders as the provider's literal text, as an R-COL-18 constant does, and binds nothing: each distinct
-  value is a distinct statement text, so a per-request value uses `Expr.value` (M19.2) instead.
+  value is a distinct statement text, so a per-request value uses `Expr.value` (R-COL-26) instead.
 - `typedBy` is a type witness only: it is part of the expression's equality (R-COL-20), contributes no column to
   `columns()` and adds no join.
 
@@ -406,4 +420,5 @@ the planner must see as a literal (a partial index's predicate, a selective enum
 | AC-COL-28 | A generated model whose `Date` fields mirror an entity's `Date` attributes stored as `DATE`, `TIME` and `TIMESTAMP` (`@Temporal(DATE)`, `@Temporal(TIME)`, none) compiles, reads each value as the `java.sql` type the provider returns, filters each with a `Date` value, and keyset-pages over the `DATE` one (R-COL-08, D-122). |
 | AC-COL-29 | An `@Immutable` entity over a view created in the TCK schema and an `@Immutable @Subselect` entity are roots on every Tier-1 vendor: a query model over each lists, filters and offset-pages rows in a stable order, and a grouped query returns the counts and sums the view's own rows hold (R-COL-01). |
 | AC-COL-30 | `Expr.function` with an `Expr.constant` argument is selected and grouped on every Tier-1 vendor — PostgreSQL and H2 `date_trunc('day', col)`, MySQL `date_format(col, '%Y-%m-%d')` — and on PostgreSQL only `timezone('UTC', timezone('Asia/Ho_Chi_Minh', col))` reads a Ho Chi Minh local time as UTC, 7 hours earlier, whatever the JVM zone (R-COL-18). |
+| AC-COL-31 | On every Tier-1 vendor an `Expr.value` argument binds — the snapshot shows `?` where a constant would be text — on each statement path: list, count, offset page, primary-key-first (both steps), keyset, grouped and offset export, `exists` and sub-select bodies, CASE conditions, bulk update and bulk delete. PostgreSQL groups by `timezone(?, created_at)` and filters by `jsonb_exists(tags, ?)`. A `null`, `Optional`, `Collection` or `Map` value is `MQ1502` (R-COL-26, R-COL-18, R-COL-19). |
 | AC-COL-32 | On every Tier-1 vendor, `Expr.constant(typedBy, value)` filters and compares through a `@Enumerated(STRING)` enum, an `@Enumerated(ORDINAL)` enum, an `AttributeConverter` attribute and a column with a `ColumnConverter`, inlining each as its stored literal; the witness is equal by `equals` but adds no column and no join; a null value is `MQ1502`, a value its converter refuses `MQ1308`, a stored value that is not a `String`, `Number` or `Boolean` and a provider without the capability `MQ1508` (R-COL-27, R-COL-14, R-COL-20). |

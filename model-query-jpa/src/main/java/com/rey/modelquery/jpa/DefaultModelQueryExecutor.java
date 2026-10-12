@@ -53,6 +53,7 @@ import jakarta.persistence.JoinColumns;
 import jakarta.persistence.JoinTable;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.OptimisticLockException;
+import jakarta.persistence.Parameter;
 import jakarta.persistence.PersistenceException;
 import jakarta.persistence.PersistenceUnitUtil;
 import jakarta.persistence.Query;
@@ -681,6 +682,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private <T> TypedQuery<T> create(Object label, EntityManager on, CriteriaQuery<T> query, Keyset<?> keyset,
             Object[] cursor, JoinContext joins) {
         TypedQuery<T> typed = on.createQuery(query);
+        bindValues(typed, joins);
         int binds = typed.getParameters().size() + (joins == null ? 0 : joins.repeatedExpressionBinds());
         int cursorBinds = keyset == null || cursor == null ? 0 : keyset.cursorBinds(cursor);
         if (keyset != null) {
@@ -691,6 +693,39 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         LOG.log(TRACE, () -> label + ": statement binds " + binds + " of " + renderOptions.maxBindParameters()
                 + (cursorBinds > 0 ? ", " + cursorBinds + " of them the keyset cursor's" : ""));
         return typed;
+    }
+
+    /**
+     * Sets every {@code Expr.value} parameter {@code joins} recorded on {@code query}, so the statement binds the
+     * values the build rendered as parameters (R-COL-26). A {@code null} {@code joins} renders none.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static void bindValues(Query query, JoinContext joins) {
+        if (joins != null) {
+            joins.statementParameters().forEach((parameter, value) -> query.setParameter((Parameter) parameter, value));
+        }
+    }
+
+    /** {@code rendered}'s update with {@code added} assigned, its {@code Expr.value} parameters bound (R-COL-26). */
+    private static <E> Query updateStatement(EntityManager on, ModelUpdate.Rendered<E> rendered,
+            List<WriteAssignments.Written> added) {
+        Query statement = on.createQuery(assigning(rendered.update(), added));
+        bindValues(statement, rendered.joins());
+        return statement;
+    }
+
+    /** {@code rendered}'s delete statement, its {@code Expr.value} parameters bound (R-COL-26). */
+    private static Query deleteStatement(EntityManager on, ModelDelete.Rendered<?> rendered) {
+        Query statement = on.createQuery(rendered.delete());
+        bindValues(statement, rendered.joins());
+        return statement;
+    }
+
+    /** {@code tree}'s key-select statement, its {@code Expr.value} parameters bound (R-COL-26). */
+    private static Query keySelectStatement(EntityManager on, BuiltQuery<?> tree) {
+        Query statement = on.createQuery(tree.query());
+        bindValues(statement, tree.joins());
+        return statement;
     }
 
     /** {@code query}'s rows, with their count and time in the trace log (D-95). */
@@ -1028,9 +1063,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         CriteriaBuilder cb = em.getCriteriaBuilder();
         BiFunction<Class<?>, Object, ?> references = em::getReference;
         int repeated = u.repeatedExpressionBinds(cb, renderOptions, references);
-        Supplier<Query> whole = () -> em.createQuery(assigning(u.buildWrite(cb, renderOptions, references), added));
-        Function<List<Object>, Query> byKeys = chunk -> em.createQuery(assigning(u.buildWrite(cb, renderOptions,
-                references, chunk), added));
+        Supplier<Query> whole = () -> updateStatement(em, u.buildWrite(cb, renderOptions, references), added);
+        Function<List<Object>, Query> byKeys =
+                chunk -> updateStatement(em, u.buildWrite(cb, renderOptions, references, chunk), added);
         boolean rootTermsOnly = keyFirst(() -> u.entitiesReadInSubquery(cb, renderOptions));
         logWrite("update", u, u.chunkOptions(), rootTermsOnly);
         if (!rootTermsOnly && u.chunkOptions().isEmpty()) {
@@ -1038,8 +1073,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), u.primaryKey(), u.distinctKeys(),
                 run -> run == null ? u.buildKeySelect(cb, renderOptions) : u.buildKeySelect(cb, renderOptions, run),
-                (on, keys) -> execute(on.createQuery(assigning(u.buildWrite(cb, renderOptions, on::getReference,
-                        keys, rootTermsOnly), added)), repeated),
+                (on, keys) -> execute(updateStatement(on, u.buildWrite(cb, renderOptions, on::getReference, keys,
+                        rootTermsOnly), added), repeated),
                 u.startAfter(), u::modelKey);
         return write(u.persistenceContext(), () -> keyset(keyed, whole, byKeys, u.chunkOptions(), cb, repeated));
     }
@@ -1202,7 +1237,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             em.clear();
         }
         try {
-            return keyset(keyed, () -> em.createQuery(tree.query()), keys -> em.createQuery(load.apply(keys)), chunk,
+            return keyset(keyed, () -> keySelectStatement(em, tree), keys -> em.createQuery(load.apply(keys)), chunk,
                     OptionalInt.of(size), cb, repeated);
         } finally {
             // Each chunk ran on its own EntityManager, so the caller's copies of the written rows are stale: cleared
@@ -1251,8 +1286,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private <M> long deleteRows(ModelDelete<E, M> d) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
         int repeated = d.repeatedExpressionBinds(cb, renderOptions);
-        Supplier<Query> whole = () -> em.createQuery(d.buildWrite(cb, renderOptions));
-        Function<List<Object>, Query> byKeys = chunk -> em.createQuery(d.buildWrite(cb, renderOptions, chunk));
+        Supplier<Query> whole = () -> deleteStatement(em, d.buildWrite(cb, renderOptions));
+        Function<List<Object>, Query> byKeys = chunk -> deleteStatement(em, d.buildWrite(cb, renderOptions, chunk));
         boolean rootTermsOnly = keyFirst(() -> d.entitiesReadInSubquery(cb, renderOptions));
         logWrite("delete", d, d.chunkOptions(), rootTermsOnly);
         if (!rootTermsOnly && d.chunkOptions().isEmpty()) {
@@ -1260,7 +1295,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), d.primaryKey(), d.distinctKeys(),
                 run -> run == null ? d.buildKeySelect(cb, renderOptions) : d.buildKeySelect(cb, renderOptions, run),
-                (on, keys) -> execute(on.createQuery(d.buildWrite(cb, renderOptions, keys, rootTermsOnly)), repeated),
+                (on, keys) -> execute(deleteStatement(on, d.buildWrite(cb, renderOptions, keys, rootTermsOnly)),
+                        repeated),
                 d.startAfter(), d::modelKey);
         return write(d.persistenceContext(), () -> keyset(keyed, whole, byKeys, d.chunkOptions(), cb, repeated));
     }

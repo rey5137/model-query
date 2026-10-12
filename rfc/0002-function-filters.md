@@ -34,6 +34,11 @@ what D-115 left out:
    `Optional`, `Collection` and `Map` values.
 4. **Deferred:** `CAST(? AS jsonb)` and other cast syntax. M19.2 spikes function-style casts and documents only what
    passes on a real database.
+   - **Cast spike (M19.2).** On PostgreSQL 17 a bound argument reaches a function whose parameter type is text with no
+     cast: `jsonb_exists(tags, ?)` and `timezone(?, created_at)` both bind and run (M19.2's
+     `BoundValueFunctionTest`), and `tags = to_jsonb(?)` runs too. What does not pass is comparing the jsonb column
+     to a bound `String` directly (`jsonb = character varying`, which needs an explicit cast) or spelling any
+     `CAST(? AS jsonb)`: an `Expr.function` renders a function call, not a cast, so cast syntax stays deferred.
 
 Carried over from the original proposal: a volatile function is evaluated by each statement that renders it, so an
 export or a paged read can see different values per page (documentation rule, INV-4); R-FLT-09's chunk sizing counts

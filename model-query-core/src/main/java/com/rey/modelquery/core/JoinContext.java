@@ -7,6 +7,7 @@ import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.ParameterExpression;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
@@ -16,6 +17,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -67,6 +69,12 @@ public final class JoinContext {
      * statement.
      */
     private final int[] repeatedExpressionBinds;
+    /**
+     * The statement parameters this build's {@code Expr.value} expressions render, and the value each binds, which the
+     * executor sets on the {@code TypedQuery} it creates (R-COL-26). Shared with the build's nested contexts, since a
+     * sub-query, an {@code exists} and a {@code through} child are one statement.
+     */
+    private final Map<ParameterExpression<?>, Object> parameters;
     /** The key each join was cached under, which is not the declared key when its type was changed. */
     private final Map<From<?, ?>, JoinKey> keys = new IdentityHashMap<>();
     /** In an {@code exists}, the {@code on(...)} conditions of its required joins, rendered in its WHERE instead. */
@@ -89,12 +97,13 @@ public final class JoinContext {
 
     private JoinContext(From<?, ?> root, Class<?> rootType, CriteriaBuilder cb, CommonAbstractCriteria query,
             JoinKey rootKey, Set<JoinKey> required, RenderOptions renderOptions, Set<Class<?>> existsJoined) {
-        this(root, rootType, cb, query, rootKey, required, renderOptions, existsJoined, null, new int[1]);
+        this(root, rootType, cb, query, rootKey, required, renderOptions, existsJoined, null, new int[1],
+                new LinkedHashMap<>());
     }
 
     private JoinContext(From<?, ?> root, Class<?> rootType, CriteriaBuilder cb, CommonAbstractCriteria query,
             JoinKey rootKey, Set<JoinKey> required, RenderOptions renderOptions, Set<Class<?>> existsJoined,
-            JoinContext outer, int[] repeatedExpressionBinds) {
+            JoinContext outer, int[] repeatedExpressionBinds, Map<ParameterExpression<?>, Object> parameters) {
         this.root = root;
         this.rootType = rootType;
         this.cb = cb;
@@ -105,6 +114,7 @@ public final class JoinContext {
         this.existsJoined = existsJoined;
         this.outer = outer;
         this.repeatedExpressionBinds = repeatedExpressionBinds;
+        this.parameters = parameters;
     }
 
     /** A context over {@code root}, the query's root table, rendering with {@link RenderOptions#portable()}. */
@@ -138,7 +148,7 @@ public final class JoinContext {
 
     JoinContext rootedAt(From<?, ?> join, Class<?> entity) {
         JoinContext ctx = new JoinContext(join, entity, cb, query, null, Set.of(), renderOptions, existsJoined, null,
-                repeatedExpressionBinds);
+                repeatedExpressionBinds, parameters);
         ctx.readsToOneLeft = readsToOneLeft;
         return ctx;
     }
@@ -203,6 +213,28 @@ public final class JoinContext {
     }
 
     /**
+     * A statement parameter of {@code type} for an {@code Expr.value} of {@code value}, recorded for the executor to
+     * bind on the statement that renders it (R-COL-26). The value never reaches SQL as a literal.
+     */
+    ParameterExpression<?> parameter(Class<?> type, Object value) {
+        ParameterExpression<?> parameter = cb.parameter(type);
+        parameters.put(parameter, value);
+        return parameter;
+    }
+
+    /**
+     * The statement parameters this build's {@code Expr.value} expressions rendered and the value each binds, which
+     * the executor sets on the {@code Query} it creates, every clause of the statement and its sub-queries included
+     * (R-COL-26). Empty for a build that renders none.
+     *
+     * @return an unmodifiable view, in rendering order
+     */
+    @EngineFacing
+    public Map<ParameterExpression<?>, Object> statementParameters() {
+        return Collections.unmodifiableMap(parameters);
+    }
+
+    /**
      * Adds the repeats {@code rendered} counted, a context of its own whose sub-query this statement keeps, such as a
      * write's {@code EXISTS} (R-COL-19, D-80).
      */
@@ -254,11 +286,12 @@ public final class JoinContext {
             // The root of a through child's context is a join, which the sub-query correlates as a join (D-100).
             From<?, ?> correlated = root instanceof Root<?> ? sub.correlate((Root) root) : sub.correlate((Join) root);
             ctx = new JoinContext(correlated, rootType, cb, sub, null, path.keysUpTo(null), renderOptions,
-                    existsJoined, outer, repeatedExpressionBinds);
+                    existsJoined, outer, repeatedExpressionBinds, parameters);
         } else {
             From<?, ?> correlated = sub.correlate((Join) existsFrom);
             ctx = new JoinContext(correlated, correlated.getJavaType(), cb, sub, existsPath.key(),
-                    path.keysUpTo(existsPath.key()), renderOptions, existsJoined, outer, repeatedExpressionBinds);
+                    path.keysUpTo(existsPath.key()), renderOptions, existsJoined, outer, repeatedExpressionBinds,
+                    parameters);
         }
         ctx.existsPath = path;
         ctx.existsFrom = path.resolve(ctx);
@@ -297,7 +330,7 @@ public final class JoinContext {
         Subquery<C> sq = query.subquery(sub.column().type());
         Root<?> inner = sq.from(sub.rootEntity());
         JoinContext ctx = new JoinContext(inner, sub.rootEntity(), cb, sq, null, Set.of(), renderOptions,
-                existsJoined, null, repeatedExpressionBinds);
+                existsJoined, null, repeatedExpressionBinds, parameters);
         Path<C> selected = sub.column().path(ctx);
         // A lifted column reads the outer root, so its embeddable check runs against the outer context, not this one.
         boolean embeddable = column instanceof ColumnField<?, ?, ?> outerColumn && outerColumn.isLifted() && outer != null
@@ -335,9 +368,9 @@ public final class JoinContext {
         // The correlated outer root a lifted column reads; a through child's root is a join (D-100).
         From<?, ?> correlated = root instanceof Root<?> ? sq.correlate((Root) root) : sq.correlate((Join) root);
         JoinContext outerCtx = new JoinContext(correlated, rootType, cb, sq, rootKey, Set.of(), renderOptions,
-                existsJoined, null, repeatedExpressionBinds);
+                existsJoined, null, repeatedExpressionBinds, parameters);
         JoinContext ctx = new JoinContext(inner, sub.rootEntity(), cb, sq, null, Set.of(), renderOptions,
-                existsJoined, outerCtx, repeatedExpressionBinds);
+                existsJoined, outerCtx, repeatedExpressionBinds, parameters);
         sq.select(cb.literal(1));
         var where = new ArrayList<>(ConditionGroup.toPredicates(sub.filters(), ctx));
         where.addAll(ConditionGroup.toPredicates(correlation, ctx));

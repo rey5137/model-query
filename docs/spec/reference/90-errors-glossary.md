@@ -72,7 +72,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1408` | `sum`, `sumAsLong` or `avg` over a column that has a `ColumnConverter`; `min`, `max` and `countDistinct` over a column with a converter that is not ordered do not compile (D-93) | `api/13` R-AGG-04 |
 | `MQ1409` | A grouped query selects a column under a `presentBy` join whose key columns are not all group keys | `api/13` R-AGG-09 |
 | `MQ1501` | An expression reads a column with a `ColumnConverter`, which the database computes over without applying the converter | `api/10` R-COL-17 |
-| `MQ1502` | An expression is given a null value, or a value of a type it cannot bind (arrays, `Date`, `Calendar`, enums, entities) | `api/10` R-COL-18 |
+| `MQ1502` | An expression is given a null value, or a value of a type it cannot bind (`Optional`, arrays, `Collection`, `Map`, `Date`, `Calendar`, enums, entities) | `api/10` R-COL-18, R-COL-26 |
 | `MQ1503` | `dividedBy` over two integral operands, which truncates on PostgreSQL and H2 and not on MySQL | `api/10` R-COL-17 |
 | `MQ1504` | A CASE condition has no filter left, so it would always match | `api/10` R-COL-17 |
 | `MQ1505` | A CASE condition uses `add(...)`, `exists(...)` or a sub-select | `api/10` R-COL-17 |
