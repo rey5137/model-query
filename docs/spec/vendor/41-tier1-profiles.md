@@ -101,7 +101,32 @@ same `OR a IS NULL` branch whatever the null ordering, so its NULLs are read and
 **R-PRF-10** The TCK checks every combination — ASC/DESC × NULLS FIRST/LAST × null/non-null key — on every Tier-1
 database (`delivery/60`).
 
-## 6. Acceptance criteria
+## 6. Row-lock rendering
+
+What Hibernate renders for a `RowLock` (`vendor/40` R-VND-15) on each Tier-1 database, confirmed by the M18.1 SQL
+snapshots of an entity query (`model-query-tck` `sql/*/lock-render.sql` and `sql/*/hibernate7/lock-render.sql`). A cell
+is the clause appended to the statement; **refused** means `LockSupport.rendered` is false and the read throws `MQ4010`
+before any statement. The executor's reads render the same clause without the `of <root>` list (below).
+
+| Strength × wait | H2, Hibernate 6.6 | H2, Hibernate 7.x | PostgreSQL 17, 6.6 | PostgreSQL 17, 7.x | MySQL 8.4, 6.6 | MySQL 8.4, 7.x |
+|---|---|---|---|---|---|---|
+| `exclusive()`, `WAIT` | `for update` | `for update` | `for no key update` | `for no key update of <root>` | `for update` | `for update of <root>` |
+| `exclusive(NO_WAIT)` | refused | `for update nowait` | `for no key update nowait` | `for no key update of <root> nowait` | `for update nowait` | `for update of <root> nowait` |
+| `exclusive(SKIP_LOCKED)` | refused | `for update skip locked` | `for no key update skip locked` | `for no key update of <root> skip locked` | `for update skip locked` | `for update of <root> skip locked` |
+| `shared()`, `WAIT` | `for update` (H2 has no `FOR SHARE`) | `for update` | `for share` | `for share of <root>` | `for share` | `for share of <root>` |
+| `shared(NO_WAIT)` | refused | refused (renders a plain `for update`) | `for share nowait` | `for share of <root> nowait` | `for share nowait` | `for share of <root> nowait` |
+| `shared(SKIP_LOCKED)` | refused | refused (renders a plain `for update`) | `for share skip locked` | `for share of <root> skip locked` | `for share skip locked` | `for share of <root> skip locked` |
+
+On H2, 6.6 supports neither `NOWAIT` nor `SKIP LOCKED`, and 7.x supports both but renders neither for `shared()`,
+which it widens to `FOR UPDATE`; `rendered` (`vendor/40` R-VND-15) therefore decides per strength × wait, not per wait
+alone. On PostgreSQL `exclusive()` renders `FOR NO KEY UPDATE`, which does not block a child row's foreign-key check —
+the parent-read case `RowLock` exists for. For an entity query Hibernate 7.x adds `OF <root alias>` on PostgreSQL and
+MySQL (not H2) and 6.6 renders none; the executor's reads are column projections, which give Hibernate no lock root, so
+they render no `OF` list on either line (`sql/*/lock-exec-*.sql`). Either way only the root table is locked, because a
+locked query reads its root alone (`engine/20` R-EXE-14). A query whose root is on several tables is refused with
+`MQ4010`.
+
+## 7. Acceptance criteria
 
 | ID | Criterion |
 |---|---|
@@ -114,3 +139,4 @@ database (`delivery/60`).
 | AC-PRF-07 | Every keyset combination in R-PRF-10 pages through the whole table exactly once (R-PRF-09). |
 | AC-PRF-08 | A query exceeding the configured timeout is cancelled on every Tier-1 vendor (R-PRF-05). |
 | AC-PRF-09 | On every Tier-1 vendor a 1,001-row `VALUES` insert, past the default `maxValuesRows()`, runs as one statement, and a conflict clause naming the id meets a conflict on another unique key as a unique violation exactly where `conflictTargetHonoured()` is true, and a conflict update whose `where` reads both columns it assigns leaves the second unchanged exactly where `conflictWhereSeesEarlierAssignments()` is true (R-PRF-11, `vendor/40` R-VND-14). |
+| AC-PRF-10 | The RFC 0009 §1 rendering table, strength × wait × joined/unjoined, matches what Hibernate 6.6 and 7.x render on H2, PostgreSQL 17 and MySQL 8.4, asserted as the SQL snapshots `sql/*/lock-render.sql` and `sql/*/hibernate7/lock-render.sql` (`tck/lock/RowLockRenderingTest#ac_prf_10_pessimistic_locks_render_the_rfc_table`; `engine/20` R-EXE-14, `vendor/40` R-VND-15). |

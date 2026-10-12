@@ -31,6 +31,7 @@ import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.core.Row;
+import com.rey.modelquery.core.RowLock;
 import com.rey.modelquery.core.ScalarField;
 import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.ModelUpdate;
@@ -40,6 +41,7 @@ import com.rey.modelquery.jpa.spi.ConflictClause;
 import com.rey.modelquery.jpa.spi.EntityWriteSupport;
 import com.rey.modelquery.jpa.spi.InsertSupport;
 import com.rey.modelquery.jpa.spi.InsertTarget;
+import com.rey.modelquery.jpa.spi.LockSupport;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.jpa.vendor.ResolvedVendor;
@@ -68,6 +70,7 @@ import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.ParameterExpression;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Selection;
 import jakarta.persistence.metamodel.Attribute;
 import jakarta.persistence.metamodel.EntityType;
@@ -232,11 +235,23 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(limit, "limit");
         checkFirstRun(q);
         LOG.log(DEBUG, () -> "list " + q + ": " + limit);
+        Optional<RowLock> rowLock = q.lock();
+        BuiltQuery<M> built = null;
+        Optional<LockSupport> lock = Optional.empty();
+        if (rowLock.isPresent()) {
+            // The refusals run before the zero-limit short cut and before any statement (R-EXE-14).
+            built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
+            lock = lockChecks(q, built, "list(query, limit)");
+        }
         if (zeroLimit(limit)) {
             return List.of(); // no statement runs for a zero limit (R-EXE-06)
         }
-        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
-        return models(q, mapAll(q, limited(q, built, limit), built));
+        if (built == null) {
+            built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
+        }
+        TypedQuery<Tuple> query = limited(q, built, limit);
+        lock.ifPresent(support -> support.apply(query, rowLock.get()));
+        return models(q, mapAll(q, query, built));
     }
 
     // ---- single-row reads
@@ -246,6 +261,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(q, "q");
         checkFirstRun(q);
         LOG.log(DEBUG, () -> "one " + q);
+        q.lock().filter(lock -> lock.waitPolicy() == RowLock.Wait.SKIP_LOCKED).ifPresent(lock -> {
+            throw new ModelQueryExecutionException(MqCode.MQ2211, q + ": one(query) cannot lock with SKIP_LOCKED, "
+                    + "because it reads LIMIT 2 to check uniqueness and a locked second match would be invisible; "
+                    + "use first(query) with SKIP_LOCKED to claim the next unlocked row");
+        });
         warnOfIgnoredOrder(q, "one(query)");
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
         built.query().orderBy(List.<Order>of()); // at most one row is read, so no order (R-EXE-12)
@@ -274,8 +294,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             }
         }
         built.query().orderBy(orders);
+        Optional<LockSupport> lock = lockChecks(q, built, "first(query)");
         TypedQuery<Tuple> query = create(q, built);
         query.setMaxResults(1);
+        lock.ifPresent(support -> support.apply(query, q.lock().get()));
         return modelOf(q, built, rows(q, query));
     }
 
@@ -326,6 +348,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         PrimaryKey<M, K> primaryKey = q.primaryKey().orElseThrow(() -> new ModelQueryExecutionException(
                 MqCode.MQ2203, q + ": byKeys(query, keys) needs a primary key to filter on, and " + (q.isGrouped()
                         ? "a grouped query has none" : "primaryKey(...) was not set")));
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        // The statement's own binds, before any key is added; primaryKeyFirstBatchSize does not apply (R-EXE-13).
+        BuiltQuery<M> counted = q.buildQuery(cb, Phase.MODEL, renderOptions);
+        // The lock refusals run before the no-keys short cut, so they fail the same way for any keys (R-EXE-14).
+        Optional<LockSupport> lock = lockChecks(q, counted, "byKeys(query, keys)");
         // Each caller key to the attribute value it matches by (R-COL-11); keys converting to one value share a row.
         Map<K, Object> converted = new LinkedHashMap<>();
         for (K key : keys) {
@@ -339,9 +366,6 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         warnOfIgnoredOrder(q, "byKeys(query, keys)");
         Set<Object> requested = new LinkedHashSet<>(converted.values());
         List<Object> distinct = List.copyOf(requested);
-        CriteriaBuilder cb = em.getCriteriaBuilder();
-        // The statement's own binds, before any key is added; primaryKeyFirstBatchSize does not apply (R-EXE-13).
-        BuiltQuery<M> counted = q.buildQuery(cb, Phase.MODEL, renderOptions);
         int ownBinds = em.createQuery(counted.query()).getParameters().size()
                 + counted.joins().repeatedExpressionBinds();
         int chunk = keyLimits.clamp(ownBinds, primaryKey.columns().size(), OptionalInt.empty());
@@ -352,8 +376,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             Predicate byKey = primaryKey.in(chunkKeys, built.joins(), cb, false);
             Predicate own = built.query().getRestriction();
             built.query().where(own == null ? byKey : cb.and(own, byKey));
-            built.query().orderBy(List.<Order>of()); // chunks cannot be ordered across statements (R-EXE-13)
-            for (Tuple tuple : rows(q, create(q, built))) {
+            // A locked chunk is ordered by primary key, so concurrent callers lock in the same order; without a lock
+            // chunks cannot be ordered across statements (R-EXE-13, R-EXE-14).
+            built.query().orderBy(lock.isPresent() ? primaryKeyOrders(primaryKey, built, cb) : List.<Order>of());
+            TypedQuery<Tuple> statement = create(q, built);
+            lock.ifPresent(support -> support.apply(statement, q.lock().get()));
+            for (Tuple tuple : rows(q, statement)) {
                 Row row = built.selection().row(tuple);
                 Object rowKey = Keys.keyOf(q, primaryKey, row);
                 if (!requested.contains(rowKey)) {
@@ -399,8 +427,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * before any row is mapped, so neither {@code afterMap} nor the fetch plan sees it (R-EXE-12).
      */
     private <M> Optional<M> atMostOne(ModelQuery<E, ?, M> q, BuiltQuery<M> built, String call) {
+        Optional<LockSupport> lock = lockChecks(q, built, call);
         TypedQuery<Tuple> query = create(q, built);
         query.setMaxResults(2);
+        lock.ifPresent(support -> support.apply(query, q.lock().get()));
         List<Tuple> tuples = rows(q, query);
         if (tuples.size() > 1) {
             throw new ModelQueryExecutionException(MqCode.MQ2003, q + ": " + call + " found more than one row"
@@ -415,6 +445,93 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private <M> Optional<M> modelOf(ModelQuery<E, ?, M> q, BuiltQuery<M> built, List<Tuple> tuples) {
         return tuples.isEmpty() ? Optional.empty()
                 : Optional.of(models(q, List.of(loaded(built, tuples.get(0)))).get(0));
+    }
+
+    /**
+     * The R-EXE-14 refusals for a locking read of {@code q}, before any statement and in order: a join in {@code built}
+     * ({@code MQ2211}), a provider that cannot render the lock or a root on several tables ({@code MQ4010}), and no
+     * active transaction ({@code MQ2102}). Returns the support to apply on the statement, or empty when {@code q} takes
+     * no lock; {@code built} is the statement's criteria, built by the caller and never executed here.
+     */
+    private <M> Optional<LockSupport> lockChecks(ModelQuery<E, ?, M> q, BuiltQuery<M> built, String read) {
+        Optional<RowLock> lock = q.lock();
+        if (lock.isEmpty()) {
+            return Optional.empty();
+        }
+        RowLock rowLock = lock.get();
+        if (hasJoin(built)) {
+            throw new ModelQueryExecutionException(MqCode.MQ2211, q + ": " + read + " cannot lock a query whose "
+                    + "statement has a join, which a locking clause would follow on or lock every table of; filter "
+                    + "with Filters.exists(...) instead of a join");
+        }
+        Optional<LockSupport> rendered = vendor.providerSupport().flatMap(ProviderSupport::locks);
+        if (rendered.isEmpty()) {
+            throw new ModelQueryExecutionException(MqCode.MQ4010, q + ": " + read + " cannot lock " + rowLock + " on "
+                    + vendor.detectedVendor() + ", because " + lockSupportAbsence());
+        }
+        LockSupport support = rendered.get();
+        if (!support.rendered(em.getEntityManagerFactory(), rowLock)) {
+            throw new ModelQueryExecutionException(MqCode.MQ4010, q + ": " + read + " cannot lock " + rowLock + " on "
+                    + vendor.detectedVendor() + ", because provider " + support.getClass().getSimpleName()
+                    + " would not render it");
+        }
+        if (severalTables()) {
+            throw new ModelQueryExecutionException(MqCode.MQ4010, q + ": " + read + " cannot lock " + rowLock + " on "
+                    + vendor.detectedVendor() + ", because root entity " + rootEntity.getSimpleName()
+                    + " is mapped to more than one table and only the root table would be locked");
+        }
+        if (!em.isJoinedToTransaction()) {
+            throw new ModelQueryExecutionException(MqCode.MQ2102, q + ": " + read + " locks " + rowLock
+                    + " and needs an active transaction, and the EntityManager is not joined to one");
+        }
+        return Optional.of(support);
+    }
+
+    /**
+     * Refuses a lock on a read that takes none ({@code MQ2211}, R-EXE-14): paging, which would lock the rows it skips
+     * or read them out of order, {@code count}, which returns no row, and {@code stream} and export, which hold a
+     * cursor across user code.
+     */
+    private static void refuseLock(ModelQuery<?, ?, ?> q, String call) {
+        if (q.lock().isPresent()) {
+            throw new ModelQueryExecutionException(MqCode.MQ2211, q + ": " + call + " cannot run a locked query; "
+                    + "only list, first, one and byKeys take a lock (R-EXE-14)");
+        }
+    }
+
+    /**
+     * Whether {@code built}'s statement reads more than its root's table, through a join or a second root a customizer
+     * added, which a locked read refuses (R-EXE-14, D-127).
+     */
+    private static boolean hasJoin(BuiltQuery<?> built) {
+        Set<Root<?>> roots = built.query().getRoots();
+        return roots.size() > 1 || roots.stream().anyMatch(root -> !root.getJoins().isEmpty());
+    }
+
+    /** Whether {@code rootEntity} is mapped to more than one table, where only the root table would be locked. */
+    private boolean severalTables() {
+        Set<String> tables = vendor.providerSupport()
+                .map(support -> support.tablesOf(em.getEntityManagerFactory(), rootEntity)).orElse(Set.of());
+        return tables.size() > 1;
+    }
+
+    /** Why {@code MQ4010} names for a factory whose provider offers no {@link LockSupport}. */
+    private String lockSupportAbsence() {
+        return vendor.providerSupport()
+                .map(support -> "provider " + support.getClass().getName() + " has no LockSupport "
+                        + "(ProviderSupport#locks())")
+                .orElse("no ProviderSupport serves this factory; add a ProviderSupport for its provider "
+                        + "(model-query-hibernate for Hibernate)");
+    }
+
+    /** {@code primaryKey}'s columns ascending, the order a locked {@code byKeys} chunk locks its rows in. */
+    private static <M> List<Order> primaryKeyOrders(PrimaryKey<M, ?> primaryKey, BuiltQuery<M> built,
+            CriteriaBuilder cb) {
+        List<Order> orders = new ArrayList<>();
+        for (ColumnField<M, ?, ?> column : primaryKey.columns()) {
+            orders.addAll(column.asc().toOrders(built.joins(), cb, false));
+        }
+        return orders;
     }
 
     /**
@@ -445,6 +562,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(limit, "limit");
         Objects.requireNonNull(body, "body");
+        refuseLock(q, "stream(...)");
         if (q.fetch().filter(plan -> !plan.isSelectionOnly()).isPresent()) {
             // A plan runs once per page, and a stream has none (R-FCH-09, D-96).
             throw new ModelQueryExecutionException(MqCode.MQ2605, q + ": stream(...) cannot run the fetch plan, whose "
@@ -656,6 +774,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(page, "page");
         Objects.requireNonNull(mode, "mode");
+        refuseLock(q, "page(query, PageSpec, CountMode)");
         checkFirstRun(q);
         int offset = page.offset();
         int size = page.pageSize();
@@ -694,6 +813,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     public <M> KeysetSlice<M> page(ModelQuery<E, ?, M> q, KeysetSpec keyset) {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(keyset, "keyset");
+        refuseLock(q, "page(query, KeysetSpec)");
         if (!q.isKeyset()) {
             // R-PAG-16: a keyset page needs a keyset() query, before any query runs (MQ2207).
             throw new ModelQueryExecutionException(MqCode.MQ2207, q + ": page(query, KeysetSpec) needs a keyset() "
@@ -797,6 +917,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     @Override
     public long count(ModelQuery<E, ?, ?> q) {
         Objects.requireNonNull(q, "q");
+        refuseLock(q, "count(query)");
         checkFirstRun(q, false);
         LOG.log(DEBUG, () -> "count " + q);
         warnOfIgnoredOrder(q, "count(query)");
@@ -810,6 +931,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(pageTransformer, "pageTransformer");
         Objects.requireNonNull(sink, "sink");
+        refuseLock(q, "export(...)");
         checkFirstRun(q);
         long limit = options.limit().maxRows().isPresent() ? options.limit().maxRows().getAsInt() : Long.MAX_VALUE;
         int pageSize = options.pageSize().orElse(exportPageSize);

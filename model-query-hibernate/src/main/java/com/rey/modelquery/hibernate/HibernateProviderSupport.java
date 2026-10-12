@@ -6,6 +6,7 @@ import com.rey.modelquery.core.NullPrecedenceRenderer;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.EntityWriteSupport;
 import com.rey.modelquery.jpa.spi.InsertSupport;
+import com.rey.modelquery.jpa.spi.LockSupport;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceException;
@@ -72,6 +73,11 @@ public final class HibernateProviderSupport implements ProviderSupport {
     /** In a holder, as {@link Inserts} is, so the provider stays loadable without Hibernate. */
     private static final class EntityWrites {
         static final EntityWriteSupport INSTANCE = new HibernateEntityWriteSupport();
+    }
+
+    /** In a holder, as {@link Inserts} is, so the provider stays loadable without Hibernate. */
+    private static final class Locks {
+        static final LockSupport INSTANCE = new HibernateLockSupport();
     }
 
     /**
@@ -275,6 +281,12 @@ public final class HibernateProviderSupport implements ProviderSupport {
     @Override
     public Optional<EntityWriteSupport> entityWrites() {
         return Optional.of(EntityWrites.INSTANCE);
+    }
+
+    /** {@link HibernateLockSupport}: the dialect decides what renders, and {@code followOnLocking=false} (R-VND-15). */
+    @Override
+    public Optional<LockSupport> locks() {
+        return Optional.of(Locks.INSTANCE);
     }
 
     private static Optional<SessionFactoryImplementor> sessionFactory(EntityManagerFactory emf) {

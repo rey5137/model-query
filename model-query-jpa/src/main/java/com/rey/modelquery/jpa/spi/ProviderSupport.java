@@ -18,7 +18,7 @@ import java.util.stream.Stream;
  * {@code ServiceLoader}; the first that {@linkplain #supports supports} a factory serves it. Implementations are
  * stateless and thread-safe.
  *
- * @implSpec R-VND-04, R-EXE-03, R-VND-12, R-VND-13, R-VND-14, D-119
+ * @implSpec R-VND-04, R-EXE-03, R-VND-12, R-VND-13, R-VND-14, R-VND-15, D-119, D-127
  */
 @Incubating
 public interface ProviderSupport {
@@ -89,6 +89,14 @@ public interface ProviderSupport {
      * change tracking does not see, and refuses a loaded proxy with {@code MQ2503} (api/14 R-WRT-42, D-119).
      */
     default Optional<EntityWriteSupport> entityWrites() {
+        return Optional.empty();
+    }
+
+    /**
+     * The provider's row-lock support, or empty, the default, when it renders none: a locked read then throws
+     * {@code MQ4010} before any statement, the same fail-safe as {@link #inserts()} (R-VND-15, D-117, D-127).
+     */
+    default Optional<LockSupport> locks() {
         return Optional.empty();
     }
 }

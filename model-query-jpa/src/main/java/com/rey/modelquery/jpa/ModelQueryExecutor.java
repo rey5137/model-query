@@ -30,11 +30,20 @@ import java.util.stream.Stream;
  * {@code primaryKeyFirst(...)} a mismatch throws {@code MQ2206} before any query runs, whatever the method (R-PAG-15).
  * A customizer that changes a statement's ordering or grouping throws {@code MQ1205} (R-QRY-11).
  *
+ * <p>A query's lock ({@code ModelQuery#lock()}) is applied by {@code list}, {@code first}, {@code one} and
+ * {@code byKeys} to the statement that returns the model's rows, never to a fetch plan's statements. Before any
+ * statement, and before a zero limit or no keys returns nothing, a locked read throws
+ * {@code ModelQueryExecutionException}: {@code MQ2211} from {@code page}, {@code count}, {@code stream} and
+ * {@code export}, from {@code one(q)} with {@code SKIP_LOCKED}, and for a query whose statement has a join;
+ * {@code MQ4010} when the factory's provider cannot render the lock or the root entity is on more than one table; and
+ * {@code MQ2102} outside a transaction (R-EXE-14, R-VND-15).
+ *
  * @param <E> the root entity type
  * @implSpec R-QRY-10, R-QRY-09, R-QRY-11, R-EXE-01, R-EXE-02, R-EXE-03, R-EXE-04, R-EXE-07, R-EXE-09, R-PAG-01,
  *     R-PAG-02, R-PAG-03, R-PAG-07, R-PAG-08, R-PAG-09, R-PAG-10, R-PAG-11, R-PAG-12, R-PAG-13, R-PAG-14, R-PAG-15,
  *     R-AGG-09, R-WRT-01, R-WRT-07, R-WRT-08, R-WRT-15, R-WRT-16, R-WRT-17, R-WRT-18, R-WRT-19, R-WRT-20,
- *     R-EXE-13, R-WRT-23, R-WRT-24, R-WRT-26, R-WRT-33, R-WRT-39, R-WRT-41, R-WRT-48, R-VND-14, D-61
+ *     R-EXE-13, R-WRT-23, R-WRT-24, R-WRT-26, R-WRT-33, R-WRT-39, R-WRT-41, R-WRT-48, R-VND-14, D-61,
+ *     R-EXE-14, R-VND-15, D-127
  */
 @Incubating
 public interface ModelQueryExecutor<E> {
