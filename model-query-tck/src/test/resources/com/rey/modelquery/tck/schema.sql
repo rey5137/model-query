@@ -163,5 +163,6 @@ CREATE TABLE constant_rows (
     rank_no INT NULL,
     active  VARCHAR(1) @COLLATE@ NULL,
     label   VARCHAR(50) @COLLATE@ NULL,
-    tags    @JSONB@ NULL
+    tags    @JSONB@ NULL,
+    state   VARCHAR(1) @COLLATE@ NULL
 );

@@ -54,34 +54,53 @@ class TypedConstantTest {
 
     @Test
     void ac_col_32_a_provider_without_the_capability_throws_mq1508_when_the_constant_resolves() {
-        assertThatThrownBy(() -> Expr.constant(STATUS, "PAID").expression(JoinContext.of(fakeRoot(), null)))
+        assertThatThrownBy(() -> Expr.constant(STATUS, "PAID").operand(JoinContext.of(fakeRoot(), null)))
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ1508))
-                .hasMessageContaining("Model.status").hasMessageContaining("Expr.constant cannot render PAID");
+                .hasMessageContaining("Model.status").hasMessageContaining("Expr.constant cannot render PAID")
+                .hasMessageContaining("supplies no ConstantRenderer");
     }
 
     @Test
-    void ac_col_32_a_provider_that_stores_no_scalar_throws_mq1508() {
-        List<ConstantRenderer> renderers = List.of((entity, attribute, value) -> Optional.empty(),
-                (entity, attribute, value) -> Optional.of(new Object()));
-        for (ConstantRenderer renderer : renderers) {
-            assertThatThrownBy(() -> Expr.constant(STATUS, "PAID")
-                    .expression(context(renderOptions -> renderOptions.withConstantRenderer(renderer))))
-                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
-                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1508))
-                    .hasMessageContaining("the provider cannot store it");
-        }
+    void ac_col_32_a_provider_that_stores_no_scalar_throws_mq1508_naming_the_cause() {
+        assertThatThrownBy(() -> Expr.constant(STATUS, "PAID")
+                .operand(context(options -> options.withConstantRenderer((entity, attribute, value) -> Optional.empty()))))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1508))
+                .hasMessageContaining("must be a basic attribute of a root table's entity")
+                .hasMessageContaining("embedded, dotted or joined");
+        assertThatThrownBy(() -> Expr.constant(STATUS, "PAID")
+                .operand(context(options -> options.withConstantRenderer(
+                        (entity, attribute, value) -> Optional.of(new Object())))))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1508))
+                .hasMessageContaining("is not a String, Number or Boolean");
     }
 
     @Test
     void ac_col_32_a_witness_on_a_joined_table_throws_mq1508_even_with_a_renderer() {
         TableField<Entity, Entity> joined = TableField.join(ROOT, "parent", jakarta.persistence.criteria.JoinType.LEFT);
         ColumnField<Model, Entity, String> joinedStatus = ColumnField.of(Model.class, joined, "status", String.class);
-        assertThatThrownBy(() -> Expr.constant(joinedStatus, "PAID").expression(
+        assertThatThrownBy(() -> Expr.constant(joinedStatus, "PAID").operand(
                 context(options -> options.withConstantRenderer((entity, attribute, value) -> Optional.of("x")))))
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ1508))
-                .hasMessageContaining("not a joined column");
+                .hasMessageContaining("no root table's entity");
+    }
+
+    @Test
+    void ac_col_31_a_typed_constant_is_operand_only_in_a_projection_an_order_a_group_key_or_a_function_argument() {
+        var context = context(options -> options.withConstantRenderer((entity, attribute, value) -> Optional.of("x")));
+        var constant = Expr.constant(STATUS, "PAID");
+        assertThatThrownBy(() -> constant.expression(context))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1508))
+                .hasMessageContaining("operand-only");
+        // Nested in another expression, which resolves its arguments through expression(...).
+        assertThatThrownBy(() -> Expr.function("lower", String.class, constant).expression(context))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1508))
+                .hasMessageContaining("operand-only");
     }
 
     @Test
@@ -93,7 +112,7 @@ class TypedConstantTest {
             assertThat(attribute).isEqualTo("status");
             return Optional.of("stored");
         }));
-        Expression<String> expression = Expr.constant(STATUS, "PAID").expression(context);
+        Expression<String> expression = Expr.constant(STATUS, "PAID").operand(context);
         assertThat(seen.get()).isEqualTo("PAID");
         assertThat(expression.getJavaType()).isEqualTo(String.class);
     }

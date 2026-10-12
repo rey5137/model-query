@@ -49,6 +49,9 @@ class TypedConstantTest {
             ColumnField.of(R.class, ROWS, "active", Boolean.class);
     static final ColumnField<R, ConstantRowEntity, String> LABEL =
             ColumnField.of(R.class, ROWS, "label", String.class);
+    /** The status stored as its first letter through an {@code AttributeConverter}: a constant is its code (R-COL-27). */
+    static final ColumnField<R, ConstantRowEntity, ConstantStatus> STATE =
+            ColumnField.of(R.class, ROWS, "state", ConstantStatus.class);
     /** The label column through a {@link ColumnConverter}, so the constant is its trimmed stored text (R-COL-14). */
     static final ColumnField<R, ConstantRowEntity, String> TRIMMED_LABEL =
             ColumnField.of(R.class, ROWS, "label", String.class, String.class, new TrimmedLabel());
@@ -133,6 +136,36 @@ class TypedConstantTest {
         assertThat(sql.get(1)).contains("rank_no=1");
         assertThat(sql.get(2)).contains("active='Y'");
         assertThat(sql.get(3)).contains("label='padded'");
+    }
+
+    @TckTest
+    void ac_col_32_an_enum_over_an_attribute_converter_renders_its_stored_code(TckDatabase db) {
+        List<List<R>> results = new ArrayList<>();
+        List<String> sql = SqlSnapshots.assertMatches(db, "col-32-converted-enum", ds -> {
+            results.add(rows(ds, f -> f.compare(STATE, Op.EQ, Expr.constant(STATE, ConstantStatus.CLOSED))));
+            results.add(rows(ds, f -> f.in(STATE, Expr.constant(STATE, ConstantStatus.PENDING),
+                    Expr.constant(STATE, ConstantStatus.FAILED))));
+        });
+        // The stored value is the converter's letter, not the enum's name (which would match no row).
+        assertThat(results.get(0)).extracting(R::id).containsExactly(3L);
+        assertThat(results.get(1)).extracting(R::id).containsExactly(1L, 2L, 5L, 6L);
+        assertThat(sql.get(0)).contains("state='C'").doesNotContain("CLOSED");
+        assertThat(sql.get(1)).contains("in ('P','F')");
+    }
+
+    @TckTest
+    void ac_flt_20_not_in_with_a_null_valued_operand_matches_only_the_null_column_rows(TckDatabase db) {
+        List<List<R>> results = new ArrayList<>();
+        List<String> sql = SqlSnapshots.assertMatches(db, "flt-20-not-in-null-operand", ds -> {
+            // Row 5's label is the nullIf's sentinel, so the second operand is NULL for it.
+            results.add(rows(ds, f -> f.notIn(LABEL, Expr.constant(LABEL, "plain"), Expr.nullIf(LABEL, "padded"))));
+            results.add(rows(ds, f -> f.notIn(LABEL, Expr.constant(LABEL, "plain"), Expr.constant(LABEL, "x"))));
+        });
+        // NOT IN against a NULL operand is unknown for every row with a column value, so only the NULL row 4
+        // matches, through the OR IS NULL (R-FLT-19); without the NULL operand rows 2, 3, 5 and 6 match as well.
+        assertThat(results.get(0)).extracting(R::id).containsExactly(4L);
+        assertThat(results.get(1)).extracting(R::id).containsExactly(2L, 3L, 4L, 5L, 6L);
+        assertThat(sql.get(0)).contains("nullif(").contains("is null");
     }
 
     // ---- helpers

@@ -1755,7 +1755,9 @@ attribute's JPA mapping through an optional `ProviderSupport` capability reached
 capability); `typedBy` is a type witness, part of equality, never a column of the expression. `Expr.value(C)` binds a
 function argument as a statement parameter on every statement that renders it; `null` and `Optional`, `Collection` or
 `Map` values are `MQ1502`. Constants stay definition text (R-COL-18): each distinct constant is a distinct statement,
-so per-request values use `Expr.value`. Rejected: `eq`/`ne`/`lt`… field overloads (D-115; a field-form `ne` would
+so per-request values use `Expr.value`. A column-typed constant is operand-only (a comparison or `in` operand), else
+`MQ1508`. The `notIn` field form's `OR col IS NULL` can stop a partial index's predicate from matching; a plain `NOT IN`
+is `not(g -> g.in(col, a, b))`. Rejected: `eq`/`ne`/`lt`… field overloads (D-115; a field-form `ne` would
 include `NULL` rows where a partial-index predicate needs `<>`), varargs `in` (no `@SafeVarargs` on an interface
 method, D-87), a `List` form (a raw `List` binds to `in(col, Collection)`), a public `bind` on `JoinContext`, and
 `CAST(? AS type)` syntax (deferred; M19.2 spikes function-style casts). RFC 0002's draft ids (R-FLT-15..26,

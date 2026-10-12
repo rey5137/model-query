@@ -117,7 +117,7 @@ RFC 0004 (rey5137/model-query#29) is mapped the same way, by its own sections, a
 | RFC 0009 (D-127) | §4 provider surface; R-VND-15, AC-VND-13; rendering table, AC-PRF-10 | `vendor/40` R-VND-15, `vendor/41` §6–§7 |
 | RFC 0009 (D-127) | §5 repository reads honour the lock; R-SPR-16, AC-SPR-20 | `integration/50` R-SPR-16 |
 | RFC 0009 (D-127) | codes `MQ1209`, `MQ2102`, `MQ2211`, `MQ4010`; `MQ1809` gains a lock; INV-1 | `reference/90` §2, `api/14` R-WRT-48, SPEC.md §2 INV-1 |
-| RFC 0002 (D-128) | §Outcome 1 literal filters; R-FLT-19, AC-FLT-20 | `api/12` R-FLT-19 |
+| RFC 0002 (D-128) | §Outcome 1 literal filters; R-FLT-19, AC-FLT-20 | `api/12` R-FLT-19, `api/16` R-INS-09 |
 | RFC 0002 (D-128) | §Outcome 2 constants; R-COL-27, AC-COL-32 | `api/10` R-COL-27, `vendor/40` R-VND-16 |
 | RFC 0002 (D-128) | §Outcome 3 bound arguments; R-COL-26, AC-COL-31 | `api/10` R-COL-26 |
 | RFC 0002 (D-128) | §Outcome 3 plan cache, volatile function; R-FLT-09 binds | `api/12` R-FLT-09 |

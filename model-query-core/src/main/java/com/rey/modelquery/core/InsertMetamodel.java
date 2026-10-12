@@ -123,6 +123,7 @@ final class InsertMetamodel {
                 default -> {
                     condition.column().ifPresent(field -> requireOnSource(field, source, "where(...) reads"));
                     condition.right().ifPresent(field -> requireOnSource(field, source, "where(...) reads"));
+                    condition.operands().forEach(field -> requireOnSource(field, source, "where(...) reads"));
                     checkWhere(source, condition.children());
                 }
             }

@@ -199,7 +199,7 @@ class QueryInspectionTest {
                 .eq(NAME, "a").ne(NAME, "b").gt(TOTAL, 1).gte(TOTAL, 2).lt(TOTAL, 3).lte(TOTAL, 4)
                 .range(TOTAL, Optional.of(5), Optional.of(6)).between(TOTAL, 7, 8)
                 .in(TOTAL, List.of(9)).notIn(TOTAL, List.of(10))
-                .in(NAME, sub).notIn(NAME, sub)
+                .in(NAME, sub).notIn(NAME, sub).in(NAME, NAME, NAME).notIn(NAME, NAME, NAME)
                 .exists(sub, (s, outer) -> s.eq(outer.column(NAME), "x"))
                 .notExists(sub, (s, outer) -> s.isNull(outer.column(NAME)))
                 .like(NAME, "c", LikeMode.EXACT).likeIgnoreCase(NAME, "d", LikeMode.EXACT).eqIgnoreCase(NAME, "e")

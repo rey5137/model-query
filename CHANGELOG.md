@@ -30,11 +30,13 @@ Nothing is frozen yet: every public type stays `@Incubating`. The additions belo
   - `Filters#in` and `#notIn` take a fixed set of operand fields — `in(col, a, b)`, `in(col, a, b, c)` and the same
     for `notIn` — with the value forms' semantics, so `notIn` also keeps rows whose column is NULL. Each operand is a
     field of the column's own model and type, and `Expr.constant` inlines its literal, e.g. `in ('PENDING','FAILED')`.
+    They record as the new `Condition.Kind` values `IN_FIELDS` and `NOT_IN_FIELDS`, with `Condition#operands()`.
   - `Expr.constant(ColumnField typedBy, Object value)` types a constant by a column: the value goes through the
     column's `ColumnConverter` (`MQ1308` on failure) and then the attribute's JPA mapping — an `@Enumerated(STRING)`
     enum's name, an `ORDINAL` one's ordinal, an `AttributeConverter`'s stored value — inlined as the provider's
     literal text. The stored value must be a `String`, `Number` or `Boolean`, else `MQ1508`. `typedBy` is a type
-    witness, part of the expression's equality but no column of it and no join.
+    witness, part of the expression's equality but no column of it and no join. It is operand-only (a comparison or
+    `in`/`notIn` operand); as a model column, an order or a group key it is `MQ1508`.
   - `Expr.value(Object)` renders a value as a statement parameter, bound by the executor on every statement that
     renders it: `list`, `count`, an offset page, primary-key-first (both steps), a keyset page, a grouped or offset
     export, an `exists` or sub-select body, a CASE condition, and a chunked bulk update and delete. A `null`, an

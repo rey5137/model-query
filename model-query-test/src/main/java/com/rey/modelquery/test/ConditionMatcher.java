@@ -5,6 +5,7 @@ import com.rey.modelquery.core.Condition;
 import com.rey.modelquery.core.Condition.Kind;
 import com.rey.modelquery.core.LikeMode;
 import com.rey.modelquery.core.Op;
+import com.rey.modelquery.core.ScalarField;
 import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.SubSelect;
 import com.rey.modelquery.core.TableField;
@@ -32,6 +33,7 @@ public final class ConditionMatcher {
     private final String label;
     private final List<ConditionMatcher> children;
     private final SubSelect<?, ?> subSelect;
+    private final List<ScalarField<?, ?>> operands;
 
     ConditionMatcher(Kind kind, SelectField<?, ?> column, SelectField<?, ?> right, Op op, LikeMode likeMode,
             TableField<?, ?> path, List<?> values, String label, List<ConditionMatcher> children) {
@@ -41,6 +43,12 @@ public final class ConditionMatcher {
     ConditionMatcher(Kind kind, SelectField<?, ?> column, SelectField<?, ?> right, Op op, LikeMode likeMode,
             TableField<?, ?> path, List<?> values, String label, List<ConditionMatcher> children,
             SubSelect<?, ?> subSelect) {
+        this(kind, column, right, op, likeMode, path, values, label, children, subSelect, List.of());
+    }
+
+    ConditionMatcher(Kind kind, SelectField<?, ?> column, SelectField<?, ?> right, Op op, LikeMode likeMode,
+            TableField<?, ?> path, List<?> values, String label, List<ConditionMatcher> children,
+            SubSelect<?, ?> subSelect, List<? extends ScalarField<?, ?>> operands) {
         this.kind = Objects.requireNonNull(kind, "kind");
         this.column = column;
         this.right = right;
@@ -51,6 +59,7 @@ public final class ConditionMatcher {
         this.label = label;
         this.children = List.copyOf(children);
         this.subSelect = subSelect;
+        this.operands = List.copyOf(operands);
     }
 
     /** Whether {@code condition} is the one this matcher describes, with every operand matching in order. */
@@ -63,6 +72,7 @@ public final class ConditionMatcher {
                 || !Objects.equals(condition.path().orElse(null), path)
                 || !Objects.equals(condition.label().orElse(null), label)
                 || !Objects.equals(condition.subSelect().orElse(null), subSelect)
+                || !operandsMatch(condition.operands())
                 || !valuesMatch(condition.values())
                 || condition.children().size() != children.size()) {
             return false;
@@ -73,6 +83,15 @@ public final class ConditionMatcher {
             }
         }
         return true;
+    }
+
+    /** {@code IN_FIELDS} and {@code NOT_IN_FIELDS} operands match as a multiset, as the values of {@code IN} do. */
+    private boolean operandsMatch(List<ScalarField<?, ?>> actual) {
+        if (operands.size() != actual.size()) {
+            return false;
+        }
+        var remaining = new ArrayList<>(actual);
+        return operands.stream().allMatch(remaining::remove);
     }
 
     /** {@code IN} and {@code NOT_IN} values match as multisets, every other kind's in order. */
@@ -90,6 +109,6 @@ public final class ConditionMatcher {
     @Override
     public String toString() {
         return ConditionText.format(kind, column, op, right, path, values, likeMode, label, subSelect,
-                children.stream().map(ConditionMatcher::toString).toList());
+                operands, children.stream().map(ConditionMatcher::toString).toList());
     }
 }

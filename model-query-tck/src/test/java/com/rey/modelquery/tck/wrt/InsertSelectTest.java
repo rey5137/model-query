@@ -12,6 +12,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ChunkedWriteException;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.Filters;
 import com.rey.modelquery.core.InsertColumns;
 import com.rey.modelquery.core.Limit;
@@ -175,6 +176,29 @@ class InsertSelectTest {
         assertThat(written[0]).isEqualTo(expected.size());
         assertThat(archived).containsExactlyInAnyOrderElementsOf(expected);
         SqlSnapshots.assertMatches(db, "wrt-21-insert-select", writes(sql, "insert"));
+    }
+
+    @TckTest
+    void ac_col_31_an_insert_select_binds_a_value_argument_of_its_where_whole_and_chunked(TckDatabase db) {
+        UnaryOperator<Filters<Line>> bound =
+                f -> f.compare(LINE_STATUS, Op.EQ, Expr.value("PAID")).eq(LINE_COUNTRY, "DE").lt(LINE_ORDER_ID, 101L);
+        List<String> expected = read(db, PAID_IN_DE);
+        long[] written = new long[2];
+        var archived = new ArrayList<String>();
+
+        List<String> sql = SqlSnapshots.capture(db, ds -> {
+            inRolledBackTransaction(ds, em -> {
+                written[0] = archives(em).insert(archive(bound).build());
+                archived.addAll(archived(em));
+            });
+            inRolledBackTransaction(ds, em -> written[1] = archives(em).insert(
+                    archive(bound).chunked(ChunkOptions.size(5)).build()));
+        });
+
+        assertThat(written[0]).isEqualTo(expected.size());
+        assertThat(archived).containsExactlyInAnyOrderElementsOf(expected);
+        assertThat(written[1]).isEqualTo(expected.size());
+        assertThat(sql).noneMatch(statement -> statement.contains("'PAID'"));
     }
 
     @TckTest

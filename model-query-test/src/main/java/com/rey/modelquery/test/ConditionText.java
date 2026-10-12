@@ -4,6 +4,7 @@ import com.rey.modelquery.core.Condition;
 import com.rey.modelquery.core.Condition.Kind;
 import com.rey.modelquery.core.LikeMode;
 import com.rey.modelquery.core.Op;
+import com.rey.modelquery.core.ScalarField;
 import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.SubSelect;
 import com.rey.modelquery.core.TableField;
@@ -36,11 +37,12 @@ final class ConditionText {
         return format(condition.kind(), condition.column().orElse(null), condition.op().orElse(null),
                 condition.right().orElse(null), condition.path().orElse(null), condition.values(),
                 condition.likeMode().orElse(null), condition.label().orElse(null),
-                condition.subSelect().orElse(null), children);
+                condition.subSelect().orElse(null), condition.operands(), children);
     }
 
     static String format(Kind kind, SelectField<?, ?> column, Op op, SelectField<?, ?> right, TableField<?, ?> path,
-            List<?> values, LikeMode likeMode, String label, SubSelect<?, ?> subSelect, List<String> children) {
+            List<?> values, LikeMode likeMode, String label, SubSelect<?, ?> subSelect, List<? extends ScalarField<?, ?>> operands,
+            List<String> children) {
         var parts = new ArrayList<String>();
         if (column != null) {
             parts.add(column.toString());
@@ -58,6 +60,10 @@ final class ConditionText {
             parts.add(values.stream().map(ConditionText::value).collect(Collectors.joining(", ", "[", "]")));
         } else {
             values.forEach(value -> parts.add(value(value)));
+        }
+        // Operand fields bind nothing, so no placeholder stands for them (R-INS-09).
+        if (!operands.isEmpty()) {
+            parts.add(operands.stream().map(ScalarField::toString).collect(Collectors.joining(", ", "[", "]")));
         }
         if (likeMode != null) {
             parts.add(likeMode.name());

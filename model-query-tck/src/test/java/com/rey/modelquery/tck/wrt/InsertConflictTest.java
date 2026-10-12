@@ -5,10 +5,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.InsertColumns;
 import com.rey.modelquery.core.ModelInsert;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.Op;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.core.ValuesInsert;
 import com.rey.modelquery.jpa.ModelQueryConfig;
@@ -383,6 +385,17 @@ class InsertConflictTest {
                         assertThat(e.getMessage()).contains("an id attribute");
                     });
             assertThat(p.rows(ROWS)).isEqualTo(SEEDED);
+        }
+    }
+
+    @TckTest
+    void ac_wrt_25_a_bound_argument_in_a_conflict_update_where_throws_mq1804_on_first_execution(TckDatabase db) {
+        var insert = ValuesInsert.builder(NAMED, Long.class, List.of(new Named(3L, "c3", "N3")))
+                .onConflict(ID).doUpdate(u -> u.setFromRow(NAME).where(f -> f.compare(NAME, Op.NE, Expr.value("x"))))
+                .anyUniqueKey().build();
+
+        try (InsertProbes p = InsertProbes.open(db)) {
+            assertRefused(run(p, insert), "Expr.value");
         }
     }
 
