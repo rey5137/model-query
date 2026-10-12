@@ -142,6 +142,8 @@ public final class JoinTestSupport {
                 .addAnnotatedClass(FormulaProductEntity.class)
                 .addAnnotatedClass(FormulaLineEntity.class)
                 .addAnnotatedClass(DeliveryEntity.class)
+                .addAnnotatedClass(ViewOrderEntity.class)
+                .addAnnotatedClass(SubselectCustomerEntity.class)
                 .buildSessionFactory(registry);
     }
 }

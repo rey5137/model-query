@@ -90,6 +90,8 @@ class BulkWriteTest {
 
     record ItemPatch(Long id) {}
 
+    record ItemRowPatch(Long id) {}
+
     record TenantItemPatch(Integer tenantId, Integer itemNo) {}
 
     /** {@code #42} in the model, {@code 42} in the entity. */
@@ -168,6 +170,14 @@ class BulkWriteTest {
             TableField.join(ORDERS, "items", INNER);
     private static final ColumnField<OrderPatch, OrderItemEntity, Integer> ITEM_QUANTITY =
             ColumnField.of(OrderPatch.class, ORDER_ITEMS, "quantity", Integer.class);
+
+    /** The counter update's root: an order item, whose {@code quantity} has no {@code @Version} to write too. */
+    private static final TableField<OrderItemEntity, OrderItemEntity> ITEM_ROWS =
+            TableField.root(OrderItemEntity.class);
+    private static final ColumnField<ItemRowPatch, OrderItemEntity, Long> ITEM_ROW_ID =
+            ColumnField.of(ItemRowPatch.class, ITEM_ROWS, "id", Long.class);
+    private static final ColumnField<ItemRowPatch, OrderItemEntity, Integer> ITEM_ROW_QUANTITY =
+            ColumnField.of(ItemRowPatch.class, ITEM_ROWS, "quantity", Integer.class);
 
 
     private static final TableField<CustomerEntity, CustomerEntity> CUSTOMERS = TableField.root(CustomerEntity.class);
@@ -940,6 +950,34 @@ class BulkWriteTest {
         });
 
         assertThat(stored.get(0)).containsExactly("Renamed", "Customer 0007@old.test");
+    }
+
+    // ---- AC-WRT-41
+
+    @TckTest
+    void ac_wrt_41_set_expression_increments_an_integer_column_on_exactly_the_filtered_rows(TckDatabase db) {
+        var update = ModelUpdate.builder(ITEM_ROWS)
+                .primaryKey(PrimaryKey.of(ITEM_ROW_ID))
+                .setExpression(ITEM_ROW_QUANTITY, (quantity, cb) -> cb.sum(quantity, 1))
+                .where(f -> f.lte(ITEM_ROW_ID, 10L))
+                .build();
+        var stored = new LinkedHashMap<Long, Integer>();
+        long[] written = new long[1];
+
+        inRolledBackTransaction(JoinTestSupport.dataSource(db), em -> {
+            written[0] = ModelQueryExecutor.create(em, OrderItemEntity.class, ModelQueryConfig.defaults())
+                    .update(update);
+            em.createQuery("select i.id, i.quantity from OrderItemEntity i where i.id <= 20 order by i.id",
+                            Object[].class).getResultList()
+                    .forEach(row -> stored.put((Long) row[0], (Integer) row[1]));
+        });
+
+        assertThat(written[0]).isEqualTo(10);
+        for (long id = 1; id <= 20; id++) {
+            // The seed's quantity is a pure function of the row number: i % 9 + 1.
+            int seeded = (int) (id % 9 + 1);
+            assertThat(stored.get(id)).as("quantity of item %s", id).isEqualTo(id <= 10 ? seeded + 1 : seeded);
+        }
     }
 
     // ---- support

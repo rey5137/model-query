@@ -673,6 +673,53 @@ class AggregatesTest {
                         .map(r -> org.assertj.core.groups.Tuple.tuple(r[0], r[1])).toList());
     }
 
+    // ---- AC-AGG-16: a runtime groupBy over one of the model's @GroupBy keys
+
+    @TckTest
+    void ac_agg_16_runtime_group_by_over_one_key_leaves_the_other_group_by_field_null(TckDatabase db) {
+        var query = QItemGroupTotals.query()
+                .select(SelectSet.of(QItemGroupTotals.TENANT_ID, QItemGroupTotals.ITEMS))
+                .groupBy(QItemGroupTotals.TENANT_ID)
+                .orderBy(QItemGroupTotals.TENANT_ID.asc())
+                .build();
+        List<ItemGroupTotals> groups = new ArrayList<>();
+        inSession(db, em -> groups.addAll(run(em, query)));
+        assertThat(groups).hasSize(TckFixture.COMPOSITE_TENANTS);
+        for (int i = 0; i < groups.size(); i++) {
+            ItemGroupTotals group = groups.get(i);
+            assertThat(group.tenantId()).as("tenant of group %d", i).isEqualTo(i + 1);
+            assertThat(group.items()).as("items of tenant %d", group.tenantId())
+                    .isEqualTo((long) TckFixture.COMPOSITE_ITEMS_PER_TENANT);
+            // The other @GroupBy field is not selected, so the mapper leaves it unfilled.
+            assertThat(group.label()).as("label of tenant %d", group.tenantId()).isNull();
+        }
+    }
+
+    @TckTest
+    void ac_agg_16_runtime_group_by_with_a_select_set_leaves_the_other_group_by_field_null(TckDatabase db) {
+        var query = QItemGroupTotals.query()
+                .select(SelectSet.of(QItemGroupTotals.LABEL, QItemGroupTotals.AMOUNT))
+                .groupBy(SelectSet.of(QItemGroupTotals.LABEL))
+                .orderBy(QItemGroupTotals.LABEL.asc())
+                .build();
+        List<ItemGroupTotals> groups = new ArrayList<>();
+        List<Object[]> expected = new ArrayList<>();
+        inSession(db, em -> {
+            groups.addAll(run(em, query));
+            expected.addAll(em.createNativeQuery("select label, sum(amount) from composite_key_items "
+                    + "group by label order by label").getResultList());
+        });
+        // The fixture's labels run label-00 .. label-24: 25 groups of 80 items each.
+        assertThat(expected).hasSize(25);
+        assertThat(groups).hasSameSizeAs(expected);
+        for (int i = 0; i < groups.size(); i++) {
+            ItemGroupTotals group = groups.get(i);
+            assertThat(group.label()).isEqualTo(expected.get(i)[0]);
+            assertThat(group.amount()).isEqualByComparingTo((BigDecimal) expected.get(i)[1]);
+            assertThat(group.tenantId()).as("tenant of label %s", group.label()).isNull();
+        }
+    }
+
     // ---- helpers
 
     private static <V> List<V> run(EntityManager em, ModelQuery<?, ?, V> query) {

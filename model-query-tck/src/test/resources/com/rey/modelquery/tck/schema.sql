@@ -148,3 +148,6 @@ CREATE TABLE dated_rows (
     rings_at  TIME NOT NULL,
     logged_at @MICRO_TS@ NOT NULL
 );
+-- A read-only view over orders: an @Immutable entity over it is an ordinary root (TCK AC-COL-29). Plain
+-- CREATE VIEW, which every Tier-1 vendor accepts.
+CREATE VIEW order_view AS SELECT id, customer_id, status, total FROM orders;
