@@ -3,3 +3,4 @@ com.rey.modelquery.jpa.RowLockExecutionTest$Locks
 com.rey.modelquery.jpa.RowLockExecutionTest$NoLocks
 com.rey.modelquery.jpa.RowLockExecutionTest$Unrendered
 com.rey.modelquery.jpa.StreamFetchSizeTest$RecordingSupport
+com.rey.modelquery.jpa.TypedConstantExecutionTest$Constants

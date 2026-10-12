@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
  * with no filter is {@code MQ1504}, and one using {@code add}, {@code exists} or a sub-select is {@code MQ1505}; a
  * function name that is not a plain identifier or is a built-in aggregate is {@code MQ1506} (R-COL-17).
  *
- * @implSpec api/10 §3a, R-COL-17, R-COL-18, D-115
+ * @implSpec api/10 §3a, R-COL-17, R-COL-18, R-COL-27, D-115, D-128
  */
 @Incubating
 public final class Expr {
@@ -205,6 +205,26 @@ public final class Expr {
     /** {@code value} as SQL definition text (R-COL-18). */
     public static <M> ExpressionField<M, Boolean> constant(boolean value) {
         return new ExpressionField<>(new ExpressionField.Const(value, Boolean.class), Boolean.class, null);
+    }
+
+    /**
+     * {@code value}, a value of {@code typedBy}'s attribute, as SQL definition text the planner can see (R-COL-27):
+     * the value goes through the column's {@code ColumnConverter} and then the attribute's JPA mapping
+     * ({@code @Enumerated}, {@code AttributeConverter}) through the provider's {@link ConstantRenderer}, and renders as
+     * the provider's literal. {@code typedBy} is a type witness: part of equality, but of no column and no join.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1502} when {@code value} is null; {@code MQ1308} when the
+     *     column's converter cannot convert it; {@code MQ1508} at first resolution when the provider cannot render it
+     */
+    public static <M, C> ExpressionField<M, C> constant(ColumnField<M, ?, C> typedBy, C value) {
+        Objects.requireNonNull(typedBy, "typedBy");
+        if (value == null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1502, typedBy + ": a constant value is null; a constant "
+                    + "is definition text, and NULL is matched with isNull(...)");
+        }
+        Class<C> type = typedBy.type();
+        return new ExpressionField<>(new ExpressionField.TypedConst(typedBy, typedBy.toAttribute(value), type), type,
+                null);
     }
 
     /**

@@ -105,6 +105,27 @@ public sealed interface Filters<M> permits FilterGroup {
     <C> Filters<M> notIn(ScalarField<M, C> column, Optional<? extends Collection<? extends C>> values);
 
     /**
+     * {@code column IN (first, second)} over scalar fields of the column's own model and type, so an
+     * {@link Expr#constant} operand puts the literal a planner must see in the set; an operand of another model or
+     * type does not compile (R-FLT-19). A null operand throws {@code MQ1301}.
+     */
+    <C> Filters<M> in(ScalarField<M, C> column, ScalarField<M, C> first, ScalarField<M, C> second);
+
+    /** {@link #in(ScalarField, ScalarField, ScalarField)} with a third operand. */
+    <C> Filters<M> in(ScalarField<M, C> column, ScalarField<M, C> first, ScalarField<M, C> second,
+            ScalarField<M, C> third);
+
+    /**
+     * {@code column NOT IN (first, second) OR column IS NULL}: rows whose column is NULL match, as the value form
+     * does (R-FLT-04, R-FLT-19). A null operand throws {@code MQ1301}.
+     */
+    <C> Filters<M> notIn(ScalarField<M, C> column, ScalarField<M, C> first, ScalarField<M, C> second);
+
+    /** {@link #notIn(ScalarField, ScalarField, ScalarField)} with a third operand. */
+    <C> Filters<M> notIn(ScalarField<M, C> column, ScalarField<M, C> first, ScalarField<M, C> second,
+            ScalarField<M, C> third);
+
+    /**
      * {@code column IN (SELECT s.c FROM ... WHERE ...)} over a {@link SubSelect} (R-FLT-15, R-FLT-16). The sub-select
      * is never correlated and is never skipped, even when every one of its own filters was skipped; skip it with
      * {@link #when}. An empty sub-select matches no row. A {@code Long} column against an {@code Integer} sub-select

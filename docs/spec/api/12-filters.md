@@ -244,6 +244,24 @@ nested `exists(path, …)` inside the correlation may use it (exempt from `MQ130
   lifted column inside it counts for `MQ1309`.
 - A sub-select still selects a column only.
 
+**R-FLT-19** *(D-128)* **`in` and `notIn` against operands.** Fixed-arity field forms put an expression in the set:
+
+```java
+<C> Filters<M> in(ScalarField<M, C> column, ScalarField<M, C> first, ScalarField<M, C> second);
+<C> Filters<M> in(ScalarField<M, C> column, ScalarField<M, C> first, ScalarField<M, C> second,
+        ScalarField<M, C> third);
+// and the same two for notIn
+```
+
+- `in` renders `column IN (first, second[, third])`; `notIn` renders `column NOT IN (first, second[, third]) OR column
+  IS NULL`, so rows whose column is NULL match, exactly as the value form does (R-FLT-04, R-FLT-02).
+- An operand is a `ScalarField` of the column's own model and type, so an `Expr.constant` puts the literal the
+  planner must see in the set (`api/10` R-COL-18, R-COL-27) and a mismatched operand, or one of another model, does
+  not compile. The operands record as the condition's values (R-INS-01).
+- There is no `Optional` form and no `List` form: a raw `List` would bind to `in(column, Collection)` (R-FLT-02), and
+  an `in(column, List.of(a, b))` of fields reads as the value form's `Collection<? extends C>`. There is no varargs
+  form, because an interface method cannot carry `@SafeVarargs` (D-87).
+
 ## 8. Scope
 
 **R-FLT-13** *(was R15)* Filter values never change a query's meaning by accident: empty `Optional` skips; an empty
@@ -275,3 +293,4 @@ collection means "none"; negation includes NULLs; `like` input is escaped; long 
 | AC-FLT-17 | Every operator, value and `Optional` form, over an expression operand, and `compare` between an expression and a column, return on every Tier-1 vendor the rows the same predicate written over a column computed in a view or in Java returns. `ne` and `notIn` over a nullable expression include its NULL rows. A skipped filter over an expression adds no join (R-FLT-18, R-FLT-04, R-FLT-03). |
 | AC-FLT-18 | An expression over a column outside the `exists` path throws `MQ1302`. One in a sub-select's `where` over another root throws `MQ1003`. A correlation whose only lifted column sits inside an expression is not `MQ1309` (R-FLT-18). |
 | AC-FLT-19 | A bulk update and a bulk delete whose `where` compares an expression change exactly the rows `list` returns for that filter, key-first on MySQL too (R-FLT-18, `api/14` R-WRT-11). |
+| AC-FLT-20 | On every Tier-1 vendor, `in(col, a, b)`, `in(col, a, b, c)` and the same two for `notIn` return the rows whose column equals one of the operands, `notIn` also returns the rows whose column is NULL, and a `'` and a `\` in a constant operand round-trip. The statement inlines the operand literals, e.g. `in ('PENDING','FAILED')`. `var` infers the call, and operands of another model or type do not compile (R-FLT-19, R-COL-27). |

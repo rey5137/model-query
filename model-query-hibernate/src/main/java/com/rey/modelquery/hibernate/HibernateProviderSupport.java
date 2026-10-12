@@ -1,6 +1,7 @@
 package com.rey.modelquery.hibernate;
 
 import com.rey.modelquery.annotations.Incubating;
+import com.rey.modelquery.core.ConstantRenderer;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
@@ -287,6 +288,12 @@ public final class HibernateProviderSupport implements ProviderSupport {
     @Override
     public Optional<LockSupport> locks() {
         return Optional.of(Locks.INSTANCE);
+    }
+
+    /** {@link HibernateConstantRenderer}: the attribute's mapping in {@code emf}'s metamodel (R-VND-16). */
+    @Override
+    public Optional<ConstantRenderer> constants(EntityManagerFactory emf) {
+        return sessionFactory(emf).map(HibernateConstantRenderer::new);
     }
 
     private static Optional<SessionFactoryImplementor> sessionFactory(EntityManagerFactory emf) {

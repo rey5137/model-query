@@ -148,6 +148,9 @@ public enum MqCode {
     /** An expression's declared type is not the type the provider resolves (R-COL-17). */
     MQ1507("An expression's declared type is not the type the provider resolves"),
 
+    /** A column-typed constant cannot be rendered as a literal (R-COL-27). */
+    MQ1508("A column-typed constant cannot be rendered as a literal"),
+
     /** A bulk write chose its rows with {@code where(...)} and no predicate is left (R-WRT-12). */
     MQ1601("A bulk write's where(...) left no predicate; all() is the only way to write every row"),
 

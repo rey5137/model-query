@@ -151,3 +151,14 @@ CREATE TABLE dated_rows (
 -- A read-only view over orders: an @Immutable entity over it is an ordinary root (TCK AC-COL-29). Plain
 -- CREATE VIEW, which every Tier-1 vendor accepts.
 CREATE VIEW order_view AS SELECT id, customer_id, status, total FROM orders;
+-- One row per mapping a column-typed constant renders through, every attribute nullable (TCK AC-FLT-20, AC-COL-32):
+-- a STRING enum, an ORDINAL enum (Hibernate maps one to TINYINT, which every Tier-1 vendor stores in an INT column)
+-- and a Boolean over a Y/N text column.
+-- The ordinal's column is rank_no: RANK is a reserved word on MySQL 8.
+CREATE TABLE constant_rows (
+    id      BIGINT NOT NULL PRIMARY KEY,
+    status  VARCHAR(20) @COLLATE@ NULL,
+    rank_no INT NULL,
+    active  VARCHAR(1) @COLLATE@ NULL,
+    label   VARCHAR(50) @COLLATE@ NULL
+);
