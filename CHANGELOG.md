@@ -4,6 +4,28 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html); the public API may change in any `0.x`
 release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
+## [Unreleased]
+
+Nothing is frozen yet: every public type stays `@Incubating`. The additions below are all `@Incubating`.
+
+### Added
+- Row locks on reads (D-127, RFC 0009), described in "Row locks" and the "Claim the next job" recipe:
+  - `RowLock` names a strength (`exclusive` or `shared`) and a wait policy (`Wait.WAIT`, `NO_WAIT` or `SKIP_LOCKED`).
+    `ModelQuery.Builder#lock` sets it, `ModelQuery#lock()` reads it back, and `ModelQuery#withLock` returns a locking
+    copy as `orderedBy` does, keeping the fetch plan.
+  - `list`, `list(q, Limit)`, `first`, `one`, `one(q, key)` and `byKeys` take the lock; `byKeys` locks each chunk's
+    statement ordered by primary key. `page`, keyset `page`, `count`, `stream` and `export` refuse a locked query with
+    `MQ2211`, as does a joined query and `one(q)` with `SKIP_LOCKED`; `persist(..., returning)` refuses one with
+    `MQ1809`. A fetch plan's own statements stay unlocked.
+  - A locked read needs an active transaction, else `MQ2102`. A lock on a grouped query is `MQ1209`, and `MQ1205` now
+    covers a customizer that adds `distinct` or `having` to a locked query.
+  - `ModelQueryRepository.findAll(q, Limit)`, `findOne`, `findFirst`, `findByKey` and `findAllByKeys` take the lock;
+    `findPage` and `findKeysetPage` throw `MQ2211`, and a locked read with no ambient transaction is `MQ2102`.
+  - The new codes `MQ1209`, `MQ2102`, `MQ2211` and `MQ4010`; `MQ1809` gained the lock case and `MQ1205` the two
+    customizer clauses. A lock the provider cannot render — a wait the running Hibernate's dialect drops, or a root
+    mapped to more than one table — is `MQ4010`. Rendering is verified on the Tier-1 vendors (H2, PostgreSQL and
+    MySQL) on both Hibernate lines.
+
 ## [0.8.0] - 2026-10-09
 
 Nothing is frozen yet: every public type stays `@Incubating`, and the freeze review moves to a later milestone. The

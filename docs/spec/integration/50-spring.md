@@ -120,6 +120,15 @@ so each call resolves to one method (a lambda still goes to `Specification`), an
 Fragment methods are not derived queries, so `findFirst`, `findByKey` and `findAllByKeys` are not parsed as query
 names.
 
+**R-SPR-16** *(D-127)* The reads that take a row lock take the query's lock (`api/11` R-QRY-17, `engine/20` R-EXE-14),
+and add no lock semantics of their own (R-SPR-01). `findAll(q, Limit)`, `findOne(q)`, `findFirst(q)`,
+`findByKey(q, key)` and `findAllByKeys(q, keys)` lock as the executor's `list`, `one`, `first`, `one(q, key)` and
+`byKeys` do. `findPage` and `findKeysetPage` throw the executor's `MQ2211`: paging refuses every lock, and the
+`Pageable`/`Sort` → `orderedBy` conversion keeps it, so the refusal is before any statement. A locked read with no
+ambient transaction is the executor's `MQ2102`, because the repository opens none for it (unlike `stream`, R-SPR-03);
+a lock the provider cannot render is the executor's `MQ4010`. Library and provider exceptions pass through unchanged
+(D-50).
+
 ## 3. Properties
 
 | Property | Default | Meaning |
@@ -178,3 +187,4 @@ configurer that sets either keeps the shared entries only by passing them along.
 | AC-SPR-17 | AC-SPR-15's subclass keeps an unchanged definition and its composition holds exactly one `ModelQueryRepository` implementation; a subclass definition already setting `customImplementation` fails with `MQ4008`; `MQ4007` holds on the new route (R-SPR-02, R-SPR-12, D-113). |
 | AC-SPR-18 | A repository extending `JpaRepository`, `JpaSpecificationExecutor`, `QueryByExampleExecutor` and `ModelQueryRepository` starts, `findFirst` and `findByKey` not parsed as derived queries, and routes `findOne(Example)`, `findOne(Specification)` and `findOne(ModelQuery)` each to its own implementation (R-SPR-15). |
 | AC-SPR-19 | Through a Spring Data repository, `findAllByKeys` returns the same map as the executor's `byKeys` (key order, missing keys absent), and an `MQ2003`/`MQ2005` failure surfaces as the `ModelQueryException` unchanged (R-SPR-15, D-126). |
+| AC-SPR-20 | In a read-write transaction, each locked repository read (`findAll(q, Limit)`, `findOne`, `findFirst`, `findByKey`, `findAllByKeys`) renders the same SQL as the executor (lock clause included) and returns its rows; `findPage` and `findKeysetPage` on a locked query throw `MQ2211` before any statement; a locked `findOne` with no transaction throws `MQ2102` (R-SPR-16). |

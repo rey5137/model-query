@@ -6,9 +6,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Filters;
 import com.rey.modelquery.core.InsertColumns;
+import com.rey.modelquery.core.KeysetSpec;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelInsert;
@@ -18,6 +20,7 @@ import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.RowLock;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.core.ValuesInsert;
@@ -44,6 +47,7 @@ import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -51,10 +55,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import javax.sql.DataSource;
+import org.assertj.core.api.InstanceOfAssertFactories;
 import org.hibernate.SessionFactory;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.EntityManagerFactoryUtils;
@@ -475,6 +482,62 @@ class ModelQueryRepositoryTest {
         });
     }
 
+    // ---- AC-SPR-20
+
+    @TckTest
+    void ac_spr_20_locked_repository_reads_run_the_executors_locked_sql(TckDatabase db) {
+        ModelQuery<OrderEntity, ?, OrderRow> locked = NEW_ORDERS.withLock(RowLock.exclusive());
+        ModelQuery<OrderEntity, Long, OrderRow> oneKey =
+                ORDER_ROWS.where(f -> f.eq(ID, 7L)).build().withLock(RowLock.exclusive());
+        ModelQuery<OrderEntity, Long, OrderRow> keyed = ORDER_ROWS.build().withLock(RowLock.exclusive());
+        List<Object> rows = assertLockedSameAsExecutor(db,
+                executor -> List.of(executor.list(locked, Limit.of(25)), executor.one(oneKey), executor.first(locked),
+                        executor.one(oneKey, 7L), executor.byKeys(keyed, List.of(7L, 42L))),
+                repository -> List.of(repository.findAll(locked, Limit.of(25)), repository.findOne(oneKey),
+                        repository.findFirst(locked), repository.findByKey(oneKey, 7L),
+                        repository.findAllByKeys(keyed, List.of(7L, 42L))));
+
+        // The helper asserts each read's locked SQL and result equal the executor's; these check rows came back.
+        assertThat((List<?>) rows.get(0)).as("findAll returned the executor's NEW rows").isNotEmpty();
+        assertThat((Optional<?>) rows.get(1)).map(row -> ((OrderRow) row).id()).contains(7L);
+        assertThat((Optional<?>) rows.get(2)).isPresent();
+        assertThat((Optional<?>) rows.get(3)).map(row -> ((OrderRow) row).id()).contains(7L);
+        assertThat(rows.get(4)).asInstanceOf(InstanceOfAssertFactories.MAP)
+                .as("findAllByKeys returned both keys").containsKeys(7L, 42L);
+    }
+
+    @TckTest
+    void ac_spr_20_find_page_and_find_keyset_page_refuse_a_lock_with_mq2211(TckDatabase db) {
+        ModelQuery<OrderEntity, ?, OrderRow> locked = NEW_ORDERS.withLock(RowLock.exclusive());
+        List<String> sql = SqlSnapshots.capture(db, ds -> withRepository(ds, DefaultTransactions.class,
+                (repository, context) -> {
+                    TransactionTemplate inner = new TransactionTemplate(
+                            context.getBean(TRANSACTIONS, PlatformTransactionManager.class));
+                    inner.executeWithoutResult(status -> {
+                        assertMq2211(() -> repository.findPage(locked, PageRequest.of(0, 5), CountMode.COUNT));
+                        assertMq2211(() -> repository.findKeysetPage(locked, KeysetSpec.first(5), Sort.unsorted()));
+                    });
+                    return null;
+                }));
+
+        assertThat(sql).isEmpty();
+    }
+
+    @TckTest
+    void ac_spr_20_a_locked_find_one_without_a_transaction_is_mq2102(TckDatabase db) {
+        ModelQuery<OrderEntity, ?, OrderRow> locked = NEW_ORDERS.withLock(RowLock.exclusive());
+        List<String> sql = SqlSnapshots.capture(db, ds -> withRepository(ds, DefaultTransactions.class,
+                (repository, context) -> {
+                    assertThatThrownBy(() -> repository.findOne(locked))
+                            .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                                    e -> assertThat(e.code()).isEqualTo(MqCode.MQ2102))
+                            .hasMessageContaining(MqCode.MQ2102.code() + ": ");
+                    return null;
+                }));
+
+        assertThat(sql).isEmpty();
+    }
+
     // ---- support
 
     /** Commits {@code count} orders of customer 1 above {@link #TEMPORARY}, with status {@code NEW}. */
@@ -545,6 +608,47 @@ class ModelQueryRepositoryTest {
         assertThat(repositorySql).isNotEmpty().isEqualTo(executorSql);
         assertThat(actual.get()).isEqualTo(expected.get());
         return actual.get();
+    }
+
+    /**
+     * As {@link #assertSameAsExecutor}, for the reads that take a row lock (R-SPR-16, AC-SPR-20): the repository work
+     * runs inside a read-write transaction of the repository's own manager, since a locked read needs one. Asserts
+     * both ran the same locked, non-empty SQL (every statement carrying a locking clause) and returned the same rows.
+     */
+    static <X> X assertLockedSameAsExecutor(TckDatabase db,
+            Function<ModelQueryExecutor<OrderEntity>, X> viaExecutor, Function<OrderRepository, X> viaRepository) {
+        AtomicReference<X> expected = new AtomicReference<>();
+        List<String> executorSql = SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+                sf.inTransaction(em -> expected.set(viaExecutor.apply(
+                        ModelQueryExecutor.create(em, OrderEntity.class, ModelQueryConfig.defaults()))));
+            }
+        });
+        AtomicReference<X> actual = new AtomicReference<>();
+        List<String> repositorySql = SqlSnapshots.capture(db, ds -> actual.set(withRepository(ds,
+                DefaultTransactions.class, (repository, context) -> new TransactionTemplate(
+                        context.getBean(TRANSACTIONS, PlatformTransactionManager.class))
+                        .execute(status -> viaRepository.apply(repository)))));
+
+        assertThat(repositorySql).isNotEmpty().isEqualTo(executorSql);
+        assertThat(executorSql).allSatisfy(statement ->
+                assertThat(locked(statement)).as("locked statement, but: %s", statement).isTrue());
+        assertThat(actual.get()).isEqualTo(expected.get());
+        return actual.get();
+    }
+
+    /** Whether {@code statement} carries a locking clause, whatever the vendor renders. */
+    private static boolean locked(String statement) {
+        String lower = statement.toLowerCase(Locale.ROOT);
+        return lower.contains("for update") || lower.contains("for no key update") || lower.contains("for share");
+    }
+
+    /** Asserts {@code call} throws the executor's {@code MQ2211}, the lock on a read that refuses one (R-EXE-14). */
+    private static void assertMq2211(Runnable call) {
+        assertThatThrownBy(call::run)
+                .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ2211))
+                .hasMessageContaining(MqCode.MQ2211.code() + ": ");
     }
 
     private static List<Long> exported(Function<List<Long>, Long> export) {

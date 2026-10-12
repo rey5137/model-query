@@ -96,6 +96,11 @@ default, so a class that implements `ModelQueryExecutor` itself must add it. `Pr
 [One model for reading and creating](models.md#one-model-for-reading-and-creating) and
 [Reading many keys](queries.md#reading-many-keys).
 
+The row-lock members are new in 0.9.0 and `@Incubating` (D-127), and join the list above. They are `RowLock` and its
+`Wait`, `ModelQuery.Builder#lock`, `ModelQuery#lock()` and `ModelQuery#withLock`; `ProviderSupport#locks()` returns an
+`Optional<LockSupport>`, and both are in `jpa.spi`, `@Incubating` and not `@EngineFacing`, so a provider implements
+them as an extension point. See [Row locks](queries.md#row-locks).
+
 The fetch-plan types are new in 0.2.0, `@Incubating`, and not yet placed in the 1.0 freeze list above:
 `FetchPlan`, `ChildField`, `JoinField`, `ChildQuery`, `Enricher` and the `@Child` annotation. The executor-facing
 `ChildLoad` and `JoinPlan` are `@EngineFacing`. See [Fetch plans](fetch-plans.md).
