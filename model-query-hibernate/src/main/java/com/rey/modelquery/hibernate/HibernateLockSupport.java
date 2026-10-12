@@ -5,9 +5,11 @@ import com.rey.modelquery.jpa.spi.LockSupport;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.TypedQuery;
+import jakarta.persistence.criteria.CriteriaQuery;
 import org.hibernate.LockOptions;
 import org.hibernate.dialect.Dialect;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
+import org.hibernate.query.sqm.tree.from.SqmFrom;
 
 /**
  * Hibernate's {@link LockSupport}, compiled against Hibernate 6.6 and run on 7.x as well: it uses only API both have.
@@ -19,7 +21,7 @@ import org.hibernate.engine.spi.SessionFactoryImplementor;
  */
 final class HibernateLockSupport implements LockSupport {
 
-    /** Hibernate's lock-timeout hint: {@code 0} does not wait, {@code -2} skips a locked row, absent waits. */
+    /** Hibernate's lock-timeout hint: {@code 0} does not wait, {@code -2} skips a locked row, {@code -1} waits. */
     private static final String LOCK_TIMEOUT = "jakarta.persistence.lock.timeout";
 
     /** Hibernate's hint that turns a locking clause that locks no loaded entity into a failure instead of a no-op. */
@@ -40,7 +42,10 @@ final class HibernateLockSupport implements LockSupport {
 
     /** {@link #rendered}, on the {@code dialect} alone, so a unit test needs no factory. */
     static boolean isRendered(Dialect dialect, RowLock lock) {
-        boolean exclusive = lock.strength() == RowLock.Strength.EXCLUSIVE;
+        boolean exclusive = switch (lock.strength()) {
+            case EXCLUSIVE -> true;
+            case SHARED -> false;
+        };
         return switch (lock.waitPolicy()) {
             case WAIT -> true;
             case NO_WAIT -> exclusive ? dialect.supportsNoWait() : readClause(dialect, lock).contains("nowait");
@@ -51,23 +56,37 @@ final class HibernateLockSupport implements LockSupport {
 
     /** The clause {@code dialect} appends to a read lock at {@code lock}'s wait timeout. */
     private static String readClause(Dialect dialect, RowLock lock) {
-        return dialect.getReadLockString(switch (lock.waitPolicy()) {
-            case NO_WAIT -> LockOptions.NO_WAIT;
-            case SKIP_LOCKED -> LockOptions.SKIP_LOCKED;
-            case WAIT -> LockOptions.WAIT_FOREVER;
-        });
+        return dialect.getReadLockString(timeout(lock));
+    }
+
+    /** Joins in Hibernate's own tree, where entity joins and fetches live though {@code getJoins()} omits them. */
+    @Override
+    public boolean hasUnreportedJoins(CriteriaQuery<?> query) {
+        return query.getRoots().stream()
+                .anyMatch(root -> root instanceof SqmFrom<?, ?> from && !from.getSqmJoins().isEmpty());
     }
 
     /** A pessimistic write lock for {@code exclusive()}, a pessimistic read lock for {@code shared()}. */
     @Override
     public void apply(TypedQuery<?> query, RowLock lock) {
-        query.setLockMode(lock.strength() == RowLock.Strength.EXCLUSIVE ? LockModeType.PESSIMISTIC_WRITE
-                : LockModeType.PESSIMISTIC_READ);
-        switch (lock.waitPolicy()) {
-            case NO_WAIT -> query.setHint(LOCK_TIMEOUT, LockOptions.NO_WAIT);
-            case SKIP_LOCKED -> query.setHint(LOCK_TIMEOUT, LockOptions.SKIP_LOCKED);
-            case WAIT -> { }
-        }
+        query.setLockMode(switch (lock.strength()) {
+            case EXCLUSIVE -> LockModeType.PESSIMISTIC_WRITE;
+            case SHARED -> LockModeType.PESSIMISTIC_READ;
+        });
+        query.setHint(LOCK_TIMEOUT, timeout(lock));
         query.setHint(FOLLOW_ON_LOCKING, false);
+    }
+
+    /**
+     * Hibernate's lock timeout for {@code lock}'s wait policy. WAIT maps to {@code WAIT_FOREVER} rather than no
+     * timeout: Hibernate copies a factory or session lock timeout onto every query, which would otherwise turn a plain
+     * wait into NOWAIT (0) or SKIP LOCKED (-2) while rendered() said it waits.
+     */
+    private static int timeout(RowLock lock) {
+        return switch (lock.waitPolicy()) {
+            case NO_WAIT -> LockOptions.NO_WAIT;
+            case SKIP_LOCKED -> LockOptions.SKIP_LOCKED;
+            case WAIT -> LockOptions.WAIT_FOREVER;
+        };
     }
 }

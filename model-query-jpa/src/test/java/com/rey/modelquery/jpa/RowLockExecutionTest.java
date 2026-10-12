@@ -128,6 +128,7 @@ class RowLockExecutionTest {
     @BeforeEach
     void forget() {
         Locks.APPLIED.clear();
+        Locks.KEYS.clear();
         SQL.clear();
     }
 
@@ -223,6 +224,52 @@ class RowLockExecutionTest {
             assertThat(executor(em).first(skipped)).isPresent();
             assertThat(Locks.APPLIED).singleElement().satisfies(applied ->
                     assertThat(applied.waitPolicy()).isEqualTo(RowLock.Wait.SKIP_LOCKED));
+        });
+    }
+
+    @Test
+    void ac_exe_16_a_locked_by_keys_sorts_its_keys_before_chunking_and_keeps_the_callers_order() {
+        withTransaction(em -> {
+            ModelQueryExecutor<KeysetRowEntity> executor = executor(em);
+            var rows = executor.byKeys(ROWS.build().withLock(LOCK), List.of(2L, 1L));
+            assertThat(rows.keySet()).containsExactly(2L, 1L);
+            assertThat(Locks.KEYS).singleElement().isEqualTo(List.of(1L, 2L));
+            Locks.KEYS.clear();
+            executor.byKeys(ROWS.build(), List.of(2L, 1L));
+            assertThat(Locks.KEYS).isEmpty();
+        });
+    }
+
+    @Test
+    void ac_exe_16_a_locked_by_keys_with_keys_that_are_not_comparable_keeps_the_callers_order() {
+        withTransaction(em -> {
+            // A composite key is a List, which is not Comparable, so sorting it fails and the order given is kept.
+            ColumnField<Row, KeysetRowEntity, Integer> c = ColumnField.of(Row.class, ROOT, "c", Integer.class);
+            ModelQuery<KeysetRowEntity, List<Object>, Row> composite = ModelQuery
+                    .builder(ROOT, row -> new Row(row.get(ID), row.get(A))).select(SelectSet.of(ID, A, c))
+                    .primaryKey(PrimaryKey.composite(ID, c)).build().withLock(LOCK);
+            List<Object> second = List.of(2L, 0);
+            List<Object> first = List.of(1L, 0);
+            var rows = executor(em).byKeys(composite, List.of(second, first));
+            assertThat(rows.keySet()).containsExactly(second, first);
+            assertThat(Locks.KEYS).singleElement().isEqualTo(List.of(2L, 0, 1L, 0));
+        });
+    }
+
+    @Test
+    void ac_exe_16_a_by_keys_customizer_that_joins_only_in_a_chunk_statement_is_refused_with_mq2211() {
+        withTransaction(em -> {
+            int[] builds = {0};
+            ModelQuery<KeysetRowEntity, Long, Row> late = ROWS
+                    .customize((spec, joins, query, cb, phase) -> {
+                        if (++builds[0] > 1) { // the first build is the executor's bind count, before any chunk
+                            query.from(LockChildEntity.class);
+                        }
+                    })
+                    .build()
+                    .withLock(LOCK);
+            assertMq(() -> executor(em).byKeys(late, List.of(1L, 2L)), MqCode.MQ2211, "has a join");
+            assertThat(SQL).isEmpty();
         });
     }
 
@@ -367,6 +414,9 @@ class RowLockExecutionTest {
 
         static final List<RowLock> APPLIED = Collections.synchronizedList(new ArrayList<>());
 
+        /** The values bound to each applied statement's parameters, in parameter order. */
+        static final List<List<Object>> KEYS = Collections.synchronizedList(new ArrayList<>());
+
         public Locks() {
             super(MARKER);
         }
@@ -382,6 +432,7 @@ class RowLockExecutionTest {
                 @Override
                 public void apply(TypedQuery<?> query, RowLock lock) {
                     APPLIED.add(lock);
+                    KEYS.add(query.getParameters().stream().<Object>map(query::getParameterValue).toList());
                 }
             });
         }

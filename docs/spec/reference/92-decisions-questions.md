@@ -1735,7 +1735,7 @@ exclusive or shared × a wait policy (`WAIT`, `NO_WAIT`, `SKIP_LOCKED`), set by 
 root table alone, through the new `ProviderSupport#locks()` SPI (`LockSupport`). That SPI reports what it renders and
 disables follow-on locking; whether a lock renders is a provider fact, as in D-117 (Hibernate 6.6 drops `NOWAIT` and
 `SKIP LOCKED` on H2, and 7.x drops them on H2 for `shared()`, so `rendered` decides per strength × wait; on PostgreSQL
-`exclusive()` renders `FOR NO KEY UPDATE`). A lock that would be dropped, widened or deferred is refused: `MQ1209` for a
+`exclusive()` renders `FOR NO KEY UPDATE`). A lock whose wait would be dropped, or that would be deferred (follow-on locking), is refused; a shared lock widened to exclusive (H2's `for update`) keeps its guarantee and is accepted (amended at the M18 gate): `MQ1209` for a
 grouped query, `MQ2211` for the read or the statement shape (any join; paging, `count`, `stream`, export; `one(q)` with
 skip locked), `MQ4010` for the provider (no `locks()`, an unrendered lock, a multi-table root), `MQ1809` for `persist`
 returning. A locked read needs a transaction (`MQ2102`); database lock exceptions pass through unchanged (INV-1). Tier 1

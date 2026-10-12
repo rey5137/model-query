@@ -4,6 +4,7 @@ import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.RowLock;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.TypedQuery;
+import jakarta.persistence.criteria.CriteriaQuery;
 
 /**
  * What a row lock needs of the persistence provider, which portable JPA has no API for: whether the provider would
@@ -19,11 +20,24 @@ public interface LockSupport {
 
     /**
      * Whether {@link #apply} would render exactly {@code lock} for {@code emf}'s database: false when the provider
-     * would drop the wait policy, widen a shared lock to exclusive or defer the locking to loaded entities, so the
-     * engine refuses the read with {@code MQ4010} instead of running it unlocked (R-VND-15, D-127). Decided per
-     * strength × wait, since a provider can render one wait for one strength and not the other.
+     * would drop the wait policy or defer the locking to loaded entities, so the engine refuses the read with
+     * {@code MQ4010} instead of running it unlocked; a shared lock widened to exclusive keeps its guarantee and
+     * is accepted (R-VND-15, D-127). Decided per
+     * strength × wait, since a provider can render one wait for one strength and not the other. For a strength or
+     * wait the implementation does not recognise it answers false (or throws), so the engine never calls
+     * {@link #apply} with it, and {@link #apply} throws on one rather than lock as another strength or wait.
      */
     boolean rendered(EntityManagerFactory emf, RowLock lock);
+
+    /**
+     * Whether {@code query} joins or fetches beyond its root in a way portable JPA does not report: Hibernate's
+     * {@code From#getJoins()} leaves out entity joins ({@code join(Class)}) and fetches, which a locking clause would
+     * follow on or lock every table of, so the engine refuses them with {@code MQ2211} (R-EXE-14). The default knows
+     * of none; the engine itself checks the joins, fetches and roots JPA reports.
+     */
+    default boolean hasUnreportedJoins(CriteriaQuery<?> query) {
+        return false;
+    }
 
     /**
      * Sets {@code lock} on {@code query} before it runs: the provider's lock mode for the strength, the wait policy as

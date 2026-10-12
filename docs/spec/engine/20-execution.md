@@ -155,7 +155,7 @@ keys are.
 
 | Read | With a lock |
 |---|---|
-| `list(q)`, `list(q, Limit)`, `first(q)` | locks every row returned |
+| `list(q, Limit)`, `first(q)` | locks every row returned |
 | `one(q)` | locks the row returned; with `SKIP_LOCKED`, `MQ2211` |
 | `one(q, key)`, `byKeys(q, keys)` | locks every row returned |
 | `page(q, PageSpec, …)`, `page(q, KeysetSpec)`, `count`, `stream`, `export` | `MQ2211` |
@@ -171,13 +171,21 @@ keys are.
   Hibernate renders a locking clause with no `OF` list (locking every table on PostgreSQL) or follows on to locking only
   loaded entities, which is nobody (`vendor/41`). The message suggests `Filters.exists(...)` instead; the check reads
   the built criteria statement's roots and their joins, a customizer's included, so it is pure JPA (INV-7).
+  A path a customizer navigates past the root (`root.get("customer").get("name")`) is an implicit join that no join
+  list reports, so it is not refused, and the joined rows are locked too: on a locked query a customizer should name
+  only the root's own columns (known limitation, M18 gate).
 - **A root entity mapped to more than one table** (`tablesOf`, `vendor/40` R-VND-13: `JOINED` inheritance, a secondary
   table) is `MQ4010`, because only the root table would be locked.
 - **A locked read needs an active transaction** (`em.isJoinedToTransaction()`), else `MQ2102`: the provider would throw
   `TransactionRequiredException` at the locked statement anyway, and `MQ2102` gives one library code, checked before any
   statement runs. **`SKIP_LOCKED` on `one(q, key)` and `byKeys`** means a key absent from the result is absent,
-  filtered out, or locked; `byKeys` orders each chunk's statement by primary key, so concurrent callers lock in the same
-  order.
+  filtered out, or locked; `byKeys` orders each chunk's statement by primary key and, when the query is locked and the keys
+  are `Comparable`, sorts the distinct keys before chunking, so concurrent callers lock in the same order across
+  chunks; non-`Comparable` keys lock in caller order per chunk.
+- **`LIMIT` with a lock on PostgreSQL** (READ COMMITTED): after a `WAIT`, a locked row is re-checked and dropped if it
+  no longer matches, after `LIMIT` was applied. So `list(q, Limit)` can return fewer rows, `first` can return empty
+  while another matching row exists, and `one(q)`'s `LIMIT 2` can miss a second match (`MQ2003` not raised). MySQL
+  keeps scanning. Queue claims should use `SKIP_LOCKED`.
 - **Database refusals pass through unchanged**: `PessimisticLockException` (a `NO_WAIT` conflict or a deadlock),
   `LockTimeoutException`, and `QueryTimeoutException` (the factory's `queryTimeout`, R-EXE-11, still bounds the
   statement, lock wait included). On PostgreSQL any of these aborts the whole transaction.

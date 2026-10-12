@@ -150,12 +150,15 @@ uses `jakarta.persistence` types only (INV-7):
 
 ```java
 boolean rendered(EntityManagerFactory emf, RowLock lock);   // would apply(...) render exactly this lock?
+default boolean hasUnreportedJoins(CriteriaQuery<?> query) { return false; }   // joins JPA's getJoins() misses
 void apply(TypedQuery<?> query, RowLock lock);
 ```
 
-`rendered` says whether `apply` would render exactly `lock`, so a lock the provider would drop, widen or defer is
-refused instead (`MQ4010`, `engine/20` R-EXE-14). `apply` sets the target statement's lock mode and any hint the
-provider needs. Whether a lock renders is a fact about the provider and its version, not the vendor (as with D-117), so
+`rendered` says whether `apply` would render exactly `lock`, so a lock whose wait the provider would drop, or that it would defer (follow-on locking), is
+refused instead; a shared lock widened to exclusive keeps its guarantee and is accepted (`MQ4010`, `engine/20` R-EXE-14). `apply` sets the target statement's lock mode and any hint the
+provider needs. `hasUnreportedJoins` reports a join the standard criteria API does not expose, such as Hibernate's
+entity join (`JpaRoot.join(Class)`) added by a customizer, so a locked query refuses it with `MQ2211` before any SQL
+(added at the M18 gate). Whether a lock renders is a fact about the provider and its version, not the vendor (as with D-117), so
 it is decided per strength × wait: Hibernate 6.6 drops `NOWAIT` and `SKIP LOCKED` on H2, and 7.x renders both for H2
 only for `exclusive()`, so `shared()` with `NO_WAIT` or `SKIP_LOCKED` is refused on H2 on both lines; PostgreSQL and
 MySQL render every combination (`vendor/41` §6). `model-query-hibernate` reads the answer from the JDBC `Dialect` and
