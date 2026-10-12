@@ -115,4 +115,5 @@ RFC 0004 (rey5137/model-query#29) is mapped the same way, by its own sections, a
 | RFC 0009 (D-127) | §1 row lock and builder; R-QRY-17, AC-QRY-16 | `api/11` R-QRY-17 |
 | RFC 0009 (D-127) | §2 which reads lock; R-EXE-14, AC-EXE-16, AC-EXE-17 | `engine/20` R-EXE-14, `engine/21` |
 | RFC 0009 (D-127) | §4 provider surface; R-VND-15, AC-VND-13; rendering table, AC-PRF-10 | `vendor/40` R-VND-15, `vendor/41` §6–§7 |
+| RFC 0009 (D-127) | §5 repository reads honour the lock; R-SPR-16, AC-SPR-20 | `integration/50` R-SPR-16 |
 | RFC 0009 (D-127) | codes `MQ1209`, `MQ2102`, `MQ2211`, `MQ4010`; `MQ1809` gains a lock; INV-1 | `reference/90` §2, `api/14` R-WRT-48, SPEC.md §2 INV-1 |

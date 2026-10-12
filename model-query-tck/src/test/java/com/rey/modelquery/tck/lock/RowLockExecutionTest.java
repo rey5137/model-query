@@ -37,6 +37,8 @@ import jakarta.persistence.SecondaryTable;
 import jakarta.persistence.Table;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
+import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -70,6 +72,10 @@ import org.junit.jupiter.api.Assumptions;
 class RowLockExecutionTest {
 
     private static final RowLock LOCK = RowLock.exclusive();
+
+    /** The claim test's own orders, above every seeded row: the holder takes the first, the worker claims the next. */
+    private static final long JOB_BASE = 900_000L;
+    private static final long JOB_FIRST = JOB_BASE + 1;
 
     private static final FetchPlan<Line> LINE = FetchPlan.of(QLine.ALL);
 
@@ -212,6 +218,33 @@ class RowLockExecutionTest {
         }
     }
 
+    /**
+     * The "claim the next job" recipe: a worker reads the pending rows with {@code SKIP_LOCKED} and updates its claim
+     * in the same transaction, so the row it takes is locked from the read until it commits.
+     */
+    @TckTest
+    void ac_exe_17_claim_the_next_job_skips_locked_rows_and_updates_its_claim(TckDatabase db) throws SQLException {
+        Assumptions.assumeTrue(VendorLocks.blocksOnLockedRow(db),
+                "PostgreSQL and MySQL skip rows another connection has locked");
+        seedJobs(db, 2);
+        try (SessionFactory holder = JoinTestSupport.sessionFactory(db);
+                SessionFactory worker = JoinTestSupport.sessionFactory(db)) {
+            try (EntityManager em = holder.createEntityManager()) {
+                em.getTransaction().begin();
+                // The holder takes the first job, so the worker must pass it over and claim the next one.
+                assertThat(executor(em).first(jobs(RowLock.exclusive()))).map(OrderLines::id).contains(JOB_FIRST);
+                long claimed = claimNextJob(worker);
+                assertThat(claimed).isEqualTo(JOB_FIRST + 1);
+                // The claim is committed, and the holder's own uncommitted job is untouched.
+                assertThat(orderStatus(db, claimed)).isEqualTo("CLAIMED");
+                assertThat(orderStatus(db, JOB_FIRST)).isEqualTo("NEW");
+                em.getTransaction().rollback();
+            }
+        } finally {
+            deleteJobs(db);
+        }
+    }
+
     /** {@code NO_WAIT} fails at once; which of JPA's two exceptions it is, is the vendor's (recorded below). */
     @TckTest
     void ac_exe_17_no_wait_surfaces_a_lock_conflict_as_the_vendor_reports_it(TckDatabase db) {
@@ -280,6 +313,68 @@ class RowLockExecutionTest {
                     em.getTransaction().rollback();
                 }
             }
+        }
+    }
+
+    /** Reads the pending rows with {@code SKIP_LOCKED} and claims the first unlocked one, in one transaction. */
+    private static long claimNextJob(SessionFactory worker) {
+        try (EntityManager em = worker.createEntityManager()) {
+            em.getTransaction().begin();
+            try {
+                List<OrderLines> pending = executor(em).list(jobs(RowLock.exclusive(Wait.SKIP_LOCKED)), Limit.of(5));
+                assertThat(pending).as("the worker claimed a row").isNotEmpty();
+                long id = pending.get(0).id();
+                assertThat(em.createQuery("update OrderEntity o set o.status = 'CLAIMED' where o.id = :id")
+                        .setParameter("id", id).executeUpdate()).isEqualTo(1);
+                em.getTransaction().commit();
+                return id;
+            } finally {
+                if (em.getTransaction().isActive()) {
+                    em.getTransaction().rollback();
+                }
+            }
+        }
+    }
+
+    /** The claim test's rows, oldest first, filtered to its own above {@link #JOB_BASE}. */
+    private static ModelQuery<OrderEntity, Long, OrderLines> jobs(RowLock lock) {
+        return QOrderLines.query().select(QOrderLines.ALL)
+                .where(f -> f.gt(QOrderLines.ID, JOB_BASE))
+                .orderBy(QOrderLines.ID.asc())
+                .build()
+                .withLock(lock);
+    }
+
+    /** Inserts {@code count} claimable rows of the claim test's own; {@link #deleteJobs} removes them. */
+    private static void seedJobs(TckDatabase db, int count) throws SQLException {
+        try (Connection connection = db.getConnection()) {
+            connection.setAutoCommit(false);
+            try (var statement = connection.prepareStatement(
+                    "insert into orders (id, customer_id, status, total, placed_at) values (?, 1, 'NEW', 0, ?)")) {
+                for (int i = 1; i <= count; i++) {
+                    statement.setLong(1, JOB_BASE + i);
+                    statement.setTimestamp(2, Timestamp.valueOf("2020-01-01 00:00:00"));
+                    statement.addBatch();
+                }
+                statement.executeBatch();
+            }
+            connection.commit();
+        }
+    }
+
+    private static String orderStatus(TckDatabase db, long id) throws SQLException {
+        try (Connection connection = db.getConnection();
+                var statement = connection.createStatement();
+                var rows = statement.executeQuery("select status from orders where id = " + id)) {
+            rows.next();
+            return rows.getString(1);
+        }
+    }
+
+    private static void deleteJobs(TckDatabase db) throws SQLException {
+        try (Connection connection = db.getConnection();
+                var statement = connection.createStatement()) {
+            statement.executeUpdate("delete from orders where id > " + JOB_BASE);
         }
     }
 

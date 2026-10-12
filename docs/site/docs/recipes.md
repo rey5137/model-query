@@ -1160,3 +1160,50 @@ The new value is computed by the database, so two concurrent increments both lan
 `setExpression` follows, including the vendor difference when one expression reads a column another writes.
 
 Tested by `BulkWriteTest` in the TCK.
+
+## Claim the next job
+
+A pool of workers pulls work from a table: each takes the next pending rows, marks them claimed and commits, and a
+second worker must not take the same rows. Read them with `RowLock.exclusive(SKIP_LOCKED)` inside one transaction and
+write the claim in the same transaction, so the rows stay locked from the read until the commit (`RowLock`, D-127,
+`@Incubating`; see [Row locks](queries.md#row-locks)).
+
+```java
+private static final ModelQuery<OrderEntity, Long, OrderView> NEXT_PENDING = QOrderView.query()
+        .select(QOrderView.DEFAULT)
+        .where(f -> f.eq(QOrderView.STATUS, "PENDING"))
+        .orderBy(QOrderView.ID.asc())
+        .build()
+        .withLock(RowLock.exclusive(RowLock.Wait.SKIP_LOCKED));
+```
+
+=== "Plain JPA"
+
+    ```java
+    // In one transaction: the read locks each pending row, and the commit releases it.
+    List<OrderView> pending = executor.list(NEXT_PENDING, Limit.of(10));
+    // Then mark each row claimed in this same transaction, and commit.
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<OrderView> pending = orders.findAll(NEXT_PENDING, Limit.of(10));
+    // Then mark each row claimed in this same transaction, and commit.
+    ```
+
+Caveats:
+
+- `SKIP_LOCKED` can return the pending rows out of the query's order, because the database skips whatever another
+  worker holds. So `first(q)` gives *a* next row, not *the* next; give the query an explicit order and claim the whole
+  page in one transaction, as above.
+- `one(q)` refuses `SKIP_LOCKED` with `MQ2211`: it reads two rows to check uniqueness, and a locked second row would
+  be invisible, so the check would pass when it should fail.
+- On PostgreSQL a lock error (`LockTimeoutException`, `PessimisticLockException`) aborts the whole transaction, so the
+  claim is lost; retry the transaction, not the statement.
+- A read without an active transaction is `MQ2102`. On Spring do not wrap the claim in
+  `@Transactional(readOnly = true)`: PostgreSQL and MySQL reject the locking clause.
+- To filter by a related table's rows, use [`Filters.exists(...)`](queries.md#exists), not a join: a locked query whose
+  statement joins is `MQ2211`.
+
+Tested by `ac_exe_17_claim_the_next_job_skips_locked_rows_and_updates_its_claim` in `RowLockExecutionTest`.
