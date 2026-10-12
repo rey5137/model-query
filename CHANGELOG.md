@@ -25,6 +25,26 @@ Nothing is frozen yet: every public type stays `@Incubating`. The additions belo
     customizer clauses. A lock the provider cannot render — a wait the running Hibernate's dialect drops, or a root
     mapped to more than one table — is `MQ4010`. Rendering is verified on the Tier-1 vendors (H2, PostgreSQL and
     MySQL) on both Hibernate lines.
+- Literal filters and bound function arguments (D-128, RFC 0002), described in "Literal filters" and "Bound function
+  arguments" and the "Filter by a fixed set of enum states" and "Group by a time zone the caller picks" recipes:
+  - `Filters#in` and `#notIn` take a fixed set of operand fields — `in(col, a, b)`, `in(col, a, b, c)` and the same
+    for `notIn` — with the value forms' semantics, so `notIn` also keeps rows whose column is NULL. Each operand is a
+    field of the column's own model and type, and `Expr.constant` inlines its literal, e.g. `in ('PENDING','FAILED')`.
+  - `Expr.constant(ColumnField typedBy, Object value)` types a constant by a column: the value goes through the
+    column's `ColumnConverter` (`MQ1308` on failure) and then the attribute's JPA mapping — an `@Enumerated(STRING)`
+    enum's name, an `ORDINAL` one's ordinal, an `AttributeConverter`'s stored value — inlined as the provider's
+    literal text. The stored value must be a `String`, `Number` or `Boolean`, else `MQ1508`. `typedBy` is a type
+    witness, part of the expression's equality but no column of it and no join.
+  - `Expr.value(Object)` renders a value as a statement parameter, bound by the executor on every statement that
+    renders it: `list`, `count`, an offset page, primary-key-first (both steps), a keyset page, a grouped or offset
+    export, an `exists` or sub-select body, a CASE condition, and a chunked bulk update and delete. A `null`, an
+    `Optional`, a `Collection` or a `Map` value is `MQ1502`.
+  - The new code `MQ1508`; `MQ1502` gained a case. R-FLT-09's statement check counts an `Expr.value` expression's
+    binds, as it counts a filter's. Every change is additive and `@Incubating`.
+
+### Changed
+- `MQ1502` now also refuses an `Optional`, a `Collection` and a `Map` value from every `Expr` factory, including the
+  new `Expr.value`: a collection is never a single bound value.
 
 ## [0.8.0] - 2026-10-09
 

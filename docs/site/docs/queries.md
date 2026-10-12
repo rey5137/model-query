@@ -273,6 +273,69 @@ The available filters:
 - **A join first needed inside `or` or `not` is a LEFT join**, so one branch cannot remove rows another branch should
   match.
 
+### Literal filters
+
+A filter can compare against a value the planner must see as a literal instead of a bind parameter. `Filters#in` and
+`#notIn` take a fixed set of operand fields — `in(col, a, b)`, `in(col, a, b, c)` and the same two for `notIn` — and
+each operand is a `ScalarField` of the column's own model and type, so an `Expr.constant` puts its literal in the set
+(R-FLT-19, `@Incubating`):
+
+```java
+private static final ColumnField<Row, ConstantRowEntity, ConstantStatus> STATUS =
+        ColumnField.of(Row.class, ROWS, "status", ConstantStatus.class);
+private static final ExpressionField<Row, ConstantStatus> PENDING = Expr.constant(STATUS, ConstantStatus.PENDING);
+private static final ExpressionField<Row, ConstantStatus> FAILED = Expr.constant(STATUS, ConstantStatus.FAILED);
+
+// status in ('PENDING','FAILED')
+.where(f -> f.in(STATUS, PENDING, FAILED))
+// status not in ('PENDING','FAILED') or status is null
+.where(f -> f.notIn(STATUS, PENDING, FAILED))
+```
+
+`notIn` adds `OR col IS NULL`, so rows whose column is NULL match, exactly as the value form does (R-FLT-04). There is
+no `Optional` form; a `List` of values uses the value form `in(col, Collection)`, which binds. The operands are inlined
+into the statement as SQL text, so use them only for values defined in code — never request input (R-COL-18).
+
+`Expr.constant(typedBy, value)` types the literal by a column. The value goes through the column's converter (`MQ1308`
+when it refuses) and then the attribute's JPA mapping, so an `@Enumerated(STRING)` enum inlines its name, an `ORDINAL`
+its ordinal, and an `AttributeConverter` its converted database value. The stored value must be a `String`, `Number` or
+`Boolean`, `typedBy` must be a basic attribute of a root table's entity (a joined column is none), and the provider must
+offer a constant renderer, else `MQ1508`. `typedBy` is a type witness: it is part of the expression's equality, but adds
+no column to `columns()` and no join.
+
+**Plan cache.** Each distinct constant is a distinct statement text, so it gets its own plan-cache entry in the
+database. Use `Expr.constant` for a small fixed set — enum states, the predicate of a partial index — and
+[`Expr.value`](#bound-function-arguments) for a value that changes per request.
+
+Tested by `TypedConstantTest` in the TCK (AC-FLT-20, AC-COL-32).
+
+### Bound function arguments
+
+`Expr.value(value)` renders a value as a statement parameter, for a function argument or an operand the planner must
+not see as a literal (R-COL-26, `@Incubating`). It is typed by `value.getClass()`, reads no column and adds no join,
+and the executor binds it on every statement that renders it — a `list`, `count`, page, export, `exists` or sub-select
+body, a CASE condition, and a bulk update or delete — one bind per rendering:
+
+```java
+ExpressionField<Hour, CustomerEntity, LocalDateTime> hour = Expr.function("timezone", LocalDateTime.class,
+        Expr.value(zone), CREATED_AT);
+```
+
+A `null`, an `Optional`, a `Collection` or a `Map` value is `MQ1502`: a collection is never a single bound value. On
+PostgreSQL a bound argument reaches a function whose parameter type is text with no cast — `timezone(?, created_at)`
+and `jsonb_exists(tags, ?)` both bind and run — but a jsonb column compared to a bound `String` needs an explicit cast
+the library does not emit, so cast syntax stays unsupported (RFC 0002 §Outcome).
+
+**Volatile functions.** A function reading a bound argument is evaluated by each statement that renders it, so the
+pages of a paged read or an export, or the two steps of a primary-key-first page, may see different values of e.g.
+`now()` (INV-4). A value that must be stable across a run is read from a column, not bound.
+
+Both build on the `Expr` surface on [Sub-queries and expressions](subqueries-expressions.md); the
+[Call a function with literal arguments](recipes.md#call-a-function-with-literal-arguments) recipe covers function
+arguments that never bind.
+
+Tested by `BoundArgumentTest` and `BoundValueFunctionTest` in the TCK (AC-COL-31).
+
 ### `exists`
 
 `exists(ITEMS_TABLE, inner)` renders a correlated sub-query. It joins nothing on the outer query, so `count` and
