@@ -143,8 +143,9 @@ lock renders is a fact about the provider and its version, not the vendor:
 - Hibernate 7.x renders both for H2 2.2.220 and later, but only for `exclusive()`. `shared()` with `NO_WAIT` or
   `SKIP_LOCKED` renders a plain `FOR UPDATE` on H2 on both lines, so `rendered` is false and the read is refused with
   `MQ4010`. `rendered` therefore decides per strength × wait, not per wait alone (M18.1 spike).
-- Hibernate 7.x adds `OF <root alias>` on PostgreSQL and MySQL (not on H2); 6.6 renders no `OF`. Either way only the
-  root table is locked, since a locked query reads its root alone (§3).
+- For an entity query Hibernate 7.x adds `OF <root alias>` on PostgreSQL and MySQL (not on H2); 6.6 renders no `OF`.
+  The executor's column projections render no `OF` on either line (M18.2 snapshots, as §3 expects). Either way only
+  the root table is locked, since a locked query reads its root alone (§3).
 
 The Hibernate implementation answers `rendered` from the `Dialect`. Its `apply` sets `setLockMode` and the
 lock-timeout hint (`0` or `-2`, Hibernate's values). It also sets `hibernate.query.followOnLocking=false` (§3).

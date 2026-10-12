@@ -144,6 +144,26 @@ change (`api/14` R-WRT-42). `model-query-hibernate` ships one: `Hibernate.unprox
 which also marks a changed attribute dirty on an entity that tracks its own dirtiness, since the property access alone
 does not.
 
+**R-VND-15** Row locks split the database fact from the provider mechanism as R-VND-12 and R-VND-14 do (D-127).
+`ProviderSupport#locks()` returns an `Optional<LockSupport>`, empty by default; `LockSupport` lives in `jpa.spi` and
+uses `jakarta.persistence` types only (INV-7):
+
+```java
+boolean rendered(EntityManagerFactory emf, RowLock lock);   // would apply(...) render exactly this lock?
+void apply(TypedQuery<?> query, RowLock lock);
+```
+
+`rendered` says whether `apply` would render exactly `lock`, so a lock the provider would drop, widen or defer is
+refused instead (`MQ4010`, `engine/20` R-EXE-14). `apply` sets the target statement's lock mode and any hint the
+provider needs. Whether a lock renders is a fact about the provider and its version, not the vendor (as with D-117), so
+it is decided per strength × wait: Hibernate 6.6 drops `NOWAIT` and `SKIP LOCKED` on H2, and 7.x renders both for H2
+only for `exclusive()`, so `shared()` with `NO_WAIT` or `SKIP_LOCKED` is refused on H2 on both lines; PostgreSQL and
+MySQL render every combination (`vendor/41` §6). `model-query-hibernate` reads the answer from the JDBC `Dialect` and
+always sets `hibernate.query.followOnLocking=false`, so a follow-on case left over fails loudly instead of reading
+unlocked. `VendorProfile` gains nothing: the lock-timeout hint values are Hibernate's (R-VND-12), and an overridable
+raw-`Query` hook on a profile would be the `TypedQuery` escape hatch left out of M18. The engine calls `locks()` in
+`jpa` only; `core` never sees a provider or a hint (INV-7).
+
 ## 2. Detection
 
 **R-VND-04** Resolution order:
@@ -220,3 +240,4 @@ explicitly (`likeIgnoreCase`, `nullsFirst`), and the library renders it the same
 | AC-VND-10 | `model-query-hibernate`'s `tablesOf` reports every table reading an entity touches, unquoted and qualified with the default schema: a joined subclass's supertable, which a second entity on it shares, a secondary table and a table-per-class parent's subclass tables; the same for two entities on one table; and none for a type that is not an entity (R-VND-13). |
 | AC-VND-11 | `model-query-hibernate`'s `InsertSupport` reports each D-116 probe root's generator (assigned, `IDENTITY`, a sequence with its increment and whether a database sequence backs it, table, UUID, an `@IdClass` with no generated part as assigned) and its unsupported mappings (`JOINED`, `@SecondaryTable`, `@MapsId`, a generated composite part); draws distinct keys from a pooled sequence, a table and a UUID generator and refuses `IDENTITY`; reports `doNothingRendered` true on Hibernate 7 and on 6.x except on H2; and counts the version seed as one bind per row, on every Tier-1 vendor (R-VND-14). |
 | AC-VND-12 | `maxValuesRows()` defaults to 1,000, `conflictTargetHonoured()` to false and `conflictWhereSeesEarlierAssignments()` to true, `ProviderSupport#inserts()` to empty; the built-in profiles carry `vendor/41` §2's values (R-VND-14). |
+| AC-VND-13 | `LockSupport.rendered` is per dialect on both Hibernate lines (H2's `NO_WAIT`/`SKIP_LOCKED` refused on 6.6, allowed only for `exclusive()` on 7.x); a lock with no `locks()`, an unrendered wait, or a multi-table root is `MQ4010`; `apply` sets the lock mode, the Hibernate timeout hint and `followOnLocking=false` (R-VND-15, `engine/20` R-EXE-14). |

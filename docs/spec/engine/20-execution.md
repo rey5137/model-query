@@ -49,7 +49,8 @@ join, each joined row is a result, so `count` counts rows and agrees with `list`
 **R-EXE-05** The count query drops `orderBy` and any selection the count does not need, and keeps every predicate and
 join that can change the number of matching rows. A direct `count(q)` on a query with an `orderBy` logs one `WARNING`
 per `ModelQuery`, `<Model>: count(query) ignores the query's orderBy`; the count `page` runs for its total logs
-nothing, since `page` uses the order (D-126).
+nothing, since `page` uses the order (D-126). `count` refuses a locked query with `MQ2211` (R-EXE-14): a count returns
+no row to lock.
 
 ## 4. Limits and validation
 
@@ -72,7 +73,7 @@ the engine streams with `getResultStream()` and sets no fetch size, and the firs
 `WARN` that the driver may buffer the whole result.
 
 **R-EXE-09** An early exit from `body` — `findFirst`, a `break`, an exception — still closes the stream and releases the
-connection.
+connection. `stream` refuses a locked query with `MQ2211` (R-EXE-14): it holds a cursor across `body`.
 
 **R-EXE-10** `stream` is for a single pass over a large result inside one transaction. For exporting millions of rows,
 keyset `export` is the documented default, because it runs short queries per page instead of holding one result set open
@@ -144,7 +145,46 @@ extra row, so none is one (`delivery/61` R-REL-07).
   gets an entry, so keys converting to one value share one model; `afterMap` runs once per row (`api/11` R-QRY-05).
   The fetch plan runs once over every row, in key order (`api/15` R-FCH-05). Memory is the whole result.
 
-## 8. Acceptance criteria
+## 8. Locking reads
+
+**R-EXE-14** A query can take a row lock (`api/11` R-QRY-17, D-127). The executor applies it only to the statement that
+returns the model's rows, after creating it: never in the shared `create`, which also serves paging, `count`,
+primary-key-first and the fetch plan. Every refusal in the table below runs before any statement executes, and before a
+zero-limit short cut or `byKeys`' no-keys one, so a read that refuses a lock fails the same way whatever the limit or
+keys are.
+
+| Read | With a lock |
+|---|---|
+| `list(q)`, `list(q, Limit)`, `first(q)` | locks every row returned |
+| `one(q)` | locks the row returned; with `SKIP_LOCKED`, `MQ2211` |
+| `one(q, key)`, `byKeys(q, keys)` | locks every row returned |
+| `page(q, PageSpec, …)`, `page(q, KeysetSpec)`, `count`, `stream`, `export` | `MQ2211` |
+| `persist(…, returning)` | `MQ1809` (it maps from the entity in memory, so a lock would be ignored) |
+
+- **`one(q)` with `SKIP_LOCKED`** is refused: `one(q)` reads `LIMIT 2` to check uniqueness, and a locked second match
+  would be invisible, so the `MQ2003` check would pass when it should fail (INV-5).
+- **Paging** is refused: PostgreSQL also locks the rows `OFFSET` skips over, and under READ COMMITTED `ORDER BY` with a
+  locking clause can return rows out of order, which breaks a keyset cursor's monotonicity; with `SKIP_LOCKED` a keyset
+  cursor moves past locked rows for good, a silent skip (`engine/21`). **`stream` and export** hold a cursor across
+  user code, and export also spans transactions.
+- **A locked query whose built statement has any join** is `MQ2211`, because a projection loads no entities, so
+  Hibernate renders a locking clause with no `OF` list (locking every table on PostgreSQL) or follows on to locking only
+  loaded entities, which is nobody (`vendor/41`). The message suggests `Filters.exists(...)` instead; the check reads
+  the built criteria statement's roots and their joins, a customizer's included, so it is pure JPA (INV-7).
+- **A root entity mapped to more than one table** (`tablesOf`, `vendor/40` R-VND-13: `JOINED` inheritance, a secondary
+  table) is `MQ4010`, because only the root table would be locked.
+- **A locked read needs an active transaction** (`em.isJoinedToTransaction()`), else `MQ2102`: the provider would throw
+  `TransactionRequiredException` at the locked statement anyway, and `MQ2102` gives one library code, checked before any
+  statement runs. **`SKIP_LOCKED` on `one(q, key)` and `byKeys`** means a key absent from the result is absent,
+  filtered out, or locked; `byKeys` orders each chunk's statement by primary key, so concurrent callers lock in the same
+  order.
+- **Database refusals pass through unchanged**: `PessimisticLockException` (a `NO_WAIT` conflict or a deadlock),
+  `LockTimeoutException`, and `QueryTimeoutException` (the factory's `queryTimeout`, R-EXE-11, still bounds the
+  statement, lock wait included). On PostgreSQL any of these aborts the whole transaction.
+- **Fetch-plan statements carry no lock** (R-FCH-*): the plan's children, join plans and enrichers run their own
+  statements, which lock nothing.
+
+## 9. Acceptance criteria
 
 | ID | Criterion |
 |---|---|
@@ -163,3 +203,5 @@ extra row, so none is one (`delivery/61` R-REL-07).
 | AC-EXE-13 | `one(q, key)` ANDs the converted key with `q`'s filter, and contradictory filters give empty; a `null` key or component, or a wrong component count, throws `IllegalArgumentException`; a keyless or grouped query throws `MQ2203` (R-EXE-12). |
 | AC-EXE-14 | `byKeys` returns the map in first-occurrence key order with missing keys absent and duplicates read once, for single and composite keys; more keys than the vendor's limits give several statements and one fetch-plan run, and a configured `primaryKeyFirstBatchSize` does not change the chunks; no keys run no SQL; the `orderBy` is ignored with one `WARNING` and no `ORDER BY`; a key matching two rows is `MQ2003`; a keyless query is `MQ2203`, with empty keys too; two keys converting to one value are both present with `afterMap` run once; a `MODEL`-phase customizer applies; a case-insensitive string key on MySQL and SQL Server whose row matches no requested value is `MQ2005` (R-EXE-13). |
 | AC-EXE-15 | `count(q)`, `one(q)` and `one(q, key)` on an ordered query each log one `WARNING` per `ModelQuery`; the `one` statements render no `ORDER BY`; `page`'s count and `first` log nothing (R-EXE-05, R-EXE-12). |
+| AC-EXE-16 | Each read in R-EXE-14's table locks or refuses as stated, before any SQL: `list`, `list(q, Limit)`, `first`, `one(q)`, `one(q, key)` and `byKeys` lock; `page`, `count`, `stream` and `export` refuse with `MQ2211`, as does a joined query and `one(q)` with `SKIP_LOCKED`; `MQ2102` outside a transaction; fetch-plan statements carry no lock and `byKeys` chunks are ordered by key (R-EXE-14). |
+| AC-EXE-17 | (TCK, PostgreSQL and MySQL, two connections) a second `first` with `WAIT` blocks until the first commits; with `SKIP_LOCKED` it returns the next row; with `NO_WAIT` it throws `PessimisticLockException` or `LockTimeoutException`, as recorded per vendor (R-EXE-14). |

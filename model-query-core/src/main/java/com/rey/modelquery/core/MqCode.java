@@ -283,6 +283,9 @@ public enum MqCode {
     /** Streaming on a vendor whose driver buffers the whole result outside a transaction (R-EXE-08). */
     MQ2101("Streaming requires a transaction on this vendor"),
 
+    /** A locked read outside a transaction, where the provider would throw at the locked statement (R-EXE-14). */
+    MQ2102("A locked read needs an active transaction"),
+
     /** A row's primary key mapped to {@code null} during export or primary-key-first paging (R-PAG-03). */
     MQ2201("A row's primary key mapped to null during export or primary-key-first paging"),
 
@@ -316,6 +319,9 @@ public enum MqCode {
 
     /** A keyset column cannot be carried in a cursor, or makes it longer than 8192 characters (R-PAG-17, R-PAG-18). */
     MQ2210("A keyset column cannot be carried in a cursor, or makes it longer than 8192 characters"),
+
+    /** A lock on a read that refuses one, or on a query whose built statement has a join (R-EXE-14). */
+    MQ2211("A lock is refused on this read, or on a query whose statement has a join"),
 
     /** A sort property names no selected column or aggregate, or more than one (R-QRY-14, D-52). */
     MQ2301("A sort property resolves to no selected column or to more than one"),
@@ -388,7 +394,10 @@ public enum MqCode {
             + "customImplementation"),
 
     /** A bulk insert on a factory whose persistence provider has no {@code InsertSupport} (R-VND-14). */
-    MQ4009("A bulk insert needs an InsertSupport for the factory's persistence provider");
+    MQ4009("A bulk insert needs an InsertSupport for the factory's persistence provider"),
+
+    /** A locked read whose provider cannot render the lock (R-VND-15, R-EXE-14). */
+    MQ4010("A lock cannot be rendered by the factory's persistence provider");
 
     private final String defaultMessage;
 

@@ -31,7 +31,9 @@ and dedupe are the group-key tuple, which is unique per result row even through 
 keys count as selected (D-29), so ordering through a to-many join is refused too: its repeated rows need not be adjacent. A to-many join used only by predicates is unaffected; select from the
 child side, or filter with `Filters.exists` (`api/12` R-FLT-12). `list`, `page` and `stream` still accept the shape, and
 `count` counts its rows (`engine/20` R-EXE-04). A selected or ordered expression reads every column it is built from, so
-one read through a to-many join is `MQ2204` and makes `count` count rows (`api/10` R-COL-17).
+one read through a to-many join is `MQ2204` and makes `count` count rows (`api/10` R-COL-17). Offset paging refuses a
+locked query with `MQ2211` (`engine/20` R-EXE-14): PostgreSQL locks the rows `OFFSET` skips, and a locking clause can
+return ordered rows out of order.
 
 ## 2. Keyset paging
 
@@ -152,6 +154,8 @@ row's keyset value changes while it is used.
   named function must be deterministic.
 - `keyset()` refuses an expression key with `MQ1208` (`api/11` R-QRY-16).
 - A key that binds a value relies on `api/10` R-COL-19 under grouping.
+- Keyset paging refuses a locked query with `MQ2211` (`engine/20` R-EXE-14): a locking clause can return ordered rows
+  out of order under READ COMMITTED, and `SKIP_LOCKED` moves the cursor past locked rows for good.
 
 ## 3. Primary-key-first deep paging
 
@@ -197,7 +201,8 @@ a time. Neither is called for an empty page. The loop's options are an `ExportOp
 `defaults()` or `of(pageSize)` and narrowed by `withLimit`, so a new option is additive (D-88).
 
 **R-PAG-10** The export returns the number of items passed to `sink`, which may differ from the number of rows read when
-`pageTransformer` expands or filters.
+`pageTransformer` expands or filters. Export refuses a locked query with `MQ2211` (`engine/20` R-EXE-14): it spans
+transactions and pages offset over skipped rows.
 
 ## 5. Grouped export
 

@@ -606,6 +606,9 @@ public final class ModelQuery<E, K, M> {
         if (primaryKeyFirst != null) {
             clauses.add("primaryKeyFirst(...)");
         }
+        if (lock != null) {
+            clauses.add("a lock");
+        }
         if (!clauses.isEmpty()) {
             throw new ModelQueryDefinitionException(MqCode.MQ1809, modelName() + ": persist returning a model takes "
                     + "only the selection, the mapper, afterMap and the finisher of its query, which has "
