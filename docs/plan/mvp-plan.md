@@ -419,3 +419,19 @@ is the user's step after the gate, never a slice's.
 
 **Exit:** the M16 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M16.1 decision, so the user can
 push the `v1.0.0` tag.
+
+## 18. M17 — Docs for what already works
+
+Spec: `docs/plan/litepos-gaps.md` §1 and §3 (M17), `api/10` (new `AC-COL` rows from AC-COL-29), `api/13` (new
+`AC-AGG` rows from AC-AGG-16), `api/14` (new `AC-WRT` rows from AC-WRT-41), CC-DOC-01 (every runnable snippet gets the
+Plain JPA and Spring tabs). Runs before M16; M16 keeps its number and stays last. No API change; ships in 0.9.0 with M18–M22 (the
+docs site still publishes from `main` as it merges). Model: none; the M17.1 cases may each fail, and a failing case is recorded as a gap
+in `litepos-gaps.md` and left out of M17.2's docs rather than fixed here.
+
+| Slice | Contents | Done when |
+|---|---|---|
+| M17.1 | TCK cases, each with its `AC-*` row in the owning spec: a SQL-view root (an `@Immutable` entity over a view created in the TCK schema, and an `@Immutable @Subselect` entity) read, filtered, paged and grouped through a query model; `Expr.function("date_trunc", …, Expr.constant("day"), col)` on PostgreSQL and a per-vendor date-truncation equivalent elsewhere, plus `timezone` with a fixed zone on PostgreSQL; runtime `groupBy(ScalarField...)` on a model whose other `@GroupBy` fields are left unselected (they read `null`) and `groupBy(SelectSet)`; `ModelUpdate.setExpression` incrementing a counter column | the new AC rows green on Tier 1, or each failing case written up as a gap with its vendor and error |
+| M17.2 | Docs: `getting-started/plain-jpa.md` and `spring-boot.md` gain a Gradle tab beside Maven (`annotationProcessor`, the BOM through `platform(...)`, the processor being `isolating`); `recipes.md` gains SQL views as roots, functions with literal arguments (`date_trunc`, `timezone`, `jsonb_exists`, and that a bound argument is not supported yet), and a counter update through `setExpression`; `grouped-queries.md` shows runtime `groupBy` as the way to serve several groupings from one model. Every snippet comes from an M17.1 case and has both tabs | `mkdocs build --strict` green; every snippet traceable to a green M17.1 test |
+
+**Exit:** the M17 rows' criteria green on Tier 1 and the docs published from `main`.
+
