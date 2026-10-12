@@ -7,20 +7,46 @@ The starter wires the library into Spring Data repositories. It reads `modelquer
 
 Import the BOM as shown in [Getting started without Spring](plain-jpa.md), then add:
 
-```xml
-<dependency>
-    <groupId>io.github.rey5137</groupId>
-    <artifactId>model-query-spring-boot-starter</artifactId>
-</dependency>
-```
+=== "Maven"
+
+    ```xml
+    <dependency>
+        <groupId>io.github.rey5137</groupId>
+        <artifactId>model-query-spring-boot-starter</artifactId>
+    </dependency>
+    ```
+
+    Register `model-query-processor` in `annotationProcessorPaths`, as in the plain-JPA guide:
+
+    ```xml
+    <annotationProcessorPaths>
+        <path>
+            <groupId>io.github.rey5137</groupId>
+            <artifactId>model-query-processor</artifactId>
+            <version>0.8.0</version>
+        </path>
+    </annotationProcessorPaths>
+    ```
+
+=== "Gradle"
+
+    ```kotlin
+    dependencies {
+        implementation(platform("io.github.rey5137:model-query-bom:0.8.0"))
+        implementation("io.github.rey5137:model-query-spring-boot-starter")
+
+        annotationProcessor(platform("io.github.rey5137:model-query-bom:0.8.0"))
+        annotationProcessor("io.github.rey5137:model-query-processor")
+    }
+    ```
 
 That one dependency brings `spring-boot-starter-data-jpa` (Hibernate is Boot's default JPA provider),
 `model-query-hibernate`, `model-query-spring-data` and, through them, the executor and the annotations. Declare
 no other library artifact; `model-query-annotations` is needed only in a module that has no starter, such as a
 shared module holding your models.
 
-Register `model-query-processor` in `annotationProcessorPaths`, as in the plain-JPA guide: Maven cannot add an
-annotation processor through a dependency, so the starter cannot bring it.
+The starter cannot bring the processor: neither Maven nor Gradle puts a dependency's annotation processor on the
+processor path, so you add it explicitly, as the tabs above show.
 
 ## 2. Extend `ModelQueryRepository`
 

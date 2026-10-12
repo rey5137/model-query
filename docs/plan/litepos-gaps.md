@@ -83,6 +83,8 @@ all land together, with M17, in 0.9.0 before it, since LitePOS is the obvious D-
 - Recipes: SQL-view root (`@Immutable` + `@Subselect`/`@Table`) with TCK case; runtime `groupBy` replacing
   per-key aggregate models; `date_trunc` / `timezone` via `Expr.function` + `Expr.constant`; counter bulk update via
   `setExpression`. `KEEP` is already documented in `bulk-writes.md`; nothing to add.
+- `jsonb_exists` with a constant key is left out of the recipes: the TCK schema has no `jsonb` column, so it has no
+  case yet.
 - LitePOS has already folded the §1 corrections into its gap doc (its §3).
 
 ### M21 — Generated-code nullness → 0.9.0 (F4)

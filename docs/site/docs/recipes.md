@@ -971,3 +971,192 @@ the application and pass the index name to `resolve`: the index keys stay the on
 `sort=referrer.name` and `fields=referrer.name` mean one field.
 
 Tested by `ClientChosenFieldsTest` and `GeneratedFieldIndexTest`.
+
+## Query a database view
+
+The case in one line: a report over a database view, or a Hibernate `@Subselect`, read through the same model and
+query API as a table (AC-COL-29).
+
+A view is a read-only root, so map it with Hibernate's `@Immutable` over the view's name. It needs an `@Id`, and
+every other column is a plain attribute:
+
+```java
+@Entity
+@Immutable
+@Table(name = "order_view")
+public class ViewOrderEntity {
+    @Id
+    Long id;
+
+    @Column(name = "customer_id")
+    Long customerId;
+
+    String status;
+
+    BigDecimal total;
+}
+```
+
+The model is an ordinary one over that entity:
+
+```java
+@QueryModel(root = ViewOrderEntity.class)
+public record ViewOrderRow(@PrimaryKey Long id, Long customerId, String status, BigDecimal total) {}
+```
+
+From there it is a root like any table: filter on a view column, order by one, and read the rows:
+
+```java
+var query = QViewOrderRow.query()
+        .select(SelectSet.of(QViewOrderRow.ID, QViewOrderRow.CUSTOMER_ID, QViewOrderRow.STATUS,
+                QViewOrderRow.TOTAL))
+        .where(f -> f.lte(QViewOrderRow.ID, 200L).eq(QViewOrderRow.STATUS, "PAID"))
+        .orderBy(QViewOrderRow.ID.asc())
+        .build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<ViewOrderRow> rows = executor.list(query, Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<ViewOrderRow> rows = orders.findAll(query, Limit.unlimited());
+    ```
+
+Hibernate's `@Subselect` defines the view from a select, for a database with no view to name. Add `@Synchronize`
+so Hibernate flushes the table the sub-select reads before running it:
+
+```java
+@Entity
+@Immutable
+@Subselect("select id, name, country from customers")
+@Synchronize("customers")
+public class SubselectCustomerEntity {
+    @Id
+    Long id;
+
+    String name;
+
+    String country;
+}
+```
+
+Both forms are read-only: there is no insert or update through them, and both group like any root, so a view can
+back a report model the way a table does.
+
+Tested by `ViewRootTest` in the TCK.
+
+## Call a function with literal arguments
+
+The case in one line: a selected or grouped value from a database function whose arguments include a value fixed in
+code, such as `date_trunc('day', placed_at)` (AC-COL-30, D-115, R-COL-18).
+
+```java
+/** One truncated-timestamp group and its order count. */
+record DayGroup(Object day, Long orders) {}
+
+private static final TableField<OrderEntity, OrderEntity> ORDERS = TableField.root(OrderEntity.class);
+private static final ColumnField<DayGroup, OrderEntity, LocalDateTime> DAY_PLACED_AT =
+        ColumnField.of(DayGroup.class, ORDERS, "placedAt", LocalDateTime.class);
+private static final AggregateField<DayGroup, Long> DAY_ORDERS = Agg.count(ORDERS);
+```
+
+`Expr.function(name, resultType, args...)` builds a call to any SQL function, and an argument may be an
+`Expr.constant`, which renders into the statement as SQL text. On PostgreSQL and H2 a day key truncates with
+`date_trunc`:
+
+```java
+ExpressionField<DayGroup, ?> day =
+        Expr.function("date_trunc", LocalDateTime.class, Expr.constant("day"), DAY_PLACED_AT);
+```
+
+MySQL has no `date_trunc`; the same key uses `date_format` with a format literal:
+
+```java
+ExpressionField<DayGroup, ?> day =
+        Expr.function("date_format", String.class, DAY_PLACED_AT, Expr.constant("%Y-%m-%d"));
+```
+
+The expression is a group key like any other, and the aggregate reads each group:
+
+```java
+var query = ModelQuery.builder(ORDERS, row -> new DayGroup(row.get(day), row.get(DAY_ORDERS)))
+        .select(SelectSet.of(day, DAY_ORDERS))
+        .groupBy(day)
+        .orderBy(day.asc())
+        .build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<DayGroup> groups = executor.list(query, Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<DayGroup> groups = orders.findAll(query, Limit.unlimited());
+    ```
+
+PostgreSQL's `timezone(text, timestamp)` reads a timestamp in a zone. Nesting it with a fixed zone makes the result
+independent of the JVM zone and the session zone:
+
+```java
+var zoned = Expr.function("timezone", LocalDateTime.class, Expr.constant("UTC"),
+        Expr.function("timezone", LocalDateTime.class, Expr.constant("Asia/Ho_Chi_Minh"), DAY_PLACED_AT));
+```
+
+`Expr.constant` renders SQL text, so it is only safe for a value defined in code. Never pass request input through
+it: the value would go into the statement as SQL (R-COL-18). A bound, per-request argument in these positions is
+not supported yet, so the argument must be an `Expr.constant`.
+
+Tested by `FunctionArgumentTest` in the TCK.
+
+## Increment a counter
+
+The case in one line: bump a column by a fixed step on exactly the rows a filter picks, without reading them first
+(AC-WRT-41).
+
+`setExpression(column, (path, cb) -> cb.sum(path, 1))` writes `column = column + 1` in the update's own statement.
+The update's columns are hand-written constants over the item entity, as in
+[An expression in a filter or an aggregate](#an-expression-in-a-filter-or-an-aggregate):
+
+```java
+/** The patch the counter update writes through. */
+record ItemRowPatch(Long id) {}
+
+private static final TableField<OrderItemEntity, OrderItemEntity> ITEM_ROWS =
+        TableField.root(OrderItemEntity.class);
+private static final ColumnField<ItemRowPatch, OrderItemEntity, Long> ITEM_ROW_ID =
+        ColumnField.of(ItemRowPatch.class, ITEM_ROWS, "id", Long.class);
+private static final ColumnField<ItemRowPatch, OrderItemEntity, Integer> ITEM_ROW_QUANTITY =
+        ColumnField.of(ItemRowPatch.class, ITEM_ROWS, "quantity", Integer.class);
+
+var update = ModelUpdate.builder(ITEM_ROWS)
+        .primaryKey(PrimaryKey.of(ITEM_ROW_ID))
+        .setExpression(ITEM_ROW_QUANTITY, (quantity, cb) -> cb.sum(quantity, 1))
+        .where(f -> f.lte(ITEM_ROW_ID, 10L))
+        .build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    long written = executor.update(update);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    long written = items.update(update);
+    ```
+
+The new value is computed by the database, so two concurrent increments both land. See [bulk writes](bulk-writes.md) for the rules
+`setExpression` follows, including the vendor difference when one expression reads a column another writes.
+
+Tested by `BulkWriteTest` in the TCK.

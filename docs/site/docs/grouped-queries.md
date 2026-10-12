@@ -87,6 +87,62 @@ var q = QOrderTotals.query()
         .build();
 ```
 
+## Choose the grouping at runtime
+
+The case in one line: one aggregate model serves several groupings, and the caller picks the keys per request
+(AC-AGG-16).
+
+A model may declare more than one `@GroupBy` field. Its `GROUP_KEYS` is all of them, but `groupBy` overrides that
+default: name the keys you want, and each `@GroupBy` field left unselected reads back `null`.
+
+```java
+@QueryModel(root = CompositeKeyItemEntity.class)
+public record ItemGroupTotals(
+        @GroupBy Integer tenantId,
+        @GroupBy String label,
+        @Aggregate(fn = AggregateFunction.COUNT) Long items,
+        @Aggregate(fn = AggregateFunction.SUM, attribute = "amount") BigDecimal amount) {}
+```
+
+`groupBy(ScalarField...)` groups by the columns you pass:
+
+```java
+var byTenant = QItemGroupTotals.query()
+        .select(SelectSet.of(QItemGroupTotals.TENANT_ID, QItemGroupTotals.ITEMS))
+        .groupBy(QItemGroupTotals.TENANT_ID)
+        .orderBy(QItemGroupTotals.TENANT_ID.asc())
+        .build();
+```
+
+`groupBy(SelectSet)` takes the same keys as a set, which is what a request that names its own grouping builds:
+
+```java
+var byLabel = QItemGroupTotals.query()
+        .select(SelectSet.of(QItemGroupTotals.LABEL, QItemGroupTotals.AMOUNT))
+        .groupBy(SelectSet.of(QItemGroupTotals.LABEL))
+        .orderBy(QItemGroupTotals.LABEL.asc())
+        .build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<ItemGroupTotals> tenantGroups = executor.list(byTenant, Limit.unlimited());
+    List<ItemGroupTotals> labelGroups = executor.list(byLabel, Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<ItemGroupTotals> tenantGroups = items.findAll(byTenant, Limit.unlimited());
+    List<ItemGroupTotals> labelGroups = items.findAll(byLabel, Limit.unlimited());
+    ```
+
+In each result the key that is not grouped is `null`: a row of `tenantGroups` has a `null` label, and a row of
+`labelGroups` has a `null` tenant id. One model with several `@GroupBy` fields replaces one model per grouping.
+
+Tested by `AggregatesTest` in the TCK.
+
 ## Rules
 
 - **Every selected plain column must be a group key** (`MQ1401`). MySQL would otherwise return an arbitrary value and

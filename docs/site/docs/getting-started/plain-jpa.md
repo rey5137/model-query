@@ -6,42 +6,60 @@ Everything in the library works with a plain `EntityManager`. Spring only adds w
 
 Import the BOM, then add the modules you need. Replace `0.8.0` with the release you use.
 
-```xml
-<dependencyManagement>
+=== "Maven"
+
+    ```xml
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.github.rey5137</groupId>
+                <artifactId>model-query-bom</artifactId>
+                <version>0.8.0</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>io.github.rey5137</groupId>
-            <artifactId>model-query-bom</artifactId>
-            <version>0.8.0</version>
-            <type>pom</type>
-            <scope>import</scope>
+            <artifactId>model-query-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.rey5137</groupId>
+            <artifactId>model-query-annotations</artifactId>
         </dependency>
     </dependencies>
-</dependencyManagement>
+    ```
 
-<dependencies>
-    <dependency>
-        <groupId>io.github.rey5137</groupId>
-        <artifactId>model-query-jpa</artifactId>
-    </dependency>
-    <dependency>
-        <groupId>io.github.rey5137</groupId>
-        <artifactId>model-query-annotations</artifactId>
-    </dependency>
-</dependencies>
-```
+    Register the processor so the `Q` classes are generated at compile time:
 
-Register the processor so the `Q` classes are generated at compile time:
+    ```xml
+    <annotationProcessorPaths>
+        <path>
+            <groupId>io.github.rey5137</groupId>
+            <artifactId>model-query-processor</artifactId>
+            <version>0.8.0</version>
+        </path>
+    </annotationProcessorPaths>
+    ```
 
-```xml
-<annotationProcessorPaths>
-    <path>
-        <groupId>io.github.rey5137</groupId>
-        <artifactId>model-query-processor</artifactId>
-        <version>0.8.0</version>
-    </path>
-</annotationProcessorPaths>
-```
+=== "Gradle"
+
+    ```kotlin
+    dependencies {
+        implementation(platform("io.github.rey5137:model-query-bom:0.8.0"))
+        implementation("io.github.rey5137:model-query-jpa")
+        implementation("io.github.rey5137:model-query-annotations")
+
+        annotationProcessor(platform("io.github.rey5137:model-query-bom:0.8.0"))
+        annotationProcessor("io.github.rey5137:model-query-processor")
+    }
+    ```
+
+`annotationProcessor` takes its own `platform(...)` because Gradle resolves the processor path separately; the
+processor declares itself an isolating incremental processor, so Gradle recompiles only the models that changed.
 
 Add `model-query-hibernate` as well when you run on Hibernate: it detects the database from the dialect without a
 connection, and lets the library render `NULLS FIRST/LAST` and count grouped queries natively.
