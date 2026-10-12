@@ -99,6 +99,13 @@ a default built on `list` would need the IN filter and the chunking the executor
 only implementations are `DefaultModelQueryExecutor` and `ModelQueryRepositoryFragment`. A class that implements
 `ModelQueryExecutor` itself must add it; one compiled before 0.8.0 throws `AbstractMethodError` only when `byKeys` is
 called.
+The row-lock members (D-127, 0.9.0) are `@Incubating` through 1.0: `RowLock` and its `Wait`, `ModelQuery.Builder#lock`,
+`ModelQuery#lock()` and `ModelQuery#withLock`, and the `jpa.spi` capability `ProviderSupport#locks()` returns, an
+`Optional<LockSupport>`, which a provider implements as an extension point and is not `@EngineFacing`.
+The literal-filter and bound-argument members (D-128, 0.9.0) are `@Incubating` through 1.0: the fixed-arity
+`Filters#in` and `#notIn` field forms, `Expr.constant(ColumnField, Object)` and `Expr.value(Object)`, and the
+`ConstantRenderer` capability `ProviderSupport#constants` returns. `ModelUpdate.Rendered`, `ModelDelete.Rendered` and
+`JoinContext#statementParameters()` are `@EngineFacing`, so they are not API.
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from

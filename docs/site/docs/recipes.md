@@ -1209,3 +1209,111 @@ Caveats:
   statement joins is `MQ2211`.
 
 Tested by `ac_exe_17_claim_the_next_job_skips_locked_rows_and_updates_its_claim` in `RowLockExecutionTest`.
+
+## Filter by a fixed set of enum states
+
+The case in one line: a filter that matches a small, fixed set of enum states, inlined as literals so the planner can
+use the column's index (`Expr.constant`, D-128, R-FLT-19, R-COL-27, `@Incubating`; see
+[Literal filters](queries.md#literal-filters)).
+
+Wrap each state in an `Expr.constant` typed by the column, and pass them to the fixed-arity `Filters#in` field form.
+An `@Enumerated(STRING)` column inlines the member's name; an `ORDINAL` one its ordinal:
+
+```java
+/** The rows of constant_rows this recipe reads, and its status column. */
+record Row(Long id, ConstantStatus status) {}
+
+private static final TableField<ConstantRowEntity, ConstantRowEntity> ROWS =
+        TableField.root(ConstantRowEntity.class);
+private static final ColumnField<Row, ConstantRowEntity, Long> ID =
+        ColumnField.of(Row.class, ROWS, "id", Long.class);
+private static final ColumnField<Row, ConstantRowEntity, ConstantStatus> STATUS =
+        ColumnField.of(Row.class, ROWS, "status", ConstantStatus.class);
+
+/** The two states to keep, as column-typed constants, inlined as their names (R-COL-27). */
+private static final ExpressionField<Row, ConstantStatus> PENDING = Expr.constant(STATUS, ConstantStatus.PENDING);
+private static final ExpressionField<Row, ConstantStatus> FAILED = Expr.constant(STATUS, ConstantStatus.FAILED);
+
+private static final ModelQuery<ConstantRowEntity, Object, Row> OPEN_ROWS =
+        ModelQuery.builder(ROWS, row -> new Row(row.get(ID), row.get(STATUS)))
+                .select(SelectSet.of(ID, STATUS))
+                .where(f -> f.in(STATUS, PENDING, FAILED))
+                .orderBy(ID.asc())
+                .build();
+```
+
+The statement inlines `status in ('PENDING','FAILED')`. To keep the rows whose status is *not* one of the states,
+`f.notIn(STATUS, PENDING, FAILED)` renders `status not in ('PENDING','FAILED') or status is null`, so a row whose
+status is NULL still matches.
+
+=== "Plain JPA"
+
+    ```java
+    List<Row> rows = executor.list(OPEN_ROWS, Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<Row> rows = constantRows.findAll(OPEN_ROWS, Limit.unlimited());
+    ```
+
+Because the literals are part of the statement text, this form suits a fixed set — enum states, a status a partial
+index covers. For a set the caller chooses per request, use the value form `in(STATUS, List.of(a, b))`, which binds
+each value. Never build an `Expr.constant` from request input (R-COL-18).
+
+Tested by `ac_flt_20_in_and_not_in_over_operand_fields_inline_the_literals_and_keep_null_rows` in
+`TypedConstantTest`.
+
+## Group by a time zone the caller picks
+
+The case in one line: group rows by a timestamp shifted into a zone the caller chooses per request, with the zone
+bound as a parameter so one statement serves every zone (`Expr.value`, D-128, R-COL-26, `@Incubating`; see
+[Bound function arguments](queries.md#bound-function-arguments)). PostgreSQL only.
+
+`timezone(text, timestamp)` returns a timestamp without a zone, so nesting it under `timezone('UTC', …)` makes the
+group key independent of the JVM and session zone. The zone itself is an `Expr.value`, so it renders as `?` and one
+statement covers every zone:
+
+```java
+/** One customer id and its created_at read in the chosen zone, for the group key. */
+record Hour(Long id, LocalDateTime at) {}
+
+private static final TableField<CustomerEntity, CustomerEntity> CUSTOMERS =
+        TableField.root(CustomerEntity.class);
+private static final ColumnField<Hour, CustomerEntity, Long> ID =
+        ColumnField.of(Hour.class, CUSTOMERS, "id", Long.class);
+private static final ColumnField<Hour, CustomerEntity, LocalDateTime> CREATED_AT =
+        ColumnField.of(Hour.class, CUSTOMERS, "createdAt", LocalDateTime.class);
+
+/** The grouping query for one zone, built per request. */
+static ModelQuery<CustomerEntity, Object, Hour> byZone(String zone) {
+    ExpressionField<Hour, LocalDateTime> at = Expr.function("timezone", LocalDateTime.class, Expr.constant("UTC"),
+            Expr.function("timezone", LocalDateTime.class, Expr.value(zone), CREATED_AT));
+    return ModelQuery.builder(CUSTOMERS, row -> new Hour(row.get(ID), row.get(at)))
+            .select(SelectSet.of(ID, at))
+            .where(f -> f.lte(ID, 20L))
+            .groupBy(ID, at)
+            .orderBy(ID.asc())
+            .build();
+}
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<Hour> hours = executor.list(byZone(zone), Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<Hour> hours = customers.findAll(byZone(zone), Limit.unlimited());
+    ```
+
+The value binds on the statement, so each distinct zone does not create a new statement text (the plan-cache note on
+[Literal filters](queries.md#literal-filters)). A function that reads a value changing between statements — `now()`,
+say — is evaluated by each statement that renders it, so the pages of a paged read may disagree; read such a value
+from a column when it must be stable (INV-4).
+
+Tested by `ac_col_31_timezone_with_a_bound_zone_groups_a_timestamp_on_postgresql` in `BoundValueFunctionTest`.
