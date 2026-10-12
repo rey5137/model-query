@@ -1,6 +1,7 @@
 package com.rey.modelquery.jpa.spi;
 
 import com.rey.modelquery.annotations.Incubating;
+import com.rey.modelquery.core.ConstantRenderer;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
 import jakarta.persistence.EntityManagerFactory;
@@ -97,6 +98,15 @@ public interface ProviderSupport {
      * {@code MQ4010} before any statement, the same fail-safe as {@link #inserts()} (R-VND-15, D-117, D-127).
      */
     default Optional<LockSupport> locks() {
+        return Optional.empty();
+    }
+
+    /**
+     * The provider's renderer of a column-typed constant's stored value, resolved from {@code emf}'s metamodel, or
+     * empty, the default, when it has none: {@code Expr.constant(typedBy, value)} then throws {@code MQ1508}
+     * (R-VND-16, R-COL-27).
+     */
+    default Optional<ConstantRenderer> constants(EntityManagerFactory emf) {
         return Optional.empty();
     }
 }

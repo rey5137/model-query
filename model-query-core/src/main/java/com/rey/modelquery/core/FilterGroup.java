@@ -208,6 +208,28 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
         return super.notIn(column, values);
     }
 
+    @Override
+    public <C> Filters<M> in(ScalarField<M, C> column, ScalarField<M, C> first, ScalarField<M, C> second) {
+        return super.in(column, first, second);
+    }
+
+    @Override
+    public <C> Filters<M> in(ScalarField<M, C> column, ScalarField<M, C> first, ScalarField<M, C> second,
+            ScalarField<M, C> third) {
+        return super.in(column, first, second, third);
+    }
+
+    @Override
+    public <C> Filters<M> notIn(ScalarField<M, C> column, ScalarField<M, C> first, ScalarField<M, C> second) {
+        return super.notIn(column, first, second);
+    }
+
+    @Override
+    public <C> Filters<M> notIn(ScalarField<M, C> column, ScalarField<M, C> first, ScalarField<M, C> second,
+            ScalarField<M, C> third) {
+        return super.notIn(column, first, second, third);
+    }
+
     // ---- sets over a sub-select
 
     @Override

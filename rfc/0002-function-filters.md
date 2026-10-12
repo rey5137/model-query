@@ -22,6 +22,8 @@ what D-115 left out:
    interface method cannot carry `@SafeVarargs`, as in D-87), no `List` form (a raw `List` would bind to
    `in(col, Collection)`), and no `eq`/`ne`/`lt`… field overloads: `compare` is the idiom, and a field-form `ne`
    would include `NULL` rows where a partial-index predicate needs a plain `<>`.
+   - **Escaping spike (M19.1).** On PostgreSQL 17, MySQL 8.4 and H2, a constant holding both `'` and `\` round-trips:
+     Hibernate doubles the `'` and, on MySQL only, the `\` too, so no refusal (`MQ1509`) is needed.
 2. **Enum and converted constants:** `Expr.constant(ColumnField<M, ?, C> typedBy, C value)`. The value goes through
    the column's `ColumnConverter` (`MQ1308` on failure), then through the attribute's JPA mapping (`@Enumerated`,
    `AttributeConverter`) via a new optional `ProviderSupport` capability, reached by core through a `JoinContext`

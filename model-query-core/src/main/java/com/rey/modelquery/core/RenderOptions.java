@@ -16,17 +16,19 @@ import java.util.Optional;
 public final class RenderOptions {
 
     /** The limits of the {@code OTHER} profile, which are safe on any database (R-VND-06). */
-    private static final RenderOptions PORTABLE = new RenderOptions(1_000, 2_000, null);
+    private static final RenderOptions PORTABLE = new RenderOptions(1_000, 2_000, null, null);
 
     private final int maxInListSize;
     private final int maxBindParameters;
     private final NullPrecedenceRenderer nullPrecedenceRenderer;
+    private final ConstantRenderer constantRenderer;
 
-    private RenderOptions(int maxInListSize, int maxBindParameters,
-            NullPrecedenceRenderer nullPrecedenceRenderer) {
+    private RenderOptions(int maxInListSize, int maxBindParameters, NullPrecedenceRenderer nullPrecedenceRenderer,
+            ConstantRenderer constantRenderer) {
         this.maxInListSize = maxInListSize;
         this.maxBindParameters = maxBindParameters;
         this.nullPrecedenceRenderer = nullPrecedenceRenderer;
+        this.constantRenderer = constantRenderer;
     }
 
     /** The options of an unknown database: the {@code OTHER} limits and no renderer. */
@@ -44,12 +46,19 @@ public final class RenderOptions {
             throw new IllegalArgumentException("maxInListSize and maxBindParameters must be positive, got "
                     + maxInListSize + " and " + maxBindParameters);
         }
-        return new RenderOptions(maxInListSize, maxBindParameters, null);
+        return new RenderOptions(maxInListSize, maxBindParameters, null, null);
     }
 
     /** These options with {@code renderer} rendering explicit null precedence. */
     public RenderOptions withNullPrecedenceRenderer(NullPrecedenceRenderer renderer) {
-        return new RenderOptions(maxInListSize, maxBindParameters, Objects.requireNonNull(renderer, "renderer"));
+        return new RenderOptions(maxInListSize, maxBindParameters, Objects.requireNonNull(renderer, "renderer"),
+                constantRenderer);
+    }
+
+    /** These options with {@code renderer} rendering a column-typed constant (R-COL-27). */
+    public RenderOptions withConstantRenderer(ConstantRenderer renderer) {
+        return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer,
+                Objects.requireNonNull(renderer, "renderer"));
     }
 
     /** The most values one {@code IN} list takes before it is split (R-FLT-09). */
@@ -65,5 +74,10 @@ public final class RenderOptions {
     /** The provider's native null-precedence renderer, or empty to render the portable form (R-COL-12). */
     public Optional<NullPrecedenceRenderer> nullPrecedenceRenderer() {
         return Optional.ofNullable(nullPrecedenceRenderer);
+    }
+
+    /** The provider's column-typed constant renderer, or empty: a typed constant is then {@code MQ1508} (R-COL-27). */
+    public Optional<ConstantRenderer> constantRenderer() {
+        return Optional.ofNullable(constantRenderer);
     }
 }

@@ -18,6 +18,7 @@ import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -211,6 +212,15 @@ public final class JoinContext {
 
     RenderOptions renderOptions() {
         return renderOptions;
+    }
+
+    /**
+     * The provider's column-typed constant renderer this build renders by, or empty when it has none and a typed
+     * constant is then {@code MQ1508} (R-COL-27). How {@code core}'s expressions reach the provider capability, so
+     * {@code core} names no provider (INV-7).
+     */
+    public Optional<ConstantRenderer> constantRenderer() {
+        return renderOptions.constantRenderer();
     }
 
     /**

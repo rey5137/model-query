@@ -60,6 +60,11 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         Objects.requireNonNull(ctx, "ctx");
         return (Expression<C>) ctx.expression(this, () -> {
             Expression<?> rendered = node.render(ctx);
+            if (node instanceof TypedConst) {
+                // The declared type is the witness column's model type and the literal's is the stored value's, so the
+                // two are not compared (R-COL-27).
+                return rendered;
+            }
             Class<?> actual = rendered.getJavaType();
             if (actual == null || !ColumnField.reads(type, actual)) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1507, node.text() + ": declared "
@@ -138,7 +143,7 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
 
     /** The structure behind an expression: equal nodes are equal expressions (R-COL-20). */
     sealed interface Node
-            permits Coalesce, NullIf, Arith, Negate, Concat, Fn, Const, Case {
+            permits Coalesce, NullIf, Arith, Negate, Concat, Fn, Const, TypedConst, Case {
 
         Class<?> type();
 
@@ -351,6 +356,43 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         @Override
         public List<ColumnField<?, ?, ?>> columns() {
             return List.of();
+        }
+
+        @Override
+        public int binds() {
+            return 0; // definition text, not a value (R-COL-18)
+        }
+
+        @Override
+        public String text() {
+            return String.valueOf(value);
+        }
+    }
+
+    /**
+     * SQL text of the definition, the provider's literal of the value {@code typedBy}'s attribute stores (R-COL-27).
+     * {@code value} is the attribute value, after {@code typedBy}'s converter; {@code typedBy} is a type witness, part
+     * of equality but of no column (R-COL-20).
+     */
+    record TypedConst(ColumnField<?, ?, ?> typedBy, Object value, Class<?> type) implements Node {
+        @Override
+        public Expression<?> render(JoinContext ctx) {
+            Class<?> entity = typedBy.table().rootEntity();
+            ConstantRenderer renderer = entity == null ? null : ctx.constantRenderer().orElse(null);
+            Object stored = renderer == null ? null
+                    : renderer.storedValue(entity, typedBy.name(), value).orElse(null);
+            if (!(stored instanceof String || stored instanceof Number || stored instanceof Boolean)) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1508, typedBy + ": Expr.constant cannot render "
+                        + value + " as a literal; " + (renderer == null
+                                ? "its type witness must be a basic attribute of a root table's entity, not a joined column"
+                                : "the provider cannot store it as a String, Number or Boolean"));
+            }
+            return ctx.cb().literal(stored);
+        }
+
+        @Override
+        public List<ColumnField<?, ?, ?>> columns() {
+            return List.of(); // typedBy is a type witness, not a column the row reads (R-COL-27)
         }
 
         @Override

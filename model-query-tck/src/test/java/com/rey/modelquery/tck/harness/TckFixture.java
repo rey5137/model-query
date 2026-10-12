@@ -12,6 +12,7 @@ import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -53,6 +54,8 @@ public final class TckFixture {
      */
     public static final int DATED_ROWS = 10;
     public static final int LABELS = 10;
+    /** Rows of {@code constant_rows}, one per column-typed constant's mapping (TCK AC-FLT-20, AC-COL-32). */
+    public static final int CONSTANT_ROWS = 6;
     /** Orders 1 to this one carry labels, many-to-many: one or two each, every label on many orders. */
     public static final int LABELED_ORDERS = 200;
     /**
@@ -66,6 +69,17 @@ public final class TckFixture {
     private static final LocalDateTime BASE = LocalDateTime.of(2020, 1, 1, 0, 0);
     private static final String[] COUNTRIES = {"US", "GB", "DE", "FR", "JP", "VN", "BR", "AU"};
     private static final String[] STATUSES = {"NEW", "PAID", "SHIPPED", "CANCELLED"};
+    /**
+     * The {@code constant_rows} seed, one entry per row: the STRING enum's name, the ORDINAL enum's ordinal, the
+     * converted {@code Y}/{@code N} flag and the label. Row 4 is NULL everywhere, row 2's label holds a quote and
+     * row 3's and 6's a backslash (TCK AC-FLT-20, AC-COL-32).
+     */
+    private static final List<String> CONSTANT_STATUSES = Arrays.asList("PENDING", "FAILED", "CLOSED", null, "PENDING",
+            "FAILED");
+    private static final List<Integer> CONSTANT_RANKS = Arrays.asList(0, 1, 2, null, 1, null);
+    private static final List<String> CONSTANT_ACTIVE = Arrays.asList("Y", "N", "Y", null, "N", "Y");
+    private static final List<String> CONSTANT_LABELS = Arrays.asList("plain", "O'Brien", "back\\slash", null,
+            "padded", "mixed'and\\slash");
 
     private TckFixture() {}
 
@@ -264,6 +278,29 @@ public final class TckFixture {
             ps.setTime(3, java.sql.Time.valueOf(BASE.toLocalTime().plusHours(8).plusMinutes(i)));
             ps.setTimestamp(4, Timestamp.valueOf(BASE.plusHours(i).plusNanos(i % 3 == 0 ? 123_000 : 0)));
         });
+        // One row per column-typed constant's mapping (TCK AC-FLT-20, AC-COL-32).
+        insert(c, "INSERT INTO constant_rows (id, status, rank_no, active, label) VALUES (?,?,?,?,?)", CONSTANT_ROWS,
+                (ps, i) -> {
+                    int row = i - 1;
+                    ps.setLong(1, i);
+                    nullableText(ps, 2, CONSTANT_STATUSES.get(row));
+                    if (CONSTANT_RANKS.get(row) == null) {
+                        ps.setNull(3, Types.INTEGER);
+                    } else {
+                        ps.setInt(3, CONSTANT_RANKS.get(row));
+                    }
+                    nullableText(ps, 4, CONSTANT_ACTIVE.get(row));
+                    nullableText(ps, 5, CONSTANT_LABELS.get(row));
+                });
+    }
+
+    /** Sets {@code index} to {@code value}, or NULL when it is {@code null}. */
+    private static void nullableText(PreparedStatement ps, int index, String value) throws SQLException {
+        if (value == null) {
+            ps.setNull(index, Types.VARCHAR);
+        } else {
+            ps.setString(index, value);
+        }
     }
 
     /** The code of {@code string_key_products} row {@code row} (1-based), a permutation with mixed case. */

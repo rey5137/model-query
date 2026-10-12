@@ -351,6 +351,27 @@ it sees the `NULL`-foreign-key rows (a keyset order on it then needs `nullsFirst
 R-PAG-05). It does not hold inside an embedded value (a dotted attribute path), which keeps `root.get`, nor in a bulk
 write, which takes no join. A converter is never given the `null`.
 
+**R-COL-27** *(D-128)* **A column-typed constant.** `Expr.constant` also takes a column as a type witness, for a value
+the planner must see as a literal (a partial index's predicate, a selective enum value):
+
+```java
+@Incubating public static <M, C> ExpressionField<M, C> constant(ColumnField<M, ?, C> typedBy, C value);
+```
+
+- `value` goes through `typedBy`'s `ColumnConverter` (`toAttribute`, `MQ1308` on failure, R-COL-14), then through the
+  attribute's JPA mapping — `@Enumerated(STRING)` stores the constant's name, `ORDINAL` its ordinal, an
+  `AttributeConverter` its converted database value — through an optional `ProviderSupport` capability (`vendor/40`
+  R-VND-16) that `core` reaches through a `JoinContext` hook, so `core` names no provider (INV-7).
+- The stored value must be a `String`, `Number` or `Boolean`, else `MQ1508`; a provider without the capability, and a
+  `typedBy` that is not a basic attribute of a root table's entity (a joined column names no entity class), are
+  `MQ1508` too, because only the provider can read the mapping.
+- The expression's declared type is `typedBy`'s model type, and the rendered literal's provider type is the stored
+  value's; those two are not compared, so `MQ1507` does not apply (R-COL-17).
+- The result renders as the provider's literal text, as an R-COL-18 constant does, and binds nothing: each distinct
+  value is a distinct statement text, so a per-request value uses `Expr.value` (M19.2) instead.
+- `typedBy` is a type witness only: it is part of the expression's equality (R-COL-20), contributes no column to
+  `columns()` and adds no join.
+
 ## 7. Acceptance criteria
 
 | ID | Criterion |
@@ -385,3 +406,4 @@ write, which takes no join. A converter is never given the `null`.
 | AC-COL-28 | A generated model whose `Date` fields mirror an entity's `Date` attributes stored as `DATE`, `TIME` and `TIMESTAMP` (`@Temporal(DATE)`, `@Temporal(TIME)`, none) compiles, reads each value as the `java.sql` type the provider returns, filters each with a `Date` value, and keyset-pages over the `DATE` one (R-COL-08, D-122). |
 | AC-COL-29 | An `@Immutable` entity over a view created in the TCK schema and an `@Immutable @Subselect` entity are roots on every Tier-1 vendor: a query model over each lists, filters and offset-pages rows in a stable order, and a grouped query returns the counts and sums the view's own rows hold (R-COL-01). |
 | AC-COL-30 | `Expr.function` with an `Expr.constant` argument is selected and grouped on every Tier-1 vendor — PostgreSQL and H2 `date_trunc('day', col)`, MySQL `date_format(col, '%Y-%m-%d')` — and on PostgreSQL only `timezone('UTC', timezone('Asia/Ho_Chi_Minh', col))` reads a Ho Chi Minh local time as UTC, 7 hours earlier, whatever the JVM zone (R-COL-18). |
+| AC-COL-32 | On every Tier-1 vendor, `Expr.constant(typedBy, value)` filters and compares through a `@Enumerated(STRING)` enum, an `@Enumerated(ORDINAL)` enum, an `AttributeConverter` attribute and a column with a `ColumnConverter`, inlining each as its stored literal; the witness is equal by `equals` but adds no column and no join; a null value is `MQ1502`, a value its converter refuses `MQ1308`, a stored value that is not a `String`, `Number` or `Boolean` and a provider without the capability `MQ1508` (R-COL-27, R-COL-14, R-COL-20). |

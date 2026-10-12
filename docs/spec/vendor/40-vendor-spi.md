@@ -167,6 +167,22 @@ unlocked. `VendorProfile` gains nothing: the lock-timeout hint values are Hibern
 raw-`Query` hook on a profile would be the `TypedQuery` escape hatch left out of M18. The engine calls `locks()` in
 `jpa` only; `core` never sees a provider or a hint (INV-7).
 
+**R-VND-16** A column-typed constant's stored value is a provider fact, as a lock's rendering is (D-128).
+`ProviderSupport#constants(emf)` returns an `Optional<ConstantRenderer>`, empty by default; a provider without it
+leaves `Expr.constant(typedBy, value)` to throw `MQ1508` (`api/10` R-COL-27). `ConstantRenderer` lives in `core`,
+because it hands back a plain stored value and no provider type:
+
+```java
+Optional<Object> storedValue(Class<?> entity, String attribute, Object attributeValue);   // String, Number or Boolean
+```
+
+`storedValue` maps the attribute value of `entity.attribute` to the value its column stores — an
+`@Enumerated(STRING)` constant's name, an `ORDINAL` one's ordinal, an `AttributeConverter` one's converted database
+value, else the attribute value itself — and is empty when the provider cannot tell. `model-query-hibernate` reads it
+from the attribute's JPA mapping in its `MappingMetamodel`, so a mapped conversion decides it and not a re-read of the
+annotations. The executor resolves it once per factory and passes it into the build as `RenderOptions` carries the
+native null-precedence renderer (R-VND-01), reaching `core` only through `JoinContext` (INV-7).
+
 ## 2. Detection
 
 **R-VND-04** Resolution order:

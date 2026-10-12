@@ -323,6 +323,51 @@ abstract class ConditionGroup<M, G> {
         return present(column, values) ? notIn(column, values.get()) : self();
     }
 
+    final <C> G in(SelectField<M, C> column, ScalarField<M, C> first, ScalarField<M, C> second) {
+        // Arrays.asList, not List.of: a null operand must reach the MQ1301 check, not throw NPE first.
+        return inFields(column, "in", Kind.IN, Arrays.asList(first, second));
+    }
+
+    final <C> G in(SelectField<M, C> column, ScalarField<M, C> first, ScalarField<M, C> second,
+            ScalarField<M, C> third) {
+        return inFields(column, "in", Kind.IN, Arrays.asList(first, second, third));
+    }
+
+    final <C> G notIn(SelectField<M, C> column, ScalarField<M, C> first, ScalarField<M, C> second) {
+        return inFields(column, "notIn", Kind.NOT_IN, Arrays.asList(first, second));
+    }
+
+    final <C> G notIn(SelectField<M, C> column, ScalarField<M, C> first, ScalarField<M, C> second,
+            ScalarField<M, C> third) {
+        return inFields(column, "notIn", Kind.NOT_IN, Arrays.asList(first, second, third));
+    }
+
+    /**
+     * {@code column IN (operands)} against operand expressions, or the null-safe {@code NOT IN} (R-FLT-19). The
+     * operands are recorded as the condition's values (R-INS-01); a null operand throws {@code MQ1301}.
+     */
+    @SuppressWarnings("rawtypes")
+    private <C> G inFields(SelectField<M, C> column, String operator, Kind kind, List<ScalarField<M, C>> operands) {
+        guard(column, "column");
+        for (ScalarField<M, C> operand : operands) {
+            if (operand == null) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1301, column + ": " + operator
+                        + "(...) received a null operand; pass a column or an expression");
+            }
+            guard(operand, "operand");
+        }
+        return record(Condition.of(kind, column, List.copyOf(operands)), ctx -> {
+            CriteriaBuilder cb = ctx.cb();
+            Expression<C> expression = column.expression(ctx);
+            Expression<?>[] values = operands.stream().map(operand -> operand.expression(ctx))
+                    .toArray(Expression[]::new);
+            // An operand value the database compares against; the set is definition text, not a bind (R-COL-18).
+            Predicate in = expression.in(values);
+            // NULL is unknown in the IN, so it is ORed in once, outside it: NULLs match (R-FLT-04, R-FLT-19).
+            return Optional.of(kind == Kind.IN ? in : cb.or(cb.not(in), cb.isNull(expression)));
+        });
+    }
+
     // ---- strings
 
     final G like(SelectField<M, String> column, String value, LikeMode mode) {

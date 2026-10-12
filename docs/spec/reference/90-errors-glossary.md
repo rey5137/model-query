@@ -78,6 +78,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1505` | A CASE condition uses `add(...)`, `exists(...)` or a sub-select | `api/10` R-COL-17 |
 | `MQ1506` | `function(name, …)` with a name that is not a plain SQL identifier, or is a built-in aggregate | `api/10` R-COL-17 |
 | `MQ1507` | An expression's declared type is not the type the provider resolves; checked at first resolution | `api/10` R-COL-17 |
+| `MQ1508` | A column-typed `Expr.constant` cannot be rendered as a literal: the value after its column's converter and the attribute's JPA mapping is not a `String`, `Number` or `Boolean`, the witness is not a basic attribute of a root table's entity (a joined column is none), or the provider has no constant renderer | `api/10` R-COL-27, `vendor/40` R-VND-16 |
 | `MQ1601` | A bulk write chose its rows with `where(...)` and no predicate is left | `api/14` R-WRT-12 |
 | `MQ1602` | A column is assigned twice in one update | `api/14` R-WRT-13 |
 | `MQ1603` | `set(column, null)`; NULL must be written with `setNull` | `api/14` R-WRT-06 |

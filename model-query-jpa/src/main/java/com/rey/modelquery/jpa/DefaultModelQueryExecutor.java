@@ -213,9 +213,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         this.providerNulls = vendor.providerSupport()
                 .flatMap(support -> support.defaultNullPrecedence(em.getEntityManagerFactory()));
         RenderOptions options = RenderOptions.of(profile.maxInListSize(), profile.maxBindParameters());
-        this.renderOptions = vendor.providerSupport()
+        options = vendor.providerSupport()
                 .flatMap(ProviderSupport::nullPrecedence)
                 .map(options::withNullPrecedenceRenderer)
+                .orElse(options);
+        this.renderOptions = vendor.providerSupport()
+                .flatMap(support -> support.constants(emf))
+                .map(options::withConstantRenderer)
                 .orElse(options);
         this.keyLimits = new Keys(profile.maxInListSize(), profile.maxBindParameters());
         this.primaryKeyFirstBatchSize = config.primaryKeyFirstBatchSize();
