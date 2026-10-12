@@ -42,9 +42,10 @@ static final ModelQuery<JobModel, Long> NEXT_JOB = ModelQuery.builder(JOB, JobMo
 Optional<JobModel> job = executor.first(em, NEXT_JOB);   // PostgreSQL: FOR NO KEY UPDATE SKIP LOCKED, LIMIT 1
 ```
 
-`RowLock` (core, `@Incubating`) is an immutable value with `equals`/`hashCode`: a strength and a `Wait` (`WAIT`,
-`NO_WAIT`, `SKIP_LOCKED`). Factories: `exclusive()`, `exclusive(Wait)`, `shared()`, `shared(Wait)`; the no-argument
-forms wait. An invalid combination cannot be written (P-2).
+`RowLock` (core, `@Incubating`) is an immutable value with `equals`/`hashCode`: a strength (`Strength`: `EXCLUSIVE`,
+`SHARED`) and a `Wait` (`WAIT`, `NO_WAIT`, `SKIP_LOCKED`), read by `strength()` and `waitPolicy()` (not `wait()`, which
+`Object` declares). Factories: `exclusive()`, `exclusive(Wait)`, `shared()`, `shared(Wait)`; the no-argument forms wait.
+An invalid combination cannot be written (P-2).
 
 **Two strengths, named for what they guarantee, not for a keyword.** Hibernate offers no per-query way to render a
 true `FOR UPDATE` on PostgreSQL: `PESSIMISTIC_WRITE` renders `FOR NO KEY UPDATE` in both 6.6 and 7.x. So `exclusive()`
@@ -139,7 +140,11 @@ This follows `inserts()` and `entityWrites()`, and the reporting idea of `doNoth
 lock renders is a fact about the provider and its version, not the vendor:
 
 - Hibernate 6.6 drops `NOWAIT` and `SKIP LOCKED` on H2, rendering a plain `FOR UPDATE` that blocks.
-- Hibernate 7.x renders both for H2 2.2.220 and later.
+- Hibernate 7.x renders both for H2 2.2.220 and later, but only for `exclusive()`. `shared()` with `NO_WAIT` or
+  `SKIP_LOCKED` renders a plain `FOR UPDATE` on H2 on both lines, so `rendered` is false and the read is refused with
+  `MQ4010`. `rendered` therefore decides per strength × wait, not per wait alone (M18.1 spike).
+- Hibernate 7.x adds `OF <root alias>` on PostgreSQL and MySQL (not on H2); 6.6 renders no `OF`. Either way only the
+  root table is locked, since a locked query reads its root alone (§3).
 
 The Hibernate implementation answers `rendered` from the `Dialect`. Its `apply` sets `setLockMode` and the
 lock-timeout hint (`0` or `-2`, Hibernate's values). It also sets `hibernate.query.followOnLocking=false` (§3).

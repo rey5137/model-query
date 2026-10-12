@@ -59,6 +59,9 @@ public enum MqCode {
     /** {@code keyset()} with an expression order key, whose cursor is defined over attribute values (R-QRY-16). */
     MQ1208("keyset() cannot order by an expression, whose cursor is defined over attribute values"),
 
+    /** A lock on a grouped query, which has no row to lock (R-QRY-17). */
+    MQ1209("A lock on a grouped query has no row to lock"),
+
     /** A value-form filter received {@code null}, or {@code add(label, ...)} a null or blank label (R-INS-03). */
     MQ1301("A value-form filter received null, or add(label, ...) a null or blank label"),
 

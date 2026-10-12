@@ -45,10 +45,11 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1202` | `build()` without `select` or `fetch` | `api/11` R-QRY-02 |
 | `MQ1203` | `ModelQuery.builder`, `ModelUpdate.builder` or `ModelDelete.builder` given a join instead of a root `TableField` | `api/11` R-QRY-02, `api/14` R-WRT-12 |
 | `MQ1204` | `PrimaryKeyFirst.whenOffsetAbove` with a negative offset | `api/11` R-QRY-03 |
-| `MQ1205` | A `QueryCustomizer` changed the `ORDER BY` or `GROUP BY` of a phase | `api/11` R-QRY-11 |
+| `MQ1205` | A `QueryCustomizer` changed the `ORDER BY` or `GROUP BY` of a phase, or added `distinct`/`having` to a locked query | `api/11` R-QRY-11 |
 | `MQ1206` | A primary-key column of array type | `api/11` R-QRY-12 |
 | `MQ1207` | `keyset()` with a `Float` or `Double` order or primary-key column | `api/11` R-QRY-13 |
 | `MQ1208` | `keyset()` with an expression order key, whose cursor and fingerprint are defined over attribute values | `api/11` R-QRY-16 |
+| `MQ1209` | A lock on a grouped query, which has no row to lock | `api/11` R-QRY-17 |
 | `MQ1301` | A value-form filter received `null`, or `add(label, …)` a null or blank label | `api/12` §1 |
 | `MQ1302` | A column or nested `exists(...)` path inside `exists(...)` is not on or below the given path | `api/12` R-FLT-11 |
 | `MQ1303` | A `Filters` or `Having` used after its operator returned, or while a nested operator runs | `api/12` §1, D-23 |

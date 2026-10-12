@@ -64,6 +64,15 @@ next page repeat its tie group, and one stored below it makes the next page skip
 over attribute values (`engine/21` R-PAG-17, R-PAG-19, D-82). `build()` throws `MQ1208` naming it, and an `orderedBy`
 copy rethrows it as `MQ2301`'s cause. Offset paging, export and `primaryKeyFirst` accept it (`engine/21` R-PAG-25).
 
+**R-QRY-17** *(D-127)* `RowLock` is part of the query definition: a strength (`exclusive` or `shared`) and a wait policy
+(`WAIT`, `NO_WAIT`, `SKIP_LOCKED`; the no-argument factories wait), read by `strength()` and `waitPolicy()` (not
+`wait()`, which `Object` declares). `RowLock.exclusive(Wait)` and `shared(Wait)` refuse a `null` wait.
+`Builder#lock(RowLock)` stores it, `ModelQuery#lock()` returns it as an `Optional`, and `ModelQuery#withLock(RowLock)`
+returns a locking copy as `orderedBy` does (R-QRY-14): it refuses `null`, returns `this` for an equal lock, and keeps
+the fetch plan (R-FCH-13). `ModelQuery` stays identity-equal. A lock on a grouped query has no row to lock: `build()`
+throws `MQ1209` naming the model, and `withLock` throws it too. Every copy, including `withFetch` and `orderedBy`, keeps
+the lock. Applying the lock is `engine/20` R-EXE-14 and `vendor/40` R-VND-15.
+
 ## 3. `afterMap` and derived fields
 
 **R-QRY-05** `afterMap(BiConsumer<M, Row>)` runs once per row, after the `RowMapper`, and may read any selected column
@@ -109,7 +118,10 @@ adds makes grouped export drop rows, and an order it changes makes keyset and of
 the engine builds, in every phase and for grouped queries too, compares the `ORDER BY` and `GROUP BY` lists
 (`CriteriaQuery.getOrderList()`, `getGroupList()`) before and after the customizer runs, and throws `MQ1205` naming the
 model and the phase when either differs (D-33). The engine's own tie-breakers are appended after the customizer, so
-they do not count.
+they do not count. On a locked query the guard also compares `distinct` and the `HAVING` restriction (`isDistinct()`,
+`getGroupRestriction()`): a customizer that turns on `distinct` or adds a `having` makes a statement that is no longer
+the row-locking read the lock is applied to, so it throws `MQ1205` too (R-QRY-17, D-127). An unlocked query is not
+compared on either.
 
 ## 5. Defaults when a part is absent
 
@@ -184,3 +196,4 @@ plans and enrichers on `list`, `page`, `export`, `one`, `first` and `byKeys`, an
 | AC-QRY-13 | `orderedBy` sorts by a selected column's property path, by its attribute path and by an aggregate's name, including a renamed nested field and two `@Join`s on one attribute; a bare name of a joined column, an unknown or an ambiguous property, a property naming different columns on two tiers, a sort on an ungrouped query without a primary key, and a sorted copy `build()` refuses (as the cause) throw `MQ2301` (R-QRY-14). |
 | AC-QRY-14 | `ExportOptions.defaults()` exports with the config's page size, and `stream` uses the config's fetch size (R-QRY-15). |
 | AC-QRY-15 | `build()` of a `keyset()` query ordered by an expression throws `MQ1208` naming it, and the same query without `keyset()` builds. `orderedBy` naming an expression's property sorts by it, and on a `keyset()` query throws `MQ2301` caused by `MQ1208` (R-QRY-16, R-QRY-14). |
+| AC-QRY-16 | `RowLock`'s factories produce equal locks for equal strength and wait, and `RowLock.exclusive(null)` throws; `Builder#lock` shows in `lock()`; `withLock` refuses `null`, returns `this` for an equal lock, keeps the fetch plan, and every copy keeps the lock; `MQ1209` for a lock on a grouped query at `build()` and in `withLock`; `MQ1205` for a customizer's `distinct` or `having` on a locked query, and no error for the same customizer on an unlocked one (R-QRY-17, R-QRY-11). |
