@@ -154,7 +154,8 @@ public final class ModelQuery<E, K, M> {
     /**
      * A copy of this query that takes {@code lock} on the rows it reads, replacing any lock it had, as
      * {@link #orderedBy} copies: an equal lock returns {@code this}, and the copy keeps the fetch plan (R-FCH-13).
-     * The copy passes the checks of {@link Builder#build()}, so a grouped query, which has no row to lock, is refused.
+     * A constant lock returns the same copy, as {@link #withFetch} does, so it is checked once. The copy passes the
+     * checks of {@link Builder#build()}, so a grouped query, which has no row to lock, is refused.
      *
      * @throws NullPointerException when {@code lock} is {@code null}
      * @throws ModelQueryDefinitionException {@code MQ1209} when the query is grouped
@@ -166,7 +167,12 @@ public final class ModelQuery<E, K, M> {
         if (lock.equals(this.lock)) {
             return this;
         }
-        return builder.lock(lock).build();
+        ModelQuery<E, K, M> copy = LockedCopies.copy(this, lock);
+        if (copy == null) {
+            copy = builder.lock(lock).build();
+            LockedCopies.put(this, lock, copy);
+        }
+        return copy;
     }
 
     /**

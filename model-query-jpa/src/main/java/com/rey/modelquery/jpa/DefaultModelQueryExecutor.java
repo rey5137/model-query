@@ -235,10 +235,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(limit, "limit");
         checkFirstRun(q);
         LOG.log(DEBUG, () -> "list " + q + ": " + limit);
-        Optional<RowLock> rowLock = q.lock();
         BuiltQuery<M> built = null;
         Optional<LockSupport> lock = Optional.empty();
-        if (rowLock.isPresent()) {
+        if (q.lock().isPresent()) {
             // The refusals run before the zero-limit short cut and before any statement (R-EXE-14).
             built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
             lock = lockChecks(q, built, "list(query, limit)");
@@ -250,7 +249,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
         }
         TypedQuery<Tuple> query = limited(q, built, limit);
-        lock.ifPresent(support -> support.apply(query, rowLock.get()));
+        applyLock(lock, q, query);
         return models(q, mapAll(q, query, built));
     }
 
@@ -297,7 +296,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Optional<LockSupport> lock = lockChecks(q, built, "first(query)");
         TypedQuery<Tuple> query = create(q, built);
         query.setMaxResults(1);
-        lock.ifPresent(support -> support.apply(query, q.lock().get()));
+        applyLock(lock, q, query);
         return modelOf(q, built, rows(q, query));
     }
 
@@ -365,7 +364,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         warnOfIgnoredOrder(q, "byKeys(query, keys)");
         Set<Object> requested = new LinkedHashSet<>(converted.values());
-        List<Object> distinct = List.copyOf(requested);
+        List<Object> distinct = lock.isPresent() ? sortedForLocking(requested) : List.copyOf(requested);
         int ownBinds = em.createQuery(counted.query()).getParameters().size()
                 + counted.joins().repeatedExpressionBinds();
         int chunk = keyLimits.clamp(ownBinds, primaryKey.columns().size(), OptionalInt.empty());
@@ -373,6 +372,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         for (int from = 0; from < distinct.size(); from += chunk) {
             List<Object> chunkKeys = distinct.subList(from, Math.min(distinct.size(), from + chunk));
             BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL, renderOptions);
+            if (lock.isPresent()) {
+                // The customizer runs again for each chunk and may join only then (R-EXE-14).
+                refuseJoin(q, built, lock, "byKeys(query, keys)");
+            }
             Predicate byKey = primaryKey.in(chunkKeys, built.joins(), cb, false);
             Predicate own = built.query().getRestriction();
             built.query().where(own == null ? byKey : cb.and(own, byKey));
@@ -380,7 +383,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             // chunks cannot be ordered across statements (R-EXE-13, R-EXE-14).
             built.query().orderBy(lock.isPresent() ? primaryKeyOrders(primaryKey, built, cb) : List.<Order>of());
             TypedQuery<Tuple> statement = create(q, built);
-            lock.ifPresent(support -> support.apply(statement, q.lock().get()));
+            applyLock(lock, q, statement);
             for (Tuple tuple : rows(q, statement)) {
                 Row row = built.selection().row(tuple);
                 Object rowKey = Keys.keyOf(q, primaryKey, row);
@@ -430,7 +433,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Optional<LockSupport> lock = lockChecks(q, built, call);
         TypedQuery<Tuple> query = create(q, built);
         query.setMaxResults(2);
-        lock.ifPresent(support -> support.apply(query, q.lock().get()));
+        applyLock(lock, q, query);
         List<Tuple> tuples = rows(q, query);
         if (tuples.size() > 1) {
             throw new ModelQueryExecutionException(MqCode.MQ2003, q + ": " + call + " found more than one row"
@@ -459,25 +462,18 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             return Optional.empty();
         }
         RowLock rowLock = lock.get();
-        if (hasJoin(built)) {
-            throw new ModelQueryExecutionException(MqCode.MQ2211, q + ": " + read + " cannot lock a query whose "
-                    + "statement has a join, which a locking clause would follow on or lock every table of; filter "
-                    + "with Filters.exists(...) instead of a join");
-        }
         Optional<LockSupport> rendered = vendor.providerSupport().flatMap(ProviderSupport::locks);
+        refuseJoin(q, built, rendered, read);
         if (rendered.isEmpty()) {
-            throw new ModelQueryExecutionException(MqCode.MQ4010, q + ": " + read + " cannot lock " + rowLock + " on "
-                    + vendor.detectedVendor() + ", because " + lockSupportAbsence());
+            throw cannotLock(q, read, rowLock, lockSupportAbsence());
         }
         LockSupport support = rendered.get();
         if (!support.rendered(em.getEntityManagerFactory(), rowLock)) {
-            throw new ModelQueryExecutionException(MqCode.MQ4010, q + ": " + read + " cannot lock " + rowLock + " on "
-                    + vendor.detectedVendor() + ", because provider " + support.getClass().getSimpleName()
-                    + " would not render it");
+            throw cannotLock(q, read, rowLock,
+                    "provider " + support.getClass().getSimpleName() + " would not render it");
         }
         if (severalTables()) {
-            throw new ModelQueryExecutionException(MqCode.MQ4010, q + ": " + read + " cannot lock " + rowLock + " on "
-                    + vendor.detectedVendor() + ", because root entity " + rootEntity.getSimpleName()
+            throw cannotLock(q, read, rowLock, "root entity " + rootEntity.getSimpleName()
                     + " is mapped to more than one table and only the root table would be locked");
         }
         if (!em.isJoinedToTransaction()) {
@@ -485,6 +481,28 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                     + " and needs an active transaction, and the EntityManager is not joined to one");
         }
         return Optional.of(support);
+    }
+
+    /** The {@code MQ4010} refusal of {@code read} locking {@code rowLock}, for the reason {@code because}. */
+    private ModelQueryExecutionException cannotLock(ModelQuery<?, ?, ?> q, String read, RowLock rowLock,
+            String because) {
+        return new ModelQueryExecutionException(MqCode.MQ4010, q + ": " + read + " cannot lock " + rowLock + " on "
+                + vendor.detectedVendor() + ", because " + because);
+    }
+
+    /** Applies {@code q}'s lock to {@code statement} through {@code support}, which is empty when {@code q} takes none. */
+    private static void applyLock(Optional<LockSupport> support, ModelQuery<?, ?, ?> q, TypedQuery<?> statement) {
+        support.ifPresent(locks -> locks.apply(statement, q.lock().get()));
+    }
+
+    /** {@code MQ2211} when the locked read of {@code q} has a join in {@code built} (R-EXE-14). */
+    private <M> void refuseJoin(ModelQuery<E, ?, M> q, BuiltQuery<M> built, Optional<LockSupport> support,
+            String read) {
+        if (hasJoin(built, support)) {
+            throw new ModelQueryExecutionException(MqCode.MQ2211, q + ": " + read + " cannot lock a query whose "
+                    + "statement has a join, which a locking clause would follow on or lock every table of; filter "
+                    + "with Filters.exists(...) instead of a join");
+        }
     }
 
     /**
@@ -501,11 +519,14 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * Whether {@code built}'s statement reads more than its root's table, through a join or a second root a customizer
-     * added, which a locked read refuses (R-EXE-14, D-127).
+     * added, which a locked read refuses (R-EXE-14, D-127). Fetches and, where the provider lists them apart, entity
+     * joins count too.
      */
-    private static boolean hasJoin(BuiltQuery<?> built) {
+    private static boolean hasJoin(BuiltQuery<?> built, Optional<LockSupport> support) {
         Set<Root<?>> roots = built.query().getRoots();
-        return roots.size() > 1 || roots.stream().anyMatch(root -> !root.getJoins().isEmpty());
+        return roots.size() > 1
+                || roots.stream().anyMatch(root -> !root.getJoins().isEmpty() || !root.getFetches().isEmpty())
+                || support.map(locks -> locks.hasUnreportedJoins(built.query())).orElse(false);
     }
 
     /** Whether {@code rootEntity} is mapped to more than one table, where only the root table would be locked. */
@@ -522,6 +543,20 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                         + "(ProviderSupport#locks())")
                 .orElse("no ProviderSupport serves this factory; add a ProviderSupport for its provider "
                         + "(model-query-hibernate for Hibernate)");
+    }
+
+    /**
+     * {@code keys} in their natural order when they are all mutually comparable, so concurrent locked callers lock
+     * their chunks in one order, and as given otherwise. The result keeps the caller's order regardless (R-EXE-13).
+     */
+    private static List<Object> sortedForLocking(Collection<Object> keys) {
+        List<Object> sorted = new ArrayList<>(keys);
+        try {
+            sorted.sort(null);
+        } catch (ClassCastException | NullPointerException e) {
+            return List.copyOf(keys); // not comparable: chunks keep the order given
+        }
+        return List.copyOf(sorted);
     }
 
     /** {@code primaryKey}'s columns ascending, the order a locked {@code byKeys} chunk locks its rows in. */

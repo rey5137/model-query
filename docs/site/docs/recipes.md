@@ -1203,6 +1203,8 @@ Caveats:
   claim is lost; retry the transaction, not the statement.
 - A read without an active transaction is `MQ2102`. On Spring do not wrap the claim in
   `@Transactional(readOnly = true)`: PostgreSQL and MySQL reject the locking clause.
+- On PostgreSQL a `WAIT` claim can return fewer rows than the limit, or no row while a match exists, because a locked
+  row that no longer matches is dropped after `LIMIT`; `SKIP_LOCKED`, as here, avoids it.
 - To filter by a related table's rows, use [`Filters.exists(...)`](queries.md#exists), not a join: a locked query whose
   statement joins is `MQ2211`.
 

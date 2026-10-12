@@ -75,6 +75,17 @@ class RowLockTest {
     }
 
     @Test
+    void ac_qry_16_with_lock_returns_the_same_copy_for_a_constant_lock() {
+        var query = keyed().build();
+        var lock = RowLock.exclusive(Wait.NO_WAIT);
+        var copy = query.withLock(lock);
+        assertThat(query.withLock(lock)).isSameAs(copy);
+        assertThat(query.withLock(RowLock.exclusive(Wait.NO_WAIT))).isSameAs(copy);
+        assertThat(query.withLock(RowLock.shared())).isNotSameAs(copy);
+        assertThat(copy.definition()).isSameAs(copy);
+    }
+
+    @Test
     void ac_qry_16_every_copy_keeps_the_lock() {
         var lock = RowLock.exclusive();
         var locked = keyed().lock(lock).build();

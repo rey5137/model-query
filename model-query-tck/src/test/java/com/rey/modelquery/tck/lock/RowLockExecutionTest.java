@@ -17,6 +17,7 @@ import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
+import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
 import com.rey.modelquery.tck.fch.Line;
@@ -41,6 +42,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -54,6 +56,7 @@ import org.hibernate.SessionFactory;
 import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
 import org.hibernate.cfg.AvailableSettings;
 import org.hibernate.cfg.Configuration;
+import org.hibernate.query.criteria.JpaRoot;
 import org.junit.jupiter.api.Assumptions;
 
 /**
@@ -138,6 +141,45 @@ class RowLockExecutionTest {
                 .withLock(LOCK);
         withExecutor(db, executor -> assertMq(() -> executor.list(joined, Limit.unlimited()), MqCode.MQ2211,
                 "cannot lock a query whose statement has a join"));
+    }
+
+    /**
+     * A factory-wide {@code jakarta.persistence.lock.timeout} (0: no wait, -2: skip locked) is copied onto every query
+     * by Hibernate, so a plain {@code exclusive()} must still override it and wait (R-VND-15, D-127).
+     */
+    @TckTest
+    void ac_exe_17_a_factory_lock_timeout_does_not_turn_a_plain_wait_into_nowait_or_skip_locked(TckDatabase db) {
+        for (int timeout : new int[] {0, -2}) {
+            List<String> sql = SqlSnapshots.capture(db, dataSource -> {
+                try (SessionFactory sessions = JoinTestSupport.sessionFactory(dataSource,
+                        Map.of("jakarta.persistence.lock.timeout", timeout))) {
+                    sessions.inTransaction(em -> assertThat(executor(em).first(locked(orders(), LOCK))).isPresent());
+                }
+            });
+            assertThat(sql).as("timeout %s", timeout).isNotEmpty();
+            String lockStatement = sql.stream().filter(RowLockExecutionTest::locked).findFirst().orElseThrow();
+            assertThat(lockStatement.toLowerCase(Locale.ROOT)).as("factory timeout %s, but: %s", timeout, lockStatement)
+                    .doesNotContain("nowait").doesNotContain("skip locked");
+        }
+    }
+
+    /** An entity join or a fetch join a customizer adds is {@code MQ2211} too, whatever Hibernate lists in getJoins(). */
+    @TckTest
+    void ac_exe_16_a_customizer_entity_join_or_fetch_is_refused_with_mq2211(TckDatabase db) {
+        ModelQuery<OrderEntity, Long, OrderLines> entityJoined = orders()
+                .customize((spec, joins, query, cb, phase) -> ((JpaRoot<?>) query.getRoots().iterator().next())
+                        .join(CustomerEntity.class))
+                .build()
+                .withLock(LOCK);
+        ModelQuery<OrderEntity, Long, OrderLines> fetched = orders()
+                .customize((spec, joins, query, cb, phase) -> query.getRoots().iterator().next().fetch("customer"))
+                .build()
+                .withLock(LOCK);
+        List<String> sql = SqlSnapshots.capture(db, dataSource -> withExecutor(dataSource, executor -> {
+            assertMq(() -> executor.first(entityJoined), MqCode.MQ2211, "has a join");
+            assertMq(() -> executor.first(fetched), MqCode.MQ2211, "has a join");
+        }));
+        assertThat(sql).as("refused before any statement").isEmpty();
     }
 
     // ---- AC-VND-13: the locks the provider refuses

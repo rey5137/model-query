@@ -171,7 +171,7 @@ each chunk's statement, ordered by primary key, so concurrent callers lock in th
 
 | Read | With a lock |
 |---|---|
-| `list(q)`, `list(q, Limit)`, `first(q)` | locks every row returned |
+| `list(q, Limit)`, `first(q)` | locks every row returned |
 | `one(q)` | locks the row returned; `SKIP_LOCKED` is `MQ2211` |
 | `one(q, key)`, `byKeys(q, keys)` | locks every row returned |
 | `page`, keyset `page`, `count`, `stream`, `export` | `MQ2211` |
@@ -181,6 +181,8 @@ each chunk's statement, ordered by primary key, so concurrent callers lock in th
 `stream` and `export` hold a cursor or span transactions. A read that refuses a lock fails before any statement runs,
 whatever its limit or keys. A locked query whose built statement has a join is `MQ2211` too, because a projection
 leaves the lock no root table to name: filter the related rows with [`Filters.exists`](#exists) instead of joining. A
+customizer that navigates a path past the root (`root.get("customer").get("name")`) joins implicitly, which is not
+refused but locks the joined rows too, so keep a locked query's customizer to the root's own columns. A
 lock on a grouped query is `MQ1209`. A provider that cannot render the lock — a wait H2 drops, or a root mapped to
 more than one table — is `MQ4010`, both before any statement.
 
@@ -204,8 +206,13 @@ ambient transaction is `MQ2102`, because the repository opens none for it (unlik
 
 Database exceptions pass through unchanged: `PessimisticLockException`, `LockTimeoutException` and
 `QueryTimeoutException`. On PostgreSQL any of them aborts the whole transaction, so retry at the transaction, not the
-statement. Do not lock inside `@Transactional(readOnly = true)`: H2 reads the row anyway, but PostgreSQL and MySQL
+statement. Do not lock inside `@Transactional(readOnly = true)`: H2 takes the lock anyway, but PostgreSQL and MySQL
 reject the locking clause and fail the statement.
+
+On PostgreSQL under READ COMMITTED, after a `WAIT` a locked row is re-checked and dropped if it no longer matches,
+after `LIMIT` was applied. So `list(q, Limit)` can return fewer rows, `first` can return empty while another matching
+row exists, and `one(q)` can miss a second match (no `MQ2003`). MySQL keeps scanning. For queue claims use
+`SKIP_LOCKED`.
 
 Tested by `RowLockExecutionTest` and `ModelQueryRepositoryTest` in the TCK.
 

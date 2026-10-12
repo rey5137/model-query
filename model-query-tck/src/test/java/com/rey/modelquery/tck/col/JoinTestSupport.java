@@ -9,6 +9,7 @@ import java.net.URL;
 import java.sql.Connection;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.Map;
 import java.util.function.Consumer;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
@@ -73,6 +74,13 @@ public final class JoinTestSupport {
     public static SessionFactory sessionFactory(DataSource dataSource) {
         return build(new StandardServiceRegistryBuilder()
                 .applySetting(AvailableSettings.JAKARTA_NON_JTA_DATASOURCE, dataSource));
+    }
+
+    /** Like {@link #sessionFactory(DataSource)}, with the extra {@code settings} applied to the factory. */
+    public static SessionFactory sessionFactory(DataSource dataSource, Map<String, Object> settings) {
+        return build(new StandardServiceRegistryBuilder()
+                .applySetting(AvailableSettings.JAKARTA_NON_JTA_DATASOURCE, dataSource)
+                .applySettings(settings));
     }
 
     /**

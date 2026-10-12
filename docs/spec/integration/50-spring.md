@@ -126,7 +126,9 @@ and add no lock semantics of their own (R-SPR-01). `findAll(q, Limit)`, `findOne
 `byKeys` do. `findPage` and `findKeysetPage` throw the executor's `MQ2211`: paging refuses every lock, and the
 `Pageable`/`Sort` → `orderedBy` conversion keeps it, so the refusal is before any statement. A locked read with no
 ambient transaction is the executor's `MQ2102`, because the repository opens none for it (unlike `stream`, R-SPR-03);
-a lock the provider cannot render is the executor's `MQ4010`. Library and provider exceptions pass through unchanged
+a lock the provider cannot render is the executor's `MQ4010`. Under an ambient `@Transactional(readOnly = true)` the
+transaction check passes, then PostgreSQL and MySQL reject the locking `SELECT` with a provider exception while H2
+takes the lock (a vendor difference, verified in the TCK on PostgreSQL 17 and MySQL 8.4, both Hibernate lines). Library and provider exceptions pass through unchanged
 (D-50).
 
 ## 3. Properties
