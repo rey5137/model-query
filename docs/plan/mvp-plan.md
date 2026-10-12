@@ -435,3 +435,20 @@ in `litepos-gaps.md` and left out of M17.2's docs rather than fixed here.
 
 **Exit:** the M17 rows' criteria green on Tier 1 and the docs published from `main`.
 
+## 19. M18 — Row locks on reads
+
+Spec: RFC 0009, D-127, `SPEC.md` INV-1 (one sentence), `api/11` (new R-QRY-17, R-QRY-11's guard), `engine/20` (new
+R-EXE-14), `engine/21` (paging and export refuse a lock), `vendor/40` (new R-VND-15), `vendor/41` (the Tier-1
+rendering table), `api/14` (`MQ1809`), `reference/90` (new `MQ1209`, `MQ2102`, `MQ2211`, `MQ4010`), `integration/50`
+(the repository reads). Each slice writes its rules, `AC-*` rows and `MQ` codes into the owning spec file first, then
+builds; new rows are the ids RFC 0009 §New ids names (AC-QRY-16, AC-EXE-16/17, AC-VND-13, AC-PRF-10). Tier 1 only;
+MariaDB stays Tier 2. Model: the design was reviewed by `architect-review` before D-127; none at a slice. Everything
+new is `@Incubating`. Ships in 0.9.0 with M17 and M19–M22.
+
+| Slice | Contents | Done when |
+|---|---|---|
+| M18.1 | Core and rendering spike: `RowLock` (`exclusive()`, `exclusive(Wait)`, `shared()`, `shared(Wait)`, `Wait { WAIT, NO_WAIT, SKIP_LOCKED }`, `equals`/`hashCode`), `ModelQuery.Builder#lock`, `ModelQuery#lock()`, `ModelQuery#withLock` (no `null`, `this` for an equal lock, keeps the fetch plan); `MQ1209` for a grouped query at `build()` and in `withLock`; `MQ1205` for a customizer's `distinct` or `having` on a locked query; TCK SQL snapshots of what Hibernate 6.6 and 7.x render for `PESSIMISTIC_WRITE/READ` × wait × joined/unjoined on H2, PostgreSQL 17 and MySQL 8.4; R-QRY-17, R-QRY-11 | `core` unit tests green for AC-QRY-16; the spike snapshots match RFC 0009 §1, §3 and §4, or the slice stops and the RFC is amended before M18.2 |
+| M18.2 | Executor and provider: `ProviderSupport#locks()`, `LockSupport` (`rendered`, `apply`) and its Hibernate implementation (`followOnLocking=false`); the R-EXE-14 table (lock applied after `create` in `list`, `list(Limit)`, `first`, `one`, `one(q, key)`, `byKeys` with each chunk ordered by key; refusals at method entry, before any SQL; fetch-plan statements unlocked); `MQ2102`, `MQ2211`, `MQ4010`, `MQ1809`; INV-1's sentence; R-EXE-14, R-VND-15, `engine/21`, `vendor/41` | `jpa` and `hibernate` unit tests and the TCK group green on Tier 1 for AC-EXE-16, AC-EXE-17 (two connections on PostgreSQL and MySQL: blocked, skipped, no-wait error), AC-VND-13 and AC-PRF-10 on both Hibernate lines; `JapicmpExclusionsTest` green |
+| M18.3 | Spring and docs: `findAll(q, Limit)`, `findOne`, `findFirst`, `findByKey`, `findAllByKeys` honour the lock, `findPage` and `findKeysetPage` refuse it (`integration/50`); `queries.md` §Row locks; a "claim the next job" recipe with `SKIP_LOCKED` (the out-of-order caveat for `first`, the PostgreSQL transaction-abort and Spring read-only notes, `Filters.exists` instead of a join); stability page lists the D-127 incubating members; `[Unreleased]` CHANGELOG entry. Both tabs (CC-DOC-01) | `spring` tests green; `mkdocs build --strict` green; every snippet traceable to a green test |
+
+**Exit:** the M18 rows' criteria green on Tier 1 and nothing new frozen.
