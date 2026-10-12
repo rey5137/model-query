@@ -72,13 +72,15 @@ no `TypedQueryCustomizer` hook. The notes below are the original sketch.
 
 ### M19 — Literal filters and bound function arguments → 0.9.0 (rows 6, 9 rest, 11 rest)
 
-- Field-vs-expression comparison in `Filters`: `eq(ScalarField a, ScalarField b)` / `in(ScalarField, ScalarField...)`.
-  With the existing `Expr.constant`, `f.in(STATUS, Expr.constant("PENDING"), Expr.constant("FAILED"))` inlines
-  literals without a new "literal" concept, and stays definition text (never request input, R-COL-18).
-  Needs `Expr.constant(Enum)` honouring `@Enumerated`/converters — currently `MQ1502`.
-- Bound argument as a `ScalarField`: `Expr.value(x)` (RFC 0002's `Fn.value`) so `jsonb_exists(tags, ?)`,
-  `timezone(?, col)`, `CAST(? AS jsonb)` work. Finish/trim RFC 0002 rather than a new RFC.
-- Document the plan-cache trade-off of constants.
+- Planned in `mvp-plan.md` §20 (RFC 0002 trimmed, D-128). Field-vs-expression comparison already ships as
+  `Filters.compare(col, Op, ScalarField)` (R-FLT-18), so `compare(STATUS, NE, Expr.constant("CLOSED"))` is the
+  literal-filter idiom; no `eq(ScalarField, ScalarField)` overloads (D-115). New: fixed-arity
+  `in`/`notIn(col, a, b[, c])` field forms.
+- Enum and converted constants: `Expr.constant(STATUS, Status.PENDING)`, typed by the column and rendered through the
+  attribute's JPA mapping; else `MQ1508`.
+- Bound argument: `Expr.value(x)` so `jsonb_exists(tags, ?)` and `timezone(?, col)` work. `CAST(? AS jsonb)` is
+  deferred; M19.2 spikes function-style casts.
+- The plan-cache trade-off of constants is documented (use `Expr.value` for per-request values).
 
 ### M17 — Docs and TCK for what already works (now; ships in 0.9.0)
 

@@ -1746,6 +1746,22 @@ or an outer join read unlocked), and a `TypedQueryCustomizer` hook. → `rfc/000
 R-EXE-14, `engine/21`, `vendor/40` R-VND-15, `vendor/41`, `api/14` (`MQ1809`), `reference/90` (`MQ1209`, `MQ2102`,
 `MQ2211`, `MQ4010`), `integration/50`, AC-QRY-16, AC-EXE-16, AC-EXE-17, AC-VND-13, AC-PRF-10.
 
+**D-128 — Literal filters and bound function arguments (RFC 0002, trimmed).** A literal filter is `Filters.compare`
+or `in`/`notIn` against `Expr.constant`; `Filters` gains fixed-arity field forms `in(col, a, b)`, `in(col, a, b, c)`
+and the same for `notIn`, with the value forms' semantics, `@Incubating`. An enum or converted constant is
+`Expr.constant(ColumnField typedBy, C value)`: the value goes through the column's converter (`MQ1308`) and the
+attribute's JPA mapping through an optional `ProviderSupport` capability reached from core by a `JoinContext` hook
+(INV-7), and must store as a `String`, `Number` or `Boolean`, else `MQ1508` (also for a provider without the
+capability); `typedBy` is a type witness, part of equality, never a column of the expression. `Expr.value(C)` binds a
+function argument as a statement parameter on every statement that renders it; `null` and `Optional`, `Collection` or
+`Map` values are `MQ1502`. Constants stay definition text (R-COL-18): each distinct constant is a distinct statement,
+so per-request values use `Expr.value`. Rejected: `eq`/`ne`/`lt`… field overloads (D-115; a field-form `ne` would
+include `NULL` rows where a partial-index predicate needs `<>`), varargs `in` (no `@SafeVarargs` on an interface
+method, D-87), a `List` form (a raw `List` binds to `in(col, Collection)`), a public `bind` on `JoinContext`, and
+`CAST(? AS type)` syntax (deferred; M19.2 spikes function-style casts). RFC 0002's draft ids (R-FLT-15..26,
+AC-FLT-12..24, MQ1303–MQ1306, D-19 as drafted) were never assigned. → `rfc/0002`, `api/10` R-COL-26, R-COL-27,
+`api/12` R-FLT-19, `vendor/40`, `reference/90` (`MQ1502`, `MQ1508`), AC-COL-31, AC-COL-32, AC-FLT-20.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

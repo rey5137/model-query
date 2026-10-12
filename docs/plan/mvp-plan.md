@@ -452,3 +452,21 @@ new is `@Incubating`. Ships in 0.9.0 with M17 and M19–M22.
 | M18.3 | Spring and docs: `findAll(q, Limit)`, `findOne`, `findFirst`, `findByKey`, `findAllByKeys` honour the lock, `findPage` and `findKeysetPage` refuse it (`integration/50`); `queries.md` §Row locks; a "claim the next job" recipe with `SKIP_LOCKED` (the out-of-order caveat for `first`, the PostgreSQL transaction-abort and Spring read-only notes, `Filters.exists` instead of a join); stability page lists the D-127 incubating members; `[Unreleased]` CHANGELOG entry. Both tabs (CC-DOC-01) | `spring` tests green; `mkdocs build --strict` green; every snippet traceable to a green test |
 
 **Exit:** the M18 rows' criteria green on Tier 1 and nothing new frozen.
+
+## 20. M19 — Literal filters and bound function arguments
+
+Spec: RFC 0002 (trimmed), D-128, `api/10` (new R-COL-26 `Expr.value`, R-COL-27 column-typed `Expr.constant`,
+`MQ1502` widened), `api/12` (new R-FLT-19, field-form `in`/`notIn`; R-FLT-09 counts an expression's binds),
+`vendor/40` (the optional `ProviderSupport` constant-rendering capability), `reference/90` (new `MQ1508`; `MQ1509`
+only if the escaping spike needs it), `delivery/61`. Each slice writes its rules, `AC-*` rows and `MQ` codes into the
+owning spec file first, then builds; new rows are AC-COL-31, AC-COL-32 and AC-FLT-20. Tier 1 only. Model: the design
+was reviewed by `architect-review` before D-128; none at a slice. Everything new is `@Incubating`. Ships in 0.9.0
+with M17, M18 and M20–M22.
+
+| Slice | Contents | Done when |
+|---|---|---|
+| M19.1 | Literal filters: `Filters#in`/`notIn` field forms (two and three expressions, same model, no `Optional`, `notIn` includes `NULL` rows); `Expr.constant(ColumnField<M, ?, C> typedBy, C value)` (converter then attribute mapping; `typedBy` in equality, not in `columns()`); the optional `ProviderSupport` capability and its Hibernate implementation (the attribute's JDBC mapping from the metamodel), reached through a `JoinContext` hook; `MQ1508`; compile-testing cases for `var` and a mixed-model call; escaping spike: a `'` and `\` constant round-trips on every Tier-1 vendor (`MQ1509` if MySQL cannot); R-COL-27, R-FLT-19 | `core`, `jpa` and `hibernate` unit tests and the TCK group green on Tier 1 for AC-FLT-20 and AC-COL-32 (a STRING and an ORDINAL enum, an `AttributeConverter`, a `ColumnConverter`); SQL snapshots show the inlined `in ('PENDING','FAILED')` and `status <> 'CLOSED'`; `JapicmpExclusionsTest` green |
+| M19.2 | Bound arguments: `Expr.value(C)` (typed by its class), a statement-level parameter registry on `JoinContext`, the executor binding it on every query it creates (list, `count`, offset page, primary-key-first, keyset, grouped and offset export, `exists` and sub-select bodies, CASE conditions, bulk update and delete); `MQ1502` widened (`null`, `Optional`, `Collection`, `Map`); R-FLT-09 chunk sizing counts the expression's binds; cast spike (`Expr.function` casts, e.g. `jsonb`); R-COL-26 | AC-COL-31 green on Tier 1 for each statement path; PostgreSQL groups by `timezone(?, created_at)` and filters by `jsonb_exists(tags, ?)`; snapshots show a bind marker where a constant would be text; the cast spike's outcome recorded in RFC 0002 §Outcome |
+| M19.3 | Docs: `queries.md` (literal filters, `Expr.value`, the plan-cache note, the volatile-function note), recipes for an enum `in` filter and a `timezone(?, col)` group, stability page lists the D-128 incubating members, `delivery/61`, `[Unreleased]` CHANGELOG entry. Both tabs (CC-DOC-01) | `mkdocs build --strict` green; spec checks green; every snippet traceable to a green test |
+
+**Exit:** the M19 rows' criteria green on Tier 1 and nothing new frozen.
