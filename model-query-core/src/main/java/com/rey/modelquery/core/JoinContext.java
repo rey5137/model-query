@@ -235,11 +235,12 @@ public final class JoinContext {
     }
 
     /**
-     * Adds the repeats {@code rendered} counted, a context of its own whose sub-query this statement keeps, such as a
-     * write's {@code EXISTS} (R-COL-19, D-80).
+     * Adds the repeats and the statement parameters {@code rendered} counted, a context of its own whose sub-query
+     * this statement keeps, such as a write's {@code EXISTS} (R-COL-19, R-COL-26, D-80).
      */
-    void addRepeatedExpressionBinds(JoinContext rendered) {
+    void addSubqueryBinds(JoinContext rendered) {
         repeatedExpressionBinds[0] += rendered.repeatedExpressionBinds[0];
+        parameters.putAll(rendered.parameters);
     }
 
     RenderOptions renderOptions() {
@@ -251,7 +252,7 @@ public final class JoinContext {
      * constant is then {@code MQ1508} (R-COL-27). How {@code core}'s expressions reach the provider capability, so
      * {@code core} names no provider (INV-7).
      */
-    public Optional<ConstantRenderer> constantRenderer() {
+    Optional<ConstantRenderer> constantRenderer() {
         return renderOptions.constantRenderer();
     }
 

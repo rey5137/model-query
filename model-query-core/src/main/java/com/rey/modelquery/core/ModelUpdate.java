@@ -2,7 +2,6 @@ package com.rey.modelquery.core;
 
 import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CriteriaBuilder;
-import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.CriteriaUpdate;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Path;
@@ -326,7 +325,7 @@ public final class ModelUpdate<E, M> {
      */
     @EngineFacing
     @Incubating
-    public CriteriaQuery<E> buildEntityLoad(CriteriaBuilder cb, RenderOptions options, List<?> keys) {
+    public EntityLoad<E> buildEntityLoad(CriteriaBuilder cb, RenderOptions options, List<?> keys) {
         return WriteRendering.entityLoad(cb, options, keys, definition.rows().where(), definition.primaryKey(),
                 rootEntity());
     }

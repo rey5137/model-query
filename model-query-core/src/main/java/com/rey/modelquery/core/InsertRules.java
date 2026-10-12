@@ -75,6 +75,7 @@ final class InsertRules {
                 default -> {
                     condition.column().ifPresent(column -> requireRootColumn(root, column));
                     condition.right().ifPresent(column -> requireRootColumn(root, column));
+                    condition.operands().forEach(column -> requireRootColumn(root, column));
                     checkConflictWhere(root, condition.children());
                 }
             }

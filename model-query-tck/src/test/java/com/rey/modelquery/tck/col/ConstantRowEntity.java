@@ -31,6 +31,11 @@ public class ConstantRowEntity {
     @Column(name = "active")
     Boolean active;
 
+    /** The status stored as its first letter, so an enum constant is its code and not its name (AC-COL-32). */
+    @Convert(converter = StatusCodeConverter.class)
+    @Column(name = "state")
+    ConstantStatus state;
+
     @Column(name = "label")
     String label;
 

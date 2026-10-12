@@ -280,6 +280,7 @@ public final class Expr {
     static void conditions(Condition condition, java.util.Collection<ColumnField<?, ?, ?>> into) {
         condition.column().ifPresent(field -> operand(field, into));
         condition.right().ifPresent(field -> operand(field, into));
+        condition.operands().forEach(field -> operand(field, into));
         condition.children().forEach(child -> conditions(child, into));
     }
 

@@ -72,7 +72,7 @@ public final class TckFixture {
     /**
      * The {@code constant_rows} seed, one entry per row: the STRING enum's name, the ORDINAL enum's ordinal, the
      * converted {@code Y}/{@code N} flag and the label. Row 4 is NULL everywhere, row 2's label holds a quote and
-     * row 3's and 6's a backslash (TCK AC-FLT-20, AC-COL-32).
+     * row 3's and 6's a backslash (TCK AC-FLT-20, AC-COL-32). Its {@code state} is the status's first letter.
      */
     private static final List<String> CONSTANT_STATUSES = Arrays.asList("PENDING", "FAILED", "CLOSED", null, "PENDING",
             "FAILED");
@@ -286,9 +286,9 @@ public final class TckFixture {
         // PostgreSQL for a bound argument (TCK AC-COL-31).
         // PostgreSQL will not implicitly cast a text parameter to jsonb, so the tags parameter casts explicitly there.
         String constantRows = vendor == TckVendor.POSTGRESQL
-                ? "INSERT INTO constant_rows (id, status, rank_no, active, label, tags)"
-                        + " VALUES (?,?,?,?,?,CAST(? AS jsonb))"
-                : "INSERT INTO constant_rows (id, status, rank_no, active, label, tags) VALUES (?,?,?,?,?,?)";
+                ? "INSERT INTO constant_rows (id, status, rank_no, active, label, tags, state)"
+                        + " VALUES (?,?,?,?,?,CAST(? AS jsonb),?)"
+                : "INSERT INTO constant_rows (id, status, rank_no, active, label, tags, state) VALUES (?,?,?,?,?,?,?)";
         insert(c, constantRows, CONSTANT_ROWS, (ps, i) -> {
             int row = i - 1;
             ps.setLong(1, i);
@@ -301,6 +301,8 @@ public final class TckFixture {
             nullableText(ps, 4, CONSTANT_ACTIVE.get(row));
             nullableText(ps, 5, CONSTANT_LABELS.get(row));
             nullableText(ps, 6, CONSTANT_TAGS.get(row));
+            String status = CONSTANT_STATUSES.get(row);
+            nullableText(ps, 7, status == null ? null : status.substring(0, 1));
         });
     }
 

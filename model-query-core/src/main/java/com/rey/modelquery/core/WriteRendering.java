@@ -124,8 +124,9 @@ final class WriteRendering {
             correlated.addAll(tree);
             sub.select(cb.literal(1)).where(correlated.toArray(Predicate[]::new));
             predicates.add(cb.exists(sub));
-            // The sub-query is part of the statement, so the values its memoised expressions repeat count too.
-            ctx.addRepeatedExpressionBinds(innerCtx);
+            // The sub-query is part of the statement, so the values its memoised expressions repeat count, and its
+            // Expr.value parameters bind, too.
+            ctx.addSubqueryBinds(innerCtx);
         }
         return predicates;
     }
@@ -176,7 +177,7 @@ final class WriteRendering {
     }
 
     /** {@link #entityLoad(List, List, PrimaryKey, Class, CriteriaBuilder, RenderOptions)} of an entity write's load. */
-    static <E, M> CriteriaQuery<E> entityLoad(CriteriaBuilder cb, RenderOptions options, List<?> keys,
+    static <E, M> EntityLoad<E> entityLoad(CriteriaBuilder cb, RenderOptions options, List<?> keys,
             List<Filter> where, PrimaryKey<M, ?> key, Class<E> entity) {
         Objects.requireNonNull(cb, "cb");
         Objects.requireNonNull(options, "options");
@@ -188,14 +189,14 @@ final class WriteRendering {
      * {@code where} tree still chooses, as {@link #rows} chooses them, so a tree needing a join renders inside one
      * {@code EXISTS} and each entity comes once (R-WRT-17, R-WRT-42).
      */
-    static <E, M> CriteriaQuery<E> entityLoad(List<Object> keys, List<Filter> where, PrimaryKey<M, ?> key,
+    static <E, M> EntityLoad<E> entityLoad(List<Object> keys, List<Filter> where, PrimaryKey<M, ?> key,
             Class<E> entity, CriteriaBuilder cb, RenderOptions options) {
         CriteriaQuery<E> query = cb.createQuery(entity);
         Root<E> from = query.from(entity);
         JoinContext ctx = JoinContext.of(from, cb, query, options);
         query.select(from);
         List<Predicate> predicates = rows(keys, where, key, query, from, ctx, cb, options, false);
-        return query.where(predicates.toArray(Predicate[]::new));
+        return new EntityLoad<>(query.where(predicates.toArray(Predicate[]::new)), ctx);
     }
 
     /** {@code where} rendered over a second root of {@code entity} in a sub-query of {@code statement}. */

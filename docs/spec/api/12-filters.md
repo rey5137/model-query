@@ -259,7 +259,11 @@ nested `exists(path, …)` inside the correlation may use it (exempt from `MQ130
   IS NULL`, so rows whose column is NULL match, exactly as the value form does (R-FLT-04, R-FLT-02).
 - An operand is a `ScalarField` of the column's own model and type, so an `Expr.constant` puts the literal the
   planner must see in the set (`api/10` R-COL-18, R-COL-27) and a mismatched operand, or one of another model, does
-  not compile. The operands record as the condition's values (R-INS-01).
+  not compile. The operands record as the condition's `operands()` under `IN_FIELDS`/`NOT_IN_FIELDS`, and `values()`
+  is empty (`api/16` R-INS-09).
+- For `notIn`: (a) a NULL-valued operand makes `NOT IN` unknown for every row, so only rows whose column is NULL
+  match; (b) the `OR column IS NULL` can stop a partial index's predicate from matching, so for a plain `NOT IN` use
+  `not(g -> g.in(col, a, b))`.
 - There is no `Optional` form and no `List` form: a raw `List` would bind to `in(column, Collection)` (R-FLT-02), and
   an `in(column, List.of(a, b))` of fields reads as the value form's `Collection<? extends C>`. There is no varargs
   form, because an interface method cannot carry `@SafeVarargs` (D-87).

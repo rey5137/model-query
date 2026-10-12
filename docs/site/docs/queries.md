@@ -295,12 +295,20 @@ private static final ExpressionField<Row, ConstantStatus> FAILED = Expr.constant
 `notIn` adds `OR col IS NULL`, so rows whose column is NULL match, exactly as the value form does (R-FLT-04). There is
 no `Optional` form; a `List` of values uses the value form `in(col, Collection)`, which binds. The operands are inlined
 into the statement as SQL text, so use them only for values defined in code — never request input (R-COL-18).
+Inlining relies on the server's default quoting mode: MySQL without `NO_BACKSLASH_ESCAPES` (as Hibernate knows it at
+boot) and PostgreSQL with `standard_conforming_strings=on`.
+
+Two cautions for the `notIn` field form. A NULL-valued operand makes `NOT IN` unknown for every row, so only rows whose
+column is NULL match. And the added `OR col IS NULL` can stop a partial index's predicate from matching; for a plain
+`NOT IN`, use `not(g -> g.in(col, a, b))`.
 
 `Expr.constant(typedBy, value)` types the literal by a column. The value goes through the column's converter (`MQ1308`
 when it refuses) and then the attribute's JPA mapping, so an `@Enumerated(STRING)` enum inlines its name, an `ORDINAL`
 its ordinal, and an `AttributeConverter` its converted database value. The stored value must be a `String`, `Number` or
 `Boolean`, `typedBy` must be a basic attribute of a root table's entity (a joined column is none), and the provider must
-offer a constant renderer, else `MQ1508`. `typedBy` is a type witness: it is part of the expression's equality, but adds
+offer a constant renderer, else `MQ1508`; the message names which of the three applies. A column-typed constant is
+operand-only: a comparison or `in`/`notIn` operand. As a model column, projection, order or group key it fails at
+definition with `MQ1508`. `typedBy` is a type witness: it is part of the expression's equality, but adds
 no column to `columns()` and no join.
 
 **Plan cache.** Each distinct constant is a distinct statement text, so it gets its own plan-cache entry in the

@@ -344,7 +344,8 @@ abstract class ConditionGroup<M, G> {
 
     /**
      * {@code column IN (operands)} against operand expressions, or the null-safe {@code NOT IN} (R-FLT-19). The
-     * operands are recorded as the condition's values (R-INS-01); a null operand throws {@code MQ1301}.
+     * operands are recorded as the condition's {@code operands()}, not its values (R-INS-09); a null operand throws
+     * {@code MQ1301}.
      */
     @SuppressWarnings("rawtypes")
     private <C> G inFields(SelectField<M, C> column, String operator, Kind kind, List<ScalarField<M, C>> operands) {
@@ -356,10 +357,11 @@ abstract class ConditionGroup<M, G> {
             }
             guard(operand, "operand");
         }
-        return record(Condition.of(kind, column, List.copyOf(operands)), ctx -> {
+        Kind recorded = kind == Kind.IN ? Kind.IN_FIELDS : Kind.NOT_IN_FIELDS;
+        return record(Condition.inFields(recorded, column, operands), ctx -> {
             CriteriaBuilder cb = ctx.cb();
-            Expression<C> expression = column.expression(ctx);
-            Expression<?>[] values = operands.stream().map(operand -> operand.expression(ctx))
+            Expression<?> expression = operand(column, ctx);
+            Expression<?>[] values = operands.stream().map(operand -> operand(operand, ctx))
                     .toArray(Expression[]::new);
             // An operand value the database compares against; the set is definition text, not a bind (R-COL-18).
             Predicate in = expression.in(values);
@@ -433,6 +435,11 @@ abstract class ConditionGroup<M, G> {
         return isNull.get() ? isNull(column) : isNotNull(column);
     }
 
+    /** {@code field}'s expression as a comparison or IN operand, where a column-typed constant may stand (R-COL-27). */
+    private static Expression<?> operand(SelectField<?, ?> field, JoinContext ctx) {
+        return field instanceof ExpressionField<?, ?> expression ? expression.operand(ctx) : field.expression(ctx);
+    }
+
     // ---- selection against selection
 
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -450,8 +457,8 @@ abstract class ConditionGroup<M, G> {
         return record(Condition.compare(left, op, right), ctx -> {
             CriteriaBuilder cb = ctx.cb();
             // Raw: the ordering operators need a Comparable bound that compare's signature leaves open (api/12 §1).
-            Expression l = left.expression(ctx);
-            Expression r = right.expression(ctx);
+            Expression l = operand(left, ctx);
+            Expression r = operand(right, ctx);
             return Optional.of(switch (op) {
                 case EQ -> cb.equal(l, r);
                 case NE -> cb.notEqual(l, r);

@@ -35,26 +35,29 @@ class LiteralFiltersTest {
             ColumnField.of(Model.class, OTHER_ROOT, "label", String.class);
 
     @Test
-    void ac_flt_20_the_field_forms_record_their_operands_as_the_condition_values() {
+    void ac_flt_20_the_field_forms_record_their_operands_not_values() {
         var pending = Expr.constant(STATUS, "PENDING");
         var failed = Expr.constant(STATUS, "FAILED");
         List<Condition> conditions = conditions(f -> f.in(STATUS, pending, failed));
         assertThat(conditions).hasSize(1);
-        assertThat(conditions.get(0).kind()).isEqualTo(Condition.Kind.IN);
+        assertThat(conditions.get(0).kind()).isEqualTo(Condition.Kind.IN_FIELDS);
         assertThat(conditions.get(0).column()).contains(STATUS);
-        assertThat(conditions.get(0).values()).containsExactly(pending, failed);
+        assertThat(conditions.get(0).operands()).containsExactly(pending, failed);
+        // They bind nothing, so there are no values and toString prints no placeholder (R-INS-09).
+        assertThat(conditions.get(0).values()).isEmpty();
+        assertThat(conditions.get(0).toString()).doesNotContain("?").startsWith("IN_FIELDS(Model.status, ");
 
         // The three-operand form, and notIn, which records the same way.
         assertThat(conditions(f -> f.in(STATUS, pending, failed, CODE))).singleElement()
-                .satisfies(condition -> assertThat(condition.values()).containsExactly(pending, failed, CODE));
+                .satisfies(condition -> assertThat(condition.operands()).containsExactly(pending, failed, CODE));
         assertThat(conditions(f -> f.notIn(STATUS, pending, failed, CODE))).singleElement()
                 .satisfies(condition -> {
-                    assertThat(condition.kind()).isEqualTo(Condition.Kind.NOT_IN);
-                    assertThat(condition.values()).containsExactly(pending, failed, CODE);
+                    assertThat(condition.kind()).isEqualTo(Condition.Kind.NOT_IN_FIELDS);
+                    assertThat(condition.operands()).containsExactly(pending, failed, CODE);
                 });
         // An operand may be a column of the model, on another table of it.
         assertThat(conditions(f -> f.in(STATUS, pending, LABEL))).singleElement()
-                .satisfies(condition -> assertThat(condition.values()).containsExactly(pending, LABEL));
+                .satisfies(condition -> assertThat(condition.operands()).containsExactly(pending, LABEL));
     }
 
     @Test

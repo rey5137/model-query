@@ -399,7 +399,7 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
     private static boolean anyLifted(List<Condition> conditions) {
         for (Condition condition : conditions) {
             if (lifted(condition.column().orElse(null)) || lifted(condition.right().orElse(null))
-                    || anyLifted(condition.children())) {
+                    || condition.operands().stream().anyMatch(FilterGroup::lifted) || anyLifted(condition.children())) {
                 return true;
             }
         }

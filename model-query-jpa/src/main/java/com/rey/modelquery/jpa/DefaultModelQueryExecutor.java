@@ -6,6 +6,7 @@ import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.Enricher;
+import com.rey.modelquery.core.EntityLoad;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.ExpressionField;
 import com.rey.modelquery.core.FetchPlan;
@@ -682,7 +683,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private <T> TypedQuery<T> create(Object label, EntityManager on, CriteriaQuery<T> query, Keyset<?> keyset,
             Object[] cursor, JoinContext joins) {
         TypedQuery<T> typed = on.createQuery(query);
-        bindValues(typed, joins);
+        bindValues(typed, joins, query.getParameters());
         int binds = typed.getParameters().size() + (joins == null ? 0 : joins.repeatedExpressionBinds());
         int cursorBinds = keyset == null || cursor == null ? 0 : keyset.cursorBinds(cursor);
         if (keyset != null) {
@@ -697,13 +698,34 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * Sets every {@code Expr.value} parameter {@code joins} recorded on {@code query}, so the statement binds the
-     * values the build rendered as parameters (R-COL-26). A {@code null} {@code joins} renders none.
+     * values the build rendered as parameters (R-COL-26). A {@code null} {@code joins} renders none. A write renders
+     * its clauses as recorded, so binds all of them.
+     */
+    private static void bindValues(Query query, JoinContext joins) {
+        bindValues(query, joins, null);
+    }
+
+    /**
+     * As above, only those of {@code kept}, the parameters the final {@code Criteria} query holds, when it is not
+     * {@code null}: a count clears the order and replaces the select, a {@code one(...)} clears the order, after
+     * the build rendered them, and a provider refuses a parameter its statement no longer holds (R-COL-26).
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private static void bindValues(Query query, JoinContext joins) {
+    private static void bindValues(Query query, JoinContext joins, Set<ParameterExpression<?>> kept) {
         if (joins != null) {
-            joins.statementParameters().forEach((parameter, value) -> query.setParameter((Parameter) parameter, value));
+            joins.statementParameters().forEach((parameter, value) -> {
+                if (kept == null || kept.contains(parameter)) {
+                    query.setParameter((Parameter) parameter, value);
+                }
+            });
         }
+    }
+
+    /** {@code load}'s query on {@code on}, its {@code Expr.value} parameters bound (R-COL-26). */
+    private static <E> TypedQuery<E> loadStatement(EntityManager on, EntityLoad<E> load) {
+        TypedQuery<E> query = on.createQuery(load.query());
+        bindValues(query, load.joins(), load.query().getParameters());
+        return query;
     }
 
     /** {@code rendered}'s update with {@code added} assigned, its {@code Expr.value} parameters bound (R-COL-26). */
@@ -1156,7 +1178,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private <M> long entityWrite(String operation, Object write, PrimaryKey<M, ?> key,
             Optional<List<Object>> distinctKeys, Optional<ChunkOptions> chunk,
             Optional<PersistenceContextMode> context, Optional<Object> startAfter, UnaryOperator<Object> modelKey,
-            Function<List<Object>, BuiltQuery<M>> keySelect, Function<List<Object>, CriteriaQuery<E>> load,
+            Function<List<Object>, BuiltQuery<M>> keySelect, Function<List<Object>, EntityLoad<E>> load,
             BiConsumer<EntityManager, List<E>> perRound) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
         BuiltQuery<M> tree = keySelect.apply(null);
@@ -1227,7 +1249,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * @param load the load of one round's entities, which sizes the rounds within the bind limit
      */
     private <M> long entityRounds(KeysetWrite.Keyed<M> keyed, BuiltQuery<M> tree,
-            Function<List<Object>, CriteriaQuery<E>> load, Optional<ChunkOptions> chunk, PersistenceContextMode mode,
+            Function<List<Object>, EntityLoad<E>> load, Optional<ChunkOptions> chunk, PersistenceContextMode mode,
             CriteriaBuilder cb, int repeated) {
         int size = chunk.map(options -> options.size().orElse(bulkWriteChunkSize)).orElse(bulkWriteChunkSize);
         if (em.isJoinedToTransaction()) {
@@ -1237,7 +1259,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             em.clear();
         }
         try {
-            return keyset(keyed, () -> keySelectStatement(em, tree), keys -> em.createQuery(load.apply(keys)), chunk,
+            return keyset(keyed, () -> keySelectStatement(em, tree), keys -> loadStatement(em, load.apply(keys)), chunk,
                     OptionalInt.of(size), cb, repeated);
         } finally {
             // Each chunk ran on its own EntityManager, so the caller's copies of the written rows are stale: cleared
@@ -1254,11 +1276,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * those that changed (R-WRT-42, R-WRT-44). Afterwards, whether or not it threw, clears {@code on} under
      * {@code CLEAR}, so at most one round of entities is managed; under {@code KEEP} they stay managed (R-WRT-45).
      */
-    private long throughEntities(EntityManager on, CriteriaQuery<E> load, int repeated, PersistenceContextMode mode,
+    private long throughEntities(EntityManager on, EntityLoad<E> load, int repeated, PersistenceContextMode mode,
             Consumer<List<E>> write) {
         String label = rootEntity.getSimpleName();
         try {
-            TypedQuery<E> query = on.createQuery(load);
+            TypedQuery<E> query = loadStatement(on, load);
             withinBindLimit(label, query.getParameters().size() + repeated, 0);
             queryTimeout.ifPresent(timeout -> vendor.profile().applyTimeout(query, timeout));
             List<E> entities = rows(label, query);
@@ -1338,23 +1360,35 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         BuiltQuery<?> select = i.buildSelect(cb, renderOptions, metamodel);
         Map<String, Object> bound = asParameterTypes(constants, select.query());
         int repeated = select.joins().repeatedExpressionBinds();
-        BiFunction<EntityManager, CriteriaQuery<Tuple>, Query> statement = (on, source) ->
-                support.insertSelect(on, rootEntity, inserted, source, bound);
+        // The select's Expr.value parameters bind on the statement too (R-COL-26).
+        InsertStatement statement = (on, built, source) -> {
+            Query insert = support.insertSelect(on, rootEntity, inserted, source, bound);
+            bindValues(insert, built.joins(), source.getParameters());
+            return insert;
+        };
         CriteriaQuery<Tuple> wholeSource = selecting(select.query(), cb, added);
-        Supplier<Query> whole = () -> statement.apply(em, wholeSource);
+        Supplier<Query> whole = () -> statement.apply(em, select, wholeSource);
         logWrite("insert", i, i.chunkOptions(), false);
         if (i.chunkOptions().isEmpty()) {
             return write(i.persistenceContext(), () -> execute(whole.get(), repeated));
         }
         PrimaryKey<Object, ?> key = i.sourceKey(metamodel);
-        BiFunction<EntityManager, List<Object>, Query> byKeys = (on, keys) -> statement.apply(on,
-                selecting(i.buildSelect(cb, renderOptions, metamodel, key, keys).query(), cb, added));
+        BiFunction<EntityManager, List<Object>, Query> byKeys = (on, keys) -> {
+            BuiltQuery<?> chunk = i.buildSelect(cb, renderOptions, metamodel, key, keys);
+            return statement.apply(on, chunk, selecting(chunk.query(), cb, added));
+        };
         // The source keys are attribute values of plain id columns, which is what the exception reports (R-WRT-32).
         var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), key, Optional.empty(),
                 run -> i.buildKeySelect(cb, renderOptions, key),
                 (on, keys) -> execute(byKeys.apply(on, keys), repeated), Optional.empty(), sourceKey -> sourceKey);
         return write(i.persistenceContext(), () -> keyset(keyed, whole, keys -> byKeys.apply(em, keys),
                 i.chunkOptions(), cb, repeated));
+    }
+
+    /** An insert-select statement over a built select and its source query. */
+    @FunctionalInterface
+    private interface InsertStatement {
+        Query apply(EntityManager on, BuiltQuery<?> built, CriteriaQuery<Tuple> source);
     }
 
     /**

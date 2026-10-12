@@ -102,10 +102,12 @@ The row-lock members are new in 0.9.0 and `@Incubating` (D-127), and join the li
 them as an extension point. See [Row locks](queries.md#row-locks).
 
 The literal-filter and bound-argument members are new in 0.9.0 and `@Incubating` (D-128), and join the list above.
-They are the fixed-arity `Filters#in` and `#notIn` field forms, `Expr.constant(ColumnField, Object)` and
+They are the fixed-arity `Filters#in` and `#notIn` field forms, `Condition#operands()` with `Condition.Kind#IN_FIELDS` and `#NOT_IN_FIELDS`, the two- and three-operand
+`FilterMatchers#in` and `#notIn` overloads of `model-query-test`, `Expr.constant(ColumnField, Object)` and
 `Expr.value(Object)`, and `ConstantRenderer`, the capability `ProviderSupport#constants(EntityManagerFactory)` returns
 in `jpa.spi`; `ConstantRenderer` sits in `core`, is not `@EngineFacing`, and a provider implements it as an extension
-point. The public `ModelUpdate.Rendered` and `ModelDelete.Rendered` records and `JoinContext#statementParameters()` are
+point. The public `ModelUpdate.Rendered` and `ModelDelete.Rendered` records, `EntityLoad` (what `buildEntityLoad` returns)
+and `JoinContext#statementParameters()` are
 `@EngineFacing`, so not API. See [Literal filters](queries.md#literal-filters).
 
 The fetch-plan types are new in 0.2.0, `@Incubating`, and not yet placed in the 1.0 freeze list above:

@@ -396,8 +396,14 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         }
         first.forEach(Runnable::run);
         last.forEach(Runnable::run);
-        List<Predicate> where = ConditionGroup.toPredicates(conflict.update().where(),
-                JoinContext.of(target, cb, null, options));
+        JoinContext whereContext = JoinContext.of(target, cb, null, options);
+        List<Predicate> where = ConditionGroup.toPredicates(conflict.update().where(), whereContext);
+        if (!whereContext.statementParameters().isEmpty()) {
+            // The provider renders the conflict clause itself, so no executor binds a parameter in it (R-COL-26).
+            throw new ModelQueryDefinitionException(MqCode.MQ1804, "doUpdate(...).where(...) with Expr.value: the "
+                    + "conflict action's where renders inside the provider's insert, where a bound argument cannot be "
+                    + "set; use Expr.constant or a plain value");
+        }
         return where.isEmpty() ? Optional.empty() : Optional.of(ConditionGroup.and(cb, where));
     }
 
@@ -441,6 +447,7 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         for (Condition condition : conditions) {
             condition.column().ifPresent(field -> whereColumn(field, read));
             condition.right().ifPresent(field -> whereColumn(field, read));
+            condition.operands().forEach(field -> whereColumn(field, read));
             conflictWhereColumns(condition.children(), read);
         }
     }

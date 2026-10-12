@@ -41,6 +41,7 @@ c.likeMode();  // Optional<LikeMode>: LIKE and LIKE_IGNORE_CASE
 c.path();      // Optional<TableField<?, ?>>: the join path of EXISTS and NOT_EXISTS
 c.label();     // Optional<String>: a labelled add(...)
 c.subSelect(); // Optional<SubSelect<?, ?>>: the sub-select of the four *_SUBSELECT kinds (R-INS-08)
+c.operands();  // List<ScalarField<?, ?>>: the operand fields of IN_FIELDS and NOT_IN_FIELDS (R-INS-09)
 ```
 
 `Condition` and `QueryConditions` are final classes, not records, with no public constructor or factory: only the DSL
@@ -62,6 +63,7 @@ a `default`:
 | `EXISTS`, `NOT_EXISTS` | `exists`, `notExists` | `path`, `children` (an implicit AND) |
 | `CUSTOM` | `add` | `label` when given |
 | `IN_SUBSELECT`, `NOT_IN_SUBSELECT` | `in`, `notIn` over a sub-select | `column`, `subSelect` |
+| `IN_FIELDS`, `NOT_IN_FIELDS` | `in`, `notIn` against operand fields (`api/12` R-FLT-19) | `column`, `operands()` |
 | `EXISTS_SUBSELECT`, `NOT_EXISTS_SUBSELECT` | `exists`, `notExists` over a sub-select | `subSelect`, `children` (the correlation, an implicit AND) |
 
 `having` records the same kinds over aggregate columns, except `EXISTS`, `NOT_EXISTS`, `CUSTOM` and the four
@@ -131,6 +133,10 @@ whatever `S` or `Outer` made it; `Outer.referenced(column)` returns the outer co
 with the expression as `column()` (or `right()`); no kind is added. An expression's own CASE conditions are not query
 conditions. `toString` prints its structure with values as `?` (R-INS-05). `FilterMatchers` take a `ScalarField`
 wherever `Filters` does.
+
+*(D-128)* The field forms of `in`/`notIn` (`api/12` R-FLT-19) record `IN_FIELDS`/`NOT_IN_FIELDS` with the column and
+`operands()`, and `values()` is empty for them, as for `IN_SUBSELECT` (R-INS-08). Both are `@Incubating`. They bind
+nothing, so `toString` prints no `? x n` placeholder.
 
 ## 3. Acceptance criteria
 

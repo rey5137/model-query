@@ -12,9 +12,11 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import org.hibernate.SessionFactory;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
 import org.hibernate.cfg.AvailableSettings;
 import org.hibernate.cfg.Configuration;
+import org.hibernate.type.SqlTypes;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -40,6 +42,15 @@ class HibernateConstantRendererTest {
         @Column(name = "active")
         Boolean active;
 
+        @Convert(converter = StatusCodeConverter.class)
+        @Column(name = "code")
+        Status code;
+
+        @Enumerated(EnumType.STRING)
+        @JdbcTypeCode(SqlTypes.ENUM)
+        @Column(name = "native_status")
+        Status nativeStatus;
+
         @Column(name = "label")
         String label;
 
@@ -62,6 +73,30 @@ class HibernateConstantRendererTest {
         @Override
         public Boolean convertToEntityAttribute(String dbData) {
             return "Y".equals(dbData);
+        }
+    }
+
+    /** {@code Status} stored as its first letter. */
+    @Converter
+    static class StatusCodeConverter implements AttributeConverter<Status, String> {
+        @Override
+        public String convertToDatabaseColumn(Status attribute) {
+            return attribute == null ? null : attribute.name().substring(0, 1);
+        }
+
+        @Override
+        public Status convertToEntityAttribute(String dbData) {
+            return null;
+        }
+    }
+
+    @Test
+    void ac_col_32_an_enum_converter_and_a_native_enum_type_decide_the_stored_value() {
+        try (SessionFactory sessions = factory()) {
+            ConstantRenderer renderer = new HibernateProviderSupport().constants(sessions).orElseThrow();
+            // The converter's value, not the enum's name; a native enum type is stored by name, not by ordinal.
+            assertThat(renderer.storedValue(ConstantRow.class, "code", Status.CLOSED)).contains("C");
+            assertThat(renderer.storedValue(ConstantRow.class, "nativeStatus", Status.CLOSED)).contains("CLOSED");
         }
     }
 

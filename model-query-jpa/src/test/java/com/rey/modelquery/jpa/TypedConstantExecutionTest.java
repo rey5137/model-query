@@ -129,7 +129,7 @@ class TypedConstantExecutionTest {
         assertThatThrownBy(() -> compare(noConstants))
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ1508))
-                .hasMessageContaining("the provider cannot store it");
+                .hasMessageContaining("must be a basic attribute of a root table's entity");
     }
 
     /** The rows whose status equals the inlined {@code "PAID"} literal, which the renderer's lower case matches. */

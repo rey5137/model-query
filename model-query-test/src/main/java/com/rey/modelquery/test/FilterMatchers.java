@@ -153,6 +153,39 @@ public final class FilterMatchers {
         return leaf(Kind.NOT_IN, aggregate, values.toArray());
     }
 
+    /** Matches in(column, first, second) (IN_FIELDS); the operands match as a multiset. */
+    public static <C> ConditionMatcher in(ScalarField<?, C> column, ScalarField<?, C> first,
+            ScalarField<?, C> second) {
+        return fields(Kind.IN_FIELDS, column, first, second);
+    }
+
+    /** Matches in(column, first, second, third) (IN_FIELDS). */
+    public static <C> ConditionMatcher in(ScalarField<?, C> column, ScalarField<?, C> first,
+            ScalarField<?, C> second, ScalarField<?, C> third) {
+        return fields(Kind.IN_FIELDS, column, first, second, third);
+    }
+
+    /** Matches notIn(column, first, second) (NOT_IN_FIELDS). */
+    public static <C> ConditionMatcher notIn(ScalarField<?, C> column, ScalarField<?, C> first,
+            ScalarField<?, C> second) {
+        return fields(Kind.NOT_IN_FIELDS, column, first, second);
+    }
+
+    /** Matches notIn(column, first, second, third) (NOT_IN_FIELDS). */
+    public static <C> ConditionMatcher notIn(ScalarField<?, C> column, ScalarField<?, C> first,
+            ScalarField<?, C> second, ScalarField<?, C> third) {
+        return fields(Kind.NOT_IN_FIELDS, column, first, second, third);
+    }
+
+    private static ConditionMatcher fields(Kind kind, ScalarField<?, ?> column, ScalarField<?, ?>... operands) {
+        requireNonNull(column, "column");
+        for (ScalarField<?, ?> operand : operands) {
+            requireNonNull(operand, "operand");
+        }
+        return new ConditionMatcher(kind, column, null, null, null, null, List.of(), null, List.of(), null,
+                List.of(operands));
+    }
+
     /** Matches like(column, value, mode) (LIKE); the value as passed, not lower-cased. */
     public static ConditionMatcher like(ScalarField<?, String> column, String value, LikeMode mode) {
         return like(Kind.LIKE, column, value, mode);

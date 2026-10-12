@@ -55,9 +55,28 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
      * @throws ModelQueryDefinitionException {@code MQ1507} when the provider resolves a type other than {@link #type()}
      */
     @Override
-    @SuppressWarnings("unchecked")
     public Expression<C> expression(JoinContext ctx) {
+        return render(ctx, false);
+    }
+
+    /**
+     * As {@link #expression}, for the operand of a comparison or an IN, the one position a column-typed
+     * {@link Expr#constant(ColumnField, Object) constant} may take (R-COL-27).
+     */
+    Expression<C> operand(JoinContext ctx) {
+        return render(ctx, true);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Expression<C> render(JoinContext ctx, boolean operand) {
         Objects.requireNonNull(ctx, "ctx");
+        if (node instanceof TypedConst typed && !operand) {
+            // Its literal is the stored value, typed by the attribute, not by the declared model type: read as a
+            // model value it would not fit (R-COL-27).
+            throw new ModelQueryDefinitionException(MqCode.MQ1508, typed.typedBy() + ": Expr.constant(" + typed.value()
+                    + ") is operand-only, the operand of a comparison or an IN; it is no model column, projection, "
+                    + "order, group key or function argument");
+        }
         return (Expression<C>) ctx.expression(this, () -> {
             Expression<?> rendered = node.render(ctx);
             if (node instanceof TypedConst) {
@@ -119,6 +138,9 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         }
         if (condition.right().orElse(null) instanceof ExpressionField<?, ?> right) {
             total += right.binds();
+        }
+        for (ScalarField<?, ?> operand : condition.operands()) {
+            total += binds(operand);
         }
         for (Condition child : condition.children()) {
             total += conditionBinds(child);
@@ -379,13 +401,22 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         public Expression<?> render(JoinContext ctx) {
             Class<?> entity = typedBy.table().rootEntity();
             ConstantRenderer renderer = entity == null ? null : ctx.constantRenderer().orElse(null);
-            Object stored = renderer == null ? null
-                    : renderer.storedValue(entity, typedBy.name(), value).orElse(null);
+            if (renderer == null) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1508, typedBy + ": Expr.constant cannot render "
+                        + value + " as a literal; " + (entity == null
+                                ? "its type witness is a column of no root table's entity"
+                                : "the persistence provider supplies no ConstantRenderer"));
+            }
+            Object stored = renderer.storedValue(entity, typedBy.name(), value).orElse(null);
+            if (stored == null) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1508, typedBy + ": Expr.constant cannot render "
+                        + value + " as a literal; its type witness must be a basic attribute of a root table's "
+                        + "entity, not an embedded, dotted or joined column");
+            }
             if (!(stored instanceof String || stored instanceof Number || stored instanceof Boolean)) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1508, typedBy + ": Expr.constant cannot render "
-                        + value + " as a literal; " + (renderer == null
-                                ? "its type witness must be a basic attribute of a root table's entity, not a joined column"
-                                : "the provider cannot store it as a String, Number or Boolean"));
+                        + value + " as a literal; its stored value " + stored.getClass().getSimpleName()
+                        + " is not a String, Number or Boolean");
             }
             return ctx.cb().literal(stored);
         }
