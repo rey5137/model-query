@@ -1729,6 +1729,23 @@ guide shows a user-side `PersistenceExceptionTranslator` on `code()`). → `rfc/
 `integration/50` R-SPR-15, `api/11` R-QRY-03, R-QRY-10, `api/12` R-FLT-09, `api/15` R-FCH-05, `reference/90`
 (`MQ2003`, `MQ2005`, `MQ2203`), AC-EXE-14, AC-EXE-15, AC-SPR-19.
 
+**D-127 — Row locks on reads (`RowLock`; RFC 0009).** A row lock is part of the query definition: `RowLock` is
+exclusive or shared × a wait policy (`WAIT`, `NO_WAIT`, `SKIP_LOCKED`), set by `ModelQuery.Builder#lock` or
+`ModelQuery#withLock`, `@Incubating`. It is applied only to the statement that returns rows, of a query that reads its
+root table alone, through the new `ProviderSupport#locks()` SPI (`LockSupport`). That SPI reports what it renders and
+disables follow-on locking; whether a lock renders is a provider fact, as in D-117 (Hibernate 6.6 drops `NOWAIT` and
+`SKIP LOCKED` on H2; on PostgreSQL `exclusive()` renders `FOR NO KEY UPDATE`). A lock that would be dropped, widened
+or deferred is refused: `MQ1209` for a grouped query, `MQ2211` for the read or the statement shape (any join; paging,
+`count`, `stream`, export; `one(q)` with skip locked), `MQ4010` for the provider (no `locks()`, an unrendered lock, a
+multi-table root), `MQ1809` for `persist` returning. A locked read needs a transaction (`MQ2102`); database lock
+exceptions pass through unchanged (INV-1). Tier 1 only; MariaDB stays Tier 2 (D-81). Rejected: an `UPDATE`/`NO KEY
+UPDATE`/`SHARE` strength set (PostgreSQL cannot get a true `FOR UPDATE` per query), chained `skipLocked()`/`noWait()`
+(P-2), a per-call lock argument, `VendorProfile#applyLock` (would name Hibernate hint values, INV-7), locking joined
+queries (every joined table locked, or an outer join read unlocked), and a `TypedQueryCustomizer` hook. → `rfc/0009`,
+`api/11` R-QRY-17, `engine/20` R-EXE-14, `engine/21`, `vendor/40` R-VND-15, `vendor/41`, `api/14` (`MQ1809`),
+`reference/90` (`MQ1209`, `MQ2102`, `MQ2211`, `MQ4010`), `integration/50`, AC-QRY-16, AC-EXE-16, AC-EXE-17,
+AC-VND-13, AC-PRF-10.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

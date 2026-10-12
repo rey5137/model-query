@@ -32,6 +32,10 @@ all land together, with M17, in 0.9.0 before it, since LitePOS is the obvious D-
 
 ### M18 — Row locks on reads → 0.9.0 (rows 1, 2; 11 LitePOS classes)
 
+Superseded by RFC 0009 (D-127, planned in `mvp-plan.md` §19): two strengths (`exclusive`, `shared`) × wait, no
+`NO_KEY_UPDATE`, no joins on a locked query, a `ProviderSupport#locks()` SPI instead of `VendorProfile`, Tier 1 only,
+no `TypedQueryCustomizer` hook. The notes below are the original sketch.
+
 - `ModelQuery.Builder.lock(LockMode.UPDATE | NO_KEY_UPDATE | SHARE)` + `.skipLocked()` / `.noWait()`; also on
   `one`/`first`/`findByKey`.
 - JPA path: `LockModeType.PESSIMISTIC_WRITE/READ` + `jakarta.persistence.lock.timeout` (`-2` skip locked, `0` nowait).
