@@ -4,10 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Root;
 import java.lang.reflect.Proxy;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
@@ -99,6 +101,71 @@ class NextvalTest {
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ1509))
                     .hasMessageContaining("reads a sequence value");
         }
+    }
+
+    @Test
+    void ac_col_33_a_distinct_query_selecting_a_sequence_value_is_mq1509_before_any_statement() {
+        var options = RenderOptions.portable()
+                .withSequenceRenderer((cb, sequence) -> fake(Expression.class, Long.class));
+        // Nested at depth, as the group-key refusal walks it
+        var nested = Expr.function("abs", Long.class, Expr.<Model>nextval("s"));
+        QueryCustomizer distinct = (spec, joins, query, cb, phase) -> query.distinct(true);
+        for (Phase phase : List.of(Phase.MODEL, Phase.MODEL_BY_KEYS)) {
+            assertThatThrownBy(() -> selecting(nested, distinct).buildQuery(criteria(), phase, options))
+                    .as(phase.name())
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1509))
+                    .hasMessageContaining("a distinct query cannot select it");
+        }
+        // Not distinct, it builds; distinct, a query selecting no sequence value builds too.
+        assertThat(selecting(nested, (spec, joins, query, cb, phase) -> { }).buildQuery(criteria(), Phase.MODEL,
+                options)).isNotNull();
+        assertThat(selecting(Expr.function("abs", Long.class, Expr.<Model>constant(1L)), distinct)
+                .buildQuery(criteria(), Phase.MODEL, options)).isNotNull();
+    }
+
+    @Test
+    void ac_col_33_the_phase_check_of_a_customized_query_selecting_a_sequence_value_is_not_mq1509() {
+        QueryCustomizer none = (spec, joins, query, cb, phase) -> { };
+        selecting(Expr.<Model>nextval("s"), none).checkPhases(criteria());
+        QueryCustomizer distinct = (spec, joins, query, cb, phase) -> query.distinct(true);
+        assertThatThrownBy(() -> selecting(Expr.<Model>nextval("s"), distinct).checkPhases(criteria()))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1509))
+                .hasMessageContaining("a distinct query cannot select it");
+    }
+
+    private static ModelQuery<Entity, Object, Model> selecting(ExpressionField<Model, Long> column,
+            QueryCustomizer customizer) {
+        return ModelQuery.builder(TableField.root(Entity.class), row -> new Model()).select(SelectSet.of(column))
+                .customize(customizer).build();
+    }
+
+    /** A CriteriaBuilder handing out one query that records {@code distinct}; every expression is a fake. */
+    private static CriteriaBuilder criteria() {
+        boolean[] distinct = {false};
+        CriteriaQuery<?> query = (CriteriaQuery<?>) Proxy.newProxyInstance(CriteriaQuery.class.getClassLoader(),
+                new Class<?>[] {CriteriaQuery.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "from" -> fakeRoot();
+                    case "distinct" -> {
+                        distinct[0] = (boolean) args[0];
+                        yield proxy;
+                    }
+                    case "isDistinct" -> distinct[0];
+                    case "getOrderList", "getGroupList" -> List.of();
+                    case "getRoots" -> Set.of();
+                    default -> method.getReturnType().isInstance(proxy) ? proxy : null;
+                });
+        return (CriteriaBuilder) Proxy.newProxyInstance(CriteriaBuilder.class.getClassLoader(),
+                new Class<?>[] {CriteriaBuilder.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("createTupleQuery")) {
+                        return query;
+                    }
+                    if (Expression.class.isAssignableFrom(method.getReturnType())) {
+                        return fake(method.getReturnType(), Long.class);
+                    }
+                    return null;
+                });
     }
 
     private static JoinContext context(RenderOptions options) {

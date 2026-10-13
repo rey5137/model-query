@@ -26,8 +26,9 @@ import org.junit.jupiter.api.Test;
 
 /**
  * {@code InsertSupport}'s six-argument {@code insertValues} default: an implementation written before it delegates
- * when there is no computed value and refuses one with {@code MQ1613} rather than dropping it, and the engine, seeing
- * the default in place, refuses it first, before the flush (vendor/40 R-VND-14, api/14 R-WRT-53).
+ * when there is no computed value and refuses one with {@code MQ1613} rather than dropping it, and the engine, where
+ * {@code computedValuesRendered} is false, refuses it first, before the flush (vendor/40 R-VND-14, api/14 R-WRT-53,
+ * D-132).
  */
 class ComputedInsertValuesTest {
 
@@ -102,20 +103,67 @@ class ComputedInsertValuesTest {
             calls.add(attributes);
             return null;
         }
+
+        @Override
+        public boolean computedValuesRendered(EntityManagerFactory emf) {
+            return true;
+        }
+    }
+
+    /** A wrapper around a provider's {@code InsertSupport}, delegating every method it overrides to it. */
+    static final class Delegating extends Legacy {
+
+        private final InsertSupport delegate;
+        private final boolean delegatesRendered;
+
+        Delegating(InsertSupport delegate, boolean delegatesRendered) {
+            this.delegate = delegate;
+            this.delegatesRendered = delegatesRendered;
+        }
+
+        @Override
+        public <E> Query insertValues(EntityManager em, Class<E> entity, List<String> attributes,
+                List<List<Object>> rows, Map<String, Function<CriteriaBuilder, Expression<?>>> computed,
+                Optional<ConflictClause<E>> conflict) {
+            return delegate.insertValues(em, entity, attributes, rows, computed, conflict);
+        }
+
+        @Override
+        public boolean computedValuesRendered(EntityManagerFactory emf) {
+            return delegatesRendered ? delegate.computedValuesRendered(emf) : super.computedValuesRendered(emf);
+        }
     }
 
     @Test
-    void ac_wrt_46_the_engine_refuses_a_computed_value_the_default_would_refuse_before_any_statement() {
+    void ac_wrt_46_the_engine_refuses_a_computed_value_the_support_does_not_render_before_any_statement() {
         assertThatThrownBy(() -> InsertChecks.checkComputedRendered("insert(Counter)", List.of("nextValue"),
-                new Legacy()))
+                new Legacy(), null))
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ1613))
                 .hasMessage("MQ1613: insert(Counter): setExpression(...) on [nextValue], which this provider's "
-                        + "InsertSupport (" + Legacy.class.getName() + ") cannot render in an insert's VALUES: it "
-                        + "does not implement the insertValues taking computed values");
-        assertThatCode(() -> InsertChecks.checkComputedRendered("insert(Counter)", List.of(), new Legacy()))
+                        + "InsertSupport (" + Legacy.class.getName() + ") cannot render in an insert's VALUES: "
+                        + "InsertSupport#computedValuesRendered is false for it");
+        assertThatCode(() -> InsertChecks.checkComputedRendered("insert(Counter)", List.of(), new Legacy(), null))
                 .doesNotThrowAnyException();
         assertThatCode(() -> InsertChecks.checkComputedRendered("insert(Counter)", List.of("nextValue"),
-                new Rendering())).doesNotThrowAnyException();
+                new Rendering(), null)).doesNotThrowAnyException();
+        assertThat(new Legacy().computedValuesRendered(null)).as("the default").isFalse();
+    }
+
+    @Test
+    void ac_wrt_46_a_delegating_support_renders_computed_values_when_it_delegates_computed_values_rendered() {
+        assertThatCode(() -> InsertChecks.checkComputedRendered("insert(Counter)", List.of("nextValue"),
+                new Delegating(new Rendering(), true), null)).doesNotThrowAnyException();
+        // Overriding the six-argument insertValues alone is not enough: the capability is what the engine reads.
+        assertThatThrownBy(() -> InsertChecks.checkComputedRendered("insert(Counter)", List.of("nextValue"),
+                new Delegating(new Rendering(), false), null))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1613))
+                .hasMessageContaining(Delegating.class.getName());
+        // Delegating to a support that does not render them is refused as that support is.
+        assertThatThrownBy(() -> InsertChecks.checkComputedRendered("insert(Counter)", List.of("nextValue"),
+                new Delegating(new Legacy(), true), null))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1613));
     }
 }

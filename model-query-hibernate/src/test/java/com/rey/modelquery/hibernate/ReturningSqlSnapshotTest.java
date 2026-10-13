@@ -1,6 +1,7 @@
 package com.rey.modelquery.hibernate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ModelQueryDefinitionException;
@@ -23,6 +24,7 @@ import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Root;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.hibernate.Session;
 import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
 import org.hibernate.cfg.AvailableSettings;
@@ -31,6 +33,7 @@ import org.hibernate.dialect.Dialect;
 import org.hibernate.dialect.H2Dialect;
 import org.hibernate.dialect.PostgreSQLDialect;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
+import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -222,6 +225,51 @@ class ReturningSqlSnapshotTest {
         }
     }
 
+    /**
+     * {@code check} resolves the returning columns against the written table before any statement, as {@code rows}
+     * does against the translated one: a column off it is {@code MQ1809} (R-WRT-50, D-132).
+     */
+    @Test
+    void ac_wrt_42_check_refuses_a_column_off_the_written_table_with_mq1809_before_any_statement() {
+        try (SessionFactoryImplementor sf = factory("checked", new H2Dialect())) {
+            assertThatCode(() -> HibernateMutations.INSTANCE.check(sf, Tagged.class,
+                    List.of("id", "code", "shade", "item.id"))).doesNotThrowAnyException();
+            assertThatThrownBy(() -> HibernateMutations.INSTANCE.check(sf, Tagged.class, List.of("id", "item.name")))
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1809))
+                    .hasMessageContaining("returning item.name cannot read it is on Item, not on the written table "
+                            + "Tagged");
+            assertThatThrownBy(() -> HibernateMutations.INSTANCE.check(sf, Multi.class, List.of("id", "extra")))
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1809))
+                    .hasMessageContaining("returning extra cannot read it is on multi_extra");
+        }
+    }
+
+    /**
+     * A returning write runs through the session's statement preparer, so the factory's {@code StatementInspector}
+     * sees its SQL, on whichever Hibernate line the build uses (R-VND-17).
+     */
+    @Test
+    void ac_vnd_14_the_statement_inspector_sees_a_returning_update() {
+        List<String> inspected = new CopyOnWriteArrayList<>();
+        StatementInspector inspector = sql -> {
+            inspected.add(sql);
+            return sql;
+        };
+        try (SessionFactoryImplementor sf = factory("inspected", new H2Dialect(), inspector);
+                Session session = sf.openSession()) {
+            session.beginTransaction();
+            session.persist(new Item(1L, "before", 3));
+            session.getTransaction().commit();
+            inspected.clear();
+            session.beginTransaction();
+            assertThat(describe(rows(session, "update"))).containsExactly(List.of("after", 3));
+            session.getTransaction().commit();
+        }
+        assertThat(inspected).containsExactly(H2_UPDATE);
+    }
+
     /** {@code update Tagged set shade = LIGHT where id = 10}. */
     private static Query tagged(Session session) {
         CriteriaBuilder cb = session.getCriteriaBuilder();
@@ -270,6 +318,10 @@ class ReturningSqlSnapshotTest {
     }
 
     private static SessionFactoryImplementor factory(String name, Dialect dialect) {
+        return factory(name, dialect, null);
+    }
+
+    private static SessionFactoryImplementor factory(String name, Dialect dialect, StatementInspector inspector) {
         StandardServiceRegistryBuilder registry = new StandardServiceRegistryBuilder()
                 .applySetting(AvailableSettings.JAKARTA_JDBC_URL,
                         "jdbc:h2:mem:returning-" + name + ";DB_CLOSE_DELAY=-1")
@@ -277,6 +329,9 @@ class ReturningSqlSnapshotTest {
                 .applySetting(AvailableSettings.JAKARTA_JDBC_PASSWORD, "")
                 .applySetting(AvailableSettings.DIALECT, dialect)
                 .applySetting(AvailableSettings.HBM2DDL_AUTO, "create-drop");
+        if (inspector != null) {
+            registry.applySetting(AvailableSettings.STATEMENT_INSPECTOR, inspector);
+        }
         return (SessionFactoryImplementor) new Configuration().addAnnotatedClass(Item.class)
                 .addAnnotatedClass(Multi.class).addAnnotatedClass(Tagged.class).buildSessionFactory(registry.build());
     }

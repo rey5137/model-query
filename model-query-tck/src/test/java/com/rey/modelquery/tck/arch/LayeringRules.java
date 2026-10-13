@@ -231,9 +231,11 @@ final class LayeringRules {
     }
 
     /**
-     * Only {@code model-query-hibernate}'s two mutation adapters import an {@code org.hibernate..internal..} type, so
-     * a Hibernate internal that moved is contained to one class per line (api/14 R-WRT-50, vendor/40 R-VND-17, RFC
-     * 0010 §Compatibility).
+     * Only {@code model-query-hibernate}'s two mutation adapters depend on a type in an
+     * {@code org.hibernate..internal..} package (api/14 R-WRT-50, vendor/40 R-VND-17, RFC 0010 §Compatibility). This
+     * confines the internal packages alone: the module's other classes still call SPI types, such as the SQL AST's
+     * statements, that may move between lines too; such a move is not caught here, but surfaces as a
+     * {@code LinkageError} that {@code HibernateMutations} catches and refuses with {@code MQ4011} (D-132).
      */
     ArchRule onlyMutationAdaptersImportHibernateInternals() {
         return noClasses()

@@ -1380,8 +1380,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * The rows a returning write collects, after R-WRT-50's refusals, all before any statement: {@code
-     * commitEachChunk()} (MQ1809), the returning query's clauses, which are checked as R-WRT-48 checks them, and the
-     * factory's ability to return rows for {@code kind} at all (MQ4011). A {@code throughEntities()} write is refused
+     * commitEachChunk()} (MQ1809), the returning query's clauses, which are checked as R-WRT-48 checks them, the
+     * factory's ability to return rows for {@code kind} at all (MQ4011), and the returning columns against the
+     * written table (MQ1809, D-132). A {@code throughEntities()} write is refused
      * by its own caller, before this.
      */
     private <R> Returning<R> returning(Optional<ChunkOptions> chunk, ModelQuery<E, ?, R> returning,
@@ -1403,7 +1404,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             throw cannotReturn(kind, "provider " + support.getClass().getName() + " cannot return rows for "
                     + rootEntity.getSimpleName() + " (ReturningSupport#rendered)");
         }
-        return new Returning<>(support, rootEntity, returning, returning.returningPaths(), shape);
+        List<String> paths = returning.returningPaths();
+        // A column off the written table is MQ1809 now, not when the statement runs after the flush (D-132)
+        support.check(em.getEntityManagerFactory(), rootEntity, paths);
+        return new Returning<>(support, rootEntity, returning, paths, shape);
     }
 
     /** The {@code MQ1809} refusal of a returning write of {@code kind} combined with {@code clause} (R-WRT-50). */
@@ -1438,6 +1442,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         private final Class<?> entity;
         private final ModelQuery<?, ?, R> query;
         private final List<String> paths;
+        private final Map<String, Integer> indexes = new HashMap<>();
         private final ReturningShape shape;
         private final List<Object[]> rows = new ArrayList<>();
 
@@ -1448,6 +1453,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             this.query = query;
             this.paths = paths;
             this.shape = shape;
+            for (int p = 0; p < paths.size(); p++) {
+                indexes.putIfAbsent(paths.get(p), p);
+            }
         }
 
         /** The rows {@code statement} changed, through the provider, counted for the write's own totals. */
@@ -1466,10 +1474,17 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             return List.copyOf(models);
         }
 
-        /** {@code path}'s value in {@code row}, {@code null} for a path this write's provider did not return. */
+        /**
+         * {@code path}'s value in {@code row}.
+         *
+         * @throws IllegalStateException for a path the returning query did not ask the provider for
+         */
         private Object value(String path, Object[] row) {
-            int index = paths.indexOf(path);
-            return index < 0 ? null : row[index];
+            Integer index = indexes.get(path);
+            if (index == null) {
+                throw new IllegalStateException(path + " is not among the returning paths " + paths);
+            }
+            return row[index];
         }
     }
 
@@ -1483,12 +1498,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private long insert(ModelInsert<E, ?> i, Returning<?> returning) {
         InsertSupport support = insertSupport(i);
         WriteAssignments assignments = writeAssignments();
-        checkInsertOnce(i, support, assignments);
+        Map<String, Function<CriteriaBuilder, Expression<?>>> computed = checkInsertOnce(i, support, assignments);
         requireTransaction("a bulk insert", i.chunkOptions());
         if (i.sourceEntity().isPresent()) {
             return insertSelect(i, support, assignments, returning);
         }
-        return insertValues(i, support, null, assignments, returning);
+        return insertValues(i, support, null, assignments, computed, returning);
     }
 
     /**
@@ -1591,11 +1606,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         i.checkKeysReturnable();
         InsertSupport support = insertSupport(i);
         WriteAssignments assignments = writeAssignments();
-        checkInsertOnce(i, support, assignments);
+        Map<String, Function<CriteriaBuilder, Expression<?>>> computed = checkInsertOnce(i, support, assignments);
         InsertChecks.checkKeysGenerated(i, insertTarget(support).id());
         requireTransaction("a bulk insert", i.chunkOptions());
         var keys = new ArrayList<Object>(i.rowCount());
-        insertValues(i, support, keys, assignments, null);
+        insertValues(i, support, keys, assignments, computed, null);
         return keys.stream().map(i.keyType()::cast).toList();
     }
 
@@ -1607,19 +1622,19 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * An empty list runs no SQL, not even the flush; otherwise the persistence context is flushed before and cleared
      * after, as for any bulk write (R-WRT-26, R-WRT-29, R-WRT-32, R-WRT-33, R-WRT-34, R-WRT-38). Each row writes the
      * {@code INSERT} write assignments the definition leaves after its own values, and a {@code doUpdate} the
-     * {@code UPDATE} ones, each supplier called once for the whole insert (R-WRT-49).
+     * {@code UPDATE} ones, each supplier called once for the whole insert (R-WRT-49). {@code computed} is the
+     * definition's computed values, built by {@link #checkInsertOnce} for this execution (R-WRT-53).
      */
     private long insertValues(ModelInsert<E, ?> i, InsertSupport support, List<Object> keys,
-            WriteAssignments assignments, Returning<?> returning) {
+            WriteAssignments assignments, Map<String, Function<CriteriaBuilder, Expression<?>>> computed,
+            Returning<?> returning) {
         int rows = i.rowCount();
         if (rows == 0) {
             return 0;
         }
         EntityManagerFactory emf = em.getEntityManagerFactory();
         List<String> attributes = new ArrayList<>(i.valueAttributes(em.getMetamodel()));
-        // Rendered in each row by the provider, binding nothing, so not among the attributes a row's values fill
-        Map<String, Function<CriteriaBuilder, Expression<?>>> computed = i.computedValues(em.getMetamodel(),
-                renderOptions);
+        // computed: rendered in each row by the provider, binding nothing, so not among the attributes a row fills
         WriteAssignments.Execution execution = assignments.execution();
         List<Object> added = new ArrayList<>();
         var own = new ArrayList<>(attributes);
@@ -1780,16 +1795,19 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * Checks {@code i} the first time it runs on this executor's factory, before any statement: against the metamodel,
      * then against the generator and the mappings {@code support} reports for the root (D-61, R-WRT-26); and on each
      * run, a conflict clause's target and its update's {@code where} against this executor's configuration and
-     * profile (R-WRT-34, R-WRT-36).
+     * profile (R-WRT-34, R-WRT-36), and its arbiter predicate against {@code support} (R-WRT-52, D-132). Returns an
+     * insert-values' computed values, built once for this execution, or none for an insert-select (R-WRT-53).
      */
-    private void checkInsertOnce(ModelInsert<E, ?> i, InsertSupport support, WriteAssignments assignments) {
+    private Map<String, Function<CriteriaBuilder, Expression<?>>> checkInsertOnce(ModelInsert<E, ?> i,
+            InsertSupport support, WriteAssignments assignments) {
         // Each run, as the profile checks below, and before the checks that render a chunked insert-select's source,
         // so a missing sequence renderer is refused as such; then an InsertSupport that would refuse a computed value
-        // only once the flush has run (R-WRT-53, R-VND-14)
+        // only once the flush has run (R-WRT-53, R-VND-14, D-132)
         i.checkSequences(renderOptions);
+        Map<String, Function<CriteriaBuilder, Expression<?>>> computed = Map.of();
         if (i.sourceEntity().isEmpty()) {
-            InsertChecks.checkComputedRendered(i, i.computedValues(em.getMetamodel(), renderOptions).keySet(),
-                    support);
+            computed = i.computedValues(em.getMetamodel(), renderOptions);
+            InsertChecks.checkComputedRendered(i, computed.keySet(), support, em.getEntityManagerFactory());
         }
         checkWriteOnce(i, metamodel -> {
             EntityManagerFactory emf = em.getEntityManagerFactory();
@@ -1811,6 +1829,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 InsertChecks.checkConstraint(i, name, vendor.profile().conflictOnConstraint()));
         if (!i.conflictArbiter().isEmpty()) {
             InsertChecks.checkArbiter(i, vendor.profile().conflictArbiterPredicate());
+            // The provider renders the predicate's literals now, not when the statement is built after the flush
+            // and a chunked insert-select's key select (INV-5, D-132)
+            InsertChecks.checkArbiterRendered(i, support.arbiterRendered(em.getEntityManagerFactory(), rootEntity,
+                    i.conflictArbiter()), support);
         }
         if (!i.conflictKeys().isEmpty()) {
             InsertChecks.checkConflictTarget(i, i.conflictKeys(),
@@ -1819,6 +1841,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         List<String> updated = conflictUpdates(i) ? assignments.paths(WriteKind.UPDATE) : List.of();
         InsertChecks.checkConflictWhere(i, i.conflictWhereReadsAssigned(em.getMetamodel(), updated),
                 conflictUpdateWhereOnAssignedColumns, vendor.profile().conflictWhereSeesEarlierAssignments());
+        return computed;
     }
 
     /** Whether {@code i} has a {@code doUpdate} clause, which applies the {@code UPDATE} write assignments. */

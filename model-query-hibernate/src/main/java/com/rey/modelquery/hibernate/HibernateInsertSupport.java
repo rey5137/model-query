@@ -1,5 +1,8 @@
 package com.rey.modelquery.hibernate;
 
+import com.rey.modelquery.core.Condition;
+import com.rey.modelquery.core.ModelQueryDefinitionException;
+import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.jpa.spi.ConflictClause;
 import com.rey.modelquery.jpa.spi.IdGeneration;
 import com.rey.modelquery.jpa.spi.InsertSupport;
@@ -224,6 +227,26 @@ final class HibernateInsertSupport implements InsertSupport {
         }
         Dialect dialect = emf.unwrap(SessionFactoryImplementor.class).getJdbcServices().getDialect();
         return dialect instanceof PostgreSQLDialect || dialect instanceof MySQLDialect;
+    }
+
+    /**
+     * True where a line adapter serves {@code emf}'s Hibernate and every value of {@code arbiter} renders as a literal
+     * through its attribute's mapping: rendered here as {@link #insertValues} renders it, so the refusals come before
+     * the flush and any statement (R-WRT-52, D-132).
+     *
+     * @throws ModelQueryExecutionException {@code MQ4011} where no adapter serves this Hibernate line
+     * @throws ModelQueryDefinitionException {@code MQ1508} for a value that renders as no literal
+     */
+    @Override
+    public boolean arbiterRendered(EntityManagerFactory emf, Class<?> entity, List<Condition> arbiter) {
+        arbiter(emf.unwrap(SessionFactoryImplementor.class), entity, arbiter);
+        return true;
+    }
+
+    /** True: {@link #insertValues(EntityManager, Class, List, List, Map, Optional)} renders them (D-132). */
+    @Override
+    public boolean computedValuesRendered(EntityManagerFactory emf) {
+        return true;
     }
 
     /** The {@code @Version} seed, which Hibernate binds once per row (D-116). */
@@ -464,21 +487,22 @@ final class HibernateInsertSupport implements InsertSupport {
             TypedBinding.bind(statement, VALUE + p, bound.get(p), types.get(p % types.size()));
         }
         if (conflict.isPresent() && !conflict.get().arbiter().isEmpty()) {
-            return ArbiterQuery.of(statement, arbiter(conflict.get(), session, entity));
+            return ArbiterQuery.of(statement, arbiter((SessionFactoryImplementor) session.getFactory(), entity,
+                    conflict.get().arbiter()));
         }
         return statement;
     }
 
     /**
-     * The arbiter predicate of {@code clause} as SQL (R-WRT-52), spliced into the statement's conflict target by
-     * {@link HibernateMutations} when the engine runs it; {@code MQ4011} before the statement where no adapter serves
-     * this Hibernate line, as a returning write is refused.
+     * {@code arbiter}, a conflict clause's arbiter predicate, as SQL (R-WRT-52), spliced into the statement's conflict
+     * target by {@link HibernateMutations} when the engine runs it; {@code MQ4011} where no adapter serves this
+     * Hibernate line, as a returning write is refused. The engine has already rendered it through
+     * {@link #arbiterRendered} before the flush (D-132).
      */
-    private static <E> String arbiter(ConflictClause<E> clause, Session session, Class<E> entity) {
-        SessionFactoryImplementor factory = (SessionFactoryImplementor) session.getFactory();
+    private static String arbiter(SessionFactoryImplementor factory, Class<?> entity, List<Condition> arbiter) {
         HibernateMutations.requireLine(factory);
         return new ArbiterSql(new HibernateConstantRenderer(factory), persister(factory, entity), entity)
-                .render(clause.arbiter());
+                .render(arbiter);
     }
 
     /**

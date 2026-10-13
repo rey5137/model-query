@@ -75,6 +75,29 @@ class SequenceNextvalTest {
     }
 
     @TckTest
+    void ac_col_33_nextval_in_a_customized_query_runs_and_returns_values(TckDatabase db) {
+        Assumptions.assumeTrue(db.vendor() != TckVendor.MYSQL, "MySQL has no sequences");
+        var query = read().orderBy(ID.asc()).customize((spec, joins, q, cb, phase) -> { }).build();
+        var rows = new ArrayList<Numbered>();
+        SqlSnapshots.capture(db, ds -> inSession(ds, em -> rows.addAll(executor(em).list(query, Limit.unlimited()))));
+        assertThat(rows).hasSize(6).extracting(Numbered::next).doesNotContainNull().doesNotHaveDuplicates();
+    }
+
+    @TckTest
+    void ac_col_33_a_distinct_customizer_over_a_selected_nextval_is_mq1509_before_any_statement(TckDatabase db) {
+        Assumptions.assumeTrue(db.vendor() != TckVendor.MYSQL, "MySQL refuses the sequence itself");
+        var query = read().customize((spec, joins, q, cb, phase) -> q.distinct(true)).build();
+        var refusals = new ArrayList<Throwable>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> inSession(ds, em -> refusals.add(catchThrowable(
+                () -> executor(em).list(query, Limit.unlimited())))));
+        assertThat(sql).as("no statement ran").isEmpty();
+        assertThat(refusals).hasSize(1);
+        assertThat(refusals.get(0)).isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1509))
+                .hasMessageContaining("a distinct query cannot select it");
+    }
+
+    @TckTest
     void ac_col_33_nextval_is_mq1509_on_mysql_at_first_resolution_before_any_statement(TckDatabase db) {
         Assumptions.assumeTrue(db.vendor() == TckVendor.MYSQL, "H2 and PostgreSQL have sequences");
         var query = read().orderBy(ID.asc()).build();

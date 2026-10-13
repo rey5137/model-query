@@ -89,11 +89,16 @@ final class HibernateMutations implements ReturningSupport {
             Collections.synchronizedMap(new WeakHashMap<>());
 
     /**
-     * The SQL that passed the first-use check on a factory, so the first use of each statement is checked and the
-     * rest are not; a statement that failed is not recorded and is refused again on every use (R-WRT-50).
+     * The statements that passed the first-use check on a factory, so the first use of each statement is checked and
+     * the rest are not; a statement that failed is not recorded and is refused again on every use (R-WRT-50). Keyed by
+     * the checked SQL, an arbiter upsert's as it was before its predicate's literals were spliced in, so one statement
+     * shape is one entry whatever its values (R-WRT-52, D-132).
      */
-    private static final Map<SessionFactoryImplementor, Set<String>> CHECKED =
+    private static final Map<SessionFactoryImplementor, Set<Checked>> CHECKED =
             Collections.synchronizedMap(new WeakHashMap<>());
+
+    /** A statement the first-use check passed: its kind, its returning shape or {@code null}, and its SQL. */
+    private record Checked(WriteStatement kind, ReturningShape shape, String sql) {}
 
     /** The Hibernate keyword a {@code RETURNING} shape appends. */
     private static final String RETURNING = " returning ";
@@ -112,8 +117,23 @@ final class HibernateMutations implements ReturningSupport {
     @Override
     public boolean rendered(EntityManagerFactory emf, Class<?> entity, ReturningShape shape) {
         return shape != null && entity != null && HibernateProviderSupport.sessionFactory(emf)
-                .map(sf -> line(sf).isPresent() && HibernateProviderSupport.tablesOf(sf, entity).size() <= 1)
+                .map(sf -> served(sf) && HibernateProviderSupport.tablesOf(sf, entity).size() <= 1)
                 .orElse(false);
+    }
+
+    /**
+     * Resolves each of {@code attributes} on {@code entity}'s mapping against the table its write statement writes,
+     * the root's, as {@link #rows} resolves it against the translated statement's target table, so a column off it is
+     * {@code MQ1809} before the flush (R-WRT-50, D-132). Called once {@link #rendered} is true: a single-table entity.
+     */
+    @Override
+    public void check(EntityManagerFactory emf, Class<?> entity, List<String> attributes) {
+        Objects.requireNonNull(attributes, "attributes");
+        HibernateProviderSupport.sessionFactory(emf).ifPresent(sf -> {
+            EntityMappingType mapping = sf.getRuntimeMetamodels().getMappingMetamodel().getEntityDescriptor(entity);
+            String written = mapping.getIdentifierTableDetails().getTableName();
+            attributes.forEach(attribute -> selectable(mapping, attribute, written));
+        });
     }
 
     @Override
@@ -126,13 +146,28 @@ final class HibernateMutations implements ReturningSupport {
     /**
      * The adapter that serves {@code sf}'s Hibernate line, or the {@code MQ4011} of a line whose translation calls
      * this adapter makes have moved: a returning write and a conflict arbiter are refused, a plain write runs
-     * (R-WRT-50, R-WRT-52).
+     * (R-WRT-50, R-WRT-52). A type the probe links against that moved is the same refusal (D-132).
      */
     static Mutations requireLine(SessionFactoryImplementor sf) {
-        return line(sf).orElseThrow(() -> new ModelQueryExecutionException(MqCode.MQ4011, "no mutation adapter "
+        Optional<Mutations> line;
+        try {
+            line = line(sf);
+        } catch (LinkageError moved) {
+            throw cannotTranslate(moved);
+        }
+        return line.orElseThrow(() -> new ModelQueryExecutionException(MqCode.MQ4011, "no mutation adapter "
                 + "serves Hibernate " + Version.getVersionString() + ": its mutation translation calls moved from the "
                 + "ones the adapters of this version make, so a returning write or a conflict arbiter is refused "
                 + "(R-WRT-50, R-WRT-52)"));
+    }
+
+    /** Whether an adapter serves {@code sf}'s line: false, not a {@link LinkageError}, where a type moved (D-132). */
+    private static boolean served(SessionFactoryImplementor sf) {
+        try {
+            return line(sf).isPresent();
+        } catch (LinkageError moved) {
+            return false;
+        }
     }
 
     /** {@link #rows(Query, Class, List, ReturningShape)}, on {@code line}, the adapter probed for this factory. */
@@ -168,10 +203,21 @@ final class HibernateMutations implements ReturningSupport {
     /**
      * The statement {@code line} translates for {@code attributes} with {@code shape} applied and checked, with the
      * conflict arbiter of {@code statement} spliced in when it carries one (R-WRT-50, R-WRT-52). A {@code null}
-     * {@code shape} renders no returning clause: the statement is an arbiter upsert run for its count alone.
+     * {@code shape} renders no returning clause: the statement is an arbiter upsert run for its count alone. A type
+     * the translation links against that moved is {@code MQ4011}, as a moved call is (D-132).
      */
     private static Translated translate(Mutations line, Query statement, Class<?> entity, List<String> attributes,
             ReturningShape shape) {
+        try {
+            return translateLinked(line, statement, entity, attributes, shape);
+        } catch (LinkageError moved) {
+            throw cannotTranslate(moved);
+        }
+    }
+
+    /** {@link #translate}, with every type it links against present. */
+    private static Translated translateLinked(Mutations line, Query statement, Class<?> entity,
+            List<String> attributes, ReturningShape shape) {
         DomainQueryExecutionContext context = (DomainQueryExecutionContext) statement;
         SharedSessionContractImplementor session = context.getSession();
         SessionFactoryImplementor sf = session.getFactory();
@@ -185,8 +231,9 @@ final class HibernateMutations implements ReturningSupport {
         List<ColumnReference> returning = new ArrayList<>();
         if (entity != null) {
             EntityMappingType mapping = sf.getRuntimeMetamodels().getMappingMetamodel().getEntityDescriptor(entity);
+            String written = ast.getTargetTable().getTableExpression();
             for (String attribute : attributes) {
-                SelectableMapping selectable = selectable(mapping, attribute, ast);
+                SelectableMapping selectable = selectable(mapping, attribute, written);
                 columns.add(selectable);
                 returning.add(new ColumnReference(ast.getTargetTable(), selectable));
             }
@@ -196,12 +243,15 @@ final class HibernateMutations implements ReturningSupport {
                 .buildMutationTranslator(sf, returning.isEmpty() ? ast : attach(ast, returning));
         JdbcOperationQueryMutation operation = (JdbcOperationQueryMutation) translator.translate(bindings, options);
         String arbiter = arbiter(statement);
-        String rendered = arbiter == null ? operation.getSqlString() : splice(operation.getSqlString(), arbiter);
+        String translated = operation.getSqlString();
+        String rendered = arbiter == null ? translated : splice(translated, arbiter);
         String sql = shape == null ? rendered : shape(shape, rendered, returning);
         if (arbiter != null) {
-            checkArbiter(sf, kind(dml), rendered, sql, operation.getParameterBinders().size(), shape != null);
+            // Recorded by the statement as checked but for the predicate's literals, so its values add no entry
+            String unspliced = shape == null ? translated : shape(shape, translated, returning);
+            checkArbiter(sf, kind(dml), shape, unspliced, rendered, sql, operation.getParameterBinders().size());
         } else if (shape != null) {
-            check(sf, kind(dml), rendered, sql, operation.getParameterBinders().size());
+            check(sf, kind(dml), shape, rendered, sql, operation.getParameterBinders().size());
         }
         return new Translated(sql, operation, bindings, columns, line.execution(context));
     }
@@ -262,31 +312,36 @@ final class HibernateMutations implements ReturningSupport {
     }
 
     /**
-     * {@link #checkSql} on the first use of {@code sql} on {@code sf} that passes, and on no later one: a statement
-     * that fails is refused again on its next use rather than run unchecked (R-WRT-50). A test seam, as
-     * {@link HibernateLockSupport#isRendered} is.
+     * {@link #checkSql} on the first use on {@code sf} of {@code sql} as {@code kind} in {@code shape} that passes,
+     * and on no later one: a statement that fails is refused again on its next use rather than run unchecked
+     * (R-WRT-50). A test seam, as {@link HibernateLockSupport#isRendered} is.
      */
-    static void check(SessionFactoryImplementor sf, WriteStatement kind, String rendered, String sql, int binders) {
-        Set<String> passed = CHECKED.computeIfAbsent(sf, factory -> ConcurrentHashMap.newKeySet());
-        if (passed.contains(sql)) {
+    static void check(SessionFactoryImplementor sf, WriteStatement kind, ReturningShape shape, String rendered,
+            String sql, int binders) {
+        Set<Checked> passed = CHECKED.computeIfAbsent(sf, factory -> ConcurrentHashMap.newKeySet());
+        Checked key = new Checked(kind, shape, sql);
+        if (passed.contains(key)) {
             return;
         }
         checkSql(rendered, sql, binders, kind);
-        passed.add(sql);
+        passed.add(key);
     }
 
     /**
-     * {@link #checkArbiterSql} on the first use of {@code sql} on {@code sf} that passes, and on no later one
-     * (R-WRT-52). A test seam, as {@link HibernateLockSupport#isRendered} is.
+     * {@link #checkArbiterSql} on the first use on {@code sf} of {@code translated}, the SQL as checked but before the
+     * arbiter predicate was spliced in, as {@code kind} in {@code shape}, {@code null} for none, that passes, and on
+     * no later one, whatever the predicate's literals (R-WRT-52, D-132). A test seam, as
+     * {@link HibernateLockSupport#isRendered} is.
      */
-    static void checkArbiter(SessionFactoryImplementor sf, WriteStatement kind, String rendered, String sql,
-            int binders, boolean returnsRows) {
-        Set<String> passed = CHECKED.computeIfAbsent(sf, factory -> ConcurrentHashMap.newKeySet());
-        if (passed.contains(sql)) {
+    static void checkArbiter(SessionFactoryImplementor sf, WriteStatement kind, ReturningShape shape,
+            String translated, String rendered, String sql, int binders) {
+        Set<Checked> passed = CHECKED.computeIfAbsent(sf, factory -> ConcurrentHashMap.newKeySet());
+        Checked key = new Checked(kind, shape, translated);
+        if (passed.contains(key)) {
             return;
         }
-        checkArbiterSql(rendered, sql, binders, kind, returnsRows);
-        passed.add(sql);
+        checkArbiterSql(rendered, sql, binders, kind, shape != null);
+        passed.add(key);
     }
 
     /**
@@ -355,10 +410,7 @@ final class HibernateMutations implements ReturningSupport {
     static void checkSql(String rendered, String sql, int binders, WriteStatement kind) {
         checkKeyword(rendered, sql, kind);
         String unquoted = unquoted(sql); // a literal's ? or keyword is no placeholder and no anchor (R-COL-27)
-        if (occurrences(unquoted, "?") != binders) {
-            throw mismatch(sql, "it binds " + occurrences(unquoted, "?") + " placeholders with " + binders
-                    + " binders");
-        }
+        checkBinders(unquoted, sql, binders);
         checkReturning(unquoted, sql);
     }
 
@@ -375,12 +427,17 @@ final class HibernateMutations implements ReturningSupport {
                     + "exactly once");
         }
         String unquoted = unquoted(sql);
-        if (occurrences(unquoted, "?") != binders) {
-            throw mismatch(sql, "it binds " + occurrences(unquoted, "?") + " placeholders with " + binders
-                    + " binders");
-        }
+        checkBinders(unquoted, sql, binders);
         if (returnsRows) {
             checkReturning(unquoted, sql);
+        }
+    }
+
+    /** Refuses {@code sql} unless its {@code unquoted} text has one placeholder per binder (R-WRT-50). */
+    private static void checkBinders(String unquoted, String sql, int binders) {
+        int placeholders = occurrences(unquoted, "?");
+        if (placeholders != binders) {
+            throw mismatch(sql, "it binds " + placeholders + " placeholders with " + binders + " binders");
         }
     }
 
@@ -488,16 +545,15 @@ final class HibernateMutations implements ReturningSupport {
     }
 
     /**
-     * The selectable {@code attribute} names on the table {@code ast} writes: its path resolves through
-     * {@code entity}'s mapping, every segment but the last through an embeddable, to a column of that table, or it is
-     * the id of a to-one association, which is the association's foreign-key column (R-WRT-48 allows it).
+     * The selectable {@code attribute} names on {@code written}, the table the statement writes: its path resolves
+     * through {@code entity}'s mapping, every segment but the last through an embeddable, to a column of that table,
+     * or it is the id of a to-one association, which is the association's foreign-key column (R-WRT-48 allows it).
      * {@code MQ1809} refuses a path that does not resolve, a column that is not one, and a column on another table,
      * such as a secondary table's, a joined supertable's or the target's of a to-one whose key is not on the written
      * table (R-WRT-50, R-WRT-48).
      */
-    private static SelectableMapping selectable(EntityMappingType entity, String attribute, MutationStatement ast) {
+    private static SelectableMapping selectable(EntityMappingType entity, String attribute, String written) {
         SelectableMapping selectable = selectable(entity, attribute);
-        String written = ast.getTargetTable().getTableExpression();
         if (!selectable.getContainingTableExpression().equals(written)) {
             throw refuse(attribute, "it is on " + selectable.getContainingTableExpression() + ", not on the written "
                     + "table " + written);
@@ -702,10 +758,11 @@ final class HibernateMutations implements ReturningSupport {
     }
 
     /** The {@code MQ4011} a line whose calls moved throws instead of running a translation it cannot trust. */
-    static ModelQueryExecutionException cannotTranslate(ReflectiveOperationException moved) {
+    static ModelQueryExecutionException cannotTranslate(Throwable moved) {
         return new ModelQueryExecutionException(MqCode.MQ4011, "the Hibernate line of "
                 + Version.getVersionString() + " moved a mutation translation call this adapter makes: "
-                + moved + "; a returning write needs an adapter for this line (R-WRT-50)");
+                + moved + "; a returning write or a conflict arbiter needs an adapter for this line (R-WRT-50, "
+                + "R-WRT-52)");
     }
 
     /** The {@code MQ1809} refusal of the returning column {@code attribute}, a definition error (R-WRT-50). */

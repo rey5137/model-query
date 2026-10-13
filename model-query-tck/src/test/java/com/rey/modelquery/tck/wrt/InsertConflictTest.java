@@ -10,6 +10,7 @@ import com.rey.modelquery.core.InsertColumns;
 import com.rey.modelquery.core.ModelInsert;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
+import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.Op;
 import com.rey.modelquery.core.PrimaryKey;
@@ -540,6 +541,33 @@ class InsertConflictTest {
             assertThat(p.rows(ARBITER_ROWS)).containsExactly("1|k1|s1|OPEN|N1", "2|k2|s2|CLOSED|N2",
                     "4|k4|s4|OPEN|X2");
             SqlSnapshots.assertMatches(db, "wrt-45-on-constraint", o.sql());
+        }
+    }
+
+    /**
+     * An {@code InsertSupport} written before {@code arbiterRendered}, delegating the rest to Hibernate's, answers its
+     * default, false: an arbiter upsert is {@code MQ4011} before the flush and any statement (R-WRT-52, INV-5, D-132).
+     */
+    @TckTest
+    void ac_wrt_45_an_insert_support_rendering_no_arbiter_refuses_it_with_mq4011_before_any_statement(TckDatabase db) {
+        var insert = ValuesInsert.builder(ARBITER_COLUMNS, Long.class,
+                        List.of(new ArbiterRow(3L, "k3", "s1", "OPEN", "X1")))
+                .onConflict(ARBITER_SKU).where(f -> f.ne(ARBITER_STATUS, "CLOSED"))
+                .doUpdate(u -> u.setFromRow(ARBITER_NAME)).build();
+
+        try (InsertProbes p = InsertProbes.withArbiterRoot(db)) {
+            List<Outcome> outcomes = new ArrayList<>();
+            // The factory resolves its provider support once, so the profile is asked inside, as the stub serves it
+            NoTablesProviderSupport.serving(UnrenderedDoNothingProviderSupport.class, () -> {
+                Assumptions.assumeTrue(arbiterHonoured(p.factory()), "the vendor takes no conflict arbiter (MQ1804)");
+                outcomes.add(runArbiter(p, insert, true));
+            });
+
+            assertThat(outcomes.get(0).failure()).isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ4011))
+                    .hasMessageContaining("renders no arbiter predicate on a conflict target");
+            assertThat(p.statements()).as("no statement ran").isEmpty();
+            assertThat(p.rows(ARBITER_ROWS)).isEqualTo(ARBITER_SEEDED);
         }
     }
 

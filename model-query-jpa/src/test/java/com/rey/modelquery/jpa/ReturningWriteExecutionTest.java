@@ -62,6 +62,7 @@ class ReturningWriteExecutionTest {
     private static final String MARKER = "model-query.test.returning";
     private static final String NO_RETURNING = "model-query.test.no-returning";
     private static final String MULTI_TABLE = "model-query.test.multi-table";
+    private static final String CHECK_REFUSES = "model-query.test.check-refuses";
 
     private static final TableField<KeysetRowEntity, KeysetRowEntity> ROOT = TableField.root(KeysetRowEntity.class);
 
@@ -171,6 +172,27 @@ class ReturningWriteExecutionTest {
         assertThat(Returning.CALLS).isEmpty();
     }
 
+    /**
+     * {@code ReturningSupport.check} refusing a returning column is {@code MQ1809} before the flush and any statement,
+     * for every statement kind: the pending persist is never flushed (R-WRT-50, INV-5, D-132).
+     */
+    @Test
+    void ac_wrt_42_a_column_the_returning_support_check_refuses_throws_mq1809_before_the_flush() {
+        try (SessionFactory checked = factory("checked", CHECK_REFUSES)) {
+            withTransaction(checked, em -> {
+                em.persist(new KeysetRowEntity(9, 90, 90, 0));
+                ModelQueryExecutor<KeysetRowEntity> executor = ModelQueryExecutor.create(em, KeysetRowEntity.class,
+                        H2);
+                ModelQuery<KeysetRowEntity, Long, Row> query = RETURNING.build();
+                assertCheckRefused(() -> executor.updateReturning(update(), query));
+                assertCheckRefused(() -> executor.deleteReturning(delete(), query));
+                assertCheckRefused(() -> executor.insertReturning(insert(), query));
+            });
+        }
+        assertThat(SQL).as("no flush and no statement").isEmpty();
+        assertThat(Returning.CALLS).isEmpty();
+    }
+
     // ---- the rows a serving provider returns
 
     @Test
@@ -210,6 +232,13 @@ class ReturningWriteExecutionTest {
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ1809))
                 .hasMessageContaining(named);
+    }
+
+    private static void assertCheckRefused(org.assertj.core.api.ThrowableAssert.ThrowingCallable call) {
+        assertThatThrownBy(call)
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1809))
+                .hasMessageContaining("a returning column off the written table: [id, a]");
     }
 
     private static void assertMq4011(ModelQueryExecutor<KeysetRowEntity> executor, String because) {
@@ -325,10 +354,14 @@ class ReturningWriteExecutionTest {
             super(MARKER);
         }
 
-        /** Also the multi-table factory, so its refusal comes from {@code rendered} and not from a missing provider. */
+        /**
+         * Also the multi-table factory, so its refusal comes from {@code rendered} and not from a missing provider,
+         * and the factory whose {@code check} refuses every column.
+         */
         @Override
         public boolean supports(EntityManagerFactory emf) {
-            return super.supports(emf) || emf.getProperties().containsKey(MULTI_TABLE);
+            return super.supports(emf) || emf.getProperties().containsKey(MULTI_TABLE)
+                    || emf.getProperties().containsKey(CHECK_REFUSES);
         }
 
         @Override
@@ -337,6 +370,14 @@ class ReturningWriteExecutionTest {
                 @Override
                 public boolean rendered(EntityManagerFactory emf, Class<?> entity, ReturningShape shape) {
                     return !emf.getProperties().containsKey(MULTI_TABLE);
+                }
+
+                @Override
+                public void check(EntityManagerFactory emf, Class<?> entity, List<String> attributes) {
+                    if (emf.getProperties().containsKey(CHECK_REFUSES)) {
+                        throw new ModelQueryDefinitionException(MqCode.MQ1809, "a returning column off the "
+                                + "written table: " + attributes);
+                    }
                 }
 
                 @Override

@@ -120,7 +120,9 @@ writes, `updateReturning`, `deleteReturning` and `insertReturning`, on `ModelQue
 vendor profile, not `@EngineFacing`.
 The write-expression members (D-130, 0.9.0) are `@Incubating` through 1.0: the `setExpression(column, ExpressionField)`
 overloads on `ModelUpdate.Builder`, `ConflictUpdate`, `ConflictUpdate.Assigned`, `ValuesInsert.Rows` and
-`ModelInsert.Mapping`, the `Assignment.Computed` permit, and `InsertSupport`'s six-argument `insertValues`. The new
+`ModelInsert.Mapping`, the `Assignment.Computed` permit, and `InsertSupport`'s six-argument `insertValues`. The M20
+gate (D-132) adds three `@Incubating` default methods the executor asks before the flush:
+`InsertSupport.arbiterRendered`, `InsertSupport.computedValuesRendered` and `ReturningSupport.check`. The new
 permit means an exhaustive `switch` over `Assignment` needs another case and already-compiled code meets a
 `MatchException`, which `@Incubating` allows and the changelog says. The `InsertSupport` method is a default, so an
 implementation written before it still compiles and refuses a computed value with `MQ1613` rather than dropping it

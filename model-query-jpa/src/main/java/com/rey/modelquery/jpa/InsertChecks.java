@@ -1,15 +1,14 @@
 package com.rey.modelquery.jpa;
 
 import com.rey.modelquery.core.ModelQueryDefinitionException;
+import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.jpa.spi.IdGeneration;
 import com.rey.modelquery.jpa.spi.InsertSupport;
 import com.rey.modelquery.jpa.spi.InsertTarget;
-import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -176,29 +175,34 @@ final class InsertChecks {
     }
 
     /**
-     * Checks that {@code support} renders {@code computed}, an insert-values' {@code setExpression} attributes: an
-     * implementation that leaves {@code InsertSupport}'s six-argument {@code insertValues} to its default would refuse
-     * them when the statement is built, after the flush, so the refusal comes here instead, before any statement
-     * (R-WRT-53, R-VND-14, D-130).
+     * Checks that {@code support} renders {@code computed}, an insert-values' {@code setExpression} attributes, on
+     * {@code emf}: an implementation whose {@code computedValuesRendered} is false would refuse them when the
+     * statement is built, after the flush, so the refusal comes here instead, before any statement (R-WRT-53,
+     * R-VND-14, D-132).
      *
-     * @throws ModelQueryDefinitionException {@code MQ1613} when {@code computed} is not empty and {@code support}
-     *     does not override the six-argument {@code insertValues}
+     * @throws ModelQueryDefinitionException {@code MQ1613} when {@code computed} is not empty and {@code support}'s
+     *     {@code computedValuesRendered(emf)} is false
      */
-    static void checkComputedRendered(Object insert, Collection<String> computed, InsertSupport support) {
-        if (computed.isEmpty()) {
-            return;
-        }
-        Class<?> declaring;
-        try {
-            declaring = support.getClass().getMethod("insertValues", EntityManager.class, Class.class, List.class,
-                    List.class, Map.class, Optional.class).getDeclaringClass();
-        } catch (NoSuchMethodException e) {
-            throw new IllegalStateException("InsertSupport has no six-argument insertValues", e);
-        }
-        if (declaring == InsertSupport.class) {
+    static void checkComputedRendered(Object insert, Collection<String> computed, InsertSupport support,
+            EntityManagerFactory emf) {
+        if (!computed.isEmpty() && !support.computedValuesRendered(emf)) {
             throw new ModelQueryDefinitionException(MqCode.MQ1613, insert + ": setExpression(...) on " + computed
                     + ", which this provider's InsertSupport (" + support.getClass().getName() + ") cannot render in "
-                    + "an insert's VALUES: it does not implement the insertValues taking computed values");
+                    + "an insert's VALUES: InsertSupport#computedValuesRendered is false for it");
+        }
+    }
+
+    /**
+     * Checks that {@code support} renders an insert's conflict arbiter predicate, given what its
+     * {@code arbiterRendered} answered, before the flush and any statement (R-WRT-52, INV-5, D-132).
+     *
+     * @throws ModelQueryExecutionException {@code MQ4011} when {@code rendered} is false
+     */
+    static void checkArbiterRendered(Object insert, boolean rendered, InsertSupport support) {
+        if (!rendered) {
+            throw new ModelQueryExecutionException(MqCode.MQ4011, insert + ": this provider's InsertSupport ("
+                    + support.getClass().getName() + ") renders no arbiter predicate on a conflict target "
+                    + "(InsertSupport#arbiterRendered), so onConflict(...).where(...) is refused (R-WRT-52)");
         }
     }
 

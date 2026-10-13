@@ -21,7 +21,9 @@ import java.util.stream.Stream;
 /**
  * Hibernate's {@link ProviderSupport}, whose insert support reports that it renders no {@code doNothing}, as Hibernate
  * 6.6 reports for a {@code MERGE} vendor: a {@code doNothing} conflict clause is then refused on any vendor (spec
- * api/14 R-WRT-34). Found with {@code ServiceLoader} only inside {@link NoTablesProviderSupport#serving}.
+ * api/14 R-WRT-34). It leaves {@code arbiterRendered} to its default, false, as an implementation written before it
+ * does, so an arbiter upsert is refused too (R-WRT-52, D-132). Found with {@code ServiceLoader} only inside
+ * {@link NoTablesProviderSupport#serving}.
  */
 public final class UnrenderedDoNothingProviderSupport implements ProviderSupport {
 

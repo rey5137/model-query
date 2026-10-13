@@ -100,6 +100,9 @@ InsertTarget target(EntityManagerFactory emf, Class<?> entity);   // record Inse
                                                                    //     List<String> unsupportedMappings)
 List<Object> generateKeys(EntityManager em, Class<?> entity, int count);
 boolean doNothingRendered(EntityManagerFactory emf);
+default boolean computedValuesRendered(EntityManagerFactory emf);  // D-132: false -> MQ1613
+default boolean arbiterRendered(EntityManagerFactory emf, Class<?> entity,
+        List<Condition> arbiter);                                  // D-132: false -> MQ4011
 int providerBindsPerRow(EntityManagerFactory emf, Class<?> entity);
 List<Set<String>> uniqueKeys(EntityManagerFactory emf, Class<?> entity);
 <E> Query insertSelect(EntityManager em, Class<E> entity, List<String> attributes, CriteriaQuery<Tuple> source,
@@ -121,9 +124,13 @@ values. The six-argument `insertValues` (D-130) also writes, in each row after `
 attributes the expression its factory returns: the implementation calls each factory once per row, so no Criteria node
 is shared between rows, and the expression binds nothing (`api/14` R-WRT-53). The default delegates to the five-argument
 form when `computed` is empty and otherwise throws `MQ1613` instead of building the statement, so an `InsertSupport`
-written before it refuses a computed value rather than dropping it; the engine, finding the default in place, refuses
-such an insert with `MQ1613` itself on each execution, before the flush. `uniqueKeys` names the attribute sets the
-mapping declares unique, which a conflict clause's columns must equal one of (`MQ1804`). The engine holds the generator
+written before it refuses a computed value rather than dropping it; the engine refuses such an insert with `MQ1613`
+itself on each execution, before the flush, where the explicit `@Incubating` default `computedValuesRendered(emf)`
+(false unless overridden) answers false, rather than detecting an override by reflection, which delegation defeats
+(D-132). `arbiterRendered(emf, entity, conditions)` likewise reports on each execution, before the flush, whether the
+provider can splice a conflict arbiter predicate (false is `MQ4011`; the Hibernate one renders the arbiter's literals
+too, so a value with no literal rendering is `MQ1508` there). `uniqueKeys` names the attribute sets the mapping
+declares unique, which a conflict clause's columns must equal one of (`MQ1804`). The engine holds the generator
 against `api/14` R-WRT-26's allowlist in `jpa`, on the definition's first execution (`MQ1805`, `MQ1802`, `MQ1807`),
 draws keys with `generateKeys` for a sequence, table or UUID generator, refuses `doNothing` where `doNothingRendered` is
 false (`MQ1804`), and counts `providerBindsPerRow` (the `@Version` seed) when it sizes a `VALUES` statement (R-WRT-29,
@@ -198,10 +205,11 @@ native null-precedence renderer (R-VND-01), reaching `core` only through `JoinCo
 and R-VND-15 do (D-129). `VendorProfile#returning(WriteStatement)` returns an `Optional<ReturningShape>`, empty by
 default, and states the database fact alone, rendering no SQL (R-VND-11): `SUFFIX`, the statement's own `RETURNING`
 clause (PostgreSQL), and `DELTA_TABLE`, a select over the write's delta table (H2's `FINAL TABLE` on an update and
-`OLD TABLE` on a delete). `ProviderSupport#returning()` returns an `Optional<ReturningSupport>`, empty by default. A
-returning write on a factory with no shape for the statement kind, no `ReturningSupport`, or one whose `rendered` is
-false is `MQ4011` at method entry, before any statement (`api/14` R-WRT-50); a third-party profile or provider compiles
-and fails safe. The SPI lives in `jpa` and takes jakarta types only (INV-7):
+`OLD TABLE` on a delete, `FINAL TABLE` on an insert). `ProviderSupport#returning()` returns an
+`Optional<ReturningSupport>`, empty by default. A returning write on a factory with no shape for the statement kind, no
+`ReturningSupport`, or one whose `rendered` is false is `MQ4011` at method entry, before any statement (`api/14`
+R-WRT-50); so is a `LinkageError` from a moved Hibernate type outside `..internal..` (D-132); a third-party profile or
+provider compiles and fails safe. The SPI lives in `jpa` and takes jakarta types only (INV-7):
 
 ```java
 // ProviderSupport
@@ -211,10 +219,11 @@ default Optional<ReturningSupport> returning();                        // empty:
 interface ReturningSupport {
     boolean rendered(EntityManagerFactory emf, Class<?> entity, ReturningShape shape);
     List<Object[]> rows(Query statement, Class<?> entity, List<String> attributes, ReturningShape shape);
+    default void check(EntityManagerFactory emf, Class<?> entity, List<String> attributes);   // D-132: no-op
 }
 
 enum ReturningShape { SUFFIX, DELTA_TABLE }         // the database's fact
-enum WriteStatement { UPDATE, DELETE }              // the statement kind a fact is asked for
+enum WriteStatement { UPDATE, DELETE, INSERT }      // the statement kind a fact is asked for
 ```
 
 `ReturningShape` and `WriteStatement` name facts only. `rendered(emf, entity, shape)` reports whether this factory,
@@ -224,7 +233,8 @@ attributes, shape)` runs a write statement the executor already built — its pa
 assignments and version handling in it — and returns one `Object[]` per changed row, each holding the values of
 `attributes`' columns in that order, as the entity holds them and before the column's converter, exactly as a tuple of a
 read query holds them; a to-one's id is the written row's foreign key. An implementation refuses with `MQ1809` a column
-it cannot express on the written table (R-WRT-50). `model-query-hibernate` answers with Hibernate's own machinery: it
+it cannot express on the written table (R-WRT-50), in `check(emf, entity, attributes)`, which the executor calls on
+each execution before the flush (INV-5, D-132). `model-query-hibernate` answers with Hibernate's own machinery: it
 translates the statement through Hibernate's mutation translator, applies the vendor's shape, prepares it through the
 session's `JdbcCoordinator` (SQL logging and resource tracking unchanged), binds it with Hibernate's binders, reads each
 column through its attribute's JDBC mapping, calls the `StatementInspector` and invalidates query spaces as Hibernate's
