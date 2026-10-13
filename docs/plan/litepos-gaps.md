@@ -107,7 +107,8 @@ M16 (freeze) keeps its number and stays last; the new milestones are numbered in
 2. M18 row locks → 0.9.0 (highest unlock, contained to the read path).
 3. M19 literal filters + bound args → 0.9.0 (small; prerequisite for M20's arbiter predicate).
 4. M20 `RETURNING` and conflict extensions → 0.9.0 (RFC 0010, D-129).
-5. M21 JSpecify, M22 Q-14, all in 0.9.0 (released once M17–M22 are done).
+5. M21 JSpecify, M22 Q-14, M23 target vendors and portability check (RFC 0011, D-133), M24 external model
+   bindings (RFC 0012, D-134), all in 0.9.0 (released once M17–M24 are done).
 6. M16 freeze → 1.0.0, with LitePOS as the adopter feedback.
 
 Not verified by running code: the §1 "Supported" rows are from reading signatures and specs. M17.1 turns each into a

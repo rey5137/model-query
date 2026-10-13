@@ -1,6 +1,6 @@
 # RFC 0012 — External model bindings: models compiled without their entity
 
-- **Status:** draft
+- **Status:** accepted (2026-10-13; recorded as D-134 and Q-19)
 - **Affects:** `processor/30` (new R-PROC-28 to R-PROC-31, `@BindQueryModel`/`@BindUpdateModel`/`@BindInsertModel`);
   `processor/31` (new R-GEN-35, where a bound model's QModel is generated); `processor/32` (new `MQ3023` to `MQ3026`,
   AC-PROC-23 to AC-PROC-26); `reference/90` (the four codes); `reference/92` (D-134, Q-19); `delivery/61`
@@ -119,7 +119,7 @@ nested model that is neither: `MQ3026`. Binding a nested model in another persis
 | AC-PROC-23..26 | `processor/32` | A compile-testing case per code, plus a positive case per binding kind |
 | AC-GEN-30 | `processor/31` | A bound model's QModel equals the annotated model's QModel apart from its package (golden file) |
 
-Proposed **D-134**: models may be bound from the persistence module (§1–§3). Proposed **Q-19**: nested models bound
+**D-134**: models may be bound from the persistence module (§1–§3). **Q-19**: nested models bound
 in another module.
 
 ## Compatibility

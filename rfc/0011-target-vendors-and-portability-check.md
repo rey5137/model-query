@@ -1,10 +1,10 @@
 # RFC 0011 — Declared target vendors and an offline portability check
 
-- **Status:** draft
+- **Status:** accepted (2026-10-13; recorded as D-133, Q-17 and Q-18)
 - **Affects:** `SPEC.md` (INV-7 names a new test-scope module); `vendor/40` (new R-VND-19 declared targets, R-VND-20
   `ProviderSupport#offlineProperties`); `integration/50` (new R-SPR-17 `modelquery.target-vendors`, §3 table);
   `api/16` (new R-INS-10 to R-INS-12, the portability check); `delivery/60` (an INV-5 conformance run in the TCK);
-  `delivery/61` (module list, incubating list); `reference/90` (new `MQ4012`, `MQ4013`); `reference/92` (D-132,
+  `delivery/61` (module list, incubating list); `reference/90` (new `MQ4012`, `MQ4013`); `reference/92` (D-133,
   Q-17, Q-18); `docs/site` (a "portability" page)
 - **Discussion:** to open
 
@@ -180,7 +180,7 @@ config). AC-INS-10 (a dry-run boot per Tier-1 target on both lines opens no conn
 AC-WRT-42 to AC-WRT-45 and AC-COL-33, reproduces under the dry run on both lines with no container; this doubles as
 an INV-5 conformance run). AC-INS-12 (the sweep, `skip`, report format). `MQ4012`, `MQ4013`.
 
-**Proposed D-132.** *Target vendors are checked at startup, and portability is checked by a dry run, not by the
+**D-133.** *Target vendors are checked at startup, and portability is checked by a dry run, not by the
 processor.* A refusal depends on operation, values, config, mapping, provider line and dialect. INV-5 places every
 refusal before the first statement, so the real executor on a dialect-booted factory over a stub `DataSource` decides
 portability with no database and no second implementation. The declared list fails startup (`MQ4012`). The dry run
