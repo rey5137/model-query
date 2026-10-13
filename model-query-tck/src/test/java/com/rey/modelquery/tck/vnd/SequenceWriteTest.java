@@ -231,7 +231,7 @@ class SequenceWriteTest {
             assertCode(() -> executor(em).insert(filtered), MqCode.MQ1509, "no filter, having, order or group key");
             assertCode(() -> executor(em).insertReturning(plain, returning), MqCode.MQ1809, "nextval(tck_seq)");
         }));
-        assertThat(sql).as("no insert ran").noneMatch(statement -> statement.contains("counter_rows"));
+        assertThat(sql).as("no statement ran").isEmpty();
     }
 
     @TckTest

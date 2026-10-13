@@ -144,6 +144,27 @@ class ArbiterUpsertTest {
         }
     }
 
+    /**
+     * {@code arbiterRendered} renders the predicate's literals and checks the line the engine asks it about before the
+     * flush, so {@code MQ1508} and {@code MQ4011} come before any statement (R-WRT-52, D-132).
+     */
+    @Test
+    void ac_wrt_45_arbiter_rendered_refuses_an_unrenderable_value_and_an_unserved_line_before_any_statement() {
+        var support = new HibernateInsertSupport();
+        try (SessionFactoryImplementor sf = factory("arbiter-rendered", new PostgreSQLDialect())) {
+            assertThat(support.arbiterRendered(sf, Stock.class, arbiter(f -> f.ne(STATE, State.CLOSED)))).isTrue();
+            assertThatThrownBy(() -> support.arbiterRendered(sf, Stock.class, arbiter(f -> f.eq(WEIGHT, Double.NaN))))
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1508))
+                    .hasMessageContaining("weight: the arbiter predicate's value NaN");
+            HibernateMutations.unserved(sf);
+            assertThatThrownBy(() -> support.arbiterRendered(sf, Stock.class, arbiter(f -> f.ne(STATE, State.CLOSED))))
+                    .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ4011))
+                    .hasMessageContaining("a returning write or a conflict arbiter is refused");
+        }
+    }
+
     /** The arbiter {@code where} records, as the engine hands it to the provider. */
     private static List<Condition> arbiter(UnaryOperator<Filters<Row>> where) {
         return ValuesInsert.builder(COLUMNS, Long.class, List.of(new Row(1L, "s1", State.OPEN, 2, 1.5)))

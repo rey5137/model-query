@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.jpa.spi.ReturningShape;
 import com.rey.modelquery.jpa.spi.WriteStatement;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -133,16 +134,52 @@ class ReturningSafeguardsTest {
         String anchored = rendered + " returning name";
         try (SessionFactoryImplementor sf = factory()) {
             for (int use = 1; use <= 2; use++) {
-                assertThatThrownBy(() -> HibernateMutations.check(sf, WriteStatement.UPDATE, rendered, unanchored, 2))
+                assertThatThrownBy(() -> HibernateMutations.check(sf, WriteStatement.UPDATE, ReturningShape.SUFFIX,
+                        rendered, unanchored, 2))
                         .as("use %d", use)
                         .isInstanceOfSatisfying(ModelQueryExecutionException.class,
                                 e -> assertThat(e.code()).isEqualTo(MqCode.MQ4011))
                         .hasMessageContaining("no single returning clause");
             }
-            assertThatCode(() -> HibernateMutations.check(sf, WriteStatement.UPDATE, rendered, anchored, 2))
-                    .doesNotThrowAnyException();
-            assertThatCode(() -> HibernateMutations.check(sf, WriteStatement.DELETE, rendered, anchored, 2))
-                    .as("a passed statement is not checked again").doesNotThrowAnyException();
+            assertThatCode(() -> HibernateMutations.check(sf, WriteStatement.UPDATE, ReturningShape.SUFFIX, rendered,
+                    anchored, 2)).doesNotThrowAnyException();
+            assertThatCode(() -> HibernateMutations.check(sf, WriteStatement.UPDATE, ReturningShape.SUFFIX, rendered,
+                    anchored, 3)).as("a passed statement is not checked again").doesNotThrowAnyException();
+            assertThatThrownBy(() -> HibernateMutations.check(sf, WriteStatement.UPDATE, ReturningShape.DELTA_TABLE,
+                    rendered, anchored, 3))
+                    .as("another shape is another statement")
+                    .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ4011))
+                    .hasMessageContaining("placeholders with 3 binders");
+            assertThatThrownBy(() -> HibernateMutations.check(sf, WriteStatement.DELETE, ReturningShape.SUFFIX,
+                    rendered, anchored, 2))
+                    .as("another kind is another statement")
+                    .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ4011))
+                    .hasMessageContaining("it does not start with delete");
+        }
+    }
+
+    /**
+     * An arbiter upsert's first-use check is recorded by the SQL Hibernate translated, before the predicate's literals
+     * were spliced in, so a statement shape is one entry whatever its values (D-132).
+     */
+    @Test
+    void ac_wrt_45_the_arbiter_check_is_recorded_once_per_translated_statement_whatever_its_literals() {
+        String translated = "insert into Item(id,qty) values (?,?) on conflict(id) do nothing";
+        String spliced = "insert into Item(id,qty) values (?,?) on conflict(id) where qty > 0 do nothing";
+        String unanchored = "insert into Item(id,qty) values (?,?) where qty > 1 do nothing";
+        try (SessionFactoryImplementor sf = factory()) {
+            assertThatCode(() -> HibernateMutations.checkArbiter(sf, WriteStatement.INSERT, null, translated, spliced,
+                    spliced, 2)).doesNotThrowAnyException();
+            assertThatCode(() -> HibernateMutations.checkArbiter(sf, WriteStatement.INSERT, null, translated,
+                    unanchored, unanchored, 2)).as("another literal, the same statement").doesNotThrowAnyException();
+            assertThatThrownBy(() -> HibernateMutations.checkArbiter(sf, WriteStatement.INSERT, null,
+                    translated + " ", unanchored, unanchored, 2))
+                    .as("another translated statement is checked")
+                    .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ4011))
+                    .hasMessageContaining("not there exactly once");
         }
     }
 

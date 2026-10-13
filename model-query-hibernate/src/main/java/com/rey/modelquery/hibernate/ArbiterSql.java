@@ -8,7 +8,6 @@ import com.rey.modelquery.core.MqCode;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.hibernate.metamodel.mapping.EntityMappingType;
-import org.hibernate.metamodel.mapping.SelectableMapping;
 
 /**
  * A conflict arbiter predicate as SQL (R-WRT-52): the predicate PostgreSQL matches against a partial unique index,
@@ -65,8 +64,7 @@ final class ArbiterSql {
 
     /** {@code condition}'s column, as the mapped column name of the root's table. */
     private String column(Condition condition) {
-        SelectableMapping selectable = HibernateMutations.selectable(entity, attribute(condition));
-        return selectable.getSelectionExpression();
+        return HibernateMutations.selectable(entity, attribute(condition)).getSelectionExpression();
     }
 
     private String literals(Condition condition) {

@@ -846,8 +846,11 @@ its parameters already bound, binds the statement with the provider's own binder
 attribute's mapping, before that column's converter, as a tuple of a read query holds it. Where the vendor has no shape
 for the statement kind (`VendorProfile#returning(WriteStatement)` empty), the provider has no `ReturningSupport`, the
 provider cannot render the shape, or the root entity is mapped to more than one table, the call is `MQ4011` at method
-entry, before any statement, naming the provider, the vendor and the statement kind. That refusal is a fail-safe, as
-R-VND-15's is: every other write, insert and upsert is unaffected. The Javadoc says the rows hold what the database
+entry, before any statement, naming the provider, the vendor and the statement kind; so is a `LinkageError` from a
+moved Hibernate type. The executor then asks `ReturningSupport.check(emf, entity, attributes)`, an `@Incubating` default
+(a no-op), on each execution before the flush, where the Hibernate one refuses `MQ1809` for a selected attribute that is
+not on the written table (D-132). The `MQ4011` refusal is a fail-safe, as R-VND-15's is: every other write, insert and
+upsert is unaffected. The Javadoc says the rows hold what the database
 returned, so a column the database fills in a trigger is present only where that vendor returns it.
 
 **Claiming rows** (D-131). A worker claims the next rows in two statements in one transaction, never in one locked
@@ -886,7 +889,10 @@ PostgreSQL only, behind the profile facts `conflictArbiterPredicate()` and `conf
 R-VND-14); where the fact is false the insert throws `MQ1804` on first execution. An arbiter predicate and a returning
 insert (R-WRT-50) compose into one statement on PostgreSQL. The provider splices the predicate after the translated
 statement's conflict target, and refuses with `MQ4011` before execution unless it finds that target exactly once
-(INV-5), or where no adapter serves the Hibernate line (`ReturningSupport.rendered` false); a plain upsert still runs.
+(INV-5). Where no adapter serves the Hibernate line the insert is `MQ4011` before the flush: the executor asks
+`InsertSupport.arbiterRendered(emf, entity, conditions)`, an `@Incubating` default (false), on each execution before the
+flush and any statement, and the Hibernate one also renders the arbiter's literals, so `MQ1508` fires there (D-132). A
+plain upsert still runs.
 
 ### 11.5 Write expressions
 
@@ -915,8 +921,10 @@ statement's conflict target, and refuses with `MQ4011` before execution unless i
   assignments (R-WRT-13): chunked, each chunk's statement evaluates it per row, so the rows hold distinct values that
   increase across chunks. A conflict update writes it only for the rows the update writes, so a sequence advances only
   for them. An insert-values evaluates it once per row (a sequence gives each row its own value): the provider renders
-  it in each row's `VALUES` through `InsertSupport`'s six-argument `insertValues` (`vendor/40` R-VND-14), so it is not
-  among the row's attributes, binds nothing and counts 0 toward R-WRT-29's rows per statement. An insert-select renders
+  it in each row's `VALUES` through `InsertSupport`'s six-argument `insertValues` (`vendor/40` R-VND-14), once
+  `InsertSupport.computedValuesRendered(emf)`, an `@Incubating` default (false, `MQ1613`), has answered true on that
+  execution before the flush (D-132), so it is not among the row's attributes, binds nothing and counts 0 toward
+  R-WRT-29's rows per statement. An insert-select renders
   it in the source select, once per source row, between the mapped columns and the `set` constants.
 - On H2 a sequence renders `next value for s`, on PostgreSQL `nextval('s')`. Where the vendor evaluates the incoming row
   before it detects the conflict, an upsert consumes a value for a row the update then writes or skips: H2's `MERGE …
@@ -928,5 +936,5 @@ statement's conflict target, and refuses with `MQ4011` before execution unless i
   R-COL-28); `MQ1609` for a converted column (R-WRT-14), `MQ1610` with `throughEntities()` (R-WRT-41, R-WRT-46), at
   `build()`; R-WRT-13's `MQ1602` and `MQ1605`, R-WRT-34's `MQ1804` and R-WRT-25's `MQ1801` as for the site's other
   assignments; `MQ1802` on first execution for an insert's id attribute, whose keys must be known before the statement
-  (R-WRT-33); `MQ1804` at `build()` for a `nextval` in a conflict arbiter (R-WRT-52); `MQ1809` for a `nextval` selected
-  by a returning query (R-WRT-48).
+  (R-WRT-33), also when `setExpression` writes an insert's id; `MQ1804` at `build()` for a `nextval` in a conflict
+  arbiter (R-WRT-52); `MQ1809` for a `nextval` selected by a returning query (R-WRT-48).

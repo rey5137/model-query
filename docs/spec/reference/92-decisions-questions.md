@@ -1795,6 +1795,18 @@ subquery or a CTE in DML: Criteria subqueries carry no lock, PostgreSQL `IN (SEL
 can over-claim, MySQL refuses it (1235/1093), and chunking/`commitEachChunk` would release or re-run the lock. Claiming
 rows stays two statements in one transaction: a locked key read, then a `whereKeys` write read back by `updateReturning`
 or `byKeys`. → `rfc/0010` §1, `api/14` R-WRT-50, AC-WRT-47, Q-16.
+**D-132 — Pre-statement capability checks for M20 SPIs (M20 gate, 2026-10-13).** Every provider capability M20 refuses
+on is asked through an explicit `@Incubating` default method that the executor calls before the flush (INV-5):
+`InsertSupport.arbiterRendered(EntityManagerFactory, Class<?>, List<Condition>)` (default false, `MQ4011`; the
+Hibernate one also renders the arbiter literals, so `MQ1508` fires there), `InsertSupport.computedValuesRendered(
+EntityManagerFactory)` (default false, `MQ1613`; replaces reflection override detection) and
+`ReturningSupport.check(EntityManagerFactory, Class<?>, List<String> attributes)` (default no-op; Hibernate refuses
+`MQ1809` for an attribute not on the written table). Rejected: reflection override detection, brittle under delegation;
+refusing at statement build, which is after the flush and breaks INV-5. A moved Hibernate type outside `..internal..`
+surfaces as a `LinkageError`, now caught and refused as `MQ4011`. The first-use check of an arbiter upsert is recorded
+by the statement before its literals are spliced in, so one statement shape is one entry. A `distinct()` query
+selecting an `Expr.nextval` is `MQ1509`, as a group key over one is. Amends D-129 and D-130. → `api/10` R-COL-28,
+`api/14` R-WRT-50, R-WRT-52, R-WRT-53, `vendor/40` R-VND-14, R-VND-17, `reference/90`.
 
 ## 2. Open questions
 

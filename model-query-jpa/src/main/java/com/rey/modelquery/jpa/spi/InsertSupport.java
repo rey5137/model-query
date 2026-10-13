@@ -1,6 +1,7 @@
 package com.rey.modelquery.jpa.spi;
 
 import com.rey.modelquery.annotations.Incubating;
+import com.rey.modelquery.core.Condition;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.MqCode;
 import jakarta.persistence.EntityManager;
@@ -23,7 +24,7 @@ import java.util.function.Function;
  * {@code MQ4009} before the flush, while {@code persist} needs none. Implementations are stateless and thread-safe
  * (R-VND-14, D-117).
  *
- * @implSpec R-VND-14, D-116, D-117, D-130
+ * @implSpec R-VND-14, D-116, D-117, D-130, D-132
  */
 @Incubating
 public interface InsertSupport {
@@ -85,6 +86,37 @@ public interface InsertSupport {
             Optional<ConflictClause<E>> conflict);
 
     /**
+     * Whether the provider renders {@code arbiter}, a conflict clause's arbiter predicate, into an insert-values of
+     * {@code entity} on {@code emf}'s database (R-WRT-52). The engine asks on every run of an insert with an arbiter,
+     * before the flush and any statement, and refuses the insert with {@code MQ4011} where this answers false (INV-5,
+     * D-132). An implementation renders the predicate's values here as it would for the statement, so a value it
+     * cannot render as a literal is refused here too.
+     *
+     * <p>The default answers false: an implementation written before this method renders no arbiter predicate.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1508} for a value of {@code arbiter} the implementation cannot
+     *     render as a literal
+     */
+    @Incubating
+    default boolean arbiterRendered(EntityManagerFactory emf, Class<?> entity, List<Condition> arbiter) {
+        return false;
+    }
+
+    /**
+     * Whether {@link #insertValues(EntityManager, Class, List, List, Map, Optional)} renders computed values on
+     * {@code emf}'s provider (R-WRT-53). The engine asks before the flush and any statement of an insert-values with a
+     * computed value and refuses it with {@code MQ1613} where this answers false (R-VND-14, D-132).
+     *
+     * <p>The default answers false, as the six-argument {@code insertValues}'s default refuses a computed value: an
+     * implementation that overrides that method overrides this one too, and a delegating implementation delegates
+     * both.
+     */
+    @Incubating
+    default boolean computedValuesRendered(EntityManagerFactory emf) {
+        return false;
+    }
+
+    /**
      * As {@link #insertValues(EntityManager, Class, List, List, Optional)}, each row also writing each of
      * {@code computed}'s attributes, after {@code attributes}, the expression its factory returns for the statement's
      * criteria builder: an expression that reads no column and binds nothing, such as a sequence's next value, so the
@@ -93,8 +125,8 @@ public interface InsertSupport {
      *
      * <p>The default delegates to the five-argument form when {@code computed} is empty and otherwise throws
      * {@code MQ1613} instead of building the statement: an implementation written before this method refuses a
-     * computed value rather than dropping it. The engine, seeing the default in place, refuses such an insert with
-     * {@code MQ1613} itself before the flush and any statement.
+     * computed value rather than dropping it. The engine, where {@link #computedValuesRendered} answers false, refuses
+     * such an insert with {@code MQ1613} itself before the flush and any statement.
      *
      * @throws ModelQueryDefinitionException {@code MQ1613} by default, for a non-empty {@code computed}
      */

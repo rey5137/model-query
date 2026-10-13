@@ -251,9 +251,9 @@ public final class Expr {
      * The next value of the database sequence {@code sequence}, typed {@code Long}: a model column or projection of a
      * read that reads no column and adds no join (R-COL-28). The provider renders the dialect's own sequence call.
      *
-     * <p>A select expression only: it is refused in a filter, a {@code having}, an order and a group key, and no write
-     * takes it yet (an update, conflict or insert value is planned, D-130). Every evaluation consumes a value, so
-     * {@code one(q)}, which reads with {@code LIMIT 2}, consumes a second value when a second row matches.
+     * <p>A select expression only: it is refused in a filter, a {@code having}, an order and a group key. A write
+     * takes it through {@code setExpression} (R-WRT-53). Every evaluation consumes a value, so {@code one(q)}, which
+     * reads with {@code LIMIT 2}, consumes a second value when a second row matches.
      *
      * @param sequence a plain SQL identifier, optionally schema-qualified ({@code schema.name})
      * @throws ModelQueryDefinitionException {@code MQ1509} when {@code sequence} is not such an identifier; also, at

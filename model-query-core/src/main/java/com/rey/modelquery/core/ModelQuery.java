@@ -42,8 +42,15 @@ public final class ModelQuery<E, K, M> {
     private static final System.Logger LOG = System.getLogger(ModelQuery.class.getName());
 
     /** Options that never chunk nor refuse a list, for scratch builds whose SQL is never run. */
-    private static final RenderOptions UNLIMITED =
-            RenderOptions.of(Integer.MAX_VALUE, Integer.MAX_VALUE);
+    private static final RenderOptions UNLIMITED = RenderOptions.of(Integer.MAX_VALUE, Integer.MAX_VALUE);
+
+    /**
+     * {@link #UNLIMITED} for {@link #checkPhases}' scratch builds alone, with a stand-in sequence renderer so a model
+     * selecting {@code Expr.nextval} is not refused for a vendor fact the scratch lacks: the real build refuses it on
+     * this executor's own options (D-132).
+     */
+    private static final RenderOptions PHASE_SCRATCH =
+            UNLIMITED.withSequenceRenderer((cb, sequence) -> cb.nullLiteral(Long.class));
 
     private final TableField<E, E> root;
     private final RowMapper<M> mapper;
@@ -392,7 +399,8 @@ public final class ModelQuery<E, K, M> {
      * the row-locking read the lock is applied to (R-QRY-17, D-127).
      *
      * @throws ModelQueryDefinitionException {@code MQ1205} when the customizer changed the ordering or the grouping,
-     *     or on a locked query {@code distinct} or the {@code HAVING} restriction
+     *     or on a locked query {@code distinct} or the {@code HAVING} restriction; {@code MQ1509} when it made a query
+     *     selecting a sequence value distinct (R-COL-28)
      */
     private void customize(BuiltQuery<M> built, CriteriaBuilder cb, Phase phase) {
         CriteriaQuery<Tuple> query = built.query();
@@ -407,6 +415,9 @@ public final class ModelQuery<E, K, M> {
                     + (reordered ? "ORDER BY" : "GROUP BY") + " of phase " + phase + "; order and group the query "
                     + "with orderBy(...) and groupBy(...), which paging and export follow");
         }
+        if (phase != Phase.PRIMARY_KEY && query.isDistinct()) {
+            checkDistinctSequences();
+        }
         if (lock == null) {
             return;
         }
@@ -416,6 +427,23 @@ public final class ModelQuery<E, K, M> {
                     + (madeDistinct ? "distinct" : "the HAVING") + " of phase " + phase + " on a locked query; a row "
                     + "lock is applied to the query's own rows, so drop the customizer's distinct or having, or the "
                     + "lock");
+        }
+    }
+
+    /**
+     * Refuses a distinct query whose model selects an expression reading {@code Expr.nextval} at any depth, as a
+     * group key over one is refused: each row gets its own value, so {@code DISTINCT} would silently stop
+     * deduplicating (R-COL-28, D-132).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1509} naming the first such column
+     */
+    private void checkDistinctSequences() {
+        for (SelectField<M, ?> column : modelColumns) {
+            if (column instanceof ExpressionField<?, ?> expression && expression.readsSequence()) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1509, modelName() + ": " + column.name()
+                        + " reads a sequence value, which advances on every evaluation, so a distinct query cannot "
+                        + "select it: every row would get its own value and DISTINCT would stop deduplicating");
+            }
         }
     }
 
@@ -524,7 +552,7 @@ public final class ModelQuery<E, K, M> {
         for (Phase phase : phases) {
             // Which phases a customizer narrows does not depend on the database, so the scratch renders without
             // limits: the portable ones would refuse a long in(...) the resolved profile accepts (MQ1306).
-            BuiltQuery<M> scratch = assemble(cb, phase, UNLIMITED);
+            BuiltQuery<M> scratch = assemble(cb, phase, PHASE_SCRATCH);
             Predicate own = scratch.query().getRestriction();
             int joined = narrowingJoins(scratch.query());
             customize(scratch, cb, phase);
