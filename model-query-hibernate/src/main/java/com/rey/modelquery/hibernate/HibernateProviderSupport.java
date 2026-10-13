@@ -4,6 +4,7 @@ import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ConstantRenderer;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
+import com.rey.modelquery.core.SequenceRenderer;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.EntityWriteSupport;
 import com.rey.modelquery.jpa.spi.InsertSupport;
@@ -295,6 +296,12 @@ public final class HibernateProviderSupport implements ProviderSupport {
     @Override
     public Optional<ConstantRenderer> constants(EntityManagerFactory emf) {
         return sessionFactory(emf).map(HibernateConstantRenderer::new);
+    }
+
+    /** {@link HibernateSequenceRenderer}: the dialect's own sequence call (R-VND-18). */
+    @Override
+    public Optional<SequenceRenderer> sequences(EntityManagerFactory emf) {
+        return sessionFactory(emf).map(sf -> new HibernateSequenceRenderer(sf.getJdbcServices().getDialect()));
     }
 
     /** {@link HibernateMutations}: Hibernate's own mutation translation and execution (R-WRT-50, R-VND-17). */

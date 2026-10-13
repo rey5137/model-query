@@ -35,6 +35,7 @@ public final class Expr {
 
     /** A plain SQL identifier: a letter or underscore, then letters, digits or underscores. */
     private static final Pattern IDENTIFIER = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+    private static final Pattern SEQUENCE = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)?");
     /** The aggregate function names {@code function(...)} refuses (R-COL-17, api/13). */
     private static final Set<String> AGGREGATES =
             Set.of("count", "countdistinct", "sum", "sumaslong", "avg", "min", "max");
@@ -244,6 +245,29 @@ public final class Expr {
         checkValue(value);
         Class<C> type = (Class<C>) value.getClass();
         return new ExpressionField<>(new ExpressionField.Value(value, type), type, null);
+    }
+
+    /**
+     * The next value of the database sequence {@code sequence}, typed {@code Long}: a model column or projection of a
+     * read that reads no column and adds no join (R-COL-28). The provider renders the dialect's own sequence call.
+     *
+     * <p>A select expression only: it is refused in a filter, a {@code having}, an order and a group key, and no write
+     * takes it yet (an update, conflict or insert value is planned, D-130). Every evaluation consumes a value, so
+     * {@code one(q)}, which reads with {@code LIMIT 2}, consumes a second value when a second row matches.
+     *
+     * @param sequence a plain SQL identifier, optionally schema-qualified ({@code schema.name})
+     * @throws ModelQueryDefinitionException {@code MQ1509} when {@code sequence} is not such an identifier; also, at
+     *     first resolution, in a filter, {@code having}, order or group key, on a vendor whose profile has no
+     *     sequences and without a provider sequence renderer
+     */
+    @Incubating
+    public static <M> ExpressionField<M, Long> nextval(String sequence) {
+        Objects.requireNonNull(sequence, "sequence");
+        if (!SEQUENCE.matcher(sequence).matches()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1509, "nextval(\"" + sequence + "\"): a sequence name "
+                    + "must be a plain SQL identifier, optionally schema-qualified");
+        }
+        return new ExpressionField<>(new ExpressionField.Nextval(sequence), Long.class, null);
     }
 
     /**

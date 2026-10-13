@@ -39,6 +39,7 @@ as community-supported. It never gates a release.
 | Conflict `where` reads earlier assignments (`conflictWhereSeesEarlierAssignments()`) | no | no | **yes**: a `CASE` per assignment, so a `where` reading two or more assigned columns is refused (`api/14` R-WRT-34) |
 | Conflict target names a constraint (`conflictOnConstraint()`) | **no** | yes | **no** (`api/14` R-WRT-52) |
 | Conflict target takes an arbiter `WHERE` (`conflictArbiterPredicate()`) | **no** | yes | **no** (`api/14` R-WRT-52) |
+| Sequences (`sequences()`) | yes | yes | **no**: `Expr.nextval` is `MQ1509` (`api/10` R-COL-28) |
 
 **R-PRF-11** The built-in H2, PostgreSQL and MySQL profiles carry the values in this table (`vendor/40` R-VND-03);
 "no limit" is `maxValuesRows()` returning `Integer.MAX_VALUE` (`vendor/40` R-VND-14, D-117).

@@ -115,4 +115,13 @@ public interface VendorProfile {
     default boolean conflictArbiterPredicate() {
         return false;
     }
+
+    /**
+     * Whether the database has sequences, so {@code Expr.nextval} can read one's next value (api/10 R-COL-28).
+     * {@code false}, the default, fails safe: a {@code nextval} is then refused with {@code MQ1509}. A database fact,
+     * no SQL (R-VND-11, INV-6).
+     */
+    default boolean sequences() {
+        return false;
+    }
 }

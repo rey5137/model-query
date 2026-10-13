@@ -9,6 +9,7 @@ import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryExecutionException;
+import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.RowLock;
@@ -28,6 +29,7 @@ import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
 import com.rey.modelquery.tck.vnd.VendorLocks;
+import com.rey.modelquery.tck.vnd.VendorReturning;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityManager;
@@ -81,6 +83,14 @@ class RowLockExecutionTest {
     private static final long JOB_FIRST = JOB_BASE + 1;
 
     private static final FetchPlan<Line> LINE = FetchPlan.of(QLine.ALL);
+
+    /** The claim recipe's locked read (recipes.md, "Claim the next job"); only the claim test's rows are pending. */
+    private static final ModelQuery<OrderEntity, Long, OrderLines> NEXT_PENDING = QOrderLines.query()
+            .select(QOrderLines.ALL)
+            .where(f -> f.eq(QOrderLines.STATUS, "PENDING"))
+            .orderBy(QOrderLines.ID.asc())
+            .build()
+            .withLock(RowLock.exclusive(RowLock.Wait.SKIP_LOCKED));
 
     private static final TableField<TwoTableRoot, TwoTableRoot> TWO_TABLE_ROOT = TableField.root(TwoTableRoot.class);
 
@@ -287,6 +297,88 @@ class RowLockExecutionTest {
         }
     }
 
+    // ---- AC-WRT-47: the claim recipe, a locked key read then a whereKeys write, by two concurrent workers
+
+    /**
+     * Two workers claim at once: each reads the next pending jobs with {@code SKIP_LOCKED}, so the second passes the
+     * first's locked rows over, then writes its claim through {@code whereKeys} and reads it back, by
+     * {@code updateReturning} where the database returns the rows of a write, else by {@code update} then
+     * {@code byKeys}, in its one transaction. The two claims are disjoint and both commit. Where the provider drops
+     * {@code SKIP_LOCKED} (H2 on Hibernate 6.6, vendor/41 §6) the locked read is {@code MQ4010} before any statement.
+     */
+    @TckTest
+    void ac_wrt_47_two_concurrent_workers_claim_disjoint_jobs_and_read_their_claims_back(TckDatabase db)
+            throws SQLException {
+        if (!VendorLocks.rendered(db).contains(RowLock.exclusive(Wait.SKIP_LOCKED))) {
+            List<String> sql = SqlSnapshots.capture(db, ds -> {
+                try (SessionFactory sessions = JoinTestSupport.sessionFactory(ds)) {
+                    sessions.inTransaction(em -> assertMq(() -> executor(em).list(NEXT_PENDING, Limit.of(2)),
+                            MqCode.MQ4010, "cannot lock"));
+                }
+            });
+            assertThat(sql).as("no statement ran").isEmpty();
+            return;
+        }
+        boolean returnsRows = VendorReturning.returnsRows(db);
+        seedJobs(db, 5, "PENDING");
+        try (SessionFactory first = JoinTestSupport.sessionFactory(db);
+                SessionFactory second = JoinTestSupport.sessionFactory(db);
+                EntityManager one = first.createEntityManager();
+                EntityManager two = second.createEntityManager()) {
+            one.getTransaction().begin();
+            two.getTransaction().begin();
+            try {
+                List<Long> oneIds = nextPending(executor(one));
+                List<Long> twoIds = nextPending(executor(two));
+                assertThat(oneIds).as("the first worker's jobs").containsExactly(JOB_FIRST, JOB_FIRST + 1);
+                assertThat(twoIds).as("the second worker passes the first's locked jobs over")
+                        .containsExactly(JOB_FIRST + 2, JOB_FIRST + 3);
+                List<OrderLines> oneClaimed = claim(executor(one), oneIds, returnsRows);
+                List<OrderLines> twoClaimed = claim(executor(two), twoIds, returnsRows);
+                assertThat(oneClaimed).extracting(OrderLines::id).containsExactlyInAnyOrderElementsOf(oneIds);
+                assertThat(twoClaimed).extracting(OrderLines::id).containsExactlyInAnyOrderElementsOf(twoIds);
+                assertThat(oneClaimed).extracting(OrderLines::status).containsOnly("CLAIMED");
+                assertThat(twoClaimed).extracting(OrderLines::status).containsOnly("CLAIMED");
+                one.getTransaction().commit();
+                two.getTransaction().commit();
+            } finally {
+                for (EntityManager em : List.of(one, two)) {
+                    if (em.getTransaction().isActive()) {
+                        em.getTransaction().rollback();
+                    }
+                }
+            }
+            for (long id = JOB_FIRST; id < JOB_FIRST + 4; id++) {
+                assertThat(orderStatus(db, id)).as("job %d committed claimed", id).isEqualTo("CLAIMED");
+            }
+            assertThat(orderStatus(db, JOB_FIRST + 4)).as("the job neither worker took").isEqualTo("PENDING");
+        } finally {
+            deleteJobs(db);
+        }
+    }
+
+    /** The recipe's step 1: the next two pending jobs' keys, locked until the transaction ends. */
+    private static List<Long> nextPending(ModelQueryExecutor<OrderEntity> executor) {
+        return executor.list(NEXT_PENDING, Limit.of(2)).stream().map(OrderLines::id).toList();
+    }
+
+    /** The recipe's step 2: claim the locked jobs by key and read the claimed rows back. */
+    private static List<OrderLines> claim(ModelQueryExecutor<OrderEntity> executor, List<Long> ids,
+            boolean returnsRows) {
+        var claim = ModelUpdate.builder(QOrderLines.ROOT).primaryKey(QOrderLines.KEY)
+                .set(QOrderLines.STATUS, "CLAIMED").whereKeys(ids).build();
+        var claimedRows = QOrderLines.query().select(QOrderLines.ALL).build();
+        if (returnsRows) {
+            // PostgreSQL and H2: one statement writes the claim and returns the rows.
+            List<OrderLines> claimed = executor.updateReturning(claim, claimedRows);
+            return claimed;
+        }
+        // MySQL: write, then read the rows back by key.
+        executor.update(claim);
+        Map<Long, OrderLines> byId = executor.byKeys(claimedRows, ids);
+        return List.copyOf(byId.values());
+    }
+
     /** {@code NO_WAIT} fails at once; which of JPA's two exceptions it is, is the vendor's (recorded below). */
     @TckTest
     void ac_exe_17_no_wait_surfaces_a_lock_conflict_as_the_vendor_reports_it(TckDatabase db) {
@@ -389,13 +481,19 @@ class RowLockExecutionTest {
 
     /** Inserts {@code count} claimable rows of the claim test's own; {@link #deleteJobs} removes them. */
     private static void seedJobs(TckDatabase db, int count) throws SQLException {
+        seedJobs(db, count, "NEW");
+    }
+
+    /** As {@link #seedJobs(TckDatabase, int)}, each row in {@code status}. */
+    private static void seedJobs(TckDatabase db, int count, String status) throws SQLException {
         try (Connection connection = db.getConnection()) {
             connection.setAutoCommit(false);
             try (var statement = connection.prepareStatement(
-                    "insert into orders (id, customer_id, status, total, placed_at) values (?, 1, 'NEW', 0, ?)")) {
+                    "insert into orders (id, customer_id, status, total, placed_at) values (?, 1, ?, 0, ?)")) {
                 for (int i = 1; i <= count; i++) {
                     statement.setLong(1, JOB_BASE + i);
-                    statement.setTimestamp(2, Timestamp.valueOf("2020-01-01 00:00:00"));
+                    statement.setString(2, status);
+                    statement.setTimestamp(3, Timestamp.valueOf("2020-01-01 00:00:00"));
                     statement.addBatch();
                 }
                 statement.executeBatch();

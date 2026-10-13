@@ -168,6 +168,47 @@ var drafts = QOrderView.delete()
 `ModelDelete` has the same `where`, `whereKey(s)`, `all()` and `chunked(...)` options. A soft delete is an update
 (`set(DELETED, true)`).
 
+## Returning the changed rows
+
+`updateReturning(update, returning)` and `deleteReturning(delete, returning)` run the write and hand back the rows it
+changed as models, in one statement (R-WRT-50, `@Incubating`). `returning` is a `ModelQuery` over the same root that
+supplies the selection and the mapper, exactly as for
+[`persist(persist, returning)`](inserts.md#returning-a-model); its columns are read after the write, so an
+update returns the new values and a delete the deleted rows.
+
+```java
+var update = ModelUpdate.builder(ITEM_ROWS).primaryKey(PrimaryKey.of(ITEM_ROW_ID))
+        .set(ITEM_ROW_QUANTITY, 42).where(f -> f.eq(ITEM_ROW_ID, 3L)).build();
+var delete = ModelDelete.builder(ITEM_ROWS).primaryKey(PrimaryKey.of(ITEM_ROW_ID))
+        .where(f -> f.eq(ITEM_ROW_ID, 5L)).build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    var returning = ITEM_ROW_RETURNING.build();
+    List<ItemRow> updated = executor.updateReturning(update, returning);
+    List<ItemRow> deleted = executor.deleteReturning(delete, returning);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    var returning = ITEM_ROW_RETURNING.build();
+    List<ItemRow> updated = items.updateReturning(update, returning);
+    List<ItemRow> deleted = items.deleteReturning(delete, returning);
+    ```
+
+The order of the rows is unspecified, and they are held in memory, so this is not an export. H2 and PostgreSQL return
+rows; MySQL does not, and a returning write there is `MQ4011` before any statement. A chunked write returns every row
+once; `throughEntities()` and `commitEachChunk()` are `MQ1809`. `expectVersion` with no changed row still throws
+`OptimisticLockException`. On the Spring repository a returning write always runs in one transaction, joined or opened.
+
+Tested in the TCK (AC-WRT-42, AC-SPR-09) by
+`ac_wrt_42_43_44_update_delete_and_insert_returning_return_the_written_rows_as_one_statement_each` in `BulkWriteTest`
+and `ac_spr_09_update_returning_and_delete_returning_commit_through_the_repository_without_a_transaction` in
+`ModelQueryRepositoryTest`.
+
 ## Transactions
 
 A bulk write needs an active transaction: without one, `update` or `delete` fails with `MQ2501` naming the operation.

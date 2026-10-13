@@ -484,7 +484,8 @@ public final class ModelQuery<E, K, M> {
             query.orderBy(orders);
         }
         if (!groupBy.isEmpty()) {
-            query.groupBy(groupBy.stream().<Expression<?>>map(key -> key.expression(joins)).toList());
+            query.groupBy(groupBy.stream()
+                    .<Expression<?>>map(key -> joins.withoutSequences(() -> key.expression(joins))).toList());
         }
         List<List<Predicate>> predicates = ConditionGroup.clausePredicates(List.of(where, having), joins);
         if (!predicates.get(0).isEmpty()) {

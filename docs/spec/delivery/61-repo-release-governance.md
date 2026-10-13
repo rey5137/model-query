@@ -109,6 +109,15 @@ The literal-filter and bound-argument members (D-128, 0.9.0) are `@Incubating` t
 `ModelDelete.Rendered`, `EntityLoad` (what `ModelUpdate#buildEntityLoad` and `ModelDelete#buildEntityLoad` return, the
 load and the `JoinContext` that rendered it) and `JoinContext#statementParameters()` are `@EngineFacing`, so they are
 not API.
+The returning-write and conflict-extension members (D-129, 0.9.0) are `@Incubating` through 1.0: the three returning
+writes, `updateReturning`, `deleteReturning` and `insertReturning`, on `ModelQueryExecutor` and on
+`ModelQueryRepository`; `ConflictUpdate#setExpression` with `ConflictExpression` and `Assignment.Conflict`; the
+`KeyedConflict` stage with its arbiter `where`, and `ValuesInsert#onConstraint`; `Expr.nextval` with the
+`SequenceRenderer` capability `ProviderSupport#sequences(EntityManagerFactory)` returns; `ReturningSupport`,
+`ReturningShape` and `WriteStatement` in `jpa.spi` with `ProviderSupport#returning()` and
+`VendorProfile#returning(WriteStatement)`; and the `VendorProfile` facts `conflictOnConstraint()`,
+`conflictArbiterPredicate()` and `sequences()`. The `jpa.spi` capabilities are extension points of a provider and a
+vendor profile, not `@EngineFacing`.
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from

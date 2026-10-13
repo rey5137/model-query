@@ -32,10 +32,14 @@ import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
 import com.rey.modelquery.tck.col.OrderItemEntity;
+import com.rey.modelquery.tck.fch.OrderLines;
+import com.rey.modelquery.tck.fch.QOrderLines;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
+import com.rey.modelquery.tck.vnd.VendorLocks;
+import com.rey.modelquery.tck.vnd.VendorReturning;
 import com.rey.modelquery.tck.vnd.ins.InsPersistEntity;
 import com.rey.modelquery.tck.vnd.ins.InsPersistRepository;
 import com.rey.modelquery.tck.vnd.ins.InsSourceEntity;
@@ -57,6 +61,7 @@ import java.util.function.UnaryOperator;
 import javax.sql.DataSource;
 import org.assertj.core.api.InstanceOfAssertFactories;
 import org.hibernate.SessionFactory;
+import org.junit.jupiter.api.Assumptions;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -118,6 +123,14 @@ class ModelQueryRepositoryTest {
             .primaryKey(PrimaryKey.of(TOTAL));
 
     private static final String TRANSACTIONS = "orderTransactions";
+
+    /** The claim recipe's locked read (recipes.md, "Claim the next job"); only the claim test's rows are pending. */
+    private static final ModelQuery<OrderEntity, Long, OrderLines> NEXT_PENDING = QOrderLines.query()
+            .select(QOrderLines.ALL)
+            .where(f -> f.eq(QOrderLines.STATUS, "PENDING"))
+            .orderBy(QOrderLines.ID.asc())
+            .build()
+            .withLock(RowLock.exclusive(RowLock.Wait.SKIP_LOCKED));
 
     /** The ids above which a test inserts orders of its own, and removes them again. */
     private static final long TEMPORARY = 100_000;
@@ -290,6 +303,84 @@ class ModelQueryRepositoryTest {
     }
 
     @TckTest
+    void ac_spr_09_update_returning_and_delete_returning_commit_through_the_repository_without_a_transaction(
+            TckDatabase db) {
+        DataSource dataSource = JoinTestSupport.dataSource(db);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        var delete = ModelDelete.builder(ORDERS).primaryKey(PrimaryKey.of(ID)).where(TEMPORARY_ORDERS).build();
+        try {
+            insertTemporaryOrders(jdbc, 3);
+            if (!VendorReturning.returnsRows(db)) {
+                // MySQL has no returning shape: the executor's MQ4011 reaches the caller and no row changed.
+                withRepository(dataSource, DefaultTransactions.class, (repository, context) -> {
+                    assertThatThrownBy(() -> repository.updateReturning(PAY_TEMPORARY_ORDERS, ORDER_ROWS.build()))
+                            .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                                    e -> assertThat(e.code()).isEqualTo(MqCode.MQ4011));
+                    return null;
+                });
+                assertThat(statuses(jdbc)).containsExactly("NEW", "NEW", "NEW");
+                return;
+            }
+            List<OrderRow> paid = withRepository(dataSource, DefaultTransactions.class,
+                    (repository, context) -> repository.updateReturning(PAY_TEMPORARY_ORDERS, ORDER_ROWS.build()));
+            assertThat(paid).extracting(OrderRow::id).containsExactlyInAnyOrder(TEMPORARY + 1, TEMPORARY + 2,
+                    TEMPORARY + 3);
+            assertThat(paid).extracting(OrderRow::status).containsOnly("PAID");
+            // Committed: read over a connection of its own.
+            assertThat(statuses(jdbc)).containsExactly("PAID", "PAID", "PAID");
+
+            List<OrderRow> deleted = withRepository(dataSource, DefaultTransactions.class,
+                    (repository, context) -> repository.deleteReturning(delete, ORDER_ROWS.build()));
+            assertThat(deleted).extracting(OrderRow::id).containsExactlyInAnyOrder(TEMPORARY + 1, TEMPORARY + 2,
+                    TEMPORARY + 3);
+            assertThat(statuses(jdbc)).isEmpty();
+        } finally {
+            jdbc.update("delete from orders where id > " + TEMPORARY);
+        }
+    }
+
+    /**
+     * The "claim the next job" recipe through the repository (AC-WRT-47): in one transaction, a locked read of the
+     * next pending orders' keys, then a {@code whereKeys} claim read back by {@code updateReturning}, or by
+     * {@code update} then {@code findAllByKeys} where the database returns no rows of a write. The concurrent case is
+     * {@code RowLockExecutionTest}'s.
+     */
+    @TckTest
+    void ac_wrt_47_the_claim_recipe_runs_through_the_repository_in_one_transaction(TckDatabase db) {
+        Assumptions.assumeTrue(VendorLocks.rendered(db).contains(RowLock.exclusive(RowLock.Wait.SKIP_LOCKED)),
+                "the provider drops SKIP LOCKED here: MQ4010, which RowLockExecutionTest covers");
+        DataSource dataSource = JoinTestSupport.dataSource(db);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        boolean returnsRows = VendorReturning.returnsRows(db);
+        try {
+            for (long id = TEMPORARY + 1; id <= TEMPORARY + 3; id++) {
+                jdbc.update("insert into orders (id, customer_id, status, total, placed_at) "
+                        + "values (?, 1, 'PENDING', 0, ?)", id, Timestamp.valueOf("2020-01-01 00:00:00"));
+            }
+            List<OrderLines> claimed = withRepository(dataSource, DefaultTransactions.class, (orders, context) ->
+                    new TransactionTemplate(context.getBean(TRANSACTIONS, PlatformTransactionManager.class))
+                            .execute(status -> {
+                                List<Long> ids = orders.findAll(NEXT_PENDING, Limit.of(2)).stream()
+                                        .map(OrderLines::id).toList();
+                                var claim = ModelUpdate.builder(QOrderLines.ROOT).primaryKey(QOrderLines.KEY)
+                                        .set(QOrderLines.STATUS, "CLAIMED").whereKeys(ids).build();
+                                var claimedRows = QOrderLines.query().select(QOrderLines.ALL).build();
+                                if (returnsRows) {
+                                    return orders.updateReturning(claim, claimedRows);
+                                }
+                                orders.update(claim);
+                                Map<Long, OrderLines> byId = orders.findAllByKeys(claimedRows, ids);
+                                return List.copyOf(byId.values());
+                            }));
+            assertThat(claimed).extracting(OrderLines::id).containsExactlyInAnyOrder(TEMPORARY + 1, TEMPORARY + 2);
+            assertThat(claimed).extracting(OrderLines::status).containsOnly("CLAIMED");
+            assertThat(statuses(jdbc)).containsExactly("CLAIMED", "CLAIMED", "PENDING");
+        } finally {
+            jdbc.update("delete from orders where id > " + TEMPORARY);
+        }
+    }
+
+    @TckTest
     void ac_spr_09_a_commit_each_chunk_update_opens_no_transaction_and_commits_through_the_callback(
             TckDatabase db) {
         DataSource dataSource = JoinTestSupport.dataSource(db);
@@ -336,6 +427,39 @@ class ModelQueryRepositoryTest {
                     .containsExactly("a", "b", "c", "d", "e");
             assertThat(jdbc.queryForObject("select code from ins_persist where id = ?", String.class, key))
                     .isEqualTo("p");
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+        }
+    }
+
+    @TckTest
+    void ac_spr_09_insert_returning_commits_through_the_repository_without_a_transaction(TckDatabase db) {
+        DataSource dataSource = JoinTestSupport.dataSource(db);
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        var code = ColumnField.of(Coded.class, UUIDS, "code", String.class);
+        var name = ColumnField.of(Coded.class, UUIDS, "name", String.class);
+        var codedRows = ModelQuery.builder(UUIDS, row -> new Coded(row.get(code), row.get(name)))
+                .select(SelectSet.of(code, name)).build();
+        boolean returnsRows = VendorReturning.returnsRows(db);
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.registerBean("dataSource", DataSource.class, () -> dataSource);
+            context.register(InsertTransactions.class);
+            context.refresh();
+            var uuids = context.getBean(InsUuidRepository.class);
+            var insert = ValuesInsert.builder(CODED_UUIDS, UUID.class,
+                    List.of(new Coded("r", "R"), new Coded("s", "S"))).build();
+            if (!returnsRows) {
+                // MySQL has no returning shape: the executor's MQ4011 reaches the caller and no row is written.
+                assertThatThrownBy(() -> uuids.insertReturning(insert, codedRows))
+                        .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ4011));
+                assertThat(jdbc.queryForList("select code from ins_uuid", String.class)).isEmpty();
+                return;
+            }
+            assertThat(uuids.insertReturning(insert, codedRows))
+                    .containsExactlyInAnyOrder(new Coded("r", "R"), new Coded("s", "S"));
+            // Committed: read over a connection of its own.
+            assertThat(jdbc.queryForList("select code from ins_uuid order by code", String.class))
+                    .containsExactly("r", "s");
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
         }
     }

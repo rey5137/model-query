@@ -473,12 +473,12 @@ with M17, M18 and M20–M22.
 
 ## 21. M20 — Returning writes and conflict extensions
 
-Spec: RFC 0010, D-129, `api/14` (new R-WRT-50 returning writes, R-WRT-51 conflict `setExpression`, R-WRT-52 arbiter
-predicate and `onConstraint`; R-WRT-34 amended; R-WRT-48's `MQ1809` widened), `api/10` (new R-COL-28
-`Expr.nextval`), `engine/20` (the returning branch at the statement seam), `vendor/40` (new R-VND-17), `vendor/41`
-(the Tier-1 returning and conflict table), `reference/90` (new `MQ4011`, `MQ1509`; `MQ1804`, `MQ1809` widened),
-`integration/50`, `delivery/61`. Each slice writes its rules, `AC-*` rows and `MQ` codes into the owning spec file
-first, then builds; new rows are AC-WRT-42..45, AC-COL-33 and AC-VND-14. Tier 1 only; MariaDB stays Tier 2. Model:
+Spec: RFC 0010, D-129 (amended by D-130 and D-131), `api/14` (new R-WRT-50 returning writes, R-WRT-51 conflict
+`setExpression`, R-WRT-52 arbiter predicate and `onConstraint`; R-WRT-34 amended; R-WRT-48's `MQ1809` widened), `api/10`
+(new R-COL-28 `Expr.nextval`), `engine/20` (the returning branch at the statement seam), `vendor/40` (new R-VND-17),
+`vendor/41` (the Tier-1 returning and conflict table), `reference/90` (new `MQ4011`, `MQ1509`; `MQ1804`, `MQ1809`
+widened), `integration/50`, `delivery/61`. Each slice writes its rules, `AC-*` rows and `MQ` codes into the owning spec
+file first, then builds; new rows are AC-WRT-42..47, AC-COL-33 and AC-VND-14. Tier 1 only; MariaDB stays Tier 2. Model:
 the design was reviewed by `architect-review` before D-129; none at a slice. Everything new is `@Incubating`. Ships in
 0.9.0 with M17–M19, M21 and M22.
 
@@ -487,6 +487,7 @@ the design was reviewed by `architect-review` before D-129; none at a slice. Eve
 | M20.1 | Spike, then update and delete returning: the per-line Hibernate adapters (`Hibernate6Mutations`, `Hibernate7Mutations`) chosen by probing, with the declared tested range and its `WARN`; translation with Hibernate's binders, `StatementInspector` and query-space invalidation; multi-table refusal; H2 `FINAL TABLE`/`OLD TABLE`; the first-use SQL check; the ArchUnit rule confining `org.hibernate..internal..`; `ProviderSupport#returning()`, `ReturningSupport`, `VendorProfile#returning(WriteStatement)`; `updateReturning`/`deleteReturning` on the executor; `MQ1809` widened; `MQ4011`; the non-blocking nightly canary job (newest 7.x and next snapshot); R-WRT-50, R-VND-17 | spike snapshots match RFC 0010 §1's table on both Hibernate lines, or the slice stops and the RFC is amended before M20.2; `jpa` and `hibernate` unit tests and the TCK group green on Tier 1 for AC-WRT-42 and AC-VND-14; `JapicmpExclusionsTest` green |
 | M20.2 | `insertReturning` (plain and upsert, including H2 over `MERGE`); `ConflictUpdate.setExpression` with `ConflictExpression`; the counter-upsert TCK case on PostgreSQL and H2; R-WRT-51 (MariaDB rows wait for its profile, D-81) | TCK green on Tier 1 for AC-WRT-43 and AC-WRT-44; SQL snapshots show `… RETURNING next_value` on PostgreSQL |
 | M20.3 | `onConstraint(name)` (stage without `where`) and the arbiter predicate `onConflict(cols).where(…)` rendered with literals through the translated-SQL path; R-WRT-34 amended; `MQ1804` widened; R-WRT-52 | TCK green on PostgreSQL for AC-WRT-45 against a partial unique index; refusals on H2 and MySQL; snapshot shows `on conflict (sku) where status<>'CLOSED'` |
-| M20.4 | `Expr.nextval` (profile fact `sequences()`, provider renderer through a `JoinContext` hook, `MQ1509`); repository returning writes (`integration/50`); docs: returning writes, conflict extensions and `nextval` in `queries.md`/recipes, a "claim the next job" recipe for PostgreSQL (`updateReturning`) and MySQL (locked read, `whereKeys`, `byKeys`), stability page lists the D-129 incubating members, `delivery/61`, `[Unreleased]` CHANGELOG entry. Both tabs (CC-DOC-01); R-COL-28 | AC-COL-33 green on Tier 1; `spring` tests green; `mkdocs build --strict` green; every snippet traceable to a green test |
+| M20.4 | `Expr.nextval` in a select only (profile fact `sequences()`, provider renderer through a `JoinContext` hook, `MQ1509`; write positions are M20.5, D-130); repository returning writes (`integration/50`); docs: returning writes, conflict extensions and `nextval` in `queries.md`/recipes, a "claim the next job" recipe (D-131): a locked key read, then `updateReturning` over `whereKeys` on PostgreSQL and H2 7.x, or `update` then `byKeys` on MySQL, in one transaction, stability page lists the D-129 incubating members, `delivery/61`, `[Unreleased]` CHANGELOG entry. Both tabs (CC-DOC-01); R-COL-28, AC-WRT-47 | AC-COL-33 green on Tier 1; AC-WRT-47 green on Tier 1 (two concurrent workers claim disjoint rows; H2 on 6.6 `MQ4010`); `spring` tests green; `mkdocs build --strict` green; every snippet traceable to a green test |
+| M20.5 | `setExpression(column, ExpressionField)` at the update, conflict, insert-values and insert-select sites (D-130), restricted to column-free bind-free expressions (new `MQ1613`); per-row `InsertSupport.insertValues` default with computed factories; MQ1509 before any statement on a write; spike first: `HibernateCriteriaBuilder.sql` inside DML `VALUES`/`SET` on 6.6 and 7.4 and H2 `FINAL TABLE` over `MERGE` with `NEXT VALUE FOR`; R-WRT-53; LitePOS row 8 counter upsert with a sequence value | AC-WRT-46 green on Tier 1 on both Hibernate lines; refusals for MQ1509/MQ1613/MQ1609/MQ1610/MQ1802/MQ1804/MQ1809 tested; MySQL MQ1509 with zero statements executed |
 
 **Exit:** the M20 rows' criteria green on Tier 1 and nothing new frozen.

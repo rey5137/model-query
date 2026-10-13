@@ -4,11 +4,12 @@ import java.util.List;
 
 /** The Tier-1 database vendors (spec vendor/41 §1). */
 public enum TckVendor {
-    H2("H2", "", "VARCHAR_IGNORECASE(150)", "VARBINARY(64)", "TIMESTAMP(6)", "VARCHAR(200)", List.of()),
+    H2("H2", "", "VARCHAR_IGNORECASE(150)", "VARBINARY(64)", "TIMESTAMP(6)", "VARCHAR(200)",
+            List.of("CREATE SEQUENCE tck_seq")),
     POSTGRESQL("PostgreSQL", "COLLATE \"C\"", "VARCHAR(150) COLLATE tck_case_insensitive", "BYTEA", "TIMESTAMP(6)",
             "JSONB",
             List.of("CREATE COLLATION tck_case_insensitive (provider = icu, locale = 'und-u-ks-level2', "
-                    + "deterministic = false)")),
+                    + "deterministic = false)", "CREATE SEQUENCE tck_seq")),
     MYSQL("MySQL", "COLLATE utf8mb4_bin", "VARCHAR(150) COLLATE utf8mb4_general_ci", "VARBINARY(64)",
             "DATETIME(6)", "VARCHAR(200)", List.of());
 
@@ -63,7 +64,10 @@ public enum TckVendor {
         return jsonbType;
     }
 
-    /** Statements the schema needs first, such as PostgreSQL's case-insensitive collation. */
+    /**
+     * Statements the schema needs first, such as PostgreSQL's case-insensitive collation and, on the vendors with
+     * sequences, {@code tck_seq} (TCK AC-COL-33).
+     */
     List<String> setup() {
         return setup;
     }

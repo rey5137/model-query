@@ -25,6 +25,9 @@ public interface ModelQueryRepository<E> {
     long update(ModelUpdate<E, ?> u);                // Future (M6), transactional per R-SPR-10
     long delete(ModelDelete<E, ?> d);                // Future (M6), transactional per R-SPR-10
     long insert(ModelInsert<E, ?> i);                // M10, transactional per R-SPR-10
+    <R> List<R> updateReturning(ModelUpdate<E, ?> u, ModelQuery<E, ?, R> returning);   // M20, per R-SPR-10
+    <R> List<R> deleteReturning(ModelDelete<E, ?> d, ModelQuery<E, ?, R> returning);   // M20, per R-SPR-10
+    <R> List<R> insertReturning(ModelInsert<E, ?> i, ModelQuery<E, ?, R> returning);   // M20, per R-SPR-10
     <K> List<K> insertReturningKeys(ValuesInsert<E, K, ?> i);   // M10, transactional per R-SPR-10
     <K> K persist(ModelPersist<E, K, ?> p);          // M10, transactional per R-SPR-10
     <R> R persist(ModelPersist<E, ?, ?> persist, ModelQuery<E, ?, R> returning);   // M11, transactional per R-SPR-10
@@ -63,7 +66,9 @@ streaming (`vendor/41` R-PRF-03), and joins an active one. The transaction ends 
 runs inside it. It comes from the transaction manager of the repository's own `@EnableJpaRepositories` (D-54).
 
 **R-SPR-10** `update(...)`, `delete(...)` (`Future`, M6), `insert(...)`, `insertReturningKeys(...)` and `persist(...)`
-(M10; `persist(persist, returning)` M11) join the current transaction or open one, like the modifying methods of `SimpleJpaRepository`, except for a
+(M10; `updateReturning`, `deleteReturning` and `insertReturning` M20, always in one transaction, since a returning write
+refuses `commitEachChunk()` with `MQ1809`, `api/14` R-WRT-50; `persist(persist, returning)` M11) join the current
+transaction or open one, like the modifying methods of `SimpleJpaRepository`, except for a
 `commitEachChunk()` write, which opens none, because each chunk commits on its own (`api/14` R-WRT-19). Because that
 depends on the argument, the methods are not annotated `@Transactional`; they use a `TransactionTemplate`
 (`PROPAGATION_REQUIRED`) unless the write is `commitEachChunk()`. `insertReturningKeys` and both `persist` overloads always run in one,
@@ -182,7 +187,7 @@ configurer that sets either keeps the shared entries only by passing them along.
 | AC-SPR-11 | A `ModelQueryConfig` bean of the application with a `modelquery.*` property set, or without a `VendorProfile` bean among its profiles or a `WriteAssignment` bean among its assignments, fails startup with `MQ4006`; one holding every profile and assignment bean starts (R-SPR-13). |
 | AC-SPR-13 | A post-processor that type-checks the repositories before the swap leaves them built with `ModelQueryRepositoryFactoryBean`: the context starts and `findPage` works; a `RootBeanDefinition` keeps its `targetType`, now over `ModelQueryRepositoryFactoryBean` with the old generics (R-SPR-02, D-83). |
 | AC-SPR-12 | A repository declaring `ModelQueryRepository` of an entity other than its domain type fails startup with `MQ4007` (R-SPR-12). |
-| AC-SPR-09 | (`Future`, M6) `update`/`delete`, `insert`, `insertReturningKeys` and `persist` (M10), and `persist(persist, returning)` (M11), without an ambient transaction succeed through the repository, the inserted rows committed; `commitEachChunk` commits each chunk separately on the primary and on a secondary datasource of the multi-datasource sample, and a failed third chunk leaves the first two committed (R-SPR-10, R-SPR-11). `findOne`, `findFirst` and `findByKey` (M14) and `findAllByKeys` (M15) without an ambient transaction return the executor's row, empty or map through the repository, and `findOne` over two rows throws the executor's `MQ2003` (R-SPR-15). |
+| AC-SPR-09 | (`Future`, M6) `update`/`delete`, `insert`, `insertReturningKeys` and `persist` (M10), `updateReturning`, `deleteReturning` and `insertReturning` (M20) and `persist(persist, returning)` (M11), without an ambient transaction succeed through the repository, the inserted rows committed; `commitEachChunk` commits each chunk separately on the primary and on a secondary datasource of the multi-datasource sample, and a failed third chunk leaves the first two committed (R-SPR-10, R-SPR-11). `findOne`, `findFirst` and `findByKey` (M14) and `findAllByKeys` (M15) without an ambient transaction return the executor's row, empty or map through the repository, and `findOne` over two rows throws the executor's `MQ2003` (R-SPR-15). |
 | AC-SPR-14 | `findKeysetPage(q, KeysetSpec, Sort)` returns the same rows as the executor; a sorted `Sort` changes the fingerprint (R-SPR-14). |
 | AC-SPR-15 | A context whose `@EnableJpaRepositories` names a factory bean class extending `ModelQueryRepositoryFactoryBean` and a `repositoryBaseClass`: the context starts, both repositories are built with that factory bean, the base class's own method works on both, `findPage` and `findAll` work on the repository extending `ModelQueryRepository`, and the other stays a plain repository without the fragment (R-SPR-02, R-SPR-12, D-50, D-83). |
 | AC-SPR-16 | A context naming a `JpaRepositoryFactoryBean` subclass that does not extend `ModelQueryRepositoryFactoryBean`, plus a `repositoryBaseClass`: it starts; both repositories are built by that class (its override is observed); the base class's method works on both; `findPage` and `findAll` work on the `ModelQueryRepository` one; the other has no fragment; a repository type-checked before the post-processor still gets the fragment (R-SPR-02, D-83, D-113). |

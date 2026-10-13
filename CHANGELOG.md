@@ -43,6 +43,27 @@ Nothing is frozen yet: every public type stays `@Incubating`. The additions belo
     `Optional`, a `Collection` or a `Map` value is `MQ1502`.
   - The new code `MQ1508`; `MQ1502` gained a case. R-FLT-09's statement check counts an `Expr.value` expression's
     binds, as it counts a filter's. Every change is additive and `@Incubating`.
+- Returning writes and conflict extensions (D-129, RFC 0010), described in "Returning the changed rows", "Conflict
+  clauses", "Sequence values" and the "Claim the next job" and "Number rows from a sequence" recipes:
+  - `updateReturning`, `deleteReturning` and `insertReturning` on `ModelQueryExecutor` and `ModelQueryRepository` run a
+    write and return the changed or written rows as the models of a `ModelQuery`, in one statement: H2 through
+    `FINAL TABLE` and `OLD TABLE`, PostgreSQL through `RETURNING`; MySQL is `MQ4011`. `MQ1809` covers the new refusals
+    (a column on another table, `throughEntities()`, `commitEachChunk()`). The Hibernate mutation translation sits
+    behind one adapter per line, chosen by probe, with a `WARN` outside its tested range; the SPI is
+    `ReturningSupport`, `ReturningShape` and `WriteStatement`, with `ProviderSupport#returning()`.
+  - `ConflictUpdate#setExpression(column, ConflictExpression)` computes a conflict assignment from the stored and the
+    incoming row; `ValuesInsert#onConstraint(name)` and an arbiter `where` on `onConflict(columns)` name a constraint or
+    a partial unique index (PostgreSQL only, `MQ1804` elsewhere); `MQ1601` for an arbiter that every filter skipped.
+  - `Expr.nextval(sequence)` reads a sequence's next value as a `Long` select column through
+    `ProviderSupport#sequences(EntityManagerFactory)`, behind the profile fact `VendorProfile#sequences()` (true on H2
+    and PostgreSQL). It is a select expression only for now; a sequence value in a write comes later (D-130). The new
+    code `MQ1509` refuses it in a filter, a `having`, an order or a group key, on a name that is not an identifier, and
+    on MySQL, before any statement. New `VendorProfile` facts: `conflictOnConstraint()`, `conflictArbiterPredicate()`
+    and `sequences()`.
+  - The "Claim the next job" recipe claims rows with a locked key read, then `updateReturning` over `whereKeys`, or
+    `update` and `byKeys` on MySQL, in one transaction; two concurrent workers claim disjoint rows (AC-WRT-47). No
+    locked sub-select write is offered (D-131).
+  - Every change is additive and `@Incubating`.
 
 ### Changed
 - `MQ1502` now also refuses an `Optional`, a `Collection` and a `Map` value from every `Expr` factory, including the

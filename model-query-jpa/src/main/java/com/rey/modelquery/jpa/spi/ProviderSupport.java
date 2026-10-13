@@ -4,6 +4,7 @@ import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ConstantRenderer;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
+import com.rey.modelquery.core.SequenceRenderer;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -116,6 +117,14 @@ public interface ProviderSupport {
      * {@link #locks()} (R-WRT-50, R-VND-17).
      */
     default Optional<ReturningSupport> returning() {
+        return Optional.empty();
+    }
+
+    /**
+     * The provider's renderer of a sequence's next value, in the dialect {@code emf} uses, or empty, the default,
+     * when it has none: {@code Expr.nextval} then throws {@code MQ1509} (R-VND-18, R-COL-28).
+     */
+    default Optional<SequenceRenderer> sequences(EntityManagerFactory emf) {
         return Optional.empty();
     }
 }

@@ -1,6 +1,7 @@
 # RFC 0010 — Returning writes and conflict extensions
 
-- **Status:** accepted (after the 2026-10-13 `architect-review` design study; recorded as D-129)
+- **Status:** accepted (after the 2026-10-13 `architect-review` design study; recorded as D-129; amended by D-130
+  and D-131)
 - **Affects:** `api/14` (new R-WRT-50 returning writes, R-WRT-51 conflict `setExpression`, R-WRT-52 arbiter
   predicate and `onConstraint`; R-WRT-34 amended; R-WRT-48's `MQ1809` widened; AC-WRT-07 gains a returning variant);
   `api/10` (new R-COL-28 `Expr.nextval`); `engine/20` (the returning branch at the statement seam); `vendor/40` (new
@@ -51,7 +52,10 @@ memory; nothing returns from a set-based write.
   zero rows still throws `OptimisticLockException` (R-WRT-16). An upsert returns inserted and updated rows, not
   skipped ones (`DO NOTHING`).
 - A returning write takes no lock and needs no paging rule. The claim-a-job pattern stays a locked read (M18) followed
-  by a `whereKeys` write, or, where the vendor supports it, one `updateReturning` over a `whereKeys` sub-select.
+  by a `whereKeys` write, read back by `updateReturning` where the vendor returns rows, else by `byKeys` (AC-WRT-47).
+  No locked sub-select write is offered (D-131): a Criteria subquery carries no lock, PostgreSQL's
+  `IN (SELECT … LIMIT n FOR UPDATE SKIP LOCKED)` can over-claim, MySQL refuses it, and chunking would release or
+  re-run the lock. A single-statement PostgreSQL claim is Q-16.
 
 **Rendering.** Every write already ends at one seam, `execute(Query, int)` in `DefaultModelQueryExecutor`, holding the
 statement with its parameters bound (M19 `Expr.value` included), the timeout set, and write assignments, version
@@ -130,10 +134,18 @@ static <M> ExpressionField<M, Long> nextval(String sequence);
 Not a `VendorProfile.sequenceNextValue(…)` rendering method (the plan's sketch): a profile renders no SQL (R-VND-11).
 Instead a profile fact `sequences()` (false on MySQL) plus a provider renderer reached through a `JoinContext` hook, as
 D-128 did for constants; the Hibernate one renders `dialect.getSequenceSupport().getSelectSequenceNextValString(seq)`
-through `HibernateCriteriaBuilder.sql`. Usable in a select, an update assignment, an insert value and a conflict
-assignment; refused in a filter, order or group, for a name that is not an identifier, and on a vendor or provider
-without sequences (new **`MQ1509`**). The Javadoc states that a value is consumed even when a conflict skips the row,
-and twice by `one(q)`'s `LIMIT 2`.
+through `HibernateCriteriaBuilder.sql`; the capability is `ProviderSupport#sequences(EntityManagerFactory)`, which
+takes the factory as `constants(emf)` does, since the call is spelled in that factory's dialect. Usable in a select;
+refused in a filter, `having`, order or group, for a name that is not an identifier, and on a vendor or provider
+without sequences (new **`MQ1509`**). The Javadoc states that a value is consumed twice by `one(q)`'s `LIMIT 2` when
+two rows match.
+
+> **Amended (D-130).** M20.4 ships `nextval` in a select only. The write positions (an update assignment, a conflict
+> assignment, an insert value and an insert-select column) come in M20.5 through
+> `setExpression(column, ExpressionField)`, restricted to column-free, bind-free expressions (`MQ1613`), rendered in
+> the provider's Criteria statement; an insert's values through a per-row expression factory in `InsertSupport`. The
+> existing update and conflict hooks take a `CriteriaBuilder` expression, which an `ExpressionField` cannot be passed
+> to. There, a value is consumed even when a conflict skips the row.
 
 ### New ids
 
@@ -141,6 +153,8 @@ R-WRT-50, R-WRT-51, R-WRT-52, R-COL-28, R-VND-17; AC-WRT-42 (update/delete retur
 AC-WRT-43 (insert and counter upsert returning), AC-WRT-44 (conflict `setExpression`), AC-WRT-45 (arbiter predicate
 and `onConstraint`), AC-COL-33 (`nextval`), AC-VND-14 (`ReturningSupport.rendered` per dialect and Hibernate line);
 `MQ4011`, `MQ1509`.
+Added by the amendments: AC-WRT-47 (the claim pattern, D-131); R-WRT-53, AC-WRT-46 and `MQ1613` (write expressions,
+D-130, M20.5).
 
 ## Compatibility
 
@@ -190,5 +204,7 @@ the feature stays `@Incubating` until then.
   `StatementInspector`, query-space invalidation, multi-table detection), and confirms H2's delta-table forms
   (including over `MERGE`). If a snapshot disagrees with §1's table, the slice stops and the RFC is amended.
 - Q-15 (not blocking): whether an explicit opt-in MySQL emulation is ever wanted.
+- Q-16 (not blocking): a single-statement claim on PostgreSQL (a CTE that locks then updates), and a typed
+  `nextval(String, Class<C>)`.
 - Decided at acceptance: `Expr.nextval` stays in M20 (LitePOS row 8 needs it with the counter upsert), and
   `onConstraint` amends R-WRT-34.

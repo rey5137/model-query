@@ -151,6 +151,9 @@ public enum MqCode {
     /** A column-typed constant cannot be rendered as a literal (R-COL-27). */
     MQ1508("A column-typed constant cannot be rendered as a literal"),
 
+    /** A sequence value cannot be read: a bad name, a filter, having, order or group key, no sequences (R-COL-28). */
+    MQ1509("A sequence value cannot be read here"),
+
     /** A bulk write chose its rows with {@code where(...)} and no predicate is left (R-WRT-12). */
     MQ1601("A bulk write's where(...) left no predicate; all() is the only way to write every row"),
 

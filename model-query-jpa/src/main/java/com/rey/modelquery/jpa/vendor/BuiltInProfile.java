@@ -43,6 +43,11 @@ enum BuiltInProfile implements VendorProfile {
         }
 
         @Override
+        public boolean sequences() {
+            return true;
+        }
+
+        @Override
         public Optional<ReturningShape> returning(WriteStatement kind) {
             return Optional.of(ReturningShape.DELTA_TABLE);
         }
@@ -77,6 +82,11 @@ enum BuiltInProfile implements VendorProfile {
         @Override
         public boolean conflictWhereSeesEarlierAssignments() {
             return false;
+        }
+
+        @Override
+        public boolean sequences() {
+            return true;
         }
 
         @Override

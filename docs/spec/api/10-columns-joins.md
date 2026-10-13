@@ -388,6 +388,31 @@ the planner must see as a literal (a partial index's predicate, a selective enum
 - `typedBy` is a type witness only: it is part of the expression's equality (R-COL-20), contributes no column to
   `columns()` and adds no join.
 
+**R-COL-28** *(D-129, D-130)* **A sequence value.** `Expr.nextval` reads a database sequence's next value:
+
+```java
+@Incubating public static <M> ExpressionField<M, Long> nextval(String sequence);
+```
+
+- It is a select expression only, a model column or projection of a read, `Expr.value`'s sibling: typed `Long`, reads
+  no column and adds no join. The provider renders the dialect's own sequence call (`nextval('s')` on PostgreSQL,
+  `next value for s` on H2) through an optional `ProviderSupport` capability (`vendor/40` R-VND-18) that `core` reaches
+  through a `JoinContext` hook, so `core` names no provider (INV-7); the profile states only whether the vendor has
+  sequences (`sequences()`, R-VND-11).
+- No write takes it yet: an update assignment, a conflict assignment, an insert value and an insert-select column come
+  in M20.5 through `setExpression(column, ExpressionField)` (D-130; `api/14` R-WRT-53 is written with M20.5). The update
+  and conflict assignment hooks take a `CriteriaBuilder` expression, which cannot be handed an `ExpressionField`.
+- `sequence` is a plain SQL identifier, optionally schema-qualified (`a.b`); any other text is `MQ1509` at definition,
+  so no text reaches SQL that is not an identifier.
+- A vendor whose profile's `sequences()` is false (MySQL), and a provider without the capability, are `MQ1509` at first
+  resolution, before any statement, with a message naming both causes (the profile fact and the provider capability).
+- It is refused with `MQ1509` as the operand of a filter (a CASE condition included), a `having`, an order or a group
+  key, at any depth of an expression, and also when the select rendered the same expression first: a sequence advances
+  on each evaluation, so a condition or key over it would not be stable.
+- Every evaluation consumes a value: `one(q)`, which reads with `LIMIT 2`, consumes a second value when a second row
+  matches, and a re-run of a query consumes new ones.
+- Equality is by sequence name (R-COL-20).
+
 ## 7. Acceptance criteria
 
 | ID | Criterion |
@@ -424,3 +449,4 @@ the planner must see as a literal (a partial index's predicate, a selective enum
 | AC-COL-30 | `Expr.function` with an `Expr.constant` argument is selected and grouped on every Tier-1 vendor — PostgreSQL and H2 `date_trunc('day', col)`, MySQL `date_format(col, '%Y-%m-%d')` — and on PostgreSQL only `timezone('UTC', timezone('Asia/Ho_Chi_Minh', col))` reads a Ho Chi Minh local time as UTC, 7 hours earlier, whatever the JVM zone (R-COL-18). |
 | AC-COL-31 | On every Tier-1 vendor an `Expr.value` argument binds — the snapshot shows `?` where a constant would be text — on each statement path: list, count, offset page, primary-key-first (both steps), keyset, grouped and offset export, `exists` and sub-select bodies, CASE conditions, bulk update and bulk delete, `one`, `one(key)` and `byKeys`, `throughEntities` writes, insert-from-select, and a bulk update or delete with a joined `where`; an `Expr.value` in a model column (projection) and in an order, for `count`, offset `page`, `one`, `byKeys` and primary-key-first. PostgreSQL groups by `timezone(?, created_at)` and filters by `jsonb_exists(tags, ?)`. A `null`, `Optional`, `Collection` or `Map` value is `MQ1502` (R-COL-26, R-COL-18, R-COL-19). |
 | AC-COL-32 | On every Tier-1 vendor, `Expr.constant(typedBy, value)` filters and compares through a `@Enumerated(STRING)` enum, an `@Enumerated(ORDINAL)` enum, an `AttributeConverter` attribute (stored codes), a native-enum JDBC type mapping and a column with a `ColumnConverter`, inlining each as its stored literal; the witness is equal by `equals` but adds no column and no join; a null value is `MQ1502`, a value its converter refuses `MQ1308`, a stored value that is not a `String`, `Number` or `Boolean`, a provider without the capability, and a column-typed constant used outside a comparison or `in` operand `MQ1508` (R-COL-27, R-COL-14, R-COL-20). |
+| AC-COL-33 | On H2 and PostgreSQL, `Expr.nextval("seq")` selected over a table's rows returns a distinct value per row and a second query continues the sequence above the first's values; the snapshot shows the dialect's own call. A sequence name that is not an identifier (`a b`, `a;b`, `a.b.c`) is `MQ1509` at definition; a `nextval` in a filter, a `having` (inside an aggregate), an order or a group key is `MQ1509` with no statement run, also when the select renders the same expression first; on MySQL it is `MQ1509` at first resolution with no statement run (R-COL-28, R-VND-18). |
