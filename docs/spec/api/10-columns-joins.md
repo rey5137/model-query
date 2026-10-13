@@ -394,18 +394,20 @@ the planner must see as a literal (a partial index's predicate, a selective enum
 @Incubating public static <M> ExpressionField<M, Long> nextval(String sequence);
 ```
 
-- It is a select expression only, a model column or projection of a read, `Expr.value`'s sibling: typed `Long`, reads
-  no column and adds no join. The provider renders the dialect's own sequence call (`nextval('s')` on PostgreSQL,
+- It is a model column or projection of a read, `Expr.value`'s sibling, and the value a write writes: typed `Long`,
+  reads no column and adds no join. The provider renders the dialect's own sequence call (`nextval('s')` on PostgreSQL,
   `next value for s` on H2) through an optional `ProviderSupport` capability (`vendor/40` R-VND-18) that `core` reaches
   through a `JoinContext` hook, so `core` names no provider (INV-7); the profile states only whether the vendor has
   sequences (`sequences()`, R-VND-11).
-- No write takes it yet: an update assignment, a conflict assignment, an insert value and an insert-select column come
-  in M20.5 through `setExpression(column, ExpressionField)` (D-130; `api/14` R-WRT-53 is written with M20.5). The update
-  and conflict assignment hooks take a `CriteriaBuilder` expression, which cannot be handed an `ExpressionField`.
+- A write takes it through `setExpression(column, ExpressionField)` at four sites, an update assignment, a conflict
+  assignment, an insert-values value and an insert-select column (`api/14` R-WRT-53, D-130), each evaluated once per
+  written row. The update and conflict hooks that take a `CriteriaBuilder` expression cannot be handed an
+  `ExpressionField`, so it is a separate overload.
 - `sequence` is a plain SQL identifier, optionally schema-qualified (`a.b`); any other text is `MQ1509` at definition,
   so no text reaches SQL that is not an identifier.
 - A vendor whose profile's `sequences()` is false (MySQL), and a provider without the capability, are `MQ1509` at first
-  resolution, before any statement, with a message naming both causes (the profile fact and the provider capability).
+  resolution, before any statement, with a message naming both causes (the profile fact and the provider capability);
+  on a write, before the flush, a chunk's key select or any statement.
 - It is refused with `MQ1509` as the operand of a filter (a CASE condition included), a `having`, an order or a group
   key, at any depth of an expression, and also when the select rendered the same expression first: a sequence advances
   on each evaluation, so a condition or key over it would not be stable.

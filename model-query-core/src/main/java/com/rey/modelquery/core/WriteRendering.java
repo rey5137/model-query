@@ -13,6 +13,7 @@ import jakarta.persistence.metamodel.EntityType;
 import jakarta.persistence.metamodel.SingularAttribute;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -271,6 +272,24 @@ final class WriteRendering {
             throw new ModelQueryDefinitionException(MqCode.MQ1608, model + ": the primary key " + key.columns()
                     + " is not the id " + ids + " of " + entity.getJavaType().getSimpleName()
                     + "; a key that is not the id could write several rows per key");
+        }
+    }
+
+    /**
+     * Refuses a computed assignment of {@code assignments} that reads {@code Expr.nextval} where {@code options} render
+     * no sequence: before any statement of the write, rather than when its first statement renders (R-WRT-53, INV-5).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1509} naming the first such assignment's expression
+     */
+    static void checkSequences(Collection<? extends Assignment<?, ?>> assignments, RenderOptions options) {
+        if (options.sequenceRenderer().isPresent()) {
+            return;
+        }
+        for (Assignment<?, ?> assignment : assignments) {
+            if (assignment instanceof Assignment.Computed<?, ?> computed && computed.value().readsSequence()) {
+                throw ExpressionField.noSequences(assignment.column() + ": setExpression(..., "
+                        + computed.value().name() + ")");
+            }
         }
     }
 

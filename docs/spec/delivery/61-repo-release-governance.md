@@ -118,6 +118,14 @@ writes, `updateReturning`, `deleteReturning` and `insertReturning`, on `ModelQue
 `VendorProfile#returning(WriteStatement)`; and the `VendorProfile` facts `conflictOnConstraint()`,
 `conflictArbiterPredicate()` and `sequences()`. The `jpa.spi` capabilities are extension points of a provider and a
 vendor profile, not `@EngineFacing`.
+The write-expression members (D-130, 0.9.0) are `@Incubating` through 1.0: the `setExpression(column, ExpressionField)`
+overloads on `ModelUpdate.Builder`, `ConflictUpdate`, `ConflictUpdate.Assigned`, `ValuesInsert.Rows` and
+`ModelInsert.Mapping`, the `Assignment.Computed` permit, and `InsertSupport`'s six-argument `insertValues`. The new
+permit means an exhaustive `switch` over `Assignment` needs another case and already-compiled code meets a
+`MatchException`, which `@Incubating` allows and the changelog says. The `InsertSupport` method is a default, so an
+implementation written before it still compiles and refuses a computed value with `MQ1613` rather than dropping it
+(`vendor/40` R-VND-14).
+`ModelUpdate#checkSequences` and `ModelInsert#checkSequences` and `#computedValues` are `@EngineFacing`.
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from

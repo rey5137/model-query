@@ -17,7 +17,7 @@ import java.util.function.UnaryOperator;
  *
  * @param <E> the root entity
  * @param <M> the insert model
- * @implSpec R-WRT-34, D-117
+ * @implSpec R-WRT-34, R-WRT-53, D-117
  */
 @Incubating
 public final class ConflictUpdate<E, M> {
@@ -57,6 +57,19 @@ public final class ConflictUpdate<E, M> {
      */
     public <C> Assigned<E, M> setExpression(ColumnField<?, E, C> column, ConflictExpression<C> expression) {
         return new Assigned<E, M>(List.of(), List.of()).setExpression(column, expression);
+    }
+
+    /**
+     * Writes {@code value}, an expression reading no column and binding nothing (e.g. {@code Expr.nextval}), to
+     * {@code column} of each stored row the update writes, so a sequence advances only for rows the update writes. It
+     * renders with the other expression assignments, and a column with a converter throws {@code MQ1609} at
+     * {@code build()} (R-WRT-53).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1613} for an expression that reads a column or binds a parameter
+     */
+    @Incubating
+    public <C> Assigned<E, M> setExpression(ColumnField<?, E, C> column, ExpressionField<M, ? extends C> value) {
+        return new Assigned<E, M>(List.of(), List.of()).setExpression(column, value);
     }
 
     /**
@@ -139,6 +152,18 @@ public final class ConflictUpdate<E, M> {
         public <C> Assigned<E, M> setExpression(ColumnField<?, E, C> column, ConflictExpression<C> expression) {
             return assign(new Assignment.Conflict<>(Objects.requireNonNull(column, "column"),
                     Objects.requireNonNull(expression, "expression")));
+        }
+
+        /**
+         * Also writes {@code value}, an expression reading no column and binding nothing, as
+         * {@link ConflictUpdate#setExpression(ColumnField, ExpressionField)} does (R-WRT-53).
+         *
+         * @throws ModelQueryDefinitionException {@code MQ1613} for an expression that reads a column or binds a
+         *     parameter
+         */
+        @Incubating
+        public <C> Assigned<E, M> setExpression(ColumnField<?, E, C> column, ExpressionField<M, ? extends C> value) {
+            return assign(new Assignment.Computed<>(Objects.requireNonNull(column, "column"), value));
         }
 
         /**

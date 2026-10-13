@@ -106,6 +106,8 @@ List<Set<String>> uniqueKeys(EntityManagerFactory emf, Class<?> entity);
         Map<String, Object> constants);
 <E> Query insertValues(EntityManager em, Class<E> entity, List<String> attributes, List<List<Object>> rows,
         Optional<ConflictClause<E>> conflict);
+default <E> Query insertValues(EntityManager em, Class<E> entity, List<String> attributes, List<List<Object>> rows,
+        Map<String, Function<CriteriaBuilder, Expression<?>>> computed, Optional<ConflictClause<E>> conflict);
 ```
 
 `IdGeneration` is sealed: `Assigned`, `Identity`, `Sequence(boolean physical, int increment)`, `Table`, `Uuid` and
@@ -115,16 +117,21 @@ inheritance, a `@SecondaryTable`, a composite id with generated parts, `@MapsId`
 ConflictClause.Assignments assign)`, where `Assignments` takes `value(Path<?>, Object)`, a value the implementation
 binds as the path's type, and `expression(Path<?>, Expression<?>)`. `insertSelect` binds each of `constants`, the
 source select's named parameters written to the last attributes, as its attribute's type, as `insertValues` binds its
-values. `uniqueKeys` names the attribute sets the mapping declares unique, which a conflict clause's columns must equal
-one of (`MQ1804`). The engine holds the generator against `api/14` R-WRT-26's allowlist in
-`jpa`, on the definition's first execution (`MQ1805`, `MQ1802`, `MQ1807`), draws keys with `generateKeys` for a
-sequence, table or UUID generator, refuses `doNothing` where `doNothingRendered` is false (`MQ1804`), and counts
-`providerBindsPerRow` (the `@Version` seed) when it sizes a `VALUES` statement (R-WRT-29, D-80). It runs the returned
-`Query` itself, so the timeout applies as for an update or delete. A bulk insert on a factory with no `InsertSupport`
-throws `MQ4009` before the flush; `persist` needs none. `model-query-hibernate` ships one `InsertSupport`, compiled
-against Hibernate 6.6 and run on 7.x by the TCK: it reads the generator from the entity's persister, compares a
-generator class that moved between the two by name, and reports `doNothingRendered` true on 7 and on 6.x only for the
-PostgreSQL and MySQL dialect hierarchies (D-116).
+values. The six-argument `insertValues` (D-130) also writes, in each row after `attributes`, each of `computed`'s
+attributes the expression its factory returns: the implementation calls each factory once per row, so no Criteria node
+is shared between rows, and the expression binds nothing (`api/14` R-WRT-53). The default delegates to the five-argument
+form when `computed` is empty and otherwise throws `MQ1613` instead of building the statement, so an `InsertSupport`
+written before it refuses a computed value rather than dropping it; the engine, finding the default in place, refuses
+such an insert with `MQ1613` itself on each execution, before the flush. `uniqueKeys` names the attribute sets the
+mapping declares unique, which a conflict clause's columns must equal one of (`MQ1804`). The engine holds the generator
+against `api/14` R-WRT-26's allowlist in `jpa`, on the definition's first execution (`MQ1805`, `MQ1802`, `MQ1807`),
+draws keys with `generateKeys` for a sequence, table or UUID generator, refuses `doNothing` where `doNothingRendered` is
+false (`MQ1804`), and counts `providerBindsPerRow` (the `@Version` seed) when it sizes a `VALUES` statement (R-WRT-29,
+D-80). It runs the returned `Query` itself, so the timeout applies as for an update or delete. A bulk insert on a
+factory with no `InsertSupport` throws `MQ4009` before the flush; `persist` needs none. `model-query-hibernate` ships
+one `InsertSupport`, compiled against Hibernate 6.6 and run on 7.x by the TCK: it reads the generator from the entity's
+persister, compares a generator class that moved between the two by name, and reports `doNothingRendered` true on 7 and
+on 6.x only for the PostgreSQL and MySQL dialect hierarchies (D-116).
 
 `VendorProfile` gains six database facts (INV-6): `default int maxValuesRows()`, the most rows one multi-row
 `VALUES` insert may hold besides the bind limit, `1_000` by default (a lower limit is only slower); `default boolean

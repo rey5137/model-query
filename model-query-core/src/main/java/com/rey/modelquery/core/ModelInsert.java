@@ -106,14 +106,23 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
      * on the definition's first execution per {@code EntityManagerFactory}, before any statement (D-61).
      *
      * @throws ModelQueryDefinitionException {@code MQ1802} when the columns and constants write part of the root's
-     *     id; {@code MQ1801} for an insert-select {@code map} or {@code where} reading a column that is not on the
-     *     source root, or a {@code map} between attributes of different types; {@code MQ1804} for a conflict update
-     *     assigning an id or the {@code @Version} attribute, and {@code MQ1606} for a {@code @Version} of a type it
-     *     cannot increment, unless {@code keepVersion()} (R-WRT-26, R-WRT-27, R-WRT-34)
+     *     id, or a {@code setExpression} writes any of it; {@code MQ1801} for an insert-select {@code map} or
+     *     {@code where} reading a column that is not on the source root, or a {@code map} between attributes of
+     *     different types; {@code MQ1804} for a conflict update assigning an id or the {@code @Version} attribute,
+     *     and {@code MQ1606} for a {@code @Version} of a type it cannot increment, unless {@code keepVersion()}
+     *     (R-WRT-26, R-WRT-27, R-WRT-34, R-WRT-53)
      */
     @EngineFacing
     public void checkMetamodel(Metamodel metamodel) {
         EntityType<E> entity = metamodel.entity(rootEntity());
+        Set<String> ids = WriteRendering.idNames(entity);
+        for (Assignment<?, ?> computed : computed()) {
+            if (ids.contains(InsertMetamodel.head(computed.column().name()))) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1802, computed.column() + ": setExpression(...) "
+                        + "writes " + entity.getJavaType().getSimpleName() + "'s id, which an insert knows before its "
+                        + "statement (R-WRT-33); write it from the model or the generator instead");
+            }
+        }
         InsertMetamodel.writesId(entity, written(), toString());
         sourceEntity().ifPresent(source -> {
             InsertMetamodel.checkMappings(metamodel, entity, source, definition.mappings());
@@ -122,6 +131,23 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         InsertDraft.Conflict<E, M> conflict = definition.conflict();
         if (conflict != null && conflict.update() != null) {
             checkConflictUpdate(entity, conflict);
+        }
+    }
+
+    /**
+     * Refuses a {@code setExpression} reading {@code Expr.nextval}, among the insert's values or its conflict update's
+     * assignments, where {@code options} render no sequence; an executor calls it before the flush and any statement,
+     * so the insert runs nothing (R-WRT-53, INV-5).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1509} when one reads a sequence and {@code options} have no
+     *     sequence renderer
+     */
+    @EngineFacing
+    public void checkSequences(RenderOptions options) {
+        WriteRendering.checkSequences(definition.constants(), options);
+        ConflictUpdate.Action<E, M> update = conflictUpdate();
+        if (update != null) {
+            WriteRendering.checkSequences(update.assignments(), options);
         }
     }
 
@@ -171,29 +197,56 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
 
     /**
      * The attributes an insert-select writes, in the order {@link #buildSelect} selects their values: each column of
-     * the model's {@code InsertColumns}, then each {@code set} constant. A to-one attribute, which a column writes by
-     * id, is named with its target's id attribute below it ({@code customer.id}): the select copies an id, never an
-     * entity (R-WRT-27).
+     * the model's {@code InsertColumns}, then each {@code setExpression} value, then each {@code set} constant. A
+     * to-one attribute, which a column writes by id, is named with its target's id attribute below it
+     * ({@code customer.id}): the select copies an id, never an entity (R-WRT-27).
      *
      * @throws IllegalStateException for an insert-values
      */
     @EngineFacing
     public List<String> selectedAttributes(Metamodel metamodel) {
         requireSource();
-        return writtenPaths(metamodel);
+        return paths(metamodel, written());
     }
 
     /**
      * The attributes an insert-values writes, in the order of each row of {@link #valueRows}: each column of the
-     * model's {@code InsertColumns}, then each {@code set} constant. A to-one attribute is named with its target's id
-     * attribute below it ({@code customer.id}), so a row writes the id, as an insert-select does (R-WRT-30).
+     * model's {@code InsertColumns}, then each {@code set} constant; a {@code setExpression} value is not among them
+     * but in {@link #computedValues}. A to-one attribute is named with its target's id attribute below it
+     * ({@code customer.id}), so a row writes the id, as an insert-select does (R-WRT-30).
      *
      * @throws IllegalStateException for an insert-select
      */
     @EngineFacing
     public List<String> valueAttributes(Metamodel metamodel) {
         requireValues();
-        return writtenPaths(metamodel);
+        var names = new ArrayList<String>();
+        definition.columns().columns().forEach(column -> names.add(column.name()));
+        valueConstants().forEach(constant -> names.add(constant.column().name()));
+        return paths(metamodel, names);
+    }
+
+    /**
+     * The {@code setExpression} values of an insert-values, by the attribute each writes, named as in
+     * {@link #valueAttributes}, in the order set: each a factory of the expression, rendered against the given
+     * builder with {@code options}, which reads no column and binds nothing. The provider calls each once per row, so
+     * no Criteria node is shared between rows and a sequence gives each row its own value (R-WRT-53, R-VND-14).
+     *
+     * @throws IllegalStateException for an insert-select
+     */
+    @EngineFacing
+    public Map<String, Function<CriteriaBuilder, Expression<?>>> computedValues(Metamodel metamodel,
+            RenderOptions options) {
+        requireValues();
+        Objects.requireNonNull(options, "options");
+        EntityType<E> entity = metamodel.entity(rootEntity());
+        var values = new LinkedHashMap<String, Function<CriteriaBuilder, Expression<?>>>();
+        for (Assignment.Computed<?, ?> computed : computed()) {
+            ExpressionField<?, ?> value = computed.value();
+            values.put(InsertMetamodel.toOneIdPath(entity, computed.column().name()),
+                    cb -> value.expression(JoinContext.rootless(cb, options)));
+        }
+        return Collections.unmodifiableMap(values);
     }
 
     /**
@@ -234,8 +287,7 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         List<Object> values = constantValues;
         if (values == null) {
             var converted = new ArrayList<>();
-            for (Assignment<?, ?> constant : definition.constants()) {
-                Assignment.Value<?, ?> value = (Assignment.Value<?, ?>) constant;
+            for (Assignment.Value<?, ?> value : valueConstants()) {
                 converted.add(((ColumnField) value.column()).toAttribute(value.value()));
             }
             values = constantValues = Collections.unmodifiableList(converted);
@@ -256,7 +308,8 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
 
     /**
      * Renders the source select of an insert-select: from the source root, each {@code map}'s source column in the
-     * order of {@link #selectedAttributes}, then each {@code set} constant as a named parameter
+     * order of {@link #selectedAttributes}, then each {@code setExpression} value, evaluated once per source row
+     * (R-WRT-53), then each {@code set} constant as a named parameter
      * ({@link #selectParameters}), with the {@code where} rendered as a read renders it, joins included. Duplicates
      * from a to-many join stay: the insert writes the rows the equivalent read returns (R-WRT-27, R-WRT-28). The
      * returned query maps no model. A constant's parameter is typed as its target attribute's {@code metamodel}
@@ -307,9 +360,9 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
     public Map<String, Object> selectParameters() {
         requireSource();
         var parameters = new LinkedHashMap<String, Object>();
-        List<Assignment<?, ?>> constants = definition.constants();
+        List<Assignment.Value<?, ?>> constants = valueConstants();
         for (int c = 0; c < constants.size(); c++) {
-            Assignment.Value<?, ?> constant = (Assignment.Value<?, ?>) constants.get(c);
+            Assignment.Value<?, ?> constant = constants.get(c);
             parameters.put(CONSTANT + c, ((ColumnField) constant.column()).toAttribute(constant.value()));
         }
         return Collections.unmodifiableMap(parameters);
@@ -367,7 +420,9 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
     /**
      * Renders the conflict update of a {@code doUpdate} clause: each {@code setFromRow} column as {@code excluded}'s
      * attribute, each {@code set} as a {@code value} the provider binds as the attribute's type and each
-     * {@code setNull} as a {@code null} value bound likewise, in the order assigned, and the root's {@code @Version}
+     * {@code setNull} as a {@code null} value bound likewise, each {@code setExpression} value of R-WRT-53 as an
+     * {@code expression} written only for the rows the update writes, in the order assigned, and the root's
+     * {@code @Version}
      * increment unless {@code keepVersion()}; an assignment to a column the {@code where} reads comes after the
      * others, since MySQL renders the {@code where} into each assignment and reads the columns earlier assignments
      * wrote. A to-one attribute is written by its target's id ({@code customer.id}), as the rows are. Then each of
@@ -403,6 +458,12 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
                 Expression<?> rendered = conflictAssignment.expression().apply(stored, incoming, cb);
                 (read.contains(conflictAssignment.column().name()) ? last : first)
                         .add(() -> expression.accept(stored, rendered));
+            } else if (assignment instanceof Assignment.Computed<?, ?> computed) {
+                // Reads no column, so the context's root is never resolved; evaluated only for the rows the update
+                // writes (R-WRT-53).
+                Path<?> stored = path(target, InsertMetamodel.toOneIdPath(entity, computed.column().name()));
+                Expression<?> rendered = computed.value().expression(JoinContext.of(target, cb, null, options));
+                (read.contains(computed.column().name()) ? last : first).add(() -> expression.accept(stored, rendered));
             }
         }
         for (ColumnField<M, E, ?> column : conflict.update().fromRow()) {
@@ -411,7 +472,7 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
                     path(excluded, path)));
         }
         for (Assignment<?, ?> assignment : conflict.update().assignments()) {
-            if (assignment instanceof Assignment.Conflict<?, ?>) {
+            if (assignment instanceof Assignment.Conflict<?, ?> || assignment instanceof Assignment.Computed<?, ?>) {
                 continue;
             }
             ColumnField column = assignment.column();
@@ -566,7 +627,7 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         }
         int values = 0;
         for (Assignment<?, ?> assignment : update.assignments()) {
-            if (!(assignment instanceof Assignment.Conflict<?, ?>)) {
+            if (assignment instanceof Assignment.Value<?, ?> || assignment instanceof Assignment.Null<?, ?>) {
                 values++;
             }
         }
@@ -616,8 +677,10 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
                 mapping.source()));
         var selected = new ArrayList<Selection<?>>();
         sources.forEach(source -> selected.add(source.path(joins)));
+        // Once per source row, as a select's column of the expression is (R-WRT-53).
+        computed().forEach(computed -> selected.add(computed.value().expression(joins)));
         // A parameter, not cb.literal, which a provider may inline: a value is always bound (R-WRT-14).
-        List<Assignment<?, ?>> constants = definition.constants();
+        List<Assignment.Value<?, ?>> constants = valueConstants();
         EntityType<E> target = constants.isEmpty() ? null : metamodel.entity(rootEntity());
         for (int c = 0; c < constants.size(); c++) {
             ColumnField<?, ?, ?> column = constants.get(c).column();
@@ -655,22 +718,48 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         return definition.values();
     }
 
-    /** The {@link #written} attributes, a to-one's with its target's id attribute appended. */
-    private List<String> writtenPaths(Metamodel metamodel) {
+    /** {@code names}, attributes of the root, a to-one's with its target's id attribute appended. */
+    private List<String> paths(Metamodel metamodel, List<String> names) {
         EntityType<E> entity = metamodel.entity(rootEntity());
-        var names = new ArrayList<String>();
-        for (String name : written()) {
-            names.add(InsertMetamodel.toOneIdPath(entity, name));
+        var paths = new ArrayList<String>();
+        for (String name : names) {
+            paths.add(InsertMetamodel.toOneIdPath(entity, name));
         }
-        return names;
+        return paths;
     }
 
-    /** The attributes the insert writes: its columns, then its {@code set} constants. */
+    /**
+     * The attributes the insert writes, in the order an insert-select selects them: its columns, then its
+     * {@code setExpression} values, then its {@code set} constants, which the provider binds as the last attributes.
+     */
     private List<String> written() {
         var names = new ArrayList<String>();
         definition.columns().columns().forEach(column -> names.add(column.name()));
-        definition.constants().forEach(constant -> names.add(constant.column().name()));
+        computed().forEach(computed -> names.add(computed.column().name()));
+        valueConstants().forEach(constant -> names.add(constant.column().name()));
         return names;
+    }
+
+    /** The {@code set} constants, in the order set. */
+    private List<Assignment.Value<?, ?>> valueConstants() {
+        var values = new ArrayList<Assignment.Value<?, ?>>();
+        for (Assignment<?, ?> constant : definition.constants()) {
+            if (constant instanceof Assignment.Value<?, ?> value) {
+                values.add(value);
+            }
+        }
+        return values;
+    }
+
+    /** The {@code setExpression} values, in the order set. */
+    private List<Assignment.Computed<?, ?>> computed() {
+        var computed = new ArrayList<Assignment.Computed<?, ?>>();
+        for (Assignment<?, ?> constant : definition.constants()) {
+            if (constant instanceof Assignment.Computed<?, ?> value) {
+                computed.add(value);
+            }
+        }
+        return computed;
     }
 
     /**
@@ -746,6 +835,21 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
          */
         public <C> Mapping<E, M, Q> set(ColumnField<?, E, C> column, C value) {
             return new Mapping<>(draft.set(Assignment.of(Objects.requireNonNull(column, "column"), value)));
+        }
+
+        /**
+         * Writes {@code value}, an expression reading no column and binding nothing (e.g. {@code Expr.nextval}), to
+         * {@code column}, rendered in the source select, once per source row. As for {@link #set}, a column the
+         * model has, or one set twice, throws {@code MQ1801} at {@code build()}; a column with a converter throws
+         * {@code MQ1609} there, and the root's id {@code MQ1802} on first execution (R-WRT-53).
+         *
+         * @throws ModelQueryDefinitionException {@code MQ1613} for an expression that reads a column or binds a
+         *     parameter
+         */
+        @Incubating
+        public <C> Mapping<E, M, Q> setExpression(ColumnField<?, E, C> column, ExpressionField<Q, ? extends C> value) {
+            return new Mapping<>(draft.set(new Assignment.Computed<>(Objects.requireNonNull(column, "column"),
+                    value)));
         }
 
         /**

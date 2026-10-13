@@ -144,6 +144,44 @@ When the entity has a `@Version`, every update increments it unless you call `ke
 can call `expectVersion(version)` to add `AND version = ?`; zero affected rows then throws JPA's
 `OptimisticLockException`. `expectVersion` on an entity without a `@Version` fails with `MQ1606`.
 
+### Sequence values and other write expressions
+
+`setExpression(column, ExpressionField)` writes an expression that reads no column and binds nothing, such as
+`Expr.nextval` (R-WRT-53, `@Incubating`). It is evaluated per written row, so each row gets its own value, and a
+chunked update's chunks take increasing values. The same overload exists on a conflict update, an insert-values and an
+insert-select; see [Inserts](inserts.md#sequence-values).
+
+```java
+private static final ExpressionField<Counter, Long> SEQUENCE = Expr.nextval("tck_seq");
+
+var numbered = ModelUpdate.builder(COUNTERS).primaryKey(PrimaryKey.of(ID))
+        .setExpression(NEXT, SEQUENCE)
+        .all()
+        .chunked(ChunkOptions.size(2))
+        .build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    long rows = executor.update(numbered);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    long rows = counterRows.update(numbered);
+    ```
+
+- An expression that reads a column or binds a value (`Expr.plus(COL, 1)`, `Expr.value(x)`, a raw operand such as the
+  `1` of `Expr.plus(SEQUENCE, 1L)`) fails at the `setExpression` call with `MQ1613`; use `Expr.constant` for a fixed
+  operand. A column-reading expression stays with the `(path, cb) -> ...` form.
+- A converted column is `MQ1609` and `throughEntities()` is `MQ1610`, at `build()`, as for the other `setExpression`.
+- On MySQL, which has no sequences, the update is `MQ1509` before the flush, a chunk's key select or any statement.
+
+Test: `SequenceWriteTest.ac_wrt_46_a_chunked_update_writes_a_distinct_sequence_value_per_row_increasing_across_chunks`
+in the TCK (AC-WRT-46).
+
 ## Deletes
 
 ```java

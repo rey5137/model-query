@@ -45,16 +45,20 @@ final class InsertRules {
     }
 
     /**
-     * Checks the {@code set} constants of an insert writing {@code columns}.
+     * Checks the {@code set} constants and {@code setExpression} values of an insert writing {@code columns}.
      *
      * @throws ModelQueryDefinitionException {@code MQ1801} for a constant on a column the model has, a column set
-     *     twice, or a column not on the root
+     *     twice, or a column not on the root; {@code MQ1609} for a {@code setExpression} on a converted column, whose
+     *     value has the entity attribute's type (R-WRT-53)
      */
     static void checkConstants(InsertColumns<?, ?> columns, List<Assignment<?, ?>> constants) {
         Set<String> set = new HashSet<>();
         for (Assignment<?, ?> constant : constants) {
             ColumnField<?, ?, ?> column = constant.column();
             requireOnRoot(columns.root(), column, "set(...)");
+            if (constant instanceof Assignment.Computed<?, ?> && column.converterClass() != null) {
+                throw converted(column);
+            }
             if (columns.indexOf(column) >= 0) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1801, column + ": set(...) on a column the insert "
                         + "model already writes; each row's value is written");
@@ -63,6 +67,13 @@ final class InsertRules {
                 throw new ModelQueryDefinitionException(MqCode.MQ1801, column + ": set(...) twice");
             }
         }
+    }
+
+    /** {@code MQ1609} for a {@code setExpression} on {@code column}, whose converter the expression cannot pass. */
+    static ModelQueryDefinitionException converted(ColumnField<?, ?, ?> column) {
+        return new ModelQueryDefinitionException(MqCode.MQ1609, column + ": setExpression(...) on a column "
+                + "converted by " + column.converterClass().getSimpleName() + "; the expression's value has the entity "
+                + "attribute's type, not the model's");
     }
 
     /**

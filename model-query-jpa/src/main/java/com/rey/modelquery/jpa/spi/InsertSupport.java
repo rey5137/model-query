@@ -1,15 +1,20 @@
 package com.rey.modelquery.jpa.spi;
 
 import com.rey.modelquery.annotations.Incubating;
+import com.rey.modelquery.core.ModelQueryDefinitionException;
+import com.rey.modelquery.core.MqCode;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Query;
 import jakarta.persistence.Tuple;
+import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * What a bulk insert needs of the persistence provider, which portable JPA has no API for: the root's generator, keys
@@ -18,7 +23,7 @@ import java.util.Set;
  * {@code MQ4009} before the flush, while {@code persist} needs none. Implementations are stateless and thread-safe
  * (R-VND-14, D-117).
  *
- * @implSpec R-VND-14, D-116, D-117
+ * @implSpec R-VND-14, D-116, D-117, D-130
  */
 @Incubating
 public interface InsertSupport {
@@ -78,4 +83,30 @@ public interface InsertSupport {
      */
     <E> Query insertValues(EntityManager em, Class<E> entity, List<String> attributes, List<List<Object>> rows,
             Optional<ConflictClause<E>> conflict);
+
+    /**
+     * As {@link #insertValues(EntityManager, Class, List, List, Optional)}, each row also writing each of
+     * {@code computed}'s attributes, after {@code attributes}, the expression its factory returns for the statement's
+     * criteria builder: an expression that reads no column and binds nothing, such as a sequence's next value, so the
+     * engine counts no bind for it. The implementation calls each factory once per row, so no Criteria node is shared
+     * between rows and a sequence gives each row its own value (R-WRT-53, D-130).
+     *
+     * <p>The default delegates to the five-argument form when {@code computed} is empty and otherwise throws
+     * {@code MQ1613} instead of building the statement: an implementation written before this method refuses a
+     * computed value rather than dropping it. The engine, seeing the default in place, refuses such an insert with
+     * {@code MQ1613} itself before the flush and any statement.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1613} by default, for a non-empty {@code computed}
+     */
+    @Incubating
+    default <E> Query insertValues(EntityManager em, Class<E> entity, List<String> attributes,
+            List<List<Object>> rows, Map<String, Function<CriteriaBuilder, Expression<?>>> computed,
+            Optional<ConflictClause<E>> conflict) {
+        if (!computed.isEmpty()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1613, entity.getSimpleName() + ": setExpression(...) on "
+                    + computed.keySet() + ", which this provider's InsertSupport (" + getClass().getName()
+                    + ") cannot render in an insert's VALUES");
+        }
+        return insertValues(em, entity, attributes, rows, conflict);
+    }
 }

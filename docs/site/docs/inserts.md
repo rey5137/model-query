@@ -271,6 +271,76 @@ var insert = ValuesInsert.builder(COUNTER_COLUMNS, Long.class, List.of(new Count
     List<CounterValue> counters = counterRows.insertReturning(insert, COUNTER_VALUE_RETURNING.build());
     ```
 
+## Sequence values
+
+`setExpression(column, ExpressionField)` writes an expression that reads no column and binds nothing, such as
+`Expr.nextval`, at each insert site (R-WRT-53, `@Incubating`): `ValuesInsert.Rows` evaluates it once per row, so each
+row gets its own value, and it is no bind, so it does not count toward a statement's rows; an insert-select renders it
+in the source select, once per source row; a conflict update writes it only for the rows the update writes. The
+column is one the insert model leaves out, as for `set`.
+
+```java
+var insert = ValuesInsert.builder(KEYS, Long.class, rows)          // KEYS holds the id only
+        .setExpression(NEXT, SEQUENCE)                            // SEQUENCE = Expr.nextval("tck_seq")
+        .chunked(ChunkOptions.size(2))
+        .build();
+var copy = ModelInsert.select(KEYS, ITEMS).map(ID, ITEM_ID)
+        .setExpression(NEXT, Expr.nextval("tck_seq"))
+        .where(f -> f.in(ITEM_ID, List.of(3L, 5L)))
+        .build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    long inserted = executor.insert(insert);
+    long copied = executor.insert(copy);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    long inserted = counterRows.insert(insert);
+    long copied = counterRows.insert(copy);
+    ```
+
+A counter row created from a sequence and incremented on conflict, returned in the same statement:
+
+```java
+var upsert = ValuesInsert.builder(KEYS, Long.class, List.of(new Counter(1L, null)))
+        .setExpression(NEXT, SEQUENCE)
+        .onConflict(ID).doUpdate(u -> u.setExpression(NEXT, (stored, incoming, cb) -> cb.sum(stored, 1L)))
+        .build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<CounterValue> counters = executor.insertReturning(upsert, RETURNING.build());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<CounterValue> counters = counterRows.insertReturning(upsert, RETURNING.build());
+    ```
+
+The first call returns the sequence's value, the second the stored value plus one. H2 (`MERGE ... USING (VALUES ...)`)
+and PostgreSQL (`ON CONFLICT`) evaluate the incoming row before they detect the conflict, so a sequence value is
+consumed for a row the update then writes or skips.
+
+- `MQ1613` at the `setExpression` call for an expression that reads a column or binds a value; `MQ1609` at `build()`
+  for a converted column; `MQ1801` for a column the model writes or one set twice, as for `set`.
+- `MQ1802` on first execution for the root's id: an insert knows its keys before the statement.
+- `MQ1804` at `build()` for a sequence in an arbiter `where`, `MQ1509` for one in a conflict update's `where`, and
+  `MQ1809` for one selected by a returning query.
+- On MySQL every insert with a sequence is `MQ1509` before any statement (`insertReturning` is `MQ4011` first).
+
+Tests, in `SequenceWriteTest` in the TCK (AC-WRT-46):
+`ac_wrt_46_a_chunked_insert_values_gives_each_row_its_own_value_and_binds_none_for_it`,
+`ac_wrt_46_an_insert_select_writes_one_sequence_value_per_source_row` and
+`ac_wrt_46_insert_returning_of_a_counter_upsert_returns_the_sequence_value_then_the_stored_value_plus_one`.
+
 ## `persist`
 
 `persist` writes one row through JPA: it instantiates the entity, sets each attribute, persists, flushes and detaches

@@ -121,6 +121,14 @@ and on `ModelQueryRepository`; `ConflictUpdate#setExpression` with `ConflictExpr
 vendor profile, not `@EngineFacing`. See [Returning the changed rows](bulk-writes.md#returning-the-changed-rows),
 [Conflict clauses](inserts.md#conflict-clauses) and [Sequence values](queries.md#sequence-values).
 
+The write-expression members are new in 0.9.0 and `@Incubating` (D-130), and join the list above: the
+`setExpression(column, ExpressionField)` overloads on `ModelUpdate.Builder`, `ConflictUpdate`,
+`ConflictUpdate.Assigned`, `ValuesInsert.Rows` and `ModelInsert.Mapping`, the `Assignment.Computed` permit, and
+`InsertSupport`'s six-argument `insertValues` in `jpa.spi`, a default that refuses a computed value with `MQ1613`
+where a provider does not override it. The new permit means an exhaustive `switch` over `Assignment` needs another
+case. `ModelUpdate#checkSequences`, `ModelInsert#checkSequences` and `ModelInsert#computedValues` are `@EngineFacing`.
+See [Sequence values](inserts.md#sequence-values).
+
 The fetch-plan types are new in 0.2.0, `@Incubating`, and not yet placed in the 1.0 freeze list above:
 `FetchPlan`, `ChildField`, `JoinField`, `ChildQuery`, `Enricher` and the `@Child` annotation. The executor-facing
 `ChildLoad` and `JoinPlan` are `@EngineFacing`. See [Fetch plans](fetch-plans.md).

@@ -183,7 +183,9 @@ value, PostgreSQL and H2 the old one) and the Javadoc says so. `setExpression` i
 **R-WRT-14** **Assigned values are typed and bound.** Values pass through the column's converter and are always bind
 parameters, never inlined. A to-one attribute set by id binds `EntityManager#getReference(target, id)`, so no row is
 loaded. Types are checked as for queries (INV-3, `api/10` R-COL-08). `setExpression` on a column with a converter
-throws `MQ1609` at `build()`, because the expression's path has the entity attribute's type, not the model's.
+throws `MQ1609` at `build()`, because the expression's path has the entity attribute's type, not the model's; so does
+the `ExpressionField` form of R-WRT-53, whose value is the attribute's type too, on an update, a conflict update and an
+insert alike.
 
 **R-WRT-15** **The persistence context is not left stale.** Once per write, before its first statement, the engine calls
 `flush()` when the `EntityManager` is joined to a transaction, so pending entity changes are written first and not
@@ -337,6 +339,7 @@ public interface ModelQueryExecutor<E> {
 | AC-WRT-43 | `insertReturning` returns one model per row the insert wrote — a plain insert-values, a chunked one concatenating its chunks, and an upsert through `onConflict(...).doUpdate(...)` returning the inserted and the updated rows, not those a `doNothing()` skipped — in the shapes of `vendor/41` §7 (H2's `FINAL TABLE`, PostgreSQL's `RETURNING`), and refuses it with `MQ4011` before any statement on a vendor whose profile has no insert shape, MySQL among them (R-WRT-50, R-VND-17, D-129). |
 | AC-WRT-44 | `ConflictUpdate.setExpression(COL, (stored, incoming, cb) -> cb.sum(stored, 1))` increments the stored row's column and renders before the clause's other assignments on every Tier-1 vendor, counted as an assigned column by R-WRT-34's `where` rule, with `MQ1609` for a converted column and `MQ1804` for a key column or one assigned twice (R-WRT-13, R-WRT-51, R-WRT-34). |
 | AC-WRT-45 | `onConflict(COL).where(f -> f.ne(COL2, v))` renders the arbiter predicate after the conflict target with its value as a literal, so on PostgreSQL an upsert updates a row the partial unique index holds and inserts a new one whose key matches only a row outside it; `onConstraint("name")` detects the conflict on a named unique constraint and `doNothing` skips the row conflicting on it; `insertReturning` with an arbiter returns the upserted row; an arbiter with an `Expr.value`, an expression, `exists` or a sub-select, and a blank `onConstraint` name, are `MQ1804` at `build()` and an arbiter whose every filter was skipped is `MQ1601`; H2 and MySQL, whose profile facts are false, throw `MQ1804` on first execution for both, and a translated statement whose conflict target is missing or occurs twice, or a Hibernate line no adapter serves, throws `MQ4011` before execution while a plain upsert still runs (R-WRT-52, R-WRT-34, R-WRT-50, D-128). |
+| AC-WRT-46 | On H2 and PostgreSQL, on both Hibernate lines, `setExpression(COL, Expr.nextval("seq"))` writes a distinct value per row: a chunked update's values increase across chunks, a chunked insert-values gives each row its own value with no bind for it, and an insert-select one per source row; `insertReturning` of a counter upsert writing `nextval` as the insert value and `setExpression(N, (s, i, cb) -> cb.sum(s, 1))` on conflict returns the sequence value, then the stored value plus one. `MQ1613` for an expression reading a column or binding a value, `MQ1609` for a converted column, `MQ1610` with `throughEntities()`, `MQ1802` for an insert's id, `MQ1804` in an arbiter, `MQ1809` selected by a returning query, `MQ1509` in a conflict update's `where`; on MySQL `MQ1509` with no statement run (R-WRT-53, R-COL-28). |
 | AC-WRT-47 | Two workers, each in its own transaction, run the claim of R-WRT-50 at once: each reads the next two pending rows' keys with `RowLock.exclusive(SKIP_LOCKED)`, an order and a limit, the second passing the first's locked rows over, then claims them by `whereKeys` and reads them back, by `updateReturning` on PostgreSQL and on H2 with Hibernate 7.x, by `update` then `byKeys` on MySQL; the two claims are disjoint, both commit, and an unclaimed row stays pending. The same claim runs through `ModelQueryRepository` (`findAll`, `updateReturning` or `update` then `findAllByKeys`) in one Spring transaction. On H2 with Hibernate 6.6, which drops `SKIP_LOCKED`, the locked read is `MQ4010` before any statement (`vendor/41` §6) (R-WRT-50, R-WRT-08, R-EXE-14, D-131). |
 
 ## 10. Inserts
@@ -473,7 +476,8 @@ List<Long> ids = executor.insertReturningKeys(QNewOrder.insert(rows).build());  
 in one statement on every built-in vendor (D-116). Rows per statement are the largest count whose statement stays
 within the vendor's bind-parameter limit, counted from the parameters one row takes (columns, `set` constants, the
 binds the provider adds per row such as the version seed, and a conflict clause's binds as an upper bound, as D-80
-counts), and within `VendorProfile.maxValuesRows()`, capped by the `chunked` size when given. `maxValuesRows()`
+counts; a `setExpression` value of R-WRT-53 binds nothing and counts 0), and within `VendorProfile.maxValuesRows()`,
+capped by the `chunked` size when given. `maxValuesRows()`
 defaults to 1,000 and the built-in profiles raise it (`vendor/40`). An empty list runs no SQL and returns 0 (or an
 empty list). Stages follow D-60: `insert(rows)` returns `ValuesInsert.Rows`, which offers `set` (a `null` value is
 `MQ1603`; there is no `setNull`, since a model column writes NULL), `onConflict` (§10.5), `chunked`,
@@ -481,7 +485,8 @@ empty list). Stages follow D-60: `insert(rows)` returns `ValuesInsert.Rows`, whi
 `onConflict` is gone. A `set` on a column the model has, a column set twice, or a `set` column not on the root throws
 `MQ1801` at `build()`.
 
-**R-WRT-30** Values pass through the column's converter and are always bind parameters (R-WRT-14). A to-one column
+**R-WRT-30** Values pass through the column's converter and are always bind parameters (R-WRT-14); a `setExpression`
+value (R-WRT-53) is not a value but SQL the provider renders, which binds nothing. A to-one column
 binds its target's id to the target's id attribute (`customer.id`), as an insert-select copies it (R-WRT-27), so no
 reference is loaded or created. `build()` reads each row once, through `InsertColumns`, into an
 immutable array of its column values, and never reads the model instance again; the copy is shallow, so a mutable
@@ -658,10 +663,10 @@ repository.delete(QExportRoleConfiguration.delete().whereKey(id).throughEntities
 **R-WRT-41** `throughEntities()` is offered on the options stage of `ModelUpdate` and `ModelDelete`, beside `chunked`
 and `persistenceContext`, and on each `Resumable` stage; `entityMode()` is `@EngineFacing`. `build()` throws `MQ1610`
 for an update that combines `throughEntities()` with `keepVersion()`, `expectVersion(v)` or any `setExpression`,
-whatever the call order; a delete has no incompatible option. The Javadoc of `throughEntities()` says the error comes
-when the definition is built (for a `static final` constant, at class initialization), not at compile time. An
-entity-mode write is always chunked: without `chunked(...)` it uses `ModelQueryConfig.bulkWriteChunkSize()`, so memory
-is bounded by one chunk of entities.
+the `ExpressionField` form of R-WRT-53 included, whatever the call order; a delete has no incompatible option. The
+Javadoc of `throughEntities()` says the error comes when the definition is built (for a `static final` constant, at
+class initialization), not at compile time. An entity-mode write is always chunked: without `chunked(...)` it uses
+`ModelQueryConfig.bulkWriteChunkSize()`, so memory is bounded by one chunk of entities.
 
 **R-WRT-42** Each chunk selects its keys exactly as R-WRT-17 does (`WHERE <tree> AND pk > :last ORDER BY pk`), then
 loads the chunk's entities with one `CriteriaQuery<E>` over the R-WRT-17 predicate (`pk IN (…) AND <tree>`), never one
@@ -704,7 +709,8 @@ would surprise the caller. The configured query timeout (R-EXE-11) applies to th
 flush's statements get none, since JPA has no portable per-statement hint for them.
 
 **R-WRT-46** Optimistic locking is the provider's: a `@Version` attribute is checked and incremented by the flush.
-`keepVersion()` and `expectVersion(v)` cannot be honoured, and `setExpression` cannot be computed in Java, so `build()`
+`keepVersion()` and `expectVersion(v)` cannot be honoured, and `setExpression` cannot be computed in Java, in either
+form (R-WRT-53's `ExpressionField` one would advance a sequence in a statement of its own per entity), so `build()`
 throws `MQ1610` for a definition that combines any of them with `throughEntities()`. An `OptimisticLockException` from
 a chunk's flush is a failed chunk like any other. In the caller's transaction (no `commitEachChunk()`) it reaches the
 caller unwrapped, as any failure of a write that does not commit per chunk does, and the provider marks the caller's
@@ -881,3 +887,46 @@ R-VND-14); where the fact is false the insert throws `MQ1804` on first execution
 insert (R-WRT-50) compose into one statement on PostgreSQL. The provider splices the predicate after the translated
 statement's conflict target, and refuses with `MQ4011` before execution unless it finds that target exactly once
 (INV-5), or where no adapter serves the Hibernate line (`ReturningSupport.rendered` false); a plain upsert still runs.
+
+### 11.5 Write expressions
+
+**R-WRT-53** *(D-130)* A write takes an `ExpressionField` that reads no column and binds nothing, such as
+`Expr.nextval` (`api/10` R-COL-28), through a `setExpression` overload at four sites, each `@Incubating`:
+
+```java
+// ModelUpdate.Builder<E, K, M>
+<C> Builder<E, K, M> setExpression(ColumnField<M, E, C> column, ExpressionField<M, ? extends C> value);
+// ConflictUpdate<E, M> and ConflictUpdate.Assigned<E, M>
+<C> Assigned<E, M> setExpression(ColumnField<?, E, C> column, ExpressionField<M, ? extends C> value);
+// ValuesInsert.Rows<E, K, M>
+<C> Rows<E, K, M> setExpression(ColumnField<?, E, C> column, ExpressionField<M, ? extends C> value);
+// ModelInsert.Mapping<E, M, Q>: the source query model's
+<C> Mapping<E, M, Q> setExpression(ColumnField<?, E, C> column, ExpressionField<Q, ? extends C> value);
+```
+
+- The assignment is the new `Assignment.Computed<M, C>(ColumnField<M, ?, C> column, ExpressionField<?, ? extends C>
+  value)` permit, which an exhaustive switch over `Assignment` must now handle (`delivery/61`). Its constructor
+  refuses, with `MQ1613` at the `setExpression` call, an expression that reads a column or binds a parameter
+  (`Expr.plus(COL, 1)`, `Expr.value(x)`, a raw value as an operand): it renders where the stored row is not in
+  scope (an insert's `VALUES`) or repeats per row, and a column read would differ between the sites.
+  `Expr.constant` binds nothing and is taken.
+  `? extends C` admits a `Long` `nextval` for a `Long` or `long` column only; a typed `nextval` is Q-16.
+- An update writes the value in each row it writes, as the `BiFunction` form's expression renders, before the other
+  assignments (R-WRT-13): chunked, each chunk's statement evaluates it per row, so the rows hold distinct values that
+  increase across chunks. A conflict update writes it only for the rows the update writes, so a sequence advances only
+  for them. An insert-values evaluates it once per row (a sequence gives each row its own value): the provider renders
+  it in each row's `VALUES` through `InsertSupport`'s six-argument `insertValues` (`vendor/40` R-VND-14), so it is not
+  among the row's attributes, binds nothing and counts 0 toward R-WRT-29's rows per statement. An insert-select renders
+  it in the source select, once per source row, between the mapped columns and the `set` constants.
+- On H2 a sequence renders `next value for s`, on PostgreSQL `nextval('s')`. Where the vendor evaluates the incoming row
+  before it detects the conflict, an upsert consumes a value for a row the update then writes or skips: H2's `MERGE …
+  USING (VALUES …)` and PostgreSQL's `ON CONFLICT` both do. A returning write (R-WRT-50) composes as each shape does:
+  H2's `FINAL TABLE`, PostgreSQL's `RETURNING`; on MySQL the returning write is R-WRT-50's `MQ4011` at method entry,
+  and any other write `MQ1509`.
+- Refusals: `MQ1509` for a vendor or provider without sequences, before the flush, a chunk's key select or any
+  statement (INV-5), and for `nextval` in a filter, an order, a group key or a conflict update's `where` (`api/10`
+  R-COL-28); `MQ1609` for a converted column (R-WRT-14), `MQ1610` with `throughEntities()` (R-WRT-41, R-WRT-46), at
+  `build()`; R-WRT-13's `MQ1602` and `MQ1605`, R-WRT-34's `MQ1804` and R-WRT-25's `MQ1801` as for the site's other
+  assignments; `MQ1802` on first execution for an insert's id attribute, whose keys must be known before the statement
+  (R-WRT-33); `MQ1804` at `build()` for a `nextval` in a conflict arbiter (R-WRT-52); `MQ1809` for a `nextval` selected
+  by a returning query (R-WRT-48).

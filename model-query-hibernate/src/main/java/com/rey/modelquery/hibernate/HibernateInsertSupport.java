@@ -12,6 +12,7 @@ import jakarta.persistence.Query;
 import jakarta.persistence.Table;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Path;
@@ -36,6 +37,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import org.hibernate.Session;
 import org.hibernate.Version;
 import org.hibernate.dialect.Dialect;
@@ -412,11 +414,25 @@ final class HibernateInsertSupport implements InsertSupport {
     @Override
     public <E> Query insertValues(EntityManager em, Class<E> entity, List<String> attributes,
             List<List<Object>> rows, Optional<ConflictClause<E>> conflict) {
+        return insertValues(em, entity, attributes, rows, Map.of(), conflict);
+    }
+
+    /**
+     * As {@link #insertValues(EntityManager, Class, List, List, Optional)}, each row writing after its values each
+     * computed attribute's expression, built by its factory for that row alone, so no SQM node is shared between rows
+     * and a sequence's next value renders once per row (R-WRT-53, D-130).
+     */
+    @Override
+    public <E> Query insertValues(EntityManager em, Class<E> entity, List<String> attributes,
+            List<List<Object>> rows, Map<String, Function<CriteriaBuilder, Expression<?>>> computed,
+            Optional<ConflictClause<E>> conflict) {
         Session session = em.unwrap(Session.class);
         HibernateCriteriaBuilder cb = session.getCriteriaBuilder();
         JpaCriteriaInsertValues<E> insert = cb.createCriteriaInsertValues(entity);
         List<Path<?>> paths = paths(insert.getTarget(), attributes);
-        insert.setInsertionTargetPaths(paths);
+        var targets = new ArrayList<Path<?>>(paths);
+        targets.addAll(paths(insert.getTarget(), List.copyOf(computed.keySet())));
+        insert.setInsertionTargetPaths(targets);
         var values = new ArrayList<JpaValues>(rows.size());
         var types = new ArrayList<Object>(paths.size());
         var javaTypes = new ArrayList<Class<?>>(paths.size());
@@ -430,11 +446,12 @@ final class HibernateInsertSupport implements InsertSupport {
                 throw new IllegalArgumentException(entity.getSimpleName() + ": a row of " + row.size()
                         + " values for " + paths.size() + " attributes");
             }
-            var parameters = new ArrayList<Expression<?>>(row.size());
+            var parameters = new ArrayList<Expression<?>>(row.size() + computed.size());
             for (int c = 0; c < row.size(); c++) {
                 parameters.add(cb.parameter(javaTypes.get(c), VALUE + bound.size()));
                 bound.add(row.get(c));
             }
+            computed.values().forEach(factory -> parameters.add(factory.apply(cb)));
             values.add(cb.values(parameters));
         }
         insert.values(values);
