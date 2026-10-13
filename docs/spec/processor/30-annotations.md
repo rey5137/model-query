@@ -243,6 +243,13 @@ R-PROC-26 already leaves out (`@Join`, `@Child`, `@Computed`, `@Transient`, a to
 check, so the "already left out" case does not fire there. Excluding an assigned id is `MQ3501` with its own message;
 excluding every writable column is `MQ3505`. There is no `@ExcludeFromChanges` (R-PROC-19).
 
+**R-PROC-32** *(D-135)* **`modelquery.jspecify`.** A boolean processor option, `false` unless set to `true`, read once
+per compilation. On, the processor adds JSpecify nullness annotations to the classes it generates (`processor/31`
+R-GEN-36); off, every generated class is byte-identical to a build without the option. The annotations are named by
+string and the processor has no JSpecify dependency: the model module needs `org.jspecify:jspecify` on its compile
+classpath. When the option is on and `org.jspecify.annotations.NullMarked` does not resolve, the processor reports
+`MQ3027` once for the compilation, not once per model, and generates no annotation.
+
 ## 9. Acceptance criteria
 
 | ID | Criterion |
@@ -269,3 +276,4 @@ excluding every writable column is `MQ3505`. There is no `@ExcludeFromChanges` (
 | AC-PROC-20 | `generateChanges = true` on a query model with a whole-entity and a converted to-one column compiles with no error, generates no setter for either, and `generateChanges` and `generateInserts` together leave out the same to-one columns (R-PROC-19, D-124). |
 | AC-PROC-21 | `@ExcludeFromInserts` on a field leaves it out of `INSERT_COLUMNS`, `insertFrom`, `insert` and `persist` while the query members keep its column and constant (R-PROC-27, D-125). |
 | AC-PROC-22 | `generateInserts` leaves out a plain `@Generated`, written are `@Generated(writable = true)`, `@Generated(sql = …)`, `@Generated(event = UPDATE)`, the Hibernate 6.x `@Generated(GenerationTime.UPDATE)` and `NEVER`, every timestamp annotation, and a `@Generated` whose type doesn't resolve; run on the Hibernate 6.6 and 7.x annotation shapes (R-PROC-26, D-125). |
+| AC-PROC-27 | `-Amodelquery.jspecify=true` adds the annotations of R-GEN-36 and is declared in `@SupportedOptions`; unset or `false` leaves the output unchanged; on with no JSpecify on the classpath is one `MQ3027` and no annotation generated (R-PROC-32, D-135). |

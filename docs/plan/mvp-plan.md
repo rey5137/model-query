@@ -491,3 +491,28 @@ the design was reviewed by `architect-review` before D-129; none at a slice. Eve
 | M20.5 | `setExpression(column, ExpressionField)` at the update, conflict, insert-values and insert-select sites (D-130), restricted to column-free bind-free expressions (new `MQ1613`); per-row `InsertSupport.insertValues` default with computed factories; MQ1509 before any statement on a write; spike first: `HibernateCriteriaBuilder.sql` inside DML `VALUES`/`SET` on 6.6 and 7.4 and H2 `FINAL TABLE` over `MERGE` with `NEXT VALUE FOR`; R-WRT-53; LitePOS row 8 counter upsert with a sequence value | AC-WRT-46 green on Tier 1 on both Hibernate lines; refusals for MQ1509/MQ1613/MQ1609/MQ1610/MQ1802/MQ1804/MQ1809 tested; MySQL MQ1509 with zero statements executed |
 
 **Exit:** the M20 rows' criteria green on Tier 1 and nothing new frozen.
+
+## 22. M21 — Generated-code nullness
+
+Spec: `docs/plan/litepos-gaps.md` (F4), D-135, `processor/30` (new R-PROC-32, the `modelquery.jspecify` option),
+`processor/31` (new R-GEN-36, where the generated code carries JSpecify annotations), `processor/32` (new `MQ3027`),
+`reference/90`, `docs/site` (`models.md` processor options, NullAway setup), `delivery/61`. New rows are AC-PROC-27,
+AC-GEN-31 and AC-GEN-32; ids R-PROC-28..31, R-GEN-35, `MQ3023`..`MQ3026`, AC-PROC-23..26 and AC-GEN-30 stay reserved
+for M24 (RFC 0012). Model: no `architect-review`; no public Java API changes, the option is `@Incubating` in the
+stability list. Compile-testing only, no TCK. Ships in 0.9.0 with M17–M20 and M22–M24.
+
+D-135 (the design): with `-Amodelquery.jspecify=true` every generated QModel and change-set class is `@NullMarked`;
+change-set backing fields, setter and fluent parameters, getters and the private `assignment` value are `@Nullable`
+(type-use, so `Outer.@Nullable Inner` and `java.lang.@Nullable String` on qualified names); the private mapper and the
+`JoinField`/`ChildField` `with` methods are `@NullUnmarked`, because they pass unselected or NULL values into the
+user's model by design (R-GEN-07) and the user's own components decide their nullness; `ColumnField` type arguments
+stay unannotated while `core` is unannotated. JSpecify is not a dependency of any model-query artifact: the processor
+names the annotations by string, and the user adds `org.jspecify:jspecify`; the option set without JSpecify on the
+compile classpath is `MQ3027`. Default off: output with the option unset is byte-identical to today's golden files.
+
+| Slice | Content | Done when |
+|---|---|---|
+| M21.1 | `modelquery.jspecify` in `@SupportedOptions` and read once into `QModelWriter`, `ChangesWriter` and `FetchFieldWriter`; class-level `@NullMarked`, `@Nullable` change-set positions and `@NullUnmarked` mapper/`with` methods per D-135; `MQ3027` when `org.jspecify.annotations.NullMarked` is not resolvable; an options overload on `ProcessorHarness.compile`; `org.jspecify:jspecify` 1.0.0 in `dependencyManagement` and processor test scope; R-PROC-32, R-GEN-36, `MQ3027` in `processor/32` and `reference/90` | golden files `QOrderView`, `QInvoiceView`, `QCustomerViewWithInvoices`, `OrderPatchChanges` and `QNewOrder` under `golden/jspecify/` equal; every existing golden unchanged; a nested-type and an import-clash case render type-use annotations correctly and compile; AC-PROC-27, AC-GEN-31 green |
+| M21.2 | A NullAway compatibility test: the shop, update and insert fixtures compiled with the option on under Error Prone + NullAway (`AnnotatedPackages` covering the fixture and generated packages, JSpecify mode) report no NullAway error, and a deliberately unannotated change-set use in a fixture does (the test proves NullAway ran); Error Prone and NullAway test-scope only, with the surefire `--add-exports` they need; docs: `models.md` "Processor options" (prefix, suffix, jspecify) and a NullAway setup with Maven and Gradle tabs, each snippet traceable to the M21.2 test; stability page and `delivery/61` incubating list; `[Unreleased]` CHANGELOG entry | AC-GEN-32 green; `mkdocs build --strict` green |
+
+**Exit:** the M21 rows' criteria green in the compile-testing suite; nothing new frozen.

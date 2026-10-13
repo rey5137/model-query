@@ -40,8 +40,10 @@ final class FetchFieldWriter {
     private final Types types;
     private final EntityMetamodel metamodel;
     private final NestedModels nestedModels;
+    private final Nullness nullness;
 
-    FetchFieldWriter(Types types, EntityMetamodel metamodel, NestedModels nestedModels) {
+    FetchFieldWriter(Types types, EntityMetamodel metamodel, NestedModels nestedModels, Nullness nullness) {
+        this.nullness = nullness;
         this.types = types;
         this.metamodel = metamodel;
         this.nestedModels = nestedModels;
@@ -75,7 +77,7 @@ final class FetchFieldWriter {
                         .addParameter(modelName, "parent")
                         .addStatement("return parent.$L()", getter)
                         .build())
-                .addMethod(with.build())
+                .addMethod(nullness.unmarked(with).build())
                 .build();
         return FieldSpec.builder(type, field.join().prefix() + "_JOIN", CONSTANT)
                 .addAnnotation(INCUBATING)
@@ -139,7 +141,7 @@ final class FetchFieldWriter {
                                 childName))
                         .addStatement("return $T.query()", QModelWriter.generatedName(child))
                         .build())
-                .addMethod(with.build())
+                .addMethod(nullness.unmarked(with).build())
                 .build();
         return FieldSpec.builder(type, field.constant(), CONSTANT)
                 .addAnnotation(INCUBATING)

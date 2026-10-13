@@ -14,6 +14,7 @@ import javax.annotation.processing.SupportedOptions;
 import javax.lang.model.SourceVersion;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.util.Elements;
 import javax.tools.Diagnostic;
 
 /**
@@ -26,8 +27,15 @@ import javax.tools.Diagnostic;
 @Incubating
 @SupportedAnnotationTypes({"com.rey.modelquery.annotations.QueryModel", "com.rey.modelquery.annotations.UpdateModel",
         "com.rey.modelquery.annotations.InsertModel"})
-@SupportedOptions({QueryModelReader.PREFIX_OPTION, QueryModelReader.SUFFIX_OPTION})
+@SupportedOptions({QueryModelReader.PREFIX_OPTION, QueryModelReader.SUFFIX_OPTION,
+        ModelQueryProcessor.JSPECIFY_OPTION})
 public final class ModelQueryProcessor extends AbstractProcessor {
+
+    /** The processor option that adds JSpecify nullness annotations to the generated classes (R-PROC-32). */
+    static final String JSPECIFY_OPTION = "modelquery.jspecify";
+
+    /** What the first round decided: the JSpecify annotations to write, or none; {@code null} before it. */
+    private Nullness nullness;
 
     /** The models whose {@code root}, or a nested model's, named no class in the round before, to retry in this one. */
     private final List<Deferred> deferred = new ArrayList<>();
@@ -45,11 +53,14 @@ public final class ModelQueryProcessor extends AbstractProcessor {
         var metamodel = new EntityMetamodel(types, processingEnv.getElementUtils());
         var elements = processingEnv.getElementUtils();
         var builtIns = new BuiltInConverters(elements);
+        if (nullness == null) {
+            nullness = nullness(elements);
+        }
         var round = new Round(reader, nestedModels, new ModelValidator(types, metamodel, nestedModels, builtIns),
-                new QModelWriter(types, metamodel, nestedModels, builtIns),
+                new QModelWriter(types, metamodel, nestedModels, builtIns, nullness),
                 // A model module without Bean Validation, or without model-query-jpa, compiles and references neither.
                 new ChangesWriter(types, metamodel, elements.getTypeElement(ChangesWriter.VALID_CHANGES) != null
-                        && elements.getTypeElement(ChangesWriter.CONSTRAINT) != null),
+                        && elements.getTypeElement(ChangesWriter.CONSTRAINT) != null, nullness),
                 roundEnv.processingOver());
         // An element is only valid in the round that produced it, so a deferred model is looked up again by name.
         var retried = List.copyOf(deferred);
@@ -79,6 +90,22 @@ public final class ModelQueryProcessor extends AbstractProcessor {
             }
         }
         return false;
+    }
+
+    /**
+     * The nullness annotations the option asks for. A compilation without JSpecify on its classpath gets
+     * {@code MQ3027} once, here, and none (R-PROC-32).
+     */
+    private Nullness nullness(Elements elements) {
+        if (!Boolean.parseBoolean(processingEnv.getOptions().get(JSPECIFY_OPTION))) {
+            return Nullness.OFF;
+        }
+        if (elements.getTypeElement(Nullness.NULL_MARKED) == null) {
+            new Diagnostics(processingEnv.getMessager()).error(DiagnosticCode.MQ3027, JSPECIFY_OPTION
+                    + " is on, but " + Nullness.NULL_MARKED + " is not on the classpath: add org.jspecify:jspecify");
+            return Nullness.OFF;
+        }
+        return new Nullness(true);
     }
 
     /** {@code MQ3503} for a type carrying several model annotations, each of which would generate its QModel. */
