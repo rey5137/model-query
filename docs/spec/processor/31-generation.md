@@ -363,6 +363,15 @@ for `COUNT(*)`), which would become a client-facing key and leak entity names. T
 every `@Aggregate` constant (`AggregateField.named`, `api/13` R-AGG-01), outside `equals`, and R-QRY-14's aggregate
 tier matches the `named` property first, then the name, so existing sorts keep working.
 
+**R-GEN-36** *(D-135)* **Nullness annotations.** With `modelquery.jspecify` on (`processor/30` R-PROC-32) every
+generated `Q<Model>` and change-set class is `@org.jspecify.annotations.NullMarked`. In a change set the backing fields,
+the setter and fluent-setter parameters, the getter return types and the value parameter of the private `assignment`
+method are `@Nullable`, as type-use annotations on the type (`java.lang.@Nullable String`, `Outer.@Nullable Inner`,
+`byte @Nullable []`), since a change set holds `null` to write a NULL. The private mapper method and the `with` methods
+of the generated `JoinField` and `ChildField` bodies are `@NullUnmarked`, since they pass `row.get(...)` values of
+columns the row may not select. The type arguments of `ColumnField` and the other fields stay unannotated. Off, no
+annotation is added.
+
 ## 8. Acceptance criteria
 
 | ID | Criterion |
@@ -396,3 +405,4 @@ tier matches the `named` property first, then the name, so existing sorts keep w
 | AC-GEN-27 | On every Tier-1 vendor a `generateInserts` query model inserts rows, insert-selects rows from another root and persists a row, its `@Version` left to the provider, and the same model reads them back (R-GEN-34). |
 | AC-GEN-28 | A `generateChanges` query model with a to-one column, whole or converted, generates no setter for it and names it in the change set's Javadoc; on every Tier-1 vendor `update(Changes.from(view, columns))` over the root non-key columns writes them, `from` naming the to-one column is `MQ1607`, and a row whose foreign key is `NULL` reads back through the whole-entity column with `null` (R-GEN-21, D-124). |
 | AC-GEN-29 | The `INSERT_COLUMNS` Javadoc of a `generateInserts` query model names a `@Generated` column with "filled by the database: `@Generated`" and an `@ExcludeFromInserts` one with "`@ExcludeFromInserts`" (R-GEN-34, D-125). |
+| AC-GEN-31 | With `modelquery.jspecify=true`, `QOrderView`, `QInvoiceView`, `QCustomerViewWithInvoices`, `OrderPatchChanges` and `QNewOrder` match their golden files under `golden/jspecify/`, and a change set over a nested type, a type whose simple name is `Nullable` and an array type compiles with the annotation on the type (R-GEN-36, D-135). |

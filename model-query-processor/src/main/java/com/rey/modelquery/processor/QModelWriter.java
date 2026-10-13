@@ -72,13 +72,17 @@ final class QModelWriter {
     private final NestedModels nestedModels;
     private final BuiltInConverters builtIns;
     private final FetchFieldWriter fetchFields;
+    private final Nullness nullness;
 
-    QModelWriter(Types types, EntityMetamodel metamodel, NestedModels nestedModels, BuiltInConverters builtIns) {
+    QModelWriter(
+            Types types, EntityMetamodel metamodel, NestedModels nestedModels, BuiltInConverters builtIns,
+            Nullness nullness) {
+        this.nullness = nullness;
         this.types = types;
         this.metamodel = metamodel;
         this.nestedModels = nestedModels;
         this.builtIns = builtIns;
-        this.fetchFields = new FetchFieldWriter(types, metamodel, nestedModels);
+        this.fetchFields = new FetchFieldWriter(types, metamodel, nestedModels, nullness);
     }
 
     /**
@@ -109,6 +113,7 @@ final class QModelWriter {
                 .addField(FieldSpec.builder(ParameterizedTypeName.get(TABLE_FIELD, entity, entity), "ROOT", CONSTANT)
                         .initializer("$T.root($T.class)", TABLE_FIELD, entity)
                         .build());
+        nullness.marked(type);
         List<JoinedTable> joined = writeOnly ? List.of() : nestedModels.tables(model);
         for (JoinedTable table : joined) {
             type.addField(joinedTable(table));
@@ -225,7 +230,7 @@ final class QModelWriter {
         } else {
             mapClass(model, modelName, generated, map);
         }
-        type.addMethod(map.build());
+        type.addMethod(nullness.unmarked(map).build());
         // After the mapper, whose constants it names; the holder is read on the first call, not when this class loads.
         fieldIndex(model, modelName, generated, joined, FilterIndex.of(model, joined, filters), type);
         if (keyed) {

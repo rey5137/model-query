@@ -73,6 +73,9 @@ enum DiagnosticCode {
      */
     MQ3022("Filter column left out of fields() because its key is already held; a warning"),
 
+    /** {@code modelquery.jspecify} is on, but JSpecify is not on the compile classpath; no annotation is generated. */
+    MQ3027("modelquery.jspecify is on but JSpecify is not on the classpath"),
+
     /** An {@code @Aggregate} field is primitive, though an aggregate can be {@code NULL}. */
     MQ3201("@Aggregate field is primitive"),
 

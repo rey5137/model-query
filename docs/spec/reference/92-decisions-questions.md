@@ -1822,6 +1822,14 @@ classpath, validates it as an annotated one and generates its QModel in the bind
 accessors public). `@BindExpression` supplies the `ExpressionDefinition` of a valueless `@Computed` or an `@Aggregate`;
 `@Computed.value` defaults to `void.class`. Nested models are annotated or bound in the same compilation. No runtime
 change. New R-PROC-28..31, R-GEN-35, `MQ3023`..`MQ3026`. M24, 0.9.0. → `rfc/0012`, `processor/30..32`, Q-19.
+**D-135 — Generated-code nullness (2026-10-13).** The processor option `-Amodelquery.jspecify=true` (default off)
+marks every generated QModel and change set JSpecify `@NullMarked`; change-set backing fields, setter and fluent
+parameters, getters and the `assignment` value are `@Nullable` (type-use, so `Outer.@Nullable Inner`); the private
+mapper and the `JoinField`/`ChildField` `with` methods are `@NullUnmarked`, since they pass null into the user model
+by design (R-GEN-07). `ColumnField` type arguments stay unannotated while `core` is. No model-query artifact depends
+on JSpecify: the processor names the annotations by string, and the option without JSpecify on the compile classpath
+is `MQ3027`. Off, the output is byte-identical. New R-PROC-32, R-GEN-36, `MQ3027`. M21, 0.9.0. → `processor/30..32`,
+`reference/90`, `mvp-plan` §22.
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

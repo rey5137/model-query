@@ -64,16 +64,27 @@ final class ProcessorHarness {
         return javac().withProcessors(new ModelQueryProcessor()).compile(sources);
     }
 
+    /** Compiles {@code sources} with the processor and {@code options}, each as {@code -Akey=value}. */
+    static Compilation compileWithOptions(List<String> options, JavaFileObject... sources) {
+        return javac().withProcessors(new ModelQueryProcessor()).withOptions(options).compile(sources);
+    }
+
     /**
      * Compiles {@code sources} with the processor over the test classpath less each entry whose path contains
      * {@code excluded}, as a model module without that dependency would.
      */
     static Compilation compileWithout(String excluded, JavaFileObject... sources) {
+        return compileWithout(excluded, List.of(), sources);
+    }
+
+    /** {@link #compileWithout(String, JavaFileObject...)} with {@code options}, each as {@code -Akey=value}. */
+    static Compilation compileWithout(String excluded, List<String> options, JavaFileObject... sources) {
         List<File> classpath = Arrays.stream(System.getProperty("java.class.path").split(File.pathSeparator))
                 .filter(entry -> !entry.contains(excluded))
                 .map(File::new)
                 .toList();
-        return javac().withProcessors(new ModelQueryProcessor()).withClasspath(classpath).compile(sources);
+        return javac().withProcessors(new ModelQueryProcessor()).withClasspath(classpath).withOptions(options)
+                .compile(sources);
     }
 
     /** The error messages of {@code compilation}, in the order reported. */

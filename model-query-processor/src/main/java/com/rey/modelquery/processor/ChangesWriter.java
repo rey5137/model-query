@@ -51,12 +51,15 @@ final class ChangesWriter {
     private final Types types;
     private final EntityMetamodel metamodel;
     private final boolean validChanges;
+    private final Nullness nullness;
 
     /**
      * @param metamodel the entities' attributes, to tell a to-one column
      * @param validChanges whether {@link #VALID_CHANGES} and {@link #CONSTRAINT} resolve on the classpath
+     * @param nullness the JSpecify annotations to add, if any (R-GEN-36)
      */
-    ChangesWriter(Types types, EntityMetamodel metamodel, boolean validChanges) {
+    ChangesWriter(Types types, EntityMetamodel metamodel, boolean validChanges, Nullness nullness) {
+        this.nullness = nullness;
         this.types = types;
         this.metamodel = metamodel;
         this.validChanges = validChanges;
@@ -90,19 +93,20 @@ final class ChangesWriter {
             changed.leftOut().forEach(column -> type.addJavadoc("<li>$L</li>\n", column));
             type.addJavadoc("</ul>\n");
         }
+        nullness.marked(type);
         if (validChanges) {
             type.addAnnotation(AnnotationSpec.builder(ClassName.bestGuess(VALID_CHANGES))
                     .addMember("value", "$T.class", modelName)
                     .build());
         }
         for (ModelField field : writable) {
-            type.addField(boxed(field.type()), field.name(), Modifier.PRIVATE);
+            type.addField(nullness.nullable(boxed(field.type())), field.name(), Modifier.PRIVATE);
         }
         // Binders such as Jackson create the change set through it, then call only the setters of present properties.
         type.addMethod(MethodSpec.constructorBuilder().addModifiers(Modifier.PUBLIC).build());
         for (int i = 0; i < writable.size(); i++) {
             ModelField field = writable.get(i);
-            TypeName value = boxed(field.type());
+            TypeName value = nullness.nullable(boxed(field.type()));
             String property = capitalized(field.name());
             type.addMethod(MethodSpec.methodBuilder(field.name())
                     .addModifiers(Modifier.PUBLIC)
@@ -156,7 +160,7 @@ final class ChangesWriter {
                 .addTypeVariable(c)
                 .returns(ParameterizedTypeName.get(ASSIGNMENT, modelName, c))
                 .addParameter(ParameterizedTypeName.get(COLUMN_FIELD, modelName, ANY, c), "column")
-                .addParameter(c, "value")
+                .addParameter(nullness.nullable(c), "value")
                 .addStatement("return value == null ? $T.ofNull(column) : $T.of(column, value)", ASSIGNMENT,
                         ASSIGNMENT)
                 .build());
