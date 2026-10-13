@@ -166,3 +166,9 @@ CREATE TABLE constant_rows (
     tags    @JSONB@ NULL,
     state   VARCHAR(1) @COLLATE@ NULL
 );
+-- The counter a conflict setExpression increments (TCK AC-WRT-44): next_value is the value of the row the insert
+-- added, then the stored value plus one on each further insert of the same key; empty in the seed.
+CREATE TABLE counter_rows (
+    id         BIGINT NOT NULL PRIMARY KEY,
+    next_value BIGINT NOT NULL
+);

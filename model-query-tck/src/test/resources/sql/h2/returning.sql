@@ -1,2 +1,5 @@
 select id, quantity, order_id from final table (update order_items oie1_0 set quantity=? where oie1_0.id=?)
 select id, quantity, order_id from old table (delete from order_items oie1_0 where oie1_0.id=?)
+select id, next_value from final table (insert into counter_rows(id,next_value) values (?,?))
+select next_value, id from final table (merge into counter_rows cre1_0 using (values (?,?)) excluded(id,next_value) on (cre1_0.id=excluded.id) when matched then update set next_value=(cre1_0.next_value+cast(? as bigint)) when not matched then insert (id,next_value) values (excluded.id,excluded.next_value))
+select next_value, id from final table (merge into counter_rows cre1_0 using (values (?,?)) excluded(id,next_value) on (cre1_0.id=excluded.id) when matched then update set next_value=(cre1_0.next_value+cast(? as bigint)) when not matched then insert (id,next_value) values (excluded.id,excluded.next_value))

@@ -367,12 +367,27 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         Set<String> read = conflictWhereReads(conflict);
         var first = new ArrayList<Runnable>();
         var last = new ArrayList<Runnable>();
+        // A setExpression assignment renders before the others (R-WRT-13): it reads the stored row as the insert left
+        // it, not as the earlier assignments rewrote it.
+        for (Assignment<?, ?> assignment : conflict.update().assignments()) {
+            if (assignment instanceof Assignment.Conflict<?, ?> conflictAssignment) {
+                String name = InsertMetamodel.toOneIdPath(entity, conflictAssignment.column().name());
+                Path stored = (Path) path(target, name);
+                Path incoming = (Path) path(excluded, name);
+                Expression<?> rendered = conflictAssignment.expression().apply(stored, incoming, cb);
+                (read.contains(conflictAssignment.column().name()) ? last : first)
+                        .add(() -> expression.accept(stored, rendered));
+            }
+        }
         for (ColumnField<M, E, ?> column : conflict.update().fromRow()) {
             String path = InsertMetamodel.toOneIdPath(entity, column.name());
             (read.contains(column.name()) ? last : first).add(() -> expression.accept(path(target, path),
                     path(excluded, path)));
         }
         for (Assignment<?, ?> assignment : conflict.update().assignments()) {
+            if (assignment instanceof Assignment.Conflict<?, ?>) {
+                continue;
+            }
             ColumnField column = assignment.column();
             Path<?> path = path(target, InsertMetamodel.toOneIdPath(entity, column.name()));
             // A setNull binds a null as the attribute's type: a NULL literal typed by its Java class fails for a
@@ -504,21 +519,32 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
 
     /**
      * The conflict update's assignments, those of {@code written} it adds and the version increment counted unless
-     * {@code keepVersion()}.
+     * {@code keepVersion()}. A {@code setExpression} assignment repeats the {@code where} on MySQL's {@code CASE} as
+     * the others do, so it counts here.
      */
     private int conflictAssignments(Collection<String> written) {
         ConflictUpdate.Action<E, M> update = conflictUpdate();
-        return update == null ? 0 : update.fromRow().size() + conflictValueBinds(written);
+        return update == null ? 0 : update.fromRow().size() + update.assignments().size()
+                + addedAssignments(written).size() + (definition.conflict().keepVersion() ? 0 : 1);
     }
 
     /**
      * The conflict update's {@code set} and {@code setNull} values, those of {@code written} it adds and the version
-     * increment's, counted unless {@code keepVersion()}.
+     * increment's, counted unless {@code keepVersion()}. A {@code setExpression} assignment binds no value of its own:
+     * it renders the expression.
      */
     private int conflictValueBinds(Collection<String> written) {
         ConflictUpdate.Action<E, M> update = conflictUpdate();
-        return update == null ? 0 : update.assignments().size() + addedAssignments(written).size()
-                + (definition.conflict().keepVersion() ? 0 : 1);
+        if (update == null) {
+            return 0;
+        }
+        int values = 0;
+        for (Assignment<?, ?> assignment : update.assignments()) {
+            if (!(assignment instanceof Assignment.Conflict<?, ?>)) {
+                values++;
+            }
+        }
+        return values + addedAssignments(written).size() + (definition.conflict().keepVersion() ? 0 : 1);
     }
 
     /**

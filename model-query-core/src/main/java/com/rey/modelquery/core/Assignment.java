@@ -87,4 +87,22 @@ public sealed interface Assignment<M, C> {
             Objects.requireNonNull(expression, "expression");
         }
     }
+
+    /**
+     * Writes what a {@link ConflictExpression} returns for the conflicted column, given the stored and the incoming
+     * row (R-WRT-51). Only a conflict update offers one: it is not among the {@code ModelUpdate} assignments, whose
+     * plain {@link Expression} takes a single path. The column has the entity attribute's type, so a converter is
+     * refused at {@code build()} ({@code MQ1609}).
+     *
+     * @param column the column written
+     * @param expression the value written, given the stored and the incoming row's paths
+     */
+    record Conflict<M, C>(ColumnField<M, ?, C> column, ConflictExpression<C> expression) implements Assignment<M, C> {
+
+        /** Validates the components. */
+        public Conflict {
+            Objects.requireNonNull(column, "column");
+            Objects.requireNonNull(expression, "expression");
+        }
+    }
 }

@@ -19,7 +19,8 @@ public enum ReturningShape {
 
     /**
      * The write's SQL as the source of a select over its delta table: the rows it wrote, as
-     * {@code SELECT <columns> FROM FINAL TABLE (<write>)} on an update and {@code OLD TABLE} on a delete.
+     * {@code SELECT <columns> FROM FINAL TABLE (<write>)} on an update or an insert and {@code OLD TABLE} on a
+     * delete.
      */
     DELTA_TABLE
 }

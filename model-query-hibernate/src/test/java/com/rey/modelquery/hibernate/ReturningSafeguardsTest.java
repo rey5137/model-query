@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.jpa.spi.WriteStatement;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
@@ -67,41 +68,59 @@ class ReturningSafeguardsTest {
     @Test
     void ac_wrt_42_the_first_use_check_accepts_the_shapes_of_vendor_41_section_7() {
         assertThatCode(() -> HibernateMutations.checkSql("update Item i1_0 set name=? where i1_0.id=?",
-                "update Item i1_0 set name=? where i1_0.id=? returning name,qty", 2, true))
+                "update Item i1_0 set name=? where i1_0.id=? returning name,qty", 2, WriteStatement.UPDATE))
                 .doesNotThrowAnyException();
         assertThatCode(() -> HibernateMutations.checkSql("delete from Item i1_0 where i1_0.id=?",
-                "delete from Item i1_0 where i1_0.id=? returning name,qty", 1, false))
+                "delete from Item i1_0 where i1_0.id=? returning name,qty", 1, WriteStatement.DELETE))
                 .doesNotThrowAnyException();
         assertThatCode(() -> HibernateMutations.checkSql("update Item i1_0 set name=? where i1_0.id=?",
-                "select name, qty from final table (update Item i1_0 set name=? where i1_0.id=?)", 2, true))
+                "select name, qty from final table (update Item i1_0 set name=? where i1_0.id=?)", 2,
+                WriteStatement.UPDATE))
                 .doesNotThrowAnyException();
         assertThatCode(() -> HibernateMutations.checkSql("delete from Item i1_0 where i1_0.id=?",
-                "select name, qty from old table (delete from Item i1_0 where i1_0.id=?)", 1, false))
+                "select name, qty from old table (delete from Item i1_0 where i1_0.id=?)", 1,
+                WriteStatement.DELETE))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> HibernateMutations.checkSql("insert into Item(id,qty) values (?,?)",
+                "insert into Item(id,qty) values (?,?) returning id,qty", 2, WriteStatement.INSERT))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> HibernateMutations.checkSql("insert into Item(id,qty) values (?,?)",
+                "select id, qty from final table (insert into Item(id,qty) values (?,?))", 2,
+                WriteStatement.INSERT))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> HibernateMutations.checkSql("merge into Item i1_0 using (values (?,?)) on (i1_0.id=?)",
+                "select id, qty from final table (merge into Item i1_0 using (values (?,?)) on (i1_0.id=?))", 3,
+                WriteStatement.INSERT))
                 .doesNotThrowAnyException();
     }
 
     @Test
     void ac_wrt_42_the_first_use_check_refuses_a_keyword_a_placeholder_count_or_an_anchor_that_disagrees() {
         refuses("delete from Item i1_0 where i1_0.id=?",
-                "delete from Item i1_0 where i1_0.id=? returning name", 1, true, "it does not start with update");
-        refuses("update Item i1_0 set name=? where i1_0.id=?", "update Item i1_0 set name=? returning name", 2, true,
-                "placeholders");
+                "delete from Item i1_0 where i1_0.id=? returning name", 1, WriteStatement.UPDATE,
+                "it does not start with update");
+        refuses("update Item i1_0 set name=? where i1_0.id=?", "update Item i1_0 set name=? returning name", 2,
+                WriteStatement.UPDATE, "placeholders");
         refuses("update Item i1_0 set name=? where i1_0.id=?",
-                "update Item i1_0 set name=? where i1_0.id=?", 2, true, "returning");
+                "update Item i1_0 set name=? where i1_0.id=?", 2, WriteStatement.UPDATE, "returning");
         refuses("delete from Item i1_0 where i1_0.id=?",
-                "delete from Item i1_0 where i1_0.id=? returning name returning qty", 1, false, "single returning");
+                "delete from Item i1_0 where i1_0.id=? returning name returning qty", 1, WriteStatement.DELETE,
+                "single returning");
         refuses("update Item i1_0 set name=? where i1_0.id=?",
-                "select name from final table (update Item i1_0 set name=? where i1_0.id=?) returning name", 2, true,
-                "do not agree");
+                "select name from final table (update Item i1_0 set name=? where i1_0.id=?) returning name", 2,
+                WriteStatement.UPDATE, "do not agree");
+        refuses("delete from Item i1_0 where i1_0.id=?",
+                "delete from Item i1_0 where i1_0.id=? returning id,qty", 1, WriteStatement.INSERT,
+                "it does not start with insert or merge");
     }
 
     @Test
     void ac_wrt_42_the_first_use_check_ignores_a_placeholder_or_an_anchor_inside_a_string_literal() {
         assertThatCode(() -> HibernateMutations.checkSql("update Item i1_0 set name='a?b' where i1_0.id=?",
-                "update Item i1_0 set name='a?b' where i1_0.id=? returning name", 1, true))
+                "update Item i1_0 set name='a?b' where i1_0.id=? returning name", 1, WriteStatement.UPDATE))
                 .doesNotThrowAnyException();
         String quoted = "update Item i1_0 set name=' returning ''x'' ' where i1_0.id=?";
-        assertThatCode(() -> HibernateMutations.checkSql(quoted, quoted + " returning name", 1, true))
+        assertThatCode(() -> HibernateMutations.checkSql(quoted, quoted + " returning name", 1, WriteStatement.UPDATE))
                 .doesNotThrowAnyException();
     }
 
@@ -113,20 +132,21 @@ class ReturningSafeguardsTest {
         String anchored = rendered + " returning name";
         try (SessionFactoryImplementor sf = factory()) {
             for (int use = 1; use <= 2; use++) {
-                assertThatThrownBy(() -> HibernateMutations.check(sf, true, rendered, unanchored, 2)).as("use %d", use)
+                assertThatThrownBy(() -> HibernateMutations.check(sf, WriteStatement.UPDATE, rendered, unanchored, 2))
+                        .as("use %d", use)
                         .isInstanceOfSatisfying(ModelQueryExecutionException.class,
                                 e -> assertThat(e.code()).isEqualTo(MqCode.MQ4011))
                         .hasMessageContaining("no single returning clause");
             }
-            assertThatCode(() -> HibernateMutations.check(sf, true, rendered, anchored, 2))
+            assertThatCode(() -> HibernateMutations.check(sf, WriteStatement.UPDATE, rendered, anchored, 2))
                     .doesNotThrowAnyException();
-            assertThatCode(() -> HibernateMutations.check(sf, false, rendered, anchored, 2))
+            assertThatCode(() -> HibernateMutations.check(sf, WriteStatement.DELETE, rendered, anchored, 2))
                     .as("a passed statement is not checked again").doesNotThrowAnyException();
         }
     }
 
-    private static void refuses(String rendered, String sql, int binders, boolean update, String message) {
-        assertThatThrownBy(() -> HibernateMutations.checkSql(rendered, sql, binders, update))
+    private static void refuses(String rendered, String sql, int binders, WriteStatement kind, String message) {
+        assertThatThrownBy(() -> HibernateMutations.checkSql(rendered, sql, binders, kind))
                 .isInstanceOfSatisfying(ModelQueryExecutionException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ4011))
                 .hasMessageContaining(message);

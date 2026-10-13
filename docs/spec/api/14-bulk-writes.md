@@ -334,6 +334,8 @@ public interface ModelQueryExecutor<E> {
 | AC-WRT-40 | On a `generateInserts` query model, `insert(rows).set(CREATED_AT, now)` on an `@ExcludeFromInserts` field writes the set value on every row (not `MQ1801`: an excluded field's constant is no model column), and an excluded `DEFAULT` column gets its database default through `insert` and the no-arg constructor's value through `persist` (R-PROC-27, D-125). |
 | AC-WRT-41 | `ModelUpdate.setExpression(COL, (path, cb) -> cb.sum(path, 1))` on an integer column adds one to exactly the filtered rows on every Tier-1 vendor, and no other row changes (R-WRT-13, R-WRT-14). |
 | AC-WRT-42 | `updateReturning` and `deleteReturning` return one model per changed row in the shapes of `vendor/41` §7 on every Tier-1 vendor (H2's `FINAL TABLE`/`OLD TABLE`, PostgreSQL's `RETURNING`), with a chunked write's chunks concatenated and no row twice; a selected column on a table other than the written one, `throughEntities()`, `commitEachChunk()` or a returning query clause R-WRT-48 refuses is `MQ1809`, and MySQL, an unrendered shape, a provider without `ReturningSupport` or a multi-table root is `MQ4011`, all before any statement; `expectVersion` with zero rows still throws `OptimisticLockException` (R-WRT-50, R-VND-17, D-129). |
+| AC-WRT-43 | `insertReturning` returns one model per row the insert wrote — a plain insert-values, a chunked one concatenating its chunks, and an upsert through `onConflict(...).doUpdate(...)` returning the inserted and the updated rows, not those a `doNothing()` skipped — in the shapes of `vendor/41` §7 (H2's `FINAL TABLE`, PostgreSQL's `RETURNING`), and refuses it with `MQ4011` before any statement on a vendor whose profile has no insert shape, MySQL among them (R-WRT-50, R-VND-17, D-129). |
+| AC-WRT-44 | `ConflictUpdate.setExpression(COL, (stored, incoming, cb) -> cb.sum(stored, 1))` increments the stored row's column and renders before the clause's other assignments on every Tier-1 vendor, counted as an assigned column by R-WRT-34's `where` rule, with `MQ1609` for a converted column and `MQ1804` for a key column or one assigned twice (R-WRT-13, R-WRT-51, R-WRT-34). |
 
 ## 10. Inserts
 
@@ -533,13 +535,17 @@ does not enforce, and would update every matching row or insert duplicates.
 `onConflict` returns `Conflict`, offering only `doNothing()`, which returns `ConflictOptions`, and
 `doUpdate(Function<ConflictUpdate<E, M>, ConflictUpdate.Action<E, M>>)`, which returns `Upserting`; so a clause without
 an action does not compile. `ConflictUpdate` offers `setFromRow(first, rest...)` (the incoming row's value), `set`
-(`null` is `MQ1603`) and `setNull`, each returning `Assigned`, an `Action` offering more assignments and one
+(`null` is `MQ1603`), `setNull` and `setExpression(column, ConflictExpression)`, which writes what the expression
+computes from the stored row's path, the incoming row's path and the `CriteriaBuilder` and renders before the other
+assignments (R-WRT-13, R-WRT-51); each returns `Assigned`, an `Action` offering more assignments and one
 `where(UnaryOperator<Filters<M>>)` that returns a bare `Action`; so an update assigning nothing does not compile. The `where` renders inside the provider's insert, so it takes no `Expr.value` (R-COL-26), which no
 executor could bind there: that is `MQ1804` on first execution; `Expr.constant` and plain values work.
 `ConflictOptions` offers `anyUniqueKey()` (R-WRT-36), `chunked`, `persistenceContext` and `build()`, which returns a
 `ModelInsert`; `Upserting` adds `keepVersion()`. The assignments follow R-WRT-13: a key column (the conflict columns or
 the model's `@PrimaryKey`), a column assigned twice or a column not on the root is `MQ1804` at `build()`, as is a
 `setFromRow` column not in the model's `InsertColumns`; an id or `@Version` attribute is `MQ1804` on first execution.
+A `setExpression` column with a converter is `MQ1609` at `build()`, since its path has the entity attribute's type, not
+the model's.
 The `where` filters the stored row on root columns only: the conflict action has no join context, so a joined column,
 `exists` or a sub-select is `MQ1804` at `build()`. If every filter in it is skipped, the update applies to every
 conflicting row (not `MQ1601`). A `where` that reads two or more of the columns the update assigns, the version
@@ -790,6 +796,7 @@ supplied value is not written and fires no update callback, and the count stays 
 // ModelQueryExecutor<E>, ModelQueryRepository<E>; @Incubating
 <R> List<R> updateReturning(ModelUpdate<E, ?> update, ModelQuery<E, ?, R> returning);
 <R> List<R> deleteReturning(ModelDelete<E, ?> delete, ModelQuery<E, ?, R> returning);
+<R> List<R> insertReturning(ModelInsert<E, ?> insert, ModelQuery<E, ?, R> returning);
 
 // The rows a write changed, in the order the database returned them (unspecified).
 List<ExportJob> done = repository.updateReturning(
@@ -797,12 +804,16 @@ List<ExportJob> done = repository.updateReturning(
         QExportJob.query().select(QExportJob.ALL).build());
 ```
 
-**R-WRT-50** `@Incubating <R> List<R> updateReturning(ModelUpdate<E, ?> update, ModelQuery<E, ?, R> returning)` and
-`deleteReturning(ModelDelete<E, ?> delete, ModelQuery<E, ?, R> returning)` on `ModelQueryExecutor<E>` and
+**R-WRT-50** `@Incubating <R> List<R> updateReturning(ModelUpdate<E, ?> update, ModelQuery<E, ?, R> returning)`,
+`deleteReturning(ModelDelete<E, ?> delete, ModelQuery<E, ?, R> returning)` and
+`insertReturning(ModelInsert<E, ?> insert, ModelQuery<E, ?, R> returning)` on `ModelQueryExecutor<E>` and
 `ModelQueryRepository<E>` run the write as R-WRT-06 does and return the rows it changed, one `R` per row, in an
-unspecified order, held in memory. The write and its options are the ones the update or delete already carries, so
-assignments (R-WRT-49), version handling (R-WRT-16), `setExpression`, filters and the timeout of R-EXE-11 all apply
-unchanged. The `returning` query supplies the root, the selection and the mapper as R-WRT-48's does, and `E` fixes it;
+unspecified order, held in memory. The write and its options are the ones the update, delete or insert already carries,
+so for an update or delete assignments (R-WRT-49), version handling (R-WRT-16), `setExpression`, filters and the timeout
+of R-EXE-11 all apply unchanged. So for an insert do the insert-values' conflict clause (R-WRT-34) and chunking: an
+upsert's rows are the rows it inserted and the rows it updated, never those a `doNothing()` skipped, since the vendor
+returns one row per row the statement wrote. The `returning` query supplies the root, the selection and the mapper as
+R-WRT-48's does, and `E` fixes it;
 its clauses are checked by the same `MQ1809` rule, on the first execution per factory and before any statement, with
 `Row` covering the untyped case. A to-one's id, which R-WRT-48 allows, is read from the written row's foreign key. A
 selected column whose table is not the written one — a secondary table's, a joined supertable's, or the id of a to-one
@@ -810,7 +821,8 @@ whose key is on its target's table, which the provider reports — is also `MQ18
 
 Plain chunking is allowed: R-WRT-17 never writes a row twice, so the chunks' rows are concatenated and every changed
 row is returned exactly once. An entity-mode write (`throughEntities()`) and `commitEachChunk()` are `MQ1809`: an entity
-callback's own writes are not this statement's rows, and a committed chunk's rows are out of reach. The rows come from
+callback's own writes are not this statement's rows, and a committed chunk's rows are out of reach; an insert has no
+`throughEntities()` form, so only `commitEachChunk()` arises there. The rows come from
 the write statement itself, never from a select after it, and a returning write adds no lock of its own and no paging
 rule: the result is a `List`, not an export (INV-4 does not apply). `expectVersion(v)` with zero changed rows still
 throws `OptimisticLockException` (R-WRT-16).
@@ -823,3 +835,15 @@ provider cannot render the shape, or the root entity is mapped to more than one 
 entry, before any statement, naming the provider, the vendor and the statement kind. That refusal is a fail-safe, as
 R-VND-15's is: every other write, insert and upsert is unaffected. The Javadoc says the rows hold what the database
 returned, so a column the database fills in a trigger is present only where that vendor returns it.
+
+**R-WRT-51** `ConflictUpdate.setExpression(ColumnField column, ConflictExpression<C> expression)` writes what
+`ConflictExpression#apply(Path<C> stored, Path<C> incoming, CriteriaBuilder cb)` returns for the column: an escape hatch
+like `ModelUpdate`'s `setExpression` (R-WRT-13) with the incoming row added, where `stored` is the stored row's column,
+`incoming` the conflicting insert's row, `excluded` in the rendering of R-WRT-35. `ConflictExpression` is
+`@Incubating` and functional, in `model-query-core`. The assignment renders before the clause's other assignments, so it
+reads the stored row as the insert left it (R-WRT-13), and it counts as an assigned column for R-WRT-34's `where` rule:
+one to a column the `where` reads still renders after the others, as R-WRT-35 orders it.
+Its column has the entity attribute's type, so a converter is `MQ1609` at `build()`, exactly as R-WRT-09 refuses one;
+R-WRT-34's key-column and assigned-twice checks apply to it unchanged. An update has no incoming row, so a
+`Changes` whose assignments include one is `MQ1804` at `ModelUpdate.Builder.set(changes)`. It reaches the provider as
+`ConflictClause.Assignments#expression` (`vendor/40` R-VND-14, `vendor/41` §7).

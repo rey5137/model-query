@@ -1069,8 +1069,21 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     public <R> List<R> updateReturning(ModelUpdate<E, ?> u, ModelQuery<E, ?, R> returning) {
         Objects.requireNonNull(u, "u");
         Objects.requireNonNull(returning, "returning");
-        Returning<R> rows = returning(u.entityMode(), u.chunkOptions(), returning, WriteStatement.UPDATE);
+        if (u.entityMode()) {
+            throw returningRefused(WriteStatement.UPDATE, "throughEntities()");
+        }
+        Returning<R> rows = returning(u.chunkOptions(), returning, WriteStatement.UPDATE);
         update(u, rows);
+        return rows.models();
+    }
+
+    @Override
+    public <R> List<R> insertReturning(ModelInsert<E, ?> i, ModelQuery<E, ?, R> returning) {
+        Objects.requireNonNull(i, "i");
+        Objects.requireNonNull(returning, "returning");
+        // The insert has no throughEntities() form, so R-WRT-50's refusal of it does not arise here
+        Returning<R> rows = returning(i.chunkOptions(), returning, WriteStatement.INSERT);
+        insert(i, rows);
         return rows.models();
     }
 
@@ -1321,7 +1334,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     public <R> List<R> deleteReturning(ModelDelete<E, ?> d, ModelQuery<E, ?, R> returning) {
         Objects.requireNonNull(d, "d");
         Objects.requireNonNull(returning, "returning");
-        Returning<R> rows = returning(d.entityMode(), d.chunkOptions(), returning, WriteStatement.DELETE);
+        if (d.entityMode()) {
+            throw returningRefused(WriteStatement.DELETE, "throughEntities()");
+        }
+        Returning<R> rows = returning(d.chunkOptions(), returning, WriteStatement.DELETE);
         delete(d, rows);
         return rows.models();
     }
@@ -1358,14 +1374,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * The rows a returning write collects, after R-WRT-50's refusals, all before any statement: {@code
-     * throughEntities()} and {@code commitEachChunk()} (MQ1809), the returning query's clauses, which are checked as
-     * R-WRT-48 checks them, and the factory's ability to return rows for {@code kind} at all (MQ4011).
+     * commitEachChunk()} (MQ1809), the returning query's clauses, which are checked as R-WRT-48 checks them, and the
+     * factory's ability to return rows for {@code kind} at all (MQ4011). A {@code throughEntities()} write is refused
+     * by its own caller, before this.
      */
-    private <R> Returning<R> returning(boolean entityMode, Optional<ChunkOptions> chunk, ModelQuery<E, ?, R> returning,
+    private <R> Returning<R> returning(Optional<ChunkOptions> chunk, ModelQuery<E, ?, R> returning,
             WriteStatement kind) {
-        if (entityMode) {
-            throw returningRefused(kind, "throughEntities()");
-        }
         if (chunk.map(ChunkOptions::commitsEachChunk).orElse(false)) {
             throw returningRefused(kind, "commitEachChunk()");
         }
@@ -1456,14 +1470,19 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     @Override
     public long insert(ModelInsert<E, ?> i) {
         Objects.requireNonNull(i, "i");
+        return insert(i, null);
+    }
+
+    /** {@link #insert(ModelInsert)}, collecting the written rows into {@code returning} when it is given (R-WRT-50). */
+    private long insert(ModelInsert<E, ?> i, Returning<?> returning) {
         InsertSupport support = insertSupport(i);
         WriteAssignments assignments = writeAssignments();
         checkInsertOnce(i, support, assignments);
         requireTransaction("a bulk insert", i.chunkOptions());
         if (i.sourceEntity().isPresent()) {
-            return insertSelect(i, support, assignments);
+            return insertSelect(i, support, assignments, returning);
         }
-        return insertValues(i, support, null, assignments);
+        return insertValues(i, support, null, assignments, returning);
     }
 
     /**
@@ -1472,7 +1491,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * persistence context is flushed before and cleared after, as for any bulk write (R-WRT-27, R-WRT-28, R-WRT-38).
      * The write assignments the definition leaves are selected as constants after its own (R-WRT-49).
      */
-    private long insertSelect(ModelInsert<E, ?> i, InsertSupport support, WriteAssignments assignments) {
+    private long insertSelect(ModelInsert<E, ?> i, InsertSupport support, WriteAssignments assignments,
+            Returning<?> returning) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
         List<String> attributes = i.selectedAttributes(em.getMetamodel());
         Map<String, Object> constants = i.selectParameters();
@@ -1500,7 +1520,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Supplier<Query> whole = () -> statement.apply(em, select, wholeSource);
         logWrite("insert", i, i.chunkOptions(), false);
         if (i.chunkOptions().isEmpty()) {
-            return write(i.persistenceContext(), () -> execute(whole.get(), repeated));
+            return write(i.persistenceContext(), () -> execute(whole.get(), repeated, returning));
         }
         PrimaryKey<Object, ?> key = i.sourceKey(metamodel);
         BiFunction<EntityManager, List<Object>, Query> byKeys = (on, keys) -> {
@@ -1510,7 +1530,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         // The source keys are attribute values of plain id columns, which is what the exception reports (R-WRT-32).
         var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), key, Optional.empty(),
                 run -> i.buildKeySelect(cb, renderOptions, key),
-                (on, keys) -> execute(byKeys.apply(on, keys), repeated), Optional.empty(), sourceKey -> sourceKey);
+                (on, keys) -> execute(byKeys.apply(on, keys), repeated, returning), Optional.empty(),
+                sourceKey -> sourceKey);
         return write(i.persistenceContext(), () -> keyset(keyed, whole, keys -> byKeys.apply(em, keys),
                 i.chunkOptions(), cb, repeated));
     }
@@ -1568,7 +1589,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         InsertChecks.checkKeysGenerated(i, insertTarget(support).id());
         requireTransaction("a bulk insert", i.chunkOptions());
         var keys = new ArrayList<Object>(i.rowCount());
-        insertValues(i, support, keys, assignments);
+        insertValues(i, support, keys, assignments, null);
         return keys.stream().map(i.keyType()::cast).toList();
     }
 
@@ -1583,7 +1604,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * {@code UPDATE} ones, each supplier called once for the whole insert (R-WRT-49).
      */
     private long insertValues(ModelInsert<E, ?> i, InsertSupport support, List<Object> keys,
-            WriteAssignments assignments) {
+            WriteAssignments assignments, Returning<?> returning) {
         int rows = i.rowCount();
         if (rows == 0) {
             return 0;
@@ -1627,8 +1648,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                     keys.addAll(drawnKeys);
                 }
             }
-            return execute(support.insertValues(on, rootEntity, attributes, values, conflict),
-                    providerBinds * (to - from) + conflictRepeatedBinds);
+            return Math.toIntExact(execute(support.insertValues(on, rootEntity, attributes, values, conflict),
+                    providerBinds * (to - from) + conflictRepeatedBinds, returning));
         };
         boolean perChunk = i.chunkOptions().map(ChunkOptions::commitsEachChunk).orElse(false);
         logWrite("insert", i, i.chunkOptions(), false);

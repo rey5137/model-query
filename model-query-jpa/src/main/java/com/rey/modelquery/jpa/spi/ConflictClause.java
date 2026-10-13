@@ -52,7 +52,10 @@ public interface ConflictClause<E> {
          */
         void value(Path<?> target, Object value);
 
-        /** Assigns {@code value}, such as the incoming row's attribute or the version's increment. */
+        /**
+         * Assigns {@code value}, such as the incoming row's attribute, a conflict {@code setExpression}'s value
+         * (R-WRT-51) or the version's increment.
+         */
         void expression(Path<?> target, Expression<?> value);
     }
 }
