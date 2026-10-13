@@ -83,6 +83,9 @@
         <jackson.version>2.22.3</jackson.version>
         <!-- Test scope of model-query-processor only: generated code is compiled with modelquery.jspecify (D-135). -->
         <jspecify.version>1.0.0</jspecify.version>
+        <!-- Test scope of model-query-processor only: the NullAway compatibility test (AC-GEN-32). -->
+        <errorprone.version>2.47.0</errorprone.version>
+        <nullaway.version>0.13.1</nullaway.version>
         <!-- Test scope of model-query-processor only (D-40); banned everywhere else by the enforcer below. -->
         <lombok.version>1.18.46</lombok.version>
         <!-- Test scope only: a Bean Validation provider and the EL it interpolates with, to run @ValidChanges. -->

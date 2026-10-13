@@ -9,6 +9,13 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 Nothing is frozen yet: every public type stays `@Incubating`. The additions below are all `@Incubating`.
 
 ### Added
+- Generated-code nullness (D-135, R-PROC-32, R-GEN-36), described in "Processor options":
+  - `-Amodelquery.jspecify=true` puts JSpecify `@NullMarked` on generated `Q` classes and change sets, type-use
+    `@Nullable` on a change set's fields, setter and fluent parameters, getters and assignment values, and
+    `@NullUnmarked` on the mapper and the `JoinField`/`ChildField` `with` methods. The annotations are named by string,
+    so no artifact depends on JSpecify; output with the option off is unchanged.
+  - The new code `MQ3027`, reported once per compilation when the option is set and JSpecify is not on the classpath.
+  - A NullAway setup for Maven and Gradle, checked by a compile test of the shop, update and insert fixtures.
 - Row locks on reads (D-127, RFC 0009), described in "Row locks" and the "Claim the next job" recipe:
   - `RowLock` names a strength (`exclusive` or `shared`) and a wait policy (`Wait.WAIT`, `NO_WAIT` or `SKIP_LOCKED`).
     `ModelQuery.Builder#lock` sets it, `ModelQuery#lock()` reads it back, and `ModelQuery#withLock` returns a locking

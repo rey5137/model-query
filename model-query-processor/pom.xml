@@ -90,6 +90,19 @@
             <version>${jspecify.version}</version>
             <scope>test</scope>
         </dependency>
+        <!-- NullAway runs over the generated code compiled with modelquery.jspecify on (AC-GEN-32). -->
+        <dependency>
+            <groupId>com.google.errorprone</groupId>
+            <artifactId>error_prone_core</artifactId>
+            <version>${errorprone.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.uber.nullaway</groupId>
+            <artifactId>nullaway</artifactId>
+            <version>${nullaway.version}</version>
+            <scope>test</scope>
+        </dependency>
         <!-- The tests run the processor beside Lombok (D-40, processor/31 R-GEN-10). -->
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -135,6 +148,23 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Error Prone runs inside the test JVM and reaches into javac (AC-GEN-32). -->
+                    <argLine>
+                        --add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED
+                        --add-exports=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED
+                        --add-exports=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED
+                        --add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED
+                        --add-exports=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED
+                        --add-exports=jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED
+                        --add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED
+                        --add-exports=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED
+                        --add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED
+                        --add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED
+                        --add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED
+                        --add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED
+                    </argLine>
+                </configuration>
                 <executions>
                     <!-- Tests of the packaged jar (*IT) run once the shade plugin has written it (AC-GEN-09). -->
                     <execution>
