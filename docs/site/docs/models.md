@@ -320,6 +320,97 @@ Things to know:
   A `@PrimaryKey` on a non-id unique column is written with `add`. An assigned id must be written by some column, annotated
   `@PrimaryKey` or not (`MQ3501` otherwise); a plain column that writes it does not change the read key.
 
+## Processor options
+
+The processor reads three options, each passed to `javac` as `-Akey=value`:
+
+| Option | Default | Effect |
+|---|---|---|
+| `modelquery.prefix` | `Q` | The prefix of a generated class name. |
+| `modelquery.suffix` | empty | The suffix of a generated class name. |
+| `modelquery.jspecify` | `false` | With `true`, the generated classes carry JSpecify nullness annotations. |
+
+`modelquery.jspecify` is new in 0.9.0 and incubating. With it on, every generated `Q` class and change set is
+`@NullMarked`, and a change set's values, setter parameters and getters are `@Nullable`, since a change set holds
+`null` to write a NULL. The annotations are named in the generated source, not depended on: add
+`org.jspecify:jspecify` to the module that compiles the models. Without it on the classpath the processor reports
+`MQ3027` once and generates no annotation.
+
+### Checking nullness with NullAway
+
+With the option on, [NullAway](https://github.com/uber/NullAway) in JSpecify mode checks your own code against the
+generated API: dereferencing a change set's `@Nullable` getter is an error. Run NullAway over your packages and the
+packages the models generate into, which are the same ones. JPA entities and query-model classes are filled by
+reflection, so they are excluded from the field-initialization check.
+
+=== "Maven"
+
+    ```xml
+    <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+            <compilerArgs>
+                <arg>-Amodelquery.jspecify=true</arg>
+                <arg>-XDcompilePolicy=simple</arg>
+                <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
+                <arg>--should-stop=ifError=FLOW</arg>
+                <arg>-Xplugin:ErrorProne -XepDisableAllChecks -Xep:NullAway:ERROR -XepOpt:NullAway:AnnotatedPackages=com.example -XepOpt:NullAway:JSpecifyMode=true -XepOpt:NullAway:ExcludedClassAnnotations=jakarta.persistence.Entity,jakarta.persistence.Embeddable,com.rey.modelquery.annotations.QueryModel</arg>
+            </compilerArgs>
+            <annotationProcessorPaths>
+                <path>
+                    <groupId>io.github.rey5137</groupId>
+                    <artifactId>model-query-processor</artifactId>
+                    <version>0.9.0</version>
+                </path>
+                <path>
+                    <groupId>com.google.errorprone</groupId>
+                    <artifactId>error_prone_core</artifactId>
+                    <version>2.47.0</version>
+                </path>
+                <path>
+                    <groupId>com.uber.nullaway</groupId>
+                    <artifactId>nullaway</artifactId>
+                    <version>0.13.1</version>
+                </path>
+            </annotationProcessorPaths>
+        </configuration>
+    </plugin>
+    ```
+
+    On JDK 17 and later, Error Prone needs the `jdk.compiler` exports in `.mvn/jvm.config`; see the
+    [Error Prone installation guide](https://errorprone.info/docs/installation).
+
+=== "Gradle"
+
+    ```kotlin
+    plugins {
+        id("net.ltgt.errorprone") version "5.1.1"
+    }
+
+    dependencies {
+        annotationProcessor("io.github.rey5137:model-query-processor:0.9.0")
+        compileOnly("org.jspecify:jspecify:1.0.0")
+        errorprone("com.google.errorprone:error_prone_core:2.47.0")
+        errorprone("com.uber.nullaway:nullaway:0.13.1")
+    }
+
+    tasks.withType<JavaCompile>().configureEach {
+        options.compilerArgs.add("-Amodelquery.jspecify=true")
+        options.errorprone {
+            disableAllChecks.set(true)
+            error("NullAway")
+            option("NullAway:AnnotatedPackages", "com.example")
+            option("NullAway:JSpecifyMode", "true")
+            option("NullAway:ExcludedClassAnnotations",
+                "jakarta.persistence.Entity,jakarta.persistence.Embeddable,com.rey.modelquery.annotations.QueryModel")
+        }
+    }
+    ```
+
+The `net.ltgt.errorprone` plugin supplies the `-XDcompilePolicy` and `-XDaddTypeAnnotationsToSymbol` flags itself.
+The Maven snippet carries the flags the processor's own NullAway test passes (`NullAwayTest`).
+
 ## Keep the prefix consistent
 
 The default class name is `Q` plus the model name. If you change `prefix` or `suffix` through the

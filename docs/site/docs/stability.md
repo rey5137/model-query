@@ -129,6 +129,10 @@ where a provider does not override it. The new permit means an exhaustive `switc
 case. `ModelUpdate#checkSequences`, `ModelInsert#checkSequences` and `ModelInsert#computedValues` are `@EngineFacing`.
 See [Sequence values](inserts.md#sequence-values).
 
+The `modelquery.jspecify` processor option and the JSpecify annotations it puts on generated code are new in 0.9.0
+and incubating (D-135): the option name, the set of annotations and where they go may change in a minor release. See
+[Processor options](models.md#processor-options).
+
 The fetch-plan types are new in 0.2.0, `@Incubating`, and not yet placed in the 1.0 freeze list above:
 `FetchPlan`, `ChildField`, `JoinField`, `ChildQuery`, `Enricher` and the `@Child` annotation. The executor-facing
 `ChildLoad` and `JoinPlan` are `@EngineFacing`. See [Fetch plans](fetch-plans.md).
