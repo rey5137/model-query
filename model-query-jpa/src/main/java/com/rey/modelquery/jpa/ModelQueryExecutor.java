@@ -353,6 +353,31 @@ public interface ModelQueryExecutor<E> {
     <R> List<R> deleteReturning(ModelDelete<E, ?> d, ModelQuery<E, ?, R> returning);
 
     /**
+     * Runs {@code i} as {@link #insert} does and returns the models of the rows it wrote, one per row, in an
+     * unspecified order, held in memory (R-WRT-50, AC-WRT-43). {@code i} is a plain insert-values, an upsert through
+     * {@code onConflict(...).doUpdate(...)} or {@code doNothing()}, or an insert-select; {@code returning} supplies the
+     * root, the selection and the mapper as {@code persist(persist, returning)}'s query does (R-WRT-48), and {@code E}
+     * fixes the root at compile time. An upsert returns the inserted and the updated rows, never those a
+     * {@code doNothing()} skipped.
+     *
+     * <p>A {@code chunked} write returns every written row once, concatenating its chunks' rows (R-WRT-17).
+     * {@code commitEachChunk()} is refused, since a committed chunk's rows are out of reach. The returning query's
+     * clauses are checked as {@code persist(persist, returning)}'s are, and a selected column on a table other than the
+     * written one is refused too. An insert has no {@code throughEntities()} form, so that refusal of R-WRT-50 does not
+     * arise here.
+     *
+     * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution, before any statement:
+     *     {@code MQ1809} for a clause of the returning query R-WRT-48 refuses, for a selected column on another table,
+     *     or for {@code commitEachChunk()}; whatever {@link #insert} throws
+     * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ4011}, at method entry and before any
+     *     statement, when the factory cannot return the rows: its vendor profile has no shape for an insert, its
+     *     provider has no {@code ReturningSupport}, or that support cannot render the shape, as a Hibernate line whose
+     *     mutation translation calls moved cannot, or a root entity mapped to more than one table (R-VND-17)
+     */
+    @Incubating
+    <R> List<R> insertReturning(ModelInsert<E, ?> i, ModelQuery<E, ?, R> returning);
+
+    /**
      * Inserts {@code i}'s rows, an insert-select's or an insert-values', and returns the rows affected. It loads no
      * entity and runs no lifecycle callback, cascade, Bean Validation or Envers audit: {@link #persist} is the write
      * that runs them (R-WRT-24). It needs the provider's {@link com.rey.modelquery.jpa.spi.InsertSupport}, which

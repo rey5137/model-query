@@ -12,8 +12,10 @@ import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ColumnConverter;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.Filters;
+import com.rey.modelquery.core.InsertColumns;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
+import com.rey.modelquery.core.ModelInsert;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
@@ -25,6 +27,8 @@ import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.SubSelect;
 import com.rey.modelquery.core.TableField;
+import com.rey.modelquery.core.ValuesInsert;
+import com.rey.modelquery.hibernate.HibernateProviderSupport;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.MysqlStreamingMode;
@@ -34,6 +38,7 @@ import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.jpa.spi.WriteStatement;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
 import com.rey.modelquery.tck.col.CompositeKeyItemEntity;
+import com.rey.modelquery.tck.col.CounterRowEntity;
 import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
@@ -94,6 +99,12 @@ class BulkWriteTest {
 
     /** A returning update's model of an order's id and version (R-WRT-50, R-WRT-16). */
     record OrderVersion(Long id, Integer version) {}
+
+    /** A {@code counter_rows} row: the id and the value a returning insert wrote (AC-WRT-43). */
+    record CounterRow(Long id, Long nextValue) {}
+
+    /** The new value a counter upsert's returning clause reads (AC-WRT-44). */
+    record CounterValue(Long nextValue) {}
 
     record CustomerPatch(Long id) {}
 
@@ -208,6 +219,31 @@ class BulkWriteTest {
                     row.get(ROW_ORDER_ID))).select(SelectSet.of(ROW_ID, ROW_QUANTITY, ROW_ORDER_ID))
                     .primaryKey(PrimaryKey.of(ROW_ID));
 
+    /**
+     * The counter a conflict {@code setExpression} increments (AC-WRT-44): {@code counter_rows} is empty in the seed,
+     * so its first insert adds {@code next_value} and each further insert of the same id adds one to the stored value.
+     */
+    private static final TableField<CounterRowEntity, CounterRowEntity> COUNTERS =
+            TableField.root(CounterRowEntity.class);
+    private static final ColumnField<CounterRow, CounterRowEntity, Long> COUNTER_ID =
+            ColumnField.of(CounterRow.class, COUNTERS, "id", Long.class);
+    private static final ColumnField<CounterRow, CounterRowEntity, Long> COUNTER_NEXT =
+            ColumnField.of(CounterRow.class, COUNTERS, "nextValue", Long.class);
+    private static final InsertColumns<CounterRow, CounterRowEntity> COUNTER_COLUMNS =
+            InsertColumns.<CounterRow, CounterRowEntity>of(COUNTERS).addKey(COUNTER_ID, CounterRow::id)
+                    .add(COUNTER_NEXT, CounterRow::nextValue);
+    /** What a plain returning insert maps its written row to: the id and the value it wrote (R-WRT-50). */
+    private static final ModelQuery.Builder<CounterRowEntity, Long, CounterRow> COUNTER_RETURNING =
+            ModelQuery.builder(COUNTERS, row -> new CounterRow(row.get(COUNTER_ID), row.get(COUNTER_NEXT)))
+                    .select(SelectSet.of(COUNTER_ID, COUNTER_NEXT)).primaryKey(PrimaryKey.of(COUNTER_ID));
+    /** What a counter upsert maps its updated row to: only the new value, so its clause returns {@code next_value}. */
+    private static final ColumnField<CounterValue, CounterRowEntity, Long> COUNTER_VALUE_ID =
+            ColumnField.of(CounterValue.class, COUNTERS, "id", Long.class);
+    private static final ColumnField<CounterValue, CounterRowEntity, Long> COUNTER_NEW =
+            ColumnField.of(CounterValue.class, COUNTERS, "nextValue", Long.class);
+    private static final ModelQuery.Builder<CounterRowEntity, Long, CounterValue> COUNTER_VALUE_RETURNING =
+            ModelQuery.builder(COUNTERS, row -> new CounterValue(row.get(COUNTER_NEW)))
+                    .select(SelectSet.of(COUNTER_NEW)).primaryKey(PrimaryKey.of(COUNTER_VALUE_ID));
 
     private static final TableField<CustomerEntity, CustomerEntity> CUSTOMERS = TableField.root(CustomerEntity.class);
     private static final ColumnField<CustomerPatch, CustomerEntity, Long> CUSTOMER_ID =
@@ -1009,42 +1045,57 @@ class BulkWriteTest {
         }
     }
 
-    // ---- AC-WRT-42
+    // ---- AC-WRT-42, AC-WRT-43, AC-WRT-44
 
     /**
-     * R-WRT-50 on Tier 1 (vendor/41 §7, AC-WRT-42): a returning update hands back exactly the written row's
-     * post-update values and a returning delete exactly its pre-delete values, as one statement each whose SQL the
-     * snapshot holds. A database whose profile declares no returning shape, MySQL among them, refuses both with
-     * {@code MQ4011} before any statement (AC-VND-14). Both Hibernate lines render the same SQL, so no
-     * {@code hibernate7/returning.sql} variant exists.
+     * R-WRT-50 on Tier 1 (vendor/41 §7, AC-WRT-42, AC-WRT-43, AC-WRT-44): a returning update hands back exactly the
+     * written row's post-update values, a returning delete exactly its pre-delete values, and a returning insert
+     * exactly the rows it inserted — for an upsert, the rows it inserted or updated, not the ones it skipped — as one
+     * statement per write, whose SQL the snapshot holds. A database whose profile declares no returning shape, MySQL
+     * among them, refuses every one with {@code MQ4011} before any statement (AC-VND-14). Both Hibernate lines render
+     * the same SQL, so no {@code hibernate7/returning.sql} variant exists.
      */
     @TckTest
-    void ac_wrt_42_update_and_delete_returning_return_the_changed_rows_post_update_and_pre_delete(TckDatabase db) {
+    void ac_wrt_42_43_44_update_delete_and_insert_returning_return_the_written_rows_as_one_statement_each(
+            TckDatabase db) {
         Map<Long, ItemRow> seeded = stored(db, List.of(3L, 5L));
         boolean returnsRows = returningShape(db) != null;
         var rows = new ArrayList<ItemRow>();
+        var inserted = new ArrayList<CounterRow>();
+        var counters = new ArrayList<CounterValue>();
         var refusals = new ArrayList<Throwable>();
         var update = ModelUpdate.builder(ITEM_ROWS).primaryKey(PrimaryKey.of(ITEM_ROW_ID))
                 .set(ITEM_ROW_QUANTITY, 42).where(f -> f.eq(ITEM_ROW_ID, 3L)).build();
         var delete = ModelDelete.builder(ITEM_ROWS).primaryKey(PrimaryKey.of(ITEM_ROW_ID))
                 .where(f -> f.eq(ITEM_ROW_ID, 5L)).build();
+        var plain = ValuesInsert.builder(COUNTER_COLUMNS, Long.class, List.of(new CounterRow(1L, 10L))).build();
+        var upsert = ValuesInsert.builder(COUNTER_COLUMNS, Long.class, List.of(new CounterRow(2L, 1L)))
+                .onConflict(COUNTER_ID).doUpdate(u -> u.setExpression(COUNTER_NEXT,
+                        (stored, incoming, cb) -> cb.sum(stored, 1L))).anyUniqueKey().build();
 
         List<String> sql = SqlSnapshots.assertMatches(db, "returning", ds -> inRolledBackTransaction(ds, em -> {
             ModelQueryExecutor<OrderItemEntity> executor =
                     ModelQueryExecutor.create(em, OrderItemEntity.class, ModelQueryConfig.defaults());
+            ModelQueryExecutor<CounterRowEntity> counter =
+                    ModelQueryExecutor.create(em, CounterRowEntity.class, ModelQueryConfig.defaults());
             var returning = ITEM_ROW_RETURNING.build();
             if (!returnsRows) {
                 refusals.add(catchThrowable(() -> executor.updateReturning(update, returning)));
                 refusals.add(catchThrowable(() -> executor.deleteReturning(delete, returning)));
+                refusals.add(catchThrowable(() -> counter.insertReturning(plain, COUNTER_RETURNING.build())));
+                refusals.add(catchThrowable(() -> counter.insertReturning(upsert, COUNTER_VALUE_RETURNING.build())));
                 return;
             }
             rows.addAll(executor.updateReturning(update, returning));
             rows.addAll(executor.deleteReturning(delete, returning));
+            inserted.addAll(counter.insertReturning(plain, COUNTER_RETURNING.build()));
+            counters.addAll(counter.insertReturning(upsert, COUNTER_VALUE_RETURNING.build()));
+            counters.addAll(counter.insertReturning(upsert, COUNTER_VALUE_RETURNING.build()));
         }));
 
         if (!returnsRows) {
             assertThat(sql).isEmpty();
-            assertThat(refusals).hasSize(2).allSatisfy(refusal -> assertThat(refusal)
+            assertThat(refusals).hasSize(4).allSatisfy(refusal -> assertThat(refusal)
                     .isInstanceOfSatisfying(ModelQueryExecutionException.class,
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ4011)));
             return;
@@ -1053,6 +1104,131 @@ class BulkWriteTest {
         assertThat(seeded.values()).as("each seeded item has an order").allSatisfy(row ->
                 assertThat(row.orderId()).isNotNull());
         assertThat(rows).containsExactly(new ItemRow(3L, 42, seeded.get(3L).orderId()), seeded.get(5L));
+        assertThat(inserted).as("the value the plain insert wrote").containsExactly(new CounterRow(1L, 10L));
+        assertThat(counters).as("the counter's first insert, then its stored value plus one").containsExactly(
+                new CounterValue(1L), new CounterValue(2L));
+    }
+
+    /**
+     * A returning insert of several rows hands back one row per inserted row, each with the values it wrote, in one
+     * statement and per statement of a chunked insert (R-WRT-50, R-WRT-51).
+     */
+    @TckTest
+    void ac_wrt_43_a_returning_insert_hands_back_every_inserted_row_with_the_values_it_wrote(TckDatabase db) {
+        Assumptions.assumeTrue(returningShape(db) != null, "the database returns no rows of a write (MQ4011)");
+        var rows = List.of(new CounterRow(1L, 10L), new CounterRow(2L, 11L), new CounterRow(3L, 12L));
+        var written = new ArrayList<CounterRow>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> inRolledBackTransaction(ds, em -> written.addAll(
+                ModelQueryExecutor.create(em, CounterRowEntity.class, ModelQueryConfig.defaults())
+                        .insertReturning(ValuesInsert.builder(COUNTER_COLUMNS, Long.class, rows)
+                                .chunked(ChunkOptions.size(2)).build(), COUNTER_RETURNING.build()))));
+
+        assertThat(written).as("every inserted row, as it was written").containsExactlyInAnyOrderElementsOf(rows);
+        assertThat(sql.stream().filter(statement -> statement.contains("counter_rows"))).as("one insert per chunk")
+                .hasSize(2);
+    }
+
+    /**
+     * A conflict update's {@code setExpression} recomputes a column from the stored row and the incoming row
+     * (R-WRT-51), so the same insert twice returns the value it inserted and then the stored value plus one, the
+     * updated row rather than a skip.
+     */
+    @TckTest
+    void ac_wrt_44_a_conflict_set_expression_increments_the_stored_row_and_the_upsert_returns_the_new_value(
+            TckDatabase db) {
+        Assumptions.assumeTrue(returningShape(db) != null, "the database returns no rows of a write (MQ4011)");
+        var insert = ValuesInsert.builder(COUNTER_COLUMNS, Long.class, List.of(new CounterRow(1L, 1L)))
+                .onConflict(COUNTER_ID).doUpdate(u -> u.setExpression(COUNTER_NEXT,
+                        (stored, incoming, cb) -> cb.sum(stored, 1L))).anyUniqueKey().build();
+        var counters = new ArrayList<CounterValue>();
+        inRolledBackTransaction(JoinTestSupport.dataSource(db), em -> {
+            ModelQueryExecutor<CounterRowEntity> counter =
+                    ModelQueryExecutor.create(em, CounterRowEntity.class, ModelQueryConfig.defaults());
+            counters.addAll(counter.insertReturning(insert, COUNTER_VALUE_RETURNING.build()));
+            counters.addAll(counter.insertReturning(insert, COUNTER_VALUE_RETURNING.build()));
+        });
+
+        assertThat(counters).as("the inserted value, then the stored value plus one").containsExactly(
+                new CounterValue(1L), new CounterValue(2L));
+    }
+
+    /**
+     * An upsert returns the rows it inserted and the rows it updated, never one its conflict clause left alone: a row
+     * whose stored row the {@code where} filters out, or one {@code doNothing()} skips where the provider renders it
+     * (R-WRT-50, AC-WRT-43). Hibernate 6.6 refuses a {@code MERGE} vendor's {@code doNothing()} (D-116), so there only
+     * the filtered case runs.
+     */
+    @TckTest
+    void ac_wrt_43_an_upsert_returns_the_inserted_and_updated_rows_and_none_it_left_alone(TckDatabase db) {
+        Assumptions.assumeTrue(returningShape(db) != null, "the database returns no rows of a write (MQ4011)");
+        var seed = ValuesInsert.builder(COUNTER_COLUMNS, Long.class,
+                List.of(new CounterRow(1L, 10L), new CounterRow(2L, 20L))).build();
+        var filtered = ValuesInsert.builder(COUNTER_COLUMNS, Long.class,
+                List.of(new CounterRow(1L, 11L), new CounterRow(2L, 21L), new CounterRow(3L, 30L)))
+                .onConflict(COUNTER_ID).doUpdate(u -> u.setFromRow(COUNTER_NEXT).where(f -> f.eq(COUNTER_ID, 1L)))
+                .anyUniqueKey().build();
+        var skipping = ValuesInsert.builder(COUNTER_COLUMNS, Long.class,
+                List.of(new CounterRow(1L, 99L), new CounterRow(4L, 40L))).onConflict(COUNTER_ID).doNothing()
+                .anyUniqueKey().build();
+        var updated = new ArrayList<CounterRow>();
+        var skipped = new ArrayList<CounterRow>();
+        var stored = new ArrayList<Long>();
+        boolean[] skips = new boolean[1];
+        inRolledBackTransaction(JoinTestSupport.dataSource(db), em -> {
+            ModelQueryExecutor<CounterRowEntity> counter =
+                    ModelQueryExecutor.create(em, CounterRowEntity.class, ModelQueryConfig.defaults());
+            counter.insert(seed);
+            updated.addAll(counter.insertReturning(filtered, COUNTER_RETURNING.build()));
+            skips[0] = new HibernateProviderSupport().inserts().orElseThrow()
+                    .doNothingRendered(em.getEntityManagerFactory());
+            if (skips[0]) {
+                skipped.addAll(counter.insertReturning(skipping, COUNTER_RETURNING.build()));
+            }
+            em.clear();
+            stored.addAll(em.createQuery("select c.nextValue from CounterRowEntity c order by c.id", Long.class)
+                    .getResultList());
+        });
+
+        assertThat(updated).as("row 1 updated and row 3 inserted; row 2 filtered out by the where")
+                .containsExactlyInAnyOrder(new CounterRow(1L, 11L), new CounterRow(3L, 30L));
+        if (skips[0]) {
+            assertThat(skipped).as("row 4 inserted; row 1 skipped").containsExactly(new CounterRow(4L, 40L));
+            assertThat(stored).containsExactly(11L, 20L, 30L, 40L);
+        } else {
+            assertThat(stored).containsExactly(11L, 20L, 30L);
+        }
+    }
+
+    /**
+     * An insert-select returns one row per row it copied, each with the values it wrote, whether it runs as one
+     * statement or as a chunked one whose chunks' rows are concatenated (R-WRT-50, R-WRT-17).
+     */
+    @TckTest
+    void ac_wrt_43_a_returning_insert_select_hands_back_every_copied_row_unchunked_or_chunked(TckDatabase db) {
+        Assumptions.assumeTrue(returningShape(db) != null, "the database returns no rows of a write (MQ4011)");
+        // The copied id is the model's column and the value a constant, so each copied row writes both
+        var columns = InsertColumns.<CounterRow, CounterRowEntity>of(COUNTERS).addKey(COUNTER_ID, CounterRow::id);
+        var whole = ModelInsert.select(columns, ITEM_ROWS).map(COUNTER_ID, ITEM_ROW_ID)
+                .set(COUNTER_NEXT, 7L).where(f -> f.in(ITEM_ROW_ID, List.of(3L, 5L))).build();
+        var chunked = ModelInsert.select(columns, ITEM_ROWS).map(COUNTER_ID, ITEM_ROW_ID)
+                .set(COUNTER_NEXT, 7L).where(f -> f.in(ITEM_ROW_ID, List.of(3L, 5L)))
+                .chunked(ChunkOptions.size(1)).build();
+        var once = new ArrayList<CounterRow>();
+        var inChunks = new ArrayList<CounterRow>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> inRolledBackTransaction(ds, em -> once.addAll(
+                ModelQueryExecutor.create(em, CounterRowEntity.class, ModelQueryConfig.defaults())
+                        .insertReturning(whole, COUNTER_RETURNING.build()))));
+        List<String> chunkSql = SqlSnapshots.capture(db, ds -> inRolledBackTransaction(ds, em -> inChunks.addAll(
+                ModelQueryExecutor.create(em, CounterRowEntity.class, ModelQueryConfig.defaults())
+                        .insertReturning(chunked, COUNTER_RETURNING.build()))));
+
+        var copied = List.of(new CounterRow(3L, 7L), new CounterRow(5L, 7L));
+        assertThat(once).as("every copied row, as it was written").containsExactlyInAnyOrderElementsOf(copied);
+        assertThat(sql.stream().filter(statement -> statement.contains("insert into counter_rows")))
+                .as("one statement").hasSize(1);
+        assertThat(inChunks).as("each chunk's rows, once").containsExactlyInAnyOrderElementsOf(copied);
+        assertThat(chunkSql.stream().filter(statement -> statement.contains("insert into counter_rows")))
+                .as("one insert per chunk").hasSize(2);
     }
 
     /**

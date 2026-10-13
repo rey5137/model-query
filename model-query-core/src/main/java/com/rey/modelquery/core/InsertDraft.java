@@ -217,7 +217,15 @@ record InsertDraft<E, M>(
                             + "that is not one of " + columns + ", so the incoming row has no value for it");
                 }
             }
-            update.assignments().forEach(assignment -> written.add(assignment.column()));
+            update.assignments().forEach(assignment -> {
+                written.add(assignment.column());
+                if (assignment instanceof Assignment.Conflict<?, ?> && assignment.column().converterClass() != null) {
+                    throw new ModelQueryDefinitionException(MqCode.MQ1609, assignment.column()
+                            + ": setExpression(...) on a column converted by "
+                            + assignment.column().converterClass().getSimpleName() + "; the expression's path has the "
+                            + "entity attribute's type, not the model's");
+                }
+            });
             for (ColumnField<?, ?, ?> column : written) {
                 if (!column.table().key().equals(columns.root().key())) {
                     throw new ModelQueryDefinitionException(MqCode.MQ1804, column + ": doUpdate(...) assigns the "

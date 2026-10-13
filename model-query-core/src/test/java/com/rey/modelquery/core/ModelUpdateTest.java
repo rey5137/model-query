@@ -37,6 +37,11 @@ class ModelUpdateTest {
             return this;
         }
 
+        <C> PatchChanges withConflict(ColumnField<OrderPatch, Order, C> column) {
+            set.put(column, new Assignment.Conflict<>(column, (stored, incoming, cb) -> incoming));
+            return this;
+        }
+
         @Override
         public boolean isSet(ColumnField<OrderPatch, ?, ?> column) {
             return set.containsKey(column);
@@ -105,6 +110,16 @@ class ModelUpdateTest {
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ1604))
                 .hasMessage("MQ1604: OrderPatch.status: sits on the join 'parent' (LEFT), not on the root Order; an "
                         + "update writes only the root's own columns");
+    }
+
+    @Test
+    void ac_wrt_44_a_conflict_set_expression_in_an_update_change_set_is_refused_with_mq1804() {
+        PatchChanges changes = new PatchChanges().with(NOTE, "n").withConflict(STATUS);
+        assertThatThrownBy(() -> update().set(changes))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1804))
+                .hasMessageEndingWith("OrderPatch.status: a conflict update's setExpression in changes.assignments(); an update "
+                        + "has no incoming row, so it takes ModelUpdate.setExpression instead");
     }
 
     @Test

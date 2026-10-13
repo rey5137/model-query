@@ -38,7 +38,7 @@ memory; nothing returns from a set-based write.
 // ModelQueryExecutor<E>, ModelQueryRepository<E>; @Incubating
 <R> List<R> updateReturning(ModelUpdate<E, ?> update, ModelQuery<E, ?, R> returning);
 <R> List<R> deleteReturning(ModelDelete<E, ?> delete, ModelQuery<E, ?, R> returning);
-<K, R> List<R> insertReturning(ValuesInsert<E, K, ?> insert, ModelQuery<E, ?, R> returning);
+<R> List<R> insertReturning(ModelInsert<E, ?> insert, ModelQuery<E, ?, R> returning);
 ```
 
 - The returned shape is a `ModelQuery`, not a `SelectSet`: R-WRT-48 already decided that a `SelectSet` alone carries
@@ -85,8 +85,8 @@ and statement kind, at method entry before any statement. A third-party profile 
 | Vendor | update | delete | insert / upsert |
 |---|---|---|---|
 | PostgreSQL | suffix | suffix | suffix |
-| H2 (Tier 1) | `FINAL TABLE` | `OLD TABLE` | `FINAL TABLE` (over Hibernate's `MERGE`: spike) |
-| MariaDB (Tier 2) | `MQ4011` | suffix | suffix |
+| H2 (Tier 1) | `FINAL TABLE` | `OLD TABLE` | `FINAL TABLE` (over Hibernate's `MERGE`: M20.2, `sql/h2/returning.sql`) |
+| MariaDB (Tier 2) | `MQ4011` | suffix | suffix (waits for its profile, D-81) |
 | MySQL | `MQ4011` | `MQ4011` | `MQ4011` |
 
 ### 2. Conflict `setExpression` (R-WRT-51)

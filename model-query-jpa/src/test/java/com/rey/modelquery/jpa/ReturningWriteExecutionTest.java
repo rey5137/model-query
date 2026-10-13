@@ -8,7 +8,9 @@ import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.FetchPlan;
+import com.rey.modelquery.core.InsertColumns;
 import com.rey.modelquery.core.ModelDelete;
+import com.rey.modelquery.core.ModelInsert;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
@@ -19,6 +21,7 @@ import com.rey.modelquery.core.PrimaryKeyFirst;
 import com.rey.modelquery.core.RowLock;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
+import com.rey.modelquery.core.ValuesInsert;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.jpa.spi.ReturningShape;
@@ -69,6 +72,9 @@ class ReturningWriteExecutionTest {
             ModelQuery.builder(ROOT, row -> new Row(row.get(ID), row.get(A))).select(SelectSet.of(ID, A))
                     .primaryKey(PrimaryKey.of(ID));
 
+    private static final InsertColumns<Row, KeysetRowEntity> INSERT_COLUMNS =
+            InsertColumns.<Row, KeysetRowEntity>of(ROOT).addKey(ID, Row::id).add(A, Row::a);
+
     private static final ModelQueryConfig H2 = ModelQueryConfig.defaults().vendor(DatabaseVendor.H2);
     private static final ModelQueryConfig MYSQL = ModelQueryConfig.defaults().vendor(DatabaseVendor.MYSQL);
 
@@ -101,7 +107,7 @@ class ReturningWriteExecutionTest {
         Returning.distinct = false;
     }
 
-    // ---- R-WRT-48 clauses are MQ1809, for both statements
+    // ---- R-WRT-48 clauses are MQ1809, for every statement
 
     @Test
     void ac_wrt_42_a_returning_query_with_any_r_wrt_48_clause_throws_mq1809_before_any_statement() {
@@ -112,6 +118,7 @@ class ReturningWriteExecutionTest {
             refused.forEach((named, query) -> {
                 assertRefused(() -> executor.updateReturning(update(), query), named, "updateReturning");
                 assertRefused(() -> executor.deleteReturning(delete(), query), named, "deleteReturning");
+                assertRefused(() -> executor.insertReturning(insert(), query), named, "insertReturning");
             });
             assertThat(SQL).isEmpty();
             em.getTransaction().rollback();
@@ -133,6 +140,13 @@ class ReturningWriteExecutionTest {
                                 e -> assertThat(e.code()).isEqualTo(MqCode.MQ1809))
                         .hasMessageContaining("returning cannot combine with");
             }
+            assertThatThrownBy(() -> executor.insertReturning(ValuesInsert.builder(INSERT_COLUMNS, Long.class,
+                    List.of(new Row(3L, 30), new Row(4L, 40))).chunked(ChunkOptions.size(1).commitEachChunk()).build(),
+                    RETURNING.build()))
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1809))
+                    .hasMessage("MQ1809: INSERT returning cannot combine with commitEachChunk(): the rows of a "
+                            + "callback's own writes, or of a committed chunk, are not this statement's");
             assertThat(SQL).isEmpty();
             assertThat(Returning.CALLS).isEmpty();
             em.getTransaction().rollback();
@@ -142,7 +156,7 @@ class ReturningWriteExecutionTest {
     // ---- which factories refuse a returning write
 
     @Test
-    void ac_wrt_42_a_factory_that_cannot_return_rows_throws_mq4011_before_any_statement() {
+    void ac_wrt_42_43_a_factory_that_cannot_return_rows_throws_mq4011_before_any_statement() {
         withTransaction(sessions, em -> assertMq4011(ModelQueryExecutor.create(em, KeysetRowEntity.class, MYSQL),
                 "the vendor profile reports no returning shape for it (VendorProfile#returning)"));
         try (SessionFactory none = factory("none", NO_RETURNING)) {
@@ -209,6 +223,11 @@ class ReturningWriteExecutionTest {
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ4011))
                 .hasMessageContaining("MQ4011: KeysetRowEntity: DELETE returning cannot run")
                 .hasMessageContaining(because);
+        assertThatThrownBy(() -> executor.insertReturning(insert(), RETURNING.build()))
+                .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ4011))
+                .hasMessageContaining("MQ4011: KeysetRowEntity: INSERT returning cannot run")
+                .hasMessageContaining(because);
     }
 
     /** Every R-WRT-48 clause, each named as {@code checkReturning} names it. */
@@ -231,6 +250,10 @@ class ReturningWriteExecutionTest {
 
     private static ModelUpdate<KeysetRowEntity, Row> update() {
         return ModelUpdate.builder(ROOT).primaryKey(PrimaryKey.of(ID)).set(A, 7).where(f -> f.eq(ID, 1L)).build();
+    }
+
+    private static ModelInsert<KeysetRowEntity, Row> insert() {
+        return ValuesInsert.builder(INSERT_COLUMNS, Long.class, List.of(new Row(3L, 30))).build();
     }
 
     private static ModelDelete<KeysetRowEntity, Row> delete() {

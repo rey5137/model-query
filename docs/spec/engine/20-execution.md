@@ -195,7 +195,8 @@ keys are.
 ## 9. Returning writes
 
 This section adds no `R-EXE-*` of its own: it places `api/14` R-WRT-50 in this file's seam, so the engine's rules are
-read with it. `updateReturning` and `deleteReturning` run the write through the same seam every other write uses — the
+read with it. `updateReturning`, `deleteReturning` and `insertReturning` run the write through the same seam every
+other write uses — the
 one holding the finished statement with its parameters bound, its timeout set (`R-EXE-11`) and its assignments, version
 clause and filters in it — and hand that statement to the provider instead of calling `executeUpdate()`
 (`vendor/40` R-VND-17). So `Expr.value` binds, converters, enums and the key-first decision of `api/14` R-WRT-11 reach a
@@ -206,7 +207,8 @@ Before that seam, at method entry and before any statement, the executor refuses
 `VendorProfile#returning(WriteStatement)` empty for the statement kind, no `ProviderSupport#returning()`, or
 `ReturningSupport.rendered` false (a multi-table root, a Hibernate line whose calls moved). It is `MQ4011`, naming the
 provider, the vendor and the statement kind, as `MQ4010` refuses a lock (`R-EXE-14`). An entity-mode write and
-`commitEachChunk()` are `MQ1809` (`api/14` R-WRT-50).
+`commitEachChunk()` are `MQ1809` (`api/14` R-WRT-50); an insert has no entity-mode form, so only `commitEachChunk()`
+arises there.
 
 ## 10. Acceptance criteria
 

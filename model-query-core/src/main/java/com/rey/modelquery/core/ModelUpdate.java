@@ -720,11 +720,21 @@ public final class ModelUpdate<E, M> {
         /**
          * Writes every column {@code changes} marked, NULLs included. The assignments are copied now, so changing
          * {@code changes} afterwards changes neither this builder nor an update already built (R-WRT-05, R-WRT-07).
+         *
+         * @throws ModelQueryDefinitionException {@code MQ1804} for an {@link Assignment.Conflict}, which only a
+         *     conflict update renders: an update has no incoming row (R-WRT-51)
          */
         public Builder<E, K, M> set(Changes<M> changes) {
             var copy = new ArrayList<Assignment<M, ?>>();
             for (Assignment<M, ?> assignment : Objects.requireNonNull(changes, "changes").assignments()) {
-                copy.add(Objects.requireNonNull(assignment, "changes.assignments() element"));
+                if (Objects.requireNonNull(assignment, "changes.assignments() element")
+                        instanceof Assignment.Conflict<M, ?>) {
+                    throw new ModelQueryDefinitionException(MqCode.MQ1804, assignment.column()
+                            + ": a conflict update's setExpression "
+                            + "in changes.assignments(); an update has no incoming row, so it takes "
+                            + "ModelUpdate.setExpression instead");
+                }
+                copy.add(assignment);
             }
             return new Builder<>(draft.assign(copy));
         }

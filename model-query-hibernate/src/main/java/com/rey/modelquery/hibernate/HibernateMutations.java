@@ -5,6 +5,7 @@ import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.jpa.spi.ReturningShape;
 import com.rey.modelquery.jpa.spi.ReturningSupport;
+import com.rey.modelquery.jpa.spi.WriteStatement;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Query;
 import java.lang.reflect.Constructor;
@@ -42,6 +43,7 @@ import org.hibernate.query.sqm.spi.SqmParameterMappingModelResolutionAccess;
 import org.hibernate.query.sqm.sql.SqmTranslation;
 import org.hibernate.query.sqm.tree.SqmDmlStatement;
 import org.hibernate.query.sqm.tree.expression.SqmParameter;
+import org.hibernate.query.sqm.tree.insert.SqmInsertStatement;
 import org.hibernate.query.sqm.tree.update.SqmUpdateStatement;
 import org.hibernate.resource.jdbc.spi.LogicalConnectionImplementor;
 import org.hibernate.spi.NavigablePath;
@@ -49,6 +51,7 @@ import org.hibernate.sql.ast.SqlAstTranslator;
 import org.hibernate.sql.ast.spi.FromClauseAccess;
 import org.hibernate.sql.ast.tree.MutationStatement;
 import org.hibernate.sql.ast.tree.delete.DeleteStatement;
+import org.hibernate.sql.ast.tree.insert.InsertSelectStatement;
 import org.hibernate.sql.ast.tree.expression.ColumnReference;
 import org.hibernate.sql.ast.tree.from.TableGroup;
 import org.hibernate.sql.ast.tree.update.UpdateStatement;
@@ -169,7 +172,7 @@ final class HibernateMutations implements ReturningSupport {
         JdbcOperationQueryMutation operation = (JdbcOperationQueryMutation) translator.translate(bindings, options);
         String rendered = operation.getSqlString();
         String sql = shape(shape, rendered, returning);
-        check(sf, dml instanceof SqmUpdateStatement, rendered, sql, operation.getParameterBinders().size());
+        check(sf, kind(dml), rendered, sql, operation.getParameterBinders().size());
         return new Translated(sql, operation, bindings, columns, line.execution(context));
     }
 
@@ -180,8 +183,8 @@ final class HibernateMutations implements ReturningSupport {
     /**
      * {@code rendered} with {@code shape} applied (R-WRT-50): a {@code SUFFIX} shape is the {@code returning} clause
      * Hibernate rendered, refused where it rendered none; a {@code DELTA_TABLE} shape wraps the
-     * statement as {@code FINAL TABLE} on an update and {@code OLD TABLE} on a delete, which Hibernate renders itself
-     * only for its own insert and update statements.
+     * statement as {@code FINAL TABLE} on an update or an insert, and {@code OLD TABLE} on a delete, which Hibernate
+     * renders itself only for its own insert and update statements.
      */
     private static String shape(ReturningShape shape, String rendered, List<ColumnReference> columns) {
         String list = columns.stream().map(ColumnReference::getColumnExpression).collect(Collectors.joining(", "));
@@ -218,13 +221,24 @@ final class HibernateMutations implements ReturningSupport {
      * that fails is refused again on its next use rather than run unchecked (R-WRT-50). A test seam, as
      * {@link HibernateLockSupport#isRendered} is.
      */
-    static void check(SessionFactoryImplementor sf, boolean update, String rendered, String sql, int binders) {
+    static void check(SessionFactoryImplementor sf, WriteStatement kind, String rendered, String sql, int binders) {
         Set<String> passed = CHECKED.computeIfAbsent(sf, factory -> ConcurrentHashMap.newKeySet());
         if (passed.contains(sql)) {
             return;
         }
-        checkSql(rendered, sql, binders, update);
+        checkSql(rendered, sql, binders, kind);
         passed.add(sql);
+    }
+
+    /**
+     * The statement kind {@code dml} is, for the first-use check: the SQM insert statements of both a plain insert and
+     * an upsert, an update, else a delete.
+     */
+    private static WriteStatement kind(SqmDmlStatement<?> dml) {
+        if (dml instanceof SqmUpdateStatement) {
+            return WriteStatement.UPDATE;
+        }
+        return dml instanceof SqmInsertStatement ? WriteStatement.INSERT : WriteStatement.DELETE;
     }
 
     /**
@@ -233,10 +247,10 @@ final class HibernateMutations implements ReturningSupport {
      * one of the calls refuses the write rather than returning the wrong rows (INV-5). A test seam, as
      * {@link HibernateLockSupport#isRendered} is.
      */
-    static void checkSql(String rendered, String sql, int binders, boolean update) {
-        String expected = update ? "update" : "delete";
-        if (!leading(rendered).equals(expected)) {
-            throw mismatch(sql, "it does not start with " + expected);
+    static void checkSql(String rendered, String sql, int binders, WriteStatement kind) {
+        List<String> expected = leadingKeywords(kind);
+        if (!expected.contains(leading(rendered))) {
+            throw mismatch(sql, "it does not start with " + String.join(" or ", expected));
         }
         String unquoted = unquoted(sql); // a literal's ? or keyword is no placeholder and no anchor (R-COL-27)
         if (occurrences(unquoted, "?") != binders) {
@@ -381,11 +395,24 @@ final class HibernateMutations implements ReturningSupport {
         return mapping;
     }
 
-    /** The {@code MutationStatement} of {@code ast} with {@code columns} returned, which Hibernate's own paths set. */
+    /**
+     * The {@code MutationStatement} of {@code ast} with {@code columns} returned, which Hibernate's own paths set. An
+     * update's and a delete's returning columns go through their constructors; an insert's do too, on a new statement
+     * that keeps the insert's common table expressions and gets its target columns, values, conflict clause and
+     * source select copied over, from which Hibernate's own translator renders the {@code returning} clause.
+     */
     private static MutationStatement attach(MutationStatement ast, List<ColumnReference> columns) {
         if (ast instanceof UpdateStatement update) {
             return new UpdateStatement(update.getTargetTable(), update.getFromClause(), update.getAssignments(),
                     update.getRestriction(), columns);
+        }
+        if (ast instanceof InsertSelectStatement insert) {
+            InsertSelectStatement returned = new InsertSelectStatement(insert, insert.getTargetTable(), columns);
+            returned.addTargetColumnReferences(insert.getTargetColumns());
+            returned.setValuesList(insert.getValuesList());
+            returned.setConflictClause(insert.getConflictClause());
+            returned.setSourceSelectStatement(insert.getSourceSelectStatement());
+            return returned;
         }
         DeleteStatement delete = (DeleteStatement) ast;
         return new DeleteStatement(delete.getTargetTable(), delete.getFromClause(), delete.getRestriction(), columns);
@@ -437,7 +464,12 @@ final class HibernateMutations implements ReturningSupport {
      */
     private static boolean reachable() {
         return constructor(UpdateStatement.class, 5) != null
-                && constructor(DeleteStatement.class, 4) != null;
+                && constructor(DeleteStatement.class, 4) != null
+                && constructor(InsertSelectStatement.class, 3) != null
+                && method(InsertSelectStatement.class, "addTargetColumnReferences", 1) != null
+                && method(InsertSelectStatement.class, "setValuesList", 1) != null
+                && method(InsertSelectStatement.class, "setConflictClause", 1) != null
+                && method(InsertSelectStatement.class, "setSourceSelectStatement", 1) != null;
     }
 
     /** The {@code owner.name} method of {@code parameters} parameters, or {@code null} when this line has none. */
@@ -514,6 +546,18 @@ final class HibernateMutations implements ReturningSupport {
     /** The first keyword of {@code sql}, lower case. */
     private static String leading(String sql) {
         return sql.stripLeading().split("\\s+")[0].toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * The keywords a {@code kind} statement's own translation may begin with (R-WRT-50): an upsert may go through a
+     * database's own {@code MERGE}, which H2 renders for one.
+     */
+    private static List<String> leadingKeywords(WriteStatement kind) {
+        return switch (kind) {
+            case UPDATE -> List.of("update");
+            case DELETE -> List.of("delete");
+            case INSERT -> List.of("insert", "merge");
+        };
     }
 
     /** How often {@code token} occurs in {@code sql}. */

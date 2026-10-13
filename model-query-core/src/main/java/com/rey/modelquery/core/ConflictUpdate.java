@@ -49,6 +49,17 @@ public final class ConflictUpdate<E, M> {
     }
 
     /**
+     * Writes what {@code expression} returns for {@code column}, computed from the stored row and the incoming row,
+     * an escape hatch like {@link ModelUpdate}'s {@code setExpression} with the incoming ({@code excluded}) row added
+     * (R-WRT-51). Expression assignments render before the others, as R-WRT-13 orders them, except one to a column the
+     * {@code where} reads, which still renders after the others (R-WRT-35). A column with a converter throws
+     * {@code MQ1609} at {@code build()}, since the path has the entity attribute's type.
+     */
+    public <C> Assigned<E, M> setExpression(ColumnField<?, E, C> column, ConflictExpression<C> expression) {
+        return new Assigned<E, M>(List.of(), List.of()).setExpression(column, expression);
+    }
+
+    /**
      * A complete conflict update: what {@code doUpdate}'s function returns.
      *
      * @param <E> the root entity
@@ -119,6 +130,15 @@ public final class ConflictUpdate<E, M> {
         /** Also writes NULL to {@code column}. */
         public <C> Assigned<E, M> setNull(ColumnField<?, E, C> column) {
             return assign(Assignment.ofNull(Objects.requireNonNull(column, "column")));
+        }
+
+        /**
+         * Also writes what {@code expression} returns for {@code column}, computed from the stored and the incoming
+         * row, as {@link ConflictUpdate#setExpression} does (R-WRT-51).
+         */
+        public <C> Assigned<E, M> setExpression(ColumnField<?, E, C> column, ConflictExpression<C> expression) {
+            return assign(new Assignment.Conflict<>(Objects.requireNonNull(column, "column"),
+                    Objects.requireNonNull(expression, "expression")));
         }
 
         /**

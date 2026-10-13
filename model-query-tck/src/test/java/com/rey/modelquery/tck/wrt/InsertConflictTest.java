@@ -421,6 +421,29 @@ class InsertConflictTest {
         }
     }
 
+    // ---- AC-WRT-44
+
+    /**
+     * A conflict {@code setExpression} renders before the clause's other assignments (R-WRT-13) and reads both the
+     * stored row and the incoming row: {@code name} is written from the stored {@code N1} and the incoming
+     * {@code IN} although {@code code}, assigned first in the builder, renders after it (R-WRT-51).
+     */
+    @TckTest
+    void ac_wrt_44_a_conflict_set_expression_renders_before_the_other_assignments(TckDatabase db) {
+        var insert = ValuesInsert.builder(NAMED, Long.class, List.of(new Named(1L, "c1", "IN")))
+                .onConflict(ID).doUpdate(u -> u.set(CODE, "x")
+                        .setExpression(NAME, (stored, incoming, cb) -> cb.concat(stored, incoming)))
+                .anyUniqueKey().build();
+
+        try (InsertProbes p = InsertProbes.open(db)) {
+            Outcome o = run(p, insert);
+
+            assertThat(o.failure()).isNull();
+            assertThat(p.rows(ROWS)).containsExactly("1|x|N1IN|1", "2|c2|N2|0");
+            SqlSnapshots.assertMatches(db, "wrt-44-conflict-set-expression", inserts(p));
+        }
+    }
+
     // ---- helpers
 
     /** The columns of {@code key} after its first, as {@code onConflict} takes them. */

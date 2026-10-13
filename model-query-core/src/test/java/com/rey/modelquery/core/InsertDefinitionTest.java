@@ -430,6 +430,57 @@ class InsertDefinitionTest {
         assertThat(values().build().conflictUpdateAdds(written)).isEmpty();
     }
 
+    // ---- AC-WRT-44
+
+    @Test
+    void ac_wrt_44_a_conflict_set_expression_is_recorded_on_its_column_and_binds_no_value_of_its_own() {
+        ConflictExpression<String> newest = (stored, incoming, cb) -> cb.coalesce(stored, incoming);
+        ModelInsert<Order, NewOrder> upsert = values().onConflict(REF)
+                .doUpdate(u -> u.set(CREATED_BY, "batch").setExpression(STATUS, newest)
+                        .where(f -> f.eq(NOTE, "N2")))
+                .build();
+        List<Assignment<?, ?>> assignments = upsert.definition().conflict().update().assignments();
+
+        assertThat(assignments).hasSize(2);
+        assertThat(assignments.get(0)).isInstanceOfSatisfying(Assignment.Value.class,
+                value -> assertThat(value.column()).isEqualTo(CREATED_BY));
+        assertThat(assignments.get(1)).isInstanceOfSatisfying(Assignment.Conflict.class, conflict -> {
+            assertThat(conflict.column()).isEqualTo(STATUS);
+            assertThat(conflict.expression()).isSameAs(newest);
+        });
+        // The where repeats per assignment, the setExpression one included: 1 * (2 + the version increment + 1), plus
+        // the set's value and the increment's, and none for the setExpression itself.
+        assertThat(upsert.conflictBinds(List.of())).isEqualTo(1 * 4 + 2);
+        assertThat(upsert.conflictRepeatedBinds(List.of())).isEqualTo(1 * 3);
+
+        // The setExpression column counts as an assigned column, so a where reading it is R-WRT-34's case; keepVersion
+        // makes the metamodel, read only for the version column, unnecessary here.
+        ModelInsert<Order, NewOrder> read = values().onConflict(REF)
+                .doUpdate(u -> u.setExpression(STATUS, newest).where(f -> f.eq(STATUS, "NEW"))).keepVersion().build();
+        assertThat(read.conflictWhereReadsAssigned(null, List.of())).containsExactly("status");
+    }
+
+    @Test
+    void ac_wrt_44_a_conflict_set_expression_on_a_converted_column_throws_mq1609() {
+        assertCode(() -> values().onConflict(REF).doUpdate(u -> u.setExpression(FLAGGED,
+                (stored, incoming, cb) -> cb.coalesce(stored, incoming))).build(), MqCode.MQ1609)
+                .hasMessage("MQ1609: NewOrder.flagged: setExpression(...) on a column converted by FlagConverter; "
+                        + "the expression's path has the entity attribute's type, not the model's");
+    }
+
+    @Test
+    void ac_wrt_44_a_conflict_set_expression_on_a_key_a_column_twice_or_off_the_root_throws_mq1804() {
+        assertCode(() -> values().onConflict(REF).doUpdate(u -> u.setExpression(REF,
+                (stored, incoming, cb) -> incoming)).build(), MqCode.MQ1804)
+                .hasMessage("MQ1804: NewOrder.ref: doUpdate(...) assigns a key column; the conflict key and the id "
+                        + "stay as stored");
+        assertCode(() -> values().onConflict(REF).doUpdate(u -> u.set(STATUS, "x").setExpression(STATUS,
+                (stored, incoming, cb) -> incoming)).build(), MqCode.MQ1804)
+                .hasMessage("MQ1804: NewOrder.status: doUpdate(...) assigns it twice");
+        assertCode(() -> values().onConflict(REF).doUpdate(u -> u.setExpression(PARENT_STATUS,
+                (stored, incoming, cb) -> incoming)).build(), MqCode.MQ1804);
+    }
+
     // ---- ChunkedWriteException
 
     @Test
