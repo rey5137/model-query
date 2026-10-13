@@ -1,5 +1,6 @@
 package com.rey.modelquery.jpa;
 
+import com.rey.modelquery.core.Condition;
 import com.rey.modelquery.core.ModelInsert;
 import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.jpa.spi.ConflictClause;
@@ -25,6 +26,16 @@ record InsertConflict<E>(ModelInsert<E, ?> insert, RenderOptions options, Map<St
     @Override
     public List<String> keyAttributes() {
         return insert.conflictKeys();
+    }
+
+    @Override
+    public Optional<String> constraintName() {
+        return insert.conflictConstraint();
+    }
+
+    @Override
+    public List<Condition> arbiter() {
+        return insert.conflictArbiter();
     }
 
     @Override

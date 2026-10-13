@@ -324,7 +324,7 @@ public interface ModelQueryExecutor<E> {
 | AC-WRT-30 | `ModelQueryRepository.insert`, `insertReturningKeys` and `persist` succeed without an ambient transaction (§10.1, `integration/50`). |
 | AC-WRT-31 | A bulk insert on a provider with no insert support throws `MQ4009` and runs no flush; `persist` runs on it (R-WRT-39, `vendor/40`). |
 | AC-WRT-32 | `build()` and `ModelPersist.of` check the definition before any statement: a `where` whose every filter is skipped throws `MQ1601`; a column unmapped, mapped twice or with another converter class, a `set` on a model column, a column set twice, a column not on the root, or `lockKeys()` on insert-values throws `MQ1801`; a `null` row throws `MQ1803`; a `null` assigned id `MQ1802`; two rows sharing a conflict-key tuple with no `null` in it `MQ1808`; a conflict column or assignment that R-WRT-34 refuses, or `exists` in the update's `where`, `MQ1804`. Changing a row or the list after `build()` leaves the definition unchanged (R-WRT-27, R-WRT-29, R-WRT-30, R-WRT-32, R-WRT-34, R-WRT-37, INV-9). |
-| AC-WRT-33 | The insert stages compile in the documented orders and reject the rest: a source column of another model than the first `map`'s, a join as `insertFrom`'s source, `onConflict` on an insert-select or after `chunked`, keys from an insert-select or a conflict-clause insert, `keepVersion()` after `doNothing()`, a `doUpdate` assigning nothing, and `set` or chunking on `persist` do not compile (R-WRT-27, R-WRT-29, R-WRT-33, R-WRT-34, R-WRT-40, D-60). |
+| AC-WRT-33 | The insert stages compile in the documented orders and reject the rest: a source column of another model than the first `map`'s, a join as `insertFrom`'s source, `onConflict` on an insert-select or after `chunked`, keys from an insert-select or a conflict-clause insert, `keepVersion()` after `doNothing()`, a `doUpdate` assigning nothing, a `where` after `onConstraint` or a second one on an arbiter, and `set` or chunking on `persist` do not compile (R-WRT-27, R-WRT-29, R-WRT-33, R-WRT-34, R-WRT-40, R-WRT-52, D-60). |
 | AC-WRT-34 | An entity-mode update fires `@PreUpdate`, `@PostUpdate` and a registered Hibernate `PostUpdateEventListener` once per changed row, with the old state, and, for a root with no `UPDATE` assignment, none for an unchanged row; the count is the rows matched. The Hibernate listener test lives in `model-query-hibernate` or the integration tests, not in `model-query-jpa` (INV-7); a row the context held as an uninitialised proxy is written, with its `UPDATE` and `@PreUpdate`, under `CLEAR` and `KEEP`, and so is a bytecode-enhanced entity; under `KEEP`, without a provider's `EntityWriteSupport`, such a proxy is `MQ2503` before the chunk changes (R-WRT-41, R-WRT-42, R-WRT-43, R-WRT-44, R-WRT-45, D-119). |
 | AC-WRT-35 | An entity-mode delete fires `@PreRemove` and `PostDeleteEventListener` per row and cascades `REMOVE` and `orphanRemoval` (R-WRT-42, R-WRT-43). |
 | AC-WRT-36 | An entity-mode write loads one select per chunk, holds at most one chunk of entities under `CLEAR`, and resumes from `ChunkedWriteException` after an `OptimisticLockException` (R-WRT-42, R-WRT-45, R-WRT-46, R-WRT-47). |
@@ -336,6 +336,7 @@ public interface ModelQueryExecutor<E> {
 | AC-WRT-42 | `updateReturning` and `deleteReturning` return one model per changed row in the shapes of `vendor/41` §7 on every Tier-1 vendor (H2's `FINAL TABLE`/`OLD TABLE`, PostgreSQL's `RETURNING`), with a chunked write's chunks concatenated and no row twice; a selected column on a table other than the written one, `throughEntities()`, `commitEachChunk()` or a returning query clause R-WRT-48 refuses is `MQ1809`, and MySQL, an unrendered shape, a provider without `ReturningSupport` or a multi-table root is `MQ4011`, all before any statement; `expectVersion` with zero rows still throws `OptimisticLockException` (R-WRT-50, R-VND-17, D-129). |
 | AC-WRT-43 | `insertReturning` returns one model per row the insert wrote — a plain insert-values, a chunked one concatenating its chunks, and an upsert through `onConflict(...).doUpdate(...)` returning the inserted and the updated rows, not those a `doNothing()` skipped — in the shapes of `vendor/41` §7 (H2's `FINAL TABLE`, PostgreSQL's `RETURNING`), and refuses it with `MQ4011` before any statement on a vendor whose profile has no insert shape, MySQL among them (R-WRT-50, R-VND-17, D-129). |
 | AC-WRT-44 | `ConflictUpdate.setExpression(COL, (stored, incoming, cb) -> cb.sum(stored, 1))` increments the stored row's column and renders before the clause's other assignments on every Tier-1 vendor, counted as an assigned column by R-WRT-34's `where` rule, with `MQ1609` for a converted column and `MQ1804` for a key column or one assigned twice (R-WRT-13, R-WRT-51, R-WRT-34). |
+| AC-WRT-45 | `onConflict(COL).where(f -> f.ne(COL2, v))` renders the arbiter predicate after the conflict target with its value as a literal, so on PostgreSQL an upsert updates a row the partial unique index holds and inserts a new one whose key matches only a row outside it; `onConstraint("name")` detects the conflict on a named unique constraint and `doNothing` skips the row conflicting on it; `insertReturning` with an arbiter returns the upserted row; an arbiter with an `Expr.value`, an expression, `exists` or a sub-select, and a blank `onConstraint` name, are `MQ1804` at `build()` and an arbiter whose every filter was skipped is `MQ1601`; H2 and MySQL, whose profile facts are false, throw `MQ1804` on first execution for both, and a translated statement whose conflict target is missing or occurs twice, or a Hibernate line no adapter serves, throws `MQ4011` before execution while a plain upsert still runs (R-WRT-52, R-WRT-34, R-WRT-50, D-128). |
 
 ## 10. Inserts
 
@@ -532,7 +533,9 @@ constraint's columns matched to the attributes' columns. A unique index that exi
 it, since `MERGE` vendors (H2, Oracle, SQL Server) and MySQL with `anyUniqueKey()` do not detect a key the schema
 does not enforce, and would update every matching row or insert duplicates.
 
-`onConflict` returns `Conflict`, offering only `doNothing()`, which returns `ConflictOptions`, and
+`onConflict` returns `KeyedConflict`, a `Conflict` adding one `where(UnaryOperator<Filters<M>>)` that returns the bare
+`Conflict` (R-WRT-52); `onConstraint(String)` returns `Conflict` directly, its stage taking no `where`. `Conflict`
+offers only `doNothing()`, which returns `ConflictOptions`, and
 `doUpdate(Function<ConflictUpdate<E, M>, ConflictUpdate.Action<E, M>>)`, which returns `Upserting`; so a clause without
 an action does not compile. `ConflictUpdate` offers `setFromRow(first, rest...)` (the incoming row's value), `set`
 (`null` is `MQ1603`), `setNull` and `setExpression(column, ConflictExpression)`, which writes what the expression
@@ -556,8 +559,12 @@ where the profile's `conflictWhereSeesEarlierAssignments()` is true (`vendor/40`
 would filter on the values the earlier assignments wrote (R-WRT-35). The check runs on each execution, after the
 first-execution checks, because the option is the executor's; so does R-WRT-36's, because the profile is. A
 `where` reading at most one assigned column runs on every vendor. A root `@Version` is incremented unless
-`keepVersion()`; `MQ1606` applies to a version type it cannot increment. Constraint names are not offered: Hibernate rejects them on every `MERGE` vendor and
-for `DO UPDATE` on MySQL. `doNothing()` throws `MQ1804` on first execution where the provider reports that it does not
+`keepVersion()`; `MQ1606` applies to a version type it cannot increment. `onConstraint(String)` names a unique
+constraint or index instead of columns, so a partial or expression index no column set names can be targeted; its
+stage has no `where`, so `onConstraint(...).where(...)` does not compile, and a blank name is `MQ1804` at `build()`.
+Its columns are unknown to the engine, so only the model's `@PrimaryKey` is checked by R-WRT-34's key-column rule, not
+the mapping's declared keys; the database checks the name. `doNothing()` throws `MQ1804` on first execution where the
+provider reports that it does not
 render it for the dialect (Hibernate 6 on a `MERGE` vendor writes a plain insert), rather than failing per row (D-116).
 
 **R-WRT-35** Rendering is the provider's: `ON CONFLICT` on PostgreSQL; `ON DUPLICATE KEY UPDATE` with a row alias on
@@ -847,3 +854,21 @@ Its column has the entity attribute's type, so a converter is `MQ1609` at `build
 R-WRT-34's key-column and assigned-twice checks apply to it unchanged. An update has no incoming row, so a
 `Changes` whose assignments include one is `MQ1804` at `ModelUpdate.Builder.set(changes)`. It reaches the provider as
 `ConflictClause.Assignments#expression` (`vendor/40` R-VND-14, `vendor/41` §7).
+
+**R-WRT-52** `KeyedConflict.where(UnaryOperator<Filters<M>> arbiter)` narrows the conflict target to the rows
+`arbiter`'s predicate holds, as a partial unique index declares them: PostgreSQL infers the index from the predicate and
+applies the conflict action only to the rows it holds, so a row whose key matches a stored row outside the predicate
+inserts rather than updating. The predicate names root columns and plain comparisons only — `eq`, `ne`, `lt`, `le`,
+`gt`, `ge`, `isNull` and `isNotNull`, `in` and `notIn` with constants, and `and`/`or`/`not`; an `Expr.value` or
+`Expr.constant`, an expression, `exists`, a sub-select, or an empty `in`, `notIn` or `or` is `MQ1804` at `build()`, and
+a predicate whose every filter was skipped is `MQ1601` there rather than a plain conflict target. With a predicate,
+R-WRT-34's check of the key columns against the mapping's declared unique keys is skipped: a partial unique index has no
+JPA mapping, and PostgreSQL itself refuses a target that no unique index matches. The values render as literals through
+M19's `ConstantRenderer` (D-128), never as bind parameters, since a bind keeps PostgreSQL from inferring the partial
+index; a value with no literal rendering through its attribute's mapping is `MQ1508` at execution.
+`onConstraint(String)` names the unique constraint or index instead of columns, its stage taking no `where`. Both are
+PostgreSQL only, behind the profile facts `conflictArbiterPredicate()` and `conflictOnConstraint()` (`vendor/40`
+R-VND-14); where the fact is false the insert throws `MQ1804` on first execution. An arbiter predicate and a returning
+insert (R-WRT-50) compose into one statement on PostgreSQL. The provider splices the predicate after the translated
+statement's conflict target, and refuses with `MQ4011` before execution unless it finds that target exactly once
+(INV-5), or where no adapter serves the Hibernate line (`ReturningSupport.rendered` false); a plain upsert still runs.

@@ -8,15 +8,20 @@ import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.InsertColumns;
 import com.rey.modelquery.core.ModelInsert;
+import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.Op;
+import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.core.ValuesInsert;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.hibernate.HibernateProviderSupport;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.MysqlStreamingMode;
+import com.rey.modelquery.jpa.spi.ReturningShape;
+import com.rey.modelquery.jpa.spi.WriteStatement;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.KeysetTypeEntity;
@@ -24,6 +29,7 @@ import com.rey.modelquery.tck.col.OrderArchiveEntity;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
+import com.rey.modelquery.tck.vnd.ins.InsArbiterEntity;
 import com.rey.modelquery.tck.vnd.ins.InsAssignedEntity;
 import com.rey.modelquery.tck.vnd.ins.InsIdentityEntity;
 import com.rey.modelquery.tck.vnd.ins.InsKeyedEntity;
@@ -38,6 +44,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.LongStream;
+import org.junit.jupiter.api.Assumptions;
 
 /**
  * Insert-values with a conflict clause on every Tier-1 vendor: {@code doNothing} and {@code doUpdate} with
@@ -444,7 +451,169 @@ class InsertConflictTest {
         }
     }
 
+    // ---- AC-WRT-45
+
+    /** An {@code ins_arbiter} row: its {@code sku} is unique only while the row is open (R-WRT-52). */
+    record ArbiterRow(Long id, String code, String sku, String status, String name) {}
+
+    private static final String ARBITER_ROWS = "select id, code, sku, status, name from ins_arbiter order by id";
+    private static final List<String> ARBITER_SEEDED = List.of("1|k1|s1|OPEN|N1", "2|k2|s2|CLOSED|N2");
+
+    /** The partial unique index PostgreSQL infers from {@code on conflict (sku) where status <> 'CLOSED'}. */
+    private static final String PARTIAL_INDEX =
+            "create unique index ins_arbiter_open_sku on ins_arbiter (sku) where status <> 'CLOSED'";
+
+    private static final TableField<InsArbiterEntity, InsArbiterEntity> ARBITER =
+            TableField.root(InsArbiterEntity.class);
+    private static final ColumnField<ArbiterRow, InsArbiterEntity, Long> ARBITER_ID =
+            ColumnField.of(ArbiterRow.class, ARBITER, "id", Long.class);
+    private static final ColumnField<ArbiterRow, InsArbiterEntity, String> ARBITER_CODE =
+            ColumnField.of(ArbiterRow.class, ARBITER, "code", String.class);
+    private static final ColumnField<ArbiterRow, InsArbiterEntity, String> ARBITER_SKU =
+            ColumnField.of(ArbiterRow.class, ARBITER, "sku", String.class);
+    private static final ColumnField<ArbiterRow, InsArbiterEntity, String> ARBITER_STATUS =
+            ColumnField.of(ArbiterRow.class, ARBITER, "status", String.class);
+    private static final ColumnField<ArbiterRow, InsArbiterEntity, String> ARBITER_NAME =
+            ColumnField.of(ArbiterRow.class, ARBITER, "name", String.class);
+    private static final InsertColumns<ArbiterRow, InsArbiterEntity> ARBITER_COLUMNS =
+            InsertColumns.<ArbiterRow, InsArbiterEntity>of(ARBITER).addKey(ARBITER_ID, ArbiterRow::id)
+                    .add(ARBITER_CODE, ArbiterRow::code).add(ARBITER_SKU, ArbiterRow::sku)
+                    .add(ARBITER_STATUS, ArbiterRow::status).add(ARBITER_NAME, ArbiterRow::name);
+    /** What an arbiter upsert maps the written row to (R-WRT-50). */
+    private static final ModelQuery.Builder<InsArbiterEntity, Long, ArbiterRow> ARBITER_RETURNING =
+            ModelQuery.builder(ARBITER, row -> new ArbiterRow(row.get(ARBITER_ID), row.get(ARBITER_CODE),
+                            row.get(ARBITER_SKU), row.get(ARBITER_STATUS), row.get(ARBITER_NAME)))
+                    .select(SelectSet.of(ARBITER_ID, ARBITER_CODE, ARBITER_SKU, ARBITER_STATUS, ARBITER_NAME))
+                    .primaryKey(PrimaryKey.of(ARBITER_ID));
+
+    /**
+     * An arbiter predicate on the conflict target is rendered with the statement (R-WRT-52): PostgreSQL infers the
+     * partial unique index {@code (sku) where status <> 'CLOSED'}, so the row whose sku is open is updated, while a
+     * new row whose sku matches only a closed row inserts, the closed row being outside the index. H2 and MySQL, whose
+     * profile does not honour the arbiter, refuse {@code MQ1804} on first execution, before any statement.
+     */
+    @TckTest
+    void ac_wrt_45_a_conflict_arbiter_updates_the_open_row_and_inserts_past_the_closed_one(TckDatabase db) {
+        var insert = ValuesInsert.builder(ARBITER_COLUMNS, Long.class, List.of(
+                        new ArbiterRow(3L, "k3", "s1", "OPEN", "X1"),
+                        new ArbiterRow(4L, "k4", "s2", "OPEN", "X2")))
+                .onConflict(ARBITER_SKU).where(f -> f.ne(ARBITER_STATUS, "CLOSED"))
+                .doUpdate(u -> u.setFromRow(ARBITER_NAME)).build();
+
+        try (InsertProbes p = InsertProbes.withArbiterRoot(db)) {
+            if (!arbiterHonoured(p.factory())) {
+                assertRefused(runArbiter(p, insert, false), "takes no arbiter predicate");
+                assertThat(p.rows(ARBITER_ROWS)).isEqualTo(ARBITER_SEEDED);
+                return;
+            }
+            Outcome o = runArbiter(p, insert, true);
+
+            assertThat(o.failure()).isNull();
+            assertThat(o.count()).isEqualTo(2);
+            assertThat(p.rows(ARBITER_ROWS)).containsExactly("1|k1|s1|OPEN|X1", "2|k2|s2|CLOSED|N2",
+                    "4|k4|s2|OPEN|X2");
+            SqlSnapshots.assertMatches(db, "wrt-45-arbiter", o.sql());
+        }
+    }
+
+    /**
+     * {@code onConstraint(name)} names a unique constraint of the table rather than its key columns (R-WRT-52):
+     * PostgreSQL takes it, and {@code doNothing()} skips the row that conflicts on the named constraint. H2 and MySQL,
+     * whose profile does not honour it, refuse {@code MQ1804} on first execution, before any statement.
+     */
+    @TckTest
+    void ac_wrt_45_on_constraint_do_nothing_skips_the_row_conflicting_on_the_named_constraint(TckDatabase db) {
+        var insert = ValuesInsert.builder(ARBITER_COLUMNS, Long.class, List.of(
+                        new ArbiterRow(3L, "k1", "sX", "OPEN", "X1"),
+                        new ArbiterRow(4L, "k4", "s4", "OPEN", "X2")))
+                .onConstraint("ins_arbiter_code_key").doNothing().build();
+
+        try (InsertProbes p = InsertProbes.withArbiterRoot(db)) {
+            if (!constraintHonoured(p.factory())) {
+                assertRefused(runArbiter(p, insert, false), "takes no onConstraint");
+                assertThat(p.rows(ARBITER_ROWS)).isEqualTo(ARBITER_SEEDED);
+                return;
+            }
+            Outcome o = runArbiter(p, insert, false);
+
+            assertThat(o.failure()).isNull();
+            assertThat(p.rows(ARBITER_ROWS)).containsExactly("1|k1|s1|OPEN|N1", "2|k2|s2|CLOSED|N2",
+                    "4|k4|s4|OPEN|X2");
+            SqlSnapshots.assertMatches(db, "wrt-45-on-constraint", o.sql());
+        }
+    }
+
+    /**
+     * An arbiter upsert returns the row it updated on PostgreSQL, the arbiter predicate and the returning clause
+     * composing into one statement (R-WRT-50, R-WRT-52).
+     */
+    @TckTest
+    void ac_wrt_45_a_returning_insert_with_an_arbiter_returns_the_row_it_updated(TckDatabase db) {
+        var insert = ValuesInsert.builder(ARBITER_COLUMNS, Long.class,
+                        List.of(new ArbiterRow(3L, "k3", "s1", "OPEN", "X1")))
+                .onConflict(ARBITER_SKU).where(f -> f.ne(ARBITER_STATUS, "CLOSED"))
+                .doUpdate(u -> u.setFromRow(ARBITER_NAME)).build();
+        var returned = new ArrayList<ArbiterRow>();
+
+        try (InsertProbes p = InsertProbes.withArbiterRoot(db)) {
+            Assumptions.assumeTrue(arbiterHonoured(p.factory()), "the vendor takes no conflict arbiter (MQ1804)");
+            Assumptions.assumeTrue(returningShape(db) != null, "the database returns no rows of a write (MQ4011)");
+            seedArbiter(p, true);
+            returned.addAll(p.factory().fromTransaction(session -> ModelQueryExecutor
+                    .create(session, InsArbiterEntity.class, ModelQueryConfig.defaults())
+                    .insertReturning(insert, ARBITER_RETURNING.build())));
+
+            assertThat(returned).containsExactly(new ArbiterRow(1L, "k1", "s1", "OPEN", "X1"));
+            SqlSnapshots.assertMatches(db, "wrt-45-returning", inserts(p));
+        }
+    }
+
     // ---- helpers
+
+    /** Seeds {@code ins_arbiter} and, where {@code partialIndex}, creates the index the arbiter infers (R-WRT-52). */
+    private static void seedArbiter(InsertProbes p, boolean partialIndex) {
+        p.jdbc("delete from ins_arbiter");
+        p.jdbc("insert into ins_arbiter (id, code, sku, status, name) values (1, 'k1', 's1', 'OPEN', 'N1')");
+        p.jdbc("insert into ins_arbiter (id, code, sku, status, name) values (2, 'k2', 's2', 'CLOSED', 'N2')");
+        if (partialIndex) {
+            p.jdbc(PARTIAL_INDEX);
+        }
+        p.forget();
+    }
+
+    /** Seeds the target, then runs {@code insert} in its own transaction. */
+    private static Outcome runArbiter(InsertProbes p, ModelInsert<InsArbiterEntity, ?> insert,
+            boolean partialIndex) {
+        seedArbiter(p, partialIndex);
+        try {
+            long count = p.factory().fromTransaction(session ->
+                    ModelQueryExecutor.create(session, InsArbiterEntity.class, ModelQueryConfig.defaults())
+                            .insert(insert));
+            return new Outcome(count, null, inserts(p));
+        } catch (RuntimeException e) {
+            return new Outcome(null, e, inserts(p));
+        }
+    }
+
+    /** Whether {@code emf}'s built-in profile reports a vendor that renders a conflict arbiter (R-WRT-52). */
+    private static boolean arbiterHonoured(EntityManagerFactory emf) {
+        return VendorResolver.resolve(emf, Optional.empty(), MysqlStreamingMode.ROW_BY_ROW).profile()
+                .conflictArbiterPredicate();
+    }
+
+    /** Whether {@code emf}'s built-in profile reports a vendor that takes {@code onConstraint(name)} (R-WRT-52). */
+    private static boolean constraintHonoured(EntityManagerFactory emf) {
+        return VendorResolver.resolve(emf, Optional.empty(), MysqlStreamingMode.ROW_BY_ROW).profile()
+                .conflictOnConstraint();
+    }
+
+    /** Whether {@code db} returns the rows of a write (R-WRT-50). */
+    private static ReturningShape returningShape(TckDatabase db) {
+        try (EntityManagerFactory emf = JoinTestSupport.sessionFactory(db)) {
+            return VendorResolver.resolve(emf, Optional.empty(), MysqlStreamingMode.ROW_BY_ROW).profile()
+                    .returning(WriteStatement.UPDATE).orElse(null);
+        }
+    }
 
     /** The columns of {@code key} after its first, as {@code onConflict} takes them. */
     @SuppressWarnings("unchecked")

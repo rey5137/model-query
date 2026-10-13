@@ -95,4 +95,24 @@ public interface VendorProfile {
     default Optional<ReturningShape> returning(WriteStatement kind) {
         return Optional.empty();
     }
+
+    /**
+     * Whether the database accepts {@code ON CONFLICT ON CONSTRAINT name}, so a conflict can be detected on a unique
+     * constraint or index no set of columns names, a partial one included (api/14 R-WRT-52). {@code false}, the
+     * default, fails safe (R-VND-14): an insert with {@code onConstraint(...)} is refused with {@code MQ1804} on first
+     * execution. A database fact, no SQL (R-VND-11, INV-6).
+     */
+    default boolean conflictOnConstraint() {
+        return false;
+    }
+
+    /**
+     * Whether the database accepts an arbiter predicate on a conflict target, so a conflict is detected only on the
+     * rows a partial unique index holds (api/14 R-WRT-52). {@code false}, the default, fails safe (R-VND-14): an
+     * insert with {@code onConflict(...).where(...)} is refused with {@code MQ1804} on first execution. A database
+     * fact, no SQL (R-VND-11, INV-6).
+     */
+    default boolean conflictArbiterPredicate() {
+        return false;
+    }
 }

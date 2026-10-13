@@ -98,6 +98,9 @@ final class HibernateMutations implements ReturningSupport {
     /** The Hibernate keyword a {@code RETURNING} shape appends. */
     private static final String RETURNING = " returning ";
 
+    /** The conflict target an arbiter predicate is spliced after, whatever whitespace follows it (R-WRT-52). */
+    private static final String CONFLICT = "on conflict";
+
     private HibernateMutations() {
     }
 
@@ -116,16 +119,20 @@ final class HibernateMutations implements ReturningSupport {
     @Override
     public List<Object[]> rows(Query statement, Class<?> entity, List<String> attributes, ReturningShape shape) {
         Objects.requireNonNull(statement, "statement");
-        Mutations line = line(((DomainQueryExecutionContext) statement).getSession().getFactory())
-                .orElseThrow(HibernateMutations::missingLine);
+        Mutations line = requireLine(((DomainQueryExecutionContext) statement).getSession().getFactory());
         return rows(line, statement, entity, attributes, shape);
     }
 
-    /** The {@code MQ4011} of a Hibernate line whose translation calls this adapter makes have moved (R-WRT-50). */
-    private static ModelQueryExecutionException missingLine() {
-        return new ModelQueryExecutionException(MqCode.MQ4011, "no mutation adapter serves Hibernate "
-                + Version.getVersionString() + ": its mutation translation calls moved from the ones the adapters "
-                + "of this version make, so a returning write is refused (R-WRT-50)");
+    /**
+     * The adapter that serves {@code sf}'s Hibernate line, or the {@code MQ4011} of a line whose translation calls
+     * this adapter makes have moved: a returning write and a conflict arbiter are refused, a plain write runs
+     * (R-WRT-50, R-WRT-52).
+     */
+    static Mutations requireLine(SessionFactoryImplementor sf) {
+        return line(sf).orElseThrow(() -> new ModelQueryExecutionException(MqCode.MQ4011, "no mutation adapter "
+                + "serves Hibernate " + Version.getVersionString() + ": its mutation translation calls moved from the "
+                + "ones the adapters of this version make, so a returning write or a conflict arbiter is refused "
+                + "(R-WRT-50, R-WRT-52)"));
     }
 
     /** {@link #rows(Query, Class, List, ReturningShape)}, on {@code line}, the adapter probed for this factory. */
@@ -136,17 +143,33 @@ final class HibernateMutations implements ReturningSupport {
     }
 
     /**
+     * Runs {@code statement}, an arbiter upsert whose {@code executeUpdate()} the engine calls, with the predicate of
+     * its conflict target spliced into the SQL Hibernate translates, and returns the rows it wrote (R-WRT-52). The
+     * statement is translated, checked on its first use and run through the session's own coordinator, as
+     * {@link #rows} runs a returning write.
+     */
+    static int executeUpdate(Query statement) {
+        Objects.requireNonNull(statement, "statement");
+        DomainQueryExecutionContext context = (DomainQueryExecutionContext) statement;
+        Mutations line = requireLine(context.getSession().getFactory());
+        return count(context, translate(line, statement, null, List.of(), null));
+    }
+
+    /**
      * The SQL {@code statement} is run with, without running it: {@link #rows} translation alone, for the tests that
      * check the shapes of R-WRT-50's table on a dialect without a database of that vendor. A test seam, as
      * {@link HibernateLockSupport#isRendered} is.
      */
     static String translated(Query statement, Class<?> entity, List<String> attributes, ReturningShape shape) {
-        Mutations line = line(((DomainQueryExecutionContext) statement).getSession().getFactory())
-                .orElseThrow(HibernateMutations::missingLine);
+        Mutations line = requireLine(((DomainQueryExecutionContext) statement).getSession().getFactory());
         return translate(line, statement, entity, attributes, shape).sql();
     }
 
-    /** The statement {@code line} translates for {@code attributes} with {@code shape} applied and checked. */
+    /**
+     * The statement {@code line} translates for {@code attributes} with {@code shape} applied and checked, with the
+     * conflict arbiter of {@code statement} spliced in when it carries one (R-WRT-50, R-WRT-52). A {@code null}
+     * {@code shape} renders no returning clause: the statement is an arbiter upsert run for its count alone.
+     */
     private static Translated translate(Mutations line, Query statement, Class<?> entity, List<String> attributes,
             ReturningShape shape) {
         DomainQueryExecutionContext context = (DomainQueryExecutionContext) statement;
@@ -158,22 +181,44 @@ final class HibernateMutations implements ReturningSupport {
         Mutations.Translation lines = line.translate(sf, dml, options, context);
         SqmTranslation<? extends MutationStatement> translation = lines.translation();
         MutationStatement ast = translation.getSqlAst();
-        EntityMappingType mapping = sf.getRuntimeMetamodels().getMappingMetamodel().getEntityDescriptor(entity);
-        List<SqlTypedMapping> columns = new ArrayList<>(attributes.size());
-        List<ColumnReference> returning = new ArrayList<>(attributes.size());
-        for (String attribute : attributes) {
-            SelectableMapping selectable = selectable(mapping, attribute, ast);
-            columns.add(selectable);
-            returning.add(new ColumnReference(ast.getTargetTable(), selectable));
+        List<SqlTypedMapping> columns = new ArrayList<>();
+        List<ColumnReference> returning = new ArrayList<>();
+        if (entity != null) {
+            EntityMappingType mapping = sf.getRuntimeMetamodels().getMappingMetamodel().getEntityDescriptor(entity);
+            for (String attribute : attributes) {
+                SelectableMapping selectable = selectable(mapping, attribute, ast);
+                columns.add(selectable);
+                returning.add(new ColumnReference(ast.getTargetTable(), selectable));
+            }
         }
         JdbcParameterBindings bindings = lines.bindings();
         SqlAstTranslator<?> translator = sf.getJdbcServices().getJdbcEnvironment().getSqlAstTranslatorFactory()
-                .buildMutationTranslator(sf, attach(ast, returning));
+                .buildMutationTranslator(sf, returning.isEmpty() ? ast : attach(ast, returning));
         JdbcOperationQueryMutation operation = (JdbcOperationQueryMutation) translator.translate(bindings, options);
-        String rendered = operation.getSqlString();
-        String sql = shape(shape, rendered, returning);
-        check(sf, kind(dml), rendered, sql, operation.getParameterBinders().size());
+        String arbiter = arbiter(statement);
+        String rendered = arbiter == null ? operation.getSqlString() : splice(operation.getSqlString(), arbiter);
+        String sql = shape == null ? rendered : shape(shape, rendered, returning);
+        if (arbiter != null) {
+            checkArbiter(sf, kind(dml), rendered, sql, operation.getParameterBinders().size(), shape != null);
+        } else if (shape != null) {
+            check(sf, kind(dml), rendered, sql, operation.getParameterBinders().size());
+        }
         return new Translated(sql, operation, bindings, columns, line.execution(context));
+    }
+
+    /** The arbiter predicate {@code statement} carries, or {@code null} when it is not an arbiter upsert (R-WRT-52). */
+    private static String arbiter(Query statement) {
+        return ArbiterQuery.of(statement).map(ArbiterQuery::arbiter).orElse(null);
+    }
+
+    /** The SQL {@code rendered} with {@code arbiter} spliced after its conflict target (R-WRT-52). */
+    static String splice(String rendered, String arbiter) {
+        int close = anchor(rendered);
+        if (close < 0) {
+            throw mismatch(rendered, "its conflict target, which the arbiter predicate follows, is not there exactly "
+                    + "once");
+        }
+        return rendered.substring(0, close + 1) + " where " + arbiter + rendered.substring(close + 1);
     }
 
     /** A statement translated for execution: its SQL, its operation and what it returns, and how its rows are read. */
@@ -231,6 +276,66 @@ final class HibernateMutations implements ReturningSupport {
     }
 
     /**
+     * {@link #checkArbiterSql} on the first use of {@code sql} on {@code sf} that passes, and on no later one
+     * (R-WRT-52). A test seam, as {@link HibernateLockSupport#isRendered} is.
+     */
+    static void checkArbiter(SessionFactoryImplementor sf, WriteStatement kind, String rendered, String sql,
+            int binders, boolean returnsRows) {
+        Set<String> passed = CHECKED.computeIfAbsent(sf, factory -> ConcurrentHashMap.newKeySet());
+        if (passed.contains(sql)) {
+            return;
+        }
+        checkArbiterSql(rendered, sql, binders, kind, returnsRows);
+        passed.add(sql);
+    }
+
+    /**
+     * The index of the {@code )} closing {@code rendered}'s conflict target, which the arbiter predicate is spliced
+     * after (R-WRT-52), or {@code -1} unless {@code on conflict} occurs exactly once outside a string literal and is
+     * followed by a parenthesised column list (INV-5): a literal's text is no anchor, and neither is a named
+     * constraint's target.
+     */
+    private static int anchor(String rendered) {
+        String text = masked(rendered);
+        int at = text.indexOf(CONFLICT);
+        if (at < 0 || text.indexOf(CONFLICT, at + 1) >= 0) {
+            return -1;
+        }
+        int open = at + CONFLICT.length();
+        while (open < text.length() && Character.isWhitespace(text.charAt(open))) {
+            open++;
+        }
+        if (open == text.length() || text.charAt(open) != '(') {
+            return -1;
+        }
+        int depth = 0;
+        for (int i = open; i < text.length(); i++) {
+            if (text.charAt(i) == '(') {
+                depth++;
+            } else if (text.charAt(i) == ')' && --depth == 0) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** {@code sql} in lower case with every single-quoted literal's characters blanked, each at its own index. */
+    private static String masked(String sql) {
+        StringBuilder text = new StringBuilder(sql.length());
+        boolean quoted = false;
+        for (int i = 0; i < sql.length(); i++) {
+            char c = sql.charAt(i);
+            if (c == '\'') {
+                quoted = !quoted; // a doubled quote closes and reopens the literal
+                text.append(c);
+            } else {
+                text.append(quoted ? ' ' : Character.toLowerCase(c));
+            }
+        }
+        return text.toString();
+    }
+
+    /**
      * The statement kind {@code dml} is, for the first-use check: the SQM insert statements of both a plain insert and
      * an upsert, an update, else a delete.
      */
@@ -248,15 +353,47 @@ final class HibernateMutations implements ReturningSupport {
      * {@link HibernateLockSupport#isRendered} is.
      */
     static void checkSql(String rendered, String sql, int binders, WriteStatement kind) {
-        List<String> expected = leadingKeywords(kind);
-        if (!expected.contains(leading(rendered))) {
-            throw mismatch(sql, "it does not start with " + String.join(" or ", expected));
-        }
+        checkKeyword(rendered, sql, kind);
         String unquoted = unquoted(sql); // a literal's ? or keyword is no placeholder and no anchor (R-COL-27)
         if (occurrences(unquoted, "?") != binders) {
             throw mismatch(sql, "it binds " + occurrences(unquoted, "?") + " placeholders with " + binders
                     + " binders");
         }
+        checkReturning(unquoted, sql);
+    }
+
+    /**
+     * The first-use check of an arbiter upsert's {@code sql} (R-WRT-52): the statement's own keyword, one placeholder
+     * per binder, the conflict target its arbiter predicate was spliced after found exactly once, and, where the
+     * statement returns rows too, the returning clause as {@link #checkSql} checks it. A translation that disagrees is
+     * {@code MQ4011} before execution (INV-5). A test seam, as {@link HibernateLockSupport#isRendered} is.
+     */
+    static void checkArbiterSql(String rendered, String sql, int binders, WriteStatement kind, boolean returnsRows) {
+        checkKeyword(rendered, sql, kind);
+        if (anchor(rendered) < 0) {
+            throw mismatch(sql, "its conflict target, which the arbiter predicate was spliced after, is not there "
+                    + "exactly once");
+        }
+        String unquoted = unquoted(sql);
+        if (occurrences(unquoted, "?") != binders) {
+            throw mismatch(sql, "it binds " + occurrences(unquoted, "?") + " placeholders with " + binders
+                    + " binders");
+        }
+        if (returnsRows) {
+            checkReturning(unquoted, sql);
+        }
+    }
+
+    /** {@code rendered}'s leading keyword, checked against {@code kind}'s (R-WRT-50). */
+    private static void checkKeyword(String rendered, String sql, WriteStatement kind) {
+        List<String> expected = leadingKeywords(kind);
+        if (!expected.contains(leading(rendered))) {
+            throw mismatch(sql, "it does not start with " + String.join(" or ", expected));
+        }
+    }
+
+    /** The returning clause of {@code unquoted}, checked to be the shape's single one (R-WRT-50). */
+    private static void checkReturning(String unquoted, String sql) {
         if (unquoted.contains(" final table (") || unquoted.contains(" old table (")) {
             if (occurrences(unquoted, RETURNING) > 0 || occurrences(unquoted, " table (") != 1) {
                 throw mismatch(sql, "its delta table and its returning clause do not agree");
@@ -273,6 +410,36 @@ final class HibernateMutations implements ReturningSupport {
 
     /** The rows {@code translated} returns, prepared, bound, run and released as Hibernate's own mutation executor. */
     private static List<Object[]> execute(DomainQueryExecutionContext context, Translated translated) {
+        return run(context, translated, "returning the rows of", (statement, session) -> {
+            List<Object[]> rows = new ArrayList<>();
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    rows.add(read(resultSet, translated.columns(), session));
+                }
+            }
+            return rows;
+        });
+    }
+
+    /** The rows {@code translated} wrote, run as Hibernate's own mutation executor runs an update (R-WRT-52). */
+    private static int count(DomainQueryExecutionContext context, Translated translated) {
+        return run(context, translated, "splicing a conflict arbiter into", (statement, session) ->
+                statement.executeUpdate());
+    }
+
+    /** What one translated statement does with the {@link PreparedStatement} bound for it. */
+    @FunctionalInterface
+    private interface StatementBody<T> {
+        T run(PreparedStatement statement, SharedSessionContractImplementor session) throws SQLException;
+    }
+
+    /**
+     * {@code body} on the {@link PreparedStatement} {@code translated} is prepared, timed and bound as, with the
+     * statement released and {@code afterStatement} run whatever happens. {@code what} names the operation in the
+     * {@code JDBC} exception.
+     */
+    private static <T> T run(DomainQueryExecutionContext context, Translated translated, String what,
+            StatementBody<T> body) {
         SharedSessionContractImplementor session = context.getSession();
         QueryOptions options = context.getQueryOptions();
         JdbcOperationQueryMutation operation = translated.operation();
@@ -291,16 +458,9 @@ final class HibernateMutations implements ReturningSupport {
             for (JdbcParameterBinder binder : operation.getParameterBinders()) {
                 binder.bindParameterValue(statement, position++, translated.bindings(), execution);
             }
-            List<Object[]> rows = new ArrayList<>();
-            try (ResultSet resultSet = statement.executeQuery()) {
-                while (resultSet.next()) {
-                    rows.add(read(resultSet, translated.columns(), session));
-                }
-            }
-            return rows;
+            return body.run(statement, session);
         } catch (SQLException e) {
-            throw jdbcServices.getSqlExceptionHelper().convert(e,
-                    "JDBC exception returning the rows of [" + sql + "]");
+            throw jdbcServices.getSqlExceptionHelper().convert(e, "JDBC exception " + what + " [" + sql + "]");
         } finally {
             connection.getResourceRegistry().release(statement);
             execution.afterStatement(connection);
@@ -336,7 +496,21 @@ final class HibernateMutations implements ReturningSupport {
      * table (R-WRT-50, R-WRT-48).
      */
     private static SelectableMapping selectable(EntityMappingType entity, String attribute, MutationStatement ast) {
+        SelectableMapping selectable = selectable(entity, attribute);
         String written = ast.getTargetTable().getTableExpression();
+        if (!selectable.getContainingTableExpression().equals(written)) {
+            throw refuse(attribute, "it is on " + selectable.getContainingTableExpression() + ", not on the written "
+                    + "table " + written);
+        }
+        return selectable;
+    }
+
+    /**
+     * The selectable {@code attribute} names on {@code entity}: a column of its table, or the id of a to-one
+     * association, which is the association's foreign-key column. Shared by a returning column and a conflict
+     * arbiter's column (R-WRT-50, R-WRT-52).
+     */
+    static SelectableMapping selectable(EntityMappingType entity, String attribute) {
         String[] path = attribute.split("\\.");
         ManagedMappingType owner = entity;
         AttributeMapping mapping = null;
@@ -356,10 +530,6 @@ final class HibernateMutations implements ReturningSupport {
         }
         if (selectable == null) {
             throw refuse(attribute, "it is the " + path[path.length - 1] + " association itself, not a column");
-        }
-        if (!selectable.getContainingTableExpression().equals(written)) {
-            throw refuse(attribute, "it is on " + selectable.getContainingTableExpression() + ", not on the written "
-                    + "table " + written);
         }
         return selectable;
     }
@@ -428,6 +598,14 @@ final class HibernateMutations implements ReturningSupport {
             line.ifPresent(candidate -> warnOfLine(factory, candidate));
             return line;
         });
+    }
+
+    /**
+     * Records that no adapter serves {@code sf}, as a line whose translation calls moved probes, so its refusals can
+     * be exercised on the running Hibernate. A test seam, as {@link HibernateLockSupport#isRendered} is.
+     */
+    static void unserved(SessionFactoryImplementor sf) {
+        PROBED.put(sf, Optional.empty());
     }
 
     /** One WARN per factory whose Hibernate is outside {@code line}'s tested range, as R-VND-07 logs the profile. */
@@ -539,8 +717,8 @@ final class HibernateMutations implements ReturningSupport {
     /** The {@code MQ4011} refusal of the statement {@code sql}, whose translation is not the shape's (R-WRT-50). */
     private static ModelQueryExecutionException mismatch(String sql, String because) {
         return new ModelQueryExecutionException(MqCode.MQ4011, "the factory translated the write to [" + sql
-                + "] for a returning write, and " + because + "; a returning write needs an adapter for this "
-                + "Hibernate line (R-WRT-50)");
+                + "] for a returning write or a conflict arbiter, and " + because + "; it needs an adapter for this "
+                + "Hibernate line (R-WRT-50, R-WRT-52)");
     }
 
     /** The first keyword of {@code sql}, lower case. */

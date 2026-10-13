@@ -37,6 +37,8 @@ as community-supported. It never gates a release.
 | Rows per multi-row `VALUES` insert (`maxValuesRows()`) | no limit beyond the bind limit | no limit beyond the bind limit | no limit beyond the bind limit |
 | Conflict detected only on the named key (`conflictTargetHonoured()`) | yes | yes | **no**: any unique key, so a conflict clause needs `anyUniqueKey()` (`api/14` R-WRT-36) |
 | Conflict `where` reads earlier assignments (`conflictWhereSeesEarlierAssignments()`) | no | no | **yes**: a `CASE` per assignment, so a `where` reading two or more assigned columns is refused (`api/14` R-WRT-34) |
+| Conflict target names a constraint (`conflictOnConstraint()`) | **no** | yes | **no** (`api/14` R-WRT-52) |
+| Conflict target takes an arbiter `WHERE` (`conflictArbiterPredicate()`) | **no** | yes | **no** (`api/14` R-WRT-52) |
 
 **R-PRF-11** The built-in H2, PostgreSQL and MySQL profiles carry the values in this table (`vendor/40` R-VND-03);
 "no limit" is `maxValuesRows()` returning `Integer.MAX_VALUE` (`vendor/40` R-VND-14, D-117).
@@ -150,6 +152,9 @@ on PostgreSQL, wrapped or suffixed as its plain form is; the rows it returns are
 updated, never those it left alone. On PostgreSQL Hibernate's own translator renders the ` returning ` list, which the
 adapter requires to be there rather than appending a clause of its own (D-129). Both Hibernate lines render the same
 SQL, so no `hibernate7/` variant exists; the two lines' difference is the translation call behind the SQL (R-WRT-50).
+An arbiter predicate (`api/14` R-WRT-52) is spliced after the translated insert's conflict target — on PostgreSQL
+`on conflict (<cols>) where <pred>`, its values as literals — and composes with the ` returning ` list of an arbiter
+upsert; the adapter finds that anchor exactly once, else `MQ4011` before execution, as it does the returning anchor.
 An insert, an update or a delete over a root entity mapped to more than one table is `MQ4011` on every vendor, because
 Hibernate runs it as more than one statement.
 

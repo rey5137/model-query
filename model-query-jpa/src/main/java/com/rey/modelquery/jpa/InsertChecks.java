@@ -59,13 +59,16 @@ final class InsertChecks {
 
     /**
      * Checks an insert's conflict clause, detected on {@code keys}, against the {@code uniqueKeys} the mapping
-     * declares and whether the provider renders the clause's action (R-WRT-34).
+     * declares and whether the provider renders the clause's action (R-WRT-34, R-WRT-52). {@code mappingDeclares} is
+     * false where an arbiter predicate or an {@code onConstraint(name)} supplies the conflict target: a partial unique
+     * index only a migration declares is no mapping unique key, so {@code keys} is not checked against them there.
      *
      * @throws ModelQueryDefinitionException {@code MQ1804} for keys that are not exactly one declared unique key, or a
      *     {@code doNothing()} the provider does not render
      */
-    static void checkConflict(Object insert, List<String> keys, List<Set<String>> uniqueKeys, boolean rendered) {
-        if (!uniqueKeys.contains(Set.copyOf(keys))) {
+    static void checkConflict(Object insert, List<String> keys, List<Set<String>> uniqueKeys, boolean rendered,
+            boolean mappingDeclares) {
+        if (mappingDeclares && !uniqueKeys.contains(Set.copyOf(keys))) {
             throw new ModelQueryDefinitionException(MqCode.MQ1804, insert + ": onConflict" + keys + " names no "
                     + "unique key of the mapping, which declares " + uniqueKeys + "; declare it with @Id, "
                     + "@NaturalId, @Column(unique = true), @JoinColumn(unique = true) or @Table(uniqueConstraints), "
@@ -75,6 +78,33 @@ final class InsertChecks {
             throw new ModelQueryDefinitionException(MqCode.MQ1804, insert + ": the persistence provider does not "
                     + "render doNothing() for this database and would write a plain insert, which fails on the first "
                     + "conflicting row; use doUpdate(...), or a provider version that renders it");
+        }
+    }
+
+    /**
+     * Checks an insert's {@code onConstraint(name)} against what the vendor takes (R-WRT-52).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1804} where the profile's {@code conflictOnConstraint()} is false
+     */
+    static void checkConstraint(Object insert, String name, boolean honoured) {
+        if (!honoured) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1804, insert + ": this database takes no "
+                    + "onConstraint(\"" + name + "\"): VendorProfile#conflictOnConstraint() is false for it, so the "
+                    + "conflict could not be detected on the named constraint or index");
+        }
+    }
+
+    /**
+     * Checks an insert's arbiter predicate against what the vendor takes (R-WRT-52).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1804} where the profile's {@code conflictArbiterPredicate()} is
+     *     false
+     */
+    static void checkArbiter(Object insert, boolean honoured) {
+        if (!honoured) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1804, insert + ": this database takes no arbiter "
+                    + "predicate on a conflict target: VendorProfile#conflictArbiterPredicate() is false for it, so "
+                    + "onConflict(...).where(...) could not be detected on a partial unique index");
         }
     }
 

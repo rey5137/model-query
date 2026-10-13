@@ -446,7 +446,22 @@ final class HibernateInsertSupport implements InsertSupport {
         for (int p = 0; p < bound.size(); p++) {
             TypedBinding.bind(statement, VALUE + p, bound.get(p), types.get(p % types.size()));
         }
+        if (conflict.isPresent() && !conflict.get().arbiter().isEmpty()) {
+            return ArbiterQuery.of(statement, arbiter(conflict.get(), session, entity));
+        }
         return statement;
+    }
+
+    /**
+     * The arbiter predicate of {@code clause} as SQL (R-WRT-52), spliced into the statement's conflict target by
+     * {@link HibernateMutations} when the engine runs it; {@code MQ4011} before the statement where no adapter serves
+     * this Hibernate line, as a returning write is refused.
+     */
+    private static <E> String arbiter(ConflictClause<E> clause, Session session, Class<E> entity) {
+        SessionFactoryImplementor factory = (SessionFactoryImplementor) session.getFactory();
+        HibernateMutations.requireLine(factory);
+        return new ArbiterSql(new HibernateConstantRenderer(factory), persister(factory, entity), entity)
+                .render(clause.arbiter());
     }
 
     /**
@@ -457,7 +472,8 @@ final class HibernateInsertSupport implements InsertSupport {
     private static <E> void onConflict(JpaCriteriaInsertValues<E> insert, ConflictClause<E> clause,
             HibernateCriteriaBuilder cb, List<Assigned> assigned) {
         JpaConflictClause<E> conflict = insert.onConflict();
-        conflict.conflictOnConstraintPaths(paths(insert.getTarget(), clause.keyAttributes()));
+        clause.constraintName().ifPresentOrElse(conflict::conflictOnConstraint,
+                () -> conflict.conflictOnConstraintPaths(paths(insert.getTarget(), clause.keyAttributes())));
         if (clause.doNothing()) {
             conflict.onConflictDoNothing();
             return;

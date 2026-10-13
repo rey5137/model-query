@@ -80,6 +80,16 @@ enum BuiltInProfile implements VendorProfile {
         }
 
         @Override
+        public boolean conflictOnConstraint() {
+            return true;
+        }
+
+        @Override
+        public boolean conflictArbiterPredicate() {
+            return true;
+        }
+
+        @Override
         public Optional<ReturningShape> returning(WriteStatement kind) {
             return Optional.of(ReturningShape.SUFFIX);
         }

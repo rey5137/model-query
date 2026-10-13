@@ -1634,8 +1634,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         int providerBinds = support.providerBindsPerRow(emf, rootEntity);
         int conflictRepeatedBinds = i.conflictRepeatedBinds(updated.keySet());
         int perStatement = rowsPerStatement(i, attributes.size() + providerBinds, i.conflictBinds(updated.keySet()));
-        Optional<ConflictClause<E>> conflict = i.conflictKeys().isEmpty() ? Optional.empty()
-                : Optional.of(new InsertConflict<>(i, renderOptions, updated));
+        Optional<ConflictClause<E>> conflict = i.hasConflict() ? Optional.of(new InsertConflict<>(i, renderOptions,
+                updated)) : Optional.empty();
         ValuesWrite.Statement statement = (on, from, to) -> {
             List<List<Object>> values = i.valueRows(from, to);
             values.forEach(row -> row.addAll(added));
@@ -1779,14 +1779,20 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                     i.writesId(metamodel));
             if (!i.conflictKeys().isEmpty()) {
                 InsertChecks.checkConflict(i, i.conflictKeys(), support.uniqueKeys(emf, rootEntity),
-                        !i.conflictSkips() || support.doNothingRendered(emf));
+                        !i.conflictSkips() || support.doNothingRendered(emf), i.conflictArbiter().isEmpty());
             }
             if (i.chunkOptions().isPresent() && i.sourceEntity().isPresent()) {
                 checkNoOverlap(i, selected(i, metamodel), metamodel);
             }
         });
         // Each run, not once per factory: the option and the profile are this executor's, and another executor on
-        // the same factory may run i too
+        // the same factory may run i too. A form the vendor takes at all is checked before what its key columns mean
+        // (R-WRT-52), so a conflict arbiter or a constraint name the profile refuses is refused as such.
+        i.conflictConstraint().ifPresent(name ->
+                InsertChecks.checkConstraint(i, name, vendor.profile().conflictOnConstraint()));
+        if (!i.conflictArbiter().isEmpty()) {
+            InsertChecks.checkArbiter(i, vendor.profile().conflictArbiterPredicate());
+        }
         if (!i.conflictKeys().isEmpty()) {
             InsertChecks.checkConflictTarget(i, i.conflictKeys(),
                     vendor.profile().conflictTargetHonoured() || i.conflictAnyUniqueKey());
@@ -1798,7 +1804,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /** Whether {@code i} has a {@code doUpdate} clause, which applies the {@code UPDATE} write assignments. */
     private static boolean conflictUpdates(ModelInsert<?, ?> i) {
-        return !i.conflictKeys().isEmpty() && !i.conflictSkips();
+        return i.hasConflict() && !i.conflictSkips();
     }
 
     /**

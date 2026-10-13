@@ -481,6 +481,76 @@ class InsertDefinitionTest {
                 (stored, incoming, cb) -> incoming)).build(), MqCode.MQ1804);
     }
 
+    // ---- AC-WRT-45
+
+    @Test
+    void ac_wrt_45_on_constraint_names_a_constraint_and_leaves_the_keys_and_arbiter_empty() {
+        InsertDraft.Conflict<Order, NewOrder> conflict =
+                values().onConstraint("uq_order_ref").doNothing().build().definition().conflict();
+
+        assertThat(conflict.constraint()).isEqualTo("uq_order_ref");
+        assertThat(conflict.keys()).isEmpty();
+        assertThat(conflict.arbiter()).isEmpty();
+    }
+
+    @Test
+    void ac_wrt_45_the_arbiter_where_is_carried_into_the_draft_in_order() {
+        InsertDraft.Conflict<Order, NewOrder> conflict = values().onConflict(REF)
+                .where(f -> f.ne(STATUS, "CLOSED").eq(NOTE, "N"))
+                .doUpdate(u -> u.setFromRow(STATUS)).build().definition().conflict();
+
+        assertThat(conflict.keys()).containsExactly(REF);
+        List<Condition> arbiter = conflict.arbiter();
+        assertThat(arbiter).hasSize(2);
+        assertThat(arbiter.get(0).kind()).isEqualTo(Condition.Kind.NE);
+        assertThat(arbiter.get(0).column()).contains(STATUS);
+        assertThat(arbiter.get(0).values()).containsExactly("CLOSED");
+        assertThat(arbiter.get(1).kind()).isEqualTo(Condition.Kind.EQ);
+        assertThat(arbiter.get(1).column()).contains(NOTE);
+        assertThat(arbiter.get(1).values()).containsExactly("N");
+    }
+
+    @Test
+    void ac_wrt_45_a_blank_constraint_name_throws_mq1804() {
+        assertCode(() -> values().onConstraint(" ").doNothing().build(), MqCode.MQ1804)
+                .hasMessage("MQ1804: onConstraint(\" \"): the constraint name is blank; name the unique constraint or "
+                        + "index the conflict is detected on");
+    }
+
+    @Test
+    void ac_wrt_45_an_arbiter_predicate_with_an_expression_an_exists_or_a_sub_select_throws_mq1804() {
+        assertCode(() -> values().onConflict(REF).where(f -> f.compare(STATUS, Op.NE, Expr.value("CLOSED")))
+                .doNothing().build(), MqCode.MQ1804).hasMessageContaining("onConflict(...).where(...) with COMPARE");
+        assertCode(() -> values().onConflict(REF).where(f -> f.exists(ITEMS)).doNothing().build(), MqCode.MQ1804)
+                .hasMessageContaining("onConflict(...).where(...) with EXISTS");
+        assertCode(() -> values().onConflict(REF).where(f -> f.in(STATUS, SubSelect.of(SOURCE_REF)))
+                .doNothing().build(), MqCode.MQ1804).hasMessageContaining("with IN_SUBSELECT");
+        assertCode(() -> values().onConflict(REF).where(f -> f.like(STATUS, "OP", LikeMode.STARTS_WITH))
+                .doNothing().build(), MqCode.MQ1804).hasMessageContaining("with LIKE");
+    }
+
+    @Test
+    void ac_wrt_45_an_arbiter_predicate_on_a_joined_column_or_with_an_empty_in_or_or_throws_mq1804() {
+        assertCode(() -> values().onConflict(REF).where(f -> f.eq(PARENT_STATUS, "OPEN")).doNothing().build(),
+                MqCode.MQ1804).hasMessageContaining("the arbiter has no join, so it filters on root columns");
+        assertCode(() -> values().onConflict(REF).where(f -> f.in(STATUS, List.of())).doNothing().build(),
+                MqCode.MQ1804).hasMessageContaining("with an empty IN");
+        assertCode(() -> values().onConflict(REF).where(f -> f.notIn(STATUS, List.of())).doNothing().build(),
+                MqCode.MQ1804).hasMessageContaining("with an empty NOT_IN");
+        assertCode(() -> values().onConflict(REF).where(f -> f.or(List.of())).doNothing().build(), MqCode.MQ1804)
+                .hasMessageContaining("with an empty OR");
+        assertThat(values().onConflict(REF).where(f -> f.in(STATUS, List.of("OPEN", "NEW")).isNull(NOTE)
+                .or(g -> g.eq(NOTE, "a"), g -> g.not(n -> n.ne(STATUS, "X")))).doNothing().build()
+                .conflictArbiter()).hasSize(3);
+    }
+
+    @Test
+    void ac_wrt_45_an_arbiter_where_that_skips_every_filter_throws_mq1601() {
+        assertCode(() -> values().onConflict(REF).where(f -> f.eq(STATUS, Optional.<String>empty()))
+                .doNothing().build(), MqCode.MQ1601)
+                .hasMessageContaining("onConflict(...).where(...) left no predicate");
+    }
+
     // ---- ChunkedWriteException
 
     @Test
