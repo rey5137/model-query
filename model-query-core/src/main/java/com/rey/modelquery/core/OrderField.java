@@ -61,7 +61,7 @@ public record OrderField<M, C>(SelectField<M, C> column, boolean ascending, Null
      */
     @EngineFacing
     public List<Order> toOrders(JoinContext ctx, CriteriaBuilder cb, boolean grouped) {
-        Expression<C> expression = column.expression(Objects.requireNonNull(ctx, "ctx"));
+        Expression<C> expression = Objects.requireNonNull(ctx, "ctx").withoutSequences(() -> column.expression(ctx));
         Order own = ascending ? cb.asc(expression) : cb.desc(expression);
         if (nulls == NullPrecedence.DEFAULT) {
             return List.of(own);

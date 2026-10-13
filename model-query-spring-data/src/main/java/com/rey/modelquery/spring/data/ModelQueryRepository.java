@@ -154,6 +154,28 @@ public interface ModelQueryRepository<E> {
     long insert(ModelInsert<E, ?> i);
 
     /**
+     * {@link ModelQueryExecutor#updateReturning(ModelUpdate, ModelQuery)}, in a transaction joined or opened as
+     * {@link #update} runs; the rows are read inside it. {@code commitEachChunk()} is refused by the executor
+     * ({@code MQ1809}), so there is always one transaction (R-SPR-10, R-WRT-50).
+     */
+    @Incubating
+    <R> List<R> updateReturning(ModelUpdate<E, ?> u, ModelQuery<E, ?, R> returning);
+
+    /**
+     * {@link ModelQueryExecutor#deleteReturning(ModelDelete, ModelQuery)}, in a transaction as
+     * {@link #updateReturning} runs (R-SPR-10, R-WRT-50).
+     */
+    @Incubating
+    <R> List<R> deleteReturning(ModelDelete<E, ?> d, ModelQuery<E, ?, R> returning);
+
+    /**
+     * {@link ModelQueryExecutor#insertReturning(ModelInsert, ModelQuery)}, in a transaction as
+     * {@link #updateReturning} runs (R-SPR-10, R-WRT-50).
+     */
+    @Incubating
+    <R> List<R> insertReturning(ModelInsert<E, ?> i, ModelQuery<E, ?, R> returning);
+
+    /**
      * {@link ModelQueryExecutor#insertReturningKeys(ValuesInsert)}, in a transaction joined or opened as
      * {@link #update} runs; its keys are drawn and returned inside it (R-SPR-10, R-WRT-33).
      */

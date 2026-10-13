@@ -1161,18 +1161,54 @@ The new value is computed by the database, so two concurrent increments both lan
 
 Tested by `BulkWriteTest` in the TCK.
 
+## Number rows from a sequence
+
+The case in one line: read a database sequence's next value next to each row, without a function call that names the
+dialect (`Expr.nextval`, R-COL-28, `@Incubating`; see [Sequence values](queries.md#sequence-values)).
+
+```java
+private static final ExpressionField<Numbered, Long> NEXT = Expr.nextval("tck_seq");
+
+var query = ModelQuery.builder(ROWS, row -> new Numbered(row.get(ID), row.get(NEXT)))
+        .select(SelectSet.of(ID, NEXT))
+        .orderBy(ID.asc())
+        .build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<Numbered> rows = executor.list(query, Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<Numbered> rows = rowsRepository.findAll(query, Limit.unlimited());
+    ```
+
+A value is consumed on every evaluation, so a re-run of the query and `one(q)`'s second row each use one. This is a
+read only: a sequence value in a write comes later (D-130). MySQL has no sequences, so this is `MQ1509` there. Tested
+by `SequenceNextvalTest` in the TCK (AC-COL-33).
+
 ## Claim the next job
 
 A pool of workers pulls work from a table: each takes the next pending rows, marks them claimed and commits, and a
-second worker must not take the same rows. Read them with `RowLock.exclusive(SKIP_LOCKED)` inside one transaction and
-write the claim in the same transaction, so the rows stay locked from the read until the commit (`RowLock`, D-127,
-`@Incubating`; see [Row locks](queries.md#row-locks)).
+second worker must not take the same rows. Claim in two steps in one transaction, so the rows stay locked from the
+read until the commit (`RowLock`, D-127, and returning writes, R-WRT-50, both `@Incubating`; see
+[Row locks](queries.md#row-locks) and [Returning the changed rows](bulk-writes.md#returning-the-changed-rows)):
+
+1. read the next pending rows' keys with `RowLock.exclusive(SKIP_LOCKED)`, an order and a limit, so a row another
+   worker holds is passed over rather than waited for;
+2. claim exactly those rows with `whereKeys(ids)`, and read the claim back: `updateReturning` does it in the same
+   statement on PostgreSQL and H2; MySQL returns no rows of a write (`MQ4011`), so write with `update` and read the
+   rows back with `byKeys`.
 
 ```java
-private static final ModelQuery<OrderEntity, Long, OrderView> NEXT_PENDING = QOrderView.query()
-        .select(QOrderView.DEFAULT)
-        .where(f -> f.eq(QOrderView.STATUS, "PENDING"))
-        .orderBy(QOrderView.ID.asc())
+private static final ModelQuery<OrderEntity, Long, OrderLines> NEXT_PENDING = QOrderLines.query()
+        .select(QOrderLines.ALL)
+        .where(f -> f.eq(QOrderLines.STATUS, "PENDING"))
+        .orderBy(QOrderLines.ID.asc())
         .build()
         .withLock(RowLock.exclusive(RowLock.Wait.SKIP_LOCKED));
 ```
@@ -1180,17 +1216,36 @@ private static final ModelQuery<OrderEntity, Long, OrderView> NEXT_PENDING = QOr
 === "Plain JPA"
 
     ```java
-    // In one transaction: the read locks each pending row, and the commit releases it.
-    List<OrderView> pending = executor.list(NEXT_PENDING, Limit.of(10));
-    // Then mark each row claimed in this same transaction, and commit.
+    // In one transaction: the read locks each row it returns, and the commit releases it.
+    List<Long> ids = executor.list(NEXT_PENDING, Limit.of(2)).stream().map(OrderLines::id).toList();
+    var claim = ModelUpdate.builder(QOrderLines.ROOT).primaryKey(QOrderLines.KEY)
+            .set(QOrderLines.STATUS, "CLAIMED").whereKeys(ids).build();
+    var claimedRows = QOrderLines.query().select(QOrderLines.ALL).build();
+    // PostgreSQL and H2: one statement writes the claim and returns the rows.
+    List<OrderLines> claimed = executor.updateReturning(claim, claimedRows);
+    // MySQL: write, then read the rows back by key.
+    executor.update(claim);
+    Map<Long, OrderLines> byId = executor.byKeys(claimedRows, ids);
     ```
 
 === "Spring repository"
 
     ```java
-    List<OrderView> pending = orders.findAll(NEXT_PENDING, Limit.of(10));
-    // Then mark each row claimed in this same transaction, and commit.
+    // In one transaction (a TransactionTemplate or @Transactional), as with plain JPA.
+    List<Long> ids = orders.findAll(NEXT_PENDING, Limit.of(2)).stream().map(OrderLines::id).toList();
+    var claim = ModelUpdate.builder(QOrderLines.ROOT).primaryKey(QOrderLines.KEY)
+            .set(QOrderLines.STATUS, "CLAIMED").whereKeys(ids).build();
+    var claimedRows = QOrderLines.query().select(QOrderLines.ALL).build();
+    // PostgreSQL and H2: one statement writes the claim and returns the rows.
+    List<OrderLines> claimed = orders.updateReturning(claim, claimedRows);
+    // MySQL: write, then read the rows back by key.
+    orders.update(claim);
+    Map<Long, OrderLines> byId = orders.findAllByKeys(claimedRows, ids);
     ```
+
+Two workers running this at once claim disjoint rows: the second one's read passes the first one's locked rows over.
+There is no one-statement form that writes over a locked sub-select (D-131): a Criteria sub-query carries no lock,
+and on PostgreSQL `IN (SELECT … LIMIT n FOR UPDATE SKIP LOCKED)` can claim more rows than the limit.
 
 Caveats:
 
@@ -1205,10 +1260,13 @@ Caveats:
   `@Transactional(readOnly = true)`: PostgreSQL and MySQL reject the locking clause.
 - On PostgreSQL a `WAIT` claim can return fewer rows than the limit, or no row while a match exists, because a locked
   row that no longer matches is dropped after `LIMIT`; `SKIP_LOCKED`, as here, avoids it.
+- H2 renders `SKIP_LOCKED` only on Hibernate 7; on Hibernate 6.6 the locked read is `MQ4010` before any statement.
 - To filter by a related table's rows, use [`Filters.exists(...)`](queries.md#exists), not a join: a locked query whose
   statement joins is `MQ2211`.
 
-Tested by `ac_exe_17_claim_the_next_job_skips_locked_rows_and_updates_its_claim` in `RowLockExecutionTest`.
+Tested by `ac_wrt_47_two_concurrent_workers_claim_disjoint_jobs_and_read_their_claims_back` and
+`ac_exe_17_claim_the_next_job_skips_locked_rows_and_updates_its_claim` in `RowLockExecutionTest`, and by
+`ac_wrt_47_the_claim_recipe_runs_through_the_repository_in_one_transaction` in `ModelQueryRepositoryTest` (AC-WRT-47).
 
 ## Filter by a fixed set of enum states
 

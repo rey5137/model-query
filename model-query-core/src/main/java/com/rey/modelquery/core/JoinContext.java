@@ -83,6 +83,7 @@ public final class JoinContext {
     private TableField<?, ?> existsPath;
     private From<?, ?> existsFrom;
     private int leftJoining;
+    private int sequencesRefused;
     /**
      * The types every {@code exists} sub-query of this build joined, nested ones included: shared with each nested
      * context, so a bulk write learns whether a sub-query reads its own table (R-WRT-11).
@@ -254,6 +255,30 @@ public final class JoinContext {
      */
     Optional<ConstantRenderer> constantRenderer() {
         return renderOptions.constantRenderer();
+    }
+
+    /**
+     * The provider's renderer of a sequence's next value this build renders by, or empty when the vendor or the
+     * provider has none and {@code Expr.nextval} is then {@code MQ1509} (R-COL-28). How {@code core}'s expressions
+     * reach the provider capability, so {@code core} names no provider (INV-7).
+     */
+    Optional<SequenceRenderer> sequenceRenderer() {
+        return renderOptions.sequenceRenderer();
+    }
+
+    /** Whether the clause being rendered refuses a sequence value: a filter, an order or a group key (R-COL-28). */
+    boolean sequencesRefused() {
+        return sequencesRefused > 0;
+    }
+
+    /** Runs {@code render} as a clause that refuses {@code Expr.nextval}: a filter, an order or a group key. */
+    <R> R withoutSequences(Supplier<R> render) {
+        sequencesRefused++;
+        try {
+            return render.get();
+        } finally {
+            sequencesRefused--;
+        }
     }
 
     /**

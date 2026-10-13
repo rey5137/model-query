@@ -206,6 +206,71 @@ var insert = ValuesInsert.builder(NAMED, Long.class, List.of(new Named(1L, "c1x"
         .anyUniqueKey().build();
 ```
 
+### `setExpression`
+
+`setExpression(column, (stored, incoming, cb) -> ...)` computes an assigned value from the stored row and the incoming
+(`excluded`) row, as `ModelUpdate.setExpression` does for one path (R-WRT-51, `@Incubating`). It renders before the
+other assignments, so the expression reads the stored value rather than one an earlier assignment wrote; a column with a
+`ColumnConverter` is `MQ1609`. Test: `ac_wrt_44_a_conflict_set_expression_renders_before_the_other_assignments` in
+`InsertConflictTest`.
+
+```java
+var insert = ValuesInsert.builder(NAMED, Long.class, List.of(new Named(1L, "c1", "IN")))
+        .onConflict(ID).doUpdate(u -> u.set(CODE, "x")
+                .setExpression(NAME, (stored, incoming, cb) -> cb.concat(stored, incoming)))
+        .anyUniqueKey().build();
+```
+
+### `onConstraint` and the arbiter `where`
+
+PostgreSQL can detect a conflict on a named constraint, or on a partial unique index. `onConstraint(name)` names a
+unique constraint or index of the table instead of key columns and takes `doNothing()` or `doUpdate(...)`, but no
+`where`; an arbiter `where` on `onConflict(columns)` adds the predicate that selects the partial index
+(`ON CONFLICT (sku) WHERE status <> 'CLOSED'`, R-WRT-52, `@Incubating`). The arbiter renders its values as literals,
+because a bound parameter would keep PostgreSQL from inferring the partial index; it takes plain comparisons of root
+columns only (`Expr.value`, `exists` and sub-selects are `MQ1804`, an unrenderable value `MQ1508`). Both are `MQ1804`
+on every vendor but PostgreSQL. Tests, in `InsertConflictTest`:
+`ac_wrt_45_a_conflict_arbiter_updates_the_open_row_and_inserts_past_the_closed_one` and
+`ac_wrt_45_on_constraint_do_nothing_skips_the_row_conflicting_on_the_named_constraint`.
+
+```java
+var arbiter = ValuesInsert.builder(ARBITER_COLUMNS, Long.class, List.of(
+                new ArbiterRow(3L, "k3", "s1", "OPEN", "X1"),
+                new ArbiterRow(4L, "k4", "s2", "OPEN", "X2")))
+        .onConflict(ARBITER_SKU).where(f -> f.ne(ARBITER_STATUS, "CLOSED"))
+        .doUpdate(u -> u.setFromRow(ARBITER_NAME)).build();
+var byConstraint = ValuesInsert.builder(ARBITER_COLUMNS, Long.class, List.of(
+                new ArbiterRow(3L, "k1", "sX", "OPEN", "X1"),
+                new ArbiterRow(4L, "k4", "s4", "OPEN", "X2")))
+        .onConstraint("ins_arbiter_code_key").doNothing().build();
+```
+
+### Returning the written rows
+
+`insertReturning(insert, returning)` runs a plain insert-values, an upsert or an insert-select and returns the models of
+the rows written (R-WRT-50, `@Incubating`); an upsert returns its inserted and updated rows, never one `doNothing()`
+skipped. The rules are those of
+[returning the changed rows](bulk-writes.md#returning-the-changed-rows). Test:
+`BulkWriteTest.ac_wrt_44_a_conflict_set_expression_increments_the_stored_row_and_the_upsert_returns_the_new_value`.
+
+```java
+var insert = ValuesInsert.builder(COUNTER_COLUMNS, Long.class, List.of(new CounterRow(1L, 1L)))
+        .onConflict(COUNTER_ID).doUpdate(u -> u.setExpression(COUNTER_NEXT,
+                (stored, incoming, cb) -> cb.sum(stored, 1L))).anyUniqueKey().build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<CounterValue> counters = executor.insertReturning(insert, COUNTER_VALUE_RETURNING.build());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<CounterValue> counters = counterRows.insertReturning(insert, COUNTER_VALUE_RETURNING.build());
+    ```
+
 ## `persist`
 
 `persist` writes one row through JPA: it instantiates the entity, sets each attribute, persists, flushes and detaches

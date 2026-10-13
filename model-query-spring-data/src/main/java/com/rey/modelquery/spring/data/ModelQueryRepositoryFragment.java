@@ -145,6 +145,28 @@ final class ModelQueryRepositoryFragment<E> implements ModelQueryRepository<E> {
     }
 
     @Override
+    public <R> List<R> updateReturning(ModelUpdate<E, ?> u, ModelQuery<E, ?, R> returning) {
+        Objects.requireNonNull(u, "u");
+        Objects.requireNonNull(returning, "returning");
+        // commitEachChunk() fails MQ1809 in the executor, so there is always one transaction here.
+        return inTransaction(() -> executor.get().updateReturning(u, returning));
+    }
+
+    @Override
+    public <R> List<R> deleteReturning(ModelDelete<E, ?> d, ModelQuery<E, ?, R> returning) {
+        Objects.requireNonNull(d, "d");
+        Objects.requireNonNull(returning, "returning");
+        return inTransaction(() -> executor.get().deleteReturning(d, returning));
+    }
+
+    @Override
+    public <R> List<R> insertReturning(ModelInsert<E, ?> i, ModelQuery<E, ?, R> returning) {
+        Objects.requireNonNull(i, "i");
+        Objects.requireNonNull(returning, "returning");
+        return inTransaction(() -> executor.get().insertReturning(i, returning));
+    }
+
+    @Override
     public <K> List<K> insertReturningKeys(ValuesInsert<E, K, ?> i) {
         Objects.requireNonNull(i, "i");
         // A commitEachChunk() definition fails MQ1801 in the executor, so there is always one transaction here.

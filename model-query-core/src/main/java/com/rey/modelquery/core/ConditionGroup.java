@@ -104,6 +104,10 @@ abstract class ConditionGroup<M, G> {
      * to reuse (R-FLT-10), where rendering one first would join the path LEFT and the rest would join it again (D-26).
      */
     static List<List<Predicate>> clausePredicates(List<List<Filter>> clauses, JoinContext ctx) {
+        return ctx.withoutSequences(() -> renderClauses(clauses, ctx));
+    }
+
+    private static List<List<Predicate>> renderClauses(List<List<Filter>> clauses, JoinContext ctx) {
         var rendered = new ArrayList<List<Optional<Predicate>>>(clauses.size());
         for (List<Filter> filters : clauses) {
             var clause = new ArrayList<Optional<Predicate>>(filters.size());

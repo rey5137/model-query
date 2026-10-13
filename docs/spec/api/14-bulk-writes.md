@@ -337,6 +337,7 @@ public interface ModelQueryExecutor<E> {
 | AC-WRT-43 | `insertReturning` returns one model per row the insert wrote — a plain insert-values, a chunked one concatenating its chunks, and an upsert through `onConflict(...).doUpdate(...)` returning the inserted and the updated rows, not those a `doNothing()` skipped — in the shapes of `vendor/41` §7 (H2's `FINAL TABLE`, PostgreSQL's `RETURNING`), and refuses it with `MQ4011` before any statement on a vendor whose profile has no insert shape, MySQL among them (R-WRT-50, R-VND-17, D-129). |
 | AC-WRT-44 | `ConflictUpdate.setExpression(COL, (stored, incoming, cb) -> cb.sum(stored, 1))` increments the stored row's column and renders before the clause's other assignments on every Tier-1 vendor, counted as an assigned column by R-WRT-34's `where` rule, with `MQ1609` for a converted column and `MQ1804` for a key column or one assigned twice (R-WRT-13, R-WRT-51, R-WRT-34). |
 | AC-WRT-45 | `onConflict(COL).where(f -> f.ne(COL2, v))` renders the arbiter predicate after the conflict target with its value as a literal, so on PostgreSQL an upsert updates a row the partial unique index holds and inserts a new one whose key matches only a row outside it; `onConstraint("name")` detects the conflict on a named unique constraint and `doNothing` skips the row conflicting on it; `insertReturning` with an arbiter returns the upserted row; an arbiter with an `Expr.value`, an expression, `exists` or a sub-select, and a blank `onConstraint` name, are `MQ1804` at `build()` and an arbiter whose every filter was skipped is `MQ1601`; H2 and MySQL, whose profile facts are false, throw `MQ1804` on first execution for both, and a translated statement whose conflict target is missing or occurs twice, or a Hibernate line no adapter serves, throws `MQ4011` before execution while a plain upsert still runs (R-WRT-52, R-WRT-34, R-WRT-50, D-128). |
+| AC-WRT-47 | Two workers, each in its own transaction, run the claim of R-WRT-50 at once: each reads the next two pending rows' keys with `RowLock.exclusive(SKIP_LOCKED)`, an order and a limit, the second passing the first's locked rows over, then claims them by `whereKeys` and reads them back, by `updateReturning` on PostgreSQL and on H2 with Hibernate 7.x, by `update` then `byKeys` on MySQL; the two claims are disjoint, both commit, and an unclaimed row stays pending. The same claim runs through `ModelQueryRepository` (`findAll`, `updateReturning` or `update` then `findAllByKeys`) in one Spring transaction. On H2 with Hibernate 6.6, which drops `SKIP_LOCKED`, the locked read is `MQ4010` before any statement (`vendor/41` §6) (R-WRT-50, R-WRT-08, R-EXE-14, D-131). |
 
 ## 10. Inserts
 
@@ -842,6 +843,14 @@ provider cannot render the shape, or the root entity is mapped to more than one 
 entry, before any statement, naming the provider, the vendor and the statement kind. That refusal is a fail-safe, as
 R-VND-15's is: every other write, insert and upsert is unaffected. The Javadoc says the rows hold what the database
 returned, so a column the database fills in a trigger is present only where that vendor returns it.
+
+**Claiming rows** (D-131). A worker claims the next rows in two statements in one transaction, never in one locked
+sub-select write: (1) a locked key read, a query with an order and a limit under
+`withLock(RowLock.exclusive(SKIP_LOCKED))` (`engine/20` R-EXE-14), which passes rows another worker holds over; (2) the
+claim, `updateReturning(update.whereKeys(keys), returning)` where the vendor returns the rows of an update (PostgreSQL,
+H2 where its `SKIP_LOCKED` renders), else `update(update.whereKeys(keys))` then `byKeys(returning, keys)` (MySQL)
+(R-WRT-08). The read's locks hold until the commit, so two workers claim disjoint rows. A `whereKeys` sub-select under
+a lock is not offered (D-131): a Criteria subquery carries no lock, and chunking would release or re-run it.
 
 **R-WRT-51** `ConflictUpdate.setExpression(ColumnField column, ConflictExpression<C> expression)` writes what
 `ConflictExpression#apply(Path<C> stored, Path<C> incoming, CriteriaBuilder cb)` returns for the column: an escape hatch

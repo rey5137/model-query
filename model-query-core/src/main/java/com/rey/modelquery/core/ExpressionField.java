@@ -77,6 +77,12 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
                     + ") is operand-only, the operand of a comparison or an IN; it is no model column, projection, "
                     + "order, group key or function argument");
         }
+        // Checked on the whole tree before the memo: an expression rendered first by the select would otherwise come
+        // back from it without its nested sequence being seen (R-COL-28).
+        if (ctx.sequencesRefused() && readsSequence(this)) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1509, node.text() + " reads a sequence value, which "
+                    + "advances on every evaluation, so it is no filter, having, order or group key operand");
+        }
         return (Expression<C>) ctx.expression(this, () -> {
             Expression<?> rendered = node.render(ctx);
             if (node instanceof TypedConst) {
@@ -130,6 +136,47 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         return operand instanceof ScalarField<?, ?> ? 0 : 1;
     }
 
+    /** Whether {@code operand} is an expression reading {@code Expr.nextval} anywhere, CASE conditions included. */
+    private static boolean readsSequence(Object operand) {
+        if (!(operand instanceof ExpressionField<?, ?> expression)) {
+            return false;
+        }
+        Node node = expression.node;
+        if (node instanceof Nextval) {
+            return true;
+        }
+        if (node instanceof Coalesce n) {
+            return readsSequence(n.first()) || readsSequence(n.second());
+        }
+        if (node instanceof NullIf n) {
+            return readsSequence(n.value());
+        }
+        if (node instanceof Arith n) {
+            return readsSequence(n.first()) || readsSequence(n.second());
+        }
+        if (node instanceof Negate n) {
+            return readsSequence(n.value());
+        }
+        if (node instanceof Concat n) {
+            return readsSequence(n.first()) || readsSequence(n.second());
+        }
+        if (node instanceof Fn n) {
+            return n.args().stream().anyMatch(ExpressionField::readsSequence);
+        }
+        if (node instanceof Case n) {
+            return readsSequence(n.otherwise()) || n.branches().stream().anyMatch(branch ->
+                    readsSequence(branch.result()) || branch.conditions().stream().anyMatch(ExpressionField::reads));
+        }
+        return false; // Const, TypedConst and Value read nothing
+    }
+
+    /** Whether a CASE condition reads {@code Expr.nextval} in an operand or a child condition. */
+    private static boolean reads(Condition condition) {
+        return readsSequence(condition.column().orElse(null)) || readsSequence(condition.right().orElse(null))
+                || condition.operands().stream().anyMatch(ExpressionField::readsSequence)
+                || condition.children().stream().anyMatch(ExpressionField::reads);
+    }
+
     /** The bind values a CASE condition binds: its values, its operands' expressions and its children's (R-COL-18). */
     static int conditionBinds(Condition condition) {
         int total = condition.values().size();
@@ -165,7 +212,7 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
 
     /** The structure behind an expression: equal nodes are equal expressions (R-COL-20). */
     sealed interface Node
-            permits Coalesce, NullIf, Arith, Negate, Concat, Fn, Const, TypedConst, Value, Case {
+            permits Coalesce, NullIf, Arith, Negate, Concat, Fn, Const, TypedConst, Value, Nextval, Case {
 
         Class<?> type();
 
@@ -461,6 +508,40 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         @Override
         public String text() {
             return "?"; // a value is shown as a bind, never its text (R-INS-09)
+        }
+    }
+
+    /**
+     * A sequence's next value, rendered by the provider's {@link SequenceRenderer} (R-COL-28). It binds nothing, reads
+     * no column and adds no join; equality is by sequence name (R-COL-20).
+     */
+    record Nextval(String sequence) implements Node {
+        @Override
+        public Class<?> type() {
+            return Long.class;
+        }
+
+        @Override
+        public Expression<?> render(JoinContext ctx) {
+            SequenceRenderer renderer = ctx.sequenceRenderer().orElseThrow(() -> new ModelQueryDefinitionException(
+                    MqCode.MQ1509, text() + ": the database or the persistence provider has no sequence support "
+                            + "(VendorProfile#sequences, ProviderSupport#sequences)"));
+            return renderer.nextValue(ctx.cb(), sequence);
+        }
+
+        @Override
+        public List<ColumnField<?, ?, ?>> columns() {
+            return List.of();
+        }
+
+        @Override
+        public int binds() {
+            return 0;
+        }
+
+        @Override
+        public String text() {
+            return "nextval(" + sequence + ")";
         }
     }
 

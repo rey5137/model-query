@@ -344,6 +344,53 @@ arguments that never bind.
 
 Tested by `BoundArgumentTest` and `BoundValueFunctionTest` in the TCK (AC-COL-31).
 
+### Sequence values
+
+`Expr.nextval(sequence)` reads a database sequence's next value as a `Long` column of a read (R-COL-28,
+`@Incubating`). It reads no column and adds no join; the provider renders the dialect's own call, `nextval('tck_seq')`
+on PostgreSQL and `next value for tck_seq` on H2:
+
+```java
+private static final ExpressionField<Numbered, Long> NEXT = Expr.nextval("tck_seq");
+
+var query = ModelQuery.builder(ROWS, row -> new Numbered(row.get(ID), row.get(NEXT)))
+        .select(SelectSet.of(ID, NEXT))
+        .orderBy(ID.asc())
+        .build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<Numbered> rows = executor.list(query, Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<Numbered> rows = rowsRepository.findAll(query, Limit.unlimited());
+    ```
+
+The name is a plain SQL identifier, optionally schema-qualified (`schema.name`); any other text is `MQ1509` as soon as
+`nextval` is called. `MQ1509` also refuses a sequence value in a filter, a `having`, an order or a group key, however
+deeply it sits in an expression (a sequence advances on every evaluation, so none of them would be stable), and on
+MySQL, which has no sequences, or with a provider that renders none; each refusal comes before any statement runs. A
+value is consumed on every evaluation: a re-run of the query takes new values, and `one(q)`, which reads with
+`LIMIT 2`, takes a second value when a second row matches.
+
+For now `nextval` goes in a select only. Writing a sequence value, in an update or conflict assignment, an insert
+value or an insert-select column, comes in a later milestone through `setExpression(column, ExpressionField)` (D-130);
+the update and conflict `setExpression` hooks of today take a `CriteriaBuilder` expression and cannot be handed one.
+
+Tested by `SequenceNextvalTest` in the TCK (AC-COL-33).
+
+### Returning writes
+
+An update, a delete or an insert can give back the rows it wrote in the same statement: `updateReturning`,
+`deleteReturning` and `insertReturning`, on the executor and on the Spring repository (R-WRT-50, `@Incubating`). They
+are described with the writes in [Returning the changed rows](bulk-writes.md#returning-the-changed-rows),
+[Conflict clauses](inserts.md#conflict-clauses) and the [Claim the next job](recipes.md#claim-the-next-job) recipe.
+
 ### `exists`
 
 `exists(ITEMS_TABLE, inner)` renders a correlated sub-query. It joins nothing on the outer query, so `count` and

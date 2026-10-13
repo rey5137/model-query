@@ -110,6 +110,17 @@ point. The public `ModelUpdate.Rendered` and `ModelDelete.Rendered` records, `En
 and `JoinContext#statementParameters()` are
 `@EngineFacing`, so not API. See [Literal filters](queries.md#literal-filters).
 
+The returning-write and conflict-extension members are new in 0.9.0 and `@Incubating` (D-129), and join the list above.
+They are the three returning writes, `updateReturning`, `deleteReturning` and `insertReturning`, on `ModelQueryExecutor`
+and on `ModelQueryRepository`; `ConflictUpdate#setExpression` with `ConflictExpression` and `Assignment.Conflict`; the
+`KeyedConflict` stage with its arbiter `where`, and `ValuesInsert#onConstraint`; `Expr.nextval` with the
+`SequenceRenderer` capability `ProviderSupport#sequences(EntityManagerFactory)` returns; `ReturningSupport`,
+`ReturningShape` and `WriteStatement` in `jpa.spi` with `ProviderSupport#returning()` and
+`VendorProfile#returning(WriteStatement)`; and the `VendorProfile` facts `conflictOnConstraint()`,
+`conflictArbiterPredicate()` and `sequences()`. The `jpa.spi` capabilities are extension points of a provider and a
+vendor profile, not `@EngineFacing`. See [Returning the changed rows](bulk-writes.md#returning-the-changed-rows),
+[Conflict clauses](inserts.md#conflict-clauses) and [Sequence values](queries.md#sequence-values).
+
 The fetch-plan types are new in 0.2.0, `@Incubating`, and not yet placed in the 1.0 freeze list above:
 `FetchPlan`, `ChildField`, `JoinField`, `ChildQuery`, `Enricher` and the `@Child` annotation. The executor-facing
 `ChildLoad` and `JoinPlan` are `@EngineFacing`. See [Fetch plans](fetch-plans.md).

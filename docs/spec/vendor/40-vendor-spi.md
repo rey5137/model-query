@@ -126,7 +126,7 @@ against Hibernate 6.6 and run on 7.x by the TCK: it reads the generator from the
 generator class that moved between the two by name, and reports `doNothingRendered` true on 7 and on 6.x only for the
 PostgreSQL and MySQL dialect hierarchies (D-116).
 
-`VendorProfile` gains five database facts (INV-6): `default int maxValuesRows()`, the most rows one multi-row
+`VendorProfile` gains six database facts (INV-6): `default int maxValuesRows()`, the most rows one multi-row
 `VALUES` insert may hold besides the bind limit, `1_000` by default (a lower limit is only slower); `default boolean
 conflictTargetHonoured()`, whether a conflict clause detects a conflict only on the key it names, `false` by default so
 a third-party profile fails safe (`api/14` R-WRT-36); `default boolean conflictWhereSeesEarlierAssignments()`,
@@ -136,7 +136,8 @@ as MySQL's `CASE` per assignment does, `true` by default so a third-party profil
 `false`-by-default facts for R-WRT-52's conflict targets, `default boolean conflictOnConstraint()`, whether the clause
 can name a constraint (`ON CONFLICT ON CONSTRAINT`), and `default boolean conflictArbiterPredicate()`, whether the
 conflict target takes a `WHERE` naming a partial unique index; both refuse with `MQ1804` on first execution where they
-are false (`api/14` R-WRT-52). Tier-1 values are in `vendor/41` §2.
+are false (`api/14` R-WRT-52). `default boolean sequences()` is the sixth, for `Expr.nextval` (R-VND-18). Tier-1
+values are in `vendor/41` §2.
 
 Entity-mode updates split the same way (D-119). `ProviderSupport#entityWrites()` returns an
 `Optional<EntityWriteSupport>`, empty by default; `EntityWriteSupport` lives in `jpa.spi` and uses `jakarta.persistence`
@@ -224,6 +225,22 @@ own bulk path does. The `org.hibernate..internal..` types that takes live in one
 a package-private interface, chosen by probing rather than by a version string, with one `WARN` outside an adapter's
 tested range and a first-use check of each translated statement, so a moved internal refuses with `MQ4011` rather than
 running SQL that may be wrong (R-WRT-50, INV-5).
+
+**R-VND-18** A sequence's next value is a database fact and a provider rendering, as a constant is (D-129).
+`VendorProfile` gains `default boolean sequences()`, whether the database has sequences, `false` by default so a
+third-party profile fails safe; it names no SQL (R-VND-11). `ProviderSupport#sequences(EntityManagerFactory emf)`
+returns an `Optional<SequenceRenderer>`, empty by default; it takes the factory, as `constants(emf)` does, because the
+renderer spells the call in the dialect that factory uses. `SequenceRenderer` lives in `core`, because it takes and
+returns `jakarta.persistence.criteria` types only (INV-7):
+
+```java
+Expression<Long> nextValue(CriteriaBuilder cb, String sequence);   // the dialect's own sequence call
+```
+
+The executor puts the renderer in `RenderOptions` only where the profile's `sequences()` is true, and `Expr.nextval`
+(`api/10` R-COL-28) reaches it through a `JoinContext` hook; without one it throws `MQ1509`. `model-query-hibernate`
+renders `dialect.getSequenceSupport().getSelectSequenceNextValString(sequence)` through
+`HibernateCriteriaBuilder.sql`, so the dialect decides the text and the sequence name is checked as an identifier first.
 
 ## 2. Detection
 

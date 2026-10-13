@@ -1780,6 +1780,22 @@ and insert-value positions (`MQ1509`). Rejected: a library SQL renderer for writ
 `api/14` R-WRT-34, R-WRT-48, R-WRT-50..52, `api/10` R-COL-28, `engine/20`, `vendor/40` R-VND-17, `vendor/41`,
 `reference/90` (`MQ4011`, `MQ1509`, `MQ1804`, `MQ1809`), AC-WRT-42..45, AC-COL-33, AC-VND-14, Q-15.
 
+**D-130 — Write expressions through `setExpression(column, ExpressionField)` (M20.5).** Amends D-129's `nextval`
+positions: M20.4 ships `Expr.nextval` in a select only. A write takes an `ExpressionField` through
+`setExpression(column, ExpressionField)` at four sites, the update assignment, the conflict assignment, the insert
+values and the insert-select columns, restricted to column-free, bind-free expressions (new `MQ1613`), and rendered in
+the provider's own Criteria statement, not a library SQL renderer (P-5). Insert values go through a per-row
+expression-factory default on `InsertSupport`. The existing hooks take a `CriteriaBuilder` expression, which an
+`ExpressionField` cannot be passed to, so a separate overload is needed. Built in M20.5, after a spike of
+`HibernateCriteriaBuilder.sql` inside DML on both Hibernate lines. → `rfc/0010` §4, `api/10` R-COL-28, `api/14`
+R-WRT-53, `reference/90` (`MQ1613`), AC-WRT-46.
+
+**D-131 — No locked sub-select write.** No locked sub-select write until a supported Hibernate API can put a lock on a
+subquery or a CTE in DML: Criteria subqueries carry no lock, PostgreSQL `IN (SELECT … LIMIT n FOR UPDATE SKIP LOCKED)`
+can over-claim, MySQL refuses it (1235/1093), and chunking/`commitEachChunk` would release or re-run the lock. Claiming
+rows stays two statements in one transaction: a locked key read, then a `whereKeys` write read back by `updateReturning`
+or `byKeys`. → `rfc/0010` §1, `api/14` R-WRT-50, AC-WRT-47, Q-16.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -1847,6 +1863,12 @@ whether that is a diagnostic or a group by the id is open. → D-44, D-124.
 (`MQ4011`). A locked key read, a `whereKeys` write and a `byKeys` re-read give the same rows for an update and are
 documented as a recipe; whether an explicit opt-in that does this inside the library is ever wanted is left open until
 an adopter asks. → `rfc/0010`, D-129.
+
+**Q-16 — A single-statement claim, and a typed `nextval`.** D-131 keeps a claim to a locked key read and a `whereKeys`
+write. On PostgreSQL one statement could do both (`WITH c AS (SELECT id … LIMIT n FOR UPDATE SKIP LOCKED) UPDATE … FROM
+c … RETURNING …`), once a supported Hibernate API renders a locked CTE in DML; open whether to offer it. Also open: a
+typed `nextval(String, Class<C>)` for a sequence read as an `Integer` or a `BigInteger` rather than a `Long`. →
+`rfc/0010`, D-130, D-131.
 
 ## 3. Risks
 
