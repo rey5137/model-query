@@ -1095,6 +1095,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private long update(ModelUpdate<E, ?> u, Returning<?> returning) {
         Objects.requireNonNull(u, "u");
         checkWriteOnce(u, u::checkMetamodel);
+        // Each run: the renderer is this executor's, and the refusal comes before the flush or a key select (R-WRT-53)
+        u.checkSequences(renderOptions);
         WriteAssignments assignments = writeAssignments();
         requireTransaction(u.entityMode() ? "an entity-mode update" : "a bulk update", u.chunkOptions());
         if (u.writesNothing()) {
@@ -1615,9 +1617,14 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         EntityManagerFactory emf = em.getEntityManagerFactory();
         List<String> attributes = new ArrayList<>(i.valueAttributes(em.getMetamodel()));
+        // Rendered in each row by the provider, binding nothing, so not among the attributes a row's values fill
+        Map<String, Function<CriteriaBuilder, Expression<?>>> computed = i.computedValues(em.getMetamodel(),
+                renderOptions);
         WriteAssignments.Execution execution = assignments.execution();
         List<Object> added = new ArrayList<>();
-        for (WriteAssignments.Written written : execution.values(WriteKind.INSERT, attributes)) {
+        var own = new ArrayList<>(attributes);
+        own.addAll(computed.keySet());
+        for (WriteAssignments.Written written : execution.values(WriteKind.INSERT, own)) {
             attributes.add(written.path());
             added.add(written.value());
         }
@@ -1652,7 +1659,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                     keys.addAll(drawnKeys);
                 }
             }
-            return Math.toIntExact(execute(support.insertValues(on, rootEntity, attributes, values, conflict),
+            return Math.toIntExact(execute(support.insertValues(on, rootEntity, attributes, values, computed, conflict),
                     providerBinds * (to - from) + conflictRepeatedBinds, returning));
         };
         boolean perChunk = i.chunkOptions().map(ChunkOptions::commitsEachChunk).orElse(false);
@@ -1776,6 +1783,14 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * profile (R-WRT-34, R-WRT-36).
      */
     private void checkInsertOnce(ModelInsert<E, ?> i, InsertSupport support, WriteAssignments assignments) {
+        // Each run, as the profile checks below, and before the checks that render a chunked insert-select's source,
+        // so a missing sequence renderer is refused as such; then an InsertSupport that would refuse a computed value
+        // only once the flush has run (R-WRT-53, R-VND-14)
+        i.checkSequences(renderOptions);
+        if (i.sourceEntity().isEmpty()) {
+            InsertChecks.checkComputedRendered(i, i.computedValues(em.getMetamodel(), renderOptions).keySet(),
+                    support);
+        }
         checkWriteOnce(i, metamodel -> {
             EntityManagerFactory emf = em.getEntityManagerFactory();
             i.checkMetamodel(metamodel);

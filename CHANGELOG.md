@@ -56,10 +56,20 @@ Nothing is frozen yet: every public type stays `@Incubating`. The additions belo
     a partial unique index (PostgreSQL only, `MQ1804` elsewhere); `MQ1601` for an arbiter that every filter skipped.
   - `Expr.nextval(sequence)` reads a sequence's next value as a `Long` select column through
     `ProviderSupport#sequences(EntityManagerFactory)`, behind the profile fact `VendorProfile#sequences()` (true on H2
-    and PostgreSQL). It is a select expression only for now; a sequence value in a write comes later (D-130). The new
-    code `MQ1509` refuses it in a filter, a `having`, an order or a group key, on a name that is not an identifier, and
-    on MySQL, before any statement. New `VendorProfile` facts: `conflictOnConstraint()`, `conflictArbiterPredicate()`
-    and `sequences()`.
+    and PostgreSQL). The new code `MQ1509` refuses it in a filter, a `having`, an order or a group key, on a name
+    that is not an identifier, and on MySQL, before any statement. New `VendorProfile` facts: `conflictOnConstraint()`,
+    `conflictArbiterPredicate()` and `sequences()`.
+  - Write expressions (D-130), described in "Sequence values and other write expressions" and "Sequence values" of
+    Inserts: `setExpression(column, ExpressionField)` on `ModelUpdate.Builder`, `ConflictUpdate`,
+    `ConflictUpdate.Assigned`, `ValuesInsert.Rows` and `ModelInsert.Mapping` writes an expression that reads no column
+    and binds nothing, such as `Expr.nextval`, evaluated per written row: a chunked update's chunks take increasing
+    values, each insert-values row its own value with no bind for it, an insert-select one per source row, a conflict
+    update one per row it writes. The new `Assignment.Computed` permit means an exhaustive `switch` over `Assignment`
+    needs another case. The new code `MQ1613` refuses an expression that reads a column or binds a value; a
+    sequence on a vendor without sequences is `MQ1509` before a write's flush or any statement; `MQ1802` refuses one
+    on an insert's id. `InsertSupport` gains a six-argument `insertValues` default taking per-row expression
+    factories, which `model-query-hibernate` implements; where a provider leaves it to the default, the insert is
+    `MQ1613` before the flush.
   - The "Claim the next job" recipe claims rows with a locked key read, then `updateReturning` over `whereKeys`, or
     `update` and `byKeys` on MySQL, in one transaction; two concurrent workers claim disjoint rows (AC-WRT-47). No
     locked sub-select write is offered (D-131).

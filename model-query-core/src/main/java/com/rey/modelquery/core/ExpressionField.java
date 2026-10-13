@@ -136,6 +136,20 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         return operand instanceof ScalarField<?, ?> ? 0 : 1;
     }
 
+    /** Whether this expression reads {@code Expr.nextval} anywhere, CASE conditions included (R-COL-28). */
+    boolean readsSequence() {
+        return readsSequence(this);
+    }
+
+    /**
+     * {@code MQ1509} for {@code text}, a sequence read where the database or the provider has none (R-COL-28): at
+     * rendering, or before a write's first statement (R-WRT-53).
+     */
+    static ModelQueryDefinitionException noSequences(String text) {
+        return new ModelQueryDefinitionException(MqCode.MQ1509, text + ": the database or the persistence provider has "
+                + "no sequence support (VendorProfile#sequences, ProviderSupport#sequences)");
+    }
+
     /** Whether {@code operand} is an expression reading {@code Expr.nextval} anywhere, CASE conditions included. */
     private static boolean readsSequence(Object operand) {
         if (!(operand instanceof ExpressionField<?, ?> expression)) {
@@ -523,9 +537,7 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
 
         @Override
         public Expression<?> render(JoinContext ctx) {
-            SequenceRenderer renderer = ctx.sequenceRenderer().orElseThrow(() -> new ModelQueryDefinitionException(
-                    MqCode.MQ1509, text() + ": the database or the persistence provider has no sequence support "
-                            + "(VendorProfile#sequences, ProviderSupport#sequences)"));
+            SequenceRenderer renderer = ctx.sequenceRenderer().orElseThrow(() -> noSequences(text()));
             return renderer.nextValue(ctx.cb(), sequence);
         }
 

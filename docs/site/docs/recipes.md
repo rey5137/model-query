@@ -1187,9 +1187,10 @@ var query = ModelQuery.builder(ROWS, row -> new Numbered(row.get(ID), row.get(NE
     List<Numbered> rows = rowsRepository.findAll(query, Limit.unlimited());
     ```
 
-A value is consumed on every evaluation, so a re-run of the query and `one(q)`'s second row each use one. This is a
-read only: a sequence value in a write comes later (D-130). MySQL has no sequences, so this is `MQ1509` there. Tested
-by `SequenceNextvalTest` in the TCK (AC-COL-33).
+A value is consumed on every evaluation, so a re-run of the query and `one(q)`'s second row each use one. To write
+one instead, use `setExpression(column, Expr.nextval(...))` on the update or insert (see
+[Inserts](inserts.md#sequence-values)). MySQL has no sequences, so this is `MQ1509` there. Tested by
+`SequenceNextvalTest` in the TCK (AC-COL-33).
 
 ## Claim the next job
 

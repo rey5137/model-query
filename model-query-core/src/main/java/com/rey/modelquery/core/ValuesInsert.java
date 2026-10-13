@@ -106,6 +106,23 @@ public final class ValuesInsert<E, K, M> extends ModelInsert<E, M> {
         }
 
         /**
+         * Writes {@code value}, an expression reading no column and binding nothing (e.g. {@code Expr.nextval}), to
+         * {@code column}, evaluated once per row (a sequence gives each row its own value). It is no bind, so it
+         * counts nothing toward a statement's rows. As for {@link #set}, a column the model has, one set twice, or
+         * one not on the root throws {@code MQ1801} at {@code build()}; a column with a converter throws
+         * {@code MQ1609} there, and the root's id {@code MQ1802} on first execution, since the keys are known before
+         * the statement (R-WRT-53, R-WRT-33).
+         *
+         * @throws ModelQueryDefinitionException {@code MQ1613} for an expression that reads a column or binds a
+         *     parameter
+         */
+        @Incubating
+        public <C> Rows<E, K, M> setExpression(ColumnField<?, E, C> column, ExpressionField<M, ? extends C> value) {
+            return new Rows<>(draft.set(new Assignment.Computed<>(Objects.requireNonNull(column, "column"), value)),
+                    keyType);
+        }
+
+        /**
          * Names the unique key a conflict is detected on: exactly the root's id, its natural id, or a declared unique
          * constraint ({@code @Column} or {@code @JoinColumn(unique = true)}, {@code @Table(uniqueConstraints)}),
          * checked on first execution ({@code MQ1804}). A unique index that exists only in a migration or in

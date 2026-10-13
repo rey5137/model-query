@@ -7,12 +7,14 @@ import java.util.Objects;
 import java.util.function.BiFunction;
 
 /**
- * One column an update writes: a model value, NULL, or an expression over the column's path. A value is the model's,
- * not the entity attribute's: the engine applies the column's converter once, when it binds it (D-37). Immutable.
+ * One column a write writes: a model value, NULL, an expression over the column's path, or one that reads no column
+ * (R-WRT-53). A value is the model's, not the entity attribute's: the engine applies the column's converter once,
+ * when it binds it (D-37). Immutable. The permits grow while it is incubating, so an exhaustive {@code switch} over it
+ * may need another case.
  *
  * @param <M> the model the column belongs to
  * @param <C> the column's Java type
- * @implSpec R-WRT-13, D-60
+ * @implSpec R-WRT-13, R-WRT-53, D-60
  */
 @Incubating
 public sealed interface Assignment<M, C> {
@@ -103,6 +105,35 @@ public sealed interface Assignment<M, C> {
         public Conflict {
             Objects.requireNonNull(column, "column");
             Objects.requireNonNull(expression, "expression");
+        }
+    }
+
+    /**
+     * Writes {@code value}, an expression that reads no column and binds nothing, such as {@code Expr.nextval},
+     * evaluated per written row (R-WRT-53). Every write takes one: an update, a conflict update and an insert. The
+     * column has the entity attribute's type, so a converter is refused at {@code build()} ({@code MQ1609}).
+     *
+     * @param column the column written
+     * @param value the value written
+     */
+    record Computed<M, C>(ColumnField<M, ?, C> column, ExpressionField<?, ? extends C> value)
+            implements Assignment<M, C> {
+
+        /**
+         * Validates the components.
+         *
+         * @throws ModelQueryDefinitionException {@code MQ1613} for an expression that reads a column or binds a
+         *     parameter: it renders where no row of the root is in scope, such as an insert's {@code VALUES}
+         */
+        public Computed {
+            Objects.requireNonNull(column, "column");
+            Objects.requireNonNull(value, "value");
+            if (!value.columns().isEmpty() || value.binds() != 0) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1613, column + ": setExpression(..., " + value.name()
+                        + ") " + (value.columns().isEmpty() ? "binds a parameter" : "reads a column")
+                        + "; a write expression reads no column and binds nothing, such as Expr.nextval, with "
+                        + "Expr.constant for a fixed operand");
+            }
         }
     }
 }

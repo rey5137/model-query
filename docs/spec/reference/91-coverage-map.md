@@ -124,4 +124,5 @@ RFC 0004 (rey5137/model-query#29) is mapped the same way, by its own sections, a
 | RFC 0002 (D-128) | §Outcome 4 deferred cast; codes `MQ1502`, `MQ1508` | `reference/90` §2 |
 | RFC 0010 (D-131) | §1 the claim pattern, a locked key read then a `whereKeys` write; AC-WRT-47 | `api/14` R-WRT-50 |
 | RFC 0010 (D-129) | §4 `Expr.nextval`; R-COL-28, R-VND-18, AC-COL-33, code `MQ1509` | `api/10` R-COL-28, `vendor/40` R-VND-18, `reference/90` §2 |
-| RFC 0010 (D-130) | §4 note, `nextval` in writes through `setExpression(column, ExpressionField)` (M20.5) | `api/10` R-COL-28 |
+| RFC 0010 (D-130) | §4 amended, `nextval` in writes through `setExpression(column, ExpressionField)`; R-WRT-53, AC-WRT-46, code `MQ1613`; `Assignment.Computed` | `api/10` R-COL-28, `api/14` R-WRT-53, `reference/90` §2, `delivery/61` |
+| RFC 0010 (D-130) | §4 amended, computed insert values through `InsertSupport`'s six-argument `insertValues` | `vendor/40` R-VND-14 |

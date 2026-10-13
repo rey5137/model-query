@@ -119,7 +119,7 @@ public final class ModelUpdate<E, M> {
         WriteRendering.checkKey(entity, definition.root(), definition.primaryKey(), modelName());
         WriteRendering.checkAssignable(entity, definition.assignments());
         for (Assignment<M, ?> assignment : definition.assignments()) {
-            if (!(assignment instanceof Assignment.Expression)) {
+            if (!expression(assignment)) {
                 EntityType<?> target = toOneTarget(entity, assignment.column().name());
                 if (target != null) {
                     checkToOneId(entity, assignment.column(), target);
@@ -138,6 +138,24 @@ public final class ModelUpdate<E, M> {
             });
         }
         expectedVersionAttribute(entity, WriteRendering.version(entity));
+    }
+
+    /**
+     * Refuses a {@code setExpression} reading {@code Expr.nextval} where {@code options} render no sequence, which an
+     * executor calls before the flush, a chunk's key select or any statement, so the write runs nothing (R-WRT-53,
+     * INV-5).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1509} when an assignment reads a sequence and {@code options}
+     *     have no sequence renderer
+     */
+    @EngineFacing
+    public void checkSequences(RenderOptions options) {
+        WriteRendering.checkSequences(definition.assignments(), options);
+    }
+
+    /** Whether {@code assignment} renders an expression, which renders first and writes no converted value. */
+    private static boolean expression(Assignment<?, ?> assignment) {
+        return assignment instanceof Assignment.Expression<?, ?> || assignment instanceof Assignment.Computed<?, ?>;
     }
 
     /**
@@ -357,8 +375,7 @@ public final class ModelUpdate<E, M> {
     }
 
     private List<Assignment<M, ?>> valueAssignments() {
-        return definition.assignments().stream().filter(assignment -> !(assignment instanceof Assignment.Expression))
-                .toList();
+        return definition.assignments().stream().filter(assignment -> !expression(assignment)).toList();
     }
 
     private static <C> Object attributeValue(Assignment.Value<?, C> value) {
@@ -392,10 +409,13 @@ public final class ModelUpdate<E, M> {
             if (assignment instanceof Assignment.Expression expression) {
                 Path path = expression.column().path(ctx);
                 setTo(update, path, (Expression) expression.expression().apply(path, cb));
+            } else if (assignment instanceof Assignment.Computed computed) {
+                // Evaluated per written row: a sequence gives each row its own value (R-WRT-53).
+                setTo(update, computed.column().path(ctx), computed.value().expression(ctx));
             }
         }
         for (Assignment<M, ?> assignment : definition.assignments()) {
-            if (!(assignment instanceof Assignment.Expression)) {
+            if (!expression(assignment)) {
                 assign(update, from, ctx, entity, assignment, cb, references);
             }
         }
@@ -637,6 +657,9 @@ public final class ModelUpdate<E, M> {
                     throw new ModelQueryDefinitionException(MqCode.MQ1605, column
                             + ": a primary-key column is never assigned; whereKey(...) chooses the row");
                 }
+                if (assignment instanceof Assignment.Computed<M, ?> && column.converterClass() != null) {
+                    throw InsertRules.converted(column); // its value, not a path, has the attribute's type
+                }
                 if (assignment instanceof Assignment.Expression<M, ?> && column.converterClass() != null) {
                     throw new ModelQueryDefinitionException(MqCode.MQ1609, column + ": setExpression(...) on a "
                             + "column converted by " + column.converterClass().getSimpleName() + "; the expression's "
@@ -661,7 +684,7 @@ public final class ModelUpdate<E, M> {
         private void checkEntityMode(String model) {
             var refused = new ArrayList<String>();
             for (Assignment<M, ?> assignment : assignments) {
-                if (assignment instanceof Assignment.Expression<M, ?>) {
+                if (expression(assignment)) {
                     refused.add("setExpression(" + assignment.column().name() + ", ...)");
                 }
             }
@@ -766,6 +789,20 @@ public final class ModelUpdate<E, M> {
         public <C> Builder<E, K, M> setExpression(ColumnField<M, E, C> column,
                 BiFunction<Path<C>, CriteriaBuilder, Expression<? extends C>> expression) {
             return new Builder<>(draft.assign(List.of(new Assignment.Expression<>(column, expression))));
+        }
+
+        /**
+         * Writes {@code value}, an expression reading no column and binding nothing (e.g. {@code Expr.nextval}),
+         * evaluated per written row: each row a chunked update writes gets its own value. It renders with the other
+         * expression assignments, and a column with a converter throws {@code MQ1609} at {@link Options#build()},
+         * as {@link #setExpression(ColumnField, BiFunction)} does (R-WRT-53).
+         *
+         * @throws ModelQueryDefinitionException {@code MQ1613} for an expression that reads a column or binds a
+         *     parameter
+         */
+        @Incubating
+        public <C> Builder<E, K, M> setExpression(ColumnField<M, E, C> column, ExpressionField<M, ? extends C> value) {
+            return new Builder<>(draft.assign(List.of(new Assignment.Computed<>(column, value))));
         }
 
         /** Writes the row whose key is {@code key}; a {@code where} may narrow it, then {@code expectVersion}. */

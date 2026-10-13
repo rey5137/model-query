@@ -206,6 +206,12 @@ public enum MqCode {
      */
     MQ1612("A write assignment's type or value does not fit its attribute"),
 
+    /**
+     * A write's {@code setExpression(column, ExpressionField)} reads a column or binds a parameter, or the provider's
+     * {@code InsertSupport} cannot render a computed insert value (R-WRT-53).
+     */
+    MQ1613("A write expression must read no column and bind nothing"),
+
     /** A join plan whose join ends up with no selected column (R-FCH-07). */
     MQ1701("A join plan's join has no selected column"),
 

@@ -378,9 +378,9 @@ MySQL, which has no sequences, or with a provider that renders none; each refusa
 value is consumed on every evaluation: a re-run of the query takes new values, and `one(q)`, which reads with
 `LIMIT 2`, takes a second value when a second row matches.
 
-For now `nextval` goes in a select only. Writing a sequence value, in an update or conflict assignment, an insert
-value or an insert-select column, comes in a later milestone through `setExpression(column, ExpressionField)` (D-130);
-the update and conflict `setExpression` hooks of today take a `CriteriaBuilder` expression and cannot be handed one.
+A write takes a sequence value through `setExpression(column, ExpressionField)`: an update or conflict assignment, an
+insert-values value or an insert-select column, each evaluated per written row (R-WRT-53). See
+[Bulk writes](bulk-writes.md#sequence-values-and-other-write-expressions) and [Inserts](inserts.md#sequence-values).
 
 Tested by `SequenceNextvalTest` in the TCK (AC-COL-33).
 

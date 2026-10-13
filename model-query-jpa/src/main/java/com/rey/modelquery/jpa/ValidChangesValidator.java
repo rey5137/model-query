@@ -42,7 +42,8 @@ public final class ValidChangesValidator implements ConstraintValidator<ValidCha
         boolean valid = true;
         for (Assignment<?, ?> assignment : changes.assignments()) {
             Optional<String> property = assignment.column().property();
-            if (property.isEmpty() || assignment instanceof Assignment.Expression<?, ?>) {
+            if (property.isEmpty() || assignment instanceof Assignment.Expression<?, ?>
+                    || assignment instanceof Assignment.Computed<?, ?>) {
                 continue;
             }
             Object value = assignment instanceof Assignment.Value<?, ?> set ? set.value() : null;

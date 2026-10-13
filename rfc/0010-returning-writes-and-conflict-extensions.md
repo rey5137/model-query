@@ -146,6 +146,12 @@ two rows match.
 > the provider's Criteria statement; an insert's values through a per-row expression factory in `InsertSupport`. The
 > existing update and conflict hooks take a `CriteriaBuilder` expression, which an `ExpressionField` cannot be passed
 > to. There, a value is consumed even when a conflict skips the row.
+>
+> **Built (M20.5).** A spike confirmed `HibernateCriteriaBuilder.sql` inside DML `VALUES` and `SET`, and in an upsert's
+> values and conflict assignment, on Hibernate 6.6 and 7.4 against H2 and PostgreSQL, and H2's `FINAL TABLE` over a
+> `MERGE` whose `VALUES` hold `next value for`. The four sites are `api/14` R-WRT-53, with the `Assignment.Computed`
+> permit and `InsertSupport`'s six-argument `insertValues` default (`vendor/40` R-VND-14); a vendor without sequences
+> is refused with `MQ1509` before a write's flush.
 
 ### New ids
 

@@ -12,7 +12,7 @@ import java.util.Set;
  * it and reads the rows (D-60, D-117).
  *
  * @param columns the columns the model writes
- * @param constants the {@code set} constants, in the order set
+ * @param constants the {@code set} constants and {@code setExpression} values, in the order set
  * @param source an insert-select's source root, or {@code null} for insert-values
  * @param mappings an insert-select's {@code map} calls, in order; empty for insert-values
  * @param where an insert-select's row choice, or {@code null} before it and for insert-values
@@ -84,8 +84,8 @@ record InsertDraft<E, M>(
      * Checks this draft and reads its rows, returning the draft a definition keeps: the rows read once into
      * immutable value lists, and the caller's list dropped (INV-9, R-WRT-30).
      *
-     * @throws ModelQueryDefinitionException {@code MQ1601}, {@code MQ1801}, {@code MQ1802}, {@code MQ1803},
-     *     {@code MQ1804} or {@code MQ1808}, as the builders' {@code build()} state
+     * @throws ModelQueryDefinitionException {@code MQ1601}, {@code MQ1609}, {@code MQ1801}, {@code MQ1802},
+     *     {@code MQ1803}, {@code MQ1804} or {@code MQ1808}, as the builders' {@code build()} state
      */
     InsertDraft<E, M> build() {
         InsertRules.checkConstants(columns, constants);
@@ -237,6 +237,9 @@ record InsertDraft<E, M>(
             }
             update.assignments().forEach(assignment -> {
                 written.add(assignment.column());
+                if (assignment instanceof Assignment.Computed<?, ?> && assignment.column().converterClass() != null) {
+                    throw InsertRules.converted(assignment.column());
+                }
                 if (assignment instanceof Assignment.Conflict<?, ?> && assignment.column().converterClass() != null) {
                     throw new ModelQueryDefinitionException(MqCode.MQ1609, assignment.column()
                             + ": setExpression(...) on a column converted by "

@@ -3,8 +3,13 @@ package com.rey.modelquery.jpa;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.jpa.spi.IdGeneration;
+import com.rey.modelquery.jpa.spi.InsertSupport;
 import com.rey.modelquery.jpa.spi.InsertTarget;
+import jakarta.persistence.EntityManager;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -167,6 +172,33 @@ final class InsertChecks {
         if (id instanceof IdGeneration.Assigned) {
             throw new ModelQueryDefinitionException(MqCode.MQ1807, insert + ": insertReturningKeys(...) on an "
                     + "assigned id, so the keys are the rows' own ids; read them from the rows and use insert(...)");
+        }
+    }
+
+    /**
+     * Checks that {@code support} renders {@code computed}, an insert-values' {@code setExpression} attributes: an
+     * implementation that leaves {@code InsertSupport}'s six-argument {@code insertValues} to its default would refuse
+     * them when the statement is built, after the flush, so the refusal comes here instead, before any statement
+     * (R-WRT-53, R-VND-14, D-130).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1613} when {@code computed} is not empty and {@code support}
+     *     does not override the six-argument {@code insertValues}
+     */
+    static void checkComputedRendered(Object insert, Collection<String> computed, InsertSupport support) {
+        if (computed.isEmpty()) {
+            return;
+        }
+        Class<?> declaring;
+        try {
+            declaring = support.getClass().getMethod("insertValues", EntityManager.class, Class.class, List.class,
+                    List.class, Map.class, Optional.class).getDeclaringClass();
+        } catch (NoSuchMethodException e) {
+            throw new IllegalStateException("InsertSupport has no six-argument insertValues", e);
+        }
+        if (declaring == InsertSupport.class) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1613, insert + ": setExpression(...) on " + computed
+                    + ", which this provider's InsertSupport (" + support.getClass().getName() + ") cannot render in "
+                    + "an insert's VALUES: it does not implement the insertValues taking computed values");
         }
     }
 

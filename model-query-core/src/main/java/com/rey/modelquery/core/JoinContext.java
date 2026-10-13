@@ -131,6 +131,15 @@ public final class JoinContext {
     }
 
     /**
+     * A context with no root, for a write expression that reads no column: an insert's computed value, rendered in a
+     * row's {@code VALUES} (R-WRT-53). Resolving a column through it throws {@link IllegalStateException}, which the
+     * {@code MQ1613} check of {@code Assignment.Computed} keeps from happening.
+     */
+    static JoinContext rootless(CriteriaBuilder cb, RenderOptions options) {
+        return new JoinContext(null, null, cb, null, null, Set.of(), options, new HashSet<>());
+    }
+
+    /**
      * A context of the same query whose root is {@code join}, a join of this context reaching {@code entity}: a
      * {@code through} child's model resolves against it, its columns, joins, filters, {@code exists} and order all
      * under the join, while this context keeps the joins up to it (R-FCH-14, D-100). It shares the render options and
@@ -169,6 +178,9 @@ public final class JoinContext {
     }
 
     From<?, ?> root() {
+        if (root == null) {
+            throw new IllegalStateException("a write expression's context has no root, so it resolves no column");
+        }
         return root;
     }
 
