@@ -1808,6 +1808,20 @@ by the statement before its literals are spliced in, so one statement shape is o
 selecting an `Expr.nextval` is `MQ1509`, as a group key over one is. Amends D-129 and D-130. → `api/10` R-COL-28,
 `api/14` R-WRT-50, R-WRT-52, R-WRT-53, `vendor/40` R-VND-14, R-VND-17, `reference/90`.
 
+**D-133 — Target vendors and a portability dry run (RFC 0011, accepted 2026-10-13).** An application declares its
+target vendors and startup fails with `MQ4012` when the connected vendor is not one of them. Portability is decided by
+a dry run, not by the processor: INV-5 puts every refusal before the first statement, so the real executor on a
+dialect-booted factory over a stub `DataSource` refuses exactly as on the database, with no container and no second
+implementation; a provider that cannot boot without JDBC is `MQ4013`. The dry run lives in a new test-scope module on `jpa` (INV-7
+amended); `model-query-test` stays core-only (D-98). Rejected: processor checks and a pure refusal function. M23,
+0.9.0. → `rfc/0011`, `reference/90`, `delivery/61`, Q-17, Q-18.
+**D-134 — External model bindings (RFC 0012, accepted 2026-10-13).** A model may live in a module that cannot see its
+entity: `@BindQueryModel`, `@BindUpdateModel` and `@BindInsertModel` (`@Incubating`, repeatable, on a type or a
+`package-info`) in the persistence module name the model and its root, and the processor reads the model from the
+classpath, validates it as an annotated one and generates its QModel in the binding's package (the model and its
+accessors public). `@BindExpression` supplies the `ExpressionDefinition` of a valueless `@Computed` or an `@Aggregate`;
+`@Computed.value` defaults to `void.class`. Nested models are annotated or bound in the same compilation. No runtime
+change. New R-PROC-28..31, R-GEN-35, `MQ3023`..`MQ3026`. M24, 0.9.0. → `rfc/0012`, `processor/30..32`, Q-19.
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -1881,6 +1895,16 @@ write. On PostgreSQL one statement could do both (`WITH c AS (SELECT id … LIMI
 c … RETURNING …`), once a supported Hibernate API renders a locked CTE in DML; open whether to offer it. Also open: a
 typed `nextval(String, Class<C>)` for a sequence read as an `Integer` or a `BigInteger` rather than a `Long`. →
 `rfc/0010`, D-130, D-131.
+
+**Q-17 — Refusals after a first statement.** Which refusals run only after a first statement (fetch-plan child
+loads, export page N, the second key-first step, chunk writes, `persist`'s key draw); each found is moved up front
+(INV-5) or listed as outside the dry run. The sweep's package scan is also open. → `rfc/0011`, D-133.
+
+**Q-18 — A `@RequiresFact` ArchUnit rule.** Whether code that reads a profile fact must declare it, so the dry run's
+coverage is checkable. → `rfc/0011` §5, D-133.
+
+**Q-19 — Nested models bound in another module.** Binding a nested model in a different persistence module from its
+outer model. → `rfc/0012`, D-134.
 
 ## 3. Risks
 
