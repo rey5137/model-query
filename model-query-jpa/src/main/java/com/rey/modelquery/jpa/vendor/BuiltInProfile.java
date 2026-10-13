@@ -5,7 +5,9 @@ import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.jpa.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.jpa.spi.ReturningShape;
 import com.rey.modelquery.jpa.spi.VendorProfile;
+import com.rey.modelquery.jpa.spi.WriteStatement;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import java.time.Duration;
@@ -15,7 +17,7 @@ import java.util.Optional;
  * The built-in profiles: a fixed table of the Tier-1 values in vendor/41 §2 and the conservative {@code OTHER}
  * values. A {@code ServiceLoader}-discovered profile for the same vendor takes precedence (R-VND-03).
  *
- * @implSpec R-PRF-11, R-PRF-08, R-PRF-03, R-PRF-07, R-VND-06, R-VND-11, R-VND-14
+ * @implSpec R-PRF-11, R-PRF-08, R-PRF-03, R-PRF-07, R-VND-06, R-VND-11, R-VND-14, R-VND-17
  */
 enum BuiltInProfile implements VendorProfile {
 
@@ -38,6 +40,11 @@ enum BuiltInProfile implements VendorProfile {
         @Override
         public boolean conflictWhereSeesEarlierAssignments() {
             return false;
+        }
+
+        @Override
+        public Optional<ReturningShape> returning(WriteStatement kind) {
+            return Optional.of(ReturningShape.DELTA_TABLE);
         }
     },
 
@@ -70,6 +77,11 @@ enum BuiltInProfile implements VendorProfile {
         @Override
         public boolean conflictWhereSeesEarlierAssignments() {
             return false;
+        }
+
+        @Override
+        public Optional<ReturningShape> returning(WriteStatement kind) {
+            return Optional.of(ReturningShape.SUFFIX);
         }
     },
 

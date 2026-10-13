@@ -35,3 +35,65 @@ jobs:
           -Dhibernate.version=${{ matrix.hibernate.version }}
           -Djakarta-persistence.version=${{ matrix.hibernate.jpa }}
           -Dtck.full-matrix=true
+
+  # Canary builds (RFC 0010 §Hibernate internals 5, R-WRT-50): the gate against Hibernate's newest 7.x release and its
+  # newest 7.x snapshot, both resolved at run time, so a moved internal API the mutation adapters call shows in the
+  # Tier-1 SQL snapshots before users meet it. Non-blocking: an upstream change is a conversation, never a merge
+  # blocker.
+  canary:
+    name: Canary (Hibernate 7.x ${{ matrix.channel }})
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [release, snapshot]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      # Releases are on Central; Hibernate publishes snapshots to Central's snapshot repository (OSSRH is retired).
+      - id: hibernate
+        run: |
+          if [ "${{ matrix.channel }}" = release ]; then
+            repo=https://repo1.maven.org/maven2
+            pattern='7\.[0-9]+\.[0-9]+\.Final'
+          else
+            repo=https://central.sonatype.com/repository/maven-snapshots
+            pattern='7\.[0-9]+\.[0-9]+-SNAPSHOT'
+          fi
+          version=$(curl -fsSL "$repo/org/hibernate/orm/hibernate-core/maven-metadata.xml" \
+            | grep -oE "<version>${pattern}</version>" | sed -E 's#</?version>##g' | sort -V | tail -1)
+          test -n "$version"
+          echo "Hibernate $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # The snapshot repository is added by the job's own settings only; the published build never reads it.
+      - run: |
+          mkdir -p "$RUNNER_TEMP/canary"
+          cat > "$RUNNER_TEMP/canary/settings.xml" <<'XML'
+          <settings>
+            <profiles>
+              <profile>
+                <id>canary</id>
+                <repositories>
+                  <repository>
+                    <id>central-snapshots</id>
+                    <url>https://central.sonatype.com/repository/maven-snapshots</url>
+                    <releases><enabled>false</enabled></releases>
+                    <snapshots><enabled>true</enabled></snapshots>
+                  </repository>
+                </repositories>
+              </profile>
+            </profiles>
+            <activeProfiles>
+              <activeProfile>canary</activeProfile>
+            </activeProfiles>
+          </settings>
+          XML
+      - run: >
+          ./mvnw -B -ntp verify -s "$RUNNER_TEMP/canary/settings.xml"
+          -Dhibernate.version=${{ steps.hibernate.outputs.version }}
+          -Djakarta-persistence.version=3.2.0

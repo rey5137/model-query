@@ -318,6 +318,41 @@ public interface ModelQueryExecutor<E> {
     long delete(ModelDelete<E, ?> d);
 
     /**
+     * Runs {@code u} as {@link #update} does and returns the models of the rows it changed, one per row, in an
+     * unspecified order, held in memory (R-WRT-50). {@code returning} supplies the root, the selection and the mapper
+     * as {@code persist(persist, returning)}'s query does (R-WRT-48), and {@code E} fixes the root at compile time. The
+     * rows come from the write statement itself, never from a select after it, and read each column as a tuple of a
+     * read query holds it, before that column's converter.
+     *
+     * <p>A {@code chunked} write returns every changed row once, concatenating its chunks' rows (R-WRT-17).
+     * {@code throughEntities()} and {@code commitEachChunk()} are refused, since a callback's own writes are not this
+     * statement's rows and a committed chunk's are out of reach. The returning query's clauses are checked as
+     * {@code persist(persist, returning)}'s are, and a selected column on a table other than the written one is
+     * refused too.
+     *
+     * <p>{@code expectVersion(v)} with no changed row still throws {@code OptimisticLockException}, as {@link #update}
+     * throws it (R-WRT-16).
+     *
+     * @throws com.rey.modelquery.core.ModelQueryDefinitionException on first execution, before any statement:
+     *     {@code MQ1809} for a clause of the returning query R-WRT-48 refuses, for a selected column on another table,
+     *     for {@code throughEntities()} or for {@code commitEachChunk()}; whatever {@link #update} throws
+     * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ4011}, at method entry and before any
+     *     statement, when the factory cannot return the rows: its vendor profile has no shape for an update, its
+     *     provider has no {@code ReturningSupport}, or that support cannot render the shape, as a Hibernate line whose
+     *     mutation translation calls moved cannot, or a root entity mapped to more than one table (R-VND-17)
+     * @throws jakarta.persistence.OptimisticLockException as {@link #update} throws it (R-WRT-16)
+     */
+    @Incubating
+    <R> List<R> updateReturning(ModelUpdate<E, ?> u, ModelQuery<E, ?, R> returning);
+
+    /**
+     * {@link #updateReturning}, for {@code d}: the rows a returning delete changed, and {@code MQ4011} for a delete
+     * (R-WRT-50).
+     */
+    @Incubating
+    <R> List<R> deleteReturning(ModelDelete<E, ?> d, ModelQuery<E, ?, R> returning);
+
+    /**
      * Inserts {@code i}'s rows, an insert-select's or an insert-values', and returns the rows affected. It loads no
      * entity and runs no lifecycle callback, cascade, Bean Validation or Envers audit: {@link #persist} is the write
      * that runs them (R-WRT-24). It needs the provider's {@link com.rey.modelquery.jpa.spi.InsertSupport}, which

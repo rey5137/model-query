@@ -183,6 +183,45 @@ from the attribute's JPA mapping in its `MappingMetamodel`, so a mapped conversi
 annotations. The executor resolves it once per factory and passes it into the build as `RenderOptions` carries the
 native null-precedence renderer (R-VND-01), reaching `core` only through `JoinContext` (INV-7).
 
+**R-VND-17** Returning the rows a write changed splits the database's shape from the provider's mechanism, as R-VND-14
+and R-VND-15 do (D-129). `VendorProfile#returning(WriteStatement)` returns an `Optional<ReturningShape>`, empty by
+default, and states the database fact alone, rendering no SQL (R-VND-11): `SUFFIX`, the statement's own `RETURNING`
+clause (PostgreSQL), and `DELTA_TABLE`, a select over the write's delta table (H2's `FINAL TABLE` on an update and
+`OLD TABLE` on a delete). `ProviderSupport#returning()` returns an `Optional<ReturningSupport>`, empty by default. A
+returning write on a factory with no shape for the statement kind, no `ReturningSupport`, or one whose `rendered` is
+false is `MQ4011` at method entry, before any statement (`api/14` R-WRT-50); a third-party profile or provider compiles
+and fails safe. The SPI lives in `jpa` and takes jakarta types only (INV-7):
+
+```java
+// ProviderSupport
+default Optional<ReturningSupport> returning();                        // empty: MQ4011
+
+// spi
+interface ReturningSupport {
+    boolean rendered(EntityManagerFactory emf, Class<?> entity, ReturningShape shape);
+    List<Object[]> rows(Query statement, Class<?> entity, List<String> attributes, ReturningShape shape);
+}
+
+enum ReturningShape { SUFFIX, DELTA_TABLE }         // the database's fact
+enum WriteStatement { UPDATE, DELETE }              // the statement kind a fact is asked for
+```
+
+`ReturningShape` and `WriteStatement` name facts only. `rendered(emf, entity, shape)` reports whether this factory,
+entity and shape can return rows at all: false for a shape the provider cannot render, a root entity mapped to more
+than one table (`tablesOf`, as R-VND-15 refuses a lock), and a provider line whose calls moved. `rows(statement, entity,
+attributes, shape)` runs a write statement the executor already built — its parameters bound, its timeout set, its
+assignments and version handling in it — and returns one `Object[]` per changed row, each holding the values of
+`attributes`' columns in that order, as the entity holds them and before the column's converter, exactly as a tuple of a
+read query holds them; a to-one's id is the written row's foreign key. An implementation refuses with `MQ1809` a column
+it cannot express on the written table (R-WRT-50). `model-query-hibernate` answers with Hibernate's own machinery: it
+translates the statement through Hibernate's mutation translator, applies the vendor's shape, prepares it through the
+session's `JdbcCoordinator` (SQL logging and resource tracking unchanged), binds it with Hibernate's binders, reads each
+column through its attribute's JDBC mapping, calls the `StatementInspector` and invalidates query spaces as Hibernate's
+own bulk path does. The `org.hibernate..internal..` types that takes live in one small adapter per Hibernate line behind
+a package-private interface, chosen by probing rather than by a version string, with one `WARN` outside an adapter's
+tested range and a first-use check of each translated statement, so a moved internal refuses with `MQ4011` rather than
+running SQL that may be wrong (R-WRT-50, INV-5).
+
 ## 2. Detection
 
 **R-VND-04** Resolution order:
@@ -260,3 +299,4 @@ explicitly (`likeIgnoreCase`, `nullsFirst`), and the library renders it the same
 | AC-VND-11 | `model-query-hibernate`'s `InsertSupport` reports each D-116 probe root's generator (assigned, `IDENTITY`, a sequence with its increment and whether a database sequence backs it, table, UUID, an `@IdClass` with no generated part as assigned) and its unsupported mappings (`JOINED`, `@SecondaryTable`, `@MapsId`, a generated composite part); draws distinct keys from a pooled sequence, a table and a UUID generator and refuses `IDENTITY`; reports `doNothingRendered` true on Hibernate 7 and on 6.x except on H2; and counts the version seed as one bind per row, on every Tier-1 vendor (R-VND-14). |
 | AC-VND-12 | `maxValuesRows()` defaults to 1,000, `conflictTargetHonoured()` to false and `conflictWhereSeesEarlierAssignments()` to true, `ProviderSupport#inserts()` to empty; the built-in profiles carry `vendor/41` §2's values (R-VND-14). |
 | AC-VND-13 | `LockSupport.rendered` is per dialect on both Hibernate lines (H2's `NO_WAIT`/`SKIP_LOCKED` refused on 6.6, allowed only for `exclusive()` on 7.x); a lock with no `locks()`, an unrendered wait, or a multi-table root is `MQ4010`; `apply` sets the lock mode, the Hibernate timeout hint and `followOnLocking=false` (R-VND-15, `engine/20` R-EXE-14). |
+| AC-VND-14 | `ProviderSupport#returning()` and `VendorProfile#returning(WriteStatement)` default to empty, so a write whose factory has neither is `MQ4011` at method entry; the built-in H2 profile reports `DELTA_TABLE` and PostgreSQL `SUFFIX` for update and delete, MySQL nothing; `model-query-hibernate`'s `ReturningSupport.rendered` is true on both Hibernate lines for a single-table entity and false for a `@SecondaryTable` root, and `rows` returns the columns of a changed row as a read tuple holds them; the translated SQL per line and dialect is `vendor/41` §7's (R-VND-17, R-WRT-50). |

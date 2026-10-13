@@ -1,4 +1,6 @@
 com.rey.modelquery.jpa.ProviderNullOrderingTest$ConfiguredNullsSupport
+com.rey.modelquery.jpa.ReturningWriteExecutionTest$NoReturning
+com.rey.modelquery.jpa.ReturningWriteExecutionTest$Returning
 com.rey.modelquery.jpa.RowLockExecutionTest$Locks
 com.rey.modelquery.jpa.RowLockExecutionTest$NoLocks
 com.rey.modelquery.jpa.RowLockExecutionTest$Unrendered

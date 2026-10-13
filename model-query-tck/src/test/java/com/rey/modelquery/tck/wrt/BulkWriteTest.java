@@ -4,6 +4,7 @@ import static jakarta.persistence.criteria.JoinType.INNER;
 import static jakarta.persistence.criteria.JoinType.LEFT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 import com.rey.modelquery.core.Assignment;
 import com.rey.modelquery.core.Changes;
@@ -28,7 +29,9 @@ import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.jpa.spi.ReturningShape;
 import com.rey.modelquery.jpa.spi.VendorProfile;
+import com.rey.modelquery.jpa.spi.WriteStatement;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
 import com.rey.modelquery.tck.col.CompositeKeyItemEntity;
 import com.rey.modelquery.tck.col.CustomerEntity;
@@ -85,6 +88,12 @@ class BulkWriteTest {
 
     /** The update model; also read back as a one-column query model. */
     record OrderPatch(Long id) {}
+
+    /** The model a returning write maps its rows to (R-WRT-50): two root columns and a to-one's id. */
+    record ItemRow(Long id, Integer quantity, Long orderId) {}
+
+    /** A returning update's model of an order's id and version (R-WRT-50, R-WRT-16). */
+    record OrderVersion(Long id, Integer version) {}
 
     record CustomerPatch(Long id) {}
 
@@ -178,6 +187,26 @@ class BulkWriteTest {
             ColumnField.of(ItemRowPatch.class, ITEM_ROWS, "id", Long.class);
     private static final ColumnField<ItemRowPatch, OrderItemEntity, Integer> ITEM_ROW_QUANTITY =
             ColumnField.of(ItemRowPatch.class, ITEM_ROWS, "quantity", Integer.class);
+    private static final ColumnField<ItemRow, OrderItemEntity, Long> ROW_ID =
+            ColumnField.of(ItemRow.class, ITEM_ROWS, "id", Long.class);
+    private static final ColumnField<ItemRow, OrderItemEntity, Integer> ROW_QUANTITY =
+            ColumnField.of(ItemRow.class, ITEM_ROWS, "quantity", Integer.class);
+    private static final ColumnField<OrderVersion, OrderEntity, Long> VERSIONED_ID =
+            ColumnField.of(OrderVersion.class, ORDERS, "id", Long.class);
+    private static final ColumnField<OrderVersion, OrderEntity, Integer> VERSIONED_VERSION =
+            ColumnField.of(OrderVersion.class, ORDERS, "version", Integer.class);
+    private static final TableField<OrderItemEntity, OrderEntity> ROW_ORDER =
+            TableField.join(ITEM_ROWS, "order", INNER);
+    private static final ColumnField<ItemRow, OrderEntity, Long> ROW_ORDER_ID =
+            ColumnField.of(ItemRow.class, ROW_ORDER, "id", Long.class);
+    /**
+     * The returning write's query (R-WRT-50): the id, the quantity and the order's id, read from the written row's
+     * foreign key, that it hands back per changed row.
+     */
+    private static final ModelQuery.Builder<OrderItemEntity, Long, ItemRow> ITEM_ROW_RETURNING =
+            ModelQuery.builder(ITEM_ROWS, row -> new ItemRow(row.get(ROW_ID), row.get(ROW_QUANTITY),
+                    row.get(ROW_ORDER_ID))).select(SelectSet.of(ROW_ID, ROW_QUANTITY, ROW_ORDER_ID))
+                    .primaryKey(PrimaryKey.of(ROW_ID));
 
 
     private static final TableField<CustomerEntity, CustomerEntity> CUSTOMERS = TableField.root(CustomerEntity.class);
@@ -980,6 +1009,116 @@ class BulkWriteTest {
         }
     }
 
+    // ---- AC-WRT-42
+
+    /**
+     * R-WRT-50 on Tier 1 (vendor/41 §7, AC-WRT-42): a returning update hands back exactly the written row's
+     * post-update values and a returning delete exactly its pre-delete values, as one statement each whose SQL the
+     * snapshot holds. A database whose profile declares no returning shape, MySQL among them, refuses both with
+     * {@code MQ4011} before any statement (AC-VND-14). Both Hibernate lines render the same SQL, so no
+     * {@code hibernate7/returning.sql} variant exists.
+     */
+    @TckTest
+    void ac_wrt_42_update_and_delete_returning_return_the_changed_rows_post_update_and_pre_delete(TckDatabase db) {
+        Map<Long, ItemRow> seeded = stored(db, List.of(3L, 5L));
+        boolean returnsRows = returningShape(db) != null;
+        var rows = new ArrayList<ItemRow>();
+        var refusals = new ArrayList<Throwable>();
+        var update = ModelUpdate.builder(ITEM_ROWS).primaryKey(PrimaryKey.of(ITEM_ROW_ID))
+                .set(ITEM_ROW_QUANTITY, 42).where(f -> f.eq(ITEM_ROW_ID, 3L)).build();
+        var delete = ModelDelete.builder(ITEM_ROWS).primaryKey(PrimaryKey.of(ITEM_ROW_ID))
+                .where(f -> f.eq(ITEM_ROW_ID, 5L)).build();
+
+        List<String> sql = SqlSnapshots.assertMatches(db, "returning", ds -> inRolledBackTransaction(ds, em -> {
+            ModelQueryExecutor<OrderItemEntity> executor =
+                    ModelQueryExecutor.create(em, OrderItemEntity.class, ModelQueryConfig.defaults());
+            var returning = ITEM_ROW_RETURNING.build();
+            if (!returnsRows) {
+                refusals.add(catchThrowable(() -> executor.updateReturning(update, returning)));
+                refusals.add(catchThrowable(() -> executor.deleteReturning(delete, returning)));
+                return;
+            }
+            rows.addAll(executor.updateReturning(update, returning));
+            rows.addAll(executor.deleteReturning(delete, returning));
+        }));
+
+        if (!returnsRows) {
+            assertThat(sql).isEmpty();
+            assertThat(refusals).hasSize(2).allSatisfy(refusal -> assertThat(refusal)
+                    .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ4011)));
+            return;
+        }
+        assertThat(seeded.get(3L).quantity()).as("the seeded quantity, before the update").isNotEqualTo(42);
+        assertThat(seeded.values()).as("each seeded item has an order").allSatisfy(row ->
+                assertThat(row.orderId()).isNotNull());
+        assertThat(rows).containsExactly(new ItemRow(3L, 42, seeded.get(3L).orderId()), seeded.get(5L));
+    }
+
+    /**
+     * A chunked returning update runs one statement per chunk of keys and hands back every changed row exactly once,
+     * the chunks' rows concatenated, with its post-update values (R-WRT-50, R-WRT-17).
+     */
+    @TckTest
+    void ac_wrt_42_a_chunked_returning_update_returns_every_changed_row_once(TckDatabase db) {
+        Assumptions.assumeTrue(returningShape(db) != null, "the database returns no rows of a write (MQ4011)");
+        List<Long> ids = List.of(10L, 11L, 12L, 13L, 14L);
+        Map<Long, ItemRow> seeded = stored(db, ids);
+        assertThat(seeded).as("the seeded items").hasSize(ids.size());
+        var update = ModelUpdate.builder(ITEM_ROWS).primaryKey(PrimaryKey.of(ITEM_ROW_ID)).set(ITEM_ROW_QUANTITY, 77)
+                .where(f -> f.gte(ITEM_ROW_ID, 10L).lte(ITEM_ROW_ID, 14L)).chunked(ChunkOptions.size(2)).build();
+        var rows = new ArrayList<ItemRow>();
+        var writes = new ArrayList<String>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> inRolledBackTransaction(ds, em -> rows.addAll(
+                ModelQueryExecutor.create(em, OrderItemEntity.class, ModelQueryConfig.defaults())
+                        .updateReturning(update, ITEM_ROW_RETURNING.build()))));
+        sql.stream().filter(statement -> statement.contains("update order_items")).forEach(writes::add);
+
+        assertThat(writes).as("one returning update per chunk of two keys").hasSize(3);
+        assertThat(rows).as("every changed row once, post-update").containsExactlyInAnyOrderElementsOf(
+                ids.stream().map(id -> new ItemRow(id, 77, seeded.get(id).orderId())).toList());
+    }
+
+    /**
+     * A returning update increments the version as a plain one does and returns the incremented value, and an
+     * {@code expectVersion} that no longer matches still throws {@code OptimisticLockException} with no row
+     * (R-WRT-50, R-WRT-16).
+     */
+    @TckTest
+    void ac_wrt_42_a_returning_update_returns_the_incremented_version_and_a_stale_expect_version_throws(
+            TckDatabase db) {
+        Assumptions.assumeTrue(returningShape(db) != null, "the database returns no rows of a write (MQ4011)");
+        var returning = ModelQuery.builder(ORDERS,
+                        row -> new OrderVersion(row.get(VERSIONED_ID), row.get(VERSIONED_VERSION)))
+                .select(SelectSet.of(VERSIONED_ID, VERSIONED_VERSION)).primaryKey(PrimaryKey.of(VERSIONED_ID)).build();
+        var rows = new ArrayList<OrderVersion>();
+        int[] seeded = new int[1];
+        inRolledBackTransaction(JoinTestSupport.dataSource(db), em -> {
+            seeded[0] = stored(em, 5L).version();
+            var expecting = UPDATE.primaryKey(PrimaryKey.of(ID)).set(TOTAL, BigDecimal.ONE).whereKey(5L)
+                    .expectVersion(seeded[0]).build();
+            ModelQueryExecutor<OrderEntity> orders = orders(em);
+            rows.addAll(orders.updateReturning(expecting, returning));
+            assertThatThrownBy(() -> orders.updateReturning(expecting, returning)).as("now stale")
+                    .isInstanceOf(OptimisticLockException.class);
+        });
+
+        assertThat(rows).containsExactly(new OrderVersion(5L, seeded[0] + 1));
+    }
+
+    /**
+     * The stored id, quantity and order id of the order items {@code ids}: what a returning write's rows are compared
+     * against (AC-WRT-42).
+     */
+    private static Map<Long, ItemRow> stored(TckDatabase db, List<Long> ids) {
+        Map<Long, ItemRow> rows = new LinkedHashMap<>();
+        inRolledBackTransaction(JoinTestSupport.dataSource(db), em -> em.createQuery(
+                "select i.id, i.quantity, i.order.id from OrderItemEntity i where i.id in :ids order by i.id",
+                Object[].class).setParameter("ids", ids).getResultList().forEach(row -> rows.put((Long) row[0],
+                        new ItemRow((Long) row[0], (Integer) row[1], (Long) row[2]))));
+        return rows;
+    }
+
     // ---- support
 
     private static ModelQueryExecutor<OrderEntity> orders(EntityManager em) {
@@ -1036,6 +1175,14 @@ class BulkWriteTest {
     /** Skips the calling test where the database can read a write's target table in a sub-query (R-VND-11). */
     private static void assumeKeyFirst(TckDatabase db) {
         Assumptions.assumeFalse(targetTableInSubquery(db), "key-first runs where a write cannot read its own table");
+    }
+
+    /** The shape {@code db}'s profile writes an update by, {@code null} where it declares none (R-VND-17). */
+    private static ReturningShape returningShape(TckDatabase db) {
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
+            return VendorResolver.resolve(sf, Optional.empty(), MysqlStreamingMode.ROW_BY_ROW).profile()
+                    .returning(WriteStatement.UPDATE).orElse(null);
+        }
     }
 
     /** Whether {@code db}'s profile lets a write read its own table in a sub-query (R-VND-11). */

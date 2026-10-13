@@ -9,6 +9,7 @@ import com.rey.modelquery.jpa.spi.EntityWriteSupport;
 import com.rey.modelquery.jpa.spi.InsertSupport;
 import com.rey.modelquery.jpa.spi.LockSupport;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
+import com.rey.modelquery.jpa.spi.ReturningSupport;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceException;
 import jakarta.persistence.TypedQuery;
@@ -193,7 +194,7 @@ public final class HibernateProviderSupport implements ProviderSupport {
     }
 
     /** The query spaces of {@code entity} and its subtypes in {@code sf}, as {@link #normalised} names. */
-    private static Set<String> tablesOf(SessionFactoryImplementor sf, Class<?> entity) {
+    static Set<String> tablesOf(SessionFactoryImplementor sf, Class<?> entity) {
         SqlStringGenerationContext context = sf.getSqlStringGenerationContext();
         Set<String> tables = new LinkedHashSet<>();
         sf.getMappingMetamodel().forEachEntityDescriptor(persister -> {
@@ -296,7 +297,14 @@ public final class HibernateProviderSupport implements ProviderSupport {
         return sessionFactory(emf).map(HibernateConstantRenderer::new);
     }
 
-    private static Optional<SessionFactoryImplementor> sessionFactory(EntityManagerFactory emf) {
+    /** {@link HibernateMutations}: Hibernate's own mutation translation and execution (R-WRT-50, R-VND-17). */
+    @Override
+    public Optional<ReturningSupport> returning() {
+        return Optional.of(HibernateMutations.INSTANCE);
+    }
+
+    /** {@code emf} as Hibernate's factory, or empty when it is not Hibernate's (R-VND-14, R-WRT-50). */
+    static Optional<SessionFactoryImplementor> sessionFactory(EntityManagerFactory emf) {
         try {
             return Optional.of(emf.unwrap(SessionFactoryImplementor.class));
         } catch (PersistenceException notHibernate) {

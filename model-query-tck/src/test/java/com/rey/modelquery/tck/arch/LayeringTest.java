@@ -162,6 +162,12 @@ class LayeringTest {
                 F + "jpa.spi.DatabaseVendor");
     }
 
+    @Test
+    void ac_wrt_42_onlyMutationAdaptersImportHibernateInternals() {
+        proves(LayeringRules::onlyMutationAdaptersImportHibernateInternals, F + "hibernate.BadHibernateInternalImport",
+                "org.hibernate.query.sqm.internal.DomainParameterXref");
+    }
+
     /**
      * No test class outside the harness knows which vendor it runs on (R-QA-03, AC-QA-02): the TCK sources are the
      * same for every vendor, and only the snapshot directory chosen by {@code SqlSnapshots} differs.
