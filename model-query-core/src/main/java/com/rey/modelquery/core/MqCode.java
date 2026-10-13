@@ -400,7 +400,10 @@ public enum MqCode {
     MQ4009("A bulk insert needs an InsertSupport for the factory's persistence provider"),
 
     /** A locked read whose provider cannot render the lock (R-VND-15, R-EXE-14). */
-    MQ4010("A lock cannot be rendered by the factory's persistence provider");
+    MQ4010("A lock cannot be rendered by the factory's persistence provider"),
+
+    /** A returning write the factory's database and provider cannot return rows for (R-WRT-50, R-VND-17). */
+    MQ4011("A write cannot return its rows on the factory's database and persistence provider");
 
     private final String defaultMessage;
 

@@ -5,13 +5,14 @@ import com.rey.modelquery.core.NullOrdering;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import java.time.Duration;
+import java.util.Optional;
 
 /**
  * Every database-specific behaviour the engine needs (INV-6). Implementations are stateless and thread-safe, and are
  * discovered with {@code ServiceLoader}; a discovered profile takes precedence over the built-in one for its vendor
  * (R-VND-03). A new behaviour is a new method with a default.
  *
- * @implSpec R-VND-01, R-VND-02, R-VND-03, R-VND-11, R-VND-12, R-VND-14
+ * @implSpec R-VND-01, R-VND-02, R-VND-03, R-VND-11, R-VND-12, R-VND-14, R-VND-17
  */
 @Incubating
 public interface VendorProfile {
@@ -83,5 +84,15 @@ public interface VendorProfile {
      */
     default boolean conflictWhereSeesEarlierAssignments() {
         return true;
+    }
+
+    /**
+     * How the database returns the rows {@code kind} changed, or empty, the default, where it cannot: a returning
+     * write then throws {@code MQ4011} at method entry, before any statement (R-WRT-50, R-VND-17). A database fact of
+     * the shape alone; the provider renders the SQL (R-VND-11). A profile written before it returns empty and stays
+     * safe.
+     */
+    default Optional<ReturningShape> returning(WriteStatement kind) {
+        return Optional.empty();
     }
 }

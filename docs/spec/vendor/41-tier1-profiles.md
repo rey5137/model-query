@@ -126,7 +126,29 @@ they render no `OF` list on either line (`sql/*/lock-exec-*.sql`). Either way on
 locked query reads its root alone (`engine/20` R-EXE-14). A query whose root is on several tables is refused with
 `MQ4010`.
 
-## 7. Acceptance criteria
+## 7. Returning rendering
+
+What each Tier-1 database renders for a returning write (`vendor/40` R-VND-17, `api/14` R-WRT-50), confirmed by the
+M20.1 spike and committed as the SQL snapshots `sql/*/returning.sql` (`sql/*/hibernate7/returning.sql` only where a
+Hibernate line differs). `<cols>` is the returning selection in the query's column order, and `<write>` the statement
+the executor built, with its assignments, version clause and filters. **refused** means `MQ4011` at method entry, before
+any statement.
+
+| Statement | H2, Hibernate 6.6 | H2, Hibernate 7.x | PostgreSQL 17, both lines | MySQL 8.4, both lines |
+|---|---|---|---|---|
+| `updateReturning` | `select <cols> from final table (<write>)` | same | `<write> returning <cols>` | refused |
+| `deleteReturning` | `select <cols> from old table (<write>)` | same | `<write> returning <cols>` | refused |
+
+On H2 the delta-table form is what reads the rows back, because the dialect renders `FINAL TABLE` and `OLD TABLE` for
+its own insert and update statements only: the adapter wraps the translated `update` or `delete`, and the returning
+selection is the columns' own expressions, so a converted column is returned as its converted value and mapped back by
+the column's mapping. On PostgreSQL Hibernate's own translator renders the ` returning ` list, which the adapter
+requires to be there rather than appending a clause of its own (D-129). Both Hibernate lines render the same SQL, so no
+`hibernate7/` variant exists; the two lines' difference is the translation call behind the SQL (R-WRT-50). An update or
+delete over a root entity mapped to more than one table is `MQ4011` on every vendor, because Hibernate runs it as more
+than one statement.
+
+## 8. Acceptance criteria
 
 | ID | Criterion |
 |---|---|

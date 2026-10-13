@@ -44,7 +44,10 @@ import com.rey.modelquery.jpa.spi.InsertSupport;
 import com.rey.modelquery.jpa.spi.InsertTarget;
 import com.rey.modelquery.jpa.spi.LockSupport;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
+import com.rey.modelquery.jpa.spi.ReturningShape;
+import com.rey.modelquery.jpa.spi.ReturningSupport;
 import com.rey.modelquery.jpa.spi.VendorProfile;
+import com.rey.modelquery.jpa.spi.WriteStatement;
 import com.rey.modelquery.jpa.vendor.ResolvedVendor;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
 import jakarta.persistence.EntityManager;
@@ -1059,6 +1062,20 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     @Override
     public long update(ModelUpdate<E, ?> u) {
+        return update(u, null);
+    }
+
+    @Override
+    public <R> List<R> updateReturning(ModelUpdate<E, ?> u, ModelQuery<E, ?, R> returning) {
+        Objects.requireNonNull(u, "u");
+        Objects.requireNonNull(returning, "returning");
+        Returning<R> rows = returning(u.entityMode(), u.chunkOptions(), returning, WriteStatement.UPDATE);
+        update(u, rows);
+        return rows.models();
+    }
+
+    /** {@link #update(ModelUpdate)}, collecting the changed rows into {@code returning} when it is given (R-WRT-50). */
+    private long update(ModelUpdate<E, ?> u, Returning<?> returning) {
         Objects.requireNonNull(u, "u");
         checkWriteOnce(u, u::checkMetamodel);
         WriteAssignments assignments = writeAssignments();
@@ -1070,9 +1087,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 .collect(Collectors.toSet());
         List<WriteAssignments.Written> added = assignments.execution().values(WriteKind.UPDATE, set);
         if (u.entityMode()) {
-            return updateEntities(u, added);
+            return updateEntities(u, added); // never a returning write: it refused throughEntities() already
         }
-        long written = updateRows(u, added);
+        long written = updateRows(u, added, returning);
         if (written == 0 && u.expectedVersion().isPresent()) {
             throw new OptimisticLockException(rootEntity.getSimpleName() + ": no row was written with version "
                     + u.expectedVersion().get() + "; its version moved, or it no longer exists or matches");
@@ -1081,7 +1098,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     }
 
     /** Runs a bulk update, each statement setting {@code added}, the write assignments, after its own (R-WRT-49). */
-    private <M> long updateRows(ModelUpdate<E, M> u, List<WriteAssignments.Written> added) {
+    private <M> long updateRows(ModelUpdate<E, M> u, List<WriteAssignments.Written> added, Returning<?> returning) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
         BiFunction<Class<?>, Object, ?> references = em::getReference;
         int repeated = u.repeatedExpressionBinds(cb, renderOptions, references);
@@ -1091,12 +1108,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         boolean rootTermsOnly = keyFirst(() -> u.entitiesReadInSubquery(cb, renderOptions));
         logWrite("update", u, u.chunkOptions(), rootTermsOnly);
         if (!rootTermsOnly && u.chunkOptions().isEmpty()) {
-            return write(u.persistenceContext(), () -> direct(u.distinctKeys(), whole, byKeys, repeated));
+            return write(u.persistenceContext(),
+                    () -> direct(u.distinctKeys(), whole, byKeys, repeated, run(returning)));
         }
         var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), u.primaryKey(), u.distinctKeys(),
                 run -> run == null ? u.buildKeySelect(cb, renderOptions) : u.buildKeySelect(cb, renderOptions, run),
                 (on, keys) -> execute(updateStatement(on, u.buildWrite(cb, renderOptions, on::getReference, keys,
-                        rootTermsOnly), added), repeated),
+                        rootTermsOnly), added), repeated, returning),
                 u.startAfter(), u::modelKey);
         return write(u.persistenceContext(), () -> keyset(keyed, whole, byKeys, u.chunkOptions(), cb, repeated));
     }
@@ -1296,16 +1314,30 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     @Override
     public long delete(ModelDelete<E, ?> d) {
+        return delete(d, null);
+    }
+
+    @Override
+    public <R> List<R> deleteReturning(ModelDelete<E, ?> d, ModelQuery<E, ?, R> returning) {
+        Objects.requireNonNull(d, "d");
+        Objects.requireNonNull(returning, "returning");
+        Returning<R> rows = returning(d.entityMode(), d.chunkOptions(), returning, WriteStatement.DELETE);
+        delete(d, rows);
+        return rows.models();
+    }
+
+    /** {@link #delete(ModelDelete)}, collecting the changed rows into {@code returning} when it is given (R-WRT-50). */
+    private long delete(ModelDelete<E, ?> d, Returning<?> returning) {
         Objects.requireNonNull(d, "d");
         checkWriteOnce(d, d::checkMetamodel);
         requireTransaction(d.entityMode() ? "an entity-mode delete" : "a bulk delete", d.chunkOptions());
         if (d.writesNothing()) {
             return 0;
         }
-        return d.entityMode() ? deleteEntities(d) : deleteRows(d);
+        return d.entityMode() ? deleteEntities(d) : deleteRows(d, returning);
     }
 
-    private <M> long deleteRows(ModelDelete<E, M> d) {
+    private <M> long deleteRows(ModelDelete<E, M> d, Returning<?> returning) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
         int repeated = d.repeatedExpressionBinds(cb, renderOptions);
         Supplier<Query> whole = () -> deleteStatement(em, d.buildWrite(cb, renderOptions));
@@ -1313,14 +1345,112 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         boolean rootTermsOnly = keyFirst(() -> d.entitiesReadInSubquery(cb, renderOptions));
         logWrite("delete", d, d.chunkOptions(), rootTermsOnly);
         if (!rootTermsOnly && d.chunkOptions().isEmpty()) {
-            return write(d.persistenceContext(), () -> direct(d.distinctKeys(), whole, byKeys, repeated));
+            return write(d.persistenceContext(),
+                    () -> direct(d.distinctKeys(), whole, byKeys, repeated, run(returning)));
         }
         var keyed = new KeysetWrite.Keyed<>(rootEntity.getSimpleName(), d.primaryKey(), d.distinctKeys(),
                 run -> run == null ? d.buildKeySelect(cb, renderOptions) : d.buildKeySelect(cb, renderOptions, run),
                 (on, keys) -> execute(deleteStatement(on, d.buildWrite(cb, renderOptions, keys, rootTermsOnly)),
-                        repeated),
+                        repeated, returning),
                 d.startAfter(), d::modelKey);
         return write(d.persistenceContext(), () -> keyset(keyed, whole, byKeys, d.chunkOptions(), cb, repeated));
+    }
+
+    /**
+     * The rows a returning write collects, after R-WRT-50's refusals, all before any statement: {@code
+     * throughEntities()} and {@code commitEachChunk()} (MQ1809), the returning query's clauses, which are checked as
+     * R-WRT-48 checks them, and the factory's ability to return rows for {@code kind} at all (MQ4011).
+     */
+    private <R> Returning<R> returning(boolean entityMode, Optional<ChunkOptions> chunk, ModelQuery<E, ?, R> returning,
+            WriteStatement kind) {
+        if (entityMode) {
+            throw returningRefused(kind, "throughEntities()");
+        }
+        if (chunk.map(ChunkOptions::commitsEachChunk).orElse(false)) {
+            throw returningRefused(kind, "commitEachChunk()");
+        }
+        checkWriteOnce(returning, metamodel -> returning.checkReturning(em.getCriteriaBuilder()));
+        ReturningShape shape = vendor.profile().returning(kind).orElse(null);
+        ReturningSupport support = vendor.providerSupport().flatMap(ProviderSupport::returning).orElse(null);
+        if (shape == null) {
+            throw cannotReturn(kind,
+                    "the vendor profile reports no returning shape for it (VendorProfile#returning)");
+        }
+        if (support == null) {
+            throw cannotReturn(kind, returningSupportAbsence());
+        }
+        if (!support.rendered(em.getEntityManagerFactory(), rootEntity, shape)) {
+            throw cannotReturn(kind, "provider " + support.getClass().getName() + " cannot return rows for "
+                    + rootEntity.getSimpleName() + " (ReturningSupport#rendered)");
+        }
+        return new Returning<>(support, rootEntity, returning, returning.returningPaths(), shape);
+    }
+
+    /** The {@code MQ1809} refusal of a returning write of {@code kind} combined with {@code clause} (R-WRT-50). */
+    private static ModelQueryDefinitionException returningRefused(WriteStatement kind, String clause) {
+        return new ModelQueryDefinitionException(MqCode.MQ1809, kind + " returning cannot combine with " + clause
+                + ": the rows of a callback's own writes, or of a committed chunk, are not this statement's");
+    }
+
+    /** The {@code MQ4011} refusal of a returning write of {@code kind}, for the reason {@code because} (R-VND-17). */
+    private ModelQueryExecutionException cannotReturn(WriteStatement kind, String because) {
+        return new ModelQueryExecutionException(MqCode.MQ4011, rootEntity.getSimpleName() + ": " + kind
+                + " returning cannot run on " + vendor.detectedVendor() + ", because " + because);
+    }
+
+    /** Why {@code MQ4011} names for a factory whose provider offers no {@link ReturningSupport}. */
+    private String returningSupportAbsence() {
+        return vendor.providerSupport()
+                .map(support -> "provider " + support.getClass().getName() + " has no ReturningSupport "
+                        + "(ProviderSupport#returning())")
+                .orElse("no ProviderSupport serves this factory; add a ProviderSupport for its provider "
+                        + "(model-query-hibernate for Hibernate)");
+    }
+
+    /**
+     * The rows one returning write's statements returned, concatenated in statement order, and the models they map to
+     * (R-WRT-50). The provider runs each statement and decides its column order; the executor holds the paths it asked
+     * for and maps every row back by path, as R-WRT-48's returning query maps a row.
+     */
+    private static final class Returning<R> {
+
+        private final ReturningSupport support;
+        private final Class<?> entity;
+        private final ModelQuery<?, ?, R> query;
+        private final List<String> paths;
+        private final ReturningShape shape;
+        private final List<Object[]> rows = new ArrayList<>();
+
+        Returning(ReturningSupport support, Class<?> entity, ModelQuery<?, ?, R> query, List<String> paths,
+                ReturningShape shape) {
+            this.support = support;
+            this.entity = entity;
+            this.query = query;
+            this.paths = paths;
+            this.shape = shape;
+        }
+
+        /** The rows {@code statement} changed, through the provider, counted for the write's own totals. */
+        long run(Query statement) {
+            List<Object[]> returned = support.rows(statement, entity, paths, shape);
+            rows.addAll(returned);
+            return returned.size();
+        }
+
+        /** The models of every row collected so far, one per row, in the statements' order. */
+        List<R> models() {
+            List<R> models = new ArrayList<>(rows.size());
+            for (Object[] row : rows) {
+                models.add(query.mapReturning(path -> value(path, row)));
+            }
+            return List.copyOf(models);
+        }
+
+        /** {@code path}'s value in {@code row}, {@code null} for a path this write's provider did not return. */
+        private Object value(String path, Object[] row) {
+            int index = paths.indexOf(path);
+            return index < 0 ? null : row[index];
+        }
     }
 
     @Override
@@ -1883,16 +2013,16 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * affected.
      */
     private long direct(Optional<List<Object>> keys, Supplier<Query> whole, Function<List<Object>, Query> byKeys,
-            int repeated) {
+            int repeated, StatementRun run) {
         if (keys.isEmpty()) {
-            return execute(whole.get(), repeated);
+            return run.run(whole.get(), repeated);
         }
         List<Object> all = keys.get();
         int chunk = all.size() == 1 ? 1 : keyChunkSize(byKeys.apply(all.subList(0, 1)), all.get(0),
                 OptionalInt.empty(), repeated);
         long written = 0;
         for (int from = 0; from < all.size(); from += chunk) {
-            written += execute(byKeys.apply(all.subList(from, Math.min(all.size(), from + chunk))), repeated);
+            written += run.run(byKeys.apply(all.subList(from, Math.min(all.size(), from + chunk))), repeated);
         }
         return written;
     }
@@ -1938,20 +2068,40 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return keyLimits.clamp(ownBinds, keyColumns, configured);
     }
 
+    /** Runs one write statement: the rows it wrote, collected into a returning write's rows when it has some. */
+    @FunctionalInterface
+    private interface StatementRun {
+        long run(Query statement, int repeated);
+    }
+
+    /** {@code returning}'s run, else the count-only run every plain write uses (R-WRT-50). */
+    private StatementRun run(Returning<?> returning) {
+        return returning == null ? this::execute : (statement, repeated) -> execute(statement, repeated, returning);
+    }
+
     /**
      * Runs a write statement within the bind limit, with the configured timeout applied through the profile
      * (R-FLT-09, R-EXE-11). {@code repeated} counts the bind values the statement's memoised expressions repeat beyond
      * what JPA reports (R-COL-19, D-80).
      */
     private int execute(Query statement, int repeated) {
+        return Math.toIntExact(execute(statement, repeated, null));
+    }
+
+    /**
+     * As above. With {@code returning} it hands the statement to the provider instead of calling
+     * {@code executeUpdate()}, and counts the rows the provider read back (R-WRT-50); every other write, and every
+     * statement of a returning write that carries none, counts the rows it wrote.
+     */
+    private long execute(Query statement, int repeated, Returning<?> returning) {
         withinBindLimit(rootEntity.getSimpleName(), statement.getParameters().size() + repeated, 0);
         queryTimeout.ifPresent(timeout -> vendor.profile().applyTimeout(statement, timeout));
         LOG.log(TRACE, () -> rootEntity.getSimpleName() + ": statement binds "
                 + (statement.getParameters().size() + repeated) + " of " + renderOptions.maxBindParameters());
         long start = System.nanoTime();
-        int written;
+        long written;
         try {
-            written = statement.executeUpdate();
+            written = returning == null ? statement.executeUpdate() : returning.run(statement);
         } catch (PersistenceException e) {
             throw timeoutCancellation(e);
         }

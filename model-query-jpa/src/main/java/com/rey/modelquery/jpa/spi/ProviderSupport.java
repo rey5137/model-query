@@ -14,12 +14,12 @@ import java.util.stream.Stream;
 /**
  * What a persistence provider can do better than portable JPA: detect the database without a connection, count
  * groups in the database, render null precedence natively, report a configured default null ordering, stream a
- * query's rows by cursor, name the tables an entity reads, write bulk inserts and change a managed entity. It varies
- * by provider, not by database, so it is not part of {@link VendorProfile} (D-34, D-108). Discovered with
- * {@code ServiceLoader}; the first that {@linkplain #supports supports} a factory serves it. Implementations are
- * stateless and thread-safe.
+ * query's rows by cursor, name the tables an entity reads, write bulk inserts, change a managed entity and return the
+ * rows a write changed. It varies by provider, not by database, so it is not part of {@link VendorProfile} (D-34,
+ * D-108). Discovered with {@code ServiceLoader}; the first that {@linkplain #supports supports} a factory serves it.
+ * Implementations are stateless and thread-safe.
  *
- * @implSpec R-VND-04, R-EXE-03, R-VND-12, R-VND-13, R-VND-14, R-VND-15, D-119, D-127
+ * @implSpec R-VND-04, R-EXE-03, R-VND-12, R-VND-13, R-VND-14, R-VND-15, R-VND-17, D-119, D-127
  */
 @Incubating
 public interface ProviderSupport {
@@ -107,6 +107,15 @@ public interface ProviderSupport {
      * (R-VND-16, R-COL-27).
      */
     default Optional<ConstantRenderer> constants(EntityManagerFactory emf) {
+        return Optional.empty();
+    }
+
+    /**
+     * The provider's support for reading the rows a write statement changed, or empty, the default, when it has none:
+     * a returning write then throws {@code MQ4011} at method entry, before any statement, the same fail-safe as
+     * {@link #locks()} (R-WRT-50, R-VND-17).
+     */
+    default Optional<ReturningSupport> returning() {
         return Optional.empty();
     }
 }

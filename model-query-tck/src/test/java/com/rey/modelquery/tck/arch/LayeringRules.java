@@ -231,6 +231,26 @@ final class LayeringRules {
     }
 
     /**
+     * Only {@code model-query-hibernate}'s two mutation adapters import an {@code org.hibernate..internal..} type, so
+     * a Hibernate internal that moved is contained to one class per line (api/14 R-WRT-50, vendor/40 R-VND-17, RFC
+     * 0010 §Compatibility).
+     */
+    ArchRule onlyMutationAdaptersImportHibernateInternals() {
+        return noClasses()
+                .that()
+                .resideInAPackage(root + "..")
+                .and()
+                .doNotHaveFullyQualifiedName(root + ".hibernate.Hibernate6Mutations")
+                .and()
+                .doNotHaveFullyQualifiedName(root + ".hibernate.Hibernate7Mutations")
+                .should()
+                .dependOnClassesThat()
+                .resideInAPackage("org.hibernate..internal..")
+                .as("only the Hibernate mutation adapters import org.hibernate internals")
+                .allowEmptyShould(allowEmptyShould);
+    }
+
+    /**
      * The one-way order {@code annotations <- core <- jpa <- (hibernate, spring)}, with {@code processor} depending
      * only on {@code annotations} and {@code test} (a leaf beside {@code jpa}) only on {@code core}. No module may
      * depend on a module that is later in the order or beside it.

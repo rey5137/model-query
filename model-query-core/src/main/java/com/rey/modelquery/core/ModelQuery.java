@@ -637,6 +637,18 @@ public final class ModelQuery<E, K, M> {
         return toModel(modelSelection.row(column -> attributeValues.apply(((ColumnField<?, ?, ?>) column).path())));
     }
 
+    /**
+     * The attribute paths this query's model rows hold, in order and each once, for a returning write: the executor
+     * asks the provider for these columns of the written table and maps each returned row back by path (R-WRT-50).
+     * Only after {@link #checkReturning} passed, so every selected column is a {@link ColumnField} (R-WRT-48).
+     */
+    @EngineFacing
+    public List<String> returningPaths() {
+        var paths = new LinkedHashSet<String>();
+        modelColumns.forEach(column -> paths.add(((ColumnField<?, ?, ?>) column).path()));
+        return List.copyOf(paths);
+    }
+
     /** The roots of {@code query} and every join below them that can remove rows, which is any but a LEFT join. */
     private static int narrowingJoins(CriteriaQuery<?> query) {
         int count = 0;

@@ -333,6 +333,7 @@ public interface ModelQueryExecutor<E> {
 | AC-WRT-39 | A write assignment is applied by each write in the R-WRT-49 table, skipped where the definition sets the attribute, called once per execution (again on resume), and overridden by an entity callback under `persist`; an empty update stays a no-op; an assignment on a superclass applies to a subclass root, and a `Timestamp` one is written by insert-select and `doUpdate`; `MQ1611` (including two overlapping kinds for one path, and an assignment on a strict subclass of the root), `MQ1612` (including a supplier returning `null`); `WriteAssignment.of` rejects a `null` argument, a primitive or array entity class and a blank or malformed path (R-WRT-49). |
 | AC-WRT-40 | On a `generateInserts` query model, `insert(rows).set(CREATED_AT, now)` on an `@ExcludeFromInserts` field writes the set value on every row (not `MQ1801`: an excluded field's constant is no model column), and an excluded `DEFAULT` column gets its database default through `insert` and the no-arg constructor's value through `persist` (R-PROC-27, D-125). |
 | AC-WRT-41 | `ModelUpdate.setExpression(COL, (path, cb) -> cb.sum(path, 1))` on an integer column adds one to exactly the filtered rows on every Tier-1 vendor, and no other row changes (R-WRT-13, R-WRT-14). |
+| AC-WRT-42 | `updateReturning` and `deleteReturning` return one model per changed row in the shapes of `vendor/41` §7 on every Tier-1 vendor (H2's `FINAL TABLE`/`OLD TABLE`, PostgreSQL's `RETURNING`), with a chunked write's chunks concatenated and no row twice; a selected column on a table other than the written one, `throughEntities()`, `commitEachChunk()` or a returning query clause R-WRT-48 refuses is `MQ1809`, and MySQL, an unrendered shape, a provider without `ReturningSupport` or a multi-table root is `MQ4011`, all before any statement; `expectVersion` with zero rows still throws `OptimisticLockException` (R-WRT-50, R-VND-17, D-129). |
 
 ## 10. Inserts
 
@@ -727,7 +728,9 @@ execution per factory, before any statement; there is no silent fallback to a se
 when it recorded a filter, so one whose filters were all skipped is accepted (D-118). The Javadoc says the model holds
 what JPA knows after the flush: a value the database fills (a column default, a trigger) is present only where the
 mapping has the provider read it back (`@Generated`). The overload is separate rather than a `returning(...)` stage,
-which would change the builder's key type `K` into `M`.
+which would change the builder's key type `K` into `M`. R-WRT-50's returning writes reuse this check and its clause
+list, and add one refusal of their own: a selected column on a table other than the written one, which the provider
+reports and the message names.
 
 ### 11.3 Write assignments
 
@@ -780,3 +783,43 @@ still set the column on purpose; keeping the column out of a change set bound fr
 callback that sets the same attribute runs after it and wins. In entity mode an `UPDATE` assignment dirties a matched
 row only where its value differs from the loaded one: the provider compares by value, so a row already holding the
 supplied value is not written and fires no update callback, and the count stays the distinct entities loaded.
+
+### 11.4 Returning the changed rows
+
+```java
+// ModelQueryExecutor<E>, ModelQueryRepository<E>; @Incubating
+<R> List<R> updateReturning(ModelUpdate<E, ?> update, ModelQuery<E, ?, R> returning);
+<R> List<R> deleteReturning(ModelDelete<E, ?> delete, ModelQuery<E, ?, R> returning);
+
+// The rows a write changed, in the order the database returned them (unspecified).
+List<ExportJob> done = repository.updateReturning(
+        QExportJob.update().set(QExportJob.STATUS, Status.DONE).where(QExportJob.STATUS.eq(Status.QUEUED)),
+        QExportJob.query().select(QExportJob.ALL).build());
+```
+
+**R-WRT-50** `@Incubating <R> List<R> updateReturning(ModelUpdate<E, ?> update, ModelQuery<E, ?, R> returning)` and
+`deleteReturning(ModelDelete<E, ?> delete, ModelQuery<E, ?, R> returning)` on `ModelQueryExecutor<E>` and
+`ModelQueryRepository<E>` run the write as R-WRT-06 does and return the rows it changed, one `R` per row, in an
+unspecified order, held in memory. The write and its options are the ones the update or delete already carries, so
+assignments (R-WRT-49), version handling (R-WRT-16), `setExpression`, filters and the timeout of R-EXE-11 all apply
+unchanged. The `returning` query supplies the root, the selection and the mapper as R-WRT-48's does, and `E` fixes it;
+its clauses are checked by the same `MQ1809` rule, on the first execution per factory and before any statement, with
+`Row` covering the untyped case. A to-one's id, which R-WRT-48 allows, is read from the written row's foreign key. A
+selected column whose table is not the written one — a secondary table's, a joined supertable's, or the id of a to-one
+whose key is on its target's table, which the provider reports — is also `MQ1809`, and the message names that table.
+
+Plain chunking is allowed: R-WRT-17 never writes a row twice, so the chunks' rows are concatenated and every changed
+row is returned exactly once. An entity-mode write (`throughEntities()`) and `commitEachChunk()` are `MQ1809`: an entity
+callback's own writes are not this statement's rows, and a committed chunk's rows are out of reach. The rows come from
+the write statement itself, never from a select after it, and a returning write adds no lock of its own and no paging
+rule: the result is a `List`, not an export (INV-4 does not apply). `expectVersion(v)` with zero changed rows still
+throws `OptimisticLockException` (R-WRT-16).
+
+The provider renders and runs the statement (R-VND-17): `ReturningSupport#rows` translates what the executor built, with
+its parameters already bound, binds the statement with the provider's own binders, and reads each column through its
+attribute's mapping, before that column's converter, as a tuple of a read query holds it. Where the vendor has no shape
+for the statement kind (`VendorProfile#returning(WriteStatement)` empty), the provider has no `ReturningSupport`, the
+provider cannot render the shape, or the root entity is mapped to more than one table, the call is `MQ4011` at method
+entry, before any statement, naming the provider, the vendor and the statement kind. That refusal is a fail-safe, as
+R-VND-15's is: every other write, insert and upsert is unaffected. The Javadoc says the rows hold what the database
+returned, so a column the database fills in a trigger is present only where that vendor returns it.

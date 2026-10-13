@@ -6,7 +6,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.jpa.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.jpa.spi.ReturningShape;
 import com.rey.modelquery.jpa.spi.VendorProfile;
+import com.rey.modelquery.jpa.spi.WriteStatement;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.NullableSortEntity;
@@ -137,6 +139,28 @@ class ProfileValuesTest {
                 .as("UPDATE reading its own table").isEqualTo(expected);
         assertThat(acceptsOwnTable(db, "delete from nullable_sort_rows" + exists))
                 .as("DELETE reading its own table").isEqualTo(expected);
+    }
+
+    /**
+     * The returning shape each Tier-1 profile declares for an update and for a delete, which vendor/41 §7 renders
+     * (AC-VND-14, R-VND-17): H2 writes the delta table, PostgreSQL a suffix, and MySQL declares none, so a returning
+     * write there is {@code MQ4011}.
+     */
+    @TckTest
+    void ac_vnd_14_returning_shape_is_the_one_the_vendor_writes_by(TckDatabase db) {
+        Optional<ReturningShape> update;
+        Optional<ReturningShape> delete;
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
+            update = profile(sf).returning(WriteStatement.UPDATE);
+            delete = profile(sf).returning(WriteStatement.DELETE);
+        }
+        Optional<ReturningShape> expected = switch (db.vendor()) {
+            case H2 -> Optional.of(ReturningShape.DELTA_TABLE);
+            case POSTGRESQL -> Optional.of(ReturningShape.SUFFIX);
+            case MYSQL -> Optional.empty();
+        };
+        assertThat(update).as("the shape UPDATE writes by").isEqualTo(expected);
+        assertThat(delete).as("the shape DELETE writes by").isEqualTo(expected);
     }
 
     private static List<Integer> ordered(SessionFactory sf, String order) {
