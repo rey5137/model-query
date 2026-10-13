@@ -48,27 +48,13 @@ no `TypedQueryCustomizer` hook. The notes below are the original sketch.
 - TCK: two-connection tests on PG/MySQL/MariaDB (blocked, skipped, nowait error); SQL snapshots.
 - Risk: Hibernate applies `FOR UPDATE` to joined tables (`OF` clause) — needs a `lock scope` decision.
 
-### M20 — `RETURNING` on update / delete / insert-values → 0.9.0 (row 3, part of 4; 13 call sites)
+### M20 — `RETURNING` and conflict extensions → 0.9.0 (rows 3, 4, 5, 8; 13 call sites)
 
-- `executor.updateReturning(update, SelectSet)` / `deleteReturning` / `insertReturning(valuesInsert, SelectSet)`
-  → `List<Row>` or a model list. Reuses `ReturningColumns` (`persist(..., returning)`) mapping.
-- Criteria cannot render it: native-render the statement from the already-built `ModelUpdate` through a new
-  `VendorProfile.returning()` capability (PG all three; MariaDB delete/insert; others `MQ` refusal).
-- Biggest design risk: native rendering means re-implementing the Criteria→SQL path for writes (converters, version
-  increment, filters). Alternative to evaluate in the RFC: Hibernate 6.x/7 `MutationQuery` + PG `returning` via
-  `SqmInsert`/HQL extension, or `UPDATE … WHERE id IN (SELECT … FOR UPDATE SKIP LOCKED)` + re-read by id in one
-  transaction as the portable fallback.
-- With M18 this covers the claim-a-job pattern; add it as a docs recipe with a TCK case.
-
-### M20 (cont.) — Conflict clause extensions, same RFC and release (rows 4, 5, 8)
-
-- `ConflictUpdate.setExpression(COL, (target, excluded, cb) -> ...)` so `next_value = next_value + 1` works
-  (today only `set`, `setNull`, `setFromRow`, `ConflictUpdate.java:33-47`).
-- `onConflict(cols).where(f -> f.ne(STATUS, CLOSED))` → PG `ON CONFLICT (cols) WHERE pred` (partial unique index).
-  Arbiter predicate must render literals (planner matches the index predicate) — depends on M19's literal filters.
-- `onConstraint("uq_name")` for PG; refused elsewhere.
-- `Expr.nextval("seq")` via `VendorProfile.sequenceNextValue(...)` (PG/H2/MariaDB `nextval`, refused on MySQL).
-- Counter upsert `… RETURNING next_value` = `RETURNING` + this.
+Superseded by RFC 0010 (D-129, planned in `mvp-plan.md` §21): the returning writes take a `ModelQuery`, not a
+`SelectSet` (R-WRT-48); no native renderer, the Hibernate module adds `RETURNING` (PostgreSQL, MariaDB delete/insert)
+or an H2 delta table to Hibernate's own translation, behind probed per-line adapters; MySQL is refused (`MQ4011`) and
+the key-first fallback is a recipe, not emulation; `onConstraint` and the arbiter `where` are PostgreSQL only;
+`Expr.nextval` is a profile fact plus a provider renderer, not a `VendorProfile.sequenceNextValue` SQL hook.
 
 ### M19 — Literal filters and bound function arguments → 0.9.0 (rows 6, 9 rest, 11 rest)
 
@@ -120,7 +106,7 @@ M16 (freeze) keeps its number and stays last; the new milestones are numbered in
 1. M17 docs + TCK (now; also unblocks LitePOS migration of views and grouped reports). Planned in `mvp-plan.md` §18.
 2. M18 row locks → 0.9.0 (highest unlock, contained to the read path).
 3. M19 literal filters + bound args → 0.9.0 (small; prerequisite for M20's arbiter predicate).
-4. M20 `RETURNING` and conflict extensions → 0.9.0 (one RFC, biggest design risk: native rendering).
+4. M20 `RETURNING` and conflict extensions → 0.9.0 (RFC 0010, D-129).
 5. M21 JSpecify, M22 Q-14, all in 0.9.0 (released once M17–M22 are done).
 6. M16 freeze → 1.0.0, with LitePOS as the adopter feedback.
 

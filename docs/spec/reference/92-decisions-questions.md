@@ -1764,6 +1764,22 @@ method, D-87), a `List` form (a raw `List` binds to `in(col, Collection)`), a pu
 AC-FLT-12..24, MQ1303–MQ1306, D-19 as drafted) were never assigned. → `rfc/0002`, `api/10` R-COL-26, R-COL-27,
 `api/12` R-FLT-19, `vendor/40`, `reference/90` (`MQ1502`, `MQ1508`), AC-COL-31, AC-COL-32, AC-FLT-20.
 
+**D-129 — Returning writes and conflict extensions (RFC 0010).** `updateReturning`, `deleteReturning` and
+`insertReturning` return the written rows through a `ModelQuery` (not a `SelectSet`, R-WRT-48), mapped by
+`ReturningColumns`. The statement stays the engine's own mutation; the provider translates it and adds the vendor's
+returning form, a `VendorProfile` fact (`SUFFIX` on PostgreSQL and MariaDB delete/insert, `DELTA_TABLE` on H2), through
+`ProviderSupport#returning()`. A vendor or provider without it is `MQ4011` before any statement; nothing is emulated
+(R-VND-10). The Hibernate translation uses internal types behind one probed adapter per Hibernate line, with a
+declared tested range, a first-use check of the translated SQL (`MQ4011` on mismatch) and a nightly canary build.
+`ConflictUpdate.setExpression` sees the stored and incoming rows. R-WRT-34 is amended: `onConstraint(name)` and an
+arbiter predicate `onConflict(cols).where(…)` (literals through D-128's `ConstantRenderer`, root columns and plain
+comparisons only) are offered on PostgreSQL and refused elsewhere (`MQ1804`). `Expr.nextval(seq)` is a profile fact
+`sequences()` plus a provider renderer reached by a `JoinContext` hook, refused on MySQL and outside select, assignment
+and insert-value positions (`MQ1509`). Rejected: a library SQL renderer for writes (P-5), key-first emulation
+(R-VND-10), a `SelectSet` parameter (R-WRT-48), a `VendorProfile` SQL hook for sequences (R-VND-11). → `rfc/0010`,
+`api/14` R-WRT-34, R-WRT-48, R-WRT-50..52, `api/10` R-COL-28, `engine/20`, `vendor/40` R-VND-17, `vendor/41`,
+`reference/90` (`MQ4011`, `MQ1509`, `MQ1804`, `MQ1809`), AC-WRT-42..45, AC-COL-33, AC-VND-14, Q-15.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -1826,6 +1842,11 @@ customerId` read the id on a query model, as an update model writes it? Open: wh
 foreign-key column, and a TCK case with a `NULL` foreign key on every vendor. Related: a `@GroupBy` on a whole-entity
 to-one column fails on PostgreSQL, since Hibernate groups by the foreign key but selects every entity column;
 whether that is a diagnostic or a group by the id is open. → D-44, D-124.
+
+**Q-15 — An opt-in returning emulation on MySQL.** MySQL has no `RETURNING`, so D-129 refuses returning writes there
+(`MQ4011`). A locked key read, a `whereKeys` write and a `byKeys` re-read give the same rows for an update and are
+documented as a recipe; whether an explicit opt-in that does this inside the library is ever wanted is left open until
+an adopter asks. → `rfc/0010`, D-129.
 
 ## 3. Risks
 
