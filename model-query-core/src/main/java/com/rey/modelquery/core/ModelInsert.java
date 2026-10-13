@@ -324,6 +324,32 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         return conflictKeys;
     }
 
+    /** Whether the definition has a conflict clause at all: {@code onConflict(...)} or {@code onConstraint(...)}. */
+    @EngineFacing
+    public boolean hasConflict() {
+        return definition.conflict() != null;
+    }
+
+    /**
+     * The unique constraint or index {@code onConstraint(name)} names, or empty without it (R-WRT-52). Its key columns
+     * are unknown to the engine, so only the provider checks them.
+     */
+    @EngineFacing
+    public Optional<String> conflictConstraint() {
+        InsertDraft.Conflict<E, M> conflict = definition.conflict();
+        return conflict == null ? Optional.empty() : Optional.ofNullable(conflict.constraint());
+    }
+
+    /**
+     * The arbiter predicate of the conflict target, in order, or empty without one (R-WRT-52). A partial unique
+     * index's predicate: the conflict is detected only on the rows it holds, so PostgreSQL gets it as literals.
+     */
+    @EngineFacing
+    public List<Condition> conflictArbiter() {
+        InsertDraft.Conflict<E, M> conflict = definition.conflict();
+        return conflict == null ? List.of() : conflict.arbiter();
+    }
+
     /** Whether the conflict clause skips a conflicting row, {@code doNothing()}; false without a clause. */
     @EngineFacing
     public boolean conflictSkips() {
@@ -793,14 +819,28 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
      * @param <M> the insert model
      */
     @Incubating
-    public static final class Conflict<E, M> {
+    public static sealed class Conflict<E, M> permits KeyedConflict {
 
-        private final InsertDraft<E, M> draft;
-        private final List<ColumnField<M, E, ?>> keys;
+        final InsertDraft<E, M> draft;
+        final List<ColumnField<M, E, ?>> keys;
+        final String constraint;
+        final List<Filter> arbiter;
+        /** Whether {@code where(...)} was called on the conflict target, even if every filter was skipped. */
+        final boolean arbiterCalled;
 
-        Conflict(InsertDraft<E, M> draft, List<ColumnField<M, E, ?>> keys) {
+        Conflict(InsertDraft<E, M> draft, List<ColumnField<M, E, ?>> keys, String constraint, List<Filter> arbiter,
+                boolean arbiterCalled) {
             this.draft = draft;
             this.keys = keys;
+            this.constraint = constraint;
+            this.arbiter = arbiter;
+            this.arbiterCalled = arbiterCalled;
+        }
+
+        /** The conflict clause this stage describes, with {@code update} as its action or {@code null} to skip. */
+        final InsertDraft.Conflict<E, M> clause(ConflictUpdate.Action<E, M> update) {
+            return new InsertDraft.Conflict<>(keys, update, false, false, constraint,
+                    ConditionGroup.conditions(arbiter), arbiterCalled);
         }
 
         /**
@@ -808,7 +848,7 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
          * on a {@code MERGE} vendor), the insert throws {@code MQ1804} on first execution (D-116).
          */
         public ConflictOptions<E, M> doNothing() {
-            return new ConflictOptions<>(draft.conflict(new InsertDraft.Conflict<>(keys, null, false, false)));
+            return new ConflictOptions<>(draft.conflict(clause(null)));
         }
 
         /**
@@ -818,7 +858,37 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         public Upserting<E, M> doUpdate(Function<ConflictUpdate<E, M>, ConflictUpdate.Action<E, M>> update) {
             ConflictUpdate.Action<E, M> action = Objects.requireNonNull(
                     Objects.requireNonNull(update, "update").apply(new ConflictUpdate<>()), "update's action");
-            return new Upserting<>(draft.conflict(new InsertDraft.Conflict<>(keys, action, false, false)));
+            return new Upserting<>(draft.conflict(clause(action)));
+        }
+    }
+
+    /**
+     * A conflict clause on named columns, whose conflict target may carry an arbiter predicate naming the rows a
+     * partial unique index holds (R-WRT-52). The {@code where} is offered once: a second call does not compile.
+     *
+     * @param <E> the root entity
+     * @param <M> the insert model
+     */
+    @Incubating
+    public static final class KeyedConflict<E, M> extends Conflict<E, M> {
+
+        KeyedConflict(InsertDraft<E, M> draft, List<ColumnField<M, E, ?>> keys) {
+            super(draft, keys, null, List.of(), false);
+        }
+
+        /**
+         * Narrows the conflict to the rows {@code arbiter}'s predicate holds, as a partial unique index declares
+         * them: PostgreSQL renders it after the conflict target, with its values as literals, since a bind parameter
+         * keeps the planner from matching the index. Root columns and plain comparisons only; an {@code Expr.value},
+         * {@code exists}, sub-select or other operator throws {@code MQ1804} at {@code build()}, and a predicate whose
+         * every filter was skipped throws {@code MQ1601} there rather than becoming a plain conflict target
+         * (R-WRT-52). Refused on every vendor but PostgreSQL, with {@code MQ1804} on first execution.
+         *
+         * <p>The returned {@code Conflict} stage has no second {@code where}, so a predicate is offered once.
+         */
+        public Conflict<E, M> where(UnaryOperator<Filters<M>> arbiter) {
+            return new Conflict<>(draft, keys, null,
+                    FilterGroup.collect(Objects.requireNonNull(arbiter, "arbiter")), true);
         }
     }
 

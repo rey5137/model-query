@@ -9,6 +9,7 @@ import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.jpa.spi.WriteStatement;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import java.util.List;
 import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
 import org.hibernate.cfg.AvailableSettings;
 import org.hibernate.cfg.Configuration;
@@ -142,6 +143,47 @@ class ReturningSafeguardsTest {
                     .doesNotThrowAnyException();
             assertThatCode(() -> HibernateMutations.check(sf, WriteStatement.DELETE, rendered, anchored, 2))
                     .as("a passed statement is not checked again").doesNotThrowAnyException();
+        }
+    }
+
+    @Test
+    void ac_wrt_45_the_arbiter_check_refuses_a_conflict_target_that_is_missing_or_occurs_twice() {
+        String once = "insert into Item(id,qty) values (?,?) on conflict(id)";
+        assertThatCode(() -> HibernateMutations.checkArbiterSql(once, once + " where qty > 0", 2,
+                WriteStatement.INSERT, false)).doesNotThrowAnyException();
+
+        String missing = "insert into Item(id,qty) values (?,?)";
+        assertThatThrownBy(() -> HibernateMutations.checkArbiterSql(missing, missing + " where qty > 0", 2,
+                WriteStatement.INSERT, false))
+                .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ4011))
+                .hasMessageContaining("not there exactly once");
+
+        String twice = "insert into Item(id,qty) values (?,?) on conflict(id) on conflict(id)";
+        assertThatThrownBy(() -> HibernateMutations.checkArbiterSql(twice, twice + " where qty > 0", 2,
+                WriteStatement.INSERT, false))
+                .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ4011))
+                .hasMessageContaining("not there exactly once");
+    }
+
+    @Test
+    void ac_wrt_45_the_arbiter_is_spliced_after_the_one_conflict_target_outside_a_string_literal() {
+        assertThat(HibernateMutations.splice("insert into T(a,b) values ('on conflict (x)',?) on conflict (b) do "
+                + "nothing", "a = 'it''s'")).isEqualTo("insert into T(a,b) values ('on conflict (x)',?) on conflict "
+                + "(b) where a = 'it''s' do nothing");
+        assertThat(HibernateMutations.splice("insert into T(a,b) values (?,?) ON CONFLICT(a,b) do update set "
+                + "a=(excluded.a)", "b > 0")).isEqualTo("insert into T(a,b) values (?,?) ON CONFLICT(a,b) where b > 0 "
+                + "do update set a=(excluded.a)");
+
+        for (String unanchored : List.of("insert into T(a) values (?)",
+                "insert into T(a) values (?) on conflict on constraint uq_t do update set a=(excluded.a)",
+                "insert into T(a) values (?) on conflict(a) do nothing on conflict(a)")) {
+            assertThatThrownBy(() -> HibernateMutations.splice(unanchored, "a > 0"))
+                    .as(unanchored)
+                    .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ4011))
+                    .hasMessageContaining("not there exactly once");
         }
     }
 

@@ -92,6 +92,17 @@ class InsertStagesCompileTest {
     }
 
     @Test
+    void ac_wrt_33_a_second_where_or_one_after_on_constraint_does_not_compile(@TempDir Path out) throws IOException {
+        assertThat(compile(out, "VALUES.onConflict(STATUS).where(f -> f.eq(STATUS, \"NEW\"))"
+                + ".where(f -> f.eq(STATUS, \"x\")).doNothing().build()")).isNotEmpty();
+        assertThat(compile(out, "VALUES.onConstraint(\"uq_item_status\").where(f -> f.eq(STATUS, \"NEW\"))"
+                + ".doNothing().build()")).isNotEmpty();
+        assertThat(compile(out, "VALUES.onConstraint(\"uq_item_status\").doNothing().build()")).isEmpty();
+        assertThat(compile(out, "VALUES.onConflict(STATUS).where(f -> f.eq(STATUS, \"NEW\"))"
+                + ".doNothing().build()")).isEmpty();
+    }
+
+    @Test
     void ac_wrt_33_a_conflict_insert_is_not_a_values_insert(@TempDir Path out) throws IOException {
         assertThat(compile(out, "(java.util.function.Supplier<ValuesInsert<Entity, Long, Row>>) () -> "
                 + "VALUES.onConflict(STATUS).doNothing().build()")).isNotEmpty();

@@ -1,6 +1,7 @@
 package com.rey.modelquery.jpa.spi;
 
 import com.rey.modelquery.annotations.Incubating;
+import com.rey.modelquery.core.Condition;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Path;
@@ -22,9 +23,28 @@ public interface ConflictClause<E> {
 
     /**
      * The root's attributes the conflict is detected on, in the order named: dotted through embeddables, a to-one by
-     * its own name.
+     * its own name. Empty when the conflict is detected on {@link #constraintName()} (R-WRT-52).
      */
     List<String> keyAttributes();
+
+    /**
+     * The unique constraint or index {@code onConstraint(name)} names, or empty when the conflict is detected on
+     * {@link #keyAttributes()} (api/14 R-WRT-52). Where the profile's {@code conflictOnConstraint()} is false the
+     * engine refuses the insert with {@code MQ1804} before the statement.
+     */
+    default Optional<String> constraintName() {
+        return Optional.empty();
+    }
+
+    /**
+     * The arbiter predicate of the conflict target, in order, or empty without one (api/14 R-WRT-52): the rows a
+     * partial unique index holds, which the provider renders into the statement as {@code column op literal}
+     * comparisons, never as bind parameters. Where the profile's {@code conflictArbiterPredicate()} is false the
+     * engine refuses the insert with {@code MQ1804} before the statement.
+     */
+    default List<Condition> arbiter() {
+        return List.of();
+    }
 
     /** Whether a conflicting row is skipped; otherwise {@link #update} renders the update. */
     boolean doNothing();

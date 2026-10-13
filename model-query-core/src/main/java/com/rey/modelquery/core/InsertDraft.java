@@ -168,33 +168,51 @@ record InsertDraft<E, M>(
     record Mapped(ColumnField<?, ?, ?> target, ColumnField<?, ?, ?> source) {}
 
     /**
-     * A conflict clause: the key columns, and the update, or {@code null} for {@code doNothing()}.
+     * A conflict clause: the key columns or the constraint name it detects a conflict on, the arbiter predicate of a
+     * partial unique index, and the update, or {@code null} for {@code doNothing()}.
      *
-     * @param keys the conflict columns, in the order named
+     * @param keys the conflict columns, in the order named; empty for {@code onConstraint(...)}
      * @param update the {@code doUpdate} action, or {@code null} for {@code doNothing()}
      * @param anyUniqueKey whether {@code anyUniqueKey()} accepts the vendor's any-key detection (R-WRT-36)
      * @param keepVersion whether {@code keepVersion()} leaves the stored row's {@code @Version} as it is
+     * @param constraint the unique constraint or index {@code onConstraint(name)} named, or {@code null}
+     * @param arbiter the arbiter predicate of the conflict target, in order; empty without one (R-WRT-52)
+     * @param arbiterCalled whether {@code where(...)} was called on the conflict target, even if every filter was
+     *     skipped (R-WRT-52)
      */
     record Conflict<E, M>(List<ColumnField<M, E, ?>> keys, ConflictUpdate.Action<E, M> update, boolean anyUniqueKey,
-            boolean keepVersion) {
+            boolean keepVersion, String constraint, List<Condition> arbiter, boolean arbiterCalled) {
 
         Conflict<E, M> anyKey() {
-            return new Conflict<>(keys, update, true, keepVersion);
+            return new Conflict<>(keys, update, true, keepVersion, constraint, arbiter, arbiterCalled);
         }
 
         Conflict<E, M> keep() {
-            return new Conflict<>(keys, update, anyUniqueKey, true);
+            return new Conflict<>(keys, update, anyUniqueKey, true, constraint, arbiter, arbiterCalled);
         }
 
         /**
-         * Checks the key columns and the update's assignments and {@code where} (R-WRT-34).
+         * Checks the constraint name, the key columns, the arbiter predicate and the update's assignments and
+         * {@code where} (R-WRT-34, R-WRT-52).
          *
-         * @throws ModelQueryDefinitionException {@code MQ1804} for a key column named twice or not in
+         * @throws ModelQueryDefinitionException {@code MQ1601} when the arbiter {@code where} left no predicate, since
+         *     every filter was skipped; {@code MQ1804} for a blank constraint name, a key column named twice or not in
          *     {@code columns}, an update assigning a key column, a column twice or a column not on the root, a
-         *     {@code setFromRow} column not in {@code columns}, or a {@code where} reading a joined column or holding
-         *     {@code exists} or a sub-select
+         *     {@code setFromRow} column not in {@code columns}, a {@code where} reading a joined column or holding
+         *     {@code exists} or a sub-select, or an arbiter predicate holding anything but a plain comparison of root
+         *     columns
          */
         void check(InsertColumns<M, E> columns) {
+            if (arbiterCalled && arbiter.isEmpty()) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1601, "onConflict(...).where(...) left no predicate, "
+                        + "since every filter was skipped; omit where(...) for the plain conflict target, which every "
+                        + "row matching the key conflicts on");
+            }
+            if (constraint != null && constraint.isBlank()) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1804, "onConstraint(\"" + constraint + "\"): the "
+                        + "constraint name is blank; name the unique constraint or index the conflict is detected on");
+            }
+            InsertRules.checkConflictArbiter(columns.root(), arbiter);
             Set<String> keyNames = new HashSet<>();
             for (ColumnField<M, E, ?> key : keys) {
                 if (columns.indexOf(key) < 0) {
@@ -251,6 +269,9 @@ record InsertDraft<E, M>(
          * @throws ModelQueryDefinitionException {@code MQ1808} naming the two rows' positions, never their values
          */
         void checkDistinct(InsertColumns<M, E> columns, List<List<Object>> rows) {
+            if (keys.isEmpty()) {
+                return; // onConstraint(...) names no column, so the database's own index decides the conflicts
+            }
             int[] at = keys.stream().mapToInt(columns::indexOf).toArray();
             Map<List<Object>, Integer> seen = new HashMap<>();
             for (int i = 0; i < rows.size(); i++) {

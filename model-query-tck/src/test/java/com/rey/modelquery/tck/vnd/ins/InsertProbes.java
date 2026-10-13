@@ -91,6 +91,11 @@ public final class InsertProbes implements AutoCloseable {
         return open(db, null, List.of(InsStampedEntity.class));
     }
 
+    /** As {@link #open(TckDatabase)}, also mapping the root a conflict arbiter probes (R-WRT-52). */
+    public static InsertProbes withArbiterRoot(TckDatabase db) {
+        return open(db, null, List.of(InsArbiterEntity.class));
+    }
+
     private static InsertProbes open(TckDatabase db, EnhancingClassLoader loader, List<Class<?>> extra) {
         List<String> recorded = Collections.synchronizedList(new ArrayList<>());
         DataSource dataSource = ProxyDataSourceBuilder.create(JoinTestSupport.dataSource(db))

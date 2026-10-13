@@ -126,14 +126,17 @@ against Hibernate 6.6 and run on 7.x by the TCK: it reads the generator from the
 generator class that moved between the two by name, and reports `doNothingRendered` true on 7 and on 6.x only for the
 PostgreSQL and MySQL dialect hierarchies (D-116).
 
-`VendorProfile` gains three database facts (INV-6): `default int maxValuesRows()`, the most rows one multi-row
+`VendorProfile` gains five database facts (INV-6): `default int maxValuesRows()`, the most rows one multi-row
 `VALUES` insert may hold besides the bind limit, `1_000` by default (a lower limit is only slower); `default boolean
 conflictTargetHonoured()`, whether a conflict clause detects a conflict only on the key it names, `false` by default so
-a third-party profile fails safe (`api/14` R-WRT-36); and `default boolean conflictWhereSeesEarlierAssignments()`,
+a third-party profile fails safe (`api/14` R-WRT-36); `default boolean conflictWhereSeesEarlierAssignments()`,
 whether a conflict update's `where` reads the values the update's earlier assignments wrote rather than the stored row,
 as MySQL's `CASE` per assignment does, `true` by default so a third-party profile fails safe: where it is true, a
-`where` reading two or more assigned columns is refused even when the executor allows it (`api/14` R-WRT-34). Tier-1
-values are in `vendor/41` §2.
+`where` reading two or more assigned columns is refused even when the executor allows it (`api/14` R-WRT-34); and two
+`false`-by-default facts for R-WRT-52's conflict targets, `default boolean conflictOnConstraint()`, whether the clause
+can name a constraint (`ON CONFLICT ON CONSTRAINT`), and `default boolean conflictArbiterPredicate()`, whether the
+conflict target takes a `WHERE` naming a partial unique index; both refuse with `MQ1804` on first execution where they
+are false (`api/14` R-WRT-52). Tier-1 values are in `vendor/41` §2.
 
 Entity-mode updates split the same way (D-119). `ProviderSupport#entityWrites()` returns an
 `Optional<EntityWriteSupport>`, empty by default; `EntityWriteSupport` lives in `jpa.spi` and uses `jakarta.persistence`

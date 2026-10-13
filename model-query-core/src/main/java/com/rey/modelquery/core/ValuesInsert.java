@@ -117,13 +117,28 @@ public final class ValuesInsert<E, K, M> extends ModelInsert<E, M> {
          * or insert duplicates.
          */
         @SafeVarargs
-        public final ModelInsert.Conflict<E, M> onConflict(ColumnField<M, E, ?> first, ColumnField<M, E, ?>... rest) {
+        public final ModelInsert.KeyedConflict<E, M> onConflict(ColumnField<M, E, ?> first,
+                ColumnField<M, E, ?>... rest) {
             var keys = new ArrayList<ColumnField<M, E, ?>>();
             keys.add(Objects.requireNonNull(first, "first"));
             for (ColumnField<M, E, ?> column : Objects.requireNonNull(rest, "rest")) {
                 keys.add(Objects.requireNonNull(column, "rest element"));
             }
-            return new ModelInsert.Conflict<>(draft, List.copyOf(keys));
+            return new ModelInsert.KeyedConflict<>(draft, List.copyOf(keys));
+        }
+
+        /**
+         * Names the unique constraint or index a conflict is detected on: PostgreSQL's
+         * {@code ON CONFLICT ON CONSTRAINT}, so a partial or expression index no set of columns names can be targeted.
+         * The constraint's columns are unknown to the engine, so only the provider checks them, and the returned stage
+         * has no {@code where(...)}: PostgreSQL forbids an arbiter predicate on a named constraint. A blank name throws
+         * {@code MQ1804} at {@code build()}; the profile fact {@code conflictOnConstraint()} refuses it on every vendor
+         * but PostgreSQL, with {@code MQ1804} on first execution (R-WRT-52, R-WRT-34).
+         */
+        @Incubating
+        public ModelInsert.Conflict<E, M> onConstraint(String name) {
+            return new ModelInsert.Conflict<>(draft, List.of(), Objects.requireNonNull(name, "name"), List.of(),
+                    false);
         }
 
         /**

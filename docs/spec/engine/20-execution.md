@@ -210,6 +210,13 @@ provider, the vendor and the statement kind, as `MQ4010` refuses a lock (`R-EXE-
 `commitEachChunk()` are `MQ1809` (`api/14` R-WRT-50); an insert has no entity-mode form, so only `commitEachChunk()`
 arises there.
 
+An arbiter predicate or an `onConstraint(name)` (`api/14` R-WRT-52) reaches the provider through the same seam. At
+method entry, before any statement, the executor checks the profile fact the clause stands on —
+`conflictArbiterPredicate()` or `conflictOnConstraint()` (`vendor/40` R-VND-14) — and refuses with `MQ1804` where it is
+false. The provider then splices the rendered predicate after the translated upsert's conflict target, refusing with
+`MQ4011` before execution unless it finds that anchor exactly once (INV-5); the two rewrites, the arbiter and a
+returning clause, compose into one statement.
+
 ## 10. Acceptance criteria
 
 | ID | Criterion |
