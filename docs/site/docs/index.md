@@ -30,6 +30,7 @@ selects exactly those columns, applies your filters, and maps rows straight into
 | `model-query-spring-data` | `ModelQueryRepository` and the Spring Data `Pageable`/`Sort` adapters |
 | `model-query-spring-boot-starter` | Spring Boot auto-configuration and the `modelquery.*` properties |
 | `model-query-test` | AssertJ assertions over recorded queries, for unit tests without a database |
+| `model-query-portability` | The portability check: a dry run of your calls on every target vendor, in a unit test (incubating) |
 
 See [Architecture](architecture.md) for how the modules depend on each other and how a query runs.
 

@@ -17,6 +17,7 @@ flowchart BT
     starter[model-query-spring-boot-starter]
     processor[model-query-processor]
     test[model-query-test]
+    portability[model-query-portability]
 
     core --> annotations
     jpa --> core
@@ -26,6 +27,7 @@ flowchart BT
     starter --> springdata
     processor --> annotations
     test --> core
+    portability --> jpa
 ```
 
 | Layer | Modules | Role |
@@ -34,7 +36,7 @@ flowchart BT
 | Definition | `core` | Immutable definitions: queries (columns, joins, filters, select sets, fetch plans, enrichers) and writes (`ModelUpdate`, `ModelDelete`, `ModelInsert`, `ModelPersist`) |
 | Execution | `jpa`, `hibernate` | The executor turns a definition into JPA criteria, pages, streams, exports, bulk writes and inserts; `hibernate` adds the insert support |
 | Integration | `spring-data`, `spring-boot-starter` | `ModelQueryRepository` and auto-configuration; no behaviour of their own |
-| Testing | `test` | Assertions over a recorded `ModelQuery`, without a database |
+| Testing | `test`, `portability` | Assertions over a recorded `ModelQuery`, without a database; a dry run of your calls on every target vendor ([Portability](portability.md)) |
 
 ## From a model to a result
 

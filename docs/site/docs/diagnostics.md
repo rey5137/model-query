@@ -54,9 +54,10 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1202` | `build()` without `select(...)` or `fetch(...)`. |
 | `MQ1203` | Builder given a join instead of a root TableField. |
 | `MQ1204` | `PrimaryKeyFirst.whenOffsetAbove` with a negative offset. |
-| `MQ1205` | QueryCustomizer changed the `ORDER BY` or `GROUP BY` of a phase. |
+| `MQ1205` | QueryCustomizer changed the `ORDER BY` or `GROUP BY` of a phase, or added `distinct` or `having` to a locked query. |
 | `MQ1206` | A primary-key column of array type. |
 | `MQ1207` | `keyset()` with a Float or Double order or primary-key column. |
+| `MQ1209` | A lock on a grouped query, which has no row to lock. |
 | `MQ1301` | A value-form filter received `null`. |
 | `MQ1302` | A column or nested `exists(...)` path inside `exists(...)` is not on or below the given path. |
 | `MQ1303` | A Filters or Having used after its operator returned, or while a nested operator runs. |
@@ -75,12 +76,15 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1408` | Grouped query: aggregate function over a column with a ColumnConverter (`sum`, `sumAsLong` and `avg`; `min`, `max` and `countDistinct` take an `OrderedColumnField` and do not compile over any other converted column). |
 | `MQ1409` | Grouped query: column selected under a `presentBy` join whose key columns are not all group keys. |
 | `MQ1410` | Runtime `groupBy` or group key over a column that selects a whole to-one entity. Group by the id form instead. |
+| `MQ1502` | An expression is given a null value, or a value of a type it cannot bind (`Optional`, an array, a `Collection`, a `Map`, a `Date`, a `Calendar`, an enum, an entity). |
+| `MQ1508` | An `Expr.constant` cannot be rendered as a literal: its value is not a `String`, `Number` or `Boolean` after the column's converter, the column is not a basic attribute of a root table, the provider has no constant renderer, or it is used other than as a comparison or `in` operand. The message names the cause. |
+| `MQ1509` | `Expr.nextval` misused: a name that is not a plain, optionally schema-qualified identifier, use in a filter, `having`, order or group key, or a vendor with no sequences (MySQL). |
 | `MQ1701` | A fetch plan's join plan whose join has no column of the query's selection at or below it. |
 | `MQ1702` | A column a fetch plan needs (a child's key, an enricher's column) is read through a to-many join; checked on first execution, and `count` logs a warning instead. |
 | `MQ1703` | A fetch plan names the same child or join twice. |
 | `MQ1704` | A fetch plan with a child, at any join depth, on a grouped query. |
 | `MQ1705` | A join plan selects an aggregate, which cannot be re-rooted under the join. |
-| `MQ1601` | Bulk write: no predicate left after skipping rows. |
+| `MQ1601` | Bulk write: no predicate left after skipping rows, or a conflict arbiter's `where(...)` whose filters were all skipped. |
 | `MQ1602` | Bulk write: column is assigned twice. |
 | `MQ1603` | Bulk write: `set(column, null)` called; NULL must be written with `setNull`. |
 | `MQ1604` | Bulk write: assigned column is not on the root (self-referencing join). |
@@ -92,15 +96,16 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1610` | Bulk write: an update `throughEntities()` combined with `keepVersion()`, `expectVersion(v)` or `setExpression`, whatever the call order. |
 | `MQ1611` | Write assignment: an unknown path, an id, a `@Version`, a collection, a to-one or a whole embeddable, overlapping kinds for one path, or an entity class that is a subclass of the write's root. |
 | `MQ1612` | Write assignment: a type the attribute cannot take, or a supplier returning `null` or the wrong type. |
+| `MQ1613` | Write assignment: a `setExpression(column, ExpressionField)` whose expression reads a column or binds a parameter, or an insert-values with one on a provider that cannot render it. |
 | `MQ1801` | Insert: a column is not mapped, is mapped or set twice, is not on the written root, or is not in the model's `InsertColumns`; a `map` between columns with different converters or types; `lockKeys()` on insert-values; `insertReturningKeys` with `commitEachChunk()`. |
-| `MQ1802` | Insert: the model names a generated id, lacks an id that has no generator, or a row has a `null` assigned id; `persist` names a generated id (where the provider reports the generator) or part of a composite id. |
+| `MQ1802` | Insert: the model names a generated id, lacks an id that has no generator, a `setExpression` writes the id, or a row has a `null` assigned id; `persist` names a generated id (where the provider reports the generator) or part of a composite id. |
 | `MQ1803` | Insert: a `null` row. |
-| `MQ1804` | Insert conflict clause: the conflict columns are not the id, a natural id or a declared unique constraint; a vendor that detects a conflict on any unique key without `anyUniqueKey()`; `doNothing` the provider does not render; a `doUpdate` assigning a key column or reading two or more assigned columns in its `where` without `conflictUpdateWhereOnAssignedColumns(true)`. |
+| `MQ1804` | Insert conflict clause: the conflict columns are not the id, a natural id or a declared unique constraint; a vendor that detects a conflict on any unique key without `anyUniqueKey()`; `doNothing` the provider does not render; a `doUpdate` assigning a key column or reading two or more assigned columns in its `where` without `conflictUpdateWhereOnAssignedColumns(true)`; an `onConstraint(name)` with a blank name, or an `onConstraint` or an arbiter `where` on a vendor that does not support it (outside PostgreSQL). |
 | `MQ1805` | Insert: a generator that is not supported for the call (a pooled sequence or a table or UUID generator on an insert-select), a `JOINED` or `@SecondaryTable` root, a composite id with generated parts, `@MapsId`, or a constructor-only embeddable under `persist`. |
 | `MQ1806` | Insert: a `chunked` insert-select whose source and target overlap, or whose tables the provider cannot name, or whose source joins through a link or collection table (`@ManyToMany`, `@ElementCollection`, a `@OneToMany` over a join table). |
 | `MQ1807` | Insert: keys requested for an `IDENTITY` or assigned id, or a key type that is not the id's type. |
 | `MQ1808` | Insert: two rows of one insert-values call with a conflict clause share a conflict-key tuple. |
-| `MQ1809` | `persist(persist, returning)`: a query with a `where` or `having` that recorded a filter, `groupBy`, a fetch plan, `customize`, `orderBy`, `keyset` or `primaryKeyFirst`, or a column the flushed entity cannot fill. |
+| `MQ1809` | `persist(persist, returning)`: a query with a `where` or `having` that recorded a filter, `groupBy`, a fetch plan, `customize`, `orderBy`, `keyset` or `primaryKeyFirst`, a lock, or a column the flushed entity cannot fill. A returning write also refuses a column on a table other than the written one, `throughEntities()` and `commitEachChunk()`. |
 
 See [Queries and Filters](queries.md), [Grouped queries](grouped-queries.md), [Bulk writes](bulk-writes.md) and [Inserts](inserts.md).
 
@@ -111,12 +116,14 @@ See [Queries and Filters](queries.md), [Grouped queries](grouped-queries.md), [B
 | `MQ2001`, `MQ2002` | A page, export or chunk size is not positive, a limit is negative, or an offset is negative. |
 | `MQ2005` | `byKeys` read a row whose key equals none of the requested values: the column's collation is case-insensitive or ignores trailing spaces, or a `BigDecimal` key's scale differs. |
 | `MQ2101` | Streaming needs a transaction on this database (PostgreSQL). |
+| `MQ2102` | A locked read ran without an active transaction. |
 | `MQ2201` | A row's primary key mapped to `null` during export or primary-key-first paging. |
 | `MQ2202` | A keyset column is NULL and has no explicit `nullsFirst()`/`nullsLast()`. |
 | `MQ2203` | An operation that needs a primary key was used on a query without one. |
 | `MQ2204` | Key-based paging or offset export over a selection read through a to-many join. |
 | `MQ2205` | A keyset export page repeated a key of the page before; or a chunked write's key select returned a key it already wrote. |
 | `MQ2206` | A `QueryCustomizer` narrows the phases of a primary-key-first query differently. |
+| `MQ2211` | A lock on a read that refuses one: `page`, `count`, `stream` and `export` refuse any lock, `one(q)` refuses `SKIP_LOCKED`, and a locked query whose statement has a join, such as a to-one id read, is refused. Filter the related rows with `Filters.exists(...)` instead of joining. |
 | `MQ2301` | A sort property resolves to no column or to several, asks for `ignoreCase`, or names a sort on a query without a primary key. |
 | `MQ2501` | A bulk write ran without an active transaction. |
 | `MQ2502` | A chunk of a chunked write failed; `ChunkedWriteException` says what was committed. |
@@ -151,7 +158,7 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3014` | `converter` is not a `ColumnConverter` between the field type and the attribute type. |
 | `MQ3015` | Two generated constants would have the same name, or a constant clashes with a reserved one. |
 | `MQ3016` | A warning, not an error: a column on a to-one association selects the whole entity and has no converter. The message shows the `@Column(attribute = …)` id form that reads only the foreign key. |
-| `MQ3017` | The model's `root`, or the root of a model it nests, is not a class, and no annotation processor generated it. A root another processor generates is fine: the model waits for it. |
+| `MQ3017` | The model's `root`, or the root of a model it nests, is not a class, and no annotation processor generated it. A root another processor generates is fine: the model waits for it. Also reported on a `@BindQueryModel` binding whose root, or a nested model's root, is never generated. |
 | `MQ3018` | A `@Computed` or `@Aggregate(expression)` class is not a usable `ExpressionDefinition<Model, FieldType>`: its type arguments are not the model and the field's boxed type, or it has neither a public `INSTANCE` nor a visible no-arg constructor. |
 | `MQ3019` | `@Computed` combined with `@PrimaryKey`, `@Column`, `@Join`, `@Child`, `@Aggregate` or `@Transient`, or on a primitive field. |
 | `MQ3020` | `@Selected` field that is not exactly `SelectSet<Model>`, or a second `@Selected` field in the model. |
@@ -161,6 +168,7 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3024` | A bound model, or a type enclosing it, that is not public, or a constructor, setter or getter the generated classes call from the binding's package that is not public; or a `model` that is no class or record. |
 | `MQ3025` | A `@Computed` with no `value` and no `@BindExpression`, or on an annotated model; or a `@BindExpression` naming an unknown field, a field that is neither computed nor aggregate, one that already names a definition, or a field twice. |
 | `MQ3026` | A `@Join` or `@Child` model of a bound model that is neither annotated nor bound in the same compilation. Bind it as well. |
+| `MQ3027` | The `modelquery.jspecify` option is set but JSpecify is not on the classpath. Add `org.jspecify:jspecify` to the module that compiles the models. |
 | `MQ3028` | `@GroupBy` on a column that selects a whole to-one entity. Group by the id form instead: `@Column(attribute = "customer") Long customerId`. |
 | `MQ3029` | The id form of a to-one whose target has `@SQLRestriction` or `@Where`: a read would take a `null` id from a restricted row while the foreign key holds a value. Read it through a `@Join`. |
 | `MQ3201` | Aggregate model: field is primitive. |
@@ -204,6 +212,8 @@ See [Models and QModels](models.md).
 | `MQ4006` | A `ModelQueryConfig` bean of your own drops a `VendorProfile`, `WriteAssignment` or `ChunkTransactions` bean, or a set `modelquery.*` property. |
 | `MQ4007` | A repository declares `ModelQueryRepository` of an entity other than its domain type. |
 | `MQ4009` | A bulk insert on a factory whose persistence provider has no insert support, before any statement. `persist` still runs. |
+| `MQ4010` | A locked read whose provider cannot render the lock: no lock support, a strength or wait it does not render, or a root entity mapped to more than one table. |
+| `MQ4011` | A returning write the factory cannot return rows for, such as any returning write on MySQL. |
 | `MQ4012` | A factory is not on one of the declared target vendors; the message names the factory, its vendor, how it was found and the list. |
 | `MQ4013` | The [portability check](portability.md) cannot boot your unit offline for a target: no provider support for its vendor, a vendor with no offline boot (Oracle, SQL Server, `OTHER`), or a version that is not numeric. |
 

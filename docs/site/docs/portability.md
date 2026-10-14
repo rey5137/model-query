@@ -14,7 +14,8 @@ starter. The portability check runs on the same list unless you name targets you
 
 ## The dry run
 
-Add the module in test scope; the version comes from the BOM.
+Add the module in test scope; the version comes from the BOM. The module uses members of `model-query-jpa` that are not API, so it must resolve at
+`model-query-jpa`'s exact version: take it from the BOM rather than pinning it.
 
 ```xml
 <dependency>
@@ -24,7 +25,8 @@ Add the module in test scope; the version comes from the BOM.
 </dependency>
 ```
 
-`PortabilityCheck` boots your persistence unit once per target with no database: Hibernate gets the target's dialect,
+`PortabilityCheck` boots your persistence unit once per target with no database (`model-query-hibernate` provides the offline
+boot for Hibernate 6.6 and 7.4): Hibernate gets the target's dialect,
 and its connections come from a stub that records the first statement a call prepares and runs nothing. Each call runs
 on the real executor, so every refusal the library makes before a statement is made here too, on the Hibernate line
 on your test class path.
