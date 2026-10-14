@@ -1,6 +1,6 @@
 # API stability
 
-model-query is at 0.8.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
+model-query is at 0.9.0. Until 1.0.0 the public API may change in any minor release, and the commit that does it is
 marked breaking. From 1.0.0 the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Today: everything is `@Incubating`

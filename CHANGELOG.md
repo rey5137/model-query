@@ -6,7 +6,10 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
-Nothing is frozen yet: every public type stays `@Incubating`. The additions below are all `@Incubating`.
+## [0.9.0] - 2026-10-14
+
+Nothing is frozen yet: every public type stays `@Incubating`. The additions below are all `@Incubating`. Four
+behaviour changes (see the upgrade notes) can change the SQL or the diagnostics of a 0.8.0 model.
 
 ### Added
 - `@BindQueryModel(model = OrderView.class, root = OrderEntity.class)` (D-134, R-PROC-28, R-GEN-35), repeatable and
@@ -174,6 +177,16 @@ Nothing is frozen yet: every public type stays `@Incubating`. The additions belo
   the foreign key but the select lists every column of the entity, which PostgreSQL refuses. This can break an
   existing `@GroupBy CustomerEntity customer`; group by the id form, `@Column(attribute = "customer") Long customerId`,
   instead. `MQ3016`'s message also names the id form.
+
+### Upgrade notes
+- A model with `@GroupBy` on a column that selects a whole to-one entity now fails with `MQ3028` at compile time. Group
+  by the id form, `@Column(attribute = "customer") Long customerId`, instead.
+- A fetch plan's child statements are built and checked before any statement of a call that returns models, so a
+  child refused with `MQ1306`, `MQ1307` or an `MQ15xx` code now fails on an empty page, a zero limit or `byKeys` with
+  no keys too, and a primary-key-first `page` or `export` refuses `MQ1307` before step 1 and the count.
+- `MQ1502` now also refuses an `Optional`, a `Collection` and a `Map` passed to an `Expr` factory.
+- `@Computed.value` defaults to `void.class`: source and binary compatible, but a `@Computed` without a value now needs
+  a `@BindExpression`, else `MQ3025`.
 
 ## [0.8.0] - 2026-10-09
 
