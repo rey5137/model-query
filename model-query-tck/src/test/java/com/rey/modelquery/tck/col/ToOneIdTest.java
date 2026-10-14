@@ -709,7 +709,7 @@ class ToOneIdTest {
     }
 
     @TckTest
-    void ac_col_35_a_runtime_group_by_on_a_whole_entity_to_one_is_refused_with_mq1410_before_any_statement(
+    void ac_agg_17_a_runtime_group_by_on_a_whole_entity_to_one_is_refused_with_mq1410_before_any_statement(
             TckDatabase db) {
         var grouped = ModelQuery.builder(ORDERS, row -> new ReferrerCount(null, row.get(GROUP_COUNT)))
                 .select(SelectSet.of(GROUP_REFERRER_ENTITY, GROUP_COUNT)).groupBy(GROUP_REFERRER_ENTITY);
