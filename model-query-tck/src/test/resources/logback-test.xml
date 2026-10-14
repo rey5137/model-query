@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Logback's default console output at INFO, except two Hibernate loggers that buried the CI log: the schema tool,
+     which logs a full stack trace for every constraint or table a fixture's create-drop drops before it exists, and
+     the deprecation notices, repeated on every session-factory boot -->
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger -- %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <logger name="org.hibernate.tool.schema" level="ERROR"/>
+    <logger name="org.hibernate.orm.deprecation" level="ERROR"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>
