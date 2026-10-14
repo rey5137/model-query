@@ -58,7 +58,12 @@ presence keys (R-QRY-04, `MQ1409`), phase consistency (R-QRY-09), to-many joins 
 `MQ1401`) and counting (R-EXE-04). One that is read through a to-many join throws `MQ1702` on first execution, checked
 once per `ModelQuery` as the phases are (D-21), since `build()` has no metamodel to tell a to-many join from a to-one.
 `count`, which loads no children and runs no enricher, logs that check's failure as a `WARNING` and counts; the failure
-is not remembered, so the next call that returns models throws `MQ1702`.
+is not remembered, so the next call that returns models throws `MQ1702`. Every call that returns models (`list`,
+`one`, `first`, `one(query, key)`, `byKeys`, `page`, `export`) also builds each child statement of the plan, through its
+join plans and the children's own plans, and checks a one-key round of it against the bind limit before its first
+statement, a zero limit, no keys and an empty page included, so a child's refusals (`MQ1306`, `MQ1307`, the `MQ15xx`
+codes, the child's own `MQ1702`) never follow a statement (INV-5, D-138). That check depends on the vendor's limits and
+renderers, so it is remembered per factory and profile once passed.
 `select()` returns the selection without them, as it does without the primary key, so `orderedBy` cannot sort on
 them; a join plan's re-rooted selection is part of `select()`. They stay filled on the returned models.
 
@@ -92,7 +97,8 @@ primary key per parent key, since a child filter through a to-many join can repe
 belongs to several parents (D-99). A to-one child that finds two distinct rows
 for one key throws `MQ2601` naming the child field. A to-one child without a `@PrimaryKey` is not deduplicated, so one
 reached through a to-many path (a child filter or `foreignKey` crossing a collection) throws `MQ2601` on the repeated
-rows unless it has a `@PrimaryKey`.
+rows unless it has a `@PrimaryKey`. A child's own refusals, of its filters, order, selection or a one-key round over
+the bind limit, are thrown before the parent's statement, even when the page finds no parent (R-FCH-02, D-138).
 
 **R-FCH-05** Keys match on attribute values before any converter, as primary keys do (R-COL-11): the parent's key is
 read from its row when it is mapped, the child's `foreignKey` from the child's row, and the `IN` binds those values.
@@ -219,7 +225,7 @@ round's statement logs as any statement does (D-95).
 |---|---|
 | AC-FCH-01 | A three-level plan (parent → to-many child → its to-many child) loads every level on `list`, offset `page`, keyset `page`, primary-key-first `page` and `export`, with the parent page's rows, order and totals unchanged (R-FCH-01, R-FCH-05, R-FCH-09). |
 | AC-FCH-02 | A to-one child by key loads; two distinct rows for one key throw `MQ2601`; repeated child rows from a to-many child filter are deduplicated (R-FCH-03, R-FCH-04). |
-| AC-FCH-03 | Child keys above the vendor's limit split into rounds; a page with no keys runs no child statement; a converted key column matches on its attribute value; a case-insensitive collation's unmatched child row throws `MQ2604` (R-FCH-05). |
+| AC-FCH-03 | Child keys above the vendor's limit split into rounds; a page with no keys runs no child statement; a converted key column matches on its attribute value; a case-insensitive collation's unmatched child row throws `MQ2604`; a child whose one-key round passes the bind limit (`MQ1307`), or whose own filter is refused at build (`MQ1306`), is refused before any statement by `list` (a zero limit included), `first`, `one(query, key)`, `byKeys` with no keys, `page` and `export` over an empty result (R-FCH-05, R-FCH-02, D-138). |
 | AC-FCH-04 | Child filters and order apply, closed by the child's primary key; the default order is the primary key (R-FCH-04). |
 | AC-FCH-05 | One plan fills a model on its own and through a `@Join`, including two aliased joins to one entity and a LEFT join that found nothing; the re-rooted columns equal the generated join constants; a join plan with nothing selected throws `MQ1701`, and one selecting an aggregate throws `MQ1705` (R-FCH-07). |
 | AC-FCH-06 | `byKey` and `of` enrichers see their columns selected and run once per page after children, nested first; `of` returning another size or `null` throws `MQ2602` (R-FCH-08). |

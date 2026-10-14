@@ -173,6 +173,68 @@ any other vendor, or a version not starting with a major number, is `MQ4013`.
   first requesting thread, through a memoised `FutureTask`, never inside `computeIfAbsent`; a failed boot is not kept.
   No per-call state lives on the factory or the `DataSource`. Factories close in a JVM shutdown hook.
 
+**R-INS-11** *(D-133, D-138, `@Incubating`)* **A portability check call.** `PortabilityCheck.of(unit, config)` or
+`PortabilityCheck.of(List<Class<?>>, config)`, with `properties(Map<String, ?>)` and, for a class list only,
+`mappingFiles(String...)` (R-INS-10), runs calls on every target: `targets(Target...)`, by default each of
+`config.targetVendors()` at the line's minimum dialect version. A target outside a declared `targetVendors()` is
+`MQ4012` when `targets` is called, since production would refuse that factory. `call(Class<E>,
+Function<ModelQueryExecutor<E>, ?>)` and `call(String label, Class<E>, Function<...>)` take the real executor
+signature; `callOutsideTransaction(...)`, in the same two forms, runs the call with no transaction, as the application
+runs a `commitEachChunk()` write or a call R-QRY-17 checks. Calls collect, and `assertPortable()` runs each on each
+target with one `EntityManager` and one recording per call and target, in a stub transaction unless outside one. After
+the function returns, a lazy result (`Stream`, `Iterator`) is drawn by one element, an `AutoCloseable` one is closed,
+and a call in a transaction is flushed, all as part of the call; the transaction then rolls back.
+
+- **Harness configuration.** An explicit `config.vendor(...)` is left out, so each target's vendor is detected rather
+  than every target running one vendor's profile; every other setting is kept. A configured `ChunkTransactions` is
+  replaced by the harness's own, which runs each chunk on its own `EntityManager` of the offline factory, flushed and
+  rolled back, since the application's cannot serve that factory (a false `MQ4004`); with none configured,
+  `commitEachChunk()` stays the application's `MQ4004`.
+- **Classification** reads the call's recording first and the cause chain second, never the top-level exception type,
+  since the library wraps a chunk's failure in `ChunkedWriteException` and the provider wraps the stub's stop. A JDBC
+  call other than a statement before the first statement is `HARNESS_ERROR`. With no statement recorded: a return is
+  `NO_STATEMENT`; a `ModelQueryException` in the chain is `REFUSED`, with the innermost one's code and message; else a
+  throwable of the provider's package (`org.hibernate`), a translation error, is `REFUSED` with its class name; else
+  `HARNESS_ERROR`. With a statement recorded: a return, or the stub's stop in the chain, is `REACHED` with the first
+  statement's SQL; else a `ModelQueryException` in the chain is `REFUSED_AFTER_STATEMENT`, an INV-5 or spec bug or a
+  call that swallowed the stop then refused; else `HARNESS_ERROR`.
+- **Portable** means `REACHED` (D-133): `assertPortable()` throws the JDK's `AssertionError` when any result is not,
+  `REFUSED` reporting the target unserved. `REACHED(sql)` certifies the refusals placed before the first statement and
+  that statement's rendering only, not a statement after it (R-INS-12's limits list).
+
+**R-INS-12** *(D-133, D-138, `@Incubating`)* **The sweep, the skip and the report.** `sweep(Class<?>... holders)` reads
+each holder's `static final` fields that hold a definition, in field-name order, and runs one default operation per
+definition, labelled `Holder.FIELD operation`: `list(query, Limit.unlimited())` for a `ModelQuery`, `update` or
+`delete` for a `ModelUpdate` or `ModelDelete`, `insert` for a `ModelInsert` or `ValuesInsert`, and `persist` for a
+`ModelPersist`, since every library refusal of a persist precedes `em.persist`. Paging, export, stream, returning
+writes and argument-dependent calls need `call`. Holders are explicit; there is no package scan (P-7).
+`skip(holder, "FIELD", reason)` leaves one definition out; the reason is required.
+
+- **Limits list: first statement only.** The check sees the first statement a call reaches and the refusals before it.
+  What follows a first statement is not checked: a fetch plan's child statements; the second step of
+  primary-key-first paging; the content statement of `page(..., COUNT)`; each round of a chunked, key-first or
+  `throughEntities()` write, and their returning or conflict-arbiter translation; a values insert or persist whose id
+  is drawn from a sequence or table (the reached statement is the draw); export pages after the first. The library's
+  own refusals that depend on the vendor run before the first statement (D-138); what still follows one depends on
+  data (`MQ2201`, `MQ2202`, `MQ2003`, `MQ2005`, `MQ2205`, `MQ2210`, `MQ2601`, `MQ2603`, `MQ2604`, `MQ2002`, `MQ2503`)
+  or on the provider translating a later statement.
+- **Marks.** The sweep marks a `REACHED` definition "first statement only" from its public facts, per target, erring
+  towards marking: a query with a `primaryKeyFirst(...)` or a fetch plan loading a child at any depth; an update or
+  delete with chunk options, `throughEntities()`, or on a profile without `targetTableInSubquery()` (key-first,
+  R-WRT-11); an insert with chunk options; a values insert, or a persist not writing its id, whose root's id has a
+  `@GeneratedValue` of `SEQUENCE`, `TABLE` or `AUTO` (one declared in `orm.xml` is missed). A `call` prints its
+  reached SQL with no mark: the caller chose the operation.
+- **Report.** One line per call and target, call by call, each call's targets in the order given:
+  `label on TARGET VERSION: OUTCOME[ (first statement only)] detail`, the detail being the SQL reached, the refusal's
+  message (`... after SQL` for `REFUSED_AFTER_STATEMENT`), or the throwable. An unlabelled call is
+  `call N (Entity)`. After the results, one line per skipped definition, in sweep order: `Holder.FIELD skipped:
+  reason`; a skip is not a result and is not counted. A failing check's `AssertionError` starts with
+  `Not portable: F of N results failed`; a passing report is logged at `INFO`.
+- **Loud failures.** Before any call runs, `assertPortable()` throws an `AssertionError` listing every setup problem:
+  no target, no call, a swept holder with no definition, a `skip` of an unknown field, of a field that is not a
+  `static final` definition, with a blank reason or of a holder no sweep reads, mapping files for a named unit, and a
+  class list with no class. A check never passes vacuously.
+
 ## 3. Acceptance criteria
 
 | ID | Criterion |
@@ -187,3 +249,4 @@ any other vendor, or a version not starting with a major number, is `MQ4013`.
 | AC-INS-08 | Each of the four `*_SUBSELECT` kinds records its column, `subSelect()` and correlation; `Outer.referenced` returns the lifted column; sub-selects built from equal calls are equal; the new matchers match them and a failure prints the tree (R-INS-08, D-112). |
 | AC-INS-09 | A filter over an expression records its kind with the expression as `column()`. `toString` and the build log show `?` for its values. An `eq` matcher built from equal `Expr` calls matches, and a failing one prints the tree (R-INS-09, R-INS-04, R-INS-05). |
 | AC-INS-10 | On both Hibernate lines with no container, the TCK unit boots offline for H2, PostgreSQL, MySQL and MariaDB, with no version and with a full one (the dialect then at that version), recording no JDBC call, booted once per unit and target however many threads ask, a failed boot booted again on the next request; a unit's `hibernate.hbm2ddl.auto=create` and `scripts.action=create` are overridden (no script written), an explicit `hibernate.dialect` is overridden by the target's, and a unit `hibernate.connection.provider_class` is overridden so a call reaches the stub; a reached statement is recorded once through Hibernate's exception wrapping; a `ProviderSupport` without `offlineProperties`, and a boot that reaches JDBC (the metadata flag or H2's temporary-table settings dropped), are `MQ4013`, and so is a class list naming a provider not on the class path (R-INS-10, `vendor/40` R-VND-20). |
+| AC-INS-12 | On both Hibernate lines with no container: a sweep runs each `static final` definition of a holder once per target and reports one line each, marking a primary-key-first query, a child-loading query, a drawn-id persist and, on MySQL, an update and a delete "first statement only", and an identity persist and a plain list not; `skip` leaves a definition out and the report prints it once, `Holder.FIELD skipped: reason`; the report has one line per call and target with each outcome: `REACHED` with the SQL, `REFUSED` with the code, `REFUSED_AFTER_STATEMENT` when the lambda swallows the stop then refuses, `NO_STATEMENT` and `HARNESS_ERROR`; a lazy `Stream` and `Iterator` are drawn by one element and the stream closed; a `commitEachChunk()` call outside a transaction runs on the harness's `ChunkTransactions` where the application's fails `checkServes`, and is `MQ4004` with none; an explicit `vendor(...)` is left out; the targets default to `targetVendors()` and one outside them is `MQ4012`; no target, no call, a holder with no definition and a bad `skip` fail loudly before any call runs; the harness keeps every configuration setting but the vendor and `ChunkTransactions` (R-INS-11, R-INS-12, D-138). |

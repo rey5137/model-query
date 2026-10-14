@@ -179,7 +179,7 @@ fail loudly, never a vacuous pass.
 - `ModelQuery`: `list`;
 - `ModelUpdate`, `ModelDelete`: the plain write;
 - `ModelInsert`, `ValuesInsert`: the insert;
-- `ModelPersist`: `persist` (the default follows the Q-17 audit, which runs first in M23.3).
+- `ModelPersist`: `persist` (D-138: every library refusal precedes `em.persist`).
 
 Pairs (returning writes), paging, export, stream and argument-dependent calls are not inferred. They need `call`.
 An operation on the limits list (Q-17: what runs only after a first statement) is reported "first statement only", not
@@ -195,9 +195,11 @@ check on both lines (AC-INS-11).
   the arbiter), SQL the server version rejects, a driver URL setting (MySQL `useCursorFetch`).
 - **Data:** `MQ2201`/`MQ2202` NULL keys (these come after a statement by design), a nullable column mapped as non-null, runtime `in` sizes beyond the
   values the call was given, and an `Optional.empty()` branch the call skipped (P-3), which needs a second call.
-- **Statements after the first:** export pages after the first, fetch-plan child loads (built only for parents
-  found), the second key-first step, `throughEntities` chunk writes. They are covered only where their checks run up
-  front, as INV-5 requires. Q-17 audits this.
+- **Statements after the first:** export pages after the first, fetch-plan child loads, the second key-first step,
+  the content statement of `page(..., COUNT)`, and every round of a chunked or key-first write (not only
+  `throughEntities`) with its returning or arbiter translation. They are covered only where their checks run up
+  front, as INV-5 requires: D-138 (the Q-17 audit) moved the child builds and the step-2 bind check before the first
+  statement, and R-INS-12 lists the rest as "first statement only".
 - **Lines and providers not on the classpath.**
 
 The docs present the check as a fast net, with a Testcontainers matrix for the vendors that matter.

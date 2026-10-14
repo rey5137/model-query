@@ -1950,6 +1950,30 @@ time. The id form (D-136) stays allowed. This replaces D-136's acceptance of a r
 as a vendor-dependent database error. Decided by the user at the M22 gate. New `MQ1410`. M22, 0.9.0. → `api/13`,
 `reference/90`.
 
+**D-138 — Refusals a dry run must see run before the first statement (resolves Q-17, 2026-10-14).** Of the library's own
+refusals, only a fetch plan's child builds (`MQ1306`, `MQ1307`, the `MQ15xx` codes and the child's own refusals) and the
+primary-key-first step-2 batch and bind check (`MQ1307`) depended on the vendor and ran after a first statement. Both
+now run before any statement, memoised per factory once passed: a child is built and checked for a one-key round on
+every model-returning call, including an empty page, which a broken child now refuses (stricter, INV-5); `page` and
+`export` size and check step 2 up front. The `page(..., COUNT)` content statement is left where it is (it is on the
+limits list). What still follows a first statement depends on data (`MQ2201`, `MQ2202`, `MQ2003`, `MQ2005`, `MQ2205`,
+`MQ2210`, `MQ2601`, `MQ2603`, `MQ2604`, `MQ2002`, `MQ2503`) or on the provider translating a later statement; those
+operations are on R-INS-12's limits list and reported "first statement only". The sweep marks a definition "first
+statement only" from public facts (chunk options, entity mode, child loads, `primaryKeyFirst()`, `CountMode.COUNT`, a
+values insert whose id is drawn, an update or delete on a profile without `targetTableInSubquery()`), erring towards
+marking; a `call` prints its reached SQL with no qualifier, and R-INS-11 says `REACHED(sql)` certifies the refusals
+before the first statement and that statement's rendering only. The sweep runs `persist` by default (every library
+refusal precedes `em.persist`). Holders stay explicit, with no package scan (P-7). Rejected: a `ProviderSupport`
+translate SPI to pre-translate later statements (new `@Incubating` surface for drift checks only; revisit if AC-INS-11
+finds a gap). Harness choices, decided by the user at the M23.3 gate: an explicit `config.vendor(...)` is stripped from
+the harness's copy, not refused; the harness's rolling-back `ChunkTransactions` replaces the application's only when it
+configured one (with none, `commitEachChunk()` reports the application's `MQ4004`); a throwable from the factory's
+provider package is `REFUSED`, labelled by its class; setup mistakes (no target, no call, an empty holder, a bad `skip`,
+an empty class list) are an `AssertionError` before anything runs, with no `MQ` code; `assertPortable()` fails on every
+outcome but `REACHED`, `REFUSED` included; a skipped definition prints one report line with its reason. Decided by the
+user at the M23.3 audit stop point. → INV-5, D-82, D-132, D-133, `api/15` R-FCH-02, R-FCH-04, `engine/21` R-PAG-07,
+`api/16` R-INS-11, R-INS-12, `rfc/0011` §3-§4.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -2024,11 +2048,7 @@ c … RETURNING …`), once a supported Hibernate API renders a locked CTE in DM
 typed `nextval(String, Class<C>)` for a sequence read as an `Integer` or a `BigInteger` rather than a `Long`. →
 `rfc/0010`, D-130, D-131.
 
-**Q-17 — Refusals after a first statement.** Which refusals run only after a first statement (fetch-plan child
-loads, export page N, the second key-first step, chunk writes, `persist`'s key draw); each found is moved up front
-or listed as outside the dry run (reported "first statement only"). The audit runs first in M23.3, ahead of
-`PortabilityCheck`, because it sets R-INS-11's semantics and the sweep's `persist` default. The sweep's package scan is
-also open. → `rfc/0011`, D-133.
+**Q-17 — Refusals after a first statement.** Resolved by D-138.
 
 **Q-18 — A `@RequiresFact` ArchUnit rule.** Whether code that reads a profile fact must declare it, so the dry run's
 coverage is checkable. → `rfc/0011` §5, D-133.

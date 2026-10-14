@@ -50,7 +50,7 @@ import org.junit.jupiter.api.io.TempDir;
 class OfflineBootTest {
 
     /** The TCK unit: sequences, table, identity and UUID generators, {@code @Formula}, secondary tables, a view. */
-    private static final List<String> TCK_UNIT = Stream.of(
+    static final List<String> TCK_UNIT = Stream.of(
             "col.CardEntity", "col.CardHolderEntity", "col.CompositeKeyCopyEntity", "col.CompositeKeyItemEntity",
             "col.ConstantRowEntity", "col.CounterRowEntity", "col.CustomerEntity", "col.CustomerNoteEntity",
             "col.DatedRowEntity", "col.DeliveryEntity", "col.EmbeddedKeyEntity", "col.FormulaLineEntity",

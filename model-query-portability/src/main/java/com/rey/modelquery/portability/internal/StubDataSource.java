@@ -60,7 +60,8 @@ final class StubDataSource {
                 if (STATEMENTS.contains(name)) {
                     String sql = args == null || args.length == 0 || !(args[0] instanceof String s) ? "" : s;
                     JdbcRecording.current().ifPresent(recording -> recording.statement(label(name), sql));
-                    throw new SQLException("Dry run: " + label(name) + " reached a statement and ran nothing: " + sql);
+                    throw new StatementReached("Dry run: " + label(name) + " reached a statement and ran nothing: "
+                            + sql);
                 }
                 return switch (name) {
                     case "getAutoCommit", "isClosed", "isReadOnly" -> false;
@@ -73,6 +74,15 @@ final class StubDataSource {
                 };
             }
         });
+    }
+
+    /** The stub's stop at a statement, which a call's classification finds in the cause chain (R-INS-11). */
+    static final class StatementReached extends SQLException {
+        private static final long serialVersionUID = 1L;
+
+        StatementReached(String message) {
+            super(message);
+        }
     }
 
     private static DatabaseMetaData metaData(Target target) {

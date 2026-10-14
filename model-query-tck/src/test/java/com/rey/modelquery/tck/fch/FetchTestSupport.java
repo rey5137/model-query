@@ -65,7 +65,7 @@ public final class FetchTestSupport {
     }
 
     /** As {@link #limited(TckDatabase, int)}, with at most {@code maxBindParameters} binds a statement when above 0. */
-    static VendorProfile limited(TckDatabase db, int maxInListSize, int maxBindParameters) {
+    public static VendorProfile limited(TckDatabase db, int maxInListSize, int maxBindParameters) {
         VendorProfile builtIn;
         try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
             builtIn = VendorResolver.resolve(sf, Optional.empty(), MysqlStreamingMode.ROW_BY_ROW).profile();

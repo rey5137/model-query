@@ -10,6 +10,7 @@ import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.ExpressionField;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.PageSpec;
@@ -30,6 +31,7 @@ import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.NullableSortEntity;
 import com.rey.modelquery.tck.col.OrderEntity;
 import com.rey.modelquery.tck.col.OrderItemEntity;
+import com.rey.modelquery.tck.fch.FetchTestSupport;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
@@ -250,6 +252,33 @@ class PrimaryKeyFirstTest {
                 .containsExactly(4_096L, 4_096L, 808L);
         withExecutor(db, OrderItemEntity.class, executor -> assertThat(slices.get(0).content()).hasSize(8_999)
                 .isEqualTo(executor.page(listed.build(), deep, CountMode.NO_COUNT).content()));
+    }
+
+    @TckTest
+    void ac_pag_09_a_step_two_over_the_bind_limit_is_mq1307_before_any_statement(TckDatabase db) {
+        // A bind limit of 2 takes step 1's one bind, and the count's, but not step 2's one bind plus a composite
+        // key's two: refused up front in page and export, not after step 1 read keys (D-138).
+        var config = ModelQueryConfig.defaults().vendorProfiles(List.of(FetchTestSupport.limited(db, 1024, 2)));
+        var twoStep = BY_LABEL.where(f -> f.lte(TENANT_ID, 1_000))
+                .primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
+        String message = "MQ1307: TenantItem: a statement binds 3 values, more than the 2 bind parameters one "
+                + "statement takes";
+        List<ThrowingCallable> calls = new ArrayList<>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, CompositeKeyItemEntity.class, config,
+                executor -> {
+                    calls.add(() -> executor.page(twoStep, PageSpec.ofOffset(10, 10), CountMode.NO_COUNT));
+                    calls.add(() -> executor.page(twoStep, PageSpec.ofOffset(10, 10), CountMode.COUNT));
+                    calls.add(() -> executor.export(twoStep, ExportOptions.of(10), page -> page, row -> { }));
+                    calls.forEach(call -> assertThatThrownBy(call)
+                            .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                    e -> assertThat(e.code()).isEqualTo(MqCode.MQ1307))
+                            .hasMessageStartingWith(message));
+                }));
+        assertThat(calls).hasSize(3);
+        assertThat(sql).as("refused before step 1 and the count").isEmpty();
+        // Only the count asked for: no step 2 is read, so the page runs.
+        withExecutor(JoinTestSupport.dataSource(db), CompositeKeyItemEntity.class, config, executor -> assertThat(
+                executor.page(twoStep, PageSpec.ofOffset(10, 10), CountMode.ONLY_COUNT).total()).isPresent());
     }
 
     private static long placeholders(String statement) {

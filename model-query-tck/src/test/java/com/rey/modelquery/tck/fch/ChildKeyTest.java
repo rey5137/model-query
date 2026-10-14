@@ -10,14 +10,19 @@ import com.rey.modelquery.core.ChildField;
 import com.rey.modelquery.core.ChildQuery;
 import com.rey.modelquery.core.ColumnConverter;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.CountMode;
+import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.LikeMode;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
+import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
@@ -30,6 +35,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.UnaryOperator;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
+import org.hibernate.SessionFactory;
 
 /**
  * Child keys: to-one children by key, deduplication per key and child, many-to-many children, key rounds, keys matched
@@ -157,6 +163,81 @@ class ChildKeyTest {
     }
 
     @TckTest
+    void ac_fch_03_a_child_round_over_the_bind_limit_is_mq1307_before_any_statement_on_an_empty_page(TckDatabase db) {
+        // A bind limit of 1: the parent's own filter binds one and finds no customer; the child's filter binds one, so
+        // a one-key round binds two. No child statement would run, but the child is built and checked up front.
+        var config = ModelQueryConfig.defaults().vendorProfiles(List.of(limited(db, 1024, 1)));
+        var q = nobody(c -> c.where(f -> f.like(QOrderLines.ITEM_CODE, "P0", LikeMode.STARTS_WITH)));
+        String message = "MQ1307: CustomerOrders.orders: a statement binds 2 values, more than the 1 bind parameters "
+                + "one statement takes; narrow its filters, since a query's own statement is never split across "
+                + "statements";
+
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, CustomerEntity.class, config,
+                executor -> everyModelCall(executor, q, MqCode.MQ1307, message)));
+        assertThat(sql).as("refused before any statement, the parent's and the count included").isEmpty();
+    }
+
+    @TckTest
+    void ac_fch_03_a_child_refused_at_build_is_refused_before_any_statement_on_an_empty_page(TckDatabase db) {
+        // A bind limit of 3 takes the parent's one bind, but not the child's own in(...) of four values (MQ1306).
+        var config = ModelQueryConfig.defaults().vendorProfiles(List.of(limited(db, 1024, 3)));
+        var q = nobody(c -> c.where(f -> f.in(QOrderLines.ID, List.of(1L, 2L, 3L, 4L))));
+        String message = "MQ1306: OrderLines.id: in(...) received 4 values, more than the 3 bind parameters one "
+                + "statement takes";
+
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, CustomerEntity.class, config,
+                executor -> everyModelCall(executor, q, MqCode.MQ1306, message)));
+        assertThat(sql).as("refused before any statement").isEmpty();
+    }
+
+    @TckTest
+    void ac_fch_03_a_child_check_passed_on_one_profile_runs_again_on_another_of_the_same_factory(TckDatabase db) {
+        // The check is remembered per factory and profile: passed on the built-in profile, it still refuses on a
+        // profile with a bind limit of 1, on the same factory, where the refused call runs no statement.
+        var limitedConfig = ModelQueryConfig.defaults().vendorProfiles(List.of(limited(db, 1024, 1)));
+        var q = nobody(c -> c.where(f -> f.like(QOrderLines.ITEM_CODE, "P0", LikeMode.STARTS_WITH)));
+        List<String> sql = SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+                sf.inSession(em -> assertThat(ModelQueryExecutor.create(em, CustomerEntity.class,
+                        ModelQueryConfig.defaults()).list(q, Limit.unlimited())).isEmpty());
+                sf.inSession(em -> assertDefinitionCode(() -> ModelQueryExecutor.create(em, CustomerEntity.class,
+                        limitedConfig).list(q, Limit.unlimited()), MqCode.MQ1307, "MQ1307: CustomerOrders.orders: a "
+                        + "statement binds 2 values, more than the 1 bind parameters one statement takes; narrow its "
+                        + "filters, since a query's own statement is never split across statements"));
+            }
+        });
+        assertThat(sql).as("only the built-in profile's parent statement").hasSize(1);
+    }
+
+    /** No customer, with their orders loaded by {@code child}. */
+    private static ModelQuery<CustomerEntity, Long, CustomerOrders> nobody(
+            UnaryOperator<ChildQuery<OrderLines>> child) {
+        return QCustomerOrders.query().where(f -> f.gt(QCustomerOrders.ID, 1_000_000L))
+                .orderBy(QCustomerOrders.ID.asc())
+                .fetch(FetchPlan.of(QCustomerOrders.ALL).child(QCustomerOrders.ORDERS, ORDER, child)).build();
+    }
+
+    /** Every call that returns models refuses {@code q} with {@code code} and {@code message}. */
+    private static void everyModelCall(ModelQueryExecutor<CustomerEntity> executor,
+            ModelQuery<CustomerEntity, Long, CustomerOrders> q, MqCode code, String message) {
+        List<ThrowingCallable> calls = List.of(
+                () -> executor.list(q, Limit.unlimited()),
+                () -> executor.list(q, Limit.of(0)),
+                () -> executor.first(q),
+                () -> executor.one(q, 1L),
+                () -> executor.byKeys(q, List.of()),
+                () -> executor.page(q, PageSpec.of(0, 10), CountMode.COUNT),
+                () -> executor.page(q, PageSpec.of(0, 10), CountMode.NO_COUNT),
+                () -> executor.export(q, ExportOptions.of(10), page -> page, model -> { }));
+        calls.forEach(call -> assertDefinitionCode(call, code, message));
+    }
+
+    private static void assertDefinitionCode(ThrowingCallable call, MqCode code, String message) {
+        assertThatThrownBy(call).isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                e -> assertThat(e.code()).isEqualTo(code)).hasMessage(message);
+    }
+
+    @TckTest
     void ac_fch_03_a_converted_key_column_matches_on_its_attribute_value(TckDatabase db) {
         // The parent's key read through a converter: the child's foreign key equals its attribute value, never the
         // converted "C-1".
@@ -237,8 +318,8 @@ class ChildKeyTest {
 
     @TckTest
     void ac_fch_08_max_per_parent_leaves_one_bind_for_the_limit_in_a_key_round(TckDatabase db) {
-        // A bind limit of 5 leaves 4 binds for keys after the child filter's own bind, so 4 keys; maxPerParent takes one
-        // bind for the LIMIT, so the clamp falls to 2.
+        // A bind limit of 5 leaves 4 binds for keys after the child filter's own bind, so 4 keys; maxPerParent takes
+        // one bind for the LIMIT, so the clamp falls to 2.
         var config = ModelQueryConfig.defaults().vendorProfiles(List.of(limited(db, 1024, 5)));
         var plain = customers(10, c -> c.where(f -> f.like(QOrderLines.ITEM_CODE, "P0", LikeMode.STARTS_WITH)));
         var capped = customers(10, c -> c.where(f -> f.like(QOrderLines.ITEM_CODE, "P0", LikeMode.STARTS_WITH))
