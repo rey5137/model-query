@@ -435,7 +435,8 @@ sit in another package: the model, its no-arg constructor, its setters, the gett
 a nested model's type and the types enclosing it (`MQ3024`). A `@Join` or `@Child` model of a bound model is itself
 annotated `@QueryModel`, on the classpath or in the compilation, or bound in the same compilation (`MQ3026`), and its
 `QModel` lands in the annotated model's package or the nested binding's. An annotated model may nest a bound one too,
-with `modelquery.aggregating` set (below):
+with `modelquery.aggregating` set (below). A binding whose root, or a nested model's root, names no class yet is retried by name
+in each later round, and is `MQ3017` on the binding if the class is never generated:
 
 ```java
 @BindQueryModel(model = CustomerView.class, root = CustomerEntity.class)

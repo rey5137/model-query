@@ -183,7 +183,7 @@ whatever its limit or keys. A locked query whose built statement has a join is `
 leaves the lock no root table to name: filter the related rows with [`Filters.exists`](#exists) instead of joining. A
 customizer that navigates a path past the root (`root.get("customer").get("name")`) joins implicitly, which is not
 refused but locks the joined rows too, so keep a locked query's customizer to the root's own columns. A
-lock on a grouped query is `MQ1209`. A provider that cannot render the lock — a wait H2 drops, or a root mapped to
+lock on a grouped query is `MQ1209`, and a customizer that adds `distinct` or `having` to a locked query is `MQ1205`. A provider that cannot render the lock — a wait H2 drops, or a root mapped to
 more than one table — is `MQ4010`, both before any statement.
 
 === "Plain JPA"

@@ -130,13 +130,19 @@ case. `ModelUpdate#checkSequences`, `ModelInsert#checkSequences` and `ModelInser
 See [Sequence values](inserts.md#sequence-values).
 
 The `modelquery.jspecify` processor option and the JSpecify annotations it puts on generated code are new in 0.9.0
-and incubating (D-135): the option name, the set of annotations and where they go may change in a minor release. See
+and incubating (D-135): the option name, the set of annotations and where they go may change in a minor release. The `modelquery.aggregating` processor option is new in 0.9.0 and incubating too (D-140). See
 [Processor options](models.md#processor-options).
 
 `ProviderSupport.foreignKeyColumn`, the `ForeignKeyColumn` enum in `com.rey.modelquery.jpa.spi` and core's
 `ForeignKeyLookup` are new in 0.9.0 and incubating (D-136): the answers `LOCAL_COLUMN`, `JOINS` and `UNKNOWN` may change
 in a minor release. A provider module that does not override the method answers `UNKNOWN`, so a bulk write of a
 to-one's id is refused with `MQ1004`.
+
+The portability module is new in 0.9.0 and incubating (D-133, D-139): `model-query-portability` with `Target` (`Target.of`)
+and `PortabilityCheck` and the kinds of result it reports, and `ProviderSupport#offlineProperties(DatabaseVendor)` in
+`jpa.spi`. The target-vendor members are incubating too: `ModelQueryConfig.targetVendors(...)`, `targetVendors()` and
+`checkTargets(EntityManagerFactory)`, and `ProviderSupport.factoryName(EntityManagerFactory)`. See
+[Portability](portability.md).
 
 The fetch-plan types are new in 0.2.0, `@Incubating`, and not yet placed in the 1.0 freeze list above:
 `FetchPlan`, `ChildField`, `JoinField`, `ChildQuery`, `Enricher` and the `@Child` annotation. The executor-facing
