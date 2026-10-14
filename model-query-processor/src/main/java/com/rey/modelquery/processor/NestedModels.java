@@ -2,6 +2,8 @@ package com.rey.modelquery.processor;
 
 import com.rey.modelquery.annotations.QueryModel;
 import com.rey.modelquery.processor.JoinedTable.JoinedColumn;
+import com.rey.modelquery.processor.ModelBindings.Binding;
+import com.rey.modelquery.processor.ModelDefinition.Kind;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -16,40 +18,60 @@ import javax.lang.model.type.TypeMirror;
 /**
  * Reads the models that {@code @Join} fields nest and {@code @Child} fields hold, and lays out the constants an outer
  * model derives from nested ones. Such a model is read from its own fields and its QModel is only named, never looked
- * up, so the order in which models are processed does not matter (R-GEN-04, D-39).
+ * up, so the order in which models are processed does not matter (R-GEN-04, D-39). A nested model is one annotated
+ * {@code @QueryModel}, or one a {@code @BindQueryModel} of the compilation binds, whose QModel is named in the
+ * binding's package (R-PROC-31).
  */
 final class NestedModels {
 
     private final QueryModelReader reader;
+    private final Map<String, Binding> bound;
     private final Map<TypeElement, ModelDefinition> read = new HashMap<>();
 
-    NestedModels(QueryModelReader reader) {
+    /**
+     * @param bound the query bindings of the compilation, this round's and earlier ones', by the qualified name of the
+     *     model each binds; the first binding of a model, which {@code MQ3023} reports when there are more
+     */
+    NestedModels(QueryModelReader reader, Map<String, Binding> bound) {
         this.reader = reader;
+        this.bound = bound;
     }
 
     /**
-     * The model {@code join} nests, or {@code null} when its field is not an {@code Optional} of a
-     * {@code @QueryModel}. The model may be a source of this compilation or a class on its classpath: a class file
-     * keeps the fields, record components and {@code CLASS}-retained annotations that are read here (D-45).
+     * The model {@code join} nests, or {@code null} when its field is not an {@code Optional} of a nested model. The
+     * model may be a source of this compilation or a class on its classpath: a class file keeps the fields, record
+     * components and {@code CLASS}-retained annotations that are read here (D-45).
      */
     ModelDefinition of(ModelField join) {
-        if (join.join().nested() == null) {
-            return null;
-        }
-        var type = (TypeElement) ((DeclaredType) join.join().nested()).asElement();
-        return type.getAnnotation(QueryModel.class) != null ? read.computeIfAbsent(type, reader::read) : null;
+        return join.join().nested() == null ? null
+                : model((TypeElement) ((DeclaredType) join.join().nested()).asElement());
     }
 
     /**
      * The model a {@code @Child} field holds, or {@code null} when its field is not a {@code List} or
-     * {@code Optional} of a {@code @QueryModel}; read as {@link #of} reads a nested model (D-45).
+     * {@code Optional} of a nested model; read as {@link #of} reads a nested model (D-45).
      */
     ModelDefinition child(ModelField child) {
-        if (child.child().model() == null) {
-            return null;
+        return child.child().model() == null ? null
+                : model((TypeElement) ((DeclaredType) child.child().model()).asElement());
+    }
+
+    /** Whether {@code type} is annotated {@code @QueryModel} or bound by a {@code @BindQueryModel} (R-PROC-31). */
+    boolean isModel(TypeElement type) {
+        return type.getAnnotation(QueryModel.class) != null || bound.containsKey(type.getQualifiedName().toString());
+    }
+
+    /**
+     * The nested model {@code type}, read through its own annotation, which wins over a binding, or its binding; or
+     * {@code null} when it is neither, or its {@code root} names no class yet.
+     */
+    private ModelDefinition model(TypeElement type) {
+        if (type.getAnnotation(QueryModel.class) != null) {
+            return read.computeIfAbsent(type, reader::read);
         }
-        var type = (TypeElement) ((DeclaredType) child.child().model()).asElement();
-        return type.getAnnotation(QueryModel.class) != null ? read.computeIfAbsent(type, reader::read) : null;
+        Binding binding = bound.get(type.getQualifiedName().toString());
+        return binding == null ? null : read.computeIfAbsent(type,
+                each -> reader.read(each, Kind.QUERY, binding.annotation(), binding.origin()));
     }
 
     /**
@@ -65,8 +87,8 @@ final class NestedModels {
             TypeMirror nested = field.join() != null ? field.join().nested()
                     : field.child() != null ? field.child().model() : null;
             if (nested instanceof DeclaredType declared && declared.asElement() instanceof TypeElement type
-                    && type.getAnnotation(QueryModel.class) != null && seen.add(type)) {
-                ModelDefinition below = read.computeIfAbsent(type, reader::read);
+                    && isModel(type) && seen.add(type)) {
+                ModelDefinition below = model(type);
                 TypeElement found = below == null ? type : unresolved(below, seen);
                 if (found != null) {
                     return found;

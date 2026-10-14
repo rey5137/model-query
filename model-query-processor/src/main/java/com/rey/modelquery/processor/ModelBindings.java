@@ -14,7 +14,6 @@ import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import javax.annotation.processing.RoundEnvironment;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.AnnotationValue;
@@ -56,18 +55,48 @@ final class ModelBindings {
      */
     record Expression(String field, TypeMirror value) {}
 
+    /**
+     * Where a binding is written, by name: an element is only valid in the round that produced it, so a later round
+     * looks the type or package up again (D-107).
+     *
+     * @param name the type's or the package's qualified name
+     * @param onPackage whether the binding is on a {@code package-info}
+     */
+    record Origin(String name, boolean onPackage) {
+
+        static Origin of(Element origin) {
+            return origin instanceof PackageElement pkg ? new Origin(pkg.getQualifiedName().toString(), true)
+                    : new Origin(((TypeElement) origin).getQualifiedName().toString(), false);
+        }
+
+        /** The type or package in the current round, or {@code null} when the name resolves to none. */
+        Element find(Elements elements) {
+            return onPackage ? elements.getPackageElement(name) : elements.getTypeElement(name);
+        }
+    }
+
     private ModelBindings() {}
 
+    /** The round's types and packages that carry a binding of any kind. */
+    static List<Element> origins(RoundEnvironment round) {
+        var annotations = new HashSet<Class<? extends Annotation>>();
+        for (Kind kind : Kind.values()) {
+            annotations.add(annotation(kind));
+            annotations.add(container(kind));
+        }
+        return List.copyOf(round.getElementsAnnotatedWithAny(annotations));
+    }
+
     /**
-     * Every binding on the round's types and packages, repeated ones included, query bindings first. A {@code model}
-     * that names no class is left out: javac reports the class literal itself.
+     * Every binding on {@code origins}, repeated ones included, query bindings first. A {@code model} that names no
+     * class is left out: javac reports the class literal itself.
      */
-    static List<Binding> in(RoundEnvironment round) {
+    static List<Binding> on(List<? extends Element> origins) {
         var bindings = new ArrayList<Binding>();
         for (Kind kind : Kind.values()) {
             Class<? extends Annotation> single = annotation(kind);
             Class<? extends Annotation> repeated = container(kind);
-            for (Element origin : round.getElementsAnnotatedWithAny(Set.of(single, repeated))) {
+            for (Element origin : origins) {
                 var mirrors = new ArrayList<AnnotationMirror>();
                 AnnotationMirror mirror = QueryModelReader.mirror(origin, single);
                 if (mirror != null) {
@@ -182,11 +211,12 @@ final class ModelBindings {
 
     /**
      * {@code MQ3024} on the binding for what the generated classes, when in another package, cannot reach: the model
-     * type or a type enclosing it; for a query model's class its no-arg constructor and a setter or {@code @Join}
-     * getter its mapper calls; and the getter of each column a change set's {@code from} or the insert members read.
-     * One that is missing is left to {@code MQ3008} or to javac, as on an annotated model (R-GEN-11). A record needs
-     * no more than its type: the JLS makes a public record's canonical constructor and accessors public. Run on a
-     * model that validated, since the columns read are the ones the writers find.
+     * type or a type enclosing it, and so for the model each {@code @Join} nests and each {@code @Child} holds; for a
+     * query model's class its no-arg constructor and a setter or {@code @Join} getter its mapper calls; and the getter
+     * of each column a change set's {@code from} or the insert members read. One that is missing is left to
+     * {@code MQ3008} or to javac, as on an annotated model (R-GEN-11). A record needs no more than its type: the JLS
+     * makes a public record's canonical constructor and accessors public. Run on a model that validated, since the
+     * columns read are the ones the writers find.
      */
     static void checkAccess(ModelDefinition model, Element origin, Elements elements, EntityMetamodel metamodel,
             Diagnostics diagnostics) {
@@ -200,6 +230,24 @@ final class ModelBindings {
                         + (type == model.type() ? "" : ": its enclosing " + type.getSimpleName())
                         + " is not public, but " + generated + "; make it public");
                 return;
+            }
+        }
+        // The QModel names the model each @Join nests and each @Child holds, so those too must be public (R-PROC-31).
+        for (ModelField field : model.fields()) {
+            TypeMirror nested = field.join() != null ? field.join().nested()
+                    : field.child() != null ? field.child().model() : null;
+            if (!(nested instanceof DeclaredType declared)) {
+                continue;
+            }
+            for (Element type = declared.asElement(); type instanceof TypeElement; type = type.getEnclosingElement()) {
+                if (!type.getModifiers().contains(Modifier.PUBLIC)) {
+                    diagnostics.error(origin, DiagnosticCode.MQ3024, model.name() + "." + field.name() + ": its "
+                            + (field.join() != null ? "@Join" : "@Child") + " model "
+                            + declared.asElement().getSimpleName()
+                            + (type == declared.asElement() ? "" : "'s enclosing " + type.getSimpleName())
+                            + " is not public, but " + generated + "; make it public");
+                    break;
+                }
             }
         }
         if (model.isRecord()) {

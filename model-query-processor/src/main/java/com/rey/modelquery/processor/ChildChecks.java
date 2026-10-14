@@ -9,6 +9,8 @@ import com.rey.modelquery.processor.ModelDefinition.ModelField;
 import java.lang.annotation.Annotation;
 import java.util.List;
 import java.util.Set;
+import javax.lang.model.element.TypeElement;
+import javax.lang.model.type.DeclaredType;
 import javax.lang.model.util.Types;
 
 /**
@@ -51,6 +53,12 @@ final class ChildChecks {
             }
         }
         ModelDefinition child = nestedModels.child(field);
+        if (child == null && model.origin() != model.type() && field.child().model() != null
+                && !nestedModels.isModel((TypeElement) ((DeclaredType) field.child().model()).asElement())) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3026,
+                    where + ModelValidator.unbound(model, field.child().model()));
+            return;
+        }
         if (child == null) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3401, where + "@Child needs a List or Optional of a "
                     + "@QueryModel, found " + ModelValidator.display(field.type()));

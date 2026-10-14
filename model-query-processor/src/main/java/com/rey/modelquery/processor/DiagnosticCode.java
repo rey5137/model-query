@@ -91,6 +91,12 @@ enum DiagnosticCode {
      */
     MQ3025("Expression with no definition, or @BindExpression matching nothing"),
 
+    /**
+     * A model a bound model nests through {@code @Join} or holds through {@code @Child} is neither annotated
+     * {@code @QueryModel} nor bound by a {@code @BindQueryModel} of the compilation (R-PROC-31).
+     */
+    MQ3026("Nested model of a bound model neither annotated nor bound"),
+
     /** {@code modelquery.jspecify} is on, but JSpecify is not on the compile classpath; no annotation is generated. */
     MQ3027("modelquery.jspecify is on but JSpecify is not on the classpath"),
 

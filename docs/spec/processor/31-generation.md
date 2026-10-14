@@ -72,29 +72,32 @@ literal the processor could not validate is a diagnostic, never a guess (INV-3).
 `CustomerView` appears in `QOrderView.CUSTOMER` with no list to update by hand. The processor reads the nested model's
 own fields and refers to its QModel by name only, so the order in which models are processed does not matter (D-39).
 A nested model is mapped through its `MAPPER`, which is public, so it may live in another package, and it may be a
-source of the compilation or a compiled class on its classpath, provided its QModel is there too (D-45).
+source of the compilation or a compiled class on its classpath, provided its QModel is there too (D-45). A nested model
+bound in the compilation has its QModel in its binding's package, which the outer QModel names (`processor/30`
+R-PROC-31).
 
 **R-GEN-05** One model produces exactly one file, whose only originating element is that model's type, or for a bound
 model its binding's type or `package-info` (R-GEN-35), and the processor is registered as an **isolating** incremental
 processor for Gradle (D-39, D-140). JavaPoet is shaded into the processor jar (INV-7).
 
-**R-GEN-35** *(D-134, D-140, D-141)* **A bound model's QModel.** A model bound by `@BindQueryModel`, `@BindUpdateModel`
-or `@BindInsertModel` (`processor/30` R-PROC-28) has its QModel, and its change set when it has one, generated in the
-**binding's package**, the package of the type or `package-info` carrying the binding, named by the binding's `prefix`
-and `suffix` (D-44 rules unchanged) and the model's simple name: `com.acme.persistence.QOrderView`,
+**R-GEN-35** *(D-134, D-140, D-141, D-142)* **A bound model's QModel.** A model bound by `@BindQueryModel`,
+`@BindUpdateModel` or `@BindInsertModel` (`processor/30` R-PROC-28) has its QModel, and its change set when it has one,
+generated in the **binding's package**, the package of the type or `package-info` carrying the binding, named by the
+binding's `prefix` and `suffix` (D-44 rules unchanged) and the model's simple name: `com.acme.persistence.QOrderView`,
 `com.acme.persistence.OrderPatchChanges`. Their content is the annotated model's, imports apart: the model and its root
 are imported when they are in another package. Generating into the model's package would split that package across two
 modules. A converter or `ExpressionDefinition` without a public static `INSTANCE` needs a no-arg constructor visible
 from the binding's package (`MQ3014`, `MQ3018`). When that package is not the model's, the QModel reaches the model from
 outside it, so `MQ3024` is reported on the binding, and no QModel generated, when the model type or a type enclosing it
-is not public, or, for a class, a member the generated classes call is declared and not public: a query model's no-arg
-constructor, setter or `@Join` getter, and the getter of a column a change set's `from` or the insert members read
-(`generateChanges`, `generateInserts`, an insert model). An update model's class needs no more than its type: nothing
-generated calls it. This check runs once the model has validated, since the columns read are those the writers find; one
-that is missing is left to `MQ3008` or to javac, as on an annotated model (R-GEN-11, `processor/32` R-DIAG-06). A record
-needs only its type: the JLS makes a public record's canonical constructor and accessors public. A binding whose `model`
-is not a class or record is `MQ3024` too. In practice javac refuses a binding in another package that names a non-public
-model, except from a subclass's body for a `protected` member type.
+is not public, or the model a `@Join` nests or a `@Child` holds, or a type enclosing it, is not (R-PROC-31), or, for a
+class, a member the generated classes call is declared and not public: a query model's no-arg constructor, setter or
+`@Join` getter, and the getter of a column a change set's `from` or the insert members read (`generateChanges`,
+`generateInserts`, an insert model). An update model's class needs no more than its type: nothing generated calls it.
+This check runs once the model has validated, since the columns read are those the writers find; one that is missing is
+left to `MQ3008` or to javac, as on an annotated model (R-GEN-11, `processor/32` R-DIAG-06). A record needs only its
+type: the JLS makes a public record's canonical constructor and accessors public. A binding whose `model` is not a class
+or record is `MQ3024` too. In practice javac refuses a binding in another package that names a non-public model, except
+from a subclass's body for a `protected` member type.
 
 **R-GEN-24** Every QModel with a `@PrimaryKey` declares `KEY`, a `PrimaryKey` over its key columns
 (`PrimaryKey.composite` for several), which `query()` and an outer model's `presentBy` both use.

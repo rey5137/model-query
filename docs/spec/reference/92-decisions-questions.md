@@ -2021,6 +2021,23 @@ field's `@Computed` when it carries one, else to its `@Aggregate`; a valueless `
 message names `@BindQueryModel` for a bound model. `@BindUpdateModel` and `@BindInsertModel` take no `expressions`,
 since neither kind accepts `@Computed` or `@Aggregate`. → D-134, D-140, R-PROC-28, R-PROC-29, R-GEN-35.
 
+**D-142 — Nested models of a bound model, and bindings across rounds (M24.3, 2026-10-14).** A nested model (`@Join`,
+`@Child`) is one annotated `@QueryModel` or one a `@BindQueryModel` of the compilation binds. The lookup is the
+compilation's, not the outer model's, so an annotated model may nest a bound one too, and a QModel names a bound nested
+QModel in its binding's package. A model both annotated and bound nests as the annotated one (its binding is `MQ3023`);
+a model bound twice nests through its first binding while both report `MQ3023`. On a bound model a nested type that is
+neither is `MQ3026` on the field rather than `MQ3005` or `MQ3401`, so the message can name the binding, and a nested
+type that is not public is `MQ3024`, since the outer QModel names it from another package. A binding whose model's
+`root`, or a nested model's, names no class yet is deferred as D-107 defers an annotated model: the processor keeps
+where each binding is written, its type or package by name, and reads the bindings again each round, to retry the
+deferred ones and so that a nested model bound in an earlier round is still found; the last round reports `MQ3017` on
+the binding. The processor also remembers the names the bindings it generated in earlier rounds generate: a deferred
+binding, or a binding of a later round, that would generate one of them is `MQ3023` on it, and the earlier QModel
+stands; a binding deferred before its own `root` reads has no names yet and is checked when it is retried. Rejected:
+`MQ3017` at once (a persistence module whose entities another processor generates could bind nothing); letting only a
+bound model nest a bound one (an annotated model of the persistence module could not join an API model). Binding a
+nested model in another compilation stays Q-19. → D-45, D-107, D-134, D-141, R-PROC-30, R-PROC-31, R-GEN-35.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

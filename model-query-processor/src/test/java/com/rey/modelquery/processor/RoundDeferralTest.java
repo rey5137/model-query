@@ -21,7 +21,10 @@ import javax.tools.Diagnostic;
 import javax.tools.JavaFileObject;
 import org.junit.jupiter.api.Test;
 
-/** A model whose {@code root} another processor generates is deferred to a later round (D-107, R-DIAG-03). */
+/**
+ * A model whose {@code root} another processor generates is deferred to a later round, annotated or bound (D-107,
+ * R-DIAG-03, R-PROC-30).
+ */
 class RoundDeferralTest {
 
     /** The entity the test processor generates in the first round, which the models are rooted at. */
@@ -79,6 +82,41 @@ class RoundDeferralTest {
 
             @QueryModel(root = ParcelEntity.class)
             public record ParcelView(@PrimaryKey Long id, @Join Optional<ShipmentView> shipment) {}
+            """);
+
+    /** {@link #SHIPMENT_VIEW} as a model module writes it, bound in {@link #BINDINGS} (R-PROC-30). */
+    private static final JavaFileObject BOUND_SHIPMENT_VIEW = source("models.ShipmentView", """
+            package models;
+
+            import com.rey.modelquery.annotations.PrimaryKey;
+
+            public record ShipmentView(@PrimaryKey Long id, String carrier) {}
+            """);
+
+    /** {@link #PARCEL_VIEW} as a model module writes it, nesting the bound {@link #BOUND_SHIPMENT_VIEW}. */
+    private static final JavaFileObject BOUND_PARCEL_VIEW = source("models.ParcelView", """
+            package models;
+
+            import com.rey.modelquery.annotations.Join;
+            import com.rey.modelquery.annotations.PrimaryKey;
+            import java.util.Optional;
+
+            public record ParcelView(@PrimaryKey Long id, @Join Optional<ShipmentView> shipment) {}
+            """);
+
+    /** Binds both models, one rooted at the generated entity, the other nesting it (R-PROC-31). */
+    private static final JavaFileObject BINDINGS = source("persistence.Models", """
+            package persistence;
+
+            import com.rey.modelquery.annotations.BindQueryModel;
+            import gen.ShipmentEntity;
+            import models.ParcelEntity;
+            import models.ParcelView;
+            import models.ShipmentView;
+
+            @BindQueryModel(model = ShipmentView.class, root = ShipmentEntity.class)
+            @BindQueryModel(model = ParcelView.class, root = ParcelEntity.class)
+            final class Models {}
             """);
 
     /** Generates {@code gen.ShipmentEntity} in the first round, as an entity-generating processor would. */
@@ -147,5 +185,71 @@ class RoundDeferralTest {
                         tuple(Diagnostic.Kind.ERROR, DiagnosticCode.MQ3017.code(), ElementKind.RECORD,
                                 "models.ParcelView"));
         assertThat(processor.originating()).isEmpty();
+    }
+
+    @Test
+    void ac_proc_26_a_bound_model_rooted_at_a_generated_type_and_one_nesting_it_are_generated_in_a_later_round() {
+        Compilation compilation = javac()
+                .withProcessors(new ModelQueryProcessor(), new ShipmentGenerator())
+                .compile(BOUND_SHIPMENT_VIEW, PARCEL, BOUND_PARCEL_VIEW, BINDINGS);
+
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(compilation.generatedSourceFile("persistence.QShipmentView")).isPresent();
+        assertThat(compilation.generatedSourceFile("persistence.QParcelView")).isPresent();
+    }
+
+    @Test
+    void ac_proc_26_a_bound_model_whose_root_is_never_generated_reports_mq3017_on_its_binding() {
+        var processor = new ProcessorHarness.Recording();
+
+        Compilation compilation = processor.compile(BOUND_SHIPMENT_VIEW, PARCEL, BOUND_PARCEL_VIEW, BINDINGS);
+
+        assertThat(compilation).failed();
+        assertThat(errors(compilation)).contains(
+                "MQ3017: ShipmentView: root does not name a class, and no annotation processor generated one",
+                "MQ3017: ParcelView: nests ShipmentView, whose root does not name a class, and no annotation "
+                        + "processor generated one");
+        assertThat(processor.messages())
+                .extracting(
+                        ProcessorHarness.Recording.Message::kind,
+                        message -> message.text().substring(0, 6),
+                        message -> message.element().toString())
+                .containsExactly(
+                        tuple(Diagnostic.Kind.ERROR, DiagnosticCode.MQ3017.code(), "persistence.Models"),
+                        tuple(Diagnostic.Kind.ERROR, DiagnosticCode.MQ3017.code(), "persistence.Models"));
+        assertThat(processor.originating()).isEmpty();
+    }
+
+    @Test
+    void ac_proc_26_a_deferred_binding_generating_the_qmodel_name_an_earlier_round_generated_is_mq3023() {
+        JavaFileObject sameName = source("other.ShipmentView", """
+                package other;
+
+                import com.rey.modelquery.annotations.PrimaryKey;
+
+                public record ShipmentView(@PrimaryKey Long id) {}
+                """);
+        JavaFileObject sameNameBinding = source("persistence.OtherModels", """
+                package persistence;
+
+                import com.rey.modelquery.annotations.BindQueryModel;
+                import models.ParcelEntity;
+
+                @BindQueryModel(model = other.ShipmentView.class, root = ParcelEntity.class)
+                final class OtherModels {}
+                """);
+
+        var processor = new ProcessorHarness.Recording();
+
+        Compilation compilation = javac()
+                .withProcessors(processor, new ShipmentGenerator())
+                .compile(BOUND_SHIPMENT_VIEW, PARCEL, BOUND_PARCEL_VIEW, BINDINGS, sameName, sameNameBinding);
+
+        // The first round generates other.ShipmentView's QModel; the deferred binding finds the name taken (D-142).
+        assertThat(errors(compilation)).containsExactly("MQ3023: ShipmentView: @BindQueryModel on persistence.Models "
+                + "and @BindQueryModel of other.ShipmentView on persistence.OtherModels each generate "
+                + "persistence.QShipmentView; give one another prefix or package");
+        assertThat(processor.originating().get("persistence.QShipmentView")).singleElement()
+                .hasToString("persistence.OtherModels");
     }
 }
