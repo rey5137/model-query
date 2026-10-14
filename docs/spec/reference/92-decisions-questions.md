@@ -396,7 +396,7 @@ javac checks the generated call, as it does a setter (R-GEN-11). A column whose 
 (`Map<String, String>`) is declared with its raw class cast to that type, since it has no class literal. Rejected: `MQ3002` by
 assignability (it would let through what `MQ1001` refuses). → `processor/30` R-PROC-04, `processor/32` §1. Amended by
 D-136: a column over a to-one whose type is the target's single basic id type reads the foreign key instead of
-`MQ3002` (R-COL-29).
+`MQ3002` (R-COL-29); amended at the M22 gate (2026-10-14): a target with `@SQLRestriction` or `@Where` is `MQ3029`.
 
 **D-45 — What an outer model declares for its joins, and where a nested model may come from.**
 An outer QModel declares every join under a `@Join`, not only the join itself: for `OrderView.customer →
@@ -1688,7 +1688,8 @@ no opt-in: rejected are a `writeForeignKeys` member, a per-field opt-in, and cas
 into `@Join` or `@Child` (deferred past 1.0 by D-118; D-14, INV-1, INV-5). → `processor/30` R-PROC-19, `processor/31`
 R-GEN-19, R-GEN-21, AC-PROC-20, AC-GEN-28, Q-14. Amended by D-136: a column of the target's id type over a to-one
 reads its foreign key (R-COL-29), and `generateChanges`/`generateInserts` write that id form; the whole-entity and
-converted forms stay left out.
+converted forms stay left out. Amended by D-137: a runtime `groupBy` on a whole-entity to-one column is
+`MQ1410`.
 
 **D-125 — Insert columns a database fills (`@Generated`, `@ExcludeFromInserts`; RFC 0008 §1-§2).** `generateInserts`
 wrote every writable root column, so a `null` overrode a `DEFAULT`. R-PROC-26 now also leaves out a non-id root column
@@ -1869,8 +1870,33 @@ mapping (core sees only the JPA metamodel, so on an inverse, non-primary-key, fo
 implicit join is inner and drops rows; Q-20 keeps a provider-reported shortcut open); grouping a whole-entity column by
 its id implicitly; a `@ForeignKey` annotation; accepting the write filter's join on a non-primary-key mapping, or
 refusing only `isNull` and `notIn` there. New R-COL-29, R-PROC-33, `MQ1004`, `MQ3028`; AC-COL-34, AC-COL-35, AC-PROC-28,
-AC-GEN-33. M22, 0.9.0. → `api/10`, `api/11`, `api/14`, `processor/30..32`, `reference/90`, `mvp-plan` §23. ## 2. Open
-questions
+AC-GEN-33. M22, 0.9.0. → `api/10`, `api/11`, `api/14`, `processor/30..32`, `reference/90`, `mvp-plan` §23.
+
+Amended at the M22 gate (2026-10-14): the sub-queries of a read (`exists`, `in(subSelect)`, `exists(subSelect)`) read the
+id form through the `LEFT` join as the outer query does. `MQ1004` covers every clause the write statement renders: the
+`where`, the set clause (a `setExpression` or computed target and the columns read in it) and an upsert's
+`doUpdate(...).where(...)`. The provider fact is `ProviderSupport.foreignKeyColumn(emf, entity, toOne)`, returning the
+`@Incubating` enum `ForeignKeyColumn` (`LOCAL_COLUMN`, `JOINS`, `UNKNOWN`, default `UNKNOWN`) in place of
+`referencesPrimaryKey`: `LOCAL_COLUMN` means `toOne.id` renders as a column of the entity's own table, with no join and no
+formula, referencing the target's primary key; `model-query-hibernate` answers it only for the key side, a reference to
+the primary key, no not-found action on the mapping (orm.xml counts), no formula part and a key on the entity's own
+table, so a `@JoinFormula` write and a `@SecondaryTable` or `@JoinTable` key are `MQ1004`; core receives the answer as
+`ForeignKeyLookup`, and the `MQ1004` message says whether the provider reports it is not or cannot tell. The processor
+refuses `@JoinTable` and `@JoinColumn(table = "...")` with `MQ3002`, and refuses the id form over a target with
+`@SQLRestriction` or `@Where` (on the class or a mapped superclass) with the new `MQ3029`: a read takes the id from the
+`LEFT`-joined row, so a restricted target reads `null` while the foreign key holds a value, and `generateChanges` with
+`from(row)` would write `NULL` over a live key; `MQ3016` does not suggest the id form there. `MQ3029` stays until Q-20
+resolves. A runtime `@Filter` on the target is a documented caveat: the read then returns `null`. New `MQ3029`.
+Amended by D-137: a runtime `groupBy` on a whole-entity to-one column is `MQ1410` (the id form stays allowed).
+
+**D-137 — A runtime group by a whole-entity to-one column is refused (2026-10-14; amends D-136).** `groupBy` or a group
+key over a whole-entity to-one column (the D-124 form) is the new `MQ1410`, before any statement, since Hibernate groups
+by the foreign key and selects every entity column (PostgreSQL refuses it), as `MQ3028` refuses `@GroupBy` at compile
+time. The id form (D-136) stays allowed. This replaces D-136's acceptance of a runtime `groupBy` on a whole-entity column
+as a vendor-dependent database error. Decided by the user at the M22 gate. New `MQ1410`. M22, 0.9.0. → `api/13`,
+`reference/90`.
+
+## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
 
@@ -1957,7 +1983,8 @@ outer model. → `rfc/0012`, D-134.
 **Q-20 — A to-one's id read without a join.** Whether a read of the id form (D-136) renders the foreign-key column
 with no join where the provider reports the foreign key references the target's basic id directly (owning side, no
 `@NotFound`, no formula), a provider fact as D-117 and D-132 are. It reads the same rows as the `LEFT` join, so adding
-it changes no result; it would let a locked read of the id form through instead of `MQ2211`. → D-136.
+it changes no result; it would let a locked read of the id form through instead of `MQ2211`, and lift `MQ3029`, since
+the id would then come from the foreign-key column of the entity's own row. → D-136.
 
 ## 3. Risks
 

@@ -120,11 +120,27 @@ column (`CustomerEntity customer`) stays read-only in both, and `@GroupBy` on it
 
 The processor refuses, with `MQ3002` and the reason, the mappings whose foreign key is not the target's primary key or
 that Hibernate joins: the inverse side (`mappedBy`), a `referencedColumnName`, `@JoinColumns`, `@JoinFormula`,
-`@JoinColumnOrFormula`, `@NotFound`, a target with `@MapsId`, `@IdClass` or `@EmbeddedId`, and a to-one inside an
-embedded value. Read those through a `@Join`. The dotted `@Column(attribute = "referrer.id")` stays `MQ3001`. A
-bulk update or delete that filters by the id form renders the foreign-key column and takes no join; a hand-written
-column over a mapping the provider cannot confirm is `MQ1004` before any statement. See
+`@JoinColumnOrFormula`, `@NotFound`, `@JoinTable`, a `@JoinColumn(table = "...")`, a target with `@MapsId`, `@IdClass`
+or `@EmbeddedId`, and a to-one inside an embedded value. Read those through a `@Join`. The dotted
+`@Column(attribute = "referrer.id")` stays `MQ3001`. A bulk update or delete that uses the id form in its filter, its
+set clause or an upsert's `doUpdate(...).where(...)` renders the foreign-key column and takes no join; a hand-written
+column over a mapping the provider does not report as a column of the entity's own table referencing the target's
+primary key (a formula, a key on a `@SecondaryTable`, a `@NotFound`) is `MQ1004` before any statement. See
 [Migration recipes](recipes.md#read-and-write-a-foreign-key-by-id).
+
+The id comes from the `LEFT`-joined row, so a target whose entity has `@SQLRestriction` or `@Where` would read `null`
+for a foreign key that holds a value, and `generateChanges` with `from(row)` would then write `NULL` over it. The
+processor refuses that with `MQ3029`; read such a to-one through a `@Join`, or map the foreign key as a basic column on
+the entity. A runtime `@Filter` on the target has the same effect on a read and is not checked: the id reads `null`
+while the filter is enabled.
+
+The processor also refuses a `@JoinColumn(referencedColumnName = "id")` that names the primary key, since it can't tell
+that from another column, although the runtime accepts it. For such a mapping, write the column by hand:
+
+```java
+static final OrderedColumnField<OrderRow, OrderEntity, Long> REFERRER_ID =
+        ColumnField.of(OrderRow.class, QOrderRow.ROOT, "referrer", Long.class);
+```
 
 ## Hand-written columns
 

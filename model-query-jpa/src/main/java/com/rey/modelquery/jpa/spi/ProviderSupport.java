@@ -129,14 +129,15 @@ public interface ProviderSupport {
     }
 
     /**
-     * Whether, in {@code emf}, the to-one attribute {@code toOne} of {@code entity} has a foreign key on the entity's
-     * table referencing its target's primary key, so that a write's filter renders the path through it to the
-     * target's id as that column, with no join; empty, the default, when it cannot tell. A write whose filter reads a
-     * to-one by its id is refused with {@code MQ1004}, before any statement, unless it reports {@code true}
+     * How, in {@code emf}, the path of the to-one attribute {@code toOne} of {@code entity} to its target's id renders
+     * in a bulk statement: {@link ForeignKeyColumn#LOCAL_COLUMN} when as a column of the entity's own table, with no
+     * join or formula, referencing the target's primary key; {@link ForeignKeyColumn#JOINS} when not;
+     * {@link ForeignKeyColumn#UNKNOWN}, the default, when the provider cannot tell. A write that reads a to-one by its
+     * id is refused with {@code MQ1004}, before any statement, unless it reports {@code LOCAL_COLUMN}
      * (R-COL-29, D-136).
      */
     @Incubating
-    default Optional<Boolean> referencesPrimaryKey(EntityManagerFactory emf, Class<?> entity, String toOne) {
-        return Optional.empty();
+    default ForeignKeyColumn foreignKeyColumn(EntityManagerFactory emf, Class<?> entity, String toOne) {
+        return ForeignKeyColumn.UNKNOWN;
     }
 }

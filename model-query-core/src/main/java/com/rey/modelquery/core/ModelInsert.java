@@ -510,6 +510,29 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
     }
 
     /**
+     * Checks that each to-one column the {@code doUpdate} clause's {@code where} reads by its id, which the conflict
+     * action renders as the foreign-key column, takes no join, as {@link ModelUpdate#checkForeignKeys} does. Does
+     * nothing without a {@code where}. Call it once per factory, before any statement (D-136).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1004} naming the first column {@code lookup} does not report
+     * @implSpec R-COL-29
+     */
+    @EngineFacing
+    public void checkForeignKeys(CriteriaBuilder cb, RenderOptions options, ForeignKeyLookup lookup) {
+        Objects.requireNonNull(cb, "cb");
+        Objects.requireNonNull(options, "options");
+        Objects.requireNonNull(lookup, "lookup");
+        ConflictUpdate.Action<E, M> update = conflictUpdate();
+        if (update == null || definition.conflict().update().where().isEmpty()) {
+            return;
+        }
+        Root<E> scratch = cb.createCriteriaUpdate(rootEntity()).from(rootEntity());
+        JoinContext ctx = JoinContext.of(scratch, cb, null, options); // as buildConflictUpdate renders the where
+        ConditionGroup.toPredicates(definition.conflict().update().where(), ctx);
+        WriteRendering.checkForeignKeys(ctx, lookup);
+    }
+
+    /**
      * The columns a {@code doUpdate} clause's {@code where} reads that the update also assigns, the root's
      * {@code @Version} included unless {@code keepVersion()}, in the order assigned; empty for {@code doNothing()},
      * without a clause or without a {@code where}, the attributes of {@code written} the clause does not assign

@@ -377,6 +377,29 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
     }
 
     /**
+     * Whether this column reads a whole-entity to-one, the D-124 form, rather than its target's id: such a column has
+     * no portable group key (R-AGG-05, D-137).
+     */
+    boolean wholeEntityToOne(JoinContext ctx) {
+        if (liftedFrom != null || attribute.indexOf('.') >= 0) {
+            return false;
+        }
+        From<?, T> from = table.resolve(Objects.requireNonNull(ctx, "ctx"), this);
+        ManagedType<?> owner = managedType(from);
+        if (owner == null) {
+            return false;
+        }
+        Attribute<?, ?> found;
+        try {
+            found = owner.getAttribute(attribute);
+        } catch (IllegalArgumentException e) {
+            return false; // path(...) reports the missing attribute as MQ1002
+        }
+        return found instanceof SingularAttribute<?, ?> singular && singular.isAssociation()
+                && idOf(singular) == null;
+    }
+
+    /**
      * This column with {@code property} as the name of the model field it fills, which a sort property is matched
      * against (R-QRY-14). The column is otherwise the same, and equal to this one: the property is not part of
      * {@link #equals}.

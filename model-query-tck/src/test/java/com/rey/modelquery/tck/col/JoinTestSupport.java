@@ -30,6 +30,17 @@ public final class JoinTestSupport {
     }
 
     /**
+     * Like {@link #sessionFactory(TckDatabase)}, also mapping {@code extra}: an entity over more than one table makes
+     * Hibernate create bulk-id tables on H2 when the factory is built, so only the test that needs one maps it.
+     */
+    public static SessionFactory sessionFactory(TckDatabase db, Class<?>... extra) {
+        return build(new StandardServiceRegistryBuilder()
+                .applySetting(AvailableSettings.JAKARTA_JDBC_URL, db.jdbcUrl())
+                .applySetting(AvailableSettings.JAKARTA_JDBC_USER, db.username())
+                .applySetting(AvailableSettings.JAKARTA_JDBC_PASSWORD, db.password()), extra);
+    }
+
+    /**
      * A DataSource over {@code db} that opens a connection per call. A factory built on it names its DataSource, so
      * the executor can read {@code DatabaseMetaData} without {@code model-query-hibernate} (R-VND-04).
      */
@@ -124,11 +135,15 @@ public final class JoinTestSupport {
         }
     }
 
-    private static SessionFactory build(StandardServiceRegistryBuilder builder) {
+    private static SessionFactory build(StandardServiceRegistryBuilder builder, Class<?>... extra) {
         var registry = builder
                 .applySetting(AvailableSettings.HBM2DDL_AUTO, "none")
                 .build();
-        return new Configuration()
+        var configuration = new Configuration();
+        for (Class<?> entity : extra) {
+            configuration.addAnnotatedClass(entity);
+        }
+        return configuration
                 .addAnnotatedClass(CustomerEntity.class)
                 .addAnnotatedClass(OrderEntity.class)
                 .addAnnotatedClass(OrderArchiveEntity.class)

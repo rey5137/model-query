@@ -45,8 +45,8 @@ public interface ProviderSupport {                             // what a persist
 
     default Set<String> tablesOf(EntityManagerFactory emf, Class<?> entity) { return Set.of(); }
 
-    default Optional<Boolean> referencesPrimaryKey(EntityManagerFactory emf, Class<?> entity, String toOne) {
-        return Optional.empty();                               // R-VND-13, D-136
+    default ForeignKeyColumn foreignKeyColumn(EntityManagerFactory emf, Class<?> entity, String toOne) {
+        return ForeignKeyColumn.UNKNOWN;                       // R-VND-13, D-136
     }
 }
 ```
@@ -94,12 +94,14 @@ catalog and schema when it names none, to be compared ignoring case; empty when 
 `model-query-hibernate` reads them from the query spaces of the entity's persister and its subclasses'. The engine uses
 them in `jpa` only, to tell that a bulk write's sub-query reads a second entity sharing one of the root's tables
 (`api/14` R-WRT-11); `core` never sees a table name (INV-7).
-`@Incubating ProviderSupport.referencesPrimaryKey(emf, entity, toOne)` is a second mapping fact of the same kind
-(D-136): whether the to-one's foreign key is on the entity's table and references its target's primary key, so that a
-write's filter renders the path to the target's id as that column with no join; `Optional.empty()` when it cannot
-tell, the default. `model-query-hibernate` answers from the association's mapping (the key side, a reference to the
-primary key, no `@NotFound`). The executor refuses with `MQ1004` a write filter's to-one id the provider does not
-report so (`api/10` R-COL-29); `core` receives the answer as a function and never sees the provider.
+`@Incubating ProviderSupport.foreignKeyColumn(emf, entity, toOne)` is a second mapping fact of the same kind (D-136). It
+returns the `@Incubating` enum `ForeignKeyColumn`: `LOCAL_COLUMN` when `toOne.id` renders as a column of the entity's own
+table, with no join and no formula, referencing the target's primary key; `JOINS` when it renders a join (a key on
+another table, a formula, a reference to another column); `UNKNOWN` when the provider cannot tell, the default.
+`model-query-hibernate` answers `LOCAL_COLUMN` only for the key side, a reference to the primary key, no not-found
+action (checked on the mapping, so `orm.xml` counts), no formula part and a key on the entity's own table. The executor
+refuses with `MQ1004` a write's to-one id the provider does not answer `LOCAL_COLUMN` for (`api/10` R-COL-29); `core`
+receives the answer as the `@EngineFacing` `ForeignKeyLookup` and never sees the provider.
 
 **R-VND-14** Bulk inserts split the database facts from the provider mechanism as R-VND-12 does (D-117).
 `ProviderSupport#inserts()` returns an `Optional<InsertSupport>`, empty by default; `InsertSupport` lives in `jpa.spi`

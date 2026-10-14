@@ -10,6 +10,7 @@ import com.rey.modelquery.core.EntityLoad;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.ExpressionField;
 import com.rey.modelquery.core.FetchPlan;
+import com.rey.modelquery.core.ForeignKeyLookup;
 import com.rey.modelquery.core.JoinContext;
 import com.rey.modelquery.core.JoinField;
 import com.rey.modelquery.core.JoinPlan;
@@ -1096,8 +1097,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(u, "u");
         checkWriteOnce(u, metamodel -> {
             u.checkMetamodel(metamodel);
-            // A to-one read by its id in the filter: MQ1004 unless its foreign key renders with no join (D-136)
-            u.checkForeignKeys(em.getCriteriaBuilder(), renderOptions, this::referencesPrimaryKey);
+            // A to-one read by its id anywhere in the statement: MQ1004 unless its foreign key renders with no join
+            // (D-136)
+            u.checkForeignKeys(em.getCriteriaBuilder(), renderOptions, em::getReference, this::foreignKeyColumn);
         });
         // Each run: the renderer is this executor's, and the refusal comes before the flush or a key select (R-WRT-53)
         u.checkSequences(renderOptions);
@@ -1358,7 +1360,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         checkWriteOnce(d, metamodel -> {
             d.checkMetamodel(metamodel);
             // A to-one read by its id in the filter: MQ1004 unless its foreign key renders with no join (D-136)
-            d.checkForeignKeys(em.getCriteriaBuilder(), renderOptions, this::referencesPrimaryKey);
+            d.checkForeignKeys(em.getCriteriaBuilder(), renderOptions, this::foreignKeyColumn);
         });
         requireTransaction(d.entityMode() ? "an entity-mode delete" : "a bulk delete", d.chunkOptions());
         if (d.writesNothing()) {
@@ -1421,7 +1423,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * {@code asked}, each root to-one, which {@code checkReturning} accepts only read by its id, as the path to its
-     * target's id ({@code referrer.id}), which the provider maps to the foreign-key column (R-WRT-48, R-COL-29).
+     * target's id ({@code referrer.id}), which the provider maps to the foreign-key column (R-WRT-48, R-COL-29). It
+     * relies on {@code checkReturning} having run first, which refused every other to-one.
      */
     private List<String> throughIds(List<String> asked) {
         EntityType<E> root = em.getMetamodel().entity(rootEntity);
@@ -1432,12 +1435,16 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     }
 
     /**
-     * The provider's answer whether the to-one {@code toOne} of {@code entity} references its target's primary key,
-     * empty when no {@link ProviderSupport} serves this factory or it cannot tell (R-COL-29, D-136).
+     * The provider's answer how the to-one {@code toOne} of {@code entity} renders by its target's id, unknown when no
+     * {@link ProviderSupport} serves this factory (R-COL-29, D-136).
      */
-    private Optional<Boolean> referencesPrimaryKey(Class<?> entity, String toOne) {
+    private ForeignKeyLookup.Answer foreignKeyColumn(Class<?> entity, String toOne) {
         return vendor.providerSupport()
-                .flatMap(support -> support.referencesPrimaryKey(em.getEntityManagerFactory(), entity, toOne));
+                .map(support -> switch (support.foreignKeyColumn(em.getEntityManagerFactory(), entity, toOne)) {
+                    case LOCAL_COLUMN -> ForeignKeyLookup.Answer.LOCAL_COLUMN;
+                    case JOINS -> ForeignKeyLookup.Answer.JOINS;
+                    case UNKNOWN -> ForeignKeyLookup.Answer.UNKNOWN;
+                }).orElse(ForeignKeyLookup.Answer.UNKNOWN);
     }
 
     /** The {@code MQ1809} refusal of a returning write of {@code kind} combined with {@code clause} (R-WRT-50). */
@@ -1846,6 +1853,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         checkWriteOnce(i, metamodel -> {
             EntityManagerFactory emf = em.getEntityManagerFactory();
             i.checkMetamodel(metamodel);
+            // A to-one the doUpdate where reads by its id: MQ1004 unless its foreign key renders with no join (D-136)
+            i.checkForeignKeys(em.getCriteriaBuilder(), renderOptions, this::foreignKeyColumn);
             InsertChecks.checkTarget(i, insertTarget(support), i.sourceEntity().isPresent(),
                     i.writesId(metamodel));
             if (!i.conflictKeys().isEmpty()) {

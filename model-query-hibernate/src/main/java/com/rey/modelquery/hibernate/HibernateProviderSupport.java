@@ -7,6 +7,7 @@ import com.rey.modelquery.core.NullPrecedenceRenderer;
 import com.rey.modelquery.core.SequenceRenderer;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.EntityWriteSupport;
+import com.rey.modelquery.jpa.spi.ForeignKeyColumn;
 import com.rey.modelquery.jpa.spi.InsertSupport;
 import com.rey.modelquery.jpa.spi.LockSupport;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
@@ -19,7 +20,6 @@ import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Order;
 import java.io.Serializable;
-import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -31,7 +31,6 @@ import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
-import org.hibernate.annotations.NotFound;
 import org.hibernate.boot.model.naming.Identifier;
 import org.hibernate.boot.model.relational.SqlStringGenerationContext;
 import org.hibernate.boot.spi.SessionFactoryOptions;
@@ -46,6 +45,7 @@ import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.jpa.HibernateHints;
 import org.hibernate.metamodel.mapping.EntityAssociationMapping;
 import org.hibernate.metamodel.mapping.ForeignKeyDescriptor;
+import org.hibernate.persister.entity.EntityPersister;
 import org.hibernate.query.SortDirection;
 import org.hibernate.query.criteria.HibernateCriteriaBuilder;
 import org.hibernate.query.criteria.JpaCriteriaQuery;
@@ -199,25 +199,52 @@ public final class HibernateProviderSupport implements ProviderSupport {
     }
 
     /**
-     * Whether {@code toOne} of {@code entity} is a to-one whose foreign key is on the entity's table and references its
-     * target's primary key, from Hibernate's mapping, and whose member carries no {@code @NotFound}: then
-     * {@code toOne.id} in a bulk statement renders that column with no join, where a {@code referencedColumnName} of
-     * another column renders a join (the M22.1 spike). Empty for a type that is not an entity in {@code emf}, or an
-     * attribute that is not a to-one (R-COL-29, D-136).
+     * {@link ForeignKeyColumn#LOCAL_COLUMN} when {@code toOne} of {@code entity} is a to-one whose foreign key is on the
+     * entity's own table, in columns and not a formula, references its target's primary key and has no not-found
+     * action, from Hibernate's mapping: then {@code toOne.id} in a bulk statement renders that column with no join,
+     * where a {@code referencedColumnName} of another column, a join table, a secondary table, a formula or a
+     * not-found action renders a join (the M22.1 spike). {@code UNKNOWN} for a type that is not an entity in
+     * {@code emf}, or an attribute that is not a to-one (R-COL-29, D-136).
      */
     @Override
-    public Optional<Boolean> referencesPrimaryKey(EntityManagerFactory emf, Class<?> entity, String toOne) {
-        return sessionFactory(emf).map(sf -> sf.getMappingMetamodel().findEntityDescriptor(entity))
-                .map(persister -> persister.findAttributeMapping(toOne))
-                .filter(EntityAssociationMapping.class::isInstance).map(EntityAssociationMapping.class::cast)
-                .map(association -> association.getSideNature() == ForeignKeyDescriptor.Nature.KEY
-                        && association.isReferenceToPrimaryKey() && !notFound(emf, entity, toOne));
+    public ForeignKeyColumn foreignKeyColumn(EntityManagerFactory emf, Class<?> entity, String toOne) {
+        Optional<EntityPersister> persister = sessionFactory(emf)
+                .map(sf -> sf.getMappingMetamodel().findEntityDescriptor(entity));
+        Optional<EntityAssociationMapping> association = persister.map(p -> p.findAttributeMapping(toOne))
+                .filter(EntityAssociationMapping.class::isInstance).map(EntityAssociationMapping.class::cast);
+        if (association.isEmpty()) {
+            return ForeignKeyColumn.UNKNOWN;
+        }
+        EntityAssociationMapping mapping = association.get();
+        ForeignKeyDescriptor key = mapping.getForeignKeyDescriptor();
+        boolean[] formula = new boolean[1];
+        key.getKeyPart().forEachSelectable((index, selectable) -> formula[0] |= selectable.isFormula());
+        boolean local = mapping.getSideNature() == ForeignKeyDescriptor.Nature.KEY && mapping.isReferenceToPrimaryKey()
+                && !hasNotFoundAction(mapping) && !formula[0]
+                && sameTable(key.getKeyTable(), persister.get().getMappedTableDetails().getTableName());
+        return local ? ForeignKeyColumn.LOCAL_COLUMN : ForeignKeyColumn.JOINS;
     }
 
-    /** Whether the member of {@code toOne} on {@code entity} carries {@code @NotFound}, whose join Hibernate keeps. */
-    private static boolean notFound(EntityManagerFactory emf, Class<?> entity, String toOne) {
-        return emf.getMetamodel().entity(entity).getAttribute(toOne).getJavaMember() instanceof AnnotatedElement member
-                && member.isAnnotationPresent(NotFound.class);
+    /**
+     * Whether the mapping of a to-one carries a not-found action, which Hibernate joins whatever the column: asked of
+     * {@code ToOneAttributeMapping#hasNotFoundAction}, an internal type that only the mutation adapters may import
+     * (R-WRT-50), so by name; {@code true}, the joining answer, when the method is absent or fails.
+     */
+    private static boolean hasNotFoundAction(EntityAssociationMapping mapping) {
+        try {
+            return (boolean) mapping.getClass().getMethod("hasNotFoundAction").invoke(mapping);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return true;
+        }
+    }
+
+    /** Whether two table names name one table, ignoring quoting and case. */
+    private static boolean sameTable(String a, String b) {
+        return a != null && b != null && unquoted(a).equalsIgnoreCase(unquoted(b));
+    }
+
+    private static String unquoted(String name) {
+        return name.replaceAll("[\"`\\[\\]]", "");
     }
 
     /** The query spaces of {@code entity} and its subtypes in {@code sf}, as {@link #normalised} names. */

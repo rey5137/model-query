@@ -21,7 +21,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.BiFunction;
 
 /**
  * What {@link ModelUpdate} and {@link ModelDelete} share: the predicate choosing a write's rows, and the checks of a
@@ -114,6 +113,7 @@ final class WriteRendering {
         Root<E> inner = sub.from(root.getModel().getJavaType());
         JoinContext innerCtx = JoinContext.of(inner, cb, sub, options);
         List<Predicate> tree = ConditionGroup.toPredicates(where, innerCtx);
+        ctx.adoptForeignKeyReads(innerCtx); // a read in the sub-query is a read of the statement
         if (inner.getJoins().isEmpty()) {
             // Rendered again on the statement's root; the sub-query is dropped unused.
             predicates.addAll(ConditionGroup.toPredicates(where, ctx));
@@ -154,28 +154,25 @@ final class WriteRendering {
     }
 
     /**
-     * Refuses a to-one column the {@code where} tree reads by its id, which a write renders as the foreign-key column,
-     * unless {@code referencesPrimaryKey}, the provider's answer for an entity and its to-one attribute, reports that
-     * the foreign key references the target's primary key: else the provider joins the target, which drops the rows
-     * whose foreign key is {@code NULL} (R-COL-29, D-136). Rendered into a scratch query, as
-     * {@link #entitiesReadInSubquery} is.
+     * Refuses a to-one column a statement rendered by its id, which a write renders as the foreign-key column, unless
+     * {@code lookup}, the executor's answer for an entity and its to-one attribute, reports that it is a column of
+     * the entity's own table with no join: else the provider joins the target, which drops the rows whose foreign key
+     * is {@code NULL} (R-COL-29, D-136). {@code ctx} is the context that rendered the whole statement, so every clause
+     * it renders is covered.
      *
      * @throws ModelQueryDefinitionException {@code MQ1004} naming the first such column
      */
-    static void checkForeignKeys(List<Filter> where, Class<?> entity, CriteriaBuilder cb, RenderOptions options,
-            BiFunction<Class<?>, String, Optional<Boolean>> referencesPrimaryKey) {
-        if (where.isEmpty()) {
-            return;
-        }
-        Probe probe = probe(where, cb.createQuery(), entity, cb, options);
-        probe.ctx().foreignKeyReads().forEach((column, owner) -> {
-            Optional<Boolean> answer = referencesPrimaryKey.apply(owner, column.name());
-            if (!answer.orElse(false)) {
-                throw new ModelQueryDefinitionException(MqCode.MQ1004, column + ": a write's filter reads the to-one "
-                        + owner.getSimpleName() + "." + column.name() + " by its id as its foreign-key column, which "
-                        + "takes no join only when the foreign key references its target's primary key, and the "
-                        + "provider " + (answer.isPresent() ? "reports that it does not" : "cannot tell")
-                        + "; filter on a column of the joined target instead");
+    static void checkForeignKeys(JoinContext ctx, ForeignKeyLookup lookup) {
+        ctx.foreignKeyReads().forEach((read, column) -> {
+            ForeignKeyLookup.Answer answer = lookup.answer(read.entity(), read.attribute());
+            if (answer != ForeignKeyLookup.Answer.LOCAL_COLUMN) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1004, column + ": a write reads the to-one "
+                        + read.entity().getSimpleName() + "." + read.attribute() + " by its id as its foreign-key "
+                        + "column, which takes no join only when it is a column of the entity's own table "
+                        + "referencing its target's primary key, and "
+                        + (answer == ForeignKeyLookup.Answer.JOINS ? "the provider reports that it is not"
+                                : "the provider cannot tell")
+                        + "; read a column of the joined target instead");
             }
         });
     }

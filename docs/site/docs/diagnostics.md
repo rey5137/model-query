@@ -44,7 +44,7 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1001` | A column's declared type does not match the entity attribute. |
 | `MQ1002` | An attribute named by a column or join does not exist on its entity. |
 | `MQ1003` | A column or table sits on a root entity the query is not rooted at. |
-| `MQ1004` | A write's filter reads a to-one by its id, but its foreign key does not reference the target's primary key. |
+| `MQ1004` | A write reads a to-one by its id in its filter, set clause or an upsert's `doUpdate(...).where(...)`, but the provider does not report the foreign key as a column of the entity's own table referencing the target's primary key. The message says "the provider reports that it is not" or "the provider cannot tell". |
 | `MQ1101` | Two TableFields share a join key but carry different `on(...)` conditions. |
 | `MQ1102` | `on(...)` used without `as(...)`. |
 | `MQ1103` | Two `Agg.of` fields share a name with different expressions. |
@@ -74,6 +74,7 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1407` | Grouped query: `having(...)` on an ungrouped query. |
 | `MQ1408` | Grouped query: aggregate function over a column with a ColumnConverter (`sum`, `sumAsLong` and `avg`; `min`, `max` and `countDistinct` take an `OrderedColumnField` and do not compile over any other converted column). |
 | `MQ1409` | Grouped query: column selected under a `presentBy` join whose key columns are not all group keys. |
+| `MQ1410` | Runtime `groupBy` or group key over a column that selects a whole to-one entity. Group by the id form instead. |
 | `MQ1701` | A fetch plan's join plan whose join has no column of the query's selection at or below it. |
 | `MQ1702` | A column a fetch plan needs (a child's key, an enricher's column) is read through a to-many join; checked on first execution, and `count` logs a warning instead. |
 | `MQ1703` | A fetch plan names the same child or join twice. |
@@ -157,6 +158,7 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3021` | `@Selected` combined with another field annotation of the library. |
 | `MQ3022` | Warning: a `@FilterColumn` whose key in `fields()` a mapped column, a `@Computed` field or another `@FilterColumn` already holds is left out of `fields()` and stays a constant. |
 | `MQ3028` | `@GroupBy` on a column that selects a whole to-one entity. Group by the id form instead: `@Column(attribute = "customer") Long customerId`. |
+| `MQ3029` | The id form of a to-one whose target has `@SQLRestriction` or `@Where`: a read would take a `null` id from a restricted row while the foreign key holds a value. Read it through a `@Join`. |
 | `MQ3201` | Aggregate model: field is primitive. |
 | `MQ3202` | Aggregate model: field type does not match the function's result type. |
 | `MQ3203` | Aggregate model: no `@GroupBy` field and is not `singleGroup`. |

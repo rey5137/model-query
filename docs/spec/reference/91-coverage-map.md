@@ -126,3 +126,9 @@ RFC 0004 (rey5137/model-query#29) is mapped the same way, by its own sections, a
 | RFC 0010 (D-129) | §4 `Expr.nextval`; R-COL-28, R-VND-18, AC-COL-33, code `MQ1509` | `api/10` R-COL-28, `vendor/40` R-VND-18, `reference/90` §2 |
 | RFC 0010 (D-130) | §4 amended, `nextval` in writes through `setExpression(column, ExpressionField)`; R-WRT-53, AC-WRT-46, code `MQ1613`; `Assignment.Computed` | `api/10` R-COL-28, `api/14` R-WRT-53, `reference/90` §2, `delivery/61` |
 | RFC 0010 (D-130) | §4 amended, computed insert values through `InsertSupport`'s six-argument `insertValues` | `vendor/40` R-VND-14 |
+| LitePOS gaps §3 M17 | docs and TCK for what already works (Gradle tab, view root, runtime `groupBy`, `date_trunc`, counter update) | `docs/site`, `delivery/60` |
+| LitePOS gaps §3 M18 | row locks on reads (rows 1, 2); D-127 | `api/11` R-QRY-17, `engine/20` R-EXE-14 |
+| LitePOS gaps §3 M19 | literal filters and bound arguments (rows 6, 9, 11); D-128 | `api/12` R-FLT-19, `api/10` R-COL-26, R-COL-27 |
+| LitePOS gaps §3 M20 | `RETURNING` and conflict extensions (rows 3, 4, 5, 8); D-129, D-130, D-131 | `api/10` R-COL-28, `api/14` R-WRT-50, R-WRT-53 |
+| LitePOS gaps §3 M21 | F4 generated-code nullness; D-135 | `processor/30` R-PROC-32, `processor/31` R-GEN-36 |
+| LitePOS gaps §1, §3 M22 | F2 / sugg. 10, scalar FK (Q-14); D-136, D-137 | `api/10` R-COL-29, `processor/30` R-PROC-33, `api/13` R-AGG-15, `reference/90` §2 |

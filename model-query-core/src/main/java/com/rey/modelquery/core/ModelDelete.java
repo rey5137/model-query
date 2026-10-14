@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.BiFunction;
 import java.util.function.UnaryOperator;
 
 /**
@@ -179,21 +178,20 @@ public final class ModelDelete<E, M> {
     }
 
     /**
-     * Checks that each to-one column the {@code where} tree reads by its id, which the statement renders as the
-     * foreign-key column, takes no join: {@code referencesPrimaryKey}, the provider's answer for an entity and its
-     * to-one attribute, empty when it cannot tell, must report that the foreign key references the target's primary
-     * key. Call it once per factory, before any statement (D-136).
+     * Checks that each to-one column the statement reads by its id, which it renders as the foreign-key column, takes
+     * no join: {@code lookup}, the executor's answer for an entity and its to-one attribute, must report a column of
+     * the entity's own table. It renders the statement, so every clause is covered, the {@code SET} included. Call it
+     * once per factory, before any statement (D-136).
      *
      * @throws ModelQueryDefinitionException {@code MQ1004} naming the first column it does not report
      * @implSpec R-COL-29
      */
     @EngineFacing
-    public void checkForeignKeys(CriteriaBuilder cb, RenderOptions options,
-            BiFunction<Class<?>, String, Optional<Boolean>> referencesPrimaryKey) {
+    public void checkForeignKeys(CriteriaBuilder cb, RenderOptions options, ForeignKeyLookup lookup) {
         Objects.requireNonNull(cb, "cb");
         Objects.requireNonNull(options, "options");
-        Objects.requireNonNull(referencesPrimaryKey, "referencesPrimaryKey");
-        WriteRendering.checkForeignKeys(definition.rows().where(), rootEntity(), cb, options, referencesPrimaryKey);
+        Objects.requireNonNull(lookup, "lookup");
+        WriteRendering.checkForeignKeys(render(cb, options, null, false).joins(), lookup);
     }
 
     /** The primary key the delete chooses rows by, whose columns a key select reads (D-63). */

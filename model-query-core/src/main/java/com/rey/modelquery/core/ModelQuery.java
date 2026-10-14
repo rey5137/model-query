@@ -512,6 +512,13 @@ public final class ModelQuery<E, K, M> {
             query.orderBy(orders);
         }
         if (!groupBy.isEmpty()) {
+            for (ScalarField<M, ?> key : groupBy) {
+                if (key instanceof ColumnField<?, ?, ?> column && column.wholeEntityToOne(joins)) {
+                    throw new ModelQueryDefinitionException(MqCode.MQ1410, column + ": a group key reads the to-one "
+                            + column.name() + " as its whole entity, which has no portable GROUP BY; group by its "
+                            + "id with a column of the target's id type, or by a column of the joined target");
+                }
+            }
             query.groupBy(groupBy.stream()
                     .<Expression<?>>map(key -> joins.withoutSequences(() -> key.expression(joins))).toList());
         }
@@ -1040,6 +1047,8 @@ public final class ModelQuery<E, K, M> {
          *     missing from the group-by
          * @throws ModelQueryDefinitionException {@code MQ1409} for a grouped query selecting a column under a
          *     {@code presentBy} join whose key columns are not all group keys
+         * @throws ModelQueryDefinitionException {@code MQ1410} (when rendered, before any statement) for a group key
+         *     that reads a whole-entity to-one, not its id
          * @throws ModelQueryDefinitionException {@code MQ1406} for an ordering key that does not fit the grouping
          * @throws ModelQueryDefinitionException {@code MQ1103} for two {@code Agg.of} fields sharing a name with
          *     different expressions
