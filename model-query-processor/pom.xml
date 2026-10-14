@@ -90,19 +90,6 @@
             <version>${jspecify.version}</version>
             <scope>test</scope>
         </dependency>
-        <!-- NullAway runs over the generated code compiled with modelquery.jspecify on (AC-GEN-32). -->
-        <dependency>
-            <groupId>com.google.errorprone</groupId>
-            <artifactId>error_prone_core</artifactId>
-            <version>${errorprone.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.uber.nullaway</groupId>
-            <artifactId>nullaway</artifactId>
-            <version>${nullaway.version}</version>
-            <scope>test</scope>
-        </dependency>
         <!-- The tests run the processor beside Lombok (D-40, processor/31 R-GEN-10). -->
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -219,4 +206,29 @@
             </plugin>
         </plugins>
     </build>
+    <profiles>
+        <!-- NullAway runs over the generated code compiled with modelquery.jspecify on (AC-GEN-32). Error Prone needs
+             JDK 21, and javac on JDK 17 would load its plugin from the test class path and fail, so the dependencies
+             and NullAwayTest are JDK 21 only. -->
+        <profile>
+            <id>nullaway</id>
+            <activation>
+                <jdk>[21,)</jdk>
+            </activation>
+            <dependencies>
+                <dependency>
+                    <groupId>com.google.errorprone</groupId>
+                    <artifactId>error_prone_core</artifactId>
+                    <version>${errorprone.version}</version>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>com.uber.nullaway</groupId>
+                    <artifactId>nullaway</artifactId>
+                    <version>${nullaway.version}</version>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+        </profile>
+    </profiles>
 </project>
