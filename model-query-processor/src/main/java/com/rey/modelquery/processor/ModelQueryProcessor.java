@@ -2,10 +2,12 @@ package com.rey.modelquery.processor;
 
 import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.processor.ModelBindings.Binding;
+import com.rey.modelquery.processor.ModelBindings.Origin;
 import com.rey.modelquery.processor.ModelDefinition.Kind;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -13,6 +15,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.RoundEnvironment;
 import javax.annotation.processing.SupportedAnnotationTypes;
@@ -61,6 +64,18 @@ public final class ModelQueryProcessor extends AbstractProcessor {
      */
     private final Map<String, String> annotatedFiles = new LinkedHashMap<>();
 
+    /** Where the bindings of this round and earlier ones are written, to read them again in a later round. */
+    private final Set<Origin> origins = new LinkedHashSet<>();
+
+    /** The bindings whose model's {@code root}, or a nested model's, named no class in the round before (D-107). */
+    private final List<DeferredBinding> deferredBindings = new ArrayList<>();
+
+    /**
+     * The qualified names the bindings generated in an earlier round generate, each with its binding: a binding of a
+     * later round generating one of them is {@code MQ3023} (D-142).
+     */
+    private final Map<String, String> boundFiles = new LinkedHashMap<>();
+
     @Override
     public SourceVersion getSupportedSourceVersion() {
         return SourceVersion.latestSupported();
@@ -70,9 +85,21 @@ public final class ModelQueryProcessor extends AbstractProcessor {
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
         var types = processingEnv.getTypeUtils();
         var reader = new QueryModelReader(processingEnv.getOptions(), types);
-        var nestedModels = new NestedModels(reader);
-        var metamodel = new EntityMetamodel(types, processingEnv.getElementUtils());
         var elements = processingEnv.getElementUtils();
+        // The bindings of earlier rounds are read again from where they are written; with this round's they are the
+        // compilation's, whose query models any model may nest (R-PROC-31).
+        List<Element> current = ModelBindings.origins(roundEnv);
+        List<Binding> earlier = ModelBindings.on(
+                origins.stream().map(origin -> origin.find(elements)).filter(Objects::nonNull).toList());
+        current.forEach(origin -> origins.add(Origin.of(origin)));
+        List<Binding> fresh = ModelBindings.on(current);
+        Map<String, Binding> bound = new HashMap<>();
+        Stream.concat(earlier.stream(), fresh.stream())
+                .filter(binding -> binding.kind() == Kind.QUERY && ModelBindings.modelType(binding) != null)
+                .forEach(binding -> bound.putIfAbsent(
+                        ModelBindings.modelType(binding).getQualifiedName().toString(), binding));
+        var nestedModels = new NestedModels(reader, bound);
+        var metamodel = new EntityMetamodel(types, elements);
         var builtIns = new BuiltInConverters(elements);
         if (nullness == null) {
             nullness = nullness(elements);
@@ -110,7 +137,17 @@ public final class ModelQueryProcessor extends AbstractProcessor {
                 }
             }
         }
-        bindings(ModelBindings.in(roundEnv), round);
+        var bindings = new ArrayList<Binding>();
+        var retriedBindings = List.copyOf(deferredBindings);
+        deferredBindings.clear();
+        for (DeferredBinding deferredBinding : retriedBindings) {
+            earlier.stream().filter(deferredBinding::matches).findFirst().ifPresentOrElse(bindings::add,
+                    () -> new Diagnostics(processingEnv.getMessager()).error(DiagnosticCode.MQ3017,
+                            deferredBinding.model() + ", bound on " + deferredBinding.origin().name()
+                                    + ": could not be resolved: " + ROOT_UNRESOLVED));
+        }
+        bindings.addAll(fresh);
+        bindings(bindings, round);
         return false;
     }
 
@@ -118,6 +155,7 @@ public final class ModelQueryProcessor extends AbstractProcessor {
      * Generates each bound model, unless it is bound twice for one kind or also carries a model annotation, which is
      * {@code MQ3023} on each of its bindings of that kind, or its binding would generate a class of one name with
      * another binding or an annotated model, which is {@code MQ3023} on each of those bindings (R-PROC-28, D-141).
+     * {@code bindings} are the round's and those deferred from the round before (D-142).
      */
     private void bindings(List<Binding> bindings, Round round) {
         var diagnostics = new Diagnostics(processingEnv.getMessager());
@@ -157,10 +195,10 @@ public final class ModelQueryProcessor extends AbstractProcessor {
 
     /**
      * The bound models whose binding would generate a class of one qualified name with another binding of the round,
-     * of this model or another, or with an annotated model read so far: {@code MQ3023} once on each of those
-     * bindings, instead of the {@code Filer}'s refusal, and the annotated model still generates its own (D-141). A
-     * model whose root names no class is left to {@code MQ3017}; a class already on the classpath to the
-     * {@code Filer}.
+     * of this model or another, with a binding generated in an earlier round, or with an annotated model read so far:
+     * {@code MQ3023} once on each of those bindings, instead of the {@code Filer}'s refusal, and the annotated model
+     * or the earlier binding still generates its own (D-141, D-142). A model whose root names no class yet is checked
+     * once it does; a class already on the classpath is left to the {@code Filer}.
      */
     private Set<BoundModel> clashing(List<BoundModel> read, Diagnostics diagnostics) {
         Map<String, List<BoundModel>> byFile = new LinkedHashMap<>();
@@ -170,7 +208,8 @@ public final class ModelQueryProcessor extends AbstractProcessor {
         var clashing = new LinkedHashSet<BoundModel>();
         for (BoundModel bound : read) {
             List<String> clashed = files(bound.model()).stream()
-                    .filter(file -> byFile.get(file).size() > 1 || annotatedFiles.containsKey(file))
+                    .filter(file -> byFile.get(file).size() > 1 || annotatedFiles.containsKey(file)
+                            || boundFiles.containsKey(file))
                     .toList();
             if (clashed.isEmpty()) {
                 continue;
@@ -182,7 +221,8 @@ public final class ModelQueryProcessor extends AbstractProcessor {
                             + (other.type().equals(bound.type()) ? "" : " of " + other.type().getQualifiedName())
                             + " on " + ModelBindings.name(other.binding().origin()))
                     .toList());
-            clashed.stream().map(annotatedFiles::get).filter(Objects::nonNull).distinct().forEach(generators::add);
+            Stream.concat(clashed.stream().map(boundFiles::get), clashed.stream().map(annotatedFiles::get))
+                    .filter(Objects::nonNull).distinct().forEach(generators::add);
             boolean qModels = clashed.stream().noneMatch(file -> file.endsWith("." + bound.model().changesName()));
             diagnostics.error(bound.binding().origin(), DiagnosticCode.MQ3023, bound.type().getSimpleName() + ": "
                     + String.join(" and ", generators) + " each generate " + String.join(" and ", clashed) + "; "
@@ -201,8 +241,8 @@ public final class ModelQueryProcessor extends AbstractProcessor {
     }
 
     /**
-     * Generates one bound model in its binding's package. A {@code root}, or a nested model's, that names no class is
-     * {@code MQ3017} on the binding at once: it is not deferred to a later round (D-107).
+     * Generates one bound model in its binding's package, or defers it to the next round while its {@code root}, or a
+     * nested model's, names no class yet; the last round reports it on the binding instead (D-107).
      */
     private void generate(BoundModel bound, Round round) {
         Binding binding = bound.binding();
@@ -211,11 +251,19 @@ public final class ModelQueryProcessor extends AbstractProcessor {
         var diagnostics = new Diagnostics(processingEnv.getMessager());
         TypeElement unresolved = model == null ? type : round.nestedModels().unresolved(model);
         if (unresolved != null) {
+            if (!round.last()) {
+                deferredBindings.add(new DeferredBinding(Origin.of(binding.origin()), binding.kind(),
+                        binding.model().toString()));
+                return;
+            }
             diagnostics.error(binding.origin(), DiagnosticCode.MQ3017, type.getSimpleName() + ": "
                     + (unresolved == type ? ROOT_UNRESOLVED : "nests " + unresolved.getSimpleName() + ", whose "
                             + ROOT_UNRESOLVED));
             return;
         }
+        String generator = "@" + ModelBindings.annotation(binding.kind()).getSimpleName() + " of "
+                + type.getQualifiedName() + " on " + ModelBindings.name(binding.origin());
+        files(model).forEach(file -> boundFiles.put(file, generator));
         ModelBindings.checkExpressions(binding, type, diagnostics);
         validateAndWrite(model, diagnostics, round);
     }
@@ -301,6 +349,15 @@ public final class ModelQueryProcessor extends AbstractProcessor {
 
     /** A model deferred to the next round, by qualified name, and the annotation it carries (D-107). */
     private record Deferred(String name, Kind kind) {}
+
+    /** A binding deferred to the next round: where it is written, its kind and the model it names (D-107). */
+    private record DeferredBinding(Origin origin, Kind kind, String model) {
+
+        boolean matches(Binding binding) {
+            return Origin.of(binding.origin()).equals(origin) && binding.kind() == kind
+                    && binding.model().toString().equals(model);
+        }
+    }
 
     /** What one round reads, checks and writes models with. */
     private record Round(

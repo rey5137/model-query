@@ -9,7 +9,6 @@ import com.rey.modelquery.annotations.ExcludeFromInserts;
 import com.rey.modelquery.annotations.GroupBy;
 import com.rey.modelquery.annotations.Join;
 import com.rey.modelquery.annotations.PrimaryKey;
-import com.rey.modelquery.annotations.QueryModel;
 import com.rey.modelquery.annotations.Transient;
 import com.rey.modelquery.processor.EntityMetamodel.Resolution;
 import com.rey.modelquery.processor.ModelDefinition.AggregateDefinition;
@@ -608,6 +607,15 @@ final class ModelValidator {
     }
 
     /**
+     * Why the model a bound model nests or holds is none: it is neither annotated nor bound in this compilation
+     * ({@code MQ3026}, R-PROC-31).
+     */
+    static String unbound(ModelDefinition model, TypeMirror nested) {
+        return display(nested) + " is neither annotated @QueryModel nor bound by @BindQueryModel in this compilation; "
+                + "bind it with @BindQueryModel, as " + ModelBindings.name(model.origin()) + " binds " + model.name();
+    }
+
+    /**
      * Checks one {@code @Join} and returns the model it nests, or {@code null} when the join cannot be generated:
      * {@code MQ3005} for the field's type, {@code MQ3003} for the association, {@code MQ3006} for a nested model
      * without a key, {@code MQ3007} for a cycle.
@@ -617,10 +625,13 @@ final class ModelValidator {
         ModelDefinition nested = nestedModels.of(field);
         if (join.nested() == null) {
             boolean isModel = field.type().getKind() == TypeKind.DECLARED
-                    && ((DeclaredType) field.type()).asElement().getAnnotation(QueryModel.class) != null;
+                    && nestedModels.isModel((TypeElement) ((DeclaredType) field.type()).asElement());
             String expected = isModel ? "Optional<" + display(field.type()) + ">" : "Optional<X> of a @QueryModel X";
             diagnostics.error(field.element(), DiagnosticCode.MQ3005,
                     where + "@Join field must be " + expected + ", found " + display(field.type()));
+        } else if (nested == null && model.origin() != model.type()
+                && !nestedModels.isModel((TypeElement) ((DeclaredType) join.nested()).asElement())) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3026, where + unbound(model, join.nested()));
         } else if (nested == null) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3005,
                     where + display(join.nested()) + " is not a @QueryModel");

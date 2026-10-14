@@ -18,6 +18,11 @@ Nothing is frozen yet: every public type stays `@Incubating`. The additions belo
   another binding, of any model, or with an annotated model in the compilation (which still generates its own); a model,
   no-arg constructor, setter, `@Join` getter or column getter the generated classes can't reach from that package is
   `MQ3024`.
+- A bound model may nest, through `@Join` or `@Child`, a model that is annotated or bound in the same compilation, and
+  its QModel names the nested QModel in that binding's package (R-PROC-31, D-142); any model may nest a bound one. On a
+  bound model, a nested model that is neither is the new `MQ3026`, and one that is not public is `MQ3024`. A binding
+  whose root, or a nested model's, another processor generates is retried in a later round as an annotated model is
+  (D-107), and reports `MQ3017` on the binding if the class never appears.
 - `@Computed.value` defaults to `void.class` (source and binary compatible), and `@BindQueryModel(expressions =
   @BindExpression(field = "net", value = RowNet.class))` supplies the `ExpressionDefinition` of a bound model's
   valueless `@Computed`, or turns an `@Aggregate` into an expression aggregate, since the model's module cannot compile
