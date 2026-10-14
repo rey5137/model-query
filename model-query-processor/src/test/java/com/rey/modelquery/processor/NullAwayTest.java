@@ -14,11 +14,15 @@ import java.util.List;
 import java.util.stream.Stream;
 import javax.tools.JavaFileObject;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledForJreRange;
+import org.junit.jupiter.api.condition.JRE;
 
 /**
  * The generated code under {@code -Amodelquery.jspecify=true} is accepted by NullAway in JSpecify mode (processor/31
- * R-GEN-36, AC-GEN-32). The flags below are the ones docs/site/docs/models.md shows.
+ * R-GEN-36, AC-GEN-32). The flags below are the ones docs/site/docs/models.md shows. Error Prone needs JDK 21, so the
+ * test runs there only (the pom's nullaway profile).
  */
+@EnabledForJreRange(min = JRE.JAVA_21)
 class NullAwayTest {
 
     private static final List<String> OPTIONS = List.of(

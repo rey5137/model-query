@@ -232,7 +232,7 @@ class PortabilityCheckTest {
         AtomicBoolean closed = new AtomicBoolean();
         check().call("lazy stream", CustomerEntity.class, x -> Stream.of(1)
                         .map(one -> x.list(Swept.ALL, Limit.unlimited())).onClose(() -> closed.set(true)))
-                .call("lazy iterator", CustomerEntity.class, x -> new Iterator<>() {
+                .call("lazy iterator", CustomerEntity.class, x -> new Iterator<Object>() {
                     @Override
                     public boolean hasNext() {
                         return true;
