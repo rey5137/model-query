@@ -115,6 +115,7 @@ writes do.
 | Property | Default | `ModelQueryConfig` method | Meaning |
 |---|---|---|---|
 | `modelquery.vendor` | detected | `vendor(...)` | Overrides database detection; matched ignoring case, `-` and `_`. |
+| `modelquery.target-vendors` | undeclared | `targetVendors(String...)` | Vendors every eager factory must be on, checked at startup; see below and [Vendor notes](vendors.md). |
 | `modelquery.export.page-size` | `1000` | `exportPageSize(int)` | Default export page size. |
 | `modelquery.primary-key-first.batch-size` | the whole page | `primaryKeyFirstBatchSize(int)` | Step-2 batch size, clamped per vendor. |
 | `modelquery.stream.fetch-size` | `500` | `streamFetchSize(int)` | Ignored by MySQL in `row-by-row` mode. |
@@ -133,6 +134,28 @@ A value outside its allowed range fails with `MQ4003`.
     ordering the library does not know (`OTHER`). The starter logs a warning once at startup when it is set. Prefer
     explicit null precedence on the column.
 
+### Checking target vendors at startup
+
+With `modelquery.target-vendors` set, the starter checks each eager `EntityManagerFactory` bean as soon as it is
+initialised against that list. When one factory is on another vendor, the starter checks the other factories too and
+fails startup with one `MQ4012` naming every failing bean.
+
+The startup check reads `modelquery.target-vendors` and `modelquery.vendor` only (an explicit vendor is what is compared). It does not call your `ModelQueryConfigurer` or read a `ModelQueryConfig`
+bean, and neither enables it. Target vendors you declare in code are checked when a repository (or
+`ModelQueryExecutor.create`) is built over the factory. With the property and a configurer, the startup check enforces
+the property's list: a configurer can narrow it (caught when a repository is created) but cannot widen it past the
+startup check.
+
+- A lazy factory (`@Lazy`, or `spring.main.lazy-initialization=true`) is not checked at startup; the check runs when
+  its first executor is built.
+- Beans that run before the factory is initialised still run first: a Flyway or Liquibase migration on the same
+  `DataSource` may already have run against the wrong database when startup fails.
+- Without `model-query-hibernate`, the check reads `DatabaseMetaData` once per factory at startup, a read that
+  otherwise happens on first use.
+- `@DataJpaTest` replaces the `DataSource` with an embedded H2 one by default, so an application that lists only
+  `postgresql` fails there with `MQ4012`. Set `modelquery.target-vendors` per test profile (for example `h2` in the
+  test profile), or keep the real database with `@AutoConfigureTestDatabase(replace = Replace.NONE)`.
+
 ## Several datasources
 
 One `ModelQueryConfig` bean serves every `EntityManagerFactory`; each repository's executor uses the `EntityManager` of
@@ -142,8 +165,8 @@ different config for a given factory.
 - `modelquery.vendor` set in a context with more than one `EntityManagerFactory` and no `ModelQueryConfigurer` fails
   at startup with `MQ4005`, because it would force one vendor on every database.
 - A `ModelQueryConfig` bean of your own replaces the starter's. Startup then fails with `MQ4006`, naming what it
-  drops, when a `VendorProfile` or `ChunkTransactions` bean is not the one it holds or a `modelquery.*` property is
-  set. A `ModelQueryConfigurer` adjusts the starter's config instead.
+  drops, when a `VendorProfile` or `ChunkTransactions` bean is not the one it holds or a `modelquery.*` property,
+  such as `modelquery.target-vendors`, is set. A `ModelQueryConfigurer` adjusts the starter's config instead.
 - Committing each chunk of a bulk write works with no configuration, including with several datasources: the starter
   registers a `ChunkTransactions` that finds the `JpaTransactionManager` bound to each factory. With none or more than
   one matching manager it fails with `MQ4004`. Define a `ChunkTransactions` bean to replace it.

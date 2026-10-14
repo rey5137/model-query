@@ -215,6 +215,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         EntityManagerFactory emf = em.getEntityManagerFactory();
         this.vendor = VendorResolver.withSupplied(emf, VendorResolver.resolve(emf, config.vendor(),
                 config.mysqlStreamingMode()), config.vendorProfiles());
+        if (config.targetVendors().isPresent()) {
+            TargetVendors.check(config.targetVendors().get(), emf, vendor);
+        }
         VendorProfile profile = vendor.profile();
         this.providerNulls = vendor.providerSupport()
                 .flatMap(support -> support.defaultNullPrecedence(em.getEntityManagerFactory()));

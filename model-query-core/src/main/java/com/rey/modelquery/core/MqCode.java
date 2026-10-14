@@ -377,8 +377,11 @@ public enum MqCode {
     /** An {@code Enricher.byKey} or {@code byKeys} lookup returned {@code null} (R-FCH-08, R-FCH-15). */
     MQ2606("An Enricher.byKey or byKeys lookup returned null"),
 
-    /** {@code modelquery.vendor} names an unknown vendor (R-VND-04). */
-    MQ4001("modelquery.vendor names an unknown vendor"),
+    /**
+     * {@code modelquery.vendor} or {@code modelquery.target-vendors}, or {@code ModelQueryConfig.vendor(String)} or
+     * {@code targetVendors(String...)}, names an unknown vendor (R-VND-04, R-VND-19).
+     */
+    MQ4001("modelquery.vendor or modelquery.target-vendors names an unknown vendor"),
 
     /** Two {@code VendorProfile}s registered for the same vendor with no precedence rule (R-VND-03). */
     MQ4002("Two VendorProfiles are registered for the same vendor"),
@@ -422,6 +425,12 @@ public enum MqCode {
 
     /** A returning write the factory's database and provider cannot return rows for (R-WRT-50, R-VND-17). */
     MQ4011("A write cannot return its rows on the factory's database and persistence provider"),
+
+    /**
+     * A factory's configured or detected vendor is not one of the declared target vendors; the message names the
+     * factory, the vendor, how it was found and the target vendors (R-VND-19, R-SPR-17, D-133).
+     */
+    MQ4012("The factory's database vendor is not one of the declared target vendors"),
 
     /**
      * The portability dry run cannot boot a factory offline for a target: the persistence provider's

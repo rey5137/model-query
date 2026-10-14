@@ -136,11 +136,29 @@ transaction check passes, then PostgreSQL and MySQL reject the locking `SELECT` 
 takes the lock (a vendor difference, verified in the TCK on PostgreSQL 17 and MySQL 8.4, both Hibernate lines). Library and provider exceptions pass through unchanged
 (D-50).
 
+**R-SPR-17** *(D-133)* `modelquery.target-vendors` is read into `ModelQueryConfig.targetVendors(String...)` (`vendor/40`
+R-VND-19). The starter registers a static `BeanPostProcessor` whose `postProcessAfterInitialization` checks each
+`EntityManagerFactory` bean against the property's list only, parsed as `ModelQueryConfig.targetVendors(String...)`
+does, with `modelquery.vendor` applied when set so an explicit vendor is what is compared and `MQ4012` reports it as set (an empty list is `MQ4003`, an unknown name `MQ4001`). It is enabled by the property alone: a
+`ModelQueryConfigurer` or an application `ModelQueryConfig` bean does not enable it, and it never resolves the
+`ModelQueryConfig` bean or calls a configurer, so it looks up no bean and cannot meet a creation cycle (decided
+2026-10-14, D-133). Target vendors declared in code, by a configurer or a config bean, are enforced only by
+`ModelQueryExecutor.create` (R-VND-19) when a repository is created. With the property and a configurer, the property's
+list is what the startup check enforces and the configurer still receives the property-built config: a configurer can
+narrow the list, which `ModelQueryExecutor.create` catches, but cannot widen it past the startup check. When a factory
+fails, the processor creates and checks every other eager factory before throwing, so one `MQ4012` names every failing
+factory by its bean name, each with R-VND-19's detail; one whose creation fails for another reason is left out, its
+exception suppressed on the `MQ4012`. A lazy or non-singleton factory is skipped: `ModelQueryExecutor.create` checks it
+on first use. A repository created over the factory before then still checks it on its own creation, so its executor's
+`MQ4012` can fail startup first. Beans created before the factory, such as a migration run on the `DataSource`, still
+run before the check. An application `ModelQueryConfig` bean with the property set is `MQ4006` (R-SPR-13).
+
 ## 3. Properties
 
 | Property | Default | Meaning |
 |---|---|---|
 | `modelquery.vendor` | auto | Override detection (`vendor/40` R-VND-04); R-SPR-13 with several factories |
+| `modelquery.target-vendors` | undeclared | Vendors every eager factory must be on, checked at startup from this property only (R-SPR-17, `vendor/40` R-VND-19) |
 | `modelquery.export.page-size` | 1000 | Default export page size |
 | `modelquery.primary-key-first.batch-size` | the whole page | Step-2 batch size, clamped per vendor (`engine/21` R-PAG-07) |
 | `modelquery.stream.fetch-size` | 500 | Ignored by MySQL in row-by-row mode |
@@ -195,3 +213,4 @@ configurer that sets either keeps the shared entries only by passing them along.
 | AC-SPR-18 | A repository extending `JpaRepository`, `JpaSpecificationExecutor`, `QueryByExampleExecutor` and `ModelQueryRepository` starts, `findFirst` and `findByKey` not parsed as derived queries, and routes `findOne(Example)`, `findOne(Specification)` and `findOne(ModelQuery)` each to its own implementation (R-SPR-15). |
 | AC-SPR-19 | Through a Spring Data repository, `findAllByKeys` returns the same map as the executor's `byKeys` (key order, missing keys absent), and an `MQ2003`/`MQ2005` failure surfaces as the `ModelQueryException` unchanged (R-SPR-15, D-126). |
 | AC-SPR-20 | In a read-write transaction, each locked repository read (`findAll(q, Limit)`, `findOne`, `findFirst`, `findByKey`, `findAllByKeys`) renders the same SQL as the executor (lock clause included) and returns its rows; `findPage` and `findKeysetPage` on a locked query throw `MQ2211` before any statement; a locked `findOne` with no transaction throws `MQ2102` (R-SPR-16). |
+| AC-SPR-21 | With `modelquery.target-vendors=postgresql`, two eager factories on H2 fail startup with one `MQ4012` naming both beans before any repository is checked; a `ModelQueryConfigurer` declaring the list fails at the repository's `ModelQueryExecutor.create` with `MQ4012`, and is not called by the startup check; with no repository over a factory, a configurer's list does not fail startup; a list holding H2 starts and the repositories work; a lazy factory is skipped and `ModelQueryExecutor.create` over it is `MQ4012`; an unknown name is `MQ4001` and an empty value `MQ4003`; an application `ModelQueryConfig` bean with the property set is `MQ4006`; with an application `ChunkTransactions` bean on the factory's `PlatformTransactionManager`, a list holding H2 starts and a failing list fails startup with `MQ4012`; a second factory created early by a bean and failing is named in the same `MQ4012`; these contexts hold no repository, which would check the factory on its own creation (R-SPR-17). |

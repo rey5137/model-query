@@ -153,4 +153,14 @@ public interface ProviderSupport {
     default Optional<Map<String, Object>> offlineProperties(DatabaseVendor vendor) {
         return Optional.empty();
     }
+
+    /**
+     * The name of {@code emf} the provider knows it by, which {@code MQ4012} quotes to say which factory is not on a
+     * target vendor. Empty, the default, when the factory has no non-blank name: the message then names it by class
+     * and identity, as JPA 3.1 gives a factory no name (R-VND-19, D-133).
+     */
+    @Incubating
+    default Optional<String> factoryName(EntityManagerFactory emf) {
+        return Optional.empty();
+    }
 }

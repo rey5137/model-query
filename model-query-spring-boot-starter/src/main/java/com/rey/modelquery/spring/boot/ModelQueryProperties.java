@@ -5,6 +5,7 @@ import com.rey.modelquery.core.PersistenceContextMode;
 import com.rey.modelquery.jpa.KeysetNullKeys;
 import com.rey.modelquery.jpa.MysqlStreamingMode;
 import java.time.Duration;
+import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -16,7 +17,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties("modelquery")
 public class ModelQueryProperties {
 
+    /** The key of {@link #getTargetVendors()}, which the starter's startup check reads before binding (R-SPR-17). */
+    static final String TARGET_VENDORS = "modelquery.target-vendors";
+
     private String vendor;
+    private List<String> targetVendors;
     private Duration queryTimeout;
     private final Export export = new Export();
     private final PrimaryKeyFirst primaryKeyFirst = new PrimaryKeyFirst();
@@ -32,6 +37,20 @@ public class ModelQueryProperties {
 
     public void setVendor(String vendor) {
         this.vendor = vendor;
+    }
+
+    /**
+     * The names of the vendors every {@code EntityManagerFactory} must be on, matched as {@link #getVendor()} is, or
+     * {@code null} when undeclared and nothing is checked (R-SPR-17).
+     */
+    @Incubating
+    public List<String> getTargetVendors() {
+        return targetVendors;
+    }
+
+    @Incubating
+    public void setTargetVendors(List<String> targetVendors) {
+        this.targetVendors = targetVendors;
     }
 
     public Duration getQueryTimeout() {
