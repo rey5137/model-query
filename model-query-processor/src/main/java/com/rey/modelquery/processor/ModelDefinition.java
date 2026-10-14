@@ -176,7 +176,8 @@ record ModelDefinition(
      * @param primaryKey whether the field is a {@code @PrimaryKey}
      * @param excludedFromDefaults whether the field is left out of {@code DEFAULT}
      * @param converter the class named by {@code @Column(converter)}, or {@code null} for none
-     * @param definition the class named by {@code @Computed}, or {@code null} for none
+     * @param definition the class named by {@code @Computed} or by a binding's {@code @BindExpression} for it, the
+     *     {@code void} type when neither names one ({@code MQ3025}), or {@code null} when the field carries none
      * @param join what {@code @Join} says of the field, or {@code null} when it carries none
      * @param aggregate what {@code @Aggregate} says of the field, or {@code null} when it carries none
      * @param groupBy whether the field carries {@code @GroupBy}

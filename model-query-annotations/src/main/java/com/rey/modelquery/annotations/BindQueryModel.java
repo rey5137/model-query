@@ -61,4 +61,29 @@ public @interface BindQueryModel {
      * @return {@code true} when the model is one group over the whole table
      */
     boolean singleGroup() default false;
+
+    /**
+     * Whether to also generate a change set over the model's root, non-key columns, as
+     * {@link QueryModel#generateChanges()}.
+     *
+     * @return {@code true} to generate a change set
+     */
+    boolean generateChanges() default false;
+
+    /**
+     * Whether to also generate {@code INSERT_COLUMNS} and the insert builders over the model's root columns, as
+     * {@link QueryModel#generateInserts()}.
+     *
+     * @return {@code true} to generate the insert members
+     */
+    boolean generateInserts() default false;
+
+    /**
+     * The definitions of the model's {@link Computed} fields written without a value, and of the {@link Aggregate}
+     * fields to aggregate an expression rather than an attribute: the model's module cannot name a class that builds
+     * columns over the entity.
+     *
+     * @return one definition per field it names
+     */
+    BindExpression[] expressions() default {};
 }

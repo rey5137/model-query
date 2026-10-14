@@ -7,8 +7,10 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.processing.AbstractProcessor;
@@ -25,16 +27,18 @@ import javax.tools.Diagnostic;
  * Generates a QModel class for every type annotated with {@code @QueryModel}, {@code @UpdateModel} or
  * {@code @InsertModel}: each model is read, validated and, when it has no error, written to one file of its own,
  * beside its change set when it has one. A type carrying two of them is reported and generates nothing. A model
- * bound by {@code @BindQueryModel} is read from the classpath or the compilation and generated in the binding's
- * package, its file originating from the binding alone.
+ * bound by {@code @BindQueryModel}, {@code @BindUpdateModel} or {@code @BindInsertModel} is read from the classpath or
+ * the compilation and generated in the binding's package, its files originating from the binding alone.
  *
- * @implSpec R-GEN-01, R-GEN-05, R-GEN-19, R-GEN-21, R-GEN-23, R-GEN-35, R-PROC-24, R-PROC-28, R-PROC-30, R-DIAG-03,
- *     D-107, D-140
+ * @implSpec R-GEN-01, R-GEN-05, R-GEN-19, R-GEN-21, R-GEN-23, R-GEN-35, R-PROC-24, R-PROC-28, R-PROC-29, R-PROC-30,
+ *     R-DIAG-03, D-107, D-140
  */
 @Incubating
 @SupportedAnnotationTypes({"com.rey.modelquery.annotations.QueryModel", "com.rey.modelquery.annotations.UpdateModel",
         "com.rey.modelquery.annotations.InsertModel", "com.rey.modelquery.annotations.BindQueryModel",
-        "com.rey.modelquery.annotations.BindQueryModels"})
+        "com.rey.modelquery.annotations.BindQueryModels", "com.rey.modelquery.annotations.BindUpdateModel",
+        "com.rey.modelquery.annotations.BindUpdateModels", "com.rey.modelquery.annotations.BindInsertModel",
+        "com.rey.modelquery.annotations.BindInsertModels"})
 @SupportedOptions({QueryModelReader.PREFIX_OPTION, QueryModelReader.SUFFIX_OPTION,
         ModelQueryProcessor.JSPECIFY_OPTION})
 public final class ModelQueryProcessor extends AbstractProcessor {
@@ -51,6 +55,12 @@ public final class ModelQueryProcessor extends AbstractProcessor {
     /** The models whose {@code root}, or a nested model's, named no class in the round before, to retry in this one. */
     private final List<Deferred> deferred = new ArrayList<>();
 
+    /**
+     * The qualified names the annotated models read so far, in this round or an earlier one, generate, each with the
+     * model that generates it: a binding generating one of them is {@code MQ3023} (D-141).
+     */
+    private final Map<String, String> annotatedFiles = new LinkedHashMap<>();
+
     @Override
     public SourceVersion getSupportedSourceVersion() {
         return SourceVersion.latestSupported();
@@ -59,7 +69,7 @@ public final class ModelQueryProcessor extends AbstractProcessor {
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
         var types = processingEnv.getTypeUtils();
-        var reader = new QueryModelReader(processingEnv.getOptions());
+        var reader = new QueryModelReader(processingEnv.getOptions(), types);
         var nestedModels = new NestedModels(reader);
         var metamodel = new EntityMetamodel(types, processingEnv.getElementUtils());
         var elements = processingEnv.getElementUtils();
@@ -72,7 +82,7 @@ public final class ModelQueryProcessor extends AbstractProcessor {
                 // A model module without Bean Validation, or without model-query-jpa, compiles and references neither.
                 new ChangesWriter(types, metamodel, elements.getTypeElement(ChangesWriter.VALID_CHANGES) != null
                         && elements.getTypeElement(ChangesWriter.CONSTRAINT) != null, nullness),
-                roundEnv.processingOver());
+                metamodel, roundEnv.processingOver());
         // An element is only valid in the round that produced it, so a deferred model is looked up again by name.
         var retried = List.copyOf(deferred);
         deferred.clear();
@@ -105,15 +115,19 @@ public final class ModelQueryProcessor extends AbstractProcessor {
     }
 
     /**
-     * Generates each bound model, unless it is bound twice or also carries a model annotation, which is
-     * {@code MQ3023} on each of its bindings (R-PROC-28).
+     * Generates each bound model, unless it is bound twice for one kind or also carries a model annotation, which is
+     * {@code MQ3023} on each of its bindings of that kind, or its binding would generate a class of one name with
+     * another binding or an annotated model, which is {@code MQ3023} on each of those bindings (R-PROC-28, D-141).
      */
     private void bindings(List<Binding> bindings, Round round) {
         var diagnostics = new Diagnostics(processingEnv.getMessager());
-        Map<String, List<Binding>> byModel = bindings.stream().collect(
-                Collectors.groupingBy(binding -> binding.model().toString(), LinkedHashMap::new, Collectors.toList()));
+        var read = new ArrayList<BoundModel>();
+        Map<List<Object>, List<Binding>> byModel = bindings.stream().collect(Collectors.groupingBy(
+                binding -> List.of(binding.kind(), binding.model().toString()), LinkedHashMap::new,
+                Collectors.toList()));
         for (List<Binding> same : byModel.values()) {
             Binding binding = same.get(0);
+            String bind = "@" + ModelBindings.annotation(binding.kind()).getSimpleName();
             TypeElement type = ModelBindings.modelType(binding);
             String name = type == null ? binding.model().toString() : type.getSimpleName().toString();
             List<String> origins = same.stream().map(each -> ModelBindings.name(each.origin())).distinct().toList();
@@ -123,27 +137,77 @@ public final class ModelQueryProcessor extends AbstractProcessor {
                     .toList();
             if (same.size() > 1) {
                 same.stream().map(Binding::origin).distinct().forEach(origin -> diagnostics.error(origin,
-                        DiagnosticCode.MQ3023, name + ": @BindQueryModel binds it more than once, on "
+                        DiagnosticCode.MQ3023, name + ": " + bind + " binds it more than once, on "
                                 + String.join(" and ", origins) + "; keep one"));
             } else if (!carried.isEmpty()) {
                 diagnostics.error(binding.origin(), DiagnosticCode.MQ3023, name + ": carries "
-                        + String.join(" and ", carried) + " and is bound by @BindQueryModel on " + origins.get(0)
+                        + String.join(" and ", carried) + " and is bound by " + bind + " on " + origins.get(0)
                         + "; keep one");
             } else if (type == null) {
                 diagnostics.error(binding.origin(), DiagnosticCode.MQ3024, name
                         + ": a bound model must be a public class or record");
             } else {
-                generate(binding, type, round);
+                read.add(new BoundModel(binding, type,
+                        round.reader().read(type, binding.kind(), binding.annotation(), binding.origin())));
             }
         }
+        Set<BoundModel> clashing = clashing(read, diagnostics);
+        read.stream().filter(bound -> !clashing.contains(bound)).forEach(bound -> generate(bound, round));
+    }
+
+    /**
+     * The bound models whose binding would generate a class of one qualified name with another binding of the round,
+     * of this model or another, or with an annotated model read so far: {@code MQ3023} once on each of those
+     * bindings, instead of the {@code Filer}'s refusal, and the annotated model still generates its own (D-141). A
+     * model whose root names no class is left to {@code MQ3017}; a class already on the classpath to the
+     * {@code Filer}.
+     */
+    private Set<BoundModel> clashing(List<BoundModel> read, Diagnostics diagnostics) {
+        Map<String, List<BoundModel>> byFile = new LinkedHashMap<>();
+        for (BoundModel bound : read) {
+            files(bound.model()).forEach(file -> byFile.computeIfAbsent(file, key -> new ArrayList<>()).add(bound));
+        }
+        var clashing = new LinkedHashSet<BoundModel>();
+        for (BoundModel bound : read) {
+            List<String> clashed = files(bound.model()).stream()
+                    .filter(file -> byFile.get(file).size() > 1 || annotatedFiles.containsKey(file))
+                    .toList();
+            if (clashed.isEmpty()) {
+                continue;
+            }
+            clashing.add(bound);
+            List<String> generators = new ArrayList<>(read.stream()
+                    .filter(other -> clashed.stream().anyMatch(file -> byFile.get(file).contains(other)))
+                    .map(other -> "@" + ModelBindings.annotation(other.binding().kind()).getSimpleName()
+                            + (other.type().equals(bound.type()) ? "" : " of " + other.type().getQualifiedName())
+                            + " on " + ModelBindings.name(other.binding().origin()))
+                    .toList());
+            clashed.stream().map(annotatedFiles::get).filter(Objects::nonNull).distinct().forEach(generators::add);
+            boolean qModels = clashed.stream().noneMatch(file -> file.endsWith("." + bound.model().changesName()));
+            diagnostics.error(bound.binding().origin(), DiagnosticCode.MQ3023, bound.type().getSimpleName() + ": "
+                    + String.join(" and ", generators) + " each generate " + String.join(" and ", clashed) + "; "
+                    + (qModels ? "give one another prefix or package" : "bind one in another package"));
+        }
+        return clashing;
+    }
+
+    /** The qualified names of the classes {@code model} generates, none when it could not be read. */
+    private static List<String> files(ModelDefinition model) {
+        if (model == null) {
+            return List.of();
+        }
+        String qModel = model.packageName() + "." + model.generatedName();
+        return model.changes() ? List.of(qModel, model.packageName() + "." + model.changesName()) : List.of(qModel);
     }
 
     /**
      * Generates one bound model in its binding's package. A {@code root}, or a nested model's, that names no class is
      * {@code MQ3017} on the binding at once: it is not deferred to a later round (D-107).
      */
-    private void generate(Binding binding, TypeElement type, Round round) {
-        ModelDefinition model = round.reader().read(type, Kind.QUERY, binding.annotation(), binding.origin());
+    private void generate(BoundModel bound, Round round) {
+        Binding binding = bound.binding();
+        TypeElement type = bound.type();
+        ModelDefinition model = bound.model();
         var diagnostics = new Diagnostics(processingEnv.getMessager());
         TypeElement unresolved = model == null ? type : round.nestedModels().unresolved(model);
         if (unresolved != null) {
@@ -152,7 +216,7 @@ public final class ModelQueryProcessor extends AbstractProcessor {
                             + ROOT_UNRESOLVED));
             return;
         }
-        ModelBindings.checkAccess(model, binding.origin(), processingEnv.getElementUtils(), diagnostics);
+        ModelBindings.checkExpressions(binding, type, diagnostics);
         validateAndWrite(model, diagnostics, round);
     }
 
@@ -189,6 +253,8 @@ public final class ModelQueryProcessor extends AbstractProcessor {
      */
     private void generate(TypeElement type, Kind kind, Round round) {
         ModelDefinition model = round.reader().read(type, kind);
+        String generator = "@" + QueryModelReader.annotation(kind).getSimpleName() + " " + type.getQualifiedName();
+        files(model).forEach(file -> annotatedFiles.put(file, generator));
         TypeElement unresolved = model == null ? type : round.nestedModels().unresolved(model);
         if (unresolved != null) {
             if (!round.last()) {
@@ -204,9 +270,16 @@ public final class ModelQueryProcessor extends AbstractProcessor {
         validateAndWrite(model, new Diagnostics(processingEnv.getMessager()), round);
     }
 
-    /** Validates {@code model} and, when nothing was reported on it, writes its QModel and change set. */
+    /**
+     * Validates {@code model}, then for a bound model checks what its generated classes reach (R-GEN-35), and, when
+     * nothing was reported on it, writes its QModel and change set.
+     */
     private void validateAndWrite(ModelDefinition model, Diagnostics diagnostics, Round round) {
         round.validator().validate(model, diagnostics);
+        if (!diagnostics.hasErrors() && model.origin() != model.type()) {
+            ModelBindings.checkAccess(model, model.origin(), processingEnv.getElementUtils(), round.metamodel(),
+                    diagnostics);
+        }
         if (diagnostics.hasErrors()) {
             return;
         }
@@ -223,11 +296,14 @@ public final class ModelQueryProcessor extends AbstractProcessor {
         }
     }
 
+    /** A bound model as its binding reads it, {@code model} {@code null} when its root names no class. */
+    private record BoundModel(Binding binding, TypeElement type, ModelDefinition model) {}
+
     /** A model deferred to the next round, by qualified name, and the annotation it carries (D-107). */
     private record Deferred(String name, Kind kind) {}
 
     /** What one round reads, checks and writes models with. */
     private record Round(
             QueryModelReader reader, NestedModels nestedModels, ModelValidator validator, QModelWriter writer,
-            ChangesWriter changesWriter, boolean last) {}
+            ChangesWriter changesWriter, EntityMetamodel metamodel, boolean last) {}
 }

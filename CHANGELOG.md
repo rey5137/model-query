@@ -11,9 +11,18 @@ Nothing is frozen yet: every public type stays `@Incubating`. The additions belo
 ### Added
 - `@BindQueryModel(model = OrderView.class, root = OrderEntity.class)` (D-134, R-PROC-28, R-GEN-35), repeatable and
   allowed on a type or a `package-info`, binds a query model compiled without its entity, in a module that depends on
-  `model-query-annotations` only. The processor reads the model from the classpath, runs every check against the
-  bound root and generates its QModel in the binding's package. A model bound twice, or bound and annotated, is
-  `MQ3023`; a model, no-arg constructor, setter or `@Join` getter the QModel can't reach from that package is `MQ3024`.
+  `model-query-annotations` only. The processor reads the model from the classpath, runs every check against the bound
+  root and generates its QModel in the binding's package. `@BindUpdateModel` and `@BindInsertModel` bind update and
+  insert models the same way, and `@BindQueryModel` takes `generateChanges` and `generateInserts` (D-141). A model bound
+  twice for one kind, or bound and annotated, is `MQ3023`, and so is a binding that would generate one class name with
+  another binding, of any model, or with an annotated model in the compilation (which still generates its own); a model,
+  no-arg constructor, setter, `@Join` getter or column getter the generated classes can't reach from that package is
+  `MQ3024`.
+- `@Computed.value` defaults to `void.class` (source and binary compatible), and `@BindQueryModel(expressions =
+  @BindExpression(field = "net", value = RowNet.class))` supplies the `ExpressionDefinition` of a bound model's
+  valueless `@Computed`, or turns an `@Aggregate` into an expression aggregate, since the model's module cannot compile
+  a definition over the entity (R-PROC-29). A valueless `@Computed` with no `@BindExpression`, or on an annotated model,
+  and a `@BindExpression` that matches no such field, are the new `MQ3025`.
 - The new `model-query-portability` artifact, on `model-query-jpa` only (resolve it at `model-query-jpa`'s exact
   version, through the BOM: D-139) and meant for test scope, boots a factory per
   target vendor with no database (D-133, R-INS-10): `Target.of(vendor)` or `Target.of(vendor, "15.4")`, a recording

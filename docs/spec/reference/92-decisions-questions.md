@@ -2002,6 +2002,25 @@ module's `compileJava` (`inputs.files(configurations.runtimeClasspath).withNorma
 recompiles that module in full when they change. Supersedes `rfc/0012`'s "declares itself aggregating for bindings". →
 D-45, D-107, `rfc/0012` "Unresolved questions", R-PROC-30.
 
+**D-141 — Bound update and insert models, and binding expressions (M24.2, 2026-10-14).** `MQ3023` counts bindings per
+kind: one model may be bound once as a query, once as an update and once as an insert model. A binding that would
+generate a class of one qualified name (a QModel, or a change set, whose name no prefix changes) with another binding of
+the compilation, of the same model or of another (two models of one simple name bound into one package), or with an
+annotated model of the compilation, is `MQ3023` on each such binding, and none of those bindings generates anything,
+rather than the `Filer` refusing the second file; the annotated model still generates its own, and a prefix or package
+keeps the names apart. The processor remembers the names the annotated models it has read generate, in this round and
+earlier ones; an annotated model first seen in a later round than the binding, and a class of that name already on the
+classpath, are left to the `Filer`'s error. A bound model carrying any model annotation stays `MQ3023` (`rfc/0012` §1).
+The public-access check of R-GEN-35 follows what the generated classes call: a query model's mapper needs the no-arg
+constructor, setters and `@Join` getters; a change set's `from` and the insert members need the getter of each column
+they read (the columns `ChangedColumns` and `InsertedColumns` find, so the check runs after the model validates); an
+update model is never instantiated or read, so its class needs only to be public. A `@BindExpression` goes to the
+field's `@Computed` when it carries one, else to its `@Aggregate`; a valueless `@Computed` reads as `void` and is
+`MQ3025` on a query model, while an update or insert model refuses any `@Computed` with its own code (`MQ3302`,
+`MQ3502`). A second `@BindExpression` for one field is `MQ3025` too, rather than one silently winning. `MQ3506`'s
+message names `@BindQueryModel` for a bound model. `@BindUpdateModel` and `@BindInsertModel` take no `expressions`,
+since neither kind accepts `@Computed` or `@Aggregate`. → D-134, D-140, R-PROC-28, R-PROC-29, R-GEN-35.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
