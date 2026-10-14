@@ -23,7 +23,7 @@ Import the BOM as shown in [Getting started without Spring](plain-jpa.md), then 
         <path>
             <groupId>io.github.rey5137</groupId>
             <artifactId>model-query-processor</artifactId>
-            <version>0.8.0</version>
+            <version>0.9.0</version>
         </path>
     </annotationProcessorPaths>
     ```
@@ -32,10 +32,10 @@ Import the BOM as shown in [Getting started without Spring](plain-jpa.md), then 
 
     ```kotlin
     dependencies {
-        implementation(platform("io.github.rey5137:model-query-bom:0.8.0"))
+        implementation(platform("io.github.rey5137:model-query-bom:0.9.0"))
         implementation("io.github.rey5137:model-query-spring-boot-starter")
 
-        annotationProcessor(platform("io.github.rey5137:model-query-bom:0.8.0"))
+        annotationProcessor(platform("io.github.rey5137:model-query-bom:0.9.0"))
         annotationProcessor("io.github.rey5137:model-query-processor")
     }
     ```
