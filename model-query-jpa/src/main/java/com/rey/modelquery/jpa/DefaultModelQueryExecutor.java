@@ -157,6 +157,14 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private static final Map<EntityManagerFactory, Set<Object>> WRITES_CHECKED =
             Collections.synchronizedMap(new WeakHashMap<>());
 
+    /**
+     * The query definitions whose fetch plans' child statements were built and checked for a one-key round, per
+     * factory and vendor profile, which together set the render options the builds depend on (D-138). Weak on every
+     * level, as {@link #WRITES_CHECKED} is.
+     */
+    private static final Map<EntityManagerFactory, Map<VendorProfile, Set<Object>>> FETCH_BUILDS_CHECKED =
+            Collections.synchronizedMap(new WeakHashMap<>());
+
     /** The factories {@code stream} warned of setting no fetch size on, so each is warned of once (R-VND-12). */
     private static final Set<EntityManagerFactory> FETCH_SIZE_UNSET =
             Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
@@ -887,10 +895,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         int size = page.pageSize();
         LOG.log(DEBUG, () -> "page " + q + ": offset " + offset + " size " + size + ", " + mode
                 + (mode != CountMode.ONLY_COUNT && primaryKeyFirst(q, offset) ? ", primary-key-first" : ""));
+        int batch = 0; // the step-2 batch of a primary-key-first page
         if (mode != CountMode.ONLY_COUNT && primaryKeyFirst(q, offset)) {
-            // Before the count too, so a refused page runs no query at all (R-PAG-13).
-            refuseToManySelection(q, q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL_BY_KEYS, renderOptions),
-                    "primary-key-first paging");
+            // Before the count too, so a refused page runs no query at all (R-PAG-13), and step 2 is sized and
+            // checked against the bind limit here, not after step 1 found keys (R-PAG-07, D-138).
+            BuiltQuery<M> byKeys = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL_BY_KEYS, renderOptions);
+            refuseToManySelection(q, byKeys, "primary-key-first paging");
+            batch = keyBatchSize(q, q.primaryKey().orElseThrow(), byKeys); // primaryKeyFirst(...) needs one (MQ1201)
         }
         switch (mode) {
             case ONLY_COUNT: {
@@ -900,14 +911,14 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             }
             case COUNT: {
                 long total = countRows(q);
-                List<M> content = offset >= total ? List.of() : models(q, fetch(q, offset, size));
+                List<M> content = offset >= total ? List.of() : models(q, fetch(q, offset, size, batch));
                 return new Slice<>(content, page.pageNumber(), size, offset + (long) content.size() < total,
                         OptionalLong.of(total));
             }
             default: {
                 // One row beyond the page tells whether another follows, so an exact multiple of the page size
                 // does not report a next page that is empty (R-EXE-02).
-                List<Loaded<M>> rows = fetch(q, offset, size == Integer.MAX_VALUE ? size : size + 1);
+                List<Loaded<M>> rows = fetch(q, offset, size == Integer.MAX_VALUE ? size : size + 1, batch);
                 boolean hasNext = rows.size() > size;
                 // The plan runs after the probe row is dropped, so that row's children are never read (R-FCH-09).
                 return new Slice<>(models(q, hasNext ? rows.subList(0, size) : rows), page.pageNumber(), size,
@@ -2274,19 +2285,74 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             }
             FIRST_RUN_CHECKED.add(definition); // only once they passed, so a check that threw runs again next time
         }
+        if (fetchesModels) {
+            checkFetchBuilds(q);
+        }
+    }
+
+    /**
+     * Builds each child statement of {@code q}'s fetch plan, through its join plans and the children's own plans, and
+     * checks a one-key round of it against the bind limit, before any statement of the call: a child's refusals
+     * ({@code MQ1306}, {@code MQ1307}, the {@code MQ15xx} codes) depend on the vendor, and a page that finds no
+     * parent never builds its children (R-FCH-02, R-FCH-04, D-138). Once passed, not again on this factory and
+     * profile.
+     */
+    private <E2> void checkFetchBuilds(ModelQuery<E2, ?, ?> q) {
+        if (q.fetch().isEmpty()) {
+            return;
+        }
+        Object definition = q.definition();
+        Set<Object> checked;
+        synchronized (FETCH_BUILDS_CHECKED) {
+            checked = FETCH_BUILDS_CHECKED.computeIfAbsent(em.getEntityManagerFactory(),
+                    factory -> new WeakHashMap<>()).computeIfAbsent(vendor.profile(),
+                    profile -> Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>())));
+        }
+        if (!checked.contains(definition)) {
+            checkBuilds(q.fetch().get());
+            checked.add(definition); // only once it passed, so a check that threw runs again next time
+        }
+    }
+
+    /** {@link #checkFetchBuilds(ModelQuery)} over {@code plan}'s children and join plans. */
+    private <M> void checkBuilds(FetchPlan<M> plan) {
+        for (ChildLoad<M, ?> load : plan.childLoads()) {
+            checkChildBuild(load);
+        }
+        for (JoinPlan<M, ?> join : plan.joinPlans()) {
+            checkBuilds(join.plan());
+        }
+    }
+
+    /** Builds {@code load}'s statement as {@link #childrenOf} does and checks it binds one key within the limit. */
+    private <M, C> void checkChildBuild(ChildLoad<M, C> load) {
+        checkFirstRun(load.query()); // the child's own phases and plan, its nested children included
+        BuiltQuery<C> built = load.build(em.getCriteriaBuilder(), renderOptions);
+        withinBindLimit(load, childOwnBinds(load, built) + 1, 0);
+    }
+
+    /**
+     * A child statement's own binds, before any key is added (R-PAG-07, D-32), plus the values its memoised expressions
+     * repeat (R-COL-19); a dialect that binds the LIMIT of {@code maxPerParent} as a parameter takes one more.
+     */
+    private int childOwnBinds(ChildLoad<?, ?> load, BuiltQuery<?> built) {
+        return em.createQuery(built.query()).getParameters().size() + built.joins().repeatedExpressionBinds()
+                + (load.maxPerParent() > 0 ? 1 : 0);
     }
 
     // ---- page content
 
-    /** The rows of a page, mapped, before its fetch plan runs. */
-    private <M> List<Loaded<M>> fetch(ModelQuery<E, ?, M> q, int offset, int maxRows) {
+    /**
+     * The rows of a page, mapped, before its fetch plan runs; {@code batch} is the step-2 batch of a primary-key-first
+     * page, which {@code page} sized before any statement.
+     */
+    private <M> List<Loaded<M>> fetch(ModelQuery<E, ?, M> q, int offset, int maxRows, int batch) {
         if (primaryKeyFirst(q, offset)) {
             PrimaryKey<M, ?> key = q.primaryKey().orElseThrow(); // primaryKeyFirst(...) needs one (MQ1201)
             // Read the page's keys in the stable order, then their rows: the same rows as the one-step page, a key
             // read twice through a predicate's to-many join included.
             List<Object> keys = readKeys(q, key, keyQuery(q), offset, maxRows);
-            // The batch size compiles a statement, so an empty key page skips it.
-            return keys.isEmpty() ? List.of() : readByKeys(q, key, keys, keyBatchSize(q, key));
+            return readByKeys(q, key, keys, batch);
         }
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
         appendStableOrder(q, built);
@@ -2419,15 +2485,16 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * The most keys one step-2 statement takes: the configured batch size, if any, within the largest power of two
      * that fits the profile's IN-list limit and its bind-parameter limit once the statement's own binds are bound, at
      * one bind per key column (R-PAG-07, D-32, D-80). At least one, so a query that alone passes the bind limit is
-     * refused with {@code MQ1307} as its one-step page would be. It compiles a statement without running it, so a
-     * caller computes it once per {@code page} or {@code export} call.
+     * refused here with {@code MQ1307}, before any statement, as its one-step page would be (D-138). {@code byKeys}
+     * is the query's {@code MODEL_BY_KEYS} statement, compiled here without running, so a caller computes it once per
+     * {@code page} or {@code export} call, before step 1.
      */
-    private <M> int keyBatchSize(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> key) {
+    private <M> int keyBatchSize(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> key, BuiltQuery<M> byKeys) {
         // The statement's own binds, the query's values and the customizer's, before any key is added. JPA reports a
         // literal the provider binds as a parameter of the query; one it renders inline takes no bind. A memoised
         // expression used twice reports once, so its repeated renderings are added back (R-COL-19).
-        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL_BY_KEYS, renderOptions);
-        int ownBinds = em.createQuery(built.query()).getParameters().size() + built.joins().repeatedExpressionBinds();
+        int ownBinds = em.createQuery(byKeys.query()).getParameters().size() + byKeys.joins().repeatedExpressionBinds();
+        withinBindLimit(q, ownBinds + key.columns().size(), 0);
         return keyLimits.clamp(ownBinds, key.columns().size(), primaryKeyFirstBatchSize);
     }
 
@@ -2463,7 +2530,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         long passed = 0;
         int offset = 0;
         BuiltQuery<M> keyQuery = null;
-        int batch = 0; // computed on the first non-empty key page
+        int batch = 0;
+        if (key != null && q.primaryKeyFirst().isPresent()) {
+            // Step 1's statement, and step 2's batch checked against the bind limit, before the first page, so a
+            // refused step 2 runs no statement at all (R-PAG-07, R-PAG-13, D-138).
+            BuiltQuery<M> byKeys = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL_BY_KEYS, renderOptions);
+            refuseToManySelection(q, byKeys, "primary-key-first paging");
+            keyQuery = keyQuery(q);
+            batch = keyBatchSize(q, key, byKeys);
+        }
         // The only state carried from page to page, so memory stays bounded by one page (R-PAG-02, INV-4).
         Set<Object> previousKeys = Set.of();
         while (passed < limit) {
@@ -2471,19 +2546,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             List<Loaded<M>> fresh;
             int read;
             if (primaryKeyFirst(q, offset)) {
-                // Only an ungrouped query with a primary key gets here (MQ1201, MQ1402), so key is set.
-                if (keyQuery == null) {
-                    keyQuery = keyQuery(q);
-                }
+                // Only an ungrouped query with a primary key gets here (MQ1201, MQ1402), so keyQuery and batch are set.
                 List<Object> pageKeys = readKeys(q, key, keyQuery, offset, pageSize);
                 List<Object> freshKeys = new ArrayList<>(pageKeys.size());
                 for (Object rowKey : pageKeys) {
                     if (isFresh(keys, previousKeys, rowKey)) {
                         freshKeys.add(rowKey);
                     }
-                }
-                if (batch == 0 && !freshKeys.isEmpty()) {
-                    batch = keyBatchSize(q, key);
                 }
                 fresh = readByKeys(q, key, freshKeys, batch); // only the fresh keys' rows are read (R-PAG-07)
                 read = pageKeys.size();
@@ -2800,12 +2869,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             List<Object> keys) {
         checkFirstRun(q);
         CriteriaBuilder cb = em.getCriteriaBuilder();
-        // The statement's own binds, before any key is added, at one bind per key (R-PAG-07, D-32), plus the values
-        // its memoised expressions repeat (R-COL-19); a dialect that binds the LIMIT of the setMaxResults below as a
-        // parameter takes one more.
-        BuiltQuery<C> counted = load.build(cb, renderOptions);
-        int ownBinds = em.createQuery(counted.query()).getParameters().size()
-                + counted.joins().repeatedExpressionBinds() + (load.maxPerParent() > 0 ? 1 : 0);
+        int ownBinds = childOwnBinds(load, load.build(cb, renderOptions));
         int round = keyLimits.clamp(ownBinds, 1, OptionalInt.empty());
         LOG.log(DEBUG, () -> "child " + load + ": " + keys.size() + (keys.size() == 1 ? " key" : " keys") + " in "
                 + ((keys.size() - 1) / round + 1) + " round(s)");

@@ -214,7 +214,8 @@ final class LayeringRules {
     /**
      * Only profiles and vendor detection name a {@code DatabaseVendor} (INV-6, R-VND-01): {@code jpa.spi},
      * {@code jpa.vendor}, the configuration that sets one explicitly, the Hibernate provider support that maps a
-     * dialect to one, and the portability dry run, whose targets are vendors (R-INS-10).
+     * dialect to one, the declared-target check that compares the detected vendor with
+     * {@code targetVendors()} (R-VND-19), and the portability dry run, whose targets are vendors (R-INS-10).
      */
     ArchRule databaseVendorOnlyInProfilesAndDetection() {
         return noClasses()
@@ -222,6 +223,8 @@ final class LayeringRules {
                 .resideOutsideOfPackages(pkg("jpa.spi"), pkg("jpa.vendor"), pkg("portability"))
                 .and()
                 .doNotHaveFullyQualifiedName(root + ".jpa.ModelQueryConfig")
+                .and()
+                .doNotHaveFullyQualifiedName(root + ".jpa.TargetVendors") // vendor detection's target check, R-VND-19
                 .and()
                 .doNotHaveFullyQualifiedName(root + ".hibernate.HibernateProviderSupport")
                 .should()

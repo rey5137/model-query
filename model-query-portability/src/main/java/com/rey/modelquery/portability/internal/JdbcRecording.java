@@ -29,6 +29,7 @@ public final class JdbcRecording implements AutoCloseable {
     private final JdbcRecording previous;
     private final List<String> accesses = new ArrayList<>();
     private final List<String> statements = new ArrayList<>();
+    private final List<String> deniedBeforeStatement = new ArrayList<>();
     private volatile boolean closed;
 
     private JdbcRecording(Phase phase) {
@@ -76,8 +77,16 @@ public final class JdbcRecording implements AutoCloseable {
         return Collections.unmodifiableList(new ArrayList<>(statements));
     }
 
+    /** The denied calls recorded before the first statement, which a call's classification cannot account for. */
+    List<String> deniedBeforeStatement() {
+        return List.copyOf(deniedBeforeStatement);
+    }
+
     void denied(String call) {
         accesses.add(call);
+        if (statements.isEmpty()) {
+            deniedBeforeStatement.add(call);
+        }
     }
 
     void statement(String call, String sql) {

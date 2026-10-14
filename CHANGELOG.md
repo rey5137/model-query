@@ -13,7 +13,13 @@ Nothing is frozen yet: every public type stays `@Incubating`. The additions belo
   target vendor with no database (D-133, R-INS-10): `Target.of(vendor)` or `Target.of(vendor, "15.4")`, a recording
   deny-by-default stub `DataSource`, and `ProviderSupport#offlineProperties(DatabaseVendor)`, which
   `model-query-hibernate` implements for Hibernate 6.6 and 7.4; a provider without it, or a boot that reaches JDBC,
-  is the new `MQ4013`. The portability check that runs calls on it follows in a later 0.9.0 slice.
+  is the new `MQ4013`. `PortabilityCheck.of(unit or classes, config)` runs the real executor on it per target
+  (R-INS-11, R-INS-12): `call(...)` and `callOutsideTransaction(...)` with the real signatures, `sweep(holders...)`
+  over `static final` definitions with `skip(holder, field, reason)`, and `assertPortable()`, which reports one line per
+  call and target, `REACHED` with the SQL (marked "first statement only" where a later statement is not checked),
+  `REFUSED`, `REFUSED_AFTER_STATEMENT`, `NO_STATEMENT` or `HARNESS_ERROR`, then one line per skipped definition with
+  its reason, and fails unless every result is `REACHED`.
+  The targets default to `config.targetVendors()`, and one outside them is `MQ4012`.
 - Declared target vendors (D-133, R-VND-19, R-SPR-17): `ModelQueryConfig.targetVendors(DatabaseVendor first,
   DatabaseVendor... more)`, `targetVendors(Collection)` and `targetVendors(String...)`, read by `targetVendors()`, and
   the property `modelquery.target-vendors`. A factory whose configured or detected vendor (not its profile's, so
@@ -127,6 +133,11 @@ Nothing is frozen yet: every public type stays `@Incubating`. The additions belo
   - Every change is additive and `@Incubating`.
 
 ### Changed
+- A fetch plan's child statements are now built and checked for a one-key round before any statement of a call that
+  returns models, so a child refused with `MQ1306`, `MQ1307` or an `MQ15xx` code fails on an empty page, a zero limit
+  or `byKeys` with no keys too, where it used to fail only once a page found a parent (D-138, R-FCH-02). A
+  primary-key-first `page` or `export` likewise sizes step 2 and refuses it with `MQ1307` before step 1 and the
+  count, not after step 1 read keys (R-PAG-07).
 - `MQ1502` now also refuses an `Optional`, a `Collection` and a `Map` value from every `Expr` factory, including the
   new `Expr.value`: a collection is never a single bound value.
 - `@GroupBy` on a column that selects a whole to-one entity is now the error `MQ3028` (D-136): the database groups by
