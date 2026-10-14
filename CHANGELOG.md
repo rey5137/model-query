@@ -18,6 +18,12 @@ Nothing is frozen yet: every public type stays `@Incubating`. The additions belo
     statement unless the provider reports that the foreign key references the target's primary key, through the new
     `ProviderSupport.referencesPrimaryKey`, which `model-query-hibernate` answers.
   - A returning write and `persist(..., returning)` fill it from the written row (R-WRT-48).
+- A to-one read by its id on a generated model (D-136, R-PROC-33, R-GEN-19): `@Column(attribute = "referrer") Long
+  referrerId`, or a converter from the id type, is accepted on a `@QueryModel`; another type is `MQ3002` naming the
+  target's id type, and `MQ3002` with a reason refuses the inverse side, a `referencedColumnName`, `@JoinColumns`,
+  `@JoinFormula`, `@JoinColumnOrFormula`, `@NotFound`, a `@MapsId`, `@IdClass` or `@EmbeddedId` target and a to-one in an
+  embedded value. `generateChanges` and `generateInserts` write the id form and the generated `from` copies it; the
+  whole-entity form stays read-only (D-124). `MQ3016` names the id form. See "Foreign key by id" in the user guide.
 - Generated-code nullness (D-135, R-PROC-32, R-GEN-36), described in "Processor options":
   - `-Amodelquery.jspecify=true` puts JSpecify `@NullMarked` on generated `Q` classes and change sets, type-use
     `@Nullable` on a change set's fields, setter and fluent parameters, getters and assignment values, and
@@ -94,6 +100,10 @@ Nothing is frozen yet: every public type stays `@Incubating`. The additions belo
 ### Changed
 - `MQ1502` now also refuses an `Optional`, a `Collection` and a `Map` value from every `Expr` factory, including the
   new `Expr.value`: a collection is never a single bound value.
+- `@GroupBy` on a column that selects a whole to-one entity is now the error `MQ3028` (D-136): the database groups by
+  the foreign key but the select lists every column of the entity, which PostgreSQL refuses. This can break an
+  existing `@GroupBy CustomerEntity customer`; group by the id form, `@Column(attribute = "customer") Long customerId`,
+  instead. `MQ3016`'s message also names the id form.
 
 ## [0.8.0] - 2026-10-09
 

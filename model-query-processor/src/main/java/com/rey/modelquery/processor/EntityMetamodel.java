@@ -49,6 +49,10 @@ final class EntityMetamodel {
     private static final List<String> GENERATOR_META = List.of("org.hibernate.annotations.IdGeneratorType",
             "org.hibernate.annotations.ValueGenerationType");
     private static final String HIBERNATE_GENERATED = "org.hibernate.annotations.Generated";
+    private static final String JOIN_FORMULA = "org.hibernate.annotations.JoinFormula";
+    private static final String JOIN_COLUMN_OR_FORMULA = "org.hibernate.annotations.JoinColumnOrFormula";
+    private static final String JOIN_COLUMN_OR_FORMULAS = "org.hibernate.annotations.JoinColumnsOrFormulas";
+    private static final String NOT_FOUND = "org.hibernate.annotations.NotFound";
     private static final List<String> COLUMNS = List.of(JPA + "Column", JPA + "JoinColumn");
 
     private final Types types;
@@ -312,7 +316,8 @@ final class EntityMetamodel {
                     .findFirst().orElse(null);
             return new EntityAttribute(
                     name, type, EntityAttribute.Kind.TO_ONE, entity(type), version, updatable, insertable, mappedBy,
-                    false);
+                    false, idFormRefusal(member, mappedBy),
+                    hasAny(member, List.of(JPA + "MapsId")));
         }
         if (hasAny(member, TO_MANY)) {
             // The element of a Collection<E>, the value of a Map<K, E>.
@@ -320,16 +325,110 @@ final class EntityMetamodel {
                     ? ((DeclaredType) type).getTypeArguments() : List.of();
             DeclaredType target = arguments.isEmpty() ? null : entity(arguments.get(arguments.size() - 1));
             return new EntityAttribute(
-                    name, type, EntityAttribute.Kind.COLLECTION, target, version, updatable, insertable, null, false);
+                    name, type, EntityAttribute.Kind.COLLECTION, target, version, updatable, insertable, null, false,
+                    null, false);
         }
         if (hasAny(member, List.of(ELEMENT_COLLECTION))) {
             return new EntityAttribute(
-                    name, type, EntityAttribute.Kind.COLLECTION, null, version, updatable, insertable, null, false);
+                    name, type, EntityAttribute.Kind.COLLECTION, null, version, updatable, insertable, null, false,
+                    null, false);
         }
         boolean embedded = type.getKind() == TypeKind.DECLARED && (hasAny(member, EMBEDDED)
                 || hasAny(((DeclaredType) type).asElement(), List.of(EMBEDDABLE)));
         return new EntityAttribute(name, type, embedded ? EntityAttribute.Kind.EMBEDDED : EntityAttribute.Kind.BASIC,
-                null, version, updatable, insertable, null, filledByDatabase(member));
+                null, version, updatable, insertable, null, filledByDatabase(member), null, false);
+    }
+
+    /**
+     * Whether {@code field}, a column over the to-one {@code attribute}, holds the target's id rather than the entity:
+     * its type, or its converter's attribute type, is not the to-one's own type (D-124, D-136). A converter that
+     * does not read as a {@code ColumnConverter} is the whole-entity form, which {@code MQ3014} reports.
+     */
+    boolean byId(ModelDefinition.ModelField field, EntityAttribute attribute) {
+        if (attribute.kind() != EntityAttribute.Kind.TO_ONE) {
+            return false;
+        }
+        TypeMirror held = field.type();
+        if (field.converter() != null) {
+            ConverterType converter = ConverterType.of(types, field.converter());
+            if (converter == null) {
+                return false;
+            }
+            held = converter.attribute();
+        }
+        return !types.isSameType(ProcessorTypes.boxed(types, held), ProcessorTypes.boxed(types, attribute.type()));
+    }
+
+    /**
+     * Why the to-one {@code member} can't be read by its id, or {@code null} when its mapping can: only the owning
+     * side joining the target's primary key, with no formula and no {@code @NotFound}. Annotations are read by name,
+     * and a {@code referencedColumnName} is refused whatever it names, since the processor can't tell it from the
+     * primary key's column (R-PROC-33, D-136).
+     */
+    private static String idFormRefusal(Element member, String mappedBy) {
+        if (mappedBy != null) {
+            return "it is the inverse side (mappedBy = \"" + mappedBy + "\"), which has no foreign key of its own";
+        }
+        for (AnnotationMirror mirror : member.getAnnotationMirrors()) {
+            if (isNamed(mirror, JPA + "JoinColumns")) {
+                return "it has " + simple(mirror) + ", a composite join";
+            }
+            if (isNamed(mirror, JOIN_FORMULA) || isNamed(mirror, JOIN_COLUMN_OR_FORMULA)
+                    || isNamed(mirror, JOIN_COLUMN_OR_FORMULAS)) {
+                return "it has " + simple(mirror) + ", which joins on a formula";
+            }
+            if (isNamed(mirror, NOT_FOUND)) {
+                return "it has @NotFound, which makes Hibernate join the target";
+            }
+            if (isNamed(mirror, JPA + "JoinColumn") && value(mirror, "referencedColumnName") instanceof String named
+                    && !named.isEmpty()) {
+                return "its @JoinColumn names referencedColumnName = \"" + named
+                        + "\", which may not be the target's primary key";
+            }
+        }
+        return null;
+    }
+
+    /** {@code @Name} of an annotation, as a message shows it. */
+    private static String simple(AnnotationMirror mirror) {
+        return "@" + mirror.getAnnotationType().asElement().getSimpleName();
+    }
+
+    /**
+     * Why a to-one to {@code target} can't be read by its id, or {@code null} when the target has one basic
+     * {@code @Id}: an {@code @IdClass}, an {@code @EmbeddedId}, several ids, or an id that is itself an association
+     * (derived identity, {@code @MapsId}) (R-PROC-33, D-136).
+     */
+    String idFormRefusal(TypeElement target) {
+        List<DeclaredType> hierarchy = hierarchy((DeclaredType) target.asType());
+        boolean property = defaultsToProperty(hierarchy, false);
+        for (DeclaredType type : hierarchy) {
+            if (hasAny(type.asElement(), List.of(ID_CLASS))) {
+                return target.getSimpleName() + " has @IdClass, so its id is composite";
+            }
+        }
+        Id id = id(target);
+        if (id.attributes().size() != 1) {
+            return id.attributes().isEmpty() ? target.getSimpleName() + " has no @Id the processor can see"
+                    : target.getSimpleName() + " has a composite id";
+        }
+        if (!id.components().isEmpty()) {
+            return target.getSimpleName() + " has an @EmbeddedId";
+        }
+        Map<String, EntityAttribute> attributes = attributes(hierarchy, property);
+        for (DeclaredType type : hierarchy) {
+            for (Element member : type.asElement().getEnclosedElements()) {
+                if (hasAny(member, List.of(JPA + "MapsId"))) {
+                    return target.getSimpleName() + "'s id is derived from an association (@MapsId)";
+                }
+            }
+        }
+        EntityAttribute key = attributes.get(id.attributes().iterator().next());
+        if (key == null || key.kind() != EntityAttribute.Kind.BASIC) {
+            return target.getSimpleName() + "'s id is "
+                    + (key == null ? "not visible to the processor" : "an association or an embedded value");
+        }
+        return null;
     }
 
     /**

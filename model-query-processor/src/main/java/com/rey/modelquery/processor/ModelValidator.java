@@ -779,6 +779,10 @@ final class ModelValidator {
                     + "' is a collection, which a column can't select; filter on it with Filters.exists");
             return;
         }
+        if (model.queryModel() && metamodel.byId(field, attribute)) {
+            checkIdForm(model, field, attribute, where, diagnostics);
+            return;
+        }
         if (field.converter() != null) {
             if (!checkConverter(
                     model, field.element(), field.converter(), field.type(), attribute, where, diagnostics)) {
@@ -800,8 +804,78 @@ final class ModelValidator {
         // A converted column holds what its converter makes of the entity, not the entity.
         if (attribute.kind() == EntityAttribute.Kind.TO_ONE && field.converter() == null) {
             String entity = display(attribute.type());
+            String idForm = idFormHint(field, attribute);
+            if (field.groupBy()) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3028, where + "@GroupBy on a whole " + entity
+                        + " entity: the database groups by its foreign key but the select lists every column of the "
+                        + "entity" + (idForm == null ? "" : "; group by its id with " + idForm));
+                return;
+            }
             diagnostics.warning(field.element(), DiagnosticCode.MQ3016, where + "selects the whole " + entity
-                    + " entity; use @Join with a query model of " + entity + " to select only its columns");
+                    + " entity; use @Join with a query model of " + entity + " to select only its columns"
+                    + (idForm == null ? "" : ", or " + idForm + " to read its id"));
+        }
+    }
+
+    /**
+     * The id form of the to-one {@code field} reads, as {@code @Column(attribute = "customer") Long customerId}; or
+     * {@code null} when its mapping or target cannot be read by id.
+     */
+    private String idFormHint(ModelField field, EntityAttribute attribute) {
+        TypeMirror id = idFormType(field, attribute);
+        return id == null ? null : "@Column(attribute = \"" + field.attribute() + "\") " + display(boxed(id)) + " "
+                + field.name() + "Id";
+    }
+
+    /** The target's id type when {@code attribute} can be read by its id from {@code field}, else {@code null}. */
+    private TypeMirror idFormType(ModelField field, EntityAttribute attribute) {
+        if (idFormRefusal(field, attribute) != null) {
+            return null;
+        }
+        return metamodel.id((TypeElement) attribute.target().asElement()).type();
+    }
+
+    /** Why {@code attribute}, a to-one of the root or of an embedded value, can't be read by its id; else null. */
+    private String idFormRefusal(ModelField field, EntityAttribute attribute) {
+        if (field.attribute().contains(".")) {
+            return "it is inside an embedded value";
+        }
+        if (attribute.idFormRefusal() != null) {
+            return attribute.idFormRefusal();
+        }
+        if (attribute.target() == null) {
+            return "its target entity is not visible to the processor";
+        }
+        String target = metamodel.idFormRefusal((TypeElement) attribute.target().asElement());
+        if (target == null && metamodel.id((TypeElement) attribute.target().asElement()).type() == null) {
+            return "its target's id type is not visible to the processor";
+        }
+        return target;
+    }
+
+    /**
+     * {@code MQ3002} for a to-one column of the target's id (R-PROC-33, D-136) whose mapping or target can't be read
+     * by id, or whose type is not the target's id; {@code MQ3014} for a converter that does not bridge the id.
+     */
+    private void checkIdForm(
+            ModelDefinition model, ModelField field, EntityAttribute attribute, String where,
+            Diagnostics diagnostics) {
+        String refusal = idFormRefusal(field, attribute);
+        if (refusal != null) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3002, where + "'" + field.attribute()
+                    + "' can't be read by its id: " + refusal);
+            return;
+        }
+        TypeMirror id = metamodel.id((TypeElement) attribute.target().asElement()).type();
+        String target = display(attribute.type());
+        if (field.converter() != null) {
+            var idAttribute = new EntityAttribute(attribute.name(), id, EntityAttribute.Kind.BASIC, null, false,
+                    true, true, null, false, null, false);
+            checkConverter(model, field.element(), field.converter(), field.type(), idAttribute, where, diagnostics);
+        } else if (!types.isSameType(boxed(field.type()), boxed(id))) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3002, where + "model type " + display(field.type())
+                    + ", entity attribute type " + target + "; a column of a to-one takes " + target + "'s id type "
+                    + display(boxed(id)) + " to read its foreign key");
         }
     }
 

@@ -221,8 +221,8 @@ public final class OrderPatchChanges implements Changes<OrderPatch> {
 ```
 
 **R-GEN-19** Writable are root attributes, including embedded ones as a dotted `@Column(attribute = "address.city")`,
-and, on an `@UpdateModel`, to-one associations written by id; a query model's change set leaves a to-one column out
-(D-124). `@PrimaryKey` fields get a column constant but no setter. `@FilterColumn` works
+and to-one associations written by id, on an `@UpdateModel` and on a query model's column of the target's id
+(R-PROC-33, D-136); a query model's change set leaves a whole-entity to-one column out (D-124). `@PrimaryKey` fields get a column constant but no setter. `@FilterColumn` works
 as on query models; a joined filter column renders through `api/14` R-WRT-10.
 
 **R-GEN-20** A change set is mutable by design and is never a `static final` constant; INV-9 covers definitions, not
@@ -230,8 +230,10 @@ change sets.
 
 **R-GEN-21** For `@QueryModel(generateChanges = true)`, `QOrderView` gains `changes()` and `update(changes)`, and
 `OrderViewChanges` gains `static OrderViewChanges from(OrderView model, SelectSet<OrderView> columns)`, which reads the
-model's getters or record accessors (`api/14` R-WRT-04). A to-one column gets no setter, as with `generateInserts`
-(R-GEN-34), and the change set's Javadoc names it with the reason (D-124).
+model's getters or record accessors (`api/14` R-WRT-04). A whole-entity to-one column gets no setter, as with
+`generateInserts` (R-GEN-34), and the change set's Javadoc names it with the reason (D-124); a to-one column of the
+target's id (R-PROC-33) gets a setter like any column, and `from` copies it (D-136), except over a `@MapsId` to-one,
+which is left out and named in the Javadoc.
 
 **R-GEN-22** `QOrderView.delete()` is generated for every query model whose `@PrimaryKey` is the root entity's id,
 since a delete writes no columns. A query model whose key is not the id (a unique column on a view, say) gets no
@@ -403,7 +405,8 @@ annotation is added.
 | AC-GEN-25 | A model whose entity and converter are named `Index` compiles, and its `fields()` works (R-GEN-32). |
 | AC-GEN-26 | On a `generateInserts` query model `addKey` follows the root's id: an `@IdClass` id is added with `addKey` by its attributes and types `insert` and `persist` by the id class while `KEY` stays composite, and a `@PrimaryKey` on a non-id unique column over a generated id is added with `add`, `K` being the id's type (R-GEN-34). |
 | AC-GEN-27 | On every Tier-1 vendor a `generateInserts` query model inserts rows, insert-selects rows from another root and persists a row, its `@Version` left to the provider, and the same model reads them back (R-GEN-34). |
-| AC-GEN-28 | A `generateChanges` query model with a to-one column, whole or converted, generates no setter for it and names it in the change set's Javadoc; on every Tier-1 vendor `update(Changes.from(view, columns))` over the root non-key columns writes them, `from` naming the to-one column is `MQ1607`, and a row whose foreign key is `NULL` reads back through the whole-entity column with `null` (R-GEN-21, D-124). |
+| AC-GEN-28 | A `generateChanges` query model with a to-one column, whole or converted, generates no setter for it and names it in the change set's Javadoc; on every Tier-1 vendor `update(Changes.from(view, columns))` over the root non-key columns writes them, `from` naming the to-one column is `MQ1607`, and a row whose foreign key is `NULL` reads back through the whole-entity column with `null` (R-GEN-21, D-124). A to-one column of the target's id is not left out: the change set has its setter and `from` copies it, with no `MQ1607` (D-136, AC-GEN-33). |
 | AC-GEN-29 | The `INSERT_COLUMNS` Javadoc of a `generateInserts` query model names a `@Generated` column with "filled by the database: `@Generated`" and an `@ExcludeFromInserts` one with "`@ExcludeFromInserts`" (R-GEN-34, D-125). |
 | AC-GEN-31 | With `modelquery.jspecify=true`, `QOrderView`, `QInvoiceView`, `QCustomerViewWithInvoices`, `OrderPatchChanges` and `QNewOrder` match their golden files under `golden/jspecify/`, and a change set over a nested type, a type whose simple name is `Nullable` and an array type compiles with the annotation on the type (R-GEN-36, D-135). |
 | AC-GEN-32 | The shop, update and insert fixtures compiled with `-Amodelquery.jspecify=true` under Error Prone and NullAway in JSpecify mode (`AnnotatedPackages` covering the fixture and generated packages) report no NullAway error, and a dereferenced `@Nullable` change-set getter in an extra fixture is reported, which shows NullAway ran (R-GEN-36, D-135). |
+| AC-GEN-33 | A `generateChanges` and `generateInserts` query model with a to-one column of the target's id, one converted from it and a whole-entity to-one matches its golden files `IdFormRowChanges` and `QIdFormRow`: the id forms have a setter, a `from` branch and an `INSERT_COLUMNS` entry, the whole-entity one is named in both Javadocs; on every Tier-1 vendor the change set and the insert write the foreign key (a `NULL` one too), a returning write returns it, and a `NULL`-foreign-key row reads back (R-PROC-33, R-GEN-19, R-GEN-21, D-136). |

@@ -1376,3 +1376,45 @@ say — is evaluated by each statement that renders it, so the pages of a paged 
 from a column when it must be stable (INV-4).
 
 Tested by `ac_col_31_timezone_with_a_bound_zone_groups_a_timestamp_on_postgresql` in `BoundValueFunctionTest`.
+
+## Read and write a foreign key by id
+
+The case in one line: a screen that reads, creates and edits an order needs the customer and referrer as plain ids,
+and the referrer is optional (D-136, R-PROC-33, R-GEN-19). Declare the id form on the query model; the change set
+and the insert write it, and a row with no referrer still reads:
+
+```java
+@QueryModel(root = OrderEntity.class, generateChanges = true, generateInserts = true)
+public record OrderReferrerIdRow(@PrimaryKey Long id, String status, BigDecimal total, LocalDateTime placedAt,
+        @Column(attribute = "customer") Long customerId, @Column(attribute = "referrer") Long referrerId) {}
+```
+
+=== "Plain JPA"
+
+    ```java
+    OrderReferrerIdRow row = executor.one(QOrderReferrerIdRow.query().select(QOrderReferrerIdRow.ALL).build(), id)
+            .orElseThrow();
+    Changes<OrderReferrerIdRow> changes = OrderReferrerIdRowChanges.from(edited,
+            SelectSet.of(QOrderReferrerIdRow.REFERRER_ID));
+    executor.update(QOrderReferrerIdRow.update(changes).whereKey(id).build());
+    executor.insert(QOrderReferrerIdRow.insert(List.of(created)).build());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    OrderReferrerIdRow row = orders.findByKey(QOrderReferrerIdRow.query().select(QOrderReferrerIdRow.ALL).build(), id)
+            .orElseThrow();
+    Changes<OrderReferrerIdRow> changes = OrderReferrerIdRowChanges.from(edited,
+            SelectSet.of(QOrderReferrerIdRow.REFERRER_ID));
+    orders.update(QOrderReferrerIdRow.update(changes).whereKey(id).build());
+    orders.insert(QOrderReferrerIdRow.insert(List.of(created)).build());
+    ```
+
+`referrerId` is `null` on an order with no referrer, and setting it to `null` clears the foreign key. A write that
+returns rows (`updateReturning`) returns the id form too. A locked read of the model is `MQ2211`, since the id is read
+through a `LEFT` join. Where the entity already maps the key twice (a basic `Long referrerId` beside the `@ManyToOne`),
+the double mapping keeps working, but the id form needs only the association.
+
+Tested by `ac_gen_33_the_id_form_reads_writes_through_changes_and_inserts_and_returns_from_a_write` in
+`GeneratedIdFormTest`.

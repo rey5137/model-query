@@ -18,10 +18,16 @@ import javax.lang.model.type.TypeMirror;
  *     side and for any other attribute
  * @param filledByDatabase whether the attribute carries a non-writable Hibernate {@code @Generated} whose events
  *     include {@code INSERT} (R-PROC-26, D-125)
+ * @param idFormRefusal why a to-one's mapping can't be read by its id (R-PROC-33, D-136): the inverse side, a
+ *     {@code referencedColumnName}, {@code @JoinColumns}, a formula or {@code @NotFound}; {@code null} when it can
+ *     be, and for any other attribute
+ * @param mapsId whether the to-one carries {@code @MapsId}: its foreign key is the entity's own id, which an insert
+ *     writes through the id column (R-PROC-26)
  */
 record EntityAttribute(
         String name, TypeMirror type, Kind kind, DeclaredType target, boolean version, boolean updatable,
-        boolean insertable, String mappedBy, boolean filledByDatabase) {
+        boolean insertable, String mappedBy, boolean filledByDatabase, String idFormRefusal,
+        boolean mapsId) {
 
     /** Whether a join may follow the attribute: a to-one or collection association of a known target. */
     boolean joinable() {
