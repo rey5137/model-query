@@ -361,14 +361,18 @@ dotted `referrer.id` stays a path through an embeddable (`MQ1002`), so the spell
   the source select of an insert-select) it
   reads through R-COL-25's `LEFT` join and the target's id, on every mapping (owning or inverse, a non-key
   `referencedColumnName`, a `@JoinFormula`, `@NotFound`), so a `NULL` foreign key reads back `null` and no row is
-  dropped (INV-4, INV-5). A locked read of it has that join, so it is `MQ2211` (`api/11` R-QRY-17); Q-20 keeps a
-  join-free read open.
+  dropped (INV-4, INV-5). The sub-queries of a read (`exists`, `in(subSelect)`, `exists(subSelect)`) read it through
+  the same join. A locked read of it has that join, so it is `MQ2211` (`api/11` R-QRY-17); Q-20 keeps a join-free read
+  open. The id comes from the joined row, so a target with `@SQLRestriction` or `@Where` reads `null` while the foreign
+  key holds a value; the processor refuses the id form there (`MQ3029`, `processor/30` R-PROC-33), and a runtime
+  `@Filter` on the target is a documented caveat (the read returns `null`).
 - In a write's filter (a bulk update or delete, the sub-select its joined `where` renders, the load of
   `throughEntities()`, a key select) it renders the foreign-key column through the association's path, which takes no
-  join only when the foreign key references the target's primary key. The executor asks the provider's
-  `ProviderSupport.referencesPrimaryKey` for each such column once per definition and factory, before any statement, and
-  refuses it with `MQ1004` when the provider reports that it does not, or cannot tell (`vendor/40` R-VND-13's provider
-  facts). Generated models never reach `MQ1004`, since the processor refuses those mappings.
+  join only when the foreign key is a column of the entity's own table referencing the target's primary key. The
+  executor asks the provider's `ProviderSupport.foreignKeyColumn` for each such column once per definition and factory,
+  before any statement, and refuses it with `MQ1004` unless the provider answers `LOCAL_COLUMN` (`vendor/40` R-VND-13).
+  It checks every clause the write renders: the `where`, the set clause (a `setExpression` or computed target and the
+  columns read in it) and an upsert's `doUpdate(...).where(...)`. Generated models never reach `MQ1004`, since the processor refuses those mappings.
 - A returning write reads it from the written row (`api/14` R-WRT-48, R-WRT-50); a set clause writes it by id as an
   update model's column does (R-GEN-19).
 

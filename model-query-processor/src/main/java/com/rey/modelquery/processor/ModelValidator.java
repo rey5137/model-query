@@ -829,7 +829,8 @@ final class ModelValidator {
 
     /** The target's id type when {@code attribute} can be read by its id from {@code field}, else {@code null}. */
     private TypeMirror idFormType(ModelField field, EntityAttribute attribute) {
-        if (idFormRefusal(field, attribute) != null) {
+        if (idFormRefusal(field, attribute) != null
+                || metamodel.restriction((TypeElement) attribute.target().asElement()) != null) {
             return null;
         }
         return metamodel.id((TypeElement) attribute.target().asElement()).type();
@@ -864,6 +865,13 @@ final class ModelValidator {
         if (refusal != null) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3002, where + "'" + field.attribute()
                     + "' can't be read by its id: " + refusal);
+            return;
+        }
+        String restriction = metamodel.restriction((TypeElement) attribute.target().asElement());
+        if (restriction != null) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3029, where + "'" + field.attribute()
+                    + "' can't be read by its id: " + display(attribute.type()) + " has " + restriction
+                    + ", so a read takes a null id from a restricted row while the foreign key holds a value");
             return;
         }
         TypeMirror id = metamodel.id((TypeElement) attribute.target().asElement()).type();

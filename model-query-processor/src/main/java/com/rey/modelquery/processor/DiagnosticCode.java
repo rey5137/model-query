@@ -81,6 +81,9 @@ enum DiagnosticCode {
     /** {@code @GroupBy} on a column that selects a whole to-one entity; group by the foreign key's id instead. */
     MQ3028("@GroupBy on a whole-entity to-one column"),
 
+    /** The id form of a to-one whose target has {@code @SQLRestriction} or {@code @Where}: a read could miss the key. */
+    MQ3029("Id form over a target with a Hibernate restriction"),
+
     /** An {@code @Aggregate} field is primitive, though an aggregate can be {@code NULL}. */
     MQ3201("@Aggregate field is primitive"),
 

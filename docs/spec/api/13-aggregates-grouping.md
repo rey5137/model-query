@@ -156,6 +156,11 @@ plain query into a grouped one. Aggregates are added explicitly with `with(...)`
   parameters.
 - `having` stays over aggregates; a condition on a group key goes in `where`.
 
+**R-AGG-15** *(D-137)* **No group key over a whole to-one entity.** A runtime `groupBy` or group key over a column that
+selects a whole-entity to-one (the D-124 form) throws `MQ1410` before any statement, since the database groups by the
+foreign key while the select lists every column of the entity (PostgreSQL refuses it). The id form (`api/10` R-COL-29)
+stays allowed as a group key; `@GroupBy` on the whole-entity form is `MQ3028` at compile time.
+
 ## 5. Generated support
 
 `processor/30` defines `@Aggregate` and `@GroupBy`; `processor/31` defines what they generate. In short: an
@@ -182,3 +187,4 @@ generated `GROUP_KEYS` `SelectSet`, and `QProductSales.query()` comes pre-config
 | AC-AGG-14 | On every Tier-1 vendor: `sum`, `sumAsLong`, `avg`, `min`, `max` and `countDistinct` over an expression, and `count` over a column and over a CASE (a conditional count), return R-AGG-03's types; a conditional `sum` through `cases` equals the filtered `sum`; `Agg.sum` over an `Integer` expression throws `MQ1403`; two equal aggregates over equal expressions are one selection; `having` on an aggregate over an expression filters groups (R-AGG-13, R-AGG-01). |
 | AC-AGG-15 | For a query grouped by an expression key: `list`, `count` and grouped export visit every group once on every Tier-1 vendor, and on PostgreSQL that holds with a key that binds a value, ordered by it with and without explicit null precedence, with and without `model-query-hibernate`; a selected expression over group-key columns only is accepted; a selected expression reading another column throws `MQ1401`; an expression that only contains a group-key expression throws `MQ1401`; an order key that does not fit throws `MQ1406`; `groupBy(SelectSet)` holding an expression builds (R-AGG-14, R-AGG-05, R-AGG-08, R-COL-19). |
 | AC-AGG-16 | A runtime `groupBy(ScalarField...)` or `groupBy(SelectSet)` over one of a model's `@GroupBy` fields selects that key and an aggregate and leaves the other `@GroupBy` fields unselected, reading `null`, with the groups and sums the rows hold, on every Tier-1 vendor (R-AGG-05, R-PROC-16). |
+| AC-AGG-17 | A runtime `groupBy` over a whole-entity to-one column throws `MQ1410` before any statement; over the id form it groups (R-AGG-15). |

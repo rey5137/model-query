@@ -76,11 +76,12 @@ public final class JoinContext {
      */
     private final Map<ParameterExpression<?>, Object> parameters;
     /**
-     * The to-one columns a write's path read by their foreign-key column, each with the entity whose attribute it is,
-     * in rendering order: the executor asks the provider whether each foreign key references its target's primary key
-     * (R-COL-29, D-136). Shared with the build's nested contexts, as {@link #parameters} is.
+     * The to-one attributes a write's path read by their foreign-key column, each with the column that read it, keyed
+     * by the entity owning the attribute so a column resolved against two entity types keeps both, in rendering
+     * order: the executor asks the provider whether each foreign key references its target's primary key (R-COL-29,
+     * D-136). Shared with the build's nested contexts, as {@link #parameters} is.
      */
-    private final Map<ColumnField<?, ?, ?>, Class<?>> foreignKeyReads;
+    private final Map<ForeignKeyRead, ColumnField<?, ?, ?>> foreignKeyReads;
     /** The key each join was cached under, which is not the declared key when its type was changed. */
     private final Map<From<?, ?>, JoinKey> keys = new IdentityHashMap<>();
     /** In an {@code exists}, the {@code on(...)} conditions of its required joins, rendered in its WHERE instead. */
@@ -111,7 +112,7 @@ public final class JoinContext {
     private JoinContext(From<?, ?> root, Class<?> rootType, CriteriaBuilder cb, CommonAbstractCriteria query,
             JoinKey rootKey, Set<JoinKey> required, RenderOptions renderOptions, Set<Class<?>> existsJoined,
             JoinContext outer, int[] repeatedExpressionBinds, Map<ParameterExpression<?>, Object> parameters,
-            Map<ColumnField<?, ?, ?>, Class<?>> foreignKeyReads) {
+            Map<ForeignKeyRead, ColumnField<?, ?, ?>> foreignKeyReads) {
         this.root = root;
         this.rootType = rootType;
         this.cb = cb;
@@ -177,11 +178,20 @@ public final class JoinContext {
 
     /** Records that {@code column}, a to-one of {@code entity}, rendered as its foreign-key column (R-COL-29). */
     void readByForeignKey(ColumnField<?, ?, ?> column, Class<?> entity) {
-        foreignKeyReads.putIfAbsent(column, entity);
+        foreignKeyReads.putIfAbsent(new ForeignKeyRead(entity, column.name()), column);
     }
 
-    /** The to-one columns this build rendered as their foreign-key column, each with its entity (R-COL-29). */
-    Map<ColumnField<?, ?, ?>, Class<?>> foreignKeyReads() {
+    /** Records the foreign-key reads {@code other}, a context of a scratch sub-query of this statement, made. */
+    void adoptForeignKeyReads(JoinContext other) {
+        other.foreignKeyReads.forEach(foreignKeyReads::putIfAbsent);
+    }
+
+    /** A to-one attribute of an entity that a build rendered as its foreign-key column (R-COL-29). */
+    record ForeignKeyRead(Class<?> entity, String attribute) {
+    }
+
+    /** The to-one attributes this build rendered as their foreign-key column, each with its column (R-COL-29). */
+    Map<ForeignKeyRead, ColumnField<?, ?, ?>> foreignKeyReads() {
         return Collections.unmodifiableMap(foreignKeyReads);
     }
 
@@ -343,11 +353,13 @@ public final class JoinContext {
             From<?, ?> correlated = root instanceof Root<?> ? sub.correlate((Root) root) : sub.correlate((Join) root);
             ctx = new JoinContext(correlated, rootType, cb, sub, null, path.keysUpTo(null), renderOptions,
                     existsJoined, outer, repeatedExpressionBinds, parameters, foreignKeyReads);
+            ctx.readsToOneLeft = readsToOneLeft;
         } else {
             From<?, ?> correlated = sub.correlate((Join) existsFrom);
             ctx = new JoinContext(correlated, correlated.getJavaType(), cb, sub, existsPath.key(),
                     path.keysUpTo(existsPath.key()), renderOptions, existsJoined, outer, repeatedExpressionBinds,
                     parameters, foreignKeyReads);
+            ctx.readsToOneLeft = readsToOneLeft;
         }
         ctx.existsPath = path;
         ctx.existsFrom = path.resolve(ctx);
@@ -387,6 +399,7 @@ public final class JoinContext {
         Root<?> inner = sq.from(sub.rootEntity());
         JoinContext ctx = new JoinContext(inner, sub.rootEntity(), cb, sq, null, Set.of(), renderOptions,
                 existsJoined, null, repeatedExpressionBinds, parameters, foreignKeyReads);
+        ctx.readsToOneLeft = readsToOneLeft;
         Path<C> selected = sub.column().path(ctx);
         // A lifted column reads the outer root, so its embeddable check runs against the outer context, not this one.
         boolean embeddable = column instanceof ColumnField<?, ?, ?> outerColumn && outerColumn.isLifted() && outer != null
@@ -427,6 +440,8 @@ public final class JoinContext {
                 existsJoined, null, repeatedExpressionBinds, parameters, foreignKeyReads);
         JoinContext ctx = new JoinContext(inner, sub.rootEntity(), cb, sq, null, Set.of(), renderOptions,
                 existsJoined, outerCtx, repeatedExpressionBinds, parameters, foreignKeyReads);
+        outerCtx.readsToOneLeft = readsToOneLeft;
+        ctx.readsToOneLeft = readsToOneLeft;
         sq.select(cb.literal(1));
         var where = new ArrayList<>(ConditionGroup.toPredicates(sub.filters(), ctx));
         where.addAll(ConditionGroup.toPredicates(correlation, ctx));

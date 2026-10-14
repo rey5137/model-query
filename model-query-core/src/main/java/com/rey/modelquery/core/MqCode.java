@@ -133,6 +133,9 @@ public enum MqCode {
     /** A grouped query selects a column under a {@code presentBy} join whose key is not grouped by (R-AGG-09). */
     MQ1409("A grouped query selects a column under a presentBy join whose key columns are not all group keys"),
 
+    /** A group key reads a to-one as its whole entity, which has no portable {@code GROUP BY} (R-AGG-05, D-137). */
+    MQ1410("A group key reads a to-one as its whole entity; group by its id or a column of the target"),
+
     /** An expression reads a column with a {@code ColumnConverter} (R-COL-17). */
     MQ1501("An expression reads a column with a ColumnConverter, which the database computes over without applying it"),
 

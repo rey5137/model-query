@@ -259,8 +259,13 @@ CustomerId>`), must be the target's single basic id type, as the update model's 
 `MQ3002` naming the target's id type, and a converter that does not convert the id is `MQ3014`. The processor refuses
 with `MQ3002` and the reason, reading the annotations by name (no Hibernate dependency, D-135): the inverse side
 (`@OneToOne(mappedBy)`), a `@JoinColumn(referencedColumnName)` (the processor cannot tell it from the primary key's
-column), `@JoinColumns`, `@JoinFormula` and `@JoinColumnOrFormula`, `@NotFound`, a target whose id is an association
-(derived identity, `@MapsId`), a target with `@IdClass` or `@EmbeddedId`, and a to-one inside an embedded value. The
+column), `@JoinColumns`, `@JoinFormula` and `@JoinColumnOrFormula`, `@NotFound`, `@JoinTable`, a `@JoinColumn(table = "...")`
+(the runtime answers `JOINS` for a key on another table), a target whose id is an association (derived identity,
+`@MapsId`), a target with `@IdClass` or `@EmbeddedId`, and a to-one inside an embedded value. A target with
+`@SQLRestriction` or `@Where` (on the class or a mapped superclass) is the separate error `MQ3029`: a read takes the id
+from the `LEFT`-joined row, so a restricted target reads `null` while the foreign key holds a value, and
+`generateChanges` with `from(row)` would write `NULL` over a live key; it holds until Q-20 resolves, and `MQ3016` does
+not suggest the id form there. A runtime `@Filter` on the target is a documented caveat. The
 dotted `referrer.id` stays `MQ3001`. A column of the whole entity, or a converter's value of it, is unchanged
 (R-PROC-06, `MQ3016`). `@GroupBy` on a whole-entity to-one column is `MQ3028`. A `@JoinColumn(referencedColumnName)` is refused even when it
 names the primary key's column; drop it, as the default already references the primary key. `generateChanges` and `generateInserts`
@@ -294,4 +299,4 @@ include the id form (R-PROC-19, R-PROC-26) and the generated `from` copies it (R
 | AC-PROC-21 | `@ExcludeFromInserts` on a field leaves it out of `INSERT_COLUMNS`, `insertFrom`, `insert` and `persist` while the query members keep its column and constant (R-PROC-27, D-125). |
 | AC-PROC-22 | `generateInserts` leaves out a plain `@Generated`, written are `@Generated(writable = true)`, `@Generated(sql = …)`, `@Generated(event = UPDATE)`, the Hibernate 6.x `@Generated(GenerationTime.UPDATE)` and `NEVER`, every timestamp annotation, and a `@Generated` whose type doesn't resolve; run on the Hibernate 6.6 and 7.x annotation shapes (R-PROC-26, D-125). |
 | AC-PROC-27 | `-Amodelquery.jspecify=true` adds the annotations of R-GEN-36 and is declared in `@SupportedOptions`; unset or `false` leaves the output unchanged; on with no JSpecify on the classpath is one `MQ3027` and no annotation generated (R-PROC-32, D-135). |
-| AC-PROC-28 | A query model column `@Column(attribute = "referrer") Long referrerId` over a to-one of a `Long` id, and one with a converter from `Long`, compiles; another type is `MQ3002` naming the target's id type, and a converter that does not convert the id `MQ3014`; each of the inverse side, a `referencedColumnName`, `@JoinColumns`, `@JoinFormula`, `@JoinColumnOrFormula`, `@NotFound`, a `@MapsId` target, an `@IdClass` target, an `@EmbeddedId` target and a to-one inside an embedded value is `MQ3002` with its own reason; `referrer.id` is `MQ3001`; `MQ3016` names the id form and `@GroupBy` on a whole-entity to-one is `MQ3028` (R-PROC-33, D-136). |
+| AC-PROC-28 | A query model column `@Column(attribute = "referrer") Long referrerId` over a to-one of a `Long` id, and one with a converter from `Long`, compiles; another type is `MQ3002` naming the target's id type, and a converter that does not convert the id `MQ3014`; each of the inverse side, a `referencedColumnName`, `@JoinColumns`, `@JoinFormula`, `@JoinColumnOrFormula`, `@NotFound`, `@JoinTable`, a `@JoinColumn(table)`, a `@MapsId` target, an `@IdClass` target, an `@EmbeddedId` target and a to-one inside an embedded value is `MQ3002` with its own reason; a target with `@SQLRestriction` or `@Where` is `MQ3029`, and `MQ3016` does not suggest the id form for it; `referrer.id` is `MQ3001`; `MQ3016` names the id form and `@GroupBy` on a whole-entity to-one is `MQ3028` (R-PROC-33, D-136). |

@@ -96,6 +96,10 @@ default built on `list` would run the fetch plan on the extra row (`engine/20` R
 `AbstractMethodError` only when a new method is called, and the changelog says so.
 The `modelquery.jspecify` processor option and the JSpecify annotations it puts on generated code (D-135, 0.9.0) are
 incubating through 1.0: the option name, the annotations and their placement may change in a minor release.
+`ProviderSupport.foreignKeyColumn` and the `ForeignKeyColumn` enum in `jpa.spi`, and core's `@EngineFacing`
+`ForeignKeyLookup` (D-136, 0.9.0), are incubating the same way: the answers `LOCAL_COLUMN`, `JOINS` and `UNKNOWN` may
+change in a minor release. A `ProviderSupport` that does not override the method answers `UNKNOWN`, so a write of a
+to-one id is `MQ1004` until the provider supports it.
 `ModelQueryExecutor.byKeys(q, keys)` (D-126, 0.8.0) is abstract and `@Incubating` the same way, for the same reason:
 a default built on `list` would need the IN filter and the chunking the executor moves in (`engine/20` R-EXE-13). The
 only implementations are `DefaultModelQueryExecutor` and `ModelQueryRepositoryFragment`. A class that implements

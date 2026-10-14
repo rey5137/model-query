@@ -148,6 +148,39 @@ class DiagnosticMatrixTest {
             }
             """);
 
+    private static final JavaFileObject SQL_RESTRICTION = source("org.hibernate.annotations.SQLRestriction", """
+            package org.hibernate.annotations;
+
+            public @interface SQLRestriction {
+                String value();
+            }
+            """);
+
+    /** An entity with a to-one to a target that has {@code @SQLRestriction}. */
+    private static final JavaFileObject SHELF_ENTITY = source("models.ShelfEntity", """
+            package models;
+
+            import jakarta.persistence.Entity;
+            import jakarta.persistence.Id;
+            import jakarta.persistence.ManyToOne;
+            import org.hibernate.annotations.SQLRestriction;
+
+            @Entity
+            public class ShelfEntity {
+                @Id
+                Long id;
+                @ManyToOne
+                BinEntity bin;
+
+                @Entity
+                @SQLRestriction("active = 1")
+                public static class BinEntity {
+                    @Id
+                    Long id;
+                }
+            }
+            """);
+
     private static final String PATCH = "@UpdateModel(root = TicketEntity.class)";
 
     /** An entity with what an update model can't write: a version, a read-only column and an inverse to-one. */
@@ -426,6 +459,12 @@ class DiagnosticMatrixTest {
                     "MQ3028: OrderView.customer: @GroupBy on a whole CustomerEntity entity: the database groups by "
                             + "its foreign key but the select lists every column of the entity; group by its id with "
                             + "@Column(attribute = \"customer\") Long customerId")),
+            of("MQ3029", c -> fails(
+                    with(SQL_RESTRICTION, SHELF_ENTITY, c.model("ShelfView", "@QueryModel(root = ShelfEntity.class)",
+                            ID, "@Column(attribute = \"bin\") Long binId")),
+                    "MQ3029: ShelfView.binId: 'bin' can't be read by its id: BinEntity has "
+                            + "@SQLRestriction, so a read takes a null id from a restricted row while the foreign "
+                            + "key holds a value")),
             of("MQ3201", c -> fails(
                     with(SALE_ENTITY, c.model("SalesSummary", SINGLE,
                             "@Aggregate(fn = AggregateFunction.SUM, attribute = \"weight\") double weight")),

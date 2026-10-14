@@ -36,7 +36,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1001` | A column's declared type does not match the entity attribute, or two columns compared or matched against a sub-select convert to different attribute types | `api/10` R-COL-08, `api/12` R-FLT-15 |
 | `MQ1002` | An attribute named by a column or join does not exist on its entity; the provider's exception is the cause | `api/10` R-COL-01, R-COL-08 |
 | `MQ1003` | A column or table sits on a root entity the query is not rooted at | `api/10` R-COL-01 |
-| `MQ1004` | A write's filter reads a to-one by its id where the provider does not report that the foreign key references the target's primary key, so the statement would join it; before any statement | `api/10` R-COL-29 |
+| `MQ1004` | A write reads a to-one by its id in a clause it renders (the `where`, the set clause, an upsert's `doUpdate(...).where(...)`) where the provider does not answer that the foreign key is a local column referencing the target's primary key, so the statement would join it; the message says "the provider reports that it is not" or "the provider cannot tell"; before any statement | `api/10` R-COL-29 |
 | `MQ1101` | Two `TableField`s share a join key but carry different `on(...)` conditions | `api/10` R-COL-04 |
 | `MQ1102` | `on(...)` used without `as(...)` | `api/10` R-COL-04 |
 | `MQ1103` | Two `Agg.of` fields share a name with different expressions | `api/13` R-AGG-02 |
@@ -72,6 +72,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1407` | `having(...)` on an ungrouped query, one with neither a `groupBy` nor a selected aggregate | `api/13` R-AGG-07 |
 | `MQ1408` | `sum`, `sumAsLong` or `avg` over a column that has a `ColumnConverter`; `min`, `max` and `countDistinct` over a column with a converter that is not ordered do not compile (D-93) | `api/13` R-AGG-04 |
 | `MQ1409` | A grouped query selects a column under a `presentBy` join whose key columns are not all group keys | `api/13` R-AGG-09 |
+| `MQ1410` | A runtime `groupBy` or group key over a whole-entity to-one column (the D-124 form); the id form is allowed; before any statement | `api/13` R-AGG-15 |
 | `MQ1501` | An expression reads a column with a `ColumnConverter`, which the database computes over without applying the converter | `api/10` R-COL-17 |
 | `MQ1502` | An expression is given a null value, or a value of a type it cannot bind (`Optional`, arrays, `Collection`, `Map`, `Date`, `Calendar`, enums, entities) | `api/10` R-COL-18, R-COL-26 |
 | `MQ1503` | `dividedBy` over two integral operands, which truncates on PostgreSQL and H2 and not on MySQL | `api/10` R-COL-17 |
@@ -148,7 +149,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 
 ## 4. `MQ3xxx` — annotation processing
 
-Catalogued with messages in `processor/32` §1: `MQ3001`–`MQ3022`, `MQ3027` and `MQ3028` for structural checks and options, `MQ3201`–`MQ3208` for aggregate
+Catalogued with messages in `processor/32` §1: `MQ3001`–`MQ3022`, `MQ3027`, `MQ3028` and `MQ3029` for structural checks and options, `MQ3201`–`MQ3208` for aggregate
 models, `MQ3301`–`MQ3307` for update models, `MQ3401`–`MQ3406` for `@Child` (`api/15`), `MQ3501`–`MQ3506` for
 insert models and `generateInserts` (D-116, D-117, D-123). Codes are not repeated here to keep one owner.
 

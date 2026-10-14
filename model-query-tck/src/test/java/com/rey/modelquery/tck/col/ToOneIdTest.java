@@ -9,7 +9,9 @@ import com.rey.modelquery.core.ChildField;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
+import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.FetchPlan;
+import com.rey.modelquery.core.Filters;
 import com.rey.modelquery.core.InsertColumns;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelInsert;
@@ -20,12 +22,15 @@ import com.rey.modelquery.core.ModelQueryException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.Op;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.PrimaryKeyFirst;
 import com.rey.modelquery.core.RowLock;
 import com.rey.modelquery.core.SelectSet;
+import com.rey.modelquery.core.SubSelect;
 import com.rey.modelquery.core.TableField;
+import com.rey.modelquery.core.ValuesInsert;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.MysqlStreamingMode;
@@ -34,6 +39,7 @@ import com.rey.modelquery.jpa.vendor.VendorResolver;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
+import com.rey.modelquery.tck.secondary.CardExtraEntity;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.criteria.JoinType;
@@ -46,6 +52,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.TreeMap;
 import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
 
@@ -206,6 +213,36 @@ class ToOneIdTest {
     /** The customer a few orders name as referrer: order 3's, so ids divisible by 3 reach it. */
     private static final long REFERRER_34 = 34L;
 
+    /** A customer and the orders it placed, read through an {@code exists} whose order may have no referrer. */
+    private static final TableField<CustomerEntity, OrderEntity> PATRON_ORDERS =
+            TableField.join(CUSTOMERS, "orders", JoinType.INNER);
+    private static final ColumnField<Patron, OrderEntity, Long> PATRON_ORDER_REFERRER =
+            ColumnField.of(Patron.class, PATRON_ORDERS, "referrer", Long.class);
+
+    /** A card by its secondary-table holder, whose foreign key is not a column of the card's own table. */
+    record ExtraCard(Long id, Long holderId) {}
+
+    private static final TableField<CardExtraEntity, CardExtraEntity> EXTRA_CARDS =
+            TableField.root(CardExtraEntity.class);
+    private static final ColumnField<ExtraCard, CardExtraEntity, Long> EXTRA_CARD_ID =
+            ColumnField.of(ExtraCard.class, EXTRA_CARDS, "id", Long.class);
+    private static final ColumnField<ExtraCard, CardExtraEntity, Long> EXTRA_CARD_HOLDER =
+            ColumnField.of(ExtraCard.class, EXTRA_CARDS, "holder", Long.class);
+
+    /** A line row written by an upsert, its product read by id in the conflict action's {@code where}. */
+    record SkuRow(Long id, Integer quantity, Long product) {}
+
+    private static final ColumnField<SkuRow, SkuOrderLineEntity, Long> SKU_ROW_ID =
+            ColumnField.of(SkuRow.class, SKU_LINES, "id", Long.class);
+    private static final ColumnField<SkuRow, SkuOrderLineEntity, Integer> SKU_ROW_QUANTITY =
+            ColumnField.of(SkuRow.class, SKU_LINES, "quantity", Integer.class);
+    private static final ColumnField<SkuRow, SkuOrderLineEntity, Long> SKU_ROW_PRODUCT =
+            ColumnField.of(SkuRow.class, SKU_LINES, "product", Long.class);
+
+    /** The orders grouped by their whole referrer entity, which has no portable group key (MQ1410). */
+    private static final ColumnField<ReferrerCount, OrderEntity, CustomerEntity> GROUP_REFERRER_ENTITY =
+            ColumnField.of(ReferrerCount.class, ORDERS, "referrer", CustomerEntity.class);
+
     // ---- AC-COL-34: reads
 
     @TckTest
@@ -364,6 +401,63 @@ class ToOneIdTest {
         assertThat(sql).isEmpty();
     }
 
+    @TckTest
+    void ac_col_34_a_sub_select_or_exists_in_a_read_reads_the_id_through_the_left_join_and_drops_no_row(
+            TckDatabase db) {
+        UnaryOperator<Filters<Holder>> cardlessIn = f -> f.in(HOLDER_ID,
+                SubSelect.of(HOLDER_ID).where(g -> g.isNull(HOLDER_CARD)));
+        UnaryOperator<Filters<Holder>> cardlessExists = f -> f.exists(
+                SubSelect.of(HOLDER_ID).where(g -> g.isNull(HOLDER_CARD)),
+                (s, outer) -> s.compare(HOLDER_ID, Op.EQ, outer.column(HOLDER_ID)));
+        UnaryOperator<Filters<Card>> issuerlessIn = f -> f.in(CARD_ID,
+                SubSelect.of(CARD_ID).where(g -> g.isNull(CARD_ISSUER)));
+        UnaryOperator<Filters<Card>> issuerlessExists = f -> f.exists(
+                SubSelect.of(CARD_ID).where(g -> g.isNull(CARD_ISSUER)),
+                (s, outer) -> s.compare(CARD_ID, Op.EQ, outer.column(CARD_ID)));
+        var holders = new ArrayList<List<Holder>>();
+        var cards = new ArrayList<List<Card>>();
+        var patrons = new ArrayList<Patron>();
+        SqlSnapshots.assertMatches(db, "col-34-sub-queries", ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+                sf.inSession(em -> {
+                    var holderExecutor = executor(em, CardHolderEntity.class);
+                    for (var where : List.of(cardlessIn, cardlessExists)) {
+                        holders.add(holderExecutor.list(ModelQuery
+                                .builder(HOLDERS, row -> new Holder(row.get(HOLDER_ID), row.get(HOLDER_CARD)))
+                                .select(SelectSet.of(HOLDER_ID, HOLDER_CARD)).primaryKey(PrimaryKey.of(HOLDER_ID))
+                                .where(where).orderBy(HOLDER_ID.asc()).build(), Limit.unlimited()));
+                    }
+                    var cardExecutor = executor(em, CardEntity.class);
+                    for (var where : List.of(issuerlessIn, issuerlessExists)) {
+                        cards.add(cardExecutor.list(ModelQuery
+                                .builder(CARDS, row -> new Card(row.get(CARD_ID), row.get(CARD_HOLDER),
+                                        row.get(CARD_ISSUER)))
+                                .select(SelectSet.of(CARD_ID, CARD_HOLDER, CARD_ISSUER))
+                                .primaryKey(PrimaryKey.of(CARD_ID)).where(where).orderBy(CARD_ID.asc()).build(),
+                                Limit.unlimited()));
+                    }
+                    patrons.addAll(executor(em, CustomerEntity.class).list(ModelQuery
+                            .builder(CUSTOMERS, row -> new Patron(row.get(PATRON_ID), List.of()))
+                            .select(SelectSet.of(PATRON_ID)).primaryKey(PrimaryKey.of(PATRON_ID))
+                            .where(f -> f.lte(PATRON_ID, 40L)
+                                    .exists(PATRON_ORDERS, g -> g.isNull(PATRON_ORDER_REFERRER)))
+                            .orderBy(PATRON_ID.asc()).build(), Limit.unlimited()));
+                });
+            }
+        });
+        // Holders 1-4, 11 and 12 have no card: the inverse side reads null, and no sub-query drops them
+        assertThat(holders).hasSize(2).allSatisfy(found -> assertThat(found).extracting(Holder::id)
+                .containsExactly(1L, 2L, 3L, 4L, 11L, 12L));
+        // The issuer is NULL on cards 4 and 8 and names no customer on cards 1 and 5: a @NotFound to-one keeps them
+        assertThat(cards).hasSize(2).allSatisfy(found -> assertThat(found).extracting(Card::id)
+                .containsExactly(1L, 4L, 5L, 8L));
+        List<Long> expected = rows(db, "select distinct o.customer.id from OrderEntity o "
+                + "where o.referrerId is null and o.customer.id <= 40 order by o.customer.id").stream()
+                .map(r -> (Long) r[0]).toList();
+        assertThat(expected).isNotEmpty();
+        assertThat(patrons).extracting(Patron::id).containsExactlyElementsOf(expected);
+    }
+
     // ---- AC-COL-34: writes
 
     @TckTest
@@ -463,10 +557,69 @@ class ToOneIdTest {
     }
 
     @TckTest
+    void ac_col_34_a_write_reading_the_id_in_a_set_clause_or_an_expression_is_checked_like_its_filter(
+            TckDatabase db) {
+        var setReferrer = ModelUpdate.builder(ORDERS).primaryKey(PrimaryKey.of(ID))
+                .setExpression(REFERRER, (path, cb) -> cb.literal(REFERRER_34)).where(f -> f.lt(ID, 10L)).build();
+        var setProduct = ModelUpdate.builder(SKU_LINES).primaryKey(PrimaryKey.of(SKU_LINE_ID))
+                .setExpression(SKU_LINE_PRODUCT, (path, cb) -> path).where(f -> f.eq(SKU_LINE_ID, 1L)).build();
+        var inExpression = ModelUpdate.builder(ORDERS).primaryKey(PrimaryKey.of(ID)).set(STATUS, "MARKED")
+                .where(f -> f.lt(ID, 10L).eq(Expr.coalesce(REFERRER, -1L), -1L)).build();
+        var inSkuExpression = ModelUpdate.builder(SKU_LINES).primaryKey(PrimaryKey.of(SKU_LINE_ID))
+                .set(SKU_LINE_QUANTITY, 9).where(f -> f.eq(Expr.coalesce(SKU_LINE_PRODUCT, -1L), -1L)).build();
+        long expected = orders(db, "where o.id < 10 and o.referrerId is null").size();
+        long[] written = new long[2];
+        var refusals = new ArrayList<ModelQueryException>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> inRolledBackTransaction(ds, em -> {
+            refusals.add(catchRefusal(() -> executor(em, SkuOrderLineEntity.class).update(setProduct)));
+            refusals.add(catchRefusal(() -> executor(em, SkuOrderLineEntity.class).update(inSkuExpression)));
+            written[0] = executor(em, OrderEntity.class).update(inExpression);
+            written[1] = executor(em, OrderEntity.class).update(setReferrer);
+        }));
+        assertThat(refusals).hasSize(2).allSatisfy(e -> assertThat(e)
+                .isInstanceOf(ModelQueryDefinitionException.class).hasMessageContaining("MQ1004: SkuLine.product: ")
+                .extracting(ModelQueryException::code).isEqualTo(MqCode.MQ1004));
+        assertThat(written[0]).isEqualTo(expected);
+        assertThat(written[1]).isEqualTo(9);
+        assertThat(sql).hasSize(2).allSatisfy(statement -> assertThat(statement).startsWith("update")
+                .doesNotContain("join"));
+    }
+
+    @TckTest
+    void ac_col_34_a_conflict_where_reading_the_id_is_checked_like_a_write_filter(TckDatabase db) {
+        var skuColumns = InsertColumns.<SkuRow, SkuOrderLineEntity>of(SKU_LINES).addKey(SKU_ROW_ID, SkuRow::id)
+                .add(SKU_ROW_QUANTITY, SkuRow::quantity).add(SKU_ROW_PRODUCT, SkuRow::product);
+        var nonKey = ValuesInsert.builder(skuColumns, Long.class, List.of(new SkuRow(1L, 5, 1L))).onConflict(SKU_ROW_ID)
+                .doUpdate(u -> u.setFromRow(SKU_ROW_QUANTITY).where(f -> f.eq(SKU_ROW_PRODUCT, 1L))).anyUniqueKey()
+                .build();
+        List<String> sql = SqlSnapshots.capture(db, ds -> inRolledBackTransaction(ds, em ->
+                assertThat(catchRefusal(() -> executor(em, SkuOrderLineEntity.class).insert(nonKey)))
+                        .isInstanceOf(ModelQueryDefinitionException.class)
+                        .hasMessageContaining("MQ1004: SkuRow.product: ")
+                        .extracting(ModelQueryException::code).isEqualTo(MqCode.MQ1004)));
+        assertThat(sql).isEmpty();
+    }
+
+    @TckTest
+    void ac_col_34_a_to_one_whose_foreign_key_is_on_a_secondary_table_is_refused_in_a_write(TckDatabase db) {
+        var refusals = new ArrayList<ModelQueryException>();
+        // The secondary table makes Hibernate create bulk-id tables on H2, so the factory is built apart, uncaptured;
+        // the refusal comes before any statement of the write
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(db, CardExtraEntity.class)) {
+            sf.inSession(em -> refusals.add(catchRefusal(() -> executor(em, CardExtraEntity.class)
+                    .delete(ModelDelete.builder(EXTRA_CARDS).primaryKey(PrimaryKey.of(EXTRA_CARD_ID))
+                            .where(f -> f.isNull(EXTRA_CARD_HOLDER)).build()))));
+        }
+        assertThat(refusals).singleElement().satisfies(e -> assertThat(e)
+                .isInstanceOf(ModelQueryDefinitionException.class).hasMessageContaining("MQ1004: ExtraCard.holder: ")
+                .extracting(ModelQueryException::code).isEqualTo(MqCode.MQ1004));
+    }
+
+    @TckTest
     void ac_col_34_a_non_key_reference_and_a_join_formula_read_through_the_left_join(TckDatabase db) {
         var skuLines = new ArrayList<SkuLine>();
         var formulaLines = new ArrayList<FormulaLine>();
-        long[] written = new long[1];
+        var refusals = new ArrayList<ModelQueryException>();
         List<String> sql = SqlSnapshots.assertMatches(db, "col-34-non-key-and-formula", ds ->
                 inRolledBackTransaction(ds, em -> {
                     skuLines.addAll(executor(em, SkuOrderLineEntity.class).list(ModelQuery
@@ -480,16 +633,19 @@ class ToOneIdTest {
                             .select(SelectSet.of(FORMULA_LINE_ID, FORMULA_LINE_PRODUCT))
                             .primaryKey(PrimaryKey.of(FORMULA_LINE_ID)).where(f -> f.lte(FORMULA_LINE_ID, 4L))
                             .orderBy(FORMULA_LINE_ID.asc()).build(), Limit.unlimited()));
-                    written[0] = formula.update(ModelUpdate.builder(FORMULA_LINES)
+                    // A formula key part renders a join in a write, so a filter reading the product by its id is refused
+                    refusals.add(catchRefusal(() -> formula.update(ModelUpdate.builder(FORMULA_LINES)
                             .primaryKey(PrimaryKey.of(FORMULA_LINE_ID)).set(FORMULA_LINE_QUANTITY, 9)
-                            .where(f -> f.eq(FORMULA_LINE_PRODUCT, "F-04")).build());
+                            .where(f -> f.eq(FORMULA_LINE_PRODUCT, "F-04")).build())));
                 }));
         List<SkuLine> expectedSku = rows(db, "select l.id, l.product.id from SkuOrderLineEntity l where l.id <= 6 "
                 + "order by l.id").stream().map(r -> new SkuLine((Long) r[0], (Long) r[1])).toList();
         assertThat(skuLines).hasSize(6).isEqualTo(expectedSku);
         assertThat(formulaLines).extracting(FormulaLine::productCode).containsExactly("F-04", "F-07", "F-02", "F-05");
-        assertThat(written[0]).isEqualTo(rows(db, "select l.id from FormulaLineEntity l "
-                + "where upper(l.productCode) = 'F-04'").size());
+        assertThat(refusals).singleElement().satisfies(e -> assertThat(e)
+                .isInstanceOf(ModelQueryDefinitionException.class).hasMessageContaining("MQ1004: FormulaLine.product: ")
+                .extracting(ModelQueryException::code).isEqualTo(MqCode.MQ1004));
+        assertThat(sql).hasSize(2).allSatisfy(statement -> assertThat(statement).startsWith("select"));
         assertThat(sql.get(0)).contains("left join");
     }
 
@@ -550,6 +706,18 @@ class ToOneIdTest {
                 .isEqualTo(expected.get(group.referrerId())));
         assertThat(exported).isEqualTo(listed);
         assertThat(sql).allSatisfy(statement -> assertThat(statement).contains("left join").contains("group by"));
+    }
+
+    @TckTest
+    void ac_col_35_a_runtime_group_by_on_a_whole_entity_to_one_is_refused_with_mq1410_before_any_statement(
+            TckDatabase db) {
+        var grouped = ModelQuery.builder(ORDERS, row -> new ReferrerCount(null, row.get(GROUP_COUNT)))
+                .select(SelectSet.of(GROUP_REFERRER_ENTITY, GROUP_COUNT)).groupBy(GROUP_REFERRER_ENTITY);
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, OrderEntity.class,
+                executor -> assertThatThrownBy(() -> executor.list(grouped.build(), Limit.unlimited()))
+                        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ1410))));
+        assertThat(sql).isEmpty();
     }
 
     // ---- support

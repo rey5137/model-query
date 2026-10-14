@@ -41,6 +41,52 @@ class IdFormTest {
             public @interface NotFound {}
             """);
 
+    private static final JavaFileObject SQL_RESTRICTION = source("org.hibernate.annotations.SQLRestriction", """
+            package org.hibernate.annotations;
+
+            public @interface SQLRestriction {
+                String value();
+            }
+            """);
+
+    private static final JavaFileObject WHERE = source("org.hibernate.annotations.Where", """
+            package org.hibernate.annotations;
+
+            public @interface Where {
+                String clause();
+            }
+            """);
+
+    private static final JavaFileObject RESTRICTED = source("idf.RestrictedEntity", """
+            package idf;
+
+            import jakarta.persistence.Entity;
+            import jakarta.persistence.Id;
+            import org.hibernate.annotations.SQLRestriction;
+
+            @Entity
+            @SQLRestriction("active = 1")
+            public class RestrictedEntity {
+                @Id
+                Long id;
+            }
+            """);
+
+    private static final JavaFileObject LEGACY = source("idf.LegacyEntity", """
+            package idf;
+
+            import jakarta.persistence.Entity;
+            import jakarta.persistence.Id;
+            import org.hibernate.annotations.Where;
+
+            @Entity
+            @Where(clause = "active = 1")
+            public class LegacyEntity {
+                @Id
+                Long id;
+            }
+            """);
+
     private static final JavaFileObject CUSTOMER = source("idf.CustomerEntity", """
             package idf;
 
@@ -161,6 +207,7 @@ class IdFormTest {
             import jakarta.persistence.Id;
             import jakarta.persistence.JoinColumn;
             import jakarta.persistence.JoinColumns;
+            import jakarta.persistence.JoinTable;
             import jakarta.persistence.ManyToOne;
             import jakarta.persistence.OneToOne;
             import org.hibernate.annotations.JoinColumnOrFormula;
@@ -193,6 +240,16 @@ class IdFormTest {
                 @ManyToOne
                 @NotFound
                 CustomerEntity missing;
+                @ManyToOne
+                @JoinTable(name = "ticket_referrer")
+                CustomerEntity tabled;
+                @ManyToOne
+                @JoinColumn(name = "owner_id", table = "ticket_extra")
+                CustomerEntity onTable;
+                @ManyToOne
+                RestrictedEntity restricted;
+                @ManyToOne
+                LegacyEntity legacy;
                 @ManyToOne
                 DerivedEntity derived;
                 @ManyToOne
@@ -245,8 +302,8 @@ class IdFormTest {
             """);
 
     private static final JavaFileObject[] ENTITIES = {
-        JOIN_FORMULA, JOIN_COLUMN_OR_FORMULA, NOT_FOUND, CUSTOMER, COMPOSITE, COMPOSITE_ID, EMBEDDED_ID, DERIVED,
-        REGION, TICKET, ID_CONVERTER, WRONG_CONVERTER};
+        JOIN_FORMULA, JOIN_COLUMN_OR_FORMULA, NOT_FOUND, SQL_RESTRICTION, WHERE, RESTRICTED, LEGACY, CUSTOMER, COMPOSITE, COMPOSITE_ID, EMBEDDED_ID,
+        DERIVED, REGION, TICKET, ID_CONVERTER, WRONG_CONVERTER};
 
     private static JavaFileObject model(String annotation, String fields) {
         return source("idf.TicketRow", """
@@ -328,6 +385,44 @@ class IdFormTest {
     @Test
     void ac_proc_28_not_found_is_refused_with_its_reason() {
         refused("missing", "@NotFound");
+    }
+
+    @Test
+    void ac_proc_28_a_join_table_is_refused_with_its_reason() {
+        refused("tabled", "@JoinTable, which keeps the foreign key on another table");
+    }
+
+    @Test
+    void ac_proc_28_a_join_column_on_another_table_is_refused_with_its_reason() {
+        refused("onTable", "table = \"ticket_extra\", so the foreign key is on another table");
+    }
+
+    private void restricted(String attribute, String annotation) {
+        Compilation compilation = compileModel(idForm(attribute, "Long"));
+
+        assertThat(compilation.status()).isEqualTo(Compilation.Status.FAILURE);
+        assertThat(errors(compilation)).singleElement().asString()
+                .startsWith("MQ3029: TicketRow." + attribute + "Id: '" + attribute + "' can't be read by its id: ")
+                .contains("has " + annotation);
+    }
+
+    @Test
+    void ac_proc_28_a_target_with_sql_restriction_is_mq3029() {
+        restricted("restricted", "@SQLRestriction");
+    }
+
+    @Test
+    void ac_proc_28_a_target_with_where_is_mq3029() {
+        restricted("legacy", "@Where");
+    }
+
+    @Test
+    void ac_proc_28_mq3016_does_not_suggest_an_id_form_for_a_restricted_target() {
+        Compilation compilation = compileModel("idf.RestrictedEntity restricted");
+
+        assertThat(compilation.warnings().stream().map(warning -> warning.getMessage(Locale.ROOT)))
+                .containsExactly("MQ3016: TicketRow.restricted: selects the whole RestrictedEntity entity; use "
+                        + "@Join with a query model of RestrictedEntity to select only its columns");
     }
 
     @Test

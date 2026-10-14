@@ -53,6 +53,7 @@ final class EntityMetamodel {
     private static final String JOIN_COLUMN_OR_FORMULA = "org.hibernate.annotations.JoinColumnOrFormula";
     private static final String JOIN_COLUMN_OR_FORMULAS = "org.hibernate.annotations.JoinColumnsOrFormulas";
     private static final String NOT_FOUND = "org.hibernate.annotations.NotFound";
+    private static final String HIBERNATE = "org.hibernate.annotations.";
     private static final List<String> COLUMNS = List.of(JPA + "Column", JPA + "JoinColumn");
 
     private final Types types;
@@ -380,10 +381,17 @@ final class EntityMetamodel {
             if (isNamed(mirror, NOT_FOUND)) {
                 return "it has @NotFound, which makes Hibernate join the target";
             }
+            if (isNamed(mirror, JPA + "JoinTable")) {
+                return "it has @JoinTable, which keeps the foreign key on another table";
+            }
             if (isNamed(mirror, JPA + "JoinColumn") && value(mirror, "referencedColumnName") instanceof String named
                     && !named.isEmpty()) {
                 return "its @JoinColumn names referencedColumnName = \"" + named
                         + "\", which may not be the target's primary key";
+            }
+            if (isNamed(mirror, JPA + "JoinColumn") && value(mirror, "table") instanceof String table
+                    && !table.isEmpty()) {
+                return "its @JoinColumn names table = \"" + table + "\", so the foreign key is on another table";
             }
         }
         return null;
@@ -392,6 +400,22 @@ final class EntityMetamodel {
     /** {@code @Name} of an annotation, as a message shows it. */
     private static String simple(AnnotationMirror mirror) {
         return "@" + mirror.getAnnotationType().asElement().getSimpleName();
+    }
+
+    /**
+     * The Hibernate restriction ({@code @SQLRestriction} or {@code @Where}, read by name) on {@code target} or a
+     * mapped superclass, as {@code @Name}, or {@code null} when it has none: a read then takes the id from the
+     * joined row, which the restriction can empty while the foreign key holds a value ({@code MQ3029}, D-136).
+     */
+    String restriction(TypeElement target) {
+        for (DeclaredType type : hierarchy((DeclaredType) target.asType())) {
+            for (AnnotationMirror mirror : type.asElement().getAnnotationMirrors()) {
+                if (isNamed(mirror, HIBERNATE + "SQLRestriction") || isNamed(mirror, HIBERNATE + "Where")) {
+                    return simple(mirror);
+                }
+            }
+        }
+        return null;
     }
 
     /**

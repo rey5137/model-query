@@ -15,8 +15,13 @@ Nothing is frozen yet: every public type stays `@Incubating`. The additions belo
   - Every clause of a read reads it through a `LEFT` join and the target's id, so a `NULL` foreign key reads back
     `null` and no row is dropped; a locked read of it is `MQ2211`.
   - A write's filter renders the foreign-key column with no join. The new code `MQ1004` refuses it before any
-    statement unless the provider reports that the foreign key references the target's primary key, through the new
-    `ProviderSupport.referencesPrimaryKey`, which `model-query-hibernate` answers.
+    statement unless the provider answers `LOCAL_COLUMN` (a column of the entity's own table, no join or formula,
+    referencing the target's primary key) through the new `ProviderSupport.foreignKeyColumn` and its `ForeignKeyColumn`
+    enum, which `model-query-hibernate` answers; core receives the answer as `ForeignKeyLookup`. It checks the
+    `where`, the set clause and an upsert's `doUpdate(...).where(...)`, and the message says whether the provider
+    reports it is not or cannot tell. A write of a `@JoinFormula` or `@SecondaryTable` to-one's id is therefore
+    `MQ1004`; a `@JoinFormula` write was accepted before.
+  - A sub-query of a read (`exists`, `in(subSelect)`, `exists(subSelect)`) reads it through the same join.
   - A returning write and `persist(..., returning)` fill it from the written row (R-WRT-48).
 - A to-one read by its id on a generated model (D-136, R-PROC-33, R-GEN-19): `@Column(attribute = "referrer") Long
   referrerId`, or a converter from the id type, is accepted on a `@QueryModel`; another type is `MQ3002` naming the
@@ -24,6 +29,12 @@ Nothing is frozen yet: every public type stays `@Incubating`. The additions belo
   `@JoinFormula`, `@JoinColumnOrFormula`, `@NotFound`, a `@MapsId`, `@IdClass` or `@EmbeddedId` target and a to-one in an
   embedded value. `generateChanges` and `generateInserts` write the id form and the generated `from` copies it; the
   whole-entity form stays read-only (D-124). `MQ3016` names the id form. See "Foreign key by id" in the user guide.
+  - `@JoinTable` and `@JoinColumn(table = "...")` are also `MQ3002` reasons.
+  - The new code `MQ3029` refuses the id form over a target with `@SQLRestriction` or `@Where`, whose restriction
+    would make a read return `null` for a foreign key that holds a value (until Q-20 resolves); `MQ3016` does not
+    suggest the id form there. A runtime `@Filter` on the target is a documented caveat.
+  - The new code `MQ1410` refuses a runtime `groupBy` or group key over a whole-entity to-one column before any
+    statement (D-137), as `MQ3028` refuses `@GroupBy`; the id form stays allowed.
 - Generated-code nullness (D-135, R-PROC-32, R-GEN-36), described in "Processor options":
   - `-Amodelquery.jspecify=true` puts JSpecify `@NullMarked` on generated `Q` classes and change sets, type-use
     `@Nullable` on a change set's fields, setter and fluent parameters, getters and assignment values, and

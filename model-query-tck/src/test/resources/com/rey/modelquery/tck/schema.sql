@@ -184,3 +184,11 @@ CREATE TABLE cards (
     issuer_id BIGINT NULL,
     CONSTRAINT fk_cards_holder FOREIGN KEY (holder_id) REFERENCES card_holders (id)
 );
+-- A secondary table of cards holding a holder's foreign key off the entity's own table; the seed leaves it empty
+-- (TCK AC-COL-34).
+CREATE TABLE card_extras (
+    card_id   BIGINT NOT NULL PRIMARY KEY,
+    holder_id BIGINT NULL,
+    CONSTRAINT fk_card_extras_card FOREIGN KEY (card_id) REFERENCES cards (id),
+    CONSTRAINT fk_card_extras_holder FOREIGN KEY (holder_id) REFERENCES card_holders (id)
+);
