@@ -376,6 +376,171 @@ Things to know:
   A `@PrimaryKey` on a non-id unique column is written with `add`. An assigned id must be written by some column, annotated
   `@PrimaryKey` or not (`MQ3501` otherwise); a plain column that writes it does not change the read key.
 
+## Models in an API module
+
+A model that is passed outward, to a client or another service, can live in a module that has no entity. That module
+depends on `model-query-annotations` and `model-query-core` only; the persistence module, which has the entities and the
+processor, depends on the API module and binds each model with `@BindQueryModel`. The processor reads the model from the
+class path, checks it against the root entity as it would an annotated model, and generates its `QModel` in the
+binding's package.
+
+```text
+shop-api          OrderView, OrderLine          (no JPA, no processor)
+shop-persistence  OrderEntity, Models           (processor; depends on shop-api)
+```
+
+The model carries no `@QueryModel`; `root` moves to the binding:
+
+```java
+package shop;
+
+public class OrderView {
+    @PrimaryKey
+    private Long id;
+    private String status = "NEW";
+    private BigDecimal total;
+    @Column(attribute = "address.city")
+    private String city;
+
+    public void setId(Long id) { this.id = id; }
+    public void setStatus(String status) { this.status = status; }
+    public void setTotal(BigDecimal total) { this.total = total; }
+    public void setCity(String city) { this.city = city; }
+}
+```
+
+```java
+package persistence;
+
+import shop.OrderView;
+
+@BindQueryModel(model = OrderView.class, root = OrderEntity.class)
+final class Models {}
+```
+
+`persistence.QOrderView` equals the `QOrderView` an annotated `OrderView` generates, apart from its package.
+`@BindQueryModel` repeats on one type and goes on a `package-info` as well, and takes `generateSelectSets`, `prefix`,
+`suffix` and `singleGroup` as `@QueryModel` does. Set `generateChanges` or `generateInserts` for the change set or the
+insert builders of the same model, or bind an update or insert model of its own:
+
+```java
+@BindUpdateModel(model = OrderPatch.class, root = OrderEntity.class)
+@BindInsertModel(model = NewOrder.class, root = OrderEntity.class)
+final class WriteModels {}
+```
+
+A model is bound once for each kind. Two bindings, or a binding and an annotated model, that would generate one class
+name are `MQ3023`; give one a `prefix` or another package. What the generated classes call must be public, since they
+sit in another package: the model, its no-arg constructor, its setters and its `@Join` getters (`MQ3024`). A `@Join` or
+`@Child` model of a bound model is itself annotated or bound in the same compilation (`MQ3026`), and its `QModel` lands
+in the binding's package:
+
+```java
+@BindQueryModel(model = CustomerView.class, root = CustomerEntity.class)
+@BindQueryModel(model = InvoiceView.class, root = InvoiceEntity.class)
+@BindQueryModel(model = CountryView.class, root = CountryEntity.class)
+final class Models {}
+```
+
+### Computed fields and aggregates
+
+The API module cannot compile an `ExpressionDefinition` over an entity it does not have, so `@Computed` may omit
+`value` there and the binding supplies the definition. The same `@BindExpression` turns an `@Aggregate` into an
+expression aggregate:
+
+```java
+public record OrderBand(
+        @GroupBy @Computed String band,
+        @Aggregate(fn = AggregateFunction.SUM) BigDecimal doubled,
+        @Aggregate(fn = AggregateFunction.COUNT) Long id) {}
+```
+
+```java
+@BindQueryModel(model = OrderBand.class, root = OrderEntity.class, expressions = {
+        @BindExpression(field = "band", value = Band.class),
+        @BindExpression(field = "doubled", value = BandDoubled.class)})
+final class Models {}
+```
+
+A valueless `@Computed` with no `@BindExpression`, or on an annotated model, is `MQ3025`, as is a `@BindExpression`
+naming no such field.
+
+### Build setup
+
+The processor runs in the persistence module only, and the API module is an ordinary dependency.
+
+=== "Maven"
+
+    ```xml
+    <!-- shop-api/pom.xml -->
+    <dependencies>
+        <dependency>
+            <groupId>io.github.rey5137</groupId>
+            <artifactId>model-query-annotations</artifactId>
+            <version>0.9.0</version>
+        </dependency>
+    </dependencies>
+
+    <!-- shop-persistence/pom.xml -->
+    <dependencies>
+        <dependency>
+            <groupId>com.example</groupId>
+            <artifactId>shop-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>io.github.rey5137</groupId>
+                            <artifactId>model-query-processor</artifactId>
+                            <version>0.9.0</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+    ```
+
+    Maven recompiles the persistence module when the API module changes, and regenerates the `QModel`s.
+
+=== "Gradle"
+
+    ```kotlin
+    // shop-api/build.gradle.kts
+    dependencies {
+        api("io.github.rey5137:model-query-annotations:0.9.0")
+    }
+
+    // shop-persistence/build.gradle.kts
+    dependencies {
+        implementation(project(":shop-api"))
+        annotationProcessor("io.github.rey5137:model-query-processor:0.9.0")
+    }
+
+    // Recompile when the API module's classes change in any way, annotations on private fields included.
+    tasks.named<JavaCompile>("compileJava") {
+        inputs.files(configurations.runtimeClasspath).withNormalizer(ClasspathNormalizer::class)
+    }
+    ```
+
+The `compileJava` input is a Gradle limit, not a library choice. The processor is `isolating`: each generated file has
+the binding as its one originating element, and Gradle recompiles the binding when the bound model's public shape
+changes. An edit that only changes annotations on the model's private fields or record components, such as a new
+`@Column(attribute = ...)`, is outside Gradle's compile-avoidance ABI, so without the input Gradle skips the persistence
+module's compile and its `QModel` stays stale until a clean build. With the input, any change to the API module's
+classes recompiles the persistence module in full (D-140). A nested model bound in a different persistence module from
+its outer model is not supported yet: bind both in one module.
+
+The binding annotations are `@Incubating` (see [Stability](stability.md)). The checks above are
+[`MQ3023` to `MQ3026`](diagnostics.md).
+
 ## Processor options
 
 The processor reads three options, each passed to `javac` as `-Akey=value`:

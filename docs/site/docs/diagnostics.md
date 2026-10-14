@@ -157,6 +157,10 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3020` | `@Selected` field that is not exactly `SelectSet<Model>`, or a second `@Selected` field in the model. |
 | `MQ3021` | `@Selected` combined with another field annotation of the library. |
 | `MQ3022` | Warning: a `@FilterColumn` whose key in `fields()` a mapped column, a `@Computed` field or another `@FilterColumn` already holds is left out of `fields()` and stays a constant. |
+| `MQ3023` | A model bound twice for one kind, or bound and annotated; or two bindings, or a binding and an annotated model, that would generate one class name. Keep one, or give one a `prefix` or another package. |
+| `MQ3024` | A bound model, or a type enclosing it, that is not public, or a constructor, setter or getter the generated classes call from the binding's package that is not public; or a `model` that is no class or record. |
+| `MQ3025` | A `@Computed` with no `value` and no `@BindExpression`, or on an annotated model; or a `@BindExpression` naming an unknown field, a field that is neither computed nor aggregate, one that already names a definition, or a field twice. |
+| `MQ3026` | A `@Join` or `@Child` model of a bound model that is neither annotated nor bound in the same compilation. Bind it as well. |
 | `MQ3028` | `@GroupBy` on a column that selects a whole to-one entity. Group by the id form instead: `@Column(attribute = "customer") Long customerId`. |
 | `MQ3029` | The id form of a to-one whose target has `@SQLRestriction` or `@Where`: a read would take a `null` id from a restricted row while the foreign key holds a value. Read it through a `@Join`. |
 | `MQ3201` | Aggregate model: field is primitive. |
