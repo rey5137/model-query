@@ -8,6 +8,7 @@ import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.metamodel.Attribute;
+import jakarta.persistence.metamodel.IdentifiableType;
 import jakarta.persistence.metamodel.ManagedType;
 import jakarta.persistence.metamodel.PluralAttribute;
 import jakarta.persistence.metamodel.SingularAttribute;
@@ -202,7 +203,7 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
             path = embeddedPath(from);
         } else {
             try {
-                path = ctx.readsToOneLeft() && toOne(from) ? leftJoined(ctx) : from.get(attribute);
+                path = attributePath(from, ctx);
             } catch (IllegalArgumentException e) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1002, String.format(
                         "%s.%s: entity %s has no attribute '%s'",
@@ -218,16 +219,63 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
                             : "attribute type " + name(attributeType, actual) + " for "
                                     + converter.getClass().getSimpleName(),
                     from.getJavaType().getSimpleName(),
-                    attribute, actual == null ? "of unknown type" : name(actual, attributeType)));
+                    attribute, (actual == null ? "of unknown type" : name(actual, attributeType)) + idNamed(from)));
         }
         return path;
     }
 
-    /** Whether the attribute is a singular association of {@code from}'s type, whose path would join it inner. */
-    private boolean toOne(From<?, T> from) {
+    /**
+     * The path of an undotted attribute. A to-one is read through its {@code LEFT} join in a read (D-124), and by its
+     * target's id when this column's attribute type is that id's (R-COL-29, D-136): through the join in a read, so a
+     * {@code NULL} foreign key reads back {@code null}, and as the foreign-key column in a write, which takes no join.
+     */
+    @SuppressWarnings("unchecked")
+    private Path<C> attributePath(From<?, T> from, JoinContext ctx) {
+        SingularAttribute<?, ?> toOne = toOne(from);
+        if (toOne == null) {
+            return from.get(attribute);
+        }
+        Path<?> association = ctx.readsToOneLeft() ? leftJoined(ctx) : from.get(attribute);
+        SingularAttribute<?, ?> id = idOf(toOne);
+        if (id == null) {
+            return (Path<C>) association; // unchecked until the MQ1001 check in path(JoinContext) compares the type
+        }
+        if (!ctx.readsToOneLeft()) {
+            ctx.readByForeignKey(this, from.getJavaType()); // the executor asks the provider for its join (MQ1004)
+        }
+        return (Path<C>) association.get(id.getName());
+    }
+
+    /** The attribute when it is a singular association of {@code from}'s type, whose path would join it inner. */
+    private SingularAttribute<?, ?> toOne(From<?, T> from) {
         ManagedType<?> owner = managedType(from);
         return owner != null && owner.getAttribute(attribute) instanceof SingularAttribute<?, ?> singular
-                && singular.isAssociation();
+                && singular.isAssociation() ? singular : null;
+    }
+
+    /**
+     * The id this column reads {@code association} by: its target's single {@code BASIC} id when this column's
+     * attribute type, its own or its converter's, is that id's type (R-COL-29); else {@code null}.
+     */
+    SingularAttribute<?, ?> idOf(Attribute<?, ?> association) {
+        SingularAttribute<?, ?> id = association instanceof SingularAttribute<?, ?> toOne && toOne.isAssociation()
+                ? basicId(toOne.getType()) : null;
+        return id != null && reads(attributeType, id.getJavaType()) ? id : null;
+    }
+
+    /** The single id of {@code target}, an entity, when it is one attribute of persistence type {@code BASIC}. */
+    static SingularAttribute<?, ?> basicId(Type<?> target) {
+        return target instanceof IdentifiableType<?> entity && entity.hasSingleIdAttribute()
+                && entity.getIdType() != null
+                && entity.getIdType().getPersistenceType() == Type.PersistenceType.BASIC
+                ? entity.getId(entity.getIdType().getJavaType()) : null;
+    }
+
+    /** {@code MQ1001}'s mention of the id a to-one column could also read by, or {@code ""} (R-COL-29). */
+    private String idNamed(From<?, T> from) {
+        SingularAttribute<?, ?> toOne = attribute.indexOf('.') < 0 ? toOne(from) : null;
+        SingularAttribute<?, ?> id = toOne == null ? null : basicId(toOne.getType());
+        return id == null ? "" : ", or its id " + id.getJavaType().getSimpleName();
     }
 
     /**

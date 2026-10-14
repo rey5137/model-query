@@ -1,0 +1,1 @@
+insert into order_archive(id,order_id,status,customer_id,version) select oe1_0.id,oe1_0.id,oe1_0.status,r1_0.id,? from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id where oe1_0.id<=?

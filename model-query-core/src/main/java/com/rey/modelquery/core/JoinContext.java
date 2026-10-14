@@ -75,6 +75,12 @@ public final class JoinContext {
      * sub-query, an {@code exists} and a {@code through} child are one statement.
      */
     private final Map<ParameterExpression<?>, Object> parameters;
+    /**
+     * The to-one columns a write's path read by their foreign-key column, each with the entity whose attribute it is,
+     * in rendering order: the executor asks the provider whether each foreign key references its target's primary key
+     * (R-COL-29, D-136). Shared with the build's nested contexts, as {@link #parameters} is.
+     */
+    private final Map<ColumnField<?, ?, ?>, Class<?>> foreignKeyReads;
     /** The key each join was cached under, which is not the declared key when its type was changed. */
     private final Map<From<?, ?>, JoinKey> keys = new IdentityHashMap<>();
     /** In an {@code exists}, the {@code on(...)} conditions of its required joins, rendered in its WHERE instead. */
@@ -99,12 +105,13 @@ public final class JoinContext {
     private JoinContext(From<?, ?> root, Class<?> rootType, CriteriaBuilder cb, CommonAbstractCriteria query,
             JoinKey rootKey, Set<JoinKey> required, RenderOptions renderOptions, Set<Class<?>> existsJoined) {
         this(root, rootType, cb, query, rootKey, required, renderOptions, existsJoined, null, new int[1],
-                new LinkedHashMap<>());
+                new LinkedHashMap<>(), new LinkedHashMap<>());
     }
 
     private JoinContext(From<?, ?> root, Class<?> rootType, CriteriaBuilder cb, CommonAbstractCriteria query,
             JoinKey rootKey, Set<JoinKey> required, RenderOptions renderOptions, Set<Class<?>> existsJoined,
-            JoinContext outer, int[] repeatedExpressionBinds, Map<ParameterExpression<?>, Object> parameters) {
+            JoinContext outer, int[] repeatedExpressionBinds, Map<ParameterExpression<?>, Object> parameters,
+            Map<ColumnField<?, ?, ?>, Class<?>> foreignKeyReads) {
         this.root = root;
         this.rootType = rootType;
         this.cb = cb;
@@ -116,6 +123,7 @@ public final class JoinContext {
         this.outer = outer;
         this.repeatedExpressionBinds = repeatedExpressionBinds;
         this.parameters = parameters;
+        this.foreignKeyReads = foreignKeyReads;
     }
 
     /** A context over {@code root}, the query's root table, rendering with {@link RenderOptions#portable()}. */
@@ -158,13 +166,23 @@ public final class JoinContext {
 
     JoinContext rootedAt(From<?, ?> join, Class<?> entity) {
         JoinContext ctx = new JoinContext(join, entity, cb, query, null, Set.of(), renderOptions, existsJoined, null,
-                repeatedExpressionBinds, parameters);
+                repeatedExpressionBinds, parameters, foreignKeyReads);
         ctx.readsToOneLeft = readsToOneLeft;
         return ctx;
     }
 
     boolean readsToOneLeft() {
         return readsToOneLeft;
+    }
+
+    /** Records that {@code column}, a to-one of {@code entity}, rendered as its foreign-key column (R-COL-29). */
+    void readByForeignKey(ColumnField<?, ?, ?> column, Class<?> entity) {
+        foreignKeyReads.putIfAbsent(column, entity);
+    }
+
+    /** The to-one columns this build rendered as their foreign-key column, each with its entity (R-COL-29). */
+    Map<ColumnField<?, ?, ?>, Class<?>> foreignKeyReads() {
+        return Collections.unmodifiableMap(foreignKeyReads);
     }
 
     /** Whether an {@code exists} sub-query of this build rendered so far, at any depth (R-WRT-11). */
@@ -324,12 +342,12 @@ public final class JoinContext {
             // The root of a through child's context is a join, which the sub-query correlates as a join (D-100).
             From<?, ?> correlated = root instanceof Root<?> ? sub.correlate((Root) root) : sub.correlate((Join) root);
             ctx = new JoinContext(correlated, rootType, cb, sub, null, path.keysUpTo(null), renderOptions,
-                    existsJoined, outer, repeatedExpressionBinds, parameters);
+                    existsJoined, outer, repeatedExpressionBinds, parameters, foreignKeyReads);
         } else {
             From<?, ?> correlated = sub.correlate((Join) existsFrom);
             ctx = new JoinContext(correlated, correlated.getJavaType(), cb, sub, existsPath.key(),
                     path.keysUpTo(existsPath.key()), renderOptions, existsJoined, outer, repeatedExpressionBinds,
-                    parameters);
+                    parameters, foreignKeyReads);
         }
         ctx.existsPath = path;
         ctx.existsFrom = path.resolve(ctx);
@@ -368,7 +386,7 @@ public final class JoinContext {
         Subquery<C> sq = query.subquery(sub.column().type());
         Root<?> inner = sq.from(sub.rootEntity());
         JoinContext ctx = new JoinContext(inner, sub.rootEntity(), cb, sq, null, Set.of(), renderOptions,
-                existsJoined, null, repeatedExpressionBinds, parameters);
+                existsJoined, null, repeatedExpressionBinds, parameters, foreignKeyReads);
         Path<C> selected = sub.column().path(ctx);
         // A lifted column reads the outer root, so its embeddable check runs against the outer context, not this one.
         boolean embeddable = column instanceof ColumnField<?, ?, ?> outerColumn && outerColumn.isLifted() && outer != null
@@ -406,9 +424,9 @@ public final class JoinContext {
         // The correlated outer root a lifted column reads; a through child's root is a join (D-100).
         From<?, ?> correlated = root instanceof Root<?> ? sq.correlate((Root) root) : sq.correlate((Join) root);
         JoinContext outerCtx = new JoinContext(correlated, rootType, cb, sq, rootKey, Set.of(), renderOptions,
-                existsJoined, null, repeatedExpressionBinds, parameters);
+                existsJoined, null, repeatedExpressionBinds, parameters, foreignKeyReads);
         JoinContext ctx = new JoinContext(inner, sub.rootEntity(), cb, sq, null, Set.of(), renderOptions,
-                existsJoined, outerCtx, repeatedExpressionBinds, parameters);
+                existsJoined, outerCtx, repeatedExpressionBinds, parameters, foreignKeyReads);
         sq.select(cb.literal(1));
         var where = new ArrayList<>(ConditionGroup.toPredicates(sub.filters(), ctx));
         where.addAll(ConditionGroup.toPredicates(correlation, ctx));

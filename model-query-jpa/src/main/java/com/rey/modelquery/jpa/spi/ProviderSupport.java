@@ -127,4 +127,16 @@ public interface ProviderSupport {
     default Optional<SequenceRenderer> sequences(EntityManagerFactory emf) {
         return Optional.empty();
     }
+
+    /**
+     * Whether, in {@code emf}, the to-one attribute {@code toOne} of {@code entity} has a foreign key on the entity's
+     * table referencing its target's primary key, so that a write's filter renders the path through it to the
+     * target's id as that column, with no join; empty, the default, when it cannot tell. A write whose filter reads a
+     * to-one by its id is refused with {@code MQ1004}, before any statement, unless it reports {@code true}
+     * (R-COL-29, D-136).
+     */
+    @Incubating
+    default Optional<Boolean> referencesPrimaryKey(EntityManagerFactory emf, Class<?> entity, String toOne) {
+        return Optional.empty();
+    }
 }

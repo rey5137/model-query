@@ -56,6 +56,13 @@ public final class TckFixture {
     public static final int LABELS = 10;
     /** Rows of {@code constant_rows}, one per column-typed constant's mapping (TCK AC-FLT-20, AC-COL-32). */
     public static final int CONSTANT_ROWS = 6;
+    /**
+     * Rows of {@code card_holders} and {@code cards}: card {@code i} belongs to holder {@code i + 4} up to card 6, so
+     * holders 1-4, 11 and 12 have none, and its issuer is NULL on every fourth card, a missing customer on cards 1 and
+     * 5, else customer {@code i} (TCK AC-COL-34).
+     */
+    public static final int CARD_HOLDERS = 12;
+    public static final int CARDS = 8;
     /** Orders 1 to this one carry labels, many-to-many: one or two each, every label on many orders. */
     public static final int LABELED_ORDERS = 200;
     /**
@@ -275,6 +282,23 @@ public final class TckFixture {
                         ps.setLong(9, i % 2 + 1);
                     }
                 });
+        insert(c, "INSERT INTO card_holders (id, name) VALUES (?,?)", CARD_HOLDERS, (ps, i) -> {
+            ps.setLong(1, i);
+            ps.setString(2, "Holder " + pad(i, 2));
+        });
+        insert(c, "INSERT INTO cards (id, holder_id, issuer_id) VALUES (?,?,?)", CARDS, (ps, i) -> {
+            ps.setLong(1, i);
+            if (i <= 6) {
+                ps.setLong(2, i + 4L);
+            } else {
+                ps.setNull(2, Types.BIGINT);
+            }
+            if (i % 4 == 0) {
+                ps.setNull(3, Types.BIGINT);
+            } else {
+                ps.setLong(3, i % 4 == 1 ? 900_000L + i : i);
+            }
+        });
         // java.util.Date attributes over DATE, TIME and TIMESTAMP columns (AC-COL-28).
         insert(c, "INSERT INTO dated_rows (id, born_on, rings_at, logged_at) VALUES (?,?,?,?)", DATED_ROWS, (ps, i) -> {
             ps.setLong(1, i);

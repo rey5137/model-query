@@ -9,6 +9,15 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 Nothing is frozen yet: every public type stays `@Incubating`. The additions below are all `@Incubating`.
 
 ### Added
+- A to-one read by its id (D-136, R-COL-29): a column of the target's single basic id type over a to-one
+  (`ColumnField.of(Order.class, ORDERS, "referrer", Long.class)`), or with a converter from it, reads the foreign key
+  instead of `MQ1001`, whose message now names the id type:
+  - Every clause of a read reads it through a `LEFT` join and the target's id, so a `NULL` foreign key reads back
+    `null` and no row is dropped; a locked read of it is `MQ2211`.
+  - A write's filter renders the foreign-key column with no join. The new code `MQ1004` refuses it before any
+    statement unless the provider reports that the foreign key references the target's primary key, through the new
+    `ProviderSupport.referencesPrimaryKey`, which `model-query-hibernate` answers.
+  - A returning write and `persist(..., returning)` fill it from the written row (R-WRT-48).
 - Generated-code nullness (D-135, R-PROC-32, R-GEN-36), described in "Processor options":
   - `-Amodelquery.jspecify=true` puts JSpecify `@NullMarked` on generated `Q` classes and change sets, type-use
     `@Nullable` on a change set's fields, setter and fluent parameters, getters and assignment values, and

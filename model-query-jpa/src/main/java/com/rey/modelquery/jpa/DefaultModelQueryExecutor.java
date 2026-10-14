@@ -1094,7 +1094,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     /** {@link #update(ModelUpdate)}, collecting the changed rows into {@code returning} when it is given (R-WRT-50). */
     private long update(ModelUpdate<E, ?> u, Returning<?> returning) {
         Objects.requireNonNull(u, "u");
-        checkWriteOnce(u, u::checkMetamodel);
+        checkWriteOnce(u, metamodel -> {
+            u.checkMetamodel(metamodel);
+            // A to-one read by its id in the filter: MQ1004 unless its foreign key renders with no join (D-136)
+            u.checkForeignKeys(em.getCriteriaBuilder(), renderOptions, this::referencesPrimaryKey);
+        });
         // Each run: the renderer is this executor's, and the refusal comes before the flush or a key select (R-WRT-53)
         u.checkSequences(renderOptions);
         WriteAssignments assignments = writeAssignments();
@@ -1351,7 +1355,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     /** {@link #delete(ModelDelete)}, collecting the changed rows into {@code returning} when it is given (R-WRT-50). */
     private long delete(ModelDelete<E, ?> d, Returning<?> returning) {
         Objects.requireNonNull(d, "d");
-        checkWriteOnce(d, d::checkMetamodel);
+        checkWriteOnce(d, metamodel -> {
+            d.checkMetamodel(metamodel);
+            // A to-one read by its id in the filter: MQ1004 unless its foreign key renders with no join (D-136)
+            d.checkForeignKeys(em.getCriteriaBuilder(), renderOptions, this::referencesPrimaryKey);
+        });
         requireTransaction(d.entityMode() ? "an entity-mode delete" : "a bulk delete", d.chunkOptions());
         if (d.writesNothing()) {
             return 0;
@@ -1404,10 +1412,32 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             throw cannotReturn(kind, "provider " + support.getClass().getName() + " cannot return rows for "
                     + rootEntity.getSimpleName() + " (ReturningSupport#rendered)");
         }
-        List<String> paths = returning.returningPaths();
+        List<String> asked = returning.returningPaths();
+        List<String> paths = throughIds(asked);
         // A column off the written table is MQ1809 now, not when the statement runs after the flush (D-132)
         support.check(em.getEntityManagerFactory(), rootEntity, paths);
-        return new Returning<>(support, rootEntity, returning, paths, shape);
+        return new Returning<>(support, rootEntity, returning, asked, paths, shape);
+    }
+
+    /**
+     * {@code asked}, each root to-one, which {@code checkReturning} accepts only read by its id, as the path to its
+     * target's id ({@code referrer.id}), which the provider maps to the foreign-key column (R-WRT-48, R-COL-29).
+     */
+    private List<String> throughIds(List<String> asked) {
+        EntityType<E> root = em.getMetamodel().entity(rootEntity);
+        return asked.stream().map(path -> path.indexOf('.') < 0
+                && root.getAttribute(path) instanceof SingularAttribute<?, ?> toOne && toOne.isAssociation()
+                && toOne.getType() instanceof IdentifiableType<?> target
+                ? path + "." + target.getId(target.getIdType().getJavaType()).getName() : path).toList();
+    }
+
+    /**
+     * The provider's answer whether the to-one {@code toOne} of {@code entity} references its target's primary key,
+     * empty when no {@link ProviderSupport} serves this factory or it cannot tell (R-COL-29, D-136).
+     */
+    private Optional<Boolean> referencesPrimaryKey(Class<?> entity, String toOne) {
+        return vendor.providerSupport()
+                .flatMap(support -> support.referencesPrimaryKey(em.getEntityManagerFactory(), entity, toOne));
     }
 
     /** The {@code MQ1809} refusal of a returning write of {@code kind} combined with {@code clause} (R-WRT-50). */
@@ -1446,15 +1476,19 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         private final ReturningShape shape;
         private final List<Object[]> rows = new ArrayList<>();
 
-        Returning(ReturningSupport support, Class<?> entity, ModelQuery<?, ?, R> query, List<String> paths,
-                ReturningShape shape) {
+        /**
+         * {@code paths} are the provider's, each in place of the query's path at its index in {@code asked}, by which
+         * a row maps back (R-COL-29).
+         */
+        Returning(ReturningSupport support, Class<?> entity, ModelQuery<?, ?, R> query, List<String> asked,
+                List<String> paths, ReturningShape shape) {
             this.support = support;
             this.entity = entity;
             this.query = query;
             this.paths = paths;
             this.shape = shape;
-            for (int p = 0; p < paths.size(); p++) {
-                indexes.putIfAbsent(paths.get(p), p);
+            for (int p = 0; p < asked.size(); p++) {
+                indexes.putIfAbsent(asked.get(p), p);
             }
         }
 

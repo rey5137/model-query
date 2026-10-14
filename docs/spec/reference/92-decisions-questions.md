@@ -394,7 +394,9 @@ component's field, which carries the component's annotations and its source posi
 class carrying Lombok's `@NoArgsConstructor`: ordered before Lombok, the processor cannot see that constructor, so
 javac checks the generated call, as it does a setter (R-GEN-11). A column whose type has type arguments
 (`Map<String, String>`) is declared with its raw class cast to that type, since it has no class literal. Rejected: `MQ3002` by
-assignability (it would let through what `MQ1001` refuses). → `processor/30` R-PROC-04, `processor/32` §1.
+assignability (it would let through what `MQ1001` refuses). → `processor/30` R-PROC-04, `processor/32` §1. Amended by
+D-136: a column over a to-one whose type is the target's single basic id type reads the foreign key instead of
+`MQ3002` (R-COL-29).
 
 **D-45 — What an outer model declares for its joins, and where a nested model may come from.**
 An outer QModel declares every join under a `@Join`, not only the join itself: for `OrderView.customer →
@@ -1684,7 +1686,9 @@ reads back with `null` rather than being dropped; a bulk write takes no join and
 given that `null`. No new code and
 no opt-in: rejected are a `writeForeignKeys` member, a per-field opt-in, and cascading writes
 into `@Join` or `@Child` (deferred past 1.0 by D-118; D-14, INV-1, INV-5). → `processor/30` R-PROC-19, `processor/31`
-R-GEN-19, R-GEN-21, AC-PROC-20, AC-GEN-28, Q-14.
+R-GEN-19, R-GEN-21, AC-PROC-20, AC-GEN-28, Q-14. Amended by D-136: a column of the target's id type over a to-one
+reads its foreign key (R-COL-29), and `generateChanges`/`generateInserts` write that id form; the whole-entity and
+converted forms stay left out.
 
 **D-125 — Insert columns a database fills (`@Generated`, `@ExcludeFromInserts`; RFC 0008 §1-§2).** `generateInserts`
 wrote every writable root column, so a `null` overrode a `DEFAULT`. R-PROC-26 now also leaves out a non-id root column
@@ -1830,7 +1834,43 @@ by design (R-GEN-07). `ColumnField` type arguments stay unannotated while `core`
 on JSpecify: the processor names the annotations by string, and the option without JSpecify on the compile classpath
 is `MQ3027`. Off, the output is byte-identical. New R-PROC-32, R-GEN-36, `MQ3027`. M21, 0.9.0. → `processor/30..32`,
 `reference/90`, `mvp-plan` §22.
-## 2. Open questions
+
+**D-136 — A query model reads a to-one by its id (Q-14, 2026-10-13; amends D-44, D-124 and R-WRT-48).** A query-model
+column over a to-one whose type is the target's single basic id type (`@Column(attribute = "referrer") Long referrerId`,
+the update model's spelling, R-GEN-19), or whose converter's attribute type is that id type (`ColumnConverter<Long,
+CustomerId>`), reads the foreign key instead of `MQ3002`; another type is `MQ3002` naming the id type, as `MQ3305` does
+on a write, and the processor and core check the converter the same way (INV-3). The processor refuses with `MQ3002` and
+the reason, naming the annotations as strings (D-135): the inverse (`mappedBy`) side, a non-primary-key
+`referencedColumnName`, `@JoinColumns`, `@JoinFormula` and `@JoinColumnOrFormula`, `@NotFound`, a target whose id is an
+association (derived identity), a target with `@IdClass` or `@EmbeddedId`, and a to-one inside an embedded value. The
+dotted `referrer.id` stays `MQ3001`, so the spelling is one. In every clause of a read (select, filter, order, group,
+keyset, the primary-key-first phases, `count`, export, and the source select of an insert-select) the id form reads
+through a `LEFT` join and its id (R-COL-25), on every mapping, so a `NULL` foreign key reads back `null` and no row is dropped (INV-4, INV-5); a locked read of it is
+therefore `MQ2211` (R-QRY-17, D-127). A hand-written `ColumnField` of the id type over a to-one reads the same, instead
+of `MQ1001`, whose message now names the id type; core requires a single id of persistence type `BASIC`. A bulk-write,
+sub-select-write or `throughEntities` filter renders the foreign-key column (`from.get(toOne).get(id)`), which takes no
+join only when the foreign key references the target's primary key (the M22.1 spike: a non-primary-key
+`referencedColumnName` renders an inner join on every vendor, dropping `NULL`-foreign-key rows from `isNull` and
+`notIn`); so the write path asks the provider (`ProviderSupport`, a provider fact as in D-117 and D-132) whether each
+id-form column in a write filter references the target's primary key, and refuses it before any statement with the new
+`MQ1004` when the provider says no or cannot tell. A returning write's id-form column (R-WRT-48, amended) is sent as the
+path `referrer.id`, which the Hibernate module already maps to the foreign-key column and refuses as `MQ1809` when it
+does not reference the primary key. The set clause is unchanged (already by id). Generated models never reach `MQ1004`,
+since the processor refuses those mappings. A class model's primitive id field over an optional to-one follows the
+existing null-to-primitive rule. Since the query model now names the foreign key as a scalar, `generateChanges` and
+`generateInserts` write the id form as an `@UpdateModel` and an `@InsertModel` do (R-PROC-26's insertable rule applies),
+and `from` copies it (AC-GEN-28 amended, no `MQ1607`); the whole-entity and converted-entity forms stay left out
+(D-124), and the D-124 double mapping stays valid but the docs recommend the id form. `MQ3016`'s message also names the
+id form. `@GroupBy` on a whole-entity to-one column is the new error `MQ3028`, since Hibernate groups by the foreign key
+and selects every entity column (PostgreSQL refuses it); its message names the id form. A hand-written runtime `groupBy`
+on a whole-entity column is accepted as a vendor-dependent database error, and `MQ3028` breaking an existing `@GroupBy`
+source is noted in the CHANGELOG. Rejected: the foreign-key column with no join in a read, chosen by the spike for every
+mapping (core sees only the JPA metamodel, so on an inverse, non-primary-key, formula or `@NotFound` mapping Hibernate's
+implicit join is inner and drops rows; Q-20 keeps a provider-reported shortcut open); grouping a whole-entity column by
+its id implicitly; a `@ForeignKey` annotation; accepting the write filter's join on a non-primary-key mapping, or
+refusing only `isNull` and `notIn` there. New R-COL-29, R-PROC-33, `MQ1004`, `MQ3028`; AC-COL-34, AC-COL-35, AC-PROC-28,
+AC-GEN-33. M22, 0.9.0. → `api/10`, `api/11`, `api/14`, `processor/30..32`, `reference/90`, `mvp-plan` §23. ## 2. Open
+questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
 
@@ -1886,12 +1926,12 @@ detect it? → `api/14` R-WRT-11.
 `ChildLoad`. Should `FetchPlan` gain a public read-only view of its children, or should child queries be tested only
 against a database? → `api/16` R-INS-06, `api/15`.
 
-**Q-14 — Reading a to-one by id on a query model.** A query model reads a foreign key only through the whole entity
-(`MQ3016`), a converter, or an entity that maps the column twice (D-124). Should `@Column(attribute = "customer") Long
-customerId` read the id on a query model, as an update model writes it? Open: whether it renders a LEFT join or the
-foreign-key column, and a TCK case with a `NULL` foreign key on every vendor. Related: a `@GroupBy` on a whole-entity
-to-one column fails on PostgreSQL, since Hibernate groups by the foreign key but selects every entity column;
-whether that is a diagnostic or a group by the id is open. → D-44, D-124.
+**Q-14 — Reading a to-one by id on a query model.** Resolved by D-136. Was: A query model reads a foreign key only
+through the whole entity (`MQ3016`), a converter, or an entity that maps the column twice (D-124). Should
+`@Column(attribute = "customer") Long customerId` read the id on a query model, as an update model writes it? Open:
+whether it renders a LEFT join or the foreign-key column, and a TCK case with a `NULL` foreign key on every vendor.
+Related: a `@GroupBy` on a whole-entity to-one column fails on PostgreSQL, since Hibernate groups by the foreign key but
+selects every entity column; whether that is a diagnostic or a group by the id is open. → D-44, D-124.
 
 **Q-15 — An opt-in returning emulation on MySQL.** MySQL has no `RETURNING`, so D-129 refuses returning writes there
 (`MQ4011`). A locked key read, a `whereKeys` write and a `byKeys` re-read give the same rows for an update and are
@@ -1913,6 +1953,11 @@ coverage is checkable. → `rfc/0011` §5, D-133.
 
 **Q-19 — Nested models bound in another module.** Binding a nested model in a different persistence module from its
 outer model. → `rfc/0012`, D-134.
+
+**Q-20 — A to-one's id read without a join.** Whether a read of the id form (D-136) renders the foreign-key column
+with no join where the provider reports the foreign key references the target's basic id directly (owning side, no
+`@NotFound`, no formula), a provider fact as D-117 and D-132 are. It reads the same rows as the `LEFT` join, so adding
+it changes no result; it would let a locked read of the id form through instead of `MQ2211`. → D-136.
 
 ## 3. Risks
 

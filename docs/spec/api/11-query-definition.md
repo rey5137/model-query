@@ -71,7 +71,9 @@ copy rethrows it as `MQ2301`'s cause. Offset paging, export and `primaryKeyFirst
 returns a locking copy as `orderedBy` does (R-QRY-14): it refuses `null`, returns `this` for an equal lock, and keeps
 the fetch plan (R-FCH-13). `ModelQuery` stays identity-equal. A lock on a grouped query has no row to lock: `build()`
 throws `MQ1209` naming the model, and `withLock` throws it too. Every copy, including `withFetch` and `orderedBy`, keeps
-the lock. Applying the lock is `engine/20` R-EXE-14 and `vendor/40` R-VND-15.
+the lock. Applying the lock is `engine/20` R-EXE-14 and `vendor/40` R-VND-15. A to-one read by its id (`api/10`
+R-COL-29, D-136) reads through a `LEFT` join, so a locked query selecting, filtering or ordering by it has a join and is
+`MQ2211` (R-EXE-14); Q-20 keeps a join-free read open.
 
 ## 3. `afterMap` and derived fields
 

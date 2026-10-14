@@ -36,6 +36,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1001` | A column's declared type does not match the entity attribute, or two columns compared or matched against a sub-select convert to different attribute types | `api/10` R-COL-08, `api/12` R-FLT-15 |
 | `MQ1002` | An attribute named by a column or join does not exist on its entity; the provider's exception is the cause | `api/10` R-COL-01, R-COL-08 |
 | `MQ1003` | A column or table sits on a root entity the query is not rooted at | `api/10` R-COL-01 |
+| `MQ1004` | A write's filter reads a to-one by its id where the provider does not report that the foreign key references the target's primary key, so the statement would join it; before any statement | `api/10` R-COL-29 |
 | `MQ1101` | Two `TableField`s share a join key but carry different `on(...)` conditions | `api/10` R-COL-04 |
 | `MQ1102` | `on(...)` used without `as(...)` | `api/10` R-COL-04 |
 | `MQ1103` | Two `Agg.of` fields share a name with different expressions | `api/13` R-AGG-02 |
