@@ -1819,8 +1819,8 @@ a dry run, not by the processor: the real executor on a dialect-booted factory o
 refusals the spec places before any statement (Q-17 lists the rest), with no container and no second implementation.
 The stub records JDBC access per call and denies by default; a call is portable on a target only if it reached a
 statement with no refusal. A call that reaches none, refuses after one, or throws anything else fails the check. The
-harness boots with application-supplied properties, refuses an explicit `vendor(...)` and targets outside a declared
-list, and substitutes its own `ChunkTransactions`. `offlineProperties(DatabaseVendor)` returns `Optional`; empty is
+harness boots with application-supplied properties, refuses an explicit `vendor(...)` (stripped, not refused: D-138) and targets outside a
+declared list, and substitutes its own `ChunkTransactions`. `offlineProperties(DatabaseVendor)` returns `Optional`; empty is
 `MQ4013`. The dry run lives in a new test-scope module on `jpa` (INV-7 amended); `model-query-test` stays core-only
 (D-98). Rejected: processor checks and a pure refusal function. Amended at M23 kickoff (2026-10-14) after the
 architect review: the INV-5 premise (loud over silently wrong, not every refusal before a statement), the five
@@ -1953,9 +1953,9 @@ as a vendor-dependent database error. Decided by the user at the M22 gate. New `
 **D-138 — Refusals a dry run must see run before the first statement (resolves Q-17, 2026-10-14).** Of the library's own
 refusals, only a fetch plan's child builds (`MQ1306`, `MQ1307`, the `MQ15xx` codes and the child's own refusals) and the
 primary-key-first step-2 batch and bind check (`MQ1307`) depended on the vendor and ran after a first statement. Both
-now run before any statement, memoised per factory once passed: a child is built and checked for a one-key round on
-every model-returning call, including an empty page, which a broken child now refuses (stricter, INV-5); `page` and
-`export` size and check step 2 up front. The `page(..., COUNT)` content statement is left where it is (it is on the
+now run before any statement: a child is built and checked for a one-key round (memoised per factory and profile once
+passed) on every model-returning call, including an empty page, which a broken child now refuses (stricter, INV-5); `page` and
+`export` size and check step 2 up front, on every call that can reach it (not memoised). The `page(..., COUNT)` content statement is left where it is (it is on the
 limits list). What still follows a first statement depends on data (`MQ2201`, `MQ2202`, `MQ2003`, `MQ2005`, `MQ2205`,
 `MQ2210`, `MQ2601`, `MQ2603`, `MQ2604`, `MQ2002`, `MQ2503`) or on the provider translating a later statement; those
 operations are on R-INS-12's limits list and reported "first statement only". The sweep marks a definition "first
@@ -1973,6 +1973,13 @@ an empty class list) are an `AssertionError` before anything runs, with no `MQ` 
 outcome but `REACHED`, `REFUSED` included; a skipped definition prints one report line with its reason. Decided by the
 user at the M23.3 audit stop point. → INV-5, D-82, D-132, D-133, `api/15` R-FCH-02, R-FCH-04, `engine/21` R-PAG-07,
 `api/16` R-INS-11, R-INS-12, `rfc/0011` §3-§4.
+
+**D-139 — `model-query-portability` and `jpa.vendor` (2026-10-14).** `model-query-portability` uses the not-API
+`jpa.vendor` members `VendorResolver.productNameOf`, `VendorResolver.resolve`, `VendorResolver.withSupplied` and
+`ResolvedVendor.profile()`, and is released and resolved at `model-query-jpa`'s exact version through the BOM; the INV-7
+rule allow-lists those two types and no other `jpa.vendor` type. The Spring startup check of D-133 leaves a factory with a
+bootstrap executor to run after the singletons are instantiated, so a deferred JPA bootstrap stays in the background, and
+reports an application `ModelQueryConfig` bean as `MQ4006` before any `MQ4012`. → INV-7, R-INS-10, R-SPR-17, `delivery/61`.
 
 ## 2. Open questions
 

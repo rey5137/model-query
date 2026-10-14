@@ -210,11 +210,11 @@ public final class OfflineFactory {
         overrides.put(SHARED_CACHE_MODE, SharedCacheMode.NONE.name());
         overrides.put(DATABASE_ACTION, "none");
         overrides.put(SCRIPTS_ACTION, "none");
-        overrides.put(PRODUCT_NAME, target.productName());
+        overrides.put(PRODUCT_NAME, TargetFacts.productName(target));
         target.version().ifPresent(version -> {
             overrides.put(PRODUCT_VERSION, version);
-            overrides.put(MAJOR_VERSION, String.valueOf(target.majorVersion().orElseThrow()));
-            overrides.put(MINOR_VERSION, String.valueOf(target.minorVersion().orElseThrow()));
+            overrides.put(MAJOR_VERSION, String.valueOf(TargetFacts.majorVersion(target).orElseThrow()));
+            overrides.put(MINOR_VERSION, String.valueOf(TargetFacts.minorVersion(target).orElseThrow()));
         });
         return overrides;
     }

@@ -182,6 +182,16 @@ class PortabilityCheckTest {
     }
 
     @Test
+    void ac_ins_12_a_call_reaching_jdbc_on_another_thread_is_a_harness_error() {
+        List<String> lines = report(check().call("async", CustomerEntity.class,
+                x -> java.util.concurrent.CompletableFuture.supplyAsync(() -> x.list(Swept.ALL, Limit.unlimited()))
+                        .join()));
+
+        assertThat(lines).anySatisfy(line -> assertThat(line).startsWith("async on ")
+                .contains(": HARNESS_ERROR JDBC was reached off the calling thread"));
+    }
+
+    @Test
     void ac_ins_12_the_report_has_one_line_per_call_and_target_with_each_outcome() {
         List<String> lines = report(check()
                 .call(CustomerEntity.class, x -> x.list(Swept.ALL, Limit.unlimited()))

@@ -177,7 +177,7 @@ public final class DryRun {
         return parts.length > 2 ? parts[0] + "." + parts[1] + "." : emf.getClass().getPackageName() + ".";
     }
 
-    /** The outcome of a call that recorded {@code recording} and threw {@code thrown}, or null when it returned. */
+    /** The outcome of a call that recorded {@code recording} and threw {@code thrown} (null when it returned). */
     static CallResult classify(String label, Target target, boolean firstStatementOnly, JdbcRecording recording,
             Throwable thrown, String providerPackage) {
         List<String> denied = recording.deniedBeforeStatement();
@@ -195,6 +195,12 @@ public final class DryRun {
             }
             if (refusal.isPresent()) {
                 return new CallResult(label, target, Outcome.REFUSED, false, oneLine(refusal.get().getMessage()));
+            }
+            // A stub stop (a denial or a reached statement) with no recording means JDBC was reached on a thread the
+            // recording does not follow; the provider's wrapping of it is not a refusal of the call (R-INS-11).
+            if (innermost(thrown, StubDataSource.Stop.class::isInstance).isPresent()) {
+                return new CallResult(label, target, Outcome.HARNESS_ERROR, false, "JDBC was reached off the calling "
+                        + "thread: " + oneLine(thrown.toString()));
             }
             // D-138: a provider's translation error before any statement is told by its class's package, the
             // factory's provider root (org.hibernate), since the module may not name a provider type (INV-7).

@@ -271,7 +271,13 @@ final class LayeringRules {
                         "org.assertj..", pkg("hibernate"), pkg("spring"), pkg("test"), pkg("processor"))
                         .or(describe("are non-public jpa types",
                                 c -> c.getPackageName().startsWith(root + ".jpa")
-                                        && !c.getModifiers().contains(JavaModifier.PUBLIC))))
+                                        && !c.getModifiers().contains(JavaModifier.PUBLIC)))
+                        // jpa.vendor is not API (delivery/61 R-REL-10, D-139): only the members in use, via
+                        // VendorResolver.productNameOf, resolve and withSupplied and ResolvedVendor.profile()
+                        .or(describe("are jpa.vendor types other than VendorResolver and ResolvedVendor",
+                                c -> c.getPackageName().startsWith(root + ".jpa.vendor")
+                                        && !c.getName().equals(root + ".jpa.vendor.VendorResolver")
+                                        && !c.getName().equals(root + ".jpa.vendor.ResolvedVendor"))))
                 .as("portability depends on jpa only")
                 .allowEmptyShould(allowEmptyShould);
     }

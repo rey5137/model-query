@@ -29,6 +29,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.core.task.SimpleAsyncTaskExecutor;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
 import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -201,6 +202,34 @@ class TargetVendorStarterTest {
                 });
     }
 
+    @Test
+    void ac_spr_21_a_factory_built_in_the_background_off_the_targets_fails_startup_in_one_mq4012() {
+        configOnly.withUserConfiguration(DeferredFactory.class).withPropertyValues("modelquery.target-vendors=postgresql")
+                .run(context -> {
+                    ModelQueryConfigurationException failure = configurationFailure(context.getStartupFailure());
+                    assertThat(failure.code()).isEqualTo(MqCode.MQ4012);
+                    assertThat(failure.getMessage()).matches(Pattern.compile("\\Q" + MqCode.MQ4012.code()
+                            + ": EntityManagerFactory beans not on a target vendor:\n- bean 'entityManagerFactory': "
+                            + DETAIL + "\\E"));
+                });
+    }
+
+    @Test
+    void ac_spr_21_a_factory_built_in_the_background_on_a_target_vendor_starts() {
+        configOnly.withUserConfiguration(DeferredFactory.class).withPropertyValues("modelquery.target-vendors=h2")
+                .run(context -> assertThat(context).hasNotFailed());
+    }
+
+    @Test
+    void ac_spr_21_an_application_config_bean_is_mq4006_before_a_factory_off_the_targets_is_mq4012() {
+        ModelQueryConfig own = ModelQueryConfig.defaults();
+        configOnly.withUserConfiguration(PlainJpa.class).withBean(ModelQueryConfig.class, () -> own)
+                .withPropertyValues("modelquery.target-vendors=postgresql").run(context -> {
+                    ModelQueryConfigurationException failure = configurationFailure(context.getStartupFailure());
+                    assertThat(failure.code()).isEqualTo(MqCode.MQ4006);
+                });
+    }
+
     private static ModelQueryConfigurationException configurationFailure(Throwable failure) {
         Throwable cause = failure;
         while (cause != null && !(cause instanceof ModelQueryConfigurationException)) {
@@ -261,6 +290,29 @@ class TargetVendorStarterTest {
         @Bean
         String secondFactoryUser(@Qualifier("secondEntityManagerFactory") EntityManagerFactory second) {
             return second.toString();
+        }
+    }
+
+    /** One factory on H2 built by a background executor, as {@code bootstrap-mode=deferred} does. */
+    @Configuration(proxyBeanMethods = false)
+    static class DeferredFactory {
+
+        @Bean
+        DataSource dataSource() {
+            return JoinTestSupport.dataSource(TckDatabases.get(TckTarget.h2()));
+        }
+
+        @Bean
+        LocalContainerEntityManagerFactoryBean entityManagerFactory(DataSource dataSource) {
+            LocalContainerEntityManagerFactoryBean factory = StarterTest.factory(dataSource);
+            factory.setBootstrapExecutor(new SimpleAsyncTaskExecutor());
+            return factory;
+        }
+
+        /** Asks for the factory, which a factory bean's product otherwise waits for. */
+        @Bean
+        PlatformTransactionManager transactionManager(EntityManagerFactory entityManagerFactory) {
+            return new org.springframework.orm.jpa.JpaTransactionManager(entityManagerFactory);
         }
     }
 

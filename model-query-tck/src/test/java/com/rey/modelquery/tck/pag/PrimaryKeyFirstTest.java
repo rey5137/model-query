@@ -9,6 +9,7 @@ import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.ExpressionField;
+import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
@@ -279,6 +280,41 @@ class PrimaryKeyFirstTest {
         // Only the count asked for: no step 2 is read, so the page runs.
         withExecutor(JoinTestSupport.dataSource(db), CompositeKeyItemEntity.class, config, executor -> assertThat(
                 executor.page(twoStep, PageSpec.ofOffset(10, 10), CountMode.ONLY_COUNT).total()).isPresent());
+    }
+
+    @TckTest
+    void ac_pag_09_an_export_that_cannot_pass_the_offset_threshold_is_not_refused_for_step_two_binds(TckDatabase db) {
+        // Step 2 would bind 3 values over the limit of 2, but a limit of 20 never passes the threshold of 50.
+        var config = ModelQueryConfig.defaults().vendorProfiles(List.of(FetchTestSupport.limited(db, 1024, 2)));
+        var twoStep = BY_LABEL.where(f -> f.lte(TENANT_ID, 1_000))
+                .primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(50)).build();
+        var plain = BY_LABEL.where(f -> f.lte(TENANT_ID, 1_000)).build();
+        List<TenantItem> rows = new ArrayList<>();
+        List<TenantItem> expected = new ArrayList<>();
+        withExecutor(JoinTestSupport.dataSource(db), CompositeKeyItemEntity.class, config, executor -> {
+            executor.export(twoStep, ExportOptions.of(10).withLimit(Limit.of(20)), page -> page, rows::add);
+            executor.export(plain, ExportOptions.of(10).withLimit(Limit.of(20)), page -> page, expected::add);
+        });
+        assertThat(rows).hasSize(20).isEqualTo(expected);
+    }
+
+    @TckTest
+    void ac_pag_09_an_export_that_can_pass_the_offset_threshold_is_mq1307_before_any_statement(TckDatabase db) {
+        var config = ModelQueryConfig.defaults().vendorProfiles(List.of(FetchTestSupport.limited(db, 1024, 2)));
+        var twoStep = BY_LABEL.where(f -> f.lte(TENANT_ID, 1_000))
+                .primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(50)).build();
+        List<ThrowingCallable> calls = new ArrayList<>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, CompositeKeyItemEntity.class, config,
+                executor -> {
+                    calls.add(() -> executor.export(twoStep, ExportOptions.of(10).withLimit(Limit.of(51)),
+                            page -> page, row -> { }));
+                    calls.add(() -> executor.export(twoStep, ExportOptions.of(10), page -> page, row -> { }));
+                    calls.forEach(call -> assertThatThrownBy(call)
+                            .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                    e -> assertThat(e.code()).isEqualTo(MqCode.MQ1307)));
+                }));
+        assertThat(calls).hasSize(2);
+        assertThat(sql).isEmpty();
     }
 
     private static long placeholders(String statement) {

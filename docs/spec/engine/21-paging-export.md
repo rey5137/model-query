@@ -165,8 +165,8 @@ whole page when that is unset, clamped to `VendorProfile.maxInListSize()` keys a
 statement's own binds, rounded down to a power of two so a provider's IN-list padding stays within it (`vendor/41`,
 D-32, D-80); a configured batch below the clamp is kept, and a batch over it is read in several statements. Step 2 is
 built, sized and checked before step 1 and any count: a step 2 whose own binds plus one key's columns pass
-`maxBindParameters()` is refused with `MQ1307` before any statement, in `page` and in `export`, whose later pages it
-reads (D-82, D-138). A keyset page or
+`maxBindParameters()` is refused with `MQ1307` before any statement, in `page` and in `export` whose limit passes the offset threshold, since only then does it read a later page
+through step 2 (D-82, D-138). A keyset page or
 export page is refused up front with `MQ1307` when its own binds plus the worst cursor, k(k+1)/2 binds for k keyset keys,
 exceed `maxBindParameters()` (`api/12` R-FLT-09, D-82). A fetch plan's child keys go in rounds of the same
 clamp, without `primaryKeyFirstBatchSize` (`api/15` R-FCH-05).
@@ -229,7 +229,7 @@ that could overlap pages, and R-PAG-11 makes it unreachable.
 | AC-PAG-06 | Keyset ordering by a filter-only or unselected column works, because the engine selected it (R-PAG-04). |
 | AC-PAG-07 | A NULL keyset column throws `MQ2202` by default; with explicit precedence, every ASC/DESC × FIRST/LAST × null/non-null combination is correct on every Tier-1 vendor (R-PAG-05). |
 | AC-PAG-08 | Primary-key-first paging returns the same rows as plain offset paging, for single and composite keys (R-PAG-07). |
-| AC-PAG-09 | A step-2 batch larger than the vendor's IN limit is split and stays correctly ordered; a step 2 over the bind limit is refused with `MQ1307` before any statement, by `page` with or without the count and by `export` (R-PAG-07, R-PAG-08, D-138). |
+| AC-PAG-09 | A step-2 batch larger than the vendor's IN limit is split and stays correctly ordered; a step 2 over the bind limit is refused with `MQ1307` before any statement, by `page` with or without the count and by `export` with a limit past the offset threshold (R-PAG-07, R-PAG-08, D-138). |
 | AC-PAG-10 | Grouped offset export over 20 000 rows visits every group exactly once, with duplicated order keys (R-PAG-11). |
 | AC-PAG-11 | `export` returns the count passed to `sink`, not the count read, when `pageTransformer` filters (R-PAG-10). |
 | AC-PAG-12 | Offset export of an ungrouped query, keyset paging and primary-key-first paging over a selection read through a to-many join throw `MQ2204` naming the join, without querying; the same export with the to-many join used only in a predicate succeeds, and so does a grouped export over it (R-PAG-13). |
