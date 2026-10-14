@@ -135,7 +135,7 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | Code | What went wrong |
 |---|---|
 | `MQ3001` | Unknown attribute, or a dotted `@Column(attribute)` that leaves embedded values. |
-| `MQ3002` | Model type is not the entity attribute's type, and no converter provided or built in (`Instant` or `Date` over a `Timestamp`). |
+| `MQ3002` | Model type is not the entity attribute's type, and no converter provided or built in (`Instant` or `Date` over a `Timestamp`). On a to-one, a column that is not the target's id type, or whose mapping cannot be read by id (the message names the reason). |
 | `MQ3003` | `@Join` attribute is not a to-one association, or the nested model's root does not match the target. |
 | `MQ3004` | Missing `@PrimaryKey` on a model with no `@Aggregate` field. |
 | `MQ3005` | `@Join` field is not `Optional<X>`, or `X` is not a `@QueryModel`, or `X` has an `@Aggregate` or `@Computed` field. |
@@ -149,13 +149,14 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3013` | `@FilterColumn` name clashes with a generated constant, is reserved, or is not a legal Java name. |
 | `MQ3014` | `converter` is not a `ColumnConverter` between the field type and the attribute type. |
 | `MQ3015` | Two generated constants would have the same name, or a constant clashes with a reserved one. |
-| `MQ3016` | A warning, not an error: a column on a to-one association selects the whole entity and has no converter. |
+| `MQ3016` | A warning, not an error: a column on a to-one association selects the whole entity and has no converter. The message shows the `@Column(attribute = …)` id form that reads only the foreign key. |
 | `MQ3017` | The model's `root`, or the root of a model it nests, is not a class, and no annotation processor generated it. A root another processor generates is fine: the model waits for it. |
 | `MQ3018` | A `@Computed` or `@Aggregate(expression)` class is not a usable `ExpressionDefinition<Model, FieldType>`: its type arguments are not the model and the field's boxed type, or it has neither a public `INSTANCE` nor a visible no-arg constructor. |
 | `MQ3019` | `@Computed` combined with `@PrimaryKey`, `@Column`, `@Join`, `@Child`, `@Aggregate` or `@Transient`, or on a primitive field. |
 | `MQ3020` | `@Selected` field that is not exactly `SelectSet<Model>`, or a second `@Selected` field in the model. |
 | `MQ3021` | `@Selected` combined with another field annotation of the library. |
 | `MQ3022` | Warning: a `@FilterColumn` whose key in `fields()` a mapped column, a `@Computed` field or another `@FilterColumn` already holds is left out of `fields()` and stays a constant. |
+| `MQ3028` | `@GroupBy` on a column that selects a whole to-one entity. Group by the id form instead: `@Column(attribute = "customer") Long customerId`. |
 | `MQ3201` | Aggregate model: field is primitive. |
 | `MQ3202` | Aggregate model: field type does not match the function's result type. |
 | `MQ3203` | Aggregate model: no `@GroupBy` field and is not `singleGroup`. |

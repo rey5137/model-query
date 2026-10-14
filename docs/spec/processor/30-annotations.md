@@ -166,7 +166,9 @@ association written by id, `@Column(attribute = "customer") Long customerId`) an
 `@Aggregate` and `@GroupBy` (`processor/32` §1).
 
 **R-PROC-19** `@QueryModel(generateChanges = true)` also generates a change set over the query model's root, non-key
-columns; joined, filter-only and to-one columns are left out, as `generateInserts` leaves them (D-124). It is meant
+columns; joined and filter-only columns and the whole-entity to-one columns are left out, as `generateInserts`
+leaves them (D-124); a to-one column of the target's id (R-PROC-33) is written by id (D-136), unless the to-one is
+`@MapsId`, whose foreign key is the id column and is left out as in an insert (R-PROC-26). It is meant
 for internal use: an endpoint binding it from a request can write every root column of the model, so the user guide
 recommends one `@UpdateModel` per endpoint.
 
@@ -198,9 +200,10 @@ generates `Q<Model>`. A type with two or more is reported once (`MQ3503`) and ge
 reads and creates one row shape keeps one model. It writes the model's **root columns**: fields whose attribute path is
 a root attribute or a dotted embedded path in it. It leaves out, without a diagnostic:
 - `@Join`, `@Child`, `@Computed`, `@Selected` and `@Transient` fields, and the `@FilterColumn`s;
-- a to-one column (the whole entity, `MQ3016`, or one through a converter): a query model cannot name a foreign key as
-  a scalar (`MQ3002`, D-44), so the flag writes no foreign key, and a model that must set one keeps its own
-  `@InsertModel`;
+- a to-one column that holds the whole entity (`MQ3016`) or a converter's value of it: the flag writes no foreign
+  key from it (D-124), and the Javadoc names it. A to-one column of the target's id (R-PROC-33) is written by id, as an
+  `@InsertModel` writes it, its `insertable = false`, inverse-side and `@MapsId` cases left out as below, since a
+  `@MapsId` foreign key is the id column (D-136);
 - the id when it carries `@GeneratedValue` or a generator annotation, as an insert model must (R-PROC-23);
 - the `@Version` column, and one an insert cannot write (`insertable = false`, or the inverse side of a to-one), which
   an insert model would refuse (`MQ3303`, `MQ3304`). This is unlike `generateChanges`, which keeps them and relies on
@@ -237,7 +240,7 @@ no-arg constructor's value under `persist` (R-WRT-25: `NULL` unless the entity h
 now)` is allowed (an excluded field's constant is no model column for AC-WRT-32); no constant is added, so no name is
 reserved under `MQ3015`. The `INSERT_COLUMNS` Javadoc gives the reason "`@ExcludeFromInserts`". `MQ3506` (error): on a
 field of a `@QueryModel` without `generateInserts = true`, or of an `@UpdateModel` or `@InsertModel`; or on a field
-R-PROC-26 already leaves out (`@Join`, `@Child`, `@Computed`, `@Transient`, a to-one, the `@Version`,
+R-PROC-26 already leaves out (`@Join`, `@Child`, `@Computed`, `@Transient`, a whole-entity to-one, the `@Version`,
 `insertable = false`, a generated id, or a `@Generated` column), since it would do nothing. On a `@Selected` field it is
 `MQ3021` (every other annotation of the library), not `MQ3506`. On a grouped model `MQ3505` stays the only insert
 check, so the "already left out" case does not fire there. Excluding an assigned id is `MQ3501` with its own message;
@@ -249,6 +252,20 @@ R-GEN-36); off, every generated class is byte-identical to a build without the o
 string and the processor has no JSpecify dependency: the model module needs `org.jspecify:jspecify` on its compile
 classpath. When the option is on and `org.jspecify.annotations.NullMarked` does not resolve, the processor reports
 `MQ3027` once for the compilation, not once per model, and generates no annotation.
+
+**R-PROC-33** *(D-136)* **A to-one read by its id.** A `@QueryModel` column `@Column(attribute = "referrer") Long
+referrerId` over a to-one reads the foreign key. Its type, or its converter's attribute type (`ColumnConverter<Long,
+CustomerId>`), must be the target's single basic id type, as the update model's spelling is (R-GEN-19); another type is
+`MQ3002` naming the target's id type, and a converter that does not convert the id is `MQ3014`. The processor refuses
+with `MQ3002` and the reason, reading the annotations by name (no Hibernate dependency, D-135): the inverse side
+(`@OneToOne(mappedBy)`), a `@JoinColumn(referencedColumnName)` (the processor cannot tell it from the primary key's
+column), `@JoinColumns`, `@JoinFormula` and `@JoinColumnOrFormula`, `@NotFound`, a target whose id is an association
+(derived identity, `@MapsId`), a target with `@IdClass` or `@EmbeddedId`, and a to-one inside an embedded value. The
+dotted `referrer.id` stays `MQ3001`. A column of the whole entity, or a converter's value of it, is unchanged
+(R-PROC-06, `MQ3016`). `@GroupBy` on a whole-entity to-one column is `MQ3028`. A `@JoinColumn(referencedColumnName)` is refused even when it
+names the primary key's column; drop it, as the default already references the primary key. `generateChanges` and `generateInserts`
+include the id form (R-PROC-19, R-PROC-26) and the generated `from` copies it (R-GEN-21). The id form reads through a
+`LEFT` join at run time (`api/10` R-COL-29), a locked read of it is `MQ2211`.
 
 ## 9. Acceptance criteria
 
@@ -277,3 +294,4 @@ classpath. When the option is on and `org.jspecify.annotations.NullMarked` does 
 | AC-PROC-21 | `@ExcludeFromInserts` on a field leaves it out of `INSERT_COLUMNS`, `insertFrom`, `insert` and `persist` while the query members keep its column and constant (R-PROC-27, D-125). |
 | AC-PROC-22 | `generateInserts` leaves out a plain `@Generated`, written are `@Generated(writable = true)`, `@Generated(sql = …)`, `@Generated(event = UPDATE)`, the Hibernate 6.x `@Generated(GenerationTime.UPDATE)` and `NEVER`, every timestamp annotation, and a `@Generated` whose type doesn't resolve; run on the Hibernate 6.6 and 7.x annotation shapes (R-PROC-26, D-125). |
 | AC-PROC-27 | `-Amodelquery.jspecify=true` adds the annotations of R-GEN-36 and is declared in `@SupportedOptions`; unset or `false` leaves the output unchanged; on with no JSpecify on the classpath is one `MQ3027` and no annotation generated (R-PROC-32, D-135). |
+| AC-PROC-28 | A query model column `@Column(attribute = "referrer") Long referrerId` over a to-one of a `Long` id, and one with a converter from `Long`, compiles; another type is `MQ3002` naming the target's id type, and a converter that does not convert the id `MQ3014`; each of the inverse side, a `referencedColumnName`, `@JoinColumns`, `@JoinFormula`, `@JoinColumnOrFormula`, `@NotFound`, a `@MapsId` target, an `@IdClass` target, an `@EmbeddedId` target and a to-one inside an embedded value is `MQ3002` with its own reason; `referrer.id` is `MQ3001`; `MQ3016` names the id form and `@GroupBy` on a whole-entity to-one is `MQ3028` (R-PROC-33, D-136). |

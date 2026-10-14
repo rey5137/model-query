@@ -50,6 +50,8 @@ enum DiagnosticCode {
 
     /** Two generated constants share a name, or one takes a reserved name. */
     MQ3015("Generated constant name is already taken"),
+
+    /** A column selects a whole to-one entity; a warning that names the id form. */
     MQ3016("Column selects a whole entity; a warning"),
 
     /** A model's {@code root}, or the {@code root} of a model it nests, still names no class in the last round. */
@@ -75,6 +77,9 @@ enum DiagnosticCode {
 
     /** {@code modelquery.jspecify} is on, but JSpecify is not on the compile classpath; no annotation is generated. */
     MQ3027("modelquery.jspecify is on but JSpecify is not on the classpath"),
+
+    /** {@code @GroupBy} on a column that selects a whole to-one entity; group by the foreign key's id instead. */
+    MQ3028("@GroupBy on a whole-entity to-one column"),
 
     /** An {@code @Aggregate} field is primitive, though an aggregate can be {@code NULL}. */
     MQ3201("@Aggregate field is primitive"),

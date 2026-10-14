@@ -88,6 +88,44 @@ the case `@Join(on = ...)` would cover — write a hand-written `TableField` and
 condition goes through `Join#on`, so a `LEFT` join still keeps the rows that miss it. See
 [Migration recipes](recipes.md) for both.
 
+## Foreign key by id
+
+A to-one association can be read as its foreign key, with no nested model, by declaring a column of the target's id
+type over it:
+
+```java
+@QueryModel(root = OrderEntity.class, generateChanges = true, generateInserts = true)
+public record OrderRow(
+        @PrimaryKey Long id,
+        String status,
+        @Column(attribute = "customer") Long customerId,
+        @Column(attribute = "referrer") Long referrerId) {}
+```
+
+The field's type, or its converter's attribute type (`ColumnConverter<CustomerId, Long>`), must be the target's single
+basic id type; another type is `MQ3002`, which names the id type. The column reads through a `LEFT` join and the
+target's id, so an order whose foreign key is `NULL` comes back with `null` rather than disappearing, in a select, a
+filter, an order, a page, a `count`, a keyset or an export. A locked read of it is `MQ2211`. When you also need the
+target's columns, add a `@Join` beside it; the constants must differ (`MQ3015`), which the field name settles:
+
+```java
+@Column(attribute = "customer") Long customerId,       // CUSTOMER_ID
+@Join Optional<CustomerView> customer                  // CUSTOMER_TABLE, CUSTOMER_NAME, ...
+```
+
+Use the id form instead of mapping the foreign key twice in the entity (a basic `Long referrerId` beside the
+`@ManyToOne`, as before): the entity keeps one mapping, and the processor writes the column too. `generateChanges` and
+`generateInserts` include the id form like any scalar, and the generated `from` copies it. A whole-entity to-one
+column (`CustomerEntity customer`) stays read-only in both, and `@GroupBy` on it is `MQ3028`: group by the id form.
+
+The processor refuses, with `MQ3002` and the reason, the mappings whose foreign key is not the target's primary key or
+that Hibernate joins: the inverse side (`mappedBy`), a `referencedColumnName`, `@JoinColumns`, `@JoinFormula`,
+`@JoinColumnOrFormula`, `@NotFound`, a target with `@MapsId`, `@IdClass` or `@EmbeddedId`, and a to-one inside an
+embedded value. Read those through a `@Join`. The dotted `@Column(attribute = "referrer.id")` stays `MQ3001`. A
+bulk update or delete that filters by the id form renders the foreign-key column and takes no join; a hand-written
+column over a mapping the provider cannot confirm is `MQ1004` before any statement. See
+[Migration recipes](recipes.md#read-and-write-a-foreign-key-by-id).
+
 ## Hand-written columns
 
 You rarely need to, but a `ColumnField` can be written by hand, for example for a column the server sets:
@@ -306,14 +344,16 @@ Things to know:
 
 - A grouped model (`@Aggregate`, `@GroupBy` or `singleGroup = true`), or one with no writable root column, is `MQ3505`.
 - `@QueryModel` and `@InsertModel` on one type stay `MQ3503`; set `generateInserts` instead.
-- `generateChanges` leaves a to-one column out for the same reason (D-124), and the change set's Javadoc says so. The
-  column is still read: a whole-entity or converted to-one column reads through a `LEFT` join, so a row whose foreign
+- `generateChanges` leaves a whole-entity to-one column out for the same reason (D-124), and the change set's Javadoc
+  says so; a to-one column of the target's id is written (see [Foreign key by id](#foreign-key-by-id)). The column is
+  still read: a whole-entity or converted to-one column reads through a `LEFT` join, so a row whose foreign
   key is `NULL` comes back with `null` rather than disappearing.
 - A model that binds a request can write every listed column, so a public create endpoint keeps its own
   `@InsertModel` listing only what a caller may set (as with `generateChanges`).
-- A foreign key needs an `@InsertModel` (an `@UpdateModel` for an update), which writes a to-one by the target's id.
-  Otherwise let the entity map the column twice: a basic `Long customerId` with `insertable`/`updatable` on, and the
-  `@ManyToOne` read-only (`insertable = false, updatable = false`), or the reverse.
+- A foreign key is written by a column of the target's id type over the to-one (see
+  [Foreign key by id](#foreign-key-by-id)), or by an `@InsertModel` (an `@UpdateModel` for an update). Mapping the
+  column twice in the entity, a basic `Long customerId` with `insertable`/`updatable` on and the `@ManyToOne` read-only,
+  still works.
 - `addKey` follows the root's id, and `insert` and `persist` are typed by it. For a composite key the model's `KEY`
   is a `PrimaryKey<M, List<Object>>` while `persist` returns the `@IdClass` or `@EmbeddedId` type, so
   `one(q, QCustomerView.persist(row))` does not compile there; read it back with a filter on the key's columns.

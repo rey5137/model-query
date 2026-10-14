@@ -58,7 +58,7 @@ record InsertedColumns(List<Written> written, List<String> leftOut) {
      */
     static String alreadyLeftOut(ModelField field, ModelDefinition model, EntityMetamodel metamodel) {
         return field.column() ? leftOut(metamodel.resolve(model.root(), field.attribute()),
-                metamodel.id(model.root()), field.attribute()) : notAColumn(field);
+                metamodel.id(model.root()), field, wholeToOne(field, model, metamodel)) : notAColumn(field);
     }
 
     /** Why a field that is no column is left out. */
@@ -81,23 +81,39 @@ record InsertedColumns(List<Written> written, List<String> leftOut) {
         return field.element().getAnnotation(Transient.class) != null ? "{@code @Transient}, no column" : "no column";
     }
 
-    /** Whether a column resolves to a to-one association, which a query model's writes leave out (D-124). */
-    static boolean toOne(Resolution resolution) {
+    /**
+     * Whether a column holds a whole to-one entity, or a converter's value of it, which a query model's writes leave
+     * out (D-124); a column of the target's id is written (D-136).
+     */
+    static boolean wholeToOne(ModelField field, ModelDefinition model, EntityMetamodel metamodel) {
+        Resolution resolution = metamodel.resolve(model.root(), field.attribute());
         return resolution.problem() == null && resolution.attribute() != null
-                && resolution.attribute().kind() == EntityAttribute.Kind.TO_ONE;
+                && resolution.attribute().kind() == EntityAttribute.Kind.TO_ONE
+                && !metamodel.byId(field, resolution.attribute());
+    }
+
+    /** Whether a column is a to-one {@code @MapsId}, whose foreign key is the id column (R-PROC-26, D-136). */
+    static boolean mapsIdToOne(ModelField field, ModelDefinition model, EntityMetamodel metamodel) {
+        Resolution resolution = metamodel.resolve(model.root(), field.attribute());
+        return resolution.problem() == null && resolution.attribute() != null && resolution.attribute().mapsId();
     }
 
     /**
      * Why a root column is left out, or {@code null} when it is written. A path that does not resolve is written: it
      * is {@code MQ3001} or {@code MQ3002}, and nothing is generated.
      */
-    private static String leftOut(Resolution resolution, EntityMetamodel.Id id, String path) {
+    private static String leftOut(
+            Resolution resolution, EntityMetamodel.Id id, ModelField field, boolean wholeToOne) {
+        String path = field.attribute();
         EntityAttribute attribute = resolution.attribute();
         if (resolution.problem() != null || attribute == null) {
             return null;
         }
-        if (toOne(resolution)) {
+        if (wholeToOne) {
             return "a to-one; only an {@code @InsertModel} writes a foreign key";
+        }
+        if (attribute.mapsId()) {
+            return "a to-one {@code @MapsId}, whose foreign key is the id column";
         }
         if (id.generated() && id.covers(path)) {
             return "the id, which is generated";

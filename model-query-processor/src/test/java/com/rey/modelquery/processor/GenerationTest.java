@@ -284,9 +284,11 @@ class GenerationTest {
         assertThat(compilation.warnings().stream().map(warning -> warning.getMessage(Locale.ROOT)))
                 .containsExactly(
                         DiagnosticCode.MQ3016.code() + ": OrderRow.customer: selects the whole CustomerEntity entity; "
-                                + "use @Join with a query model of CustomerEntity to select only its columns",
+                                + "use @Join with a query model of CustomerEntity to select only its columns, or "
+                                + "@Column(attribute = \"customer\") Long customerId to read its id",
                         DiagnosticCode.MQ3016.code() + ": OrderRow.payer: selects the whole CustomerEntity entity; "
-                                + "use @Join with a query model of CustomerEntity to select only its columns");
+                                + "use @Join with a query model of CustomerEntity to select only its columns, or "
+                                + "@Column(attribute = \"payer\") Long payerId to read its id");
         assertThat(generatedFlat(compilation, "models.QOrderRow"))
                 .contains("ColumnField<OrderRow, OrderEntity, CustomerEntity> CUSTOMER = ColumnField.of("
                         + "OrderRow.class, ROOT, \"customer\", CustomerEntity.class)")

@@ -393,7 +393,8 @@ class DiagnosticMatrixTest {
             of("MQ3016", c -> warns(
                     List.of(c.model("OrderView", ORDER, ID, "CustomerEntity customer")), "models.QOrderView",
                     "MQ3016: OrderView.customer: selects the whole CustomerEntity entity; use @Join with a "
-                            + "query model of CustomerEntity to select only its columns")),
+                            + "query model of CustomerEntity to select only its columns, or @Column(attribute = "
+                            + "\"customer\") Long customerId to read its id")),
             of("MQ3017", c -> fails(c.model("OrderView", "@QueryModel(root = int.class)", ID, "String status"),
                     "MQ3017: OrderView: root does not name a class, and no annotation processor generated one")),
             of("MQ3018", c -> fails(
@@ -420,6 +421,11 @@ class DiagnosticMatrixTest {
                             c.model("CustomerView", CUSTOMER, ID, "@Selected @Transient SelectSet<CustomerView> set")),
                     "MQ3021: OrderView.selected: @Selected can't be combined with @Column",
                     "MQ3021: CustomerView.set: @Selected can't be combined with @Transient")),
+            of("MQ3028", c -> fails(
+                    c.model("OrderView", ORDER, ID, "@GroupBy CustomerEntity customer"),
+                    "MQ3028: OrderView.customer: @GroupBy on a whole CustomerEntity entity: the database groups by "
+                            + "its foreign key but the select lists every column of the entity; group by its id with "
+                            + "@Column(attribute = \"customer\") Long customerId")),
             of("MQ3201", c -> fails(
                     with(SALE_ENTITY, c.model("SalesSummary", SINGLE,
                             "@Aggregate(fn = AggregateFunction.SUM, attribute = \"weight\") double weight")),
