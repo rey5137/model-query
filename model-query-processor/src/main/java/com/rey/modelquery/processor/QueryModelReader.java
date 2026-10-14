@@ -24,6 +24,7 @@ import com.rey.modelquery.processor.ModelDefinition.Kind;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
 import java.lang.annotation.Annotation;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -38,6 +39,7 @@ import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.ElementFilter;
+import javax.lang.model.util.Types;
 
 /**
  * Reads a {@code @QueryModel}, {@code @UpdateModel} or {@code @InsertModel} type into a {@link ModelDefinition}. It
@@ -65,8 +67,12 @@ final class QueryModelReader {
 
     private final Map<String, String> options;
 
-    QueryModelReader(Map<String, String> options) {
+    /** What a {@code @Computed} that names no definition reads as, for the validator to report (MQ3025). */
+    private final TypeMirror none;
+
+    QueryModelReader(Map<String, String> options, Types types) {
         this.options = options;
+        this.none = types.getNoType(TypeKind.VOID);
     }
 
     /** Reads the {@code @QueryModel} {@code type}, or returns {@code null} as {@link #read(TypeElement, Kind)} does. */
@@ -83,8 +89,11 @@ final class QueryModelReader {
     }
 
     /**
-     * Reads {@code type} with the settings {@code annotation} holds, its own model annotation or the
-     * {@code @BindQueryModel} on {@code origin} that binds it (R-PROC-28), as {@link #read(TypeElement, Kind)} does.
+     * Reads {@code type} with the settings {@code annotation} holds, its own model annotation or the binding on
+     * {@code origin} (R-PROC-28), as {@link #read(TypeElement, Kind)} does. A binding's {@code @BindExpression}s supply
+     * the definition of a {@code @Computed} that names none, and make an {@code @Aggregate} that names no
+     * {@code expression} aggregate theirs (R-PROC-29); {@link ModelBindings#checkExpressions} reports one that matches
+     * nothing.
      */
     ModelDefinition read(TypeElement type, Kind kind, AnnotationMirror annotation, Element origin) {
         if (!(explicit(annotation, ROOT) instanceof DeclaredType rootType) || rootType.getKind() != TypeKind.DECLARED) {
@@ -100,6 +109,9 @@ final class QueryModelReader {
         boolean singleGroup = Boolean.TRUE.equals(explicit(annotation, SINGLE_GROUP));
         boolean generateChanges = Boolean.TRUE.equals(explicit(annotation, GENERATE_CHANGES));
         boolean generateInserts = Boolean.TRUE.equals(explicit(annotation, GENERATE_INSERTS));
+        // The first @BindExpression of a field is the one read: the binding check reports a second (MQ3025).
+        var expressions = new HashMap<String, TypeMirror>();
+        ModelBindings.expressions(annotation).forEach(each -> expressions.putIfAbsent(each.field(), each.value()));
 
         List<VariableElement> declared = ElementFilter.fieldsIn(type.getEnclosedElements()).stream()
                 .filter(field -> !field.getModifiers().contains(Modifier.STATIC))
@@ -116,10 +128,13 @@ final class QueryModelReader {
             ChildDefinition child = child(field);
             JoinDefinition join = child == null && isJoin(field)
                     ? join(field, joinsPerAttribute.get(joinAttribute(field)) > 1) : null;
+            // A @BindExpression goes to the field's @Computed, if it carries one, and else to its @Aggregate.
+            TypeMirror expression = expressions.get(name);
+            boolean computed = mirror(field, Computed.class) != null;
             // Read even beside @Transient or @Join, so that the validator reports the pair (MQ3204).
-            AggregateDefinition aggregate = child == null ? aggregate(field) : null;
+            AggregateDefinition aggregate = child == null ? aggregate(field, computed ? null : expression) : null;
             // A @Computed field is no column: its constant is an ExpressionField, emitted after every column (R-GEN-27).
-            TypeMirror definition = computed(field);
+            TypeMirror definition = computed ? computed(field, expression) : null;
             boolean selected = field.getAnnotation(Selected.class) != null;
             fields.add(new ModelField(
                     field,
@@ -171,22 +186,30 @@ final class QueryModelReader {
                 model);
     }
 
-    /** What {@code @Aggregate} says of {@code field}, or {@code null} when it carries none. */
-    private static AggregateDefinition aggregate(VariableElement field) {
+    /**
+     * What {@code @Aggregate} says of {@code field}, or {@code null} when it carries none. One that names no
+     * {@code expression} aggregates {@code bound}, a binding's, when there is one (R-PROC-29).
+     */
+    private static AggregateDefinition aggregate(VariableElement field, TypeMirror bound) {
         AnnotationMirror mirror = mirror(field, Aggregate.class);
         if (mirror == null) {
             return null;
         }
+        TypeMirror expression = type(mirror, "expression");
         return new AggregateDefinition(
                 explicit(mirror, "fn") instanceof Element fn ? fn.getSimpleName().toString() : "",
                 explicit(mirror, "attribute") instanceof String attribute ? attribute : "",
-                type(mirror, "expression"),
+                expression == null ? bound : expression,
                 Boolean.TRUE.equals(explicit(mirror, "distinct")));
     }
 
-    /** The class named by {@code @Computed}, or {@code null} when the field carries none. */
-    private static TypeMirror computed(VariableElement field) {
-        return type(mirror(field, Computed.class), "value");
+    /**
+     * The class the {@code @Computed} of {@code field} names; else {@code bound}, a binding's; else the {@code void}
+     * type, which the validator reports (R-PROC-29).
+     */
+    private TypeMirror computed(VariableElement field, TypeMirror bound) {
+        TypeMirror named = type(mirror(field, Computed.class), "value");
+        return named != null ? named : bound != null ? bound : none;
     }
 
     /** The class {@code annotation} names as {@code member}, or {@code null} for none, {@code void.class} included. */

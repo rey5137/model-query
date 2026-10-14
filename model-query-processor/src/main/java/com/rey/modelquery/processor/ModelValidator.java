@@ -375,6 +375,14 @@ final class ModelValidator {
      * and {@code MQ3019} for each annotation it can't share the field with and for a primitive field (R-PROC-21).
      */
     private void checkComputed(ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
+        if (field.definition().getKind() == TypeKind.VOID) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3025, where + (model.origin() == model.type()
+                    ? "@Computed names no ExpressionDefinition; name one, as @Computed(Def.class)"
+                    : "@Computed names no ExpressionDefinition, and no @BindExpression on "
+                            + ModelBindings.name(model.origin()) + " names one; add @BindExpression(field = \""
+                            + field.name() + "\", value = Def.class)"));
+            return;
+        }
         if (field.type().getKind().isPrimitive()) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3019,
                     where + "@Computed field is primitive; an expression may be NULL");

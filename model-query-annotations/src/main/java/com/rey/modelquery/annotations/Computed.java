@@ -19,9 +19,10 @@ public @interface Computed {
     /**
      * The class implementing {@code ExpressionDefinition<Model, FieldType>}, with a public static {@code INSTANCE} or a
      * no-arg constructor visible to the generated model. It is declared as {@code Class<?>} because the interface is in
-     * {@code model-query-core}, which this module does not depend on (R-PROC-01).
+     * {@code model-query-core}, which this module does not depend on (R-PROC-01). A bound model may leave it unset
+     * and take the class from its binding's {@link BindExpression}; an annotated model names it here.
      *
-     * @return the definition class
+     * @return the definition class, or {@code void.class} when the binding names it
      */
-    Class<?> value();
+    Class<?> value() default void.class;
 }

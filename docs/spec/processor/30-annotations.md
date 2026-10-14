@@ -20,14 +20,19 @@
 | `@FilterColumn(name = "...", path = "...", joinType = LEFT, alias = "", converter = Foo.class)` | model type (repeatable) | A filter-only column: a `ColumnField` constant with no model field, left out of every generated `SelectSet` and of `map(Row)` |
 | `@FilterColumns` | model type | The container that makes `@FilterColumn` repeatable; never written by hand |
 | `@Aggregate(fn = SUM, attribute = "...", expression = Def.class, distinct = false)` | field or component | An `AggregateField` constant, mapped into this field (`api/13`); `expression` aggregates a `@Computed`-style definition instead of an attribute |
-| `@Computed(Def.class)` | field or component | An `ExpressionField` constant, mapped into this field (`api/10` §3a) |
+| `@Computed(Def.class)` | field or component | An `ExpressionField` constant, mapped into this field (`api/10` §3a); a bound model may leave the class to its binding's `@BindExpression` (R-PROC-29) |
 | `@GroupBy` | field or component | The column joins the generated `GROUP_KEYS` set and the query's group-by |
 | `@ExcludeFromDefaults` | field or component | Leave the column out of `DEFAULT` (heavy BLOB/TEXT columns) |
 | `@Transient` | field or component | Not a column |
 | `@ExcludeFromInserts` | field or component | Leave the column out of the inserts `generateInserts` generates (R-PROC-27) |
 | `@Selected` | field or component | The one `SelectSet<Model>` the mapper fills with the columns the row selected (§6, R-PROC-25) |
-| `@BindQueryModel(model = M.class, root = X.class, generateSelectSets = true, prefix = "Q", suffix = "", singleGroup = false)` | type or `package-info` (repeatable) | Binds a query model compiled without its entity; its QModel is generated in the binding's package (§9, R-PROC-28) |
+| `@BindQueryModel(model = M.class, root = X.class, generateSelectSets = true, prefix = "Q", suffix = "", singleGroup = false, generateChanges = false, generateInserts = false, expressions = {})` | type or `package-info` (repeatable) | Binds a query model compiled without its entity; its QModel is generated in the binding's package (§9, R-PROC-28) |
 | `@BindQueryModels` | type or `package-info` | The container that makes `@BindQueryModel` repeatable; never written by hand |
+| `@BindUpdateModel(model = M.class, root = X.class, prefix = "Q")` | type or `package-info` (repeatable) | Binds an update model compiled without its entity; its columns and change set are generated in the binding's package (§9, R-PROC-28) |
+| `@BindUpdateModels` | type or `package-info` | The container that makes `@BindUpdateModel` repeatable; never written by hand |
+| `@BindInsertModel(model = M.class, root = X.class, prefix = "Q")` | type or `package-info` (repeatable) | Binds an insert model compiled without its entity; its QModel is generated in the binding's package (§9, R-PROC-28) |
+| `@BindInsertModels` | type or `package-info` | The container that makes `@BindInsertModel` repeatable; never written by hand |
+| `@BindExpression(field = "...", value = Def.class)` | inside `@BindQueryModel(expressions)` | The definition of a bound model's valueless `@Computed`, or of an `@Aggregate` that aggregates an expression (§9, R-PROC-29) |
 
 **R-PROC-01** The annotations module has no dependencies beyond the JDK (INV-7), so a model can be annotated in a module
 that does not depend on JPA or on the engine. Join types and aggregate functions are therefore its own enums, `JoinKind`
@@ -276,17 +281,37 @@ include the id form (R-PROC-19, R-PROC-26) and the generated `from` copies it (R
 
 ## 9. Bound models
 
-**R-PROC-28** *(D-134)* **`@BindQueryModel`.** A model may live in a module that sees no entity: it carries its field
-annotations (`@PrimaryKey`, `@Column`, `@Join`, `@Child`, `@Aggregate`, `@GroupBy`, `@Selected`, `@Transient`,
-`@FilterColumn`, `@ExcludeFromDefaults`, meaning what they mean today) and no `@QueryModel`, and a
-`@BindQueryModel(model = OrderView.class, root = OrderEntity.class)` (`@Incubating`, `CLASS` retention, repeatable
-through `@BindQueryModels`, on a type or a `package-info`; `model-query-annotations`) in the module that sees the entity
-binds it. Its other elements are `@QueryModel`'s `generateSelectSets`, `prefix`, `suffix` and `singleGroup`, with the
-same defaults and meaning (R-PROC-03 to R-PROC-05, D-44); `generateChanges`, `generateInserts` and the expressions of
-R-PROC-29 come with M24.2. A model is bound at most once for the query kind in a compilation, and a bound model carries
-none of `@QueryModel`, `@UpdateModel` and `@InsertModel`: `MQ3023` on each of its bindings, and no QModel for them (an
-annotated model in the compilation still generates its own). Where the QModel goes, and what must be public, is
-`processor/31` R-GEN-35.
+**R-PROC-28** *(D-134, D-141)* **`@BindQueryModel`, `@BindUpdateModel`, `@BindInsertModel`.** A model may live in a
+module that sees no entity: it carries its field annotations (`@PrimaryKey`, `@Column`, `@Join`, `@Child`, `@Aggregate`,
+`@GroupBy`, `@Selected`, `@Transient`, `@FilterColumn`, `@ExcludeFromDefaults`, meaning what they mean today) and no
+`@QueryModel`, and a `@BindQueryModel(model = OrderView.class, root = OrderEntity.class)` (`@Incubating`, `CLASS`
+retention, repeatable through `@BindQueryModels`, on a type or a `package-info`; `model-query-annotations`) in the
+module that sees the entity binds it. Its other elements are `@QueryModel`'s `generateSelectSets`, `prefix`, `suffix`,
+`singleGroup`, `generateChanges` and `generateInserts`, with the same defaults and meaning (R-PROC-03 to R-PROC-05,
+R-PROC-19, R-PROC-26, D-44), and the `expressions` of R-PROC-29. `@BindUpdateModel(model, root, prefix)` and
+`@BindInsertModel(model, root, prefix)` (each repeatable through `@BindUpdateModels` and `@BindInsertModels`, on a type
+or a `package-info`) bind an update and an insert model the same way, their elements those of `@UpdateModel` and
+`@InsertModel` (§7, §8). A model is bound at most once per kind (query, update, insert) in a compilation, and a bound
+model carries none of `@QueryModel`, `@UpdateModel` and `@InsertModel`: `MQ3023` on each of its bindings of that kind,
+and no QModel for them (an annotated model in the compilation still generates its own). A model may be bound once for
+each kind. A binding that would generate a class of one qualified name (a QModel, or a change set) with another binding
+in the compilation, of the same model or of another, or with an annotated model in the compilation, is `MQ3023` on each
+such binding, and none of those bindings generates anything, while the annotated model still generates its own; a prefix
+or package keeps the names apart. A class of that name already on the classpath is left to the `Filer`'s error. Where
+the generated classes go, and what must be public, is `processor/31` R-GEN-35.
+
+**R-PROC-29** *(D-134, D-141)* **Expressions the model's module cannot compile.** `@Computed.value` defaults to
+`void.class`, so a bound model may write `@Computed` with no class, and `@Aggregate` leaves `expression` at its default;
+an `ExpressionDefinition` builds columns over the entity, which the model's module does not see. The binding supplies
+it: `@BindQueryModel(..., expressions = @BindExpression(field = "net", value = RowNet.class))`. A `@BindExpression`
+names a field or record component of the model and gives its `@Computed` that class; on a field with an `@Aggregate` and
+no `@Computed` it makes the aggregate an expression aggregate over the class, as `expression = …` does on an annotated
+model (R-PROC-16, R-PROC-22). Every check of the annotated forms then runs on it (`MQ3018`, `MQ3019`, `MQ3208`).
+`MQ3025` is a valueless `@Computed` of a query model with no matching `@BindExpression`, or on an annotated model,
+reported on the field; and, reported on the binding, a `@BindExpression` naming no field of the model, a field with
+neither `@Computed` nor `@Aggregate`, a field whose annotation already names a class, or a field an earlier
+`@BindExpression` names. An update or insert model refuses `@Computed` with or without a class (`MQ3302`, `MQ3502`).
+Converters stay on the model (`@Column(converter = …)`): they convert the model type to the attribute type.
 
 **R-PROC-30** *(D-140)* **A bound model is read from the classpath.** The model a binding names may be a compiled class
 on the classpath or a source of the compilation; either reads the same through the `Element` API (D-140): its instance
@@ -323,7 +348,8 @@ originating element is the binding's type or `package-info` (R-GEN-05, D-140).
 | AC-PROC-20 | `generateChanges = true` on a query model with a whole-entity and a converted to-one column compiles with no error, generates no setter for either, and `generateChanges` and `generateInserts` together leave out the same to-one columns (R-PROC-19, D-124). |
 | AC-PROC-21 | `@ExcludeFromInserts` on a field leaves it out of `INSERT_COLUMNS`, `insertFrom`, `insert` and `persist` while the query members keep its column and constant (R-PROC-27, D-125). |
 | AC-PROC-22 | `generateInserts` leaves out a plain `@Generated`, written are `@Generated(writable = true)`, `@Generated(sql = …)`, `@Generated(event = UPDATE)`, the Hibernate 6.x `@Generated(GenerationTime.UPDATE)` and `NEVER`, every timestamp annotation, and a `@Generated` whose type doesn't resolve; run on the Hibernate 6.6 and 7.x annotation shapes (R-PROC-26, D-125). |
-| AC-PROC-23 | `@BindQueryModel` on a type, repeated on one type and on a `package-info`, over a class and a record compiled into an earlier class directory, generates each QModel in the binding's package, originating from the binding alone; a model bound twice, on one type or on two, reports `MQ3023` once on each binding, and one also annotated `@QueryModel`, on the classpath or in the compilation, reports `MQ3023` on the binding; none generates a QModel for the binding, and the annotated model in the compilation keeps its own (R-PROC-28, R-PROC-30, D-140). |
-| AC-PROC-24 | A bound model that is not public, a public one nested in a type that is not, a class whose no-arg constructor, a setter or a `@Join` getter its QModel calls is not public, and a `model` that is not a class or record each report `MQ3024` on the binding and generate no QModel; a public record compiles with nothing more (`processor/31` R-GEN-35). |
+| AC-PROC-23 | `@BindQueryModel` on a type, repeated on one type and on a `package-info`, over a class and a record compiled into an earlier class directory, generates each QModel in the binding's package, originating from the binding alone; a model bound twice, on one type or on two, reports `MQ3023` once on each binding, and one also annotated `@QueryModel`, on the classpath or in the compilation, reports `MQ3023` on the binding; none generates a QModel for the binding, and the annotated model in the compilation keeps its own. A model bound once as an update model and once as a query model generates both; one bound twice by `@BindUpdateModel`, or carrying `@InsertModel` and bound by `@BindUpdateModel`, is `MQ3023`, and so are an update and a query binding that would both generate its QModel, or its change set, each reported once and generating nothing. Two models of one simple name bound into one package report `MQ3023` once on each binding and generate nothing; a binding whose QModel name an annotated model in the compilation generates reports `MQ3023` on the binding, and the annotated model keeps its own (R-PROC-28, R-PROC-30, D-140, D-141). |
+| AC-PROC-24 | A bound model that is not public, a public one nested in a type that is not, a class whose no-arg constructor, a setter or a `@Join` getter its QModel calls is not public, a bound insert model's class whose column getter is not public, and a `model` that is not a class or record each report `MQ3024` on the binding and generate no QModel; a public record compiles with nothing more, and so does a bound update model's class whose getters are not public, since nothing generated calls them (`processor/31` R-GEN-35, D-141). |
+| AC-PROC-25 | A bound record with a valueless `@Computed` group key and an `@Aggregate` naming no attribute or expression, whose binding names both definitions with `@BindExpression`, generates the QModel the annotated model with `@Computed(Def.class)` and `@Aggregate(expression = Def.class)` generates, apart from its package; `MQ3025` for a valueless `@Computed` with no `@BindExpression` and on an annotated model, and, on the binding, for a `@BindExpression` naming an unknown field, a `@Transient` field, a `@Computed` or `@Aggregate` already naming a class, and a field named twice; a valueless `@Computed` on an update model stays `MQ3302` (R-PROC-29, D-141). |
 | AC-PROC-27 | `-Amodelquery.jspecify=true` adds the annotations of R-GEN-36 and is declared in `@SupportedOptions`; unset or `false` leaves the output unchanged; on with no JSpecify on the classpath is one `MQ3027` and no annotation generated (R-PROC-32, D-135). |
 | AC-PROC-28 | A query model column `@Column(attribute = "referrer") Long referrerId` over a to-one of a `Long` id, and one with a converter from `Long`, compiles; another type is `MQ3002` naming the target's id type, and a converter that does not convert the id `MQ3014`; each of the inverse side, a `referencedColumnName`, `@JoinColumns`, `@JoinFormula`, `@JoinColumnOrFormula`, `@NotFound`, `@JoinTable`, a `@JoinColumn(table)`, a `@MapsId` target, an `@IdClass` target, an `@EmbeddedId` target and a to-one inside an embedded value is `MQ3002` with its own reason; a target with `@SQLRestriction` or `@Where` is `MQ3029`, and `MQ3016` does not suggest the id form for it; `referrer.id` is `MQ3001`; `MQ3016` names the id form and `@GroupBy` on a whole-entity to-one is `MQ3028` (R-PROC-33, D-136). |

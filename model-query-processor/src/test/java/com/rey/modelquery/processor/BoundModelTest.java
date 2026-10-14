@@ -177,6 +177,59 @@ class BoundModelTest {
     }
 
     @Test
+    void ac_proc_23_models_of_one_simple_name_bound_into_one_package_report_mq3023_on_each() {
+        compileToClasspath(classes, ORDER_LINE, source("other.OrderLine", """
+                package other;
+
+                import com.rey.modelquery.annotations.PrimaryKey;
+
+                public record OrderLine(@PrimaryKey Long id, String status) {}
+                """));
+        var processor = new ProcessorHarness.Recording();
+
+        Compilation compilation = compileAgainst(classes, processor, ShopSources.ADDRESS, ShopSources.ORDER_ENTITY,
+                binding("OrderModels", """
+                        @BindQueryModel(model = OrderLine.class, root = OrderEntity.class)
+                        @BindQueryModel(model = other.OrderLine.class, root = OrderEntity.class)
+                        """));
+
+        String clash = " on persistence.OrderModels each generate persistence.QOrderLine; give one another prefix or "
+                + "package";
+        assertThat(errors(compilation)).containsExactly(
+                "MQ3023: OrderLine: @BindQueryModel on persistence.OrderModels and @BindQueryModel of other.OrderLine"
+                        + clash,
+                "MQ3023: OrderLine: @BindQueryModel of shop.OrderLine on persistence.OrderModels and @BindQueryModel"
+                        + clash);
+        assertThat(processor.originating()).isEmpty();
+    }
+
+    @Test
+    void ac_proc_23_binding_generating_an_annotated_models_qmodel_name_is_mq3023_and_the_annotated_one_generates() {
+        compileToClasspath(classes, ORDER_LINE);
+        var processor = new ProcessorHarness.Recording();
+
+        Compilation compilation = compileAgainst(classes, processor, ShopSources.ADDRESS, ShopSources.ORDER_ENTITY,
+                source("persistence.OrderLine", """
+                        package persistence;
+
+                        import com.rey.modelquery.annotations.PrimaryKey;
+                        import com.rey.modelquery.annotations.QueryModel;
+                        import shop.OrderEntity;
+
+                        @QueryModel(root = OrderEntity.class)
+                        public record OrderLine(@PrimaryKey Long id, String status) {}
+                        """),
+                binding("OrderModels", "@BindQueryModel(model = shop.OrderLine.class, root = OrderEntity.class)"));
+
+        assertThat(errors(compilation)).containsExactly("MQ3023: OrderLine: @BindQueryModel on "
+                + "persistence.OrderModels and @QueryModel persistence.OrderLine each generate persistence.QOrderLine; "
+                + "give one another prefix or package");
+        assertThat(processor.originating()).containsOnlyKeys("persistence.QOrderLine");
+        assertThat(processor.originating().get("persistence.QOrderLine")).singleElement()
+                .hasToString("persistence.OrderLine");
+    }
+
+    @Test
     void ac_proc_23_annotated_model_on_the_classpath_bound_is_mq3023() {
         compileToClasspath(classes, ShopSources.ADDRESS, ShopSources.ORDER_ENTITY, ShopSources.ORDER_VIEW);
 

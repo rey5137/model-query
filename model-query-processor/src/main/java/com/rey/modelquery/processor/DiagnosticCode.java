@@ -75,11 +75,21 @@ enum DiagnosticCode {
      */
     MQ3022("Filter column left out of fields() because its key is already held; a warning"),
 
-    /** A model bound twice for one kind, or both bound and annotated with a model annotation (R-PROC-28). */
-    MQ3023("Model bound twice for one kind, or both bound and annotated"),
+    /**
+     * A model bound twice for one kind, both bound and annotated with a model annotation, or a binding that would
+     * generate one class name with another binding, of any model, or with an annotated model of the compilation
+     * (R-PROC-28, D-141).
+     */
+    MQ3023("Model bound twice for one kind, both bound and annotated, or bound to a generated name already taken"),
 
     /** A bound model, its no-arg constructor, or a setter or getter its QModel calls is not public (R-GEN-35). */
     MQ3024("Bound model, its constructor or its accessors not public"),
+
+    /**
+     * A {@code @Computed} that names no definition and takes none from a {@code @BindExpression}, or a
+     * {@code @BindExpression} that matches no valueless {@code @Computed} or {@code @Aggregate} (R-PROC-29).
+     */
+    MQ3025("Expression with no definition, or @BindExpression matching nothing"),
 
     /** {@code modelquery.jspecify} is on, but JSpecify is not on the compile classpath; no annotation is generated. */
     MQ3027("modelquery.jspecify is on but JSpecify is not on the classpath"),

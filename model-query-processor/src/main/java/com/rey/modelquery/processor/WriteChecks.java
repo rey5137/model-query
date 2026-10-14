@@ -207,7 +207,7 @@ final class WriteChecks {
      * {@code MQ3506} for an {@code @ExcludeFromInserts} that does nothing or is refused: on a model that doesn't
      * generate inserts (a {@code @QueryModel} without {@code generateInserts}, an update or insert model), or on a
      * field R-PROC-26 already leaves out. A {@code @Selected} field is {@code MQ3021}, and a grouped model has only
-     * {@code MQ3505} (R-PROC-27, D-125).
+     * {@code MQ3505} (R-PROC-27, D-125). The message names {@code @BindQueryModel} for a bound model.
      */
     void checkExcluded(ModelDefinition model, Diagnostics diagnostics) {
         boolean generates = model.queryModel() && model.generateInserts();
@@ -218,7 +218,8 @@ final class WriteChecks {
             String where = model.name() + "." + field.name() + ": @ExcludeFromInserts ";
             if (!generates) {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3506,
-                        where + "needs generateInserts = true on the @QueryModel");
+                        where + "needs generateInserts = true on the "
+                                + (model.origin() == model.type() ? "@QueryModel" : "@BindQueryModel"));
             } else if (!model.grouped()) {
                 String reason = InsertedColumns.alreadyLeftOut(field, model, metamodel);
                 if (reason != null) {
