@@ -8,3 +8,4 @@ com.rey.modelquery.jpa.StreamFetchSizeTest$RecordingSupport
 com.rey.modelquery.jpa.TypedConstantExecutionTest$Constants
 com.rey.modelquery.jpa.SequenceExecutionTest$Sequences
 com.rey.modelquery.jpa.ForeignKeyColumnExecutionTest$Answering
+com.rey.modelquery.jpa.TargetVendorsTest$Naming

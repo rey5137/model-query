@@ -14,6 +14,19 @@ Nothing is frozen yet: every public type stays `@Incubating`. The additions belo
   deny-by-default stub `DataSource`, and `ProviderSupport#offlineProperties(DatabaseVendor)`, which
   `model-query-hibernate` implements for Hibernate 6.6 and 7.4; a provider without it, or a boot that reaches JDBC,
   is the new `MQ4013`. The portability check that runs calls on it follows in a later 0.9.0 slice.
+- Declared target vendors (D-133, R-VND-19, R-SPR-17): `ModelQueryConfig.targetVendors(DatabaseVendor first,
+  DatabaseVendor... more)`, `targetVendors(Collection)` and `targetVendors(String...)`, read by `targetVendors()`, and
+  the property `modelquery.target-vendors`. A factory whose configured or detected vendor (not its profile's, so
+  MariaDB is a valid target) is not listed is the new `MQ4012`, naming the factory, the vendor, how it was found and
+  the list: from `ModelQueryExecutor.create`, from the new `ModelQueryConfig.checkTargets(EntityManagerFactory)`, and
+  in Spring at startup, where a `BeanPostProcessor` enabled by `modelquery.target-vendors` alone checks every eager
+  `EntityManagerFactory` bean against that list and reports every failing one in one `MQ4012` (a lazy factory is
+  checked when its first executor is built; targets declared by a configurer or config bean are checked when a
+  repository is created). An empty list is `MQ4003`,
+  an unknown name `MQ4001`, whose message now names `modelquery.target-vendors` too; an application `ModelQueryConfig`
+  bean with the property set is `MQ4006`. The startup check never calls a `ModelQueryConfigurer`. The factory's name in `MQ4012` comes from the new `@Incubating`
+  `ProviderSupport.factoryName(EntityManagerFactory)`, empty by default, which Hibernate answers with the session
+  factory name; with no name, the factory's class and identity.
 - A to-one read by its id (D-136, R-COL-29): a column of the target's single basic id type over a to-one
   (`ColumnField.of(Order.class, ORDERS, "referrer", Long.class)`), or with a converter from it, reads the foreign key
   instead of `MQ1001`, whose message now names the id type:

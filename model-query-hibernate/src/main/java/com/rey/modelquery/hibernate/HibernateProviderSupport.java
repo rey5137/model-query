@@ -31,6 +31,7 @@ import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
+import org.hibernate.SessionFactory;
 import org.hibernate.boot.model.naming.Identifier;
 import org.hibernate.boot.model.relational.SqlStringGenerationContext;
 import org.hibernate.boot.spi.SessionFactoryOptions;
@@ -384,6 +385,20 @@ public final class HibernateProviderSupport implements ProviderSupport {
                 // GlobalTemporaryTableStrategy's keys; the type itself is internal (D-132), the keys are settings.
                 "hibernate.query.mutation_strategy.global_temporary.create_tables", "false",
                 "hibernate.query.mutation_strategy.global_temporary.drop_tables", "false"));
+    }
+
+    /**
+     * The session factory name of {@code emf}, or empty when it has none or is blank. Read from the factory's options,
+     * the only way {@link SessionFactory} gives it on 6.6, where it has no {@code getName()}.
+     */
+    @Override
+    public Optional<String> factoryName(EntityManagerFactory emf) {
+        try {
+            String name = emf.unwrap(SessionFactory.class).getSessionFactoryOptions().getSessionFactoryName();
+            return Optional.ofNullable(name).filter(named -> !named.isBlank());
+        } catch (PersistenceException notHibernate) {
+            return Optional.empty();
+        }
     }
 
     /** {@code emf} as Hibernate's factory, or empty when it is not Hibernate's (R-VND-14, R-WRT-50). */

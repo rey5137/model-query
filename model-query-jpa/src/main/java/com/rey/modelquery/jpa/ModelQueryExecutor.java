@@ -54,7 +54,8 @@ public interface ModelQueryExecutor<E> {
      * after (R-VND-02).
      *
      * @throws com.rey.modelquery.core.ModelQueryConfigurationException {@code MQ4002} when two discovered
-     *     {@code VendorProfile}s serve one vendor
+     *     {@code VendorProfile}s serve one vendor, {@code MQ4012} when {@code config} declares target vendors and the
+     *     factory's vendor is not one of them (R-VND-19)
      */
     static <E> ModelQueryExecutor<E> create(EntityManager em, Class<E> rootEntity, ModelQueryConfig config) {
         return new DefaultModelQueryExecutor<>(em, rootEntity, config);

@@ -54,6 +54,36 @@ null ordering and no target table in sub-queries. Under `OTHER`, keyset paging o
 null precedence is refused. If your database is one of the Tier-1 vendors but resolves to `OTHER`, add
 `model-query-hibernate` or set the vendor explicitly.
 
+## Declaring target vendors
+
+An application can declare the databases it is meant to run on. A factory on any other database then fails before
+its first query with `MQ4012`, instead of running with another vendor's limits and SQL. Nothing is checked until a
+list is declared.
+
+=== "Plain JPA"
+
+    ```java
+    ModelQueryConfig config = ModelQueryConfig.defaults()
+            .targetVendors(DatabaseVendor.POSTGRESQL, DatabaseVendor.H2);
+    config.checkTargets(entityManagerFactory);   // optional: fail at bootstrap, not at the first executor
+    ModelQueryExecutor<Order> executor = ModelQueryExecutor.create(em, Order.class, config);   // checks too
+    ```
+
+=== "Spring repository"
+
+    ```yaml
+    modelquery:
+      target-vendors: postgresql, h2   # every EntityManagerFactory bean is checked at startup
+    ```
+
+- The vendor checked is the one configured with `vendor(...)` or detected as above, not the profile's. MariaDB is
+  therefore a valid target although it uses the `OTHER` profile, `OTHER` passes only when it is listed, and an
+  explicit `vendor(...)` outside the list fails too.
+- The message names the factory, its vendor, how the vendor was found and the list.
+- `targetVendors(String...)` takes the names a property carries, matched as `modelquery.vendor` is; an unknown name is
+  `MQ4001`. An empty `Collection` or name list is `MQ4003`: leave the list undeclared to check nothing.
+- The list is a fact about your application, not about the database, so it is not part of a `VendorProfile`.
+
 ## H2
 
 - **Keep H2's default null ordering.** With `DEFAULT_NULL_ORDERING` set to anything else, Hibernate's H2 dialect

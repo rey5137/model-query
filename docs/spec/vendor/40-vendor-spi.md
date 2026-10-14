@@ -271,6 +271,25 @@ The executor puts the renderer in `RenderOptions` only where the profile's `sequ
 renders `dialect.getSequenceSupport().getSelectSequenceNextValString(sequence)` through
 `HibernateCriteriaBuilder.sql`, so the dialect decides the text and the sequence name is checked as an identifier first.
 
+**R-VND-19** *(D-133)* An application may declare its target vendors, the databases it is meant to run on.
+`ModelQueryConfig` gains `@Incubating` `targetVendors(DatabaseVendor first, DatabaseVendor... more)`,
+`targetVendors(Collection<DatabaseVendor>)`, `targetVendors(String...)` (names matched as `vendor(String)` matches
+them, D-57) and `Optional<Set<DatabaseVendor>> targetVendors()`, empty by default: undeclared, nothing is checked. An
+empty `Collection` or `String...` list is `MQ4003` (an empty list would mean "none", P-3; the varargs form cannot be
+empty), an unknown name `MQ4001`. The vendor checked is the one R-VND-04 resolves for the factory before any profile is
+chosen, `ResolvedVendor#detectedVendor()`: an explicit `vendor(...)`, else the detected one. So `MARIADB` is a target
+while its profile is `OTHER`'s (R-VND-06), `OTHER` matches only when it is listed, and an explicit vendor outside the
+list is refused like a detected one. A factory on another vendor is `MQ4012`, naming the factory, the vendor, how it
+was found (R-VND-07: configured, by the provider, from `DatabaseMetaData`, or nothing detected) and the list. The name
+is the provider's: `ProviderSupport` gains `@Incubating default Optional<String> factoryName(EntityManagerFactory)`,
+empty by default, which Hibernate answers with the session factory name from `SessionFactory`'s options (empty when
+null or blank); with no answer the factory is named by its class and identity, as JPA 3.1 gives a factory no name and
+its properties no portable key for one. `ModelQueryExecutor.create` checks it when it
+resolves the factory's vendor, and `ModelQueryConfig.checkTargets(EntityManagerFactory)` (`@Incubating`) lets a
+bootstrap check it on purpose (INV-8); without a `ProviderSupport` that call makes detection's one metadata read
+(R-VND-05). The list is application config, not a profile fact (INV-6, R-VND-11). Spring checks every eager factory at
+startup (`integration/50` R-SPR-17).
+
 **R-VND-20** Booting a factory with no database is a provider fact (D-133). `ProviderSupport` gains `@Incubating
 default Optional<Map<String,Object>> offlineProperties(DatabaseVendor vendor)`: the provider's settings that boot a
 factory for `vendor` over the portability dry run's stub `DataSource` (`api/16` R-INS-10) with no JDBC call. Empty, the
@@ -365,3 +384,4 @@ explicitly (`likeIgnoreCase`, `nullsFirst`), and the library renders it the same
 | AC-VND-12 | `maxValuesRows()` defaults to 1,000, `conflictTargetHonoured()` to false and `conflictWhereSeesEarlierAssignments()` to true, `ProviderSupport#inserts()` to empty; the built-in profiles carry `vendor/41` §2's values (R-VND-14). |
 | AC-VND-13 | `LockSupport.rendered` is per dialect on both Hibernate lines (H2's `NO_WAIT`/`SKIP_LOCKED` refused on 6.6, allowed only for `exclusive()` on 7.x); a lock with no `locks()`, an unrendered wait, or a multi-table root is `MQ4010`; `apply` sets the lock mode, the Hibernate timeout hint and `followOnLocking=false` (R-VND-15, `engine/20` R-EXE-14). |
 | AC-VND-14 | `ProviderSupport#returning()` and `VendorProfile#returning(WriteStatement)` default to empty, so a write whose factory has neither is `MQ4011` at method entry; the built-in H2 profile reports `DELTA_TABLE` and PostgreSQL `SUFFIX` for update and delete, MySQL nothing; `model-query-hibernate`'s `ReturningSupport.rendered` is true on both Hibernate lines for a single-table entity and false for a `@SecondaryTable` root, and `rows` returns the columns of a changed row as a read tuple holds them; the translated SQL per line and dialect is `vendor/41` §7's (R-VND-17, R-WRT-50). |
+| AC-VND-15 | Target vendors are undeclared by default and kept by the other setters; the three forms declare the same set in enum order; an empty `Collection` or `String...` list is `MQ4003` and an unknown name `MQ4001`; each factory is checked against its own vendor (an H2 factory detected from `DatabaseMetaData` passes `[H2]`, an undetected one is `OTHER` and passes only when `OTHER` is listed); an explicit `vendor(...)` outside the list is refused; an explicit `MARIADB` passes `[MARIADB]` though its profile is `OTHER`'s; `ModelQueryExecutor.create` refuses a factory off the list; and the `MQ4012` message names the factory (quoting `ProviderSupport#factoryName`'s answer, default empty, else its class and identity; Hibernate answers a named session factory's name and nothing for an unnamed, blank-named or non-Hibernate factory), the vendor, how it was found and the list (R-VND-19). |

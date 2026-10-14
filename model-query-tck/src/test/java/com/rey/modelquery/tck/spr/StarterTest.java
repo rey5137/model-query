@@ -610,7 +610,7 @@ class StarterTest {
         }
     }
 
-    private static LocalContainerEntityManagerFactoryBean factory(DataSource dataSource) {
+    static LocalContainerEntityManagerFactoryBean factory(DataSource dataSource) {
         var factory = new LocalContainerEntityManagerFactoryBean();
         factory.setDataSource(dataSource);
         factory.setJpaVendorAdapter(new HibernateJpaVendorAdapter());

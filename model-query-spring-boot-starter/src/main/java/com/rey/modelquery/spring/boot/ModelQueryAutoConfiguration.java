@@ -23,6 +23,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
 import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.factory.config.ConstructorArgumentValues;
 import org.springframework.beans.factory.config.RuntimeBeanReference;
@@ -57,7 +58,7 @@ import org.springframework.util.ClassUtils;
  * defines its own, and makes the default Spring Data JPA repositories use {@link ModelQueryRepositoryFactoryBean}. It
  * adds no behaviour of its own (INV-8).
  *
- * @implSpec R-SPR-02, R-SPR-08, R-SPR-09, R-SPR-11, R-SPR-13, R-VND-03, R-WRT-49
+ * @implSpec R-SPR-02, R-SPR-08, R-SPR-09, R-SPR-11, R-SPR-13, R-SPR-17, R-VND-03, R-WRT-49
  */
 @Incubating
 @AutoConfiguration
@@ -232,8 +233,9 @@ public class ModelQueryAutoConfiguration {
     /**
      * The one config every repository's executor starts from, unless the application defines its own (D-54).
      *
-     * @throws ModelQueryConfigurationException {@code MQ4001} for an unknown {@code modelquery.vendor}, {@code MQ4003}
-     *     for an out-of-range size or timeout, {@code MQ4005} when the vendor is set with several
+     * @throws ModelQueryConfigurationException {@code MQ4001} for an unknown {@code modelquery.vendor} or
+     *     {@code modelquery.target-vendors} name, {@code MQ4003} for an out-of-range size or timeout or an empty
+     *     {@code modelquery.target-vendors}, {@code MQ4005} when the vendor is set with several
      *     {@code EntityManagerFactory} beans and no {@link ModelQueryConfigurer}
      */
     @Bean
@@ -252,6 +254,9 @@ public class ModelQueryAutoConfiguration {
                         + " to choose the vendor per factory");
             }
             config = config.vendor(properties.getVendor());
+        }
+        if (properties.getTargetVendors() != null) {
+            config = config.targetVendors(properties.getTargetVendors().toArray(String[]::new));
         }
         config = ifSet(config, properties.getQueryTimeout(), ModelQueryConfig::queryTimeout);
         config = ifSet(config, properties.getExport().getPageSize(), ModelQueryConfig::exportPageSize);
@@ -279,6 +284,19 @@ public class ModelQueryAutoConfiguration {
     private static <V> ModelQueryConfig ifSet(ModelQueryConfig config, V value,
             BiFunction<ModelQueryConfig, V, ModelQueryConfig> setter) {
         return value == null ? config : setter.apply(config, value);
+    }
+
+    /**
+     * Checks each eagerly created {@code EntityManagerFactory} bean against {@code modelquery.target-vendors}, failing
+     * startup with one {@code MQ4012} naming every factory on another vendor (R-SPR-17, D-133). Enabled only by that
+     * property; it resolves no {@link ModelQueryConfig} bean and calls no {@link ModelQueryConfigurer}, so target
+     * vendors declared in code are enforced when a repository is created. Static, so registering it creates nothing
+     * early.
+     */
+    @Bean
+    static BeanPostProcessor modelQueryTargetVendorCheck(ConfigurableListableBeanFactory beanFactory,
+            Environment environment) {
+        return new TargetVendorCheck(beanFactory, environment);
     }
 
     /**

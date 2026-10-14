@@ -1859,6 +1859,21 @@ application's custom dialect subclass is not used in the dry run, and the docs s
 `Target.of(vendor)` stays, with the per-line dialect minimum documented; the docs steer to `Target.of(vendor, version)`.
 A starter helper that builds a Boot app's class list and properties is deferred past M23 (`delivery/62`).
 
+*Amended (2026-10-14, M23.2).* `MQ4012` names
+the factory through a new `@Incubating` `ProviderSupport.factoryName(EntityManagerFactory)` (default empty), not by
+reflection: Hibernate answers the session factory name read through `SessionFactory.getSessionFactoryOptions()` on
+both lines (6.6's `SessionFactory` has no `getName()`), empty when null or blank. With no answer the name is the
+factory's class and identity: neither JPA 3.1 nor 3.2 defines a portable property key for the unit name. Spring keeps
+its `bean '<name>': ` prefix (R-VND-19, R-SPR-17).
+
+*Amended (2026-10-14, M23.2 review; decision (b)).* Spring's startup check is property-only. It is enabled by
+`modelquery.target-vendors` alone and checks each eager factory against that list; it resolves no `ModelQueryConfig`
+bean and calls no `ModelQueryConfigurer`, so it looks up no bean, meets no creation cycle and needs no deferral
+(this replaces the earlier choice to build each factory's config through the configurer, and the deferral to
+`afterSingletonsInstantiated`). Targets declared in code are enforced by `ModelQueryExecutor.create` when a repository
+is created; a configurer can narrow the property's list but not widen it past the startup check. Several failing
+factories still share one `MQ4012` through the post-processor's sweep. Decided by the user (R-SPR-17).
+
 **D-134 — External model bindings (RFC 0012, accepted 2026-10-13).** A model may live in a module that cannot see its
 entity: `@BindQueryModel`, `@BindUpdateModel` and `@BindInsertModel` (`@Incubating`, repeatable, on a type or a
 `package-info`) in the persistence module name the model and its root, and the processor reads the model from the

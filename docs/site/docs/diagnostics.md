@@ -192,7 +192,7 @@ See [Models and QModels](models.md).
 
 | Code | What went wrong |
 |---|---|
-| `MQ4001` | `modelquery.vendor` names an unknown vendor. |
+| `MQ4001` | `modelquery.vendor` or `modelquery.target-vendors` names an unknown vendor. |
 | `MQ4002` | Two vendor profiles are registered for the same vendor with no precedence rule. |
 | `MQ4003` | A property value, or its `ModelQueryConfig` setting, is out of range. |
 | `MQ4004` | `commitEachChunk()` with no `ChunkTransactions` that serves the write's `EntityManagerFactory`. |
@@ -200,6 +200,7 @@ See [Models and QModels](models.md).
 | `MQ4006` | A `ModelQueryConfig` bean of your own drops a `VendorProfile`, `WriteAssignment` or `ChunkTransactions` bean, or a set `modelquery.*` property. |
 | `MQ4007` | A repository declares `ModelQueryRepository` of an entity other than its domain type. |
 | `MQ4009` | A bulk insert on a factory whose persistence provider has no insert support, before any statement. `persist` still runs. |
+| `MQ4012` | A factory is not on one of the declared target vendors; the message names the factory, its vendor, how it was found and the list. |
 
 See [Spring Data and the starter](spring.md) and [Vendor notes](vendors.md).
 
