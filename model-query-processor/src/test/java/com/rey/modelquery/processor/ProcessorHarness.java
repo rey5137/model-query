@@ -12,6 +12,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -85,6 +87,39 @@ final class ProcessorHarness {
                 .toList();
         return javac().withProcessors(new ModelQueryProcessor()).withClasspath(classpath).withOptions(options)
                 .compile(sources);
+    }
+
+    /**
+     * Compiles {@code sources} with the processor into {@code classes}, as a module built before the one under test,
+     * and fails unless they compile. Pass the directory to {@link #compileAgainst} to read them from the classpath.
+     */
+    static void compileToClasspath(Path classes, JavaFileObject... sources) {
+        Compilation compilation = compile(sources);
+        if (compilation.status() != Compilation.Status.SUCCESS) {
+            throw new AssertionError("classpath sources did not compile: " + errors(compilation));
+        }
+        for (JavaFileObject file : compilation.generatedFiles()) {
+            if (file.getKind() != JavaFileObject.Kind.CLASS) {
+                continue;
+            }
+            String path = file.toUri().getPath();
+            Path target = classes.resolve(path.substring(path.indexOf('/', 1) + 1));
+            try (InputStream in = file.openInputStream()) {
+                Files.createDirectories(target.getParent());
+                Files.write(target, in.readAllBytes());
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+    }
+
+    /** Compiles {@code sources} with {@code processor} over {@code classes} and the test classpath (R-PROC-30). */
+    static Compilation compileAgainst(Path classes, Processor processor, JavaFileObject... sources) {
+        var classpath = new ArrayList<File>();
+        classpath.add(classes.toFile());
+        Arrays.stream(System.getProperty("java.class.path").split(File.pathSeparator)).map(File::new)
+                .forEach(classpath::add);
+        return javac().withProcessors(processor).withClasspath(classpath).compile(sources);
     }
 
     /** The error messages of {@code compilation}, in the order reported. */

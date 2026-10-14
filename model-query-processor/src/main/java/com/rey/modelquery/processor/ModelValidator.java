@@ -356,8 +356,14 @@ final class ModelValidator {
      */
     private boolean usableDefinition(ModelDefinition model, ModelField field, String where,
             ExpressionDefinitionType definition, Diagnostics diagnostics) {
+        if (definition != null && !definition.isVisibleTo(model.packageName())) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3018, where + display(field.computed()
+                    ? field.definition() : field.aggregate().expression()) + " is not visible to "
+                    + model.generatedName() + ", which is generated in " + model.packageName() + "; make it public");
+            return false;
+        }
         if (definition == null || !types.isSameType(definition.model(), model.type().asType())
-                || (!definition.hasInstance() && !definition.hasVisibleConstructor(model.type()))) {
+                || (!definition.hasInstance() && !definition.hasVisibleConstructor(model.packageName()))) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3018, definitionProblem(model, field, where));
             return false;
         }
@@ -917,7 +923,11 @@ final class ModelValidator {
                     + String.join(", ", expected));
             fits = false;
         }
-        if (!converter.hasInstance() && !converter.hasVisibleConstructor(model.type())) {
+        if (!converter.isVisibleTo(model.packageName())) {
+            diagnostics.error(element, DiagnosticCode.MQ3014, where + name + " is not visible to "
+                    + model.generatedName() + ", which is generated in " + model.packageName() + "; make it public");
+            fits = false;
+        } else if (!converter.hasInstance() && !converter.hasVisibleConstructor(model.packageName())) {
             diagnostics.error(element, DiagnosticCode.MQ3014, where + name
                     + " needs a public static INSTANCE, typed as an OrderedColumnConverter when it is one, or a no-arg "
                     + "constructor visible to " + model.generatedName());

@@ -65,10 +65,13 @@ final class ChangesWriter {
         this.validChanges = validChanges;
     }
 
-    /** The change-set file of {@code model}, whose only originating element is the model's type (R-GEN-05). */
+    /**
+     * The change-set file of {@code model}, whose only originating element is the model's type, or its binding
+     * (R-GEN-05, R-GEN-35).
+     */
     JavaFile write(ModelDefinition model) {
         ClassName modelName = ClassName.get(model.type());
-        String packageName = modelName.packageName();
+        String packageName = model.packageName();
         ClassName qModel = ClassName.get(packageName, model.generatedName());
         ClassName changes = ClassName.get(packageName, model.changesName());
         ChangedColumns changed = ChangedColumns.of(model, metamodel);
@@ -79,7 +82,7 @@ final class ChangesWriter {
         TypeName anyColumn = ParameterizedTypeName.get(COLUMN_FIELD, modelName, ANY, ANY);
 
         TypeSpec.Builder type = TypeSpec.classBuilder(changes)
-                .addOriginatingElement(model.type())
+                .addOriginatingElement(model.origin())
                 .addAnnotation(AnnotationSpec.builder(Generated.class)
                         .addMember("value", "$S", ModelQueryProcessor.class.getCanonicalName())
                         .build())
@@ -179,8 +182,8 @@ final class ChangesWriter {
      */
     private static MethodSpec from(ModelDefinition model, List<ModelField> writable) {
         ClassName modelName = ClassName.get(model.type());
-        ClassName qModel = ClassName.get(modelName.packageName(), model.generatedName());
-        ClassName changes = ClassName.get(modelName.packageName(), model.changesName());
+        ClassName qModel = ClassName.get(model.packageName(), model.generatedName());
+        ClassName changes = ClassName.get(model.packageName(), model.changesName());
         MethodSpec.Builder from = MethodSpec.methodBuilder("from")
                 .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
                 .returns(changes)

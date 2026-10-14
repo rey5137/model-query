@@ -147,6 +147,9 @@ it unset is `MQ3025`, the same failure it gets today from a missing required ele
 - **Spike (M24.1):** confirm on the supported JDKs that javac exposes a classpath record's component annotations
   (`CLASS` retention, `RECORD_COMPONENT` and `FIELD` targets) and a classpath class's field annotations through the
   `Element` API with their values, and that Gradle and Maven incremental builds recompile the persistence module when
-  the bound model changes (the processor declares itself aggregating for bindings).
+  the bound model changes (the processor declares itself aggregating for bindings). *Resolved by D-140: the
+  annotations read the same from the classpath on JDK 17 and 21; the processor stays isolating, and a Gradle build
+  misses an edit that only changes annotations on the model's private members unless `compileJava` declares the
+  runtime classpath as an input.*
 - **Q-19:** binding a nested model in a different persistence module from its outer model.
 - **Release (decided 2026-10-13):** M24, after M23, shipped in 0.9.0 with M17 to M23.
