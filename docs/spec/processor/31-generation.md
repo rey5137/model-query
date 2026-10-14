@@ -77,8 +77,8 @@ bound in the compilation has its QModel in its binding's package, which the oute
 R-PROC-31).
 
 **R-GEN-05** One model produces exactly one file, whose only originating element is that model's type, or for a bound
-model its binding's type or `package-info` (R-GEN-35), and the processor is registered as an **isolating** incremental
-processor for Gradle (D-39, D-140). JavaPoet is shaded into the processor jar (INV-7).
+model its binding's type or `package-info` (R-GEN-35), and the processor is registered with Gradle as a **dynamic** incremental processor that reports itself
+**isolating**, or **aggregating** when `modelquery.aggregating` is set (R-PROC-34) (D-39, D-140). JavaPoet is shaded into the processor jar (INV-7).
 
 **R-GEN-35** *(D-134, D-140, D-141, D-142)* **A bound model's QModel.** A model bound by `@BindQueryModel`,
 `@BindUpdateModel` or `@BindInsertModel` (`processor/30` R-PROC-28) has its QModel, and its change set when it has one,
@@ -406,7 +406,7 @@ annotation is added.
 | AC-GEN-05 | Lombok on and off both compile, including `Boolean isX` and `boolean isX` (R-GEN-10). |
 | AC-GEN-06 | A LEFT-join miss yields `Optional.empty()`; a match whose non-key columns are all NULL yields a present model (R-GEN-12, R-GEN-13). |
 | AC-GEN-07 | Two-level nesting maps correctly with a class nested in a record and vice versa (R-GEN-14). |
-| AC-GEN-08 | Each generated file has exactly one originating element, its model's type, and the processor's registration names it isolating, so a changed model regenerates its own file and those of models nesting it (R-GEN-05). |
+| AC-GEN-08 | Each generated file has exactly one originating element, its model's type, and the processor reports itself isolating unless `modelquery.aggregating` is set, so a changed model regenerates its own file and those of models nesting it (R-GEN-05). |
 | AC-GEN-09 | The processor jar contains no unshaded JavaPoet package (R-GEN-05). |
 | AC-GEN-10 | Golden files pin `QOrderPatch` and `OrderPatchChanges` for a record and a class update model, with a converter, a to-one by id and a composite key (R-GEN-19). |
 | AC-GEN-11 | `generateChanges = true` adds `changes()`, `update(...)` and `from(...)` covering root non-key columns only; a query model gets `delete()` exactly when its `@PrimaryKey` is the root entity's id (R-GEN-21, R-GEN-22). |

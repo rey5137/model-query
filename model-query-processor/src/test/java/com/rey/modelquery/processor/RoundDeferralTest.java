@@ -148,6 +148,54 @@ class RoundDeferralTest {
         }
     }
 
+    /** A binding of {@link #BOUND_SHIPMENT_VIEW} that a processor generates, so it is read in a later round. */
+    private static final String LATER_BINDING = """
+            package persistence;
+
+            import com.rey.modelquery.annotations.BindQueryModel;
+            import models.CarrierEntity;
+            import models.ShipmentView;
+
+            @BindQueryModel(model = ShipmentView.class, root = CarrierEntity.class)
+            final class Models {}
+            """;
+
+    /** Generates one source in the first round. */
+    private static final class SourceGenerator extends AbstractProcessor {
+
+        private final String name;
+        private final String text;
+        private boolean generated;
+
+        SourceGenerator(String name, String text) {
+            this.name = name;
+            this.text = text;
+        }
+
+        @Override
+        public Set<String> getSupportedAnnotationTypes() {
+            return Set.of("*");
+        }
+
+        @Override
+        public SourceVersion getSupportedSourceVersion() {
+            return SourceVersion.latestSupported();
+        }
+
+        @Override
+        public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
+            if (!generated) {
+                generated = true;
+                try (Writer out = processingEnv.getFiler().createSourceFile(name).openWriter()) {
+                    out.write(text);
+                } catch (IOException e) {
+                    throw new UncheckedIOException(e);
+                }
+            }
+            return false;
+        }
+    }
+
     @Test
     void ac_diag_06_a_model_rooted_at_a_type_another_processor_generates_is_generated_in_a_later_round() {
         // The model-query processor runs first, so its first round sees the root before it exists.
@@ -251,5 +299,48 @@ class RoundDeferralTest {
                 + "persistence.QShipmentView; give one another prefix or package");
         assertThat(processor.originating().get("persistence.QShipmentView")).singleElement()
                 .hasToString("persistence.OtherModels");
+    }
+
+    @Test
+    void ac_proc_29_a_model_bound_again_by_a_later_round_binding_in_another_package_is_mq3023_on_the_later() {
+        JavaFileObject carrier = source("models.CarrierEntity", """
+                package models;
+
+                import jakarta.persistence.Entity;
+                import jakarta.persistence.Id;
+
+                @Entity
+                public class CarrierEntity {
+                    @Id
+                    private Long id;
+                    private String carrier;
+                }
+                """);
+        JavaFileObject earlierBinding = source("early.Models", """
+                package early;
+
+                import com.rey.modelquery.annotations.BindQueryModel;
+                import models.CarrierEntity;
+                import models.ShipmentView;
+
+                @BindQueryModel(model = ShipmentView.class, root = CarrierEntity.class)
+                final class Models {}
+                """);
+
+        var processor = new ProcessorHarness.Recording();
+
+        // A binding generated in round 1 is read in round 2, after early.Models was generated in round 1.
+        Compilation compilation = javac()
+                .withProcessors(processor, new SourceGenerator("persistence.Models", LATER_BINDING))
+                .compile(BOUND_SHIPMENT_VIEW, carrier, earlierBinding);
+
+        assertThat(errors(compilation)).contains("MQ3023: ShipmentView: @BindQueryModel binds it more than once, "
+                + "on early.Models and persistence.Models; keep one");
+        assertThat(processor.originating()).containsKey("early.QShipmentView").doesNotContainKey(
+                "persistence.QShipmentView");
+        assertThat(processor.messages())
+                .filteredOn(message -> message.text().startsWith("MQ3023"))
+                .singleElement()
+                .satisfies(message -> assertThat(message.element()).hasToString("persistence.Models"));
     }
 }

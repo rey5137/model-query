@@ -431,9 +431,11 @@ final class WriteModels {}
 
 A model is bound once for each kind. Two bindings, or a binding and an annotated model, that would generate one class
 name are `MQ3023`; give one a `prefix` or another package. What the generated classes call must be public, since they
-sit in another package: the model, its no-arg constructor, its setters and its `@Join` getters (`MQ3024`). A `@Join` or
-`@Child` model of a bound model is itself annotated or bound in the same compilation (`MQ3026`), and its `QModel` lands
-in the binding's package:
+sit in another package: the model, its no-arg constructor, its setters, the getters that `from` and insert members read, its `@Join` getters, and
+a nested model's type and the types enclosing it (`MQ3024`). A `@Join` or `@Child` model of a bound model is itself
+annotated `@QueryModel`, on the classpath or in the compilation, or bound in the same compilation (`MQ3026`), and its
+`QModel` lands in the annotated model's package or the nested binding's. An annotated model may nest a bound one too,
+with `modelquery.aggregating` set (below):
 
 ```java
 @BindQueryModel(model = CustomerView.class, root = CustomerEntity.class)
@@ -528,6 +530,11 @@ The processor runs in the persistence module only, and the API module is an ordi
     tasks.named<JavaCompile>("compileJava") {
         inputs.files(configurations.runtimeClasspath).withNormalizer(ClasspathNormalizer::class)
     }
+
+    // Needed when a model nests a bound model whose binding is in another source file.
+    tasks.withType<JavaCompile> {
+        options.compilerArgs.add("-Amodelquery.aggregating=true")
+    }
     ```
 
 The `compileJava` input is a Gradle limit, not a library choice. The processor is `isolating`: each generated file has
@@ -538,18 +545,25 @@ module's compile and its `QModel` stays stale until a clean build. With the inpu
 classes recompiles the persistence module in full (D-140). A nested model bound in a different persistence module from
 its outer model is not supported yet: bind both in one module.
 
+Gradle recompiles each model on its own by default (`isolating`), and then misses a binding in another source file. Set
+`modelquery.aggregating=true` when a model nests a bound model whose binding is in another file, as an annotated model
+nesting a bound one always does; without it, a recompile of the outer model alone can report `MQ3005`, `MQ3401` or
+`MQ3026` wrongly, or leave its `QModel` naming a removed class, until a clean build. Maven does not compile
+incrementally and needs nothing.
+
 The binding annotations are `@Incubating` (see [Stability](stability.md)). The checks above are
 [`MQ3023` to `MQ3026`](diagnostics.md).
 
 ## Processor options
 
-The processor reads three options, each passed to `javac` as `-Akey=value`:
+The processor reads four options, each passed to `javac` as `-Akey=value`:
 
 | Option | Default | Effect |
 |---|---|---|
 | `modelquery.prefix` | `Q` | The prefix of a generated class name. |
 | `modelquery.suffix` | empty | The suffix of a generated class name. |
 | `modelquery.jspecify` | `false` | With `true`, the generated classes carry JSpecify nullness annotations. |
+| `modelquery.aggregating` | `false` | With `true`, Gradle treats the processor as aggregating; needed when a model nests a bound model bound in another source file. |
 
 `modelquery.jspecify` is new in 0.9.0 and incubating. With it on, every generated `Q` class and change set is
 `@NullMarked`, and a change set's values, setter parameters and getters are `@Nullable`, since a change set holds

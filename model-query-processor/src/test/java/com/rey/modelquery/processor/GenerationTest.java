@@ -25,8 +25,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 import javax.lang.model.element.ElementKind;
 import javax.tools.JavaFileObject;
@@ -616,7 +618,7 @@ import java.util.stream.Stream;
     }
 
     @Test
-    void ac_gen_08_the_processor_is_registered_as_isolating_for_gradle() throws IOException {
+    void ac_gen_08_the_processor_is_registered_as_dynamic_and_reports_itself_isolating_unless_aggregating_is_set() throws IOException {
         // Lombok's jar carries a registration of its own at the same path, so every one on the classpath is read.
         var lines = new ArrayList<String>();
         for (URL url : Collections.list(ModelQueryProcessor.class.getClassLoader()
@@ -626,7 +628,35 @@ import java.util.stream.Stream;
             }
         }
 
-        assertThat(lines).contains(ModelQueryProcessor.class.getName() + ",isolating");
+        assertThat(lines).contains(ModelQueryProcessor.class.getName() + ",dynamic");
+        assertThat(new ModelQueryProcessor().getSupportedOptions())
+                .contains("org.gradle.annotation.processing.isolating")
+                .doesNotContain("org.gradle.annotation.processing.aggregating");
+    }
+
+    @Test
+    void ac_proc_29_the_processor_reports_aggregating_only_when_the_option_is_true_in_any_case() {
+        for (String option : List.of("true", "TRUE", "True")) {
+            assertThat(supportedOptionsWith("-Amodelquery.aggregating=" + option))
+                    .contains("org.gradle.annotation.processing.aggregating")
+                    .doesNotContain("org.gradle.annotation.processing.isolating");
+        }
+        for (String option : List.of("-Amodelquery.aggregating=false", "-Amodelquery.aggregating=yes",
+                "-Amodelquery.aggregating", "-Aother=true")) {
+            assertThat(supportedOptionsWith(option))
+                    .contains("org.gradle.annotation.processing.isolating")
+                    .doesNotContain("org.gradle.annotation.processing.aggregating");
+        }
+        assertThat(supportedOptionsWith("-Amodelquery.jspecify=false"))
+                .contains("org.gradle.annotation.processing.isolating");
+    }
+
+    /** The options of a processor that has been initialised by a compilation run with {@code option}. */
+    private static Set<String> supportedOptionsWith(String option) {
+        var processor = new ModelQueryProcessor();
+        javac().withProcessors(processor).withOptions(option)
+                .compile(model("OrderRow", "OrderEntity", "@PrimaryKey Long id"));
+        return processor.getSupportedOptions();
     }
 
     @Test

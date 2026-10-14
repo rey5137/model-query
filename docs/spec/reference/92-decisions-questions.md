@@ -1989,14 +1989,18 @@ record component; type-level annotations with class-literal and enum values; a r
 constructor, whose parameter names are kept (a class's setter parameters read `arg0` without `-parameters`; the
 processor reads neither). A type-use annotation, such as JSpecify's `@Nullable`, is not read from a class file before
 JDK 22 (JDK-8225377); the processor reads none from a model, so this changes nothing it generates. `ClasspathModelTest`
-keeps the source-against-class-file comparison as a regression on both JDKs. The processor stays `isolating` for
-bindings: each generated file has one originating element, the binding type or its `package-info`, and Gradle (8.11 and
+keeps the source-against-class-file comparison as a regression on both JDKs. The processor is `isolating` by default, with one
+exception (below): each generated file has one originating element, the binding type or its `package-info`, and Gradle (8.11 and
 9.7.1) records the model a binding names by class literal as a dependency of the binding, so a change to the bound
 model's ABI recompiles the binding and regenerates its QModel, even one that does not name the model. `aggregating`
 would add nothing: a change confined to the annotations on a model's private fields or record components is outside
 Gradle's compile-avoidance ABI, so Gradle skips the persistence module's compile under either declaration and leaves its
 QModel stale until a clean build, as it already does for a classpath nested model (D-45). Maven (maven-compiler-plugin
-3.16.0) recompiles the module on a changed dependency and regenerates it. The "Models in an API module" docs (M24.4)
+3.16.0) recompiles the module on a changed dependency and regenerates it. A module where a model nests a bound model whose binding sits in another source file (always the case for an annotated
+outer model nesting a bound one) sets `modelquery.aggregating=true` (R-PROC-34): the processor is registered with Gradle
+as `dynamic` and then reports `aggregating`, because the binding is not reachable from the outer model's originating
+element, so an isolating recompile of the outer model alone would not see it (false `MQ3005`, `MQ3401` or `MQ3026`, or
+an outer QModel naming a removed class). The "Models in an API module" docs (M24.4)
 state the Gradle limit and its workaround: the API module's classes declared a full-content input of the persistence
 module's `compileJava` (`inputs.files(configurations.runtimeClasspath).withNormalizer(ClasspathNormalizer)`), which
 recompiles that module in full when they change. Supersedes `rfc/0012`'s "declares itself aggregating for bindings". →
@@ -2035,7 +2039,9 @@ the binding. The processor also remembers the names the bindings it generated in
 binding, or a binding of a later round, that would generate one of them is `MQ3023` on it, and the earlier QModel
 stands; a binding deferred before its own `root` reads has no names yet and is checked when it is retried. Rejected:
 `MQ3017` at once (a persistence module whose entities another processor generates could bind nothing); letting only a
-bound model nest a bound one (an annotated model of the persistence module could not join an API model). Binding a
+bound model nest a bound one (an annotated model of the persistence module could not join an API model). Accepted limit: a failed nested
+binding (for example `MQ3023`) generates no QModel, so the outer QModel names a missing class and javac adds "cannot
+find symbol" beside the real diagnostic, as for annotated nesting (R-GEN-04, D-39). Binding a
 nested model in another compilation stays Q-19. → D-45, D-107, D-134, D-141, R-PROC-30, R-PROC-31, R-GEN-35.
 
 ## 2. Open questions

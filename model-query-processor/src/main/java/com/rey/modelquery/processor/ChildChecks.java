@@ -61,7 +61,8 @@ final class ChildChecks {
         }
         if (child == null) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3401, where + "@Child needs a List or Optional of a "
-                    + "@QueryModel, found " + ModelValidator.display(field.type()));
+                    + "model annotated @QueryModel or bound by @BindQueryModel in this compilation, found "
+                    + ModelValidator.display(field.type()));
             return;
         }
         ChildDefinition definition = field.child();

@@ -634,7 +634,8 @@ final class ModelValidator {
             diagnostics.error(field.element(), DiagnosticCode.MQ3026, where + unbound(model, join.nested()));
         } else if (nested == null) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3005,
-                    where + display(join.nested()) + " is not a @QueryModel");
+                    where + display(join.nested()) + " is neither annotated @QueryModel"
+                            + " nor bound by @BindQueryModel in this compilation");
         }
         boolean joinable = nested != null;
         if (!isSimpleName(join.prefix())) {
