@@ -201,6 +201,7 @@ See [Models and QModels](models.md).
 | `MQ4007` | A repository declares `ModelQueryRepository` of an entity other than its domain type. |
 | `MQ4009` | A bulk insert on a factory whose persistence provider has no insert support, before any statement. `persist` still runs. |
 | `MQ4012` | A factory is not on one of the declared target vendors; the message names the factory, its vendor, how it was found and the list. |
+| `MQ4013` | The [portability check](portability.md) cannot boot your unit offline for a target: no provider support for its vendor, a vendor with no offline boot (Oracle, SQL Server, `OTHER`), or a version that is not numeric. |
 
 See [Spring Data and the starter](spring.md) and [Vendor notes](vendors.md).
 

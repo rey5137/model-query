@@ -2,6 +2,7 @@ package com.rey.modelquery.tck.sql;
 
 import static org.assertj.core.api.Assertions.fail;
 
+import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -65,7 +66,7 @@ public final class SqlSnapshots {
     public static List<String> assertMatches(TckDatabase db, String name, List<String> actual) {
         Path shared = snapshotFile(db, name);
         Path variant = hibernateMajor() >= 7 ? variant(shared) : null;
-        Path file = variant != null && Files.exists(variant) ? variant : shared;
+        Path file = readFrom(shared, variant);
         boolean update = Boolean.getBoolean(UPDATE_PROPERTY);
         String rendered = String.join("\n", actual) + "\n";
         try {
@@ -116,8 +117,27 @@ public final class SqlSnapshots {
         return sql.trim().replaceAll("\\s+", " ");
     }
 
+    /**
+     * The committed snapshot {@code name} for {@code vendor} on the running Hibernate line, resolved as
+     * {@link #assertMatches(TckDatabase, String, List)} resolves it, for a test that captured its SQL without a
+     * database (AC-INS-11). Read only: it never writes, whatever {@value #UPDATE_PROPERTY} says.
+     */
+    public static List<String> expected(DatabaseVendor vendor, String name) {
+        Path shared = snapshotFile(vendor.name(), name);
+        Path file = readFrom(shared, hibernateMajor() >= 7 ? variant(shared) : null);
+        try {
+            return readLines(file);
+        } catch (IOException e) {
+            throw new IllegalStateException("Cannot read snapshot " + file, e);
+        }
+    }
+
     private static Path snapshotFile(TckDatabase db, String name) {
-        String vendor = db.vendor().name().toLowerCase(Locale.ROOT);
+        return snapshotFile(db.vendor().name(), name);
+    }
+
+    private static Path snapshotFile(String vendorName, String name) {
+        String vendor = vendorName.toLowerCase(Locale.ROOT);
         return Path.of(System.getProperty("basedir", ".")).resolve(RESOURCE_DIR).resolve(vendor).resolve(name + ".sql");
     }
 
@@ -133,6 +153,11 @@ public final class SqlSnapshots {
         }
         Files.createDirectories(variant.getParent());
         Files.writeString(variant, rendered, StandardCharsets.UTF_8);
+    }
+
+    /** The file a snapshot is read from: {@code variant} when there is one on disk, else {@code shared}. */
+    private static Path readFrom(Path shared, Path variant) {
+        return variant != null && Files.exists(variant) ? variant : shared;
     }
 
     /** The {@code hibernate7/} variant of {@code shared}, which a Hibernate 7 run writes and reads back. */

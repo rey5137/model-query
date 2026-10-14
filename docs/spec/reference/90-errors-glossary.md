@@ -196,6 +196,8 @@ insert models and `generateInserts` (D-116, D-117, D-123). Codes are not repeate
 | **Update model** | A class or record annotated `@UpdateModel` listing the attributes a bulk update may write. Holds no data. |
 | **Change set** | A generated, mutable `Changes<M>` recording which columns were set, so "set to NULL" and "not set" differ. |
 | **Bulk write** | A `ModelUpdate` or `ModelDelete`: one statement, or a chunked series, over the rows a filter matches. |
+| **Target vendor** | A vendor the application declares it runs on (`ModelQueryConfig#targetVendors`, `modelquery.target-vendors`); a factory of any other vendor fails at startup with `MQ4012` (`vendor/40` R-VND-19). |
+| **Dry run** | The portability check's run of a call on a factory booted offline for a target (`api/16` R-INS-10, R-INS-11): the real executor, over a stub `DataSource` that records the first statement and runs nothing. |
 
 **R-ERR-03** Code and spec use these words and not synonyms: *column* not *field* for a `ColumnField`, *model* not *dto*
 or *view object*, *selectable* not *expression*, *group* not *bucket*, *profile* not *dialect* (`dialect` means

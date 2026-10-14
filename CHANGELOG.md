@@ -20,6 +20,11 @@ Nothing is frozen yet: every public type stays `@Incubating`. The additions belo
   `REFUSED`, `REFUSED_AFTER_STATEMENT`, `NO_STATEMENT` or `HARNESS_ERROR`, then one line per skipped definition with
   its reason, and fails unless every result is `REACHED`.
   The targets default to `config.targetVendors()`, and one outside them is `MQ4012`.
+  The TCK runs the dry run on H2, PostgreSQL and MySQL on both Hibernate lines with no container (AC-INS-11): it
+  reproduces every vendor-dependent refusal of the row-lock, returning, conflict, `nextval` and to-one-id criteria,
+  and a first statement it reaches equals the live run's SQL snapshot wherever the live run committed one. A new
+  "Portability" docs page covers declared targets, the dry run beside a Testcontainers matrix, and what it cannot
+  decide.
 - Declared target vendors (D-133, R-VND-19, R-SPR-17): `ModelQueryConfig.targetVendors(DatabaseVendor first,
   DatabaseVendor... more)`, `targetVendors(Collection)` and `targetVendors(String...)`, read by `targetVendors()`, and
   the property `modelquery.target-vendors`. A factory whose configured or detected vendor (not its profile's, so

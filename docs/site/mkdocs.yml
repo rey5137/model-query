@@ -57,4 +57,5 @@ nav:
   - API stability: stability.md
   - Spring Data and the starter: spring.md
   - Vendor notes: vendors.md
+  - Portability (incubating): portability.md
   - Diagnostics: diagnostics.md
