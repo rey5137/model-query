@@ -557,7 +557,8 @@ class DiagnosticMatrixTest {
                     "MQ3307: TicketPatch.unset: generates unset(String), which clashes with Changes.unset(...); "
                             + "rename the field")),
             of("MQ3401", c -> fails(c.model("CustomerView", CUSTOMER, ID, "@Child String note"),
-                    "MQ3401: CustomerView.note: @Child needs a List or Optional of a @QueryModel, found String")),
+                    "MQ3401: CustomerView.note: @Child needs a List or Optional of a model annotated @QueryModel "
+                            + "or bound by @BindQueryModel in this compilation, found String")),
             of("MQ3402", c -> fails(
                     with(c.model("OrderView", ORDER, ID), c.model("CustomerView", CUSTOMER, ID,
                             "@Child(foreignKey = \"customer.idx\") List<OrderView> orders")),

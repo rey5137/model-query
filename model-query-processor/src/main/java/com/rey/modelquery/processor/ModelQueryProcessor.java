@@ -43,11 +43,23 @@ import javax.tools.Diagnostic;
         "com.rey.modelquery.annotations.BindUpdateModels", "com.rey.modelquery.annotations.BindInsertModel",
         "com.rey.modelquery.annotations.BindInsertModels"})
 @SupportedOptions({QueryModelReader.PREFIX_OPTION, QueryModelReader.SUFFIX_OPTION,
-        ModelQueryProcessor.JSPECIFY_OPTION})
+        ModelQueryProcessor.JSPECIFY_OPTION, ModelQueryProcessor.AGGREGATING_OPTION})
 public final class ModelQueryProcessor extends AbstractProcessor {
 
     /** The processor option that adds JSpecify nullness annotations to the generated classes (R-PROC-32). */
     static final String JSPECIFY_OPTION = "modelquery.jspecify";
+
+    /**
+     * The processor option that registers the processor with Gradle as aggregating rather than isolating, so an
+     * incremental compile reads every binding of the compilation, not only those of the recompiled files.
+     */
+    static final String AGGREGATING_OPTION = "modelquery.aggregating";
+
+    /** Gradle's option naming a dynamic processor isolating. */
+    private static final String GRADLE_ISOLATING = "org.gradle.annotation.processing.isolating";
+
+    /** Gradle's option naming a dynamic processor aggregating. */
+    private static final String GRADLE_AGGREGATING = "org.gradle.annotation.processing.aggregating";
 
     private static final String ROOT_UNRESOLVED =
             "root does not name a class, and no annotation processor generated one";
@@ -75,6 +87,25 @@ public final class ModelQueryProcessor extends AbstractProcessor {
      * later round generating one of them is {@code MQ3023} (D-142).
      */
     private final Map<String, String> boundFiles = new LinkedHashMap<>();
+
+    /**
+     * The (kind, model) pairs the bindings generated in an earlier round bind, each with the origin it was bound on:
+     * a binding of a later round binding one again, in another package, is {@code MQ3023} (R-PROC-28, D-142).
+     */
+    private final Map<List<Object>, String> boundModels = new LinkedHashMap<>();
+
+    /**
+     * The declared options and Gradle's incremental kind for this dynamic processor: aggregating when
+     * {@value #AGGREGATING_OPTION} is {@code true}, ignoring case, otherwise isolating, as it is before {@code init}.
+     * Gradle asks after {@code init}.
+     */
+    @Override
+    public Set<String> getSupportedOptions() {
+        var options = new LinkedHashSet<>(super.getSupportedOptions());
+        var aggregating = isInitialized() && Boolean.parseBoolean(processingEnv.getOptions().get(AGGREGATING_OPTION));
+        options.add(aggregating ? GRADLE_AGGREGATING : GRADLE_ISOLATING);
+        return options;
+    }
 
     @Override
     public SourceVersion getSupportedSourceVersion() {
@@ -161,7 +192,7 @@ public final class ModelQueryProcessor extends AbstractProcessor {
         var diagnostics = new Diagnostics(processingEnv.getMessager());
         var read = new ArrayList<BoundModel>();
         Map<List<Object>, List<Binding>> byModel = bindings.stream().collect(Collectors.groupingBy(
-                binding -> List.of(binding.kind(), binding.model().toString()), LinkedHashMap::new,
+                ModelQueryProcessor::key, LinkedHashMap::new,
                 Collectors.toList()));
         for (List<Binding> same : byModel.values()) {
             Binding binding = same.get(0);
@@ -173,7 +204,12 @@ public final class ModelQueryProcessor extends AbstractProcessor {
                     .filter(kind -> QueryModelReader.mirror(type, QueryModelReader.annotation(kind)) != null)
                     .map(kind -> "@" + QueryModelReader.annotation(kind).getSimpleName())
                     .toList();
-            if (same.size() > 1) {
+            String earlier = boundModels.get(key(binding));
+            if (earlier != null) {
+                same.stream().map(Binding::origin).distinct().forEach(origin -> diagnostics.error(origin,
+                        DiagnosticCode.MQ3023, name + ": " + bind + " binds it more than once, on " + earlier
+                                + " and " + String.join(" and ", origins) + "; keep one"));
+            } else if (same.size() > 1) {
                 same.stream().map(Binding::origin).distinct().forEach(origin -> diagnostics.error(origin,
                         DiagnosticCode.MQ3023, name + ": " + bind + " binds it more than once, on "
                                 + String.join(" and ", origins) + "; keep one"));
@@ -231,6 +267,11 @@ public final class ModelQueryProcessor extends AbstractProcessor {
         return clashing;
     }
 
+    /** What one binding binds: its kind and the model it names. */
+    private static List<Object> key(Binding binding) {
+        return List.of(binding.kind(), binding.model().toString());
+    }
+
     /** The qualified names of the classes {@code model} generates, none when it could not be read. */
     private static List<String> files(ModelDefinition model) {
         if (model == null) {
@@ -264,6 +305,7 @@ public final class ModelQueryProcessor extends AbstractProcessor {
         String generator = "@" + ModelBindings.annotation(binding.kind()).getSimpleName() + " of "
                 + type.getQualifiedName() + " on " + ModelBindings.name(binding.origin());
         files(model).forEach(file -> boundFiles.put(file, generator));
+        boundModels.put(key(binding), ModelBindings.name(binding.origin()));
         ModelBindings.checkExpressions(binding, type, diagnostics);
         validateAndWrite(model, diagnostics, round);
     }

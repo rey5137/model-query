@@ -153,7 +153,7 @@ Full milestone list and exclusions: `delivery/62`.
 | Streaming safety | the API owns the `Stream` and closes it; no method returns an open one | D-8, `engine/20` |
 | Vendor behaviour | one `VendorProfile` SPI, `ServiceLoader`-discovered, Hibernate dialect detection when present | INV-6, `vendor/40` |
 | Null precedence | explicit `nullsFirst`/`nullsLast` mean the same on every vendor; portable `CASE WHEN` fallback | D-9, `api/10` |
-| Code generation | annotation processor + JavaPoet, isolating and incremental; one file per model | `processor/31` |
+| Code generation | annotation processor + JavaPoet, incremental, isolating by default (aggregating opt-in); one file per model | `processor/31` |
 | Error codes | `MQ` + 4 digits, grouped by phase | D-10, `reference/90` |
 | Writes | filter-driven bulk `CriteriaUpdate`/`CriteriaDelete` with generated change sets; never entity writes | D-14, `api/14` |
 | Write parity | a bulk write affects exactly the rows the equivalent read returns | D-17, `api/14` |

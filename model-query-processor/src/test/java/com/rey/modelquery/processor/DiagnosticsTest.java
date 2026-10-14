@@ -323,7 +323,8 @@ class DiagnosticsTest {
         assertThat(errors(compilation)).containsExactly(
                 message(DiagnosticCode.MQ3005,
                         "OrderView.customer: @Join field must be Optional<CustomerRow>, found CustomerRow"),
-                message(DiagnosticCode.MQ3005, "OrderView.payer: String is not a @QueryModel"),
+                message(DiagnosticCode.MQ3005, "OrderView.payer: String is neither annotated @QueryModel "
+                        + "nor bound by @BindQueryModel in this compilation"),
                 message(DiagnosticCode.MQ3005, "OrderView.many: @Join field must be Optional<X> of a @QueryModel X, "
                         + "found List<CustomerRow>"));
     }

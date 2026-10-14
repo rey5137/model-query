@@ -139,7 +139,7 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3002` | Model type is not the entity attribute's type, and no converter provided or built in (`Instant` or `Date` over a `Timestamp`). On a to-one, a column that is not the target's id type, or whose mapping cannot be read by id (the message names the reason). |
 | `MQ3003` | `@Join` attribute is not a to-one association, or the nested model's root does not match the target. |
 | `MQ3004` | Missing `@PrimaryKey` on a model with no `@Aggregate` field. |
-| `MQ3005` | `@Join` field is not `Optional<X>`, or `X` is not a `@QueryModel`, or `X` has an `@Aggregate` or `@Computed` field. |
+| `MQ3005` | `@Join` field is not `Optional<X>`, or `X` is neither a `@QueryModel` nor bound by a `@BindQueryModel`, or `X` has an `@Aggregate` or `@Computed` field. |
 | `MQ3006` | Nested model has no `@PrimaryKey`, so presence cannot be decided. |
 | `MQ3007` | Join cycle between nested models. |
 | `MQ3008` | Class model has no no-arg constructor visible from its package. |
@@ -157,7 +157,7 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3020` | `@Selected` field that is not exactly `SelectSet<Model>`, or a second `@Selected` field in the model. |
 | `MQ3021` | `@Selected` combined with another field annotation of the library. |
 | `MQ3022` | Warning: a `@FilterColumn` whose key in `fields()` a mapped column, a `@Computed` field or another `@FilterColumn` already holds is left out of `fields()` and stays a constant. |
-| `MQ3023` | A model bound twice for one kind, or bound and annotated; or two bindings, or a binding and an annotated model, that would generate one class name. Keep one, or give one a `prefix` or another package. |
+| `MQ3023` | A model bound twice for one kind (in any round or package), or bound and annotated; or two bindings, or a binding and an annotated model, that would generate one class name. Keep one, or give one a `prefix` or another package. |
 | `MQ3024` | A bound model, or a type enclosing it, that is not public, or a constructor, setter or getter the generated classes call from the binding's package that is not public; or a `model` that is no class or record. |
 | `MQ3025` | A `@Computed` with no `value` and no `@BindExpression`, or on an annotated model; or a `@BindExpression` naming an unknown field, a field that is neither computed nor aggregate, one that already names a definition, or a field twice. |
 | `MQ3026` | A `@Join` or `@Child` model of a bound model that is neither annotated nor bound in the same compilation. Bind it as well. |
@@ -178,7 +178,7 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3305` | Update model: to-one attribute written by id with the wrong id type. |
 | `MQ3306` | Update model: `@PrimaryKey` is not the root entity's id. |
 | `MQ3307` | Update model: field generates a change-set member that clashes with `Changes<M>`. |
-| `MQ3401` | `@Child` field is not a `List` or `Optional` of a `@QueryModel`, carries `@Join`, `@Transient`, `@Aggregate` or `@GroupBy`, is on an update model, or sets both `through` and `foreignKey`. |
+| `MQ3401` | `@Child` field is not a `List` or `Optional` of a `@QueryModel` or bound model, carries `@Join`, `@Transient`, `@Aggregate` or `@GroupBy`, is on an update model, or sets both `through` and `foreignKey`. |
 | `MQ3402` | `@Child` `key` or `foreignKey` names no attribute of its root, names an association rather than one of its attributes, or crosses a collection in `key`. A `foreignKey` may cross one, for a many-to-many child. |
 | `MQ3403` | `@Child` `key` and `foreignKey` attributes have different types. |
 | `MQ3404` | `@Child` key of several attributes, an embedded value or an array: it takes one attribute each side. |

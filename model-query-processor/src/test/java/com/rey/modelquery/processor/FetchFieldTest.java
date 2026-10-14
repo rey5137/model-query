@@ -193,7 +193,8 @@ class FetchFieldTest {
                         @Child Optional<String> note) {}
                 """)).containsExactly(
                 "MQ3401: RefundView.customer: @Child can't be combined with @Join",
-                "MQ3401: RefundView.note: @Child needs a List or Optional of a @QueryModel, found Optional<String>");
+                "MQ3401: RefundView.note: @Child needs a List or Optional of a model annotated @QueryModel "
+                + "or bound by @BindQueryModel in this compilation, found Optional<String>");
         assertThat(errorsOf("InvoicePatch", """
                 @UpdateModel(root = InvoiceEntity.class)
                 public record InvoicePatch(@PrimaryKey Long id, @Child Optional<CountryView> country) {}

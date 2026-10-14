@@ -22,7 +22,9 @@ Nothing is frozen yet: every public type stays `@Incubating`. The additions belo
   its QModel names the nested QModel in that binding's package (R-PROC-31, D-142); any model may nest a bound one. On a
   bound model, a nested model that is neither is the new `MQ3026`, and one that is not public is `MQ3024`. A binding
   whose root, or a nested model's, another processor generates is retried in a later round as an annotated model is
-  (D-107), and reports `MQ3017` on the binding if the class never appears.
+  (D-107), and reports `MQ3017` on the binding if the class never appears. The processor option
+  `-Amodelquery.aggregating=true` (R-PROC-34, D-140) makes Gradle treat it as aggregating, which a module needs when a
+  model nests a bound model whose binding is in another source file; it is isolating otherwise.
 - `@Computed.value` defaults to `void.class` (source and binary compatible), and `@BindQueryModel(expressions =
   @BindExpression(field = "net", value = RowNet.class))` supplies the `ExpressionDefinition` of a bound model's
   valueless `@Computed`, or turns an `@Aggregate` into an expression aggregate, since the model's module cannot compile
