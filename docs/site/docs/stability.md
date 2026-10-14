@@ -148,6 +148,12 @@ page (`KeysetSpec`, `KeysetSlice`), sub-selects (`SubSelect`, `Outer`), expressi
 `ChildQueryAssert`. The keyset cursor's `KeysetCursorCodec` is `@EngineFacing`. See
 [Sub-queries and expressions](subqueries-expressions.md).
 
+The model-binding annotations are new in 0.9.0 and `@Incubating` (D-134, D-140, D-141, D-142), and join the list above.
+They are `@BindQueryModel`, `@BindUpdateModel`, `@BindInsertModel` and `@BindExpression`, and the containers of the repeatable three, with `@Computed.value`
+defaulting to `void.class`, and the `MQ3023` to `MQ3026` diagnostics. Their members, the names of the generated
+classes and the bound-model rules may change in a minor release. See
+[Models in an API module](models.md#models-in-an-api-module).
+
 ## Not API
 
 Two things are not API, whatever their visibility, and may change in any release:

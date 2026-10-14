@@ -28,6 +28,8 @@ Nothing is frozen yet: every public type stays `@Incubating`. The additions belo
   valueless `@Computed`, or turns an `@Aggregate` into an expression aggregate, since the model's module cannot compile
   a definition over the entity (R-PROC-29). A valueless `@Computed` with no `@BindExpression`, or on an annotated model,
   and a `@BindExpression` that matches no such field, are the new `MQ3025`.
+- The "Models in an API module" docs section covers the module layout, a binding, `@BindExpression` and the Maven and
+  Gradle setup, with the Gradle `compileJava` input that an annotation-only edit to a bound model needs (D-140).
 - The new `model-query-portability` artifact, on `model-query-jpa` only (resolve it at `model-query-jpa`'s exact
   version, through the BOM: D-139) and meant for test scope, boots a factory per
   target vendor with no database (D-133, R-INS-10): `Target.of(vendor)` or `Target.of(vendor, "15.4")`, a recording
