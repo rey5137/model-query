@@ -67,6 +67,18 @@ class VendorResolverTest {
     }
 
     @Test
+    void ac_ins_10_the_product_name_of_a_vendor_is_the_reverse_of_detection() {
+        for (DatabaseVendor vendor : DatabaseVendor.values()) {
+            VendorResolver.productNameOf(vendor).ifPresentOrElse(
+                    name -> assertThat(VendorResolver.vendorOf(name)).isEqualTo(vendor),
+                    () -> assertThat(vendor).isIn(DatabaseVendor.ORACLE, DatabaseVendor.SQLSERVER,
+                            DatabaseVendor.OTHER));
+        }
+        assertThat(VendorResolver.productNameOf(DatabaseVendor.POSTGRESQL)).contains("PostgreSQL");
+        assertThat(VendorResolver.productNameOf(DatabaseVendor.OTHER)).isEmpty();
+    }
+
+    @Test
     void r_prf_07_the_streaming_mode_picks_the_mysql_profile_and_no_other() {
         Map<DatabaseVendor, VendorProfile> none = Map.of();
         assertThat(VendorResolver.profileFor(DatabaseVendor.MYSQL, MysqlStreamingMode.ROW_BY_ROW, none))

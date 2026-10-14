@@ -8,6 +8,7 @@ import com.rey.modelquery.core.SequenceRenderer;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaQuery;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
@@ -20,7 +21,7 @@ import java.util.stream.Stream;
  * D-108). Discovered with {@code ServiceLoader}; the first that {@linkplain #supports supports} a factory serves it.
  * Implementations are stateless and thread-safe.
  *
- * @implSpec R-VND-04, R-EXE-03, R-VND-12, R-VND-13, R-VND-14, R-VND-15, R-VND-17, D-119, D-127
+ * @implSpec R-VND-04, R-EXE-03, R-VND-12, R-VND-13, R-VND-14, R-VND-15, R-VND-17, R-VND-20, D-119, D-127
  */
 @Incubating
 public interface ProviderSupport {
@@ -139,5 +140,17 @@ public interface ProviderSupport {
     @Incubating
     default ForeignKeyColumn foreignKeyColumn(EntityManagerFactory emf, Class<?> entity, String toOne) {
         return ForeignKeyColumn.UNKNOWN;
+    }
+
+    /**
+     * The provider's own settings that boot a factory for {@code vendor} with no database: no JDBC metadata read at
+     * boot, no schema generation, no connection provider of the unit's, and the dialect resolved from the target's
+     * product name rather than a unit's explicit one. The portability dry run applies them over the unit's properties.
+     * Empty, the default, when the provider cannot boot offline: the dry run then refuses the target with
+     * {@code MQ4013} rather than booting it against a database (R-VND-20, R-INS-10).
+     */
+    @Incubating
+    default Optional<Map<String, Object>> offlineProperties(DatabaseVendor vendor) {
+        return Optional.empty();
     }
 }

@@ -17,6 +17,9 @@ and the keyset predicate shape they all share.
 | 2 (after 1.0, D-81) | MariaDB | 10.11, 11.x | nightly, after Tier 1 is stable |
 | 3 (community) | Oracle, SQL Server, others | — | profile contributions welcome, run nightly when present |
 
+The portability check (D-133) treats H2, PostgreSQL and MySQL as Tier 1; its tests also boot MariaDB, and any other target is
+best effort.
+
 **R-PRF-01** A Tier-1 release requires the whole TCK to pass on every Tier-1 version listed here (`delivery/60`).
 
 **R-PRF-02** A Tier-3 profile may be merged with its TCK results from the contributor's environment, and is documented

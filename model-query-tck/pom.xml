@@ -31,6 +31,12 @@
         <!-- Layering checks (INV-7) read the classes of every module, so the TCK sees them all at test scope. -->
         <dependency>
             <groupId>io.github.rey5137</groupId>
+            <artifactId>model-query-portability</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.github.rey5137</groupId>
             <artifactId>model-query-annotations</artifactId>
             <version>${project.version}</version>
             <scope>test</scope>

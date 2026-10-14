@@ -49,6 +49,7 @@
         <module>model-query-test</module>
         <module>model-query-jpa</module>
         <module>model-query-hibernate</module>
+        <module>model-query-portability</module>
         <module>model-query-processor</module>
         <module>model-query-spring-data</module>
         <module>model-query-spring-boot-starter</module>
@@ -308,6 +309,7 @@
                             <exclude>@com.rey.modelquery.annotations.Incubating</exclude>
                             <exclude>@com.rey.modelquery.core.EngineFacing</exclude>
                             <exclude>com.rey.modelquery.jpa.vendor.*</exclude>
+                            <exclude>com.rey.modelquery.portability.internal.*</exclude>
                         </excludes>
                     </parameter>
                 </configuration>

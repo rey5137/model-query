@@ -34,6 +34,7 @@ import java.util.stream.Stream;
 import org.hibernate.boot.model.naming.Identifier;
 import org.hibernate.boot.model.relational.SqlStringGenerationContext;
 import org.hibernate.boot.spi.SessionFactoryOptions;
+import org.hibernate.cfg.AvailableSettings;
 import org.hibernate.dialect.Dialect;
 import org.hibernate.dialect.H2Dialect;
 import org.hibernate.dialect.MariaDBDialect;
@@ -59,7 +60,7 @@ import org.hibernate.query.criteria.JpaExpression;
  * tables an entity reads from its persister's query spaces, bulk inserts through {@link HibernateInsertSupport}, and
  * entity-mode updates through {@link HibernateEntityWriteSupport}. Registered with {@code ServiceLoader}.
  *
- * @implSpec R-VND-04, R-VND-05, R-EXE-03, R-COL-12, R-PAG-05, R-VND-12, R-VND-13, R-VND-14, D-119
+ * @implSpec R-VND-04, R-VND-05, R-EXE-03, R-COL-12, R-PAG-05, R-VND-12, R-VND-13, R-VND-14, R-VND-20, D-119
  */
 @Incubating
 public final class HibernateProviderSupport implements ProviderSupport {
@@ -361,6 +362,28 @@ public final class HibernateProviderSupport implements ProviderSupport {
     @Override
     public Optional<ReturningSupport> returning() {
         return Optional.of(HibernateMutations.INSTANCE);
+    }
+
+    /**
+     * Hibernate's offline boot, for any vendor but {@code OTHER} (R-VND-20, D-133): no JDBC metadata read and no
+     * schema export at boot; the dialect resolved from the target's product name, so a unit's explicit
+     * {@code hibernate.dialect} is overridden while its {@code hibernate.dialect_resolvers} still apply; no unit
+     * connection provider, which would bypass the stub data source; and no global temporary tables created or dropped
+     * at boot, whose failure H2's strategy swallows.
+     */
+    @Override
+    public Optional<Map<String, Object>> offlineProperties(DatabaseVendor vendor) {
+        if (vendor == DatabaseVendor.OTHER) {
+            return Optional.empty();
+        }
+        return Optional.of(Map.of(
+                AvailableSettings.ALLOW_METADATA_ON_BOOT, "false",
+                AvailableSettings.HBM2DDL_AUTO, "none",
+                AvailableSettings.DIALECT, "",
+                AvailableSettings.CONNECTION_PROVIDER, "",
+                // GlobalTemporaryTableStrategy's keys; the type itself is internal (D-132), the keys are settings.
+                "hibernate.query.mutation_strategy.global_temporary.create_tables", "false",
+                "hibernate.query.mutation_strategy.global_temporary.drop_tables", "false"));
     }
 
     /** {@code emf} as Hibernate's factory, or empty when it is not Hibernate's (R-VND-14, R-WRT-50). */

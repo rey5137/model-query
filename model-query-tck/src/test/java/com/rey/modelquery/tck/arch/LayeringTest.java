@@ -51,6 +51,7 @@ class LayeringTest {
                 .anyMatch(p -> p.startsWith(REAL_ROOT + ".test"))
                 .anyMatch(p -> p.startsWith(REAL_ROOT + ".jpa"))
                 .anyMatch(p -> p.startsWith(REAL_ROOT + ".hibernate"))
+                .anyMatch(p -> p.startsWith(REAL_ROOT + ".portability"))
                 .anyMatch(p -> p.startsWith(REAL_ROOT + ".processor"))
                 .anyMatch(p -> p.startsWith(REAL_ROOT + ".spring.data"))
                 .anyMatch(p -> p.startsWith(REAL_ROOT + ".spring.boot"));
@@ -144,7 +145,24 @@ class LayeringTest {
                 F + "core.GoodCore",
                 F + "processor.BadProcessorModuleEdge",
                 F + "test.BadTestModuleEdge",
-                F + "jpa.GoodJpa");
+                F + "jpa.GoodJpa",
+                F + "jpa.BadJpaPortability",
+                F + "portability.GoodPortability");
+    }
+
+    @Test
+    void ac_ins_10_portabilityDependsOnlyOnJpa() {
+        proves(
+                LayeringRules::portabilityDependsOnlyOnJpa,
+                F + "portability.BadPortabilityImports",
+                "org.hibernate.Session",
+                "org.junit.jupiter.api.Test",
+                "org.assertj.core.api.Assertions",
+                F + "hibernate.BadSpringImport",
+                F + "portability.BadPortabilityNonPublicJpa",
+                F + "jpa.JpaWithProtectedPart$Part");
+        assertThatCode(() -> BAD_RULES.portabilityDependsOnlyOnJpa().check(BAD))
+                .hasMessageNotContaining(F + "portability.GoodPortability");
     }
 
     @Test
@@ -160,6 +178,8 @@ class LayeringTest {
     void ac_vnd_01_onlyProfilesAndDetectionNameADatabaseVendor() {
         proves(LayeringRules::databaseVendorOnlyInProfilesAndDetection, F + "jpa.BadVendorCheck",
                 F + "jpa.spi.DatabaseVendor");
+        assertThatCode(() -> BAD_RULES.databaseVendorOnlyInProfilesAndDetection().check(BAD))
+                .hasMessageNotContaining(F + "portability.GoodPortability");
     }
 
     @Test

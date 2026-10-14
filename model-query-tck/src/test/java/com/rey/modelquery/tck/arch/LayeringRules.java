@@ -8,6 +8,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import com.tngtech.archunit.core.domain.AccessTarget;
 import com.tngtech.archunit.core.domain.JavaAccess;
 import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
@@ -212,13 +213,13 @@ final class LayeringRules {
 
     /**
      * Only profiles and vendor detection name a {@code DatabaseVendor} (INV-6, R-VND-01): {@code jpa.spi},
-     * {@code jpa.vendor}, the configuration that sets one explicitly and the Hibernate provider support that maps a
-     * dialect to one.
+     * {@code jpa.vendor}, the configuration that sets one explicitly, the Hibernate provider support that maps a
+     * dialect to one, and the portability dry run, whose targets are vendors (R-INS-10).
      */
     ArchRule databaseVendorOnlyInProfilesAndDetection() {
         return noClasses()
                 .that()
-                .resideOutsideOfPackages(pkg("jpa.spi"), pkg("jpa.vendor"))
+                .resideOutsideOfPackages(pkg("jpa.spi"), pkg("jpa.vendor"), pkg("portability"))
                 .and()
                 .doNotHaveFullyQualifiedName(root + ".jpa.ModelQueryConfig")
                 .and()
@@ -253,20 +254,42 @@ final class LayeringRules {
     }
 
     /**
+     * {@code portability} depends on {@code jpa} only (INV-7, RFC 0011): jakarta types, the JDK and the public types of
+     * {@code jpa}, {@code core} and {@code annotations}; no provider, Spring, JUnit or AssertJ (a failed check throws
+     * the JDK's {@code AssertionError}), and none of the {@code hibernate}, {@code spring}, {@code test} or
+     * {@code processor} modules.
+     */
+    ArchRule portabilityDependsOnlyOnJpa() {
+        return noClasses()
+                .that()
+                .resideInAPackage(pkg("portability"))
+                .should()
+                .dependOnClassesThat(resideInAnyPackage("org.hibernate..", "org.springframework..", "org.junit..",
+                        "org.assertj..", pkg("hibernate"), pkg("spring"), pkg("test"), pkg("processor"))
+                        .or(describe("are non-public jpa types",
+                                c -> c.getPackageName().startsWith(root + ".jpa")
+                                        && !c.getModifiers().contains(JavaModifier.PUBLIC))))
+                .as("portability depends on jpa only")
+                .allowEmptyShould(allowEmptyShould);
+    }
+
+    /**
      * The one-way order {@code annotations <- core <- jpa <- (hibernate, spring)}, with {@code processor} depending
-     * only on {@code annotations} and {@code test} (a leaf beside {@code jpa}) only on {@code core}. No module may
-     * depend on a module that is later in the order or beside it.
+     * only on {@code annotations}, {@code test} (a leaf beside {@code jpa}) only on {@code core}, and
+     * {@code portability} (a leaf on {@code jpa}) on no module but {@code jpa}. No module may depend on a module that
+     * is later in the order or beside it, and no module depends on {@code portability}.
      */
     ArchRule dependenciesFlowOneWay() {
         return CompositeArchRule
-                .of(forbid("annotations", "core", "jpa", "hibernate", "spring", "processor", "test"))
-                .and(forbid("core", "jpa", "hibernate", "spring", "processor", "test"))
-                .and(forbid("jpa", "hibernate", "spring", "processor", "test"))
-                .and(forbid("hibernate", "spring", "processor", "test"))
-                .and(forbid("spring", "hibernate", "processor", "test"))
-                .and(forbid("processor", "core", "jpa", "hibernate", "spring", "test"))
-                .and(forbid("test", "jpa", "hibernate", "spring", "processor"))
-                .as("dependencies flow one way: annotations <- core <- jpa <- (hibernate, spring)")
+                .of(forbid("annotations", "core", "jpa", "hibernate", "spring", "processor", "test", "portability"))
+                .and(forbid("core", "jpa", "hibernate", "spring", "processor", "test", "portability"))
+                .and(forbid("jpa", "hibernate", "spring", "processor", "test", "portability"))
+                .and(forbid("hibernate", "spring", "processor", "test", "portability"))
+                .and(forbid("spring", "hibernate", "processor", "test", "portability"))
+                .and(forbid("processor", "core", "jpa", "hibernate", "spring", "test", "portability"))
+                .and(forbid("test", "jpa", "hibernate", "spring", "processor", "portability"))
+                .and(forbid("portability", "hibernate", "spring", "processor", "test"))
+                .as("dependencies flow one way: annotations <- core <- jpa <- (hibernate, spring, portability)")
                 .allowEmptyShould(allowEmptyShould);
     }
 

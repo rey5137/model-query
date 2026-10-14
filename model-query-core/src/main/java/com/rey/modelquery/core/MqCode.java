@@ -421,7 +421,14 @@ public enum MqCode {
     MQ4010("A lock cannot be rendered by the factory's persistence provider"),
 
     /** A returning write the factory's database and provider cannot return rows for (R-WRT-50, R-VND-17). */
-    MQ4011("A write cannot return its rows on the factory's database and persistence provider");
+    MQ4011("A write cannot return its rows on the factory's database and persistence provider"),
+
+    /**
+     * The portability dry run cannot boot a factory offline for a target: the persistence provider's
+     * {@code ProviderSupport} has no offline properties for it, a class list finds no single persistence provider, the
+     * boot reached JDBC, or the target names no database product (R-INS-10, R-VND-20).
+     */
+    MQ4013("The portability dry run cannot boot a factory offline for the target");
 
     private final String defaultMessage;
 
