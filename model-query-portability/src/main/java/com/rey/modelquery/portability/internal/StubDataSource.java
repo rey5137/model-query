@@ -77,7 +77,7 @@ final class StubDataSource {
     }
 
     /** The stub's stop at a statement, which a call's classification finds in the cause chain (R-INS-11). */
-    static final class StatementReached extends SQLException {
+    static final class StatementReached extends SQLException implements Stop {
         private static final long serialVersionUID = 1L;
 
         StatementReached(String message) {
@@ -90,10 +90,10 @@ final class StubDataSource {
             @Override
             Object answer(Object self, String name, Object[] args) throws SQLException {
                 Optional<?> known = switch (name) {
-                    case "getDatabaseProductName" -> Optional.of(target.productName());
+                    case "getDatabaseProductName" -> Optional.of(TargetFacts.productName(target));
                     case "getDatabaseProductVersion" -> target.version();
-                    case "getDatabaseMajorVersion" -> target.majorVersion();
-                    case "getDatabaseMinorVersion" -> target.minorVersion();
+                    case "getDatabaseMajorVersion" -> TargetFacts.majorVersion(target);
+                    case "getDatabaseMinorVersion" -> TargetFacts.minorVersion(target);
                     default -> Optional.empty();
                 };
                 return known.isPresent() ? known.get() : deny(name);
@@ -145,8 +145,20 @@ final class StubDataSource {
         /** Records {@code name} on the thread's recording and throws: the stub reaches no database. */
         Object deny(String name) throws SQLException {
             JdbcRecording.current().ifPresent(recording -> recording.denied(label(name)));
-            throw new SQLFeatureNotSupportedException("Dry run: " + label(name) + " reaches the database, denied for "
+            throw new Denied("Dry run: " + label(name) + " reaches the database, denied for "
                     + target);
         }
     }
+
+    /** The refusal of a stubbed JDBC call, so a classifier can tell it from a provider's own failure. */
+    static final class Denied extends SQLFeatureNotSupportedException implements Stop {
+        private static final long serialVersionUID = 1L;
+
+        Denied(String reason) {
+            super(reason);
+        }
+    }
+
+    /** Marks the stub's own stops, a denial or a reached statement, as told from a provider's failure. */
+    interface Stop {}
 }

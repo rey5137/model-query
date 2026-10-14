@@ -139,6 +139,9 @@ A value outside its allowed range fails with `MQ4003`.
 With `modelquery.target-vendors` set, the starter checks each eager `EntityManagerFactory` bean as soon as it is
 initialised against that list. When one factory is on another vendor, the starter checks the other factories too and
 fails startup with one `MQ4012` naming every failing bean.
+A factory built in the background (`spring.data.jpa.repositories.bootstrap-mode=deferred` or `lazy`) is checked once
+all singletons are created, so the check does not make its bootstrap wait. If you also define your own `ModelQueryConfig`
+bean, startup fails with `MQ4006` before any `MQ4012`.
 
 The startup check reads `modelquery.target-vendors` and `modelquery.vendor` only (an explicit vendor is what is compared). It does not call your `ModelQueryConfigurer` or read a `ModelQueryConfig`
 bean, and neither enables it. Target vendors you declare in code are checked when a repository (or

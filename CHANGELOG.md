@@ -9,7 +9,8 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 Nothing is frozen yet: every public type stays `@Incubating`. The additions below are all `@Incubating`.
 
 ### Added
-- The new `model-query-portability` artifact, on `model-query-jpa` only and meant for test scope, boots a factory per
+- The new `model-query-portability` artifact, on `model-query-jpa` only (resolve it at `model-query-jpa`'s exact
+  version, through the BOM: D-139) and meant for test scope, boots a factory per
   target vendor with no database (D-133, R-INS-10): `Target.of(vendor)` or `Target.of(vendor, "15.4")`, a recording
   deny-by-default stub `DataSource`, and `ProviderSupport#offlineProperties(DatabaseVendor)`, which
   `model-query-hibernate` implements for Hibernate 6.6 and 7.4; a provider without it, or a boot that reaches JDBC,
@@ -33,9 +34,10 @@ Nothing is frozen yet: every public type stays `@Incubating`. The additions belo
   in Spring at startup, where a `BeanPostProcessor` enabled by `modelquery.target-vendors` alone checks every eager
   `EntityManagerFactory` bean against that list and reports every failing one in one `MQ4012` (a lazy factory is
   checked when its first executor is built; targets declared by a configurer or config bean are checked when a
-  repository is created). An empty list is `MQ4003`,
+  repository is created; a factory bootstrapped in the background, `bootstrap-mode=deferred` or `lazy`, is checked once
+  the singletons exist, so the check never waits on its build). An empty list is `MQ4003`,
   an unknown name `MQ4001`, whose message now names `modelquery.target-vendors` too; an application `ModelQueryConfig`
-  bean with the property set is `MQ4006`. The startup check never calls a `ModelQueryConfigurer`. The factory's name in `MQ4012` comes from the new `@Incubating`
+  bean with the property set is `MQ4006`, reported before any `MQ4012`. The startup check never calls a `ModelQueryConfigurer`. The factory's name in `MQ4012` comes from the new `@Incubating`
   `ProviderSupport.factoryName(EntityManagerFactory)`, empty by default, which Hibernate answers with the session
   factory name; with no name, the factory's class and identity.
 - A to-one read by its id (D-136, R-COL-29): a column of the target's single basic id type over a to-one

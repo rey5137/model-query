@@ -103,6 +103,17 @@ class DryRunTest {
     }
 
     @Test
+    void ac_ins_12_a_stub_denial_with_nothing_recorded_is_jdbc_reached_off_the_calling_thread() {
+        try (JdbcRecording recording = JdbcRecording.call()) {
+            CallResult result = DryRun.classify("async", H2, false, recording, new IllegalStateException("wrapper",
+                    new StubDataSource.Denied("Dry run: Connection.prepareStatement denied")), PROVIDER);
+            assertThat(result.outcome()).isEqualTo(Outcome.HARNESS_ERROR);
+            assertThat(result.line()).startsWith("async on " + H2 + ": HARNESS_ERROR JDBC was reached off the calling "
+                    + "thread: ");
+        }
+    }
+
+    @Test
     void ac_ins_12_a_refusal_before_any_statement_is_found_in_the_cause_chain_not_by_the_top_level_type() {
         var refusal = new ModelQueryDefinitionException(MqCode.MQ1307, "Customer: too many binds");
         try (JdbcRecording recording = JdbcRecording.call()) {

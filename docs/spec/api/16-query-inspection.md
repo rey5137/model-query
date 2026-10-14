@@ -146,6 +146,9 @@ product version, major and minor; with none, the provider line's minimum dialect
 name is the reverse of detection's (`vendor/40` R-VND-04 step 3), so a target is H2, PostgreSQL, MySQL or MariaDB;
 any other vendor, or a version not starting with a major number, is `MQ4013`.
 
+- **Property values.** The factory is cached by unit, target and properties, compared with `equals`: give strings,
+  class names, numbers or booleans (a naming strategy as its class name); an instance value without value equality
+  boots a fresh factory per check, held until the JVM exits.
 - **Unit fidelity.** A named unit boots through `Persistence.createEntityManagerFactory(name, overrides)`; a class list
   through the provider's `createContainerEntityManagerFactory`, with the mapping files and properties (a naming
   strategy, converters, `orm.xml`) a class list does not carry. Mapping files belong to the class-list form alone: a
@@ -193,7 +196,9 @@ and a call in a transaction is flushed, all as part of the call; the transaction
 - **Classification** reads the call's recording first and the cause chain second, never the top-level exception type,
   since the library wraps a chunk's failure in `ChunkedWriteException` and the provider wraps the stub's stop. A JDBC
   call other than a statement before the first statement is `HARNESS_ERROR`. With no statement recorded: a return is
-  `NO_STATEMENT`; a `ModelQueryException` in the chain is `REFUSED`, with the innermost one's code and message; else a
+  `NO_STATEMENT`; a `ModelQueryException` in the chain is `REFUSED`, with the innermost one's code and message; else the stub's own
+  stop in the chain (a denial or a reached statement on another thread), JDBC reached on a thread the recording does
+  not follow, is `HARNESS_ERROR`; else a
   throwable of the provider's package (`org.hibernate`), a translation error, is `REFUSED` with its class name; else
   `HARNESS_ERROR`. With a statement recorded: a return, or the stub's stop in the chain, is `REACHED` with the first
   statement's SQL; else a `ModelQueryException` in the chain is `REFUSED_AFTER_STATEMENT`, an INV-5 or spec bug or a

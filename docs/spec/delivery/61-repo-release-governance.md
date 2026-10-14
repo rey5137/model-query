@@ -56,7 +56,10 @@ source tree ships in 0.1 and CI builds it (D-76); it is published to GitHub Page
 - `test` depends only on `core` (and the `annotations` it exposes), the JDK and AssertJ (D-98, `api/16` R-INS-06).
 - `portability` depends on `jpa` only: jakarta types, the JDK and the public types of `jpa`, `core` and
   `annotations`; never `org.hibernate`, `org.springframework`, `org.junit` or `org.assertj`, nor the `hibernate`,
-  `spring`, `test` or `processor` modules; and no module depends on it (D-133). It is meant for test scope, which only
+  `spring`, `test` or `processor` modules; and no module depends on it (D-133). It also uses the not-API
+  `jpa.vendor` members `VendorResolver.productNameOf`, `resolve` and `withSupplied` and `ResolvedVendor.profile()`
+  (allow-listed in the INV-7 rule, D-139), so it is released and resolved at `model-query-jpa`'s exact version, through
+  the BOM. It is meant for test scope, which only
   the consumer's POM can set: INV-7 cannot enforce it.
 - No Lombok in anything the library ships. The processor's tests alone take it, in `test` scope, to compile models
   beside it (D-40). Consumers may use Lombok on their models (`processor/31` R-GEN-10).
@@ -143,7 +146,8 @@ implementation written before it still compiles and refuses a computed value wit
 The portability members (D-133, D-138, 0.9.0) are `@Incubating` through 1.0:
 `ProviderSupport#offlineProperties(DatabaseVendor)`, a default returning empty so a provider written before it
 compiles and is refused with `MQ4013`; `ProviderSupport#factoryName(EntityManagerFactory)`, a default naming the
-factory in `MQ4012`; `ModelQueryConfig#targetVendors`, its three setters and its getter; and the
+factory in `MQ4012`; `ModelQueryConfig#targetVendors`, its three setters and its getter;
+`ModelQueryConfig#checkTargets(EntityManagerFactory)`; and the
 `model-query-portability` artifact's `Target` and `PortabilityCheck`, whose report lines and outcomes may change in a
 minor release. Its `portability.internal` package, the dry run's outcomes and call results among it, is not API
 (R-REL-10).
@@ -160,7 +164,9 @@ through the `rey5137` GitHub account. The Java package `com.rey.modelquery` inte
 **R-REL-10** Sub-packages follow the modules: `.core`, `.test`, `.jpa`, `.hibernate`, `.processor`, `.spring.data`,
 `.spring.boot`, `.portability`. `com.rey.modelquery.jpa.vendor` (the built-in profiles, `VendorResolver`,
 `ResolvedVendor`) and `com.rey.modelquery.portability.internal` (the dry run's factory, stub and recording) are not
-API, whatever the visibility of their types: they may change in any release, and extensions go through `jpa.spi`. A
+API, whatever the visibility of their types: they may change in any release, and extensions go through `jpa.spi`.
+The one exception in use is `model-query-portability`, which calls `VendorResolver.productNameOf`, `resolve` and
+`withSupplied` and `ResolvedVendor.profile()` and so must be resolved at `model-query-jpa`'s exact version (D-139). A
 type or method marked `@EngineFacing` (`core`; only an executor uses it) is not API either, and may change in any
 release: the types `BuiltQuery`, `RowSelection`, `RenderOptions`, `ChildLoad` and `JoinPlan`, the methods
 `JoinContext.of`, `OrderField.toOrders`, `FetchPlan.childLoads`, `joinPlans`, `enrichers` and `isSelectionOnly`,

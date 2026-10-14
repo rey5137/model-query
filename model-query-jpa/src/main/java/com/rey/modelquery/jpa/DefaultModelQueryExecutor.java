@@ -2531,9 +2531,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         int offset = 0;
         BuiltQuery<M> keyQuery = null;
         int batch = 0;
-        if (key != null && q.primaryKeyFirst().isPresent()) {
+        if (key != null && q.primaryKeyFirst().map(pkFirst -> limit > pkFirst.offsetThreshold()).orElse(false)) {
             // Step 1's statement, and step 2's batch checked against the bind limit, before the first page, so a
-            // refused step 2 runs no statement at all (R-PAG-07, R-PAG-13, D-138).
+            // refused step 2 runs no statement at all; only when the export can pass the offset threshold, so an
+            // export that stays within it is not refused for binds it never runs (R-PAG-07, R-PAG-13, D-138).
             BuiltQuery<M> byKeys = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL_BY_KEYS, renderOptions);
             refuseToManySelection(q, byKeys, "primary-key-first paging");
             keyQuery = keyQuery(q);
@@ -2545,8 +2546,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             Set<Object> keys = new HashSet<>();
             List<Loaded<M>> fresh;
             int read;
-            if (primaryKeyFirst(q, offset)) {
-                // Only an ungrouped query with a primary key gets here (MQ1201, MQ1402), so keyQuery and batch are set.
+            if (keyQuery != null && primaryKeyFirst(q, offset)) {
+                // Only an ungrouped query with a primary key gets here (MQ1201, MQ1402); keyQuery is unset only when
+                // the limit cannot reach the threshold, where a duplicate-thinned page may still cross it.
                 List<Object> pageKeys = readKeys(q, key, keyQuery, offset, pageSize);
                 List<Object> freshKeys = new ArrayList<>(pageKeys.size());
                 for (Object rowKey : pageKeys) {

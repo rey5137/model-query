@@ -17,7 +17,9 @@
         stub DataSource, with no database (RFC 0011, D-133). Add it in test scope.</description>
 
     <dependencies>
-        <!-- The only library dependency (INV-7): jakarta types and the jpa SPI. The persistence provider is the
+        <!-- The only library dependency (INV-7): jakarta types and jpa, including the not-API
+             jpa.vendor members VendorResolver and ResolvedVendor (D-139), so it is resolved at the same version as
+             model-query-jpa, through the BOM. The persistence provider is the
              application's own, on its test classpath. -->
         <dependency>
             <groupId>io.github.rey5137</groupId>

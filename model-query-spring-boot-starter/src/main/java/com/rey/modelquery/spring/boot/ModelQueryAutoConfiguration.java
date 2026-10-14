@@ -322,7 +322,7 @@ public class ModelQueryAutoConfiguration {
     }
 
     /** Whether {@code name} is the config bean {@link #modelQueryConfig} declares. */
-    private static boolean isOwn(ConfigurableListableBeanFactory beanFactory, String name) {
+    static boolean isOwn(ConfigurableListableBeanFactory beanFactory, String name) {
         if (!beanFactory.containsBeanDefinition(name)
                 || !(beanFactory.getBeanDefinition(name) instanceof AnnotatedBeanDefinition annotated)) {
             return false;
@@ -356,9 +356,14 @@ public class ModelQueryAutoConfiguration {
             }
         }
         if (!dropped.isEmpty()) {
-            throw new ModelQueryConfigurationException(MqCode.MQ4006, "the application's ModelQueryConfig bean '"
-                    + name + "' replaces the starter's and drops " + dropped + "; remove it and adjust the starter's "
-                    + "config with a ModelQueryConfigurer bean instead");
+            throw replacesStarterConfig(name, dropped);
         }
+    }
+
+    /** The {@code MQ4006} for the application's config bean {@code name}, which drops what the starter reads. */
+    static ModelQueryConfigurationException replacesStarterConfig(String name, List<String> dropped) {
+        return new ModelQueryConfigurationException(MqCode.MQ4006, "the application's ModelQueryConfig bean '"
+                + name + "' replaces the starter's and drops " + dropped + "; remove it and adjust the starter's "
+                + "config with a ModelQueryConfigurer bean instead");
     }
 }

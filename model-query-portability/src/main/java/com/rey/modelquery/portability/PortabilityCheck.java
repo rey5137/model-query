@@ -71,7 +71,11 @@ public final class PortabilityCheck {
         return new PortabilityCheck(null, List.copyOf(Objects.requireNonNull(classes, "classes")), config);
     }
 
-    /** Adds the application's own persistence properties, beneath the dry run's overrides (a naming strategy). */
+    /**
+     * Adds the application's own persistence properties, beneath the dry run's overrides (a naming strategy).
+     * Give values as strings, class names, numbers or booleans: the booted factory is cached by these properties, and
+     * an instance value without value equality boots a fresh factory per check.
+     */
     public PortabilityCheck properties(Map<String, ?> properties) {
         this.properties.putAll(Objects.requireNonNull(properties, "properties"));
         return this;
