@@ -70,16 +70,31 @@ record ConverterType(TypeElement type, TypeMirror model, TypeMirror attribute, b
         return null;
     }
 
-    /** Whether code in {@code from}'s package can call the converter's no-arg constructor. */
-    boolean hasVisibleConstructor(TypeElement from) {
+    /** Whether the QModel, generated in {@code fromPackage}, can call the converter's no-arg constructor. */
+    boolean hasVisibleConstructor(String fromPackage) {
         if (type.getModifiers().contains(Modifier.ABSTRACT)) {
             return false;
         }
-        boolean samePackage = packageOf(type).equals(packageOf(from));
+        boolean samePackage = packageOf(type).equals(fromPackage);
         return ElementFilter.constructorsIn(type.getEnclosedElements()).stream()
                 .anyMatch(constructor -> constructor.getParameters().isEmpty()
                         && (constructor.getModifiers().contains(Modifier.PUBLIC)
                                 || samePackage && !constructor.getModifiers().contains(Modifier.PRIVATE)));
+    }
+
+    /**
+     * Whether the QModel, generated in {@code fromPackage}, can name the converter's class: it and the types enclosing it
+     * are public, or it is in that package and not private.
+     */
+    boolean isVisibleTo(String fromPackage) {
+        boolean samePackage = packageOf(type).equals(fromPackage);
+        for (Element element = type; element instanceof TypeElement; element = element.getEnclosingElement()) {
+            var modifiers = element.getModifiers();
+            if (!modifiers.contains(Modifier.PUBLIC) && !(samePackage && !modifiers.contains(Modifier.PRIVATE))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String packageOf(TypeElement type) {

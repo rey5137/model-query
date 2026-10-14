@@ -74,9 +74,23 @@ own fields and refers to its QModel by name only, so the order in which models a
 A nested model is mapped through its `MAPPER`, which is public, so it may live in another package, and it may be a
 source of the compilation or a compiled class on its classpath, provided its QModel is there too (D-45).
 
-**R-GEN-05** One model produces exactly one file, whose only originating element is that model's type, and the
-processor is registered as an **isolating** incremental processor for Gradle (D-39). JavaPoet is shaded into the
-processor jar (INV-7).
+**R-GEN-05** One model produces exactly one file, whose only originating element is that model's type, or for a bound
+model its binding's type or `package-info` (R-GEN-35), and the processor is registered as an **isolating** incremental
+processor for Gradle (D-39, D-140). JavaPoet is shaded into the processor jar (INV-7).
+
+**R-GEN-35** *(D-134, D-140)* **A bound model's QModel.** A model bound by `@BindQueryModel` (`processor/30` R-PROC-28)
+has its QModel generated in the **binding's package**, the package of the type or `package-info` carrying the binding,
+named by the binding's `prefix` and `suffix` (D-44 rules unchanged) and the model's simple name:
+`com.acme.persistence.QOrderView`. Its content is the annotated model's, imports apart: the model and its root are
+imported when they are in another package. Generating into the model's package would split that package across two
+modules. A converter or `ExpressionDefinition` without a public static `INSTANCE` needs a no-arg constructor visible
+from the binding's package (`MQ3014`, `MQ3018`). When that package is not the model's, the QModel reaches the model from
+outside it, so `MQ3024` is reported on the binding, and no QModel generated, when the model type or a type enclosing it
+is not public, or, for a class, a no-arg constructor or a setter or `@Join` getter the QModel calls is declared and not
+public; one that is missing is left to `MQ3008` or to javac, as on an annotated model (R-GEN-11, `processor/32`
+R-DIAG-06). A record needs only its type: the JLS makes a public record's canonical constructor and accessors public. A
+binding whose `model` is not a class or record is `MQ3024` too. In practice javac refuses a binding in another package
+that names a non-public model, except from a subclass's body for a `protected` member type.
 
 **R-GEN-24** Every QModel with a `@PrimaryKey` declares `KEY`, a `PrimaryKey` over its key columns
 (`PrimaryKey.composite` for several), which `query()` and an outer model's `presentBy` both use.
@@ -407,6 +421,7 @@ annotation is added.
 | AC-GEN-27 | On every Tier-1 vendor a `generateInserts` query model inserts rows, insert-selects rows from another root and persists a row, its `@Version` left to the provider, and the same model reads them back (R-GEN-34). |
 | AC-GEN-28 | A `generateChanges` query model with a to-one column, whole or converted, generates no setter for it and names it in the change set's Javadoc; on every Tier-1 vendor `update(Changes.from(view, columns))` over the root non-key columns writes them, `from` naming the to-one column is `MQ1607`, and a row whose foreign key is `NULL` reads back through the whole-entity column with `null` (R-GEN-21, D-124). A to-one column of the target's id is not left out: the change set has its setter and `from` copies it, with no `MQ1607` (D-136, AC-GEN-33). |
 | AC-GEN-29 | The `INSERT_COLUMNS` Javadoc of a `generateInserts` query model names a `@Generated` column with "filled by the database: `@Generated`" and an `@ExcludeFromInserts` one with "`@ExcludeFromInserts`" (R-GEN-34, D-125). |
+| AC-GEN-30 | A class model compiled into an earlier class directory and bound in another package generates `golden/bound/QOrderView.java`, which equals `golden/QOrderView.java` once its package line is the model's and the imports of the model and its root are dropped, and whose only originating element is the binding (R-GEN-05, R-GEN-35, D-140). |
 | AC-GEN-31 | With `modelquery.jspecify=true`, `QOrderView`, `QInvoiceView`, `QCustomerViewWithInvoices`, `OrderPatchChanges` and `QNewOrder` match their golden files under `golden/jspecify/`, and a change set over a nested type, a type whose simple name is `Nullable` and an array type compiles with the annotation on the type (R-GEN-36, D-135). |
 | AC-GEN-32 | The shop, update and insert fixtures compiled with `-Amodelquery.jspecify=true` under Error Prone and NullAway in JSpecify mode (`AnnotatedPackages` covering the fixture and generated packages) report no NullAway error, and a dereferenced `@Nullable` change-set getter in an extra fixture is reported, which shows NullAway ran (R-GEN-36, D-135). |
 | AC-GEN-33 | A `generateChanges` and `generateInserts` query model with a to-one column of the target's id, one converted from it and a whole-entity to-one matches its golden files `IdFormRowChanges` and `QIdFormRow`: the id forms have a setter, a `from` branch and an `INSERT_COLUMNS` entry, the whole-entity one is named in both Javadocs; on every Tier-1 vendor the change set and the insert write the foreign key (a `NULL` one too), a returning write returns it, and a `NULL`-foreign-key row reads back (R-PROC-33, R-GEN-19, R-GEN-21, D-136). |

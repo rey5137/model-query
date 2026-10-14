@@ -2,7 +2,9 @@ package com.rey.modelquery.processor;
 
 import java.util.ArrayList;
 import java.util.List;
+import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
+import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeMirror;
@@ -13,7 +15,7 @@ import javax.lang.model.type.TypeMirror;
  *
  * @param type the model class or record
  * @param root the entity named by {@code @QueryModel(root)}
- * @param generatedName the simple name of the QModel class, in the model's package
+ * @param generatedName the simple name of the QModel class, in {@link #packageName()}
  * @param selectSets whether {@code ALL} and {@code DEFAULT} are generated
  * @param singleGroup whether {@code @QueryModel(singleGroup)} declares aggregates with no {@code @GroupBy}
  * @param fields the model's fields or record components, in declaration order
@@ -21,11 +23,13 @@ import javax.lang.model.type.TypeMirror;
  * @param kind which of the three model annotations the type carries
  * @param generateChanges whether {@code @QueryModel(generateChanges)} asks for a change set
  * @param generateInserts whether {@code @QueryModel(generateInserts)} asks for the insert members (R-PROC-26)
+ * @param origin what the generated files originate from: the model's type, or the type or {@code package-info} of a
+ *     binding, whose package they are generated in (R-GEN-35, D-140)
  */
 record ModelDefinition(
         TypeElement type, TypeElement root, String generatedName, boolean selectSets, boolean singleGroup,
         List<ModelField> fields, List<FilterColumnDefinition> filterColumns, Kind kind,
-        boolean generateChanges, boolean generateInserts) {
+        boolean generateChanges, boolean generateInserts, Element origin) {
 
     ModelDefinition {
         fields = List.copyOf(fields);
@@ -45,6 +49,15 @@ record ModelDefinition(
     /** Whether the type is an {@code @InsertModel}, whose instances are the rows an insert writes (R-PROC-23). */
     boolean insertModel() {
         return kind == Kind.INSERT;
+    }
+
+    /** The package the QModel and change set are generated in: the model's, or a binding's (R-GEN-35). */
+    String packageName() {
+        Element element = origin;
+        while (element.getKind() != ElementKind.PACKAGE) {
+            element = element.getEnclosingElement();
+        }
+        return ((PackageElement) element).getQualifiedName().toString();
     }
 
     boolean isRecord() {
@@ -91,7 +104,7 @@ record ModelDefinition(
         return singleGroup || fields.stream().anyMatch(field -> field.aggregate() != null || field.groupBy());
     }
 
-    /** The change set's simple name, in the model's package: {@code OrderPatchChanges}. */
+    /** The change set's simple name, in {@link #packageName()}: {@code OrderPatchChanges}. */
     String changesName() {
         return name() + "Changes";
     }

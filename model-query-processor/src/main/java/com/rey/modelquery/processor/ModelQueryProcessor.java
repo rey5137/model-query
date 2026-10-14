@@ -1,12 +1,16 @@
 package com.rey.modelquery.processor;
 
 import com.rey.modelquery.annotations.Incubating;
+import com.rey.modelquery.processor.ModelBindings.Binding;
 import com.rey.modelquery.processor.ModelDefinition.Kind;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import javax.annotation.processing.AbstractProcessor;
 import javax.annotation.processing.RoundEnvironment;
 import javax.annotation.processing.SupportedAnnotationTypes;
@@ -20,19 +24,26 @@ import javax.tools.Diagnostic;
 /**
  * Generates a QModel class for every type annotated with {@code @QueryModel}, {@code @UpdateModel} or
  * {@code @InsertModel}: each model is read, validated and, when it has no error, written to one file of its own,
- * beside its change set when it has one. A type carrying two of them is reported and generates nothing.
+ * beside its change set when it has one. A type carrying two of them is reported and generates nothing. A model
+ * bound by {@code @BindQueryModel} is read from the classpath or the compilation and generated in the binding's
+ * package, its file originating from the binding alone.
  *
- * @implSpec R-GEN-01, R-GEN-05, R-GEN-19, R-GEN-21, R-GEN-23, R-PROC-24, R-DIAG-03, D-107
+ * @implSpec R-GEN-01, R-GEN-05, R-GEN-19, R-GEN-21, R-GEN-23, R-GEN-35, R-PROC-24, R-PROC-28, R-PROC-30, R-DIAG-03,
+ *     D-107, D-140
  */
 @Incubating
 @SupportedAnnotationTypes({"com.rey.modelquery.annotations.QueryModel", "com.rey.modelquery.annotations.UpdateModel",
-        "com.rey.modelquery.annotations.InsertModel"})
+        "com.rey.modelquery.annotations.InsertModel", "com.rey.modelquery.annotations.BindQueryModel",
+        "com.rey.modelquery.annotations.BindQueryModels"})
 @SupportedOptions({QueryModelReader.PREFIX_OPTION, QueryModelReader.SUFFIX_OPTION,
         ModelQueryProcessor.JSPECIFY_OPTION})
 public final class ModelQueryProcessor extends AbstractProcessor {
 
     /** The processor option that adds JSpecify nullness annotations to the generated classes (R-PROC-32). */
     static final String JSPECIFY_OPTION = "modelquery.jspecify";
+
+    private static final String ROOT_UNRESOLVED =
+            "root does not name a class, and no annotation processor generated one";
 
     /** What the first round decided: the JSpecify annotations to write, or none; {@code null} before it. */
     private Nullness nullness;
@@ -89,7 +100,60 @@ public final class ModelQueryProcessor extends AbstractProcessor {
                 }
             }
         }
+        bindings(ModelBindings.in(roundEnv), round);
         return false;
+    }
+
+    /**
+     * Generates each bound model, unless it is bound twice or also carries a model annotation, which is
+     * {@code MQ3023} on each of its bindings (R-PROC-28).
+     */
+    private void bindings(List<Binding> bindings, Round round) {
+        var diagnostics = new Diagnostics(processingEnv.getMessager());
+        Map<String, List<Binding>> byModel = bindings.stream().collect(
+                Collectors.groupingBy(binding -> binding.model().toString(), LinkedHashMap::new, Collectors.toList()));
+        for (List<Binding> same : byModel.values()) {
+            Binding binding = same.get(0);
+            TypeElement type = ModelBindings.modelType(binding);
+            String name = type == null ? binding.model().toString() : type.getSimpleName().toString();
+            List<String> origins = same.stream().map(each -> ModelBindings.name(each.origin())).distinct().toList();
+            List<String> carried = type == null ? List.of() : Arrays.stream(Kind.values())
+                    .filter(kind -> QueryModelReader.mirror(type, QueryModelReader.annotation(kind)) != null)
+                    .map(kind -> "@" + QueryModelReader.annotation(kind).getSimpleName())
+                    .toList();
+            if (same.size() > 1) {
+                same.stream().map(Binding::origin).distinct().forEach(origin -> diagnostics.error(origin,
+                        DiagnosticCode.MQ3023, name + ": @BindQueryModel binds it more than once, on "
+                                + String.join(" and ", origins) + "; keep one"));
+            } else if (!carried.isEmpty()) {
+                diagnostics.error(binding.origin(), DiagnosticCode.MQ3023, name + ": carries "
+                        + String.join(" and ", carried) + " and is bound by @BindQueryModel on " + origins.get(0)
+                        + "; keep one");
+            } else if (type == null) {
+                diagnostics.error(binding.origin(), DiagnosticCode.MQ3024, name
+                        + ": a bound model must be a public class or record");
+            } else {
+                generate(binding, type, round);
+            }
+        }
+    }
+
+    /**
+     * Generates one bound model in its binding's package. A {@code root}, or a nested model's, that names no class is
+     * {@code MQ3017} on the binding at once: it is not deferred to a later round (D-107).
+     */
+    private void generate(Binding binding, TypeElement type, Round round) {
+        ModelDefinition model = round.reader().read(type, Kind.QUERY, binding.annotation(), binding.origin());
+        var diagnostics = new Diagnostics(processingEnv.getMessager());
+        TypeElement unresolved = model == null ? type : round.nestedModels().unresolved(model);
+        if (unresolved != null) {
+            diagnostics.error(binding.origin(), DiagnosticCode.MQ3017, type.getSimpleName() + ": "
+                    + (unresolved == type ? ROOT_UNRESOLVED : "nests " + unresolved.getSimpleName() + ", whose "
+                            + ROOT_UNRESOLVED));
+            return;
+        }
+        ModelBindings.checkAccess(model, binding.origin(), processingEnv.getElementUtils(), diagnostics);
+        validateAndWrite(model, diagnostics, round);
     }
 
     /**
@@ -132,12 +196,16 @@ public final class ModelQueryProcessor extends AbstractProcessor {
                 return;
             }
             // An unresolved class reads as an error value, which keeps no name; javac reports the name on its own.
-            String root = "root does not name a class, and no annotation processor generated one";
             new Diagnostics(processingEnv.getMessager()).error(type, DiagnosticCode.MQ3017, type.getSimpleName()
-                    + ": " + (unresolved == type ? root : "nests " + unresolved.getSimpleName() + ", whose " + root));
+                    + ": " + (unresolved == type ? ROOT_UNRESOLVED
+                            : "nests " + unresolved.getSimpleName() + ", whose " + ROOT_UNRESOLVED));
             return;
         }
-        var diagnostics = new Diagnostics(processingEnv.getMessager());
+        validateAndWrite(model, new Diagnostics(processingEnv.getMessager()), round);
+    }
+
+    /** Validates {@code model} and, when nothing was reported on it, writes its QModel and change set. */
+    private void validateAndWrite(ModelDefinition model, Diagnostics diagnostics, Round round) {
         round.validator().validate(model, diagnostics);
         if (diagnostics.hasErrors()) {
             return;

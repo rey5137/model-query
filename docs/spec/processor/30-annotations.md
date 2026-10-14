@@ -26,6 +26,8 @@
 | `@Transient` | field or component | Not a column |
 | `@ExcludeFromInserts` | field or component | Leave the column out of the inserts `generateInserts` generates (R-PROC-27) |
 | `@Selected` | field or component | The one `SelectSet<Model>` the mapper fills with the columns the row selected (§6, R-PROC-25) |
+| `@BindQueryModel(model = M.class, root = X.class, generateSelectSets = true, prefix = "Q", suffix = "", singleGroup = false)` | type or `package-info` (repeatable) | Binds a query model compiled without its entity; its QModel is generated in the binding's package (§9, R-PROC-28) |
+| `@BindQueryModels` | type or `package-info` | The container that makes `@BindQueryModel` repeatable; never written by hand |
 
 **R-PROC-01** The annotations module has no dependencies beyond the JDK (INV-7), so a model can be annotated in a module
 that does not depend on JPA or on the engine. Join types and aggregate functions are therefore its own enums, `JoinKind`
@@ -272,7 +274,30 @@ names the primary key's column; drop it, as the default already references the p
 include the id form (R-PROC-19, R-PROC-26) and the generated `from` copies it (R-GEN-21). The id form reads through a
 `LEFT` join at run time (`api/10` R-COL-29), a locked read of it is `MQ2211`.
 
-## 9. Acceptance criteria
+## 9. Bound models
+
+**R-PROC-28** *(D-134)* **`@BindQueryModel`.** A model may live in a module that sees no entity: it carries its field
+annotations (`@PrimaryKey`, `@Column`, `@Join`, `@Child`, `@Aggregate`, `@GroupBy`, `@Selected`, `@Transient`,
+`@FilterColumn`, `@ExcludeFromDefaults`, meaning what they mean today) and no `@QueryModel`, and a
+`@BindQueryModel(model = OrderView.class, root = OrderEntity.class)` (`@Incubating`, `CLASS` retention, repeatable
+through `@BindQueryModels`, on a type or a `package-info`; `model-query-annotations`) in the module that sees the entity
+binds it. Its other elements are `@QueryModel`'s `generateSelectSets`, `prefix`, `suffix` and `singleGroup`, with the
+same defaults and meaning (R-PROC-03 to R-PROC-05, D-44); `generateChanges`, `generateInserts` and the expressions of
+R-PROC-29 come with M24.2. A model is bound at most once for the query kind in a compilation, and a bound model carries
+none of `@QueryModel`, `@UpdateModel` and `@InsertModel`: `MQ3023` on each of its bindings, and no QModel for them (an
+annotated model in the compilation still generates its own). Where the QModel goes, and what must be public, is
+`processor/31` R-GEN-35.
+
+**R-PROC-30** *(D-140)* **A bound model is read from the classpath.** The model a binding names may be a compiled class
+on the classpath or a source of the compilation; either reads the same through the `Element` API (D-140): its instance
+fields in declaration order with their generic types, and every `CLASS`-retained annotation with the values written on
+it, on a field and on a record component. Every check of `processor/32` runs on a bound model with the same codes,
+against the binding's `root`; a diagnostic on a classpath model's field names the model and the field, since javac has
+no source line to point at. A `root`, or a nested model's `root`, that names no class is `MQ3017` on the binding at
+once; the deferral of D-107 covers bindings with M24.3. The processor stays `isolating`: the generated file's only
+originating element is the binding's type or `package-info` (R-GEN-05, D-140).
+
+## 10. Acceptance criteria
 
 | ID | Criterion |
 |---|---|
@@ -298,5 +323,7 @@ include the id form (R-PROC-19, R-PROC-26) and the generated `from` copies it (R
 | AC-PROC-20 | `generateChanges = true` on a query model with a whole-entity and a converted to-one column compiles with no error, generates no setter for either, and `generateChanges` and `generateInserts` together leave out the same to-one columns (R-PROC-19, D-124). |
 | AC-PROC-21 | `@ExcludeFromInserts` on a field leaves it out of `INSERT_COLUMNS`, `insertFrom`, `insert` and `persist` while the query members keep its column and constant (R-PROC-27, D-125). |
 | AC-PROC-22 | `generateInserts` leaves out a plain `@Generated`, written are `@Generated(writable = true)`, `@Generated(sql = …)`, `@Generated(event = UPDATE)`, the Hibernate 6.x `@Generated(GenerationTime.UPDATE)` and `NEVER`, every timestamp annotation, and a `@Generated` whose type doesn't resolve; run on the Hibernate 6.6 and 7.x annotation shapes (R-PROC-26, D-125). |
+| AC-PROC-23 | `@BindQueryModel` on a type, repeated on one type and on a `package-info`, over a class and a record compiled into an earlier class directory, generates each QModel in the binding's package, originating from the binding alone; a model bound twice, on one type or on two, reports `MQ3023` once on each binding, and one also annotated `@QueryModel`, on the classpath or in the compilation, reports `MQ3023` on the binding; none generates a QModel for the binding, and the annotated model in the compilation keeps its own (R-PROC-28, R-PROC-30, D-140). |
+| AC-PROC-24 | A bound model that is not public, a public one nested in a type that is not, a class whose no-arg constructor, a setter or a `@Join` getter its QModel calls is not public, and a `model` that is not a class or record each report `MQ3024` on the binding and generate no QModel; a public record compiles with nothing more (`processor/31` R-GEN-35). |
 | AC-PROC-27 | `-Amodelquery.jspecify=true` adds the annotations of R-GEN-36 and is declared in `@SupportedOptions`; unset or `false` leaves the output unchanged; on with no JSpecify on the classpath is one `MQ3027` and no annotation generated (R-PROC-32, D-135). |
 | AC-PROC-28 | A query model column `@Column(attribute = "referrer") Long referrerId` over a to-one of a `Long` id, and one with a converter from `Long`, compiles; another type is `MQ3002` naming the target's id type, and a converter that does not convert the id `MQ3014`; each of the inverse side, a `referencedColumnName`, `@JoinColumns`, `@JoinFormula`, `@JoinColumnOrFormula`, `@NotFound`, `@JoinTable`, a `@JoinColumn(table)`, a `@MapsId` target, an `@IdClass` target, an `@EmbeddedId` target and a to-one inside an embedded value is `MQ3002` with its own reason; a target with `@SQLRestriction` or `@Where` is `MQ3029`, and `MQ3016` does not suggest the id form for it; `referrer.id` is `MQ3001`; `MQ3016` names the id form and `@GroupBy` on a whole-entity to-one is `MQ3028` (R-PROC-33, D-136). |

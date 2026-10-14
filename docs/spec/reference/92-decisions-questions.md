@@ -1981,6 +1981,27 @@ rule allow-lists those two types and no other `jpa.vendor` type. The Spring star
 bootstrap executor to run after the singletons are instantiated, so a deferred JPA bootstrap stays in the background, and
 reports an application `ModelQueryConfig` bean as `MQ4006` before any `MQ4012`. → INV-7, R-INS-10, R-SPR-17, `delivery/61`.
 
+**D-140 — A bound model read from the classpath, and incremental builds (M24.1 spike, 2026-10-14).** On JDK 17 and 21,
+javac gives a model compiled in another module, through the `Element` API, everything the processor reads from a source
+model: its instance fields in declaration order with their generic types; every `CLASS`-retained model-query annotation
+with the values written on it (a member left at its default is absent from both) on the field and, for a record, on the
+record component; type-level annotations with class-literal and enum values; a record's accessors and canonical
+constructor, whose parameter names are kept (a class's setter parameters read `arg0` without `-parameters`; the
+processor reads neither). A type-use annotation, such as JSpecify's `@Nullable`, is not read from a class file before
+JDK 22 (JDK-8225377); the processor reads none from a model, so this changes nothing it generates. `ClasspathModelTest`
+keeps the source-against-class-file comparison as a regression on both JDKs. The processor stays `isolating` for
+bindings: each generated file has one originating element, the binding type or its `package-info`, and Gradle (8.11 and
+9.7.1) records the model a binding names by class literal as a dependency of the binding, so a change to the bound
+model's ABI recompiles the binding and regenerates its QModel, even one that does not name the model. `aggregating`
+would add nothing: a change confined to the annotations on a model's private fields or record components is outside
+Gradle's compile-avoidance ABI, so Gradle skips the persistence module's compile under either declaration and leaves its
+QModel stale until a clean build, as it already does for a classpath nested model (D-45). Maven (maven-compiler-plugin
+3.16.0) recompiles the module on a changed dependency and regenerates it. The "Models in an API module" docs (M24.4)
+state the Gradle limit and its workaround: the API module's classes declared a full-content input of the persistence
+module's `compileJava` (`inputs.files(configurations.runtimeClasspath).withNormalizer(ClasspathNormalizer)`), which
+recompiles that module in full when they change. Supersedes `rfc/0012`'s "declares itself aggregating for bindings". →
+D-45, D-107, `rfc/0012` "Unresolved questions", R-PROC-30.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

@@ -79,7 +79,14 @@ final class QueryModelReader {
      * does not name a class: one that is not generated yet, which a later round may generate (D-107).
      */
     ModelDefinition read(TypeElement type, Kind kind) {
-        AnnotationMirror annotation = mirror(type, annotation(kind));
+        return read(type, kind, mirror(type, annotation(kind)), type);
+    }
+
+    /**
+     * Reads {@code type} with the settings {@code annotation} holds, its own model annotation or the
+     * {@code @BindQueryModel} on {@code origin} that binds it (R-PROC-28), as {@link #read(TypeElement, Kind)} does.
+     */
+    ModelDefinition read(TypeElement type, Kind kind, AnnotationMirror annotation, Element origin) {
         if (!(explicit(annotation, ROOT) instanceof DeclaredType rootType) || rootType.getKind() != TypeKind.DECLARED) {
             return null;
         }
@@ -132,7 +139,7 @@ final class QueryModelReader {
         }
         return new ModelDefinition(
                 type, (TypeElement) rootType.asElement(), prefix + type.getSimpleName() + suffix, selectSets,
-                singleGroup, fields, filterColumns(type), kind, generateChanges, generateInserts);
+                singleGroup, fields, filterColumns(type), kind, generateChanges, generateInserts, origin);
     }
 
     /** The annotation a model of {@code kind} carries. */
@@ -279,7 +286,7 @@ final class QueryModelReader {
     }
 
     /** The value written for {@code member} on the annotation, or {@code null} when it was left at its default. */
-    private static Object explicit(AnnotationMirror mirror, String member) {
+    static Object explicit(AnnotationMirror mirror, String member) {
         for (var entry : mirror.getElementValues().entrySet()) {
             if (entry.getKey().getSimpleName().contentEquals(member)) {
                 AnnotationValue value = entry.getValue();

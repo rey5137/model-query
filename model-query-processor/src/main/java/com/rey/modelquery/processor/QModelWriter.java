@@ -86,15 +86,16 @@ final class QModelWriter {
     }
 
     /**
-     * The QModel file of {@code model}, whose only originating element is the model's type (R-GEN-05). An update or
-     * insert model's has its columns and write methods only: it is never read into (R-GEN-19, R-GEN-28).
+     * The QModel file of {@code model}, whose only originating element is the model's type, or its binding, in whose
+     * package it is generated (R-GEN-05, R-GEN-35). An update or insert model's has its columns and write methods
+     * only: it is never read into (R-GEN-19, R-GEN-28).
      */
     JavaFile write(ModelDefinition model) {
         // An update or insert model's QModel has its columns and write methods only: it is never read into.
         boolean writeOnly = !model.queryModel();
         ClassName modelName = ClassName.get(model.type());
         ClassName entity = ClassName.get(model.root());
-        ClassName generated = ClassName.get(modelName.packageName(), model.generatedName());
+        ClassName generated = generatedName(model);
         List<ModelField> keys = model.keys();
         // A composite key reads as the list of its column values (PrimaryKey.composite).
         TypeName keyType = keys.size() == 1
@@ -105,7 +106,7 @@ final class QModelWriter {
         boolean grouped = !groupKeys.isEmpty() && !model.singleGroup();
 
         TypeSpec.Builder type = TypeSpec.classBuilder(generated)
-                .addOriginatingElement(model.type())
+                .addOriginatingElement(model.origin())
                 .addAnnotation(AnnotationSpec.builder(Generated.class)
                         .addMember("value", "$S", ModelQueryProcessor.class.getCanonicalName())
                         .build())
@@ -311,7 +312,7 @@ final class QModelWriter {
         CodeBlock key = !model.updateModel() ? CodeBlock.of("KEY")
                 : CodeBlock.of(keys.size() == 1 ? "$T.of($L)" : "$T.composite($L)", PRIMARY_KEY, constants(keys));
         if (model.changes()) {
-            ClassName changes = ClassName.get(modelName.packageName(), model.changesName());
+            ClassName changes = ClassName.get(model.packageName(), model.changesName());
             type.addMethod(MethodSpec.methodBuilder("changes")
                     .addAnnotation(INCUBATING)
                     .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
@@ -660,7 +661,7 @@ final class QModelWriter {
     }
 
     static ClassName generatedName(ModelDefinition model) {
-        return ClassName.get(ClassName.get(model.type()).packageName(), model.generatedName());
+        return ClassName.get(model.packageName(), model.generatedName());
     }
 
     /**
