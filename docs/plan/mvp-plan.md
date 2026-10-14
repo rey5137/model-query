@@ -406,25 +406,11 @@ and `findAllByKeys` are `@Incubating`. Tagging `v0.8.0` is the user's step after
 **Exit:** the M15 rows' criteria green on Tier 1, nothing new frozen, and the `0.8.0` CHANGELOG section ready, so the
 user can push the `v0.8.0` tag.
 
-## 17. M16 — Freeze → 1.0.0
-
-Spec: D-85 (amended by D-106, D-116 and D-118), D-86, D-111, D-116, D-118. Starts only when the user says the D-111 adopter has migrated onto 0.5.0 or later
-and run it in production long enough. Model: `architect-review` at M16.1. Both slices are attended. Tagging `v1.0.0`
-is the user's step after the gate, never a slice's.
-
-| Slice | Contents | Done when |
-|---|---|---|
-| M16.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field, M13 field-index, M14 single-model and M15 insert-column and multi-key types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
-| M16.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M16` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M16 started |
-
-**Exit:** the M16 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M16.1 decision, so the user can
-push the `v1.0.0` tag.
-
-## 18. M17 — Docs for what already works
+## 17. M17 — Docs for what already works
 
 Spec: `docs/plan/litepos-gaps.md` §1 and §3 (M17), `api/10` (new `AC-COL` rows from AC-COL-29), `api/13` (new
 `AC-AGG` rows from AC-AGG-16), `api/14` (new `AC-WRT` rows from AC-WRT-41), CC-DOC-01 (every runnable snippet gets the
-Plain JPA and Spring tabs). Runs before M16; M16 keeps its number and stays last. No API change; ships in 0.9.0 with M18–M22 (the
+Plain JPA and Spring tabs). Runs before the freeze, M25, which stays last. No API change; ships in 0.9.0 with M18–M22 (the
 docs site still publishes from `main` as it merges). Model: none; the M17.1 cases may each fail, and a failing case is recorded as a gap
 in `litepos-gaps.md` and left out of M17.2's docs rather than fixed here.
 
@@ -435,7 +421,7 @@ in `litepos-gaps.md` and left out of M17.2's docs rather than fixed here.
 
 **Exit:** the M17 rows' criteria green on Tier 1 and the docs published from `main`.
 
-## 19. M18 — Row locks on reads
+## 18. M18 — Row locks on reads
 
 Spec: RFC 0009, D-127, `SPEC.md` INV-1 (one sentence), `api/11` (new R-QRY-17, R-QRY-11's guard), `engine/20` (new
 R-EXE-14), `engine/21` (paging and export refuse a lock), `vendor/40` (new R-VND-15), `vendor/41` (the Tier-1
@@ -453,7 +439,7 @@ new is `@Incubating`. Ships in 0.9.0 with M17 and M19–M22.
 
 **Exit:** the M18 rows' criteria green on Tier 1 and nothing new frozen.
 
-## 20. M19 — Literal filters and bound function arguments
+## 19. M19 — Literal filters and bound function arguments
 
 Spec: RFC 0002 (trimmed), D-128, `api/10` (new R-COL-26 `Expr.value`, R-COL-27 column-typed `Expr.constant`,
 `MQ1502` widened), `api/12` (new R-FLT-19, field-form `in`/`notIn`; R-FLT-09 counts an expression's binds),
@@ -471,7 +457,7 @@ with M17, M18 and M20–M22.
 
 **Exit:** the M19 rows' criteria green on Tier 1 and nothing new frozen.
 
-## 21. M20 — Returning writes and conflict extensions
+## 20. M20 — Returning writes and conflict extensions
 
 Spec: RFC 0010, D-129 (amended by D-130 and D-131), `api/14` (new R-WRT-50 returning writes, R-WRT-51 conflict
 `setExpression`, R-WRT-52 arbiter predicate and `onConstraint`; R-WRT-34 amended; R-WRT-48's `MQ1809` widened), `api/10`
@@ -492,7 +478,7 @@ the design was reviewed by `architect-review` before D-129; none at a slice. Eve
 
 **Exit:** the M20 rows' criteria green on Tier 1 and nothing new frozen.
 
-## 22. M21 — Generated-code nullness
+## 21. M21 — Generated-code nullness
 
 Spec: `docs/plan/litepos-gaps.md` (F4), D-135, `processor/30` (new R-PROC-32, the `modelquery.jspecify` option),
 `processor/31` (new R-GEN-36, where the generated code carries JSpecify annotations), `processor/32` (new `MQ3027`),
@@ -517,7 +503,7 @@ compile classpath is `MQ3027`. Default off: output with the option unset is byte
 
 **Exit:** the M21 rows' criteria green in the compile-testing suite; nothing new frozen.
 
-## 23. M22 — Scalar foreign key
+## 22. M22 — Scalar foreign key
 
 Spec: `docs/plan/litepos-gaps.md` (F2), Q-14, D-136, `api/10` (new R-COL-29, a to-one read by its id), `api/14`
 (R-WRT-48 amended), `jpa` `ProviderSupport` (the foreign-key fact), `reference/90` (`MQ1004`), `processor/30`
@@ -547,7 +533,7 @@ whole-entity to-one is `MQ3028`. Q-20 keeps the no-join read open.
 
 **Exit:** the M22 rows' criteria green on Tier 1 on both Hibernate lines; nothing new frozen.
 
-## 24. M23 — Target vendors and portability check
+## 23. M23 — Target vendors and portability check
 
 Spec: `rfc/0011`, D-133, Q-17, Q-18, `SPEC.md` (INV-7 names `model-query-portability`, test scope, on `jpa` only),
 `vendor/40` (new R-VND-19 declared targets, R-VND-20 `ProviderSupport#offlineProperties`), `integration/50` (new
@@ -566,7 +552,7 @@ INV-10), `docs/site` (a "portability" page). New rows are AC-VND-15, AC-SPR-21 a
 
 **Exit:** the M23 rows' criteria green on both Hibernate lines with no container; nothing new frozen.
 
-## 25. M24 — External model bindings
+## 24. M24 — External model bindings
 
 Spec: `rfc/0012`, D-134, Q-19, `processor/30` (new R-PROC-28..31), `processor/31` (new R-GEN-35), `processor/32` (new
 `MQ3023`..`MQ3026`, AC-PROC-23..26), `reference/90` (the four codes; confirm all unused, INV-10), `delivery/61`
@@ -583,3 +569,17 @@ Compile-testing only, no TCK. Ships in 0.9.0 with M17–M23.
 | M24.4 | Docs: `models.md` "Models in an API module" (module layout, a binding, `@BindExpression`, Maven and Gradle tabs, each snippet traceable to an M24 test; the Gradle compile-avoidance limit and its `compileJava` classpath input, D-140), stability page and `delivery/61` incubating list, `reference/90` rows, `[Unreleased]` CHANGELOG entry | `mkdocs build --strict` green |
 
 **Exit:** the M24 rows' criteria green in the compile-testing suite; nothing new frozen.
+
+## 25. M25 — Freeze → 1.0.0
+
+Spec: D-85 (amended by D-106, D-116 and D-118), D-86, D-111, D-116, D-118. Starts only when the user says the D-111 adopter has migrated onto 0.5.0 or later
+and run it in production long enough. Model: `architect-review` at M25.1. Both slices are attended. Tagging `v1.0.0`
+is the user's step after the gate, never a slice's.
+
+| Slice | Contents | Done when |
+|---|---|---|
+| M25.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field, M13 field-index, M14 single-model and M15 insert-column and multi-key types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
+| M25.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M25` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M25 started |
+
+**Exit:** the M25 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M25.1 decision, so the user can
+push the `v1.0.0` tag.

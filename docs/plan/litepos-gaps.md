@@ -14,7 +14,7 @@ Source: `litepos/docs/plan/model-query-gaps.md` (written against 0.8.0). Checked
 | Row 11, `jsonb_exists(tags, 'x')` with a **constant** key | **Supported** | `f.eq(Expr.function("jsonb_exists", Boolean.class, TAGS, Expr.constant("x")), true)`. Bound key and `CAST(:x AS jsonb)` are not (M19). |
 | Row 9, views | **Works, undocumented** | A Hibernate `@Immutable` + `@Table(name = "view")` or `@Subselect` entity is a normal root. Needs a recipe + TCK case only. |
 | F6, bulk writes always clear | **Doc is wrong** | `PersistenceContextMode.KEEP` (`.persistenceContext(...)`, `modelquery.bulk-write.persistence-context=keep`). `CLEAR` is only the default. |
-| F7, everything `@Incubating` | **By design until M16** | M16 freeze (D-85) decides frozen vs incubating per type; LitePOS production feedback is the M16.1 input. |
+| F7, everything `@Incubating` | **By design until M25** | M25 freeze (D-85) decides frozen vs incubating per type; LitePOS production feedback is the M16.1 input. |
 | F2 / sugg. 10, scalar FK (Q-14) | **Open question, recorded** | `92-decisions-questions.md:1788`. Workaround: D-124 double mapping. |
 | Row 5, conflict on any unique key | **MySQL/MariaDB only** | `anyUniqueKey()` (`ModelInsert.java:814`). Not an arbiter predicate. |
 
@@ -27,7 +27,7 @@ only if M18's vendor SPI makes a 20-line `VendorLocks` trivial.
 ## 3. Genuine gaps → plan
 
 Ranked by LitePOS unlock ÷ cost. All new API ships `@Incubating`. Each milestone starts with an RFC under `rfc/`
-(next free: 0009) and an `architect-review` (public API + `VendorProfile` surface). M16 freeze stays last; these
+(next free: 0009) and an `architect-review` (public API + `VendorProfile` surface). the freeze (M25) stays last; these
 all land together, with M17, in 0.9.0 before it, since LitePOS is the obvious D-111 adopter and its feedback should shape the freeze.
 
 ### M18 — Row locks on reads → 0.9.0 (rows 1, 2; 11 LitePOS classes)
@@ -101,7 +101,7 @@ the key-first fallback is a recipe, not emulation; `onConstraint` and the arbite
 
 ## 4. Order and gates
 
-M16 (freeze) keeps its number and stays last; the new milestones are numbered in build order.
+The freeze, renumbered M25, stays last; the new milestones are numbered in build order.
 
 1. M17 docs + TCK (now; also unblocks LitePOS migration of views and grouped reports). Planned in `mvp-plan.md` §18.
 2. M18 row locks → 0.9.0 (highest unlock, contained to the read path).
@@ -109,7 +109,7 @@ M16 (freeze) keeps its number and stays last; the new milestones are numbered in
 4. M20 `RETURNING` and conflict extensions → 0.9.0 (RFC 0010, D-129).
 5. M21 JSpecify, M22 Q-14, M23 target vendors and portability check (RFC 0011, D-133), M24 external model
    bindings (RFC 0012, D-134), all in 0.9.0 (released once M17–M24 are done).
-6. M16 freeze → 1.0.0, with LitePOS as the adopter feedback.
+6. M25 freeze → 1.0.0, with LitePOS as the adopter feedback.
 
 Not verified by running code: the §1 "Supported" rows are from reading signatures and specs. M17.1 turns each into a
 TCK case before the docs tell LitePOS to rely on it — in particular `Expr.function` with an `Expr.constant` argument
