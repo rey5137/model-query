@@ -44,6 +44,7 @@ customer notes keyed on a case-insensitive column, and about 20 000 seeded rows.
 | Timeout | a slow query is cancelled (`SLEEP()` / `pg_sleep()` / an H2 user function) |
 | Detection | each container resolves to the expected profile |
 | Bulk writes | the `api/14` acceptance criteria AC-WRT-01..19 on every Tier-1 vendor, including the write/read parity check over every Filters fixture (AC-WRT-07) |
+| Portability conformance | with no container, on both Hibernate lines: the dry run (`api/16` R-INS-11) reproduces on H2, PostgreSQL and MySQL every vendor-dependent refusal the live TCK asserts for M18 to M22, and on each target that serves a call its first statement equals the live run's SQL snapshot for that vendor and line (AC-INS-11) |
 
 **R-QA-05** A test method name starts with the criterion id in snake case:
 `ac_pag_07_null_keyset_requires_explicit_precedence`. A test covering several criteria names the main one and lists the
