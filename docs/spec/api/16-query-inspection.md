@@ -138,6 +138,41 @@ wherever `Filters` does.
 `operands()`, and `values()` is empty for them, as for `IN_SUBSELECT` (R-INS-08). Both are `@Incubating`. They bind
 nothing, so `toString` prints no `? x n` placeholder.
 
+**R-INS-10** *(D-133, `@Incubating`)* **The portability dry run's factory.** `model-query-portability` (on `jpa` only,
+INV-7; test scope is the consumer POM's choice) boots one factory per persistence unit and `Target`, with jakarta
+types only and no database. `Target.of(vendor)` or `Target.of(vendor, "2.3.232")`: the full version string sets the
+product version, major and minor; with none, the provider line's minimum dialect version applies (Hibernate 6.6 and
+7.4: H2 2.1.214; PostgreSQL 12.0 and 14.0; MySQL 8.0; MariaDB 10.4 and 10.6), so name the version deployed. The product
+name is the reverse of detection's (`vendor/40` R-VND-04 step 3), so a target is H2, PostgreSQL, MySQL or MariaDB;
+any other vendor, or a version not starting with a major number, is `MQ4013`.
+
+- **Unit fidelity.** A named unit boots through `Persistence.createEntityManagerFactory(name, overrides)`; a class list
+  through the provider's `createContainerEntityManagerFactory`, with the mapping files and properties (a naming
+  strategy, converters, `orm.xml`) a class list does not carry. Mapping files belong to the class-list form alone: a
+  named unit lists its own. The class list's provider is the one its `jakarta.persistence.provider` property names,
+  else the single `PersistenceProvider` on the class path; none or several is `MQ4013`. The class-list unit is
+  `RESOURCE_LOCAL`, excludes unlisted classes, and has shared cache and validation mode `NONE`. A Spring Boot
+  application supplies the class list from Boot's `PersistenceManagedTypes`, its `spring.jpa.properties` as properties
+  and `spring.jpa.mapping-resources` as mapping files.
+- **Overrides**, last wins: the unit's properties, then the provider's `offlineProperties(vendor)` (`vendor/40`
+  R-VND-20), then the dry run's own: `jakarta.persistence.transactionType` `RESOURCE_LOCAL`, the stub `DataSource` as
+  `jakarta.persistence.nonJtaDataSource`, shared cache `NONE`, `schema-generation.database.action` and `scripts.action`
+  `none`, and `database-product-name` with, for a versioned target, `database-product-version`, `-major-version` and
+  `-minor-version`. The first `ProviderSupport` on `ServiceLoader` with offline properties for the vendor is used; none
+  is `MQ4013`, naming those found, and so is one that does not serve the factory booted.
+- **The stub `DataSource`** denies by default and writes to a per-call recording, a `ThreadLocal` the boot or call
+  opens. It hands out a connection only to a call. `createStatement`, `prepareStatement` and `prepareCall`, every
+  overload, record their SQL and throw an `SQLException`; transaction calls do nothing; `DatabaseMetaData` answers the
+  product name and the target's version alone; any other call, `unwrap` to a vendor type among them, is recorded and
+  throws. The recording, never the exception, decides: a provider may swallow the stub's failure, and Hibernate wraps a
+  statement's in its own exception.
+- **A boot that reaches JDBC is `MQ4013`**, read from the boot's recording, naming the unit, the target, the provider
+  support and the calls recorded; the factory is closed.
+- **Factory cache.** Keyed on the unit name or sorted class list, the mapping files, the properties, the provider
+  support, the target's vendor and full version, and the thread's context `ClassLoader`. A factory boots once, on the
+  first requesting thread, through a memoised `FutureTask`, never inside `computeIfAbsent`; a failed boot is not kept.
+  No per-call state lives on the factory or the `DataSource`. Factories close in a JVM shutdown hook.
+
 ## 3. Acceptance criteria
 
 | ID | Criterion |
@@ -151,3 +186,4 @@ nothing, so `toString` prints no `? x n` placeholder.
 | AC-INS-07 | `assertThatQuery(q).child(field)` asserts that child query's filters, order, selection and `maxPerParent`, and a failure names the child; a field the plan doesn't load fails, naming the children the plan loads (R-INS-06, D-104). |
 | AC-INS-08 | Each of the four `*_SUBSELECT` kinds records its column, `subSelect()` and correlation; `Outer.referenced` returns the lifted column; sub-selects built from equal calls are equal; the new matchers match them and a failure prints the tree (R-INS-08, D-112). |
 | AC-INS-09 | A filter over an expression records its kind with the expression as `column()`. `toString` and the build log show `?` for its values. An `eq` matcher built from equal `Expr` calls matches, and a failing one prints the tree (R-INS-09, R-INS-04, R-INS-05). |
+| AC-INS-10 | On both Hibernate lines with no container, the TCK unit boots offline for H2, PostgreSQL, MySQL and MariaDB, with no version and with a full one (the dialect then at that version), recording no JDBC call, booted once per unit and target however many threads ask, a failed boot booted again on the next request; a unit's `hibernate.hbm2ddl.auto=create` and `scripts.action=create` are overridden (no script written), an explicit `hibernate.dialect` is overridden by the target's, and a unit `hibernate.connection.provider_class` is overridden so a call reaches the stub; a reached statement is recorded once through Hibernate's exception wrapping; a `ProviderSupport` without `offlineProperties`, and a boot that reaches JDBC (the metadata flag or H2's temporary-table settings dropped), are `MQ4013`, and so is a class list naming a provider not on the class path (R-INS-10, `vendor/40` R-VND-20). |

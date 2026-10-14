@@ -63,6 +63,13 @@ public final class VendorResolver {
     private record Settings(Optional<DatabaseVendor> configured, MysqlStreamingMode mysqlStreamingMode) {
     }
 
+    /** The product name of each vendor detection names; one table, read both ways (R-VND-06, R-INS-10). */
+    private static final Map<DatabaseVendor, String> PRODUCT_NAMES = Map.of(
+            DatabaseVendor.H2, "H2",
+            DatabaseVendor.POSTGRESQL, "PostgreSQL",
+            DatabaseVendor.MYSQL, "MySQL",
+            DatabaseVendor.MARIADB, "MariaDB");
+
     private VendorResolver() {
     }
 
@@ -156,13 +163,20 @@ public final class VendorResolver {
         if (productName == null) {
             return DatabaseVendor.OTHER;
         }
-        return switch (productName) {
-            case "H2" -> DatabaseVendor.H2;
-            case "PostgreSQL" -> DatabaseVendor.POSTGRESQL;
-            case "MySQL" -> DatabaseVendor.MYSQL;
-            case "MariaDB" -> DatabaseVendor.MARIADB;
-            default -> DatabaseVendor.OTHER;
-        };
+        return PRODUCT_NAMES.entrySet().stream()
+                .filter(entry -> entry.getValue().equals(productName))
+                .map(Map.Entry::getKey)
+                .findFirst()
+                .orElse(DatabaseVendor.OTHER);
+    }
+
+    /**
+     * The {@code DatabaseMetaData} product name of {@code vendor}, the reverse of detection by product name, or empty
+     * for a vendor that detection does not name ({@code ORACLE}, {@code SQLSERVER}, {@code OTHER}). The portability
+     * dry run boots a target by this name (R-INS-10).
+     */
+    public static Optional<String> productNameOf(DatabaseVendor vendor) {
+        return Optional.ofNullable(PRODUCT_NAMES.get(Objects.requireNonNull(vendor, "vendor")));
     }
 
     /** Whether {@code candidate} supports {@code emf}; false when its provider library is missing (a link error). */

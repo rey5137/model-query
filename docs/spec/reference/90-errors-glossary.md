@@ -157,7 +157,7 @@ insert models and `generateInserts` (D-116, D-117, D-123). Codes are not repeate
 
 | Code | Meaning | Owner |
 |---|---|---|
-| `MQ4001` | `modelquery.vendor` names an unknown vendor | `vendor/40` R-VND-04 |
+| `MQ4001` | `modelquery.vendor` or `modelquery.target-vendors` (or `targetVendors(String...)`) names an unknown vendor | `vendor/40` R-VND-04 |
 | `MQ4002` | Two `VendorProfile`s registered for the same vendor with no precedence rule | `vendor/40` R-VND-03 |
 | `MQ4003` | A property value, or its `ModelQueryConfig` setting, is outside its allowed range | `integration/50` §3 |
 | `MQ4005` | `modelquery.vendor` set with more than one `EntityManagerFactory` and no `ModelQueryConfigurer` | `integration/50` R-SPR-13 |
@@ -168,6 +168,7 @@ insert models and `generateInserts` (D-116, D-117, D-123). Codes are not repeate
 | `MQ4009` | A bulk insert on a factory whose persistence provider has no `InsertSupport` (`ProviderSupport#inserts()` empty or no `ProviderSupport`); before any statement and before the flush | `vendor/40` R-VND-14, `api/14` R-WRT-24, D-117 |
 | `MQ4010` | A locked read whose provider cannot render the lock: the factory's `ProviderSupport#locks()` is empty, `LockSupport.rendered` is false for this strength × wait, or the root entity is mapped to more than one table (`tablesOf`); the message names the provider, the vendor and the lock; at method entry, before any statement | `vendor/40` R-VND-15, `engine/20` R-EXE-14, D-127 |
 | `MQ4011` | A returning write the factory cannot return rows for: `VendorProfile#returning(WriteStatement)` is empty for the statement kind, the provider has no `ReturningSupport`, `ReturningSupport.rendered` is false (a Hibernate line whose translation calls moved, or a root entity mapped to more than one table), or the translated statement fails the first-use check, or a moved Hibernate type surfaces as a `LinkageError`; the message names the provider, the vendor and the statement kind; at method entry, before any statement. An arbiter upsert whose `InsertSupport.arbiterRendered` is false (no adapter serves the Hibernate line), on each execution before the flush and any statement (D-132), or whose translated statement does not hold the conflict target its predicate is spliced after exactly once, before the statement runs (INV-5) | `vendor/40` R-VND-17, `api/14` R-WRT-50, R-WRT-52, D-129, D-132 |
+| `MQ4013` | The portability dry run cannot boot a factory offline for a target: no `ProviderSupport` has `offlineProperties` for the target's vendor (a provider support without them keeps the empty default), the one used does not serve the factory booted, the boot reached JDBC, read from the stub's recording (a provider may swallow the failure), or a class list finds no single persistence provider (none named by its `jakarta.persistence.provider`, or not exactly one on the class path); also a `Target` whose vendor has no database product name (`ORACLE`, `SQLSERVER`, `OTHER`) or whose version does not start with a major number. The message names the unit, the target, the provider support and the calls recorded | `api/16` R-INS-10, `vendor/40` R-VND-20, D-133 |
 
 ## 6. Glossary
 

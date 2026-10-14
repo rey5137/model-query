@@ -84,7 +84,7 @@ These hold for the life of the library. A change that breaks one is an architect
 | **INV-4** | **An export visits every row, or every group, exactly once,** with memory bounded by one page, on every supported database (`engine/21`). |
 | **INV-5** | **Loud over silently wrong.** When a configuration cannot be executed correctly — a keyset over a NULL key, a grouped keyset, a missing primary key, a selected column outside the group-by — the library throws with a message naming the model and column. It never returns a partial or approximate result instead. |
 | **INV-6** | **Vendor differences live only behind `VendorProfile`.** No `if (vendor == MYSQL)` outside a profile, and no vendor name in `core` (`vendor/40`). |
-| **INV-7** | **Dependencies flow one way:** `annotations` ← `core` ← `jpa` ← (`hibernate`, `spring-data`) ← `spring-boot-starter`, with `processor` depending only on `annotations` and `test` only on `core` (D-98). `core` imports only `jakarta.persistence` and the JDK; `jpa` never imports `org.hibernate` (`delivery/61`). |
+| **INV-7** | **Dependencies flow one way:** `annotations` ← `core` ← `jpa` ← (`hibernate`, `spring-data`) ← `spring-boot-starter`, with `processor` depending only on `annotations`, `test` only on `core` (D-98), and `portability` on `jpa` only, no module depending on it (D-133; test scope is the consumer's POM choice). `core` imports only `jakarta.persistence` and the JDK; `jpa` never imports `org.hibernate` (`delivery/61`). |
 | **INV-8** | **Framework-optional.** Every feature is reachable with a plain `EntityManager`. Spring is a convenience layer, never a requirement. |
 | **INV-9** | **Definitions are immutable and thread-safe.** `TableField`, `ColumnField`, `AggregateField`, `SelectSet`, `OrderField`, `ModelQuery`, from M6 `ModelUpdate` and `ModelDelete`, and from M10 `ModelInsert`, `ValuesInsert`, `ModelPersist` and `InsertColumns`, can be `static final`; an insert's copy of its rows is shallow, so a mutable value inside a row is the caller's. Per-query state lives only in `JoinContext`, created per build. |
 | **INV-10** | **Diagnostic codes are stable:** once released, an `MQnnnn` code is never reused for a different meaning. |
@@ -133,6 +133,7 @@ Full milestone list and exclusions: `delivery/62`.
 | Auto-configuration and properties | `model-query-spring-boot-starter` | `integration/50` | 0.1 |
 | Vendor conformance suite | `model-query-tck` | `delivery/60` | 0.1 |
 | Version alignment | `model-query-bom` | `delivery/61` | 0.1 |
+| Portability dry run: offline factory per target, stub `DataSource` | `model-query-portability` | `api/16`, `vendor/40` | 0.9.0 |
 | Bulk writes: `ModelUpdate`, `ModelDelete`, `Changes`, `ChunkTransactions`; `@ValidChanges` | `model-query-core`; `model-query-jpa` | `api/14` | Future (M6) |
 | Samples | `samples/plain-jpa`, `samples/spring-boot` | `delivery/62` | 0.1 |
 

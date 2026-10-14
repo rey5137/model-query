@@ -24,6 +24,8 @@ model-query/
 │                                    jpa.spi: VendorProfile, ProviderSupport; jpa.vendor: built-in profiles (not API)
 ├── model-query-hibernate/           Hibernate 6.x extras: dialect detection, grouped count,
 │                                    null precedence                              (jpa + hibernate-core, optional)
+├── model-query-portability/         portability dry run: offline factory per target vendor, recording stub
+│                                    DataSource; add in test scope (the consumer's POM decides) (jpa only)
 ├── model-query-processor/           annotation processor                          (annotations, JavaPoet shaded)
 ├── model-query-spring-data/         ModelQueryRepository + factory, Page/Pageable/Sort adapters
 ├── model-query-spring-boot-starter/ auto-configuration, properties, SPI beans
@@ -52,6 +54,10 @@ source tree ships in 0.1 and CI builds it (D-76); it is published to GitHub Page
   R-WRT-22). Generated change sets reference it only when it is on the model module's classpath.
 - `processor` depends only on `annotations` and shaded JavaPoet.
 - `test` depends only on `core` (and the `annotations` it exposes), the JDK and AssertJ (D-98, `api/16` R-INS-06).
+- `portability` depends on `jpa` only: jakarta types, the JDK and the public types of `jpa`, `core` and
+  `annotations`; never `org.hibernate`, `org.springframework`, `org.junit` or `org.assertj`, nor the `hibernate`,
+  `spring`, `test` or `processor` modules; and no module depends on it (D-133). It is meant for test scope, which only
+  the consumer's POM can set: INV-7 cannot enforce it.
 - No Lombok in anything the library ships. The processor's tests alone take it, in `test` scope, to compile models
   beside it (D-40). Consumers may use Lombok on their models (`processor/31` R-GEN-10).
 
@@ -134,6 +140,10 @@ permit means an exhaustive `switch` over `Assignment` needs another case and alr
 implementation written before it still compiles and refuses a computed value with `MQ1613` rather than dropping it
 (`vendor/40` R-VND-14).
 `ModelUpdate#checkSequences` and `ModelInsert#checkSequences` and `#computedValues` are `@EngineFacing`.
+The portability members (D-133, 0.9.0) are `@Incubating` through 1.0:
+`ProviderSupport#offlineProperties(DatabaseVendor)`, a default returning empty so a provider written before it
+compiles and is refused with `MQ4013`, and the `model-query-portability` artifact's `Target`; its
+`portability.internal` package is not API (R-REL-10).
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from
@@ -145,8 +155,9 @@ Conventional Commits. A commit that breaks an `@Incubating` type is still marked
 through the `rey5137` GitHub account. The Java package `com.rey.modelquery` intentionally differs from the `groupId`.
 
 **R-REL-10** Sub-packages follow the modules: `.core`, `.test`, `.jpa`, `.hibernate`, `.processor`, `.spring.data`,
-`.spring.boot`. `com.rey.modelquery.jpa.vendor` (the built-in profiles, `VendorResolver`, `ResolvedVendor`) is not
-API, whatever the visibility of its types: it may change in any release, and extensions go through `jpa.spi`. A
+`.spring.boot`, `.portability`. `com.rey.modelquery.jpa.vendor` (the built-in profiles, `VendorResolver`,
+`ResolvedVendor`) and `com.rey.modelquery.portability.internal` (the dry run's factory, stub and recording) are not
+API, whatever the visibility of their types: they may change in any release, and extensions go through `jpa.spi`. A
 type or method marked `@EngineFacing` (`core`; only an executor uses it) is not API either, and may change in any
 release: the types `BuiltQuery`, `RowSelection`, `RenderOptions`, `ChildLoad` and `JoinPlan`, the methods
 `JoinContext.of`, `OrderField.toOrders`, `FetchPlan.childLoads`, `joinPlans`, `enrichers` and `isSelectionOnly`,

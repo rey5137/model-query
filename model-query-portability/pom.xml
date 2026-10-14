@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.github.rey5137</groupId>
+        <artifactId>model-query-parent</artifactId>
+        <version>0.6.0</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>model-query-portability</artifactId>
+    <name>Model Query Portability</name>
+    <description>A portability dry run: the real executor on a factory booted offline per target vendor over a recording
+        stub DataSource, with no database (RFC 0011, D-133). Add it in test scope.</description>
+
+    <dependencies>
+        <!-- The only library dependency (INV-7): jakarta types and the jpa SPI. The persistence provider is the
+             application's own, on its test classpath. -->
+        <dependency>
+            <groupId>io.github.rey5137</groupId>
+            <artifactId>model-query-jpa</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <executions>
+                    <!-- AC-REL-03, configured in the root pluginManagement -->
+                    <execution>
+                        <id>no-hibernate-or-spring</id>
+                        <phase>validate</phase>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

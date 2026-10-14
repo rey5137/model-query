@@ -271,6 +271,22 @@ The executor puts the renderer in `RenderOptions` only where the profile's `sequ
 renders `dialect.getSequenceSupport().getSelectSequenceNextValString(sequence)` through
 `HibernateCriteriaBuilder.sql`, so the dialect decides the text and the sequence name is checked as an identifier first.
 
+**R-VND-20** Booting a factory with no database is a provider fact (D-133). `ProviderSupport` gains `@Incubating
+default Optional<Map<String,Object>> offlineProperties(DatabaseVendor vendor)`: the provider's settings that boot a
+factory for `vendor` over the portability dry run's stub `DataSource` (`api/16` R-INS-10) with no JDBC call. Empty, the
+default, means the provider cannot, and the dry run refuses the target with `MQ4013` rather than reach a database, so a
+third-party provider compiles and fails safe. The dry run applies them over the unit's properties and beneath its own
+overrides, and still records the boot: a boot that reaches JDBC is `MQ4013` whatever the properties claimed.
+`model-query-hibernate` returns, for every vendor but `OTHER`: `hibernate.boot.allow_jdbc_metadata_access=false`
+(honoured on 6.6 and 7.4; without it both lines ask for a connection at boot), `hibernate.hbm2ddl.auto=none`,
+`hibernate.dialect=""` (a unit's explicit dialect silently beats the product name; the empty override restores
+resolution by product name, an application's `hibernate.dialect_resolvers` included, so a custom dialect subclass is
+not used in the dry run), `hibernate.connection.provider_class=""` (a unit's connection provider bypasses the stub)
+and `hibernate.query.mutation_strategy.global_temporary.create_tables` and `.drop_tables` `false` (H2's strategy asks
+for a connection per multi-table entity and swallows the failure). A unit's `hibernate.connection.url`,
+`jakarta.persistence.jdbc.url` and JNDI `hibernate.connection.datasource` need no override: the stub `DataSource`
+beats them.
+
 ## 2. Detection
 
 **R-VND-04** Resolution order:

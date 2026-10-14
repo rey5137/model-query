@@ -9,6 +9,11 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 Nothing is frozen yet: every public type stays `@Incubating`. The additions below are all `@Incubating`.
 
 ### Added
+- The new `model-query-portability` artifact, on `model-query-jpa` only and meant for test scope, boots a factory per
+  target vendor with no database (D-133, R-INS-10): `Target.of(vendor)` or `Target.of(vendor, "15.4")`, a recording
+  deny-by-default stub `DataSource`, and `ProviderSupport#offlineProperties(DatabaseVendor)`, which
+  `model-query-hibernate` implements for Hibernate 6.6 and 7.4; a provider without it, or a boot that reaches JDBC,
+  is the new `MQ4013`. The portability check that runs calls on it follows in a later 0.9.0 slice.
 - A to-one read by its id (D-136, R-COL-29): a column of the target's single basic id type over a to-one
   (`ColumnField.of(Order.class, ORDERS, "referrer", Long.class)`), or with a converter from it, reads the foreign key
   instead of `MQ1001`, whose message now names the id type:

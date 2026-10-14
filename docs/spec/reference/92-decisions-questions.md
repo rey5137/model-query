@@ -1815,11 +1815,50 @@ selecting an `Expr.nextval` is `MQ1509`, as a group key over one is. Amends D-12
 
 **D-133 — Target vendors and a portability dry run (RFC 0011, accepted 2026-10-13).** An application declares its
 target vendors and startup fails with `MQ4012` when the connected vendor is not one of them. Portability is decided by
-a dry run, not by the processor: INV-5 puts every refusal before the first statement, so the real executor on a
-dialect-booted factory over a stub `DataSource` refuses exactly as on the database, with no container and no second
-implementation; a provider that cannot boot without JDBC is `MQ4013`. The dry run lives in a new test-scope module on `jpa` (INV-7
-amended); `model-query-test` stays core-only (D-98). Rejected: processor checks and a pure refusal function. M23,
+a dry run, not by the processor: the real executor on a dialect-booted factory over a stub `DataSource` decides the
+refusals the spec places before any statement (Q-17 lists the rest), with no container and no second implementation.
+The stub records JDBC access per call and denies by default; a call is portable on a target only if it reached a
+statement with no refusal. A call that reaches none, refuses after one, or throws anything else fails the check. The
+harness boots with application-supplied properties, refuses an explicit `vendor(...)` and targets outside a declared
+list, and substitutes its own `ChunkTransactions`. `offlineProperties(DatabaseVendor)` returns `Optional`; empty is
+`MQ4013`. The dry run lives in a new test-scope module on `jpa` (INV-7 amended); `model-query-test` stays core-only
+(D-98). Rejected: processor checks and a pure refusal function. Amended at M23 kickoff (2026-10-14) after the
+architect review: the INV-5 premise (loud over silently wrong, not every refusal before a statement), the five
+outcomes, the recording stub, unit fidelity, the Spring `BeanPostProcessor` check, the factory cache key. M23,
 0.9.0. → `rfc/0011`, `reference/90`, `delivery/61`, Q-17, Q-18.
+*Spike (2026-10-14).* Hibernate 6.6.58 and 7.4.11 boot the TCK unit (39 entities: sequences, table and identity
+generators, `@Formula`, secondary tables, `@Subselect`) offline for H2, PostgreSQL, MySQL and MariaDB, through both
+`Persistence.createEntityManagerFactory(name, overrides)` and `createContainerEntityManagerFactory`, with zero JDBC
+calls, given these settings beyond the RFC's: H2's `GlobalTemporaryTableStrategy.prepare` asks for a connection once per
+multi-table entity and swallows the failure, so the boot looks clean unless the stub records it; it needs
+`hibernate.query.mutation_strategy.global_temporary.create_tables` and `.drop_tables` `false`. A unit's
+`hibernate.connection.provider_class` bypasses the stub DataSource (6.6 fails the boot, 7.4 fails the first call with
+nothing recorded), so it is overridden with `""`. A unit's schema-generation `scripts.action` writes a DDL file without
+a connection, so the generic overrides set it `none` too; the JPA `database.action` `none` beats a unit's
+`hbm2ddl.auto=create` and a `javax.` action, and with no override `create` fails the boot at a recorded
+`getConnection`. A unit's `hibernate.dialect` silently beats the product name (`H2Dialect` at version 15.4 on a
+PostgreSQL target); an override of `""` or the target's dialect class restores product-name resolution. The unit's
+`hibernate.connection.url`, `jakarta.persistence.jdbc.url` and JNDI `hibernate.connection.datasource` are ignored
+under the stub DataSource override: no driver connect, and calls reach the stub. With
+`allow_jdbc_metadata_access` unset, both lines call `getConnection` at boot and fail, so the flag is honoured.
+`database-product-version` alone sets the full version; a major alone loses the micro (H2 `2` → 2.0). With no
+version the dialect minimum is used: H2 2.1.214 on both lines, PostgreSQL 12.0 (6.6) and 14.0 (7.4), MySQL 8.0, and
+MariaDB 10.4 (6.6) and 10.6 (7.4). In a call, `prepareStatement` records and throws, and a read, a bulk update, a
+sequence draw (MySQL: the table emulation through isolated work) and a model-query `list` over a `@Formula` join all
+surface as `GenericJDBCException` caused by the stub's `SQLException`, with the SQL in the recorder; no other
+`Connection` or `DatabaseMetaData` call was made. A Spring Boot app supplies the class-list form, its names from Boot's
+`PersistenceManagedTypes` (or `PersistenceManagedTypesScanner` with no context), with Boot's naming strategies and
+`spring.jpa.properties` through `properties(...)` and `spring.jpa.mapping-resources` through `mappingFiles(...)`.
+
+*Decided after the spike (2026-10-14).* Hibernate's `offlineProperties` overrides `hibernate.dialect` with `""`, so
+the production resolver path (including an application's `hibernate.dialect_resolvers`) picks the target's dialect; an
+application's custom dialect subclass is not used in the dry run, and the docs say so. It also sets
+`hibernate.query.mutation_strategy.global_temporary.create_tables=false` and `.drop_tables=false` and
+`hibernate.connection.provider_class=""`; the generic overrides add
+`jakarta.persistence.schema-generation.scripts.action=none` and send the full `database-product-version`. A boot's `MQ4013` is read from the recorder, not from a boot failure.
+`Target.of(vendor)` stays, with the per-line dialect minimum documented; the docs steer to `Target.of(vendor, version)`.
+A starter helper that builds a Boot app's class list and properties is deferred past M23 (`delivery/62`).
+
 **D-134 — External model bindings (RFC 0012, accepted 2026-10-13).** A model may live in a module that cannot see its
 entity: `@BindQueryModel`, `@BindUpdateModel` and `@BindInsertModel` (`@Incubating`, repeatable, on a type or a
 `package-info`) in the persistence module name the model and its root, and the processor reads the model from the
@@ -1972,7 +2011,9 @@ typed `nextval(String, Class<C>)` for a sequence read as an `Integer` or a `BigI
 
 **Q-17 — Refusals after a first statement.** Which refusals run only after a first statement (fetch-plan child
 loads, export page N, the second key-first step, chunk writes, `persist`'s key draw); each found is moved up front
-(INV-5) or listed as outside the dry run. The sweep's package scan is also open. → `rfc/0011`, D-133.
+or listed as outside the dry run (reported "first statement only"). The audit runs first in M23.3, ahead of
+`PortabilityCheck`, because it sets R-INS-11's semantics and the sweep's `persist` default. The sweep's package scan is
+also open. → `rfc/0011`, D-133.
 
 **Q-18 — A `@RequiresFact` ArchUnit rule.** Whether code that reads a profile fact must declare it, so the dry run's
 coverage is checkable. → `rfc/0011` §5, D-133.
