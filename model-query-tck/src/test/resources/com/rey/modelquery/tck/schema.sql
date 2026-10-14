@@ -172,3 +172,15 @@ CREATE TABLE counter_rows (
     id         BIGINT NOT NULL PRIMARY KEY,
     next_value BIGINT NOT NULL
 );
+-- Card holders and their optional cards: a holder reads its card through the inverse @OneToOne, and a card its
+-- issuer through a @NotFound @ManyToOne whose issuer_id is NULL or names no customer on some rows (TCK AC-COL-34).
+CREATE TABLE card_holders (
+    id   BIGINT NOT NULL PRIMARY KEY,
+    name VARCHAR(40) @COLLATE@ NOT NULL
+);
+CREATE TABLE cards (
+    id        BIGINT NOT NULL PRIMARY KEY,
+    holder_id BIGINT NULL UNIQUE,
+    issuer_id BIGINT NULL,
+    CONSTRAINT fk_cards_holder FOREIGN KEY (holder_id) REFERENCES card_holders (id)
+);

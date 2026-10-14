@@ -516,3 +516,33 @@ compile classpath is `MQ3027`. Default off: output with the option unset is byte
 | M21.2 | A NullAway compatibility test: the shop, update and insert fixtures compiled with the option on under Error Prone + NullAway (`AnnotatedPackages` covering the fixture and generated packages, JSpecify mode) report no NullAway error, and a deliberately unannotated change-set use in a fixture does (the test proves NullAway ran); Error Prone and NullAway test-scope only, with the surefire `--add-exports` they need; docs: `models.md` "Processor options" (prefix, suffix, jspecify) and a NullAway setup with Maven and Gradle tabs, each snippet traceable to the M21.2 test; stability page and `delivery/61` incubating list; `[Unreleased]` CHANGELOG entry | AC-GEN-32 green; `mkdocs build --strict` green |
 
 **Exit:** the M21 rows' criteria green in the compile-testing suite; nothing new frozen.
+
+## 23. M22 — Scalar foreign key
+
+Spec: `docs/plan/litepos-gaps.md` (F2), Q-14, D-136, `api/10` (new R-COL-29, a to-one read by its id), `api/14`
+(R-WRT-48 amended), `jpa` `ProviderSupport` (the foreign-key fact), `reference/90` (`MQ1004`), `processor/30`
+(new R-PROC-33; R-PROC-26 amended), `processor/31` (R-GEN-19, R-GEN-21 amended), `processor/32` (new `MQ3028`; `MQ3002`
+and `MQ3016` messages), `reference/90`, `docs/site`, `delivery/61`. New rows are AC-COL-34, AC-COL-35, AC-PROC-28 and
+AC-GEN-33; the M24 reservations (R-PROC-28..31, R-GEN-35, `MQ3023`..`MQ3026`, AC-PROC-23..26, AC-GEN-30) stay
+untouched. Model: an `architect-review` of D-136 before M22.1 and at the gate (processor attribute resolution,
+`MQ3016`, a read path's join shape). Ships in 0.9.0 with M17–M21, M23 and M24.
+
+D-136 (the design, amended by the design review): `@Column(attribute = "referrer") Long referrerId` on a query model
+reads the to-one's foreign key; its type, or its converter's attribute type, must be the target's single basic id type
+(else `MQ3002` naming it). `MQ3002` with the reason also refuses the inverse side, a non-primary-key
+`referencedColumnName`, `@JoinColumns`, `@JoinFormula`/`@JoinColumnOrFormula`, `@NotFound`, a derived-identity target,
+an `@IdClass`/`@EmbeddedId` target and an embedded-value to-one; `referrer.id` stays `MQ3001`. Every read clause reads
+the id through a `LEFT` join and its id, keeping `NULL`-foreign-key rows (a locked read is `MQ2211`); a write's filter
+renders the foreign-key column, refused as `MQ1004` before any statement unless the provider reports that the foreign
+key references the target's primary key (else Hibernate joins); a returning write sends `referrer.id`, which the
+Hibernate module maps to the foreign-key column (else `MQ1809`). A hand-written `ColumnField` of the id type reads the
+same (core requires a `BASIC` single id; `MQ1001` names the id type). `generateChanges` and `generateInserts` write the
+id form and `from` copies it; the whole-entity form keeps D-124. `MQ3016` names the id form; `@GroupBy` on a
+whole-entity to-one is `MQ3028`. Q-20 keeps the no-join read open.
+
+| Slice | Content | Done when |
+|---|---|---|
+| M22.1 | Spike first: SQL snapshots on Hibernate 6.6 and 7.4 of the `LEFT` join and its id over the TCK's nullable `referrer` (select, filter, order, group, keyset; select and group render the same column on PostgreSQL), and of `from.get(toOne).get(id)` in a bulk update/delete filter and a returning write over the owning, primary-key `referrer`, plus `SkuOrderLineEntity` (non-primary-key `referencedColumnName`), `FormulaLineEntity` (`@JoinFormula`) and `vnd/ins/InsMapsIdEntity` (`@OneToOne`) to record what Hibernate renders; stop and amend D-136 if a write form joins (it did: D-136 amended with `MQ1004`). Then `ColumnField.path` reads a to-one of the id type (or a converter from it) through `leftJoined(ctx).get(id)` in a read and the foreign-key column in a write, in place of `MQ1001` (message names the id type; `BASIC` single id required); a write filter's id form asks `ProviderSupport` whether the foreign key references the target's primary key (the Hibernate support answers from `isReferenceToPrimaryKey()`), else `MQ1004` before any statement; `ReturningColumns` accepts the id form on the root and sends `referrer.id` (R-WRT-48 amended); new inverse `@OneToOne` and `@NotFound` TCK fixtures read through hand-written columns with no row dropped; R-COL-29 in `api/10`, R-WRT-48 in `api/14`, `MQ1004` in `reference/90`, R-QRY-17 note (`MQ2211`); D-44/D-124/Q-14 cross-references | the spike's snapshots are in the slice on both Hibernate lines; AC-COL-34 (NULL-foreign-key rows kept in select, filter, order, offset paging, `count`, keyset with `nullsFirst`/`nullsLast` and `MQ2202` without, primary-key-first two phases with a collection filter, export visiting each row once, an `@Join`ed table, a child root, the inverse and `@NotFound` fixtures; a locked read `MQ2211`; a bulk-write filter and a returning write by the id; a write filter and a returning write on `SkuOrderLineEntity` `MQ1004` and `MQ1809` before any statement) and AC-COL-35 (runtime `groupBy` on the id with a `NULL` group, grouped export, PostgreSQL included) green on Tier 1 on both Hibernate lines |
+| M22.2 | Processor: the id form accepted on a query model, converter from the id type included (`MQ3002` naming the id for another type, and with the reason for each excluded mapping, annotations named as strings), `MQ3016` message, `MQ3028` for `@GroupBy` on a whole-entity to-one, `generateChanges` and `generateInserts` include the id form (R-PROC-26's insertable rule) and `from` copies it (AC-GEN-28 amended); R-PROC-33, R-GEN-19/21, R-PROC-26 amended, `MQ3028` in `processor/32` and `reference/90`; a TCK query model reading `referrerId`, writing it through its change set and insert, and returning it from a write; docs: a "foreign key by id" section in `models.md` (locked read `MQ2211`, the naming beside a `@Join` that avoids `MQ3015`, the id form over the D-124 double mapping) and a recipe, JPA and Spring tabs (CC-DOC-01); `[Unreleased]` CHANGELOG entry noting `MQ3028` can break an existing `@GroupBy` | AC-PROC-28 (each exclusion separately, wrong type naming the id, `referrer.id` `MQ3001`, the `MQ3016` and `MQ3028` messages, converter parity with core) and AC-GEN-33 green; every existing golden unchanged; the TCK case green on Tier 1; `mkdocs build --strict` green |
+
+**Exit:** the M22 rows' criteria green on Tier 1 on both Hibernate lines; nothing new frozen.

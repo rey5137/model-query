@@ -739,7 +739,10 @@ managed entity before it is detached, with no further statement. The query suppl
 mapper, `afterMap` and the finisher; a `SelectSet` alone carries neither the root nor the mapper. Each selected column
 is read through its attribute's metamodel member and the column's converter, and the model is instantiated as the read
 path does. It can fill root attributes, embeddable paths and the id of a to-one association (read without initializing
-the target; through an `INNER` join field whose foreign key is null it fills `null`, and the Javadoc says so). The root
+the target; through an `INNER` join field whose foreign key is null it fills `null`, and the Javadoc says so), also a
+root to-one read by its id (`api/10` R-COL-29, D-136), which a returning write (R-WRT-50) sends to the provider as the
+path through it to the target's id (`referrer.id`), the foreign-key column, refused with `MQ1809` where the foreign key
+does not reference the target's primary key. The root
 is fixed by `E`, so a query on another entity does not compile. A query with `where`, `having`, `groupBy`, a fetch plan,
 `customize`, `orderBy`, `keyset`, `primaryKeyFirst` or a lock (`api/11` R-QRY-17), or a selected column it cannot fill
 from the entity alone (a join beyond a to-one id, a join with `on(...)`, an expression, an aggregate, a collection

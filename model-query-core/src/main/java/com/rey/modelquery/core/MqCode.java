@@ -20,6 +20,12 @@ public enum MqCode {
     /** A column or table sits on a root entity the query is not rooted at (R-COL-01). */
     MQ1003("A column or table sits on a root entity the query is not rooted at"),
 
+    /**
+     * A write's filter reads a to-one by its id where the provider does not report that the foreign key references the
+     * target's primary key (R-COL-29).
+     */
+    MQ1004("A write's filter reads a to-one by its id whose foreign key does not reference the target's primary key"),
+
     /** Two {@code TableField}s share a join key but carry different {@code on(...)} conditions (R-COL-04). */
     MQ1101("Two table fields share a join key but carry different on(...) conditions"),
 

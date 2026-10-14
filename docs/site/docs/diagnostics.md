@@ -44,6 +44,7 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1001` | A column's declared type does not match the entity attribute. |
 | `MQ1002` | An attribute named by a column or join does not exist on its entity. |
 | `MQ1003` | A column or table sits on a root entity the query is not rooted at. |
+| `MQ1004` | A write's filter reads a to-one by its id, but its foreign key does not reference the target's primary key. |
 | `MQ1101` | Two TableFields share a join key but carry different `on(...)` conditions. |
 | `MQ1102` | `on(...)` used without `as(...)`. |
 | `MQ1103` | Two `Agg.of` fields share a name with different expressions. |

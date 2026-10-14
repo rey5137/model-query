@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiFunction;
 
 /**
  * What {@link ModelUpdate} and {@link ModelDelete} share: the predicate choosing a write's rows, and the checks of a
@@ -150,6 +151,33 @@ final class WriteRendering {
             read.add(entity);
         }
         return Collections.unmodifiableSet(read);
+    }
+
+    /**
+     * Refuses a to-one column the {@code where} tree reads by its id, which a write renders as the foreign-key column,
+     * unless {@code referencesPrimaryKey}, the provider's answer for an entity and its to-one attribute, reports that
+     * the foreign key references the target's primary key: else the provider joins the target, which drops the rows
+     * whose foreign key is {@code NULL} (R-COL-29, D-136). Rendered into a scratch query, as
+     * {@link #entitiesReadInSubquery} is.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1004} naming the first such column
+     */
+    static void checkForeignKeys(List<Filter> where, Class<?> entity, CriteriaBuilder cb, RenderOptions options,
+            BiFunction<Class<?>, String, Optional<Boolean>> referencesPrimaryKey) {
+        if (where.isEmpty()) {
+            return;
+        }
+        Probe probe = probe(where, cb.createQuery(), entity, cb, options);
+        probe.ctx().foreignKeyReads().forEach((column, owner) -> {
+            Optional<Boolean> answer = referencesPrimaryKey.apply(owner, column.name());
+            if (!answer.orElse(false)) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1004, column + ": a write's filter reads the to-one "
+                        + owner.getSimpleName() + "." + column.name() + " by its id as its foreign-key column, which "
+                        + "takes no join only when the foreign key references its target's primary key, and the "
+                        + "provider " + (answer.isPresent() ? "reports that it does not" : "cannot tell")
+                        + "; filter on a column of the joined target instead");
+            }
+        });
     }
 
     /**

@@ -1,0 +1,2 @@
+select oe1_0.id from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id where exists(select 1 from order_items i1_0 where i1_0.product_code=? and oe1_0.id=i1_0.order_id) order by r1_0.id,1 offset ? rows fetch first ? rows only
+select oe1_0.id,r1_0.id from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id where exists(select 1 from order_items i1_0 where i1_0.product_code=? and oe1_0.id=i1_0.order_id) and oe1_0.id in (?,?,?,?,?,?) order by 2,1

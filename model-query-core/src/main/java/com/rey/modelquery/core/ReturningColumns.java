@@ -8,8 +8,9 @@ import java.util.List;
 
 /**
  * Which selected columns a {@code persist} returning query can fill from the flushed entity alone: a root attribute,
- * through embeddables, or the id of a to-one association joined from the root without {@code on(...)}; never an
- * expression, an aggregate, a to-one or collection attribute itself, nor a join beyond a to-one id (R-WRT-48).
+ * through embeddables, a root to-one read by its id (R-COL-29), or the id of a to-one association joined from the root
+ * without {@code on(...)}; never an expression, an aggregate, a to-one or collection attribute itself, nor a join
+ * beyond a to-one id (R-WRT-48).
  */
 final class ReturningColumns {
 
@@ -62,9 +63,11 @@ final class ReturningColumns {
             if (last.isCollection()) {
                 return "the collection " + field.name() + ", which a query joins" + SELECT_AFTER;
             }
-            // The entity holds the target as a reference, which has only its id without a statement
-            return last.isAssociation() ? "the association " + field.name() + " itself; select its target's id "
-                    + "through a join from the root instead" : null;
+            // The entity holds the target as a reference, which has only its id without a statement, so a column of
+            // the id's type reads that id, the executor asking for the path through it (R-COL-29)
+            return last.isAssociation() && field.idOf(last) == null ? "the association " + field.name()
+                    + " itself; select its target's id through a join from the root, or a column of the id's type "
+                    + "over the association, instead" : null;
         }
         Attribute<?, ?> joined = root.getAttribute(table.path());
         if (joined instanceof SingularAttribute<?, ?> toOne && toOne.isAssociation()

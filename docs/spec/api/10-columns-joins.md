@@ -351,6 +351,27 @@ it sees the `NULL`-foreign-key rows (a keyset order on it then needs `nullsFirst
 R-PAG-05). It does not hold inside an embedded value (a dotted attribute path), which keeps `root.get`, nor in a bulk
 write, which takes no join. A converter is never given the `null`.
 
+**R-COL-29** *(D-136)* **A to-one read by its id.** A column whose attribute is a to-one association and whose type,
+or whose converter's attribute type, is the target's single id of persistence type `BASIC` (`ColumnField.of(Order.class,
+ORDERS, "referrer", Long.class)`, `@Column(attribute = "referrer") Long referrerId` on a query model) reads the
+association's id, the foreign key, instead of `MQ1001`; for another type `MQ1001`'s message names the id type. The
+dotted `referrer.id` stays a path through an embeddable (`MQ1002`), so the spelling is one.
+
+- In every clause of a read (select, filter, order, group, keyset, the primary-key-first phases, `count`, export, and
+  the source select of an insert-select) it
+  reads through R-COL-25's `LEFT` join and the target's id, on every mapping (owning or inverse, a non-key
+  `referencedColumnName`, a `@JoinFormula`, `@NotFound`), so a `NULL` foreign key reads back `null` and no row is
+  dropped (INV-4, INV-5). A locked read of it has that join, so it is `MQ2211` (`api/11` R-QRY-17); Q-20 keeps a
+  join-free read open.
+- In a write's filter (a bulk update or delete, the sub-select its joined `where` renders, the load of
+  `throughEntities()`, a key select) it renders the foreign-key column through the association's path, which takes no
+  join only when the foreign key references the target's primary key. The executor asks the provider's
+  `ProviderSupport.referencesPrimaryKey` for each such column once per definition and factory, before any statement, and
+  refuses it with `MQ1004` when the provider reports that it does not, or cannot tell (`vendor/40` R-VND-13's provider
+  facts). Generated models never reach `MQ1004`, since the processor refuses those mappings.
+- A returning write reads it from the written row (`api/14` R-WRT-48, R-WRT-50); a set clause writes it by id as an
+  update model's column does (R-GEN-19).
+
 **R-COL-26** *(D-128)* **A bound argument.** `Expr.value` renders a value as a statement parameter, for a function
 argument or an operand the planner must not see as a literal:
 
@@ -454,3 +475,5 @@ the planner must see as a literal (a partial index's predicate, a selective enum
 | AC-COL-31 | On every Tier-1 vendor an `Expr.value` argument binds — the snapshot shows `?` where a constant would be text — on each statement path: list, count, offset page, primary-key-first (both steps), keyset, grouped and offset export, `exists` and sub-select bodies, CASE conditions, bulk update and bulk delete, `one`, `one(key)` and `byKeys`, `throughEntities` writes, insert-from-select, and a bulk update or delete with a joined `where`; an `Expr.value` in a model column (projection) and in an order, for `count`, offset `page`, `one`, `byKeys` and primary-key-first. PostgreSQL groups by `timezone(?, created_at)` and filters by `jsonb_exists(tags, ?)`. A `null`, `Optional`, `Collection` or `Map` value is `MQ1502` (R-COL-26, R-COL-18, R-COL-19). |
 | AC-COL-32 | On every Tier-1 vendor, `Expr.constant(typedBy, value)` filters and compares through a `@Enumerated(STRING)` enum, an `@Enumerated(ORDINAL)` enum, an `AttributeConverter` attribute (stored codes), a native-enum JDBC type mapping and a column with a `ColumnConverter`, inlining each as its stored literal; the witness is equal by `equals` but adds no column and no join; a null value is `MQ1502`, a value its converter refuses `MQ1308`, a stored value that is not a `String`, `Number` or `Boolean`, a provider without the capability, and a column-typed constant used outside a comparison or `in` operand `MQ1508` (R-COL-27, R-COL-14, R-COL-20). |
 | AC-COL-33 | On H2 and PostgreSQL, `Expr.nextval("seq")` selected over a table's rows returns a distinct value per row and a second query continues the sequence above the first's values; the snapshot shows the dialect's own call. A sequence name that is not an identifier (`a b`, `a;b`, `a.b.c`) is `MQ1509` at definition; a `nextval` in a filter, a `having` (inside an aggregate), an order or a group key, and a `distinct()` query selecting it, is `MQ1509` with no statement run, also when the select renders the same expression first; on MySQL it is `MQ1509` at first resolution with no statement run (R-COL-28, R-VND-18). |
+| AC-COL-34 | On every Tier-1 vendor, on both Hibernate lines, a hand-written column of type `Long` over the nullable `referrer` keeps the `NULL`-foreign-key orders in a select, an `isNull` and an `eq` filter, an order with `nullsFirst` and an offset page across the last `NULL`s, and `count`; a keyset export ordered by it with `nullsLast` or `nullsFirst` visits each order once in that order, and without a null precedence is `MQ2202`; a primary-key-first page with a to-many filter returns the same rows as the database; an insert-select whose source selects it inserts the `NULL`-foreign-key orders with a `NULL` value; it reads through a `@Join`ed table, as a child's foreign key, through an inverse `@OneToOne` and through a `@NotFound` to-one whose key is `NULL` or names no row, each without dropping a row; a locked read is `MQ2211` before any statement; a bulk update and a bulk delete filtering by it render the foreign-key column with no join, `throughEntities` writes the same rows, and an `updateReturning` returns it; over `SkuOrderLineEntity`'s non-key `referencedColumnName` a bulk update, `throughEntities` update and bulk delete filtering by it are `MQ1004` and a returning write selecting it `MQ1809` (`MQ4011` where the vendor returns no rows), and a bulk delete filtering by the `@NotFound` to-one or by the inverse `@OneToOne` is `MQ1004`, all before any statement; the snapshots also record the read over that mapping and the read and write over a `@JoinFormula` and a `@MapsId` `@OneToOne` (R-COL-29, R-COL-25, R-WRT-48). |
+| AC-COL-35 | On every Tier-1 vendor, a runtime `groupBy` on the id form of `referrer` with a `count` returns the `NULL` group first under `nullsFirst` and each referrer's count, and a grouped export returns the same groups; PostgreSQL accepts the statement (R-COL-29, `api/13` R-AGG-09). |

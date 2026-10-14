@@ -669,7 +669,7 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         Objects.requireNonNull(metamodel, "metamodel");
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root<?> from = query.from(requireSource().rootEntity());
-        JoinContext joins = JoinContext.of(from, cb, query, options);
+        JoinContext joins = JoinContext.readOf(from, cb, query, options);
         // build() checked that each column is mapped exactly once, so every slot is filled.
         var sources = new ArrayList<ColumnField<?, ?, ?>>(Collections.nCopies(definition.columns().columns().size(),
                 null));

@@ -19,6 +19,7 @@ import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Order;
 import java.io.Serializable;
+import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -30,6 +31,7 @@ import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
+import org.hibernate.annotations.NotFound;
 import org.hibernate.boot.model.naming.Identifier;
 import org.hibernate.boot.model.relational.SqlStringGenerationContext;
 import org.hibernate.boot.spi.SessionFactoryOptions;
@@ -42,6 +44,8 @@ import org.hibernate.dialect.PostgreSQLDialect;
 import org.hibernate.dialect.SQLServerDialect;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.jpa.HibernateHints;
+import org.hibernate.metamodel.mapping.EntityAssociationMapping;
+import org.hibernate.metamodel.mapping.ForeignKeyDescriptor;
 import org.hibernate.query.SortDirection;
 import org.hibernate.query.criteria.HibernateCriteriaBuilder;
 import org.hibernate.query.criteria.JpaCriteriaQuery;
@@ -192,6 +196,28 @@ public final class HibernateProviderSupport implements ProviderSupport {
                 .map(sf -> TABLES.computeIfAbsent(emf, factory -> new ConcurrentHashMap<>())
                         .computeIfAbsent(entity, type -> tablesOf(sf, type)))
                 .orElse(Set.of());
+    }
+
+    /**
+     * Whether {@code toOne} of {@code entity} is a to-one whose foreign key is on the entity's table and references its
+     * target's primary key, from Hibernate's mapping, and whose member carries no {@code @NotFound}: then
+     * {@code toOne.id} in a bulk statement renders that column with no join, where a {@code referencedColumnName} of
+     * another column renders a join (the M22.1 spike). Empty for a type that is not an entity in {@code emf}, or an
+     * attribute that is not a to-one (R-COL-29, D-136).
+     */
+    @Override
+    public Optional<Boolean> referencesPrimaryKey(EntityManagerFactory emf, Class<?> entity, String toOne) {
+        return sessionFactory(emf).map(sf -> sf.getMappingMetamodel().findEntityDescriptor(entity))
+                .map(persister -> persister.findAttributeMapping(toOne))
+                .filter(EntityAssociationMapping.class::isInstance).map(EntityAssociationMapping.class::cast)
+                .map(association -> association.getSideNature() == ForeignKeyDescriptor.Nature.KEY
+                        && association.isReferenceToPrimaryKey() && !notFound(emf, entity, toOne));
+    }
+
+    /** Whether the member of {@code toOne} on {@code entity} carries {@code @NotFound}, whose join Hibernate keeps. */
+    private static boolean notFound(EntityManagerFactory emf, Class<?> entity, String toOne) {
+        return emf.getMetamodel().entity(entity).getAttribute(toOne).getJavaMember() instanceof AnnotatedElement member
+                && member.isAnnotationPresent(NotFound.class);
     }
 
     /** The query spaces of {@code entity} and its subtypes in {@code sf}, as {@link #normalised} names. */

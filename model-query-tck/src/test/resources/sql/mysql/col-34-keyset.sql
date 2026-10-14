@@ -1,0 +1,8 @@
+select oe1_0.id,r1_0.id from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id order by case when (r1_0.id) is null then 1 else 0 end,2,1 limit ?
+select oe1_0.id,r1_0.id from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id where r1_0.id>? or r1_0.id is null or r1_0.id=? and oe1_0.id>? order by case when (r1_0.id) is null then 1 else 0 end,2,1 limit ?
+select oe1_0.id,r1_0.id from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id where r1_0.id is null and oe1_0.id>? order by case when (r1_0.id) is null then 1 else 0 end,2,1 limit ?
+select oe1_0.id,r1_0.id from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id where r1_0.id is null and oe1_0.id>? order by case when (r1_0.id) is null then 1 else 0 end,2,1 limit ?
+select oe1_0.id,r1_0.id from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id order by case when (r1_0.id) is null then 0 else 1 end,2 desc,1 desc limit ?
+select oe1_0.id,r1_0.id from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id where r1_0.id is not null or r1_0.id is null and oe1_0.id<? order by case when (r1_0.id) is null then 0 else 1 end,2 desc,1 desc limit ?
+select oe1_0.id,r1_0.id from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id where r1_0.id is not null or r1_0.id is null and oe1_0.id<? order by case when (r1_0.id) is null then 0 else 1 end,2 desc,1 desc limit ?
+select oe1_0.id,r1_0.id from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id where r1_0.id<? or r1_0.id=? and oe1_0.id<? order by case when (r1_0.id) is null then 0 else 1 end,2 desc,1 desc limit ?
