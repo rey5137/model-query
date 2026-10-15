@@ -1,6 +1,7 @@
 # RFC 0013 — Source models: CTEs, window fields, set operations and recursive reads
 
-- **Status:** draft (revised after the architect review)
+- **Status:** draft (revised after the architect review; the acceptance spike passed, see
+  [0013-spike-results.md](0013-spike-results.md))
 - **Affects:**
   - **New spec file:** `api/17-query-sources.md`, with R-SRC-01 to R-SRC-12 and AC-SRC-01 to AC-SRC-16.
   - **`SPEC.md`:** `SRC 17` in §1 Areas; `SourceQuery` and `WindowField` in INV-9's list.
@@ -166,6 +167,8 @@ construction, or the source is treated as non-unique (§6).
   - `FIRST_VALUE` and `LAST_VALUE` take only `ROWS` frames. Appending the key under a `RANGE` frame would make every row
     its own peer group. With a `RANGE` offset it would also be invalid SQL, because PostgreSQL then requires exactly one
     `order by` column.
+  - `LAG` and `LEAD` take no frame. SQL ignores a frame on them, and H2 rejects one as a syntax error, so a declared
+    `frame` on them is `MQ3032` and `SourceSupport#window` never renders one.
   - Aggregates may take either frame kind. A `RANGE` frame leaves their order as written; a `ROWS` frame gets the key.
 - **`WindowFrame` constants:**
   - `ROWS_UNBOUNDED_PRECEDING_TO_CURRENT_ROW`
@@ -180,6 +183,11 @@ construction, or the source is treated as non-unique (§6).
   repeat a row without `MQ2205`. The guard is a single snapshot: a REPEATABLE READ transaction around the walk.
 - **Cost.** Each export page also recomputes the whole CTE. On MySQL, which materializes CTEs, an export costs
   quadratic work in the source's size. The source page of `docs/site` says so.
+- **Cost of deep recursion without a native `cycle` clause.** PostgreSQL renders `cycle` natively. On H2 and MySQL,
+  Hibernate emulates it with a path that grows by one key per level and is searched on every row, so the work grows
+  quadratically with depth. In the spike, a 999-level chain took about 14 s on H2 (about 85 ms on PostgreSQL), even
+  with the parent column indexed. MySQL's path is a `char(22000)` column, at about the key's length plus 3 characters
+  per level; at the default ceiling, 19-digit keys exactly fill it. The source page of `docs/site` says so.
 
 ### 4. Set operations (R-PROC-38, R-SRC-05, R-SRC-06)
 
@@ -256,7 +264,8 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
   - Named steps make a swapped pair read wrong at the call site.
   - The shared `T` makes keys of different types fail to compile.
   - The depth limit is a required argument, so it can't be left out.
-  - A value below 1, or `Integer.MAX_VALUE` (whose `maxDepth + 1` would overflow), is `MQ1902`.
+  - A value below 1, or above `Integer.MAX_VALUE - 2` (whose ceiling check `maxDepth + 2` would overflow), is
+    `MQ1902`.
 - **Levels.** Seed rows are level 0, and each step adds 1. `maxDepth = 20` returns levels 0 to 20.
 - **Shape rules (`MQ3037`).**
   - A recursive model has no `@Window`, `@Aggregate` or `@GroupBy`, because PostgreSQL forbids them in the recursive
@@ -269,7 +278,8 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
   - **What the outer query sees.** The engine filters on `level <= maxDepth and not mark`, so neither the extra level
     nor a marked row reaches the result.
   - **The check runs in the same statement.** The content and count statements each carry two scalar sub-selects over
-    the same CTE: `max(level)` and whether any mark is set. The engine reads them from the first row.
+    the same CTE: `max(level)` and whether any mark is set. The engine reads them from the first row. The
+    sub-selects read the CTE through Hibernate's `JpaSubQuery`, so they are built behind `SourceSupport#recursive`.
     - A level past `maxDepth` is `MQ2701`. A set mark is `MQ2702`. Each names the model and the first offending key.
     - So every non-empty result is checked in the snapshot it was read from. Neither a too-deep tree nor a cyclic
       graph comes back as a partial or doubled result (INV-5).
@@ -278,9 +288,10 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
     REPEATABLE READ around the call is the full guarantee, and the docs say so.
   - **Export.** Export is refused on recursive sources (§6), so a per-statement check is consistent with `engine/21`.
     Q-21 has to revisit this, because it would make trees exportable.
-- **Vendor ceiling.** `maxDepth + 1 > VendorProfile#maxRecursionDepth()` is `MQ4015`. The check counts the extra level
-  recursion needs, so on MySQL, whose `cte_max_recursion_depth` defaults to 1000, `maxDepth = 1000` is refused here
-  instead of failing with MySQL error 3636.
+- **Vendor ceiling.** `maxDepth + 2 > VendorProfile#maxRecursionDepth()` is `MQ4015`. The check counts the extra level
+  recursion needs, plus the final, empty iteration, which MySQL also counts against `cte_max_recursion_depth`. The
+  spike measured it: at MySQL's default of 1000, `maxDepth = 998` runs and 999 fails with error 3636. So `maxDepth`
+  999 and above is refused here instead.
 - **Key uniqueness (R-SRC-08).** In a tree each node is reached once. In a graph with two paths to a node it isn't, and
   the processor can't tell which one the data is. So a recursive source is non-unique (§6).
 - **Next to fetch plans.** A fetch plan's `@Child` stays the way to load a known, shallow level. A recursive source is
@@ -362,6 +373,10 @@ public interface SourceSupport {                       // ProviderSupport#source
 - **Hibernate implementation.** `model-query-hibernate` implements the hooks for both lines.
   - `LAG`, `LEAD`, `MIN` and `MAX` have no typed `JpaWindow` methods, so they render through
     `windowFunction(name, …)`.
+  - The discriminator constant renders with `cb.literal`, inline. PostgreSQL accepts it in a union branch, and a
+    bound value would also work, because Hibernate casts it there.
+  - Set operations use the `(boolean, CriteriaQuery, CriteriaQuery…)` overloads, identical on both lines. The only
+    line difference the hooks hide is `search`'s ordering type (`NullPrecedence` on 6.6, `Nulls` on 7.4).
   - Another provider, or no `ProviderSupport`, is `MQ4014` before any statement.
 
 **Vendor (INV-6).**
@@ -392,7 +407,7 @@ are raised before any statement.
 | R-GEN-37, R-GEN-38 | `processor/31` | The `source()` builder and `query(SourceQuery<S>)`; `WindowField` constants |
 | R-VND-21, R-VND-22 | `vendor/40` | `sources(SourceFeature)`; `maxRecursionDepth()` |
 | MQ1901 | `api/17` | `keyset()` or `primaryKeyFirst(...)` over a non-unique source |
-| MQ1902 | `api/17` | A recursive source's `maxDepth` below 1, or `Integer.MAX_VALUE` |
+| MQ1902 | `api/17` | A recursive source's `maxDepth` below 1, or above `Integer.MAX_VALUE - 2` |
 | MQ1903 | `api/17` | A row lock on a query that reads a source |
 | MQ1904 | `api/17` | Two branches of one `union` or `unionAll` with the same discriminator value |
 | MQ1905 | `api/17` | A hand-written `ColumnField` over a source root |
@@ -402,7 +417,7 @@ are raised before any statement.
 | MQ2702 | `api/17` | A recursive source meets a cycle |
 | MQ3030 | `processor/32` | `@Child` on a source model |
 | MQ3031 | `processor/32` | A source model's `@PrimaryKey` is not the root id or the full group set (plus discriminators), a group key is nullable, or a field reads through a to-many join |
-| MQ3032 | `processor/32` | A `@Window` with an unknown path, a mismatched type, an order-sensitive function without `orderBy`, a missing `frame`, a value function with a `RANGE` frame, or, in a grouped source, a window term that is neither a group key nor an aggregate |
+| MQ3032 | `processor/32` | A `@Window` with an unknown path, a mismatched type, an order-sensitive function without `orderBy`, a missing `frame`, `FIRST_VALUE` or `LAST_VALUE` with a `RANGE` frame, a frame on `LAG` or `LEAD`, or, in a grouped source, a window term that is neither a group key nor an aggregate |
 | MQ3033 | `processor/32` | `@Window` outside a source model |
 | MQ3034 | `processor/32` | A branch whose fields or key fields differ from its shape (name, type, converter, enum or temporal type), a branch with `@Window`, a recursive branch or shape, or a misplaced or missing `@Discriminator` |
 | MQ3035 | `processor/32` | `@Join` on a model rooted at a source |
@@ -411,7 +426,7 @@ are raised before any statement.
 | MQ3038 | `processor/32` | A `root` that is neither `@Entity` nor `@SourceModel`, or both |
 | MQ3039 | `processor/32` | A `@Child` whose child model is rooted at a source |
 | MQ4014 | `reference/90` | The factory's provider has no `SourceSupport` |
-| MQ4015 | `reference/90` | The vendor lacks a source feature the query uses, or `maxDepth + 1` exceeds its recursion ceiling |
+| MQ4015 | `reference/90` | The vendor lacks a source feature the query uses, or `maxDepth + 2` exceeds its recursion ceiling |
 | AC-SRC-01..16 | `api/17` | TCK cases on every Tier-1 vendor, listed below |
 | AC-PROC-30..39 | `processor/32` | A compile-testing case per `MQ303x` code, plus a positive case per annotation |
 
@@ -433,7 +448,7 @@ The AC-SRC-01..16 cases are:
   source is refused for every key-based feature.
 - Offset paging over a non-unique source breaks ties on every selected column.
 - A to-many filter inside a source must be an explicit `exists`.
-- Order-sensitive windows are made deterministic by appending the source key; value functions take `ROWS` frames.
+- Order-sensitive windows are made deterministic by appending the source key; `FIRST_VALUE` and `LAST_VALUE` take `ROWS` frames, and `LAG` and `LEAD` take none.
 - Recursion fails loudly at its depth limit and on cycles, checked in the same statement that reads the rows. The race
   left on an empty result under READ COMMITTED is documented.
 
@@ -478,23 +493,16 @@ Everything here is additive and `@Incubating`, apart from one support-floor chan
 
 ## Unresolved questions
 
-- **Spike (before acceptance), on Hibernate 6.6 and 7.4, with H2, PostgreSQL and MySQL 8.0.31.** Confirm that:
-  - `with` accepts a tuple query whose aliases become CTE columns, and `from(JpaCteCriteria)` reads them with
-    `get(alias)`;
-  - a set operation built with the `(boolean, CriteriaQuery…)` overloads works as a CTE body;
-  - `withRecursiveUnionAll` works with `cycle` and a depth column, and the probe works over the same CTE;
-  - `JpaWindow` works with `ROWS` and `RANGE` frames, including `windowFunction("lag" | "lead" | "min" | "max", …)`;
-  - a window value works in the outer `where`, `order by` and keyset predicate;
-  - a count query works over a sourced query;
-  - an `exists` predicate on a to-many path works inside a CTE body;
-  - the scalar `max(level)` and mark sub-selects work in the content and count statements;
-  - a discriminator constant in a union branch renders with a type, since PostgreSQL rejects an untyped bound
-    parameter there ("could not determine data type"). If it doesn't, render it as a typed literal or a cast;
-  - nested, parenthesized set operations work on MySQL 8.0.31;
-  - how wide Hibernate's emulated cycle path is on H2 and MySQL, which have no native `cycle` clause, and what it costs
-    at `maxDepth` 1000.
+- **Spike: done.** Every hook the design relies on works on Hibernate 6.6.58 and 7.4.11 with H2, PostgreSQL 16 and
+  MySQL 8.0.31, with identical results on both lines. [0013-spike-results.md](0013-spike-results.md) has the matrix
+  and the SQL. Its findings are folded in above: no frame on `LAG`/`LEAD` (§3), the `maxDepth + 2` ceiling and the
+  probe through `JpaSubQuery` (§5), the cost of emulated cycle detection (§3), and `cb.literal` for the
+  discriminator (§8).
 - **Q-21:** a duplicate-key probe that would let a recursive source over a tree count as unique, so fetch plans and
-  keyset paging work on trees.
+  keyset paging work on trees. The spike shows one statement can detect a repeated key on all three vendors:
+  `(select count(*) from cte)` against `(select count(distinct key) from cte)`, counting the cycle-marked row too.
+  It re-scans the CTE for each sub-select and checks only the statement it runs in, so it could make R-SRC-08 a
+  runtime check, but it does not by itself make a tree safe for export or keyset paging across statements.
 - **Q-22:**
   - window and aggregate fields over the combined rows of a set operation or a recursive source (a source over a
     source);
