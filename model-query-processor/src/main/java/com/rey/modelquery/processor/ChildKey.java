@@ -2,6 +2,7 @@ package com.rey.modelquery.processor;
 
 import com.rey.modelquery.processor.EntityMetamodel.Step;
 import com.rey.modelquery.processor.EntityMetamodel.Walk;
+import com.rey.modelquery.processor.ModelDefinition.ModelField;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -42,10 +43,25 @@ record ChildKey(
 
     /**
      * Lays out the one path of {@code paths} on {@code owner}'s root, or {@code owner}'s one {@code @PrimaryKey}
-     * attribute when {@code paths} is empty.
+     * attribute when {@code paths} is empty. On a model rooted at a source, the path names one of the source's fields
+     * (api/17 R-SRC-10): the CTE aliases every field flat by name, so the key crosses no join, and a name no source
+     * field matches is {@code MQ3402}, the code an unknown entity attribute takes.
      */
     static ChildKey of(EntityMetamodel metamodel, Types types, ModelDefinition owner, List<String> paths) {
-        return of(metamodel, types, owner.root(), paths.isEmpty() ? owner.keys().get(0).attribute() : paths.get(0));
+        String path = paths.isEmpty() ? owner.keys().get(0).attribute() : paths.get(0);
+        if (owner.readsSource()) {
+            ModelField field = owner.sourceField(path);
+            if (field == null) {
+                return failed(path, DiagnosticCode.MQ3402, owner.source().name() + " has no attribute '" + path + "'");
+            }
+            // The key is read as the attribute value, before any converter (R-FCH-05), so a converted source column
+            // is typed by the entity attribute it reads, which the child's foreignKey is compared with.
+            ChildKey attribute = field.converter() != null && field.column()
+                    ? of(metamodel, types, owner.source().root(), field.attribute()) : null;
+            return new ChildKey(path, List.of(), path, attribute != null && attribute.code() == null
+                    ? attribute.type() : ProcessorTypes.boxed(types, field.type()), null, null);
+        }
+        return of(metamodel, types, owner.root(), path);
     }
 
     /** Lays {@code path} out from {@code root}. */

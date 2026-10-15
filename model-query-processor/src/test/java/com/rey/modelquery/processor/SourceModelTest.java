@@ -1,6 +1,7 @@
 package com.rey.modelquery.processor;
 
 import static com.google.testing.compile.CompilationSubject.assertThat;
+import static com.rey.modelquery.processor.ProcessorHarness.classes;
 import static com.rey.modelquery.processor.ProcessorHarness.compile;
 import static com.rey.modelquery.processor.ProcessorHarness.errors;
 import static com.rey.modelquery.processor.ProcessorHarness.generated;
@@ -10,6 +11,10 @@ import static com.rey.modelquery.processor.ProcessorHarness.source;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.google.testing.compile.Compilation;
+import com.rey.modelquery.core.ChildField;
+import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.TableField;
+import jakarta.persistence.criteria.JoinType;
 import javax.tools.JavaFileObject;
 import org.junit.jupiter.api.Test;
 
@@ -77,6 +82,35 @@ class SourceModelTest {
 
             @QueryModel(root = OrderTotals.class)
             public record OrderRow(@PrimaryKey Long id, String status, BigDecimal total) {}
+            """);
+
+    private static final JavaFileObject ORDER_ITEM_ENTITY = source("shop.OrderItemEntity", """
+            package shop;
+
+            import jakarta.persistence.Entity;
+            import jakarta.persistence.Id;
+            import jakarta.persistence.JoinColumn;
+            import jakarta.persistence.ManyToOne;
+
+            @Entity
+            public class OrderItemEntity {
+                @Id
+                Long id;
+                String code;
+                @ManyToOne
+                @JoinColumn(name = "order_id")
+                OrderEntity order;
+            }
+            """);
+
+    private static final JavaFileObject ORDER_ITEM_ROW = source("shop.OrderItemRow", """
+            package shop;
+
+            import com.rey.modelquery.annotations.PrimaryKey;
+            import com.rey.modelquery.annotations.QueryModel;
+
+            @QueryModel(root = OrderItemEntity.class)
+            public record OrderItemRow(@PrimaryKey Long id, String code) {}
             """);
 
     private static final JavaFileObject STATUS_ROW = source("shop.StatusRow", """
@@ -457,19 +491,78 @@ class SourceModelTest {
     }
 
     @Test
-    void ac_proc_39_a_child_of_a_model_rooted_at_a_source_is_mq3039() {
-        Compilation compilation = compile(ORDER_ENTITY, ORDER_TOTALS, ORDER_ROW, model("ChildRow", """
-                import com.rey.modelquery.annotations.Child;
-                import com.rey.modelquery.annotations.PrimaryKey;
-                import com.rey.modelquery.annotations.QueryModel;
-                import java.util.List;
+    @SuppressWarnings("unchecked")
+    void ac_proc_39_a_child_on_a_model_rooted_at_a_source_is_keyed_on_a_source_field() throws Exception {
+        Compilation compilation = compile(ORDER_ENTITY, ORDER_TOTALS, ORDER_ITEM_ENTITY, ORDER_ITEM_ROW,
+                model("OrderFeed", """
+                        import com.rey.modelquery.annotations.Child;
+                        import com.rey.modelquery.annotations.PrimaryKey;
+                        import com.rey.modelquery.annotations.QueryModel;
+                        import java.util.List;
 
-                @QueryModel(root = OrderTotals.class)
-                public record ChildRow(@PrimaryKey Long id, @Child List<OrderRow> rows) {}
-                """));
+                        @QueryModel(root = OrderTotals.class)
+                        public record OrderFeed(@PrimaryKey Long id,
+                                @Child(key = "id", foreignKey = "order.id") List<OrderItemRow> items) {}
+                        """));
+
+        assertThat(compilation).succeededWithoutWarnings();
+        // The parent-side key reads the source's own column through its CTE, not an entity metamodel (R-SRC-10);
+        // ColumnField.of(...) would be MQ1905 on a source root, so the generated key names the source's constant.
+        assertThat(generated(compilation, "shop.QOrderFeed").replaceAll("\\s+", " "))
+                .contains("ColumnField.over(OrderFeed.class, ROOT, QOrderTotals.ID)");
+
+        ClassLoader loader = classes(compilation);
+        Class<?> qFeed = loader.loadClass("shop.QOrderFeed");
+        var items = (ChildField<Object, Object>) constant(qFeed, "ITEMS");
+        assertThat(items.isToMany()).isTrue();
+        assertThat(items.key()).isEqualTo(constant(qFeed, "ID"));
+        assertThat(items.foreignKey()).contains(ColumnField.of(
+                (Class<Object>) loader.loadClass("shop.OrderItemRow"),
+                TableField.join(TableField.root(loader.loadClass("shop.OrderItemEntity")), "order", JoinType.LEFT),
+                "id", Long.class));
+    }
+
+    @Test
+    void ac_proc_39_an_unknown_parent_side_key_name_on_a_source_parent_is_mq3402() {
+        Compilation compilation = compile(ORDER_ENTITY, ORDER_TOTALS, ORDER_ITEM_ENTITY, ORDER_ITEM_ROW,
+                model("BadKeyRow", """
+                        import com.rey.modelquery.annotations.Child;
+                        import com.rey.modelquery.annotations.PrimaryKey;
+                        import com.rey.modelquery.annotations.QueryModel;
+                        import java.util.List;
+
+                        @QueryModel(root = OrderTotals.class)
+                        public record BadKeyRow(@PrimaryKey Long id,
+                                @Child(key = "nope", foreignKey = "order.id") List<OrderItemRow> items) {}
+                        """));
 
         assertThat(compilation).failed();
-        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3039, "ChildRow.rows: ChildRow"
-                + " is rooted at OrderTotals, a @SourceModel; a @Child needs a parent query to fetch it"));
+        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3402,
+                "BadKeyRow.items: OrderTotals has no attribute 'nope'"));
+    }
+
+    @Test
+    void ac_proc_39_a_through_child_on_a_source_parent_is_mq3406() {
+        Compilation compilation = compile(ORDER_ENTITY, ORDER_TOTALS, ORDER_ITEM_ENTITY, ORDER_ITEM_ROW,
+                model("ThroughRow", """
+                        import com.rey.modelquery.annotations.Child;
+                        import com.rey.modelquery.annotations.PrimaryKey;
+                        import com.rey.modelquery.annotations.QueryModel;
+                        import java.util.List;
+
+                        @QueryModel(root = OrderTotals.class)
+                        public record ThroughRow(@PrimaryKey Long id,
+                                @Child(key = "id", through = "items") List<OrderItemRow> items) {}
+                        """));
+
+        assertThat(compilation).failed();
+        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3406, "ThroughRow.items: through "
+                + "'items' needs an entity root to join along, and ThroughRow is rooted at OrderTotals, a "
+                + "@SourceModel; use foreignKey"));
+    }
+
+    /** The public static constant {@code name} of the generated {@code qModel}. */
+    private static Object constant(Class<?> qModel, String name) throws ReflectiveOperationException {
+        return qModel.getField(name).get(null);
     }
 }

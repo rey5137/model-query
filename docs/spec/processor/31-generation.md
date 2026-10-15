@@ -398,7 +398,11 @@ annotation is added.
 ## 8. Generated source models
 
 **R-GEN-37** *(D-143)* **`source()` and `query(SourceQuery<S>)`.** A source model's QModel declares `ROOT`,
-`ALL`, `DEFAULT`, `GROUP_KEYS` and `KEY` as a query model's does, and `source()` in place of `query()`:
+`ALL`, `DEFAULT`, `GROUP_KEYS` and `KEY` as a query model's does, and `source()` in place of `query()`. A source's
+`ALL` carries **every** field of the model, the `@Aggregate` fields included, because a source's `ALL` is the projection
+of its CTE body, which carries every field an outer model reads by name (R-PROC-10, `api/17` R-SRC-10, R-SRC-12), so
+R-PROC-17's reason for leaving aggregates out of a query model's `ALL` — that every query of the model would be grouped
+— does not apply to a source:
 
 ```java
 public static SourceQuery.Builder<OrderEntity, OrderTotals, OrderTotals> source() {

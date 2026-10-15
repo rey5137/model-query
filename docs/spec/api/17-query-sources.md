@@ -4,8 +4,8 @@
 `@QueryModel` that reads a source.
 **Read when:** declaring a source model, reading one from an outer model, or changing what the processor generates for
 either. Windows, set operations and recursion are RFC 0013 §3–§6 and later releases.
-**Owns:** `R-SRC-*`, `AC-SRC-*`. Rows `R-SRC-04`..`R-SRC-09` and `R-SRC-11`..`R-SRC-12` land with the slices that
-implement them (M25.3–M25.5); the run-time half of `R-SRC-03` lands with M25.2.
+**Owns:** `R-SRC-*`, `AC-SRC-*`. Rows `R-SRC-04`..`R-SRC-09` land with the slices that implement them
+(M25.3–M25.5); the run-time half of `R-SRC-03` and all of `R-SRC-11`..`R-SRC-12` land with M25.2.
 
 ---
 
@@ -55,8 +55,10 @@ which is `MQ3031` too.
 **R-SRC-03** What that uniqueness buys, and what keeps it:
 
 - **A to-many filter inside a source is an explicit `exists`.** A `where` predicate whose path crosses a to-many join
-  is `MQ1906`, raised at the source's `build()` and pointing at `Filters.exists(path, inner)`, whose correlation
-  R-FLT-11 and R-FLT-12 already define. The predicate is not rewritten silently: two conditions on one joined line
+  is `MQ1906`, pointing at `Filters.exists(path, inner)`, whose correlation R-FLT-11 and R-FLT-12 already define. The
+  joins a predicate crosses are known only where it is resolved, so the code is raised while the source's CTE body is
+  built for a statement over it — assembled, never executed (R-SRC-11), and so before any statement. The predicate is
+  not rewritten silently: two conditions on one joined line
   would match different lines, `isNull` on a LEFT path would stop matching rows with no line, and `not` would become
   `not exists`. `select distinct` is no fix either, because window functions run before `distinct`. *(The code is
   raised from M25.2; the paths a source model may read are `MQ3031` at compile time today.)*
@@ -113,7 +115,8 @@ public final class SourceQuery<S> {
   of an outer model is `MQ3011`, since it aliases a CTE column of its own and the CTE's columns are the source's
   fields. A `@Join` on a model rooted at a source is `MQ3035`: a source root has no associations. A `@Child` whose
   child model is rooted at a source is `MQ3039`, because the fetch plan has no `SourceQuery` to pass it; on a parent
-  rooted at a source, a `@Child`'s parent-side key names a source field.
+  rooted at a source, a `@Child`'s parent-side key names a source field, and a `through` child is `MQ3406`, since
+  it joins along entity associations the source does not have.
 
 - **The generated `query(SourceQuery<S>)` takes the source**, so an outer query without one does not compile:
 
@@ -126,14 +129,37 @@ public static ModelQuery.Builder<OrderTotals, Long, CustomerTotals> query(Source
 A grouped outer model over a source follows `api/13` as an entity-rooted one does; an ungrouped outer model over a
 grouped source is the way to page groups by keyset.
 
-## 4. Acceptance criteria
+## 4. Building the CTE, and what a source needs to run
+
+**R-SRC-11** What a statement over a source needs, all checked before any statement:
+
+- **The provider's support.** `ProviderSupport#sources()` returns the factory's `SourceSupport`. Empty — the default,
+  and the only answer where the factory's provider has no `ProviderSupport` at all — is `MQ4014`, before any statement,
+  the same fail-safe as `ProviderSupport#inserts()` (R-VND-14). `model-query-hibernate` serves Hibernate on both lines.
+- **The vendor's features.** `VendorProfile#sources(SourceFeature)` answers for each feature the source uses, `false`
+  by default so a profile written before a constant was added fails safe. A `false` is `MQ4015`, before any statement,
+  naming the feature and the vendor. The refusals are database facts (R-VND-11, INV-6); `PortabilityCheck` reports
+  `MQ4014` and `MQ4015` per declared target, with no database (AC-SRC-16).
+- **A row lock.** `withLock(...)` over a source is `MQ1903`: the source's rows come from a common table expression,
+  which a locking clause cannot follow. Q-16 stays open.
+
+**R-SRC-12** The engine (`core`) builds the source's body, as a standard `CriteriaQuery<Tuple>` whose elements are the
+source's fields, aliased by field name, filtered by its `where` and `having` and grouped by its `groupKeys`
+(R-SRC-03, D-143). It reaches the provider only through `SourceSupport#cte(outer, body)`, which registers the body as
+`outer`'s CTE and returns the root the outer statement reads by those names, so no provider type leaks into `jpa`
+(INV-7). The CTE is registered on **every** statement built over the source: the content query, the count, both
+primary-key-first steps, each export page, `byKeys` (every chunk) and the parent reads of a fetch plan. A statement
+that reaches the database without its CTE is therefore a bug in the engine, not a state the user can hold: the body is
+built per statement from the immutable `SourceQuery`, which itself carries no Criteria object (INV-9).
+
+## 5. Acceptance criteria
 
 | ID | Criterion |
 |---|---|
-| AC-SRC-01 | A plain source model reads the rows its hand-written SQL reads, on every Tier-1 vendor and both Hibernate lines (`Future`, M25.2; R-SRC-01). |
-| AC-SRC-02 | A grouped source model with a `where` and a `having` builds the CTE its hand-written SQL builds, pinned as an SQL snapshot per vendor (`Future`, M25.2; R-SRC-01). |
-| AC-SRC-03 | A keyset export over a grouped source visits every group exactly once (`Future`, M25.2; R-SRC-02, INV-4). |
-| AC-SRC-04 | A source whose `where` crosses a to-many join is `MQ1906`, and the `Filters.exists` form of the same predicate returns the rows the hand-written SQL returns (`Future`, M25.2; R-SRC-03). |
+| AC-SRC-01 | A plain source model reads the rows its hand-written SQL reads, on every Tier-1 vendor and both Hibernate lines (R-SRC-01). |
+| AC-SRC-02 | A grouped source model with a `where` and a `having` builds the CTE its hand-written SQL builds, pinned as an SQL snapshot per vendor (R-SRC-01). |
+| AC-SRC-03 | A keyset export over a grouped source visits every group exactly once (R-SRC-02, INV-4). |
+| AC-SRC-04 | A source whose `where` crosses a to-many join is `MQ1906`, and the `Filters.exists` form of the same predicate returns the rows the hand-written SQL returns (R-SRC-03). |
 | AC-SRC-05 | Every window function reads the hand-written SQL's values, and the SQL is pinned per vendor (`Future`, M25.3; R-SRC-04). |
 | AC-SRC-06 | A top-N source paged by keyset and by primary-key-first over tied timestamps loses and repeats no row (`Future`, M25.3; R-SRC-04). |
 | AC-SRC-07 | Each set operation renders the SQL it is written as, pinned per vendor (`Future`, M25.4; R-SRC-05, R-SRC-06). |
@@ -144,5 +170,5 @@ grouped source is the way to page groups by keyset.
 | AC-SRC-12 | A tree read by a recursive source is pinned as an SQL snapshot and returns every node (`Future`, M25.5; R-SRC-07). |
 | AC-SRC-13 | A tree deeper than `maxDepth` is `MQ2701` and a cyclic graph is `MQ2702`, with no marked row in the result (`Future`, M25.5; R-SRC-08). |
 | AC-SRC-14 | MySQL serves `maxDepth` 998 and refuses 999 with `MQ4015` (`Future`, M25.5; R-SRC-08). |
-| AC-SRC-15 | Content, count and both primary-key-first steps of one source are registered on every statement (`Future`, M25.2; R-SRC-12). |
-| AC-SRC-16 | `MQ4014` and `MQ4015` are reported per declared target without a database (`Future`, M25.2; R-SRC-11). |
+| AC-SRC-15 | Content, count and both primary-key-first steps of one source are registered on every statement (R-SRC-12). |
+| AC-SRC-16 | `MQ4014` and `MQ4015` are reported per declared target without a database (R-SRC-11). |

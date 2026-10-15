@@ -42,7 +42,7 @@ public record TckTarget(TckVendor vendor, String version) {
         for (String v : List.of("14", "15", "16", "17")) {
             all.add(postgresql(v));
         }
-        for (String v : List.of("8.0", "8.4")) {
+        for (String v : List.of("8.0.31", "8.4")) {
             all.add(mysql(v));
         }
         return List.copyOf(all);

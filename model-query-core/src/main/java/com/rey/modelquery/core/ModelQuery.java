@@ -511,8 +511,29 @@ public final class ModelQuery<E, K, M> {
                     + "key, and " + (grouped ? "a grouped query has none (R-AGG-09)" : "primaryKey(...) was not set"));
         }
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
+        if (source != null) {
+            return assemble(query, sourceJoins(query, cb, options), phase, null);
+        }
         Root<E> from = query.from(root.rootEntity());
         return assemble(query, JoinContext.readOf(from, cb, query, options), phase, null);
+    }
+
+    /**
+     * The joins of {@code query}, a statement over {@link #source}: the source's CTE is registered on it first, so
+     * every statement this query builds over the source carries it (R-SRC-12), and the outer columns read the CTE's
+     * field-named elements (R-SRC-10).
+     *
+     * @throws ModelQueryConfigurationException {@code MQ4014} when no {@link SourceRenderer} is configured, which is
+     *     the factory's provider having no source support
+     */
+    private JoinContext sourceJoins(CriteriaQuery<Tuple> query, CriteriaBuilder cb, RenderOptions options) {
+        SourceRenderer renderer = options.sourceRenderer()
+                .orElseThrow(() -> new ModelQueryConfigurationException(MqCode.MQ4014, modelName()
+                        + ": this query reads the source " + source.model().getSimpleName()
+                        + ", and the factory's persistence provider has no SourceSupport "
+                        + "(ProviderSupport#sources()); model-query-hibernate serves Hibernate"));
+        return JoinContext.sourceOf(renderer.cte(query, source.body(cb, options)), source.model(), cb, query,
+                options);
     }
 
     /**
@@ -582,7 +603,19 @@ public final class ModelQuery<E, K, M> {
      */
     @EngineFacing
     public void checkPhases(CriteriaBuilder cb) {
+        checkPhases(cb, UNLIMITED);
+    }
+
+    /**
+     * {@link #checkPhases(CriteriaBuilder)} for an executor whose {@code options} carry the source renderer a query over
+     * a source builds with: the scratch builds register the source's CTE too (R-SRC-12), and take no other limit from
+     * {@code options}.
+     */
+    @EngineFacing
+    public void checkPhases(CriteriaBuilder cb, RenderOptions options) {
         Objects.requireNonNull(cb, "cb");
+        RenderOptions scratchOptions = Objects.requireNonNull(options, "options").sourceRenderer()
+                .map(PHASE_SCRATCH::withSourceRenderer).orElse(PHASE_SCRATCH);
         if (customizer == null) {
             return;
         }
@@ -594,7 +627,7 @@ public final class ModelQuery<E, K, M> {
         for (Phase phase : phases) {
             // Which phases a customizer narrows does not depend on the database, so the scratch renders without
             // limits: the portable ones would refuse a long in(...) the resolved profile accepts (MQ1306).
-            BuiltQuery<M> scratch = assemble(cb, phase, PHASE_SCRATCH);
+            BuiltQuery<M> scratch = assemble(cb, phase, scratchOptions);
             Predicate own = scratch.query().getRestriction();
             int joined = narrowingJoins(scratch.query());
             customize(scratch, cb, phase);
@@ -627,8 +660,8 @@ public final class ModelQuery<E, K, M> {
     @EngineFacing
     public void checkFetch(CriteriaBuilder cb) {
         Objects.requireNonNull(cb, "cb");
-        if (needed.isEmpty()) {
-            return;
+        if (needed.isEmpty() || source != null) {
+            return; // a source's columns are the CTE's elements, none read through a join (R-SRC-10)
         }
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         JoinContext joins = JoinContext.of(query.from(root.rootEntity()), cb, query, UNLIMITED);

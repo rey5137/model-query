@@ -12,7 +12,7 @@ import java.util.Optional;
  * discovered with {@code ServiceLoader}; a discovered profile takes precedence over the built-in one for its vendor
  * (R-VND-03). A new behaviour is a new method with a default.
  *
- * @implSpec R-VND-01, R-VND-02, R-VND-03, R-VND-11, R-VND-12, R-VND-14, R-VND-17
+ * @implSpec R-VND-01, R-VND-02, R-VND-03, R-VND-11, R-VND-12, R-VND-14, R-VND-17, R-VND-21, R-VND-22
  */
 @Incubating
 public interface VendorProfile {
@@ -123,5 +123,25 @@ public interface VendorProfile {
      */
     default boolean sequences() {
         return false;
+    }
+
+    /**
+     * Whether the database has {@code feature}, so a query whose source uses it runs (api/17 R-SRC-11, R-VND-21,
+     * D-143). {@code false}, the default, fails safe: the query is then refused with {@code MQ4015} before any
+     * statement. A database fact, no SQL (R-VND-11, INV-6). A profile written before a {@link SourceFeature} was
+     * added must answer {@code false} for it.
+     */
+    default boolean sources(SourceFeature feature) {
+        return false;
+    }
+
+    /**
+     * The deepest level a recursive source may reach on this database, the vendor's own recursion ceiling: a source
+     * whose {@code maxDepth + 2} exceeds it is {@code MQ4015} before any statement (api/17 R-SRC-11, R-VND-22,
+     * D-143). {@code Integer.MAX_VALUE}, the default, means the database sets no ceiling. A database fact, no SQL
+     * (R-VND-11, INV-6).
+     */
+    default int maxRecursionDepth() {
+        return Integer.MAX_VALUE;
     }
 }

@@ -1,8 +1,17 @@
 package com.rey.modelquery.core;
 
 import com.rey.modelquery.annotations.Incubating;
+import jakarta.persistence.Tuple;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Selection;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.UnaryOperator;
 
 /**
@@ -176,5 +185,61 @@ public final class SourceQuery<S> {
     /** The {@code HAVING} predicate, or {@code null} without one. */
     HavingGroup.Clause having() {
         return having;
+    }
+
+    /**
+     * The source's CTE body: a standard {@code CriteriaQuery<Tuple>} selecting every field of {@link #fields()},
+     * aliased to the field name the outer model reads it by, filtered by {@link #where()} and {@link #having()} and
+     * grouped by {@link #groupKeys()} (R-SRC-12, D-143). Built per statement, since it is registered on each
+     * statement that reads the source.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1906} when a {@code where} predicate's path crosses a to-many
+     *     join, which no join inside the CTE can express (R-SRC-03)
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    @EngineFacing
+    CriteriaQuery<Tuple> body(CriteriaBuilder cb, RenderOptions options) {
+        CriteriaQuery<Tuple> query = cb.createTupleQuery();
+        Root from = query.from(root.rootEntity());
+        JoinContext joins = JoinContext.readOf(from, cb, query, options);
+        List<Selection<?>> selections = new ArrayList<>(fields.fields().size());
+        for (SelectField<?, ?> field : fields.fields()) {
+            selections.add(field.expression(joins).alias(alias(field)));
+        }
+        query.multiselect(selections);
+        if (groupKeys != null && !groupKeys.fields().isEmpty()) {
+            query.groupBy(groupKeys.fields().stream().<Expression<?>>map(key -> key.expression(joins)).toList());
+        }
+        int joined = joins.toManyJoins().size();
+        List<List<Predicate>> predicates = ConditionGroup.clausePredicates(
+                List.of(where, having == null ? List.of() : having.filters()), joins);
+        if (joins.toManyJoins().size() > joined) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1906, model.getSimpleName()
+                    + ": a where predicate crosses the to-many join " + joins.toManyJoins().get(joined).getAttribute()
+                            .getName()
+                    + "; two conditions on one joined line would match different lines, so write it as "
+                    + "Filters.exists(path, inner)");
+        }
+        if (!predicates.get(0).isEmpty()) {
+            query.where(predicates.get(0).toArray(Predicate[]::new));
+        }
+        if (!predicates.get(1).isEmpty()) {
+            query.having(predicates.get(1).toArray(Predicate[]::new));
+        }
+        return query;
+    }
+
+    /**
+     * The name {@code field} is aliased by in the CTE, which the outer column reads it by: its property, as the
+     * source's QModel sets it with {@code named} (R-SRC-10, R-GEN-37).
+     */
+    private static String alias(SelectField<?, ?> field) {
+        Optional<String> property = field instanceof ColumnField<?, ?, ?> column ? column.property()
+                : field instanceof ExpressionField<?, ?> expression ? expression.property()
+                        : field instanceof AggregateField<?, ?> aggregate ? aggregate.property()
+                                : Optional.empty();
+        return property.orElseThrow(() -> new ModelQueryDefinitionException(MqCode.MQ1905,
+                "a source's field " + field.name() + " has no property to alias its CTE column by; a generated "
+                        + "source constant is aliased by named(...)"));
     }
 }

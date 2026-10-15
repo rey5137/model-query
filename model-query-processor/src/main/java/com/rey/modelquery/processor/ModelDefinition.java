@@ -113,6 +113,18 @@ record ModelDefinition(
         return all;
     }
 
+    /**
+     * A source model's {@code ALL}: every field of the model, the aggregates included, because {@code ALL} is the
+     * projection of the source's CTE body, which carries every field an outer model reads by name, so R-PROC-17's
+     * reason for leaving aggregates out — that every query of the model would be grouped — does not apply to a source
+     * (`api/17` R-SRC-10, R-SRC-12, R-GEN-37). A query model's {@code ALL} is {@link #selections()}.
+     */
+    List<ModelField> sourceFields() {
+        var all = new ArrayList<>(selections());
+        all.addAll(aggregates());
+        return all;
+    }
+
     /** Whether a change set is generated: always for an update model, on request for a query model (R-GEN-21). */
     boolean changes() {
         return !readsSource() && (updateModel() || generateChanges);

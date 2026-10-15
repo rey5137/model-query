@@ -1,0 +1,1 @@
+select cte01_0.quantity,cte01_0.lineCount,cte01_0.revenue from (select oie1_0.quantity c0,count(oie1_0.id) c1,sum(oie1_0.unit_price) c2 from order_items oie1_0 where oie1_0.quantity>=? group by c0 having count(oie1_0.id)>?) cte01_0(quantity,lineCount,revenue) order by 1

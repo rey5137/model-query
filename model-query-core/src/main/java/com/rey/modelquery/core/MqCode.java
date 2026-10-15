@@ -290,10 +290,23 @@ public enum MqCode {
     MQ1809("A persist returning query must select only what the flushed entity holds, with no other clause"),
 
     /**
+     * A row lock on a query that reads a source: the source's rows come from a CTE, which a locking clause cannot
+     * follow, so {@code withLock} over a source is refused before any statement (R-SRC-11).
+     */
+    MQ1903("A row lock on a query that reads a source"),
+
+    /**
      * A hand-written {@code ColumnField} or {@code TableField.join} over a source root, which the processor's metamodel
      * cannot check; a generated outer column uses {@code ColumnField.over} with the source's constant (R-SRC-10).
      */
     MQ1905("A hand-written column or join over a source root"),
+
+    /**
+     * A source's {@code where} predicate whose path crosses a to-many join, which no join inside a CTE can express:
+     * two conditions on one joined line would match different lines, so the predicate is refused and the user points
+     * it at {@code Filters.exists(path, inner)} (R-SRC-03).
+     */
+    MQ1906("A source where predicate crosses a to-many join; use Filters.exists"),
 
     /** A page size or {@code maxPerParent} that is not positive, or a limit that is negative (R-EXE-06, R-FCH-11). */
     MQ2001("A page or chunk size and maxPerParent must be positive, and a limit must not be negative"),
@@ -443,7 +456,19 @@ public enum MqCode {
      * {@code ProviderSupport} has no offline properties for it, a class list finds no single persistence provider, the
      * boot reached JDBC, or the target names no database product (R-INS-10, R-VND-20).
      */
-    MQ4013("The portability dry run cannot boot a factory offline for the target");
+    MQ4013("The portability dry run cannot boot a factory offline for the target"),
+
+    /**
+     * A query reads a source and the factory's persistence provider has no {@code SourceSupport}, so nothing can
+     * register the CTE; raised before any statement, as bulk inserts and row locks are (R-SRC-11, D-143).
+     */
+    MQ4014("The factory's persistence provider has no SourceSupport"),
+
+    /**
+     * The target's vendor lacks a source feature the query uses, {@code VendorProfile#sources(SourceFeature)} returning
+     * false for it, or a recursion deeper than {@code maxRecursionDepth()}; raised before any statement (R-SRC-11).
+     */
+    MQ4015("The target's vendor lacks a source feature the query uses");
 
     private final String defaultMessage;
 

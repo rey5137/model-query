@@ -22,7 +22,7 @@ public final class QStatusTotals {
     public static final AggregateField<StatusTotals, Long> ORDERS = Agg.<StatusTotals>count(ROOT)
             .named("orders");
 
-    public static final SelectSet<StatusTotals> ALL = SelectSet.of(STATUS);
+    public static final SelectSet<StatusTotals> ALL = SelectSet.of(STATUS, ORDERS);
 
     public static final SelectSet<StatusTotals> DEFAULT = ALL;
 

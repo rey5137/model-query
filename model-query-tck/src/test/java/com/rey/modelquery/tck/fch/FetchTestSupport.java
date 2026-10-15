@@ -5,6 +5,7 @@ import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.jpa.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.jpa.spi.SourceFeature;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
 import com.rey.modelquery.tck.col.JoinTestSupport;
@@ -64,12 +65,16 @@ public final class FetchTestSupport {
         return limited(db, maxInListSize, 0);
     }
 
+    /** The profile {@code db}'s factory resolves to, which a narrowing profile above delegates to. */
+    public static VendorProfile profile(TckDatabase db) {
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
+            return VendorResolver.resolve(sf, Optional.empty(), MysqlStreamingMode.ROW_BY_ROW).profile();
+        }
+    }
+
     /** As {@link #limited(TckDatabase, int)}, with at most {@code maxBindParameters} binds a statement when above 0. */
     public static VendorProfile limited(TckDatabase db, int maxInListSize, int maxBindParameters) {
-        VendorProfile builtIn;
-        try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
-            builtIn = VendorResolver.resolve(sf, Optional.empty(), MysqlStreamingMode.ROW_BY_ROW).profile();
-        }
+        VendorProfile builtIn = profile(db);
         return new VendorProfile() {
             @Override
             public DatabaseVendor vendor() {
@@ -99,6 +104,16 @@ public final class FetchTestSupport {
             @Override
             public NullOrdering defaultAscendingNullOrdering() {
                 return builtIn.defaultAscendingNullOrdering();
+            }
+
+            @Override
+            public boolean sources(SourceFeature feature) {
+                return builtIn.sources(feature);
+            }
+
+            @Override
+            public int maxRecursionDepth() {
+                return builtIn.maxRecursionDepth();
             }
         };
     }

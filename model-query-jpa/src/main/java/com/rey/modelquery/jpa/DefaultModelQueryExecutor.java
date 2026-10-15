@@ -47,6 +47,8 @@ import com.rey.modelquery.jpa.spi.LockSupport;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.jpa.spi.ReturningShape;
 import com.rey.modelquery.jpa.spi.ReturningSupport;
+import com.rey.modelquery.jpa.spi.SourceFeature;
+import com.rey.modelquery.jpa.spi.SourceSupport;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.jpa.spi.WriteStatement;
 import com.rey.modelquery.jpa.vendor.ResolvedVendor;
@@ -238,10 +240,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 .flatMap(support -> support.constants(emf))
                 .map(options::withConstantRenderer)
                 .orElse(options);
-        this.renderOptions = !profile.sequences() ? options : vendor.providerSupport()
+        options = !profile.sequences() ? options : vendor.providerSupport()
                 .flatMap(support -> support.sequences(emf))
                 .map(options::withSequenceRenderer)
                 .orElse(options);
+        this.renderOptions = sources(options);
         this.keyLimits = new Keys(profile.maxInListSize(), profile.maxBindParameters());
         this.primaryKeyFirstBatchSize = config.primaryKeyFirstBatchSize();
         this.queryTimeout = config.queryTimeout();
@@ -252,6 +255,28 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         this.bulkWriteChunkSize = config.bulkWriteChunkSize();
         this.chunkTransactions = config.chunkTransactions().orElse(null);
         this.conflictUpdateWhereOnAssignedColumns = config.conflictUpdateWhereOnAssignedColumns();
+    }
+
+    /**
+     * {@code options} with the factory's CTE support for a query rooted at a source, when its provider has one: every
+     * statement built over a source then registers the source's own CTE on itself (R-SRC-12). A target whose vendor
+     * lacks {@link SourceFeature#CTE} gets a renderer that refuses the query with {@code MQ4015} as it is built, and a
+     * provider with no {@link SourceSupport} leaves the options without one, which {@code core} refuses with
+     * {@code MQ4014}; both are before any statement (R-SRC-11, D-143).
+     */
+    private RenderOptions sources(RenderOptions options) {
+        Optional<SourceSupport> support = vendor.providerSupport().flatMap(ProviderSupport::sources);
+        if (support.isEmpty()) {
+            return options;
+        }
+        if (!vendor.profile().sources(SourceFeature.CTE)) {
+            return options.withSourceRenderer((outer, body) -> {
+                throw new ModelQueryConfigurationException(MqCode.MQ4015, rootEntity.getSimpleName()
+                        + ": this query reads a source, and " + vendor.detectedVendor()
+                        + " has no CTE support (VendorProfile#sources(SourceFeature.CTE))");
+            });
+        }
+        return options.withSourceRenderer(support.get()::cte);
     }
 
     @Override
@@ -504,10 +529,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     }
 
     /**
-     * The R-EXE-14 refusals for a locking read of {@code q}, before any statement and in order: a join in {@code built}
-     * ({@code MQ2211}), a provider that cannot render the lock or a root on several tables ({@code MQ4010}), and no
-     * active transaction ({@code MQ2102}). Returns the support to apply on the statement, or empty when {@code q} takes
-     * no lock; {@code built} is the statement's criteria, built by the caller and never executed here.
+     * The R-EXE-14 refusals for a locking read of {@code q}, before any statement and in order: a source's CTE, which
+     * a locking clause cannot follow ({@code MQ1903}, R-SRC-11), a join in {@code built} ({@code MQ2211}), a provider
+     * that cannot render the lock or a root on several tables ({@code MQ4010}), and no active transaction
+     * ({@code MQ2102}). Returns the support to apply on the statement, or empty when {@code q} takes no lock;
+     * {@code built} is the statement's criteria, built by the caller and never executed here.
      */
     private <M> Optional<LockSupport> lockChecks(ModelQuery<E, ?, M> q, BuiltQuery<M> built, String read) {
         Optional<RowLock> lock = q.lock();
@@ -515,6 +541,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             return Optional.empty();
         }
         RowLock rowLock = lock.get();
+        if (q.source().isPresent()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1903, q + ": " + read + " cannot lock a query that reads a "
+                    + "source: its rows come from a common table expression, which a locking clause cannot follow; "
+                    + "drop withLock(...) (R-SRC-11)");
+        }
         Optional<LockSupport> rendered = vendor.providerSupport().flatMap(ProviderSupport::locks);
         refuseJoin(q, built, rendered, read);
         if (rendered.isEmpty()) {
@@ -2310,7 +2341,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         ModelQuery<E2, ?, ?> definition = q.definition();
         if (!FIRST_RUN_CHECKED.contains(definition)) {
             CriteriaBuilder cb = em.getCriteriaBuilder();
-            q.checkPhases(cb);
+            q.checkPhases(cb, renderOptions);
             try {
                 q.checkFetch(cb);
             } catch (ModelQueryDefinitionException e) {
@@ -3040,8 +3071,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         // Every predicate and join stays, since one can change the number of rows; only the selection is replaced.
         From<?, ?> root = query.getRoots().iterator().next();
-        boolean readThroughToMany = readsThroughToMany(built);
-        Expression<Long> count = hasToManyJoin(root) && !readThroughToMany ? cb.countDistinct(root) : cb.count(root);
+        // A source's root is the CTE's, whose derived model part has no identifying parts to count or expand, so the
+        // rows are counted by a constant (R-SRC-12); a source root has no to-many join, which needs no dedup.
+        boolean source = q.source().isPresent();
+        boolean readThroughToMany = !source && readsThroughToMany(built);
+        Expression<Long> count = source ? cb.count(cb.literal(1))
+                : hasToManyJoin(root) && !readThroughToMany ? cb.countDistinct(root) : cb.count(root);
         query.multiselect(count);
         return ((Number) single(q, create(q, built)).get(0)).longValue();
     }

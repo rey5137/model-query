@@ -138,7 +138,8 @@ R-PROC-07 (D-93).
 `Q<Model>.query()` is pre-configured with `groupBy(GROUP_KEYS)`. `@GroupBy` cannot be combined with `@Aggregate` or
 `@Join` (`processor/32` `MQ3204`). It may mark a `@Computed` field.
 
-**R-PROC-17** Aggregates are in no generated `SelectSet` (`api/13` R-AGG-12).
+**R-PROC-17** Aggregates are in no generated `SelectSet` (`api/13` R-AGG-12), except in a source model's `ALL`, which
+is the projection of its CTE body (R-GEN-37).
 
 **R-PROC-21** *(D-115)* **`@Computed`.**
 - `value` names a class implementing `ExpressionDefinition<M, C>`, with a public static `INSTANCE` or a visible no-arg
@@ -357,9 +358,9 @@ an entity root when `X` is `@Entity`, a source root when `X` is `@SourceModel`. 
 `MQ3038`. On a model rooted at a source the processor checks every field against the source model's fields by name and
 then by type (INV-3), a `@Column` path being a single segment and taking the converter of the source's field, so an
 outer `@Column(converter = ...)` is `MQ3014` and an outer `@FilterColumn` is `MQ3011`; a `@Join` is `MQ3035`, a
-`@Child` whose child model is rooted at a source — and a `@Child` on one — is `MQ3039`, and an outer `@PrimaryKey`
-that is not exactly the source's key is `MQ3036`. `@BindQueryModel.root` may name a source model, as a model's own
-`root` does (`api/17` R-SRC-10).
+`@Child` whose child model is rooted at a source is `MQ3039` (on a parent rooted at a source its parent-side key
+names a source field), and an outer `@PrimaryKey` that is not exactly the source's key is `MQ3036`.
+`@BindQueryModel.root` may name a source model, as a model's own `root` does (`api/17` R-SRC-10).
 
 ## 11. Acceptance criteria
 

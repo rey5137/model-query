@@ -166,7 +166,7 @@ final class QModelWriter {
         }
         if (model.selectSets()) {
             TypeName selectSet = ParameterizedTypeName.get(SELECT_SET, modelName);
-            List<ModelField> selections = model.selections();
+            List<ModelField> selections = model.sourceModel() ? model.sourceFields() : model.selections();
             List<ModelField> excluded = selections.stream().filter(ModelField::excludedFromDefaults).toList();
             type.addField(FieldSpec.builder(selectSet, "ALL", CONSTANT)
                     .initializer("$T.of($L)", SELECT_SET, constants(selections))

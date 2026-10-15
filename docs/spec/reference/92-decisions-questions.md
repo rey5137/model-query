@@ -2085,6 +2085,11 @@ an entity-rooted query), and a string `sourceOf("...")` (a string is exactly wha
 checks it against the source's metamodel). → `api/17` R-SRC-10, `api/10` R-COL-30, `processor/30` R-PROC-35,
 R-PROC-39, `processor/31` R-GEN-37, D-143.
 
+*Amended (2026-10-15, M25.2; user decision).* A `@Child` on a model rooted at a source is legal, as RFC 0013 §7 and
+R-SRC-10 say: its parent-side key names a source field and reads the CTE column by that name. `MQ3039` stays only for a
+`@Child` whose child model is rooted at a source, and a `through` child on a source-rooted parent is `MQ3406` (no entity
+root to join along; use `foreignKey`). → `processor/30`, `processor/32`, `api/17` R-SRC-10.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

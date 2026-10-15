@@ -13,7 +13,7 @@ and the keyset predicate shape they all share.
 |---|---|---|---|
 | 1 | H2 | 2.2+, native mode | every PR |
 | 1 | PostgreSQL | 14, 15, 16, 17 | every PR (Testcontainers) |
-| 1 | MySQL | 8.0, 8.4 | every PR (Testcontainers) |
+| 1 | MySQL | 8.0.31, 8.4 | every PR (Testcontainers) |
 | 2 (after 1.0, D-81) | MariaDB | 10.11, 11.x | nightly, after Tier 1 is stable |
 | 3 (community) | Oracle, SQL Server, others | — | profile contributions welcome, run nightly when present |
 
@@ -43,6 +43,8 @@ as community-supported. It never gates a release.
 | Conflict target names a constraint (`conflictOnConstraint()`) | **no** | yes | **no** (`api/14` R-WRT-52) |
 | Conflict target takes an arbiter `WHERE` (`conflictArbiterPredicate()`) | **no** | yes | **no** (`api/14` R-WRT-52) |
 | Sequences (`sequences()`) | yes | yes | **no**: `Expr.nextval` is `MQ1509` (`api/10` R-COL-28) |
+| Source features (`sources(SourceFeature)`) | all six | all six | all six (`api/17` R-SRC-11, R-VND-21) |
+| Recursion ceiling (`maxRecursionDepth()`) | none known | none known | **1 000**: `cte_max_recursion_depth`'s default, so `maxDepth + 2 > 1000` is `MQ4015` (`api/17` R-SRC-08, R-VND-22) |
 
 **R-PRF-11** The built-in H2, PostgreSQL and MySQL profiles carry the values in this table (`vendor/40` R-VND-03);
 "no limit" is `maxValuesRows()` returning `Integer.MAX_VALUE` (`vendor/40` R-VND-14, D-117).

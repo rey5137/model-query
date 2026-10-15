@@ -33,12 +33,17 @@ public final class Agg {
 
     private Agg() {}
 
-    /** {@code count(table)}: the rows of {@code table}, or of the query's root when given the root. */
+    /**
+     * {@code count(table)}: the rows of {@code table}, or of the query's root when given the root. A source root is
+     * the CTE's, whose derived model part has no identifying parts to count or expand, so its rows are counted by a
+     * constant (R-SRC-12); count works on every source (RFC 0013 §7).
+     */
     public static <M> AggregateField<M, Long> count(TableField<?, ?> table) {
         Objects.requireNonNull(table, "table");
         String name = table.rootEntity() != null ? table.rootEntity().getSimpleName() : table.key().attribute();
+        boolean source = table.isSource();
         return new AggregateField<>(AggregateField.Kind.COUNT, table.key(), name, "", Long.class, null, null,
-                (ctx, cb) -> cb.count(table.resolve(ctx)));
+                (ctx, cb) -> source ? cb.count(cb.literal(1)) : cb.count(table.resolve(ctx)));
     }
 
     /**

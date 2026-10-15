@@ -304,6 +304,12 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
             return ctx.liftedColumn(this);
         }
         From<?, T> from = table.resolve(Objects.requireNonNull(ctx, "ctx"), this);
+        if (table.isSource()) {
+            // The CTE column is aliased by name and holds the source column's own type, checked by the processor
+            // against the source model (R-SRC-10): a provider reports a tuple element's Java type, which is not the
+            // mapped attribute's, so INV-3's runtime check has nothing to compare here.
+            return cteColumn(from);
+        }
         Path<C> path;
         if (attribute.indexOf('.') >= 0) {
             path = embeddedPath(from);
@@ -328,6 +334,17 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
                     attribute, (actual == null ? "of unknown type" : name(actual, attributeType)) + idNamed(from)));
         }
         return path;
+    }
+
+    /** The CTE element {@code from} aliases {@code attribute} by, which a source's outer column reads (R-SRC-10). */
+    @SuppressWarnings("unchecked")
+    private Path<C> cteColumn(From<?, T> from) {
+        try {
+            return (Path<C>) from.get(attribute);
+        } catch (IllegalArgumentException e) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1002, model.getSimpleName() + "." + attribute
+                    + ": the source " + table.describe() + " has no field '" + attribute + "'", e);
+        }
     }
 
     /**
@@ -461,8 +478,8 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
      * (R-FLT-16, INV-6): the check {@code in} and {@code notIn} over a sub-select run at first resolution.
      */
     boolean embeddableValued(JoinContext ctx) {
-        if (liftedFrom != null) {
-            return false; // a lift's outer column is checked on the outer side
+        if (liftedFrom != null || table.isSource()) {
+            return false; // a lift's outer column is checked on the outer side; a CTE column is a scalar element
         }
         From<?, T> from = table.resolve(Objects.requireNonNull(ctx, "ctx"), this);
         if (attribute.indexOf('.') >= 0) {
@@ -487,7 +504,7 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
      * no portable group key (R-AGG-05, D-137).
      */
     boolean wholeEntityToOne(JoinContext ctx) {
-        if (liftedFrom != null || attribute.indexOf('.') >= 0) {
+        if (liftedFrom != null || table.isSource() || attribute.indexOf('.') >= 0) {
             return false;
         }
         From<?, T> from = table.resolve(Objects.requireNonNull(ctx, "ctx"), this);

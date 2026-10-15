@@ -21,7 +21,8 @@ import java.util.stream.Stream;
  * D-108). Discovered with {@code ServiceLoader}; the first that {@linkplain #supports supports} a factory serves it.
  * Implementations are stateless and thread-safe.
  *
- * @implSpec R-VND-04, R-EXE-03, R-VND-12, R-VND-13, R-VND-14, R-VND-15, R-VND-17, R-VND-20, D-119, D-127
+ * @implSpec R-VND-04, R-EXE-03, R-VND-12, R-VND-13, R-VND-14, R-VND-15, R-VND-17, R-VND-20, R-SRC-11, D-119,
+ *     D-127, D-143
  */
 @Incubating
 public interface ProviderSupport {
@@ -161,6 +162,15 @@ public interface ProviderSupport {
      */
     @Incubating
     default Optional<String> factoryName(EntityManagerFactory emf) {
+        return Optional.empty();
+    }
+
+    /**
+     * The provider's support for reading a query source, or empty, the default, when it has none: a query rooted at a
+     * source then throws {@code MQ4014} at build time, before any statement, the same fail-safe as
+     * {@link #inserts()} (R-SRC-11, D-143).
+     */
+    default Optional<SourceSupport> sources() {
         return Optional.empty();
     }
 }
