@@ -2115,6 +2115,22 @@ MULTISET-style fetch strategies (batched fetch plans with row caps cover them), 
 among Tier 1), and Querydsl, DeltaSpike and JAX-RS modules. → `docs/plan/mvp-plan.md` §26–§29, `delivery/62`, Q-21,
 Q-22, Q-23.
 
+**D-146 — Source CTE columns are engine-named; one source hook type (M25 gate, 2026-10-15, user decision).** A source
+CTE's columns are named `mq_<property>` by `SourceQuery.columnName`, used by the CTE body and by `ColumnField.over`, so
+no field name can collide with a vendor reserved word (INV-6): a `year` or `order` field no longer fails on H2. The
+properties, sort matching and generated code are unchanged. `jpa.spi.SourceSupport` is removed: `ProviderSupport#sources()`
+returns `Optional<core.SourceRenderer>` (the `ConstantRenderer` precedent), whose `cte` is abstract and whose `window`,
+`combine` and `recursive` default to `MQ4015`. Rejected: quoting the names (not portable through Criteria aliases, P-5);
+a compile-time reserved-word list (vendor knowledge in the processor, INV-6, INV-7); a documented limit (fails on H2 for
+`year`, a Tier-1 database). The gate also tightened the builder: `Builder#discriminator(ColumnField<M, ?, String>,
+String)` takes a key column (else `MQ1904`), `Builder#depth(ColumnField<M, ?, Integer>)` a column of the fields (else
+`MQ1902`), `combine` is `MQ1904` when its two sides' fields differ in order, property, type or converter, and a
+recursive step's `childKey` and `parentKey` share one column type, so a mismatched pair does not compile. Discriminator
+values are computed per node (a leaf {v}; `union`, `unionAll` L u R; `intersect` L n R; `except` L) for the `MQ1904`
+clash check and for uniqueness; the clash check is skipped for a distinct `union` whose leaves all read one model. A
+distinct `union` of one branch model is unique only if it is ungrouped, has no `@Window` field and has equal
+discriminator values. → `api/17` R-SRC-06, R-SRC-10, R-SRC-12, `vendor/40` R-VND-21, `delivery/61` R-REL-07.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

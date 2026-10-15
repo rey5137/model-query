@@ -54,7 +54,6 @@ import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.jpa.spi.ReturningShape;
 import com.rey.modelquery.jpa.spi.ReturningSupport;
 import com.rey.modelquery.jpa.spi.SourceFeature;
-import com.rey.modelquery.jpa.spi.SourceSupport;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.jpa.spi.WriteStatement;
 import com.rey.modelquery.jpa.vendor.ResolvedVendor;
@@ -268,15 +267,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * one: every statement built over a source then registers the source's own CTE on itself (R-SRC-12) and renders
      * its windows (R-SRC-04). A target whose vendor lacks {@link SourceFeature#CTE} or {@link SourceFeature#WINDOW}
      * gets a renderer that refuses the query with {@code MQ4015} as it is built, and a provider with no
-     * {@link SourceSupport} leaves the options without one, which {@code core} refuses with {@code MQ4014}; both are
+     * {@link SourceRenderer} leaves the options without one, which {@code core} refuses with {@code MQ4014}; both are
      * before any statement (R-SRC-11, D-143).
      */
     private RenderOptions sources(RenderOptions options) {
-        Optional<SourceSupport> support = vendor.providerSupport().flatMap(ProviderSupport::sources);
+        Optional<SourceRenderer> support = vendor.providerSupport().flatMap(ProviderSupport::sources);
         if (support.isEmpty()) {
             return options;
         }
-        SourceSupport renderer = support.get();
+        SourceRenderer renderer = support.get();
         return options.withSourceRenderer(new SourceRenderer() {
             @Override
             public Root<Tuple> cte(CriteriaQuery<?> outer, CriteriaQuery<Tuple> body) {

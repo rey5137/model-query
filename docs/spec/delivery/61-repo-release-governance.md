@@ -162,14 +162,17 @@ The source-model members (D-143, D-144, 0.10.0) are `@Incubating` through 1.0: t
 `ColumnField.over`, the three-argument `ModelQuery.builder` and `ModelQuery.source()`, and the
 `source()`/`query(SourceQuery<S>)` members the processor generates. The window members (`api/17` R-SRC-04, D-143) are
 `@Incubating` the same way: the `@Window` annotation with `WindowFunction` and `WindowFrame`, core's `@EngineFacing`
-`WindowSpec` and `WindowField`, and `SourceSupport#window` beside `#cte`. The set-operation members (`api/17` §4,
+`WindowSpec` and `WindowField`, and `SourceRenderer#window` beside `#cte`. The set-operation members (`api/17` §4,
 R-SRC-05, R-SRC-06, 0.10.0) are `@Incubating` too: the `@Discriminator` annotation, core's `@EngineFacing` `SetOperation` and the
 `union`/`unionAll`/`intersect`/`except` methods with the `Builder#shape`/`#discriminator` they are built from, core's
-`@EngineFacing` `SourceQuery#unique()`, `SourceSupport#combine` beside `#cte` and `#window`, and `SourceFeature`'s
+`@EngineFacing` `SourceQuery#unique()`, `SourceRenderer#combine` beside `#cte` and `#window`, and `SourceFeature`'s
 `UNION`, `INTERSECT` and `EXCEPT`. The recursion members (D-144, 0.10.0) are `@Incubating` the same way: the `@Depth`
 annotation, `SourceQuery.Builder#recursive` and its `maxDepth` with the `RecursiveStep`, `StepBuilder` and
-`RecursiveKeys` a caller writes the step with, core's `@EngineFacing` `RecursiveCte`, `SourceSupport#recursive` beside `#cte`,
-`#window` and `#combine`, and `SourceFeature`'s `RECURSIVE` with `VendorProfile#maxRecursionDepth()`.
+`RecursiveKeys` a caller writes the step with, core's `@EngineFacing` `RecursiveCte`, `SourceRenderer#recursive` beside `#cte`,
+`#window` and `#combine`, and `SourceFeature`'s `RECURSIVE` with `VendorProfile#maxRecursionDepth()`. `SourceRenderer`
+is the one source hook (`jpa.spi.SourceSupport` is gone, D-146), and `WindowField` joins `SelectField`'s permits as
+`ScalarField` did, so an exhaustive `switch` over `SelectField` needs a new case. `WindowSpec` and `RecursiveCte` are
+`@Incubating` records a provider constructs, so adding a component to either breaks providers that build them.
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from

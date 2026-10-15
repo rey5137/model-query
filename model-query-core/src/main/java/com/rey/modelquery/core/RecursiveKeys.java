@@ -9,11 +9,11 @@ import java.util.Objects;
  * from the seed rows until {@code maxDepth} levels past them.
  *
  * @param <S> the source model both keys belong to
- * @param <T> the entity both keys sit on
+ * @param <C> the key type both columns share, so a pair of different types does not compile
  * @implSpec R-PROC-37, R-SRC-07
  */
 @Incubating
-public record RecursiveKeys<S, T>(ColumnField<S, T, ?> childKey, ColumnField<S, T, ?> parentKey) {
+public record RecursiveKeys<S, C>(ColumnField<S, ?, C> childKey, ColumnField<S, ?, C> parentKey) {
 
     /** Validates the keys. */
     public RecursiveKeys {

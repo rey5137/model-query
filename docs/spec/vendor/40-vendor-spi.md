@@ -312,7 +312,8 @@ answers `false` for is `MQ4015` before any statement (`api/17` R-SRC-11). A prof
 constant was added answers `false` for it — that is the point of the default — and a constant added later names a
 database fact of its own. The Tier-1 profiles answer `true` for every constant in the shipped release (the plain CTE,
 recursion, window functions and the three set operations; `vendor/41` §2), and `OTHER` keeps the default. A database
-fact, no SQL (R-VND-11, INV-6).
+fact, no SQL (R-VND-11, INV-6). The SQL side is `core.SourceRenderer`, the one source hook `ProviderSupport#sources()`
+returns (`cte` abstract; `window`, `combine` and `recursive` default to `MQ4015`; D-146).
 
 **R-VND-22** A database's own recursion ceiling is a profile fact (D-143). `VendorProfile` gains `@Incubating
 int maxRecursionDepth()`, `Integer.MAX_VALUE` by default, meaning the database sets no ceiling this library knows of.

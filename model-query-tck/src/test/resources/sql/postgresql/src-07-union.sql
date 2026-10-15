@@ -1,1 +1,1 @@
-with cte0 (branch,id,label) as (select 'live',oe1_0.id,oe1_0.status from orders oe1_0 union select 'shelved',nse1_0.id,nse1_0.sort_text from nullable_sort_rows nse1_0) select cte01_0.branch,cte01_0.id,cte01_0.label from cte0 cte01_0 order by 1,2
+with cte0 (mq_branch,mq_id,mq_label) as (select 'live',oe1_0.id,oe1_0.status from orders oe1_0 union select 'shelved',nse1_0.id,nse1_0.sort_text from nullable_sort_rows nse1_0) select cte01_0.mq_branch,cte01_0.mq_id,cte01_0.mq_label from cte0 cte01_0 order by 1,2

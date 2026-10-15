@@ -2,7 +2,7 @@
 
 !!! warning "Incubating"
     Source models, and every type on this page — `@SourceModel`, `SourceQuery`, `@Window`, `@Depth`,
-    `@Discriminator`, `SourceSupport` and the generated `source()` and `WindowField` members — are new in 0.10.0 and
+    `@Discriminator`, `SourceRenderer` and the generated `source()` and `WindowField` members — are new in 0.10.0 and
     annotated `@Incubating`, as the rest of the API in 0.x is (see [API stability](stability.md)). They are complete
     and tested, but their API may still change in a minor release.
 
@@ -104,8 +104,8 @@ var feed = QQuantityFeed.query(source).select(QQuantityFeed.ALL).orderBy(QQuanti
     List<QuantityFeed> rows = sources.list(feed, Limit.unlimited());
     ```
 
-Every field names a CTE column as it is, so a field whose name is a vendor's reserved word fails at run time; see
-[Known limits](#known-limits).
+A CTE's column names are owned by the engine (an `mq_` prefix on the field's name), so a field named like a vendor's
+reserved word (`rank`, `year`, `key`) is safe.
 
 A keyset walk over a source registers the CTE again on every page, so each page reads the whole CTE body:
 
@@ -291,10 +291,10 @@ offending key. Nothing is refused on an empty result, which carries no row to re
 
 ## What a source needs to run: the provider and the vendor
 
-The engine reaches the provider only through `SourceSupport` (`@Incubating`), the jakarta-typed hook that registers the
+The engine reaches the provider only through `SourceRenderer` (`@Incubating`), the jakarta-typed hook that registers the
 CTE and returns the root the outer statement reads:
 
-- `ProviderSupport#sources()` (`@Incubating`) returns the factory's `SourceSupport`, empty by default. Empty, or a
+- `ProviderSupport#sources()` (`@Incubating`) returns the factory's `SourceRenderer`, empty by default. Empty, or a
   factory whose provider has no `ProviderSupport` at all, is `MQ4014` before any statement.
 - `VendorProfile#sources(SourceFeature)` (`@Incubating`) answers per feature — `CTE`, `RECURSIVE`, `WINDOW`, `UNION`,
   `INTERSECT` and `EXCEPT` — and is `false` by default, so a profile written before a constant was added fails safe. A
@@ -325,8 +325,5 @@ declared target with no database attached, because both codes are raised before 
   first row, so an empty result carries nothing to read them from: under READ COMMITTED (PostgreSQL's default) a
   statement can return an empty page while the data has gone too deep or formed a cycle in the meantime. A REPEATABLE
   READ transaction around the call is the full guarantee.
-- **A CTE's column names are unquoted**, so a source field named a reserved word fails: `rank`, `row_number` and
-  `dense_rank` are MySQL's, `placing` is PostgreSQL's. Rename the field (`ranking`, `rowIndex`, `denseRanking` in the
-  test's window source) rather than expecting the name to be quoted.
 
 See [Diagnostics](diagnostics.md) for every code, and [Portability](portability.md) for what is refused per target.

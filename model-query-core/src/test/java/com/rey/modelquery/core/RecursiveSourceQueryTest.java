@@ -53,7 +53,7 @@ class RecursiveSourceQueryTest {
         SourceQuery<Node> tree = tree(3);
 
         assertThat(tree.recursive()).isTrue();
-        assertThat(tree.levelAlias()).isEqualTo("level");
+        assertThat(tree.levelAlias()).isEqualTo("mq_level");
         assertThat(tree.maxDepth()).isEqualTo(3);
     }
 
@@ -77,7 +77,7 @@ class RecursiveSourceQueryTest {
                 .build();
 
         assertThat(tree.recursive()).isTrue();
-        assertThat(tree.levelAlias()).isEqualTo("level");
+        assertThat(tree.levelAlias()).isEqualTo("mq_level");
         assertThat(tree.maxDepth()).isEqualTo(2);
     }
 
@@ -149,6 +149,19 @@ class RecursiveSourceQueryTest {
         }
         // Both sides recursive is refused too, not read as two seeds.
         assertRefused(() -> recursive.union(tree(2)));
+    }
+
+    @Test
+    void r_src_07_a_depth_field_outside_the_sources_fields_is_mq1902() {
+        OrderedColumnField<Node, Entity, Integer> stray =
+                ColumnField.of(Node.class, ENTITY_ROOT, "stray", Integer.class).named("stray");
+        var builder = SourceQuery.builder(Node.class, ENTITY_ROOT, N_ALL, N_KEY).depth(stray)
+                .recursive(step -> step.childKey(N_PARENT_ID).parentKey(N_ID), 3);
+
+        ModelQueryDefinitionException thrown = code(builder::build);
+
+        assertThat(thrown.code()).isEqualTo(MqCode.MQ1902);
+        assertThat(thrown.getMessage()).contains("stray");
     }
 
     private static void assertRefused(Runnable call) {

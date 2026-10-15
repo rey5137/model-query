@@ -261,7 +261,7 @@ class SourceQueryExecutionTest {
                         executor -> executor.list(feed, Limit.of(10))))
                         .isInstanceOfSatisfying(ModelQueryConfigurationException.class,
                                 e -> assertThat(e.code()).isEqualTo(MqCode.MQ4014))
-                        .hasMessageContaining("SourceSupport")));
+                        .hasMessageContaining("SourceRenderer")));
 
         assertThat(sql).isEmpty();
     }

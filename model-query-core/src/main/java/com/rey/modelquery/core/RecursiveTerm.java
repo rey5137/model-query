@@ -11,7 +11,7 @@ import jakarta.persistence.criteria.Root;
  *
  * <p>The provider creates the term's {@code query}, puts the CTE's own columns on it and passes that root as
  * {@code parent}; the term then adds the entity root, one row per child, and joins each child to its parent through
- * the step's keys. It is called once per statement, inside the provider's {@code SourceSupport#recursive}.
+ * the step's keys. It is called once per statement, inside the provider's {@code SourceRenderer#recursive}.
  *
  * @implSpec R-SRC-07, R-SRC-12, INV-7
  */

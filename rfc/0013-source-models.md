@@ -232,14 +232,18 @@ SourceQuery<FeedItem> feed = QFeedItem.source().where(f -> f.eq(QFeedItem.OWNER_
   - `union` or `unionAll`: every branch is unique, and the branches are disjoint by key, in one of two ways (R-SRC-06):
     - **By discriminator.** The shape's composite `@PrimaryKey` includes a `@Discriminator` field, and every branch
       fixes it to a different constant.
-    - **By one branch model.** It's a `union` (distinct) whose branches all come from the same branch model. Each root
-      row yields the same columns in every branch, so a row reached by two branches collapses to one. This covers
-      "owned `union` shared".
+    - **By one branch model.** A distinct `union` whose branches all read one ungrouped branch model with no `@Window`
+      field and one discriminator value: each root row yields the same columns in every branch, so a row two branches
+      reach collapses to one. A grouped or windowed model computes its values over each branch's own rows, so it is
+      non-unique there (§6). This covers "owned `union` shared".
   - Anything else is non-unique (§6).
 - **Discriminator values (R-SRC-06).**
   - Each branch renders its discriminator as a constant (`Expr.constant`).
   - In a `union` or `unionAll`, two branches with the same discriminator value are `MQ1904`, raised when the operation
     is built. Without the error, the union would quietly lose key uniqueness.
+  - Values are computed per node (a leaf {v}; `union`, `unionAll` L u R; `intersect` L n R; `except` L) for the clash
+    check and for uniqueness; the check is skipped for a distinct `union` whose leaves all read one model. Combining
+    sources whose fields differ in order, property, type or converter is `MQ1904` (D-146).
   - `intersect` and `except` don't check discriminator values. Uniqueness there follows the rules above.
   - Every branch of a discriminated shape must declare a `@Discriminator` field, and every `@Discriminator` must be part
     of the key (`MQ3034`).
@@ -318,7 +322,7 @@ order values could swap between the statements of page 1 and page 2, and one row
 never shows. So offset `page` on a non-unique source appends every selected outer column, ascending, as tie-breakers
 after the definition's order and the key.
 - A selected column that can't be ordered (a LOB, a JSON type) is `MQ2212`.
-- Rows that are equal in every column can't be told apart, so no row is visibly lost.
+- Rows that compare equal under the vendor's ordering can't be told apart, so no row is visibly lost (known limits: `api/17` R-SRC-09).
 
 ### 7. The outer query (R-PROC-39, R-SRC-10, R-SRC-11)
 

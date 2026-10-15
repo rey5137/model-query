@@ -10,7 +10,7 @@ import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Selection;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -181,7 +181,7 @@ public final class SourceQuery<S> {
          * of a shape's branch (R-PROC-38, R-SRC-06). The field must be one of the key's columns, which the processor
          * checks ({@code MQ3034}); a source whose key holds it is unique by key where the branches' values differ.
          */
-        public Builder<E, M, S> discriminator(ColumnField<?, ?, ?> field, String value) {
+        public Builder<E, M, S> discriminator(ColumnField<M, ?, String> field, String value) {
             return new Builder<>(model, root, fields, key, groupKeys, where, having, settings.withDiscriminator(
                     new Discriminator(Objects.requireNonNull(field, "field"), Objects.requireNonNull(value, "value"))));
         }
@@ -193,7 +193,7 @@ public final class SourceQuery<S> {
          * this builder; a source built with it and no step is {@code MQ1902} at {@link #build()}, so a recursive model
          * is never silently read as a plain one.
          */
-        public Builder<E, M, S> depth(ColumnField<?, ?, ?> field) {
+        public Builder<E, M, S> depth(ColumnField<M, ?, Integer> field) {
             return new Builder<>(model, root, fields, key, groupKeys, where, having,
                     settings.withRecursion(new Recursion(Objects.requireNonNull(field, "field"), null, 0)));
         }
@@ -267,6 +267,15 @@ public final class SourceQuery<S> {
                         + ": a recursive source needs recursive(step -> step.childKey(childKey).parentKey(parentKey), "
                         + "maxDepth) before build()");
             }
+            if (recursion != null && !fields.fields().contains(recursion.depth())) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1902, model.getSimpleName() + ": the depth field "
+                        + recursion.depth().name() + " is not one of the source's fields");
+            }
+            Discriminator discriminator = settings.discriminator();
+            if (discriminator != null && !key.columns().contains(discriminator.field())) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1904, model.getSimpleName() + ": the discriminator "
+                        + discriminator.field().name() + " is not one of the source key's columns");
+            }
             // The shape is the model itself unless shape(...) named another one, which makes this a branch (R-PROC-38).
             Class<?> shape = settings.shape();
             return new SourceQuery<>(model, shape == null ? model : shape, root, (SelectSet<S>) fields,
@@ -314,7 +323,7 @@ public final class SourceQuery<S> {
      * immutable; {@code this} and {@code other} are unchanged.
      *
      * @throws ModelQueryDefinitionException {@code MQ1904} when both sides are a {@code union} or {@code unionAll} and
-     *     two of their branches fix their discriminator to the same value (R-SRC-06), or either side is recursive
+     *     two of their branches can carry the same discriminator value (R-SRC-06), unless every branch reads one model and the operation is a {@code union}, or either side is recursive
      *     (R-SRC-07)
      */
     public SourceQuery<S> union(SourceQuery<S> other) {
@@ -354,9 +363,20 @@ public final class SourceQuery<S> {
             throw new ModelQueryDefinitionException(MqCode.MQ1904, "only branches of the same shape combine: "
                     + shape.getSimpleName() + " and " + other.shape.getSimpleName());
         }
-        if (operation == SetOperation.UNION || operation == SetOperation.UNION_ALL) {
-            var shared = new TreeSet<>(discriminatorValues());
-            shared.retainAll(right.discriminatorValues());
+        if (!sameFields(fields.fields(), right.fields.fields())) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1904, "the branches of " + shape.getSimpleName()
+                    + " must carry the same fields in the same order: " + model.getSimpleName() + " and "
+                    + right.model.getSimpleName() + " differ");
+        }
+        if ((operation == SetOperation.UNION || operation == SetOperation.UNION_ALL)
+                && !(operation == SetOperation.UNION && sameModel(allBranches(this, right)))) {
+            Set<String> left = discriminatorValues(this, false);
+            Set<String> theirs = discriminatorValues(right, false);
+            var shared = new TreeSet<String>();
+            if (left != null && theirs != null) {
+                shared.addAll(left);
+                shared.retainAll(theirs);
+            }
             if (!shared.isEmpty()) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1904, "two branches of one " + operation
                         + " carry the discriminator '" + shared.iterator().next() + "'; give every branch of "
@@ -366,18 +386,66 @@ public final class SourceQuery<S> {
         return new SourceQuery<>(operation, this, right);
     }
 
-    /**
-     * The discriminator value of every branch of this source: a plain branch contributes its own, a combined one the
-     * values of its two sides (R-SRC-06). Empty for a source whose branches carry no {@code @Discriminator}.
-     */
-    private Set<String> discriminatorValues() {
-        var values = new TreeSet<String>();
-        for (SourceQuery<?> leaf : branches(this)) {
-            if (leaf.discriminator != null) {
-                values.add(leaf.discriminator.value());
+    /** Whether the two field lists agree position by position in property, type and converter class. */
+    private static boolean sameFields(List<? extends SelectField<?, ?>> left, List<? extends SelectField<?, ?>> right) {
+        if (left.size() != right.size()) {
+            return false;
+        }
+        for (int i = 0; i < left.size(); i++) {
+            SelectField<?, ?> a = left.get(i);
+            SelectField<?, ?> b = right.get(i);
+            if (!propertyOf(a).equals(propertyOf(b)) || a.type() != b.type()
+                    || converterClass(a) != converterClass(b)) {
+                return false;
             }
         }
+        return true;
+    }
+
+    static Optional<String> propertyOf(SelectField<?, ?> field) {
+        return field instanceof ColumnField<?, ?, ?> column ? column.property()
+                : field instanceof ExpressionField<?, ?> expression ? expression.property()
+                        : field instanceof AggregateField<?, ?> aggregate ? aggregate.property()
+                                : field instanceof WindowField<?, ?> window ? window.property()
+                                        : Optional.empty();
+    }
+
+    private static Class<?> converterClass(SelectField<?, ?> field) {
+        return field instanceof ColumnField<?, ?, ?> column ? column.converterClass() : null;
+    }
+
+    /**
+     * The discriminator values the rows of {@code source} can carry (R-SRC-06): a plain branch its own one value, a
+     * {@code union} or {@code unionAll} the values of both sides, an {@code intersect} the values both sides share and
+     * an {@code except} those of its left side. {@code null} when a branch fixes none, or, with {@code inKey}, none
+     * the key contains, so the values say nothing about the rows' keys.
+     */
+    private static Set<String> discriminatorValues(SourceQuery<?> source, boolean inKey) {
+        if (source.operation == null) {
+            Discriminator d = source.discriminator;
+            return d == null || inKey && !source.key.columns().contains(d.field()) ? null : Set.of(d.value());
+        }
+        Set<String> left = discriminatorValues(source.operation.left, inKey);
+        if (source.operation.operation == SetOperation.EXCEPT) {
+            return left;
+        }
+        Set<String> right = discriminatorValues(source.operation.right, inKey);
+        if (left == null || right == null) {
+            return null;
+        }
+        var values = new TreeSet<>(left);
+        if (source.operation.operation == SetOperation.INTERSECT) {
+            values.retainAll(right);
+        } else {
+            values.addAll(right);
+        }
         return values;
+    }
+
+    private static List<SourceQuery<?>> allBranches(SourceQuery<?> left, SourceQuery<?> right) {
+        var leaves = new ArrayList<SourceQuery<?>>(branches(left));
+        leaves.addAll(branches(right));
+        return leaves;
     }
 
     /**
@@ -403,24 +471,19 @@ public final class SourceQuery<S> {
             // A row appears at most as many times as in the branch where it is rarest.
             case INTERSECT -> operation.left.unique() || operation.right.unique();
             case UNION, UNION_ALL -> operation.left.unique() && operation.right.unique()
-                    && (byDiscriminator(branches(this))
+                    && (disjoint(operation.left, operation.right)
                             || operation.operation == SetOperation.UNION && sameModel(branches(this)));
         };
     }
 
     /**
-     * Whether every branch of one {@code union} or {@code unionAll} fixes the shape's key discriminator to a value of
-     * its own, which keeps the branches disjoint by key (R-SRC-06).
+     * Whether the two sides of one {@code union} or {@code unionAll} can carry no discriminator value in common, which
+     * keeps their rows disjoint by key (R-SRC-06).
      */
-    private static boolean byDiscriminator(List<SourceQuery<?>> branches) {
-        var values = new HashSet<String>();
-        for (SourceQuery<?> leaf : branches) {
-            if (leaf.discriminator == null || !leaf.key.columns().contains(leaf.discriminator.field())
-                    || !values.add(leaf.discriminator.value())) {
-                return false;
-            }
-        }
-        return true;
+    private static boolean disjoint(SourceQuery<?> left, SourceQuery<?> right) {
+        Set<String> l = discriminatorValues(left, true);
+        Set<String> r = discriminatorValues(right, true);
+        return l != null && r != null && Collections.disjoint(l, r);
     }
 
     /**
@@ -431,9 +494,7 @@ public final class SourceQuery<S> {
         if (source.operation == null) {
             return List.of(source);
         }
-        var leaves = new ArrayList<SourceQuery<?>>(branches(source.operation.left));
-        leaves.addAll(branches(source.operation.right));
-        return leaves;
+        return allBranches(source.operation.left, source.operation.right);
     }
 
     /**
@@ -441,8 +502,13 @@ public final class SourceQuery<S> {
      * or windowed model doesn't qualify: its aggregates and windows are computed over the branch's own filtered
      * rows, so one key can carry different columns in two branches and the rows would not collapse.
      */
+    private String discriminatorValue() {
+        return discriminator == null ? null : discriminator.value();
+    }
+
     private static boolean sameModel(List<SourceQuery<?>> branches) {
         return branches.stream().allMatch(leaf -> leaf.model == branches.get(0).model
+                && Objects.equals(leaf.discriminatorValue(), branches.get(0).discriminatorValue())
                 && (leaf.groupKeys == null || leaf.groupKeys.fields().isEmpty())
                 && leaf.fields.fields().stream().noneMatch(field -> field instanceof WindowField<?, ?>));
     }
@@ -517,7 +583,6 @@ public final class SourceQuery<S> {
      * @throws ModelQueryDefinitionException {@code MQ1906} when a {@code where} predicate's path crosses a to-many
      *     join, which no join inside the CTE can express (R-SRC-03)
      */
-    @EngineFacing
     CriteriaQuery<Tuple> body(CriteriaBuilder cb, RenderOptions options, SourceRenderer renderer) {
         if (operation != null) {
             // The combined body: each branch's own body, combined in the order the operations were called, and
@@ -534,7 +599,6 @@ public final class SourceQuery<S> {
      * the step's keys, while the level is below {@code maxDepth + 1}. Levels above {@code maxDepth} are produced so
      * that the depth check of {@code RecursiveCte} can see a tree deeper than the limit.
      */
-    @EngineFacing
     RecursiveSpec recursiveSpec(CriteriaBuilder cb, RenderOptions options, SourceRenderer renderer) {
         Recursion recursion = Objects.requireNonNull(this.recursion, "recursion");
         return new RecursiveSpec(cb, select(cb, options, renderer, cb.literal(0)), term(cb, options, renderer),
@@ -653,17 +717,21 @@ public final class SourceQuery<S> {
     }
 
     /**
-     * The name {@code field} is aliased by in the CTE, which the outer column reads it by: its property, as the
+     * The name {@code field} is aliased by in the CTE, which the outer column reads it by: its property prefixed by the engine (D-146), as the
      * source's QModel sets it with {@code named} (R-SRC-10, R-GEN-37, R-GEN-38).
      */
     private static String alias(SelectField<?, ?> field) {
-        Optional<String> property = field instanceof ColumnField<?, ?, ?> column ? column.property()
-                : field instanceof ExpressionField<?, ?> expression ? expression.property()
-                        : field instanceof AggregateField<?, ?> aggregate ? aggregate.property()
-                                : field instanceof WindowField<?, ?> window ? window.property()
-                                        : Optional.empty();
-        return property.orElseThrow(() -> new ModelQueryDefinitionException(MqCode.MQ1905,
+        return columnName(propertyOf(field).orElseThrow(() -> new ModelQueryDefinitionException(MqCode.MQ1905,
                 "a source's field " + field.name() + " has no property to alias its CTE column by; a generated "
-                        + "source constant is aliased by named(...)"));
+                        + "source constant is aliased by named(...)")));
+    }
+
+    /**
+     * The CTE column name of a source property: engine-owned, so that a property named a reserved word ({@code rank},
+     * {@code year}, {@code key}) is never a bare column name (D-146). The property itself, sort matching and the
+     * generated code are unchanged.
+     */
+    static String columnName(String property) {
+        return "mq_" + property;
     }
 }

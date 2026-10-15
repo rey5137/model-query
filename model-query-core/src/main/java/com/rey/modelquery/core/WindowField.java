@@ -108,7 +108,7 @@ public final class WindowField<M, C> implements SelectField<M, C> {
         Objects.requireNonNull(ctx, "ctx");
         SourceRenderer renderer = ctx.renderOptions().sourceRenderer()
                 .orElseThrow(() -> new ModelQueryConfigurationException(MqCode.MQ4014, name()
-                        + ": the factory's persistence provider has no SourceSupport (ProviderSupport#sources())"));
+                        + ": the factory's persistence provider has no SourceRenderer (ProviderSupport#sources())"));
         // Unchecked: the renderer declares no element type, and the field's own type is the function's result type
         // (INV-3), which the processor checks.
         return (Expression<C>) renderer.window(ctx.cb(), spec(ctx));

@@ -5,6 +5,7 @@ import com.rey.modelquery.core.ConstantRenderer;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
 import com.rey.modelquery.core.SequenceRenderer;
+import com.rey.modelquery.core.SourceRenderer;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.EntityWriteSupport;
 import com.rey.modelquery.jpa.spi.ForeignKeyColumn;
@@ -12,7 +13,6 @@ import com.rey.modelquery.jpa.spi.InsertSupport;
 import com.rey.modelquery.jpa.spi.LockSupport;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.jpa.spi.ReturningSupport;
-import com.rey.modelquery.jpa.spi.SourceSupport;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceException;
 import jakarta.persistence.TypedQuery;
@@ -366,10 +366,10 @@ public final class HibernateProviderSupport implements ProviderSupport {
         return Optional.of(HibernateMutations.INSTANCE);
     }
 
-    /** {@link HibernateSourceSupport}: {@code with(...)} and {@code from(cte)}, identical on both lines (R-SRC-12). */
+    /** {@link HibernateSourceRenderer}: {@code with(...)} and {@code from(cte)}, identical on both lines (R-SRC-12). */
     @Override
-    public Optional<SourceSupport> sources() {
-        return Optional.of(HibernateSourceSupport.INSTANCE);
+    public Optional<SourceRenderer> sources() {
+        return Optional.of(HibernateSourceRenderer.INSTANCE);
     }
 
     /**

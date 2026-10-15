@@ -5,6 +5,7 @@ import com.rey.modelquery.core.ConstantRenderer;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
 import com.rey.modelquery.core.SequenceRenderer;
+import com.rey.modelquery.core.SourceRenderer;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -170,7 +171,7 @@ public interface ProviderSupport {
      * source then throws {@code MQ4014} at build time, before any statement, the same fail-safe as
      * {@link #inserts()} (R-SRC-11, D-143).
      */
-    default Optional<SourceSupport> sources() {
+    default Optional<SourceRenderer> sources() {
         return Optional.empty();
     }
 }

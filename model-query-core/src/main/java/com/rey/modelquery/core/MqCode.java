@@ -500,10 +500,10 @@ public enum MqCode {
     MQ4013("The portability dry run cannot boot a factory offline for the target"),
 
     /**
-     * A query reads a source and the factory's persistence provider has no {@code SourceSupport}, so nothing can
+     * A query reads a source and the factory's persistence provider has no {@code SourceRenderer}, so nothing can
      * register the CTE; raised before any statement, as bulk inserts and row locks are (R-SRC-11, D-143).
      */
-    MQ4014("The factory's persistence provider has no SourceSupport"),
+    MQ4014("The factory's persistence provider has no SourceRenderer"),
 
     /**
      * The target's vendor lacks a source feature the query uses, {@code VendorProfile#sources(SourceFeature)} returning

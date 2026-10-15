@@ -637,28 +637,21 @@ final class QModelWriter {
 
     /** The {@code partitionBy} list of a window: {@code List.of(...)} of the model's constants, or an empty list. */
     private CodeBlock windowTerms(List<String> terms, ModelDefinition model, ClassName modelName) {
-        if (terms.isEmpty()) {
-            return CodeBlock.of("$T.of()", LIST);
-        }
-        return CodeBlock.of("$T.of($L)", LIST, terms.stream().map(term -> windowTerm(term, model, modelName))
-                .collect(CodeBlock.joining(",$W")));
+        return listOf(terms.stream().map(term -> windowTerm(term, model, modelName)).toList());
     }
 
-    /** The {@code orderBy} list of a window, each term a constant with {@code asc()} or {@code desc()}. */
     private CodeBlock windowOrders(List<WindowOrder> orders, ModelDefinition model, ClassName modelName) {
-        if (orders.isEmpty()) {
-            return CodeBlock.of("$T.of()", LIST);
-        }
-        return CodeBlock.of("$T.of($L)", LIST, orders.stream()
+        return listOf(orders.stream()
                 .map(order -> CodeBlock.of("$L.$L()", windowTerm(order.path(), model, modelName),
                         order.ascending() ? "asc" : "desc"))
-                .collect(CodeBlock.joining(",$W")));
+                .toList());
     }
 
-    /**
-     * A window term: the constant of the model's field it names, or a column built in place from its attribute path,
-     * as an aggregate over an attribute is (R-GEN-06).
-     */
+    private static CodeBlock listOf(List<CodeBlock> elements) {
+        return elements.isEmpty() ? CodeBlock.of("$T.of()", LIST)
+                : CodeBlock.of("$T.of($L)", LIST, elements.stream().collect(CodeBlock.joining(",$W")));
+    }
+
     private CodeBlock windowTerm(String term, ModelDefinition model, ClassName modelName) {
         ModelField declared = model.fields().stream()
                 .filter(each -> each.column() ? each.attribute().equals(term) : each.name().equals(term))

@@ -535,7 +535,7 @@ public final class ModelQuery<E, K, M> {
         SourceRenderer renderer = options.sourceRenderer()
                 .orElseThrow(() -> new ModelQueryConfigurationException(MqCode.MQ4014, modelName()
                         + ": this query reads the source " + source.model().getSimpleName()
-                        + ", and the factory's persistence provider has no SourceSupport "
+                        + ", and the factory's persistence provider has no SourceRenderer "
                         + "(ProviderSupport#sources()); model-query-hibernate serves Hibernate"));
         if (!source.recursive()) {
             return new SourceStatement(JoinContext.sourceOf(renderer.cte(query, source.body(cb, options, renderer)),

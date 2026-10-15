@@ -5,11 +5,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
+import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.KeysetSpec;
 import com.rey.modelquery.core.KeysetSlice;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
+import com.rey.modelquery.core.ModelQueryException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.Slice;
@@ -29,6 +31,7 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
 
@@ -184,7 +187,7 @@ class SetOperationExecutionTest {
     void ac_src_11_mq1904_is_raised_before_any_statement(TckDatabase db) {
         List<String> sql = SqlSnapshots.capture(db, ds -> {
             SourceQuery<DispatchFeed> live = QDispatchFeed.source().build();
-            assertThatThrownBy(() -> live.union(live))
+            assertThatThrownBy(() -> live.unionAll(live))
                     .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ1904))
                     .hasMessageContaining("live");
@@ -226,6 +229,23 @@ class SetOperationExecutionTest {
             assertThatThrownBy(() -> executor.export(feed, ExportOptions.of(500), page -> page, row -> { }))
                     .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ2212));
+        }));
+
+        assertThat(sql).isEmpty();
+    }
+
+    @TckTest
+    void ac_src_11_mq2212_is_raised_for_a_fetch_plan_with_a_child_over_a_non_unique_source(TckDatabase db) {
+        var plan = FetchPlan.of(QOrderItemsFeed.ALL).child(QOrderItemsFeed.ITEMS, FetchPlan.of(QOrderItemLine.ALL));
+        var feed = QOrderItemsFeed.query(twice()).orderBy(QOrderItemsFeed.ID.asc()).fetch(plan).build();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, OrderSource.class, executor -> {
+            assertThatThrownBy(() -> executor.list(feed, Limit.of(10)))
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ2212));
+            // A stream has no page, so it refuses any plan with a child on its own (MQ2605), before the source is read.
+            assertThatThrownBy(() -> executor.stream(feed, Limit.of(10), Stream::toList))
+                    .isInstanceOfSatisfying(ModelQueryException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ2605));
         }));
 
         assertThat(sql).isEmpty();

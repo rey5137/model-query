@@ -52,10 +52,10 @@ Nothing is frozen yet: every public type stays `@Incubating`, and the additions 
   marked; both are read from the statement's own first row, so a too-deep tree is refused before any page is
   returned, with no extra query.
 - Running a source (RFC 0013, R-SRC-10, D-143): a query over a source is a CTE, so the provider needs the new
-  `@Incubating SourceSupport` of `jpa.spi`, which `ProviderSupport#sources()` returns (empty by default), and the
+  `@Incubating SourceRenderer` of `core`, which `ProviderSupport#sources()` returns (empty by default; `window`, `combine` and `recursive` default to `MQ4015`), and the
   target's `VendorProfile` has to answer `true` for every `SourceFeature` the source uses — `CTE`, `RECURSIVE`,
   `WINDOW`, `UNION`, `INTERSECT` or `EXCEPT` — and to leave room above its `maxRecursionDepth()` for a recursive
-  one's `maxDepth + 2`. A factory whose provider has no `SourceSupport` is `MQ4014`, a target that lacks a feature
+  one's `maxDepth + 2`. A factory whose provider has no `SourceRenderer` is `MQ4014`, a target that lacks a feature
   or the depth is `MQ4015`, and both are raised at build time, before any statement, so the portability dry run
   refuses the target with no database attached. H2 2.2+, PostgreSQL 14+ and MySQL 8.0.31+ have all six (`vendor/41`).
   `MQ1903` refuses a row lock on a query that reads a source, because a locking clause cannot follow the CTE;
@@ -73,6 +73,14 @@ Nothing is frozen yet: every public type stays `@Incubating`, and the additions 
   8.0.31, so the version the Tier-1 matrix runs drops to the first release with the whole of the source feature set
   listed above. `VendorProfile` carries no server version, so an older 8.0.x is unsupported rather than refused;
   8.0.0 to 8.0.30 are past end of life.
+
+- A source CTE's columns are named `mq_<property>` by the engine (D-146), so a field named `year` or `order` cannot
+  collide with a vendor reserved word; properties, sort matching and generated code are unchanged. `ProviderSupport#sources()`
+  returns the one hook, `core.SourceRenderer`. `Builder#discriminator` takes a key column and `Builder#depth` a column of
+  the fields, a recursive step's `childKey` and `parentKey` share one column type, and `combine` over sources whose
+  fields differ in order, type or converter is `MQ1904`.
+- `WindowField` joins `SelectField`'s sealed permits (RFC 0013), so an exhaustive `switch` over `SelectField` needs a
+  new case and already-compiled code meets a `MatchException`.
 
 ## [0.9.0] - 2026-10-14
 

@@ -3,6 +3,7 @@ package com.rey.modelquery.core;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -34,7 +35,9 @@ class SetOperationQueryTest {
             ColumnField.of(Second.class, ENTITY_ROOT, "kind", String.class).named("kind");
     private static final OrderedColumnField<Second, Entity, Long> S2_ID =
             ColumnField.of(Second.class, ENTITY_ROOT, "id", Long.class).named("id");
-    private static final SelectSet<Second> SECOND_ALL = SelectSet.of(S2_KIND, S2_ID);
+    private static final OrderedColumnField<Second, Entity, String> S2_TITLE =
+            ColumnField.of(Second.class, ENTITY_ROOT, "title", String.class).named("title");
+    private static final SelectSet<Second> SECOND_ALL = SelectSet.of(S2_KIND, S2_ID, S2_TITLE);
     private static final PrimaryKey<Second, ?> SECOND_KEY = PrimaryKey.composite(S2_KIND, S2_ID);
 
     private static final OrderedColumnField<Outer, Source, String> O_KIND =
@@ -152,11 +155,14 @@ class SetOperationQueryTest {
 
     @Test
     void ac_src_06_one_discriminator_value_in_one_union_is_mq1904() {
-        assertThat(code(() -> branch("A").union(branch("A"))).code()).isEqualTo(MqCode.MQ1904);
         assertThat(code(() -> branch("A").unionAll(branch("A"))).code()).isEqualTo(MqCode.MQ1904);
-        // The check reads every leaf of the operation tree, not only its two sides.
+        // A distinct union of one model removes the duplicates itself, so it doesn't clash.
+        assertThat(code(() -> branch("A").union(branch("A")))).isNull();
+        // The check reads the values every side can carry, not only its two sides.
         assertThat(code(() -> branch("A").union(branch("B")).unionAll(branch("A"))).code())
                 .isEqualTo(MqCode.MQ1904);
+        // An intersect carries only the values both sides share, so it doesn't clash with a different one.
+        assertThat(code(() -> branch("A").intersect(branch("A")).unionAll(branch("B")))).isNull();
         assertThat(code(() -> branch("A").union(branch("B")).unionAll(branch("C")))).isNull();
     }
 
@@ -164,6 +170,76 @@ class SetOperationQueryTest {
     void ac_src_06_intersect_and_except_do_not_check_discriminator_values() {
         assertThat(branch("A").intersect(branch("A")).unique()).isTrue();
         assertThat(branch("A").except(branch("A")).unique()).isTrue();
+    }
+
+    @Test
+    void ac_src_06_an_intersect_inside_a_union_all_carries_only_the_values_both_sides_share() {
+        SourceQuery<Source> feed = branch("X").intersect(branch("X")).unionAll(branch("Y"));
+
+        assertThat(feed.unique()).isTrue();
+        assertThat(code(() -> query(feed).keyset().build())).isNull();
+        // An intersect of different values carries none, so it is disjoint from everything.
+        assertThat(branch("X").intersect(branch("Y")).unionAll(branch("X")).unique()).isTrue();
+    }
+
+    @Test
+    void ac_src_06_an_except_carries_the_values_of_its_left_side_only() {
+        // (a[X] except b[Y]) carries {X}, so a union with c[Y] is disjoint and unique, and with c[X] it clashes.
+        assertThat(branch("X").except(branch("Y")).union(branch("Y")).unique()).isTrue();
+        assertThat(branch("X").except(branch("Y")).unionAll(branch("Y")).unique()).isTrue();
+        assertThat(code(() -> branch("X").except(branch("Y")).unionAll(branch("X"))).code())
+                .isEqualTo(MqCode.MQ1904);
+    }
+
+    @Test
+    void ac_src_06_a_branch_without_a_discriminator_value_keeps_a_union_of_two_models_from_being_unique() {
+        // A branch that fixes no value can carry any value, so no disjointness is known: never unique, never MQ1904.
+        assertThat(source().unionAll(branch("A")).unique()).isFalse();
+        assertThat(branch("A").unionAll(branch("B").unionAll(source())).unique()).isFalse();
+    }
+
+    @Test
+    void ac_src_06_a_distinct_union_of_one_model_with_one_discriminator_value_is_unique() {
+        assertThat(branch("A").union(branch("A")).unique()).isTrue();
+        // Two values of one model are disjoint, so the union is unique without the same-model rule.
+        assertThat(branch("A").union(branch("B")).union(branch("C")).unique()).isTrue();
+        // A third branch repeating a value of the first two clashes, since the three do not share one value.
+        assertThat(code(() -> branch("A").union(branch("B")).union(branch("A"))).code()).isEqualTo(MqCode.MQ1904);
+        // A branch with no discriminator says nothing about the key, so the union is not unique by value.
+        assertThat(code(() -> branch("A").unionAll(source()))).isNull();
+        assertThat(branch("A").unionAll(source()).unique()).isFalse();
+    }
+
+    @Test
+    void ac_src_06_a_discriminator_outside_the_key_is_mq1904_at_build() {
+        var builder = SourceQuery.builder(Source.class, ENTITY_ROOT, ALL, KEY).discriminator(TITLE, "A");
+
+        ModelQueryDefinitionException thrown = code(builder::build);
+
+        assertThat(thrown.code()).isEqualTo(MqCode.MQ1904);
+        assertThat(thrown.getMessage()).contains("title").contains("key");
+    }
+
+    @Test
+    void ac_src_06_branches_whose_fields_differ_do_not_combine() {
+        OrderedColumnField<Source, Entity, Long> titleAsLong =
+                ColumnField.of(Source.class, ENTITY_ROOT, "title", Long.class).named("title");
+        OrderedColumnField<Source, Entity, String> other =
+                ColumnField.of(Source.class, ENTITY_ROOT, "other", String.class).named("other");
+        SourceQuery<Source> reordered = SourceQuery.builder(Source.class, ENTITY_ROOT,
+                SelectSet.of(KIND, TITLE, ID), KEY).build();
+        SourceQuery<Source> retyped = SourceQuery.builder(Source.class, ENTITY_ROOT,
+                SelectSet.of(KIND, ID, titleAsLong), KEY).build();
+        SourceQuery<Source> renamed = SourceQuery.builder(Source.class, ENTITY_ROOT,
+                SelectSet.of(KIND, ID, other), KEY).build();
+        SourceQuery<Source> shorter = SourceQuery.builder(Source.class, ENTITY_ROOT, SelectSet.of(KIND, ID), KEY)
+                .build();
+
+        for (SourceQuery<Source> differing : List.of(reordered, retyped, renamed, shorter)) {
+            assertThat(code(() -> source().union(differing)).code()).isEqualTo(MqCode.MQ1904);
+            assertThat(code(() -> source().except(differing)).code()).isEqualTo(MqCode.MQ1904);
+        }
+        assertThat(code(() -> source().union(source()))).isNull();
     }
 
     @Test

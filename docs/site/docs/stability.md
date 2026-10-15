@@ -149,7 +149,7 @@ The source-model members are new in 0.10.0 and incubating (D-143, D-144, D-145),
 `SourceQuery` with its `Builder`, `WindowField` and the `RecursiveStep`, `StepBuilder`
 and `RecursiveKeys` a recursive step is written with, plus the `TableField.source`, `ColumnField.over`,
 `ModelQuery#source()` and three-argument `ModelQuery.builder` members and the generated `source()`,
-`query(SourceQuery<S>)` and `WindowField` constants. `SourceSupport` and `SourceFeature` in `jpa.spi` are extension
+`query(SourceQuery<S>)` and `WindowField` constants. `SourceFeature` in `jpa.spi` is an extension
 points of a provider and a vendor profile, with `ProviderSupport#sources()`, `VendorProfile#sources(SourceFeature)`
 and `VendorProfile#maxRecursionDepth()`. `SetOperation`, `WindowSpec`, `SourceRenderer`, `RecursiveCte`, `RecursiveSpec` and `RecursiveTerm` are
 `@EngineFacing`, so not API. See [Source models](source-models.md).

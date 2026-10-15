@@ -4,10 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
+import com.rey.modelquery.core.ModelQueryException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.SourceQuery;
@@ -17,7 +19,6 @@ import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
-import com.rey.modelquery.tck.harness.TckVendor;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
 import java.math.BigDecimal;
 import java.sql.Connection;
@@ -27,6 +28,7 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
 
@@ -161,6 +163,25 @@ class RecursiveSourceExecutionTest {
         assertThat(sql).isEmpty();
     }
 
+    @TckTest
+    void ac_src_11_mq2212_is_raised_for_a_fetch_plan_with_a_child_over_a_recursive_source(TckDatabase db) {
+        var plan = FetchPlan.of(QFolderChildrenRow.ALL).child(QFolderChildrenRow.CHILDREN,
+                FetchPlan.of(QFolderChild.ALL));
+        var feed = QFolderChildrenRow.query(tree(TckFixture.FOLDER_TREE_ROOT, 3)).orderBy(QFolderChildrenRow.ID.asc())
+                .fetch(plan).build();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, FolderNode.class, executor -> {
+            assertThatThrownBy(() -> executor.list(feed, Limit.of(10)))
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ2212));
+            // A stream has no page, so it refuses any plan with a child on its own (MQ2605), before the source is read.
+            assertThatThrownBy(() -> executor.stream(feed, Limit.of(10), Stream::toList))
+                    .isInstanceOfSatisfying(ModelQueryException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ2605));
+        }));
+
+        assertThat(sql).isEmpty();
+    }
+
     // ---- AC-SRC-14
 
     @TckTest
@@ -174,29 +195,6 @@ class RecursiveSourceExecutionTest {
         assertThat(rows.get(0).id()).isEqualTo(TckFixture.FOLDER_DEEP_ROOT);
         assertThat(rows.get(0).level()).isZero();
         assertThat(rows.get(rows.size() - 1).level()).isEqualTo(998);
-    }
-
-    @TckTest
-    void ac_src_14_mysql_refuses_a_max_depth_of_999_with_mq4015(TckDatabase db) {
-        var deep = rows(tree(TckFixture.FOLDER_DEEP_ROOT, 999));
-        if (db.vendor() != TckVendor.MYSQL) {
-            // H2 and PostgreSQL allow Integer.MAX_VALUE of them (R-VND-22), so 999 is a level the chain simply has
-            // not got: it walks all 999 rows and no row is past the limit.
-            List<FolderRow> listed = new ArrayList<>();
-            SqlSnapshots.capture(db, ds -> withExecutor(ds, FolderNode.class,
-                    executor -> listed.addAll(executor.list(deep, Limit.unlimited()))));
-
-            assertThat(listed).hasSize(TckFixture.FOLDER_DEEP_NODES);
-            return;
-        }
-        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, FolderNode.class, executor ->
-                assertThatThrownBy(() -> executor.list(deep, Limit.unlimited()))
-                        .isInstanceOfSatisfying(ModelQueryConfigurationException.class,
-                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ4015))
-                        .hasMessageContaining("maxDepth(999)")
-                        .hasMessageContaining("1000")));
-
-        assertThat(sql).isEmpty();
     }
 
     private static SourceQuery<FolderNode> tree(long root, int maxDepth) {

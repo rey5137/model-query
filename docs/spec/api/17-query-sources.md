@@ -77,10 +77,19 @@ public final class SourceQuery<S> {
             PrimaryKey<M, ?> key, SelectSet<M> groupKeys);
 
     public static final class Builder<E, M, S> {
+        public <S2> Builder<E, M, S2> shape(Class<S2> shape);
+        public Builder<E, M, S> discriminator(ColumnField<M, ?, String> field, String value);
+        public Builder<E, M, S> depth(ColumnField<M, ?, Integer> field);
+        public Builder<E, M, S> recursive(Function<RecursiveStep<M>, RecursiveKeys<M, ?>> step, int maxDepth);
         public Builder<E, M, S> where(UnaryOperator<Filters<M>> filters);
         public Builder<E, M, S> having(UnaryOperator<Having<M>> filters);
         public SourceQuery<S> build();
     }
+
+    public SourceQuery<S> union(SourceQuery<S> other);
+    public SourceQuery<S> unionAll(SourceQuery<S> other);
+    public SourceQuery<S> intersect(SourceQuery<S> other);
+    public SourceQuery<S> except(SourceQuery<S> other);
 }
 ```
 
@@ -94,10 +103,11 @@ public final class SourceQuery<S> {
   property and copies its converter, so the outer column narrows and converts as the source's does.
 
 - **`SourceQuery` holds the source's structure.** `model`, `fields`, `key` and the optional `groupKeys` are fixed where
-  it is built; the builder adds only `where`, `having`, `shape` and `discriminator`. It holds no Criteria object and no
-  per-query state, so one instance can be a `static final` constant shared by any number of threads (INV-9) — a
-  combined one holds its two sides and is as immutable. Recursion lands with M25.5 (R-PROC-37); `having` on an ungrouped
-  source is `MQ1407`, as it is on `ModelQuery`.
+  it is built; the builder adds `where` and `having`, and the generated `source()` also names `shape` (R-PROC-38),
+  `discriminator` (a key column, else `MQ1904`), `depth` (a column of the fields, else `MQ1902`) and `recursive`
+  (R-SRC-07). It holds no Criteria object and no per-query state, so one instance can be a `static final` constant
+  shared by any number of threads (INV-9) — a combined one holds its two sides and is as immutable. `having` on an
+  ungrouped source is `MQ1407`, as it is on `ModelQuery`.
 
 - **`ModelQuery` carries it.** `ModelQuery.builder(TableField<E, E> root, RowMapper<M> mapper, SourceQuery<E> source)`
   starts a definition over a source, and `ModelQuery.source()` returns the `SourceQuery` it was given, empty for a
@@ -163,7 +173,7 @@ SourceQuery<FeedItem> feed = QFeedItem.source().build().unionAll(QRefundFeedItem
 
 **R-SRC-05** `union`, `unionAll`, `intersect` and `except` are methods of a `SourceQuery<S>`: each takes another
 `SourceQuery<S>`, so only branches of one shape combine, and returns the combined source. The operation is rendered
-inside the source's CTE body through `SourceSupport#combine` (R-SRC-12, D-143). A vendor whose profile answers `false`
+inside the source's CTE body through `SourceRenderer#combine` (R-SRC-12, D-143). A vendor whose profile answers `false`
 for the operation's `SourceFeature` is `MQ4015`, before any statement (R-SRC-11).
 
 - **Whole rows.** A row belongs to an `intersect` or an `except` result only if every column matches; a non-key column
@@ -180,10 +190,16 @@ for the operation's `SourceFeature` is `MQ4015`, before any statement (R-SRC-11)
 - **By discriminator.** The shape's key includes a `@Discriminator` field and every branch fixes it to a different
   constant, which the branch renders as a literal. Two branches of one `union` or `unionAll` that fix the same value are
   `MQ1904`, raised where the operation is built; without the error the union would quietly lose key uniqueness.
-  `intersect` and `except` don't check the values, since their uniqueness follows R-SRC-05 alone.
-- **By one branch model.** A distinct `union` whose branches all read one branch model: each root row yields the same
-  columns in every branch, so a row reached by two branches collapses to one. This covers "owned `union` shared", where
-  the rows a customer owns are unioned with the rows they share.
+  `intersect` and `except` don't check the values, since their uniqueness follows R-SRC-05 alone. The values are
+  computed per node of the combined source: a leaf holds {v}, `union` and `unionAll` hold L u R, `intersect` L n R and
+  `except` L. The `MQ1904` clash check compares the two sides' sets, and uniqueness needs them disjoint; the clash check
+  is skipped for a distinct `union` whose leaves all read one model. Two sides whose fields differ in order, property,
+  type or converter are `MQ1904` where `combine` is built, since their rows would not compare as the same shape.
+- **By one branch model.** A distinct `union` whose branches all read one ungrouped branch model with no `@Window`
+  field and one discriminator value: each root row yields the same columns in every branch, so a row two branches reach
+  collapses to one. A grouped or windowed model computes its values over each branch's own rows, so it is non-unique
+  there (R-SRC-09). This covers "owned `union` shared", where the rows a customer owns are unioned with the rows they
+  share.
 
 **R-SRC-09** A source that R-SRC-05 doesn't make unique, and that is not unique by construction, is **non-unique** —
 as is a recursive source (M25.5). On a query over one, every feature that identifies a row by its key is refused before
@@ -200,7 +216,10 @@ any statement:
   order values could swap between the statements of page 1 and page 2, and one row would show twice while the other
   never showed. Offset `page` therefore appends every selected outer column, ascending, as tie-breakers after the
   definition's `orderBy` and the key. A selected column that can't be ordered (a LOB, a JSON type) is `MQ2212`, and
-  rows equal in every column can't be told apart, so no row is visibly lost.
+  rows that compare equal under the vendor's ordering can't be told apart, so no row is visibly lost. Orderability
+  is judged by Java type, so an `@Lob String` fails at the database rather than as `MQ2212`. Known limits (`engine/21`, M25 gate): the vendor's ordering is not always the Java one, namely a MySQL `_ai_ci` collation or trailing-space
+  padding, MySQL `TEXT` sorted by its first `max_sort_length` bytes, and a `BigDecimal` of scale 1.0 against 1.00; rows
+  the vendor calls equal are interchangeable to it, not to the caller.
 
 ## 5. Window fields
 
@@ -234,7 +253,7 @@ so an outer model reads its value as a plain column (R-GEN-38, R-PROC-36):
   term renders that aggregate's own expression, so a source can rank its groups (`rank() over (order by sum(total))`).
   A window is a select item of the CTE: `where` and `having` do not accept one, since SQL forbids a window function in
   a predicate (R-GEN-38).
-- **The provider.** The engine reaches the provider only through `SourceSupport#window(cb, spec)`, the second hook
+- **The provider.** The engine reaches the provider only through `SourceRenderer#window(cb, spec)`, the second hook
   beside `cte` (R-SRC-12), so no provider type leaks into `jpa` (INV-7). A vendor whose profile answers `false` for
   `SourceFeature.WINDOW` is `MQ4015`, before any statement (R-SRC-11).
 
@@ -261,7 +280,8 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
   names its shape and discriminator (R-PROC-38), so no caller can leave the level column unnamed.
 - **The step.** `Builder#recursive(step, maxDepth)` takes a `Function<RecursiveStep<M>, RecursiveKeys<M, ?>>`:
   `step.childKey(child).parentKey(parent)` names the two columns a row is a child of another by, both of the source's
-  root entity, so a pair of different key types fails to compile and a swapped pair reads wrong at the call site.
+  root entity and typed by one column type `C` (`RecursiveKeys<S, C>`), so a pair of different key types fails to
+  compile and a swapped pair reads wrong at the call site.
 - **The levels.** The seed is the rows `where` keeps, at level 0, and each step adds 1, so `maxDepth = 20` returns
   levels 0 to 20. A recursive model must call `recursive(...)` before `build()`: without it the source would quietly
   return the seed rows alone.
@@ -298,14 +318,14 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
   `MQ4015` before any statement (R-SRC-11, R-VND-22). MySQL's default of 1000 serves `maxDepth` 998 and refuses 999.
 - **The provider's hook.** `core` builds the seed and the step and names the level and the two checks; the provider
   registers the `with recursive` CTE, its cycle clause and its two check sub-selects through
-  `SourceSupport#recursive(outer, spec)`, which returns the CTE's root with them, so no provider type leaks into `jpa`
+  `SourceRenderer#recursive(outer, spec)`, which returns the CTE's root with them, so no provider type leaks into `jpa`
   (INV-7, D-144).
 
 ## 7. Building the CTE, and what a source needs to run
 
 **R-SRC-11** What a statement over a source needs, all checked before any statement:
 
-- **The provider's support.** `ProviderSupport#sources()` returns the factory's `SourceSupport`. Empty — the default,
+- **The provider's support.** `ProviderSupport#sources()` returns the factory's `SourceRenderer`. Empty — the default,
   and the only answer where the factory's provider has no `ProviderSupport` at all — is `MQ4014`, before any statement,
   the same fail-safe as `ProviderSupport#inserts()` (R-VND-14). `model-query-hibernate` serves Hibernate on both lines.
 - **The vendor's features.** `VendorProfile#sources(SourceFeature)` answers for each feature the source uses, `false`
@@ -316,9 +336,10 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
   which a locking clause cannot follow. Q-16 stays open.
 
 **R-SRC-12** The engine (`core`) builds the source's body, as a standard `CriteriaQuery<Tuple>` whose elements are the
-source's fields, aliased by field name, filtered by its `where` and `having` and grouped by its `groupKeys`
-(R-SRC-03, D-143). It reaches the provider only through `SourceSupport#cte(outer, body)`, which registers the body as
-`outer`'s CTE and returns the root the outer statement reads by those names, so no provider type leaks into `jpa`
+source's fields, aliased by the engine-given column name `mq_<property>` (`SourceQuery.columnName`, D-146: no field name
+can collide with a vendor reserved word, INV-6), filtered by its `where` and `having` and grouped by its `groupKeys`
+(R-SRC-03, D-143). It reaches the provider only through `SourceRenderer#cte(outer, body)`, which registers the body as
+`outer`'s CTE and returns the root the outer statement reads by those names (`ColumnField.over` uses the same `columnName`), so no provider type leaks into `jpa`
 (INV-7). The CTE is registered on **every** statement built over the source: the content query, the count, both
 primary-key-first steps, each export page, `byKeys` (every chunk) and the parent reads of a fetch plan. A statement
 that reaches the database without its CTE is therefore a bug in the engine, not a state the user can hold: the body is

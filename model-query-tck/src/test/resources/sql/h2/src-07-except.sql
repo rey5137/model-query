@@ -1,1 +1,1 @@
-select cte01_0.branch,cte01_0.id,cte01_0.label from (select 'live',oe1_0.id,oe1_0.status from orders oe1_0 except select 'shelved',nse1_0.id,nse1_0.sort_text from nullable_sort_rows nse1_0) cte01_0(branch,id,label) order by 1,2
+select cte01_0.mq_branch,cte01_0.mq_id,cte01_0.mq_label from (select 'live',oe1_0.id,oe1_0.status from orders oe1_0 except select 'shelved',nse1_0.id,nse1_0.sort_text from nullable_sort_rows nse1_0) cte01_0(mq_branch,mq_id,mq_label) order by 1,2

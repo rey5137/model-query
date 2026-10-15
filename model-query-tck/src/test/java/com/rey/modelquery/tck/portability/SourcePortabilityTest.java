@@ -61,7 +61,7 @@ class SourcePortabilityTest {
         for (Target target : List.of(H2, POSTGRESQL, MYSQL)) {
             assertThat(lines).anySatisfy(line -> assertThat(line)
                     .startsWith("FEED on " + target + ": REFUSED MQ4014")
-                    .contains("SourceSupport"));
+                    .contains("SourceRenderer"));
         }
     }
 

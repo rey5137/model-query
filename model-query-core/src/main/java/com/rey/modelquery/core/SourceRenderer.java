@@ -17,6 +17,9 @@ import jakarta.persistence.criteria.Root;
  * statement it builds over a source, so a statement never reaches the database without its CTE registered (R-SRC-12).
  * A query over a source with no renderer is {@code MQ4014}, raised at build time, before any statement.
  *
+ * <p>{@link #cte} is the one method a provider must implement; {@link #recursive}, {@link #window} and {@link #combine}
+ * default to {@code MQ4015}, so a provider can ship CTE support only.
+ *
  * @implSpec R-SRC-10, R-SRC-12, R-SRC-04, INV-7
  */
 @EngineFacing
@@ -35,14 +38,18 @@ public interface SourceRenderer {
      * {@code maxDepth + 1} levels, marks the row that closes a cycle, and joins each level to the previous one
      * through the step's keys (RFC 0013 §5).
      */
-    RecursiveCte recursive(CriteriaQuery<?> outer, RecursiveSpec spec);
+    default RecursiveCte recursive(CriteriaQuery<?> outer, RecursiveSpec spec) {
+        throw unsupported("recursive CTEs");
+    }
 
     /**
      * Renders {@code spec} as a window function with an {@code OVER (...)} clause, over {@code cb}'s criteria. The
      * provider's typed window methods are used where it has them, and {@code windowFunction(name, ...)} otherwise
      * (R-SRC-04).
      */
-    Expression<?> window(CriteriaBuilder cb, WindowSpec spec);
+    default Expression<?> window(CriteriaBuilder cb, WindowSpec spec) {
+        throw unsupported("window functions");
+    }
 
     /**
      * Combines {@code left} and {@code right} into one set operation, itself a statement the provider can register as
@@ -55,6 +62,13 @@ public interface SourceRenderer {
      * @param right the right branch
      * @return the combined statement, whose columns are the branches' aliases in order
      */
-    CriteriaQuery<Tuple> combine(CriteriaBuilder cb, SetOperation operation, CriteriaQuery<Tuple> left,
-            CriteriaQuery<Tuple> right);
+    default CriteriaQuery<Tuple> combine(CriteriaBuilder cb, SetOperation operation, CriteriaQuery<Tuple> left,
+            CriteriaQuery<Tuple> right) {
+        throw unsupported("set operations");
+    }
+
+    private static ModelQueryConfigurationException unsupported(String feature) {
+        return new ModelQueryConfigurationException(MqCode.MQ4015,
+                "the factory's persistence provider renders CTE sources only, not " + feature);
+    }
 }

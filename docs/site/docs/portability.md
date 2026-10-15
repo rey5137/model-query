@@ -112,7 +112,7 @@ A unit that cannot boot offline for a target is `MQ4013`: no provider support fo
 no offline boot (Oracle, SQL Server, `OTHER`), or a version that is not numeric.
 
 A query over a [source model](source-models.md) is checked per target too, and both of its codes are raised before any
-statement: `MQ4014` is the target's provider having no `SourceSupport` (`ProviderSupport#sources()` empty, or no
+statement: `MQ4014` is the target's provider having no `SourceRenderer` (`ProviderSupport#sources()` empty, or no
 `ProviderSupport` at all), and `MQ4015` is the target's `VendorProfile` answering `false` for a `SourceFeature` the
 source uses (`CTE`, `RECURSIVE`, `WINDOW`, `UNION`, `INTERSECT`, `EXCEPT`) or a `maxDepth + 2` above its
 `maxRecursionDepth()`. The dry run therefore reports `REFUSED` for a target that cannot serve the source and `REACHED`

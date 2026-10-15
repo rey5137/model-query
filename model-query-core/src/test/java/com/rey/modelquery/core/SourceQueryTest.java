@@ -208,13 +208,13 @@ class SourceQueryTest {
 
     @Test
     void r_src_10_over_reads_the_source_fields_alias_and_keeps_its_converter() {
-        assertThat(O_ID.name()).isEqualTo("id");
+        assertThat(O_ID.name()).isEqualTo("mq_id");
         assertThat(O_ID.property()).contains("id");
         assertThat(O_ID.type()).isEqualTo(Long.class);
         assertThat(O_ID.table()).isSameAs(SOURCE_ROOT);
         assertThat(O_ID.converterClass()).isNull();
 
-        assertThat(O_CONVERTED.name()).isEqualTo("state");
+        assertThat(O_CONVERTED.name()).isEqualTo("mq_state");
         assertThat(O_CONVERTED.type()).isEqualTo(Status.class);
         assertThat(O_CONVERTED.converterClass()).isEqualTo(StatusConverter.class);
         assertThat(SOURCE_ROOT.isSource()).isTrue();

@@ -4,8 +4,8 @@ import com.rey.modelquery.annotations.WindowFrame;
 import com.rey.modelquery.core.RecursiveCte;
 import com.rey.modelquery.core.RecursiveSpec;
 import com.rey.modelquery.core.SetOperation;
+import com.rey.modelquery.core.SourceRenderer;
 import com.rey.modelquery.core.WindowSpec;
-import com.rey.modelquery.jpa.spi.SourceSupport;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -23,7 +23,7 @@ import org.hibernate.query.criteria.JpaSubQuery;
 import org.hibernate.query.criteria.JpaWindow;
 
 /**
- * Hibernate's {@link SourceSupport}: {@code JpaCriteriaQuery#with} registers the source's body as the statement's
+ * Hibernate's {@link SourceRenderer}: {@code JpaCriteriaQuery#with} registers the source's body as the statement's
  * common table expression and {@code JpaCriteriaQuery#from(JpaCteCriteria)} reads it, identical on Hibernate 6.6 and
  * 7.4 (R-SRC-12, D-143). The CTE is registered on each statement {@code jpa} builds over a source, so the call is
  * per statement and carries no state.
@@ -33,11 +33,11 @@ import org.hibernate.query.criteria.JpaWindow;
  * type, and {@code windowFunction} renders the rest by name with the type {@code core} declares (R-SRC-04). The frame
  * is rendered only for a function that takes one, which H2 rejects.
  */
-final class HibernateSourceSupport implements SourceSupport {
+final class HibernateSourceRenderer implements SourceRenderer {
 
-    static final HibernateSourceSupport INSTANCE = new HibernateSourceSupport();
+    static final HibernateSourceRenderer INSTANCE = new HibernateSourceRenderer();
 
-    private HibernateSourceSupport() {
+    private HibernateSourceRenderer() {
     }
 
     @Override
@@ -100,12 +100,11 @@ final class HibernateSourceSupport implements SourceSupport {
         JpaWindow window = window(builder, spec);
         Expression<?> argument = spec.argument();
         // Unchecked: sum reads any Number and declares its own result type; the argument is a basic attribute.
-        Expression<?> summable = argument;
         return switch (spec.function()) {
             case ROW_NUMBER -> builder.rowNumber(window);
             case RANK -> builder.rank(window);
             case DENSE_RANK -> builder.denseRank(window);
-            case SUM -> builder.sum((Expression<Number>) summable, window);
+            case SUM -> builder.sum((Expression<Number>) argument, window);
             case FIRST_VALUE -> builder.firstValue(argument, window);
             case LAG -> byName(builder, "lag", argument, window);
             case LEAD -> byName(builder, "lead", argument, window);

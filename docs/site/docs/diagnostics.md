@@ -107,9 +107,9 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1808` | Insert: two rows of one insert-values call with a conflict clause share a conflict-key tuple. |
 | `MQ1809` | `persist(persist, returning)`: a query with a `where` or `having` that recorded a filter, `groupBy`, a fetch plan, `customize`, `orderBy`, `keyset` or `primaryKeyFirst`, a lock, or a column the flushed entity cannot fill. A returning write also refuses a column on a table other than the written one, `throughEntities()` and `commitEachChunk()`. |
 | `MQ1901` | `keyset()` or `primaryKeyFirst(...)` on a query over a non-unique source, whose key does not identify a row. |
-| `MQ1902` | A recursive source built wrongly: a `maxDepth` below 1 or above `Integer.MAX_VALUE - 2`, `recursive(...)` on a model with no `@Depth`, or a `@Depth` model built without `recursive(...)`. |
+| `MQ1902` | A recursive source built wrongly: a `maxDepth` below 1 or above `Integer.MAX_VALUE - 2`, `recursive(...)` on a model with no `@Depth`, a `@Depth` model built without `recursive(...)`, or a `depth(...)` column that is not among the fields. |
 | `MQ1903` | A row lock on a query that reads a source: a locking clause cannot follow through a common table expression. |
-| `MQ1904` | Two branches of one set operation fix the same `@Discriminator` value, two combined sources read different shapes, or a side of the operation is a recursive source. |
+| `MQ1904` | Two branches of one set operation fix the same `@Discriminator` value, two combined sources read different shapes or fields in a different order, type or converter, a `discriminator` column is not a key column, or a side of the operation is a recursive source. |
 | `MQ1905` | A hand-written `ColumnField.of` or `TableField.join` over a source root; a generated outer column is `ColumnField.over(model, root, sourceConstant)`. |
 | `MQ1906` | A source's `where` predicate whose path crosses a to-many join, which no join inside the CTE can express; use `Filters.exists(path, inner)`. |
 
