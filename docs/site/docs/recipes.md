@@ -1389,11 +1389,18 @@ public record OrderReferrerIdRow(@PrimaryKey Long id, String status, BigDecimal 
         @Column(attribute = "customer") Long customerId, @Column(attribute = "referrer") Long referrerId) {}
 ```
 
+Build the read once and keep it in a constant; a `ModelQuery` is immutable, so every call can share it:
+
+```java
+private static final ModelQuery<OrderEntity, Long, OrderReferrerIdRow> BY_ID = QOrderReferrerIdRow.query()
+        .select(QOrderReferrerIdRow.ALL)
+        .build();
+```
+
 === "Plain JPA"
 
     ```java
-    OrderReferrerIdRow row = executor.one(QOrderReferrerIdRow.query().select(QOrderReferrerIdRow.ALL).build(), id)
-            .orElseThrow();
+    OrderReferrerIdRow row = executor.one(BY_ID, id).orElseThrow();
     Changes<OrderReferrerIdRow> changes = OrderReferrerIdRowChanges.from(edited,
             SelectSet.of(QOrderReferrerIdRow.REFERRER_ID));
     executor.update(QOrderReferrerIdRow.update(changes).whereKey(id).build());
@@ -1403,8 +1410,7 @@ public record OrderReferrerIdRow(@PrimaryKey Long id, String status, BigDecimal 
 === "Spring repository"
 
     ```java
-    OrderReferrerIdRow row = orders.findByKey(QOrderReferrerIdRow.query().select(QOrderReferrerIdRow.ALL).build(), id)
-            .orElseThrow();
+    OrderReferrerIdRow row = orders.findByKey(BY_ID, id).orElseThrow();
     Changes<OrderReferrerIdRow> changes = OrderReferrerIdRowChanges.from(edited,
             SelectSet.of(QOrderReferrerIdRow.REFERRER_ID));
     orders.update(QOrderReferrerIdRow.update(changes).whereKey(id).build());
