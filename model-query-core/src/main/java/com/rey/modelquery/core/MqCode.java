@@ -296,6 +296,13 @@ public enum MqCode {
     MQ1901("keyset() or primaryKeyFirst(...) over a non-unique source"),
 
     /**
+     * A recursive source built wrongly: a {@code maxDepth} below 1 or above {@code Integer.MAX_VALUE - 2},
+     * {@code recursive(...)} on a source whose model declares no {@code @Depth}, or a {@code @Depth} model built
+     * without the step (R-SRC-07, R-PROC-37). Raised where the source is built, before any statement.
+     */
+    MQ1902("A recursive source's maxDepth is out of range, or its step and @Depth do not match"),
+
+    /**
      * A row lock on a query that reads a source: the source's rows come from a CTE, which a locking clause cannot
      * follow, so {@code withLock} over a source is refused before any statement (R-SRC-11).
      */
@@ -304,9 +311,10 @@ public enum MqCode {
     /**
      * Two branches of one {@code union} or {@code unionAll} carry the same discriminator value, which would make the
      * combined rows ambiguous by key; raised where the operation is built (R-SRC-06). {@code intersect} and
-     * {@code except} don't check the values.
+     * {@code except} don't check the values. Also a recursive source on either side of any set operation, which a
+     * recursive model cannot be a branch of (R-SRC-07).
      */
-    MQ1904("Two branches of one union or unionAll carry the same discriminator value"),
+    MQ1904("Two branches of one union or unionAll carry the same discriminator value, or a branch is recursive"),
 
     /**
      * A hand-written {@code ColumnField} or {@code TableField.join} over a source root, which the processor's metamodel
@@ -418,6 +426,18 @@ public enum MqCode {
     MQ2606("An Enricher.byKey or byKeys lookup returned null"),
 
     /**
+     * A recursive source's tree is deeper than its {@code maxDepth}, which the statement it was read from found with a
+     * level past the limit; the message names the first offending key (R-SRC-07).
+     */
+    MQ2701("A recursive source recurses deeper than its maxDepth"),
+
+    /**
+     * A recursive source's graph closed a cycle, so one key is reachable by two paths; the statement it was read from
+     * found a marked row, and the message names the first offending key (R-SRC-07, R-SRC-08).
+     */
+    MQ2702("A recursive source's graph closed a cycle"),
+
+    /**
      * {@code modelquery.vendor} or {@code modelquery.target-vendors}, or {@code ModelQueryConfig.vendor(String)} or
      * {@code targetVendors(String...)}, names an unknown vendor (R-VND-04, R-VND-19).
      */
@@ -489,7 +509,7 @@ public enum MqCode {
      * The target's vendor lacks a source feature the query uses, {@code VendorProfile#sources(SourceFeature)} returning
      * false for it, or a recursion deeper than {@code maxRecursionDepth()}; raised before any statement (R-SRC-11).
      */
-    MQ4015("The target's vendor lacks a source feature the query uses");
+    MQ4015("The target's vendor lacks a source feature the query uses, or the recursion is deeper than it allows");
 
     private final String defaultMessage;
 

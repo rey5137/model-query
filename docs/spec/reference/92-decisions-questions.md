@@ -2090,6 +2090,18 @@ R-SRC-10 say: its parent-side key names a source field and reads the CTE column 
 `@Child` whose child model is rooted at a source, and a `through` child on a source-rooted parent is `MQ3406` (no entity
 root to join along; use `foreignKey`). → `processor/30`, `processor/32`, `api/17` R-SRC-10.
 
+*Amended (2026-10-15, M25.5; user decision).* `SourceSupport#recursive` and `SourceRenderer#recursive` return an
+`@Incubating` record holding the CTE root and the two check expressions the provider builds over the CTE through
+`JpaSubQuery.from(cte)`: `min(key)` over rows past `maxDepth` (`MQ2701`) and `min(key)` over marked rows (`MQ2702`),
+which also gives the first offending key. RFC 0013 §8's `Root<Tuple> recursive(...)` could not return them, and §5
+puts them behind that one hook. Rejected: a second abstract method building the checks from the root (one feature
+split over two SPI methods). A recursive model's generated `source()` calls `Builder#depth(LEVEL)`, as a branch's calls
+`shape`/`discriminator`; `MQ1902` also covers `recursive(...)` on a model with no `@Depth` and a `@Depth` model built
+without it; `@Depth` outside a `@SourceModel` is `MQ3037`, on a branch or a shape `MQ3034`; a recursive `SourceQuery` handed to `union`, `unionAll`, `intersect` or
+`except`, on either side, is `MQ1904` where the operation is built (RFC 0013 §4: a recursive model can't be a branch).
+→ `rfc/0013` §8,
+`api/17` R-SRC-07, R-SRC-08, `processor/30` R-PROC-37.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

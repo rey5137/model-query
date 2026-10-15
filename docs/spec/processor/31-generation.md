@@ -416,6 +416,19 @@ so the shape's own source is its first branch and every branch fixes its own con
 `SourceQuery.Builder<Root, Branch, Shape>`, which is what makes a branch of another shape fail to compile (R-PROC-38,
 `api/17` R-SRC-05).
 
+A recursive model — one that declares a `@Depth` field (R-PROC-37) — emits `.depth(LEVEL)` for it, in the position the
+field is declared in, so its builder is the one `recursive(...)` is legal on and a `@Depth` model built without its step
+is `MQ1902` at `build()`:
+
+```java
+public static SourceQuery.Builder<FolderEntity, FolderNode, FolderNode> source() {
+    return SourceQuery.builder(FolderNode.class, ROOT, ALL, KEY).depth(LEVEL);
+}
+```
+
+The step itself is the caller's: which pair of columns a row is a child of another by is data, not a model, so the
+generated `source()` stops at naming the level column (`api/17` R-SRC-07).
+
 It declares no `MAPPER`, no `map(Row)` and no write method, since nothing maps a source row and no write reads a
 source. A source model the root names in a `@QueryModel` (R-PROC-39) generates the outer QModel:
 

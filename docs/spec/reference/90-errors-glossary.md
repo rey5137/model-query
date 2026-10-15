@@ -30,7 +30,7 @@ carry an `MqCode`; sealing after 1.0 would break subclasses.
 
 The sub-ranges are `MQ10xx` columns and joins, `MQ11xx` definitions, `MQ12xx` the query builder, `MQ13xx` filters, `MQ14xx`
 aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch plans, `MQ18xx` inserts (D-116) and
-`MQ19xx` query sources (D-143), `MQ1901`–`MQ1906`; `MQ1902` lands with M25.5 (`api/17`).
+`MQ19xx` query sources (D-143), `MQ1901`–`MQ1906`.
 
 | Code | Meaning | Owner |
 |---|---|---|
@@ -114,8 +114,9 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1809` | A `persist(persist, returning)`, `updateReturning`, `deleteReturning` or `insertReturning` query with `where`, `having`, `groupBy`, a fetch plan, `customize`, `orderBy`, `keyset`, `primaryKeyFirst` or a lock, or a selected column it cannot fill from the flushed entity (a join beyond a to-one id, a join with `on(...)`, an expression, an aggregate); for a returning write also a selected column on a table other than the written one (a secondary table's, a joined supertable's, or a to-one id whose key is on its target's table, named in the message), `throughEntities()` or `commitEachChunk()`; on first execution per factory, before any statement, the written-table check on each execution before the flush (`ReturningSupport.check`, D-132) | `api/14` R-WRT-48, R-WRT-50, `api/11` R-QRY-17, D-118, D-129, D-132 |
 
 | `MQ1901` | `keyset()` or `primaryKeyFirst(...)` on a query over a non-unique source, whose key does not identify a row; at the outer `build()` | `api/17` R-SRC-09 |
+| `MQ1902` | A recursive source built wrongly: `maxDepth` below 1 or above `Integer.MAX_VALUE - 2`, `recursive(...)` on a source whose model declares no `@Depth`, or a `@Depth` model built without `recursive(...)`; where the source is built, before any statement | `api/17` R-SRC-07, R-PROC-37 |
 | `MQ1903` | A row lock on a query that reads a source: `withLock(...)` on an outer query, which a locking clause cannot follow through a common table expression; before any statement | `api/17` R-SRC-11, Q-16 |
-| `MQ1904` | Two branches of one `union` or `unionAll` fix the same `@Discriminator` value, so the operation would quietly lose key uniqueness, or two combined sources read different shapes; where the operation is built | `api/17` R-SRC-06, R-PROC-38 |
+| `MQ1904` | Two branches of one `union` or `unionAll` fix the same `@Discriminator` value, so the operation would quietly lose key uniqueness, or two combined sources read different shapes, or either side of a set operation is a recursive source; where the operation is built | `api/17` R-SRC-06, R-SRC-07, R-PROC-38 |
 | `MQ1905` | A hand-written `ColumnField.of` or `TableField.join` over a source root, which the processor's metamodel cannot check; a generated outer column is `ColumnField.over(model, root, sourceConstant)` | `api/17` R-SRC-10, `api/10` R-COL-30 |
 | `MQ1906` | A source's `where` predicate whose path crosses a to-many join, which no join inside the CTE can express; the message points at `Filters.exists(path, inner)`, the explicit form; before any statement | `api/17` R-SRC-03 |
 
@@ -151,6 +152,8 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ2604` | A child row's key equals none of its round's keys (a case-insensitive or padding collation) | `api/15` R-FCH-05 |
 | `MQ2605` | `stream` with a fetch plan that has a child, join plan or enricher | `api/15` R-FCH-09 |
 | `MQ2606` | An `Enricher.byKey` or `byKeys` lookup returned `null` | `api/15` R-FCH-08, R-FCH-15 |
+| `MQ2701` | A recursive source's tree is deeper than its `maxDepth`; the message names the model, the limit and the key of the first row past it. Read from the statement's own first row, so a too-deep tree is refused whole rather than returned in part; nothing is refused on an empty result | `api/17` R-SRC-08, D-144 |
+| `MQ2702` | A recursive source's graph closed a cycle: the message names the model and the first key the cycle clause marked, which is the row the source would read twice. Read as `MQ2701` is | `api/17` R-SRC-08, D-144 |
 
 **R-ERR-04** One JPA exception is thrown deliberately instead of a library type: `OptimisticLockException` when an
 `expectVersion` update affects no rows (`api/14` R-WRT-16), because callers already handle it for entity writes.

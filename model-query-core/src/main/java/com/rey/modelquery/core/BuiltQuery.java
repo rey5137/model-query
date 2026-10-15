@@ -4,6 +4,8 @@ import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Selection;
+import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
 
@@ -22,24 +24,36 @@ public final class BuiltQuery<M> {
     /** The alias of a {@code through} child query's parent key, selected after the model's columns (D-100). */
     static final String PARENT_KEY = "parent_key";
 
+    /** The alias of a recursive source's depth check, a column of the statement's selection (R-SRC-07). */
+    public static final String RECURSION_DEPTH = "mqRecursionDepth";
+
+    /** The alias of a recursive source's cycle check, a column of the statement's selection (R-SRC-07). */
+    public static final String RECURSION_CYCLE = "mqRecursionCycle";
+
     private final CriteriaQuery<Tuple> query;
     private final JoinContext joins;
     private final RowSelection selection;
     private final Function<Row, M> mapping;
     /** The parent's key read on the query's root, in a {@code through} child query; else {@code null}. */
     private final Expression<?> parentKey;
+    /** The checks of a recursive source, aliased; empty for a query that reads no recursive source (R-SRC-07). */
+    private final List<Selection<?>> recursionChecks;
+    /** The source's {@code maxDepth}, or 0 for a query that reads no recursive source (R-SRC-07). */
+    private final int maxDepth;
 
     BuiltQuery(CriteriaQuery<Tuple> query, JoinContext joins, RowSelection selection, Function<Row, M> mapping) {
-        this(query, joins, selection, mapping, null);
+        this(query, joins, selection, mapping, null, List.of(), 0);
     }
 
     BuiltQuery(CriteriaQuery<Tuple> query, JoinContext joins, RowSelection selection, Function<Row, M> mapping,
-            Expression<?> parentKey) {
+            Expression<?> parentKey, List<Selection<?>> recursionChecks, int maxDepth) {
         this.query = query;
         this.joins = joins;
         this.selection = selection;
         this.mapping = mapping;
         this.parentKey = parentKey;
+        this.recursionChecks = List.copyOf(recursionChecks);
+        this.maxDepth = maxDepth;
     }
 
     /** The Criteria query, selecting {@link Tuple}s. */
@@ -65,6 +79,23 @@ public final class BuiltQuery<M> {
     /** The parent key {@code tuple} holds, of a {@code through} child query. */
     Object parentKey(Tuple tuple) {
         return Objects.requireNonNull(tuple, "tuple").get(PARENT_KEY);
+    }
+
+    /**
+     * The checks of a recursive source, to append to a statement this query is the model of — a statement that
+     * replaces the selection, as the count does; empty when the source does not recurse (R-SRC-07). Each is a scalar
+     * sub-select over the source's CTE, read from the statement's first row by its alias
+     * ({@link #RECURSION_DEPTH}, {@link #RECURSION_CYCLE}).
+     */
+    @EngineFacing
+    public List<Selection<?>> recursionChecks() {
+        return recursionChecks;
+    }
+
+    /** The deepest level the source returns, the seeds being level 0; 0 when the source does not recurse (R-SRC-07). */
+    @EngineFacing
+    public int sourceMaxDepth() {
+        return maxDepth;
     }
 
     /** Maps one tuple to a model: the {@code RowMapper}, then {@code afterMap} and any finisher. */

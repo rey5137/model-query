@@ -76,6 +76,14 @@ record ModelDefinition(
         return shape != null;
     }
 
+    /**
+     * Whether this source model is <em>recursive</em>: it declares a {@code @Depth} field, so each of its rows carries
+     * the level the CTE assigned it and its builder requires the recursive step (R-PROC-37, R-SRC-07).
+     */
+    boolean recursive() {
+        return !depths().isEmpty();
+    }
+
     /** Whether the type is an {@code @UpdateModel}, which is only read by the processor and never instantiated. */
     boolean updateModel() {
         return kind == Kind.UPDATE;
@@ -271,12 +279,13 @@ record ModelDefinition(
      * @param selected whether the field carries {@code @Selected}, which makes it no column (R-PROC-25)
      * @param discriminator the value named by {@code @Discriminator}, which fixes the field to a constant, or
      *     {@code null} when the field carries none (R-PROC-38)
+     * @param depth whether the field carries {@code @Depth}, which makes the model recursive (R-PROC-37)
      */
     record ModelField(
             VariableElement element, boolean column, String attribute, String constant, boolean primaryKey,
             boolean excludedFromDefaults, TypeMirror converter, TypeMirror definition, JoinDefinition join,
             AggregateDefinition aggregate, WindowDefinition window, boolean groupBy, ChildDefinition child,
-            boolean selected, String discriminator) {
+            boolean selected, String discriminator, boolean depth) {
 
         String name() {
             return element.getSimpleName().toString();
@@ -300,6 +309,11 @@ record ModelDefinition(
         boolean discriminated() {
             return discriminator != null;
         }
+    }
+
+    /** The {@code @Depth} fields, in declaration order: one in a valid recursive model (R-PROC-37). */
+    List<ModelField> depths() {
+        return fields.stream().filter(ModelField::depth).toList();
     }
 
     /**

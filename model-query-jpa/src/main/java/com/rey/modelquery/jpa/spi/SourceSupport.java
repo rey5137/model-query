@@ -1,6 +1,8 @@
 package com.rey.modelquery.jpa.spi;
 
 import com.rey.modelquery.annotations.Incubating;
+import com.rey.modelquery.core.RecursiveCte;
+import com.rey.modelquery.core.RecursiveSpec;
 import com.rey.modelquery.core.SetOperation;
 import com.rey.modelquery.core.WindowSpec;
 import jakarta.persistence.Tuple;
@@ -16,9 +18,11 @@ import jakarta.persistence.criteria.Root;
  * registers it on every statement it builds over the source (R-SRC-12). Discovered through
  * {@link ProviderSupport#sources()}; an implementation is stateless and thread-safe.
  *
- * <p>The recursive hook lands with the slice that uses it (R-PROC-37).
+ * <p>A recursive source's CTE is registered through {@link #recursive} instead of {@link #cte}: its seed and its
+ * recursive term are built by {@code core}, and the provider adds what only it can name — the {@code with recursive}
+ * clause, the cycle clause and the two checks the statement's first row is read for (R-SRC-07).
  *
- * @implSpec R-SRC-11, R-SRC-12, R-SRC-04, R-SRC-05, D-143
+ * @implSpec R-SRC-11, R-SRC-12, R-SRC-04, R-SRC-05, R-SRC-07, D-143
  */
 @Incubating
 public interface SourceSupport {
@@ -33,6 +37,19 @@ public interface SourceSupport {
      * @return the root of the CTE's columns, to read the source by
      */
     Root<Tuple> cte(CriteriaQuery<?> outer, CriteriaQuery<Tuple> body);
+
+    /**
+     * Registers {@code spec} as the {@code WITH RECURSIVE} CTE of {@code outer} and returns the root of its columns
+     * together with the two check expressions, each a scalar sub-select over the same CTE: the smallest key of the
+     * rows past {@code maxDepth} ({@code MQ2701}) and the smallest key of the marked rows ({@code MQ2702})
+     * (R-SRC-07, R-SRC-12). The CTE's term is the {@code spec}'s, which {@code core} builds; the provider adds the
+     * cycle clause, which is what makes a graph that reaches one node twice loud.
+     *
+     * @param outer the statement that reads the source's rows; it carries no source yet
+     * @param spec the CTE: its seed, its recursive term, its depth limit and its column names
+     * @return the root of the CTE's columns and the two checks, to append to {@code outer}'s selection
+     */
+    RecursiveCte recursive(CriteriaQuery<?> outer, RecursiveSpec spec);
 
     /**
      * Renders {@code spec} as a window function with an {@code OVER (...)} clause over {@code cb}: the function, its

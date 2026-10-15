@@ -512,7 +512,8 @@ public final class ModelQuery<E, K, M> {
         }
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         if (source != null) {
-            return assemble(query, sourceJoins(query, cb, options), phase, null);
+            SourceStatement statement = sourceStatement(query, cb, options);
+            return assemble(query, statement.joins(), phase, null, statement.guards(), statement.checks());
         }
         Root<E> from = query.from(root.rootEntity());
         return assemble(query, JoinContext.readOf(from, cb, query, options), phase, null);
@@ -523,18 +524,38 @@ public final class ModelQuery<E, K, M> {
      * every statement this query builds over the source carries it (R-SRC-12), and the outer columns read the CTE's
      * field-named elements (R-SRC-10).
      *
+     * <p>A recursive source is registered as {@code with recursive} instead, and its statement reads neither the
+     * extra level nor a marked row: it filters on {@code level <= maxDepth and not mark} and carries the two checks
+     * whose first row {@code jpa} reads (R-SRC-07).
+     *
      * @throws ModelQueryConfigurationException {@code MQ4014} when no {@link SourceRenderer} is configured, which is
      *     the factory's provider having no source support
      */
-    private JoinContext sourceJoins(CriteriaQuery<Tuple> query, CriteriaBuilder cb, RenderOptions options) {
+    private SourceStatement sourceStatement(CriteriaQuery<Tuple> query, CriteriaBuilder cb, RenderOptions options) {
         SourceRenderer renderer = options.sourceRenderer()
                 .orElseThrow(() -> new ModelQueryConfigurationException(MqCode.MQ4014, modelName()
                         + ": this query reads the source " + source.model().getSimpleName()
                         + ", and the factory's persistence provider has no SourceSupport "
                         + "(ProviderSupport#sources()); model-query-hibernate serves Hibernate"));
-        return JoinContext.sourceOf(renderer.cte(query, source.body(cb, options, renderer)), source.model(), cb, query,
-                options);
+        if (!source.recursive()) {
+            return new SourceStatement(JoinContext.sourceOf(renderer.cte(query, source.body(cb, options, renderer)),
+                    source.model(), cb, query, options), List.of(), List.of());
+        }
+        RecursiveCte cte = renderer.recursive(query, source.recursiveSpec(cb, options, renderer));
+        JoinContext joins = JoinContext.sourceOf(cte.root(), source.model(), cb, query, options);
+        // The extra level the recursion produced and the row that closed a cycle are both hidden here, in the same
+        // statement that produced them (RFC 0013 §5, R-SRC-07).
+        @SuppressWarnings("unchecked")
+        Expression<Integer> level = (Expression<Integer>) (Expression<?>) cte.root().get(source.levelAlias());
+        @SuppressWarnings("unchecked")
+        Expression<Boolean> marked = (Expression<Boolean>) (Expression<?>) cte.root().get(SourceQuery.MARK_ALIAS);
+        return new SourceStatement(joins, List.of(cb.le(level, source.maxDepth()), cb.isFalse(marked)),
+                List.<Selection<?>>of(cte.depthKey().alias(BuiltQuery.RECURSION_DEPTH),
+                        cte.cycleKey().alias(BuiltQuery.RECURSION_CYCLE)));
     }
+
+    /** What {@link #sourceStatement} adds to a statement: the joins, the recursive guards, and its two checks. */
+    private record SourceStatement(JoinContext joins, List<Predicate> guards, List<Selection<?>> checks) {}
 
     /**
      * {@link #assemble(CriteriaBuilder, Phase, RenderOptions)} on {@code query}, resolving through {@code joins};
@@ -542,6 +563,16 @@ public final class ModelQuery<E, K, M> {
      */
     private BuiltQuery<M> assemble(CriteriaQuery<Tuple> query, JoinContext joins, Phase phase,
             Expression<?> parentKey) {
+        return assemble(query, joins, phase, parentKey, List.of(), List.of());
+    }
+
+    /**
+     * {@link #assemble(CriteriaQuery, JoinContext, Phase, Expression)} over a source's statement: {@code guards} are
+     * ANDed to its predicate, and {@code checks} are selected after the model's columns, for the executor to read
+     * from the statement's first row (R-SRC-07). Both are empty for a statement over no recursive source.
+     */
+    private BuiltQuery<M> assemble(CriteriaQuery<Tuple> query, JoinContext joins, Phase phase,
+            Expression<?> parentKey, List<Predicate> guards, List<Selection<?>> checks) {
         CriteriaBuilder cb = joins.cb();
         // Joins resolve in one order in every phase: selection, ordering and grouping first, then every filter
         // outside or/not, then those inside. An or(...) then finds the INNER join the rest of the query needs and
@@ -559,6 +590,7 @@ public final class ModelQuery<E, K, M> {
         if (parentKey != null) {
             selections.add(parentKey.alias(BuiltQuery.PARENT_KEY));
         }
+        selections.addAll(checks);
         query.multiselect(selections);
         List<Order> orders = new ArrayList<>();
         for (OrderField<M, ?> order : orderBy) {
@@ -579,13 +611,16 @@ public final class ModelQuery<E, K, M> {
                     .<Expression<?>>map(key -> joins.withoutSequences(() -> key.expression(joins))).toList());
         }
         List<List<Predicate>> predicates = ConditionGroup.clausePredicates(List.of(where, having), joins);
-        if (!predicates.get(0).isEmpty()) {
-            query.where(predicates.get(0).toArray(Predicate[]::new));
+        if (!predicates.get(0).isEmpty() || !guards.isEmpty()) {
+            var restrictions = new ArrayList<>(predicates.get(0));
+            restrictions.addAll(guards);
+            query.where(restrictions.toArray(Predicate[]::new));
         }
         if (!predicates.get(1).isEmpty()) {
             query.having(predicates.get(1).toArray(Predicate[]::new));
         }
-        return new BuiltQuery<>(query, joins, selection, mapping, parentKey);
+        return new BuiltQuery<>(query, joins, selection, mapping, parentKey, checks,
+                source == null ? 0 : source.maxDepth());
     }
 
     /**

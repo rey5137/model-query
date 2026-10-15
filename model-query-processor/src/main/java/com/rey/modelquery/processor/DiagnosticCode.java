@@ -129,6 +129,10 @@ enum DiagnosticCode {
     /** An outer model's {@code @PrimaryKey} is not exactly its source's key. */
     MQ3036("@PrimaryKey of an outer model is not its source's key"),
 
+    /** A recursive source model is not well written: a {@code @Depth} that is not one {@code Integer}, one outside
+     * a {@code @SourceModel}, or {@code @Window}, {@code @Aggregate} or {@code @GroupBy} beside it (R-PROC-37). */
+    MQ3037("A recursive source takes one Integer @Depth, and no window, aggregate or group by"),
+
     /** A model's {@code root} is neither an {@code @Entity} nor a {@code @SourceModel}, or both. */
     MQ3038("Root is neither an @Entity nor a @SourceModel, or both"),
 

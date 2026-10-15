@@ -501,6 +501,11 @@ final class QModelWriter {
         for (ModelField field : model.discriminators()) {
             body.add(".discriminator($L, $S)", field.constant(), field.discriminator());
         }
+        // A recursive model names the @Depth field its level column is aliased by, which also makes the builder
+        // require the recursive step before build() (R-PROC-37, R-GEN-37).
+        for (ModelField field : model.depths()) {
+            body.add(".depth($L)", field.constant());
+        }
         return MethodSpec.methodBuilder("source")
                 .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
                 .returns(ParameterizedTypeName.get(SOURCE_QUERY.nestedClass("Builder"), entity, modelName,

@@ -156,6 +156,10 @@ final class ModelValidator {
         if (model.sourceModel()) {
             checkSourceKey(model, diagnostics);
             checkDiscriminatorKey(model, diagnostics);
+            // A recursive source takes no window, aggregate or group by (R-PROC-37).
+            if (model.recursive()) {
+                checkRecursive(model, diagnostics);
+            }
             // A branch maps its shape's fields one for one (R-PROC-38).
             if (model.branch()) {
                 checkBranch(model, diagnostics);
@@ -219,9 +223,19 @@ final class ModelValidator {
                             where + "@Window is only allowed on a @SourceModel");
                 }
             }
+            // A recursive source's @Depth is the level the CTE assigns the row, not a path into the root: only a
+            // source model can be recursive, and its @Depth is one Integer (R-PROC-37).
+            if (field.depth()) {
+                if (model.sourceModel()) {
+                    checkDepth(model, field, where, diagnostics);
+                } else {
+                    diagnostics.error(field.element(), DiagnosticCode.MQ3037, where
+                            + "@Depth is only allowed on a @SourceModel; only a source recurses");
+                }
+            }
             // A branch's @Discriminator is a constant, never a path into the root: read the attribute check as
-            // satisfied (R-PROC-38).
-            if (field.column() && !field.discriminated()) {
+            // satisfied (R-PROC-38). A @Depth is the CTE's level column, read from no attribute either (R-PROC-37).
+            if (field.column() && !field.discriminated() && !field.depth()) {
                 checkAttribute(model, field, where, diagnostics);
             }
             if (field.column() && model.isRecord() && model.readModel() && field.type().getKind().isPrimitive()
@@ -371,6 +385,42 @@ final class ModelValidator {
     }
 
     /**
+     * {@code MQ3037} for a {@code @Depth} that is not exactly one {@code Integer}: the level the CTE assigns a row is
+     * an {@code Integer}, and a model declares one (R-PROC-37).
+     */
+    private static void checkDepth(ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
+        if (!field.type().toString().equals("java.lang.Integer")) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3037,
+                    where + "a recursive source takes one Integer @Depth");
+            return;
+        }
+        List<ModelField> depths = model.depths();
+        if (depths.indexOf(field) > 0) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3037, where + "a model declares one @Depth field, "
+                    + "the level the CTE assigns its rows; the first is " + depths.get(0).name());
+        }
+    }
+
+    /**
+     * {@code MQ3037} for a recursive source that carries {@code @Window}, {@code @Aggregate} or {@code @GroupBy}:
+     * every database forbids all three in the recursive term, so the source cannot recurse with one (R-PROC-37).
+     */
+    private static void checkRecursive(ModelDefinition model, Diagnostics diagnostics) {
+        for (ModelField field : model.windows()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3037, model.name() + "." + field.name()
+                    + ": a recursive source takes no @Window; a database forbids one in the recursive term");
+        }
+        for (ModelField field : model.aggregates()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3037, model.name() + "." + field.name()
+                    + ": a recursive source takes no @Aggregate; a database forbids one in the recursive term");
+        }
+        for (ModelField field : model.groupKeys()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3037, model.name() + "." + field.name()
+                    + ": a recursive source takes no @GroupBy; a database forbids one in the recursive term");
+        }
+    }
+
+    /**
      * {@code MQ3034} for a {@code @Discriminator} that is not part of its model's key: the merged rows are keyed by
      * the shape's own key, which carries the discriminator (R-SRC-06).
      */
@@ -416,8 +466,17 @@ final class ModelValidator {
                     + " declares the @Window field " + field.name() + ", which no branch can combine with; a shape "
                     + "with branches declares no @Window (R-PROC-38)");
         }
-        // M25.5: the @Depth checks of a recursive branch and shape land with R-PROC-37.
-
+        // A recursive model is neither a branch nor a shape: a shape's branches are combined, and the recursion has
+        // one seed and one step (R-PROC-37).
+        for (ModelField field : model.depths()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3034, model.name() + "." + field.name()
+                    + ": a branch declares no @Depth; a recursive model is neither a branch nor a shape");
+        }
+        for (ModelField field : shape.depths()) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3034, model.name() + ": the shape " + shape.name()
+                    + " declares the @Depth field " + field.name() + ", which no branch can recurse from; a recursive "
+                    + "model is neither a branch nor a shape");
+        }
         List<ModelField> fields = model.fields();
         List<ModelField> theirs = shape.fields();
         for (int i = 0; i < fields.size(); i++) {

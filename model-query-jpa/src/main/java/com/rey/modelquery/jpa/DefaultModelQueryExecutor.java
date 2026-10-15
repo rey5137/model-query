@@ -31,6 +31,8 @@ import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.PersistenceContextMode;
 import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.RecursiveCte;
+import com.rey.modelquery.core.RecursiveSpec;
 import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowLock;
@@ -284,6 +286,27 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                             + " has no CTE support (VendorProfile#sources(SourceFeature.CTE))");
                 }
                 return renderer.cte(outer, body);
+            }
+
+            @Override
+            public RecursiveCte recursive(CriteriaQuery<?> outer, RecursiveSpec spec) {
+                if (!vendor.profile().sources(SourceFeature.RECURSIVE)) {
+                    throw new ModelQueryConfigurationException(MqCode.MQ4015, rootEntity.getSimpleName()
+                            + ": this source recurses, and " + vendor.detectedVendor()
+                            + " has no recursive CTE support (VendorProfile#sources(SourceFeature.RECURSIVE))");
+                }
+                // The recursion needs a level past maxDepth and the final, empty iteration, which MySQL counts against
+                // cte_max_recursion_depth as well; the spike measured maxDepth 998 served and 999 refused there
+                // (RFC 0013 §5).
+                int needed = spec.maxDepth() + 2;
+                int ceiling = vendor.profile().maxRecursionDepth();
+                if (needed > ceiling) {
+                    throw new ModelQueryConfigurationException(MqCode.MQ4015, rootEntity.getSimpleName()
+                            + ": maxDepth(" + spec.maxDepth() + ") recurses through " + needed + " levels, and "
+                            + vendor.detectedVendor() + " allows " + ceiling
+                            + " (VendorProfile#maxRecursionDepth()); lower maxDepth or target another vendor");
+                }
+                return renderer.recursive(outer, spec);
             }
 
             @Override
@@ -562,8 +585,38 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /** The model of the first of {@code tuples}, with {@code q}'s fetch plan run on it, or empty for none. */
     private <M> Optional<M> modelOf(ModelQuery<E, ?, M> q, BuiltQuery<M> built, List<Tuple> tuples) {
+        checkRecursion(q, built, tuples);
         return tuples.isEmpty() ? Optional.empty()
                 : Optional.of(models(q, List.of(loaded(built, tuples.get(0)))).get(0));
+    }
+
+    /**
+     * Refuses a read of a recursive source whose tree is deeper than its {@code maxDepth} ({@code MQ2701}) or whose
+     * graph closed a cycle ({@code MQ2702}), from the check columns of the statement's own first row, so no
+     * too-deep or doubled row reaches the mapper or a sink (R-SRC-07). A statement over no recursive source carries
+     * no check columns, and an empty result carries no row to read: nothing is refused then, which is the race
+     * {@code engine/21} and RFC 0013 §5 leave documented under READ COMMITTED.
+     *
+     * @throws ModelQueryExecutionException {@code MQ2701} or {@code MQ2702}, naming the model and the first
+     *     offending key
+     */
+    private void checkRecursion(Object label, BuiltQuery<?> built, List<Tuple> tuples) {
+        if (built.recursionChecks().isEmpty() || tuples.isEmpty()) {
+            return;
+        }
+        Tuple first = tuples.get(0);
+        Object deepest = first.get(BuiltQuery.RECURSION_DEPTH);
+        if (deepest != null) {
+            throw new ModelQueryExecutionException(MqCode.MQ2701, label + ": the source's tree is deeper than its "
+                    + "maxDepth(" + built.sourceMaxDepth() + "): key " + deepest
+                    + " is one level past the limit; raise maxDepth or narrow the source's where(...)");
+        }
+        Object cycle = first.get(BuiltQuery.RECURSION_CYCLE);
+        if (cycle != null) {
+            throw new ModelQueryExecutionException(MqCode.MQ2702, label + ": the source's graph has a cycle: key "
+                    + cycle + " is reachable by two paths, which a source reads twice; remove the cycle or filter it "
+                    + "out of the source's where(...)");
+        }
     }
 
     /**
@@ -740,8 +793,17 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         vendor.profile().checkStreamingPreconditions(em);
         int fetchSize = vendor.profile().streamingFetchSize(streamFetchSize);
         // Rows are mapped one at a time as body pulls them; closing the mapped stream closes the result stream under
-        // it, whether body returns, stops early or throws (R-EXE-07, R-EXE-09).
-        try (Stream<Tuple> tuples = resultStream(query, fetchSize); Stream<M> models = tuples.map(built::map)) {
+        // it, whether body returns, stops early or throws (R-EXE-07, R-EXE-09). A recursive source's checks are read
+        // from the first row the stream delivers, before that row is mapped (R-SRC-07).
+        boolean[] first = {true};
+        try (Stream<Tuple> tuples = resultStream(query, fetchSize);
+                Stream<M> models = tuples.map(tuple -> {
+                    if (first[0]) {
+                        first[0] = false;
+                        checkRecursion(q, built, List.of(tuple));
+                    }
+                    return built.map(tuple);
+                })) {
             return body.apply(models);
         }
     }
@@ -2678,6 +2740,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     private <M> List<Loaded<M>> mapAll(Object label, TypedQuery<Tuple> query, BuiltQuery<M> built) {
         List<Tuple> tuples = rows(label, query);
+        checkRecursion(label, built, tuples);
         var models = new ArrayList<Loaded<M>>(tuples.size());
         for (Tuple tuple : tuples) {
             models.add(loaded(built, tuple));
@@ -3186,8 +3249,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         boolean readThroughToMany = !source && readsThroughToMany(built);
         Expression<Long> count = source ? cb.count(cb.literal(1))
                 : hasToManyJoin(root) && !readThroughToMany ? cb.countDistinct(root) : cb.count(root);
-        query.multiselect(count);
-        return ((Number) single(q, create(q, built)).get(0)).longValue();
+        // The count replaces the selection, so a recursive source's checks are selected beside it, and the count's own
+        // statement is the one that reads them (R-SRC-07).
+        List<Selection<?>> selections = new ArrayList<>();
+        selections.add(count);
+        selections.addAll(built.recursionChecks());
+        query.multiselect(selections);
+        Tuple counted = single(q, create(q, built));
+        checkRecursion(q, built, List.of(counted));
+        return ((Number) counted.get(0)).longValue();
     }
 
     /** {@code count(*)} over the groups: in the database when the provider support can, else client-side. */

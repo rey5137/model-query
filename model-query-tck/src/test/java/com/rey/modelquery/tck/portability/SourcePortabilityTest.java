@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.NullOrdering;
+import com.rey.modelquery.core.SourceQuery;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.SourceFeature;
@@ -12,10 +13,14 @@ import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.portability.PortabilityCheck;
 import com.rey.modelquery.portability.Target;
 import com.rey.modelquery.tck.src.DispatchFeed;
+import com.rey.modelquery.tck.src.FolderNode;
+import com.rey.modelquery.tck.src.FolderRow;
 import com.rey.modelquery.tck.src.OrderFeed;
 import com.rey.modelquery.tck.src.OrderSource;
 import com.rey.modelquery.tck.src.QDispatchFeed;
 import com.rey.modelquery.tck.src.QDispatchRow;
+import com.rey.modelquery.tck.src.QFolderNode;
+import com.rey.modelquery.tck.src.QFolderRow;
 import com.rey.modelquery.tck.src.QOrderFeed;
 import com.rey.modelquery.tck.src.QOrderSource;
 import com.rey.modelquery.tck.src.QShelvedDispatchFeed;
@@ -114,6 +119,37 @@ class SourcePortabilityTest {
         assertThat(lines).anySatisfy(line -> assertThat(line)
                 .startsWith("DISPATCH on " + MYSQL + ": REFUSED MQ4015")
                 .contains("SourceFeature.UNION"));
+    }
+
+    @Test
+    void ac_src_14_the_recursion_ceiling_is_the_targets_own() {
+        ModelQuery<FolderNode, ?, FolderRow> served = tree(998);
+        ModelQuery<FolderNode, ?, FolderRow> refused = tree(999);
+        List<String> lines = report(check(ModelQueryConfig.defaults()).targets(H2, POSTGRESQL, MYSQL)
+                .call("DEPTH-998", FolderNode.class, x -> x.list(served, Limit.of(10)))
+                .call("DEPTH-999", FolderNode.class, x -> x.list(refused, Limit.of(10))));
+
+        assertThat(lines).hasSize(7);
+        for (Target target : List.of(H2, POSTGRESQL, MYSQL)) {
+            assertThat(lines).anySatisfy(line -> assertThat(line)
+                    .startsWith("DEPTH-998 on " + target + ": REACHED")
+                    .contains("with recursive"));
+        }
+        // H2 and PostgreSQL set no ceiling of their own, so 999 is a level nothing refuses before the statement.
+        for (Target target : List.of(H2, POSTGRESQL)) {
+            assertThat(lines).anySatisfy(line -> assertThat(line)
+                    .startsWith("DEPTH-999 on " + target + ": REACHED"));
+        }
+        assertThat(lines).anySatisfy(line -> assertThat(line)
+                .startsWith("DEPTH-999 on " + MYSQL + ": REFUSED MQ4015")
+                .contains("maxRecursionDepth"));
+    }
+
+    /** A recursive read of the folder tree to level {@code maxDepth} (api/17 R-SRC-07). */
+    private static ModelQuery<FolderNode, ?, FolderRow> tree(int maxDepth) {
+        SourceQuery<FolderNode> source = QFolderNode.source().where(f -> f.eq(QFolderNode.ID, 1L))
+                .recursive(step -> step.childKey(QFolderNode.PARENT_ID).parentKey(QFolderNode.ID), maxDepth).build();
+        return QFolderRow.query(source).select(QFolderRow.ALL).orderBy(QFolderRow.ID.asc()).build();
     }
 
     /** MySQL's profile answering every source feature but {@code refused}, as one written before it existed. */

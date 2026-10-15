@@ -1,6 +1,8 @@
 package com.rey.modelquery.hibernate;
 
 import com.rey.modelquery.annotations.WindowFrame;
+import com.rey.modelquery.core.RecursiveCte;
+import com.rey.modelquery.core.RecursiveSpec;
 import com.rey.modelquery.core.SetOperation;
 import com.rey.modelquery.core.WindowSpec;
 import com.rey.modelquery.jpa.spi.SourceSupport;
@@ -9,11 +11,15 @@ import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Order;
+import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import java.math.BigDecimal;
 import org.hibernate.query.criteria.HibernateCriteriaBuilder;
 import org.hibernate.query.criteria.JpaCriteriaQuery;
 import org.hibernate.query.criteria.JpaCteCriteria;
+import org.hibernate.query.criteria.JpaCteCriteriaAttribute;
+import org.hibernate.query.criteria.JpaRoot;
+import org.hibernate.query.criteria.JpaSubQuery;
 import org.hibernate.query.criteria.JpaWindow;
 
 /**
@@ -41,6 +47,49 @@ final class HibernateSourceSupport implements SourceSupport {
         JpaCriteriaQuery<Tuple> query = (JpaCriteriaQuery<Tuple>) outer;
         JpaCteCriteria<Tuple> cte = query.with(body);
         return query.from(cte);
+    }
+
+    @Override
+    public RecursiveCte recursive(CriteriaQuery<?> outer, RecursiveSpec spec) {
+        return recursive((JpaCriteriaQuery<Tuple>) outer, spec);
+    }
+
+    /**
+     * The recursive CTE of {@code query}, registered as {@code with recursive} over {@code spec}'s seed and term,
+     * with the cycle clause marking the row that closes a cycle, and the two checks as scalar sub-selects over the
+     * same CTE (R-SRC-07). Everything here is identical on Hibernate 6.6 and 7.4 (RFC 0013 spike, items 3 and 10).
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private RecursiveCte recursive(JpaCriteriaQuery<Tuple> query, RecursiveSpec spec) {
+        HibernateCriteriaBuilder cb = (HibernateCriteriaBuilder) spec.cb();
+        JpaCteCriteria<Tuple> cte = query.withRecursiveUnionAll((JpaCriteriaQuery<Tuple>) spec.seed(), criteria -> {
+            JpaCriteriaQuery<Tuple> term = (JpaCriteriaQuery<Tuple>) spec.cb().createTupleQuery();
+            return (JpaCriteriaQuery<Tuple>) spec.term().term(term, term.from(criteria));
+        });
+        // The cycle clause marks the row that closes a cycle on the CTE's key columns, so the outer filter and the
+        // cycle check both see it; the marked row is still emitted (RFC 0013 §5).
+        cte.cycle(spec.markAlias(), spec.keyAliases().stream()
+                .map(alias -> cte.getType().getAttribute(alias))
+                .toArray(JpaCteCriteriaAttribute[]::new));
+        // Two scalar sub-selects over the same CTE, read from the outer statement's first row: the smallest key past
+        // maxDepth and the smallest marked key. Each is null where the CTE holds no such row.
+        JpaSubQuery depth = (JpaSubQuery) query.subquery(spec.keyType());
+        JpaRoot<Tuple> deepest = (JpaRoot<Tuple>) depth.from(cte);
+        Expression<?> depthKey = firstKey(depth, deepest, spec, cb,
+                cb.gt(deepest.<Integer>get(spec.levelAlias()), spec.maxDepth()));
+        JpaSubQuery cycle = (JpaSubQuery) query.subquery(spec.keyType());
+        JpaRoot<Tuple> closed = (JpaRoot<Tuple>) cycle.from(cte);
+        Expression<?> cycleKey = firstKey(cycle, closed, spec, cb,
+                cb.isTrue(closed.<Boolean>get(spec.markAlias())));
+        return new RecursiveCte(query.from(cte), depthKey, cycleKey);
+    }
+
+    /** {@code sub} selecting the smallest key of the CTE rows {@code where} matches, as the sub-query itself. */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static Expression<?> firstKey(JpaSubQuery sub, JpaRoot<Tuple> cte, RecursiveSpec spec,
+            HibernateCriteriaBuilder cb, Predicate where) {
+        sub.select((Expression) cb.min(cte.get(spec.keyAliases().get(0)))).where(where);
+        return (Expression<?>) sub;
     }
 
     @Override

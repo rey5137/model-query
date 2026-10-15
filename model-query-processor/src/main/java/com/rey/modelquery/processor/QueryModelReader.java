@@ -4,6 +4,7 @@ import com.rey.modelquery.annotations.Aggregate;
 import com.rey.modelquery.annotations.Child;
 import com.rey.modelquery.annotations.Column;
 import com.rey.modelquery.annotations.Computed;
+import com.rey.modelquery.annotations.Depth;
 import com.rey.modelquery.annotations.Discriminator;
 import com.rey.modelquery.annotations.ExcludeFromDefaults;
 import com.rey.modelquery.annotations.FilterColumn;
@@ -161,7 +162,8 @@ final class QueryModelReader {
                     child == null && field.getAnnotation(GroupBy.class) != null,
                     child,
                     selected,
-                    discriminator(field)));
+                    discriminator(field),
+                    mirror(field, Depth.class) != null));
         }
         // A source model's root is an entity: a source reading another source is MQ3038, not a chain of reads
         // (R-PROC-39), so a source is resolved for a query model alone. An update or insert model writes an entity;

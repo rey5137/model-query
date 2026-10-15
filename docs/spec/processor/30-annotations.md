@@ -24,6 +24,7 @@
 | `@Computed(Def.class)` | field or component | An `ExpressionField` constant, mapped into this field (`api/10` §3a); a bound model may leave the class to its binding's `@BindExpression` (R-PROC-29) |
 | `@Window(function = ROW_NUMBER, argument = "", partitionBy = {}, orderBy = {}, frame = NONE)` | field or component of a `@SourceModel` | A `WindowField<S, T>` constant, a window function over the source's rows (`api/17` R-SRC-04, R-PROC-36) |
 | `@Discriminator("REFUND")` | field or component of a `@SourceModel` | The constant a branch fixes its shape's discriminator column to; part of the key (`api/17` R-SRC-06, R-PROC-38) |
+| `@Depth` | field or component of a `@SourceModel` | The level the recursive CTE assigns a row, one `Integer`; makes the model recursive (`api/17` R-SRC-07, R-PROC-37) |
 | `@GroupBy` | field or component | The column joins the generated `GROUP_KEYS` set and the query's group-by |
 | `@ExcludeFromDefaults` | field or component | Leave the column out of `DEFAULT` (heavy BLOB/TEXT columns) |
 | `@Transient` | field or component | Not a column |
@@ -378,6 +379,21 @@ reads a source (`processor/31` R-GEN-37). A `shape` makes it a branch (§10, R-P
 A `@Window` outside a `@SourceModel` is `MQ3033`: SQL forbids a window function in a `where` predicate, and a keyset
 cursor is one, so an outer model reads the value as a plain column.
 
+**R-PROC-37** *(D-144)* **A recursive source.** A source model that declares a `@Depth` field is recursive: its rows
+are the nodes of a tree or graph, and the level of a row is what the CTE assigns it (`api/17` R-SRC-07, R-SRC-08).
+
+- The field is an `Integer`, and a model declares at most one. Anything else is `MQ3037`, as is a recursive model
+  carrying a `@Window`, an `@Aggregate` or a `@GroupBy`: PostgreSQL forbids all three in the recursive term, and a
+  window or aggregate over a recursive result is Q-22. `@Depth` outside a `@SourceModel` is `MQ3037` too — only a
+  source recurses.
+- The `@Depth` field names no attribute: the CTE's level column is what it maps, so `MQ3001`'s attribute check reads it
+  as satisfied, exactly as a `@Discriminator`'s constant does (R-PROC-38).
+- A recursive model is neither a branch nor a shape: `@Depth` on a model that declares a `shape`, and a `shape` that
+  declares a `@Depth`, are both `MQ3034`.
+- Its generated `source()` names the level column, `.depth(LEVEL)`, beside the `source()` a plain source model gets
+  (`processor/31` R-GEN-37): it is what makes `recursive(...)` legal on the builder and what refuses a `@Depth` model
+  built without its step (`MQ1902`).
+
 **R-PROC-38** *(D-143)* **A branch of a set operation.** `@SourceModel(shape = Shape.class)` makes the model a branch
 of `Shape`, the shared shape of a set operation (`api/17` §4, R-SRC-05, R-SRC-06). `shape` must name a `@SourceModel`
 of the compilation, and `MQ3034` covers the rest:
@@ -397,9 +413,9 @@ of the compilation, and `MQ3034` covers the rest:
 6. a branch is a source model like any other: `MQ3031` reads its key as the root entity's id or the source's
    `@GroupBy` set, plus the discriminator, and the branch's own fields are checked against its own root as §2–§6 do.
 
-A recursive model is neither a branch nor a shape: R-PROC-37's `@Depth` checks land with M25.5, and a recursive branch
-or shape is `MQ3034` then. The shape is an ordinary source model over its own root and the first branch of its own
-operations, so its `source()` builds the same `SourceQuery<S>` a branch's does (`processor/31` R-GEN-37).
+A recursive model is neither a branch nor a shape, and `@Depth` on either is `MQ3034` (R-PROC-37). The shape is an
+ordinary source model over its own root and the first branch of its own operations, so its `source()` builds the same
+`SourceQuery<S>` a branch's does (`processor/31` R-GEN-37).
 
 **R-PROC-39** *(D-143)* **The root kind.** `@QueryModel(root = X.class)` reads `X`'s kind from the annotation on `X`:
 an entity root when `X` is `@Entity`, a source root when `X` is `@SourceModel`. A root that is neither, or both, is

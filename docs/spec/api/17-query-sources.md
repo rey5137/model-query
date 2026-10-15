@@ -3,7 +3,7 @@
 **Covers:** `@SourceModel`, `SourceQuery` and its `Builder`, `TableField.source`, `ColumnField.over`, `@Discriminator`,
 and the outer `@QueryModel` that reads a source.
 **Read when:** declaring a source model, reading one from an outer model, or changing what the processor generates for
-either. Windows and set operations are RFC 0013 §3–§6; recursion is M25.5.
+either. Windows and set operations are RFC 0013 §3–§6; recursion is RFC 0013 §5, and §6 below.
 **Owns:** `R-SRC-*`, `AC-SRC-*`. Rows `R-SRC-05`..`R-SRC-06` and `R-SRC-09` land with M25.4; `R-SRC-07`..`R-SRC-08`
 land with M25.5; `R-SRC-04` lands with M25.3; the run-time half of `R-SRC-03` and all of `R-SRC-11`..`R-SRC-12` land
 with M25.2.
@@ -238,7 +238,70 @@ so an outer model reads its value as a plain column (R-GEN-38, R-PROC-36):
   beside `cte` (R-SRC-12), so no provider type leaks into `jpa` (INV-7). A vendor whose profile answers `false` for
   `SourceFeature.WINDOW` is `MQ4015`, before any statement (R-SRC-11).
 
-## 6. Building the CTE, and what a source needs to run
+## 6. Recursive sources
+
+A source model is **recursive** when it declares a `@Depth` field: its rows are the nodes of a tree or graph, and its
+`source()` builder requires the step that walks it.
+
+```java
+@SourceModel(root = CategoryEntity.class)
+public record CategoryNode(@PrimaryKey Long id, @Column(attribute = "parentId") Long parentId, String name,
+                           @Depth Integer level) {}
+
+SourceQuery<CategoryNode> tree = QCategoryNode.source()
+        .where(f -> f.eq(QCategoryNode.ID, rootId))                                    // the seed rows, level 0
+        .recursive(step -> step.childKey(QCategoryNode.PARENT_ID).parentKey(QCategoryNode.ID), 20)
+        .build();
+```
+
+**R-SRC-07** How a recursive source is written and built:
+
+- **The `@Depth` field.** It is where the CTE's level column is read from and written to: the CTE assigns it, and the
+  model maps it from no attribute (R-PROC-37). The generated `source()` names it, `.depth(LEVEL)`, exactly as a branch's
+  names its shape and discriminator (R-PROC-38), so no caller can leave the level column unnamed.
+- **The step.** `Builder#recursive(step, maxDepth)` takes a `Function<RecursiveStep<M>, RecursiveKeys<M, ?>>`:
+  `step.childKey(child).parentKey(parent)` names the two columns a row is a child of another by, both of the source's
+  root entity, so a pair of different key types fails to compile and a swapped pair reads wrong at the call site.
+- **The levels.** The seed is the rows `where` keeps, at level 0, and each step adds 1, so `maxDepth = 20` returns
+  levels 0 to 20. A recursive model must call `recursive(...)` before `build()`: without it the source would quietly
+  return the seed rows alone.
+- **`MQ1902`, before any statement:** a `maxDepth` below 1 or above `Integer.MAX_VALUE - 2` (whose `maxDepth + 2`
+  ceiling check would overflow), `recursive(...)` on a source whose model declares no `@Depth`, and a `@Depth` model
+  built without its step.
+- **`MQ3037`, where the model is written:** a recursive source has no `@Window`, `@Aggregate` or `@GroupBy` (every
+  database forbids all three in the recursive term), exactly one `@Depth`, and it is an `Integer`. A `@Depth` outside a
+  `@SourceModel`, or on a branch or a shape, is `MQ3037` and `MQ3034` (`processor/30`, `processor/32`).
+- **Never a branch.** A recursive source given to `union`, `unionAll`, `intersect` or `except`, on either side, is
+  `MQ1904` where the operation is built, since a set operation would read it as its seed rows alone (R-SRC-05).
+- **The source never writes.** Recursion is a read: the recursive model generates no `changes()`, `update(...)`,
+  `from(...)` or `delete()`, as any source model does not.
+
+**R-SRC-08** What a recursive source returns, and what it refuses:
+
+- **The width.** A recursive CTE's rows are as wide as the non-recursive case: the source's fields, with the `@Depth`
+  field carrying the level. A `@Window` or `@Aggregate` over a recursive result is Q-22.
+- **The depth limit is loud.** The `with recursive` CTE steps to level `maxDepth + 1` and the cycle clause marks the
+  row that closes a cycle; the outer query filters on `level <= maxDepth and not mark`, so neither reaches a result.
+  The content statement and the count each carry two scalar sub-selects over the same CTE — the smallest key of the
+  rows past `maxDepth` and the smallest marked key — which the engine reads from the statement's first row: a row past
+  `maxDepth` is `MQ2701` and a marked row is `MQ2702`, each naming the model and the first offending key. So a too-deep
+  tree and a cyclic graph are refused whole rather than returned in part (INV-5). An empty result carries no row to
+  read, so the checks see nothing there; under READ COMMITTED a concurrent write can still deepen a tree after the
+  statement read it, and REPEATABLE READ around the call is the full guarantee (`engine/21`).
+- **A recursive source is non-unique.** In a tree each node is reached once, in a graph with two paths to a node it is
+  not, and the shape alone cannot tell which one the data is (R-SRC-09): so `keyset()` and `primaryKeyFirst(...)` are
+  `MQ1901` at the outer `build()`, and `export`, `byKeys`, `one(q, key)`, a fetch plan with a child and an enricher are
+  `MQ2212` at the executor call, both before any statement. Offset paging, ordering, filters and the count work as they
+  do on any source.
+- **The vendor's ceiling.** A vendor whose profile answers `false` for `SourceFeature.RECURSIVE`, or whose
+  `maxRecursionDepth()` is below `maxDepth + 2` (the extra level recursion needs and the final, empty iteration), is
+  `MQ4015` before any statement (R-SRC-11, R-VND-22). MySQL's default of 1000 serves `maxDepth` 998 and refuses 999.
+- **The provider's hook.** `core` builds the seed and the step and names the level and the two checks; the provider
+  registers the `with recursive` CTE, its cycle clause and its two check sub-selects through
+  `SourceSupport#recursive(outer, spec)`, which returns the CTE's root with them, so no provider type leaks into `jpa`
+  (INV-7, D-144).
+
+## 7. Building the CTE, and what a source needs to run
 
 **R-SRC-11** What a statement over a source needs, all checked before any statement:
 
@@ -261,7 +324,7 @@ primary-key-first steps, each export page, `byKeys` (every chunk) and the parent
 that reaches the database without its CTE is therefore a bug in the engine, not a state the user can hold: the body is
 built per statement from the immutable `SourceQuery`, which itself carries no Criteria object (INV-9).
 
-## 7. Acceptance criteria
+## 8. Acceptance criteria
 
 | ID | Criterion |
 |---|---|
@@ -276,8 +339,8 @@ built per statement from the immutable `SourceQuery`, which itself carries no Cr
 | AC-SRC-09 | An "owned `union` shared" list read from one branch model is paged by keyset (R-SRC-06). |
 | AC-SRC-10 | Offset pages over a non-unique `unionAll` with duplicate keys and tied order values lose no row (R-SRC-09). |
 | AC-SRC-11 | Each `MQ1901` and `MQ2212` refusal is raised before any statement (R-SRC-09). |
-| AC-SRC-12 | A tree read by a recursive source is pinned as an SQL snapshot and returns every node (`Future`, M25.5; R-SRC-07). |
-| AC-SRC-13 | A tree deeper than `maxDepth` is `MQ2701` and a cyclic graph is `MQ2702`, with no marked row in the result (`Future`, M25.5; R-SRC-08). |
-| AC-SRC-14 | MySQL serves `maxDepth` 998 and refuses 999 with `MQ4015` (`Future`, M25.5; R-SRC-08). |
+| AC-SRC-12 | A tree read by a recursive source is pinned as an SQL snapshot and returns every node, as does its count (M25.5; R-SRC-07). |
+| AC-SRC-13 | A tree deeper than `maxDepth` is `MQ2701` and a cyclic graph is `MQ2702`, on the content query and on the count, with no marked row in the result (M25.5; R-SRC-08). |
+| AC-SRC-14 | Every vendor serves `maxDepth` 998, and MySQL refuses 999 with `MQ4015` before any statement (M25.5; R-SRC-08). |
 | AC-SRC-15 | Content, count and both primary-key-first steps of one source are registered on every statement (R-SRC-12). |
 | AC-SRC-16 | `MQ4014` and `MQ4015` are reported per declared target without a database (R-SRC-11). |

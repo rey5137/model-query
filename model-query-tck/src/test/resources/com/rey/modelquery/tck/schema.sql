@@ -192,3 +192,11 @@ CREATE TABLE card_extras (
     CONSTRAINT fk_card_extras_card FOREIGN KEY (card_id) REFERENCES cards (id),
     CONSTRAINT fk_card_extras_holder FOREIGN KEY (holder_id) REFERENCES card_holders (id)
 );
+-- Folders a recursive source walks one level per step (TCK AC-SRC-12 to AC-SRC-14): a tree, a chain deeper than a
+-- small maxDepth, a two-row cycle and a 999-row chain for MySQL's ceiling. No foreign key: the cycle's two rows
+-- point at each other, and the level a query reads is the one the CTE assigns, not a column (R-PROC-37).
+CREATE TABLE folder_nodes (
+    id        BIGINT NOT NULL PRIMARY KEY,
+    parent_id BIGINT NULL,
+    name      VARCHAR(40) @COLLATE@ NOT NULL
+);

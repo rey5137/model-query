@@ -16,6 +16,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.function.Function;
 import java.util.function.UnaryOperator;
 
 /**
@@ -25,17 +26,24 @@ import java.util.function.UnaryOperator;
  * {@code query(SourceQuery<S>)} takes (R-SRC-10).
  *
  * <p>Its structure is fixed where it is built: {@link #builder} takes the fields, the key and the group keys, and the
- * builder adds only {@code where}, {@code having}, the shape and the discriminator. There is no {@code select}: a
- * source always carries every field of its model, which keeps the outer model's columns checkable at compile time
- * (R-GEN-37). {@link #union}, {@link #unionAll}, {@link #intersect} and {@link #except} combine two sources of one
- * shape into another immutable one, whose own {@code where} and {@code having} are empty because every predicate
- * belongs to a branch (R-SRC-05). A later release adds the recursion to it (R-PROC-37).
+ * builder adds only {@code where}, {@code having}, the shape, the discriminator and the recursion. There is no
+ * {@code select}: a source always carries every field of its model, which keeps the outer model's columns checkable
+ * at compile time (R-GEN-37). {@link #union}, {@link #unionAll}, {@link #intersect} and {@link #except} combine two
+ * sources of one shape into another immutable one, whose own {@code where} and {@code having} are empty because every
+ * predicate belongs to a branch (R-SRC-05). A source whose model declares a {@code @Depth} field adds the step its
+ * CTE recurses by, and is read as {@code with recursive} (R-PROC-37, R-SRC-07).
  *
  * @param <S> the source's shape: the model itself, or the model named by {@code @SourceModel(shape)} (R-PROC-38)
  * @implSpec R-SRC-01, R-SRC-05, R-SRC-10, R-GEN-37
  */
 @Incubating
 public final class SourceQuery<S> {
+
+    /**
+     * The CTE column the cycle mark is set on, which the provider passes to the cycle clause and the outer query
+     * filters on (R-SRC-07). It is not a field alias, so no source field can read it.
+     */
+    static final String MARK_ALIAS = "mqCycleMark";
 
     private final Class<?> model;
     private final Class<?> shape;
@@ -51,10 +59,12 @@ public final class SourceQuery<S> {
     private final Discriminator discriminator;
     /** The operation tree of a combined source, or {@code null} for a plain one (R-SRC-05). */
     private final Combined operation;
+    /** The recursion of a recursive source, or {@code null} for a source that does not recurse (R-SRC-07). */
+    private final Recursion recursion;
 
     private SourceQuery(Class<?> model, Class<?> shape, TableField<?, ?> root, SelectSet<?> fields,
             PrimaryKey<?, ?> key, SelectSet<?> groupKeys, List<Filter> where, HavingGroup.Clause having,
-            Discriminator discriminator) {
+            Discriminator discriminator, Recursion recursion) {
         this.model = model;
         this.shape = shape;
         this.root = root;
@@ -65,6 +75,7 @@ public final class SourceQuery<S> {
         this.having = having;
         this.discriminator = discriminator;
         this.operation = null;
+        this.recursion = recursion;
     }
 
     /**
@@ -82,6 +93,8 @@ public final class SourceQuery<S> {
         this.having = null;
         this.discriminator = null;
         this.operation = new Combined(operation, left, right);
+        // A branch cannot recurse (MQ3034), so no combined source carries a recursion.
+        this.recursion = null;
     }
 
     /**
@@ -118,8 +131,6 @@ public final class SourceQuery<S> {
     public static final class Builder<E, M, S> {
 
         private final Class<M> model;
-        /** The shape, or {@code null} while it is the model itself (R-PROC-38). */
-        private final Class<?> shape;
         private final TableField<E, E> root;
         private final SelectSet<M> fields;
         private final PrimaryKey<M, ?> key;
@@ -128,17 +139,16 @@ public final class SourceQuery<S> {
         private final List<Filter> where;
         /** The {@code HAVING} predicate, or {@code null} without one. */
         private final HavingGroup.Clause having;
-        /** The field fixed to a constant, or {@code null} for a branch with no {@code @Discriminator}. */
-        private final Discriminator discriminator;
+        /** The shape, the discriminator and the recursion, each as set so far (R-PROC-38, R-SRC-07). */
+        private final Settings settings;
 
         private Builder(Class<M> model, TableField<E, E> root, SelectSet<M> fields, PrimaryKey<M, ?> key,
                 SelectSet<M> groupKeys) {
-            this(model, root, fields, key, groupKeys, List.of(), null, null, null);
+            this(model, root, fields, key, groupKeys, List.of(), null, Settings.NONE);
         }
 
         private Builder(Class<M> model, TableField<E, E> root, SelectSet<M> fields, PrimaryKey<M, ?> key,
-                SelectSet<M> groupKeys, List<Filter> where, HavingGroup.Clause having, Class<?> shape,
-                Discriminator discriminator) {
+                SelectSet<M> groupKeys, List<Filter> where, HavingGroup.Clause having, Settings settings) {
             this.model = Objects.requireNonNull(model, "model");
             this.root = Objects.requireNonNull(root, "root");
             this.fields = Objects.requireNonNull(fields, "fields");
@@ -151,8 +161,7 @@ public final class SourceQuery<S> {
             this.groupKeys = groupKeys;
             this.where = where;
             this.having = having;
-            this.shape = shape;
-            this.discriminator = discriminator;
+            this.settings = settings;
         }
 
         /**
@@ -164,7 +173,7 @@ public final class SourceQuery<S> {
          */
         public <S> Builder<E, M, S> shape(Class<S> shape) {
             return new Builder<>(model, root, fields, key, groupKeys, where, having,
-                    Objects.requireNonNull(shape, "shape"), discriminator);
+                    settings.withShape(Objects.requireNonNull(shape, "shape")));
         }
 
         /**
@@ -173,8 +182,48 @@ public final class SourceQuery<S> {
          * checks ({@code MQ3034}); a source whose key holds it is unique by key where the branches' values differ.
          */
         public Builder<E, M, S> discriminator(ColumnField<?, ?, ?> field, String value) {
-            return new Builder<>(model, root, fields, key, groupKeys, where, having, shape,
-                    new Discriminator(Objects.requireNonNull(field, "field"), Objects.requireNonNull(value, "value")));
+            return new Builder<>(model, root, fields, key, groupKeys, where, having, settings.withDiscriminator(
+                    new Discriminator(Objects.requireNonNull(field, "field"), Objects.requireNonNull(value, "value"))));
+        }
+
+        /**
+         * Names the level column of a recursive source (R-SRC-07, R-PROC-37): the {@code @Depth} field's constant,
+         * which is the alias the CTE assigns the level of a row by, the seed rows being level 0. It is what the
+         * generated {@code source()} of a recursive model emits, and it is what makes {@code recursive(...)} legal on
+         * this builder; a source built with it and no step is {@code MQ1902} at {@link #build()}, so a recursive model
+         * is never silently read as a plain one.
+         */
+        public Builder<E, M, S> depth(ColumnField<?, ?, ?> field) {
+            return new Builder<>(model, root, fields, key, groupKeys, where, having,
+                    settings.withRecursion(new Recursion(Objects.requireNonNull(field, "field"), null, 0)));
+        }
+
+        /**
+         * Makes this a recursive source (R-SRC-07, R-PROC-37): the CTE starts at the rows {@link #where} keeps,
+         * which are level 0, and steps from a parent row to its children while the level is at most
+         * {@code maxDepth}. The step names the child and the parent key, which must be of one entity
+         * ({@link RecursiveStep}); a model with no {@code @Depth} cannot recurse, and a model with one must call
+         * this before {@link #build()}.
+         *
+         * @param step names the pair of keys a row is a child of another by
+         * @param maxDepth the deepest level {@code build()}'s source returns, the seeds being level 0
+         * @throws ModelQueryDefinitionException {@code MQ1902} when {@code maxDepth} is below 1 or above
+         *     {@code Integer.MAX_VALUE - 2}, or the model declares no {@code @Depth}
+         */
+        public Builder<E, M, S> recursive(Function<RecursiveStep<M>, RecursiveKeys<M, ?>> step, int maxDepth) {
+            if (maxDepth < 1 || maxDepth > Integer.MAX_VALUE - 2) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1902, model.getSimpleName() + ": maxDepth " + maxDepth
+                        + " is out of range; it is at least 1 and at most " + (Integer.MAX_VALUE - 2) + ", so that "
+                        + "the level past the deepest one cannot overflow");
+            }
+            ColumnField<?, ?, ?> depth = settings.depth();
+            if (depth == null) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1902, model.getSimpleName() + ": only a source whose "
+                        + "model declares a @Depth field recurses, and this one has none");
+            }
+            RecursiveKeys<M, ?> keys = Objects.requireNonNull(step, "step").apply(new RecursiveStep<>());
+            return new Builder<>(model, root, fields, key, groupKeys, where, having,
+                    settings.withRecursion(new Recursion(depth, keys, maxDepth)));
         }
 
         /**
@@ -184,8 +233,8 @@ public final class SourceQuery<S> {
          */
         public Builder<E, M, S> where(UnaryOperator<Filters<M>> filters) {
             return new Builder<>(model, root, fields, key, groupKeys,
-                    FilterGroup.collect(root.rootEntity(), Objects.requireNonNull(filters, "filters")), having, shape,
-                    discriminator);
+                    FilterGroup.collect(root.rootEntity(), Objects.requireNonNull(filters, "filters")), having,
+                    settings);
         }
 
         /**
@@ -194,13 +243,14 @@ public final class SourceQuery<S> {
          */
         public Builder<E, M, S> having(UnaryOperator<Having<M>> filters) {
             return new Builder<>(model, root, fields, key, groupKeys, where,
-                    HavingGroup.collect(Objects.requireNonNull(filters, "filters")), shape, discriminator);
+                    HavingGroup.collect(Objects.requireNonNull(filters, "filters")), settings);
         }
 
         /**
          * Builds the immutable source.
          *
-         * @throws ModelQueryDefinitionException {@code MQ1407} for {@code having(...)} on an ungrouped source
+         * @throws ModelQueryDefinitionException {@code MQ1407} for {@code having(...)} on an ungrouped source, and
+         *     {@code MQ1902} for a recursive source built without its step
          */
         @SuppressWarnings("unchecked")
         public SourceQuery<S> build() {
@@ -208,14 +258,52 @@ public final class SourceQuery<S> {
                 throw new ModelQueryDefinitionException(MqCode.MQ1407, model.getSimpleName()
                         + ": having(...) needs a grouped source; give it GROUP_KEYS, or filter rows with where(...)");
             }
+            // A recursive model's source() names its @Depth field, so the level column is known; the step is still
+            // required. Without it the build is refused rather than read as a plain source, which would quietly
+            // return the seed rows alone (R-SRC-07).
+            Recursion recursion = settings.recursion();
+            if (recursion != null && recursion.keys() == null) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1902, model.getSimpleName()
+                        + ": a recursive source needs recursive(step -> step.childKey(childKey).parentKey(parentKey), "
+                        + "maxDepth) before build()");
+            }
             // The shape is the model itself unless shape(...) named another one, which makes this a branch (R-PROC-38).
+            Class<?> shape = settings.shape();
             return new SourceQuery<>(model, shape == null ? model : shape, root, (SelectSet<S>) fields,
-                    (PrimaryKey<S, ?>) key, (SelectSet<S>) groupKeys, where, having, discriminator);
+                    (PrimaryKey<S, ?>) key, (SelectSet<S>) groupKeys, where, having, settings.discriminator(),
+                    recursion);
         }
     }
 
     /** The field a branch fixes to a constant, and the constant (R-PROC-38). */
     private record Discriminator(ColumnField<?, ?, ?> field, String value) {}
+
+    /** The recursion of a source: the {@code @Depth} column the level is aliased by, its step, and its depth limit. */
+    private record Recursion(ColumnField<?, ?, ?> depth, RecursiveKeys<?, ?> keys, int maxDepth) {}
+
+    /** What a builder has set besides the source's structure: its shape, its discriminator and its recursion. */
+    private record Settings(Class<?> shape, Discriminator discriminator, Recursion recursion) {
+
+        /** A builder over a model that is its own shape, with no discriminator and no recursion. */
+        static final Settings NONE = new Settings(null, null, null);
+
+        Settings withShape(Class<?> shape) {
+            return new Settings(shape, discriminator, recursion);
+        }
+
+        Settings withDiscriminator(Discriminator discriminator) {
+            return new Settings(shape, discriminator, recursion);
+        }
+
+        Settings withRecursion(Recursion recursion) {
+            return new Settings(shape, discriminator, recursion);
+        }
+
+        /** The {@code @Depth} column, or {@code null} for a source that does not recurse (R-SRC-07). */
+        ColumnField<?, ?, ?> depth() {
+            return recursion == null ? null : recursion.depth();
+        }
+    }
 
     /** One set operation over two branches; the tree's node (R-SRC-05). */
     private record Combined(SetOperation operation, SourceQuery<?> left, SourceQuery<?> right) {}
@@ -226,7 +314,8 @@ public final class SourceQuery<S> {
      * immutable; {@code this} and {@code other} are unchanged.
      *
      * @throws ModelQueryDefinitionException {@code MQ1904} when both sides are a {@code union} or {@code unionAll} and
-     *     two of their branches fix their discriminator to the same value (R-SRC-06)
+     *     two of their branches fix their discriminator to the same value (R-SRC-06), or either side is recursive
+     *     (R-SRC-07)
      */
     public SourceQuery<S> union(SourceQuery<S> other) {
         return combine(SetOperation.UNION, other);
@@ -251,10 +340,16 @@ public final class SourceQuery<S> {
      * {@code this} and {@code other} as one operation of {@code operation} (R-SRC-05, R-SRC-06). A {@code union} or
      * {@code unionAll} whose branches fix their discriminator to the same value would lose key uniqueness silently,
      * so it is {@code MQ1904} where the operation is built; {@code intersect} and {@code except} don't check the
-     * values, since their uniqueness follows the rules of R-SRC-05 alone.
+     * values, since their uniqueness follows the rules of R-SRC-05 alone. A recursive source on either side is
+     * {@code MQ1904} for every operation, since a recursive model can't be a branch (R-SRC-07).
      */
     private SourceQuery<S> combine(SetOperation operation, SourceQuery<S> other) {
         SourceQuery<S> right = Objects.requireNonNull(other, "other");
+        if (recursion != null || right.recursion != null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1904, "a recursive source can't be a branch of "
+                    + operation + ": " + (recursion != null ? model : right.model).getSimpleName() + " recurses, "
+                    + "and a set operation would read it as its seed rows alone (R-SRC-07)");
+        }
         if (shape != other.shape) {
             throw new ModelQueryDefinitionException(MqCode.MQ1904, "only branches of the same shape combine: "
                     + shape.getSimpleName() + " and " + other.shape.getSimpleName());
@@ -286,15 +381,19 @@ public final class SourceQuery<S> {
     }
 
     /**
-     * Whether every row this source produces has a key no other row shares (R-SRC-05, R-SRC-06). A plain or windowed
-     * source is unique by construction (R-SRC-02); a combined one is unique where the rules of R-SRC-05 hold, and
-     * everything else is non-unique and refused for the features that identify a row by its key (R-SRC-09).
+     * Whether every row this source produces has a key no other row shares (R-SRC-05, R-SRC-06, R-SRC-08). A plain or
+     * windowed source is unique by construction (R-SRC-02); a combined one is unique where the rules of R-SRC-05
+     * hold; a recursive one never is, because a node a graph reaches by two paths is emitted twice (R-SRC-08).
+     * Everything non-unique is refused for the features that identify a row by its key (R-SRC-09).
      *
      * <p>Engine-facing: {@code core} raises {@code MQ1901} from it at the outer {@code build()}, and {@code jpa}
      * {@code MQ2212} at the executor call.
      */
     @EngineFacing
     public boolean unique() {
+        if (recursion != null) {
+            return false;
+        }
         if (operation == null) {
             return true;
         }
@@ -387,16 +486,37 @@ public final class SourceQuery<S> {
     }
 
     /**
+     * Whether this source recurses (R-SRC-07): its model declares a {@code @Depth} field and its builder took the
+     * step, so its CTE is registered as {@code with recursive} rather than as a plain one.
+     */
+    @EngineFacing
+    public boolean recursive() {
+        return recursion != null;
+    }
+
+    /** The CTE column alias of the level, or {@code null} for a source that does not recurse (R-SRC-07). */
+    String levelAlias() {
+        return recursion == null ? null : alias(recursion.depth());
+    }
+
+    /** The deepest level the outer query returns, the seed rows being level 0 (R-SRC-07). */
+    int maxDepth() {
+        return recursion == null ? 0 : recursion.maxDepth();
+    }
+
+    /**
      * The source's CTE body: a standard {@code CriteriaQuery<Tuple>} selecting every field of {@link #fields()},
      * aliased to the field name the outer model reads it by, filtered by {@link #where()} and {@link #having()} and
      * grouped by {@link #groupKeys()} (R-SRC-12, D-143). A {@link WindowField} renders through {@code renderer}, its
      * key appended first when it is order-sensitive (R-SRC-04). Built per statement, since it is registered on each
      * statement that reads the source.
      *
+     * <p>A recursive source's CTE is not this body but the pair {@link #recursiveSpec} builds, which the provider
+     * registers through {@code SourceRenderer#recursive} (R-SRC-07).
+     *
      * @throws ModelQueryDefinitionException {@code MQ1906} when a {@code where} predicate's path crosses a to-many
      *     join, which no join inside the CTE can express (R-SRC-03)
      */
-    @SuppressWarnings({"unchecked", "rawtypes"})
     @EngineFacing
     CriteriaQuery<Tuple> body(CriteriaBuilder cb, RenderOptions options, SourceRenderer renderer) {
         if (operation != null) {
@@ -405,12 +525,69 @@ public final class SourceQuery<S> {
             return renderer.combine(cb, operation.operation, operation.left.body(cb, options, renderer),
                     operation.right.body(cb, options, renderer));
         }
+        return select(cb, options, renderer, null);
+    }
+
+    /**
+     * The CTE of a recursive source, for the provider to register as {@code with recursive} (R-SRC-07, R-SRC-12):
+     * the seed is the source's own rows at level 0, and the term steps one level deeper from each row, joined through
+     * the step's keys, while the level is below {@code maxDepth + 1}. Levels above {@code maxDepth} are produced so
+     * that the depth check of {@code RecursiveCte} can see a tree deeper than the limit.
+     */
+    @EngineFacing
+    RecursiveSpec recursiveSpec(CriteriaBuilder cb, RenderOptions options, SourceRenderer renderer) {
+        Recursion recursion = Objects.requireNonNull(this.recursion, "recursion");
+        return new RecursiveSpec(cb, select(cb, options, renderer, cb.literal(0)), term(cb, options, renderer),
+                key.columns().get(0).type(), keyAliases(), alias(recursion.depth()), MARK_ALIAS,
+                recursion.maxDepth());
+    }
+
+    /** The one level of the recursion a recursive source's CTE steps by (R-SRC-07). */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private RecursiveTerm term(CriteriaBuilder cb, RenderOptions options, SourceRenderer renderer) {
+        return (query, parent) -> {
+            RecursiveKeys<?, ?> keys = Objects.requireNonNull(recursion, "recursion").keys();
+            JoinContext joins = JoinContext.readOf(query.from(root.rootEntity()), cb, query, options);
+            Expression<Integer> level = (Expression<Integer>) (Expression<?>) parent.get(alias(recursion.depth()));
+            List<Selection<?>> selections = new ArrayList<>(fields.fields().size());
+            for (SelectField<?, ?> field : fields.fields()) {
+                selections.add(expression(cb, joins, renderer, field, cb.sum(level, 1)).alias(alias(field)));
+            }
+            query.multiselect(selections);
+            // One row per child of a row of the level before: the step's keys, then the row past maxDepth is asked
+            // for but never stepped from, which is the level the depth check reads (R-SRC-07).
+            query.where(cb.equal(keys.childKey().expression(joins), parent.get(alias(keys.parentKey()))),
+                    cb.lt(level, recursion.maxDepth() + 1));
+            return query;
+        };
+    }
+
+    /**
+     * The CTE columns of the source's key, in key order: the aliases the provider cycles on and selects the first
+     * offending key by (R-SRC-07, R-SRC-08).
+     */
+    private List<String> keyAliases() {
+        return key.columns().stream().map(SourceQuery::alias).toList();
+    }
+
+    /**
+     * The CTE body of {@code level}, a plain source or the seed of a recursive one (R-SRC-12): every field of
+     * {@link #fields()} aliased to the name the outer model reads it by, filtered by {@link #where()} and
+     * {@link #having()} and grouped by {@link #groupKeys()}.
+     *
+     * @param level the expression the {@code @Depth} column takes, or {@code null} for a source that does not recurse
+     * @throws ModelQueryDefinitionException {@code MQ1906} when a {@code where} predicate's path crosses a to-many
+     *     join, which no join inside the CTE can express (R-SRC-03)
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private CriteriaQuery<Tuple> select(CriteriaBuilder cb, RenderOptions options, SourceRenderer renderer,
+            Expression<?> level) {
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root from = query.from(root.rootEntity());
         JoinContext joins = JoinContext.readOf(from, cb, query, options);
         List<Selection<?>> selections = new ArrayList<>(fields.fields().size());
         for (SelectField<?, ?> field : fields.fields()) {
-            selections.add(expression(cb, joins, renderer, field).alias(alias(field)));
+            selections.add(expression(cb, joins, renderer, field, level).alias(alias(field)));
         }
         query.multiselect(selections);
         if (groupKeys != null && !groupKeys.fields().isEmpty()) {
@@ -436,16 +613,20 @@ public final class SourceQuery<S> {
     }
 
     /**
-     * The CTE column of {@code field}: its own expression, or, for a {@link WindowField}, the {@code OVER (...)}
-     * clause rendered by {@code renderer} with the source key appended first when the window is order-sensitive
-     * (R-SRC-04, R-GEN-38).
+     * The CTE column of {@code field}: its own expression, the level {@code level} for a recursive source's
+     * {@code @Depth} field, or, for a {@link WindowField}, the {@code OVER (...)} clause rendered by {@code renderer}
+     * with the source key appended first when the window is order-sensitive (R-SRC-04, R-GEN-38, R-SRC-07).
      */
     private Expression<?> expression(CriteriaBuilder cb, JoinContext joins, SourceRenderer renderer,
-            SelectField<?, ?> field) {
+            SelectField<?, ?> field, Expression<?> level) {
         if (discriminator != null && discriminator.field().equals(field)) {
             // A branch's discriminator is a constant, never read from the root: Hibernate inlines a literal and
             // casts it itself for the select list (RFC 0013 §8, R-SRC-06).
             return cb.literal(discriminator.value());
+        }
+        if (recursion != null && recursion.depth().equals(field)) {
+            // A recursive source's @Depth column is the row's level, never a column of the entity (R-SRC-07).
+            return Objects.requireNonNull(level, "level");
         }
         if (!(field instanceof WindowField<?, ?> window)) {
             return field.expression(joins);

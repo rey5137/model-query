@@ -30,6 +30,14 @@ public interface SourceRenderer {
     Root<Tuple> cte(CriteriaQuery<?> outer, CriteriaQuery<Tuple> body);
 
     /**
+     * Registers {@code spec} as the {@code WITH RECURSIVE} CTE of {@code outer} and returns its root together with
+     * the two check expressions the statement's first row is read for (R-SRC-07, R-SRC-12). The CTE recurses to
+     * {@code maxDepth + 1} levels, marks the row that closes a cycle, and joins each level to the previous one
+     * through the step's keys (RFC 0013 §5).
+     */
+    RecursiveCte recursive(CriteriaQuery<?> outer, RecursiveSpec spec);
+
+    /**
      * Renders {@code spec} as a window function with an {@code OVER (...)} clause, over {@code cb}'s criteria. The
      * provider's typed window methods are used where it has them, and {@code windowFunction(name, ...)} otherwise
      * (R-SRC-04).
