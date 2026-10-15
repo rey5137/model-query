@@ -2097,10 +2097,23 @@ which also gives the first offending key. RFC 0013 §8's `Root<Tuple> recursive(
 puts them behind that one hook. Rejected: a second abstract method building the checks from the root (one feature
 split over two SPI methods). A recursive model's generated `source()` calls `Builder#depth(LEVEL)`, as a branch's calls
 `shape`/`discriminator`; `MQ1902` also covers `recursive(...)` on a model with no `@Depth` and a `@Depth` model built
-without it; `@Depth` outside a `@SourceModel` is `MQ3037`, on a branch or a shape `MQ3034`; a recursive `SourceQuery` handed to `union`, `unionAll`, `intersect` or
-`except`, on either side, is `MQ1904` where the operation is built (RFC 0013 §4: a recursive model can't be a branch).
-→ `rfc/0013` §8,
-`api/17` R-SRC-07, R-SRC-08, `processor/30` R-PROC-37.
+without it; `@Depth` outside a `@SourceModel` is `MQ3037`, on a branch or a shape `MQ3034`; a recursive `SourceQuery`
+handed to `union`, `unionAll`, `intersect` or `except`, on either side, is `MQ1904` where the operation is built (RFC
+0013 §4: a recursive model can't be a branch). → `rfc/0013` §8, `api/17` R-SRC-07, R-SRC-08, `processor/30` R-PROC-37.
+
+**D-145 — What else 0.10.0 ships before the freeze (2026-10-15, user decision).** After a gap review against
+Blaze-Persistence, 0.10.0 also closes the gaps that fit this library's design and unblock the most list screens, each
+as its own milestone with an RFC and an acceptance spike first: M26, a recursive source over a tree counted as unique
+(Q-21, `rfc/0014`); M27, per-row correlated sub-query columns (lifting D-112's root-only outer columns) and sources
+over sources with a source read directly (Q-22, `rfc/0015`); M28, query models over a polymorphic entity root through
+`cb.treat` (`rfc/0016`). Q-23 is resolved in M25.6: `generateChanges` on a source model or a model rooted at one is a
+compile-time code, not silently ignored. The freeze moves from M26 to M29 and stays last. Everything new is
+`@Incubating`, so the M29.1 freeze review decides each type. Left out, as not fitting: updatable entity views with
+dirty tracking (explicit writes, `rfc/0005`), lateral joins (H2 has none; a window source covers top-N per parent),
+MULTISET-style fetch strategies (batched fetch plans with row caps cover them), `VALUES` sources and derived tables
+(`byKeys` covers the first; the second is a `SourceSupport` rendering choice), DML in a CTE (Q-16, PostgreSQL-only
+among Tier 1), and Querydsl, DeltaSpike and JAX-RS modules. → `docs/plan/mvp-plan.md` §26–§29, `delivery/62`, Q-21,
+Q-22, Q-23.
 
 ## 2. Open questions
 
@@ -2193,13 +2206,13 @@ the id would then come from the foreign-key column of the entity's own row. → 
 **Q-21 — Recursive sources counted as unique.** Whether a duplicate-key check in the same statement (the spike's
 `count(*)` against `count(distinct key)` over the CTE, counting the cycle-marked row too) lets a recursive source over
 a tree count as unique, so fetch plans and keyset paging work on trees. It checks only the statement it runs in, so
-export and keyset walks across statements need more. → `rfc/0013` §5, D-143.
+export and keyset walks across statements need more. → `rfc/0013` §5, D-143; M26, `rfc/0014` (D-145).
 
 **Q-22 — Sources over sources, and reading a source directly.** Window and aggregate fields over the combined rows of
 a set operation or a recursive source, and a source model's QModel also offering `query()`, so a source can be read
-without a trivial outer model. → `rfc/0013` §3–§5, D-143.
+without a trivial outer model. → `rfc/0013` §3–§5, D-143; M27, `rfc/0015` (D-145).
 
-**Q-23 — `generateChanges` on a model rooted at a source.** A write needs an entity root, so a source model and a
+**Q-23 — `generateChanges` on a model rooted at a source.** Resolved by D-145 (a code, M25.6). Was: a write needs an entity root, so a source model and a
 model rooted at one generate no `changes()`, `update(...)`, `from(...)` or `delete()` today, and `generateChanges` is
 ignored there. Should it instead be an `MQnnnn`, as a `@Child` or a `@Join` on such a model is? → D-144,
 `processor/31` R-GEN-37, `processor/32`.

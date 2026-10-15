@@ -139,6 +139,10 @@ enum DiagnosticCode {
     /** A {@code @Child} whose child model is rooted at a source, which no fetch plan can pass a source to. */
     MQ3039("@Child whose child model is rooted at a source"),
 
+    /** {@code @QueryModel(generateChanges)} on a model rooted at a source: a write needs an entity root (R-GEN-37,
+     * R-PROC-39). */
+    MQ3040("generateChanges on a model rooted at a source"),
+
     /** An {@code @Aggregate} field is primitive, though an aggregate can be {@code NULL}. */
     MQ3201("@Aggregate field is primitive"),
 

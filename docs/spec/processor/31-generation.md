@@ -447,7 +447,8 @@ column the source constant names and keeps its type and converter; the outer con
 exactly when the source's is. `ROOT` is a source root, so `TableField.root(...)` is never emitted for it and a
 hand-written `ColumnField.of(...)` over it is `MQ1905` (`api/17` R-SRC-10). An outer model declares no `changes()`,
 `update(...)`, `from(...)` or `delete()`, however its `generateChanges` is set: a write needs an entity root, and the
-source model itself is not writable (R-PROC-39).
+source model itself is not writable (R-PROC-39). Setting `generateChanges` on it is `MQ3040` rather than ignored,
+message and all (`processor/32`, D-145).
 
 **R-GEN-38** *(D-143)* **`WindowField`.** A `@Window` field of a source (`processor/30` R-PROC-36, `api/17` R-SRC-04)
 generates a `WindowField<S, T>`, a `SelectField` and neither a `ColumnField` nor an `AggregateField`, named after the

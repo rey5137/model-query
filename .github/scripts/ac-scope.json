@@ -1,6 +1,6 @@
 {
   "_comment": "Scope for ac_audit.py (delivery/60 R-QA-11). A milestone's criteria are enforced once it is listed in 'started'. 'files' are spec paths (relative to docs/spec, without .md) taken from the 'Exit criteria' column of delivery/62 section 1; 'ids' name individual criteria the plan assigns to the milestone. Criteria in no milestone are reported as unscheduled and do not fail the audit.",
-  "started": ["M0", "M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8", "M9", "M10", "M11", "M12", "M13", "M14", "M15", "M17", "M18", "M19", "M20", "M21", "M22", "M23", "M24"],
+  "started": ["M0", "M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8", "M9", "M10", "M11", "M12", "M13", "M14", "M15", "M17", "M18", "M19", "M20", "M21", "M22", "M23", "M24", "M25"],
   "milestones": {
     "M0": { "ids": ["AC-REL-01", "AC-REL-02", "AC-REL-03", "AC-REL-07", "AC-QA-01", "AC-QA-05"] },
     "M1": { "files": ["api/10-columns-joins", "api/11-query-definition", "api/12-filters", "api/13-aggregates-grouping"] },
@@ -24,7 +24,8 @@
     "M21": { "ids": ["AC-GEN-31", "AC-GEN-32", "AC-PROC-27"] },
     "M22": { "ids": ["AC-COL-34", "AC-COL-35", "AC-GEN-33", "AC-PROC-28"] },
     "M23": { "ids": ["AC-INS-10", "AC-INS-11", "AC-INS-12", "AC-SPR-21", "AC-VND-15"] },
-    "M24": { "ids": ["AC-GEN-30", "AC-PROC-23", "AC-PROC-24", "AC-PROC-25", "AC-PROC-26", "AC-PROC-29"] }
+    "M24": { "ids": ["AC-GEN-30", "AC-PROC-23", "AC-PROC-24", "AC-PROC-25", "AC-PROC-26", "AC-PROC-29"] },
+    "M25": { "files": ["api/17-query-sources"] }
   },
   "build_proven": {
     "AC-REL-01": "The build produces exactly the modules in delivery/61 section 1 and 'mvnw verify' is green: proven by the CI build job, which fails otherwise.",

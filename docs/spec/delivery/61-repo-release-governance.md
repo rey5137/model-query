@@ -163,11 +163,13 @@ The source-model members (D-143, D-144, 0.10.0) are `@Incubating` through 1.0: t
 `source()`/`query(SourceQuery<S>)` members the processor generates. The window members (`api/17` R-SRC-04, D-143) are
 `@Incubating` the same way: the `@Window` annotation with `WindowFunction` and `WindowFrame`, core's `@EngineFacing`
 `WindowSpec` and `WindowField`, and `SourceSupport#window` beside `#cte`. The set-operation members (`api/17` §4,
-R-SRC-05, R-SRC-06, 0.10.0) are `@Incubating` too: the `@Discriminator` annotation, core's `SetOperation` and the
+R-SRC-05, R-SRC-06, 0.10.0) are `@Incubating` too: the `@Discriminator` annotation, core's `@EngineFacing` `SetOperation` and the
 `union`/`unionAll`/`intersect`/`except` methods with the `Builder#shape`/`#discriminator` they are built from, core's
 `@EngineFacing` `SourceQuery#unique()`, `SourceSupport#combine` beside `#cte` and `#window`, and `SourceFeature`'s
-`UNION`, `INTERSECT` and `EXCEPT`. The recursion and the recursive half of `SourceFeature` (`RECURSIVE`, `maxDepth`)
-land with M25.5, which is why these may change in a minor release.
+`UNION`, `INTERSECT` and `EXCEPT`. The recursion members (D-144, 0.10.0) are `@Incubating` the same way: the `@Depth`
+annotation, `SourceQuery.Builder#recursive` and its `maxDepth` with the `RecursiveStep`, `StepBuilder` and
+`RecursiveKeys` a caller writes the step with, core's `@EngineFacing` `RecursiveCte`, `SourceSupport#recursive` beside `#cte`,
+`#window` and `#combine`, and `SourceFeature`'s `RECURSIVE` with `VendorProfile#maxRecursionDepth()`.
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from

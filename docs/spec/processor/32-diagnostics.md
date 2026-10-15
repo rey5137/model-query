@@ -2,7 +2,7 @@
 
 **Covers:** every check the annotation processor performs, its `MQ3xxx` code and its message.
 **Read when:** adding a check, or wording a message. A wrong message here is the first thing a new user sees.
-**Owns:** `R-DIAG-*`, `AC-DIAG-*`, and from M25 `AC-PROC-30`..`AC-PROC-39` (source models). The codes are catalogued
+**Owns:** `R-DIAG-*`, `AC-DIAG-*`, and from M25 `AC-PROC-30`..`AC-PROC-40` (source models). The codes are catalogued
 in `reference/90`.
 
 ---
@@ -50,6 +50,7 @@ in `reference/90`.
 | `MQ3037` | A recursive source model carrying `@Window`, `@Aggregate` or `@GroupBy`, which every database forbids in the recursive term; a `@Depth` field that is not one `Integer`, or a second one; or a `@Depth` outside a `@SourceModel`, since only a source recurses (R-PROC-37) | `FolderTree.depth: a recursive source takes one Integer @Depth` or `FolderView.depth: @Depth is only allowed on a @SourceModel; only a source recurses` |
 | `MQ3038` | A model's `root` is neither an `@Entity` nor a `@SourceModel`, or both (R-PROC-39) | `OrderView: root OrderTotals is neither @Entity nor @SourceModel` or `OrderView: root OrderTotals is both @Entity and @SourceModel; keep one` |
 | `MQ3039` | A `@Child` whose child model is rooted at a source, which is one statement with no parent query to fetch a child from (R-PROC-39) | `CustomerTotals.orders: OrderLineView.root is OrderLineTotals, a @SourceModel; a fetch plan has no source to pass it` |
+| `MQ3040` | `generateChanges` set on a model rooted at a source, which generates no change set: a write needs an entity root, and neither a source nor an outer model over one writes (R-GEN-37, R-PROC-39, D-145) | `OrderRow: generateChanges needs an entity root; it is rooted at source OrderTotals, a @SourceModel no change set can write` |
 | `MQ3201` | `@Aggregate` field is primitive | `ProductSales.revenue: SUM is NULL over zero rows; use BigDecimal, not a primitive` |
 | `MQ3202` | `@Aggregate` field type does not match the function's result type | `ProductSales.lines: COUNT returns Long, field is Integer` |
 | `MQ3203` | `@Aggregate` model has no `@GroupBy` field and is not `singleGroup` | `ProductSales: has @Aggregate fields but no @GroupBy; add one or set @QueryModel(singleGroup = true)` |
@@ -141,4 +142,5 @@ the generated class.
 | AC-PROC-37 | A recursive source model generates the QModel of R-GEN-37 — `source()` naming its `@Depth` field with `.depth(LEVEL)` — byte-identical to its golden; `MQ3037` for a `@Depth` that is not one `Integer`, for a second one, for a `@Depth` outside a `@SourceModel`, and for a recursive model carrying `@Window`, `@Aggregate` or `@GroupBy`; `MQ3034` for a `@Depth` on a branch or on a shape (R-PROC-37). |
 | AC-PROC-38 | `MQ3038` for a `root` that is neither an `@Entity` nor a `@SourceModel`, and for one that is both (R-PROC-39). |
 | AC-PROC-39 | `MQ3039` for a `@Child` whose child model is rooted at a source, and a `@QueryModel` rooted at a source generated as `query(SourceQuery<S>)` over `TableField.source(...)` and `ColumnField.over(...)`, with a `@Child` on it generated against the source's parent-side key field (R-PROC-39). |
+| AC-PROC-40 | `MQ3040` for `generateChanges = true` on a model rooted at a source — a `@QueryModel`, and a `@BindQueryModel` whose binding names a source root, which is every model that can set the flag, since `@SourceModel` declares no `generateChanges` member — and the model generates no change set (R-GEN-37, D-145). |
 | AC-DIAG-13 | `MQ3506` (no `generateInserts`, an `@UpdateModel`, an `@InsertModel`, and a field R-PROC-26 already leaves out), `MQ3501`'s message for an excluded assigned id, `MQ3505` alone when every column is excluded or on a grouped model, and `MQ3021` on a `@Selected` field carrying `@ExcludeFromInserts` each have a compile-testing case (R-PROC-27, D-125). |

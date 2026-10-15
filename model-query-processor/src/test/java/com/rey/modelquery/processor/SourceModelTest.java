@@ -3,6 +3,8 @@ package com.rey.modelquery.processor;
 import static com.google.testing.compile.CompilationSubject.assertThat;
 import static com.rey.modelquery.processor.ProcessorHarness.classes;
 import static com.rey.modelquery.processor.ProcessorHarness.compile;
+import static com.rey.modelquery.processor.ProcessorHarness.compileAgainst;
+import static com.rey.modelquery.processor.ProcessorHarness.compileToClasspath;
 import static com.rey.modelquery.processor.ProcessorHarness.errors;
 import static com.rey.modelquery.processor.ProcessorHarness.generated;
 import static com.rey.modelquery.processor.ProcessorHarness.generatedFlat;
@@ -15,14 +17,20 @@ import com.rey.modelquery.core.ChildField;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.TableField;
 import jakarta.persistence.criteria.JoinType;
+import java.nio.file.Path;
 import javax.tools.JavaFileObject;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * {@code @SourceModel} and the models that read a source ({@code processor/30} §10, {@code processor/31} R-GEN-37,
  * {@code api/17}).
  */
 class SourceModelTest {
+
+    /** The classes of an earlier module, for the models a binding names (R-PROC-30). */
+    @TempDir
+    Path classes;
 
     private static final String HEADER = """
             package shop;
@@ -121,6 +129,16 @@ class SourceModelTest {
 
             @QueryModel(root = StatusTotals.class)
             public record StatusRow(@PrimaryKey String status, Long orders) {}
+            """);
+
+    /** {@link #ORDER_ROW} without its {@code @QueryModel}, the model a binding names (R-PROC-28). */
+    private static final JavaFileObject ORDER_ROW_WITHOUT_ANNOTATION = source("shop.OrderRow", """
+            package shop;
+
+            import com.rey.modelquery.annotations.PrimaryKey;
+            import java.math.BigDecimal;
+
+            public record OrderRow(@PrimaryKey Long id, String status, BigDecimal total) {}
             """);
 
     private static Compilation compileShop() {
@@ -559,6 +577,43 @@ class SourceModelTest {
         assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3406, "ThroughRow.items: through "
                 + "'items' needs an entity root to join along, and ThroughRow is rooted at OrderTotals, a "
                 + "@SourceModel; use foreignKey"));
+    }
+
+    @Test
+    void ac_proc_40_generate_changes_on_a_model_rooted_at_a_source_is_mq3040() {
+        Compilation compilation = compile(ORDER_ENTITY, ORDER_TOTALS, model("ChangesRow", """
+                import com.rey.modelquery.annotations.PrimaryKey;
+                import com.rey.modelquery.annotations.QueryModel;
+
+                @QueryModel(root = OrderTotals.class, generateChanges = true)
+                public record ChangesRow(@PrimaryKey Long id, String status) {}
+                """));
+
+        assertThat(compilation).failed();
+        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3040, "ChangesRow: generateChanges"
+                + " needs an entity root; it is rooted at source OrderTotals, a @SourceModel no change set can write"));
+    }
+
+    @Test
+    void ac_proc_40_generate_changes_on_a_bound_query_model_rooted_at_a_source_is_mq3040() {
+        compileToClasspath(classes, ORDER_ENTITY, ORDER_TOTALS, ORDER_ROW_WITHOUT_ANNOTATION);
+        var processor = new ProcessorHarness.Recording();
+
+        Compilation compilation = compileAgainst(classes, processor, ORDER_ENTITY, source(
+                "persistence.ChangesModels", """
+                        package persistence;
+
+                        import com.rey.modelquery.annotations.BindQueryModel;
+                        import shop.OrderRow;
+                        import shop.OrderTotals;
+
+                        @BindQueryModel(model = OrderRow.class, root = OrderTotals.class, generateChanges = true)
+                        final class ChangesModels {}
+                        """));
+
+        assertThat(compilation).failed();
+        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3040, "OrderRow: generateChanges"
+                + " needs an entity root; it is rooted at source OrderTotals, a @SourceModel no change set can write"));
     }
 
     /** The public static constant {@code name} of the generated {@code qModel}. */

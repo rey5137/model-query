@@ -166,6 +166,7 @@ final class ModelValidator {
             }
         } else if (model.readsSource()) {
             checkOuterKey(model, diagnostics);
+            checkGenerateChanges(model, diagnostics);
         }
         // What each constant is generated for, as a clash names it: a joined column first, so that a field taking its
         // name is the one reported.
@@ -594,6 +595,20 @@ final class ModelValidator {
                     + model.source().name() + "'s key "
                     + sourceKey.stream().map(name -> "'" + name + "'").collect(Collectors.joining(", "))
                     + ", the source's own key; a keyset cursor and the engine's tie-breakers read it");
+        }
+    }
+
+    /**
+     * {@code MQ3040} for a model rooted at a source that sets {@code generateChanges}: a write needs an entity root,
+     * and neither a source nor an outer model over one generates a change set, so the flag is reported rather than
+     * ignored (R-GEN-37, D-145). {@code @SourceModel} declares no {@code generateChanges} member, so an outer model
+     * is the only kind that reaches this.
+     */
+    private static void checkGenerateChanges(ModelDefinition model, Diagnostics diagnostics) {
+        if (model.generateChanges()) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3040, model.name()
+                    + ": generateChanges needs an entity root; it is rooted at source " + model.source().name()
+                    + ", a @SourceModel no change set can write");
         }
     }
 
