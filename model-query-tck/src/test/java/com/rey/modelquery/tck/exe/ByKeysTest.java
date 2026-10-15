@@ -15,6 +15,7 @@ import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
+import com.rey.modelquery.tck.col.CompositeKeyItemEntity;
 import com.rey.modelquery.tck.col.CustomerNoteEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
@@ -38,6 +39,8 @@ class ByKeysTest {
     record OrderRow(Long id, String status, BigDecimal total) {}
 
     record NoteRow(Long id, String email) {}
+
+    record TenantItem(Integer tenantId, Integer itemNo) {}
 
     private static final TableField<OrderEntity, OrderEntity> ORDERS = TableField.root(OrderEntity.class);
     private static final TableField<OrderEntity, OrderItemEntity> ITEMS = TableField.join(ORDERS, "items", INNER);
@@ -101,6 +104,53 @@ class ByKeysTest {
     }
 
     @TckTest
+    void ac_exe_14_by_keys_sizes_its_chunks_from_the_statements_own_binds(TckDatabase db) {
+        List<Long> keys = List.of(9L, 8L, 7L, 6L, 5L, 4L, 3L, 2L, 1L);
+        // A bind limit of 4 with no filter bind takes 4 keys a statement: 4 + 4 + 1.
+        var plain = orders().build();
+        // With one filter bind, 3 binds are left for keys, so 2 a statement: 2 + 2 + 2 + 2 + 1, the first chunk built
+        // at 4 keys and built again at 2.
+        var filtered = orders().where(f -> f.gt(TOTAL, BigDecimal.ZERO)).build();
+        var config = ModelQueryConfig.defaults().vendorProfiles(List.of(FetchTestSupport.limited(db, 1024, 4)));
+
+        List<String> plainSql = SqlSnapshots.capture(db, ds -> withExecutor(ds, config, executor ->
+                assertThat(executor.byKeys(plain, keys).keySet()).containsExactlyElementsOf(keys)));
+        List<String> filteredSql = SqlSnapshots.capture(db, ds -> withExecutor(ds, config, executor ->
+                assertThat(executor.byKeys(filtered, keys).keySet()).containsExactlyElementsOf(keys)));
+
+        assertThat(plainSql).extracting(sql -> sql.chars().filter(c -> c == '?').count()).containsExactly(4L, 4L, 1L);
+        assertThat(filteredSql).extracting(sql -> sql.chars().filter(c -> c == '?').count()).containsExactly(3L, 3L, 3L, 3L, 2L);
+    }
+
+    @TckTest
+    void ac_exe_14_by_keys_sizes_composite_chunks_from_the_statements_own_binds(TckDatabase db) {
+        var tenants = TableField.root(CompositeKeyItemEntity.class);
+        var tenantId = ColumnField.of(TenantItem.class, tenants, "tenantId", Integer.class);
+        var itemNo = ColumnField.of(TenantItem.class, tenants, "itemNo", Integer.class);
+        var label = ColumnField.of(TenantItem.class, tenants, "label", String.class);
+        var base = ModelQuery.builder(tenants, row -> new TenantItem(row.get(tenantId), row.get(itemNo)))
+                .select(SelectSet.of(tenantId, itemNo))
+                .primaryKey(PrimaryKey.composite(tenantId, itemNo));
+        var plain = base.build();
+        var filtered = base.where(f -> f.ne(label, "none")).build();
+        // Components repeat across keys, (1,1) and (1,2) share tenant 1: each still binds its own two values.
+        List<List<Object>> keys = List.of(List.of(1, 1), List.of(1, 2), List.of(1, 3), List.of(2, 1), List.of(2, 2),
+                List.of(2, 3), List.of(3, 1));
+        // A bind limit of 8 takes 4 keys a statement, 4 + 3; one filter bind leaves 7, so 3 keys, 2 a statement.
+        var config = ModelQueryConfig.defaults().vendorProfiles(List.of(FetchTestSupport.limited(db, 1024, 8)));
+
+        List<String> plainSql = SqlSnapshots.capture(db, ds -> withExecutor(ds, CompositeKeyItemEntity.class, config,
+                executor -> assertThat(executor.byKeys(plain, keys).keySet()).containsExactlyElementsOf(keys)));
+        List<String> filteredSql = SqlSnapshots.capture(db, ds -> withExecutor(ds, CompositeKeyItemEntity.class,
+                config, executor -> assertThat(executor.byKeys(filtered, keys).keySet())
+                        .containsExactlyElementsOf(keys)));
+
+        assertThat(plainSql).extracting(sql -> sql.chars().filter(c -> c == '?').count()).containsExactly(8L, 6L);
+        assertThat(filteredSql).extracting(sql -> sql.chars().filter(c -> c == '?').count())
+                .containsExactly(5L, 5L, 5L, 3L);
+    }
+
+    @TckTest
     void ac_exe_14_a_key_matching_two_rows_throws_mq2003_naming_the_filter_only_join(TckDatabase db) {
         // Order 1 holds four items of product P001, so the filter's join repeats it four times.
         var q = orders().where(f -> f.eq(ITEM_PRODUCT_FILTER, "P001")).build();
@@ -156,6 +206,13 @@ class ByKeysTest {
     private static <E> void withExecutor(TckDatabase db, Class<E> root, ModelQueryConfig config,
             Consumer<ModelQueryExecutor<E>> work) {
         try (SessionFactory sf = JoinTestSupport.sessionFactory(db)) {
+            sf.inSession(em -> work.accept(ModelQueryExecutor.create(em, root, config)));
+        }
+    }
+
+    private static <E> void withExecutor(DataSource ds, Class<E> root, ModelQueryConfig config,
+            Consumer<ModelQueryExecutor<E>> work) {
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
             sf.inSession(em -> work.accept(ModelQueryExecutor.create(em, root, config)));
         }
     }
