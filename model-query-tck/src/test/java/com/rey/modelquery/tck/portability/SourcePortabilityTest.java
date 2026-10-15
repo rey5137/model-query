@@ -11,10 +11,14 @@ import com.rey.modelquery.jpa.spi.SourceFeature;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.portability.PortabilityCheck;
 import com.rey.modelquery.portability.Target;
+import com.rey.modelquery.tck.src.DispatchFeed;
 import com.rey.modelquery.tck.src.OrderFeed;
 import com.rey.modelquery.tck.src.OrderSource;
+import com.rey.modelquery.tck.src.QDispatchFeed;
+import com.rey.modelquery.tck.src.QDispatchRow;
 import com.rey.modelquery.tck.src.QOrderFeed;
 import com.rey.modelquery.tck.src.QOrderSource;
+import com.rey.modelquery.tck.src.QShelvedDispatchFeed;
 import com.rey.modelquery.tck.src.QWindowFeed;
 import com.rey.modelquery.tck.src.QWindowSource;
 import com.rey.modelquery.tck.src.WindowSource;
@@ -77,7 +81,7 @@ class SourcePortabilityTest {
         var feed = QWindowFeed.query(QWindowSource.source().build()).select(QWindowFeed.ALL)
                 .orderBy(QWindowFeed.ID.asc()).build();
         ModelQueryConfig config = ModelQueryConfig.defaults()
-                .vendorProfiles(List.of(mysqlWithoutWindow()));
+                .vendorProfiles(List.of(mysqlWithout(SourceFeature.WINDOW)));
         List<String> lines = report(check(config).targets(H2, POSTGRESQL, MYSQL)
                 .call("WINDOWS", WindowSource.class, x -> x.list(feed, Limit.of(10))));
 
@@ -92,8 +96,28 @@ class SourcePortabilityTest {
                 .contains("SourceFeature.WINDOW"));
     }
 
-    /** MySQL's profile answering every source feature but {@code WINDOW}, as one written before it existed. */
-    private static VendorProfile mysqlWithoutWindow() {
+    @Test
+    void ac_src_16_a_vendor_without_the_union_feature_reports_mq4015_on_its_target_alone() {
+        var feed = QDispatchRow.query(QDispatchFeed.source().build().union(QShelvedDispatchFeed.source().build()))
+                .select(QDispatchRow.ALL).orderBy(QDispatchRow.BRANCH.asc()).build();
+        ModelQueryConfig config = ModelQueryConfig.defaults()
+                .vendorProfiles(List.of(mysqlWithout(SourceFeature.UNION)));
+        List<String> lines = report(check(config).targets(H2, POSTGRESQL, MYSQL)
+                .call("DISPATCH", DispatchFeed.class, x -> x.list(feed, Limit.of(10))));
+
+        assertThat(lines).hasSize(4);
+        for (Target target : List.of(H2, POSTGRESQL)) {
+            assertThat(lines).anySatisfy(line -> assertThat(line)
+                    .startsWith("DISPATCH on " + target + ": REACHED")
+                    .contains("union"));
+        }
+        assertThat(lines).anySatisfy(line -> assertThat(line)
+                .startsWith("DISPATCH on " + MYSQL + ": REFUSED MQ4015")
+                .contains("SourceFeature.UNION"));
+    }
+
+    /** MySQL's profile answering every source feature but {@code refused}, as one written before it existed. */
+    private static VendorProfile mysqlWithout(SourceFeature refused) {
         return new VendorProfile() {
             @Override
             public DatabaseVendor vendor() {
@@ -121,7 +145,7 @@ class SourcePortabilityTest {
 
             @Override
             public boolean sources(SourceFeature feature) {
-                return feature != SourceFeature.WINDOW;
+                return feature != refused;
             }
         };
     }

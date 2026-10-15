@@ -1111,6 +1111,8 @@ public final class ModelQuery<E, K, M> {
          * @throws ModelQueryDefinitionException {@code MQ1407} for {@code having(...)} on an ungrouped query
          * @throws ModelQueryDefinitionException {@code MQ1402} for {@code keyset()} or {@code primaryKeyFirst(...)} on
          *     a grouped query
+         * @throws ModelQueryDefinitionException {@code MQ1901} for {@code keyset()} or {@code primaryKeyFirst(...)}
+         *     over a non-unique source (R-SRC-09)
          * @throws ModelQueryDefinitionException {@code MQ1201} for {@code keyset()} or {@code primaryKeyFirst(...)}
          *     without a primary key
          * @throws ModelQueryDefinitionException {@code MQ1206} for a primary-key column of array type
@@ -1160,6 +1162,12 @@ public final class ModelQuery<E, K, M> {
             }
             if (keyset || primaryKeyFirst != null) {
                 String used = keyset ? "keyset()" : "primaryKeyFirst(...)";
+                if (source != null && !source.unique()) {
+                    // A cursor identifies a row by its key, which a non-unique source's key does not (R-SRC-09).
+                    throw new ModelQueryDefinitionException(MqCode.MQ1901, model + ": " + used + " is refused on the "
+                            + "source " + source.model().getSimpleName() + ", whose combined rows have no unique "
+                            + "key; page it by offset, or make the branches disjoint with @Discriminator");
+                }
                 if (grouped) {
                     // Both need a unique per-row key, which a group does not have (R-AGG-10, D-7).
                     throw new ModelQueryDefinitionException(MqCode.MQ1402, model + ": " + used

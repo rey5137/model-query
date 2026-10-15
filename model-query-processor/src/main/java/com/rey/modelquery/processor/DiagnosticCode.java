@@ -120,6 +120,9 @@ enum DiagnosticCode {
     /** {@code @Window} on a model that is not a {@code @SourceModel}. */
     MQ3033("@Window is only allowed on a @SourceModel"),
 
+    /** A branch's fields do not match its shape's, or a {@code @Discriminator} is not usable (R-PROC-38). */
+    MQ3034("A branch does not map its shape, or a @Discriminator is misplaced"),
+
     /** {@code @Join} on a model rooted at a source, which has no associations. */
     MQ3035("@Join on a model rooted at a source"),
 

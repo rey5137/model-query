@@ -1,0 +1,1 @@
+with cte0 (branch,id,label) as (select 'live',oe1_0.id,oe1_0.status from orders oe1_0 union all select 'shelved',nse1_0.id,nse1_0.sort_text from nullable_sort_rows nse1_0) select cte01_0.branch,cte01_0.id,cte01_0.label from cte0 cte01_0 order by 1,2

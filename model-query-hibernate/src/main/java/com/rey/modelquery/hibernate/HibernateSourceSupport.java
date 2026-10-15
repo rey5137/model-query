@@ -1,6 +1,7 @@
 package com.rey.modelquery.hibernate;
 
 import com.rey.modelquery.annotations.WindowFrame;
+import com.rey.modelquery.core.SetOperation;
 import com.rey.modelquery.core.WindowSpec;
 import com.rey.modelquery.jpa.spi.SourceSupport;
 import jakarta.persistence.Tuple;
@@ -64,6 +65,20 @@ final class HibernateSourceSupport implements SourceSupport {
             case LAST_VALUE -> byName(builder, "last_value", argument, window);
             case AVG -> builder.windowFunction("avg", Double.class, window, argument);
             case COUNT -> builder.windowFunction("count", Long.class, window, argument);
+        };
+    }
+
+    @Override
+    public CriteriaQuery<Tuple> combine(CriteriaBuilder cb, SetOperation operation, CriteriaQuery<Tuple> left,
+            CriteriaQuery<Tuple> right) {
+        // The (boolean, CriteriaQuery...) overloads are identical on Hibernate 6.6 and 7.4 and return the provider's
+        // query type on both lines, so the combined statement can carry the source's CTE (R-SRC-05, D-143).
+        HibernateCriteriaBuilder builder = (HibernateCriteriaBuilder) cb;
+        return switch (operation) {
+            case UNION -> builder.union(false, left, right);
+            case UNION_ALL -> builder.union(true, left, right);
+            case INTERSECT -> builder.intersect(false, left, right);
+            case EXCEPT -> builder.except(false, left, right);
         };
     }
 

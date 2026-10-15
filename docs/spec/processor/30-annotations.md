@@ -11,7 +11,7 @@
 | Annotation | Target | Purpose |
 |---|---|---|
 | `@QueryModel(root = X.class, generateSelectSets = true, prefix = "Q", suffix = "", singleGroup = false, generateChanges = false, generateInserts = false)` | model class or record | Enables generation |
-| `@SourceModel(root = X.class, shape = void.class)` | class or record | A query an outer model reads by field name; generates `source()` in place of `query()` (§10, R-PROC-35) |
+| `@SourceModel(root = X.class, shape = void.class)` | class or record | A query an outer model reads by field name; generates `source()` in place of `query()`. A `shape` makes it a branch of that shape's set operations (§10, R-PROC-35, R-PROC-38) |
 | `@UpdateModel(root = X.class, prefix = "Q")` | class or record | The attributes a bulk update may write; generates columns and a change set (§7) |
 | `@InsertModel(root = X.class, prefix = "Q")` | class or record | The attributes an insert writes, one instance per row; generates columns, `INSERT_COLUMNS` and the insert builders (§8) |
 | `@PrimaryKey` | field or record component | Primary-key column(s); composite keys supported |
@@ -23,6 +23,7 @@
 | `@Aggregate(fn = SUM, attribute = "...", expression = Def.class, distinct = false)` | field or component | An `AggregateField` constant, mapped into this field (`api/13`); `expression` aggregates a `@Computed`-style definition instead of an attribute |
 | `@Computed(Def.class)` | field or component | An `ExpressionField` constant, mapped into this field (`api/10` §3a); a bound model may leave the class to its binding's `@BindExpression` (R-PROC-29) |
 | `@Window(function = ROW_NUMBER, argument = "", partitionBy = {}, orderBy = {}, frame = NONE)` | field or component of a `@SourceModel` | A `WindowField<S, T>` constant, a window function over the source's rows (`api/17` R-SRC-04, R-PROC-36) |
+| `@Discriminator("REFUND")` | field or component of a `@SourceModel` | The constant a branch fixes its shape's discriminator column to; part of the key (`api/17` R-SRC-06, R-PROC-38) |
 | `@GroupBy` | field or component | The column joins the generated `GROUP_KEYS` set and the query's group-by |
 | `@ExcludeFromDefaults` | field or component | Leave the column out of `DEFAULT` (heavy BLOB/TEXT columns) |
 | `@Transient` | field or component | Not a column |
@@ -351,8 +352,7 @@ so a `@Child` on it is `MQ3030`. `MQ3031` checks its key: the root entity's id f
 `@GroupBy` set for a grouped one, no group key nullable in its mapping, and no `@FilterColumn` crossing a to-many join (a to-many `@Join` is `MQ3003`).
 Its QModel declares
 `source()` in place of `query()`, and no `MAPPER` and no write method, since nothing maps a source row and no write
-reads a source (`processor/31` R-GEN-37). `shape` is reserved for a later release (R-PROC-38) and nothing acts on it
-yet.
+reads a source (`processor/31` R-GEN-37). A `shape` makes it a branch (§10, R-PROC-38).
 
 **R-PROC-36** *(D-143)* **`@Window`.** A `@Window` field of a source is a window function over the source's rows
 (`api/17` R-SRC-04, `processor/31` R-GEN-38). An ill-written one is `MQ3032`:
@@ -377,6 +377,29 @@ yet.
 
 A `@Window` outside a `@SourceModel` is `MQ3033`: SQL forbids a window function in a `where` predicate, and a keyset
 cursor is one, so an outer model reads the value as a plain column.
+
+**R-PROC-38** *(D-143)* **A branch of a set operation.** `@SourceModel(shape = Shape.class)` makes the model a branch
+of `Shape`, the shared shape of a set operation (`api/17` §4, R-SRC-05, R-SRC-06). `shape` must name a `@SourceModel`
+of the compilation, and `MQ3034` covers the rest:
+
+1. the branch's fields match the shape's one for one, by name, in declaration order and by Java type (INV-3), and the
+   branch has neither a field the shape has none of nor the shape one it has none of;
+2. and by what the database stores: the same converter class, the same `@Enumerated` type — an omitted one reading as
+   `ORDINAL` — and the same temporal type, on the attributes the two models name. An `ORDINAL` enum and a `STRING` one,
+   or a converted column and a raw one, would otherwise compile and produce rows that compare unequal;
+3. the branch's `@PrimaryKey` fields are the shape's, by name and in order, since the branches are matched by the
+   shape's key;
+4. the branch declares the shape's `@Discriminator` fields, and no other; a `@Discriminator` is part of its model's key
+   — the constant it fixes is what keeps the branches' keys disjoint — and a model declares at most one, the generated
+   builder fixing one constant. The discriminator field names no attribute of its own: its value is that constant;
+5. a branch declares no `@Window` field, and neither does a shape that has branches; a window over the combined rows is
+   a later question (Q-22);
+6. a branch is a source model like any other: `MQ3031` reads its key as the root entity's id or the source's
+   `@GroupBy` set, plus the discriminator, and the branch's own fields are checked against its own root as §2–§6 do.
+
+A recursive model is neither a branch nor a shape: R-PROC-37's `@Depth` checks land with M25.5, and a recursive branch
+or shape is `MQ3034` then. The shape is an ordinary source model over its own root and the first branch of its own
+operations, so its `source()` builds the same `SourceQuery<S>` a branch's does (`processor/31` R-GEN-37).
 
 **R-PROC-39** *(D-143)* **The root kind.** `@QueryModel(root = X.class)` reads `X`'s kind from the annotation on `X`:
 an entity root when `X` is `@Entity`, a source root when `X` is `@SourceModel`. A root that is neither, or both, is

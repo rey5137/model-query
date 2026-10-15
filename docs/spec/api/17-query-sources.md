@@ -1,12 +1,12 @@
 # 17 — Query Sources
 
-**Covers:** `@SourceModel`, `SourceQuery` and its `Builder`, `TableField.source`, `ColumnField.over`, and the outer
-`@QueryModel` that reads a source.
+**Covers:** `@SourceModel`, `SourceQuery` and its `Builder`, `TableField.source`, `ColumnField.over`, `@Discriminator`,
+and the outer `@QueryModel` that reads a source.
 **Read when:** declaring a source model, reading one from an outer model, or changing what the processor generates for
-either. Windows, set operations and recursion are RFC 0013 §3–§6 and later releases.
-**Owns:** `R-SRC-*`, `AC-SRC-*`. Rows `R-SRC-05`..`R-SRC-09` land with the slices that implement them
-(M25.4–M25.5); `R-SRC-04` lands with M25.3; the run-time half of `R-SRC-03` and all of `R-SRC-11`..`R-SRC-12` land with
-M25.2.
+either. Windows and set operations are RFC 0013 §3–§6; recursion is M25.5.
+**Owns:** `R-SRC-*`, `AC-SRC-*`. Rows `R-SRC-05`..`R-SRC-06` and `R-SRC-09` land with M25.4; `R-SRC-07`..`R-SRC-08`
+land with M25.5; `R-SRC-04` lands with M25.3; the run-time half of `R-SRC-03` and all of `R-SRC-11`..`R-SRC-12` land
+with M25.2.
 
 ---
 
@@ -26,8 +26,8 @@ public record CustomerTotals(@PrimaryKey Long customerId, BigDecimal total) {}
 and the source model is what an outer model reads by field name. A source takes the same field and type annotations as
 `@QueryModel` — `@Column`, a to-one `@Join`, `@Computed`, `@Aggregate`, `@GroupBy` and `@FilterColumn` — and the
 processor validates it against `X` with the same checks and codes (`processor/30` R-PROC-35). A source is one
-statement, so a `@Child` on it is `MQ3030`. `shape` is reserved for a later release (R-PROC-38) and nothing acts on it
-yet.
+statement, so a `@Child` on it is `MQ3030`. A source that names a `shape` is a **branch** of that shape's set operations
+(§4, R-PROC-38): the processor checks its fields against the shape's, `MQ3034`.
 
 The generated QModel declares a `source()` builder in place of `query()`: `where` and `having`, no `select` — a source
 always carries every field of its model, which keeps an outer model's columns checkable at compile time — and
@@ -43,7 +43,7 @@ public static SourceQuery.Builder<OrderEntity, OrderTotals, OrderTotals> source(
 ## 2. The source key is unique per row
 
 Every key-based feature of the outer query needs the source's key to be unique in its result (INV-4), so the key is
-unique by construction, or the source is non-unique and refused for those features (R-SRC-09, a later release).
+unique by construction, or the source is non-unique and refused for those features (R-SRC-09, §4).
 
 **R-SRC-02** A source model's `@PrimaryKey` is the root entity's id, for an ungrouped source, or the full `@GroupBy`
 set, for a grouped source; anything else is `MQ3031`. Each group-key column must be non-nullable in its own mapping
@@ -94,10 +94,10 @@ public final class SourceQuery<S> {
   property and copies its converter, so the outer column narrows and converts as the source's does.
 
 - **`SourceQuery` holds the source's structure.** `model`, `fields`, `key` and the optional `groupKeys` are fixed where
-  it is built; the builder adds only `where` and `having`. It holds no Criteria object and no per-query state, so one
-  instance can be a `static final` constant shared by any number of threads (INV-9). A later release adds the set
-  operations, the recursion and the shape (R-PROC-37, R-PROC-38); `having` on an ungrouped source is `MQ1407`, as it
-  is on `ModelQuery`.
+  it is built; the builder adds only `where`, `having`, `shape` and `discriminator`. It holds no Criteria object and no
+  per-query state, so one instance can be a `static final` constant shared by any number of threads (INV-9) — a
+  combined one holds its two sides and is as immutable. Recursion lands with M25.5 (R-PROC-37); `having` on an ungrouped
+  source is `MQ1407`, as it is on `ModelQuery`.
 
 - **`ModelQuery` carries it.** `ModelQuery.builder(TableField<E, E> root, RowMapper<M> mapper, SourceQuery<E> source)`
   starts a definition over a source, and `ModelQuery.source()` returns the `SourceQuery` it was given, empty for a
@@ -130,7 +130,79 @@ public static ModelQuery.Builder<OrderTotals, Long, CustomerTotals> query(Source
 A grouped outer model over a source follows `api/13` as an entity-rooted one does; an ungrouped outer model over a
 grouped source is the way to page groups by keyset.
 
-## 4. Window fields
+## 4. Set operations
+
+A set operation combines branches of one shape. A branch is a source model that names the shared shape, and maps the
+shape's fields onto its own root.
+
+```java
+@SourceModel(root = OrderEntity.class)
+public record FeedItem(@Discriminator("ORDER") @PrimaryKey String kind, @PrimaryKey Long id, String title) {}
+
+@SourceModel(root = RefundEntity.class, shape = FeedItem.class)
+public record RefundFeedItem(@Discriminator("REFUND") @PrimaryKey String kind, @PrimaryKey Long id,
+                             @Column(attribute = "reason") String title) {}
+
+SourceQuery<FeedItem> feed = QFeedItem.source().build().unionAll(QRefundFeedItem.source().build());
+```
+
+**R-PROC-38** A branch and its shape (`processor/30`):
+
+- **The shape is a branch.** The shape model is an ordinary source over its own root, and the first branch whenever its
+  own `source()` is used, so every branch fixes a discriminator value of its own. The generated
+  `QRefundFeedItem.source()` returns a `SourceQuery.Builder<RefundEntity, RefundFeedItem, FeedItem>`, whose `build()` is
+  a `SourceQuery<FeedItem>`: no generated interface is needed, and a branch of another shape does not compile.
+- **The field match (`MQ3034`).** A branch's fields match the shape's by name, in declaration order, by Java type, by
+  what the database stores (the same converter class, `EnumType` and temporal type) and by key. Anything else would
+  compile and produce rows that compare unequal.
+- **`@Discriminator`.** `@Discriminator("REFUND")` on a field fixes the branch's value for that column; it must be part
+  of the key (`MQ3034`), since the key is what keeps the branches apart, and a model declares at most one. A branch of a
+  discriminated shape declares the shape's `@Discriminator` field.
+- **What a branch is not.** A branch declares no `@Window` field, and neither does a shape with branches; a recursive
+  model is neither a branch nor a shape (M25.5).
+
+**R-SRC-05** `union`, `unionAll`, `intersect` and `except` are methods of a `SourceQuery<S>`: each takes another
+`SourceQuery<S>`, so only branches of one shape combine, and returns the combined source. The operation is rendered
+inside the source's CTE body through `SourceSupport#combine` (R-SRC-12, D-143). A vendor whose profile answers `false`
+for the operation's `SourceFeature` is `MQ4015`, before any statement (R-SRC-11).
+
+- **Whole rows.** A row belongs to an `intersect` or an `except` result only if every column matches; a non-key column
+  that differs changes membership.
+- **Nesting.** Operations nest in the order they are called: `a.union(b).except(c)` is `(a union b) except c`.
+- **Key uniqueness.** The result's key is unique when:
+  - `except`: the left branch's key is unique, the result being a subset of its rows;
+  - `intersect`: either branch's is, a row appearing at most as many times as in the branch where it is rarest;
+  - `union` or `unionAll`: every branch's is, and the branches are disjoint by key (R-SRC-06).
+  Anything else is a non-unique source (R-SRC-09).
+
+**R-SRC-06** The branches are disjoint by key in one of two ways:
+
+- **By discriminator.** The shape's key includes a `@Discriminator` field and every branch fixes it to a different
+  constant, which the branch renders as a literal. Two branches of one `union` or `unionAll` that fix the same value are
+  `MQ1904`, raised where the operation is built; without the error the union would quietly lose key uniqueness.
+  `intersect` and `except` don't check the values, since their uniqueness follows R-SRC-05 alone.
+- **By one branch model.** A distinct `union` whose branches all read one branch model: each root row yields the same
+  columns in every branch, so a row reached by two branches collapses to one. This covers "owned `union` shared", where
+  the rows a customer owns are unioned with the rows they share.
+
+**R-SRC-09** A source that R-SRC-05 doesn't make unique, and that is not unique by construction, is **non-unique** —
+as is a recursive source (M25.5). On a query over one, every feature that identifies a row by its key is refused before
+any statement:
+
+| Feature | Where | Code |
+|---|---|---|
+| `keyset()`, `primaryKeyFirst(...)` | the outer `build()` | `MQ1901` |
+| `export`, `byKeys`, `one(q, key)`, a fetch plan with a child, join plan or enricher | the executor call | `MQ2212` |
+
+`list`, `count`, `first`, `stream` and offset `page` work.
+
+- **Offset paging.** On a non-unique source the outer key can't break ties: two rows with the same key and the same
+  order values could swap between the statements of page 1 and page 2, and one row would show twice while the other
+  never showed. Offset `page` therefore appends every selected outer column, ascending, as tie-breakers after the
+  definition's `orderBy` and the key. A selected column that can't be ordered (a LOB, a JSON type) is `MQ2212`, and
+  rows equal in every column can't be told apart, so no row is visibly lost.
+
+## 5. Window fields
 
 ```java
 @SourceModel(root = OrderEntity.class)
@@ -166,7 +238,7 @@ so an outer model reads its value as a plain column (R-GEN-38, R-PROC-36):
   beside `cte` (R-SRC-12), so no provider type leaks into `jpa` (INV-7). A vendor whose profile answers `false` for
   `SourceFeature.WINDOW` is `MQ4015`, before any statement (R-SRC-11).
 
-## 5. Building the CTE, and what a source needs to run
+## 6. Building the CTE, and what a source needs to run
 
 **R-SRC-11** What a statement over a source needs, all checked before any statement:
 
@@ -189,7 +261,7 @@ primary-key-first steps, each export page, `byKeys` (every chunk) and the parent
 that reaches the database without its CTE is therefore a bug in the engine, not a state the user can hold: the body is
 built per statement from the immutable `SourceQuery`, which itself carries no Criteria object (INV-9).
 
-## 6. Acceptance criteria
+## 7. Acceptance criteria
 
 | ID | Criterion |
 |---|---|
@@ -199,11 +271,11 @@ built per statement from the immutable `SourceQuery`, which itself carries no Cr
 | AC-SRC-04 | A source whose `where` crosses a to-many join is `MQ1906`, and the `Filters.exists` form of the same predicate returns the rows the hand-written SQL returns (R-SRC-03). |
 | AC-SRC-05 | Every window function reads the hand-written SQL's values, and the SQL is pinned per vendor (R-SRC-04). |
 | AC-SRC-06 | A top-N source paged by keyset and by primary-key-first over tied timestamps loses and repeats no row (R-SRC-04). |
-| AC-SRC-07 | Each set operation renders the SQL it is written as, pinned per vendor (`Future`, M25.4; R-SRC-05, R-SRC-06). |
-| AC-SRC-08 | A discriminated feed is exported by keyset without a repeated key (`Future`, M25.4; R-SRC-05). |
-| AC-SRC-09 | An "owned `union` shared" list read from one branch model is paged by keyset (`Future`, M25.4; R-SRC-06). |
-| AC-SRC-10 | Offset pages over a non-unique `unionAll` with duplicate keys and tied order values lose no row (`Future`, M25.4; R-SRC-09). |
-| AC-SRC-11 | Each `MQ1901` and `MQ2212` refusal is raised before any statement (`Future`, M25.4; R-SRC-09). |
+| AC-SRC-07 | Each set operation renders the SQL it is written as, pinned per vendor (R-SRC-05, R-SRC-06). |
+| AC-SRC-08 | A discriminated feed is exported by keyset without a repeated key (R-SRC-05). |
+| AC-SRC-09 | An "owned `union` shared" list read from one branch model is paged by keyset (R-SRC-06). |
+| AC-SRC-10 | Offset pages over a non-unique `unionAll` with duplicate keys and tied order values lose no row (R-SRC-09). |
+| AC-SRC-11 | Each `MQ1901` and `MQ2212` refusal is raised before any statement (R-SRC-09). |
 | AC-SRC-12 | A tree read by a recursive source is pinned as an SQL snapshot and returns every node (`Future`, M25.5; R-SRC-07). |
 | AC-SRC-13 | A tree deeper than `maxDepth` is `MQ2701` and a cyclic graph is `MQ2702`, with no marked row in the result (`Future`, M25.5; R-SRC-08). |
 | AC-SRC-14 | MySQL serves `maxDepth` 998 and refuses 999 with `MQ4015` (`Future`, M25.5; R-SRC-08). |

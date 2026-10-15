@@ -35,4 +35,18 @@ public interface SourceRenderer {
      * (R-SRC-04).
      */
     Expression<?> window(CriteriaBuilder cb, WindowSpec spec);
+
+    /**
+     * Combines {@code left} and {@code right} into one set operation, itself a statement the provider can register as
+     * the source's body (R-SRC-05, R-PROC-38). A combined source builds its CTE body from this, in the order its
+     * operations were called, so {@code a.union(b).except(c)} is {@code (a union b) except c}.
+     *
+     * @param cb the provider's builder the branches were built with
+     * @param operation the operation to apply
+     * @param left the left branch, itself a combined query when the operation nests
+     * @param right the right branch
+     * @return the combined statement, whose columns are the branches' aliases in order
+     */
+    CriteriaQuery<Tuple> combine(CriteriaBuilder cb, SetOperation operation, CriteriaQuery<Tuple> left,
+            CriteriaQuery<Tuple> right);
 }

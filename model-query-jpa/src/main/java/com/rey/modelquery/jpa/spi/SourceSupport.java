@@ -1,6 +1,7 @@
 package com.rey.modelquery.jpa.spi;
 
 import com.rey.modelquery.annotations.Incubating;
+import com.rey.modelquery.core.SetOperation;
 import com.rey.modelquery.core.WindowSpec;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaBuilder;
@@ -15,10 +16,9 @@ import jakarta.persistence.criteria.Root;
  * registers it on every statement it builds over the source (R-SRC-12). Discovered through
  * {@link ProviderSupport#sources()}; an implementation is stateless and thread-safe.
  *
- * <p>{@code cte} and {@code window} exist: the set-operation and recursive hooks land with the slices that use them
- * (R-PROC-37, R-PROC-38).
+ * <p>The recursive hook lands with the slice that uses it (R-PROC-37).
  *
- * @implSpec R-SRC-11, R-SRC-12, R-SRC-04, D-143
+ * @implSpec R-SRC-11, R-SRC-12, R-SRC-04, R-SRC-05, D-143
  */
 @Incubating
 public interface SourceSupport {
@@ -44,4 +44,18 @@ public interface SourceSupport {
      * @return the window expression, aliased by the source's body
      */
     Expression<?> window(CriteriaBuilder cb, WindowSpec spec);
+
+    /**
+     * Combines {@code left} and {@code right} into one set operation over {@code cb}: the statement the source's CTE
+     * body is built from when a source combines branches (R-SRC-05). The provider's set-operation methods are used,
+     * which JPA's own {@code CriteriaBuilder} has none of (D-143).
+     *
+     * @param cb the provider's builder the branches were built with
+     * @param operation the operation to apply, {@code UNION_ALL} being {@code UNION} without duplicate removal
+     * @param left the left branch, itself a combined statement when the operation nests
+     * @param right the right branch
+     * @return the combined statement, which a CTE may be registered from
+     */
+    CriteriaQuery<Tuple> combine(CriteriaBuilder cb, SetOperation operation, CriteriaQuery<Tuple> left,
+            CriteriaQuery<Tuple> right);
 }

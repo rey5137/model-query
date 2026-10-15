@@ -4,6 +4,7 @@ import com.rey.modelquery.annotations.Aggregate;
 import com.rey.modelquery.annotations.Child;
 import com.rey.modelquery.annotations.Column;
 import com.rey.modelquery.annotations.Computed;
+import com.rey.modelquery.annotations.Discriminator;
 import com.rey.modelquery.annotations.ExcludeFromDefaults;
 import com.rey.modelquery.annotations.FilterColumn;
 import com.rey.modelquery.annotations.FilterColumns;
@@ -159,7 +160,8 @@ final class QueryModelReader {
                     window,
                     child == null && field.getAnnotation(GroupBy.class) != null,
                     child,
-                    selected));
+                    selected,
+                    discriminator(field)));
         }
         // A source model's root is an entity: a source reading another source is MQ3038, not a chain of reads
         // (R-PROC-39), so a source is resolved for a query model alone. An update or insert model writes an entity;
@@ -167,9 +169,28 @@ final class QueryModelReader {
         TypeElement rootElement = (TypeElement) rootType.asElement();
         ModelDefinition source = kind == Kind.QUERY && isSourceModel(rootElement)
                 ? read(rootElement, Kind.SOURCE) : null;
+        // The shape a source model names is another source model of the compilation, read the same way (R-PROC-38);
+        // its own checks report one that is not a source model.
+        ModelDefinition shape = kind == Kind.SOURCE && shape(annotation) instanceof DeclaredType shapeType
+                && shapeType.getKind() == TypeKind.DECLARED
+                ? read((TypeElement) shapeType.asElement(), Kind.SOURCE) : null;
         return new ModelDefinition(
-                type, rootElement, prefix + type.getSimpleName() + suffix, selectSets,
-                singleGroup, fields, filterColumns(type), kind, generateChanges, generateInserts, origin, source);
+                type, rootElement, prefix + type.getSimpleName() + suffix, selectSets, singleGroup, fields,
+                filterColumns(type), kind, generateChanges, generateInserts, origin, source, shape);
+    }
+
+    /**
+     * The class {@code @SourceModel(shape)} names, or {@code null} for {@code void.class} and for a model without it.
+     */
+    private static TypeMirror shape(AnnotationMirror annotation) {
+        return type(annotation, "shape");
+    }
+
+    /** The value named by {@code @Discriminator} on {@code field}, or {@code null} when it carries none. */
+    private static String discriminator(VariableElement field) {
+        AnnotationMirror mirror = mirror(field, Discriminator.class);
+        return mirror == null ? null
+                : explicit(mirror, "value") instanceof String value ? value : "";
     }
 
     /**

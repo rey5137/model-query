@@ -24,6 +24,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.lang.model.SourceVersion;
@@ -154,6 +155,11 @@ final class ModelValidator {
         // A source's key is unique per row (R-SRC-02); an outer model's key is its source's own key (R-SRC-03).
         if (model.sourceModel()) {
             checkSourceKey(model, diagnostics);
+            checkDiscriminatorKey(model, diagnostics);
+            // A branch maps its shape's fields one for one (R-PROC-38).
+            if (model.branch()) {
+                checkBranch(model, diagnostics);
+            }
         } else if (model.readsSource()) {
             checkOuterKey(model, diagnostics);
         }
@@ -213,7 +219,9 @@ final class ModelValidator {
                             where + "@Window is only allowed on a @SourceModel");
                 }
             }
-            if (field.column()) {
+            // A branch's @Discriminator is a constant, never a path into the root: read the attribute check as
+            // satisfied (R-PROC-38).
+            if (field.column() && !field.discriminated()) {
                 checkAttribute(model, field, where, diagnostics);
             }
             if (field.column() && model.isRecord() && model.readModel() && field.type().getKind().isPrimitive()
@@ -310,7 +318,9 @@ final class ModelValidator {
      * mapping, and no field reads through a to-many association (R-SRC-02, R-SRC-03).
      */
     private void checkSourceKey(ModelDefinition model, Diagnostics diagnostics) {
-        List<ModelField> keys = model.keys();
+        // A @Discriminator key column is a constant the branch fixes, not a path into the root: the key it takes
+        // part in is the root's own key plus the discriminator (R-SRC-06).
+        List<ModelField> keys = model.keys().stream().filter(key -> !key.discriminated()).toList();
         if (!model.grouped()) {
             Set<String> attributes = keys.stream().map(ModelField::attribute).collect(Collectors.toSet());
             if (keys.size() != 1 || !metamodel.id(model.root()).is(attributes)) {
@@ -358,6 +368,159 @@ final class ModelValidator {
                         + "'; filter with Filters.exists");
             }
         }
+    }
+
+    /**
+     * {@code MQ3034} for a {@code @Discriminator} that is not part of its model's key: the merged rows are keyed by
+     * the shape's own key, which carries the discriminator (R-SRC-06).
+     */
+    private static void checkDiscriminatorKey(ModelDefinition model, Diagnostics diagnostics) {
+        List<ModelField> discriminators = model.discriminators();
+        for (int i = 0; i < discriminators.size(); i++) {
+            ModelField field = discriminators.get(i);
+            if (!field.primaryKey()) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3034, model.name() + "." + field.name()
+                        + ": @Discriminator must be part of the @PrimaryKey; a branch is keyed by the constant it "
+                        + "fixes (R-SRC-06)");
+            }
+            if (!field.type().toString().equals("java.lang.String")) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3034, model.name() + "." + field.name()
+                        + ": @Discriminator fixes a String constant, so the field is a String (R-SRC-06)");
+            }
+            // DECIDE: R-SRC-06 makes one discriminator column disjoint the branches of a union; the builder fixes
+            // one, and a second field could only be fixed by ignoring this one.
+            if (i == 1) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3034, model.name() + "." + field.name()
+                        + ": a model declares one @Discriminator field, the constant that tells its branches apart; "
+                        + "the first is " + discriminators.get(0).name());
+            }
+        }
+    }
+
+    /**
+     * {@code MQ3034} for a branch model whose fields do not map its shape's (R-PROC-38): a branch maps the shape's
+     * fields one for one, by name, in declaration order, by Java type, by what the database stores (the converter,
+     * the {@code EnumType} and the temporal type) and by key. A branch declares no {@code @Window}, and neither does a
+     * shape that has branches.
+     */
+    private void checkBranch(ModelDefinition model, Diagnostics diagnostics) {
+        ModelDefinition shape = model.shape();
+        String byName = "a branch maps the shape's fields one for one, by name, in declaration order";
+        for (ModelField field : model.windows()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3034, model.name() + "." + field.name()
+                    + ": a branch declares no @Window field; a window over the combined rows is not supported "
+                    + "(R-PROC-38)");
+        }
+        for (ModelField field : shape.windows()) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3034, model.name() + ": the shape " + shape.name()
+                    + " declares the @Window field " + field.name() + ", which no branch can combine with; a shape "
+                    + "with branches declares no @Window (R-PROC-38)");
+        }
+        // M25.5: the @Depth checks of a recursive branch and shape land with R-PROC-37.
+
+        List<ModelField> fields = model.fields();
+        List<ModelField> theirs = shape.fields();
+        for (int i = 0; i < fields.size(); i++) {
+            ModelField field = fields.get(i);
+            String where = model.name() + "." + field.name() + ": ";
+            if (i >= theirs.size()) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3034, where + "the shape " + shape.name()
+                        + " declares no field at this position; " + byName);
+                continue;
+            }
+            ModelField other = theirs.get(i);
+            if (!field.name().equals(other.name())) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3034, where + "the shape " + shape.name()
+                        + " declares '" + other.name() + "' here; " + byName);
+                continue;
+            }
+            if (!types.isSameType(boxed(field.type()), boxed(other.type()))) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3034, where + "branch " + model.name()
+                        + " maps it as " + display(field.type()) + ", the shape " + shape.name() + " as "
+                        + display(other.type()) + "; a set operation compares the stored values");
+                continue;
+            }
+            checkBranchStorage(model, shape, field, other, where, diagnostics);
+        }
+        for (int i = fields.size(); i < theirs.size(); i++) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3034, model.name() + ": the shape " + shape.name()
+                    + " declares the field '" + theirs.get(i).name() + "' after every field of the branch; " + byName);
+        }
+        List<String> keys = model.keys().stream().map(ModelField::name).toList();
+        List<String> shapeKeys = shape.keys().stream().map(ModelField::name).toList();
+        if (!keys.equals(shapeKeys)) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3034, model.name() + ": @PrimaryKey must be the shape "
+                    + shape.name() + "'s key " + quoted(shapeKeys) + ", by name and in order; the branches of a set "
+                    + "operation are matched by the shape's key");
+        }
+        checkBranchDiscriminator(model, shape, diagnostics);
+    }
+
+    /**
+     * {@code MQ3034} for a branch column that stores other values than its shape's (R-PROC-38): the converter class,
+     * the {@code EnumType} and the temporal type. An {@code ORDINAL} enum and a {@code STRING} one, or a converted
+     * column and a raw one, would otherwise compile and produce rows that compare unequal.
+     */
+    private void checkBranchStorage(ModelDefinition model, ModelDefinition shape, ModelField field, ModelField other,
+            String where, Diagnostics diagnostics) {
+        if (field.converter() == null ? other.converter() != null
+                : other.converter() == null || !types.isSameType(field.converter(), other.converter())) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3034, where + "branch " + model.name()
+                    + " converts it with " + converterName(field.converter()) + ", the shape " + shape.name()
+                    + " with " + converterName(other.converter()) + "; a set operation compares the stored values");
+        }
+        EntityAttribute mine = metamodel.resolve(model.root(), field.attribute()).attribute();
+        EntityAttribute theirs = metamodel.resolve(shape.root(), other.attribute()).attribute();
+        if (mine == null || theirs == null) {
+            // The attribute check reports the path itself, on the model whose field names it.
+            return;
+        }
+        // @Enumerated defaults to ORDINAL, so writing it out is not a difference.
+        String mineEnum = mine.enumType() == null ? "ORDINAL" : mine.enumType();
+        String theirsEnum = theirs.enumType() == null ? "ORDINAL" : theirs.enumType();
+        if (!mineEnum.equals(theirsEnum)) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3034, where + model.root().getSimpleName() + "."
+                    + field.attribute() + " stores it as @Enumerated(" + mineEnum + "), and "
+                    + shape.root().getSimpleName() + "." + other.attribute() + " as @Enumerated(" + theirsEnum
+                    + "); a set operation compares the stored values");
+        }
+        if (!Objects.equals(mine.temporal(), theirs.temporal())) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3034, where + model.root().getSimpleName() + "."
+                    + field.attribute() + " stores it as @Temporal("
+                    + (mine.temporal() == null ? "the default" : mine.temporal()) + "), and "
+                    + shape.root().getSimpleName() + "." + other.attribute() + " as @Temporal("
+                    + (theirs.temporal() == null ? "the default" : theirs.temporal())
+                    + "); a set operation compares the stored values");
+        }
+    }
+
+    /**
+     * {@code MQ3034} for a branch of a discriminated shape that does not declare the shape's {@code @Discriminator}
+     * field: the constant it fixes is what keeps the branches' keys disjoint (R-SRC-06).
+     */
+    private static void checkBranchDiscriminator(ModelDefinition model, ModelDefinition shape,
+            Diagnostics diagnostics) {
+        List<String> shapeFields = shape.discriminators().stream().map(ModelField::name).toList();
+        if (shapeFields.isEmpty()) {
+            return;
+        }
+        List<String> fields = model.discriminators().stream().map(ModelField::name).toList();
+        if (!fields.equals(shapeFields)) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3034, model.name() + ": the shape " + shape.name()
+                    + " carries @Discriminator on " + quoted(shapeFields) + ", and every branch declares the same; "
+                    + model.name() + " declares " + (fields.isEmpty() ? "none" : "it on " + quoted(fields))
+                    + " (R-SRC-06)");
+        }
+    }
+
+    /** {@code value} as a diagnostic names a converter: its simple name, or {@code null} for no converter. */
+    private static String converterName(TypeMirror converter) {
+        return converter == null ? "no converter" : display(converter);
+    }
+
+    /** {@code names} as a diagnostic lists a key: {@code 'a', 'b'}. */
+    private static String quoted(List<String> names) {
+        return names.stream().map(name -> "'" + name + "'").collect(Collectors.joining(", "));
     }
 
     /**
@@ -1239,7 +1402,7 @@ final class ModelValidator {
         String target = display(attribute.type());
         if (field.converter() != null) {
             var idAttribute = new EntityAttribute(attribute.name(), id, EntityAttribute.Kind.BASIC, null, false,
-                    true, true, null, false, null, false, false);
+                    true, true, null, false, null, false, false, null, null);
             checkConverter(model, field.element(), field.converter(), field.type(), idAttribute, where, diagnostics);
         } else if (!types.isSameType(boxed(field.type()), boxed(id))) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3002, where + "model type " + display(field.type())

@@ -27,11 +27,14 @@ import javax.lang.model.type.TypeMirror;
  *     binding, whose package they are generated in (R-GEN-35, D-140)
  * @param source the source model {@code root} names, when it is a {@code @SourceModel}, else {@code null}
  *     (R-PROC-39)
+ * @param shape the source model this one is a branch of, named by {@code @SourceModel(shape)}, else {@code null}
+ *     (R-PROC-38)
  */
 record ModelDefinition(
         TypeElement type, TypeElement root, String generatedName, boolean selectSets, boolean singleGroup,
         List<ModelField> fields, List<FilterColumnDefinition> filterColumns, Kind kind,
-        boolean generateChanges, boolean generateInserts, Element origin, ModelDefinition source) {
+        boolean generateChanges, boolean generateInserts, Element origin, ModelDefinition source,
+        ModelDefinition shape) {
 
     ModelDefinition {
         fields = List.copyOf(fields);
@@ -63,6 +66,14 @@ record ModelDefinition(
      */
     boolean readsSource() {
         return source != null;
+    }
+
+    /**
+     * Whether this source model is a <em>branch</em>: it names its shape through {@code @SourceModel(shape)}, so its
+     * fields are checked against the shape's and its {@code source()} builds a {@code SourceQuery<Shape>} (R-PROC-38).
+     */
+    boolean branch() {
+        return shape != null;
     }
 
     /** Whether the type is an {@code @UpdateModel}, which is only read by the processor and never instantiated. */
@@ -175,6 +186,11 @@ record ModelDefinition(
         return fields.stream().filter(ModelField::windowed).toList();
     }
 
+    /** The {@code @Discriminator} fields, in declaration order: one per shape, in a model whose key carries one. */
+    List<ModelField> discriminators() {
+        return fields.stream().filter(ModelField::discriminated).toList();
+    }
+
     /** The {@code @GroupBy} columns or computed expressions, in declaration order: the members of {@code GROUP_KEYS}. */
     List<ModelField> groupKeys() {
         return fields.stream().filter(field -> (field.column() || field.computed()) && field.groupBy()).toList();
@@ -253,12 +269,14 @@ record ModelDefinition(
      * @param child what {@code @Child} says of the field, or {@code null} when it carries none; a {@code @Child}
      *     field has no {@code join} and no {@code aggregate}, whatever else it carries
      * @param selected whether the field carries {@code @Selected}, which makes it no column (R-PROC-25)
+     * @param discriminator the value named by {@code @Discriminator}, which fixes the field to a constant, or
+     *     {@code null} when the field carries none (R-PROC-38)
      */
     record ModelField(
             VariableElement element, boolean column, String attribute, String constant, boolean primaryKey,
             boolean excludedFromDefaults, TypeMirror converter, TypeMirror definition, JoinDefinition join,
             AggregateDefinition aggregate, WindowDefinition window, boolean groupBy, ChildDefinition child,
-            boolean selected) {
+            boolean selected, String discriminator) {
 
         String name() {
             return element.getSimpleName().toString();
@@ -276,6 +294,11 @@ record ModelDefinition(
         /** Whether the field carries {@code @Window}, which makes it a window field and no column (R-GEN-38). */
         boolean windowed() {
             return window != null;
+        }
+
+        /** Whether the field carries {@code @Discriminator}, which fixes it to a constant (R-PROC-38). */
+        boolean discriminated() {
+            return discriminator != null;
         }
     }
 

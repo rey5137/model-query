@@ -228,7 +228,7 @@ final class QModelWriter {
             return file(generated, type);
         }
         if (model.sourceModel()) {
-            type.addMethod(source(modelName, entity, grouped));
+            type.addMethod(source(model, modelName, entity, grouped));
             type.addMethod(MethodSpec.constructorBuilder().addModifiers(Modifier.PRIVATE).build());
             fieldIndex(model, modelName, generated, joined, FilterIndex.of(model, joined, filters), type);
             return file(generated, type);
@@ -485,16 +485,27 @@ final class QModelWriter {
     /**
      * {@code source()}: the query an outer model reads this source with, over the source model's own root, fields
      * and key. An ungrouped source takes the four-argument factory, whose {@code having} is {@code MQ1407}
-     * (R-GEN-37).
+     * (R-GEN-37). A branch names its shape and fixes its {@code @Discriminator} to its constant, so its query is a
+     * {@code SourceQuery<Shape>} that combines with its shape's other branches (R-PROC-38, R-SRC-06).
      */
-    private static MethodSpec source(ClassName modelName, ClassName entity, boolean grouped) {
+    private static MethodSpec source(ModelDefinition model, ClassName modelName, ClassName entity, boolean grouped) {
+        ClassName shapeName = ClassName.get(model.branch() ? model.shape().type() : model.type());
+        CodeBlock.Builder body = CodeBlock.builder().add(grouped
+                ? "return $T.builder($T.class, ROOT, ALL, KEY, GROUP_KEYS)"
+                : "return $T.builder($T.class, ROOT, ALL, KEY)", SOURCE_QUERY, modelName);
+        // Only a branch names a shape: a source over its own root is read as its own model (R-PROC-38).
+        if (model.branch()) {
+            body.add(".shape($T.class)", shapeName);
+        }
+        // A shape's own source() is its first branch, so it fixes its discriminator exactly as a branch does.
+        for (ModelField field : model.discriminators()) {
+            body.add(".discriminator($L, $S)", field.constant(), field.discriminator());
+        }
         return MethodSpec.methodBuilder("source")
                 .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
                 .returns(ParameterizedTypeName.get(SOURCE_QUERY.nestedClass("Builder"), entity, modelName,
-                        modelName))
-                .addStatement(grouped
-                        ? "return $T.builder($T.class, ROOT, ALL, KEY, GROUP_KEYS)"
-                        : "return $T.builder($T.class, ROOT, ALL, KEY)", SOURCE_QUERY, modelName)
+                        shapeName))
+                .addStatement("$L", body.build())
                 .build();
     }
 

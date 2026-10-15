@@ -290,10 +290,23 @@ public enum MqCode {
     MQ1809("A persist returning query must select only what the flushed entity holds, with no other clause"),
 
     /**
+     * {@code keyset()} or {@code primaryKeyFirst(...)} over a non-unique source, whose key a keyset cursor cannot
+     * identify a row by (R-SRC-09). Raised at the outer {@code build()}.
+     */
+    MQ1901("keyset() or primaryKeyFirst(...) over a non-unique source"),
+
+    /**
      * A row lock on a query that reads a source: the source's rows come from a CTE, which a locking clause cannot
      * follow, so {@code withLock} over a source is refused before any statement (R-SRC-11).
      */
     MQ1903("A row lock on a query that reads a source"),
+
+    /**
+     * Two branches of one {@code union} or {@code unionAll} carry the same discriminator value, which would make the
+     * combined rows ambiguous by key; raised where the operation is built (R-SRC-06). {@code intersect} and
+     * {@code except} don't check the values.
+     */
+    MQ1904("Two branches of one union or unionAll carry the same discriminator value"),
 
     /**
      * A hand-written {@code ColumnField} or {@code TableField.join} over a source root, which the processor's metamodel
@@ -362,6 +375,14 @@ public enum MqCode {
 
     /** A lock on a read that refuses one, or on a query whose built statement has a join (R-EXE-14). */
     MQ2211("A lock is refused on this read, or on a query whose statement has a join"),
+
+    /**
+     * A read that identifies a row by its key over a non-unique source: {@code export}, {@code byKeys},
+     * {@code one(q, key)}, a fetch plan with a child, a join plan or an enricher. Also an offset {@code page} that
+     * would need a selected column the database cannot order as a tie-breaker (a LOB or a JSON type). Raised at the
+     * executor call, before any statement (R-SRC-09).
+     */
+    MQ2212("A key-identified read over a non-unique source, or an unorderable tie-breaker column"),
 
     /** A sort property names no selected column or aggregate, or more than one (R-QRY-14, D-52). */
     MQ2301("A sort property resolves to no selected column or to more than one"),

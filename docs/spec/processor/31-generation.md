@@ -410,6 +410,12 @@ public static SourceQuery.Builder<OrderEntity, OrderTotals, OrderTotals> source(
 }
 ```
 
+A model that declares a `@Discriminator` field emits `.discriminator(CONSTANT, "value")` for it, in declaration order,
+so the shape's own source is its first branch and every branch fixes its own constant; a branch — a model whose
+`@SourceModel` names a `shape` — emits `.shape(Shape.class)` as well and returns
+`SourceQuery.Builder<Root, Branch, Shape>`, which is what makes a branch of another shape fail to compile (R-PROC-38,
+`api/17` R-SRC-05).
+
 It declares no `MAPPER`, no `map(Row)` and no write method, since nothing maps a source row and no write reads a
 source. A source model the root names in a `@QueryModel` (R-PROC-39) generates the outer QModel:
 

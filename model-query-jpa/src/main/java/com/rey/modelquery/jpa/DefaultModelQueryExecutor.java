@@ -37,9 +37,11 @@ import com.rey.modelquery.core.RowLock;
 import com.rey.modelquery.core.ScalarField;
 import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.ModelUpdate;
+import com.rey.modelquery.core.SetOperation;
 import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.core.ValuesInsert;
 import com.rey.modelquery.core.SourceRenderer;
+import com.rey.modelquery.core.SourceQuery;
 import com.rey.modelquery.core.WindowSpec;
 import com.rey.modelquery.jpa.spi.ConflictClause;
 import com.rey.modelquery.jpa.spi.EntityWriteSupport;
@@ -293,6 +295,23 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 }
                 return renderer.window(cb, spec);
             }
+
+            @Override
+            public CriteriaQuery<Tuple> combine(CriteriaBuilder cb, SetOperation operation, CriteriaQuery<Tuple> left,
+                    CriteriaQuery<Tuple> right) {
+                SourceFeature feature = switch (operation) {
+                    case UNION, UNION_ALL -> SourceFeature.UNION;
+                    case INTERSECT -> SourceFeature.INTERSECT;
+                    case EXCEPT -> SourceFeature.EXCEPT;
+                };
+                if (!vendor.profile().sources(feature)) {
+                    throw new ModelQueryConfigurationException(MqCode.MQ4015, rootEntity.getSimpleName()
+                            + ": this source combines branches with " + operation + ", and " + vendor.detectedVendor()
+                            + " has no " + feature + " support (VendorProfile#sources(SourceFeature." + feature
+                            + "))");
+                }
+                return renderer.combine(cb, operation, left, right);
+            }
         });
     }
 
@@ -374,6 +393,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             throw new IllegalArgumentException(q + ": one(query, key) needs a key, and it is null");
         }
         checkFirstRun(q);
+        refuseNonUniqueSource(q, "one(query, key)");
         LOG.log(DEBUG, () -> "one " + q + " by key");
         PrimaryKey<M, K> primaryKey = q.primaryKey().orElseThrow(() -> new ModelQueryExecutionException(
                 MqCode.MQ2203, q + ": one(query, key) needs a primary key to filter on, and " + (q.isGrouped()
@@ -410,6 +430,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(keys, "keys");
         checkFirstRun(q);
+        refuseNonUniqueSource(q, "byKeys(query, keys)");
         LOG.log(DEBUG, () -> "byKeys " + q + ": " + keys.size() + " keys");
         PrimaryKey<M, K> primaryKey = q.primaryKey().orElseThrow(() -> new ModelQueryExecutionException(
                 MqCode.MQ2203, q + ": byKeys(query, keys) needs a primary key to filter on, and " + (q.isGrouped()
@@ -979,6 +1000,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         checkFirstRun(q);
         int offset = page.offset();
         int size = page.pageSize();
+        // A non-unique source has no key to close the order with, so every selected column does (R-SRC-09).
+        boolean everyColumn = nonUniqueSource(q);
         LOG.log(DEBUG, () -> "page " + q + ": offset " + offset + " size " + size + ", " + mode
                 + (mode != CountMode.ONLY_COUNT && primaryKeyFirst(q, offset) ? ", primary-key-first" : ""));
         int batch = 0; // the step-2 batch of a primary-key-first page
@@ -997,14 +1020,16 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             }
             case COUNT: {
                 long total = countRows(q);
-                List<M> content = offset >= total ? List.of() : models(q, fetch(q, offset, size, batch));
+                List<M> content = offset >= total ? List.of()
+                        : models(q, fetch(q, offset, size, batch, everyColumn));
                 return new Slice<>(content, page.pageNumber(), size, offset + (long) content.size() < total,
                         OptionalLong.of(total));
             }
             default: {
                 // One row beyond the page tells whether another follows, so an exact multiple of the page size
                 // does not report a next page that is empty (R-EXE-02).
-                List<Loaded<M>> rows = fetch(q, offset, size == Integer.MAX_VALUE ? size : size + 1, batch);
+                List<Loaded<M>> rows = fetch(q, offset, size == Integer.MAX_VALUE ? size : size + 1, batch,
+                        everyColumn);
                 boolean hasNext = rows.size() > size;
                 // The plan runs after the probe row is dropped, so that row's children are never read (R-FCH-09).
                 return new Slice<>(models(q, hasNext ? rows.subList(0, size) : rows), page.pageNumber(), size,
@@ -1137,6 +1162,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(sink, "sink");
         refuseLock(q, "export(...)");
         checkFirstRun(q);
+        refuseNonUniqueSource(q, "export(...)");
         long limit = options.limit().maxRows().isPresent() ? options.limit().maxRows().getAsInt() : Long.MAX_VALUE;
         int pageSize = options.pageSize().orElse(exportPageSize);
         LOG.log(DEBUG, () -> "export " + q + ": " + (q.isGrouped() ? "grouped offset" : q.isKeyset() ? "keyset"
@@ -2372,7 +2398,25 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             FIRST_RUN_CHECKED.add(definition); // only once they passed, so a check that threw runs again next time
         }
         if (fetchesModels) {
+            // A plan that fills children, join plans or an enricher addresses rows by their keys, which a
+            // non-unique source has none of (R-SRC-09). A selection-only plan reads the row itself, so it runs.
+            if (q.fetch().filter(plan -> !plan.isSelectionOnly()).isPresent()) {
+                refuseNonUniqueSource(q, "a fetch plan with a child, a join plan or an enricher");
+            }
             checkFetchBuilds(q);
+        }
+    }
+
+    /**
+     * {@code MQ2212} for a read that identifies one row by the source's key, which a non-unique source has none of
+     * (R-SRC-09): {@code byKeys}, {@code one(query, key)}, {@code export}, and a fetch plan that fills children
+     * through a child, a join plan or an enricher. Raised at the call, before any statement.
+     */
+    private <E2> void refuseNonUniqueSource(ModelQuery<E2, ?, ?> q, String read) {
+        SourceQuery<?> source = q.source().filter(each -> !each.unique()).orElse(null);
+        if (source != null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ2212, q + ": " + read + " needs one row per key, and "
+                    + "the source it reads has no unique key; list, count, first, stream and offset page read it");
         }
     }
 
@@ -2433,6 +2477,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * page, which {@code page} sized before any statement.
      */
     private <M> List<Loaded<M>> fetch(ModelQuery<E, ?, M> q, int offset, int maxRows, int batch) {
+        return fetch(q, offset, maxRows, batch, false);
+    }
+
+    /**
+     * As {@link #fetch(ModelQuery, int, int, int)}; {@code everyColumn} closes the order with every selected column,
+     * which an offset page over a non-unique source does (R-SRC-09).
+     */
+    private <M> List<Loaded<M>> fetch(ModelQuery<E, ?, M> q, int offset, int maxRows, int batch,
+            boolean everyColumn) {
         if (primaryKeyFirst(q, offset)) {
             PrimaryKey<M, ?> key = q.primaryKey().orElseThrow(); // primaryKeyFirst(...) needs one (MQ1201)
             // Read the page's keys in the stable order, then their rows: the same rows as the one-step page, a key
@@ -2441,7 +2494,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             return readByKeys(q, key, keys, batch);
         }
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
-        appendStableOrder(q, built);
+        appendStableOrder(q, built, everyColumn);
         TypedQuery<Tuple> query = create(q, built);
         query.setFirstResult(offset);
         query.setMaxResults(maxRows);
@@ -2453,8 +2506,32 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * closes the order (api/11 §5, R-PAG-01, R-PAG-11).
      */
     private <E2, M> void appendStableOrder(ModelQuery<E2, ?, M> q, BuiltQuery<M> built) {
+        appendStableOrder(q, built, false);
+    }
+
+    /**
+     * As {@link #appendStableOrder(ModelQuery, BuiltQuery)}, with every selected outer column appended after the key
+     * when {@code everyColumn} is set: the key of a non-unique source can't break ties, so two rows equal in every
+     * column would otherwise swap between the statements of two offset pages (R-SRC-09).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ2212} for a selected column that can't be ordered
+     */
+    private <E2, M> void appendStableOrder(ModelQuery<E2, ?, M> q, BuiltQuery<M> built, boolean everyColumn) {
+        List<SelectField<M, ?>> closing = new ArrayList<>(tieBreakers(q));
+        if (everyColumn) {
+            for (SelectField<M, ?> column : q.select().fields()) {
+                if (!orderable(column)) {
+                    throw new ModelQueryDefinitionException(MqCode.MQ2212, q + ": the source has no unique key, so "
+                            + "every selected column closes the order of an offset page, and the selected column '"
+                            + column.name() + "' can't be ordered; deselect it or make the source unique");
+                }
+                if (!closing.contains(column)) {
+                    closing.add(column);
+                }
+            }
+        }
         List<Order> orders = null;
-        for (SelectField<M, ?> column : tieBreakers(q)) {
+        for (SelectField<M, ?> column : closing) {
             if (!isOrdered(q, column)) {
                 if (orders == null) {
                     orders = new ArrayList<>(built.query().getOrderList());
@@ -2472,6 +2549,21 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return q.isGrouped()
                 ? q.groupBy()
                 : q.primaryKey().<List<? extends SelectField<M, ?>>>map(key -> key.columns()).orElse(List.of());
+    }
+
+    /**
+     * Whether {@code column} can order. A column of a LOB or JSON type can't: its Java type has no natural order,
+     * which {@code byte[]} and the JSON node types both lack (R-SRC-09). DECIDE: the database type is not read here,
+     * so a {@code String}-mapped JSON column stays orderable.
+     */
+    private static boolean orderable(SelectField<?, ?> column) {
+        return !(column instanceof ColumnField<?, ?, ?> named)
+                || Comparable.class.isAssignableFrom(named.type());
+    }
+
+    /** Whether {@code q} reads a source whose rows have no unique key (R-SRC-09). */
+    private static boolean nonUniqueSource(ModelQuery<?, ?, ?> q) {
+        return q.source().filter(source -> !source.unique()).isPresent();
     }
 
     /**
