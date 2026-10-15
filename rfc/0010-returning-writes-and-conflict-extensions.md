@@ -189,7 +189,7 @@ again; these rules make such a change fail early, loudly and safely, never as wr
    snapshot, so a break shows in the Tier-1 SQL snapshots before users meet it. Added in M20.1.
 
 If a line cannot be translated cleanly, it reports `rendered == false` rather than falling back. Whether the adapters
-stay or are replaced (for example by a supported Hibernate API, should one appear) is reviewed at M25, before 1.0;
+stay or are replaced (for example by a supported Hibernate API, should one appear) is reviewed at M26, before 1.0;
 the feature stays `@Incubating` until then.
 
 ## Alternatives

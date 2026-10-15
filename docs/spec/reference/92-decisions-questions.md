@@ -2044,6 +2044,26 @@ binding (for example `MQ3023`) generates no QModel, so the outer QModel names a 
 find symbol" beside the real diagnostic, as for annotated nesting (R-GEN-04, D-39). Binding a
 nested model in another compilation stays Q-19. → D-45, D-107, D-134, D-141, R-PROC-30, R-PROC-31, R-GEN-35.
 
+**D-143 — Source models (RFC 0013, accepted 2026-10-15).** A query may read from a CTE whose shape is a
+`@SourceModel(root = …)` (`@Incubating`), checked at compile time like an entity root: window fields (`@Window`,
+`WindowField` constants), `union`/`unionAll`/`intersect`/`except` over branches of one shape with `@Discriminator`
+keys, and recursive sources (`@Depth`, a typed `childKey`/`parentKey` step and a required `maxDepth`). Sources are
+CTEs that `jpa` builds from standard Criteria bodies and registers again on every statement, through
+`ProviderSupport#sources()` and a jakarta-typed `SourceSupport` (`MQ4014` without one); `VendorProfile#sources` and
+`maxRecursionDepth()` gate each vendor (`MQ4015`, at `maxDepth + 2` above the ceiling, since MySQL counts the final
+empty iteration). A source key is the root id or the full non-nullable group set, plus any discriminators; it is
+unique per row by construction, or the source is non-unique and refused for keyset, primary-key-first (`MQ1901`),
+export, `byKeys`, key lookups, fetch plans and enrichers (`MQ2212`); offset paging over it breaks ties on every
+selected column. A to-many filter inside a source is an explicit `exists` (`MQ1906`). Order-sensitive windows are
+made deterministic by appending the source key; frames are explicit, `FIRST_VALUE` and `LAST_VALUE` take `ROWS`
+frames, `LAG` and `LEAD` take none. Recursion fails loudly at its depth limit and on cycles (`MQ2701`, `MQ2702`),
+checked by scalar sub-selects in the statement that reads the rows; the race left on an empty result under READ
+COMMITTED is documented. The Tier-1 MySQL floor rises to 8.0.31. Rejected: Blaze-Persistence's `@CTE` entities and
+SQL splicing (a CTE would need a mapped entity, and the SQL would bypass the provider). The acceptance spike passed on
+Hibernate 6.6 and 7.4 with H2, PostgreSQL and MySQL 8.0.31 (`rfc/0013-spike-results.md`). New R-SRC-01..12,
+R-PROC-35..39, R-GEN-37, R-GEN-38, R-VND-21, R-VND-22, `MQ1901`..`MQ1906`, `MQ2212`, `MQ2701`, `MQ2702`, `MQ3030`..`MQ3039`,
+`MQ4014`, `MQ4015`. M25, 0.10.0. → `rfc/0013`, `api/17`, `processor/30..32`, `vendor/40`, `vendor/41`, Q-21, Q-22.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -2131,6 +2151,15 @@ with no join where the provider reports the foreign key references the target's 
 `@NotFound`, no formula), a provider fact as D-117 and D-132 are. It reads the same rows as the `LEFT` join, so adding
 it changes no result; it would let a locked read of the id form through instead of `MQ2211`, and lift `MQ3029`, since
 the id would then come from the foreign-key column of the entity's own row. → D-136.
+
+**Q-21 — Recursive sources counted as unique.** Whether a duplicate-key check in the same statement (the spike's
+`count(*)` against `count(distinct key)` over the CTE, counting the cycle-marked row too) lets a recursive source over
+a tree count as unique, so fetch plans and keyset paging work on trees. It checks only the statement it runs in, so
+export and keyset walks across statements need more. → `rfc/0013` §5, D-143.
+
+**Q-22 — Sources over sources, and reading a source directly.** Window and aggregate fields over the combined rows of
+a set operation or a recursive source, and a source model's QModel also offering `query()`, so a source can be read
+without a trivial outer model. → `rfc/0013` §3–§5, D-143.
 
 ## 3. Risks
 
