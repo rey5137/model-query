@@ -289,6 +289,12 @@ public enum MqCode {
      */
     MQ1809("A persist returning query must select only what the flushed entity holds, with no other clause"),
 
+    /**
+     * A hand-written {@code ColumnField} or {@code TableField.join} over a source root, which the processor's metamodel
+     * cannot check; a generated outer column uses {@code ColumnField.over} with the source's constant (R-SRC-10).
+     */
+    MQ1905("A hand-written column or join over a source root"),
+
     /** A page size or {@code maxPerParent} that is not positive, or a limit that is negative (R-EXE-06, R-FCH-11). */
     MQ2001("A page or chunk size and maxPerParent must be positive, and a limit must not be negative"),
 

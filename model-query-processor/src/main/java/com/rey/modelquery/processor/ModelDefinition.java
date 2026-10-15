@@ -25,20 +25,44 @@ import javax.lang.model.type.TypeMirror;
  * @param generateInserts whether {@code @QueryModel(generateInserts)} asks for the insert members (R-PROC-26)
  * @param origin what the generated files originate from: the model's type, or the type or {@code package-info} of a
  *     binding, whose package they are generated in (R-GEN-35, D-140)
+ * @param source the source model {@code root} names, when it is a {@code @SourceModel}, else {@code null}
+ *     (R-PROC-39)
  */
 record ModelDefinition(
         TypeElement type, TypeElement root, String generatedName, boolean selectSets, boolean singleGroup,
         List<ModelField> fields, List<FilterColumnDefinition> filterColumns, Kind kind,
-        boolean generateChanges, boolean generateInserts, Element origin) {
+        boolean generateChanges, boolean generateInserts, Element origin, ModelDefinition source) {
 
     ModelDefinition {
         fields = List.copyOf(fields);
         filterColumns = List.copyOf(filterColumns);
     }
 
-    /** Whether the type is a {@code @QueryModel}, the only kind that is read into. */
+    /** Whether the type is a {@code @QueryModel}. */
     boolean queryModel() {
         return kind == Kind.QUERY;
+    }
+
+    /**
+     * Whether the model is read into: a {@code @QueryModel} or a {@code @SourceModel}. Both carry the same columns,
+     * select sets, {@code KEY} and {@code fields()}; a source declares {@code source()} in place of {@code query()}
+     * and no mapper and no write member (R-PROC-35, R-GEN-37).
+     */
+    boolean readModel() {
+        return kind == Kind.QUERY || kind == Kind.SOURCE;
+    }
+
+    /** Whether the type is a {@code @SourceModel}: a query an outer model reads by field name (R-PROC-35). */
+    boolean sourceModel() {
+        return kind == Kind.SOURCE;
+    }
+
+    /**
+     * Whether this model's {@code root} is a {@code @SourceModel}, so the model reads a source rather than an entity
+     * (R-PROC-39). {@link #source()} is the source model then, and {@code null} otherwise.
+     */
+    boolean readsSource() {
+        return source != null;
     }
 
     /** Whether the type is an {@code @UpdateModel}, which is only read by the processor and never instantiated. */
@@ -91,12 +115,12 @@ record ModelDefinition(
 
     /** Whether a change set is generated: always for an update model, on request for a query model (R-GEN-21). */
     boolean changes() {
-        return updateModel() || generateChanges;
+        return !readsSource() && (updateModel() || generateChanges);
     }
 
     /** Whether {@code INSERT_COLUMNS} and the insert builders are generated: on an insert model, or on request. */
     boolean inserts() {
-        return insertModel() || generateInserts;
+        return !readsSource() && (insertModel() || generateInserts);
     }
 
     /** Whether the model has groups: {@code @Aggregate} or {@code @GroupBy} fields, or {@code singleGroup}. */
@@ -147,7 +171,7 @@ record ModelDefinition(
      * {@code @Selected} field fills (R-GEN-29).
      */
     boolean hasSelected() {
-        return queryModel() && fields.stream().anyMatch(ModelField::selected);
+        return readModel() && fields.stream().anyMatch(ModelField::selected);
     }
 
     /** The {@code @PrimaryKey} columns, in declaration order. */
@@ -155,10 +179,33 @@ record ModelDefinition(
         return fields.stream().filter(field -> field.column() && field.primaryKey()).toList();
     }
 
+    /**
+     * The fields an outer model may read by name, in declaration order: a source's columns, computed expressions and
+     * aggregates, which alone are emitted with {@code named(...)} (R-GEN-37). A {@code @FilterColumn} and a
+     * {@code @Join} carry no property to alias a CTE column by.
+     */
+    List<ModelField> readable() {
+        return fields.stream().filter(field -> field.column() || field.computed() || field.aggregate() != null)
+                .toList();
+    }
+
+    /**
+     * The field of {@link #source()} an outer model's column reads: the readable source field named by
+     * {@code attribute}, which is the CTE column alias the source's own constant carries; {@code null} when the
+     * source declares none, or when this model reads no source (R-SRC-10).
+     */
+    ModelField sourceField(String attribute) {
+        return source == null ? null
+                : source.readable().stream().filter(field -> field.name().equals(attribute)).findFirst().orElse(null);
+    }
+
     /** The annotation a model type carries, which decides what is generated for it. */
     enum Kind {
         /** {@code @QueryModel}: read into, and written through a change set when it asks for one. */
         QUERY,
+        /** {@code @SourceModel}: a query an outer model reads by field name; generates {@code source()}
+         * (R-PROC-35). */
+        SOURCE,
         /** {@code @UpdateModel}: the columns a bulk update writes, through a change set. */
         UPDATE,
         /** {@code @InsertModel}: the columns an insert writes, read from each row (R-PROC-23). */

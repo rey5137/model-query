@@ -308,6 +308,10 @@ final class EntityMetamodel {
         boolean version = hasAny(member, List.of(VERSION));
         boolean updatable = !columnSaysFalse(member, "updatable");
         boolean insertable = !columnSaysFalse(member, "insertable");
+        // A group key of a source must be non-nullable in its mapping: an @Id, a primitive, nullable = false or
+        // optional = false (R-SRC-02).
+        boolean nullable = !hasAny(member, IDS) && !type.getKind().isPrimitive()
+                && !columnSaysFalse(member, "nullable") && !optionalFalse(member);
         if (hasAny(member, TO_ONE)) {
             String mappedBy = member.getAnnotationMirrors().stream()
                     .filter(mirror -> TO_ONE.stream().anyMatch(toOne -> isNamed(mirror, toOne)))
@@ -318,7 +322,7 @@ final class EntityMetamodel {
             return new EntityAttribute(
                     name, type, EntityAttribute.Kind.TO_ONE, entity(type), version, updatable, insertable, mappedBy,
                     false, idFormRefusal(member, mappedBy),
-                    hasAny(member, List.of(JPA + "MapsId")));
+                    hasAny(member, List.of(JPA + "MapsId")), nullable);
         }
         if (hasAny(member, TO_MANY)) {
             // The element of a Collection<E>, the value of a Map<K, E>.
@@ -327,17 +331,17 @@ final class EntityMetamodel {
             DeclaredType target = arguments.isEmpty() ? null : entity(arguments.get(arguments.size() - 1));
             return new EntityAttribute(
                     name, type, EntityAttribute.Kind.COLLECTION, target, version, updatable, insertable, null, false,
-                    null, false);
+                    null, false, true);
         }
         if (hasAny(member, List.of(ELEMENT_COLLECTION))) {
             return new EntityAttribute(
                     name, type, EntityAttribute.Kind.COLLECTION, null, version, updatable, insertable, null, false,
-                    null, false);
+                    null, false, true);
         }
         boolean embedded = type.getKind() == TypeKind.DECLARED && (hasAny(member, EMBEDDED)
                 || hasAny(((DeclaredType) type).asElement(), List.of(EMBEDDABLE)));
         return new EntityAttribute(name, type, embedded ? EntityAttribute.Kind.EMBEDDED : EntityAttribute.Kind.BASIC,
-                null, version, updatable, insertable, null, filledByDatabase(member), null, false);
+                null, version, updatable, insertable, null, filledByDatabase(member), null, false, nullable);
     }
 
     /**
@@ -495,6 +499,16 @@ final class EntityMetamodel {
         return member.getAnnotationMirrors().stream()
                 .anyMatch(mirror -> COLUMNS.stream().anyMatch(column -> isNamed(mirror, column))
                         && Boolean.FALSE.equals(value(mirror, element)));
+    }
+
+    /**
+     * Whether {@code member} carries {@code @Basic}, {@code @ManyToOne} or {@code @OneToOne} with
+     * {@code optional = false}, the other way a column says non-nullable.
+     */
+    private static boolean optionalFalse(Element member) {
+        return member.getAnnotationMirrors().stream().anyMatch(mirror -> (isNamed(mirror, JPA + "Basic")
+                || TO_ONE.stream().anyMatch(toOne -> isNamed(mirror, toOne)))
+                && Boolean.FALSE.equals(value(mirror, "optional")));
     }
 
     /** {@code type} as the entity an association reaches, or {@code null} when it names no class. */

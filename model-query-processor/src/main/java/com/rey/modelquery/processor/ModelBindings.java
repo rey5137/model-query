@@ -77,10 +77,13 @@ final class ModelBindings {
 
     private ModelBindings() {}
 
+    /** The kinds a {@code @Bind*Model} binds: a source model is named as a root, never bound (R-PROC-35). */
+    private static final List<Kind> BINDABLE = List.of(Kind.QUERY, Kind.UPDATE, Kind.INSERT);
+
     /** The round's types and packages that carry a binding of any kind. */
     static List<Element> origins(RoundEnvironment round) {
         var annotations = new HashSet<Class<? extends Annotation>>();
-        for (Kind kind : Kind.values()) {
+        for (Kind kind : BINDABLE) {
             annotations.add(annotation(kind));
             annotations.add(container(kind));
         }
@@ -93,7 +96,7 @@ final class ModelBindings {
      */
     static List<Binding> on(List<? extends Element> origins) {
         var bindings = new ArrayList<Binding>();
-        for (Kind kind : Kind.values()) {
+        for (Kind kind : BINDABLE) {
             Class<? extends Annotation> single = annotation(kind);
             Class<? extends Annotation> repeated = container(kind);
             for (Element origin : origins) {
@@ -125,6 +128,8 @@ final class ModelBindings {
             case QUERY -> BindQueryModel.class;
             case UPDATE -> BindUpdateModel.class;
             case INSERT -> BindInsertModel.class;
+            // A source model is named as another model's root, never bound on its own (R-PROC-35).
+            case SOURCE -> throw new IllegalStateException("a source model is not bindable");
         };
     }
 
@@ -134,6 +139,7 @@ final class ModelBindings {
             case QUERY -> BindQueryModels.class;
             case UPDATE -> BindUpdateModels.class;
             case INSERT -> BindInsertModels.class;
+            case SOURCE -> throw new IllegalStateException("a source model is not bindable");
         };
     }
 

@@ -29,7 +29,8 @@ carry an `MqCode`; sealing after 1.0 would break subclasses.
 ## 2. `MQ1xxx` — query definition
 
 The sub-ranges are `MQ10xx` columns and joins, `MQ11xx` definitions, `MQ12xx` the query builder, `MQ13xx` filters, `MQ14xx`
-aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch plans and `MQ18xx` inserts (D-116).
+aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch plans, `MQ18xx` inserts (D-116) and
+`MQ19xx` query sources (D-143), `MQ1901`–`MQ1906`, whose rows land with the slices that raise them (`api/17`).
 
 | Code | Meaning | Owner |
 |---|---|---|
@@ -44,7 +45,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1105` | `FieldIndex.only` names a key the index doesn't hold, or leaves a kept set empty | `api/10` R-COL-24 |
 | `MQ1201` | `keyset()` or `primaryKeyFirst(...)` without a primary key | `api/11` R-QRY-03 |
 | `MQ1202` | `build()` without `select` or `fetch` | `api/11` R-QRY-02 |
-| `MQ1203` | `ModelQuery.builder`, `ModelUpdate.builder` or `ModelDelete.builder` given a join instead of a root `TableField` | `api/11` R-QRY-02, `api/14` R-WRT-12 |
+| `MQ1203` | `ModelQuery.builder`, `ModelUpdate.builder` or `ModelDelete.builder` given a join instead of a root `TableField`, a source root to `ModelQuery.builder(root, mapper)` or `ModelUpdate.builder`/`ModelDelete.builder`, an entity root or a join to `ModelQuery.builder(root, mapper, source)`, or `InsertColumns.of`/`ModelInsert.select` a source root | `api/11` R-QRY-02, `api/14` R-WRT-12, `api/17` R-SRC-10 |
 | `MQ1204` | `PrimaryKeyFirst.whenOffsetAbove` with a negative offset | `api/11` R-QRY-03 |
 | `MQ1205` | A `QueryCustomizer` changed the `ORDER BY` or `GROUP BY` of a phase, or added `distinct`/`having` to a locked query | `api/11` R-QRY-11 |
 | `MQ1206` | A primary-key column of array type | `api/11` R-QRY-12 |
@@ -112,6 +113,8 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1808` | Two rows of one insert-values call with a conflict clause share a conflict-key tuple, compared by `equals`; at `build()` | `api/14` R-WRT-37, D-117 |
 | `MQ1809` | A `persist(persist, returning)`, `updateReturning`, `deleteReturning` or `insertReturning` query with `where`, `having`, `groupBy`, a fetch plan, `customize`, `orderBy`, `keyset`, `primaryKeyFirst` or a lock, or a selected column it cannot fill from the flushed entity (a join beyond a to-one id, a join with `on(...)`, an expression, an aggregate); for a returning write also a selected column on a table other than the written one (a secondary table's, a joined supertable's, or a to-one id whose key is on its target's table, named in the message), `throughEntities()` or `commitEachChunk()`; on first execution per factory, before any statement, the written-table check on each execution before the flush (`ReturningSupport.check`, D-132) | `api/14` R-WRT-48, R-WRT-50, `api/11` R-QRY-17, D-118, D-129, D-132 |
 
+| `MQ1905` | A hand-written `ColumnField.of` or `TableField.join` over a source root, which the processor's metamodel cannot check; a generated outer column is `ColumnField.over(model, root, sourceConstant)` | `api/17` R-SRC-10, `api/10` R-COL-30 |
+
 ## 3. `MQ2xxx` — execution
 
 | Code | Meaning | Owner |
@@ -149,8 +152,8 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 
 ## 4. `MQ3xxx` — annotation processing
 
-Catalogued with messages in `processor/32` §1: `MQ3001`–`MQ3029` for structural checks, options and bound models
-(D-134), `MQ3201`–`MQ3208` for aggregate models, `MQ3301`–`MQ3307` for update models,
+Catalogued with messages in `processor/32` §1: `MQ3001`–`MQ3039` for structural checks, options, bound models and
+query sources (D-134, D-143), `MQ3201`–`MQ3208` for aggregate models, `MQ3301`–`MQ3307` for update models,
 `MQ3401`–`MQ3406` for `@Child` (`api/15`), `MQ3501`–`MQ3506` for insert models and `generateInserts` (D-116, D-117,
 D-123). Codes are not repeated here to keep one owner.
 

@@ -83,6 +83,8 @@ public final class ModelQuery<E, K, M> {
     private final ModelQuery<E, K, M> definition;
     /** The row lock, or {@code null} without one. */
     private final RowLock lock;
+    /** The source this query reads, or {@code null} when it is rooted at an entity (R-SRC-10). */
+    private final SourceQuery<E> source;
 
     private ModelQuery(Builder<E, K, M> b, SelectSet<M> columns, List<ColumnField<M, ?, ?>> needed, boolean grouped,
             ModelQuery<E, K, M> definition) {
@@ -109,6 +111,7 @@ public final class ModelQuery<E, K, M> {
                 : new QueryConditions(ConditionGroup.conditions(where), ConditionGroup.conditions(having));
         this.grouped = grouped;
         this.lock = b.lock;
+        this.source = b.source;
         this.spec = new Spec(root.rootEntity(), List.copyOf(columns.fields()),
                 Optional.ofNullable(primaryKey), List.copyOf(orderBy), keyset, List.copyOf(groupBy), grouped);
         this.modelColumns = List.copyOf(selected());
@@ -120,22 +123,54 @@ public final class ModelQuery<E, K, M> {
      * Starts a definition rooted at {@code root}, mapped with {@code mapper}. Only {@link Builder#select} is also
      * required; every other part has a defined behaviour when absent (spec api/11 §5).
      *
-     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code root} is a join, not a root
+     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code root} is a join or a source root, which the
+     *     overload below takes with the source it reads
      */
     public static <E, M> Builder<E, Object, M> builder(TableField<E, E> root, RowMapper<M> mapper) {
         Objects.requireNonNull(root, "root");
         Objects.requireNonNull(mapper, "mapper");
-        if (root.rootEntity() == null) {
+        if (root.rootEntity() == null || root.isSource()) {
             throw new ModelQueryDefinitionException(MqCode.MQ1203,
                     "builder(...) takes a TableField.root(...), not the " + root.describe());
         }
         return new Builder<>(root, mapper, null, null, List.of(), false, null, null, null, null, List.of(), List.of(),
-                null, null, null);
+                null, null, null, null);
     }
 
-    /** The entity the query is rooted at. */
+    /**
+     * Starts a definition over {@code source}: {@code root} is the source root
+     * ({@link TableField#source(Class)}), whose columns the query reads by field name, and {@code source} is the
+     * {@link SourceQuery} the generated {@code query(SourceQuery<S>)} took (R-SRC-10, R-GEN-37). Everything else is as
+     * {@link #builder(TableField, RowMapper)}.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code root} is a join or an entity root
+     */
+    @Incubating
+    public static <E, M> Builder<E, Object, M> builder(
+            TableField<E, E> root, RowMapper<M> mapper, SourceQuery<E> source) {
+        Objects.requireNonNull(root, "root");
+        Objects.requireNonNull(mapper, "mapper");
+        Objects.requireNonNull(source, "source");
+        if (root.rootEntity() == null || !root.isSource()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1203,
+                    "builder(root, mapper, source) takes a TableField.source(...), not the " + root.describe());
+        }
+        return new Builder<>(root, mapper, null, null, List.of(), false, null, null, null, null, List.of(), List.of(),
+                null, null, null, source);
+    }
+
+    /** The entity the query is rooted at, or the source model a query over a source is rooted at. */
     public Class<E> rootEntity() {
         return root.rootEntity();
+    }
+
+    /**
+     * The source the query reads, when it is rooted at one: the {@link SourceQuery} its generated
+     * {@code query(SourceQuery<S>)} took. Empty for a query rooted at an entity (R-SRC-10).
+     */
+    @Incubating
+    public Optional<SourceQuery<E>> source() {
+        return Optional.ofNullable(source);
     }
 
     /**
@@ -839,12 +874,14 @@ public final class ModelQuery<E, K, M> {
         private final FetchPlan<M> fetch;
         /** The row lock, or {@code null} without one. */
         private final RowLock lock;
+        /** The source the query reads, or {@code null} when it is rooted at an entity (R-SRC-10). */
+        private final SourceQuery<E> source;
 
         private Builder(TableField<E, E> root, RowMapper<M> mapper, SelectSet<M> columns,
                 PrimaryKey<M, K> primaryKey, List<OrderField<M, ?>> orderBy, boolean keyset,
                 PrimaryKeyFirst primaryKeyFirst, BiConsumer<M, Row> afterMap, UnaryOperator<M> finisher,
                 QueryCustomizer customizer, List<Filter> where, List<ScalarField<M, ?>> groupBy,
-                HavingGroup.Clause having, FetchPlan<M> fetch, RowLock lock) {
+                HavingGroup.Clause having, FetchPlan<M> fetch, RowLock lock, SourceQuery<E> source) {
             this.root = root;
             this.mapper = mapper;
             this.columns = columns;
@@ -860,6 +897,7 @@ public final class ModelQuery<E, K, M> {
             this.having = having;
             this.fetch = fetch;
             this.lock = lock;
+            this.source = source;
         }
 
         /**
@@ -874,7 +912,7 @@ public final class ModelQuery<E, K, M> {
                         + "its FetchPlan.of(...)", modelName(fetch.select(), root.rootEntity()));
             }
             return new Builder<>(root, mapper, select, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, groupBy, having, null, lock);
+                    finisher, customizer, where, groupBy, having, null, lock, source);
         }
 
         /**
@@ -884,7 +922,7 @@ public final class ModelQuery<E, K, M> {
         @Incubating
         public Builder<E, K, M> fetch(FetchPlan<M> plan) {
             return new Builder<>(root, mapper, null, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, groupBy, having, Objects.requireNonNull(plan, "plan"), lock);
+                    finisher, customizer, where, groupBy, having, Objects.requireNonNull(plan, "plan"), lock, source);
         }
 
         /**
@@ -894,13 +932,14 @@ public final class ModelQuery<E, K, M> {
          */
         Builder<E, K, M> forChildren(FetchPlan<M> plan, List<Filter> where, List<OrderField<M, ?>> orderBy) {
             return new Builder<>(root, mapper, null, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, groupBy, having, plan, null);
+                    finisher, customizer, where, groupBy, having, plan, null, source);
         }
 
         /** The primary key; required for {@link #keyset()} and {@link #primaryKeyFirst}. */
         public <K2> Builder<E, K2, M> primaryKey(PrimaryKey<M, K2> primaryKey) {
             return new Builder<>(root, mapper, columns, Objects.requireNonNull(primaryKey, "primaryKey"), orderBy,
-                    keyset, primaryKeyFirst, afterMap, finisher, customizer, where, groupBy, having, fetch, lock);
+                    keyset, primaryKeyFirst, afterMap, finisher, customizer, where, groupBy, having, fetch, lock,
+                    source);
         }
 
         /** The ordering keys, replacing any set before. */
@@ -911,7 +950,7 @@ public final class ModelQuery<E, K, M> {
                 copy.add(Objects.requireNonNull(order, "orderBy element"));
             }
             return new Builder<>(root, mapper, columns, primaryKey, List.copyOf(copy), keyset, primaryKeyFirst,
-                    afterMap, finisher, customizer, where, groupBy, having, fetch, lock);
+                    afterMap, finisher, customizer, where, groupBy, having, fetch, lock, source);
         }
 
         /**
@@ -920,7 +959,7 @@ public final class ModelQuery<E, K, M> {
          */
         public Builder<E, K, M> keyset() {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, true, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, groupBy, having, fetch, lock);
+                    finisher, customizer, where, groupBy, having, fetch, lock, source);
         }
 
         /**
@@ -930,7 +969,7 @@ public final class ModelQuery<E, K, M> {
         public Builder<E, K, M> primaryKeyFirst(PrimaryKeyFirst primaryKeyFirst) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset,
                     Objects.requireNonNull(primaryKeyFirst, "primaryKeyFirst"), afterMap, finisher, customizer,
-                    where, groupBy, having, fetch, lock);
+                    where, groupBy, having, fetch, lock, source);
         }
 
         /**
@@ -941,26 +980,28 @@ public final class ModelQuery<E, K, M> {
         public Builder<E, K, M> afterMap(BiConsumer<M, Row> afterMap) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst,
                     Objects.requireNonNull(afterMap, "afterMap"), finisher, customizer, where, groupBy, having, fetch,
-                    lock);
+                    lock, source);
         }
 
         /** Replaces each mapped model with {@code finisher}'s result, after {@code afterMap}; for records. */
         public Builder<E, K, M> finisher(UnaryOperator<M> finisher) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    Objects.requireNonNull(finisher, "finisher"), customizer, where, groupBy, having, fetch, lock);
+                    Objects.requireNonNull(finisher, "finisher"), customizer, where, groupBy, having, fetch, lock,
+                    source);
         }
 
         /** Raw Criteria access for each phase; see {@link QueryCustomizer}. Replaces any customizer set before. */
         public Builder<E, K, M> customize(QueryCustomizer customizer) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, Objects.requireNonNull(customizer, "customizer"), where, groupBy, having, fetch, lock);
+                    finisher, Objects.requireNonNull(customizer, "customizer"), where, groupBy, having, fetch, lock,
+                    source);
         }
 
         /** The row lock every read of this query takes, replacing any set before (R-QRY-17). */
         @Incubating
         public Builder<E, K, M> lock(RowLock lock) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, groupBy, having, fetch, Objects.requireNonNull(lock, "lock"));
+                    finisher, customizer, where, groupBy, having, fetch, Objects.requireNonNull(lock, "lock"), source);
         }
 
         /**
@@ -972,7 +1013,7 @@ public final class ModelQuery<E, K, M> {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
                     finisher, customizer,
                     FilterGroup.collect(root.rootEntity(), Objects.requireNonNull(filters, "filters")), groupBy,
-                    having, fetch, lock);
+                    having, fetch, lock, source);
         }
 
         /**
@@ -1012,7 +1053,7 @@ public final class ModelQuery<E, K, M> {
 
         private Builder<E, K, M> groupBy(List<ScalarField<M, ?>> keys) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, List.copyOf(new LinkedHashSet<>(keys)), having, fetch, lock);
+                    finisher, customizer, where, List.copyOf(new LinkedHashSet<>(keys)), having, fetch, lock, source);
         }
 
         /**
@@ -1024,7 +1065,7 @@ public final class ModelQuery<E, K, M> {
         public Builder<E, K, M> having(UnaryOperator<Having<M>> filters) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
                     finisher, customizer, where, groupBy,
-                    HavingGroup.collect(Objects.requireNonNull(filters, "filters")), fetch, lock);
+                    HavingGroup.collect(Objects.requireNonNull(filters, "filters")), fetch, lock, source);
         }
 
         /**
@@ -1061,7 +1102,7 @@ public final class ModelQuery<E, K, M> {
         /** This builder with {@code orderBy}, an immutable list, as its ordering keys. */
         private Builder<E, K, M> ordered(List<OrderField<M, ?>> orderBy) {
             return new Builder<>(root, mapper, columns, primaryKey, orderBy, keyset, primaryKeyFirst, afterMap,
-                    finisher, customizer, where, groupBy, having, fetch, lock);
+                    finisher, customizer, where, groupBy, having, fetch, lock, source);
         }
 
         /** Checks and builds; {@code definition} is the query this one is a re-ordered copy of, or null. */

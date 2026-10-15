@@ -35,6 +35,8 @@ public final class TableField<P, T> {
     private final PrimaryKey<?, ?> presenceKey;
     /** The model field the join fills, or {@code null}; not part of {@link #key}. */
     private final String property;
+    /** Whether this root is a source's, read by field name from a CTE rather than from an entity (R-SRC-10). */
+    private final boolean source;
     private final JoinKey key;
 
     private TableField(
@@ -45,7 +47,8 @@ public final class TableField<P, T> {
             String alias,
             BiFunction<From<?, T>, CriteriaBuilder, Predicate> condition,
             PrimaryKey<?, ?> presenceKey,
-            String property) {
+            String property,
+            boolean source) {
         this.rootEntity = rootEntity;
         this.parent = parent;
         this.attribute = attribute;
@@ -54,6 +57,7 @@ public final class TableField<P, T> {
         this.condition = condition;
         this.presenceKey = presenceKey;
         this.property = property;
+        this.source = source;
         this.key = rootEntity != null
                 ? JoinKey.root(rootEntity)
                 : new JoinKey(parent.key, attribute, type, alias);
@@ -61,20 +65,43 @@ public final class TableField<P, T> {
 
     /** The query's root table. */
     public static <T> TableField<T, T> root(Class<T> entity) {
-        return new TableField<>(Objects.requireNonNull(entity, "entity"), null, null, null, "", null, null, null);
+        return new TableField<>(Objects.requireNonNull(entity, "entity"), null, null, null, "", null, null, null,
+                false);
     }
 
-    /** A join from {@code parent} along {@code attribute}. */
+    /**
+     * The root table of a query over a source: {@code model} is the source model, whose fields a CTE aliases by field
+     * name (R-SRC-10). It is only generated, for a {@code @QueryModel} whose {@code root} names a {@code @SourceModel};
+     * a hand-written {@link ColumnField} over it is {@code MQ1905}.
+     */
+    @Incubating
+    public static <S> TableField<S, S> source(Class<S> model) {
+        return new TableField<>(Objects.requireNonNull(model, "model"), null, null, null, "", null, null, null, true);
+    }
+
+    /**
+     * A join from {@code parent} along {@code attribute}.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1905} when {@code parent} is a source root, which has no
+     *     associations to join (R-SRC-10)
+     */
     public static <P, T> TableField<P, T> join(TableField<?, P> parent, String attribute, JoinType type) {
+        Objects.requireNonNull(parent, "parent");
+        if (parent.isSource()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1905,
+                    "join(...) takes a table of an entity root; " + parent.describe()
+                            + " is a source root, which the outer query reads by field name");
+        }
         return new TableField<>(
                 null,
-                Objects.requireNonNull(parent, "parent"),
+                parent,
                 Objects.requireNonNull(attribute, "attribute"),
                 Objects.requireNonNull(type, "type"),
                 "",
                 null,
                 null,
-                null);
+                null,
+                false);
     }
 
     /**
@@ -85,7 +112,7 @@ public final class TableField<P, T> {
     public TableField<P, T> as(String alias) {
         Objects.requireNonNull(alias, "alias");
         requireJoin("as(...)");
-        return new TableField<>(rootEntity, parent, attribute, type, alias, condition, presenceKey, property);
+        return new TableField<>(rootEntity, parent, attribute, type, alias, condition, presenceKey, property, false);
     }
 
     /**
@@ -96,7 +123,7 @@ public final class TableField<P, T> {
     public TableField<P, T> on(BiFunction<From<?, T>, CriteriaBuilder, Predicate> condition) {
         Objects.requireNonNull(condition, "condition");
         requireJoin("on(...)");
-        return new TableField<>(rootEntity, parent, attribute, type, alias, condition, presenceKey, property);
+        return new TableField<>(rootEntity, parent, attribute, type, alias, condition, presenceKey, property, false);
     }
 
     /**
@@ -111,7 +138,7 @@ public final class TableField<P, T> {
     public TableField<P, T> presentBy(PrimaryKey<?, ?> key) {
         Objects.requireNonNull(key, "key");
         requireJoin("presentBy(...)");
-        return new TableField<>(rootEntity, parent, attribute, type, alias, condition, key, property);
+        return new TableField<>(rootEntity, parent, attribute, type, alias, condition, key, property, false);
     }
 
     /**
@@ -121,7 +148,7 @@ public final class TableField<P, T> {
      */
     public TableField<P, T> named(String property) {
         return new TableField<>(rootEntity, parent, attribute, type, alias, condition, presenceKey,
-                Objects.requireNonNull(property, "property"));
+                Objects.requireNonNull(property, "property"), false);
     }
 
     /**
@@ -134,7 +161,7 @@ public final class TableField<P, T> {
         }
         return new TableField<>(
                 null, Objects.requireNonNull(newParent, "newParent"), attribute, type, alias, condition, presenceKey,
-                property);
+                property, false);
     }
 
     /**
@@ -188,6 +215,14 @@ public final class TableField<P, T> {
     /** The entity of a root node, or {@code null} for a join. */
     Class<T> rootEntity() {
         return rootEntity;
+    }
+
+    /**
+     * Whether this node is a source's root, whose columns an outer query reads by field name (R-SRC-10); never
+     * {@code true} for a join.
+     */
+    boolean isSource() {
+        return source;
     }
 
     JoinKey key() {

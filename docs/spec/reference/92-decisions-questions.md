@@ -2064,6 +2064,27 @@ Hibernate 6.6 and 7.4 with H2, PostgreSQL and MySQL 8.0.31 (`rfc/0013-spike-resu
 R-PROC-35..39, R-GEN-37, R-GEN-38, R-VND-21, R-VND-22, `MQ1901`..`MQ1906`, `MQ2212`, `MQ2701`, `MQ2702`, `MQ3030`..`MQ3039`,
 `MQ4014`, `MQ4015`. M25, 0.10.0. → `rfc/0013`, `api/17`, `processor/30..32`, `vendor/40`, `vendor/41`, Q-21, Q-22.
 
+**D-144 — How a source query is built (M25.1, 2026-10-15).** A source's structure is fixed where it is built and only
+predicates are added: `SourceQuery.builder(model, root, fields, key[, groupKeys])` returns an immutable
+`SourceQuery.Builder<E, M, S>` carrying `where`, `having` and `build()`, with no `select` (a source carries every field
+of its model) and no regroup or re-key. An outer query takes the source through `ModelQuery.builder(root, mapper,
+source)`, every `Builder` copy (`withLock`, `withFetch`, `orderedBy`) carries it, and `ModelQuery.source()` reads it
+back; a source root reaching the two-argument builder, or an entity root or join the three-argument one, is `MQ1203`,
+as `ModelUpdate.builder`, `ModelDelete.builder`, `InsertColumns.of` and `ModelInsert.select` reading a source are.
+`TableField.source(model)` is the source root kind, and `ColumnField.over(model, root, sourceConstant)` its typed
+column: the source constant's property becomes the CTE column alias and its converter is copied, so the outer constant
+is an `OrderedColumnField` exactly when the source's is. A hand-written `ColumnField.of` or `TableField.join` over a
+source root is `MQ1905`. An outer model owns no CTE column of its own, so its columns read the source's fields by name
+alone: a `@FilterColumn` is `MQ3011`, a `@Column(converter = ...)` is `MQ3014`, a `@Join` is `MQ3035` and a `@Child`
+on either side of a source root is `MQ3030` or `MQ3039`, because a source is one statement with no parent query and no
+association to join. A source model, and a model rooted at one, generate no `changes()`, `update(...)`, `from(...)` or
+`delete()`: a write needs an entity root, so `generateChanges` is ignored there (Q-23 asks whether it should be a code
+instead). Rejected: a generated builder per source (it would put the structure back in the QModel, and
+the processor is the only place the structure is checked), a `Builder.source(...)` setter (a source is not a setting of
+an entity-rooted query), and a string `sourceOf("...")` (a string is exactly what `MQ1905` refuses, since nothing
+checks it against the source's metamodel). → `api/17` R-SRC-10, `api/10` R-COL-30, `processor/30` R-PROC-35,
+R-PROC-39, `processor/31` R-GEN-37, D-143.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -2160,6 +2181,11 @@ export and keyset walks across statements need more. → `rfc/0013` §5, D-143.
 **Q-22 — Sources over sources, and reading a source directly.** Window and aggregate fields over the combined rows of
 a set operation or a recursive source, and a source model's QModel also offering `query()`, so a source can be read
 without a trivial outer model. → `rfc/0013` §3–§5, D-143.
+
+**Q-23 — `generateChanges` on a model rooted at a source.** A write needs an entity root, so a source model and a
+model rooted at one generate no `changes()`, `update(...)`, `from(...)` or `delete()` today, and `generateChanges` is
+ignored there. Should it instead be an `MQnnnn`, as a `@Child` or a `@Join` on such a model is? → D-144,
+`processor/31` R-GEN-37, `processor/32`.
 
 ## 3. Risks
 

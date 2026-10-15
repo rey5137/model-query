@@ -52,7 +52,19 @@ final class ChildChecks {
                         where + "@Child can't be combined with @" + annotation.getSimpleName());
             }
         }
+        // A fetch plan passes no SourceQuery, so neither a child rooted at a source nor a parent rooted at one can
+        // load a @Child (MQ3039, R-SRC-10).
+        if (model.readsSource()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3039, where + model.name() + " is rooted at "
+                    + model.source().name() + ", a @SourceModel; a @Child needs a parent query to fetch it");
+            return;
+        }
         ModelDefinition child = nestedModels.child(field);
+        if (child != null && child.readsSource()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3039, where + child.name() + ".root is "
+                    + child.source().name() + ", a @SourceModel; a fetch plan has no source to pass it");
+            return;
+        }
         if (child == null && model.origin() != model.type() && field.child().model() != null
                 && !nestedModels.isModel((TypeElement) ((DeclaredType) field.child().model()).asElement())) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3026,

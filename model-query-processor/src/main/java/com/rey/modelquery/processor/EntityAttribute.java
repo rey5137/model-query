@@ -23,11 +23,14 @@ import javax.lang.model.type.TypeMirror;
  *     be, and for any other attribute
  * @param mapsId whether the to-one carries {@code @MapsId}: its foreign key is the entity's own id, which an insert
  *     writes through the id column (R-PROC-26)
+ * @param nullable whether the attribute's mapping can hold NULL: an {@code @Id}, a primitive, and any attribute whose
+ *     {@code @Column(nullable = false)} or {@code @Basic(optional = false)} says it cannot, are non-nullable
+ *     (R-SRC-02)
  */
 record EntityAttribute(
         String name, TypeMirror type, Kind kind, DeclaredType target, boolean version, boolean updatable,
         boolean insertable, String mappedBy, boolean filledByDatabase, String idFormRefusal,
-        boolean mapsId) {
+        boolean mapsId, boolean nullable) {
 
     /** Whether a join may follow the attribute: a to-one or collection association of a known target. */
     boolean joinable() {

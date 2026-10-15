@@ -37,7 +37,8 @@ import javax.tools.Diagnostic;
  *     R-DIAG-03, D-107, D-140
  */
 @Incubating
-@SupportedAnnotationTypes({"com.rey.modelquery.annotations.QueryModel", "com.rey.modelquery.annotations.UpdateModel",
+@SupportedAnnotationTypes({"com.rey.modelquery.annotations.QueryModel", "com.rey.modelquery.annotations.SourceModel",
+        "com.rey.modelquery.annotations.UpdateModel",
         "com.rey.modelquery.annotations.InsertModel", "com.rey.modelquery.annotations.BindQueryModel",
         "com.rey.modelquery.annotations.BindQueryModels", "com.rey.modelquery.annotations.BindUpdateModel",
         "com.rey.modelquery.annotations.BindUpdateModels", "com.rey.modelquery.annotations.BindInsertModel",

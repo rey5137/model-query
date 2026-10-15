@@ -57,11 +57,12 @@ public final class ModelUpdate<E, M> {
      * Starts an update of {@code root}'s rows. Each stage returns a new immutable builder; the order is the key,
      * the assignments, one row choice, then options (D-60).
      *
-     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code root} is a join, not a root
+     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code root} is a join or a source root, which no
+     *     write reads (R-SRC-10)
      */
     public static <E> Start<E> builder(TableField<E, E> root) {
         Objects.requireNonNull(root, "root");
-        if (root.rootEntity() == null) {
+        if (root.rootEntity() == null || root.isSource()) {
             throw new ModelQueryDefinitionException(MqCode.MQ1203,
                     "builder(...) takes a TableField.root(...), not the " + root.describe());
         }

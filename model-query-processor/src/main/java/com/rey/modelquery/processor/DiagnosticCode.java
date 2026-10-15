@@ -106,6 +106,25 @@ enum DiagnosticCode {
     /** The id form of a to-one whose target has {@code @SQLRestriction} or {@code @Where}: a read could miss the key. */
     MQ3029("Id form over a target with a Hibernate restriction"),
 
+    /** A {@code @Child} on a source model, which is one statement and has no parent query to fill it. */
+    MQ3030("@Child on a source model"),
+
+    /** A source model's key is not unique per row: not the root id or the full group set, a nullable group key, or a
+     * to-many read. */
+    MQ3031("Source model key is not the root id or the full non-nullable group set"),
+
+    /** {@code @Join} on a model rooted at a source, which has no associations. */
+    MQ3035("@Join on a model rooted at a source"),
+
+    /** An outer model's {@code @PrimaryKey} is not exactly its source's key. */
+    MQ3036("@PrimaryKey of an outer model is not its source's key"),
+
+    /** A model's {@code root} is neither an {@code @Entity} nor a {@code @SourceModel}, or both. */
+    MQ3038("Root is neither an @Entity nor a @SourceModel, or both"),
+
+    /** A {@code @Child} whose child model is rooted at a source, which no fetch plan can pass a source to. */
+    MQ3039("@Child whose child model is rooted at a source"),
+
     /** An {@code @Aggregate} field is primitive, though an aggregate can be {@code NULL}. */
     MQ3201("@Aggregate field is primitive"),
 

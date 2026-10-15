@@ -14,6 +14,7 @@ import com.rey.modelquery.annotations.JoinKind;
 import com.rey.modelquery.annotations.PrimaryKey;
 import com.rey.modelquery.annotations.QueryModel;
 import com.rey.modelquery.annotations.Selected;
+import com.rey.modelquery.annotations.SourceModel;
 import com.rey.modelquery.annotations.Transient;
 import com.rey.modelquery.annotations.UpdateModel;
 import com.rey.modelquery.processor.ModelDefinition.AggregateDefinition;
@@ -105,7 +106,10 @@ final class QueryModelReader {
                 ? set : options.getOrDefault(PREFIX_OPTION, DEFAULT_PREFIX);
         String suffix = explicit(annotation, SUFFIX) instanceof String set
                 ? set : options.getOrDefault(SUFFIX_OPTION, "");
-        boolean selectSets = kind == Kind.QUERY && !Boolean.FALSE.equals(explicit(annotation, GENERATE_SELECT_SETS));
+        // A source carries every field of its model, so it declares ALL and DEFAULT as a query model does
+        // (R-GEN-37). @SourceModel has no generateSelectSets, so the option never turns them off.
+        boolean selectSets = (kind == Kind.QUERY || kind == Kind.SOURCE)
+                && !Boolean.FALSE.equals(explicit(annotation, GENERATE_SELECT_SETS));
         boolean singleGroup = Boolean.TRUE.equals(explicit(annotation, SINGLE_GROUP));
         boolean generateChanges = Boolean.TRUE.equals(explicit(annotation, GENERATE_CHANGES));
         boolean generateInserts = Boolean.TRUE.equals(explicit(annotation, GENERATE_INSERTS));
@@ -152,18 +156,37 @@ final class QueryModelReader {
                     child,
                     selected));
         }
+        // A source model's root is an entity: a source reading another source is MQ3038, not a chain of reads
+        // (R-PROC-39), so a source is resolved for a query model alone. An update or insert model writes an entity;
+        // its own checks report a root that is neither.
+        TypeElement rootElement = (TypeElement) rootType.asElement();
+        ModelDefinition source = kind == Kind.QUERY && isSourceModel(rootElement)
+                ? read(rootElement, Kind.SOURCE) : null;
         return new ModelDefinition(
-                type, (TypeElement) rootType.asElement(), prefix + type.getSimpleName() + suffix, selectSets,
-                singleGroup, fields, filterColumns(type), kind, generateChanges, generateInserts, origin);
+                type, rootElement, prefix + type.getSimpleName() + suffix, selectSets,
+                singleGroup, fields, filterColumns(type), kind, generateChanges, generateInserts, origin, source);
     }
 
     /** The annotation a model of {@code kind} carries. */
     static Class<? extends Annotation> annotation(Kind kind) {
         return switch (kind) {
             case QUERY -> QueryModel.class;
+            case SOURCE -> SourceModel.class;
             case UPDATE -> UpdateModel.class;
             case INSERT -> InsertModel.class;
         };
+    }
+
+    /** Whether {@code element} is a source model, which an outer model may name as its {@code root} (R-PROC-39). */
+    static boolean isSourceModel(Element element) {
+        return mirror(element, SourceModel.class) != null;
+    }
+
+    /** Whether {@code element} is a JPA entity, read by name so the processor needs no JPA dependency (INV-7). */
+    static boolean isEntity(Element element) {
+        String entity = "jakarta.persistence.Entity";
+        return element.getAnnotationMirrors().stream().anyMatch(mirror -> ((TypeElement) mirror.getAnnotationType()
+                .asElement()).getQualifiedName().contentEquals(entity));
     }
 
     /** What {@code @Child} says of {@code field}, or {@code null} when it carries none. */

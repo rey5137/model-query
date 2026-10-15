@@ -395,7 +395,38 @@ of the generated `JoinField` and `ChildField` bodies are `@NullUnmarked`, since 
 columns the row may not select. The type arguments of `ColumnField` and the other fields stay unannotated. Off, no
 annotation is added.
 
-## 8. Acceptance criteria
+## 8. Generated source models
+
+**R-GEN-37** *(D-143)* **`source()` and `query(SourceQuery<S>)`.** A source model's QModel declares `ROOT`,
+`ALL`, `DEFAULT`, `GROUP_KEYS` and `KEY` as a query model's does, and `source()` in place of `query()`:
+
+```java
+public static SourceQuery.Builder<OrderEntity, OrderTotals, OrderTotals> source() {
+    return SourceQuery.builder(OrderTotals.class, ROOT, ALL, KEY, GROUP_KEYS);        // no GROUP_KEYS when ungrouped
+}
+```
+
+It declares no `MAPPER`, no `map(Row)` and no write method, since nothing maps a source row and no write reads a
+source. A source model the root names in a `@QueryModel` (R-PROC-39) generates the outer QModel:
+
+```java
+public static final TableField<OrderTotals, OrderTotals> ROOT = TableField.source(OrderTotals.class);
+public static final OrderedColumnField<CustomerTotals, OrderTotals, Long> CUSTOMER_ID =
+        ColumnField.over(CustomerTotals.class, ROOT, QOrderTotals.CUSTOMER_ID).named("customerId");
+
+public static ModelQuery.Builder<OrderTotals, Long, CustomerTotals> query(SourceQuery<OrderTotals> source) {
+    return ModelQuery.builder(ROOT, MAPPER, source).primaryKey(KEY);
+}
+```
+
+An outer column is `ColumnField.over(<outer model>.class, ROOT, <source QModel>.<CONSTANT>)`, which reads the CTE
+column the source constant names and keeps its type and converter; the outer constant is an `OrderedColumnField`
+exactly when the source's is. `ROOT` is a source root, so `TableField.root(...)` is never emitted for it and a
+hand-written `ColumnField.of(...)` over it is `MQ1905` (`api/17` R-SRC-10). An outer model declares no `changes()`,
+`update(...)`, `from(...)` or `delete()`, however its `generateChanges` is set: a write needs an entity root, and the
+source model itself is not writable (R-PROC-39).
+
+## 9. Acceptance criteria
 
 | ID | Criterion |
 |---|---|

@@ -157,6 +157,12 @@ The model-binding annotations (D-134, D-140, D-141, D-142, 0.9.0) are `@Incubati
 `@BindUpdateModels` and `@BindInsertModels`, and the default of `@Computed.value`. Their members and
 the names they generate may change in a minor release.
 
+The source-model members (D-143, D-144, 0.10.0) are `@Incubating` through 1.0: the `@SourceModel` annotation with its
+`root` and its reserved `shape`, `SourceQuery` with its nested `Builder`, `TableField.source`,
+`ColumnField.over`, the three-argument `ModelQuery.builder` and `ModelQuery.source()`, and the
+`source()`/`query(SourceQuery<S>)` members the processor generates. A later release adds the set operations, the
+recursion and the shape to them, which is why they may change in a minor release.
+
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from
 Conventional Commits. A commit that breaks an `@Incubating` type is still marked breaking (`!` and a
