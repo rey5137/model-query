@@ -390,24 +390,35 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         warnOfIgnoredOrder(q, "byKeys(query, keys)");
         Set<Object> requested = new LinkedHashSet<>(converted.values());
         List<Object> distinct = lock.isPresent() ? sortedForLocking(requested) : List.copyOf(requested);
-        int ownBinds = em.createQuery(counted.query()).getParameters().size()
-                + counted.joins().repeatedExpressionBinds();
-        int chunk = keyLimits.clamp(ownBinds, primaryKey.columns().size(), OptionalInt.empty());
+        int keyColumns = primaryKey.columns().size();
+        // The first chunk takes the most keys any statement could and sizes the rest from its own binds, so no
+        // statement is compiled only to be counted (R-EXE-13, R-PAG-07, D-32).
+        int chunk = Math.min(distinct.size(), keyLimits.clamp(0, keyColumns, OptionalInt.empty()));
+        boolean sized = false;
         Map<Object, ReadRow<M>> found = new HashMap<>();
         for (int from = 0; from < distinct.size(); from += chunk) {
             List<Object> chunkKeys = distinct.subList(from, Math.min(distinct.size(), from + chunk));
-            BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL, renderOptions);
-            if (lock.isPresent()) {
-                // The customizer runs again for each chunk and may join only then (R-EXE-14).
-                refuseJoin(q, built, lock, "byKeys(query, keys)");
+            BuiltQuery<M> built = byKeysChunk(q, primaryKey, cb, lock, chunkKeys);
+            TypedQuery<Tuple> statement;
+            if (sized) {
+                statement = create(q, built);
+            } else {
+                sized = true;
+                TypedQuery<Tuple> probe = em.createQuery(built.query());
+                bindValues(probe, built.joins(), built.query().getParameters());
+                int ownBinds = Math.max(0, probe.getParameters().size() + built.joins().repeatedExpressionBinds()
+                        - chunkKeys.size() * keyColumns);
+                int sizedChunk = keyLimits.clamp(ownBinds, keyColumns, OptionalInt.empty());
+                if (chunkKeys.size() <= sizedChunk) {
+                    statement = checked(q, probe, null, null, built.joins());
+                } else {
+                    // More keys than the statement's own binds leave room for: the first chunk is built again, smaller.
+                    chunkKeys = distinct.subList(from, Math.min(distinct.size(), from + sizedChunk));
+                    built = byKeysChunk(q, primaryKey, cb, lock, chunkKeys);
+                    statement = create(q, built);
+                }
+                chunk = sizedChunk;
             }
-            Predicate byKey = primaryKey.in(chunkKeys, built.joins(), cb, false);
-            Predicate own = built.query().getRestriction();
-            built.query().where(own == null ? byKey : cb.and(own, byKey));
-            // A locked chunk is ordered by primary key, so concurrent callers lock in the same order; without a lock
-            // chunks cannot be ordered across statements (R-EXE-13, R-EXE-14).
-            built.query().orderBy(lock.isPresent() ? primaryKeyOrders(primaryKey, built, cb) : List.<Order>of());
-            TypedQuery<Tuple> statement = create(q, built);
             applyLock(lock, q, statement);
             for (Tuple tuple : rows(q, statement)) {
                 Row row = built.selection().row(tuple);
@@ -448,6 +459,23 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             }
         });
         return Collections.unmodifiableMap(result);
+    }
+
+    /** One chunk of {@code byKeys}: the query built again, filtered to {@code chunkKeys}, ordered for a lock (R-EXE-14). */
+    private <M> BuiltQuery<M> byKeysChunk(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> primaryKey, CriteriaBuilder cb,
+            Optional<LockSupport> lock, List<Object> chunkKeys) {
+        BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL, renderOptions);
+        if (lock.isPresent()) {
+            // The customizer runs again for each chunk and may join only then (R-EXE-14).
+            refuseJoin(q, built, lock, "byKeys(query, keys)");
+        }
+        Predicate byKey = primaryKey.in(chunkKeys, built.joins(), cb, false);
+        Predicate own = built.query().getRestriction();
+        built.query().where(own == null ? byKey : cb.and(own, byKey));
+        // A locked chunk is ordered by primary key, so concurrent callers lock in the same order; without a lock
+        // chunks cannot be ordered across statements (R-EXE-13, R-EXE-14).
+        built.query().orderBy(lock.isPresent() ? primaryKeyOrders(primaryKey, built, cb) : List.<Order>of());
+        return built;
     }
 
     /**
@@ -703,6 +731,16 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             Object[] cursor, JoinContext joins) {
         TypedQuery<T> typed = on.createQuery(query);
         bindValues(typed, joins, query.getParameters());
+        return checked(label, typed, keyset, cursor, joins);
+    }
+
+    /**
+     * {@code typed}, already compiled and bound, once it is within the bind limit, with the timeout applied: the checks
+     * of {@link #create(Object, EntityManager, CriteriaQuery, Keyset, Object[], JoinContext)} on a statement compiled
+     * before them.
+     */
+    private <T> TypedQuery<T> checked(Object label, TypedQuery<T> typed, Keyset<?> keyset, Object[] cursor,
+            JoinContext joins) {
         int binds = typed.getParameters().size() + (joins == null ? 0 : joins.repeatedExpressionBinds());
         int cursorBinds = keyset == null || cursor == null ? 0 : keyset.cursorBinds(cursor);
         if (keyset != null) {
@@ -2871,20 +2909,38 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             List<Object> keys) {
         checkFirstRun(q);
         CriteriaBuilder cb = em.getCriteriaBuilder();
-        int ownBinds = childOwnBinds(load, load.build(cb, renderOptions));
-        int round = keyLimits.clamp(ownBinds, 1, OptionalInt.empty());
-        LOG.log(DEBUG, () -> "child " + load + ": " + keys.size() + (keys.size() == 1 ? " key" : " keys") + " in "
-                + ((keys.size() - 1) / round + 1) + " round(s)");
+        // The first round takes the most keys any statement could and sizes the rest from its own binds, so no
+        // statement is compiled only to be counted (R-PAG-07, D-32).
+        int round = Math.min(keys.size(), keyLimits.clamp(0, 1, OptionalInt.empty()));
+        boolean sized = false;
         List<Loaded<C>> loaded = new ArrayList<>();
         List<Object> parents = new ArrayList<>();
         for (int from = 0; from < keys.size(); from += round) {
             List<Object> roundKeys = keys.subList(from, Math.min(keys.size(), from + round));
-            BuiltQuery<C> built = load.build(cb, renderOptions);
-            Predicate byKey = load.key(built).in(roundKeys);
-            Predicate own = built.query().getRestriction();
-            built.query().where(own == null ? byKey : cb.and(own, byKey));
-            appendStableOrder(q, built);
-            TypedQuery<Tuple> query = create(load, built);
+            BuiltQuery<C> built = childRound(load, q, cb, roundKeys);
+            TypedQuery<Tuple> query;
+            if (sized) {
+                query = create(load, built);
+            } else {
+                sized = true;
+                TypedQuery<Tuple> probe = em.createQuery(built.query());
+                bindValues(probe, built.joins(), built.query().getParameters());
+                int ownBinds = Math.max(0, probe.getParameters().size() + built.joins().repeatedExpressionBinds()
+                        + (load.maxPerParent() > 0 ? 1 : 0) - roundKeys.size());
+                int sizedRound = keyLimits.clamp(ownBinds, 1, OptionalInt.empty());
+                // Logged before the statement is checked, so a refusal still follows its line.
+                LOG.log(DEBUG, () -> "child " + load + ": " + keys.size() + (keys.size() == 1 ? " key" : " keys")
+                        + " in " + ((keys.size() - 1) / sizedRound + 1) + " round(s)");
+                if (roundKeys.size() <= sizedRound) {
+                    query = checked(load, probe, null, null, built.joins());
+                } else {
+                    // More keys than the statement's own binds leave room for: the first round is built again, smaller.
+                    roundKeys = keys.subList(from, Math.min(keys.size(), from + sizedRound));
+                    built = childRound(load, q, cb, roundKeys);
+                    query = create(load, built);
+                }
+                round = sizedRound;
+            }
             long cap = (long) roundKeys.size() * load.maxPerParent() + 1;
             if (load.maxPerParent() > 0) {
                 query.setMaxResults((int) Math.min(cap, Integer.MAX_VALUE));
@@ -2929,6 +2985,17 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             grouped.computeIfAbsent(parents.get(i), k -> new ArrayList<>()).add(children.get(i));
         }
         return grouped;
+    }
+
+    /** One round of {@link #childrenOf}: {@code load}'s statement built again, filtered to {@code roundKeys} (R-FCH-04). */
+    private <C> BuiltQuery<C> childRound(ChildLoad<?, C> load, ModelQuery<?, ?, C> q, CriteriaBuilder cb,
+            List<Object> roundKeys) {
+        BuiltQuery<C> built = load.build(cb, renderOptions);
+        Predicate byKey = load.key(built).in(roundKeys);
+        Predicate own = built.query().getRestriction();
+        built.query().where(own == null ? byKey : cb.and(own, byKey));
+        appendStableOrder(q, built);
+        return built;
     }
 
     /**
