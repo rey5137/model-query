@@ -5,6 +5,7 @@ import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Selection;
@@ -190,7 +191,8 @@ public final class SourceQuery<S> {
     /**
      * The source's CTE body: a standard {@code CriteriaQuery<Tuple>} selecting every field of {@link #fields()},
      * aliased to the field name the outer model reads it by, filtered by {@link #where()} and {@link #having()} and
-     * grouped by {@link #groupKeys()} (R-SRC-12, D-143). Built per statement, since it is registered on each
+     * grouped by {@link #groupKeys()} (R-SRC-12, D-143). A {@link WindowField} renders through {@code renderer}, its
+     * key appended first when it is order-sensitive (R-SRC-04). Built per statement, since it is registered on each
      * statement that reads the source.
      *
      * @throws ModelQueryDefinitionException {@code MQ1906} when a {@code where} predicate's path crosses a to-many
@@ -198,13 +200,13 @@ public final class SourceQuery<S> {
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
     @EngineFacing
-    CriteriaQuery<Tuple> body(CriteriaBuilder cb, RenderOptions options) {
+    CriteriaQuery<Tuple> body(CriteriaBuilder cb, RenderOptions options, SourceRenderer renderer) {
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root from = query.from(root.rootEntity());
         JoinContext joins = JoinContext.readOf(from, cb, query, options);
         List<Selection<?>> selections = new ArrayList<>(fields.fields().size());
         for (SelectField<?, ?> field : fields.fields()) {
-            selections.add(field.expression(joins).alias(alias(field)));
+            selections.add(expression(cb, joins, renderer, field).alias(alias(field)));
         }
         query.multiselect(selections);
         if (groupKeys != null && !groupKeys.fields().isEmpty()) {
@@ -230,14 +232,45 @@ public final class SourceQuery<S> {
     }
 
     /**
+     * The CTE column of {@code field}: its own expression, or, for a {@link WindowField}, the {@code OVER (...)}
+     * clause rendered by {@code renderer} with the source key appended first when the window is order-sensitive
+     * (R-SRC-04, R-GEN-38).
+     */
+    private Expression<?> expression(CriteriaBuilder cb, JoinContext joins, SourceRenderer renderer,
+            SelectField<?, ?> field) {
+        if (!(field instanceof WindowField<?, ?> window)) {
+            return field.expression(joins);
+        }
+        WindowSpec spec = window.spec(joins);
+        return renderer.window(cb, spec.orderSensitive() ? spec.withOrder(keyOrders(cb, joins, window)) : spec);
+    }
+
+    /**
+     * The source key's columns, ascending, as the last order terms of an order-sensitive window (R-SRC-04). The key
+     * is the root id for an ungrouped source and the group keys for a grouped one (R-SRC-02); a key column the window
+     * already orders by is skipped, so no column is repeated.
+     */
+    private List<Order> keyOrders(CriteriaBuilder cb, JoinContext joins, WindowField<?, ?> window) {
+        List<? extends SelectField<?, ?>> ordered = window.orderedColumns();
+        var orders = new ArrayList<Order>(key.columns().size());
+        for (ColumnField<?, ?, ?> keyColumn : key.columns()) {
+            if (!ordered.contains(keyColumn)) {
+                orders.add(cb.asc(keyColumn.expression(joins)));
+            }
+        }
+        return orders;
+    }
+
+    /**
      * The name {@code field} is aliased by in the CTE, which the outer column reads it by: its property, as the
-     * source's QModel sets it with {@code named} (R-SRC-10, R-GEN-37).
+     * source's QModel sets it with {@code named} (R-SRC-10, R-GEN-37, R-GEN-38).
      */
     private static String alias(SelectField<?, ?> field) {
         Optional<String> property = field instanceof ColumnField<?, ?, ?> column ? column.property()
                 : field instanceof ExpressionField<?, ?> expression ? expression.property()
                         : field instanceof AggregateField<?, ?> aggregate ? aggregate.property()
-                                : Optional.empty();
+                                : field instanceof WindowField<?, ?> window ? window.property()
+                                        : Optional.empty();
         return property.orElseThrow(() -> new ModelQueryDefinitionException(MqCode.MQ1905,
                 "a source's field " + field.name() + " has no property to alias its CTE column by; a generated "
                         + "source constant is aliased by named(...)"));

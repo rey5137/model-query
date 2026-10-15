@@ -53,8 +53,8 @@ class AnnotationsModuleTest {
                 .contains(QueryModel.class, UpdateModel.class, InsertModel.class, FilterColumns.class, Transient.class,
                         Incubating.class, Computed.class, Selected.class, BindQueryModel.class, BindQueryModels.class,
                         BindUpdateModel.class, BindUpdateModels.class, BindInsertModel.class, BindInsertModels.class,
-                        BindExpression.class, SourceModel.class)
-                .hasSize(25);
+                        BindExpression.class, SourceModel.class, Window.class)
+                .hasSize(26);
         assertThat(types).allSatisfy(type -> assertThat(type.getAnnotation(Retention.class))
                 .as("@Retention of %s", type.getSimpleName())
                 .isNotNull()

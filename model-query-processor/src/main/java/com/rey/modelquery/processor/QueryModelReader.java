@@ -17,12 +17,15 @@ import com.rey.modelquery.annotations.Selected;
 import com.rey.modelquery.annotations.SourceModel;
 import com.rey.modelquery.annotations.Transient;
 import com.rey.modelquery.annotations.UpdateModel;
+import com.rey.modelquery.annotations.Window;
 import com.rey.modelquery.processor.ModelDefinition.AggregateDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ChildDefinition;
 import com.rey.modelquery.processor.ModelDefinition.FilterColumnDefinition;
 import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
 import com.rey.modelquery.processor.ModelDefinition.Kind;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
+import com.rey.modelquery.processor.ModelDefinition.WindowDefinition;
+import com.rey.modelquery.processor.ModelDefinition.WindowOrder;
 import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -140,10 +143,11 @@ final class QueryModelReader {
             // A @Computed field is no column: its constant is an ExpressionField, emitted after every column (R-GEN-27).
             TypeMirror definition = computed ? computed(field, expression) : null;
             boolean selected = field.getAnnotation(Selected.class) != null;
+            WindowDefinition window = child == null ? window(field) : null;
             fields.add(new ModelField(
                     field,
                     definition == null && field.getAnnotation(Transient.class) == null && join == null
-                            && aggregate == null && child == null && !selected,
+                            && aggregate == null && window == null && child == null && !selected,
                     column == null || column.attribute().isEmpty() ? name : column.attribute(),
                     constantName(name),
                     field.getAnnotation(PrimaryKey.class) != null,
@@ -152,6 +156,7 @@ final class QueryModelReader {
                     definition,
                     join,
                     aggregate,
+                    window,
                     child == null && field.getAnnotation(GroupBy.class) != null,
                     child,
                     selected));
@@ -165,6 +170,50 @@ final class QueryModelReader {
         return new ModelDefinition(
                 type, rootElement, prefix + type.getSimpleName() + suffix, selectSets,
                 singleGroup, fields, filterColumns(type), kind, generateChanges, generateInserts, origin, source);
+    }
+
+    /**
+     * What {@code @Window} says of {@code field}, or {@code null} when it carries none. The function and frame are
+     * read as their constant names; {@code orderBy} entries are split into a path and a direction.
+     */
+    private static WindowDefinition window(VariableElement field) {
+        AnnotationMirror mirror = mirror(field, Window.class);
+        if (mirror == null) {
+            return null;
+        }
+        String argument = explicit(mirror, "argument") instanceof String written ? written : "";
+        return new WindowDefinition(
+                explicit(mirror, "function") instanceof Element function ? function.getSimpleName().toString() : "",
+                argument,
+                strings(mirror, "partitionBy"),
+                orders(strings(mirror, "orderBy")),
+                explicit(mirror, "frame") instanceof Element frame ? frame.getSimpleName().toString() : "NONE");
+    }
+
+    /** The strings of a {@code String[]} annotation member, in order; empty when it was left at its default. */
+    private static List<String> strings(AnnotationMirror mirror, String member) {
+        if (!(explicit(mirror, member) instanceof List<?> values)) {
+            return List.of();
+        }
+        var result = new ArrayList<String>(values.size());
+        for (Object value : values) {
+            result.add((String) ((AnnotationValue) value).getValue());
+        }
+        return result;
+    }
+
+    /** An {@code orderBy} entry, {@code "path"}, {@code "path asc"} or {@code "path desc"}, split into path and
+     * direction; ascending by default. */
+    private static List<WindowOrder> orders(List<String> entries) {
+        var result = new ArrayList<WindowOrder>(entries.size());
+        for (String entry : entries) {
+            String trimmed = entry.trim();
+            boolean descending = trimmed.endsWith(" desc");
+            String path = trimmed.endsWith(" asc") ? trimmed.substring(0, trimmed.length() - 4)
+                    : descending ? trimmed.substring(0, trimmed.length() - 5) : trimmed;
+            result.add(new WindowOrder(path.trim(), !descending));
+        }
+        return result;
     }
 
     /** The annotation a model of {@code kind} carries. */

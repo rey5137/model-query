@@ -532,7 +532,7 @@ public final class ModelQuery<E, K, M> {
                         + ": this query reads the source " + source.model().getSimpleName()
                         + ", and the factory's persistence provider has no SourceSupport "
                         + "(ProviderSupport#sources()); model-query-hibernate serves Hibernate"));
-        return JoinContext.sourceOf(renderer.cte(query, source.body(cb, options)), source.model(), cb, query,
+        return JoinContext.sourceOf(renderer.cte(query, source.body(cb, options, renderer)), source.model(), cb, query,
                 options);
     }
 

@@ -15,6 +15,8 @@ import com.rey.modelquery.processor.ModelDefinition.AggregateDefinition;
 import com.rey.modelquery.processor.ModelDefinition.FilterColumnDefinition;
 import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
+import com.rey.modelquery.processor.ModelDefinition.WindowDefinition;
+import com.rey.modelquery.processor.ModelDefinition.WindowOrder;
 import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -77,6 +79,12 @@ final class ModelValidator {
     private static final Set<String> SUMMABLE = Set.of("java.math.BigDecimal", DOUBLE, LONG);
     /** What {@code Agg.sumAsLong} sums; the database returns a {@code Long} (api/13 R-AGG-03). */
     private static final Set<String> INTEGRAL = Set.of("java.lang.Integer", "java.lang.Short", "java.lang.Byte");
+
+    /** The window functions that take no argument, whose result is a {@code Long} (R-PROC-36). */
+    private static final Set<String> WINDOW_RANKING = Set.of("ROW_NUMBER", "RANK", "DENSE_RANK");
+
+    /** The window functions that aggregate a value; every other one orders the window and needs an {@code orderBy}. */
+    private static final Set<String> WINDOW_AGGREGATES = Set.of("SUM", "AVG", "MIN", "MAX", "COUNT");
 
     private static final String LOMBOK_NO_ARGS = "lombok.NoArgsConstructor";
 
@@ -184,7 +192,7 @@ final class ModelValidator {
         // Only an ungrouped query always selects the key: a grouped one selects it like any other column (D-49).
         boolean ungrouped = model.aggregates().isEmpty() && model.groupKeys().isEmpty();
         for (ModelField field : model.fields()) {
-            if (!field.column() && field.aggregate() == null && !field.computed()) {
+            if (!field.column() && field.aggregate() == null && !field.computed() && !field.windowed()) {
                 continue;
             }
             String where = model.name() + "." + field.name() + ": ";
@@ -194,6 +202,16 @@ final class ModelValidator {
             }
             if (model.readModel() && field.computed()) {
                 checkComputed(model, field, where, diagnostics);
+            }
+            // A window function is only valid over a source model: SQL forbids one in WHERE, and a keyset predicate
+            // is a WHERE, so an outer model reads the value as a plain column (R-PROC-36).
+            if (field.windowed()) {
+                if (model.sourceModel()) {
+                    checkWindow(model, field, where, diagnostics);
+                } else {
+                    diagnostics.error(field.element(), DiagnosticCode.MQ3033,
+                            where + "@Window is only allowed on a @SourceModel");
+                }
             }
             if (field.column()) {
                 checkAttribute(model, field, where, diagnostics);
@@ -376,6 +394,155 @@ final class ModelValidator {
         } else if (!types.isSameType(boxed(field.type()), boxed(source.type()))) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3002, where + "model type " + display(field.type())
                     + ", the source's " + source.name() + " is " + display(source.type()));
+        }
+    }
+
+    /**
+     * {@code MQ3032} for a {@code @Window} that is not well written (R-PROC-36): a term that names no attribute of
+     * the root (an {@code @Aggregate} field or a group key in a grouped source), an argument where the function takes
+     * none or none where it needs one, a field type that is not the function's result type (INV-3), an
+     * order-sensitive function without {@code orderBy}, a missing frame, a {@code RANGE} frame on
+     * {@code FIRST_VALUE} or {@code LAST_VALUE}, or a frame on a function that takes none.
+     */
+    private void checkWindow(ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
+        WindowDefinition window = field.window();
+        String fn = window.function();
+        boolean aggregate = WINDOW_AGGREGATES.contains(fn);
+        boolean ranking = WINDOW_RANKING.contains(fn);
+        boolean hasFrame = !window.frame().equals("NONE");
+
+        // Condition 2: an argument exactly where one is needed.
+        if (ranking && !window.argument().isEmpty()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032,
+                    where + fn + " takes no argument; drop argument");
+        } else if (!ranking && window.argument().isEmpty()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032,
+                    where + fn + " needs an argument; write @Window(argument = \"...\")");
+        }
+
+        // Conditions 1 and 8: every term names an attribute, or an aggregate field or group key of a grouped source.
+        boolean grouped = !model.groupKeys().isEmpty();
+        TypeMirror argumentType = null;
+        if (!window.argument().isEmpty()) {
+            argumentType = windowTerm(model, grouped, window.argument(), "argument", field, where, diagnostics);
+        }
+        for (String path : window.partitionBy()) {
+            windowTerm(model, grouped, path, "partitionBy", field, where, diagnostics);
+        }
+        for (WindowOrder order : window.orderBy()) {
+            windowTerm(model, grouped, order.path(), "orderBy", field, where, diagnostics);
+        }
+
+        // Condition 4: a function that orders the window, or an aggregate over a ROWS frame, must say how.
+        if ((!aggregate || window.frame().startsWith("ROWS_")) && window.orderBy().isEmpty()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032,
+                    where + fn + " is order-sensitive; add orderBy");
+        }
+
+        // Condition 5: FIRST_VALUE, LAST_VALUE and an ordered aggregate need an explicit frame.
+        if (!hasFrame && (fn.equals("FIRST_VALUE") || fn.equals("LAST_VALUE")
+                || aggregate && !window.orderBy().isEmpty())) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032, where + fn
+                    + " needs an explicit frame; with the database's default frame "
+                    + (fn.equals("LAST_VALUE") ? "LAST_VALUE returns the current row" : "the window is unspecified"));
+        }
+
+        // Condition 6: a RANGE frame would make every row its own peer group for a value function.
+        if (window.frame().startsWith("RANGE_") && (fn.equals("FIRST_VALUE") || fn.equals("LAST_VALUE"))) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032,
+                    where + fn + " takes only a ROWS frame; a RANGE frame would make every row its own peer group");
+        }
+
+        // Condition 7: ranking functions and LAG/LEAD take no frame, which the database ignores or rejects.
+        if (hasFrame && (ranking || fn.equals("LAG") || fn.equals("LEAD"))) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032,
+                    where + fn + " takes no frame; drop frame");
+        }
+
+        // Condition 3: the field's type is the function's result type, which a ranking function's does not depend on
+        // its argument; an argument that names nothing, or is missing, is reported above.
+        if (argumentType != null || ranking) {
+            checkWindowType(fn, argumentType, field, where, diagnostics);
+        }
+    }
+
+    /**
+     * The type of a window term: its attribute's type, or an {@code @Aggregate} field's type in a grouped source.
+     * {@code MQ3032} when it names no attribute of the root, is an association, or in a grouped source is neither a
+     * group key nor an aggregate (R-PROC-36).
+     */
+    private TypeMirror windowTerm(ModelDefinition model, boolean grouped, String term, String kind, ModelField field,
+            String where, Diagnostics diagnostics) {
+        if (grouped) {
+            ModelField aggregate = model.aggregates().stream()
+                    .filter(each -> each.name().equals(term)).findFirst().orElse(null);
+            if (aggregate != null) {
+                return boxed(aggregate.type());
+            }
+            ModelField groupKey = model.groupKeys().stream()
+                    .filter(each -> each.attribute().equals(term)).findFirst().orElse(null);
+            if (groupKey != null) {
+                return boxed(groupKey.type());
+            }
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032, where + kind + " '" + term
+                    + "' is neither a group key nor an @Aggregate of this grouped source; name one of GROUP_KEYS or "
+                    + "an aggregate field");
+            return null;
+        }
+        Resolution resolution = metamodel.resolve(model.root(), term);
+        if (resolution.attribute() == null) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032,
+                    where + kind + " '" + term + "': " + resolution.problem());
+            return null;
+        }
+        EntityAttribute attribute = resolution.attribute();
+        if (attribute.kind() == EntityAttribute.Kind.TO_ONE || attribute.kind() == EntityAttribute.Kind.COLLECTION) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032, where + kind + " '" + term
+                    + "' is an association on " + model.root().getSimpleName()
+                    + "; a window term is a basic attribute");
+            return null;
+        }
+        return boxed(attribute.type());
+    }
+
+    /**
+     * {@code MQ3032} when {@code field}'s type is not {@code fn}'s result type over {@code argumentType} (INV-3):
+     * {@code Long} for a ranking function or {@code COUNT}, the argument's type for {@code LAG}, {@code LEAD},
+     * {@code FIRST_VALUE}, {@code LAST_VALUE}, {@code MIN} and {@code MAX}, and the rule {@code @Aggregate}'s
+     * {@code SUM} and {@code AVG} use for those two (R-PROC-36).
+     */
+    private void checkWindowType(String fn, TypeMirror argumentType, ModelField field, String where,
+            Diagnostics diagnostics) {
+        // Only a ranking function reaches this without an argument: it returns Long whatever it reads.
+        String expected;
+        switch (fn) {
+            case "ROW_NUMBER", "RANK", "DENSE_RANK", "COUNT" -> expected = LONG;
+            case "SUM" -> {
+                if (isOneOf(argumentType, SUMMABLE)) {
+                    expected = qualified(argumentType);
+                } else if (isOneOf(argumentType, INTEGRAL)) {
+                    expected = LONG;
+                } else {
+                    diagnostics.error(field.element(), DiagnosticCode.MQ3032, where + "SUM over "
+                            + display(argumentType) + " is not supported; it sums BigDecimal, Double, Long, Integer, "
+                            + "Short and Byte");
+                    return;
+                }
+            }
+            case "AVG" -> {
+                if (isSubtypeOf(argumentType, NUMBER)) {
+                    expected = DOUBLE;
+                } else {
+                    diagnostics.error(field.element(), DiagnosticCode.MQ3032, where + "AVG over "
+                            + display(argumentType) + " is not supported; it averages a numeric attribute");
+                    return;
+                }
+            }
+            default -> expected = qualified(argumentType);
+        }
+        if (!qualified(boxed(field.type())).equals(expected)) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032,
+                    where + fn + " returns " + simpleName(expected) + ", field is " + display(boxed(field.type())));
         }
     }
 

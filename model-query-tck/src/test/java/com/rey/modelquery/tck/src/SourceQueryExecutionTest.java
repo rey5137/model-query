@@ -40,6 +40,7 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
 
@@ -279,12 +280,39 @@ class SourceQueryExecutionTest {
         assertThat(sql).isEmpty();
     }
 
+    @TckTest
+    void ac_src_16_a_vendor_without_the_window_feature_is_mq4015_before_any_statement(TckDatabase db) {
+        var feed = QWindowFeed.query(QWindowSource.source().build()).select(QWindowFeed.ALL)
+                .orderBy(QWindowFeed.ID.asc()).build();
+        var config = ModelQueryConfig.defaults()
+                .vendorProfiles(List.of(withoutSourceFeature(db, SourceFeature.WINDOW)));
+        List<String> sql = SqlSnapshots.capture(db, ds -> assertThatThrownBy(() -> withExecutor(ds, WindowSource.class,
+                config, executor -> executor.list(feed, Limit.of(10))))
+                .isInstanceOfSatisfying(ModelQueryConfigurationException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ4015))
+                .hasMessageContaining("SourceFeature.WINDOW"));
+
+        assertThat(sql).isEmpty();
+    }
+
     /**
-     * {@code db}'s profile with the source feature refused, as one written before the constant was added: it answers
-     * {@code sources(...)} with {@code false} and delegates the interface's abstract methods, every optional hook
-     * being the interface's default (R-VND-21, R-SRC-11).
+     * {@code db}'s profile with every source feature refused, as one written before the constants were added: it
+     * answers {@code sources(...)} with {@code false} and delegates the interface's abstract methods, every optional
+     * hook being the interface's default (R-VND-21, R-SRC-11).
      */
     private static VendorProfile withoutSources(TckDatabase db) {
+        return sources(db, feature -> false);
+    }
+
+    /**
+     * {@code db}'s profile refusing {@code refused} alone, as one written when only the other constants existed: the
+     * registration of the CTE succeeds and the feature the profile does not know fails safe (R-VND-21, R-SRC-11).
+     */
+    private static VendorProfile withoutSourceFeature(TckDatabase db, SourceFeature refused) {
+        return sources(db, feature -> feature != refused);
+    }
+
+    private static VendorProfile sources(TckDatabase db, Predicate<SourceFeature> answer) {
         VendorProfile delegate = FetchTestSupport.profile(db);
         return new VendorProfile() {
             @Override
@@ -314,7 +342,7 @@ class SourceQueryExecutionTest {
 
             @Override
             public boolean sources(SourceFeature feature) {
-                return false;
+                return answer.test(feature);
             }
         };
     }

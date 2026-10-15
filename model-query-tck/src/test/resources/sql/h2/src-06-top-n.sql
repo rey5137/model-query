@@ -1,0 +1,1 @@
+select cte01_0.id,cte01_0.sortInt,cte01_0.sortTs,cte01_0.ranking from (select nse1_0.id,nse1_0.sort_int,nse1_0.sort_ts,row_number() over(partition by nse1_0.sort_int order by nse1_0.sort_ts desc,nse1_0.id) from nullable_sort_rows nse1_0 where nse1_0.sort_int is not null and nse1_0.sort_ts is not null) cte01_0(id,sortInt,sortTs,ranking) where cte01_0.ranking<=? order by 2,4

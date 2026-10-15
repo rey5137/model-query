@@ -236,12 +236,14 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
 
     /**
      * The CTE column {@code field} reads, which the source aliases it by: its property as the source's QModel sets it
-     * with {@code named} (R-SRC-10).
+     * with {@code named} (R-SRC-10). A window field is read as an ordinary column, by its name (R-GEN-38).
      */
     private static String aliasOf(SelectField<?, ?> field, TableField<?, ?> root) {
         Optional<String> property = field instanceof ColumnField<?, ?, ?> column ? column.property()
                 : field instanceof ExpressionField<?, ?> expression ? expression.property()
-                        : field instanceof AggregateField<?, ?> aggregate ? aggregate.property() : Optional.empty();
+                        : field instanceof AggregateField<?, ?> aggregate ? aggregate.property()
+                                : field instanceof WindowField<?, ?> window ? window.property()
+                                        : Optional.empty();
         return property.orElseThrow(() -> new ModelQueryDefinitionException(MqCode.MQ1905,
                 "over(...) takes a generated constant of a source model; " + field.name() + " on " + root.describe()
                         + " has no property to alias the CTE column by"));

@@ -39,6 +39,8 @@ import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.core.ValuesInsert;
+import com.rey.modelquery.core.SourceRenderer;
+import com.rey.modelquery.core.WindowSpec;
 import com.rey.modelquery.jpa.spi.ConflictClause;
 import com.rey.modelquery.jpa.spi.EntityWriteSupport;
 import com.rey.modelquery.jpa.spi.InsertSupport;
@@ -258,25 +260,40 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     }
 
     /**
-     * {@code options} with the factory's CTE support for a query rooted at a source, when its provider has one: every
-     * statement built over a source then registers the source's own CTE on itself (R-SRC-12). A target whose vendor
-     * lacks {@link SourceFeature#CTE} gets a renderer that refuses the query with {@code MQ4015} as it is built, and a
-     * provider with no {@link SourceSupport} leaves the options without one, which {@code core} refuses with
-     * {@code MQ4014}; both are before any statement (R-SRC-11, D-143).
+     * {@code options} with the factory's CTE and window support for a query rooted at a source, when its provider has
+     * one: every statement built over a source then registers the source's own CTE on itself (R-SRC-12) and renders
+     * its windows (R-SRC-04). A target whose vendor lacks {@link SourceFeature#CTE} or {@link SourceFeature#WINDOW}
+     * gets a renderer that refuses the query with {@code MQ4015} as it is built, and a provider with no
+     * {@link SourceSupport} leaves the options without one, which {@code core} refuses with {@code MQ4014}; both are
+     * before any statement (R-SRC-11, D-143).
      */
     private RenderOptions sources(RenderOptions options) {
         Optional<SourceSupport> support = vendor.providerSupport().flatMap(ProviderSupport::sources);
         if (support.isEmpty()) {
             return options;
         }
-        if (!vendor.profile().sources(SourceFeature.CTE)) {
-            return options.withSourceRenderer((outer, body) -> {
-                throw new ModelQueryConfigurationException(MqCode.MQ4015, rootEntity.getSimpleName()
-                        + ": this query reads a source, and " + vendor.detectedVendor()
-                        + " has no CTE support (VendorProfile#sources(SourceFeature.CTE))");
-            });
-        }
-        return options.withSourceRenderer(support.get()::cte);
+        SourceSupport renderer = support.get();
+        return options.withSourceRenderer(new SourceRenderer() {
+            @Override
+            public Root<Tuple> cte(CriteriaQuery<?> outer, CriteriaQuery<Tuple> body) {
+                if (!vendor.profile().sources(SourceFeature.CTE)) {
+                    throw new ModelQueryConfigurationException(MqCode.MQ4015, rootEntity.getSimpleName()
+                            + ": this query reads a source, and " + vendor.detectedVendor()
+                            + " has no CTE support (VendorProfile#sources(SourceFeature.CTE))");
+                }
+                return renderer.cte(outer, body);
+            }
+
+            @Override
+            public Expression<?> window(CriteriaBuilder cb, WindowSpec spec) {
+                if (!vendor.profile().sources(SourceFeature.WINDOW)) {
+                    throw new ModelQueryConfigurationException(MqCode.MQ4015, rootEntity.getSimpleName()
+                            + ": this source uses a window field, and " + vendor.detectedVendor()
+                            + " has no window support (VendorProfile#sources(SourceFeature.WINDOW))");
+                }
+                return renderer.window(cb, spec);
+            }
+        });
     }
 
     @Override

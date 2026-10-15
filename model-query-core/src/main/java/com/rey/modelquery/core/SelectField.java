@@ -6,14 +6,15 @@ import jakarta.persistence.criteria.Expression;
 /**
  * Anything a query can select, order by or read back from a row: a {@link ScalarField} (a {@link ColumnField} or an
  * {@link ExpressionField}) or an {@link AggregateField}. Predicates in {@code WHERE} take a {@code ScalarField} only,
- * so an aggregate there does not compile (R-COL-06).
+ * so an aggregate there does not compile (R-COL-06). A {@link WindowField} is a source's window value: it is selected
+ * only by the source's CTE body, and neither {@code where} nor {@code having} accepts it (R-GEN-38).
  *
  * @param <M> the model the selection belongs to
  * @param <C> the selected value's Java type
- * @implSpec R-COL-06, R-COL-16, D-3
+ * @implSpec R-COL-06, R-COL-16, R-GEN-38, D-3
  */
 @Incubating
-public sealed interface SelectField<M, C> permits ScalarField, AggregateField {
+public sealed interface SelectField<M, C> permits ScalarField, AggregateField, WindowField {
 
     /** The Java type of the selected value. */
     Class<C> type();

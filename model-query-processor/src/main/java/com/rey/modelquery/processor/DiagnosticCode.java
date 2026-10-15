@@ -113,6 +113,13 @@ enum DiagnosticCode {
      * to-many read. */
     MQ3031("Source model key is not the root id or the full non-nullable group set"),
 
+    /** A {@code @Window} is not well written: a bad path or type, no {@code orderBy} where one is needed, a missing
+     * or misplaced {@code frame}, or a grouped-source term that is neither a group key nor an aggregate. */
+    MQ3032("@Window is not well written"),
+
+    /** {@code @Window} on a model that is not a {@code @SourceModel}. */
+    MQ3033("@Window is only allowed on a @SourceModel"),
+
     /** {@code @Join} on a model rooted at a source, which has no associations. */
     MQ3035("@Join on a model rooted at a source"),
 

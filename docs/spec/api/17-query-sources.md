@@ -4,8 +4,9 @@
 `@QueryModel` that reads a source.
 **Read when:** declaring a source model, reading one from an outer model, or changing what the processor generates for
 either. Windows, set operations and recursion are RFC 0013 §3–§6 and later releases.
-**Owns:** `R-SRC-*`, `AC-SRC-*`. Rows `R-SRC-04`..`R-SRC-09` land with the slices that implement them
-(M25.3–M25.5); the run-time half of `R-SRC-03` and all of `R-SRC-11`..`R-SRC-12` land with M25.2.
+**Owns:** `R-SRC-*`, `AC-SRC-*`. Rows `R-SRC-05`..`R-SRC-09` land with the slices that implement them
+(M25.4–M25.5); `R-SRC-04` lands with M25.3; the run-time half of `R-SRC-03` and all of `R-SRC-11`..`R-SRC-12` land with
+M25.2.
 
 ---
 
@@ -129,7 +130,43 @@ public static ModelQuery.Builder<OrderTotals, Long, CustomerTotals> query(Source
 A grouped outer model over a source follows `api/13` as an entity-rooted one does; an ungrouped outer model over a
 grouped source is the way to page groups by keyset.
 
-## 4. Building the CTE, and what a source needs to run
+## 4. Window fields
+
+```java
+@SourceModel(root = OrderEntity.class)
+public record RankedOrder(
+        @PrimaryKey Long id,                                              // the source's key, as ever
+        String customer,
+        @Window(function = WindowFunction.ROW_NUMBER, partitionBy = "customer",
+                orderBy = "createdAt desc") Long rank,                    // one row per order, ranked within its customer
+        @Window(function = WindowFunction.SUM, argument = "total", orderBy = "createdAt",
+                frame = WindowFrame.ROWS_UNBOUNDED_PRECEDING_TO_CURRENT_ROW) BigDecimal running) {}
+```
+
+**R-SRC-04** A `@Window` field of a source is a window function over the source's rows, rendered in the source's CTE
+so an outer model reads its value as a plain column (R-GEN-38, R-PROC-36):
+
+- **The value.** The field's type is the function's result type (INV-3): `Long` for `ROW_NUMBER`, `RANK`, `DENSE_RANK`
+  and `COUNT`; the argument's own type for `LAG`, `LEAD`, `FIRST_VALUE`, `LAST_VALUE`, `MIN` and `MAX`; `SUM`'s and
+  `AVG`'s rule as `@Aggregate` states it. `LAG` and `LEAD` read one row back and forward: there is no offset to write.
+- **The determinism.** A window whose value depends on the order of rows it cannot tie is order-sensitive:
+  `ROW_NUMBER`, `LAG`, `LEAD`, `FIRST_VALUE`, `LAST_VALUE`, and an aggregate under a `ROWS` frame. The engine appends
+  the source key's columns, ascending, after the window's own `orderBy`, so every run of the same source gives a row the
+  same value (R-SRC-02); a key column the window already orders by is not repeated. `RANK` and `DENSE_RANK` count peers,
+  and an aggregate under a `RANGE` frame or no frame reads its whole partition, so their order is left as written: a key
+  appended to `RANK` would turn it into `ROW_NUMBER`.
+- **The frame.** `WindowFrame` writes one of the three `ROWS` frames or the two `RANGE` frames, or `NONE` for the
+  database's default. The frame is rendered **only** for a function that takes one: `ROW_NUMBER`, `RANK`, `DENSE_RANK`,
+  `LAG` and `LEAD` take none, and H2 rejects one, so `MQ3032` refuses it as well.
+- **The group.** In a grouped source a window term names a `@GroupBy` key or an `@Aggregate` field, and an aggregate
+  term renders that aggregate's own expression, so a source can rank its groups (`rank() over (order by sum(total))`).
+  A window is a select item of the CTE: `where` and `having` do not accept one, since SQL forbids a window function in
+  a predicate (R-GEN-38).
+- **The provider.** The engine reaches the provider only through `SourceSupport#window(cb, spec)`, the second hook
+  beside `cte` (R-SRC-12), so no provider type leaks into `jpa` (INV-7). A vendor whose profile answers `false` for
+  `SourceFeature.WINDOW` is `MQ4015`, before any statement (R-SRC-11).
+
+## 5. Building the CTE, and what a source needs to run
 
 **R-SRC-11** What a statement over a source needs, all checked before any statement:
 
@@ -152,7 +189,7 @@ primary-key-first steps, each export page, `byKeys` (every chunk) and the parent
 that reaches the database without its CTE is therefore a bug in the engine, not a state the user can hold: the body is
 built per statement from the immutable `SourceQuery`, which itself carries no Criteria object (INV-9).
 
-## 5. Acceptance criteria
+## 6. Acceptance criteria
 
 | ID | Criterion |
 |---|---|
@@ -160,8 +197,8 @@ built per statement from the immutable `SourceQuery`, which itself carries no Cr
 | AC-SRC-02 | A grouped source model with a `where` and a `having` builds the CTE its hand-written SQL builds, pinned as an SQL snapshot per vendor (R-SRC-01). |
 | AC-SRC-03 | A keyset export over a grouped source visits every group exactly once (R-SRC-02, INV-4). |
 | AC-SRC-04 | A source whose `where` crosses a to-many join is `MQ1906`, and the `Filters.exists` form of the same predicate returns the rows the hand-written SQL returns (R-SRC-03). |
-| AC-SRC-05 | Every window function reads the hand-written SQL's values, and the SQL is pinned per vendor (`Future`, M25.3; R-SRC-04). |
-| AC-SRC-06 | A top-N source paged by keyset and by primary-key-first over tied timestamps loses and repeats no row (`Future`, M25.3; R-SRC-04). |
+| AC-SRC-05 | Every window function reads the hand-written SQL's values, and the SQL is pinned per vendor (R-SRC-04). |
+| AC-SRC-06 | A top-N source paged by keyset and by primary-key-first over tied timestamps loses and repeats no row (R-SRC-04). |
 | AC-SRC-07 | Each set operation renders the SQL it is written as, pinned per vendor (`Future`, M25.4; R-SRC-05, R-SRC-06). |
 | AC-SRC-08 | A discriminated feed is exported by keyset without a repeated key (`Future`, M25.4; R-SRC-05). |
 | AC-SRC-09 | An "owned `union` shared" list read from one branch model is paged by keyset (`Future`, M25.4; R-SRC-06). |

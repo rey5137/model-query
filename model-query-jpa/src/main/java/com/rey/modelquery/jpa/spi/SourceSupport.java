@@ -1,8 +1,11 @@
 package com.rey.modelquery.jpa.spi;
 
 import com.rey.modelquery.annotations.Incubating;
+import com.rey.modelquery.core.WindowSpec;
 import jakarta.persistence.Tuple;
+import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Root;
 
 /**
@@ -12,10 +15,10 @@ import jakarta.persistence.criteria.Root;
  * registers it on every statement it builds over the source (R-SRC-12). Discovered through
  * {@link ProviderSupport#sources()}; an implementation is stateless and thread-safe.
  *
- * <p>Only {@code cte} exists yet: the set-operation, window and recursive hooks land with the slices that use them
+ * <p>{@code cte} and {@code window} exist: the set-operation and recursive hooks land with the slices that use them
  * (R-PROC-37, R-PROC-38).
  *
- * @implSpec R-SRC-11, R-SRC-12, D-143
+ * @implSpec R-SRC-11, R-SRC-12, R-SRC-04, D-143
  */
 @Incubating
 public interface SourceSupport {
@@ -30,4 +33,15 @@ public interface SourceSupport {
      * @return the root of the CTE's columns, to read the source by
      */
     Root<Tuple> cte(CriteriaQuery<?> outer, CriteriaQuery<Tuple> body);
+
+    /**
+     * Renders {@code spec} as a window function with an {@code OVER (...)} clause over {@code cb}: the function, its
+     * partition terms, its order terms and its frame (R-SRC-04). A frame is never rendered for a function that takes
+     * none, which H2 rejects; the source's own body renders no such frame (R-PROC-36).
+     *
+     * @param cb the provider's builder the source's body was built with
+     * @param spec the window: function, argument, partitions, order terms and frame
+     * @return the window expression, aliased by the source's body
+     */
+    Expression<?> window(CriteriaBuilder cb, WindowSpec spec);
 }

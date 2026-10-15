@@ -4,6 +4,9 @@ import com.rey.modelquery.processor.JoinedTable.JoinedColumn;
 import com.rey.modelquery.processor.ModelDefinition.AggregateDefinition;
 import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
+import com.rey.modelquery.processor.ModelDefinition.WindowDefinition;
+import com.rey.modelquery.processor.ModelDefinition.WindowOrder;
+import com.rey.modelquery.processor.EntityMetamodel.Resolution;
 import com.squareup.javapoet.AnnotationSpec;
 import com.squareup.javapoet.ClassName;
 import com.squareup.javapoet.CodeBlock;
@@ -48,6 +51,10 @@ final class QModelWriter {
     private static final ClassName ORDERED_COLUMN_FIELD = ClassName.get(CORE, "OrderedColumnField");
     private static final ClassName AGG = ClassName.get(CORE, "Agg");
     private static final ClassName AGGREGATE_FIELD = ClassName.get(CORE, "AggregateField");
+    private static final ClassName WINDOW_FIELD = ClassName.get(CORE, "WindowField");
+    private static final ClassName WINDOW_FUNCTION = ClassName.get("com.rey.modelquery.annotations", "WindowFunction");
+    private static final ClassName WINDOW_FRAME = ClassName.get("com.rey.modelquery.annotations", "WindowFrame");
+    private static final ClassName LIST = ClassName.get(List.class);
     private static final ClassName EXPRESSION_FIELD = ClassName.get(CORE, "ExpressionField");
     private static final ClassName SELECT_SET = ClassName.get(CORE, "SelectSet");
     private static final ClassName FIELD_INDEX = ClassName.get(CORE, "FieldIndex");
@@ -164,6 +171,10 @@ final class QModelWriter {
         for (ModelField field : writeOnly ? List.<ModelField>of() : model.aggregates()) {
             type.addField(aggregate(modelName, model, field));
         }
+        // Window fields come after the aggregates, since a window term may reference an aggregate constant (R-GEN-38).
+        for (ModelField field : writeOnly ? List.<ModelField>of() : model.windows()) {
+            type.addField(window(modelName, model, field));
+        }
         if (model.selectSets()) {
             TypeName selectSet = ParameterizedTypeName.get(SELECT_SET, modelName);
             List<ModelField> selections = model.sourceModel() ? model.sourceFields() : model.selections();
@@ -265,6 +276,7 @@ final class QModelWriter {
         joined.forEach(table -> table.columns().forEach(column -> select.add(column.constant())));
         model.computed().forEach(field -> select.add(field.constant()));
         model.aggregates().forEach(field -> select.add(field.constant()));
+        model.windows().forEach(field -> select.add(field.constant()));
         CodeBlock.Builder init = CodeBlock.builder().add("$T.builder($T.class)$>$>", FIELD_INDEX, modelName);
         indexCall(init, "select", select);
         indexCall(init, "filterOnly", filters.kept().stream().map(column -> column.definition().name()).toList());
@@ -585,6 +597,63 @@ final class QModelWriter {
                     ? "sumAsLong" : "sum";
             default -> aggregate.fn().toLowerCase(Locale.ROOT);
         };
+    }
+
+    /**
+     * The constant of a {@code @Window} field: a {@code WindowField} over the model's own constants, named after the
+     * field so its CTE column and its {@code fields()} key are the field's name (R-GEN-38). A term that names no
+     * declared field is built as a column in place, as an aggregate over an attribute is.
+     */
+    private FieldSpec window(ClassName modelName, ModelDefinition model, ModelField field) {
+        WindowDefinition window = field.window();
+        CodeBlock argument = window.argument().isEmpty()
+                ? CodeBlock.of("null") : windowTerm(window.argument(), model, modelName);
+        return FieldSpec.builder(
+                        ParameterizedTypeName.get(WINDOW_FIELD, modelName, column(field.type())), field.constant(),
+                        CONSTANT)
+                .initializer("$T.of($T.class,$W$T.$L,$W$L,$W$L,$W$L,$W$L,$W$T.$L)$Z.named($S)", WINDOW_FIELD,
+                        modelName, WINDOW_FUNCTION, window.function(), classOf(column(field.type())), argument,
+                        windowTerms(window.partitionBy(), model, modelName),
+                        windowOrders(window.orderBy(), model, modelName),
+                        WINDOW_FRAME, window.frame(), field.name())
+                .build();
+    }
+
+    /** The {@code partitionBy} list of a window: {@code List.of(...)} of the model's constants, or an empty list. */
+    private CodeBlock windowTerms(List<String> terms, ModelDefinition model, ClassName modelName) {
+        if (terms.isEmpty()) {
+            return CodeBlock.of("$T.of()", LIST);
+        }
+        return CodeBlock.of("$T.of($L)", LIST, terms.stream().map(term -> windowTerm(term, model, modelName))
+                .collect(CodeBlock.joining(",$W")));
+    }
+
+    /** The {@code orderBy} list of a window, each term a constant with {@code asc()} or {@code desc()}. */
+    private CodeBlock windowOrders(List<WindowOrder> orders, ModelDefinition model, ClassName modelName) {
+        if (orders.isEmpty()) {
+            return CodeBlock.of("$T.of()", LIST);
+        }
+        return CodeBlock.of("$T.of($L)", LIST, orders.stream()
+                .map(order -> CodeBlock.of("$L.$L()", windowTerm(order.path(), model, modelName),
+                        order.ascending() ? "asc" : "desc"))
+                .collect(CodeBlock.joining(",$W")));
+    }
+
+    /**
+     * A window term: the constant of the model's field it names, or a column built in place from its attribute path,
+     * as an aggregate over an attribute is (R-GEN-06).
+     */
+    private CodeBlock windowTerm(String term, ModelDefinition model, ClassName modelName) {
+        ModelField declared = model.fields().stream()
+                .filter(each -> each.column() ? each.attribute().equals(term) : each.name().equals(term))
+                .findFirst().orElse(null);
+        if (declared != null) {
+            return CodeBlock.of("$L", declared.constant());
+        }
+        Resolution resolution = metamodel.resolve(model.root(), term);
+        CodeBlock type = resolution.attribute() == null
+                ? classOf(ClassName.get(Object.class)) : classOf(column(resolution.attribute().type()));
+        return CodeBlock.of("$T.of($T.class,$WROOT,$W$S,$W$L)", COLUMN_FIELD, modelName, term, type);
     }
 
     /** A join no {@code @Join} declares: of a filter column's path, or of a collection of the root (R-PROC-13). */

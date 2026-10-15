@@ -430,6 +430,24 @@ hand-written `ColumnField.of(...)` over it is `MQ1905` (`api/17` R-SRC-10). An o
 `update(...)`, `from(...)` or `delete()`, however its `generateChanges` is set: a write needs an entity root, and the
 source model itself is not writable (R-PROC-39).
 
+**R-GEN-38** *(D-143)* **`WindowField`.** A `@Window` field of a source (`processor/30` R-PROC-36, `api/17` R-SRC-04)
+generates a `WindowField<S, T>`, a `SelectField` and neither a `ColumnField` nor an `AggregateField`, named after the
+field and carrying the window's terms:
+
+```java
+public static final WindowField<RankedOrder, Long> RANK = WindowField.of(RankedOrder.class,
+        WindowFunction.ROW_NUMBER, Long.class, null, List.of(CUSTOMER), List.of(CREATED_AT.desc()),
+        WindowFrame.NONE).named("rank");
+```
+
+`WindowField.of(model, function, type, argument, partitionBy, orderBy, frame)` takes the source model's own constants
+as its terms, each built in place as a column when the model declares none, exactly as an `@Aggregate` field names its
+attribute; `argument` is `null` for the three ranking functions. The constant is in `ALL` and in `DEFAULT`, since a
+source's `ALL` is its CTE's projection (R-GEN-37), it is aliased by the field's own name through `named(...)` as every
+source field is, and `fields()` indexes it by that name (R-GEN-32). It is not a `ScalarField`: `where` and `having`
+take no `WindowField`, and neither does an `orderBy`, so a window's value is filtered and ordered through the outer
+model that reads it (R-PROC-36).
+
 ## 9. Acceptance criteria
 
 | ID | Criterion |

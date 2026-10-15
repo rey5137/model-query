@@ -22,6 +22,7 @@
 | `@FilterColumns` | model type | The container that makes `@FilterColumn` repeatable; never written by hand |
 | `@Aggregate(fn = SUM, attribute = "...", expression = Def.class, distinct = false)` | field or component | An `AggregateField` constant, mapped into this field (`api/13`); `expression` aggregates a `@Computed`-style definition instead of an attribute |
 | `@Computed(Def.class)` | field or component | An `ExpressionField` constant, mapped into this field (`api/10` §3a); a bound model may leave the class to its binding's `@BindExpression` (R-PROC-29) |
+| `@Window(function = ROW_NUMBER, argument = "", partitionBy = {}, orderBy = {}, frame = NONE)` | field or component of a `@SourceModel` | A `WindowField<S, T>` constant, a window function over the source's rows (`api/17` R-SRC-04, R-PROC-36) |
 | `@GroupBy` | field or component | The column joins the generated `GROUP_KEYS` set and the query's group-by |
 | `@ExcludeFromDefaults` | field or component | Leave the column out of `DEFAULT` (heavy BLOB/TEXT columns) |
 | `@Transient` | field or component | Not a column |
@@ -352,6 +353,30 @@ Its QModel declares
 `source()` in place of `query()`, and no `MAPPER` and no write method, since nothing maps a source row and no write
 reads a source (`processor/31` R-GEN-37). `shape` is reserved for a later release (R-PROC-38) and nothing acts on it
 yet.
+
+**R-PROC-36** *(D-143)* **`@Window`.** A `@Window` field of a source is a window function over the source's rows
+(`api/17` R-SRC-04, `processor/31` R-GEN-38). An ill-written one is `MQ3032`:
+
+1. every term — `argument`, each `partitionBy` and each `orderBy` path — names an attribute of the root, resolved
+   exactly as `@Column`'s path is (§3);
+2. the argument is written exactly where the function takes one: `ROW_NUMBER`, `RANK` and `DENSE_RANK` take none, and
+   every other function needs one;
+3. the field's type is the function's result type (INV-3): `Long` for the three ranking functions and `COUNT`, the
+   argument's type for `LAG`, `LEAD`, `FIRST_VALUE`, `LAST_VALUE`, `MIN` and `MAX`, and `SUM`'s and `AVG`'s rule as
+   `@Aggregate` states it (§6);
+4. a function whose value depends on the order, which never has a default one, says how: `ROW_NUMBER`, `RANK`,
+   `DENSE_RANK`, `LAG`, `LEAD`, `FIRST_VALUE`, `LAST_VALUE`, and an aggregate with a `ROWS` frame need an `orderBy`;
+5. a function that reads a frame needs one written: `FIRST_VALUE`, `LAST_VALUE`, and an aggregate with an `orderBy`
+   (whose database default is unspecified, except that `LAST_VALUE` would return the current row);
+6. `RANGE` is for an aggregate, whose frame it makes a peer group: `FIRST_VALUE` and `LAST_VALUE` take a `ROWS` frame
+   only, since a `RANGE` frame would make every row its own peer group;
+7. `ROW_NUMBER`, `RANK`, `DENSE_RANK`, `LAG` and `LEAD` take no frame: the database ignores or rejects one, so it is
+   refused rather than dropped;
+8. in a grouped source every term names a `@GroupBy` key or an `@Aggregate` field, never an attribute the group has no
+   value for.
+
+A `@Window` outside a `@SourceModel` is `MQ3033`: SQL forbids a window function in a `where` predicate, and a keyset
+cursor is one, so an outer model reads the value as a plain column.
 
 **R-PROC-39** *(D-143)* **The root kind.** `@QueryModel(root = X.class)` reads `X`'s kind from the annotation on `X`:
 an entity root when `X` is `@Entity`, a source root when `X` is `@SourceModel`. A root that is neither, or both, is

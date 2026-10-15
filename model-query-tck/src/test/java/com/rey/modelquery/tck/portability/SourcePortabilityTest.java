@@ -4,14 +4,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
+import com.rey.modelquery.jpa.spi.SourceFeature;
+import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.portability.PortabilityCheck;
 import com.rey.modelquery.portability.Target;
 import com.rey.modelquery.tck.src.OrderFeed;
 import com.rey.modelquery.tck.src.OrderSource;
 import com.rey.modelquery.tck.src.QOrderFeed;
 import com.rey.modelquery.tck.src.QOrderSource;
+import com.rey.modelquery.tck.src.QWindowFeed;
+import com.rey.modelquery.tck.src.QWindowSource;
+import com.rey.modelquery.tck.src.WindowSource;
+import jakarta.persistence.Query;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -62,6 +70,60 @@ class SourcePortabilityTest {
         assertThat(lines).anySatisfy(line -> assertThat(line)
                 .startsWith("FEED on " + MARIADB + ": REFUSED MQ4015")
                 .contains("SourceFeature.CTE"));
+    }
+
+    @Test
+    void ac_src_16_a_vendor_without_the_window_feature_reports_mq4015_on_its_target_alone() {
+        var feed = QWindowFeed.query(QWindowSource.source().build()).select(QWindowFeed.ALL)
+                .orderBy(QWindowFeed.ID.asc()).build();
+        ModelQueryConfig config = ModelQueryConfig.defaults()
+                .vendorProfiles(List.of(mysqlWithoutWindow()));
+        List<String> lines = report(check(config).targets(H2, POSTGRESQL, MYSQL)
+                .call("WINDOWS", WindowSource.class, x -> x.list(feed, Limit.of(10))));
+
+        assertThat(lines).hasSize(4);
+        for (Target target : List.of(H2, POSTGRESQL)) {
+            assertThat(lines).anySatisfy(line -> assertThat(line)
+                    .startsWith("WINDOWS on " + target + ": REACHED")
+                    .contains("over"));
+        }
+        assertThat(lines).anySatisfy(line -> assertThat(line)
+                .startsWith("WINDOWS on " + MYSQL + ": REFUSED MQ4015")
+                .contains("SourceFeature.WINDOW"));
+    }
+
+    /** MySQL's profile answering every source feature but {@code WINDOW}, as one written before it existed. */
+    private static VendorProfile mysqlWithoutWindow() {
+        return new VendorProfile() {
+            @Override
+            public DatabaseVendor vendor() {
+                return DatabaseVendor.MYSQL;
+            }
+
+            @Override
+            public int maxInListSize() {
+                return 1000;
+            }
+
+            @Override
+            public int maxBindParameters() {
+                return 60_000;
+            }
+
+            @Override
+            public void applyTimeout(Query query, Duration timeout) {
+            }
+
+            @Override
+            public NullOrdering defaultAscendingNullOrdering() {
+                return NullOrdering.NULLS_FIRST;
+            }
+
+            @Override
+            public boolean sources(SourceFeature feature) {
+                return feature != SourceFeature.WINDOW;
+            }
+        };
     }
 
     private static PortabilityCheck check(ModelQueryConfig config) {

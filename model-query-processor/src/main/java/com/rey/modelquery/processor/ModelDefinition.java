@@ -114,14 +114,16 @@ record ModelDefinition(
     }
 
     /**
-     * A source model's {@code ALL}: every field of the model, the aggregates included, because {@code ALL} is the
-     * projection of the source's CTE body, which carries every field an outer model reads by name, so R-PROC-17's
-     * reason for leaving aggregates out — that every query of the model would be grouped — does not apply to a source
-     * (`api/17` R-SRC-10, R-SRC-12, R-GEN-37). A query model's {@code ALL} is {@link #selections()}.
+     * A source model's {@code ALL}: every field of the model, the aggregates and window fields included, because
+     * {@code ALL} is the projection of the source's CTE body, which carries every field an outer model reads by name,
+     * so R-PROC-17's reason for leaving aggregates out — that every query of the model would be grouped — does not
+     * apply to a source (`api/17` R-SRC-10, R-SRC-12, R-GEN-37, R-GEN-38). A query model's {@code ALL} is
+     * {@link #selections()}.
      */
     List<ModelField> sourceFields() {
         var all = new ArrayList<>(selections());
         all.addAll(aggregates());
+        all.addAll(windows());
         return all;
     }
 
@@ -168,6 +170,11 @@ record ModelDefinition(
         return fields.stream().filter(field -> field.aggregate() != null).toList();
     }
 
+    /** The {@code @Window} fields, in declaration order (R-GEN-38). */
+    List<ModelField> windows() {
+        return fields.stream().filter(ModelField::windowed).toList();
+    }
+
     /** The {@code @GroupBy} columns or computed expressions, in declaration order: the members of {@code GROUP_KEYS}. */
     List<ModelField> groupKeys() {
         return fields.stream().filter(field -> (field.column() || field.computed()) && field.groupBy()).toList();
@@ -192,12 +199,14 @@ record ModelDefinition(
     }
 
     /**
-     * The fields an outer model may read by name, in declaration order: a source's columns, computed expressions and
-     * aggregates, which alone are emitted with {@code named(...)} (R-GEN-37). A {@code @FilterColumn} and a
-     * {@code @Join} carry no property to alias a CTE column by.
+     * The fields an outer model may read by name, in declaration order: a source's columns, computed expressions,
+     * aggregates and window fields, which alone are emitted with {@code named(...)} (R-GEN-37, R-GEN-38). A
+     * {@code @FilterColumn} and a {@code @Join} carry no property to alias a CTE column by.
      */
     List<ModelField> readable() {
-        return fields.stream().filter(field -> field.column() || field.computed() || field.aggregate() != null)
+        return fields.stream()
+                .filter(field -> field.column() || field.computed() || field.aggregate() != null
+                        || field.windowed())
                 .toList();
     }
 
@@ -239,6 +248,7 @@ record ModelDefinition(
      *     {@code void} type when neither names one ({@code MQ3025}), or {@code null} when the field carries none
      * @param join what {@code @Join} says of the field, or {@code null} when it carries none
      * @param aggregate what {@code @Aggregate} says of the field, or {@code null} when it carries none
+     * @param window what {@code @Window} says of the field, or {@code null} when it carries none
      * @param groupBy whether the field carries {@code @GroupBy}
      * @param child what {@code @Child} says of the field, or {@code null} when it carries none; a {@code @Child}
      *     field has no {@code join} and no {@code aggregate}, whatever else it carries
@@ -247,7 +257,8 @@ record ModelDefinition(
     record ModelField(
             VariableElement element, boolean column, String attribute, String constant, boolean primaryKey,
             boolean excludedFromDefaults, TypeMirror converter, TypeMirror definition, JoinDefinition join,
-            AggregateDefinition aggregate, boolean groupBy, ChildDefinition child, boolean selected) {
+            AggregateDefinition aggregate, WindowDefinition window, boolean groupBy, ChildDefinition child,
+            boolean selected) {
 
         String name() {
             return element.getSimpleName().toString();
@@ -260,6 +271,11 @@ record ModelDefinition(
         /** Whether the field carries {@code @Computed}. */
         boolean computed() {
             return definition != null;
+        }
+
+        /** Whether the field carries {@code @Window}, which makes it a window field and no column (R-GEN-38). */
+        boolean windowed() {
+            return window != null;
         }
     }
 
@@ -304,6 +320,34 @@ record ModelDefinition(
      * @param distinct whether {@code distinct = true} was written
      */
     record AggregateDefinition(String fn, String attribute, TypeMirror expression, boolean distinct) {}
+
+    /**
+     * A {@code @Window} as written on its field.
+     *
+     * @param function the function's name: {@code ROW_NUMBER}, {@code SUM} and the rest
+     * @param argument the attribute path or {@code @Aggregate} field name the function reads; {@code ""} for a
+     *     ranking function
+     * @param partitionBy the paths written for {@code partitionBy}
+     * @param orderBy the order terms written for {@code orderBy}, in order
+     * @param frame the frame's name: {@code NONE}, a {@code ROWS_*} or a {@code RANGE_*} constant
+     */
+    record WindowDefinition(String function, String argument, List<String> partitionBy, List<WindowOrder> orderBy,
+            String frame) {
+
+        WindowDefinition {
+            partitionBy = List.copyOf(partitionBy);
+            orderBy = List.copyOf(orderBy);
+        }
+    }
+
+    /**
+     * One {@code orderBy} term of a {@code @Window}: a path and its direction, ascending when the entry is written
+     * without one.
+     *
+     * @param path the attribute path, or an {@code @Aggregate} field name in a grouped source
+     * @param ascending {@code true} for ascending, the default
+     */
+    record WindowOrder(String path, boolean ascending) {}
 
     /**
      * A {@code @FilterColumn} as written on the model's type.

@@ -160,7 +160,9 @@ the names they generate may change in a minor release.
 The source-model members (D-143, D-144, 0.10.0) are `@Incubating` through 1.0: the `@SourceModel` annotation with its
 `root` and its reserved `shape`, `SourceQuery` with its nested `Builder`, `TableField.source`,
 `ColumnField.over`, the three-argument `ModelQuery.builder` and `ModelQuery.source()`, and the
-`source()`/`query(SourceQuery<S>)` members the processor generates. A later release adds the set operations, the
+`source()`/`query(SourceQuery<S>)` members the processor generates. The window members (`api/17` R-SRC-04, D-143) are
+`@Incubating` the same way: the `@Window` annotation with `WindowFunction` and `WindowFrame`, core's `@EngineFacing`
+`WindowSpec` and `WindowField`, and `SourceSupport#window` beside `#cte`. A later release adds the set operations, the
 recursion and the shape to them, which is why they may change in a minor release.
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
