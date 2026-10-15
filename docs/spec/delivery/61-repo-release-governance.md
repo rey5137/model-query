@@ -194,6 +194,10 @@ same license; there is no CLA.
 vendor notes page (`vendor/40` R-VND-09). `docs/spec` stays the source of truth and is not published as user
 documentation.
 
+Before a release is tagged, each docs-site snippet is checked against the test that mirrors it (the test names its
+page in its Javadoc, for example `PortabilityDocsSnippetTest` for `portability.md`). The tests hold their own copy of
+each snippet, and CI skips the Java jobs on a PR that touches only docs, so a page can drift from its test unnoticed.
+
 ## 7. API evolution: RFCs
 
 **R-REL-14** A change to a public signature, to a rule's meaning, or to an `INV-*` needs an accepted RFC first:
