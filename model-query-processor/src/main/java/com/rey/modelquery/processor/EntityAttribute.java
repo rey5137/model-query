@@ -23,11 +23,18 @@ import javax.lang.model.type.TypeMirror;
  *     be, and for any other attribute
  * @param mapsId whether the to-one carries {@code @MapsId}: its foreign key is the entity's own id, which an insert
  *     writes through the id column (R-PROC-26)
+ * @param nullable whether the attribute's mapping can hold NULL: an {@code @Id}, a primitive, and any attribute whose
+ *     {@code @Column(nullable = false)} or {@code @Basic(optional = false)} says it cannot, are non-nullable
+ *     (R-SRC-02)
+ * @param enumType the constant named by {@code @Enumerated}, {@code ORDINAL} by its own default, or {@code null}
+ *     without the annotation; what the database stores, which a branch must share with its shape (R-PROC-38)
+ * @param temporal the constant named by {@code @Temporal}, or {@code null} without it; as {@code enumType}, a branch
+ *     and its shape must agree on it (R-PROC-38)
  */
 record EntityAttribute(
         String name, TypeMirror type, Kind kind, DeclaredType target, boolean version, boolean updatable,
         boolean insertable, String mappedBy, boolean filledByDatabase, String idFormRefusal,
-        boolean mapsId) {
+        boolean mapsId, boolean nullable, String enumType, String temporal) {
 
     /** Whether a join may follow the attribute: a to-one or collection association of a known target. */
     boolean joinable() {

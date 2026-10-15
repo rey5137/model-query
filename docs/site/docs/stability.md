@@ -144,6 +144,16 @@ and `PortabilityCheck` and the kinds of result it reports, and `ProviderSupport#
 `checkTargets(EntityManagerFactory)`, and `ProviderSupport.factoryName(EntityManagerFactory)`. See
 [Portability](portability.md).
 
+The source-model members are new in 0.10.0 and incubating (D-143, D-144, D-145), and join the list above: the
+`@SourceModel`, `@Window`, `@Discriminator` and `@Depth` annotations with `WindowFunction` and `WindowFrame`, core's
+`SourceQuery` with its `Builder`, `WindowField` and the `RecursiveStep`, `StepBuilder`
+and `RecursiveKeys` a recursive step is written with, plus the `TableField.source`, `ColumnField.over`,
+`ModelQuery#source()` and three-argument `ModelQuery.builder` members and the generated `source()`,
+`query(SourceQuery<S>)` and `WindowField` constants. `SourceFeature` in `jpa.spi` is an extension
+points of a provider and a vendor profile, with `ProviderSupport#sources()`, `VendorProfile#sources(SourceFeature)`
+and `VendorProfile#maxRecursionDepth()`. `SetOperation`, `WindowSpec`, `SourceRenderer`, `RecursiveCte`, `RecursiveSpec` and `RecursiveTerm` are
+`@EngineFacing`, so not API. See [Source models](source-models.md).
+
 The fetch-plan types are new in 0.2.0, `@Incubating`, and not yet placed in the 1.0 freeze list above:
 `FetchPlan`, `ChildField`, `JoinField`, `ChildQuery`, `Enricher` and the `@Child` annotation. The executor-facing
 `ChildLoad` and `JoinPlan` are `@EngineFacing`. See [Fetch plans](fetch-plans.md).

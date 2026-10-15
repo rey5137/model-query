@@ -1,0 +1,1 @@
+with cte0 (mq_quantity,mq_lineCount,mq_revenue,mq_ranking) as (select oie1_0.quantity,count(oie1_0.id),sum(oie1_0.unit_price),rank() over(order by sum(oie1_0.unit_price) desc) from order_items oie1_0 group by 1) select cte01_0.mq_quantity,cte01_0.mq_lineCount,cte01_0.mq_revenue,cte01_0.mq_ranking from cte0 cte01_0 order by 1

@@ -13,6 +13,7 @@ becomes a model.
 ```java
 public final class TableField<P, T> {
     public static <T> TableField<T, T> root(Class<T> entity);
+    public static <S> TableField<S, S> source(Class<S> model);              // the root of a query over a source
     public static <P, T> TableField<P, T> join(TableField<?, P> parent, String attribute, JoinType type);
     public TableField<P, T> as(String alias);                              // a separate join to the same path
     public TableField<P, T> on(BiFunction<From<?, T>, CriteriaBuilder, Predicate> condition);   // requires as(...)
@@ -45,6 +46,13 @@ tell a LEFT-join miss from a match whose other columns are `NULL` (`processor/31
   (`ITEMS.as("b") → product` is not `ITEMS → product`).
 - `on(...)` adds its condition through JPA's `Join#on`, which preserves LEFT-join semantics that a `WHERE` predicate
   would break.
+
+**R-COL-30** *(D-143)* **A `TableField` may be a source's root.** `TableField.source(model)` is the root of a query
+over a `@SourceModel` (`api/17` R-SRC-10): its `rootEntity()` is the source model, and the query reads the CTE's
+columns by field name rather than from an entity `From`. It is generated, for a `@QueryModel` whose `root` names a
+source model; a hand-written `ColumnField.of(...)` over it, or a `TableField.join(...)` from it, is `MQ1905`, since
+there is no metamodel for INV-3 to check it against. A source root's column is
+`ColumnField.over(Outer.class, ROOT, QSource.CONSTANT)` (`api/17` R-SRC-10).
 
 **R-COL-04** A `TableField` carrying an `on(...)` condition must have an alias, because a lambda cannot be compared.
 Two `TableField`s with the same join key and different condition instances throw `MQ1101` when the query is built.
@@ -95,6 +103,11 @@ public sealed class ColumnField<M, T, C> implements SelectField<M, C> permits Or
             Class<C> type, Class<F> attributeType, ColumnConverter<C, F> converter);
     public static <M, T, C, F> OrderedColumnField<M, T, C> of(Class<M> model, TableField<?, T> table, String attribute,
             Class<C> type, Class<F> attributeType, OrderedColumnConverter<C, F> converter);
+    public static <M, S, C> OrderedColumnField<M, S, C> over(Class<M> model, TableField<S, S> root,
+            OrderedColumnField<S, ?, C> field);                                // a source's column, read by name
+    public static <M, S, C> ColumnField<M, S, C> over(Class<M> model, TableField<S, S> root, ColumnField<S, ?, C> f);
+    public static <M, S, C> OrderedColumnField<M, S, C> over(Class<M> model, TableField<S, S> root,
+            SelectField<S, C> field);
     public Path<C> path(JoinContext ctx);
     public <M2> ColumnField<M2, T, C> withTable(Class<M2> model, TableField<?, T> table);   // re-root under a join
 }
@@ -105,6 +118,11 @@ public final class OrderedColumnField<M, T, C> extends ColumnField<M, T, C> { /*
 `OrderedColumnField` is a column with no converter or with an `OrderedColumnConverter`; any other converter gives a
 plain `ColumnField`. `ColumnField.of` returns the narrower type whenever it can, also at run time when the converter's
 static type is wider; `equals` ignores the subclass (D-93).
+
+`ColumnField.over` is the source counterpart of `of` (R-COL-30, `api/17` R-SRC-10): it reads the CTE column the source
+constant names with `named`, and copies that constant's type and converter. It returns an `OrderedColumnField` when
+the source constant is one, and `MQ1905` when `root` is not a source root, when the constant has no property, or when
+a non-ordered converted column is taken through the `SelectField` overload.
 
 **R-COL-07** A column does not have to be mapped. A **filter-only column** has no field on the model; the mapper only
 reads the columns it knows, so a filter-only column never affects the result even if it ends up in a `SelectSet`.

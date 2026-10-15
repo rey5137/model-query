@@ -2064,6 +2064,73 @@ Hibernate 6.6 and 7.4 with H2, PostgreSQL and MySQL 8.0.31 (`rfc/0013-spike-resu
 R-PROC-35..39, R-GEN-37, R-GEN-38, R-VND-21, R-VND-22, `MQ1901`..`MQ1906`, `MQ2212`, `MQ2701`, `MQ2702`, `MQ3030`..`MQ3039`,
 `MQ4014`, `MQ4015`. M25, 0.10.0. → `rfc/0013`, `api/17`, `processor/30..32`, `vendor/40`, `vendor/41`, Q-21, Q-22.
 
+**D-144 — How a source query is built (M25.1, 2026-10-15).** A source's structure is fixed where it is built and only
+predicates are added: `SourceQuery.builder(model, root, fields, key[, groupKeys])` returns an immutable
+`SourceQuery.Builder<E, M, S>` carrying `where`, `having` and `build()`, with no `select` (a source carries every field
+of its model) and no regroup or re-key. An outer query takes the source through `ModelQuery.builder(root, mapper,
+source)`, every `Builder` copy (`withLock`, `withFetch`, `orderedBy`) carries it, and `ModelQuery.source()` reads it
+back; a source root reaching the two-argument builder, or an entity root or join the three-argument one, is `MQ1203`,
+as `ModelUpdate.builder`, `ModelDelete.builder`, `InsertColumns.of` and `ModelInsert.select` reading a source are.
+`TableField.source(model)` is the source root kind, and `ColumnField.over(model, root, sourceConstant)` its typed
+column: the source constant's property becomes the CTE column alias and its converter is copied, so the outer constant
+is an `OrderedColumnField` exactly when the source's is. A hand-written `ColumnField.of` or `TableField.join` over a
+source root is `MQ1905`. An outer model owns no CTE column of its own, so its columns read the source's fields by name
+alone: a `@FilterColumn` is `MQ3011`, a `@Column(converter = ...)` is `MQ3014`, a `@Join` is `MQ3035` and a `@Child`
+on either side of a source root is `MQ3030` or `MQ3039`, because a source is one statement with no parent query and no
+association to join. A source model, and a model rooted at one, generate no `changes()`, `update(...)`, `from(...)` or
+`delete()`: a write needs an entity root, so `generateChanges` is ignored there (Q-23 asks whether it should be a code
+instead). Rejected: a generated builder per source (it would put the structure back in the QModel, and
+the processor is the only place the structure is checked), a `Builder.source(...)` setter (a source is not a setting of
+an entity-rooted query), and a string `sourceOf("...")` (a string is exactly what `MQ1905` refuses, since nothing
+checks it against the source's metamodel). → `api/17` R-SRC-10, `api/10` R-COL-30, `processor/30` R-PROC-35,
+R-PROC-39, `processor/31` R-GEN-37, D-143.
+
+*Amended (2026-10-15, M25.2; user decision).* A `@Child` on a model rooted at a source is legal, as RFC 0013 §7 and
+R-SRC-10 say: its parent-side key names a source field and reads the CTE column by that name. `MQ3039` stays only for a
+`@Child` whose child model is rooted at a source, and a `through` child on a source-rooted parent is `MQ3406` (no entity
+root to join along; use `foreignKey`). → `processor/30`, `processor/32`, `api/17` R-SRC-10.
+
+*Amended (2026-10-15, M25.5; user decision).* `SourceSupport#recursive` and `SourceRenderer#recursive` return an
+`@Incubating` record holding the CTE root and the two check expressions the provider builds over the CTE through
+`JpaSubQuery.from(cte)`: `min(key)` over rows past `maxDepth` (`MQ2701`) and `min(key)` over marked rows (`MQ2702`),
+which also gives the first offending key. RFC 0013 §8's `Root<Tuple> recursive(...)` could not return them, and §5
+puts them behind that one hook. Rejected: a second abstract method building the checks from the root (one feature
+split over two SPI methods). A recursive model's generated `source()` calls `Builder#depth(LEVEL)`, as a branch's calls
+`shape`/`discriminator`; `MQ1902` also covers `recursive(...)` on a model with no `@Depth` and a `@Depth` model built
+without it; `@Depth` outside a `@SourceModel` is `MQ3037`, on a branch or a shape `MQ3034`; a recursive `SourceQuery`
+handed to `union`, `unionAll`, `intersect` or `except`, on either side, is `MQ1904` where the operation is built (RFC
+0013 §4: a recursive model can't be a branch). → `rfc/0013` §8, `api/17` R-SRC-07, R-SRC-08, `processor/30` R-PROC-37.
+
+**D-145 — What else 0.10.0 ships before the freeze (2026-10-15, user decision).** After a gap review against
+Blaze-Persistence, 0.10.0 also closes the gaps that fit this library's design and unblock the most list screens, each
+as its own milestone with an RFC and an acceptance spike first: M26, a recursive source over a tree counted as unique
+(Q-21, `rfc/0014`); M27, per-row correlated sub-query columns (lifting D-112's root-only outer columns) and sources
+over sources with a source read directly (Q-22, `rfc/0015`); M28, query models over a polymorphic entity root through
+`cb.treat` (`rfc/0016`). Q-23 is resolved in M25.6: `generateChanges` on a source model or a model rooted at one is a
+compile-time code, not silently ignored. The freeze moves from M26 to M29 and stays last. Everything new is
+`@Incubating`, so the M29.1 freeze review decides each type. Left out, as not fitting: updatable entity views with
+dirty tracking (explicit writes, `rfc/0005`), lateral joins (H2 has none; a window source covers top-N per parent),
+MULTISET-style fetch strategies (batched fetch plans with row caps cover them), `VALUES` sources and derived tables
+(`byKeys` covers the first; the second is a `SourceSupport` rendering choice), DML in a CTE (Q-16, PostgreSQL-only
+among Tier 1), and Querydsl, DeltaSpike and JAX-RS modules. → `docs/plan/mvp-plan.md` §26–§29, `delivery/62`, Q-21,
+Q-22, Q-23.
+
+**D-146 — Source CTE columns are engine-named; one source hook type (M25 gate, 2026-10-15, user decision).** A source
+CTE's columns are named `mq_<property>` by `SourceQuery.columnName`, used by the CTE body and by `ColumnField.over`, so
+no field name can collide with a vendor reserved word (INV-6): a `year` or `order` field no longer fails on H2. The
+properties, sort matching and generated code are unchanged. `jpa.spi.SourceSupport` is removed: `ProviderSupport#sources()`
+returns `Optional<core.SourceRenderer>` (the `ConstantRenderer` precedent), whose `cte` is abstract and whose `window`,
+`combine` and `recursive` default to `MQ4015`. Rejected: quoting the names (not portable through Criteria aliases, P-5);
+a compile-time reserved-word list (vendor knowledge in the processor, INV-6, INV-7); a documented limit (fails on H2 for
+`year`, a Tier-1 database). The gate also tightened the builder: `Builder#discriminator(ColumnField<M, ?, String>,
+String)` takes a key column (else `MQ1904`), `Builder#depth(ColumnField<M, ?, Integer>)` a column of the fields (else
+`MQ1902`), `combine` is `MQ1904` when its two sides' fields differ in order, property, type or converter, and a
+recursive step's `childKey` and `parentKey` share one column type, so a mismatched pair does not compile. Discriminator
+values are computed per node (a leaf {v}; `union`, `unionAll` L u R; `intersect` L n R; `except` L) for the `MQ1904`
+clash check and for uniqueness; the clash check is skipped for a distinct `union` whose leaves all read one model. A
+distinct `union` of one branch model is unique only if it is ungrouped, has no `@Window` field and has equal
+discriminator values. → `api/17` R-SRC-06, R-SRC-10, R-SRC-12, `vendor/40` R-VND-21, `delivery/61` R-REL-07.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -2155,11 +2222,16 @@ the id would then come from the foreign-key column of the entity's own row. → 
 **Q-21 — Recursive sources counted as unique.** Whether a duplicate-key check in the same statement (the spike's
 `count(*)` against `count(distinct key)` over the CTE, counting the cycle-marked row too) lets a recursive source over
 a tree count as unique, so fetch plans and keyset paging work on trees. It checks only the statement it runs in, so
-export and keyset walks across statements need more. → `rfc/0013` §5, D-143.
+export and keyset walks across statements need more. → `rfc/0013` §5, D-143; M26, `rfc/0014` (D-145).
 
 **Q-22 — Sources over sources, and reading a source directly.** Window and aggregate fields over the combined rows of
 a set operation or a recursive source, and a source model's QModel also offering `query()`, so a source can be read
-without a trivial outer model. → `rfc/0013` §3–§5, D-143.
+without a trivial outer model. → `rfc/0013` §3–§5, D-143; M27, `rfc/0015` (D-145).
+
+**Q-23 — `generateChanges` on a model rooted at a source.** Resolved by D-145 (a code, M25.6). Was: a write needs an entity root, so a source model and a
+model rooted at one generate no `changes()`, `update(...)`, `from(...)` or `delete()` today, and `generateChanges` is
+ignored there. Should it instead be an `MQnnnn`, as a `@Child` or a `@Join` on such a model is? → D-144,
+`processor/31` R-GEN-37, `processor/32`.
 
 ## 3. Risks
 

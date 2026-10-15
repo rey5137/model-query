@@ -6,6 +6,7 @@ import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.jpa.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.ReturningShape;
+import com.rey.modelquery.jpa.spi.SourceFeature;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.jpa.spi.WriteStatement;
 import jakarta.persistence.EntityManager;
@@ -50,6 +51,11 @@ enum BuiltInProfile implements VendorProfile {
         @Override
         public Optional<ReturningShape> returning(WriteStatement kind) {
             return Optional.of(ReturningShape.DELTA_TABLE);
+        }
+
+        @Override
+        public boolean sources(SourceFeature feature) {
+            return tier1Source(feature);
         }
     },
 
@@ -103,6 +109,11 @@ enum BuiltInProfile implements VendorProfile {
         public Optional<ReturningShape> returning(WriteStatement kind) {
             return Optional.of(ReturningShape.SUFFIX);
         }
+
+        @Override
+        public boolean sources(SourceFeature feature) {
+            return tier1Source(feature);
+        }
     },
 
     /**
@@ -123,6 +134,16 @@ enum BuiltInProfile implements VendorProfile {
         public int maxValuesRows() {
             return Integer.MAX_VALUE;
         }
+
+        @Override
+        public boolean sources(SourceFeature feature) {
+            return tier1Source(feature);
+        }
+
+        @Override
+        public int maxRecursionDepth() {
+            return MYSQL_RECURSION_DEPTH;
+        }
     },
 
     /** {@link MysqlStreamingMode#CURSOR_FETCH}: a positive fetch size, which needs {@code useCursorFetch=true}. */
@@ -131,12 +152,36 @@ enum BuiltInProfile implements VendorProfile {
         public int maxValuesRows() {
             return Integer.MAX_VALUE;
         }
+
+        @Override
+        public boolean sources(SourceFeature feature) {
+            return tier1Source(feature);
+        }
+
+        @Override
+        public int maxRecursionDepth() {
+            return MYSQL_RECURSION_DEPTH;
+        }
     },
 
     OTHER(DatabaseVendor.OTHER, 1_000, 2_000, NullOrdering.UNKNOWN);
 
     /** The portable query timeout hint, in milliseconds (R-PRF-05). */
     static final String TIMEOUT_HINT = "jakarta.persistence.query.timeout";
+
+    /** MySQL's {@code cte_max_recursion_depth} default, the depth above which its recursive CTE fails (R-VND-22). */
+    static final int MYSQL_RECURSION_DEPTH = 1_000;
+
+    /**
+     * Whether {@code feature} is one of the six source features H2, PostgreSQL and MySQL all have (vendor/41 §2,
+     * R-VND-21). A constant added later is not one this profile knows, so it answers {@code false} for it.
+     */
+    private static boolean tier1Source(SourceFeature feature) {
+        return switch (feature) {
+            case CTE, RECURSIVE, WINDOW, UNION, INTERSECT, EXCEPT -> true;
+            default -> false;
+        };
+    }
 
     private final DatabaseVendor vendor;
     private final int maxInListSize;

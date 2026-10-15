@@ -12,6 +12,7 @@ import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
+import jakarta.persistence.metamodel.PluralAttribute;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -102,6 +103,12 @@ public final class JoinContext {
      */
     private final JoinContext outer;
     private boolean readsToOneLeft;
+    /**
+     * The to-many joins this context itself made, in resolution order: a source's {@code where} predicate that
+     * crosses one is {@code MQ1906} (R-SRC-03). A nested {@code exists} joins on a context of its own, so the paths
+     * an {@code exists} may legitimately cross are not counted here.
+     */
+    private final List<Join<?, ?>> toManyJoins = new ArrayList<>();
 
     private JoinContext(From<?, ?> root, Class<?> rootType, CriteriaBuilder cb, CommonAbstractCriteria query,
             JoinKey rootKey, Set<JoinKey> required, RenderOptions renderOptions, Set<Class<?>> existsJoined) {
@@ -165,6 +172,19 @@ public final class JoinContext {
         return ctx;
     }
 
+    /**
+     * A read context over {@code cte}, the root of a source's columns, for the source model {@code model}: its
+     * {@link TableField#source} root resolves to it and its columns read the CTE's field-named elements (R-SRC-10).
+     * The {@code model} is the context's root type, so a column's {@code MQ1003} check passes for the source root.
+     */
+    static JoinContext sourceOf(Root<?> cte, Class<?> model, CriteriaBuilder cb, CommonAbstractCriteria query,
+            RenderOptions options) {
+        JoinContext ctx = new JoinContext(cte, model, cb, query, JoinKey.root(model), Set.of(), options,
+                new HashSet<>());
+        ctx.readsToOneLeft = true;
+        return ctx;
+    }
+
     JoinContext rootedAt(From<?, ?> join, Class<?> entity) {
         JoinContext ctx = new JoinContext(join, entity, cb, query, null, Set.of(), renderOptions, existsJoined, null,
                 repeatedExpressionBinds, parameters, foreignKeyReads);
@@ -210,6 +230,15 @@ public final class JoinContext {
             throw new IllegalStateException("a write expression's context has no root, so it resolves no column");
         }
         return root;
+    }
+
+    /**
+     * The to-many joins this context itself made, in resolution order. A source's {@code where} predicate that made
+     * one is {@code MQ1906}: two conditions on one joined line would match different lines, so the predicate is
+     * refused and the user points it at {@code Filters.exists(path, inner)} (R-SRC-03).
+     */
+    List<Join<?, ?>> toManyJoins() {
+        return Collections.unmodifiableList(toManyJoins);
     }
 
     /** The entity the root stands for, which a column on a root must sit on. */
@@ -493,6 +522,9 @@ public final class JoinContext {
         }
         joins.put(cacheKey, new Resolved(join, condition));
         keys.put(join, cacheKey);
+        if (join.getAttribute() instanceof PluralAttribute<?, ?, ?>) {
+            toManyJoins.add(join);
+        }
         if (existsPath != null) {
             existsJoined.add(join.getJavaType());
         }

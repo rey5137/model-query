@@ -49,6 +49,7 @@ nav:
   - Sub-queries and expressions: subqueries-expressions.md
   - Paging and export: paging-export.md
   - Grouped queries: grouped-queries.md
+  - Source models (incubating): source-models.md
   - Fetch plans: fetch-plans.md
   - Migration recipes: recipes.md
   - Testing queries: testing.md

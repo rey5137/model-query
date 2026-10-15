@@ -4,6 +4,9 @@ import com.rey.modelquery.processor.JoinedTable.JoinedColumn;
 import com.rey.modelquery.processor.ModelDefinition.AggregateDefinition;
 import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
+import com.rey.modelquery.processor.ModelDefinition.WindowDefinition;
+import com.rey.modelquery.processor.ModelDefinition.WindowOrder;
+import com.rey.modelquery.processor.EntityMetamodel.Resolution;
 import com.squareup.javapoet.AnnotationSpec;
 import com.squareup.javapoet.ClassName;
 import com.squareup.javapoet.CodeBlock;
@@ -48,6 +51,10 @@ final class QModelWriter {
     private static final ClassName ORDERED_COLUMN_FIELD = ClassName.get(CORE, "OrderedColumnField");
     private static final ClassName AGG = ClassName.get(CORE, "Agg");
     private static final ClassName AGGREGATE_FIELD = ClassName.get(CORE, "AggregateField");
+    private static final ClassName WINDOW_FIELD = ClassName.get(CORE, "WindowField");
+    private static final ClassName WINDOW_FUNCTION = ClassName.get("com.rey.modelquery.annotations", "WindowFunction");
+    private static final ClassName WINDOW_FRAME = ClassName.get("com.rey.modelquery.annotations", "WindowFrame");
+    private static final ClassName LIST = ClassName.get(List.class);
     private static final ClassName EXPRESSION_FIELD = ClassName.get(CORE, "ExpressionField");
     private static final ClassName SELECT_SET = ClassName.get(CORE, "SelectSet");
     private static final ClassName FIELD_INDEX = ClassName.get(CORE, "FieldIndex");
@@ -55,6 +62,7 @@ final class QModelWriter {
     private static final ClassName ROW_MAPPER = ClassName.get(CORE, "RowMapper");
     private static final ClassName ROW = ClassName.get(CORE, "Row");
     private static final ClassName MODEL_QUERY = ClassName.get(CORE, "ModelQuery");
+    private static final ClassName SOURCE_QUERY = ClassName.get(CORE, "SourceQuery");
     private static final ClassName MODEL_UPDATE = ClassName.get(CORE, "ModelUpdate");
     private static final ClassName MODEL_DELETE = ClassName.get(CORE, "ModelDelete");
     private static final ClassName CHANGES = ClassName.get(CORE, "Changes");
@@ -92,9 +100,11 @@ final class QModelWriter {
      */
     JavaFile write(ModelDefinition model) {
         // An update or insert model's QModel has its columns and write methods only: it is never read into.
-        boolean writeOnly = !model.queryModel();
+        boolean writeOnly = !model.readModel();
         ClassName modelName = ClassName.get(model.type());
-        ClassName entity = ClassName.get(model.root());
+        // A model rooted at a source reads the source: its ROOT is a source root over the model the source reads,
+        // not an entity (R-GEN-37).
+        ClassName entity = ClassName.get(model.readsSource() ? model.source().type() : model.root());
         ClassName generated = generatedName(model);
         List<ModelField> keys = model.keys();
         // A composite key reads as the list of its column values (PrimaryKey.composite).
@@ -112,7 +122,8 @@ final class QModelWriter {
                         .build())
                 .addModifiers(Modifier.PUBLIC, Modifier.FINAL)
                 .addField(FieldSpec.builder(ParameterizedTypeName.get(TABLE_FIELD, entity, entity), "ROOT", CONSTANT)
-                        .initializer("$T.root($T.class)", TABLE_FIELD, entity)
+                        .initializer(model.readsSource() ? "$T.source($T.class)" : "$T.root($T.class)", TABLE_FIELD,
+                                entity)
                         .build());
         nullness.marked(type);
         List<JoinedTable> joined = writeOnly ? List.of() : nestedModels.tables(model);
@@ -125,9 +136,10 @@ final class QModelWriter {
         }
         // A column is named after its field, so a sort names it as the model does (D-55).
         for (ModelField field : model.columns()) {
-            type.addField(column(
-                    modelName, model.root(), field.constant(), "ROOT", field.attribute(), field.type(),
-                    converter(model, field), field.name()));
+            type.addField(model.readsSource()
+                    ? overColumn(modelName, model, field)
+                    : column(modelName, model.root(), field.constant(), "ROOT", field.attribute(), field.type(),
+                            converter(model, field), field.name()));
         }
         for (JoinedTable table : joined) {
             ClassName nested = generatedName(table.nested());
@@ -159,9 +171,13 @@ final class QModelWriter {
         for (ModelField field : writeOnly ? List.<ModelField>of() : model.aggregates()) {
             type.addField(aggregate(modelName, model, field));
         }
+        // Window fields come after the aggregates, since a window term may reference an aggregate constant (R-GEN-38).
+        for (ModelField field : writeOnly ? List.<ModelField>of() : model.windows()) {
+            type.addField(window(modelName, model, field));
+        }
         if (model.selectSets()) {
             TypeName selectSet = ParameterizedTypeName.get(SELECT_SET, modelName);
-            List<ModelField> selections = model.selections();
+            List<ModelField> selections = model.sourceModel() ? model.sourceFields() : model.selections();
             List<ModelField> excluded = selections.stream().filter(ModelField::excludedFromDefaults).toList();
             type.addField(FieldSpec.builder(selectSet, "ALL", CONSTANT)
                     .initializer("$T.of($L)", SELECT_SET, constants(selections))
@@ -211,17 +227,17 @@ final class QModelWriter {
             type.addMethod(MethodSpec.constructorBuilder().addModifiers(Modifier.PRIVATE).build());
             return file(generated, type);
         }
+        if (model.sourceModel()) {
+            type.addMethod(source(model, modelName, entity, grouped));
+            type.addMethod(MethodSpec.constructorBuilder().addModifiers(Modifier.PRIVATE).build());
+            fieldIndex(model, modelName, generated, joined, FilterIndex.of(model, joined, filters), type);
+            return file(generated, type);
+        }
         type.addField(FieldSpec.builder(ParameterizedTypeName.get(ROW_MAPPER, modelName), "MAPPER", CONSTANT)
                 .initializer("$T::map", generated)
                 .build());
         type.addMethod(MethodSpec.constructorBuilder().addModifiers(Modifier.PRIVATE).build());
-        type.addMethod(MethodSpec.methodBuilder("query")
-                .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
-                .returns(ParameterizedTypeName.get(
-                        MODEL_QUERY.nestedClass("Builder"), entity, keyed ? keyType : TypeName.OBJECT, modelName))
-                .addStatement("return $T.builder(ROOT, MAPPER)$L$L", MODEL_QUERY,
-                        keyed ? ".primaryKey(KEY)" : "", grouped ? ".groupBy(GROUP_KEYS)" : "")
-                .build());
+        type.addMethod(query(model, modelName, entity, keyed, keyType, grouped));
         MethodSpec.Builder map = MethodSpec.methodBuilder("map")
                 .addModifiers(Modifier.PRIVATE, Modifier.STATIC)
                 .returns(modelName)
@@ -234,7 +250,9 @@ final class QModelWriter {
         type.addMethod(nullness.unmarked(map).build());
         // After the mapper, whose constants it names; the holder is read on the first call, not when this class loads.
         fieldIndex(model, modelName, generated, joined, FilterIndex.of(model, joined, filters), type);
-        if (keyed) {
+        // No write reads a source: an outer model declares delete(), update(...) and the insert members only when it
+        // reads an entity (R-GEN-37).
+        if (keyed && !model.readsSource()) {
             writes(model, modelName, entity, keyType, type);
         }
         if (model.inserts()) {
@@ -258,6 +276,7 @@ final class QModelWriter {
         joined.forEach(table -> table.columns().forEach(column -> select.add(column.constant())));
         model.computed().forEach(field -> select.add(field.constant()));
         model.aggregates().forEach(field -> select.add(field.constant()));
+        model.windows().forEach(field -> select.add(field.constant()));
         CodeBlock.Builder init = CodeBlock.builder().add("$T.builder($T.class)$>$>", FIELD_INDEX, modelName);
         indexCall(init, "select", select);
         indexCall(init, "filterOnly", filters.kept().stream().map(column -> column.definition().name()).toList());
@@ -443,6 +462,75 @@ final class QModelWriter {
     }
 
     /**
+     * {@code query()}, or {@code query(SourceQuery<S>)} for a model rooted at a source: an outer query carries the
+     * source it reads, so one built without it doesn't compile (R-GEN-37).
+     */
+    private static MethodSpec query(
+            ModelDefinition model, ClassName modelName, ClassName entity, boolean keyed, TypeName keyType,
+            boolean grouped) {
+        String key = keyed ? ".primaryKey(KEY)" : "";
+        String group = grouped ? ".groupBy(GROUP_KEYS)" : "";
+        MethodSpec.Builder method = MethodSpec.methodBuilder("query")
+                .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+                .returns(ParameterizedTypeName.get(
+                        MODEL_QUERY.nestedClass("Builder"), entity, keyed ? keyType : TypeName.OBJECT, modelName));
+        if (!model.readsSource()) {
+            return method.addStatement("return $T.builder(ROOT, MAPPER)$L$L", MODEL_QUERY, key, group).build();
+        }
+        return method.addParameter(ParameterizedTypeName.get(SOURCE_QUERY, entity), "source")
+                .addStatement("return $T.builder(ROOT, MAPPER, source)$L$L", MODEL_QUERY, key, group)
+                .build();
+    }
+
+    /**
+     * {@code source()}: the query an outer model reads this source with, over the source model's own root, fields
+     * and key. An ungrouped source takes the four-argument factory, whose {@code having} is {@code MQ1407}
+     * (R-GEN-37). A branch names its shape and fixes its {@code @Discriminator} to its constant, so its query is a
+     * {@code SourceQuery<Shape>} that combines with its shape's other branches (R-PROC-38, R-SRC-06).
+     */
+    private static MethodSpec source(ModelDefinition model, ClassName modelName, ClassName entity, boolean grouped) {
+        ClassName shapeName = ClassName.get(model.branch() ? model.shape().type() : model.type());
+        CodeBlock.Builder body = CodeBlock.builder().add(grouped
+                ? "return $T.builder($T.class, ROOT, ALL, KEY, GROUP_KEYS)"
+                : "return $T.builder($T.class, ROOT, ALL, KEY)", SOURCE_QUERY, modelName);
+        // Only a branch names a shape: a source over its own root is read as its own model (R-PROC-38).
+        if (model.branch()) {
+            body.add(".shape($T.class)", shapeName);
+        }
+        // A shape's own source() is its first branch, so it fixes its discriminator exactly as a branch does.
+        for (ModelField field : model.discriminators()) {
+            body.add(".discriminator($L, $S)", field.constant(), field.discriminator());
+        }
+        // A recursive model names the @Depth field its level column is aliased by, which also makes the builder
+        // require the recursive step before build() (R-PROC-37, R-GEN-37).
+        for (ModelField field : model.depths()) {
+            body.add(".depth($L)", field.constant());
+        }
+        return MethodSpec.methodBuilder("source")
+                .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+                .returns(ParameterizedTypeName.get(SOURCE_QUERY.nestedClass("Builder"), entity, modelName,
+                        shapeName))
+                .addStatement("$L", body.build())
+                .build();
+    }
+
+    /**
+     * The constant of a column of a model rooted at a source: {@code ColumnField.over} reads the CTE column the
+     * source's own constant names, keeping its alias, its type and its converter (R-GEN-37).
+     */
+    private FieldSpec overColumn(ClassName modelName, ModelDefinition model, ModelField field) {
+        ModelField source = model.sourceField(field.attribute());
+        ClassName kind = ConverterType.ordered(types, converter(model.source(), source))
+                ? ORDERED_COLUMN_FIELD : COLUMN_FIELD;
+        return FieldSpec.builder(
+                        ParameterizedTypeName.get(kind, modelName, ClassName.get(model.source().type()),
+                                column(field.type())), field.constant(), CONSTANT)
+                .initializer("$T.over($T.class,$WROOT,$W$T.$L).named($S)", COLUMN_FIELD, modelName,
+                        generatedName(model.source()), source.constant(), source.name())
+                .build();
+    }
+
+    /**
      * The constant of a {@code @Computed} field: an {@code ExpressionField} built from the class the field names,
      * named after the field (R-GEN-27, R-PROC-21).
      */
@@ -486,15 +574,22 @@ final class QModelWriter {
             // The model can't be inferred from ROOT, once .named() is chained on the call.
             return constant.initializer("$T.<$T>count(ROOT)$L", AGG, modelName, named).build();
         }
-        TypeMirror attributeType = metamodel.resolve(model.root(), aggregate.attribute()).attribute().type();
+        // An aggregate over a model rooted at a source reads a source constant: it carries the CTE alias, the type
+        // and the converter the source declares, so no column is built in place for it (R-SRC-10).
+        ModelField fromSource = model.sourceField(aggregate.attribute());
+        TypeMirror attributeType = fromSource == null
+                ? metamodel.resolve(model.root(), aggregate.attribute()).attribute().type() : fromSource.type();
         // MIN or MAX typed as the field reads its Timestamp attribute through the built-in converter (D-84).
-        TypeMirror converter = builtIns.between(field.type(), attributeType);
-        CodeBlock source = converter == null
-                ? CodeBlock.of("$T.of($T.class,$WROOT,$W$S,$W$L)", COLUMN_FIELD, modelName,
-                        aggregate.attribute(), classOf(column(attributeType)))
-                : CodeBlock.of("$T.of($T.class,$WROOT,$W$S,$W$L,$W$L,$W$T.INSTANCE)", COLUMN_FIELD, modelName,
-                        aggregate.attribute(), classOf(result), classOf(column(attributeType)),
-                        ClassName.get((TypeElement) types.asElement(converter)));
+        TypeMirror converter = fromSource == null ? builtIns.between(field.type(), attributeType) : null;
+        CodeBlock source = fromSource != null
+                ? CodeBlock.of("$T.over($T.class,$WROOT,$W$T.$L)", COLUMN_FIELD, modelName,
+                        generatedName(model.source()), fromSource.constant())
+                : converter == null
+                        ? CodeBlock.of("$T.of($T.class,$WROOT,$W$S,$W$L)", COLUMN_FIELD, modelName,
+                                aggregate.attribute(), classOf(column(attributeType)))
+                        : CodeBlock.of("$T.of($T.class,$WROOT,$W$S,$W$L,$W$L,$W$T.INSTANCE)", COLUMN_FIELD,
+                                modelName, aggregate.attribute(), classOf(result), classOf(column(attributeType)),
+                                ClassName.get((TypeElement) types.asElement(converter)));
         String function = aggregate.fn().equals("COUNT") && !aggregate.distinct()
                 ? null
                 : aggregateFunction(aggregate, attributeType);
@@ -518,6 +613,56 @@ final class QModelWriter {
                     ? "sumAsLong" : "sum";
             default -> aggregate.fn().toLowerCase(Locale.ROOT);
         };
+    }
+
+    /**
+     * The constant of a {@code @Window} field: a {@code WindowField} over the model's own constants, named after the
+     * field so its CTE column and its {@code fields()} key are the field's name (R-GEN-38). A term that names no
+     * declared field is built as a column in place, as an aggregate over an attribute is.
+     */
+    private FieldSpec window(ClassName modelName, ModelDefinition model, ModelField field) {
+        WindowDefinition window = field.window();
+        CodeBlock argument = window.argument().isEmpty()
+                ? CodeBlock.of("null") : windowTerm(window.argument(), model, modelName);
+        return FieldSpec.builder(
+                        ParameterizedTypeName.get(WINDOW_FIELD, modelName, column(field.type())), field.constant(),
+                        CONSTANT)
+                .initializer("$T.of($T.class,$W$T.$L,$W$L,$W$L,$W$L,$W$L,$W$T.$L)$Z.named($S)", WINDOW_FIELD,
+                        modelName, WINDOW_FUNCTION, window.function(), classOf(column(field.type())), argument,
+                        windowTerms(window.partitionBy(), model, modelName),
+                        windowOrders(window.orderBy(), model, modelName),
+                        WINDOW_FRAME, window.frame(), field.name())
+                .build();
+    }
+
+    /** The {@code partitionBy} list of a window: {@code List.of(...)} of the model's constants, or an empty list. */
+    private CodeBlock windowTerms(List<String> terms, ModelDefinition model, ClassName modelName) {
+        return listOf(terms.stream().map(term -> windowTerm(term, model, modelName)).toList());
+    }
+
+    private CodeBlock windowOrders(List<WindowOrder> orders, ModelDefinition model, ClassName modelName) {
+        return listOf(orders.stream()
+                .map(order -> CodeBlock.of("$L.$L()", windowTerm(order.path(), model, modelName),
+                        order.ascending() ? "asc" : "desc"))
+                .toList());
+    }
+
+    private static CodeBlock listOf(List<CodeBlock> elements) {
+        return elements.isEmpty() ? CodeBlock.of("$T.of()", LIST)
+                : CodeBlock.of("$T.of($L)", LIST, elements.stream().collect(CodeBlock.joining(",$W")));
+    }
+
+    private CodeBlock windowTerm(String term, ModelDefinition model, ClassName modelName) {
+        ModelField declared = model.fields().stream()
+                .filter(each -> each.column() ? each.attribute().equals(term) : each.name().equals(term))
+                .findFirst().orElse(null);
+        if (declared != null) {
+            return CodeBlock.of("$L", declared.constant());
+        }
+        Resolution resolution = metamodel.resolve(model.root(), term);
+        CodeBlock type = resolution.attribute() == null
+                ? classOf(ClassName.get(Object.class)) : classOf(column(resolution.attribute().type()));
+        return CodeBlock.of("$T.of($T.class,$WROOT,$W$S,$W$L)", COLUMN_FIELD, modelName, term, type);
     }
 
     /** A join no {@code @Join} declares: of a filter column's path, or of a collection of the root (R-PROC-13). */

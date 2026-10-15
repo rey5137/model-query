@@ -31,14 +31,20 @@ import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.PersistenceContextMode;
 import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.RecursiveCte;
+import com.rey.modelquery.core.RecursiveSpec;
 import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowLock;
 import com.rey.modelquery.core.ScalarField;
 import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.ModelUpdate;
+import com.rey.modelquery.core.SetOperation;
 import com.rey.modelquery.core.Slice;
 import com.rey.modelquery.core.ValuesInsert;
+import com.rey.modelquery.core.SourceRenderer;
+import com.rey.modelquery.core.SourceQuery;
+import com.rey.modelquery.core.WindowSpec;
 import com.rey.modelquery.jpa.spi.ConflictClause;
 import com.rey.modelquery.jpa.spi.EntityWriteSupport;
 import com.rey.modelquery.jpa.spi.InsertSupport;
@@ -47,6 +53,7 @@ import com.rey.modelquery.jpa.spi.LockSupport;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.jpa.spi.ReturningShape;
 import com.rey.modelquery.jpa.spi.ReturningSupport;
+import com.rey.modelquery.jpa.spi.SourceFeature;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.jpa.spi.WriteStatement;
 import com.rey.modelquery.jpa.vendor.ResolvedVendor;
@@ -238,10 +245,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 .flatMap(support -> support.constants(emf))
                 .map(options::withConstantRenderer)
                 .orElse(options);
-        this.renderOptions = !profile.sequences() ? options : vendor.providerSupport()
+        options = !profile.sequences() ? options : vendor.providerSupport()
                 .flatMap(support -> support.sequences(emf))
                 .map(options::withSequenceRenderer)
                 .orElse(options);
+        this.renderOptions = sources(options);
         this.keyLimits = new Keys(profile.maxInListSize(), profile.maxBindParameters());
         this.primaryKeyFirstBatchSize = config.primaryKeyFirstBatchSize();
         this.queryTimeout = config.queryTimeout();
@@ -252,6 +260,81 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         this.bulkWriteChunkSize = config.bulkWriteChunkSize();
         this.chunkTransactions = config.chunkTransactions().orElse(null);
         this.conflictUpdateWhereOnAssignedColumns = config.conflictUpdateWhereOnAssignedColumns();
+    }
+
+    /**
+     * {@code options} with the factory's CTE and window support for a query rooted at a source, when its provider has
+     * one: every statement built over a source then registers the source's own CTE on itself (R-SRC-12) and renders
+     * its windows (R-SRC-04). A target whose vendor lacks {@link SourceFeature#CTE} or {@link SourceFeature#WINDOW}
+     * gets a renderer that refuses the query with {@code MQ4015} as it is built, and a provider with no
+     * {@link SourceRenderer} leaves the options without one, which {@code core} refuses with {@code MQ4014}; both are
+     * before any statement (R-SRC-11, D-143).
+     */
+    private RenderOptions sources(RenderOptions options) {
+        Optional<SourceRenderer> support = vendor.providerSupport().flatMap(ProviderSupport::sources);
+        if (support.isEmpty()) {
+            return options;
+        }
+        SourceRenderer renderer = support.get();
+        return options.withSourceRenderer(new SourceRenderer() {
+            @Override
+            public Root<Tuple> cte(CriteriaQuery<?> outer, CriteriaQuery<Tuple> body) {
+                if (!vendor.profile().sources(SourceFeature.CTE)) {
+                    throw new ModelQueryConfigurationException(MqCode.MQ4015, rootEntity.getSimpleName()
+                            + ": this query reads a source, and " + vendor.detectedVendor()
+                            + " has no CTE support (VendorProfile#sources(SourceFeature.CTE))");
+                }
+                return renderer.cte(outer, body);
+            }
+
+            @Override
+            public RecursiveCte recursive(CriteriaQuery<?> outer, RecursiveSpec spec) {
+                if (!vendor.profile().sources(SourceFeature.RECURSIVE)) {
+                    throw new ModelQueryConfigurationException(MqCode.MQ4015, rootEntity.getSimpleName()
+                            + ": this source recurses, and " + vendor.detectedVendor()
+                            + " has no recursive CTE support (VendorProfile#sources(SourceFeature.RECURSIVE))");
+                }
+                // The recursion needs a level past maxDepth and the final, empty iteration, which MySQL counts against
+                // cte_max_recursion_depth as well; the spike measured maxDepth 998 served and 999 refused there
+                // (RFC 0013 §5).
+                int needed = spec.maxDepth() + 2;
+                int ceiling = vendor.profile().maxRecursionDepth();
+                if (needed > ceiling) {
+                    throw new ModelQueryConfigurationException(MqCode.MQ4015, rootEntity.getSimpleName()
+                            + ": maxDepth(" + spec.maxDepth() + ") recurses through " + needed + " levels, and "
+                            + vendor.detectedVendor() + " allows " + ceiling
+                            + " (VendorProfile#maxRecursionDepth()); lower maxDepth or target another vendor");
+                }
+                return renderer.recursive(outer, spec);
+            }
+
+            @Override
+            public Expression<?> window(CriteriaBuilder cb, WindowSpec spec) {
+                if (!vendor.profile().sources(SourceFeature.WINDOW)) {
+                    throw new ModelQueryConfigurationException(MqCode.MQ4015, rootEntity.getSimpleName()
+                            + ": this source uses a window field, and " + vendor.detectedVendor()
+                            + " has no window support (VendorProfile#sources(SourceFeature.WINDOW))");
+                }
+                return renderer.window(cb, spec);
+            }
+
+            @Override
+            public CriteriaQuery<Tuple> combine(CriteriaBuilder cb, SetOperation operation, CriteriaQuery<Tuple> left,
+                    CriteriaQuery<Tuple> right) {
+                SourceFeature feature = switch (operation) {
+                    case UNION, UNION_ALL -> SourceFeature.UNION;
+                    case INTERSECT -> SourceFeature.INTERSECT;
+                    case EXCEPT -> SourceFeature.EXCEPT;
+                };
+                if (!vendor.profile().sources(feature)) {
+                    throw new ModelQueryConfigurationException(MqCode.MQ4015, rootEntity.getSimpleName()
+                            + ": this source combines branches with " + operation + ", and " + vendor.detectedVendor()
+                            + " has no " + feature + " support (VendorProfile#sources(SourceFeature." + feature
+                            + "))");
+                }
+                return renderer.combine(cb, operation, left, right);
+            }
+        });
     }
 
     @Override
@@ -332,6 +415,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             throw new IllegalArgumentException(q + ": one(query, key) needs a key, and it is null");
         }
         checkFirstRun(q);
+        refuseNonUniqueSource(q, "one(query, key)");
         LOG.log(DEBUG, () -> "one " + q + " by key");
         PrimaryKey<M, K> primaryKey = q.primaryKey().orElseThrow(() -> new ModelQueryExecutionException(
                 MqCode.MQ2203, q + ": one(query, key) needs a primary key to filter on, and " + (q.isGrouped()
@@ -368,6 +452,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(q, "q");
         Objects.requireNonNull(keys, "keys");
         checkFirstRun(q);
+        refuseNonUniqueSource(q, "byKeys(query, keys)");
         LOG.log(DEBUG, () -> "byKeys " + q + ": " + keys.size() + " keys");
         PrimaryKey<M, K> primaryKey = q.primaryKey().orElseThrow(() -> new ModelQueryExecutionException(
                 MqCode.MQ2203, q + ": byKeys(query, keys) needs a primary key to filter on, and " + (q.isGrouped()
@@ -499,15 +584,46 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /** The model of the first of {@code tuples}, with {@code q}'s fetch plan run on it, or empty for none. */
     private <M> Optional<M> modelOf(ModelQuery<E, ?, M> q, BuiltQuery<M> built, List<Tuple> tuples) {
+        checkRecursion(q, built, tuples);
         return tuples.isEmpty() ? Optional.empty()
                 : Optional.of(models(q, List.of(loaded(built, tuples.get(0)))).get(0));
     }
 
     /**
-     * The R-EXE-14 refusals for a locking read of {@code q}, before any statement and in order: a join in {@code built}
-     * ({@code MQ2211}), a provider that cannot render the lock or a root on several tables ({@code MQ4010}), and no
-     * active transaction ({@code MQ2102}). Returns the support to apply on the statement, or empty when {@code q} takes
-     * no lock; {@code built} is the statement's criteria, built by the caller and never executed here.
+     * Refuses a read of a recursive source whose tree is deeper than its {@code maxDepth} ({@code MQ2701}) or whose
+     * graph closed a cycle ({@code MQ2702}), from the check columns of the statement's own first row, so no
+     * too-deep or doubled row reaches the mapper or a sink (R-SRC-07). A statement over no recursive source carries
+     * no check columns, and an empty result carries no row to read: nothing is refused then, which is the race
+     * {@code engine/21} and RFC 0013 §5 leave documented under READ COMMITTED.
+     *
+     * @throws ModelQueryExecutionException {@code MQ2701} or {@code MQ2702}, naming the model and the first
+     *     offending key
+     */
+    private void checkRecursion(Object label, BuiltQuery<?> built, List<Tuple> tuples) {
+        if (built.recursionChecks().isEmpty() || tuples.isEmpty()) {
+            return;
+        }
+        Tuple first = tuples.get(0);
+        Object deepest = first.get(BuiltQuery.RECURSION_DEPTH);
+        if (deepest != null) {
+            throw new ModelQueryExecutionException(MqCode.MQ2701, label + ": the source's tree is deeper than its "
+                    + "maxDepth(" + built.sourceMaxDepth() + "): key " + deepest
+                    + " is one level past the limit; raise maxDepth or narrow the source's where(...)");
+        }
+        Object cycle = first.get(BuiltQuery.RECURSION_CYCLE);
+        if (cycle != null) {
+            throw new ModelQueryExecutionException(MqCode.MQ2702, label + ": the source's graph has a cycle: key "
+                    + cycle + " is reachable by two paths, which a source reads twice; remove the cycle or filter it "
+                    + "out of the source's where(...)");
+        }
+    }
+
+    /**
+     * The R-EXE-14 refusals for a locking read of {@code q}, before any statement and in order: a source's CTE, which
+     * a locking clause cannot follow ({@code MQ1903}, R-SRC-11), a join in {@code built} ({@code MQ2211}), a provider
+     * that cannot render the lock or a root on several tables ({@code MQ4010}), and no active transaction
+     * ({@code MQ2102}). Returns the support to apply on the statement, or empty when {@code q} takes no lock;
+     * {@code built} is the statement's criteria, built by the caller and never executed here.
      */
     private <M> Optional<LockSupport> lockChecks(ModelQuery<E, ?, M> q, BuiltQuery<M> built, String read) {
         Optional<RowLock> lock = q.lock();
@@ -515,6 +631,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             return Optional.empty();
         }
         RowLock rowLock = lock.get();
+        if (q.source().isPresent()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1903, q + ": " + read + " cannot lock a query that reads a "
+                    + "source: its rows come from a common table expression, which a locking clause cannot follow; "
+                    + "drop withLock(...) (R-SRC-11)");
+        }
         Optional<LockSupport> rendered = vendor.providerSupport().flatMap(ProviderSupport::locks);
         refuseJoin(q, built, rendered, read);
         if (rendered.isEmpty()) {
@@ -671,8 +792,17 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         vendor.profile().checkStreamingPreconditions(em);
         int fetchSize = vendor.profile().streamingFetchSize(streamFetchSize);
         // Rows are mapped one at a time as body pulls them; closing the mapped stream closes the result stream under
-        // it, whether body returns, stops early or throws (R-EXE-07, R-EXE-09).
-        try (Stream<Tuple> tuples = resultStream(query, fetchSize); Stream<M> models = tuples.map(built::map)) {
+        // it, whether body returns, stops early or throws (R-EXE-07, R-EXE-09). A recursive source's checks are read
+        // from the first row the stream delivers, before that row is mapped (R-SRC-07).
+        boolean[] first = {true};
+        try (Stream<Tuple> tuples = resultStream(query, fetchSize);
+                Stream<M> models = tuples.map(tuple -> {
+                    if (first[0]) {
+                        first[0] = false;
+                        checkRecursion(q, built, List.of(tuple));
+                    }
+                    return built.map(tuple);
+                })) {
             return body.apply(models);
         }
     }
@@ -931,6 +1061,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         checkFirstRun(q);
         int offset = page.offset();
         int size = page.pageSize();
+        // A non-unique source has no key to close the order with, so every selected column does (R-SRC-09).
+        boolean everyColumn = nonUniqueSource(q);
         LOG.log(DEBUG, () -> "page " + q + ": offset " + offset + " size " + size + ", " + mode
                 + (mode != CountMode.ONLY_COUNT && primaryKeyFirst(q, offset) ? ", primary-key-first" : ""));
         int batch = 0; // the step-2 batch of a primary-key-first page
@@ -949,14 +1081,16 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             }
             case COUNT: {
                 long total = countRows(q);
-                List<M> content = offset >= total ? List.of() : models(q, fetch(q, offset, size, batch));
+                List<M> content = offset >= total ? List.of()
+                        : models(q, fetch(q, offset, size, batch, everyColumn));
                 return new Slice<>(content, page.pageNumber(), size, offset + (long) content.size() < total,
                         OptionalLong.of(total));
             }
             default: {
                 // One row beyond the page tells whether another follows, so an exact multiple of the page size
                 // does not report a next page that is empty (R-EXE-02).
-                List<Loaded<M>> rows = fetch(q, offset, size == Integer.MAX_VALUE ? size : size + 1, batch);
+                List<Loaded<M>> rows = fetch(q, offset, size == Integer.MAX_VALUE ? size : size + 1, batch,
+                        everyColumn);
                 boolean hasNext = rows.size() > size;
                 // The plan runs after the probe row is dropped, so that row's children are never read (R-FCH-09).
                 return new Slice<>(models(q, hasNext ? rows.subList(0, size) : rows), page.pageNumber(), size,
@@ -1089,6 +1223,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(sink, "sink");
         refuseLock(q, "export(...)");
         checkFirstRun(q);
+        refuseNonUniqueSource(q, "export(...)");
         long limit = options.limit().maxRows().isPresent() ? options.limit().maxRows().getAsInt() : Long.MAX_VALUE;
         int pageSize = options.pageSize().orElse(exportPageSize);
         LOG.log(DEBUG, () -> "export " + q + ": " + (q.isGrouped() ? "grouped offset" : q.isKeyset() ? "keyset"
@@ -2310,7 +2445,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         ModelQuery<E2, ?, ?> definition = q.definition();
         if (!FIRST_RUN_CHECKED.contains(definition)) {
             CriteriaBuilder cb = em.getCriteriaBuilder();
-            q.checkPhases(cb);
+            q.checkPhases(cb, renderOptions);
             try {
                 q.checkFetch(cb);
             } catch (ModelQueryDefinitionException e) {
@@ -2324,7 +2459,25 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             FIRST_RUN_CHECKED.add(definition); // only once they passed, so a check that threw runs again next time
         }
         if (fetchesModels) {
+            // A plan that fills children, join plans or an enricher addresses rows by their keys, which a
+            // non-unique source has none of (R-SRC-09). A selection-only plan reads the row itself, so it runs.
+            if (q.fetch().filter(plan -> !plan.isSelectionOnly()).isPresent()) {
+                refuseNonUniqueSource(q, "a fetch plan with a child, a join plan or an enricher");
+            }
             checkFetchBuilds(q);
+        }
+    }
+
+    /**
+     * {@code MQ2212} for a read that identifies one row by the source's key, which a non-unique source has none of
+     * (R-SRC-09): {@code byKeys}, {@code one(query, key)}, {@code export}, and a fetch plan that fills children
+     * through a child, a join plan or an enricher. Raised at the call, before any statement.
+     */
+    private <E2> void refuseNonUniqueSource(ModelQuery<E2, ?, ?> q, String read) {
+        SourceQuery<?> source = q.source().filter(each -> !each.unique()).orElse(null);
+        if (source != null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ2212, q + ": " + read + " needs one row per key, and "
+                    + "the source it reads has no unique key; list, count, first, stream and offset page read it");
         }
     }
 
@@ -2385,6 +2538,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * page, which {@code page} sized before any statement.
      */
     private <M> List<Loaded<M>> fetch(ModelQuery<E, ?, M> q, int offset, int maxRows, int batch) {
+        return fetch(q, offset, maxRows, batch, false);
+    }
+
+    /**
+     * As {@link #fetch(ModelQuery, int, int, int)}; {@code everyColumn} closes the order with every selected column,
+     * which an offset page over a non-unique source does (R-SRC-09).
+     */
+    private <M> List<Loaded<M>> fetch(ModelQuery<E, ?, M> q, int offset, int maxRows, int batch,
+            boolean everyColumn) {
         if (primaryKeyFirst(q, offset)) {
             PrimaryKey<M, ?> key = q.primaryKey().orElseThrow(); // primaryKeyFirst(...) needs one (MQ1201)
             // Read the page's keys in the stable order, then their rows: the same rows as the one-step page, a key
@@ -2393,7 +2555,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             return readByKeys(q, key, keys, batch);
         }
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
-        appendStableOrder(q, built);
+        appendStableOrder(q, built, everyColumn);
         TypedQuery<Tuple> query = create(q, built);
         query.setFirstResult(offset);
         query.setMaxResults(maxRows);
@@ -2405,8 +2567,32 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * closes the order (api/11 §5, R-PAG-01, R-PAG-11).
      */
     private <E2, M> void appendStableOrder(ModelQuery<E2, ?, M> q, BuiltQuery<M> built) {
+        appendStableOrder(q, built, false);
+    }
+
+    /**
+     * As {@link #appendStableOrder(ModelQuery, BuiltQuery)}, with every selected outer column appended after the key
+     * when {@code everyColumn} is set: the key of a non-unique source can't break ties, so two rows equal in every
+     * column would otherwise swap between the statements of two offset pages (R-SRC-09).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ2212} for a selected column that can't be ordered
+     */
+    private <E2, M> void appendStableOrder(ModelQuery<E2, ?, M> q, BuiltQuery<M> built, boolean everyColumn) {
+        List<SelectField<M, ?>> closing = new ArrayList<>(tieBreakers(q));
+        if (everyColumn) {
+            for (SelectField<M, ?> column : q.select().fields()) {
+                if (!orderable(column)) {
+                    throw new ModelQueryDefinitionException(MqCode.MQ2212, q + ": the source has no unique key, so "
+                            + "every selected column closes the order of an offset page, and the selected column '"
+                            + column.name() + "' can't be ordered; deselect it or make the source unique");
+                }
+                if (!closing.contains(column)) {
+                    closing.add(column);
+                }
+            }
+        }
         List<Order> orders = null;
-        for (SelectField<M, ?> column : tieBreakers(q)) {
+        for (SelectField<M, ?> column : closing) {
             if (!isOrdered(q, column)) {
                 if (orders == null) {
                     orders = new ArrayList<>(built.query().getOrderList());
@@ -2424,6 +2610,21 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return q.isGrouped()
                 ? q.groupBy()
                 : q.primaryKey().<List<? extends SelectField<M, ?>>>map(key -> key.columns()).orElse(List.of());
+    }
+
+    /**
+     * Whether {@code column} can order. A column of a LOB or JSON type can't: its Java type has no natural order,
+     * which {@code byte[]} and the JSON node types both lack (R-SRC-09). DECIDE: the database type is not read here,
+     * so a {@code String}-mapped JSON column stays orderable.
+     */
+    private static boolean orderable(SelectField<?, ?> column) {
+        return !(column instanceof ColumnField<?, ?, ?> named)
+                || Comparable.class.isAssignableFrom(named.type());
+    }
+
+    /** Whether {@code q} reads a source whose rows have no unique key (R-SRC-09). */
+    private static boolean nonUniqueSource(ModelQuery<?, ?, ?> q) {
+        return q.source().filter(source -> !source.unique()).isPresent();
     }
 
     /**
@@ -2538,6 +2739,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     private <M> List<Loaded<M>> mapAll(Object label, TypedQuery<Tuple> query, BuiltQuery<M> built) {
         List<Tuple> tuples = rows(label, query);
+        checkRecursion(label, built, tuples);
         var models = new ArrayList<Loaded<M>>(tuples.size());
         for (Tuple tuple : tuples) {
             models.add(loaded(built, tuple));
@@ -3040,10 +3242,21 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         // Every predicate and join stays, since one can change the number of rows; only the selection is replaced.
         From<?, ?> root = query.getRoots().iterator().next();
-        boolean readThroughToMany = readsThroughToMany(built);
-        Expression<Long> count = hasToManyJoin(root) && !readThroughToMany ? cb.countDistinct(root) : cb.count(root);
-        query.multiselect(count);
-        return ((Number) single(q, create(q, built)).get(0)).longValue();
+        // A source's root is the CTE's, whose derived model part has no identifying parts to count or expand, so the
+        // rows are counted by a constant (R-SRC-12); a source root has no to-many join, which needs no dedup.
+        boolean source = q.source().isPresent();
+        boolean readThroughToMany = !source && readsThroughToMany(built);
+        Expression<Long> count = source ? cb.count(cb.literal(1))
+                : hasToManyJoin(root) && !readThroughToMany ? cb.countDistinct(root) : cb.count(root);
+        // The count replaces the selection, so a recursive source's checks are selected beside it, and the count's own
+        // statement is the one that reads them (R-SRC-07).
+        List<Selection<?>> selections = new ArrayList<>();
+        selections.add(count);
+        selections.addAll(built.recursionChecks());
+        query.multiselect(selections);
+        Tuple counted = single(q, create(q, built));
+        checkRecursion(q, built, List.of(counted));
+        return ((Number) counted.get(0)).longValue();
     }
 
     /** {@code count(*)} over the groups: in the database when the provider support can, else client-side. */

@@ -29,7 +29,8 @@ carry an `MqCode`; sealing after 1.0 would break subclasses.
 ## 2. `MQ1xxx` — query definition
 
 The sub-ranges are `MQ10xx` columns and joins, `MQ11xx` definitions, `MQ12xx` the query builder, `MQ13xx` filters, `MQ14xx`
-aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch plans and `MQ18xx` inserts (D-116).
+aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch plans, `MQ18xx` inserts (D-116) and
+`MQ19xx` query sources (D-143), `MQ1901`–`MQ1906`.
 
 | Code | Meaning | Owner |
 |---|---|---|
@@ -44,7 +45,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1105` | `FieldIndex.only` names a key the index doesn't hold, or leaves a kept set empty | `api/10` R-COL-24 |
 | `MQ1201` | `keyset()` or `primaryKeyFirst(...)` without a primary key | `api/11` R-QRY-03 |
 | `MQ1202` | `build()` without `select` or `fetch` | `api/11` R-QRY-02 |
-| `MQ1203` | `ModelQuery.builder`, `ModelUpdate.builder` or `ModelDelete.builder` given a join instead of a root `TableField` | `api/11` R-QRY-02, `api/14` R-WRT-12 |
+| `MQ1203` | `ModelQuery.builder`, `ModelUpdate.builder` or `ModelDelete.builder` given a join instead of a root `TableField`, a source root to `ModelQuery.builder(root, mapper)` or `ModelUpdate.builder`/`ModelDelete.builder`, an entity root or a join to `ModelQuery.builder(root, mapper, source)`, or `InsertColumns.of`/`ModelInsert.select` a source root | `api/11` R-QRY-02, `api/14` R-WRT-12, `api/17` R-SRC-10 |
 | `MQ1204` | `PrimaryKeyFirst.whenOffsetAbove` with a negative offset | `api/11` R-QRY-03 |
 | `MQ1205` | A `QueryCustomizer` changed the `ORDER BY` or `GROUP BY` of a phase, or added `distinct`/`having` to a locked query | `api/11` R-QRY-11 |
 | `MQ1206` | A primary-key column of array type | `api/11` R-QRY-12 |
@@ -112,6 +113,13 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1808` | Two rows of one insert-values call with a conflict clause share a conflict-key tuple, compared by `equals`; at `build()` | `api/14` R-WRT-37, D-117 |
 | `MQ1809` | A `persist(persist, returning)`, `updateReturning`, `deleteReturning` or `insertReturning` query with `where`, `having`, `groupBy`, a fetch plan, `customize`, `orderBy`, `keyset`, `primaryKeyFirst` or a lock, or a selected column it cannot fill from the flushed entity (a join beyond a to-one id, a join with `on(...)`, an expression, an aggregate); for a returning write also a selected column on a table other than the written one (a secondary table's, a joined supertable's, or a to-one id whose key is on its target's table, named in the message), `throughEntities()` or `commitEachChunk()`; on first execution per factory, before any statement, the written-table check on each execution before the flush (`ReturningSupport.check`, D-132) | `api/14` R-WRT-48, R-WRT-50, `api/11` R-QRY-17, D-118, D-129, D-132 |
 
+| `MQ1901` | `keyset()` or `primaryKeyFirst(...)` on a query over a non-unique source, whose key does not identify a row; at the outer `build()` | `api/17` R-SRC-09 |
+| `MQ1902` | A recursive source built wrongly: `maxDepth` below 1 or above `Integer.MAX_VALUE - 2`, `recursive(...)` on a source whose model declares no `@Depth`, or a `@Depth` model built without `recursive(...)`, or a `depth(...)` column that is not among the fields; where the source is built, before any statement | `api/17` R-SRC-07, R-PROC-37 |
+| `MQ1903` | A row lock on a query that reads a source: `withLock(...)` on an outer query, which a locking clause cannot follow through a common table expression; before any statement | `api/17` R-SRC-11, Q-16 |
+| `MQ1904` | Two branches of one `union` or `unionAll` fix the same `@Discriminator` value, so the operation would quietly lose key uniqueness, or two combined sources read different shapes or fields in a different order, type or converter, or a `discriminator` column is not a key column, or either side of a set operation is a recursive source; where the operation is built | `api/17` R-SRC-06, R-SRC-07, R-PROC-38 |
+| `MQ1905` | A hand-written `ColumnField.of` or `TableField.join` over a source root, which the processor's metamodel cannot check; a generated outer column is `ColumnField.over(model, root, sourceConstant)` | `api/17` R-SRC-10, `api/10` R-COL-30 |
+| `MQ1906` | A source's `where` predicate whose path crosses a to-many join, which no join inside the CTE can express; the message points at `Filters.exists(path, inner)`, the explicit form; before any statement | `api/17` R-SRC-03 |
+
 ## 3. `MQ2xxx` — execution
 
 | Code | Meaning | Owner |
@@ -133,6 +141,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ2209` | A cursor's fingerprint names another order (sort, direction, null precedence, entity or deployment changed): `<Model>: the keyset cursor belongs to another order (sort, direction, null precedence, entity or deployment changed); start again with KeysetSpec.first` | `engine/21` R-PAG-19 |
 | `MQ2210` | A key column cannot be carried in a cursor, or makes it longer than 8192 characters: `<Model>: keyset column <col> of type <T> cannot be carried in a cursor` or `... makes the cursor longer than 8192 characters` | `engine/21` R-PAG-17, R-PAG-18 |
 | `MQ2211` | A lock on a read that refuses one, or on a query whose built statement has a join: `page`, keyset `page`, `count`, `stream` and `export` refuse any lock; `one(q)` refuses `SKIP_LOCKED`; `list`, `list(q, Limit)`, `first`, `one(q)`, `one(q, key)` and `byKeys` refuse a joined query, whose message suggests `Filters.exists(...)`; at method entry, before any statement | `engine/20` R-EXE-14, `engine/21`, `api/11` R-QRY-17 |
+| `MQ2212` | A read that identifies a row by its key on a query over a non-unique source: `export`, `byKeys`, `one(q, key)` and a fetch plan with a child, join plan or enricher; or an offset `page` over one whose selected column cannot be ordered, where the message names the column; at the executor call, before any statement | `api/17` R-SRC-09, `engine/21` |
 | `MQ2301` | A sort property resolves to no selected column or to more than one (on any tier), or asks for `ignoreCase`; a sort on an ungrouped query without a primary key; a sorted copy that fails `build()`, as the cause | `api/11` R-QRY-14, `integration/50` R-SPR-06 |
 | `MQ2501` | A bulk write, other than `commitEachChunk()`, or `persist` ran without an active transaction | `api/14` R-WRT-18, R-WRT-39 |
 | `MQ2502` | A per-chunk write failed; `ChunkedWriteException` carries the committed rows, the last committed key and the keys of a chunk in doubt | `api/14` R-WRT-20 |
@@ -143,14 +152,16 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ2604` | A child row's key equals none of its round's keys (a case-insensitive or padding collation) | `api/15` R-FCH-05 |
 | `MQ2605` | `stream` with a fetch plan that has a child, join plan or enricher | `api/15` R-FCH-09 |
 | `MQ2606` | An `Enricher.byKey` or `byKeys` lookup returned `null` | `api/15` R-FCH-08, R-FCH-15 |
+| `MQ2701` | A recursive source's tree is deeper than its `maxDepth`; the message names the model, the limit and the key of the first row past it. Read from the statement's own first row, so a too-deep tree is refused whole rather than returned in part; nothing is refused on an empty result | `api/17` R-SRC-08, D-144 |
+| `MQ2702` | A recursive source's graph closed a cycle: the message names the model and the first key the cycle clause marked, which is the row the source would read twice. Read as `MQ2701` is | `api/17` R-SRC-08, D-144 |
 
 **R-ERR-04** One JPA exception is thrown deliberately instead of a library type: `OptimisticLockException` when an
 `expectVersion` update affects no rows (`api/14` R-WRT-16), because callers already handle it for entity writes.
 
 ## 4. `MQ3xxx` — annotation processing
 
-Catalogued with messages in `processor/32` §1: `MQ3001`–`MQ3029` for structural checks, options and bound models
-(D-134), `MQ3201`–`MQ3208` for aggregate models, `MQ3301`–`MQ3307` for update models,
+Catalogued with messages in `processor/32` §1: `MQ3001`–`MQ3040` for structural checks, options, bound models and
+query sources (D-134, D-143, D-145), `MQ3201`–`MQ3208` for aggregate models, `MQ3301`–`MQ3307` for update models,
 `MQ3401`–`MQ3406` for `@Child` (`api/15`), `MQ3501`–`MQ3506` for insert models and `generateInserts` (D-116, D-117,
 D-123). Codes are not repeated here to keep one owner.
 
@@ -171,6 +182,9 @@ D-123). Codes are not repeated here to keep one owner.
 | `MQ4011` | A returning write the factory cannot return rows for: `VendorProfile#returning(WriteStatement)` is empty for the statement kind, the provider has no `ReturningSupport`, `ReturningSupport.rendered` is false (a Hibernate line whose translation calls moved, or a root entity mapped to more than one table), or the translated statement fails the first-use check, or a moved Hibernate type surfaces as a `LinkageError`; the message names the provider, the vendor and the statement kind; at method entry, before any statement. An arbiter upsert whose `InsertSupport.arbiterRendered` is false (no adapter serves the Hibernate line), on each execution before the flush and any statement (D-132), or whose translated statement does not hold the conflict target its predicate is spliced after exactly once, before the statement runs (INV-5) | `vendor/40` R-VND-17, `api/14` R-WRT-50, R-WRT-52, D-129, D-132 |
 | `MQ4012` | A factory's vendor (`ResolvedVendor#detectedVendor`: the explicit `vendor(...)`, else the detected one) is not one of the declared target vendors; the message names the factory, the vendor, how it was found and the list; from `ModelQueryExecutor.create`, `ModelQueryConfig.checkTargets`, or at Spring startup naming every failing factory bean | `vendor/40` R-VND-19, `integration/50` R-SPR-17, D-133 |
 | `MQ4013` | The portability dry run cannot boot a factory offline for a target: no `ProviderSupport` has `offlineProperties` for the target's vendor (a provider support without them keeps the empty default), the one used does not serve the factory booted, the boot reached JDBC, read from the stub's recording (a provider may swallow the failure), or a class list finds no single persistence provider (none named by its `jakarta.persistence.provider`, or not exactly one on the class path); also a `Target` whose vendor has no database product name (`ORACLE`, `SQLSERVER`, `OTHER`) or whose version does not start with a major number. The message names the unit, the target, the provider support and the calls recorded | `api/16` R-INS-10, `vendor/40` R-VND-20, D-133 |
+
+| `MQ4014` | A query reads a source and the factory's persistence provider has no `SourceRenderer`: `ProviderSupport#sources()` is empty or there is no `ProviderSupport` at all; at build time, before any statement | `api/17` R-SRC-11, `vendor/40` R-VND-21, D-143 |
+| `MQ4015` | The target's vendor lacks a source feature the query uses, `VendorProfile#sources(SourceFeature)` answering false for it, or a recursive source whose `maxDepth + 2` exceeds `VendorProfile#maxRecursionDepth()`; the message names the feature or the depth, the vendor and the query; before any statement | `api/17` R-SRC-08, R-SRC-11, `vendor/40` R-VND-21, R-VND-22, D-143 |
 
 ## 6. Glossary
 

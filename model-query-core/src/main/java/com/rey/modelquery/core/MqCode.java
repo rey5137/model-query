@@ -289,6 +289,46 @@ public enum MqCode {
      */
     MQ1809("A persist returning query must select only what the flushed entity holds, with no other clause"),
 
+    /**
+     * {@code keyset()} or {@code primaryKeyFirst(...)} over a non-unique source, whose key a keyset cursor cannot
+     * identify a row by (R-SRC-09). Raised at the outer {@code build()}.
+     */
+    MQ1901("keyset() or primaryKeyFirst(...) over a non-unique source"),
+
+    /**
+     * A recursive source built wrongly: a {@code maxDepth} below 1 or above {@code Integer.MAX_VALUE - 2},
+     * {@code recursive(...)} on a source whose model declares no {@code @Depth}, or a {@code @Depth} model built
+     * without the step (R-SRC-07, R-PROC-37). Raised where the source is built, before any statement.
+     */
+    MQ1902("A recursive source's maxDepth is out of range, or its step and @Depth do not match"),
+
+    /**
+     * A row lock on a query that reads a source: the source's rows come from a CTE, which a locking clause cannot
+     * follow, so {@code withLock} over a source is refused before any statement (R-SRC-11).
+     */
+    MQ1903("A row lock on a query that reads a source"),
+
+    /**
+     * Two branches of one {@code union} or {@code unionAll} carry the same discriminator value, which would make the
+     * combined rows ambiguous by key; raised where the operation is built (R-SRC-06). {@code intersect} and
+     * {@code except} don't check the values. Also a recursive source on either side of any set operation, which a
+     * recursive model cannot be a branch of (R-SRC-07).
+     */
+    MQ1904("Two branches of one union or unionAll carry the same discriminator value, or a branch is recursive"),
+
+    /**
+     * A hand-written {@code ColumnField} or {@code TableField.join} over a source root, which the processor's metamodel
+     * cannot check; a generated outer column uses {@code ColumnField.over} with the source's constant (R-SRC-10).
+     */
+    MQ1905("A hand-written column or join over a source root"),
+
+    /**
+     * A source's {@code where} predicate whose path crosses a to-many join, which no join inside a CTE can express:
+     * two conditions on one joined line would match different lines, so the predicate is refused and the user points
+     * it at {@code Filters.exists(path, inner)} (R-SRC-03).
+     */
+    MQ1906("A source where predicate crosses a to-many join; use Filters.exists"),
+
     /** A page size or {@code maxPerParent} that is not positive, or a limit that is negative (R-EXE-06, R-FCH-11). */
     MQ2001("A page or chunk size and maxPerParent must be positive, and a limit must not be negative"),
 
@@ -344,6 +384,14 @@ public enum MqCode {
     /** A lock on a read that refuses one, or on a query whose built statement has a join (R-EXE-14). */
     MQ2211("A lock is refused on this read, or on a query whose statement has a join"),
 
+    /**
+     * A read that identifies a row by its key over a non-unique source: {@code export}, {@code byKeys},
+     * {@code one(q, key)}, a fetch plan with a child, a join plan or an enricher. Also an offset {@code page} that
+     * would need a selected column the database cannot order as a tie-breaker (a LOB or a JSON type). Raised at the
+     * executor call, before any statement (R-SRC-09).
+     */
+    MQ2212("A key-identified read over a non-unique source, or an unorderable tie-breaker column"),
+
     /** A sort property names no selected column or aggregate, or more than one (R-QRY-14, D-52). */
     MQ2301("A sort property resolves to no selected column or to more than one"),
 
@@ -376,6 +424,18 @@ public enum MqCode {
 
     /** An {@code Enricher.byKey} or {@code byKeys} lookup returned {@code null} (R-FCH-08, R-FCH-15). */
     MQ2606("An Enricher.byKey or byKeys lookup returned null"),
+
+    /**
+     * A recursive source's tree is deeper than its {@code maxDepth}, which the statement it was read from found with a
+     * level past the limit; the message names the first offending key (R-SRC-07).
+     */
+    MQ2701("A recursive source recurses deeper than its maxDepth"),
+
+    /**
+     * A recursive source's graph closed a cycle, so one key is reachable by two paths; the statement it was read from
+     * found a marked row, and the message names the first offending key (R-SRC-07, R-SRC-08).
+     */
+    MQ2702("A recursive source's graph closed a cycle"),
 
     /**
      * {@code modelquery.vendor} or {@code modelquery.target-vendors}, or {@code ModelQueryConfig.vendor(String)} or
@@ -437,7 +497,19 @@ public enum MqCode {
      * {@code ProviderSupport} has no offline properties for it, a class list finds no single persistence provider, the
      * boot reached JDBC, or the target names no database product (R-INS-10, R-VND-20).
      */
-    MQ4013("The portability dry run cannot boot a factory offline for the target");
+    MQ4013("The portability dry run cannot boot a factory offline for the target"),
+
+    /**
+     * A query reads a source and the factory's persistence provider has no {@code SourceRenderer}, so nothing can
+     * register the CTE; raised before any statement, as bulk inserts and row locks are (R-SRC-11, D-143).
+     */
+    MQ4014("The factory's persistence provider has no SourceRenderer"),
+
+    /**
+     * The target's vendor lacks a source feature the query uses, {@code VendorProfile#sources(SourceFeature)} returning
+     * false for it, or a recursion deeper than {@code maxRecursionDepth()}; raised before any statement (R-SRC-11).
+     */
+    MQ4015("The target's vendor lacks a source feature the query uses, or the recursion is deeper than it allows");
 
     private final String defaultMessage;
 

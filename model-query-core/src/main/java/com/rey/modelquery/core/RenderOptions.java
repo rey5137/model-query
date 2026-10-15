@@ -16,21 +16,23 @@ import java.util.Optional;
 public final class RenderOptions {
 
     /** The limits of the {@code OTHER} profile, which are safe on any database (R-VND-06). */
-    private static final RenderOptions PORTABLE = new RenderOptions(1_000, 2_000, null, null, null);
+    private static final RenderOptions PORTABLE = new RenderOptions(1_000, 2_000, null, null, null, null);
 
     private final int maxInListSize;
     private final int maxBindParameters;
     private final NullPrecedenceRenderer nullPrecedenceRenderer;
     private final ConstantRenderer constantRenderer;
     private final SequenceRenderer sequenceRenderer;
+    private final SourceRenderer sourceRenderer;
 
     private RenderOptions(int maxInListSize, int maxBindParameters, NullPrecedenceRenderer nullPrecedenceRenderer,
-            ConstantRenderer constantRenderer, SequenceRenderer sequenceRenderer) {
+            ConstantRenderer constantRenderer, SequenceRenderer sequenceRenderer, SourceRenderer sourceRenderer) {
         this.maxInListSize = maxInListSize;
         this.maxBindParameters = maxBindParameters;
         this.nullPrecedenceRenderer = nullPrecedenceRenderer;
         this.constantRenderer = constantRenderer;
         this.sequenceRenderer = sequenceRenderer;
+        this.sourceRenderer = sourceRenderer;
     }
 
     /** The options of an unknown database: the {@code OTHER} limits and no renderer. */
@@ -48,25 +50,31 @@ public final class RenderOptions {
             throw new IllegalArgumentException("maxInListSize and maxBindParameters must be positive, got "
                     + maxInListSize + " and " + maxBindParameters);
         }
-        return new RenderOptions(maxInListSize, maxBindParameters, null, null, null);
+        return new RenderOptions(maxInListSize, maxBindParameters, null, null, null, null);
     }
 
     /** These options with {@code renderer} rendering explicit null precedence. */
     public RenderOptions withNullPrecedenceRenderer(NullPrecedenceRenderer renderer) {
         return new RenderOptions(maxInListSize, maxBindParameters, Objects.requireNonNull(renderer, "renderer"),
-                constantRenderer, sequenceRenderer);
+                constantRenderer, sequenceRenderer, sourceRenderer);
     }
 
     /** These options with {@code renderer} rendering a column-typed constant (R-COL-27). */
     public RenderOptions withConstantRenderer(ConstantRenderer renderer) {
         return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer,
-                Objects.requireNonNull(renderer, "renderer"), sequenceRenderer);
+                Objects.requireNonNull(renderer, "renderer"), sequenceRenderer, sourceRenderer);
     }
 
     /** These options with {@code renderer} rendering a sequence's next value (R-COL-28). */
     public RenderOptions withSequenceRenderer(SequenceRenderer renderer) {
         return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer, constantRenderer,
-                Objects.requireNonNull(renderer, "renderer"));
+                Objects.requireNonNull(renderer, "renderer"), sourceRenderer);
+    }
+
+    /** These options with {@code renderer} registering a source's CTE on every statement that reads it (R-SRC-12). */
+    public RenderOptions withSourceRenderer(SourceRenderer renderer) {
+        return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer, constantRenderer,
+                sequenceRenderer, Objects.requireNonNull(renderer, "renderer"));
     }
 
     /** The most values one {@code IN} list takes before it is split (R-FLT-09). */
@@ -92,5 +100,13 @@ public final class RenderOptions {
     /** The renderer of a sequence's next value, or empty: {@code Expr.nextval} is then {@code MQ1509} (R-COL-28). */
     public Optional<SequenceRenderer> sequenceRenderer() {
         return Optional.ofNullable(sequenceRenderer);
+    }
+
+    /**
+     * The provider's CTE support for a query rooted at a source, or empty: such a query is then {@code MQ4014},
+     * raised at build time, before any statement (R-SRC-11, R-SRC-12).
+     */
+    public Optional<SourceRenderer> sourceRenderer() {
+        return Optional.ofNullable(sourceRenderer);
     }
 }

@@ -306,6 +306,21 @@ for a connection per multi-table entity and swallows the failure). A unit's `hib
 `jakarta.persistence.jdbc.url` and JNDI `hibernate.connection.datasource` need no override: the stub `DataSource`
 beats them.
 
+**R-VND-21** Which source features a database has is a profile fact (D-143). `VendorProfile` gains `@Incubating
+boolean sources(SourceFeature feature)`, `false` by default: a query whose source uses a feature the target's vendor
+answers `false` for is `MQ4015` before any statement (`api/17` R-SRC-11). A profile written before a `SourceFeature`
+constant was added answers `false` for it — that is the point of the default — and a constant added later names a
+database fact of its own. The Tier-1 profiles answer `true` for every constant in the shipped release (the plain CTE,
+recursion, window functions and the three set operations; `vendor/41` §2), and `OTHER` keeps the default. A database
+fact, no SQL (R-VND-11, INV-6). The SQL side is `core.SourceRenderer`, the one source hook `ProviderSupport#sources()`
+returns (`cte` abstract; `window`, `combine` and `recursive` default to `MQ4015`; D-146).
+
+**R-VND-22** A database's own recursion ceiling is a profile fact (D-143). `VendorProfile` gains `@Incubating
+int maxRecursionDepth()`, `Integer.MAX_VALUE` by default, meaning the database sets no ceiling this library knows of.
+MySQL's is 1000, its `cte_max_recursion_depth` default, so the Tier-1 MySQL profiles return it and a recursive source
+whose `maxDepth + 2` exceeds it is `MQ4015` before any statement (the extra level and the final, empty iteration
+count too; `api/17` R-SRC-08). A database fact, no SQL (R-VND-11, INV-6).
+
 ## 2. Detection
 
 **R-VND-04** Resolution order:

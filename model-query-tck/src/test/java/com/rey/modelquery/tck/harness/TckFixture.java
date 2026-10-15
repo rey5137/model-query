@@ -328,6 +328,48 @@ public final class TckFixture {
             String status = CONSTANT_STATUSES.get(row);
             nullableText(ps, 7, status == null ? null : status.substring(0, 1));
         });
+        seedFolders(c);
+    }
+
+    /** A {@code folder_nodes} row: its id and its parent's, {@code null} at a root. */
+    private record Folder(long id, Long parent) {}
+
+    /** The folders: a tree, a chain, a two-row cycle and a 999-row chain (TCK AC-SRC-12 to AC-SRC-14). */
+    private static List<Folder> folders() {
+        List<Folder> nodes = new ArrayList<>(List.of(new Folder(FOLDER_TREE_ROOT, null), new Folder(2, 1L),
+                new Folder(3, 1L), new Folder(4, 2L), new Folder(5, 2L), new Folder(6, 3L)));
+        for (long id = FOLDER_CHAIN_ROOT; id < FOLDER_CHAIN_ROOT + FOLDER_CHAIN_NODES; id++) {
+            nodes.add(new Folder(id, id == FOLDER_CHAIN_ROOT ? null : id - 1));
+        }
+        // Two rows that point at each other, so the tree the seed walks is cyclic (AC-SRC-13).
+        nodes.add(new Folder(FOLDER_CYCLE_ROOT, FOLDER_CYCLE_ROOT + 1));
+        nodes.add(new Folder(FOLDER_CYCLE_ROOT + 1, FOLDER_CYCLE_ROOT));
+        for (long id = FOLDER_DEEP_ROOT; id < FOLDER_DEEP_ROOT + FOLDER_DEEP_NODES; id++) {
+            nodes.add(new Folder(id, id == FOLDER_DEEP_ROOT ? null : id - 1));
+        }
+        return nodes;
+    }
+
+    private static void seedFolders(Connection c) throws SQLException {
+        List<Folder> nodes = folders();
+        try (PreparedStatement ps = c.prepareStatement(
+                "INSERT INTO folder_nodes (id, parent_id, name) VALUES (?,?,?)")) {
+            for (int i = 0; i < nodes.size(); i++) {
+                Folder node = nodes.get(i);
+                ps.setLong(1, node.id());
+                if (node.parent() == null) {
+                    ps.setNull(2, Types.BIGINT);
+                } else {
+                    ps.setLong(2, node.parent());
+                }
+                ps.setString(3, "node-" + node.id());
+                ps.addBatch();
+                if ((i + 1) % BATCH == 0) {
+                    ps.executeBatch();
+                }
+            }
+            ps.executeBatch();
+        }
     }
 
     /** Sets {@code index} to {@code value}, or NULL when it is {@code null}. */
@@ -343,6 +385,28 @@ public final class TckFixture {
     private static String stringProductCode(int row) {
         return (row % 5 == 0 ? "p-" : "P-") + pad((row * 7) % STRING_KEY_PRODUCTS + 1, 4);
     }
+
+    /** The tree, the chain, the cycle and the deep chain {@code folder_nodes} holds (TCK AC-SRC-12 to AC-SRC-14). */
+    public static final int FOLDER_TREE_NODES = 6;
+
+    public static final int FOLDER_CHAIN_NODES = 6;
+
+    public static final int FOLDER_CYCLE_NODES = 2;
+
+    /** The chain whose 999 rows a MySQL {@code maxDepth} of 998 walks, one level per row (AC-SRC-14). */
+    public static final int FOLDER_DEEP_NODES = 999;
+
+    public static final int FOLDER_NODES =
+            FOLDER_TREE_NODES + FOLDER_CHAIN_NODES + FOLDER_CYCLE_NODES + FOLDER_DEEP_NODES;
+
+    /** Root ids of the tree, the chain, the cycle and the deep chain, each a step's seed row. */
+    public static final long FOLDER_TREE_ROOT = 1;
+
+    public static final long FOLDER_CHAIN_ROOT = 10;
+
+    public static final long FOLDER_CYCLE_ROOT = 100;
+
+    public static final long FOLDER_DEEP_ROOT = 1_000;
 
     /** The labels of order {@code order}, ascending: none past {@link #LABELED_ORDERS}. */
     public static List<Long> labelsOf(long order) {

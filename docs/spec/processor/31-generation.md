@@ -395,7 +395,80 @@ of the generated `JoinField` and `ChildField` bodies are `@NullUnmarked`, since 
 columns the row may not select. The type arguments of `ColumnField` and the other fields stay unannotated. Off, no
 annotation is added.
 
-## 8. Acceptance criteria
+## 8. Generated source models
+
+**R-GEN-37** *(D-143)* **`source()` and `query(SourceQuery<S>)`.** A source model's QModel declares `ROOT`,
+`ALL`, `DEFAULT`, `GROUP_KEYS` and `KEY` as a query model's does, and `source()` in place of `query()`. A source's
+`ALL` carries **every** field of the model, the `@Aggregate` fields included, because a source's `ALL` is the projection
+of its CTE body, which carries every field an outer model reads by name (R-PROC-10, `api/17` R-SRC-10, R-SRC-12), so
+R-PROC-17's reason for leaving aggregates out of a query model's `ALL` — that every query of the model would be grouped
+— does not apply to a source:
+
+```java
+public static SourceQuery.Builder<OrderEntity, OrderTotals, OrderTotals> source() {
+    return SourceQuery.builder(OrderTotals.class, ROOT, ALL, KEY, GROUP_KEYS);        // no GROUP_KEYS when ungrouped
+}
+```
+
+A model that declares a `@Discriminator` field emits `.discriminator(CONSTANT, "value")` for it, in declaration order,
+so the shape's own source is its first branch and every branch fixes its own constant; a branch — a model whose
+`@SourceModel` names a `shape` — emits `.shape(Shape.class)` as well and returns
+`SourceQuery.Builder<Root, Branch, Shape>`, which is what makes a branch of another shape fail to compile (R-PROC-38,
+`api/17` R-SRC-05).
+
+A recursive model — one that declares a `@Depth` field (R-PROC-37) — emits `.depth(LEVEL)` for it, in the position the
+field is declared in, so its builder is the one `recursive(...)` is legal on and a `@Depth` model built without its step
+is `MQ1902` at `build()`:
+
+```java
+public static SourceQuery.Builder<FolderEntity, FolderNode, FolderNode> source() {
+    return SourceQuery.builder(FolderNode.class, ROOT, ALL, KEY).depth(LEVEL);
+}
+```
+
+The step itself is the caller's: which pair of columns a row is a child of another by is data, not a model, so the
+generated `source()` stops at naming the level column (`api/17` R-SRC-07).
+
+It declares no `MAPPER`, no `map(Row)` and no write method, since nothing maps a source row and no write reads a
+source. A source model the root names in a `@QueryModel` (R-PROC-39) generates the outer QModel:
+
+```java
+public static final TableField<OrderTotals, OrderTotals> ROOT = TableField.source(OrderTotals.class);
+public static final OrderedColumnField<CustomerTotals, OrderTotals, Long> CUSTOMER_ID =
+        ColumnField.over(CustomerTotals.class, ROOT, QOrderTotals.CUSTOMER_ID).named("customerId");
+
+public static ModelQuery.Builder<OrderTotals, Long, CustomerTotals> query(SourceQuery<OrderTotals> source) {
+    return ModelQuery.builder(ROOT, MAPPER, source).primaryKey(KEY);
+}
+```
+
+An outer column is `ColumnField.over(<outer model>.class, ROOT, <source QModel>.<CONSTANT>)`, which reads the CTE
+column the source constant names and keeps its type and converter; the outer constant is an `OrderedColumnField`
+exactly when the source's is. `ROOT` is a source root, so `TableField.root(...)` is never emitted for it and a
+hand-written `ColumnField.of(...)` over it is `MQ1905` (`api/17` R-SRC-10). An outer model declares no `changes()`,
+`update(...)`, `from(...)` or `delete()`, however its `generateChanges` is set: a write needs an entity root, and the
+source model itself is not writable (R-PROC-39). Setting `generateChanges` on it is `MQ3040` rather than ignored,
+message and all (`processor/32`, D-145).
+
+**R-GEN-38** *(D-143)* **`WindowField`.** A `@Window` field of a source (`processor/30` R-PROC-36, `api/17` R-SRC-04)
+generates a `WindowField<S, T>`, a `SelectField` and neither a `ColumnField` nor an `AggregateField`, named after the
+field and carrying the window's terms:
+
+```java
+public static final WindowField<RankedOrder, Long> RANK = WindowField.of(RankedOrder.class,
+        WindowFunction.ROW_NUMBER, Long.class, null, List.of(CUSTOMER), List.of(CREATED_AT.desc()),
+        WindowFrame.NONE).named("rank");
+```
+
+`WindowField.of(model, function, type, argument, partitionBy, orderBy, frame)` takes the source model's own constants
+as its terms, each built in place as a column when the model declares none, exactly as an `@Aggregate` field names its
+attribute; `argument` is `null` for the three ranking functions. The constant is in `ALL` and in `DEFAULT`, since a
+source's `ALL` is its CTE's projection (R-GEN-37), it is aliased by the field's own name through `named(...)` as every
+source field is, and `fields()` indexes it by that name (R-GEN-32). It is not a `ScalarField`: `where` and `having`
+take no `WindowField`, and neither does an `orderBy`, so a window's value is filtered and ordered through the outer
+model that reads it (R-PROC-36).
+
+## 9. Acceptance criteria
 
 | ID | Criterion |
 |---|---|

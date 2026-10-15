@@ -13,6 +13,18 @@ loop loses or duplicates rows without raising an error.
 appends the primary-key columns as a tie-breaker to whatever order the caller gave. Without a stable order,
 `LIMIT/OFFSET` pages overlap or skip rows, and no test that checks a single page catches it.
 
+- **A non-unique source has no key to break ties with** (`api/17` R-SRC-09): two rows sharing a key and an order value
+  could swap between the statements of page 1 and page 2, so one row would show twice and the other never show. Offset
+  `page` over one therefore appends **every selected outer column**, ascending, after the
+  definition's order and the key, counting an ordered column as selected (D-29). A selected column that can't be
+  ordered — a LOB, a JSON type — is `MQ2212`, naming the column, before any statement; deselect it or make the source
+  unique. Rows that compare equal under the vendor's ordering can't be told apart, so no row is visibly lost. `keyset()`
+  and `primaryKeyFirst(...)` are refused on such a source instead (`MQ1901`, `MQ2212`). Known limits (M25 gate):
+  orderability is judged by Java type, so an `@Lob String` fails at the database rather than as `MQ2212`; and the
+  vendor's ordering is not the Java one for a MySQL `_ai_ci` collation or trailing-space padding, MySQL `TEXT` (sorted by
+  its first `max_sort_length` bytes) and a `BigDecimal` of scale 1.0 against 1.00, so rows the vendor calls equal may
+  still differ to the caller.
+
 **R-PAG-02** *(was R2)* **Export memory is bounded.** There is no global "seen ids" set. With a stable order,
 duplicates can only appear at a page boundary, so the engine dedupes only against the previous page's keys (INV-4).
 It also drops a key repeated within one page: a to-many join used only by predicates repeats its root's rows, and

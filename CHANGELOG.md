@@ -6,6 +6,82 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
+Nothing is frozen yet: every public type stays `@Incubating`, and the additions below are all `@Incubating`.
+
+### Added (incubating)
+- Source models (RFC 0013, D-143): `@SourceModel(root = OrderItemEntity.class)` declares a model read as a common
+  table expression rather than a select, so a read the Criteria API cannot express becomes one generated model with
+  the compile-time checks an entity root gets. `QQuantitySource.source()` builds a `SourceQuery`, which carries the
+  `where` and `having` of the CTE body, and `QQuantityFeed.query(source)` roots an outer model at it, generated with
+  `TableField.source(...)` and `ColumnField.over(...)` columns: the CTE is rendered before the outer select, so an
+  outer query filters, sorts, pages, keysets or exports the rows a plain, grouped, windowed, combined or recursive
+  source produces. `QQuantitySource` has `source()` in place of `query()`, `ALL`, `KEY` and `GROUP_KEYS` where the
+  source groups, and no `MAPPER` and no write method; `ModelQuery#source()` and the three-argument
+  `ModelQuery.builder(root, mapper, source)` root a hand-written query at one. A source is one statement, so a `@Child` on
+  it is `MQ3030`, a `@Join` on a model rooted at one is `MQ3035`, a `@Child` whose child model is rooted at one is
+  `MQ3039`, and a field naming no source field is `MQ3001`; a source key that is neither the root entity's id, for an
+  ungrouped source, nor the full `@GroupBy` set, for a grouped one, and a group key nullable in its mapping, are
+  `MQ3031`; a `root` that is neither an `@Entity` nor a `@SourceModel`, or both, is `MQ3038`, and an outer
+  `@PrimaryKey` that is not exactly the source's key is `MQ3036` (R-PROC-35, R-PROC-39). `generateChanges` on a model
+  rooted at a source is the new `MQ3040` rather than ignored: a write needs an entity root, and neither a source nor
+  an outer model over one generates a change set (R-GEN-37, D-145). See [Source models](source-models.md).
+- Window fields (RFC 0013, R-SRC-04): `@Window(function = ..., argument = ..., partitionBy = ..., orderBy = ...,
+  frame = ...)` on a `@SourceModel` field selects a `WindowFunction` over the CTE — `ROW_NUMBER`, `RANK`,
+  `DENSE_RANK`, `LAG`, `LEAD`, `FIRST_VALUE`, `LAST_VALUE`, `SUM`, `AVG`, `MIN`, `MAX` or `COUNT` — with
+  `WindowFrame` for the framed aggregates, and `WindowField` as the generated constant the field is read through, so
+  an outer query filters and sorts on the result like on any column. `@Window` outside a source model is `MQ3033`,
+  and a term naming no attribute, an argument where the function takes none or none where it needs one, a result type
+  that is not the function's, or an order-sensitive function without `orderBy` is `MQ3032` (R-PROC-36).
+- Set operations and `@Discriminator` (RFC 0013, R-SRC-06, R-PROC-38): `SourceQuery#union`, `#unionAll`, `#intersect`
+  and `#except` combine two sources that read the same shape, and a branch — a `@SourceModel(shape = ...)` — fixes its
+  key column to a constant with `@Discriminator(value = "...")`, which is what makes the combined rows unique by key.
+  Two branches of one `union` or `unionAll` sharing a value are `MQ1904`, and a branch whose fields differ from its
+  shape's by name, position, Java type, converter, `@Enumerated` or temporal mapping, or in number, is `MQ3034`. A
+  source with no unique key — one whose `@PrimaryKey` is not unique in the source, or a combination whose keys
+  collide — is refused where a read identifies a row by its key, with `MQ1901` for a `keyset()` or
+  `primaryKeyFirst(...)` over one and `MQ2212` for an `export`, `byKeys`, `one(q, key)` or fetch plan over one; an
+  offset page over a non-unique source orders by every selected column as a tie-breaker.
+- Recursive sources (RFC 0013, R-SRC-07, D-144): a `@Depth Integer` field makes a source recursive, and its
+  `source()` requires the step and the limit before it is built: `recursive(step -> step.childKey(...).parentKey(...),
+  maxDepth)` names the two key columns, while `where(...)` selects the seed rows. A `maxDepth` below 1 or above
+  `Integer.MAX_VALUE - 2`, a `recursive(...)` on a model with no `@Depth`, a `@Depth` model built without
+  `recursive(...)`, and a `@Depth` that is not exactly one `Integer` field are `MQ1902` or `MQ3037`; a recursive
+  source carrying `@Window`, `@Aggregate` or `@GroupBy` is `MQ3037`, which every database forbids in the recursive
+  term. A tree deeper than `maxDepth` is refused with `MQ2701`, naming the model, the limit and the key of the first
+  row past it, and a graph that closes a cycle with `MQ2702`, naming the model and the first key the cycle clause
+  marked; both are read from the statement's own first row, so a too-deep tree is refused before any page is
+  returned, with no extra query.
+- Running a source (RFC 0013, R-SRC-10, D-143): a query over a source is a CTE, so the provider needs the new
+  `@Incubating SourceRenderer` of `core`, which `ProviderSupport#sources()` returns (empty by default; `window`, `combine` and `recursive` default to `MQ4015`), and the
+  target's `VendorProfile` has to answer `true` for every `SourceFeature` the source uses — `CTE`, `RECURSIVE`,
+  `WINDOW`, `UNION`, `INTERSECT` or `EXCEPT` — and to leave room above its `maxRecursionDepth()` for a recursive
+  one's `maxDepth + 2`. A factory whose provider has no `SourceRenderer` is `MQ4014`, a target that lacks a feature
+  or the depth is `MQ4015`, and both are raised at build time, before any statement, so the portability dry run
+  refuses the target with no database attached. H2 2.2+, PostgreSQL 14+ and MySQL 8.0.31+ have all six (`vendor/41`).
+  `MQ1903` refuses a row lock on a query that reads a source, because a locking clause cannot follow the CTE;
+  `MQ1905` refuses a hand-written `ColumnField.of` or `TableField.join` over a source root, which the processor's
+  metamodel cannot check, in favour of the generated `ColumnField.over(...)`; and `MQ1906` refuses a source `where`
+  predicate whose path crosses a to-many join, which no join inside the CTE can express, and points at
+  `Filters.exists(path, inner)`.
+- A [Source models](source-models.md) docs page covers the source, its key, the outer model and set, window and
+  recursive sources, with the provider and vendor facts they need, the vendors each feature runs on, and what does
+  not work yet: a window reading rows another transaction wrote, MySQL's export cost, an emulated `cycle`, the
+  empty-result race under `READ COMMITTED`, and a CTE column name that is a reserved word.
+
+### Changed
+- The Tier-1 MySQL floor rises from 8.0 to 8.0.31 (`vendor/41`, RFC 0013, D-143): `intersect` and `except` arrive in
+  8.0.31, so the version the Tier-1 matrix runs drops to the first release with the whole of the source feature set
+  listed above. `VendorProfile` carries no server version, so an older 8.0.x is unsupported rather than refused;
+  8.0.0 to 8.0.30 are past end of life.
+
+- A source CTE's columns are named `mq_<property>` by the engine (D-146), so a field named `year` or `order` cannot
+  collide with a vendor reserved word; properties, sort matching and generated code are unchanged. `ProviderSupport#sources()`
+  returns the one hook, `core.SourceRenderer`. `Builder#discriminator` takes a key column and `Builder#depth` a column of
+  the fields, a recursive step's `childKey` and `parentKey` share one column type, and `combine` over sources whose
+  fields differ in order, type or converter is `MQ1904`.
+- `WindowField` joins `SelectField`'s sealed permits (RFC 0013), so an exhaustive `switch` over `SelectField` needs a
+  new case and already-compiled code meets a `MatchException`.
+
 ## [0.9.0] - 2026-10-14
 
 Nothing is frozen yet: every public type stays `@Incubating`. The additions below are all `@Incubating`. Four

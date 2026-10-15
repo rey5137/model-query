@@ -1,0 +1,1 @@
+select cte01_0.mq_quantity,cte01_0.mq_lineCount,cte01_0.mq_revenue,cte01_0.mq_ranking from (select oie1_0.quantity c0,count(oie1_0.id) c1,sum(oie1_0.unit_price) c2,rank() over(order by sum(oie1_0.unit_price) desc) c3 from order_items oie1_0 group by c0) cte01_0(mq_quantity,mq_lineCount,mq_revenue,mq_ranking) order by 1

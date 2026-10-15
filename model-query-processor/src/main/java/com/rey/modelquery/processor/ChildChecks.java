@@ -52,7 +52,15 @@ final class ChildChecks {
                         where + "@Child can't be combined with @" + annotation.getSimpleName());
             }
         }
+        // A fetch plan passes no SourceQuery, so a child rooted at a source can't load (MQ3039, R-SRC-10). A parent
+        // rooted at a source is legal: its @Child's parent-side key names one of the source's fields, which its
+        // parent rows read over the CTE (api/17 R-SRC-10).
         ModelDefinition child = nestedModels.child(field);
+        if (child != null && child.readsSource()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3039, where + child.name() + ".root is "
+                    + child.source().name() + ", a @SourceModel; a fetch plan has no source to pass it");
+            return;
+        }
         if (child == null && model.origin() != model.type() && field.child().model() != null
                 && !nestedModels.isModel((TypeElement) ((DeclaredType) field.child().model()).asElement())) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3026,
@@ -102,6 +110,12 @@ final class ChildChecks {
     private void checkThrough(ModelDefinition model, ModelDefinition child, ModelField field, ChildKey key,
             String where, Diagnostics diagnostics) {
         String path = field.child().through();
+        if (model.readsSource()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3406, where + "through '" + path + "' needs an entity "
+                    + "root to join along, and " + model.name() + " is rooted at " + model.source().name()
+                    + ", a @SourceModel; use foreignKey");
+            return;
+        }
         ChildKey.Through through = ChildKey.through(metamodel, model.root(), path);
         if (through.problem() != null) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3406, where + "through '" + path + "' "

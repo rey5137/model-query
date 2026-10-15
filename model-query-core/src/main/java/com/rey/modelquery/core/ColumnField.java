@@ -125,6 +125,7 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
     @SuppressWarnings("unchecked")
     public static <M, T, C> OrderedColumnField<M, T, C> of(
             Class<M> model, TableField<?, T> table, String attribute, Class<C> type) {
+        requireNotSourceRoot(table);
         // Sound: int.class is a Class<Integer>, so its wrapper is still a Class<C>.
         Class<C> boxed = (Class<C>) boxed(Objects.requireNonNull(type, "type"));
         return new OrderedColumnField<>(
@@ -146,6 +147,7 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
     public static <M, T, C, F> ColumnField<M, T, C> of(
             Class<M> model, TableField<?, T> table, String attribute, Class<C> type, Class<F> attributeType,
             ColumnConverter<C, F> converter) {
+        requireNotSourceRoot(table);
         return create(model, table, attribute, type, attributeType, converter);
     }
 
@@ -157,7 +159,108 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
     public static <M, T, C, F> OrderedColumnField<M, T, C> of(
             Class<M> model, TableField<?, T> table, String attribute, Class<C> type, Class<F> attributeType,
             OrderedColumnConverter<C, F> converter) {
+        requireNotSourceRoot(table);
         return (OrderedColumnField<M, T, C>) create(model, table, attribute, type, attributeType, converter);
+    }
+
+    /**
+     * A column of the outer model {@code model} reading {@code field} of the source rooted at {@code root}: what a
+     * {@code @QueryModel} rooted at a {@code @SourceModel} generates (R-SRC-10, R-GEN-37). It reads the CTE column the
+     * source aliases {@code field} by — {@code field}'s property, which the source's QModel names — and keeps
+     * {@code field}'s type and converter, so the outer column narrows and converts as the source's does.
+     *
+     * <p>The result is the column {@code field} is, so {@code over(TopCustomer.class, ROOT, QOrderTotals.ID)} is an
+     * {@link OrderedColumnField} and composes with {@link #named} the way the source's own constant would.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1905} when {@code root} is not a source root, or {@code field}
+     *     has no property
+     */
+    @SuppressWarnings("unchecked")
+    public static <M, S, C> OrderedColumnField<M, S, C> over(
+            Class<M> model, TableField<S, S> root, OrderedColumnField<S, ?, C> field) {
+        Objects.requireNonNull(field, "field");
+        requireSourceRoot(root);
+        return (OrderedColumnField<M, S, C>) overColumn(model, root, field);
+    }
+
+    /**
+     * A converted column of the outer model {@code model} over a source, as
+     * {@link #over(Class, TableField, OrderedColumnField)}: the source column's converter is copied, so the outer
+     * column is an {@link OrderedColumnField} exactly when the source's is (D-84, D-93).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1905} when {@code root} is not a source root, or {@code field}
+     *     has no property
+     */
+    public static <M, S, C> ColumnField<M, S, C> over(Class<M> model, TableField<S, S> root,
+            ColumnField<S, ?, C> field) {
+        Objects.requireNonNull(field, "field");
+        requireSourceRoot(root);
+        return overColumn(model, root, field);
+    }
+
+    /**
+     * A column of the outer model {@code model} over a source field that is no {@link ColumnField}: a computed
+     * expression or an aggregate, which has no converter and orders as the database value does. A converted column
+     * goes through {@link #over(Class, TableField, ColumnField)}, which keeps its converter.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1905} when {@code root} is not a source root, {@code field} has
+     *     no property, or {@code field} is a converted column whose converter is not ordered
+     */
+    @SuppressWarnings("unchecked")
+    public static <M, S, C> OrderedColumnField<M, S, C> over(Class<M> model, TableField<S, S> root,
+            SelectField<S, C> field) {
+        Objects.requireNonNull(field, "field");
+        if (field instanceof ColumnField<?, ?, ?> converted) {
+            requireSourceRoot(root);
+            String alias = aliasOf(converted, root);
+            // A converted column keeps its converter, which the ordered result needs ordered (D-93).
+            if (converted.converter != null && !(converted.converter instanceof OrderedColumnConverter)) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1905, "over(...) takes " + root.describe() + "."
+                        + alias + ", whose converter " + converted.converterClass().getSimpleName()
+                        + " does not order, so the outer column is not an OrderedColumnField; use the over(...) "
+                        + "that takes the column itself");
+            }
+            return (OrderedColumnField<M, S, C>) overColumn(model, root, (ColumnField<S, ?, C>) converted);
+        }
+        requireSourceRoot(root);
+        return new OrderedColumnField<>(Objects.requireNonNull(model, "model"), root, aliasOf(field, root),
+                field.type(), field.type(), null, null);
+    }
+
+    /** The outer column of {@code field}, on an already-checked source root. */
+    private static <M, S, C> ColumnField<M, S, C> overColumn(
+            Class<M> model, TableField<S, S> root, ColumnField<S, ?, C> field) {
+        return copy(Objects.requireNonNull(model, "model"), root, aliasOf(field, root), field.type,
+                field.attributeType, field.converter, null);
+    }
+
+    /**
+     * The CTE column {@code field} reads, which the source aliases it by: its property as the source's QModel sets it
+     * with {@code named} (R-SRC-10). A window field is read as an ordinary column, by its name (R-GEN-38).
+     */
+    private static String aliasOf(SelectField<?, ?> field, TableField<?, ?> root) {
+        return SourceQuery.columnName(SourceQuery.propertyOf(field).orElseThrow(() -> new ModelQueryDefinitionException(
+                MqCode.MQ1905, "over(...) takes a generated constant of a source model; " + field.name() + " on "
+                        + root.describe() + " has no property to alias the CTE column by")));
+    }
+
+    /** {@code MQ1905} for a hand-written column over a source root, which no metamodel checks (R-SRC-10). */
+    private static void requireNotSourceRoot(TableField<?, ?> table) {
+        Objects.requireNonNull(table, "table");
+        if (table.isSource()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1905, "ColumnField.of(...) takes a table of an entity "
+                    + "root; " + table.describe() + " is a source root, whose columns an outer model reads with "
+                    + "ColumnField.over(...)");
+        }
+    }
+
+    /** {@code MQ1905} when {@code root} is not the source root the outer column reads. */
+    private static void requireSourceRoot(TableField<?, ?> root) {
+        Objects.requireNonNull(root, "root");
+        if (!root.isSource()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1905, "over(...) takes a TableField.source(...); "
+                    + root.describe() + " is an entity root, whose columns come from ColumnField.of(...)");
+        }
     }
 
     /** An {@link OrderedColumnField} exactly when {@code converter} is an {@link OrderedColumnConverter}. */
@@ -198,6 +301,12 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
             return ctx.liftedColumn(this);
         }
         From<?, T> from = table.resolve(Objects.requireNonNull(ctx, "ctx"), this);
+        if (table.isSource()) {
+            // The CTE column is aliased by name and holds the source column's own type, checked by the processor
+            // against the source model (R-SRC-10): a provider reports a tuple element's Java type, which is not the
+            // mapped attribute's, so INV-3's runtime check has nothing to compare here.
+            return cteColumn(from);
+        }
         Path<C> path;
         if (attribute.indexOf('.') >= 0) {
             path = embeddedPath(from);
@@ -222,6 +331,17 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
                     attribute, (actual == null ? "of unknown type" : name(actual, attributeType)) + idNamed(from)));
         }
         return path;
+    }
+
+    /** The CTE element {@code from} aliases {@code attribute} by, which a source's outer column reads (R-SRC-10). */
+    @SuppressWarnings("unchecked")
+    private Path<C> cteColumn(From<?, T> from) {
+        try {
+            return (Path<C>) from.get(attribute);
+        } catch (IllegalArgumentException e) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1002, model.getSimpleName() + "." + attribute
+                    + ": the source " + table.describe() + " has no field '" + attribute + "'", e);
+        }
     }
 
     /**
@@ -355,8 +475,8 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
      * (R-FLT-16, INV-6): the check {@code in} and {@code notIn} over a sub-select run at first resolution.
      */
     boolean embeddableValued(JoinContext ctx) {
-        if (liftedFrom != null) {
-            return false; // a lift's outer column is checked on the outer side
+        if (liftedFrom != null || table.isSource()) {
+            return false; // a lift's outer column is checked on the outer side; a CTE column is a scalar element
         }
         From<?, T> from = table.resolve(Objects.requireNonNull(ctx, "ctx"), this);
         if (attribute.indexOf('.') >= 0) {
@@ -381,7 +501,7 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
      * no portable group key (R-AGG-05, D-137).
      */
     boolean wholeEntityToOne(JoinContext ctx) {
-        if (liftedFrom != null || attribute.indexOf('.') >= 0) {
+        if (liftedFrom != null || table.isSource() || attribute.indexOf('.') >= 0) {
             return false;
         }
         From<?, T> from = table.resolve(Objects.requireNonNull(ctx, "ctx"), this);

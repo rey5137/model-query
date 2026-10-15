@@ -284,5 +284,5 @@ rule in `LayeringRules` that limits `DatabaseVendor` allows the portability pack
   either moved up front or listed in §4 and R-INS-12's limits. The audit sets R-INS-11's semantics and the sweep's
   `persist` default. The sweep's package scan is also deferred here.
 - **Q-18:** the `@RequiresFact` ArchUnit rule (§5).
-- **Release (decided 2026-10-13):** M23, after M22, shipped in 0.9.0 with M17 to M22, so the M26.1 freeze review
+- **Release (decided 2026-10-13):** M23, after M22, shipped in 0.9.0 with M17 to M22, so the M29.1 freeze review
   sees it. AC-INS-11 is written after M22, once the M20.5 and M22 refusals exist.

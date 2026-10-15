@@ -1,7 +1,7 @@
 # RFC 0013 — Source models: CTEs, window fields, set operations and recursive reads
 
 - **Status:** accepted 2026-10-15 as D-143 (revised after two architect reviews; the acceptance spike passed, see
-  [0013-spike-results.md](0013-spike-results.md)). M25, 0.10.0; the freeze is renumbered M26.
+  [0013-spike-results.md](0013-spike-results.md)). M25, 0.10.0; the freeze is renumbered M26, later M29 (D-145).
 - **Affects:**
   - **New spec file:** `api/17-query-sources.md`, with R-SRC-01 to R-SRC-12 and AC-SRC-01 to AC-SRC-16.
   - **`SPEC.md`:** `SRC 17` in §1 Areas; `SourceQuery` and `WindowField` in INV-9's list.
@@ -232,14 +232,18 @@ SourceQuery<FeedItem> feed = QFeedItem.source().where(f -> f.eq(QFeedItem.OWNER_
   - `union` or `unionAll`: every branch is unique, and the branches are disjoint by key, in one of two ways (R-SRC-06):
     - **By discriminator.** The shape's composite `@PrimaryKey` includes a `@Discriminator` field, and every branch
       fixes it to a different constant.
-    - **By one branch model.** It's a `union` (distinct) whose branches all come from the same branch model. Each root
-      row yields the same columns in every branch, so a row reached by two branches collapses to one. This covers
-      "owned `union` shared".
+    - **By one branch model.** A distinct `union` whose branches all read one ungrouped branch model with no `@Window`
+      field and one discriminator value: each root row yields the same columns in every branch, so a row two branches
+      reach collapses to one. A grouped or windowed model computes its values over each branch's own rows, so it is
+      non-unique there (§6). This covers "owned `union` shared".
   - Anything else is non-unique (§6).
 - **Discriminator values (R-SRC-06).**
   - Each branch renders its discriminator as a constant (`Expr.constant`).
   - In a `union` or `unionAll`, two branches with the same discriminator value are `MQ1904`, raised when the operation
     is built. Without the error, the union would quietly lose key uniqueness.
+  - Values are computed per node (a leaf {v}; `union`, `unionAll` L u R; `intersect` L n R; `except` L) for the clash
+    check and for uniqueness; the check is skipped for a distinct `union` whose leaves all read one model. Combining
+    sources whose fields differ in order, property, type or converter is `MQ1904` (D-146).
   - `intersect` and `except` don't check discriminator values. Uniqueness there follows the rules above.
   - Every branch of a discriminated shape must declare a `@Discriminator` field, and every `@Discriminator` must be part
     of the key (`MQ3034`).
@@ -278,8 +282,9 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
   - **What the outer query sees.** The engine filters on `level <= maxDepth and not mark`, so neither the extra level
     nor a marked row reaches the result.
   - **The check runs in the same statement.** The content and count statements each carry two scalar sub-selects over
-    the same CTE: `max(level)` and whether any mark is set. The engine reads them from the first row. The
-    sub-selects read the CTE through Hibernate's `JpaSubQuery`, so they are built behind `SourceSupport#recursive`.
+    the same CTE: `min(key)` over the rows past `maxDepth` and `min(key)` over the marked rows, so each also names the
+    first offending key. The engine reads them from the first row. The sub-selects read the CTE through Hibernate's
+    `JpaSubQuery`, so they are built behind `SourceSupport#recursive` and return with its root (D-144).
     - A level past `maxDepth` is `MQ2701`. A set mark is `MQ2702`. Each names the model and the first offending key.
     - So every non-empty result is checked in the snapshot it was read from. Neither a too-deep tree nor a cyclic
       graph comes back as a partial or doubled result (INV-5).
@@ -317,7 +322,7 @@ order values could swap between the statements of page 1 and page 2, and one row
 never shows. So offset `page` on a non-unique source appends every selected outer column, ascending, as tie-breakers
 after the definition's order and the key.
 - A selected column that can't be ordered (a LOB, a JSON type) is `MQ2212`.
-- Rows that are equal in every column can't be told apart, so no row is visibly lost.
+- Rows that compare equal under the vendor's ordering can't be told apart, so no row is visibly lost (known limits: `api/17` R-SRC-09).
 
 ### 7. The outer query (R-PROC-39, R-SRC-10, R-SRC-11)
 
@@ -363,20 +368,29 @@ public interface SourceSupport {                       // ProviderSupport#source
     CriteriaQuery<Tuple> combine(CriteriaBuilder cb, SetOperation op, List<CriteriaQuery<Tuple>> branches);
     Expression<?> window(CriteriaBuilder cb, WindowSpec spec);         // functions, partition, order, frame
     Root<Tuple> cte(CriteriaQuery<?> outer, CriteriaQuery<Tuple> body);
-    Root<Tuple> recursive(CriteriaQuery<?> outer, RecursiveSpec spec); // seed, step keys, depth, cycle mark
+    RecursiveCte recursive(CriteriaQuery<?> outer, RecursiveSpec spec); // the CTE root and the two checks
 }
 ```
 
+`RecursiveCte(root, depthKey, cycleKey)` is what the recursive hook returns: the CTE's root, and the two check
+expressions it built over the same CTE with `JpaSubQuery.from(cte)`, which `core` cannot name (D-144).
+
 - **Every statement re-registers the CTE (R-SRC-12).** `jpa` calls `cte` or `recursive` on each `CriteriaQuery` it
-  builds over a source: the content query, the count, both primary-key-first steps, each export page, `byKeys`, the
-  parent reads of a fetch plan and the recursion probe.
+  builds over a source: the content query, the count, both primary-key-first steps, each export page, `byKeys` and the
+  parent reads of a fetch plan. A recursive source refuses all but the content query and the count (R-SRC-09), and its
+  two checks are selected by those two statements rather than by a statement of their own (§5, D-144).
 - **Hibernate implementation.** `model-query-hibernate` implements the hooks for both lines.
   - `LAG`, `LEAD`, `MIN` and `MAX` have no typed `JpaWindow` methods, so they render through
     `windowFunction(name, …)`.
   - The discriminator constant renders with `cb.literal`, inline. PostgreSQL accepts it in a union branch, and a
     bound value would also work, because Hibernate casts it there.
-  - Set operations use the `(boolean, CriteriaQuery, CriteriaQuery…)` overloads, identical on both lines. The only
-    line difference the hooks hide is `search`'s ordering type (`NullPrecedence` on 6.6, `Nulls` on 7.4).
+  - Set operations use the `(boolean, CriteriaQuery, CriteriaQuery…)` overloads, identical on both lines.
+  - The recursive CTE is `withRecursiveUnionAll(seed, term)` plus the `cycle` clause, and the two checks are
+    sub-queries over it; the hook makes the same calls on 6.6 and 7.4, so it hides no line difference. The rendered SQL
+    still differs the way Hibernate 7 renders every `WITH` clause — the CTE's own alias is `var_1` there and `cte0` on
+    6.6, and the cycle mark's literal is a real boolean — so the recursive snapshots carry `hibernate7/` variants, as
+    the write snapshots do. No `search` clause is rendered: the outer query owns the order, and the CTE is read by it
+    alone.
   - Another provider, or no `ProviderSupport`, is `MQ4014` before any statement.
 
 **Vendor (INV-6).**
@@ -510,5 +524,5 @@ Everything here is additive and `@Incubating`, apart from one support-floor chan
 - **Later, not in this RFC:**
   - entity joins from a model rooted at a source (`@Join(entity = …, on = …)`);
   - `@BindSourceModel` for a source model in an API module (RFC 0012).
-- **Release (decided 2026-10-15):** M25, shipped in 0.10.0 before the freeze, which is renumbered M26. Every new
-  public type and member is `@Incubating`, so the M26.1 freeze review decides each one.
+- **Release (decided 2026-10-15):** M25, shipped in 0.10.0 before the freeze, which is renumbered M26, later M29
+  (D-145). Every new public type and member is `@Incubating`, so the M29.1 freeze review decides each one.

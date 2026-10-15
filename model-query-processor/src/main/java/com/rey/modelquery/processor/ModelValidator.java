@@ -15,6 +15,8 @@ import com.rey.modelquery.processor.ModelDefinition.AggregateDefinition;
 import com.rey.modelquery.processor.ModelDefinition.FilterColumnDefinition;
 import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
+import com.rey.modelquery.processor.ModelDefinition.WindowDefinition;
+import com.rey.modelquery.processor.ModelDefinition.WindowOrder;
 import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -22,6 +24,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.lang.model.SourceVersion;
@@ -78,6 +81,12 @@ final class ModelValidator {
     /** What {@code Agg.sumAsLong} sums; the database returns a {@code Long} (api/13 R-AGG-03). */
     private static final Set<String> INTEGRAL = Set.of("java.lang.Integer", "java.lang.Short", "java.lang.Byte");
 
+    /** The window functions that take no argument, whose result is a {@code Long} (R-PROC-36). */
+    private static final Set<String> WINDOW_RANKING = Set.of("ROW_NUMBER", "RANK", "DENSE_RANK");
+
+    /** The window functions that aggregate a value; every other one orders the window and needs an {@code orderBy}. */
+    private static final Set<String> WINDOW_AGGREGATES = Set.of("SUM", "AVG", "MIN", "MAX", "COUNT");
+
     private static final String LOMBOK_NO_ARGS = "lombok.NoArgsConstructor";
 
     private final Types types;
@@ -98,14 +107,19 @@ final class ModelValidator {
     }
 
     void validate(ModelDefinition model, Diagnostics diagnostics) {
+        // A root that is neither an @Entity nor a @SourceModel, or both, decides no kind of read: every check below
+        // would run against the wrong metamodel (MQ3038, R-PROC-39).
+        if (model.readModel() && !rootKindOk(model, diagnostics)) {
+            return;
+        }
         // An update model is only read, and an insert model is instantiated by its caller, never by a mapper: neither
         // its shape nor its primitives matter.
-        if (model.queryModel()) {
+        if (model.readModel()) {
             checkShape(model, diagnostics);
         }
         // A model with a @Selected field generates one more constant, which no field's may take (R-GEN-29).
         Set<String> reserved = switch (model.kind()) {
-            case QUERY -> model.hasSelected() ? RESERVED_BY_SELECTED : RESERVED;
+            case QUERY, SOURCE -> model.hasSelected() ? RESERVED_BY_SELECTED : RESERVED;
             case UPDATE -> RESERVED_BY_UPDATE;
             case INSERT -> RESERVED_BY_INSERT;
         };
@@ -117,7 +131,7 @@ final class ModelValidator {
             writeChecks.checkGeneratedInserts(model, diagnostics);
         }
         writeChecks.checkExcluded(model, diagnostics);
-        if (model.queryModel()) {
+        if (model.readModel()) {
             checkSelected(model, diagnostics);
         }
         if (model.updateModel()) {
@@ -132,18 +146,41 @@ final class ModelValidator {
         }
         // A group has no row identity, so a summary model needs no key (R-AGG-09); an update model has no groups. An
         // insert model leaves a generated id out, which MQ3501 checks.
-        if (model.keys().isEmpty() && (model.updateModel() || model.queryModel() && model.aggregates().isEmpty())) {
+        if (model.keys().isEmpty() && (model.updateModel()
+                || model.queryModel() && !model.readsSource() && model.aggregates().isEmpty())) {
             diagnostics.error(model.type(), DiagnosticCode.MQ3004, model.name() + (model.updateModel()
                     ? ": no @PrimaryKey; update(...) and delete() choose rows by the entity id"
                     : ": no @PrimaryKey; paging, export and @Join presence need one"));
+        }
+        // A source's key is unique per row (R-SRC-02); an outer model's key is its source's own key (R-SRC-03).
+        if (model.sourceModel()) {
+            checkSourceKey(model, diagnostics);
+            checkDiscriminatorKey(model, diagnostics);
+            // A recursive source takes no window, aggregate or group by (R-PROC-37).
+            if (model.recursive()) {
+                checkRecursive(model, diagnostics);
+            }
+            // A branch maps its shape's fields one for one (R-PROC-38).
+            if (model.branch()) {
+                checkBranch(model, diagnostics);
+            }
+        } else if (model.readsSource()) {
+            checkOuterKey(model, diagnostics);
+            checkGenerateChanges(model, diagnostics);
         }
         // What each constant is generated for, as a clash names it: a joined column first, so that a field taking its
         // name is the one reported.
         var constants = new HashMap<String, String>();
         var joined = new ArrayList<JoinedTable>();
         // An update model's @Join is MQ3302, an insert model's MQ3502, and joins nothing.
-        for (ModelField join : model.queryModel() ? model.joins() : List.<ModelField>of()) {
+        for (ModelField join : model.readModel() ? model.joins() : List.<ModelField>of()) {
             String where = model.name() + "." + join.name() + ": ";
+            // A source root resolves no association, so an outer model reads its fields by name alone (R-SRC-10).
+            if (model.readsSource()) {
+                diagnostics.error(join.element(), DiagnosticCode.MQ3035, where + "@Join needs an entity root; "
+                        + model.source().name() + " is a @SourceModel, whose columns an outer model reads by name");
+                continue;
+            }
             ModelDefinition nested = checkJoin(model, join, where, diagnostics);
             if (nested != null) {
                 List<JoinedTable> tables = nestedModels.tables(model, join, nested);
@@ -152,31 +189,57 @@ final class ModelValidator {
             }
         }
         Set<String> ofJoins = Set.copyOf(constants.keySet());
-        // A filter path is laid out over the joins that can be generated: one that failed is reported above.
-        FilterLayout filters = FilterLayout.of(model, joined, metamodel);
+        // A filter path is laid out over the joins that can be generated: one that failed is reported above. An outer
+        // model over a source declares none: its fields are read by name, and no CTE column carries an alias of its
+        // own (MQ3011, R-SRC-10).
+        FilterLayout filters = model.readsSource()
+                ? new FilterLayout(List.of(), List.of(), List.of())
+                : FilterLayout.of(model, joined, metamodel);
         filters.problems().forEach(problem -> diagnostics.error(model.type(), problem.code(), problem.detail()));
         claimFilterTables(model, filters, constants, diagnostics);
-        if (model.queryModel()) {
+        if (model.readModel()) {
             checkGrouping(model, diagnostics);
         }
         // Only an ungrouped query always selects the key: a grouped one selects it like any other column (D-49).
         boolean ungrouped = model.aggregates().isEmpty() && model.groupKeys().isEmpty();
         for (ModelField field : model.fields()) {
-            if (!field.column() && field.aggregate() == null && !field.computed()) {
+            if (!field.column() && field.aggregate() == null && !field.computed() && !field.windowed()) {
                 continue;
             }
             String where = model.name() + "." + field.name() + ": ";
             // A field may carry @Computed beside @Aggregate, which MQ3019 reports: run both checks, not either.
-            if (model.queryModel() && field.aggregate() != null) {
+            if (model.readModel() && field.aggregate() != null) {
                 checkAggregate(model, field, where, diagnostics);
             }
-            if (model.queryModel() && field.computed()) {
+            if (model.readModel() && field.computed()) {
                 checkComputed(model, field, where, diagnostics);
             }
-            if (field.column()) {
+            // A window function is only valid over a source model: SQL forbids one in WHERE, and a keyset predicate
+            // is a WHERE, so an outer model reads the value as a plain column (R-PROC-36).
+            if (field.windowed()) {
+                if (model.sourceModel()) {
+                    checkWindow(model, field, where, diagnostics);
+                } else {
+                    diagnostics.error(field.element(), DiagnosticCode.MQ3033,
+                            where + "@Window is only allowed on a @SourceModel");
+                }
+            }
+            // A recursive source's @Depth is the level the CTE assigns the row, not a path into the root: only a
+            // source model can be recursive, and its @Depth is one Integer (R-PROC-37).
+            if (field.depth()) {
+                if (model.sourceModel()) {
+                    checkDepth(model, field, where, diagnostics);
+                } else {
+                    diagnostics.error(field.element(), DiagnosticCode.MQ3037, where
+                            + "@Depth is only allowed on a @SourceModel; only a source recurses");
+                }
+            }
+            // A branch's @Discriminator is a constant, never a path into the root: read the attribute check as
+            // satisfied (R-PROC-38). A @Depth is the CTE's level column, read from no attribute either (R-PROC-37).
+            if (field.column() && !field.discriminated() && !field.depth()) {
                 checkAttribute(model, field, where, diagnostics);
             }
-            if (field.column() && model.isRecord() && model.queryModel() && field.type().getKind().isPrimitive()
+            if (field.column() && model.isRecord() && model.readModel() && field.type().getKind().isPrimitive()
                     && !(ungrouped && field.primaryKey())) {
                 diagnostics.error(field.element(), DiagnosticCode.MQ3009,
                         where + "primitive components can't be null when not selected; use "
@@ -190,6 +253,13 @@ final class ModelValidator {
         }
         // An insert model's @Child is MQ3502.
         for (ModelField child : model.insertModel() ? List.<ModelField>of() : model.children()) {
+            String childWhere = model.name() + "." + child.name() + ": ";
+            // A source is one statement: it has no parent query to fill a @Child from (R-PROC-35).
+            if (model.sourceModel()) {
+                diagnostics.error(child.element(), DiagnosticCode.MQ3030,
+                        childWhere + "@Child needs a parent query to fill it; a @SourceModel is one statement");
+                continue;
+            }
             childChecks.check(model, child, diagnostics);
             // Its ChildField constant is named as a column of the field would be (R-FCH-03).
             claim(child, model.name() + "." + child.name() + ": ", reserved, constants, ofJoins, diagnostics);
@@ -198,6 +268,13 @@ final class ModelValidator {
         for (FilterColumnDefinition column : model.insertModel() ? List.<FilterColumnDefinition>of()
                 : model.filterColumns()) {
             String where = model.name() + " " + column.label() + ": ";
+            // A filter column reads the CTE column its constant aliases; an outer model owns no CTE column of its
+            // own, so it reads the source's fields by name alone (R-SRC-10).
+            if (model.readsSource()) {
+                diagnostics.error(model.type(), DiagnosticCode.MQ3011, where + "an outer model reads a source's "
+                        + "fields by field name; a @FilterColumn of its own has no CTE column to alias");
+                continue;
+            }
             if (!isSimpleName(column.name())) {
                 diagnostics.error(model.type(), DiagnosticCode.MQ3013, where + "name '" + column.name()
                         + "' can't be a constant's name; use a Java identifier");
@@ -218,12 +295,491 @@ final class ModelValidator {
             }
         }
         // An insert or update model generates no fields() (R-GEN-32).
-        if (model.queryModel()) {
+        if (model.readModel()) {
             for (FilterIndex.Shadowed shadowed : FilterIndex.of(model, joined, filters).shadowed()) {
                 diagnostics.warning(model.type(), DiagnosticCode.MQ3022, model.name() + " "
                         + shadowed.column().definition().label() + ": its key '" + shadowed.key() + "' is already "
                         + "held by " + shadowed.holder() + "; fields() leaves it out, and it stays a constant");
             }
+        }
+    }
+
+    /**
+     * Whether {@code model}'s {@code root} is the kind of read the model is: an {@code @Entity} for a source model,
+     * and an {@code @Entity} or an {@code @SourceModel}, not both, for a query model. One that is neither, or both,
+     * is {@code MQ3038} and decides no read (R-PROC-39).
+     */
+    private static boolean rootKindOk(ModelDefinition model, Diagnostics diagnostics) {
+        boolean entity = QueryModelReader.isEntity(model.root());
+        boolean source = QueryModelReader.isSourceModel(model.root());
+        String name = model.name() + ": root " + model.root().getSimpleName();
+        if (model.sourceModel() && source) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3038,
+                    name + " is a @SourceModel; a source model reads an @Entity");
+            return false;
+        }
+        if (entity == source) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3038, entity
+                    ? name + " is both @Entity and @SourceModel; keep one"
+                    : name + " is neither @Entity nor @SourceModel");
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * {@code MQ3031} for a source whose key is not unique per row: an ungrouped source's {@code @PrimaryKey} is the
+     * root entity's id, a grouped one's is its full {@code @GroupBy} set with every group key non-nullable in its
+     * mapping, and no field reads through a to-many association (R-SRC-02, R-SRC-03).
+     */
+    private void checkSourceKey(ModelDefinition model, Diagnostics diagnostics) {
+        // A @Discriminator key column is a constant the branch fixes, not a path into the root: the key it takes
+        // part in is the root's own key plus the discriminator (R-SRC-06).
+        List<ModelField> keys = model.keys().stream().filter(key -> !key.discriminated()).toList();
+        if (!model.grouped()) {
+            Set<String> attributes = keys.stream().map(ModelField::attribute).collect(Collectors.toSet());
+            if (keys.size() != 1 || !metamodel.id(model.root()).is(attributes)) {
+                diagnostics.error(model.type(), DiagnosticCode.MQ3031, model.name() + ": @PrimaryKey must be "
+                        + model.root().getSimpleName() + "'s id " + metamodel.id(model.root()).label()
+                        + ", one row's key; group the source to key it by its @GroupBy columns");
+            }
+            reportToManyReads(model, diagnostics);
+            return;
+        }
+        List<ModelField> groupKeys = model.groupKeys();
+        boolean keyIsGroup = keys.stream().map(ModelField::name).toList()
+                .equals(groupKeys.stream().map(ModelField::name).toList());
+        if (!keyIsGroup) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3031, model.name() + ": @PrimaryKey must be every "
+                    + "@GroupBy column of the source, "
+                    + groupKeys.stream().map(field -> "'" + field.name() + "'").collect(Collectors.joining(", "))
+                    + ", since a group is one row");
+        } else {
+            for (ModelField key : keys) {
+                EntityAttribute attribute = metamodel.resolve(model.root(), key.attribute()).attribute();
+                if (attribute != null && attribute.nullable()) {
+                    diagnostics.error(key.element(), DiagnosticCode.MQ3031, model.name() + "." + key.name()
+                            + ": a group key must be non-nullable, and " + key.attribute() + " is nullable; add "
+                            + "@Column(nullable = false) or an @Id");
+                }
+            }
+        }
+        reportToManyReads(model, diagnostics);
+    }
+
+    /**
+     * {@code MQ3031} for a {@code @FilterColumn} of a source whose path crosses a to-many association: a source
+     * reads one row per key, so the filter is an explicit {@code Filters.exists} instead (R-SRC-03).
+     */
+    private void reportToManyReads(ModelDefinition model, Diagnostics diagnostics) {
+        for (FilterColumnDefinition column : model.filterColumns()) {
+            EntityMetamodel.Walk walk = metamodel.walk(model.root(), column.path());
+            String crossing = walk.steps().stream()
+                    .filter(step -> step.attribute().kind() == EntityAttribute.Kind.COLLECTION)
+                    .map(step -> step.attribute().name()).findFirst().orElse(null);
+            if (crossing != null) {
+                diagnostics.error(model.type(), DiagnosticCode.MQ3031, model.name() + " " + column.label()
+                        + ": a source reads one row per key, so its fields can't cross the to-many join '" + crossing
+                        + "'; filter with Filters.exists");
+            }
+        }
+    }
+
+    /**
+     * {@code MQ3037} for a {@code @Depth} that is not exactly one {@code Integer}: the level the CTE assigns a row is
+     * an {@code Integer}, and a model declares one (R-PROC-37).
+     */
+    private static void checkDepth(ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
+        if (!field.type().toString().equals("java.lang.Integer")) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3037,
+                    where + "a recursive source takes one Integer @Depth");
+            return;
+        }
+        List<ModelField> depths = model.depths();
+        if (depths.indexOf(field) > 0) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3037, where + "a model declares one @Depth field, "
+                    + "the level the CTE assigns its rows; the first is " + depths.get(0).name());
+        }
+    }
+
+    /**
+     * {@code MQ3037} for a recursive source that carries {@code @Window}, {@code @Aggregate} or {@code @GroupBy}:
+     * every database forbids all three in the recursive term, so the source cannot recurse with one (R-PROC-37).
+     */
+    private static void checkRecursive(ModelDefinition model, Diagnostics diagnostics) {
+        for (ModelField field : model.windows()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3037, model.name() + "." + field.name()
+                    + ": a recursive source takes no @Window; a database forbids one in the recursive term");
+        }
+        for (ModelField field : model.aggregates()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3037, model.name() + "." + field.name()
+                    + ": a recursive source takes no @Aggregate; a database forbids one in the recursive term");
+        }
+        for (ModelField field : model.groupKeys()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3037, model.name() + "." + field.name()
+                    + ": a recursive source takes no @GroupBy; a database forbids one in the recursive term");
+        }
+    }
+
+    /**
+     * {@code MQ3034} for a {@code @Discriminator} that is not part of its model's key: the merged rows are keyed by
+     * the shape's own key, which carries the discriminator (R-SRC-06).
+     */
+    private static void checkDiscriminatorKey(ModelDefinition model, Diagnostics diagnostics) {
+        List<ModelField> discriminators = model.discriminators();
+        for (int i = 0; i < discriminators.size(); i++) {
+            ModelField field = discriminators.get(i);
+            if (!field.primaryKey()) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3034, model.name() + "." + field.name()
+                        + ": @Discriminator must be part of the @PrimaryKey; a branch is keyed by the constant it "
+                        + "fixes (R-SRC-06)");
+            }
+            if (!field.type().toString().equals("java.lang.String")) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3034, model.name() + "." + field.name()
+                        + ": @Discriminator fixes a String constant, so the field is a String (R-SRC-06)");
+            }
+            // DECIDE: R-SRC-06 makes one discriminator column disjoint the branches of a union; the builder fixes
+            // one, and a second field could only be fixed by ignoring this one.
+            if (i == 1) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3034, model.name() + "." + field.name()
+                        + ": a model declares one @Discriminator field, the constant that tells its branches apart; "
+                        + "the first is " + discriminators.get(0).name());
+            }
+        }
+    }
+
+    /**
+     * {@code MQ3034} for a branch model whose fields do not map its shape's (R-PROC-38): a branch maps the shape's
+     * fields one for one, by name, in declaration order, by Java type, by what the database stores (the converter,
+     * the {@code EnumType} and the temporal type) and by key. A branch declares no {@code @Window}, and neither does a
+     * shape that has branches.
+     */
+    private void checkBranch(ModelDefinition model, Diagnostics diagnostics) {
+        ModelDefinition shape = model.shape();
+        String byName = "a branch maps the shape's fields one for one, by name, in declaration order";
+        for (ModelField field : model.windows()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3034, model.name() + "." + field.name()
+                    + ": a branch declares no @Window field; a window over the combined rows is not supported "
+                    + "(R-PROC-38)");
+        }
+        for (ModelField field : shape.windows()) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3034, model.name() + ": the shape " + shape.name()
+                    + " declares the @Window field " + field.name() + ", which no branch can combine with; a shape "
+                    + "with branches declares no @Window (R-PROC-38)");
+        }
+        // A recursive model is neither a branch nor a shape: a shape's branches are combined, and the recursion has
+        // one seed and one step (R-PROC-37).
+        for (ModelField field : model.depths()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3034, model.name() + "." + field.name()
+                    + ": a branch declares no @Depth; a recursive model is neither a branch nor a shape");
+        }
+        for (ModelField field : shape.depths()) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3034, model.name() + ": the shape " + shape.name()
+                    + " declares the @Depth field " + field.name() + ", which no branch can recurse from; a recursive "
+                    + "model is neither a branch nor a shape");
+        }
+        List<ModelField> fields = model.fields();
+        List<ModelField> theirs = shape.fields();
+        for (int i = 0; i < fields.size(); i++) {
+            ModelField field = fields.get(i);
+            String where = model.name() + "." + field.name() + ": ";
+            if (i >= theirs.size()) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3034, where + "the shape " + shape.name()
+                        + " declares no field at this position; " + byName);
+                continue;
+            }
+            ModelField other = theirs.get(i);
+            if (!field.name().equals(other.name())) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3034, where + "the shape " + shape.name()
+                        + " declares '" + other.name() + "' here; " + byName);
+                continue;
+            }
+            if (!types.isSameType(boxed(field.type()), boxed(other.type()))) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3034, where + "branch " + model.name()
+                        + " maps it as " + display(field.type()) + ", the shape " + shape.name() + " as "
+                        + display(other.type()) + "; a set operation compares the stored values");
+                continue;
+            }
+            checkBranchStorage(model, shape, field, other, where, diagnostics);
+        }
+        for (int i = fields.size(); i < theirs.size(); i++) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3034, model.name() + ": the shape " + shape.name()
+                    + " declares the field '" + theirs.get(i).name() + "' after every field of the branch; " + byName);
+        }
+        List<String> keys = model.keys().stream().map(ModelField::name).toList();
+        List<String> shapeKeys = shape.keys().stream().map(ModelField::name).toList();
+        if (!keys.equals(shapeKeys)) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3034, model.name() + ": @PrimaryKey must be the shape "
+                    + shape.name() + "'s key " + quoted(shapeKeys) + ", by name and in order; the branches of a set "
+                    + "operation are matched by the shape's key");
+        }
+        checkBranchDiscriminator(model, shape, diagnostics);
+    }
+
+    /**
+     * {@code MQ3034} for a branch column that stores other values than its shape's (R-PROC-38): the converter class,
+     * the {@code EnumType} and the temporal type. An {@code ORDINAL} enum and a {@code STRING} one, or a converted
+     * column and a raw one, would otherwise compile and produce rows that compare unequal.
+     */
+    private void checkBranchStorage(ModelDefinition model, ModelDefinition shape, ModelField field, ModelField other,
+            String where, Diagnostics diagnostics) {
+        if (field.converter() == null ? other.converter() != null
+                : other.converter() == null || !types.isSameType(field.converter(), other.converter())) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3034, where + "branch " + model.name()
+                    + " converts it with " + converterName(field.converter()) + ", the shape " + shape.name()
+                    + " with " + converterName(other.converter()) + "; a set operation compares the stored values");
+        }
+        EntityAttribute mine = metamodel.resolve(model.root(), field.attribute()).attribute();
+        EntityAttribute theirs = metamodel.resolve(shape.root(), other.attribute()).attribute();
+        if (mine == null || theirs == null) {
+            // The attribute check reports the path itself, on the model whose field names it.
+            return;
+        }
+        // @Enumerated defaults to ORDINAL, so writing it out is not a difference.
+        String mineEnum = mine.enumType() == null ? "ORDINAL" : mine.enumType();
+        String theirsEnum = theirs.enumType() == null ? "ORDINAL" : theirs.enumType();
+        if (!mineEnum.equals(theirsEnum)) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3034, where + model.root().getSimpleName() + "."
+                    + field.attribute() + " stores it as @Enumerated(" + mineEnum + "), and "
+                    + shape.root().getSimpleName() + "." + other.attribute() + " as @Enumerated(" + theirsEnum
+                    + "); a set operation compares the stored values");
+        }
+        if (!Objects.equals(mine.temporal(), theirs.temporal())) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3034, where + model.root().getSimpleName() + "."
+                    + field.attribute() + " stores it as @Temporal("
+                    + (mine.temporal() == null ? "the default" : mine.temporal()) + "), and "
+                    + shape.root().getSimpleName() + "." + other.attribute() + " as @Temporal("
+                    + (theirs.temporal() == null ? "the default" : theirs.temporal())
+                    + "); a set operation compares the stored values");
+        }
+    }
+
+    /**
+     * {@code MQ3034} for a branch of a discriminated shape that does not declare the shape's {@code @Discriminator}
+     * field: the constant it fixes is what keeps the branches' keys disjoint (R-SRC-06).
+     */
+    private static void checkBranchDiscriminator(ModelDefinition model, ModelDefinition shape,
+            Diagnostics diagnostics) {
+        List<String> shapeFields = shape.discriminators().stream().map(ModelField::name).toList();
+        if (shapeFields.isEmpty()) {
+            return;
+        }
+        List<String> fields = model.discriminators().stream().map(ModelField::name).toList();
+        if (!fields.equals(shapeFields)) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3034, model.name() + ": the shape " + shape.name()
+                    + " carries @Discriminator on " + quoted(shapeFields) + ", and every branch declares the same; "
+                    + model.name() + " declares " + (fields.isEmpty() ? "none" : "it on " + quoted(fields))
+                    + " (R-SRC-06)");
+        }
+    }
+
+    /** {@code value} as a diagnostic names a converter: its simple name, or {@code null} for no converter. */
+    private static String converterName(TypeMirror converter) {
+        return converter == null ? "no converter" : display(converter);
+    }
+
+    /** {@code names} as a diagnostic lists a key: {@code 'a', 'b'}. */
+    private static String quoted(List<String> names) {
+        return names.stream().map(name -> "'" + name + "'").collect(Collectors.joining(", "));
+    }
+
+    /**
+     * {@code MQ3036} for an outer model whose {@code @PrimaryKey} is not exactly its source's key, in the same order:
+     * the engine's tie-breakers and a keyset cursor read the source's own key (R-SRC-03).
+     */
+    private static void checkOuterKey(ModelDefinition model, Diagnostics diagnostics) {
+        List<String> sourceKey = model.source().keys().stream().map(ModelField::name).toList();
+        List<String> written = model.keys().stream().map(ModelField::attribute).toList();
+        if (!written.equals(sourceKey)) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3036, model.name() + ": @PrimaryKey must be "
+                    + model.source().name() + "'s key "
+                    + sourceKey.stream().map(name -> "'" + name + "'").collect(Collectors.joining(", "))
+                    + ", the source's own key; a keyset cursor and the engine's tie-breakers read it");
+        }
+    }
+
+    /**
+     * {@code MQ3040} for a model rooted at a source that sets {@code generateChanges}: a write needs an entity root,
+     * and neither a source nor an outer model over one generates a change set, so the flag is reported rather than
+     * ignored (R-GEN-37, D-145). {@code @SourceModel} declares no {@code generateChanges} member, so an outer model
+     * is the only kind that reaches this.
+     */
+    private static void checkGenerateChanges(ModelDefinition model, Diagnostics diagnostics) {
+        if (model.generateChanges()) {
+            diagnostics.error(model.type(), DiagnosticCode.MQ3040, model.name()
+                    + ": generateChanges needs an entity root; it is rooted at source " + model.source().name()
+                    + ", a @SourceModel no change set can write");
+        }
+    }
+
+    /**
+     * {@code MQ3001} for an outer column naming no field of its source, {@code MQ3002} for one of another type, and
+     * {@code MQ3014} for a converter of its own: an outer model reads the CTE's columns by field name and takes the
+     * source column's type, alias and converter (R-SRC-10, INV-3).
+     */
+    private void checkSourceAttribute(ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
+        if (field.converter() != null) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3014, where + "an outer column reads its source's "
+                    + "converter; drop @Column(converter = ...) or declare it on the source's own field");
+            return;
+        }
+        ModelField source = model.sourceField(field.attribute());
+        if (source == null) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3001, where + "'" + field.attribute()
+                    + "' is no field of " + model.source().name() + ", the source this model reads; an outer model "
+                    + "reads a source's fields by name");
+        } else if (!types.isSameType(boxed(field.type()), boxed(source.type()))) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3002, where + "model type " + display(field.type())
+                    + ", the source's " + source.name() + " is " + display(source.type()));
+        }
+    }
+
+    /**
+     * {@code MQ3032} for a {@code @Window} that is not well written (R-PROC-36): a term that names no attribute of
+     * the root (an {@code @Aggregate} field or a group key in a grouped source), an argument where the function takes
+     * none or none where it needs one, a field type that is not the function's result type (INV-3), an
+     * order-sensitive function without {@code orderBy}, a missing frame, a {@code RANGE} frame on
+     * {@code FIRST_VALUE} or {@code LAST_VALUE}, or a frame on a function that takes none.
+     */
+    private void checkWindow(ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
+        WindowDefinition window = field.window();
+        String fn = window.function();
+        boolean aggregate = WINDOW_AGGREGATES.contains(fn);
+        boolean ranking = WINDOW_RANKING.contains(fn);
+        boolean hasFrame = !window.frame().equals("NONE");
+
+        // Condition 2: an argument exactly where one is needed.
+        if (ranking && !window.argument().isEmpty()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032,
+                    where + fn + " takes no argument; drop argument");
+        } else if (!ranking && window.argument().isEmpty()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032,
+                    where + fn + " needs an argument; write @Window(argument = \"...\")");
+        }
+
+        // Conditions 1 and 8: every term names an attribute, or an aggregate field or group key of a grouped source.
+        boolean grouped = !model.groupKeys().isEmpty();
+        TypeMirror argumentType = null;
+        if (!window.argument().isEmpty()) {
+            argumentType = windowTerm(model, grouped, window.argument(), "argument", field, where, diagnostics);
+        }
+        for (String path : window.partitionBy()) {
+            windowTerm(model, grouped, path, "partitionBy", field, where, diagnostics);
+        }
+        for (WindowOrder order : window.orderBy()) {
+            windowTerm(model, grouped, order.path(), "orderBy", field, where, diagnostics);
+        }
+
+        // Condition 4: a function that orders the window, or an aggregate over a ROWS frame, must say how.
+        if ((!aggregate || window.frame().startsWith("ROWS_")) && window.orderBy().isEmpty()) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032,
+                    where + fn + " is order-sensitive; add orderBy");
+        }
+
+        // Condition 5: FIRST_VALUE, LAST_VALUE and an ordered aggregate need an explicit frame.
+        if (!hasFrame && (fn.equals("FIRST_VALUE") || fn.equals("LAST_VALUE")
+                || aggregate && !window.orderBy().isEmpty())) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032, where + fn
+                    + " needs an explicit frame; with the database's default frame "
+                    + (fn.equals("LAST_VALUE") ? "LAST_VALUE returns the current row" : "the window is unspecified"));
+        }
+
+        // Condition 6: a RANGE frame would make every row its own peer group for a value function.
+        if (window.frame().startsWith("RANGE_") && (fn.equals("FIRST_VALUE") || fn.equals("LAST_VALUE"))) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032,
+                    where + fn + " takes only a ROWS frame; a RANGE frame would make every row its own peer group");
+        }
+
+        // Condition 7: ranking functions and LAG/LEAD take no frame, which the database ignores or rejects.
+        if (hasFrame && (ranking || fn.equals("LAG") || fn.equals("LEAD"))) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032,
+                    where + fn + " takes no frame; drop frame");
+        }
+
+        // Condition 3: the field's type is the function's result type, which a ranking function's does not depend on
+        // its argument; an argument that names nothing, or is missing, is reported above.
+        if (argumentType != null || ranking) {
+            checkWindowType(fn, argumentType, field, where, diagnostics);
+        }
+    }
+
+    /**
+     * The type of a window term: its attribute's type, or an {@code @Aggregate} field's type in a grouped source.
+     * {@code MQ3032} when it names no attribute of the root, is an association, or in a grouped source is neither a
+     * group key nor an aggregate (R-PROC-36).
+     */
+    private TypeMirror windowTerm(ModelDefinition model, boolean grouped, String term, String kind, ModelField field,
+            String where, Diagnostics diagnostics) {
+        if (grouped) {
+            ModelField aggregate = model.aggregates().stream()
+                    .filter(each -> each.name().equals(term)).findFirst().orElse(null);
+            if (aggregate != null) {
+                return boxed(aggregate.type());
+            }
+            ModelField groupKey = model.groupKeys().stream()
+                    .filter(each -> each.attribute().equals(term)).findFirst().orElse(null);
+            if (groupKey != null) {
+                return boxed(groupKey.type());
+            }
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032, where + kind + " '" + term
+                    + "' is neither a group key nor an @Aggregate of this grouped source; name one of GROUP_KEYS or "
+                    + "an aggregate field");
+            return null;
+        }
+        Resolution resolution = metamodel.resolve(model.root(), term);
+        if (resolution.attribute() == null) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032,
+                    where + kind + " '" + term + "': " + resolution.problem());
+            return null;
+        }
+        EntityAttribute attribute = resolution.attribute();
+        if (attribute.kind() == EntityAttribute.Kind.TO_ONE || attribute.kind() == EntityAttribute.Kind.COLLECTION) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032, where + kind + " '" + term
+                    + "' is an association on " + model.root().getSimpleName()
+                    + "; a window term is a basic attribute");
+            return null;
+        }
+        return boxed(attribute.type());
+    }
+
+    /**
+     * {@code MQ3032} when {@code field}'s type is not {@code fn}'s result type over {@code argumentType} (INV-3):
+     * {@code Long} for a ranking function or {@code COUNT}, the argument's type for {@code LAG}, {@code LEAD},
+     * {@code FIRST_VALUE}, {@code LAST_VALUE}, {@code MIN} and {@code MAX}, and the rule {@code @Aggregate}'s
+     * {@code SUM} and {@code AVG} use for those two (R-PROC-36).
+     */
+    private void checkWindowType(String fn, TypeMirror argumentType, ModelField field, String where,
+            Diagnostics diagnostics) {
+        // Only a ranking function reaches this without an argument: it returns Long whatever it reads.
+        String expected;
+        switch (fn) {
+            case "ROW_NUMBER", "RANK", "DENSE_RANK", "COUNT" -> expected = LONG;
+            case "SUM" -> {
+                if (isOneOf(argumentType, SUMMABLE)) {
+                    expected = qualified(argumentType);
+                } else if (isOneOf(argumentType, INTEGRAL)) {
+                    expected = LONG;
+                } else {
+                    diagnostics.error(field.element(), DiagnosticCode.MQ3032, where + "SUM over "
+                            + display(argumentType) + " is not supported; it sums BigDecimal, Double, Long, Integer, "
+                            + "Short and Byte");
+                    return;
+                }
+            }
+            case "AVG" -> {
+                if (isSubtypeOf(argumentType, NUMBER)) {
+                    expected = DOUBLE;
+                } else {
+                    diagnostics.error(field.element(), DiagnosticCode.MQ3032, where + "AVG over "
+                            + display(argumentType) + " is not supported; it averages a numeric attribute");
+                    return;
+                }
+            }
+            default -> expected = qualified(argumentType);
+        }
+        if (!qualified(boxed(field.type())).equals(expected)) {
+            diagnostics.error(field.element(), DiagnosticCode.MQ3032,
+                    where + fn + " returns " + simpleName(expected) + ", field is " + display(boxed(field.type())));
         }
     }
 
@@ -448,6 +1004,17 @@ final class ModelValidator {
             diagnostics.error(field.element(), DiagnosticCode.MQ3001, where + fn
                     + (count ? " distinct" : "") + " needs an attribute to read; write @Aggregate(attribute)");
             return null;
+        }
+        // An aggregate over a model rooted at a source reads a source field, and takes that field's type: the CTE
+        // column carries the conversion the source's own constant declares (R-SRC-10).
+        if (model.readsSource()) {
+            ModelField source = model.sourceField(aggregate.attribute());
+            if (source == null) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3001, where + "no field '"
+                        + aggregate.attribute() + "' in " + model.source().name() + ", the source this model reads");
+                return null;
+            }
+            return expectedResult(boxed(source.type()), true, field, where, diagnostics);
         }
         Resolution resolution = metamodel.resolve(model.root(), aggregate.attribute());
         if (resolution.attribute() == null) {
@@ -790,8 +1357,13 @@ final class ModelValidator {
      * whole entity.
      */
     private void checkAttribute(ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
+        // A model rooted at a source reads the source's fields by name: the name first, then the type (R-SRC-10).
+        if (model.readsSource()) {
+            checkSourceAttribute(model, field, where, diagnostics);
+            return;
+        }
         Resolution resolution = metamodel.resolve(model.root(), field.attribute());
-        if (!model.queryModel() && !writeChecks.checkColumn(model, field, resolution, where, diagnostics)) {
+        if (!model.readModel() && !writeChecks.checkColumn(model, field, resolution, where, diagnostics)) {
             return;
         }
         if (resolution.attribute() == null) {
@@ -805,7 +1377,7 @@ final class ModelValidator {
                     + "' is a collection, which a column can't select; filter on it with Filters.exists");
             return;
         }
-        if (model.queryModel() && metamodel.byId(field, attribute)) {
+        if (model.readModel() && metamodel.byId(field, attribute)) {
             checkIdForm(model, field, attribute, where, diagnostics);
             return;
         }
@@ -904,7 +1476,7 @@ final class ModelValidator {
         String target = display(attribute.type());
         if (field.converter() != null) {
             var idAttribute = new EntityAttribute(attribute.name(), id, EntityAttribute.Kind.BASIC, null, false,
-                    true, true, null, false, null, false);
+                    true, true, null, false, null, false, false, null, null);
             checkConverter(model, field.element(), field.converter(), field.type(), idAttribute, where, diagnostics);
         } else if (!types.isSameType(boxed(field.type()), boxed(id))) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3002, where + "model type " + display(field.type())

@@ -25,20 +25,63 @@ import javax.lang.model.type.TypeMirror;
  * @param generateInserts whether {@code @QueryModel(generateInserts)} asks for the insert members (R-PROC-26)
  * @param origin what the generated files originate from: the model's type, or the type or {@code package-info} of a
  *     binding, whose package they are generated in (R-GEN-35, D-140)
+ * @param source the source model {@code root} names, when it is a {@code @SourceModel}, else {@code null}
+ *     (R-PROC-39)
+ * @param shape the source model this one is a branch of, named by {@code @SourceModel(shape)}, else {@code null}
+ *     (R-PROC-38)
  */
 record ModelDefinition(
         TypeElement type, TypeElement root, String generatedName, boolean selectSets, boolean singleGroup,
         List<ModelField> fields, List<FilterColumnDefinition> filterColumns, Kind kind,
-        boolean generateChanges, boolean generateInserts, Element origin) {
+        boolean generateChanges, boolean generateInserts, Element origin, ModelDefinition source,
+        ModelDefinition shape) {
 
     ModelDefinition {
         fields = List.copyOf(fields);
         filterColumns = List.copyOf(filterColumns);
     }
 
-    /** Whether the type is a {@code @QueryModel}, the only kind that is read into. */
+    /** Whether the type is a {@code @QueryModel}. */
     boolean queryModel() {
         return kind == Kind.QUERY;
+    }
+
+    /**
+     * Whether the model is read into: a {@code @QueryModel} or a {@code @SourceModel}. Both carry the same columns,
+     * select sets, {@code KEY} and {@code fields()}; a source declares {@code source()} in place of {@code query()}
+     * and no mapper and no write member (R-PROC-35, R-GEN-37).
+     */
+    boolean readModel() {
+        return kind == Kind.QUERY || kind == Kind.SOURCE;
+    }
+
+    /** Whether the type is a {@code @SourceModel}: a query an outer model reads by field name (R-PROC-35). */
+    boolean sourceModel() {
+        return kind == Kind.SOURCE;
+    }
+
+    /**
+     * Whether this model's {@code root} is a {@code @SourceModel}, so the model reads a source rather than an entity
+     * (R-PROC-39). {@link #source()} is the source model then, and {@code null} otherwise.
+     */
+    boolean readsSource() {
+        return source != null;
+    }
+
+    /**
+     * Whether this source model is a <em>branch</em>: it names its shape through {@code @SourceModel(shape)}, so its
+     * fields are checked against the shape's and its {@code source()} builds a {@code SourceQuery<Shape>} (R-PROC-38).
+     */
+    boolean branch() {
+        return shape != null;
+    }
+
+    /**
+     * Whether this source model is <em>recursive</em>: it declares a {@code @Depth} field, so each of its rows carries
+     * the level the CTE assigned it and its builder requires the recursive step (R-PROC-37, R-SRC-07).
+     */
+    boolean recursive() {
+        return !depths().isEmpty();
     }
 
     /** Whether the type is an {@code @UpdateModel}, which is only read by the processor and never instantiated. */
@@ -89,14 +132,28 @@ record ModelDefinition(
         return all;
     }
 
+    /**
+     * A source model's {@code ALL}: every field of the model, the aggregates and window fields included, because
+     * {@code ALL} is the projection of the source's CTE body, which carries every field an outer model reads by name,
+     * so R-PROC-17's reason for leaving aggregates out — that every query of the model would be grouped — does not
+     * apply to a source (`api/17` R-SRC-10, R-SRC-12, R-GEN-37, R-GEN-38). A query model's {@code ALL} is
+     * {@link #selections()}.
+     */
+    List<ModelField> sourceFields() {
+        var all = new ArrayList<>(selections());
+        all.addAll(aggregates());
+        all.addAll(windows());
+        return all;
+    }
+
     /** Whether a change set is generated: always for an update model, on request for a query model (R-GEN-21). */
     boolean changes() {
-        return updateModel() || generateChanges;
+        return !readsSource() && (updateModel() || generateChanges);
     }
 
     /** Whether {@code INSERT_COLUMNS} and the insert builders are generated: on an insert model, or on request. */
     boolean inserts() {
-        return insertModel() || generateInserts;
+        return !readsSource() && (insertModel() || generateInserts);
     }
 
     /** Whether the model has groups: {@code @Aggregate} or {@code @GroupBy} fields, or {@code singleGroup}. */
@@ -132,6 +189,16 @@ record ModelDefinition(
         return fields.stream().filter(field -> field.aggregate() != null).toList();
     }
 
+    /** The {@code @Window} fields, in declaration order (R-GEN-38). */
+    List<ModelField> windows() {
+        return fields.stream().filter(ModelField::windowed).toList();
+    }
+
+    /** The {@code @Discriminator} fields, in declaration order: one per shape, in a model whose key carries one. */
+    List<ModelField> discriminators() {
+        return fields.stream().filter(ModelField::discriminated).toList();
+    }
+
     /** The {@code @GroupBy} columns or computed expressions, in declaration order: the members of {@code GROUP_KEYS}. */
     List<ModelField> groupKeys() {
         return fields.stream().filter(field -> (field.column() || field.computed()) && field.groupBy()).toList();
@@ -147,7 +214,7 @@ record ModelDefinition(
      * {@code @Selected} field fills (R-GEN-29).
      */
     boolean hasSelected() {
-        return queryModel() && fields.stream().anyMatch(ModelField::selected);
+        return readModel() && fields.stream().anyMatch(ModelField::selected);
     }
 
     /** The {@code @PrimaryKey} columns, in declaration order. */
@@ -155,10 +222,35 @@ record ModelDefinition(
         return fields.stream().filter(field -> field.column() && field.primaryKey()).toList();
     }
 
+    /**
+     * The fields an outer model may read by name, in declaration order: a source's columns, computed expressions,
+     * aggregates and window fields, which alone are emitted with {@code named(...)} (R-GEN-37, R-GEN-38). A
+     * {@code @FilterColumn} and a {@code @Join} carry no property to alias a CTE column by.
+     */
+    List<ModelField> readable() {
+        return fields.stream()
+                .filter(field -> field.column() || field.computed() || field.aggregate() != null
+                        || field.windowed())
+                .toList();
+    }
+
+    /**
+     * The field of {@link #source()} an outer model's column reads: the readable source field named by
+     * {@code attribute}, which is the CTE column alias the source's own constant carries; {@code null} when the
+     * source declares none, or when this model reads no source (R-SRC-10).
+     */
+    ModelField sourceField(String attribute) {
+        return source == null ? null
+                : source.readable().stream().filter(field -> field.name().equals(attribute)).findFirst().orElse(null);
+    }
+
     /** The annotation a model type carries, which decides what is generated for it. */
     enum Kind {
         /** {@code @QueryModel}: read into, and written through a change set when it asks for one. */
         QUERY,
+        /** {@code @SourceModel}: a query an outer model reads by field name; generates {@code source()}
+         * (R-PROC-35). */
+        SOURCE,
         /** {@code @UpdateModel}: the columns a bulk update writes, through a change set. */
         UPDATE,
         /** {@code @InsertModel}: the columns an insert writes, read from each row (R-PROC-23). */
@@ -180,15 +272,20 @@ record ModelDefinition(
      *     {@code void} type when neither names one ({@code MQ3025}), or {@code null} when the field carries none
      * @param join what {@code @Join} says of the field, or {@code null} when it carries none
      * @param aggregate what {@code @Aggregate} says of the field, or {@code null} when it carries none
+     * @param window what {@code @Window} says of the field, or {@code null} when it carries none
      * @param groupBy whether the field carries {@code @GroupBy}
      * @param child what {@code @Child} says of the field, or {@code null} when it carries none; a {@code @Child}
      *     field has no {@code join} and no {@code aggregate}, whatever else it carries
      * @param selected whether the field carries {@code @Selected}, which makes it no column (R-PROC-25)
+     * @param discriminator the value named by {@code @Discriminator}, which fixes the field to a constant, or
+     *     {@code null} when the field carries none (R-PROC-38)
+     * @param depth whether the field carries {@code @Depth}, which makes the model recursive (R-PROC-37)
      */
     record ModelField(
             VariableElement element, boolean column, String attribute, String constant, boolean primaryKey,
             boolean excludedFromDefaults, TypeMirror converter, TypeMirror definition, JoinDefinition join,
-            AggregateDefinition aggregate, boolean groupBy, ChildDefinition child, boolean selected) {
+            AggregateDefinition aggregate, WindowDefinition window, boolean groupBy, ChildDefinition child,
+            boolean selected, String discriminator, boolean depth) {
 
         String name() {
             return element.getSimpleName().toString();
@@ -202,6 +299,21 @@ record ModelDefinition(
         boolean computed() {
             return definition != null;
         }
+
+        /** Whether the field carries {@code @Window}, which makes it a window field and no column (R-GEN-38). */
+        boolean windowed() {
+            return window != null;
+        }
+
+        /** Whether the field carries {@code @Discriminator}, which fixes it to a constant (R-PROC-38). */
+        boolean discriminated() {
+            return discriminator != null;
+        }
+    }
+
+    /** The {@code @Depth} fields, in declaration order: one in a valid recursive model (R-PROC-37). */
+    List<ModelField> depths() {
+        return fields.stream().filter(ModelField::depth).toList();
     }
 
     /**
@@ -245,6 +357,34 @@ record ModelDefinition(
      * @param distinct whether {@code distinct = true} was written
      */
     record AggregateDefinition(String fn, String attribute, TypeMirror expression, boolean distinct) {}
+
+    /**
+     * A {@code @Window} as written on its field.
+     *
+     * @param function the function's name: {@code ROW_NUMBER}, {@code SUM} and the rest
+     * @param argument the attribute path or {@code @Aggregate} field name the function reads; {@code ""} for a
+     *     ranking function
+     * @param partitionBy the paths written for {@code partitionBy}
+     * @param orderBy the order terms written for {@code orderBy}, in order
+     * @param frame the frame's name: {@code NONE}, a {@code ROWS_*} or a {@code RANGE_*} constant
+     */
+    record WindowDefinition(String function, String argument, List<String> partitionBy, List<WindowOrder> orderBy,
+            String frame) {
+
+        WindowDefinition {
+            partitionBy = List.copyOf(partitionBy);
+            orderBy = List.copyOf(orderBy);
+        }
+    }
+
+    /**
+     * One {@code orderBy} term of a {@code @Window}: a path and its direction, ascending when the entry is written
+     * without one.
+     *
+     * @param path the attribute path, or an {@code @Aggregate} field name in a grouped source
+     * @param ascending {@code true} for ascending, the default
+     */
+    record WindowOrder(String path, boolean ascending) {}
 
     /**
      * A {@code @FilterColumn} as written on the model's type.

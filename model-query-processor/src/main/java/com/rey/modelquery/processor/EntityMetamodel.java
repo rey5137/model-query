@@ -306,8 +306,16 @@ final class EntityMetamodel {
 
     private EntityAttribute attribute(String name, TypeMirror type, Element member) {
         boolean version = hasAny(member, List.of(VERSION));
+        // What the database stores: a branch must map its fields as its shape does, or the combined rows would read
+        // differently (R-PROC-38).
+        String enumType = annotationConstant(member, JPA + "Enumerated", "value");
+        String temporal = annotationConstant(member, JPA + "Temporal", "value");
         boolean updatable = !columnSaysFalse(member, "updatable");
         boolean insertable = !columnSaysFalse(member, "insertable");
+        // A group key of a source must be non-nullable in its mapping: an @Id, a primitive, nullable = false or
+        // optional = false (R-SRC-02).
+        boolean nullable = !hasAny(member, IDS) && !type.getKind().isPrimitive()
+                && !columnSaysFalse(member, "nullable") && !optionalFalse(member);
         if (hasAny(member, TO_ONE)) {
             String mappedBy = member.getAnnotationMirrors().stream()
                     .filter(mirror -> TO_ONE.stream().anyMatch(toOne -> isNamed(mirror, toOne)))
@@ -318,7 +326,7 @@ final class EntityMetamodel {
             return new EntityAttribute(
                     name, type, EntityAttribute.Kind.TO_ONE, entity(type), version, updatable, insertable, mappedBy,
                     false, idFormRefusal(member, mappedBy),
-                    hasAny(member, List.of(JPA + "MapsId")));
+                    hasAny(member, List.of(JPA + "MapsId")), nullable, enumType, temporal);
         }
         if (hasAny(member, TO_MANY)) {
             // The element of a Collection<E>, the value of a Map<K, E>.
@@ -327,17 +335,36 @@ final class EntityMetamodel {
             DeclaredType target = arguments.isEmpty() ? null : entity(arguments.get(arguments.size() - 1));
             return new EntityAttribute(
                     name, type, EntityAttribute.Kind.COLLECTION, target, version, updatable, insertable, null, false,
-                    null, false);
+                    null, false, true, enumType, temporal);
         }
         if (hasAny(member, List.of(ELEMENT_COLLECTION))) {
             return new EntityAttribute(
                     name, type, EntityAttribute.Kind.COLLECTION, null, version, updatable, insertable, null, false,
-                    null, false);
+                    null, false, true, enumType, temporal);
         }
         boolean embedded = type.getKind() == TypeKind.DECLARED && (hasAny(member, EMBEDDED)
                 || hasAny(((DeclaredType) type).asElement(), List.of(EMBEDDABLE)));
         return new EntityAttribute(name, type, embedded ? EntityAttribute.Kind.EMBEDDED : EntityAttribute.Kind.BASIC,
-                null, version, updatable, insertable, null, filledByDatabase(member), null, false);
+                null, version, updatable, insertable, null, filledByDatabase(member), null, false, nullable, enumType,
+                temporal);
+    }
+
+    /**
+     * The constant {@code annotation}'s {@code member} holds on {@code element}, its default included, or {@code null}
+     * when the element carries neither annotation.
+     */
+    private String annotationConstant(Element element, String annotation, String member) {
+        for (AnnotationMirror mirror : element.getAnnotationMirrors()) {
+            if (!isNamed(mirror, annotation)) {
+                continue;
+            }
+            for (var entry : elements.getElementValuesWithDefaults(mirror).entrySet()) {
+                if (entry.getKey().getSimpleName().contentEquals(member)) {
+                    return constant(entry.getValue().getValue());
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -495,6 +522,16 @@ final class EntityMetamodel {
         return member.getAnnotationMirrors().stream()
                 .anyMatch(mirror -> COLUMNS.stream().anyMatch(column -> isNamed(mirror, column))
                         && Boolean.FALSE.equals(value(mirror, element)));
+    }
+
+    /**
+     * Whether {@code member} carries {@code @Basic}, {@code @ManyToOne} or {@code @OneToOne} with
+     * {@code optional = false}, the other way a column says non-nullable.
+     */
+    private static boolean optionalFalse(Element member) {
+        return member.getAnnotationMirrors().stream().anyMatch(mirror -> (isNamed(mirror, JPA + "Basic")
+                || TO_ONE.stream().anyMatch(toOne -> isNamed(mirror, toOne)))
+                && Boolean.FALSE.equals(value(mirror, "optional")));
     }
 
     /** {@code type} as the entity an association reaches, or {@code null} when it names no class. */

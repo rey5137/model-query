@@ -18,13 +18,14 @@ final class InsertRules {
     }
 
     /**
-     * {@code table}, checked to be a root.
+     * {@code table}, checked to be a root an insert can write.
      *
-     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code table} is a join
+     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code table} is a join or a source root, which no
+     *     write reads (R-SRC-10)
      */
     static <T> TableField<T, T> requireRoot(TableField<T, T> table, String method) {
         Objects.requireNonNull(table, "root");
-        if (table.rootEntity() == null) {
+        if (table.rootEntity() == null || table.isSource()) {
             throw new ModelQueryDefinitionException(MqCode.MQ1203,
                     method + "(...) takes a TableField.root(...), not the " + table.describe());
         }

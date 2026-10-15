@@ -119,7 +119,7 @@ final class FetchFieldWriter {
                 .addSuperinterface(type)
                 .addField(FieldSpec.builder(ParameterizedTypeName.get(COLUMN_FIELD, modelName, ANY, ANY), "key",
                                 Modifier.PRIVATE, Modifier.FINAL)
-                        .initializer(column(modelName, key, CodeBlock.of("ROOT")))
+                        .initializer(keyColumn(model, key))
                         .build())
                 .addField(matched)
                 .addMethod(method("name", ClassName.get(String.class))
@@ -147,6 +147,21 @@ final class FetchFieldWriter {
                 .addAnnotation(INCUBATING)
                 .initializer("$L", body)
                 .build();
+    }
+
+    /**
+     * The parent-side key column of {@code model}, read on the generated {@code ROOT}: on an entity root the column
+     * {@code key} names, and on a source root the source's own constant through {@code ColumnField.over(...)}, which
+     * reads the CTE column the source aliases the field by (api/17 R-SRC-10). {@code ColumnField.of(...)} refuses a
+     * source root ({@code MQ1905}), so the source's constant is named.
+     */
+    private static CodeBlock keyColumn(ModelDefinition model, ChildKey key) {
+        if (!model.readsSource()) {
+            return column(ClassName.get(model.type()), key, CodeBlock.of("ROOT"));
+        }
+        ModelField source = model.sourceField(key.attribute());
+        return CodeBlock.of("$T.over($T.class,$WROOT,$W$T.$L)", COLUMN_FIELD, ClassName.get(model.type()),
+                QModelWriter.generatedName(model.source()), source.constant());
     }
 
     /**

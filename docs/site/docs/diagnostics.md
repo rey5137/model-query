@@ -106,6 +106,12 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1807` | Insert: keys requested for an `IDENTITY` or assigned id, or a key type that is not the id's type. |
 | `MQ1808` | Insert: two rows of one insert-values call with a conflict clause share a conflict-key tuple. |
 | `MQ1809` | `persist(persist, returning)`: a query with a `where` or `having` that recorded a filter, `groupBy`, a fetch plan, `customize`, `orderBy`, `keyset` or `primaryKeyFirst`, a lock, or a column the flushed entity cannot fill. A returning write also refuses a column on a table other than the written one, `throughEntities()` and `commitEachChunk()`. |
+| `MQ1901` | `keyset()` or `primaryKeyFirst(...)` on a query over a non-unique source, whose key does not identify a row. |
+| `MQ1902` | A recursive source built wrongly: a `maxDepth` below 1 or above `Integer.MAX_VALUE - 2`, `recursive(...)` on a model with no `@Depth`, a `@Depth` model built without `recursive(...)`, or a `depth(...)` column that is not among the fields. |
+| `MQ1903` | A row lock on a query that reads a source: a locking clause cannot follow through a common table expression. |
+| `MQ1904` | Two branches of one set operation fix the same `@Discriminator` value, two combined sources read different shapes or fields in a different order, type or converter, a `discriminator` column is not a key column, or a side of the operation is a recursive source. |
+| `MQ1905` | A hand-written `ColumnField.of` or `TableField.join` over a source root; a generated outer column is `ColumnField.over(model, root, sourceConstant)`. |
+| `MQ1906` | A source's `where` predicate whose path crosses a to-many join, which no join inside the CTE can express; use `Filters.exists(path, inner)`. |
 
 See [Queries and Filters](queries.md), [Grouped queries](grouped-queries.md), [Bulk writes](bulk-writes.md) and [Inserts](inserts.md).
 
@@ -124,6 +130,7 @@ See [Queries and Filters](queries.md), [Grouped queries](grouped-queries.md), [B
 | `MQ2205` | A keyset export page repeated a key of the page before; or a chunked write's key select returned a key it already wrote. |
 | `MQ2206` | A `QueryCustomizer` narrows the phases of a primary-key-first query differently. |
 | `MQ2211` | A lock on a read that refuses one: `page`, `count`, `stream` and `export` refuse any lock, `one(q)` refuses `SKIP_LOCKED`, and a locked query whose statement has a join, such as a to-one id read, is refused. Filter the related rows with `Filters.exists(...)` instead of joining. |
+| `MQ2212` | A read that identifies a row by its key on a query over a non-unique source: `export`, `byKeys`, `one(q, key)`, a fetch plan with a child, a join plan or an enricher, or an offset `page` whose selected column cannot be ordered. |
 | `MQ2301` | A sort property resolves to no column or to several, asks for `ignoreCase`, or names a sort on a query without a primary key. |
 | `MQ2501` | A bulk write ran without an active transaction. |
 | `MQ2502` | A chunk of a chunked write failed; `ChunkedWriteException` says what was committed. |
@@ -133,6 +140,8 @@ See [Queries and Filters](queries.md), [Grouped queries](grouped-queries.md), [B
 | `MQ2603` | A parent has more children than `maxPerParent`, or one statement of a child load read its row cap. |
 | `MQ2604` | A child row's key equals none of the keys it was matched to: the column's collation is case-insensitive or ignores trailing spaces. |
 | `MQ2605` | `stream` with a fetch plan that loads children, join plans or enrichers; use `export`. |
+| `MQ2701` | A recursive source's tree is deeper than its `maxDepth`. The message names the model, the limit and the key of the first row past it. |
+| `MQ2702` | A recursive source's graph closed a cycle. The message names the model and the first key the cycle clause marked. |
 
 See [Paging and export](paging-export.md) and [Bulk writes](bulk-writes.md).
 
@@ -171,6 +180,17 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3027` | The `modelquery.jspecify` option is set but JSpecify is not on the classpath. Add `org.jspecify:jspecify` to the module that compiles the models. |
 | `MQ3028` | `@GroupBy` on a column that selects a whole to-one entity. Group by the id form instead: `@Column(attribute = "customer") Long customerId`. |
 | `MQ3029` | The id form of a to-one whose target has `@SQLRestriction` or `@Where`: a read would take a `null` id from a restricted row while the foreign key holds a value. Read it through a `@Join`. |
+| `MQ3030` | `@Child` on a `@SourceModel`: a source is one statement, so it has no parent query to fill a child from. |
+| `MQ3031` | A source model's `@PrimaryKey` is neither the root entity's id nor the full `@GroupBy` set, a group key is nullable in its mapping, or a `@FilterColumn` path crosses a to-many join. Filter it with `Filters.exists(...)` instead. |
+| `MQ3032` | `@Window` is not well written: a term naming no attribute, an argument written where the function takes none, a field of another type, an order-sensitive function without `orderBy`, a missing or misplaced `frame`, a frame on a ranking function, or a grouped source's term that is neither a group key nor an aggregate. |
+| `MQ3033` | `@Window` on a model that is not a `@SourceModel`. |
+| `MQ3034` | A branch does not map its shape: a field of another name, type or mapping, a missing or extra field, a `@PrimaryKey` that is not the shape's, or a `@Discriminator` that is missing, doubled or misplaced. |
+| `MQ3035` | `@Join` on a model rooted at a source, which has no associations: an outer model reads its source's columns by field name. |
+| `MQ3036` | An outer model's `@PrimaryKey` is not exactly its source's key. |
+| `MQ3037` | A recursive source is not well written: a `@Depth` that is not one `Integer`, a second one, a `@Depth` outside a `@SourceModel`, or `@Window`, `@Aggregate` or `@GroupBy` beside it. |
+| `MQ3038` | A model's `root` is neither an `@Entity` nor a `@SourceModel`, or both. |
+| `MQ3039` | `@Child` whose child model is rooted at a source: a fetch plan has no source to pass it. |
+| `MQ3040` | `generateChanges` on a model rooted at a source. A write needs an entity root; read the source through an outer model instead ([Source models](source-models.md)). |
 | `MQ3201` | Aggregate model: field is primitive. |
 | `MQ3202` | Aggregate model: field type does not match the function's result type. |
 | `MQ3203` | Aggregate model: no `@GroupBy` field and is not `singleGroup`. |
@@ -191,7 +211,7 @@ The processor reports these as compiler errors (a few as warnings) pointing at t
 | `MQ3403` | `@Child` `key` and `foreignKey` attributes have different types. |
 | `MQ3404` | `@Child` key of several attributes, an embedded value or an array: it takes one attribute each side. |
 | `MQ3405` | A `List` `@Child` without `foreignKey` (unless it has `through`), or whose model has no `@PrimaryKey`; or an `Optional` `@Child` whose `through` crosses a collection, on a model with no `@PrimaryKey`. |
-| `MQ3406` | `@Child(through)` whose path is blank, crosses something other than an association, or ends at another type than the child model's root; whose `key` is not the parent root's single `@Id`; or whose child model is grouped. |
+| `MQ3406` | `@Child(through)` whose path is blank, crosses something other than an association, or ends at another type than the child model's root; whose `key` is not the parent root's single `@Id`; whose child model is grouped; or whose parent is rooted at a source, which has no entity to join along. Use `foreignKey`. |
 | `MQ3501` | Insert model: names a generated id, or does not name all of an id that has no generator with `@PrimaryKey`. On a `generateInserts` query model, an assigned id that no written column covers, including one an `@ExcludeFromInserts` field is. |
 | `MQ3502` | Insert model: `@Join`, `@FilterColumn`, `@Aggregate`, `@GroupBy`, `@Computed`, `@Child`, `@Selected` or `@Transient` field. |
 | `MQ3503` | A type carries more than one of `@QueryModel`, `@UpdateModel` and `@InsertModel`. To read and create one row shape with one model, use [`@QueryModel(generateInserts = true)`](models.md#one-model-for-reading-and-creating). |
@@ -216,6 +236,8 @@ See [Models and QModels](models.md).
 | `MQ4011` | A returning write the factory cannot return rows for, such as any returning write on MySQL. |
 | `MQ4012` | A factory is not on one of the declared target vendors; the message names the factory, its vendor, how it was found and the list. |
 | `MQ4013` | The [portability check](portability.md) cannot boot your unit offline for a target: no provider support for its vendor, a vendor with no offline boot (Oracle, SQL Server, `OTHER`), or a version that is not numeric. |
+| `MQ4014` | A query reads a source and the factory's provider has no source support: `ProviderSupport#sources()` is empty, or there is no `ProviderSupport` at all. |
+| `MQ4015` | The target vendor lacks a source feature the query uses, or a recursive source whose `maxDepth + 2` exceeds `VendorProfile#maxRecursionDepth()`. The message names the feature or the depth. |
 
 See [Spring Data and the starter](spring.md) and [Vendor notes](vendors.md).
 

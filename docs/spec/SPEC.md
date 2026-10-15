@@ -33,6 +33,7 @@ Each child file states what it is for in its first five lines, so you can route 
 | Bulk `update`/`delete`, `ModelUpdate`, `ModelDelete`, change sets | `api/14` |
 | `FetchPlan`, `@Child` children, plans through `@Join`, per-page enrichers | `api/15` |
 | Reading a query's conditions back, `model-query-test` assertions | `api/16` |
+| `@SourceModel`, `SourceQuery`, `TableField.source`, reading a source from an outer model | `api/17` |
 | `list` / `page` / `count` / `stream`: counting, limits, slices, connection lifetime | `engine/20` |
 | Offset paging, keyset paging, primary-key-first, the export loop, grouped export | `engine/21` |
 | `@QueryModel` and the other annotations, what each one means | `processor/30` |
@@ -62,8 +63,8 @@ Each child file states what it is for in its first five lines, so you can route 
 | `CC-*` | code convention | `docs/code-conventions.md` |
 | `§n` | section of the original plan document (moved here; `reference/91` maps it) | `reference/91` |
 
-Areas: `COL` 10 · `QRY` 11 · `FLT` 12 · `AGG` 13 · `WRT` 14 · `FCH` 15 · `EXE` 20 · `PAG` 21 · `PROC` 30 · `GEN` 31 · `DIAG` 32 ·
-`VND` 40 · `PRF` 41 · `SPR` 50 · `QA` 60 · `REL` 61 · `RDM` 62 · `ERR` 90.
+Areas: `COL` 10 · `QRY` 11 · `FLT` 12 · `AGG` 13 · `WRT` 14 · `FCH` 15 · `SRC` 17 · `EXE` 20 · `PAG` 21 · `PROC` 30 ·
+`GEN` 31 · `DIAG` 32 · `VND` 40 · `PRF` 41 · `SPR` 50 · `QA` 60 · `REL` 61 · `RDM` 62 · `ERR` 90.
 
 ### Status tags
 
@@ -86,7 +87,7 @@ These hold for the life of the library. A change that breaks one is an architect
 | **INV-6** | **Vendor differences live only behind `VendorProfile`.** No `if (vendor == MYSQL)` outside a profile, and no vendor name in `core` (`vendor/40`). |
 | **INV-7** | **Dependencies flow one way:** `annotations` ← `core` ← `jpa` ← (`hibernate`, `spring-data`) ← `spring-boot-starter`, with `processor` depending only on `annotations`, `test` only on `core` (D-98), and `portability` on `jpa` only (public types, plus the not-API `jpa.vendor` members of D-139, so at `jpa`'s exact version), no module depending on it (D-133; test scope is the consumer's POM choice). `core` imports only `jakarta.persistence` and the JDK; `jpa` never imports `org.hibernate` (`delivery/61`). |
 | **INV-8** | **Framework-optional.** Every feature is reachable with a plain `EntityManager`. Spring is a convenience layer, never a requirement. |
-| **INV-9** | **Definitions are immutable and thread-safe.** `TableField`, `ColumnField`, `AggregateField`, `SelectSet`, `OrderField`, `ModelQuery`, from M6 `ModelUpdate` and `ModelDelete`, and from M10 `ModelInsert`, `ValuesInsert`, `ModelPersist` and `InsertColumns`, can be `static final`; an insert's copy of its rows is shallow, so a mutable value inside a row is the caller's. Per-query state lives only in `JoinContext`, created per build. |
+| **INV-9** | **Definitions are immutable and thread-safe.** `TableField`, `ColumnField`, `AggregateField`, `WindowField`, `SelectSet`, `OrderField`, `ModelQuery`, from M6 `ModelUpdate` and `ModelDelete`, and from M10 `ModelInsert`, `ValuesInsert`, `ModelPersist` and `InsertColumns`, and from M25 `SourceQuery`, can be `static final`; an insert's copy of its rows is shallow, so a mutable value inside a row is the caller's. Per-query state lives only in `JoinContext`, created per build. |
 | **INV-10** | **Diagnostic codes are stable:** once released, an `MQnnnn` code is never reused for a different meaning. |
 
 ## 3. Design principles

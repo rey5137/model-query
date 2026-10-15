@@ -106,6 +106,43 @@ enum DiagnosticCode {
     /** The id form of a to-one whose target has {@code @SQLRestriction} or {@code @Where}: a read could miss the key. */
     MQ3029("Id form over a target with a Hibernate restriction"),
 
+    /** A {@code @Child} on a source model, which is one statement and has no parent query to fill it. */
+    MQ3030("@Child on a source model"),
+
+    /** A source model's key is not unique per row: not the root id or the full group set, a nullable group key, or a
+     * to-many read. */
+    MQ3031("Source model key is not the root id or the full non-nullable group set"),
+
+    /** A {@code @Window} is not well written: a bad path or type, no {@code orderBy} where one is needed, a missing
+     * or misplaced {@code frame}, or a grouped-source term that is neither a group key nor an aggregate. */
+    MQ3032("@Window is not well written"),
+
+    /** {@code @Window} on a model that is not a {@code @SourceModel}. */
+    MQ3033("@Window is only allowed on a @SourceModel"),
+
+    /** A branch's fields do not match its shape's, or a {@code @Discriminator} is not usable (R-PROC-38). */
+    MQ3034("A branch does not map its shape, or a @Discriminator is misplaced"),
+
+    /** {@code @Join} on a model rooted at a source, which has no associations. */
+    MQ3035("@Join on a model rooted at a source"),
+
+    /** An outer model's {@code @PrimaryKey} is not exactly its source's key. */
+    MQ3036("@PrimaryKey of an outer model is not its source's key"),
+
+    /** A recursive source model is not well written: a {@code @Depth} that is not one {@code Integer}, one outside
+     * a {@code @SourceModel}, or {@code @Window}, {@code @Aggregate} or {@code @GroupBy} beside it (R-PROC-37). */
+    MQ3037("A recursive source takes one Integer @Depth, and no window, aggregate or group by"),
+
+    /** A model's {@code root} is neither an {@code @Entity} nor a {@code @SourceModel}, or both. */
+    MQ3038("Root is neither an @Entity nor a @SourceModel, or both"),
+
+    /** A {@code @Child} whose child model is rooted at a source, which no fetch plan can pass a source to. */
+    MQ3039("@Child whose child model is rooted at a source"),
+
+    /** {@code @QueryModel(generateChanges)} on a model rooted at a source: a write needs an entity root (R-GEN-37,
+     * R-PROC-39). */
+    MQ3040("generateChanges on a model rooted at a source"),
+
     /** An {@code @Aggregate} field is primitive, though an aggregate can be {@code NULL}. */
     MQ3201("@Aggregate field is primitive"),
 

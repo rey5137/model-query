@@ -410,7 +410,7 @@ user can push the `v0.8.0` tag.
 
 Spec: `docs/plan/litepos-gaps.md` §1 and §3 (M17), `api/10` (new `AC-COL` rows from AC-COL-29), `api/13` (new
 `AC-AGG` rows from AC-AGG-16), `api/14` (new `AC-WRT` rows from AC-WRT-41), CC-DOC-01 (every runnable snippet gets the
-Plain JPA and Spring tabs). Runs before the freeze, M26, which stays last. No API change; ships in 0.9.0 with M18–M22 (the
+Plain JPA and Spring tabs). Runs before the freeze, M29, which stays last. No API change; ships in 0.9.0 with M18–M22 (the
 docs site still publishes from `main` as it merges). Model: none; the M17.1 cases may each fail, and a failing case is recorded as a gap
 in `litepos-gaps.md` and left out of M17.2's docs rather than fixed here.
 
@@ -581,18 +581,72 @@ R-VND-21, R-VND-22), `vendor/41` (the Tier-1 MySQL floor 8.0 → 8.0.31), the `j
 models" page; the comparison page's Reach row). The acceptance spike is done (`rfc/0013-spike-results.md`). Model: an
 `architect-review` at the gate (public API and generics of `SourceQuery`/`WindowField`, paging and export over sources,
 the `VendorProfile` and `SourceSupport` surface, INV-6 and INV-7). Every new public type and member is `@Incubating`.
-Ships in 0.10.0, before the freeze, M26, which stays last. The slice table is written at kickoff.
+Ships in 0.10.0 with M26–M28 (D-145), before the freeze, M29, which stays last. Spec rows land with the slice that implements them; AC-SRC
+and AC-PROC numbers are taken in slice order. The `spike/rfc-0013` branch (unpushed, `model-query-tck/.../tck/spike/`)
+is the reference for the Hibernate hooks.
 
-## 26. M26 — Freeze → 1.0.0
+| Slice | Content | Done when |
+|---|---|---|
+| M25.1 | Processor and core shape, no runtime. New `api/17-query-sources.md` (R-SRC-01..03, R-SRC-10), `SRC 17` in `SPEC.md` §1, `SourceQuery` in INV-9, the source root kind in `api/10`. Core: `@SourceModel(root, shape)` (`shape` reserved for M25.4, default `void.class`), `@Incubating` immutable `SourceQuery<S>`, `TableField`'s source root kind, `MQ1905` for a hand-written `ColumnField` over a source root. Processor: a source model read and validated against its root with the `@QueryModel` checks; its QModel's `source()` builder (`where`, `having`, no `select`, `build()`) in place of `query()` (R-GEN-37); the root kind read from `@QueryModel.root`'s annotation (R-PROC-39, also through `@BindQueryModel.root`); outer column checks by field name and type, single-segment `@Column` paths; the outer `query(SourceQuery<S>)`; `MQ3030`, `MQ3031` (key is the root id or the full non-nullable group set, no to-many reads), `MQ3035`, `MQ3036`, `MQ3038`, `MQ3039`; R-PROC-35, R-PROC-39, R-GEN-37 and the codes in `processor/30..32` and `reference/90` (`MQ19xx` sub-range; every new code confirmed unused, INV-10) | goldens for an ungrouped and a grouped source model and an outer model over each; AC-PROC-30, -31, -35, -36, -38, -39 and the `@SourceModel` positive case green; every existing golden unchanged |
+| M25.2 | Plain CTE sources at run time. `jpa.spi`: `@Incubating SourceSupport` (`cte` first; the other hooks land with their slice), `ProviderSupport#sources()`, `SourceFeature` (`CTE`, `RECURSIVE`, `WINDOW`, `UNION`, `INTERSECT`, `EXCEPT`; Javadoc: `true` only for known constants), `VendorProfile#sources(SourceFeature)` (default `false`) and `maxRecursionDepth()` (default `Integer.MAX_VALUE`) with the Tier-1 values; `jpa` builds the CTE body as a standard `CriteriaQuery<Tuple>` aliased by field name and re-registers it on every statement it builds over a source (R-SRC-12: content, count, both primary-key-first steps, each export page, `byKeys`, fetch-plan parent reads); the Hibernate `cte` hook on both lines; `MQ4014` (no `SourceSupport`) and `MQ4015` (missing feature) before any statement, and `PortabilityCheck` reporting both per target; `MQ1906` at the source's `build()` pointing at `Filters.exists`; `MQ1903` for a row lock over a source; the MySQL Tier-1 floor 8.0 → 8.0.31 (`vendor/41`, TCK image, `delivery/60`); R-SRC-03, R-SRC-11, R-SRC-12, R-VND-21, R-VND-22, `MQ1903`, `MQ1906`, `MQ4014`, `MQ4015` in `api/17`, `vendor/40`, `reference/90` | AC-SRC rows for a plain and a grouped CTE (SQL snapshots per vendor and line), a keyset export over a grouped source, and `MQ1906` with the explicit `exists` form returning the hand-written SQL's rows, green on Tier 1 on both lines; `MQ4014`/`MQ4015` unit and dry-run cases green; INV-7 ArchUnit rules unchanged and green |
+| M25.3 | Window fields. `@Window(function, argument, partitionBy, orderBy, frame)`, `WindowFunction`, `WindowFrame` (five frames and `NONE`), `WindowField<S, T>` constants not accepted by the source's `where`/`having`/`orderBy` (R-GEN-38), read as plain `ColumnField`s by the outer model; `MQ3032` (paths, result type, order-sensitive without `orderBy`, missing `frame`, `RANGE` on `FIRST_VALUE`/`LAST_VALUE`, any frame on `LAG`/`LEAD`, grouped-source terms neither group key nor aggregate), `MQ3033`; the source key appended ascending to order-sensitive windows only (R-SRC-04; `RANK`, `DENSE_RANK`, `RANGE`/unordered aggregates unchanged); `SourceSupport#window` on Hibernate (`LAG`, `LEAD`, `MIN`, `MAX` through `windowFunction`; no frame ever rendered on `LAG`/`LEAD`); `WindowField` in INV-9; R-PROC-36, R-SRC-04 | AC-PROC-32, -33 and the `@Window` positive case green; AC-SRC rows for each function and frame (SQL snapshots) and the top-N example paged by keyset and by primary-key-first over tied timestamps with no row lost or repeated, green on Tier 1 on both lines |
+| M25.4 | Set operations and non-unique sources. `shape`, `@Discriminator`, `MQ3034` (field, type, converter, `EnumType`, temporal type and key match in declaration order; no `@Window` or recursive branch or shape; discriminator placement); `SourceQuery#union`, `unionAll`, `intersect`, `except`, nesting in call order; discriminator rendered with `cb.literal`; `MQ1904` at the operation; uniqueness per R-SRC-05/06 (by discriminator, by one branch model under `union`); non-unique refusals (R-SRC-09): `MQ1901` at the outer `build()`, `MQ2212` at the executor call (`export`, `byKeys`, `one(q, key)`, a fetch plan with a child, join plan or enricher, an unorderable tie-breaker column), offset `page` appending every selected outer column as tie-breakers; `SourceSupport#combine` through the `(boolean, CriteriaQuery, CriteriaQuery…)` overloads; R-PROC-38, R-SRC-05, R-SRC-06, R-SRC-09, `MQ1901`, `MQ1904`, `MQ2212` in `api/17`, `engine/21`, `reference/90` | AC-PROC-34 and the `@Discriminator`/`shape` positive cases green; AC-SRC rows for each operation (SQL snapshots), a discriminated feed exported by keyset, an "owned `union` shared" list paged by keyset, offset pages over a non-unique `unionAll` with duplicate keys and tied order values losing no row, and each `MQ1901`/`MQ2212` refusal before any statement, green on Tier 1 on both lines |
+| M25.5 | Recursive sources. `@Depth`; the builder's `recursive(step -> step.childKey(..).parentKey(..), maxDepth)` with the shared `T`; `MQ1902`; `MQ3037`; `SourceSupport#recursive` (`with recursive` to `maxDepth + 1`, Hibernate's `cycle` mark; `search` ordering type hidden per line) and the outer filter `level <= maxDepth and not mark`; the `max(level)` and mark sub-selects through `JpaSubQuery.from(cte)` on the content and count statements, read from the first row, `MQ2701`/`MQ2702` naming the model and first offending key; `MQ4015` at `maxDepth + 2 > maxRecursionDepth()`; a recursive source is non-unique (M25.4's refusals); R-PROC-37, R-SRC-07, R-SRC-08, `MQ1902`, `MQ2701`, `MQ2702`; Q-21 left open | AC-PROC-37 and the `@Depth` positive case green; AC-SRC rows for a tree (SQL snapshots), `MQ2701` on a deep tree and `MQ2702` on a cyclic graph with no marked row returned, and MySQL `maxDepth` 998 served / 999 `MQ4015`, green on Tier 1 on both lines |
+| M25.6 | Q-23 resolved (D-145): `generateChanges` on a source model or a model rooted at one is a new `MQ30xx` (confirmed unused, INV-10) in place of being ignored, with an AC-PROC compile-testing case and `processor/31` R-GEN-37, `processor/32`, `reference/90` rows. Docs and release prep: a "Source models" page (each feature with JPA and Spring tabs per CC-DOC-01, each snippet traceable to an M25 test; the known limits: windows see other writes and REPEATABLE READ, MySQL's quadratic export cost, emulated `cycle` cost on H2/MySQL, the empty-result race under READ COMMITTED), the comparison page's Reach row, the "Portability" page's `MQ4014`/`MQ4015`, stability page and `delivery/61` incubating list, `reference/90` rows checked against the code, `[Unreleased]` CHANGELOG (with the MySQL 8.0.31 floor) | `mkdocs build --strict` green; AC audit green with M25 started |
+
+**Exit:** the M25 rows' criteria green on Tier 1 on both Hibernate lines; nothing new frozen.
+
+## 26. M26 — Trees as unique sources → 0.10.0
+
+Spec: Q-21, D-143, D-145, a new `rfc/0014` (written in M26.0). A recursive source over a tree counts as unique, so
+keyset paging, primary-key-first, `byKeys`, `one(q, key)` and fetch plans work on trees: a duplicate-key probe in the
+same statement (the M25 spike's `count(*)` against `count(distinct key)` over the CTE, the cycle-marked row counted
+too) raises a new `MQ27xx` where it finds one, instead of M25.4/M25.5's non-unique refusal. Export and keyset walks
+across statements (Q-21's open half) are decided by the RFC. Model: an `architect-review` of the RFC and at the gate
+(paging and export correctness over recursive sources, INV-4, INV-5). Every new public type and member is
+`@Incubating`. Slices are written once the RFC is accepted (§4).
+
+| Slice | Content | Done when |
+|---|---|---|
+| M26.0 | `rfc/0014` and its acceptance spike on both Hibernate lines and Tier 1 (`rfc/0014-spike-results.md`) | RFC accepted as a `D-n`; slice rows written here and in `AGENTS.md`'s model table |
+
+## 27. M27 — Correlated columns and sources over sources → 0.10.0
+
+Spec: D-112 (outer columns root-only, `MQ1311`), Q-22, D-145, a new `rfc/0015` (written in M27.0). Per-row correlated
+sub-query columns on a query model (a count, a latest value or an `exists` per row), rendered as a scalar sub-query or
+a left join to a grouped source, picked in the spike by plan cost per Tier-1 vendor; a source over sources (window and
+aggregate fields over a set operation's or a recursive source's rows, chained CTEs); a source QModel also offering
+`query()`, so a source reads without a trivial outer model (Q-22's second half). Model: an `architect-review` of the
+RFC and at the gate (public generics of the new column shapes, INV-9, the `SourceSupport` surface). Every new public
+type and member is `@Incubating`. Slices are written once the RFC is accepted (§4).
+
+| Slice | Content | Done when |
+|---|---|---|
+| M27.0 | `rfc/0015` and its acceptance spike on both Hibernate lines and Tier 1 (`rfc/0015-spike-results.md`) | RFC accepted as a `D-n`; slice rows written here and in `AGENTS.md`'s model table |
+
+## 28. M28 — Inheritance roots → 0.10.0
+
+Spec: D-145, a new `rfc/0016` (written in M28.0). Query models over a polymorphic entity root: subtype fields read
+through `cb.treat`, one model per subtype, and a discriminated union of subtype models through M25.4's `shape`;
+refusals, before any statement, for what a Hibernate line can't render. Model: an `architect-review` of the RFC and at
+the gate (processor contracts, the generated shape, INV-6, INV-7). Every new public type and member is `@Incubating`.
+The last slice carries the 0.10.0 release prep (`CHANGELOG.md` section). Slices are written once the RFC is accepted
+(§4).
+
+| Slice | Content | Done when |
+|---|---|---|
+| M28.0 | `rfc/0016` and its acceptance spike of `cb.treat` on both Hibernate lines and Tier 1 (`rfc/0016-spike-results.md`) | RFC accepted as a `D-n`; slice rows written here and in `AGENTS.md`'s model table |
+
+## 29. M29 — Freeze → 1.0.0
 
 Spec: D-85 (amended by D-106, D-116 and D-118), D-86, D-111, D-116, D-118. Starts only when the user says the D-111 adopter has migrated onto 0.5.0 or later
-and run it in production long enough. Model: `architect-review` at M26.1. Both slices are attended. Tagging `v1.0.0`
+and run it in production long enough. Model: `architect-review` at M29.1. Both slices are attended. Tagging `v1.0.0`
 is the user's step after the gate, never a slice's.
 
 | Slice | Contents | Done when |
 |---|---|---|
-| M26.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field, M13 field-index, M14 single-model and M15 insert-column and multi-key types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
-| M26.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M26` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M26 started |
+| M29.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field, M13 field-index, M14 single-model and M15 insert-column and multi-key types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
+| M29.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M29` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M29 started |
 
-**Exit:** the M26 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M26.1 decision, so the user can
+**Exit:** the M29 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M29.1 decision, so the user can
 push the `v1.0.0` tag.
