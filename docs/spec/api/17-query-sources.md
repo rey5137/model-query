@@ -376,8 +376,8 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
 - **No row, no check.** An empty result carries no check value and raises nothing. A plain count always returns a
   row and is checked, even when it counts zero. A count over groups over a source counts client-side through the
   check site (R-SRC-08): it is checked when a group is returned, and returns `0` unchecked when there is no group.
-- **The SPI keeps its constructors.** `RecursiveSpec.tree` is `false` through the constructor with the old
-  components; `RecursiveCte.duplicateKey` is `null` through the old three-argument constructor. A `recursive(...)`
+- **Canonical constructors only.** `RecursiveSpec` and `RecursiveCte` have only their canonical constructors;
+  a recursive source passes `tree = false` and `duplicateKey = null` explicitly. A `recursive(...)`
   source selects and reads no duplicate check, even if its renderer returns one, so its SQL stays unchanged.
   `SourceRenderer#recursive` keeps its signature and `ProviderSupport` is unchanged (INV-7).
 - **No unchecked tree.** A renderer returning `duplicateKey == null` for a tree is `MQ4014` before any statement:

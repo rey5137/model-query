@@ -412,7 +412,8 @@ public final class ModelQuery<E, K, M> {
      * ({@link RenderOptions#portable()} when unknown, D-34).
      *
      * @throws ModelQueryExecutionException {@code MQ2203} for {@code PRIMARY_KEY} on a query without a primary key
-     * @throws ModelQueryDefinitionException {@code MQ1205} when the customizer changed the ordering or the grouping
+     * @throws ModelQueryDefinitionException {@code MQ1205} when the customizer changed the ordering or grouping
+     *     or dropped a source check column
      */
     @EngineFacing
     public BuiltQuery<M> buildQuery(CriteriaBuilder cb, Phase phase, RenderOptions options) {
@@ -431,11 +432,12 @@ public final class ModelQuery<E, K, M> {
      * orders, dedupes and reads cursors by the definition's {@code orderBy} and {@code groupBy}, so a change it
      * cannot see makes paging skip or repeat rows (R-QRY-11, D-33). On a locked query it must also leave
      * {@code distinct} and the {@code HAVING} restriction as they are: either one makes a statement that is no longer
-     * the row-locking read the lock is applied to (R-QRY-17, D-127).
+     * the row-locking read the lock is applied to (R-QRY-17, D-127). A recursive source's check columns must
+     * also remain selected, so every statement can read its checks (R-QRY-11, D-147).
      *
      * @throws ModelQueryDefinitionException {@code MQ1205} when the customizer changed the ordering or the grouping,
-     *     or on a locked query {@code distinct} or the {@code HAVING} restriction; {@code MQ1509} when it made a query
-     *     selecting a sequence value distinct (R-COL-28)
+     *     dropped a source check column, or on a locked query changed {@code distinct} or the {@code HAVING}
+     *     restriction; {@code MQ1509} when it made a query selecting a sequence value distinct (R-COL-28)
      */
     private void customize(BuiltQuery<M> built, CriteriaBuilder cb, Phase phase) {
         CriteriaQuery<Tuple> query = built.query();
@@ -443,7 +445,20 @@ public final class ModelQuery<E, K, M> {
         List<Expression<?>> groups = List.copyOf(query.getGroupList());
         boolean distinct = lock != null && query.isDistinct();
         Predicate having = lock != null ? query.getGroupRestriction() : null;
+        List<String> checkAliases = built.recursionChecks().stream().map(Selection::getAlias).toList();
         customizer.customize(spec, built.joins(), query, cb, phase);
+        if (!checkAliases.isEmpty()) {
+            Selection<?> selection = query.getSelection();
+            List<? extends Selection<?>> selected = selection == null ? List.of()
+                    : selection.isCompoundSelection() ? selection.getCompoundSelectionItems() : List.of(selection);
+            List<String> aliases = selected.stream().map(Selection::getAlias).toList();
+            List<String> missing = checkAliases.stream().filter(alias -> !aliases.contains(alias)).toList();
+            if (!missing.isEmpty()) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1205, modelName()
+                        + ": the QueryCustomizer replaced the selection and dropped the source's check columns "
+                        + missing + " of phase " + phase + "; add to the selection instead of replacing it");
+            }
+        }
         boolean reordered = !orders.equals(query.getOrderList());
         if (reordered || !groups.equals(query.getGroupList())) {
             throw new ModelQueryDefinitionException(MqCode.MQ1205, modelName() + ": the QueryCustomizer changed the "
@@ -489,7 +504,8 @@ public final class ModelQuery<E, K, M> {
      * context whose root is the path's last join, and {@code parentKey}, read on the parent's root, is selected last.
      * The customizer, if any, runs last, its {@code query.getRoots()} holding the parent's entity.
      *
-     * @throws ModelQueryDefinitionException {@code MQ1205} when the customizer changed the ordering or the grouping
+     * @throws ModelQueryDefinitionException {@code MQ1205} when the customizer changed the ordering or grouping
+     *     or dropped a source check column
      */
     BuiltQuery<M> buildThroughQuery(CriteriaBuilder cb, RenderOptions options, TableField<?, ?> through,
             ColumnField<?, ?, ?> parentKey) {
@@ -630,8 +646,8 @@ public final class ModelQuery<E, K, M> {
             query.having(predicates.get(1).toArray(Predicate[]::new));
         }
         return new BuiltQuery<>(query, joins, selection, mapping, parentKey, checks,
-                source == null ? 0 : source.maxDepth(), source == null ? null : source.key().columns().get(0).name(),
-                source == null ? 0 : source.key().columns().size());
+                source == null ? 0 : source.maxDepth(),
+                source == null ? List.of() : source.key().columns().stream().map(ColumnField::name).toList());
     }
 
     /**
@@ -644,8 +660,8 @@ public final class ModelQuery<E, K, M> {
      *
      * @throws ModelQueryExecutionException {@code MQ2206} when the phases disagree on a query with
      *     {@code primaryKeyFirst(...)}
-     * @throws ModelQueryDefinitionException {@code MQ1205} when the customizer changes the ordering or the grouping
-     *     of any phase
+     * @throws ModelQueryDefinitionException {@code MQ1205} when the customizer changes ordering or grouping
+     *     or drops a source check column in any phase
      */
     @EngineFacing
     public void checkPhases(CriteriaBuilder cb) {

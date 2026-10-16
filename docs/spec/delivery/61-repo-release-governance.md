@@ -175,8 +175,8 @@ is the one source hook (`jpa.spi.SourceSupport` is gone, D-146), and `WindowFiel
 `@Incubating` records a provider constructs, so adding a component to either breaks providers that build them.
 The tree-source members (`api/17` R-SRC-13, R-SRC-14, D-147) are `@Incubating` through 1.0 too:
 `SourceQuery.Builder#tree`, `RecursiveSpec.tree`, `RecursiveCte.duplicateKey`, `BuiltQuery.RECURSION_DUPLICATE_KEY`,
-`BuiltQuery#sourceKeyColumn()` and `BuiltQuery#sourceKeyColumnCount()`. The records keep constructors with the old
-components, defaulting to `false` and `null` respectively. `SourceFeature.RECURSIVE_COMPOSITE_KEY` (D-149) is
+`BuiltQuery#sourceKeyColumns()`. The records have only their canonical
+constructors (D-147). `SourceFeature.RECURSIVE_COMPOSITE_KEY` (D-149) is
 `@Incubating` the same way.
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal

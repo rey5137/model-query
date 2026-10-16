@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
 import jakarta.persistence.Tuple;
+import jakarta.persistence.criteria.CompoundSelection;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
@@ -151,36 +152,24 @@ class TreeSourceQueryTest {
     }
 
     @Test
-    void ac_src_24_the_old_recursive_spec_constructor_defaults_to_no_tree_and_copies_the_key_aliases() {
+    void ac_src_24_the_recursive_spec_copies_the_key_aliases() {
         RecursiveSpec original = spec(tree());
         var aliases = new ArrayList<>(original.keyAliases());
-        var legacy = new RecursiveSpec(original.cb(), original.seed(), original.term(), original.keyType(),
-                aliases, original.levelAlias(), original.markAlias(), original.maxDepth());
+        var copy = new RecursiveSpec(original.cb(), original.seed(), original.term(), original.keyType(),
+                aliases, original.levelAlias(), original.markAlias(), original.maxDepth(), false);
         aliases.clear();
 
-        assertThat(legacy.tree()).isFalse();
-        assertThat(legacy.cb()).isSameAs(original.cb());
-        assertThat(legacy.seed()).isSameAs(original.seed());
-        assertThat(legacy.term()).isSameAs(original.term());
-        assertThat(legacy.keyType()).isEqualTo(original.keyType());
-        assertThat(legacy.keyAliases()).containsExactlyElementsOf(original.keyAliases());
-        assertThat(legacy.levelAlias()).isEqualTo(original.levelAlias());
-        assertThat(legacy.markAlias()).isEqualTo(original.markAlias());
-        assertThat(legacy.maxDepth()).isEqualTo(original.maxDepth());
+        assertThat(copy.tree()).isFalse();
+        assertThat(copy.cb()).isSameAs(original.cb());
+        assertThat(copy.seed()).isSameAs(original.seed());
+        assertThat(copy.term()).isSameAs(original.term());
+        assertThat(copy.keyType()).isEqualTo(original.keyType());
+        assertThat(copy.keyAliases()).containsExactlyElementsOf(original.keyAliases());
+        assertThat(copy.levelAlias()).isEqualTo(original.levelAlias());
+        assertThat(copy.markAlias()).isEqualTo(original.markAlias());
+        assertThat(copy.maxDepth()).isEqualTo(original.maxDepth());
     }
 
-    @Test
-    void ac_src_24_the_old_recursive_cte_constructor_defaults_to_no_duplicate_check() {
-        Root<Tuple> root = expression(Root.class, Tuple.class);
-        Expression<?> depth = expression(Expression.class, Long.class);
-        Expression<?> cycle = expression(Expression.class, Long.class);
-        var cte = new RecursiveCte(root, depth, cycle);
-
-        assertThat(cte.root()).isSameAs(root);
-        assertThat(cte.depthKey()).isSameAs(depth);
-        assertThat(cte.cycleKey()).isSameAs(cycle);
-        assertThat(cte.duplicateKey()).isNull();
-    }
 
     @Test
     void ac_src_24_a_tree_renderer_without_a_duplicate_check_is_mq4014_at_statement_build() {
@@ -198,6 +187,18 @@ class TreeSourceQueryTest {
     }
 
     @Test
+    void ac_src_24_source_key_columns_are_immutable_ordered_and_empty_without_a_source() {
+        var columns = new ArrayList<>(List.of("tenantId", "id"));
+        var built = new BuiltQuery<>(null, null, null, row -> null, null, List.of(), 0, columns);
+        columns.clear();
+
+        assertThat(built.sourceKeyColumns()).containsExactly("tenantId", "id");
+        assertThat(catchThrowable(() -> built.sourceKeyColumns().clear()))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThat(new BuiltQuery<>(null, null, null, row -> null).sourceKeyColumns()).isEmpty();
+    }
+
+    @Test
     void ac_src_24_each_tree_statement_selects_the_duplicate_check_after_depth_and_cycle() {
         ModelQuery<Node, Long, View> query = query(tree());
 
@@ -208,8 +209,7 @@ class TreeSourceQueryTest {
             assertThat(built.recursionChecks()).extracting(Selection::getAlias).containsExactly(
                     BuiltQuery.RECURSION_DEPTH, BuiltQuery.RECURSION_CYCLE, BuiltQuery.RECURSION_DUPLICATE_KEY);
             assertThat(built.sourceMaxDepth()).isEqualTo(3);
-            assertThat(built.sourceKeyColumn()).isEqualTo("id");
-            assertThat(built.sourceKeyColumnCount()).isEqualTo(1);
+            assertThat(built.sourceKeyColumns()).containsExactly("id");
         }
     }
 
@@ -226,6 +226,67 @@ class TreeSourceQueryTest {
 
     private static RecursiveSpec spec(SourceQuery<Node> source) {
         return source.recursiveSpec(criteria(), RenderOptions.portable(), renderer(false));
+    }
+
+    @Test
+    void ac_qry_10_customizer_cannot_drop_any_source_check_in_any_phase() {
+        for (var source : List.of(recursive(), tree())) {
+            List<String> checks = source.unique()
+                    ? List.of(BuiltQuery.RECURSION_DEPTH, BuiltQuery.RECURSION_CYCLE,
+                            BuiltQuery.RECURSION_DUPLICATE_KEY)
+                    : List.of(BuiltQuery.RECURSION_DEPTH, BuiltQuery.RECURSION_CYCLE);
+            for (String missing : checks) {
+                var query = queryBuilder(source).customize((spec, joins, criteria, cb, phase) ->
+                        criteria.multiselect(criteria.getSelection().getCompoundSelectionItems().stream()
+                                .filter(item -> !missing.equals(item.getAlias())).toList())).build();
+                for (Phase phase : Phase.values()) {
+                    Throwable thrown = catchThrowable(() -> query.buildQuery(criteria(), phase,
+                            RenderOptions.portable().withSourceRenderer(renderer(true))));
+                    assertThat(thrown).isInstanceOf(ModelQueryDefinitionException.class);
+                    assertThat(((ModelQueryDefinitionException) thrown).code()).isEqualTo(MqCode.MQ1205);
+                    assertThat(thrown.getMessage()).contains("View: the QueryCustomizer replaced the selection",
+                            "check columns [" + missing + "] of phase " + phase + ";",
+                            "add to the selection instead of replacing it");
+                }
+            }
+        }
+    }
+
+    @Test
+    void ac_qry_10_customizer_can_add_selections_while_retaining_source_checks() {
+        for (var source : List.of(recursive(), tree())) {
+            var query = queryBuilder(source).customize((spec, joins, criteria, cb, phase) -> {
+                var selected = new ArrayList<Selection<?>>(criteria.getSelection().getCompoundSelectionItems());
+                selected.add(cb.literal(1).alias("extra"));
+                criteria.multiselect(selected);
+            }).build();
+            for (Phase phase : Phase.values()) {
+                BuiltQuery<View> built = query.buildQuery(criteria(), phase,
+                        RenderOptions.portable().withSourceRenderer(renderer(true)));
+                assertThat(built.query().getSelection().getCompoundSelectionItems())
+                        .extracting(Selection::getAlias).contains("extra", BuiltQuery.RECURSION_DEPTH,
+                                BuiltQuery.RECURSION_CYCLE);
+            }
+        }
+    }
+
+    @Test
+    void ac_qry_10_customizer_retains_checks_by_alias_rather_than_selection_identity() {
+        var query = queryBuilder(tree()).customize((spec, joins, criteria, cb, phase) -> {
+            var selected = new ArrayList<Selection<?>>();
+            for (Selection<?> item : criteria.getSelection().getCompoundSelectionItems()) {
+                selected.add(cb.literal(1).alias(item.getAlias()));
+            }
+            criteria.multiselect(selected);
+        }).build();
+
+        for (Phase phase : Phase.values()) {
+            BuiltQuery<View> built = query.buildQuery(criteria(), phase,
+                    RenderOptions.portable().withSourceRenderer(renderer(true)));
+            assertThat(built.query().getSelection().getCompoundSelectionItems())
+                    .extracting(Selection::getAlias).contains(BuiltQuery.RECURSION_DEPTH,
+                            BuiltQuery.RECURSION_CYCLE, BuiltQuery.RECURSION_DUPLICATE_KEY);
+        }
     }
 
     private static ModelQuery<Node, Long, View> query(SourceQuery<Node> source) {
@@ -251,7 +312,7 @@ class TreeSourceQueryTest {
                 Expression<?> cycle = expression(Expression.class, Long.class);
                 return duplicateCheck
                         ? new RecursiveCte(root, depth, cycle, expression(Expression.class, Long.class))
-                        : new RecursiveCte(root, depth, cycle);
+                        : new RecursiveCte(root, depth, cycle, null);
             }
         };
     }
@@ -268,10 +329,27 @@ class TreeSourceQueryTest {
 
     @SuppressWarnings("unchecked")
     private static CriteriaQuery<Tuple> criteriaQuery() {
+        var selected = new ArrayList<Selection<?>>();
+        CompoundSelection<Tuple> selection = (CompoundSelection<Tuple>) Proxy.newProxyInstance(
+                CompoundSelection.class.getClassLoader(), new Class<?>[] {CompoundSelection.class},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "isCompoundSelection" -> true;
+                    case "getCompoundSelectionItems" -> List.copyOf(selected);
+                    default -> throw new AssertionError(method.getName());
+                });
         return (CriteriaQuery<Tuple>) Proxy.newProxyInstance(CriteriaQuery.class.getClassLoader(),
                 new Class<?>[] {CriteriaQuery.class}, (proxy, method, args) -> switch (method.getName()) {
                     case "from" -> expression(Root.class, Entity.class);
-                    case "multiselect", "where" -> proxy;
+                    case "multiselect" -> {
+                        selected.clear();
+                        selected.addAll(args[0] instanceof List<?> list
+                                ? (List<Selection<?>>) list : List.of((Selection<?>[]) args[0]));
+                        yield proxy;
+                    }
+                    case "getSelection" -> selection;
+                    case "getOrderList", "getGroupList" -> List.of();
+                    case "isDistinct" -> false;
+                    case "where" -> proxy;
                     default -> throw new AssertionError(method.getName());
                 });
     }

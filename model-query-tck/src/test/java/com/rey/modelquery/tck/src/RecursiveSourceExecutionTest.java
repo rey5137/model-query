@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+import com.rey.modelquery.core.BuiltQuery;
 import com.rey.modelquery.core.ColumnConverter;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.CountMode;
@@ -18,6 +19,8 @@ import com.rey.modelquery.core.ModelQueryException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.PageSpec;
+import com.rey.modelquery.core.Phase;
+import com.rey.modelquery.core.QueryCustomizer;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.PrimaryKeyFirst;
 import com.rey.modelquery.core.SelectSet;
@@ -29,6 +32,8 @@ import com.rey.modelquery.tck.col.FolderNodeEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.fch.FetchTestSupport;
 import com.rey.modelquery.tck.harness.TckDatabase;
+import com.rey.modelquery.tck.harness.TckDatabases;
+import com.rey.modelquery.tck.harness.TckTarget;
 import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.portability.LegacyRecursiveProviderSupport;
@@ -59,6 +64,7 @@ import javax.sql.DataSource;
 import net.ttddyy.dsproxy.support.ProxyDataSourceBuilder;
 import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.Test;
 
 /**
  * A recursive source over a tree of folders: the {@code with recursive} CTE, the level each step adds, the two checks
@@ -836,6 +842,61 @@ class RecursiveSourceExecutionTest {
         } catch (SQLException e) {
             throw new AssertionError(e);
         }
+    }
+
+    @Test
+    void ac_qry_10_replacing_source_check_selections_refuses_every_read_before_sql() {
+        TckDatabase db = TckDatabases.get(TckTarget.h2());
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, FolderNode.class, executor -> {
+            for (Phase target : Phase.values()) {
+                QueryCustomizer replaces = (spec, joins, query, cb, phase) -> {
+                    if (phase == target) query.multiselect(cb.literal(1).alias("replacement"));
+                };
+                var source = checkedTree(3, 1L);
+                var plain = rowsBuilder(source).customize(replaces).build();
+                var keyset = rowsBuilder(source).keyset().customize(replaces).build();
+                var pkFirst = rowsBuilder(source).primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0))
+                        .customize(replaces).build();
+                List<Runnable> reads = List.of(
+                        () -> executor.list(plain, Limit.unlimited()),
+                        () -> executor.count(plain),
+                        () -> executor.byKeys(plain, List.of(1L)),
+                        () -> executor.one(plain, 1L),
+                        () -> executor.first(plain),
+                        () -> executor.page(plain, PageSpec.ofOffset(0, 2), CountMode.NO_COUNT),
+                        () -> executor.page(pkFirst, PageSpec.ofOffset(1, 2), CountMode.NO_COUNT),
+                        () -> executor.page(keyset, KeysetSpec.first(2)),
+                        () -> executor.export(plain, ExportOptions.of(2), page -> page, row -> {}),
+                        () -> executor.export(keyset, ExportOptions.of(2), page -> page, row -> {}));
+                for (Runnable read : reads) {
+                    assertThat(assertCode(read, MqCode.MQ1205)).isInstanceOf(ModelQueryDefinitionException.class)
+                            .hasMessageContaining("FolderRow: the QueryCustomizer replaced the selection")
+                            .hasMessageContaining(BuiltQuery.RECURSION_DEPTH, BuiltQuery.RECURSION_CYCLE,
+                                    BuiltQuery.RECURSION_DUPLICATE_KEY)
+                            .hasMessageContaining(" of phase " + target
+                                    + "; add to the selection instead of replacing it");
+                }
+                if (target == Phase.MODEL) {
+                    for (var recursive : List.of(source, tree(TckFixture.FOLDER_TREE_ROOT, 3))) {
+                        var groups = QFolderLevelTotals.query(recursive)
+                                .select(SelectSet.of(QFolderLevelTotals.LEVEL, QFolderLevelTotals.NODES))
+                                .customize(replaces).build();
+                        assertThat(assertCode(() -> executor.count(groups), MqCode.MQ1205))
+                                .isInstanceOf(ModelQueryDefinitionException.class)
+                                .hasMessageContaining("FolderLevelTotals: the QueryCustomizer replaced the selection")
+                                .hasMessageContaining(" of phase " + target + ";");
+                        var rows = rowsBuilder(recursive).customize(replaces).build();
+                        assertThat(assertCode(() -> executor.list(rows, Limit.unlimited()), MqCode.MQ1205))
+                                .isInstanceOf(ModelQueryDefinitionException.class)
+                                .hasMessageContaining(" of phase " + target + ";");
+                        assertThat(assertCode(() -> executor.count(rows), MqCode.MQ1205))
+                                .isInstanceOf(ModelQueryDefinitionException.class)
+                                .hasMessageContaining(" of phase " + target + ";");
+                    }
+                }
+            }
+        }));
+        assertThat(sql).isEmpty();
     }
 
     private static void withIsolation(DataSource ds, int isolation, ModelQueryConfig config,

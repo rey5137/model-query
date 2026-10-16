@@ -49,9 +49,9 @@ final class SourceChecks {
                 .anyMatch(check -> BuiltQuery.RECURSION_DUPLICATE_KEY.equals(check.getAlias()))) {
             Object duplicate = first.get(BuiltQuery.RECURSION_DUPLICATE_KEY);
             if (duplicate != null) {
-                String keyNote = built.sourceKeyColumnCount() > 1 ? " (only the key's first column is shown)" : "";
+                String keyNote = built.sourceKeyColumns().size() > 1 ? " (only the key's first column is shown)" : "";
                 throw new ModelQueryExecutionException(MqCode.MQ2703, label + ": the tree source reaches key "
-                        + built.sourceKeyColumn() + "=" + duplicate + " twice" + keyNote
+                        + built.sourceKeyColumns().get(0) + "=" + duplicate + " twice" + keyNote
                         + "; narrow the seeds or use recursive(...) "
                         + "for a graph that reaches a node by more than one path");
             }

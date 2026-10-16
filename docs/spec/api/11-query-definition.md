@@ -123,7 +123,8 @@ model and the phase when either differs (D-33). The engine's own tie-breakers ar
 they do not count. On a locked query the guard also compares `distinct` and the `HAVING` restriction (`isDistinct()`,
 `getGroupRestriction()`): a customizer that turns on `distinct` or adds a `having` makes a statement that is no longer
 the row-locking read the lock is applied to, so it throws `MQ1205` too (R-QRY-17, D-127). An unlocked query is not
-compared on either.
+compared on either. On a recursive or tree source, replacing the selection must retain every source check
+column by alias; a missing check throws `MQ1205` before any statement runs (D-147).
 
 ## 5. Defaults when a part is absent
 
@@ -192,7 +193,7 @@ plans and enrichers on `list`, `page`, `export`, `one`, `first` and `byKeys`, an
 | AC-QRY-07 | Every row of §5 is covered by a test that omits exactly that part (R-QRY-02). |
 | AC-QRY-08 | `builder` on a join throws `MQ1203`; `whenOffsetAbove` with a negative offset throws `MQ1204`; the `PRIMARY_KEY` phase of a query without a primary key throws `MQ2203` (R-QRY-02, R-QRY-03). |
 | AC-QRY-09 | Every phase of a query with a primary key renders the same joins, predicate and ordering, including a nullable join made only by the selection, and returns the same keys in the same order (R-QRY-09, D-26). |
-| AC-QRY-10 | A customizer that adds a `GROUP BY` or changes the `ORDER BY` throws `MQ1205` naming the model and the phase, on a grouped query and on one without a primary key too (R-QRY-11). |
+| AC-QRY-10 | A customizer that adds a `GROUP BY` or changes the `ORDER BY` throws `MQ1205` naming the model and the phase, on a grouped query and on one without a primary key too; replacing a recursive/tree source selection and dropping any check column also throws `MQ1205` before any statement runs (R-QRY-11, D-147). |
 | AC-QRY-11 | `build()` with a primary-key column of array type throws `MQ1206` naming the column (R-QRY-12). |
 | AC-QRY-12 | `build()` of a `keyset()` query ordered by a `Float` or `Double` column, or keyed by one, throws `MQ1207` naming the column; the same query without `keyset()` builds (R-QRY-13). |
 | AC-QRY-13 | `orderedBy` sorts by a selected column's property path, by its attribute path and by an aggregate's name, including a renamed nested field and two `@Join`s on one attribute; a bare name of a joined column, an unknown or an ambiguous property, a property naming different columns on two tiers, a sort on an ungrouped query without a primary key, and a sorted copy `build()` refuses (as the cause) throw `MQ2301` (R-QRY-14). |

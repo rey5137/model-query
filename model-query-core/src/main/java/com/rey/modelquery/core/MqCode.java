@@ -53,8 +53,8 @@ public enum MqCode {
     /** {@code PrimaryKeyFirst.whenOffsetAbove} with a negative offset (R-QRY-03). */
     MQ1204("PrimaryKeyFirst.whenOffsetAbove(...) takes an offset that is not negative"),
 
-    /** A {@code QueryCustomizer} changed the ordering or the grouping of a phase (R-QRY-11, D-33). */
-    MQ1205("A QueryCustomizer changed the ordering or the grouping of a phase"),
+    /** A customizer changed protected clauses or dropped source check columns (R-QRY-11, D-33, D-147). */
+    MQ1205("A QueryCustomizer changed ordering, grouping, distinct or HAVING, or dropped source check columns"),
 
     /** A primary-key column of array type, which cannot identify a row (R-QRY-12). */
     MQ1206("A primary-key column of array type cannot identify a row"),

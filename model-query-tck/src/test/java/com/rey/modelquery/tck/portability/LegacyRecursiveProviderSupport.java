@@ -9,7 +9,7 @@ import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Root;
 import java.util.Optional;
 
-/** A renderer with the old recursive contract, or an unused extra check, for AC-SRC-24. */
+/** A renderer without a duplicate check, or with an unused extra check, for AC-SRC-24. */
 public final class LegacyRecursiveProviderSupport extends NoSourceProviderSupport {
 
     private static final ThreadLocal<Boolean> EXTRA_CHECK = ThreadLocal.withInitial(() -> false);
@@ -28,7 +28,7 @@ public final class LegacyRecursiveProviderSupport extends NoSourceProviderSuppor
                 RecursiveCte cte = delegate.recursive(outer, spec);
                 return EXTRA_CHECK.get()
                         ? new RecursiveCte(cte.root(), cte.depthKey(), cte.cycleKey(), spec.cb().literal(999L))
-                        : new RecursiveCte(cte.root(), cte.depthKey(), cte.cycleKey());
+                        : new RecursiveCte(cte.root(), cte.depthKey(), cte.cycleKey(), null);
             }
         });
     }

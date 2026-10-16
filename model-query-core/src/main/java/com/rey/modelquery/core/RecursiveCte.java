@@ -28,8 +28,4 @@ import jakarta.persistence.criteria.Root;
 public record RecursiveCte(Root<Tuple> root, Expression<?> depthKey, Expression<?> cycleKey,
         @Incubating Expression<?> duplicateKey) {
 
-    /** Builds a CTE with the depth and cycle checks alone (R-SRC-07). */
-    public RecursiveCte(Root<Tuple> root, Expression<?> depthKey, Expression<?> cycleKey) {
-        this(root, depthKey, cycleKey, null);
-    }
 }
