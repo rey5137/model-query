@@ -27,6 +27,11 @@ final class LayeringRules {
     private static final String ENGINE_FACING = "com.rey.modelquery.core.EngineFacing";
     /** The check-site methods a raw query read is allowed in (AC-SRC-25, R-SRC-08). */
     private static final Set<String> CHECK_SITE = Set.of("rows", "single", "resultStream");
+    /** The only classes whose check-site methods may read a result (AC-SRC-25). */
+    private static final Set<String> CHECK_SITE_OWNERS =
+            Set.of("com.rey.modelquery.jpa.DefaultModelQueryExecutor", "com.rey.modelquery.jpa.KeysetWrite");
+    /** The provider hook that streams a raw result, a raw read like JPA's own. */
+    private static final String PROVIDER_STREAM = "com.rey.modelquery.jpa.spi.ProviderSupport.resultStream";
     /** JPA's raw result reads, which the check site wraps. */
     private static final Set<String> RESULT_READS = Set.of("getResultList", "getSingleResult", "getResultStream");
     /** The package JPA's query interfaces live in, which is where a raw read is declared. */
@@ -219,8 +224,15 @@ final class LayeringRules {
                 .that()
                 .resideInAPackage(pkg("jpa"))
                 .should(readAResultOutsideTheCheckSite())
-                .as("Tuple reads happen only in the check site: rows, single and resultStream")
+                .as("Tuple reads happen only in the check site (rows, single and resultStream, or their lambdas) of "
+                        + "DefaultModelQueryExecutor and KeysetWrite, and in ProviderSupport.resultStream")
                 .allowEmptyShould(allowEmptyShould);
+    }
+
+    /** A check-site method, or the lambda javac compiles out of its body ({@code lambda$rows$0}). */
+    private static boolean isCheckSite(String method) {
+        return CHECK_SITE.contains(method)
+                || CHECK_SITE.stream().anyMatch(site -> method.startsWith("lambda$" + site + "$"));
     }
 
     private static ArchCondition<JavaClass> readAResultOutsideTheCheckSite() {
@@ -231,11 +243,14 @@ final class LayeringRules {
                     String target = call.getTarget().getFullName().replaceFirst("\\(.*", "");
                     // Only a JPA query's own read counts: TypedQuery and the provider's query types declare it
                     // beside Query, so the owner is matched by package and name, not by one interface.
-                    if (!target.startsWith(QUERY_PACKAGE)
-                            || RESULT_READS.stream().noneMatch(read -> target.endsWith("." + read))) {
+                    boolean providerStream = target.equals(PROVIDER_STREAM);
+                    if (!providerStream
+                            && (!target.startsWith(QUERY_PACKAGE)
+                                    || RESULT_READS.stream().noneMatch(read -> target.endsWith("." + read)))) {
                         continue;
                     }
-                    if (!CHECK_SITE.contains(call.getOrigin().getName())) {
+                    if (!isCheckSite(call.getOrigin().getName())
+                            || !CHECK_SITE_OWNERS.contains(call.getOriginOwner().getName())) {
                         // A noClasses() rule negates this condition, so a bad call is the satisfied event, as in
                         // useEngineFacing() above.
                         events.add(SimpleConditionEvent.satisfied(call, call.getDescription()));

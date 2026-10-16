@@ -26,7 +26,10 @@ appends the primary-key columns as a tie-breaker to whatever order the caller ga
   its first `max_sort_length` bytes) and a `BigDecimal` of scale 1.0 against 1.00, so rows the vendor calls equal may
   still differ to the caller.
 - **A checked tree uses the key tie-breaker.** Offset `page` over `tree(...)` orders by the definition's order plus
-  the key only; it adds none of the non-unique source's every-column tie-breakers. Keyset, primary-key-first,
+  the key only when the query has a primary key; it adds none of the non-unique source's every-column tie-breakers.
+  Without one (a hand-built `ModelQuery.builder(root, mapper, source)` with no `.primaryKey(...)`), an ungrouped
+  offset page orders by every selected column, as for a non-unique source, and refuses an unorderable selected
+  column with `MQ2212` (the message points to declaring `.primaryKey(...)`). Keyset, primary-key-first,
   exports, `byKeys`, `one(q, key)` and fetch plans follow their usual rules, with the whole walk checked on every
   statement (`api/17` R-SRC-15). A plain `recursive(...)` source keeps the non-unique rules above.
 - **Known limit: derived tree order values.** A subtree move changes every descendant's `@Depth` and may change

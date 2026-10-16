@@ -507,9 +507,11 @@ public enum MqCode {
 
     /**
      * A query reads a source and the factory's persistence provider has no {@code SourceRenderer}, so nothing can
-     * register the CTE; raised before any statement, as bulk inserts and row locks are (R-SRC-11, D-143).
+     * register the CTE; raised before any statement, as bulk inserts and row locks are (R-SRC-11, D-143). Also raised
+     * for a {@code tree(...)} source whose renderer returns no duplicate-key check ({@code RecursiveCte.duplicateKey}
+     * is {@code null}), since the tree can't be proven unique (R-SRC-14).
      */
-    MQ4014("The factory's persistence provider has no SourceRenderer"),
+    MQ4014("No SourceRenderer, or one with no duplicate-key check for a tree"),
 
     /**
      * The target's vendor lacks a source feature the query uses, {@code VendorProfile#sources(SourceFeature)} returning
