@@ -60,8 +60,7 @@ class TreeSourceQueryTest {
         assertThat(tree.levelAlias()).isEqualTo("mq_level");
         assertThat(tree.maxDepth()).isEqualTo(5);
         assertThat(base.build().maxDepth()).isEqualTo(2);
-        // M26.3 enables the key-based paths once the execution checks are in place.
-        assertThat(tree.unique()).isFalse();
+        assertThat(tree.unique()).isTrue();
     }
 
     @Test
@@ -117,6 +116,38 @@ class TreeSourceQueryTest {
             assertThat(thrown).isInstanceOf(ModelQueryDefinitionException.class);
             assertThat(((ModelQueryDefinitionException) thrown).code()).isEqualTo(MqCode.MQ1904);
         }
+    }
+
+    @Test
+    void ac_src_17_a_tree_has_a_unique_key_for_keyset_and_primary_key_first() {
+        SourceQuery<Node> tree = tree();
+
+        assertThat(tree.unique()).isTrue();
+        assertThat(recursive().unique()).isFalse();
+        assertThat(queryBuilder(tree).keyset().build().isKeyset()).isTrue();
+        assertThat(queryBuilder(tree).primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(1)).build().primaryKeyFirst())
+                .isPresent();
+    }
+
+    @Test
+    void ac_src_20_recursive_key_paging_refusals_name_tree() {
+        List<Runnable> reads = List.of(() -> queryBuilder(recursive()).keyset().build(),
+                () -> queryBuilder(recursive()).primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(1)).build());
+        for (Runnable read : reads) {
+            Throwable thrown = catchThrowable(read::run);
+            assertThat(thrown).isInstanceOf(ModelQueryDefinitionException.class);
+            assertThat(((ModelQueryDefinitionException) thrown).code()).isEqualTo(MqCode.MQ1901);
+            assertThat(thrown.getMessage()).contains("tree(...)");
+        }
+    }
+
+    @Test
+    void ac_src_20_a_depth_model_without_a_step_names_both_recursive_and_tree() {
+        Throwable thrown = catchThrowable(() -> builder().build());
+
+        assertThat(thrown).isInstanceOf(ModelQueryDefinitionException.class);
+        assertThat(((ModelQueryDefinitionException) thrown).code()).isEqualTo(MqCode.MQ1902);
+        assertThat(thrown.getMessage()).contains("recursive(step ->", "tree(step ->");
     }
 
     @Test
@@ -198,8 +229,12 @@ class TreeSourceQueryTest {
     }
 
     private static ModelQuery<Node, Long, View> query(SourceQuery<Node> source) {
+        return queryBuilder(source).build();
+    }
+
+    private static ModelQuery.Builder<Node, Long, View> queryBuilder(SourceQuery<Node> source) {
         return ModelQuery.builder(SOURCE_ROOT, row -> new View(), source).select(SelectSet.of(VIEW_ID))
-                .primaryKey(PrimaryKey.of(VIEW_ID)).build();
+                .primaryKey(PrimaryKey.of(VIEW_ID));
     }
 
     private static SourceRenderer renderer(boolean duplicateCheck) {

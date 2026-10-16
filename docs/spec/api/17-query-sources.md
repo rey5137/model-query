@@ -8,9 +8,9 @@ either. Windows and set operations are RFC 0013 §3–§6; recursion is RFC 0013
 land with M25.5; `R-SRC-04` lands with M25.3; the run-time half of `R-SRC-03` and all of `R-SRC-11`..`R-SRC-12` land
 with M25.2. The M26.1 additions to `R-SRC-02`, `R-SRC-08` and `R-SRC-11` — a composite id as the source key, the one
 check site, the grouped count and the composite node key — land with M26.1, as AC-SRC-21's H2 half and AC-SRC-25 do.
-`R-SRC-13`..`R-SRC-14`, AC-SRC-21's composite-key check and AC-SRC-24 land with M26.2; AC-SRC-18 lands partially
-for the content query, count and count over groups, and AC-SRC-22 for `one(query)`. Tree uniqueness, the remaining
-statement kinds and `one(q, key)` land with M26.3.
+`R-SRC-13`..`R-SRC-14`, AC-SRC-21's composite-key check and AC-SRC-24 land with M26.2. M26.3 makes tree sources
+unique, completes AC-SRC-18 and AC-SRC-22 for every statement kind, and adds `R-SRC-15` and AC-SRC-17, AC-SRC-19,
+AC-SRC-20 and AC-SRC-23. A plain `recursive(...)` source keeps R-SRC-09's non-unique refusals.
 
 ---
 
@@ -208,15 +208,17 @@ for the operation's `SourceFeature` is `MQ4015`, before any statement (R-SRC-11)
   share.
 
 **R-SRC-09** A source that R-SRC-05 doesn't make unique, and that is not unique by construction, is **non-unique** —
-as is a recursive source (M25.5). On a query over one, every feature that identifies a row by its key is refused before
-any statement:
+as is a plain `recursive(...)` source (M25.5). A `tree(...)` source is unique under R-SRC-13 (M26.3); the set-operation
+rules in R-SRC-05 and R-SRC-06 are unchanged. On a query over a non-unique source, every feature that identifies a row
+by its key is refused before any statement:
 
 | Feature | Where | Code |
 |---|---|---|
 | `keyset()`, `primaryKeyFirst(...)` | the outer `build()` | `MQ1901` |
 | `export`, `byKeys`, `one(q, key)`, a fetch plan with a child, join plan or enricher | the executor call | `MQ2212` |
 
-`list`, `count`, `first`, `stream` and offset `page` work.
+`list`, `count`, `first`, `stream` and offset `page` work. For a recursive source, the `MQ1901` and `MQ2212` messages
+name `tree(...)` as the opt-in for a checked recursive walk.
 
 - **Offset paging.** On a non-unique source the outer key can't break ties: two rows with the same key and the same
   order values could swap between the statements of page 1 and page 2, and one row would show twice while the other
@@ -226,6 +228,10 @@ any statement:
   is judged by Java type, so an `@Lob String` fails at the database rather than as `MQ2212`. Known limits (`engine/21`, M25 gate): the vendor's ordering is not always the Java one, namely a MySQL `_ai_ci` collation or trailing-space
   padding, MySQL `TEXT` sorted by its first `max_sort_length` bytes, and a `BigDecimal` of scale 1.0 against 1.00; rows
   the vendor calls equal are interchangeable to it, not to the caller.
+- **The tree exception.** A `tree(...)` source proves its node keys unique on each statement (R-SRC-14, R-SRC-15).
+  Offset `page` therefore appends only the key after the definition's order, as R-PAG-01 does for a table. It adds no
+  every-column tie-breakers and does not refuse an unorderable selected column on that ground. A plain
+  `recursive(...)` source keeps the every-column tie-breakers and the refusals above.
 
 ## 5. Window fields
 
@@ -308,21 +314,22 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
   field carrying the level. A `@Window` or `@Aggregate` over a recursive result is Q-22.
 - **The depth limit is loud.** The `with recursive` CTE steps to level `maxDepth + 1` and the cycle clause marks the
   row that closes a cycle; the outer query filters on `level <= maxDepth and not mark`, so neither reaches a result.
-  The content statement and the count each carry depth and cycle scalar sub-selects over the same CTE — the smallest
-  key of the rows past `maxDepth` and the smallest marked key — read from the statement's first row: a row past
-  `maxDepth` is `MQ2701` and a marked row is `MQ2702`, each naming the model and the first offending key. So a too-deep
-  tree and a cyclic graph are refused whole rather than returned in part (INV-5). An empty result carries no row to
-  read, so the checks see nothing there; under READ COMMITTED a concurrent write can still deepen a tree after the
-  statement read it, and REPEATABLE READ around the call is the full guarantee (`engine/21`).
+  Every statement over the source (R-SRC-15) carries depth and cycle scalar sub-selects over the same CTE — the
+  smallest key of the rows past `maxDepth` and the smallest marked key — read from the statement's first row. A row
+  past `maxDepth` is `MQ2701` and a marked row is `MQ2702`, each naming the model and the first offending key.
+  A too-deep tree and a cyclic graph are refused whole rather than returned in part (INV-5). An empty result
+  carries no row to read, so the checks see nothing there. Under READ COMMITTED a concurrent write can deepen a tree
+  after the statement read it; REPEATABLE READ around the call is the full guarantee (`engine/21`).
 - **One check site.** Every `Tuple` read in `model-query-jpa` goes through the `BuiltQuery` overloads of `rows`,
   `single` and `resultStream`, which read the checks off the statement's first row before any row is returned, and
   `resultStream` reads it before it hands the stream on. A raw `getResultList`, `getSingleResult` or
   `getResultStream` outside those three is a bug AC-SRC-25's ArchUnit rule reports (M26.1).
-- **A recursive source is non-unique.** In a tree each node is reached once, in a graph with two paths to a node it is
-  not, and the shape alone cannot tell which one the data is (R-SRC-09): so `keyset()` and `primaryKeyFirst(...)` are
+- **A plain `recursive(...)` source is non-unique.** In a tree each node is reached once; in a graph with two paths
+  it is not, and the shape alone cannot tell which one the data is (R-SRC-09): `keyset()` and `primaryKeyFirst(...)` are
   `MQ1901` at the outer `build()`, and `export`, `byKeys`, `one(q, key)`, a fetch plan with a child and an enricher are
   `MQ2212` at the executor call, both before any statement. Offset paging, ordering, filters and the count work as they
-  do on any source.
+  do on any source. `tree(...)` opts in to checked uniqueness (R-SRC-13), lifting these refusals and using only the
+  key as the offset tie-breaker (R-SRC-09).
 - **The vendor's ceiling.** A vendor whose profile answers `false` for `SourceFeature.RECURSIVE`, or whose
   `maxRecursionDepth()` is below `maxDepth + 2` (the extra level recursion needs and the final, empty iteration), is
   `MQ4015` before any statement (R-SRC-11, R-VND-22). MySQL's default of 1000 serves `maxDepth` 998 and refuses 999.
@@ -344,9 +351,10 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
   `MQ4015` vendor ceiling are the same as R-SRC-07 and R-SRC-08; a tree source cannot be a set-operation branch either.
 - **The builder stays immutable.** Calling `tree(...)` or `recursive(...)` returns a new builder. The last call
   replaces the earlier recursion choice and its step and depth, as `where(...)` replaces the seed predicate (INV-9).
-- **Uniqueness lands with M26.3.** In M26.2 `SourceQuery#unique()` still answers `false` for a tree source. The
-  `MQ1901` and `MQ2212` refusals in R-SRC-08 still apply, including `one(q, key)`. The content query, count, count
-  over groups and `one(query)` can read a tree with its check; the paths that require uniqueness land with M26.3.
+- **Checked uniqueness (M26.3).** `SourceQuery#unique()` answers `true` for a tree source. Keyset paging,
+  primary-key-first paging, offset and keyset export, `byKeys`, `one(q, key)` and fetch plans with a child, join plan
+  or enricher work under their usual rules. Every statement reads the tree's checks under R-SRC-15. Calling
+  `recursive(...)` instead keeps the non-unique refusals of R-SRC-08 and R-SRC-09.
 
 **R-SRC-14** The duplicate-key check (M26.2, D-147):
 
@@ -373,6 +381,25 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
   "the persistence provider's `SourceRenderer` returned no duplicate-key check for a `tree(...)` source".
   `PortabilityCheck` reports that reason per declared target with no database, as it reports the other R-SRC-11
   refusals. The same renderer still serves `recursive(...)`.
+
+**R-SRC-15** Every statement reads the checks; no state is carried between statements (M26.3, D-147):
+
+- **Every read.** The content query, plain count, count over groups, both `one(query)` and `one(q, key)`, each
+  `byKeys` chunk, each keyset page, both primary-key-first steps, a deep offset page, each offset or keyset export
+  page and a fetch plan's parent read carry and read the source's checks through R-SRC-08's check site. A
+  primary-key-first read's second step re-walks the source with its `IN` list; it checks that whole walk too.
+- **Before using a row.** The check site reads depth, cycle and duplicate-key checks before mapping, taking a key,
+  deduping or delivering a row. `MQ2703` therefore precedes a keyset page or export's `MQ2202` or `MQ2205`,
+  `byKeys`'s `MQ2005` or `MQ2003`, a primary-key-first second step's dedupe, and either `one` call's `MQ2003`.
+  The empty-result limit in R-SRC-14 still applies.
+- **Per statement.** Each statement checks the whole walk as of its own snapshot. With stable data and order
+  values, export, keyset walks and primary-key-first pages visit every node exactly once. A concurrent write that
+  makes a node reachable twice or creates a cycle is `MQ2703` or `MQ2702` on the next statement that reads a check
+  row. Pages already delivered stay delivered, as with the depth check. No check state is kept between statements;
+  REPEATABLE READ or a snapshot around the call is the full guarantee (`engine/21` R-PAG-01).
+- **Fetch children.** Child rounds read the child entity, not the source, so they carry no recursive CTE or check.
+  A child model rooted at a source is `MQ3039` at compile time. The checked parent keys identify the rows children
+  attach to (R-FCH-05); a write between parent and child reads is the same race as a table-rooted fetch plan.
 
 ## 7. Building the CTE, and what a source needs to run
 
@@ -420,8 +447,12 @@ built per statement from the immutable `SourceQuery`, which itself carries no Cr
 | AC-SRC-14 | Every vendor serves `maxDepth` 998, and MySQL refuses 999 with `MQ4015` before any statement (M25.5; R-SRC-08). |
 | AC-SRC-15 | Content, count and both primary-key-first steps of one source are registered on every statement (R-SRC-12). |
 | AC-SRC-16 | `MQ4014` and `MQ4015` are reported per declared target without a database (R-SRC-11). |
-| AC-SRC-18 | **Partial, M26.2:** overlapping seeds and a link-table diamond raise `MQ2703` on the content query, count and count over groups, naming the model and the first column of the smallest duplicated key; a cycle stays `MQ2702` (R-SRC-14). The remaining statement kinds land with M26.3: `one(q, key)`, a `byKeys` chunk, a keyset page, both primary-key-first steps, a deep offset page, offset and keyset export pages, and a fetch plan's parent read, with checks before keyset's `MQ2202` or `MQ2205` and `byKeys`'s `MQ2005` or `MQ2003`. `one(query)` is covered by AC-SRC-22; the `recursive(...)` count-over-groups depth and cycle checks are covered by AC-SRC-13 (M26.1). |
+| AC-SRC-17 | A tree exported by keyset and offset, paged by keyset and primary-key-first, read by `byKeys` and `one(q, key)`, and given a fetch-plan child returns every node exactly once; the check is pinned as an SQL snapshot per Tier-1 vendor and both Hibernate lines (R-SRC-13, R-SRC-15). |
+| AC-SRC-18 | Overlapping seeds and a link-table diamond raise `MQ2703` on every R-SRC-15 statement kind: content, count, count over groups, `one(q, key)`, each `byKeys` chunk, keyset page, both primary-key-first steps, deep offset page, offset and keyset export pages, and fetch-plan parent read. It names the model and first column of the smallest duplicated key, precedes keyset's `MQ2202` or `MQ2205` and `byKeys`'s `MQ2005` or `MQ2003`, and is checked again on later chunks and primary-key-first step 2 after a concurrent break; a cycle stays `MQ2702` (R-SRC-14, R-SRC-15). `one(query)` is covered by AC-SRC-22; the `recursive(...)` count-over-groups depth and cycle checks are AC-SRC-13. |
+| AC-SRC-19 | A duplicate made between two export pages on a second connection at READ COMMITTED is `MQ2703` on the next offset or keyset page, before any repeated-row `MQ2205`; pages already delivered stay delivered. At REPEATABLE READ the export visits every node once (R-SRC-15). |
+| AC-SRC-20 | Offset `page` over a tree orders by the definition's order plus the key only, pinned as an SQL snapshot per vendor and both Hibernate lines. A plain `recursive(...)` source keeps `MQ1901`, `MQ2212` and the every-column tie-breakers; the messages name `tree(...)`. `MQ1902` for a `@Depth` model built without a step names `recursive(...)` and `tree(...)` (R-SRC-09, R-SRC-13). |
 | AC-SRC-21 | A `recursive(...)` or `tree(...)` source over a composite node key is `MQ4015` naming `RECURSIVE_COMPOSITE_KEY` before any statement on H2, and `PortabilityCheck` reports it for an H2 target with no database (the feature guard lands with M26.1, the tree call with M26.2; R-SRC-07, R-SRC-11, R-VND-21). On PostgreSQL and MySQL a tree is checked on the whole key, and `MQ2703` says it names the key's first column (the check half lands with M26.2; R-SRC-14). |
-| AC-SRC-22 | `one(query)` over a tree that reaches a node twice is `MQ2703`, not `MQ2003` (M26.2; R-SRC-14). The `one(q, key)` half is deferred to M26.3, when a tree source becomes unique (R-SRC-13). |
+| AC-SRC-22 | `one(query)` and `one(q, key)` over a tree that reaches a node twice raise `MQ2703` before the single-row `MQ2003` check (R-SRC-14, R-SRC-15). |
+| AC-SRC-23 | Over a tree that reaches a node twice, an outer filter matching no row gives an empty `list`, `MQ2703` from `page`'s count, and an empty count-free page. A count over groups matching no group returns `0`; one matching a group is `MQ2703` (R-SRC-14, R-SRC-15). |
 | AC-SRC-24 | A `SourceRenderer` returning a `RecursiveCte` without a duplicate check for a tree source is `MQ4014` before any statement, and `PortabilityCheck` reports the no-check reason per declared target with no database. The same renderer still serves `recursive(...)`; a renderer returning a duplicate check for `recursive(...)` leaves its SQL snapshot unchanged (M26.2; R-SRC-14). |
 | AC-SRC-25 | In `model-query-jpa`, `getResultList`, `getSingleResult` and `getResultStream` on a `Tuple` query are called only from methods named `rows`, `single` or `resultStream` — the check-site overloads — so no `Tuple` row reaches a caller before its source's checks are read (an ArchUnit rule, M26.1; R-SRC-08). The rule is stated **by method**, the RFC's fallback, because ArchUnit sees a call's erased target types and not the statement's `Tuple` element; the other half of that fallback, no untyped read of a `BuiltQuery`'s statement, is the compiler's: the executor's `rows` and `single` without a `BuiltQuery` take only an entity and a `Long` query, so a `Tuple` query has no unchecked overload to call. `resultStream` reads the first row before it returns the stream, so a body's `count()` cannot skip it. |

@@ -560,7 +560,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return Collections.unmodifiableMap(result);
     }
 
-    /** One chunk of {@code byKeys}: the query built again, filtered to {@code chunkKeys}, ordered for a lock (R-EXE-14). */
+    /**
+     * One chunk of {@code byKeys}: the query built again, filtered to {@code chunkKeys}, ordered for a lock (R-EXE-14).
+     */
     private <M> BuiltQuery<M> byKeysChunk(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> primaryKey, CriteriaBuilder cb,
             Optional<LockSupport> lock, List<Object> chunkKeys) {
         BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL, renderOptions);
@@ -620,7 +622,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         RowLock rowLock = lock.get();
         if (q.source().isPresent()) {
-            throw new ModelQueryDefinitionException(MqCode.MQ1903, q + ": " + read + " cannot lock a query that reads a "
+            throw new ModelQueryDefinitionException(MqCode.MQ1903,
+                    q + ": " + read + " cannot lock a query that reads a "
                     + "source: its rows come from a common table expression, which a locking clause cannot follow; "
                     + "drop withLock(...) (R-SRC-11)");
         }
@@ -652,7 +655,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 + vendor.detectedVendor() + ", because " + because);
     }
 
-    /** Applies {@code q}'s lock to {@code statement} through {@code support}, which is empty when {@code q} takes none. */
+    /**
+     * Applies {@code q}'s lock to {@code statement} through {@code support}, which is empty when {@code q} takes none.
+     */
     private static void applyLock(Optional<LockSupport> support, ModelQuery<?, ?, ?> q, TypedQuery<?> statement) {
         support.ifPresent(locks -> locks.apply(statement, q.lock().get()));
     }
@@ -1105,7 +1110,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         checkFirstRun(q);
         int offset = page.offset();
         int size = page.pageSize();
-        // A non-unique source has no key to close the order with, so every selected column does (R-SRC-09).
+        // A non-unique source needs every selected column to close the order; a tree's key suffices (R-SRC-09).
         boolean everyColumn = nonUniqueSource(q);
         LOG.log(DEBUG, () -> "page " + q + ": offset " + offset + " size " + size + ", " + mode
                 + (mode != CountMode.ONLY_COUNT && primaryKeyFirst(q, offset) ? ", primary-key-first" : ""));
@@ -2521,7 +2526,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         SourceQuery<?> source = q.source().filter(each -> !each.unique()).orElse(null);
         if (source != null) {
             throw new ModelQueryDefinitionException(MqCode.MQ2212, q + ": " + read + " needs one row per key, and "
-                    + "the source it reads has no unique key; list, count, first, stream and offset page read it");
+                    + "the source it reads has no unique key; list, count, first, stream and offset page read it"
+                    + (source.recursive() ? "; use tree(...) for a checked recursive walk" : ""));
         }
     }
 
@@ -2628,7 +2634,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 if (!orderable(column)) {
                     throw new ModelQueryDefinitionException(MqCode.MQ2212, q + ": the source has no unique key, so "
                             + "every selected column closes the order of an offset page, and the selected column '"
-                            + column.name() + "' can't be ordered; deselect it or make the source unique");
+                            + column.name() + "' can't be ordered; deselect it or make the source unique"
+                            + (q.source().orElseThrow().recursive() ? ", or use tree(...)" : ""));
                 }
                 if (!closing.contains(column)) {
                     closing.add(column);
@@ -3232,7 +3239,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return grouped;
     }
 
-    /** One round of {@link #childrenOf}: {@code load}'s statement built again, filtered to {@code roundKeys} (R-FCH-04). */
+    /**
+     * One round of {@link #childrenOf}: {@code load}'s statement built again, filtered to {@code roundKeys} (R-FCH-04).
+     */
     private <C> BuiltQuery<C> childRound(ChildLoad<?, C> load, ModelQuery<?, ?, C> q, CriteriaBuilder cb,
             List<Object> roundKeys) {
         BuiltQuery<C> built = load.build(cb, renderOptions);

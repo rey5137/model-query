@@ -4,8 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+import com.rey.modelquery.core.ColumnConverter;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.CountMode;
+import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.FetchPlan;
+import com.rey.modelquery.core.KeysetSpec;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
@@ -13,6 +17,9 @@ import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.PageSpec;
+import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.PrimaryKeyFirst;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.SourceQuery;
 import com.rey.modelquery.core.TableField;
@@ -20,12 +27,18 @@ import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.tck.col.FolderNodeEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
+import com.rey.modelquery.tck.fch.FetchTestSupport;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.portability.LegacyRecursiveProviderSupport;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
 import com.rey.modelquery.tck.vnd.VendorSources;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import java.nio.charset.StandardCharsets;
 import jakarta.persistence.criteria.JoinType;
 import java.math.BigDecimal;
 import java.sql.Connection;
@@ -34,6 +47,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -42,6 +56,7 @@ import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
 import java.util.stream.Stream;
 import javax.sql.DataSource;
+import net.ttddyy.dsproxy.support.ProxyDataSourceBuilder;
 import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.Assumptions;
 
@@ -437,6 +452,356 @@ class RecursiveSourceExecutionTest {
                 .orderBy(QCompositeNodeRow.ID.asc()).build();
     }
 
+    @TckTest
+    void ac_src_17_every_key_identified_read_visits_each_tree_node_once(TckDatabase db) {
+        SqlSnapshots.assertMatches(db, "src-17-tree-reads", ds -> withExecutor(ds, FolderNode.class, executor -> {
+            var source = checkedTree(3, 1L);
+            var plain = rows(source);
+            var keyset = rowsBuilder(source).keyset().build();
+            var pkFirst = rowsBuilder(source).primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
+            List<Long> expected = List.of(1L, 2L, 3L, 4L, 5L, 6L);
+            for (var query : List.of(plain, keyset, pkFirst)) {
+                List<FolderRow> exported = new ArrayList<>();
+                executor.export(query, ExportOptions.of(2), page -> page, exported::add);
+                assertThat(exported).extracting(FolderRow::id).containsExactlyElementsOf(expected);
+            }
+            List<FolderRow> keysetRows = new ArrayList<>();
+            KeysetSpec next = KeysetSpec.first(2);
+            while (true) {
+                var page = executor.page(keyset, next);
+                keysetRows.addAll(page.content());
+                if (!page.hasNext()) {
+                    break;
+                }
+                next = KeysetSpec.after(page.nextCursor().orElseThrow(), 2);
+            }
+            assertThat(keysetRows).extracting(FolderRow::id).containsExactlyElementsOf(expected);
+            List<FolderRow> offsetRows = new ArrayList<>();
+            for (int offset = 0; offset < 6; offset += 2) {
+                offsetRows.addAll(executor.page(pkFirst, PageSpec.ofOffset(offset, 2), CountMode.NO_COUNT).content());
+            }
+            assertThat(offsetRows).extracting(FolderRow::id).containsExactlyElementsOf(expected);
+            assertThat(executor.byKeys(plain, expected).values()).extracting(FolderRow::id)
+                    .containsExactlyElementsOf(expected);
+            for (Long id : expected) {
+                assertThat(executor.one(plain, id)).get().extracting(FolderRow::id).isEqualTo(id);
+            }
+            var parents = executor.list(children(source), Limit.unlimited());
+            assertThat(parents).extracting(FolderChildrenRow::id).containsExactlyElementsOf(expected);
+            assertThat(parents.get(0).children()).extracting(FolderChild::id).containsExactly(2L, 3L);
+            assertThat(parents.get(1).children()).extracting(FolderChild::id).containsExactly(4L, 5L);
+            assertThat(parents.get(2).children()).extracting(FolderChild::id).containsExactly(6L);
+            assertThat(parents.subList(3, 6)).allSatisfy(parent -> assertThat(parent.children()).isEmpty());
+        }));
+    }
+
+    @TckTest
+    void ac_src_18_remaining_statement_kinds_check_before_delivering_rows(TckDatabase db) {
+        SqlSnapshots.capture(db, ds -> withExecutor(ds, FolderNode.class, executor -> {
+            for (int shape = 0; shape < 2; shape++) {
+                var source = shape == 0 ? checkedTree(3, 1L, 2L) : diamond();
+                String key = shape == 0 ? "id=2" : "id=203";
+                var plain = rows(source);
+                var keyset = rowsBuilder(source).keyset().build();
+                var pkFirst = rowsBuilder(source).primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
+                Long requested = shape == 0 ? 2L : 201L;
+                // The requested key can exclude the duplicate: the probe still checks the whole source.
+                assertDuplicate(() -> executor.one(plain, requested), "FolderRow", key);
+                assertDuplicate(() -> executor.byKeys(plain, List.of(2L, 201L)), "FolderRow", key);
+                assertDuplicate(() -> executor.page(keyset, KeysetSpec.first(10)), "FolderRow", key);
+                assertDuplicate(() -> executor.page(plain, PageSpec.ofOffset(1, 2), CountMode.NO_COUNT),
+                        "FolderRow", key);
+                assertDuplicate(() -> executor.page(pkFirst, PageSpec.ofOffset(1, 2), CountMode.NO_COUNT),
+                        "FolderRow", key);
+                for (var query : List.of(plain, keyset, pkFirst)) {
+                    List<FolderRow> delivered = new ArrayList<>();
+                    assertDuplicate(() -> executor.export(query, ExportOptions.of(2), page -> page, delivered::add),
+                            "FolderRow", key);
+                    assertThat(delivered).isEmpty();
+                }
+                assertDuplicate(() -> executor.list(children(source), Limit.unlimited()), "FolderChildrenRow", key);
+            }
+        }));
+    }
+
+    @TckTest
+    void ac_src_18_duplicate_check_precedes_null_keys_and_single_row_checks(TckDatabase db) {
+        SqlSnapshots.capture(db, ds -> withExecutor(ds, FolderNode.class, executor -> {
+            var nullOrder = rowsBuilder(checkedTree(3, 1L)).orderBy(QFolderRow.PARENT_ID.asc()).keyset().build();
+            assertCode(() -> executor.page(nullOrder, KeysetSpec.first(10)), MqCode.MQ2202);
+            assertCode(() -> executor.export(nullOrder, ExportOptions.of(10), page -> page, row -> {}),
+                    MqCode.MQ2202);
+            var duplicateNullOrder = rowsBuilder(checkedTree(3, 1L, 2L))
+                    .orderBy(QFolderRow.PARENT_ID.asc()).keyset().build();
+            assertDuplicate(() -> executor.page(duplicateNullOrder, KeysetSpec.first(10)), "FolderRow", "id=2");
+            assertDuplicate(() -> executor.export(duplicateNullOrder, ExportOptions.of(10), page -> page, row -> {}),
+                    "FolderRow", "id=2");
+            assertDuplicate(() -> executor.byKeys(rows(checkedTree(3, 1L, 2L)), List.of(2L)), "FolderRow", "id=2");
+            assertDuplicate(() -> executor.one(rows(checkedTree(3, 1L, 2L)), 2L), "FolderRow", "id=2");
+        }));
+    }
+
+    @TckTest
+    void ac_src_18_duplicate_check_precedes_an_unexpected_decimal_key(TckDatabase db) {
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(db, DecimalFolderNode.class)) {
+            sf.inSession(em -> {
+                var executor = ModelQueryExecutor.create(em, FolderNode.class, ModelQueryConfig.defaults());
+                var scaledKey = new BigDecimal("2.0");
+                assertCode(() -> executor.byKeys(decimalKeys(1L), List.of(scaledKey)), MqCode.MQ2005);
+                assertDuplicate(() -> executor.byKeys(decimalKeys(1L, 2L), List.of(scaledKey)), "FolderRow", "id=2");
+            });
+        }
+    }
+
+    @TckTest
+    void ac_src_18_the_next_keyset_page_checks_before_the_moved_cursor_guard(TckDatabase db) {
+        SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+                sf.inSession(em -> {
+                    em.getTransaction().begin();
+                    try {
+                        var executor = ModelQueryExecutor.create(em, FolderNode.class, ModelQueryConfig.defaults());
+                        var query = rowsBuilder(checkedTree(5, 1L, 200L)).orderBy(QFolderRow.NAME.asc())
+                                .keyset().build();
+                        var first = executor.page(query, KeysetSpec.first(2));
+                        String cursor = first.nextCursor().orElseThrow();
+                        Long boundary = first.content().get(1).id();
+                        em.createNativeQuery("UPDATE folder_nodes SET name = 'zz-moved' WHERE id = :id")
+                                .setParameter("id", boundary).executeUpdate();
+                        assertCode(() -> executor.page(query, KeysetSpec.after(cursor, 10)), MqCode.MQ2205);
+                        em.createNativeQuery("UPDATE folder_nodes SET parent_id = 2 WHERE id = 200").executeUpdate();
+                        assertDuplicate(() -> executor.page(query, KeysetSpec.after(cursor, 10)),
+                                "FolderRow", "id=200");
+                    } finally {
+                        em.getTransaction().rollback();
+                    }
+                });
+            }
+        });
+    }
+
+    @TckTest
+    void ac_src_18_keyset_export_checks_before_the_moved_cursor_guard(TckDatabase db) {
+        SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+                for (boolean duplicate : List.of(false, true)) {
+                    sf.inSession(em -> {
+                        em.getTransaction().begin();
+                        try {
+                            var executor = ModelQueryExecutor.create(em, FolderNode.class, ModelQueryConfig.defaults());
+                            var query = rowsBuilder(checkedTree(5, 1L, 200L)).orderBy(QFolderRow.NAME.asc())
+                                    .keyset().build();
+                            List<FolderRow> delivered = new ArrayList<>();
+                            Runnable export = () -> executor.export(query, ExportOptions.of(2), page -> {
+                                if (delivered.isEmpty()) {
+                                    em.createNativeQuery("UPDATE folder_nodes SET name = :name WHERE id = :id")
+                                            .setParameter("name", page.get(1).name() + "-moved")
+                                            .setParameter("id", page.get(1).id()).executeUpdate();
+                                    if (duplicate) {
+                                        em.createNativeQuery("UPDATE folder_nodes SET parent_id = 2 WHERE id = 200")
+                                                .executeUpdate();
+                                    }
+                                }
+                                return page;
+                            }, delivered::add);
+                            if (duplicate) assertDuplicate(export, "FolderRow", "id=200");
+                            else assertCode(export, MqCode.MQ2205);
+                            assertThat(delivered).hasSize(2);
+                        } finally {
+                            em.getTransaction().rollback();
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    @TckTest
+    void ac_src_18_second_pk_first_statement_and_later_by_keys_chunks_recheck_the_tree(TckDatabase db) {
+        for (boolean pkFirst : List.of(true, false)) {
+            AtomicInteger statements = new AtomicInteger();
+            try {
+                List<String> sql = SqlSnapshots.capture(db, ds -> {
+                    DataSource changing = ProxyDataSourceBuilder.create(ds).beforeQuery((info, queries) -> {
+                        if (queries.stream().anyMatch(q -> q.getQuery().toLowerCase().startsWith("with "))
+                                && statements.incrementAndGet() == 2) {
+                            moveDiamondRoot(db, true);
+                        }
+                    }).build();
+                    var config = ModelQueryConfig.defaults()
+                            .vendorProfiles(List.of(FetchTestSupport.limited(db, 2)));
+                    withIsolation(changing, Connection.TRANSACTION_READ_COMMITTED, config, executor -> {
+                        var source = checkedTree(5, 1L, 200L);
+                        if (pkFirst) {
+                            var query = rowsBuilder(source).primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
+                            assertDuplicate(() -> executor.page(query, PageSpec.ofOffset(1, 2), CountMode.NO_COUNT),
+                                    "FolderRow", "id=200");
+                        } else {
+                            assertDuplicate(() -> executor.byKeys(rows(source), List.of(1L, 2L, 3L, 4L)),
+                                    "FolderRow", "id=200");
+                        }
+                    });
+                });
+                assertThat(sql).hasSize(2);
+                assertThat(statements).hasValue(2);
+            } finally {
+                moveDiamondRoot(db, false);
+            }
+        }
+    }
+
+    @TckTest
+    void ac_src_19_export_rechecks_each_page_at_read_committed_and_keeps_a_repeatable_snapshot(TckDatabase db) {
+        for (int isolation : new int[] {Connection.TRANSACTION_READ_COMMITTED,
+                Connection.TRANSACTION_REPEATABLE_READ}) {
+            for (boolean keyset : List.of(false, true)) {
+                List<FolderRow> delivered = new ArrayList<>();
+                var config = ModelQueryConfig.defaults();
+                try {
+                    SqlSnapshots.capture(db, ds -> withIsolation(ds, isolation, config, executor -> {
+                        var builder = rowsBuilder(checkedTree(5, 1L, 200L));
+                        var query = keyset ? builder.keyset().build() : builder.build();
+                        Runnable export = () -> executor.export(query, ExportOptions.of(2), page -> {
+                            if (delivered.isEmpty()) {
+                                moveDiamondRoot(db, true);
+                            }
+                            return page;
+                        }, delivered::add);
+                        if (isolation == Connection.TRANSACTION_READ_COMMITTED) {
+                            assertDuplicate(export, "FolderRow", "id=200");
+                            assertThat(delivered).extracting(FolderRow::id).containsExactly(1L, 2L);
+                        } else {
+                            export.run();
+                            assertThat(delivered).extracting(FolderRow::id)
+                                    .containsExactly(1L, 2L, 3L, 4L, 5L, 6L, 200L);
+                        }
+                    }));
+                } finally {
+                    moveDiamondRoot(db, false);
+                }
+            }
+        }
+    }
+
+    @TckTest
+    void ac_src_20_offset_tree_order_adds_only_the_primary_key(TckDatabase db) {
+        List<String> sql = SqlSnapshots.assertMatches(db, "src-20-tree-offset", ds ->
+                withExecutor(ds, FolderNode.class, executor -> {
+                    var query = rowsBuilder(checkedTree(3, 1L)).orderBy(QFolderRow.NAME.asc()).build();
+                    assertThat(executor.page(query, PageSpec.ofOffset(1, 2), CountMode.NO_COUNT).content())
+                            .extracting(FolderRow::id).containsExactly(2L, 3L);
+                }));
+        String order = sql.get(0).substring(sql.get(0).lastIndexOf(" order by "));
+        // NAME is projection 3 and the primary key is projection 1.
+        assertThat(order).startsWith(" order by 3,1 ");
+    }
+
+    @TckTest
+    void ac_src_20_unorderable_offset_page_names_tree_only_for_a_recursive_source(TckDatabase db) {
+        var root = TableField.source(FolderNode.class);
+        var bytes = ColumnField.of(FolderNode.class, QFolderNode.ROOT, "name", byte[].class, String.class,
+                new ColumnConverter<byte[], String>() {
+                    @Override
+                    public byte[] toModel(String attribute) {
+                        return attribute.getBytes(StandardCharsets.UTF_8);
+                    }
+
+                    @Override
+                    public String toAttribute(byte[] model) {
+                        return new String(model, StandardCharsets.UTF_8);
+                    }
+                }).named("payload");
+        var payload = ColumnField.over(byte[].class, root, bytes);
+        var seed = SourceQuery.builder(FolderNode.class, QFolderNode.ROOT,
+                SelectSet.of(QFolderNode.ID, bytes), QFolderNode.KEY).build();
+        var recursive = SourceQuery.builder(FolderNode.class, QFolderNode.ROOT,
+                SelectSet.of(QFolderNode.ID, QFolderNode.PARENT_ID, bytes, QFolderNode.LEVEL), QFolderNode.KEY)
+                .depth(QFolderNode.LEVEL).where(f -> f.eq(QFolderNode.ID, TckFixture.FOLDER_TREE_ROOT))
+                .recursive(step -> step.childKey(QFolderNode.PARENT_ID).parentKey(QFolderNode.ID), 3).build();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, FolderNode.class, executor -> {
+            for (var source : List.of(recursive, seed.unionAll(seed))) {
+                var query = ModelQuery.<FolderNode, byte[]>builder(root, row -> row.get(payload), source)
+                        .select(SelectSet.of(payload)).build();
+                var refusal = assertCode(() -> executor.page(query, PageSpec.ofOffset(0, 2), CountMode.NO_COUNT),
+                        MqCode.MQ2212);
+                if (source.recursive()) assertThat(refusal).hasMessageContaining("tree(...)");
+                else assertThat(refusal).hasMessageNotContaining("tree(...)");
+            }
+        }));
+        assertThat(sql).isEmpty();
+    }
+
+    @TckTest
+    void ac_src_23_an_empty_outer_result_has_no_check_row_but_scalar_count_does(TckDatabase db) {
+        SqlSnapshots.capture(db, ds -> withExecutor(ds, FolderNode.class, executor -> {
+            var source = checkedTree(3, 1L, 2L);
+            var empty = rowsBuilder(source).where(f -> f.eq(QFolderRow.ID, -1L)).build();
+            assertThat(executor.list(empty, Limit.unlimited())).isEmpty();
+            assertThat(executor.page(empty, PageSpec.ofOffset(0, 2), CountMode.NO_COUNT).content()).isEmpty();
+            assertDuplicate(() -> executor.page(empty, PageSpec.ofOffset(0, 2), CountMode.COUNT), "FolderRow", "id=2");
+            var noGroup = QFolderLevelTotals.query(source)
+                    .select(SelectSet.of(QFolderLevelTotals.LEVEL, QFolderLevelTotals.NODES))
+                    .having(h -> h.gt(QFolderLevelTotals.NODES, 1_000L)).build();
+            assertThat(executor.count(noGroup)).isZero();
+            assertDuplicate(() -> executor.count(levels(source)), "FolderLevelTotals", "id=2");
+        }));
+    }
+
+    private static ModelQuery<FolderNode, ?, FolderChildrenRow> children(SourceQuery<FolderNode> source) {
+        var plan = FetchPlan.of(QFolderChildrenRow.ALL).child(QFolderChildrenRow.CHILDREN,
+                FetchPlan.of(QFolderChild.ALL));
+        return QFolderChildrenRow.query(source).orderBy(QFolderChildrenRow.ID.asc()).fetch(plan).build();
+    }
+
+    private static ModelQuery<FolderNode, BigDecimal, FolderRow> decimalKeys(Long... seeds) {
+        var root = TableField.root(DecimalFolderNode.class);
+        var id = ColumnField.of(FolderNode.class, root, "id", BigDecimal.class).named("id");
+        var parent = ColumnField.of(FolderNode.class, root, "parentId", BigDecimal.class).named("parentId");
+        var depth = ColumnField.of(FolderNode.class, root, "level", Integer.class).named("level");
+        var source = SourceQuery.builder(FolderNode.class, root, SelectSet.of(id, parent, depth), PrimaryKey.of(id))
+                .depth(depth).where(f -> f.in(id, List.of(seeds).stream().map(BigDecimal::valueOf).toList()))
+                .tree(step -> step.childKey(parent).parentKey(id), 3).build();
+        var key = ColumnField.over(FolderRow.class, QFolderRow.ROOT, id);
+        return ModelQuery.builder(QFolderRow.ROOT,
+                row -> new FolderRow(row.get(key).longValueExact(), null, null, null), source)
+                .select(SelectSet.of(key)).primaryKey(PrimaryKey.of(key)).build();
+    }
+
+    /** Reads the integer columns as decimals, so SQL equality can match keys whose Java scales differ. */
+    @Entity(name = "DecimalFolderNode")
+    @Table(name = "folder_nodes")
+    static class DecimalFolderNode {
+        @Id
+        BigDecimal id;
+
+        @Column(name = "parent_id")
+        BigDecimal parentId;
+    }
+
+    private static void moveDiamondRoot(TckDatabase db, boolean overlap) {
+        try (Connection connection = db.getConnection(); Statement statement = connection.createStatement()) {
+            statement.executeUpdate("UPDATE folder_nodes SET parent_id = " + (overlap ? "2" : "NULL")
+                    + " WHERE id = 200");
+        } catch (SQLException e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    private static void withIsolation(DataSource ds, int isolation, ModelQueryConfig config,
+            Consumer<ModelQueryExecutor<FolderNode>> work) {
+        try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+            sf.inSession(em -> {
+                em.doWork(connection -> connection.setTransactionIsolation(isolation));
+                em.getTransaction().begin();
+                try {
+                    work.accept(ModelQueryExecutor.create(em, FolderNode.class, config));
+                } finally {
+                    em.getTransaction().rollback();
+                }
+            });
+        }
+    }
+
     private static SourceQuery<FolderNode> tree(long root, int maxDepth) {
         return QFolderNode.source().where(f -> f.eq(QFolderNode.ID, root))
                 .recursive(step -> step.childKey(QFolderNode.PARENT_ID).parentKey(QFolderNode.ID), maxDepth).build();
@@ -474,11 +839,11 @@ class RecursiveSourceExecutionTest {
         return tree(TckFixture.FOLDER_CYCLE_ROOT, maxDepth);
     }
 
-    private static ModelQuery.Builder<FolderNode, ?, FolderRow> rowsBuilder(SourceQuery<FolderNode> source) {
+    private static ModelQuery.Builder<FolderNode, Long, FolderRow> rowsBuilder(SourceQuery<FolderNode> source) {
         return QFolderRow.query(source).select(QFolderRow.ALL).orderBy(QFolderRow.ID.asc());
     }
 
-    private static ModelQuery<FolderNode, ?, FolderRow> rows(SourceQuery<FolderNode> source) {
+    private static ModelQuery<FolderNode, Long, FolderRow> rows(SourceQuery<FolderNode> source) {
         return rowsBuilder(source).build();
     }
 

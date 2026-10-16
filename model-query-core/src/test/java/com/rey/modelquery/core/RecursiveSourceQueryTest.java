@@ -129,6 +129,7 @@ class RecursiveSourceQueryTest {
 
         assertThat(thrown.code()).isEqualTo(MqCode.MQ1902);
         assertThat(thrown.getMessage()).isEqualTo("MQ1902: Node: a recursive source needs recursive(step -> "
+                + "step.childKey(childKey).parentKey(parentKey), maxDepth) or tree(step -> "
                 + "step.childKey(childKey).parentKey(parentKey), maxDepth) before build()");
     }
 

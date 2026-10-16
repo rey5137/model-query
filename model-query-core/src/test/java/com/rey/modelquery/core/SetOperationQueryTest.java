@@ -252,6 +252,13 @@ class SetOperationQueryTest {
         assertThat(code(() -> query(nonUnique()).build())).isNull();
     }
 
+    @Test
+    void ac_src_20_overlapping_union_all_keyset_is_mq1901_without_a_tree_hint() {
+        var failure = code(() -> query(nonUnique()).keyset().build());
+        assertThat(failure.code()).isEqualTo(MqCode.MQ1901);
+        assertThat(failure).hasMessageNotContaining("tree(...)");
+    }
+
     private static ModelQueryDefinitionException code(Runnable call) {
         Throwable thrown = catchThrowable(call::run);
         if (thrown == null) {

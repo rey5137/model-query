@@ -1211,8 +1211,9 @@ public final class ModelQuery<E, K, M> {
                 if (source != null && !source.unique()) {
                     // A cursor identifies a row by its key, which a non-unique source's key does not (R-SRC-09).
                     throw new ModelQueryDefinitionException(MqCode.MQ1901, model + ": " + used + " is refused on the "
-                            + "source " + source.model().getSimpleName() + ", whose combined rows have no unique "
-                            + "key; page it by offset, or make the branches disjoint with @Discriminator");
+                            + "source " + source.model().getSimpleName() + ", whose rows have no unique "
+                            + "key; page it by offset or make the branches disjoint with @Discriminator"
+                            + (source.recursive() ? "; use tree(...) for a checked recursive walk" : ""));
                 }
                 if (grouped) {
                     // Both need a unique per-row key, which a group does not have (R-AGG-10, D-7).

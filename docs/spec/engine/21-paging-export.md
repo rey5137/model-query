@@ -13,8 +13,9 @@ loop loses or duplicates rows without raising an error.
 appends the primary-key columns as a tie-breaker to whatever order the caller gave. Without a stable order,
 `LIMIT/OFFSET` pages overlap or skip rows, and no test that checks a single page catches it.
 
-- **A non-unique source has no key to break ties with** (`api/17` R-SRC-09): two rows sharing a key and an order value
-  could swap between the statements of page 1 and page 2, so one row would show twice and the other never show. Offset
+- **A non-unique source has no key to break ties with** (`api/17` R-SRC-09; a checked `tree(...)` is unique under
+  R-SRC-13): two rows sharing a key and an order value could swap between the statements of page 1 and page 2, so one
+  row would show twice and the other never show. Offset
   `page` over one therefore appends **every selected outer column**, ascending, after the
   definition's order and the key, counting an ordered column as selected (D-29). A selected column that can't be
   ordered — a LOB, a JSON type — is `MQ2212`, naming the column, before any statement; deselect it or make the source
@@ -24,6 +25,17 @@ appends the primary-key columns as a tie-breaker to whatever order the caller ga
   vendor's ordering is not the Java one for a MySQL `_ai_ci` collation or trailing-space padding, MySQL `TEXT` (sorted by
   its first `max_sort_length` bytes) and a `BigDecimal` of scale 1.0 against 1.00, so rows the vendor calls equal may
   still differ to the caller.
+- **A checked tree uses the key tie-breaker.** Offset `page` over `tree(...)` orders by the definition's order plus
+  the key only; it adds none of the non-unique source's every-column tie-breakers. Keyset, primary-key-first,
+  exports, `byKeys`, `one(q, key)` and fetch plans follow their usual rules, with the whole walk checked on every
+  statement (`api/17` R-SRC-15). A plain `recursive(...)` source keeps the non-unique rules above.
+- **Known limit: derived tree order values.** A subtree move changes every descendant's `@Depth` and may change
+  other values derived by the walk. Under READ COMMITTED, offset or keyset walks ordered by those values can skip
+  or repeat a whole subtree while every statement still sees a valid tree. The key remains the last tie-breaker,
+  and `MQ2205` catches a repeat only on the very next page. Ordering by the node key alone is unaffected by moves
+  within the walk; ordering by derived values requires a snapshot for stability. Moving a subtree into or out of
+  the seeds' reach is a bulk insert or delete under INV-4's existing assumption. REPEATABLE READ or a snapshot around
+  the call is the full guarantee, as for window-derived order values (`api/17` R-SRC-04).
 
 **R-PAG-02** *(was R2)* **Export memory is bounded.** There is no global "seen ids" set. With a stable order,
 duplicates can only appear at a page boundary, so the engine dedupes only against the previous page's keys (INV-4).
