@@ -2131,6 +2131,28 @@ clash check and for uniqueness; the clash check is skipped for a distinct `union
 distinct `union` of one branch model is unique only if it is ungrouped, has no `@Window` field and has equal
 discriminator values. → `api/17` R-SRC-06, R-SRC-10, R-SRC-12, `vendor/40` R-VND-21, `delivery/61` R-REL-07.
 
+**D-147 — Trees as unique sources (RFC 0014, 2026-10-16, user decision).** Resolves Q-21. A recursive source built
+with `SourceQuery.Builder#tree(step, maxDepth)` instead of `recursive(step, maxDepth)` claims one row per node, so it
+is unique and lifts `MQ1901` and `MQ2212`: keyset paging, primary-key-first, `byKeys`, `one(q, key)`, export and fetch
+plans work on it. Every statement over it carries a third check beside M25.5's two, a scalar sub-select
+`group by key having count(*) > 1` over the whole CTE naming the smallest duplicated key (`MQ2703`), read after
+`MQ2701` and `MQ2702` and before any other check or mapping, in one form on every vendor. Every `Tuple` read over a
+source goes through one engine check site, the `BuiltQuery` overloads of `rows`, `single` and `resultStream` (an
+ArchUnit rule). No state is kept between statements: each checks the whole tree as of its snapshot, so a write that
+breaks the tree raises on the next statement, pages already delivered stay delivered, and REPEATABLE READ around the
+call is the full guarantee, the one tables have; a walk ordered by `@Depth` or another derived value can skip or
+repeat a moved subtree under READ COMMITTED, a documented limit. A count over groups over a source that carries checks
+counts client-side, checked on the group rows and unchecked on zero groups, as `list` is on an empty result;
+`ProviderSupport` is unchanged (the spike showed `createCountQuery()` can't carry the checks). This is also the M25.5
+fix for a `recursive(...)` source's count over groups, which dropped the checks. A composite node key is a vendor fact,
+`SourceFeature.RECURSIVE_COMPOSITE_KEY`, false on H2 (Hibernate's multi-column `cycle` emulation fails there), so it is
+`MQ4015` before any statement on H2 for both calls. A `SourceRenderer` that returns no duplicate-key check for a tree is
+`MQ4014`'s new reason. H2 re-evaluates each check per outer row, a documented test-database limit; the cycle check
+stays. Rejected: every recursive source unique (link-table walks repeat keys by design); a `uniqueNodes()` modifier
+(P-2); a temporary table, a tree fingerprint, or refusing export and keyset across statements; a grouped-count SPI
+taking the query's parts. → `rfc/0014`, `api/17` R-SRC-08, R-SRC-09, R-SRC-13..15, `engine/20` R-EXE-03, R-EXE-05,
+`engine/21`, `vendor/40` R-VND-21, Q-21.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -2219,10 +2241,10 @@ with no join where the provider reports the foreign key references the target's 
 it changes no result; it would let a locked read of the id form through instead of `MQ2211`, and lift `MQ3029`, since
 the id would then come from the foreign-key column of the entity's own row. → D-136.
 
-**Q-21 — Recursive sources counted as unique.** Whether a duplicate-key check in the same statement (the spike's
+**Q-21 — Recursive sources counted as unique.** Resolved by D-147 (`tree(...)`, M26). Was: whether a duplicate-key check in the same statement (the spike's
 `count(*)` against `count(distinct key)` over the CTE, counting the cycle-marked row too) lets a recursive source over
 a tree count as unique, so fetch plans and keyset paging work on trees. It checks only the statement it runs in, so
-export and keyset walks across statements need more. → `rfc/0013` §5, D-143; M26, `rfc/0014` (D-145).
+export and keyset walks across statements need more. → `rfc/0013` §5, D-143; M26, `rfc/0014` (D-145), D-147.
 
 **Q-22 — Sources over sources, and reading a source directly.** Window and aggregate fields over the combined rows of
 a set operation or a recursive source, and a source model's QModel also offering `query()`, so a source can be read
