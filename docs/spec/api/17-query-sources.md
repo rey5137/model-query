@@ -6,7 +6,8 @@ and the outer `@QueryModel` that reads a source.
 either. Windows and set operations are RFC 0013 §3–§6; recursion is RFC 0013 §5, and §6 below.
 **Owns:** `R-SRC-*`, `AC-SRC-*`. Rows `R-SRC-05`..`R-SRC-06` and `R-SRC-09` land with M25.4; `R-SRC-07`..`R-SRC-08`
 land with M25.5; `R-SRC-04` lands with M25.3; the run-time half of `R-SRC-03` and all of `R-SRC-11`..`R-SRC-12` land
-with M25.2.
+with M25.2. The M26.1 additions to `R-SRC-02`, `R-SRC-08` and `R-SRC-11` — a composite id as the source key, the one
+check site, the grouped count and the composite node key — land with M26.1, as AC-SRC-21's H2 half and AC-SRC-25 do.
 
 ---
 
@@ -46,7 +47,9 @@ Every key-based feature of the outer query needs the source's key to be unique i
 unique by construction, or the source is non-unique and refused for those features (R-SRC-09, §4).
 
 **R-SRC-02** A source model's `@PrimaryKey` is the root entity's id, for an ungrouped source, or the full `@GroupBy`
-set, for a grouped source; anything else is `MQ3031`. Each group-key column must be non-nullable in its own mapping
+set, for a grouped source; anything else is `MQ3031`. The id is checked as a whole, so a root entity with an `@IdClass`
+or `@EmbeddedId` id gives the source one key column per id attribute, and a key holding part of the id alone is
+`MQ3031` still (D-149). Each group-key column must be non-nullable in its own mapping
 — an id, a primitive, `nullable = false` or `optional = false` — because a NULL group key surfaces as `MQ2201` or
 `MQ2202` in the middle of an export. A group key read through a to-one is nullable by that rule, since its id form
 reads the LEFT-joined row (MQ3029), and is `MQ3031` too. A group key that is a `@Computed` expression has no mapping
@@ -308,6 +311,10 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
   tree and a cyclic graph are refused whole rather than returned in part (INV-5). An empty result carries no row to
   read, so the checks see nothing there; under READ COMMITTED a concurrent write can still deepen a tree after the
   statement read it, and REPEATABLE READ around the call is the full guarantee (`engine/21`).
+- **One check site.** Every `Tuple` read in `model-query-jpa` goes through the `BuiltQuery` overloads of `rows`,
+  `single` and `resultStream`, which read the checks off the statement's first row before any row is returned, and
+  `resultStream` reads it before it hands the stream on. A raw `getResultList`, `getSingleResult` or
+  `getResultStream` outside those three is a bug AC-SRC-25's ArchUnit rule reports (M26.1).
 - **A recursive source is non-unique.** In a tree each node is reached once, in a graph with two paths to a node it is
   not, and the shape alone cannot tell which one the data is (R-SRC-09): so `keyset()` and `primaryKeyFirst(...)` are
   `MQ1901` at the outer `build()`, and `export`, `byKeys`, `one(q, key)`, a fetch plan with a child and an enricher are
@@ -316,6 +323,11 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
 - **The vendor's ceiling.** A vendor whose profile answers `false` for `SourceFeature.RECURSIVE`, or whose
   `maxRecursionDepth()` is below `maxDepth + 2` (the extra level recursion needs and the final, empty iteration), is
   `MQ4015` before any statement (R-SRC-11, R-VND-22). MySQL's default of 1000 serves `maxDepth` 998 and refuses 999.
+- **A composite node key.** The source's key is the node's key, so a root id of more than one column makes the node
+  key composite, and the recursion's `cycle` clause has to carry every key column at once. That clause is a vendor
+  fact: a profile that answers `false` for `SourceFeature.RECURSIVE_COMPOSITE_KEY` is `MQ4015` before any statement,
+  naming the feature. H2's emulation is rejected there (`Column count does not match`), so H2 answers `false` and
+  PostgreSQL and MySQL answer `true` (M26.1, D-149; R-VND-21, AC-SRC-21).
 - **The provider's hook.** `core` builds the seed and the step and names the level and the two checks; the provider
   registers the `with recursive` CTE, its cycle clause and its two check sub-selects through
   `SourceRenderer#recursive(outer, spec)`, which returns the CTE's root with them, so no provider type leaks into `jpa`
@@ -330,8 +342,10 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
   the same fail-safe as `ProviderSupport#inserts()` (R-VND-14). `model-query-hibernate` serves Hibernate on both lines.
 - **The vendor's features.** `VendorProfile#sources(SourceFeature)` answers for each feature the source uses, `false`
   by default so a profile written before a constant was added fails safe. A `false` is `MQ4015`, before any statement,
-  naming the feature and the vendor. The refusals are database facts (R-VND-11, INV-6); `PortabilityCheck` reports
-  `MQ4014` and `MQ4015` per declared target, with no database (AC-SRC-16).
+  naming the feature and the vendor. `RECURSIVE_COMPOSITE_KEY` is one of them, answered `false` by H2 alone, so a
+  recursive source over a composite node key is the one source feature refused on a Tier-1 vendor (M26.1, D-149;
+  AC-SRC-21). The refusals are database facts (R-VND-11, INV-6); `PortabilityCheck` reports `MQ4014` and `MQ4015` per
+  declared target, with no database (AC-SRC-16), an H2 target's composite-key refusal included.
 - **A row lock.** `withLock(...)` over a source is `MQ1903`: the source's rows come from a common table expression,
   which a locking clause cannot follow. Q-16 stays open.
 
@@ -361,7 +375,9 @@ built per statement from the immutable `SourceQuery`, which itself carries no Cr
 | AC-SRC-10 | Offset pages over a non-unique `unionAll` with duplicate keys and tied order values lose no row (R-SRC-09). |
 | AC-SRC-11 | Each `MQ1901` and `MQ2212` refusal is raised before any statement (R-SRC-09). |
 | AC-SRC-12 | A tree read by a recursive source is pinned as an SQL snapshot and returns every node, as does its count (M25.5; R-SRC-07). |
-| AC-SRC-13 | A tree deeper than `maxDepth` is `MQ2701` and a cyclic graph is `MQ2702`, on the content query and on the count, with no marked row in the result (M25.5; R-SRC-08). |
+| AC-SRC-13 | A tree deeper than `maxDepth` is `MQ2701` and a cyclic graph is `MQ2702`, on the content query, on the count and on a count over the source's groups — which counts client-side, keeps the check columns and logs no R-EXE-03 warning — with no marked row in the result (M25.5, the grouped count M26.1; R-SRC-08). |
 | AC-SRC-14 | Every vendor serves `maxDepth` 998, and MySQL refuses 999 with `MQ4015` before any statement (M25.5; R-SRC-08). |
 | AC-SRC-15 | Content, count and both primary-key-first steps of one source are registered on every statement (R-SRC-12). |
 | AC-SRC-16 | `MQ4014` and `MQ4015` are reported per declared target without a database (R-SRC-11). |
+| AC-SRC-21 | A `recursive(...)` source over a composite node key is `MQ4015` naming `RECURSIVE_COMPOSITE_KEY` before any statement on H2, and `PortabilityCheck` reports it for an H2 target with no database, while PostgreSQL and MySQL read the tree (the H2 half lands with M26.1; R-SRC-07, R-SRC-11, R-VND-21). The whole-key check and the `MQ2703` that names the key's first column land with M26.2. |
+| AC-SRC-25 | In `model-query-jpa`, `getResultList`, `getSingleResult` and `getResultStream` on a `Tuple` query are called only from methods named `rows`, `single` or `resultStream` — the check-site overloads — so no `Tuple` row reaches a caller before its source's checks are read (an ArchUnit rule, M26.1; R-SRC-08). The rule is stated **by method**, the RFC's fallback, because ArchUnit sees a call's erased target types and not the statement's `Tuple` element; the other half of that fallback, no untyped read of a `BuiltQuery`'s statement, is the compiler's: the executor's `rows` and `single` without a `BuiltQuery` take only an entity and a `Long` query, so a `Tuple` query has no unchecked overload to call. `resultStream` reads the first row before it returns the stream, so a body's `count()` cannot skip it. |

@@ -285,8 +285,8 @@ class SetOperationModelTest {
 
         assertThat(compilation).failed();
         assertThat(errors(compilation)).contains(
-                message(DiagnosticCode.MQ3031, "RefundFeedItem: @PrimaryKey must be RefundEntity's id 'id', one "
-                        + "row's key; group the source to key it by its @GroupBy columns"),
+                message(DiagnosticCode.MQ3031, "RefundFeedItem: @PrimaryKey must be RefundEntity's id 'id'; "
+                        + "group the source to key it by its @GroupBy columns"),
                 message(DiagnosticCode.MQ3034, "RefundFeedItem: @PrimaryKey must be the shape FeedItem's key 'kind', "
                         + "'id', by name and in order; the branches of a set operation are matched by the shape's "
                         + "key"));
@@ -338,8 +338,8 @@ class SetOperationModelTest {
         assertThat(errors(compilation)).contains(
                 message(DiagnosticCode.MQ3034, "RefundFeedItem: the shape FeedItem carries @Discriminator on 'kind', "
                         + "and every branch declares the same; RefundFeedItem declares none (R-SRC-06)"),
-                message(DiagnosticCode.MQ3031, "RefundFeedItem: @PrimaryKey must be RefundEntity's id 'id', one "
-                        + "row's key; group the source to key it by its @GroupBy columns"));
+                message(DiagnosticCode.MQ3031, "RefundFeedItem: @PrimaryKey must be RefundEntity's id 'id'; "
+                        + "group the source to key it by its @GroupBy columns"));
     }
 
     @Test

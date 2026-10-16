@@ -341,8 +341,87 @@ class SourceModelTest {
 
         assertThat(compilation).failed();
         assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3031, "StatusKeyTotals: @PrimaryKey"
-                + " must be OrderEntity's id 'id', one row's key; group the source to key it by its @GroupBy"
+                + " must be OrderEntity's id 'id'; group the source to key it by its @GroupBy"
                 + " columns"));
+    }
+
+    /** An entity whose id is an {@code @IdClass}: the source keys it by both id columns (D-149, R-SRC-02). */
+    private static final JavaFileObject STOCK_ENTITY = source("shop.StockEntity", """
+            package shop;
+
+            import jakarta.persistence.Entity;
+            import jakarta.persistence.Id;
+            import jakarta.persistence.IdClass;
+
+            @Entity
+            @IdClass(StockId.class)
+            public class StockEntity {
+                @Id
+                Long warehouseId;
+                @Id
+                Long productId;
+                Integer quantity;
+            }
+            """);
+
+    private static final JavaFileObject STOCK_ID = source("shop.StockId", """
+            package shop;
+
+            import java.io.Serializable;
+
+            public class StockId implements Serializable {
+                Long warehouseId;
+                Long productId;
+            }
+            """);
+
+    @Test
+    void ac_proc_31_a_source_keyed_by_a_composite_id_compiles() {
+        Compilation compilation = compile(STOCK_ENTITY, STOCK_ID, model("WarehouseStock", """
+                import com.rey.modelquery.annotations.PrimaryKey;
+                import com.rey.modelquery.annotations.SourceModel;
+
+                @SourceModel(root = StockEntity.class)
+                public record WarehouseStock(
+                        @PrimaryKey Long warehouseId, @PrimaryKey Long productId, Integer quantity) {}
+                """));
+
+        assertThat(compilation).succeeded();
+    }
+
+    @Test
+    void ac_proc_31_a_source_key_that_is_part_of_a_composite_id_is_mq3031() {
+        Compilation compilation = compile(STOCK_ENTITY, STOCK_ID, model("WarehouseStock", """
+                import com.rey.modelquery.annotations.PrimaryKey;
+                import com.rey.modelquery.annotations.SourceModel;
+
+                @SourceModel(root = StockEntity.class)
+                public record WarehouseStock(@PrimaryKey Long warehouseId, Integer quantity) {}
+                """));
+
+        assertThat(compilation).failed();
+        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3031, "WarehouseStock: @PrimaryKey"
+                + " must be StockEntity's id 'productId', 'warehouseId'; group the source to key it by its @GroupBy"
+                + " columns"));
+    }
+
+    @Test
+    void ac_proc_31_two_primary_keys_on_one_id_column_is_mq3031() {
+        // Each id column is named by exactly one @PrimaryKey (D-149): a second key field over the same column would
+        // make a one-column id look composite.
+        Compilation compilation = compile(ORDER_ENTITY, model("DoubleKeySource", """
+                import com.rey.modelquery.annotations.Column;
+                import com.rey.modelquery.annotations.PrimaryKey;
+                import com.rey.modelquery.annotations.SourceModel;
+
+                @SourceModel(root = OrderEntity.class)
+                public record DoubleKeySource(
+                        @PrimaryKey Long id, @PrimaryKey @Column(attribute = "id") Long orderId, String status) {}
+                """));
+
+        assertThat(compilation).failed();
+        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3031, "DoubleKeySource: @PrimaryKey"
+                + " must be OrderEntity's id 'id'; group the source to key it by its @GroupBy columns"));
     }
 
     @Test

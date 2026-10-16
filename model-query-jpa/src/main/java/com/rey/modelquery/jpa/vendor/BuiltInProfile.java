@@ -112,7 +112,7 @@ enum BuiltInProfile implements VendorProfile {
 
         @Override
         public boolean sources(SourceFeature feature) {
-            return tier1Source(feature);
+            return recursiveSource(feature);
         }
     },
 
@@ -137,7 +137,7 @@ enum BuiltInProfile implements VendorProfile {
 
         @Override
         public boolean sources(SourceFeature feature) {
-            return tier1Source(feature);
+            return recursiveSource(feature);
         }
 
         @Override
@@ -155,7 +155,7 @@ enum BuiltInProfile implements VendorProfile {
 
         @Override
         public boolean sources(SourceFeature feature) {
-            return tier1Source(feature);
+            return recursiveSource(feature);
         }
 
         @Override
@@ -181,6 +181,15 @@ enum BuiltInProfile implements VendorProfile {
             case CTE, RECURSIVE, WINDOW, UNION, INTERSECT, EXCEPT -> true;
             default -> false;
         };
+    }
+
+    /**
+     * Whether {@code feature} is one of the six source features above or {@code RECURSIVE_COMPOSITE_KEY}, which
+     * PostgreSQL and MySQL can render and H2's emulation cannot: H2's profile answers {@code tier1Source}, so it
+     * refuses a recursive source over a multi-column node key with {@code MQ4015} (R-VND-21, RFC 0014 §7).
+     */
+    private static boolean recursiveSource(SourceFeature feature) {
+        return feature == SourceFeature.RECURSIVE_COMPOSITE_KEY || tier1Source(feature);
     }
 
     private final DatabaseVendor vendor;

@@ -12,11 +12,15 @@ import com.rey.modelquery.jpa.spi.SourceFeature;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.portability.PortabilityCheck;
 import com.rey.modelquery.portability.Target;
+import com.rey.modelquery.tck.src.CompositeNode;
+import com.rey.modelquery.tck.src.CompositeNodeRow;
 import com.rey.modelquery.tck.src.DispatchFeed;
 import com.rey.modelquery.tck.src.FolderNode;
 import com.rey.modelquery.tck.src.FolderRow;
 import com.rey.modelquery.tck.src.OrderFeed;
 import com.rey.modelquery.tck.src.OrderSource;
+import com.rey.modelquery.tck.src.QCompositeNode;
+import com.rey.modelquery.tck.src.QCompositeNodeRow;
 import com.rey.modelquery.tck.src.QDispatchFeed;
 import com.rey.modelquery.tck.src.QDispatchRow;
 import com.rey.modelquery.tck.src.QFolderNode;
@@ -143,6 +147,51 @@ class SourcePortabilityTest {
         assertThat(lines).anySatisfy(line -> assertThat(line)
                 .startsWith("DEPTH-999 on " + MYSQL + ": REFUSED MQ4015")
                 .contains("maxRecursionDepth"));
+    }
+
+    @Test
+    void ac_src_21_h2_reports_mq4015_for_a_composite_node_key_with_no_database() {
+        List<String> lines = report(check(ModelQueryConfig.defaults()).targets(H2, POSTGRESQL, MYSQL)
+                .call("COMPOSITE", CompositeNode.class, x -> x.list(compositeTree(), Limit.of(10))));
+
+        assertThat(lines).hasSize(4);
+        // H2's own profile answers RECURSIVE_COMPOSITE_KEY false; PostgreSQL's and MySQL's answer true (R-VND-21).
+        assertThat(lines).anySatisfy(line -> assertThat(line)
+                .startsWith("COMPOSITE on " + H2 + ": REFUSED MQ4015")
+                .contains("SourceFeature.RECURSIVE_COMPOSITE_KEY"));
+        for (Target target : List.of(POSTGRESQL, MYSQL)) {
+            assertThat(lines).anySatisfy(line -> assertThat(line)
+                    .startsWith("COMPOSITE on " + target + ": REACHED")
+                    .contains("with recursive"));
+        }
+    }
+
+    @Test
+    void ac_src_21_a_profile_without_the_composite_key_feature_reports_mq4015_on_its_target_too() {
+        ModelQueryConfig config = ModelQueryConfig.defaults()
+                .vendorProfiles(List.of(mysqlWithout(SourceFeature.RECURSIVE_COMPOSITE_KEY)));
+        List<String> lines = report(check(config).targets(H2, POSTGRESQL, MYSQL)
+                .call("COMPOSITE", CompositeNode.class, x -> x.list(compositeTree(), Limit.of(10))));
+
+        assertThat(lines).hasSize(4);
+        // The refusal is the profile's answer, not the vendor's name (R-VND-21, INV-6): a MySQL profile that answers
+        // false is refused as H2's is, and PostgreSQL's built-in profile still reaches the statement.
+        for (Target target : List.of(H2, MYSQL)) {
+            assertThat(lines).anySatisfy(line -> assertThat(line)
+                    .startsWith("COMPOSITE on " + target + ": REFUSED MQ4015")
+                    .contains("SourceFeature.RECURSIVE_COMPOSITE_KEY"));
+        }
+        assertThat(lines).anySatisfy(line -> assertThat(line)
+                .startsWith("COMPOSITE on " + POSTGRESQL + ": REACHED")
+                .contains("with recursive"));
+    }
+
+    /** A recursive read of the composite tree to level 3 (api/17 AC-SRC-21, R-SRC-07). */
+    private static ModelQuery<CompositeNode, ?, CompositeNodeRow> compositeTree() {
+        SourceQuery<CompositeNode> source = QCompositeNode.source().where(f -> f.eq(QCompositeNode.ID, 1L))
+                .recursive(step -> step.childKey(QCompositeNode.PARENT_ID).parentKey(QCompositeNode.ID), 3).build();
+        return QCompositeNodeRow.query(source).select(QCompositeNodeRow.ALL)
+                .orderBy(QCompositeNodeRow.ID.asc()).build();
     }
 
     /** A recursive read of the folder tree to level {@code maxDepth} (api/17 R-SRC-07). */

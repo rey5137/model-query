@@ -43,7 +43,7 @@ as community-supported. It never gates a release.
 | Conflict target names a constraint (`conflictOnConstraint()`) | **no** | yes | **no** (`api/14` R-WRT-52) |
 | Conflict target takes an arbiter `WHERE` (`conflictArbiterPredicate()`) | **no** | yes | **no** (`api/14` R-WRT-52) |
 | Sequences (`sequences()`) | yes | yes | **no**: `Expr.nextval` is `MQ1509` (`api/10` R-COL-28) |
-| Source features (`sources(SourceFeature)`) | all six | all six | all six (`api/17` R-SRC-11, R-VND-21) |
+| Source features (`sources(SourceFeature)`) | the six shared ones; **no** composite node key (`RECURSIVE_COMPOSITE_KEY` false) | all seven | all seven (`api/17` R-SRC-11, R-VND-21) |
 | Recursion ceiling (`maxRecursionDepth()`) | none known | none known | **1 000**: `cte_max_recursion_depth`'s default, so `maxDepth + 2 > 1000` is `MQ4015` (`api/17` R-SRC-08, R-VND-22) |
 
 **R-PRF-11** The built-in H2, PostgreSQL and MySQL profiles carry the values in this table (`vendor/40` R-VND-03);

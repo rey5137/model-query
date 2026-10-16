@@ -12,6 +12,7 @@ import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.SourceQuery;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
@@ -20,6 +21,7 @@ import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
+import com.rey.modelquery.tck.vnd.VendorSources;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -28,9 +30,15 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
+import java.util.logging.SimpleFormatter;
 import java.util.stream.Stream;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
+import org.junit.jupiter.api.Assumptions;
 
 /**
  * A recursive source over a tree of folders: the {@code with recursive} CTE, the level each step adds, the two checks
@@ -38,6 +46,9 @@ import org.hibernate.SessionFactory;
  * AC-SRC-13, AC-SRC-14, R-SRC-07, R-SRC-08; RFC 0013 §5).
  */
 class RecursiveSourceExecutionTest {
+
+    /** The executor's log, where R-EXE-03's warning lands (the same logger {@code tck/exe/ExecutionTest} captures). */
+    private static final String EXECUTOR_LOG = "com.rey.modelquery.jpa.DefaultModelQueryExecutor";
 
     // ---- AC-SRC-12
 
@@ -131,6 +142,102 @@ class RecursiveSourceExecutionTest {
         assertThat(refusal[0].getMessage()).contains("FolderRow").contains("cycle").contains("key 100");
     }
 
+    // ---- AC-SRC-13, a count over the groups of a recursive source (the M25.5 fix, R-EXE-03, R-EXE-05)
+
+    @TckTest
+    void ac_src_13_a_grouped_count_over_a_too_deep_tree_is_mq2701(TckDatabase db) {
+        Throwable[] refusal = new Throwable[1];
+        List<String> warnings = new ArrayList<>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, FolderNode.class, executor ->
+                warnings.addAll(capturingWarnings(() -> refusal[0] = catchThrowable(
+                        () -> executor.count(levels(tree(TckFixture.FOLDER_CHAIN_ROOT, 3))))))));
+
+        assertThat(refusal[0]).isInstanceOf(ModelQueryExecutionException.class);
+        assertThat(((ModelQueryExecutionException) refusal[0]).code()).isEqualTo(MqCode.MQ2701);
+        assertThat(refusal[0].getMessage()).contains("maxDepth(3)").contains("key 14");
+        assertThat(sql).isNotEmpty();
+        // A count over groups over a source that carries checks counts client-side and keeps the checks (R-EXE-05),
+        // so it logs no "counts its rows in memory" warning of R-EXE-03 (RFC 0014 §3).
+        assertThat(warnings).noneMatch(warning -> warning.contains("counts its rows in memory"));
+    }
+
+    @TckTest
+    void ac_src_13_a_grouped_count_over_a_cyclic_graph_is_mq2702(TckDatabase db) {
+        Throwable[] refusal = new Throwable[1];
+        List<String> warnings = new ArrayList<>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, FolderNode.class, executor ->
+                warnings.addAll(capturingWarnings(() -> refusal[0] = catchThrowable(
+                        () -> executor.count(levels(cycle(5))))))));
+
+        assertThat(refusal[0]).isInstanceOf(ModelQueryExecutionException.class);
+        assertThat(((ModelQueryExecutionException) refusal[0]).code()).isEqualTo(MqCode.MQ2702);
+        assertThat(refusal[0].getMessage()).contains("cycle").contains("key 100");
+        assertThat(sql).isNotEmpty();
+        assertThat(warnings).noneMatch(warning -> warning.contains("counts its rows in memory"));
+    }
+
+    @TckTest
+    void ac_src_13_a_grouped_count_over_a_healthy_tree_is_its_number_of_levels(TckDatabase db) {
+        long[] counted = new long[1];
+        List<FolderLevelTotals> groups = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, FolderNode.class, executor ->
+                warnings.addAll(capturingWarnings(() -> {
+                    counted[0] = executor.count(levels(tree(TckFixture.FOLDER_TREE_ROOT, 5)));
+                    groups.addAll(executor.list(levels(tree(TckFixture.FOLDER_TREE_ROOT, 5)), Limit.unlimited()));
+                }))));
+
+        // The tree is 1, then 2 and 3, then 4, 5 and 6: three levels, so three groups, counted from one statement.
+        assertThat(counted[0]).isEqualTo(3);
+        assertThat(groups.stream().map(group -> group.level() + ":" + group.nodes()).toList())
+                .containsExactlyInAnyOrder("0:1", "1:2", "2:3");
+        assertThat(sql).hasSize(2);
+        assertThat(warnings).noneMatch(warning -> warning.contains("counts its rows in memory"));
+    }
+
+    @TckTest
+    void ac_src_13_a_grouped_count_matching_no_group_reads_no_row_and_so_no_check(TckDatabase db) {
+        long[] counted = new long[1];
+        SqlSnapshots.capture(db, ds -> withExecutor(ds, FolderNode.class, executor -> counted[0] = executor.count(
+                QFolderLevelTotals.query(tree(TckFixture.FOLDER_CHAIN_ROOT, 3))
+                        .select(SelectSet.of(QFolderLevelTotals.LEVEL, QFolderLevelTotals.NODES))
+                        .where(f -> f.gt(QFolderLevelTotals.LEVEL, 99)).build())));
+
+        // The chain is too deep for maxDepth 3, but no group matches, so no row carries the checks: the same
+        // empty-result limit as list (R-SRC-08, RFC 0014 §3).
+        assertThat(counted[0]).isZero();
+    }
+
+    // ---- AC-SRC-25, the stream's check site reads the first row before the stream is handed on
+
+    @TckTest
+    void ac_src_25_a_stream_over_a_too_deep_tree_is_mq2701_before_its_body_runs(TckDatabase db) {
+        boolean[] ran = new boolean[1];
+        Throwable[] refusal = new Throwable[1];
+        SqlSnapshots.capture(db, ds -> withTransaction(ds, FolderNode.class, executor ->
+                refusal[0] = catchThrowable(() -> executor.stream(rows(tree(TckFixture.FOLDER_CHAIN_ROOT, 3)),
+                        Limit.unlimited(), stream -> {
+                            ran[0] = true;
+                            return stream.count();
+                        }))));
+
+        assertThat(refusal[0]).isInstanceOf(ModelQueryExecutionException.class);
+        assertThat(((ModelQueryExecutionException) refusal[0]).code()).isEqualTo(MqCode.MQ2701);
+        assertThat(refusal[0].getMessage()).contains("maxDepth(3)").contains("key 14");
+        assertThat(ran[0]).isFalse();
+    }
+
+    @TckTest
+    void ac_src_25_a_stream_over_a_healthy_tree_hands_on_every_row_its_check_read(TckDatabase db) {
+        List<Long> ids = new ArrayList<>();
+        SqlSnapshots.capture(db, ds -> withTransaction(ds, FolderNode.class, executor ->
+                executor.stream(rows(tree(TckFixture.FOLDER_TREE_ROOT, 5)), Limit.unlimited(),
+                        stream -> ids.addAll(stream.map(FolderRow::id).toList()))));
+
+        // The check read the first row; the stream still delivers it, ahead of the rest, in the query's order.
+        assertThat(ids).containsExactly(1L, 2L, 3L, 4L, 5L, 6L);
+    }
+
     // ---- MQ1901 and MQ2212 on a recursive source, before any statement (AC-SRC-11, R-SRC-08, R-SRC-09)
 
     @TckTest
@@ -197,6 +304,45 @@ class RecursiveSourceExecutionTest {
         assertThat(rows.get(rows.size() - 1).level()).isEqualTo(998);
     }
 
+    // ---- AC-SRC-21, a node key of more than one column
+
+    @TckTest
+    void ac_src_21_h2_refuses_a_composite_node_key_before_any_statement(TckDatabase db) {
+        Assumptions.assumeTrue(VendorSources.refusesCompositeNodeKey(db),
+                "H2 rejects the multi-column cycle clause; PostgreSQL and MySQL render it (RFC 0014 §7)");
+        Throwable[] refusal = new Throwable[1];
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, CompositeNode.class, executor ->
+                refusal[0] = catchThrowable(() -> executor.list(compositeTree(), Limit.unlimited()))));
+
+        assertThat(refusal[0]).isInstanceOf(ModelQueryConfigurationException.class);
+        assertThat(((ModelQueryConfigurationException) refusal[0]).code()).isEqualTo(MqCode.MQ4015);
+        assertThat(refusal[0].getMessage()).contains("RECURSIVE_COMPOSITE_KEY");
+        assertThat(sql).isEmpty();
+    }
+
+    @TckTest
+    void ac_src_21_postgres_and_mysql_read_a_tree_over_a_composite_id(TckDatabase db) {
+        Assumptions.assumeTrue(!VendorSources.refusesCompositeNodeKey(db),
+                "H2 refuses a composite node key with MQ4015");
+        List<CompositeNodeRow> rows = new ArrayList<>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, CompositeNode.class,
+                executor -> rows.addAll(executor.list(compositeTree(), Limit.unlimited()))));
+
+        assertThat(sql).isNotEmpty();
+        assertThat(rows).hasSize(TckFixture.COMPOSITE_TREE_NODES);
+        assertThat(rows.stream().map(row -> row.tenantId() + "|" + row.id() + "|" + row.level()).toList())
+                .containsExactlyInAnyOrder("1|1|0", "1|2|1", "1|3|1", "1|4|2", "1|5|2", "1|6|2");
+    }
+
+    /** The tree {@code composite_nodes} holds, from its root to level 3 (AC-SRC-21, R-SRC-07). */
+    private static ModelQuery<CompositeNode, ?, CompositeNodeRow> compositeTree() {
+        SourceQuery<CompositeNode> source = QCompositeNode.source()
+                .where(f -> f.eq(QCompositeNode.ID, TckFixture.COMPOSITE_TREE_ROOT))
+                .recursive(step -> step.childKey(QCompositeNode.PARENT_ID).parentKey(QCompositeNode.ID), 3).build();
+        return QCompositeNodeRow.query(source).select(QCompositeNodeRow.ALL)
+                .orderBy(QCompositeNodeRow.ID.asc()).build();
+    }
+
     private static SourceQuery<FolderNode> tree(long root, int maxDepth) {
         return QFolderNode.source().where(f -> f.eq(QFolderNode.ID, root))
                 .recursive(step -> step.childKey(QFolderNode.PARENT_ID).parentKey(QFolderNode.ID), maxDepth).build();
@@ -213,6 +359,45 @@ class RecursiveSourceExecutionTest {
 
     private static ModelQuery<FolderNode, ?, FolderRow> rows(SourceQuery<FolderNode> source) {
         return rowsBuilder(source).build();
+    }
+
+    /**
+     * The grouped model over {@code source}: one row per level, so a count of it is a count over the groups. The
+     * source's own key is not a group key, so the selection is the group key and the aggregate (MQ1401).
+     */
+    private static ModelQuery<FolderNode, ?, FolderLevelTotals> levels(SourceQuery<FolderNode> source) {
+        return QFolderLevelTotals.query(source)
+                .select(SelectSet.of(QFolderLevelTotals.LEVEL, QFolderLevelTotals.NODES)).build();
+    }
+
+    /** The messages {@code work} logs to {@link #EXECUTOR_LOG} at {@code Level.WARNING}. */
+    private static List<String> capturingWarnings(Runnable work) {
+        List<String> messages = new ArrayList<>();
+        Logger logger = Logger.getLogger(EXECUTOR_LOG);
+        Level previous = logger.getLevel();
+        Handler handler = new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+                if (record.getLevel() == Level.WARNING) {
+                    messages.add(new SimpleFormatter().formatMessage(record));
+                }
+            }
+
+            @Override
+            public void flush() {}
+
+            @Override
+            public void close() {}
+        };
+        logger.setLevel(Level.WARNING);
+        logger.addHandler(handler);
+        try {
+            work.run();
+        } finally {
+            logger.removeHandler(handler);
+            logger.setLevel(previous);
+        }
+        return messages;
     }
 
     /** The nodes as {@code id|parentId|name|level} texts, comparable with a hand-written SQL's. */

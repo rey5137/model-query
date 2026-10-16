@@ -172,6 +172,7 @@ public final class JoinTestSupport {
                 .addAnnotatedClass(ViewOrderEntity.class)
                 .addAnnotatedClass(SubselectCustomerEntity.class)
                 .addAnnotatedClass(FolderNodeEntity.class)
+                .addAnnotatedClass(CompositeNodeEntity.class)
                 .buildSessionFactory(registry);
     }
 }

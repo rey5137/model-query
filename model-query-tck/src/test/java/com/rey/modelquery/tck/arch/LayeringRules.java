@@ -8,6 +8,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import com.tngtech.archunit.core.domain.AccessTarget;
 import com.tngtech.archunit.core.domain.JavaAccess;
 import com.tngtech.archunit.core.domain.JavaClass;
+import com.tngtech.archunit.core.domain.JavaMethodCall;
 import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
@@ -24,6 +25,12 @@ import java.util.Set;
 final class LayeringRules {
 
     private static final String ENGINE_FACING = "com.rey.modelquery.core.EngineFacing";
+    /** The check-site methods a raw query read is allowed in (AC-SRC-25, R-SRC-08). */
+    private static final Set<String> CHECK_SITE = Set.of("rows", "single", "resultStream");
+    /** JPA's raw result reads, which the check site wraps. */
+    private static final Set<String> RESULT_READS = Set.of("getResultList", "getSingleResult", "getResultStream");
+    /** The package JPA's query interfaces live in, which is where a raw read is declared. */
+    private static final String QUERY_PACKAGE = "jakarta.persistence.";
     /** The one {@code @EngineFacing} type {@code test} may hold: a fetch plan's child load (D-104). */
     private static final String CHILD_LOAD = "com.rey.modelquery.core.ChildLoad";
     /**
@@ -193,6 +200,47 @@ final class LayeringRules {
                         .filter(dependency -> !dependency.getTargetClass().getName().equals(CHILD_LOAD))
                         .forEach(dependency ->
                                 events.add(SimpleConditionEvent.satisfied(dependency, dependency.getDescription())));
+            }
+        };
+    }
+
+    /**
+     * In {@code jpa}, a {@code Tuple} read over a {@code BuiltQuery} goes through the one check site that reads a
+     * source's checks from the statement's first row before returning a row (R-SRC-08, AC-SRC-25): the raw reads
+     * {@code getResultList}, {@code getSingleResult} and {@code getResultStream} are called only from {@code rows},
+     * {@code single} and {@code resultStream}. ArchUnit sees erased types, so it cannot tell a
+     * {@code TypedQuery<Tuple>} from a {@code TypedQuery<Long>} at a call site: the rule is stated by method
+     * (RFC 0014 §Unresolved questions, "AC-SRC-25's exact rule"). The fallback's other half, no untyped read of a
+     * {@code BuiltQuery}'s statement, is the compiler's: the executor's {@code rows} and {@code single} without a
+     * {@code BuiltQuery} take only an entity and a {@code Long} query.
+     */
+    ArchRule tupleReadsStayInTheCheckSite() {
+        return noClasses()
+                .that()
+                .resideInAPackage(pkg("jpa"))
+                .should(readAResultOutsideTheCheckSite())
+                .as("Tuple reads happen only in the check site: rows, single and resultStream")
+                .allowEmptyShould(allowEmptyShould);
+    }
+
+    private static ArchCondition<JavaClass> readAResultOutsideTheCheckSite() {
+        return new ArchCondition<>("read a query's result outside the check site") {
+            @Override
+            public void check(JavaClass origin, ConditionEvents events) {
+                for (JavaMethodCall call : origin.getMethodCallsFromSelf()) {
+                    String target = call.getTarget().getFullName().replaceFirst("\\(.*", "");
+                    // Only a JPA query's own read counts: TypedQuery and the provider's query types declare it
+                    // beside Query, so the owner is matched by package and name, not by one interface.
+                    if (!target.startsWith(QUERY_PACKAGE)
+                            || RESULT_READS.stream().noneMatch(read -> target.endsWith("." + read))) {
+                        continue;
+                    }
+                    if (!CHECK_SITE.contains(call.getOrigin().getName())) {
+                        // A noClasses() rule negates this condition, so a bad call is the satisfied event, as in
+                        // useEngineFacing() above.
+                        events.add(SimpleConditionEvent.satisfied(call, call.getDescription()));
+                    }
+                }
             }
         };
     }

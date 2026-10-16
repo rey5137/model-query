@@ -200,3 +200,13 @@ CREATE TABLE folder_nodes (
     parent_id BIGINT NULL,
     name      VARCHAR(40) @COLLATE@ NOT NULL
 );
+-- A tree whose node key is two columns, (tenant_id, id), so a recursive source over it carries a composite key: H2
+-- refuses Hibernate's emulation of the multi-column cycle clause, PostgreSQL and MySQL render it (TCK AC-SRC-21,
+-- RFC 0014 §7). No foreign key, as with folder_nodes.
+CREATE TABLE composite_nodes (
+    tenant_id INTEGER NOT NULL,
+    id        BIGINT NOT NULL,
+    parent_id BIGINT NULL,
+    name      VARCHAR(40) @COLLATE@ NOT NULL,
+    PRIMARY KEY (tenant_id, id)
+);

@@ -1,0 +1,49 @@
+package com.rey.modelquery.jpa;
+
+import com.rey.modelquery.core.BuiltQuery;
+import com.rey.modelquery.core.ModelQueryExecutionException;
+import com.rey.modelquery.core.MqCode;
+import jakarta.persistence.Tuple;
+import java.util.List;
+
+/**
+ * The one check site every {@code Tuple} read over a {@link BuiltQuery} goes through: the statement's own first row
+ * carries the checks {@code core} selected beside its fields, and this reads them before the read returns a row
+ * (R-SRC-08, R-SRC-15, AC-SRC-25). {@code DefaultModelQueryExecutor}'s {@code rows}, {@code single} and
+ * {@code resultStream} overloads taking a {@code BuiltQuery}, and {@code KeysetWrite}'s key select, all call it, so a
+ * read over a source has no unchecked signature to reach (D-147). A statement over no recursive source carries no
+ * check columns, and an empty result carries no row to read.
+ */
+final class SourceChecks {
+
+    private SourceChecks() {}
+
+    /**
+     * Refuses a read of a recursive source whose tree is deeper than its {@code maxDepth} ({@code MQ2701}) or whose
+     * graph closed a cycle ({@code MQ2702}), from the check columns of the statement's own first row, so no
+     * too-deep or doubled row reaches the mapper or a sink (R-SRC-07). A statement over no recursive source carries
+     * no check columns, and an empty result carries no row to read: nothing is refused then, which is the race
+     * {@code engine/21} and RFC 0013 §5 leave documented under READ COMMITTED.
+     *
+     * @throws ModelQueryExecutionException {@code MQ2701} or {@code MQ2702}, naming the model and the first
+     *     offending key
+     */
+    static void checkRecursion(Object label, BuiltQuery<?> built, List<Tuple> tuples) {
+        if (built.recursionChecks().isEmpty() || tuples.isEmpty()) {
+            return;
+        }
+        Tuple first = tuples.get(0);
+        Object deepest = first.get(BuiltQuery.RECURSION_DEPTH);
+        if (deepest != null) {
+            throw new ModelQueryExecutionException(MqCode.MQ2701, label + ": the source's tree is deeper than its "
+                    + "maxDepth(" + built.sourceMaxDepth() + "): key " + deepest
+                    + " is one level past the limit; raise maxDepth or narrow the source's where(...)");
+        }
+        Object cycle = first.get(BuiltQuery.RECURSION_CYCLE);
+        if (cycle != null) {
+            throw new ModelQueryExecutionException(MqCode.MQ2702, label + ": the source's graph has a cycle: key "
+                    + cycle + " is reachable by two paths, which a source reads twice; remove the cycle or filter it "
+                    + "out of the source's where(...)");
+        }
+    }
+}

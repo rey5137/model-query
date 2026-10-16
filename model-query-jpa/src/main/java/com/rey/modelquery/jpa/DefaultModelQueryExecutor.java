@@ -115,6 +115,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.Spliterator;
 import java.util.TreeSet;
 import java.util.WeakHashMap;
 import java.util.function.BiConsumer;
@@ -126,6 +127,7 @@ import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 /**
  * The executor {@link ModelQueryExecutor#create} returns.
@@ -265,8 +267,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     /**
      * {@code options} with the factory's CTE and window support for a query rooted at a source, when its provider has
      * one: every statement built over a source then registers the source's own CTE on itself (R-SRC-12) and renders
-     * its windows (R-SRC-04). A target whose vendor lacks {@link SourceFeature#CTE} or {@link SourceFeature#WINDOW}
-     * gets a renderer that refuses the query with {@code MQ4015} as it is built, and a provider with no
+     * its windows (R-SRC-04). A target whose vendor lacks a feature the source uses — {@link SourceFeature#CTE},
+     * {@link SourceFeature#WINDOW}, recursion, a set operation, or {@link SourceFeature#RECURSIVE_COMPOSITE_KEY} for
+     * a recursive source over a multi-column node key — gets a renderer that refuses the query with {@code MQ4015} as
+     * it is built, and a provider with no
      * {@link SourceRenderer} leaves the options without one, which {@code core} refuses with {@code MQ4014}; both are
      * before any statement (R-SRC-11, D-143).
      */
@@ -293,6 +297,16 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                     throw new ModelQueryConfigurationException(MqCode.MQ4015, rootEntity.getSimpleName()
                             + ": this source recurses, and " + vendor.detectedVendor()
                             + " has no recursive CTE support (VendorProfile#sources(SourceFeature.RECURSIVE))");
+                }
+                // A node key of more than one column has to reach the cycle clause whole, which H2's emulation rejects
+                // (RFC 0014 §7); the fact is the vendor's, so it is answered before any statement (R-VND-21).
+                if (spec.keyAliases().size() > 1
+                        && !vendor.profile().sources(SourceFeature.RECURSIVE_COMPOSITE_KEY)) {
+                    throw new ModelQueryConfigurationException(MqCode.MQ4015, rootEntity.getSimpleName()
+                            + ": this source's node key has " + spec.keyAliases().size() + " columns, and "
+                            + vendor.detectedVendor() + " cannot recurse over a composite key "
+                            + "(VendorProfile#sources(SourceFeature.RECURSIVE_COMPOSITE_KEY)); key the source on one "
+                            + "column or target another vendor");
                 }
                 // The recursion needs a level past maxDepth and the final, empty iteration, which MySQL counts against
                 // cte_max_recursion_depth as well; the spike measured maxDepth 998 served and 999 refused there
@@ -358,7 +372,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         TypedQuery<Tuple> query = limited(q, built, limit);
         applyLock(lock, q, query);
-        return models(q, mapAll(q, query, built));
+        return models(q, mapAll(q, built, query));
     }
 
     // ---- single-row reads
@@ -405,7 +419,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         TypedQuery<Tuple> query = create(q, built);
         query.setMaxResults(1);
         applyLock(lock, q, query);
-        return modelOf(q, built, rows(q, query));
+        return modelOf(q, built, rows(q, built, query));
     }
 
     @Override
@@ -505,7 +519,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 chunk = sizedChunk;
             }
             applyLock(lock, q, statement);
-            for (Tuple tuple : rows(q, statement)) {
+            for (Tuple tuple : rows(q, built, statement)) {
                 Row row = built.selection().row(tuple);
                 Object rowKey = Keys.keyOf(q, primaryKey, row);
                 if (!requested.contains(rowKey)) {
@@ -572,7 +586,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         TypedQuery<Tuple> query = create(q, built);
         query.setMaxResults(2);
         applyLock(lock, q, query);
-        List<Tuple> tuples = rows(q, query);
+        List<Tuple> tuples = rows(q, built, query);
         if (tuples.size() > 1) {
             throw new ModelQueryExecutionException(MqCode.MQ2003, q + ": " + call + " found more than one row"
                     + filterOnlyToManyJoin(built).map(join -> "; if the to-many join " + joinName(join) + ", which no "
@@ -582,40 +596,14 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return modelOf(q, built, tuples);
     }
 
-    /** The model of the first of {@code tuples}, with {@code q}'s fetch plan run on it, or empty for none. */
+    /**
+     * The model of the first of {@code tuples}, with {@code q}'s fetch plan run on it, or empty for none. The rows
+     * come from {@link #rows(Object, BuiltQuery, TypedQuery)}, whose check site has read the source's checks before
+     * returning them (R-SRC-08, AC-SRC-25).
+     */
     private <M> Optional<M> modelOf(ModelQuery<E, ?, M> q, BuiltQuery<M> built, List<Tuple> tuples) {
-        checkRecursion(q, built, tuples);
         return tuples.isEmpty() ? Optional.empty()
                 : Optional.of(models(q, List.of(loaded(built, tuples.get(0)))).get(0));
-    }
-
-    /**
-     * Refuses a read of a recursive source whose tree is deeper than its {@code maxDepth} ({@code MQ2701}) or whose
-     * graph closed a cycle ({@code MQ2702}), from the check columns of the statement's own first row, so no
-     * too-deep or doubled row reaches the mapper or a sink (R-SRC-07). A statement over no recursive source carries
-     * no check columns, and an empty result carries no row to read: nothing is refused then, which is the race
-     * {@code engine/21} and RFC 0013 §5 leave documented under READ COMMITTED.
-     *
-     * @throws ModelQueryExecutionException {@code MQ2701} or {@code MQ2702}, naming the model and the first
-     *     offending key
-     */
-    private void checkRecursion(Object label, BuiltQuery<?> built, List<Tuple> tuples) {
-        if (built.recursionChecks().isEmpty() || tuples.isEmpty()) {
-            return;
-        }
-        Tuple first = tuples.get(0);
-        Object deepest = first.get(BuiltQuery.RECURSION_DEPTH);
-        if (deepest != null) {
-            throw new ModelQueryExecutionException(MqCode.MQ2701, label + ": the source's tree is deeper than its "
-                    + "maxDepth(" + built.sourceMaxDepth() + "): key " + deepest
-                    + " is one level past the limit; raise maxDepth or narrow the source's where(...)");
-        }
-        Object cycle = first.get(BuiltQuery.RECURSION_CYCLE);
-        if (cycle != null) {
-            throw new ModelQueryExecutionException(MqCode.MQ2702, label + ": the source's graph has a cycle: key "
-                    + cycle + " is reachable by two paths, which a source reads twice; remove the cycle or filter it "
-                    + "out of the source's where(...)");
-        }
     }
 
     /**
@@ -792,29 +780,44 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         vendor.profile().checkStreamingPreconditions(em);
         int fetchSize = vendor.profile().streamingFetchSize(streamFetchSize);
         // Rows are mapped one at a time as body pulls them; closing the mapped stream closes the result stream under
-        // it, whether body returns, stops early or throws (R-EXE-07, R-EXE-09). A recursive source's checks are read
-        // from the first row the stream delivers, before that row is mapped (R-SRC-07).
-        boolean[] first = {true};
-        try (Stream<Tuple> tuples = resultStream(query, fetchSize);
-                Stream<M> models = tuples.map(tuple -> {
-                    if (first[0]) {
-                        first[0] = false;
-                        checkRecursion(q, built, List.of(tuple));
-                    }
-                    return built.map(tuple);
-                })) {
+        // it, whether body returns, stops early or throws (R-EXE-07, R-EXE-09). The check site reads a recursive
+        // source's checks from the first row before that row is handed on (R-SRC-08, AC-SRC-25).
+        try (Stream<Tuple> tuples = resultStream(q, built, query, fetchSize);
+                Stream<M> models = tuples.map(built::map)) {
             return body.apply(models);
         }
     }
 
-    /** {@code query}'s rows, streamed by the factory's provider support, or portably with a warning when none. */
-    private <T> Stream<T> resultStream(TypedQuery<T> query, int fetchSize) {
+    /**
+     * {@code built}'s rows, streamed by the factory's provider support, or portably with a warning when none, its
+     * source's checks read from the first row before that row is handed on (R-SRC-08, AC-SRC-25).
+     */
+    private <M> Stream<Tuple> resultStream(Object label, BuiltQuery<M> built, TypedQuery<Tuple> query,
+            int fetchSize) {
         Optional<ProviderSupport> support = vendor.providerSupport();
+        Stream<Tuple> tuples;
         if (support.isPresent()) {
-            return support.get().resultStream(query, fetchSize);
+            tuples = support.get().resultStream(query, fetchSize);
+        } else {
+            warnOfUnsetFetchSize();
+            tuples = query.getResultStream();
         }
-        warnOfUnsetFetchSize();
-        return query.getResultStream();
+        if (built.recursionChecks().isEmpty()) {
+            return tuples;
+        }
+        // The first row is read here, before the stream is handed on, so no terminal operation of the caller's,
+        // a count() a sized stream answers without a row included, can pass it unchecked; it is put back in front
+        // of the rest, and closing the returned stream closes the provider's (R-SRC-08, AC-SRC-25).
+        Spliterator<Tuple> rest = tuples.spliterator();
+        List<Tuple> first = new ArrayList<>(1);
+        try {
+            rest.tryAdvance(first::add);
+            SourceChecks.checkRecursion(label, built, first);
+        } catch (RuntimeException e) {
+            tuples.close();
+            throw e;
+        }
+        return Stream.concat(first.stream(), StreamSupport.stream(rest, false)).onClose(tuples::close);
     }
 
     /** Warns once per factory that, with no provider support to set the fetch size, the driver may buffer. */
@@ -937,10 +940,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return statement;
     }
 
-    /** {@code query}'s rows, with their count and time in the trace log (D-95). */
-    private <T> List<T> rows(Object label, TypedQuery<T> query) {
+    /**
+     * {@code query}'s entities, with their count and time in the trace log (D-95). It takes only an entity query, so
+     * a {@code Tuple} read has no unchecked overload to call (P-2, AC-SRC-25).
+     */
+    private List<E> rows(Object label, TypedQuery<E> query) {
         long start = System.nanoTime();
-        List<T> rows;
+        List<E> rows;
         try {
             rows = query.getResultList();
         } catch (PersistenceException e) {
@@ -950,16 +956,54 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return rows;
     }
 
-    /** {@code query}'s one row, with its time in the trace log (D-95). */
-    private <T> T single(Object label, TypedQuery<T> query) {
+    /**
+     * {@code built}'s rows, with their count and time in the trace log (D-95), its source's checks read from the
+     * first row before any row is returned (R-SRC-08, AC-SRC-25). Every {@code Tuple} list read goes through here.
+     */
+    private <M> List<Tuple> rows(Object label, BuiltQuery<M> built, TypedQuery<Tuple> query) {
         long start = System.nanoTime();
-        T row;
+        List<Tuple> rows;
+        try {
+            rows = query.getResultList();
+        } catch (PersistenceException e) {
+            throw timeoutCancellation(e);
+        }
+        traceTimed(label, rows.size() + (rows.size() == 1 ? " row" : " rows"), start);
+        SourceChecks.checkRecursion(label, built, rows);
+        return rows;
+    }
+
+    /**
+     * {@code query}'s one count, with its time in the trace log (D-95). It takes only a count query, so a
+     * {@code Tuple} read has no unchecked overload to call (P-2, AC-SRC-25).
+     */
+    private long single(Object label, TypedQuery<Long> query) {
+        long start = System.nanoTime();
+        Long row;
         try {
             row = query.getSingleResult();
         } catch (PersistenceException e) {
             throw timeoutCancellation(e);
         }
         traceTimed(label, "1 row", start);
+        return row;
+    }
+
+    /**
+     * {@code built}'s one row, with its time in the trace log (D-95), its source's checks read before the row is
+     * returned (R-SRC-08, AC-SRC-25). The count over a source is the one caller: it selects the checks beside the
+     * count and reads them here (R-SRC-07).
+     */
+    private <M> Tuple single(Object label, BuiltQuery<M> built, TypedQuery<Tuple> query) {
+        long start = System.nanoTime();
+        Tuple row;
+        try {
+            row = query.getSingleResult();
+        } catch (PersistenceException e) {
+            throw timeoutCancellation(e);
+        }
+        traceTimed(label, "1 row", start);
+        SourceChecks.checkRecursion(label, built, List.of(row));
         return row;
     }
 
@@ -1150,7 +1194,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             after.bindTo(query);
         }
         query.setMaxResults(size + 1);
-        List<Tuple> rows = rows(q, query);
+        List<Tuple> rows = rows(q, built, query);
         List<Row> decoded = new ArrayList<>(rows.size());
         for (Tuple tuple : rows) {
             decoded.add(built.selection().row(tuple));
@@ -2559,7 +2603,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         TypedQuery<Tuple> query = create(q, built);
         query.setFirstResult(offset);
         query.setMaxResults(maxRows);
-        return mapAll(q, query, built);
+        return mapAll(q, built, query);
     }
 
     /**
@@ -2669,7 +2713,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         TypedQuery<Tuple> query = create(q, keyQuery);
         query.setFirstResult(offset);
         query.setMaxResults(maxRows);
-        List<Tuple> rows = rows(q, query);
+        List<Tuple> rows = rows(q, keyQuery, query);
         List<Object> keys = new ArrayList<>(rows.size());
         for (Tuple tuple : rows) {
             keys.add(Keys.keyOf(q, key, keyQuery.selection().row(tuple)));
@@ -2699,7 +2743,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             Predicate own = built.query().getRestriction();
             built.query().where(own == null ? byKey : cb.and(own, byKey));
             appendStableOrder(q, built);
-            for (Tuple tuple : rows(q, create(q, built))) {
+            for (Tuple tuple : rows(q, built, create(q, built))) {
                 found.putIfAbsent(Keys.keyOf(q, key, built.selection().row(tuple)), new Found<>(built, tuple));
             }
         }
@@ -2737,9 +2781,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return keyLimits.clamp(ownBinds, key.columns().size(), primaryKeyFirstBatchSize);
     }
 
-    private <M> List<Loaded<M>> mapAll(Object label, TypedQuery<Tuple> query, BuiltQuery<M> built) {
-        List<Tuple> tuples = rows(label, query);
-        checkRecursion(label, built, tuples);
+    private <M> List<Loaded<M>> mapAll(Object label, BuiltQuery<M> built, TypedQuery<Tuple> query) {
+        List<Tuple> tuples = rows(label, built, query);
         var models = new ArrayList<Loaded<M>>(tuples.size());
         for (Tuple tuple : tuples) {
             models.add(loaded(built, tuple));
@@ -2802,7 +2845,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 TypedQuery<Tuple> query = create(q, built);
                 query.setFirstResult(offset);
                 query.setMaxResults(pageSize);
-                List<Tuple> rows = rows(q, query);
+                List<Tuple> rows = rows(q, built, query);
                 fresh = new ArrayList<>(rows.size());
                 for (Tuple tuple : rows) {
                     Row row = built.selection().row(tuple);
@@ -2859,7 +2902,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 after.bindTo(query);
             }
             query.setMaxResults(pageSize);
-            List<Tuple> rows = rows(q, query);
+            List<Tuple> rows = rows(q, built, query);
             Set<Object> keys = new HashSet<>();
             List<Loaded<M>> fresh = new ArrayList<>(rows.size());
             for (Tuple tuple : rows) {
@@ -3147,7 +3190,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             if (load.maxPerParent() > 0) {
                 query.setMaxResults((int) Math.min(cap, Integer.MAX_VALUE));
             }
-            List<Tuple> tuples = rows(load, query);
+            List<Tuple> tuples = rows(load, built, query);
             Set<Object> wanted = new HashSet<>(roundKeys);
             // Per key: the children kept, by primary key, and the rows read, which MQ2603 names the most of.
             Map<Object, Set<Object>> kept = new HashMap<>();
@@ -3254,16 +3297,18 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         selections.add(count);
         selections.addAll(built.recursionChecks());
         query.multiselect(selections);
-        Tuple counted = single(q, create(q, built));
-        checkRecursion(q, built, List.of(counted));
+        Tuple counted = single(q, built, create(q, built));
         return ((Number) counted.get(0)).longValue();
     }
 
     /** {@code count(*)} over the groups: in the database when the provider support can, else client-side. */
     private <M> long countGroups(ModelQuery<E, ?, M> q, BuiltQuery<M> built) {
         CriteriaQuery<Tuple> query = built.query();
+        // A source's own checks are part of every statement's selection and a count keeps them (R-EXE-05, R-SRC-08).
+        List<Selection<?>> checks = built.recursionChecks();
         if (!q.groupBy().isEmpty()) {
-            // The group keys identify a group, and selecting only them is what the count needs (R-EXE-05).
+            // The group keys identify a group; the checks are selected beside them, which is what the count needs
+            // (R-EXE-05).
             List<Selection<?>> keys = new ArrayList<>();
             for (ScalarField<M, ?> key : q.groupBy()) {
                 // Two keys over one attribute can resolve to one aliased path, which is selected once (R-COL-10).
@@ -3272,17 +3317,26 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                     keys.add(path);
                 }
             }
+            keys.addAll(checks);
             query.multiselect(keys);
         }
-        // The provider support only builds the count; it runs here, so the configured timeout applies (R-EXE-11).
-        Optional<CriteriaQuery<Long>> count = vendor.providerSupport().flatMap(p -> p.countQuery(query));
+        // A count over groups over a source that carries checks counts client-side: whatever the provider's
+        // createCountQuery() projects, the grouped query's CTE ends up inside its derived table, out of the checks'
+        // reach, and with zero groups no row carries them (R-EXE-03, RFC 0014 §3). The provider support only builds
+        // the count; it runs here, so the configured timeout applies (R-EXE-11).
+        Optional<CriteriaQuery<Long>> count = checks.isEmpty()
+                ? vendor.providerSupport().flatMap(p -> p.countQuery(query))
+                : Optional.empty();
         if (count.isPresent()) {
             return single(q, create(q, em, count.get(), null, null, built.joins()));
         }
-        LOG.log(System.Logger.Level.WARNING, "count over the grouped query on {0} runs it and counts its rows in "
-                + "memory, because no ProviderSupport counts groups for this persistence provider; add "
-                + "model-query-hibernate for a count in the database (R-EXE-03)", rootEntity.getSimpleName());
-        return rows(q, create(q, built)).size();
+        if (checks.isEmpty()) {
+            LOG.log(System.Logger.Level.WARNING, "count over the grouped query on {0} runs it and counts its rows in "
+                    + "memory, because no ProviderSupport counts groups for this persistence provider; add "
+                    + "model-query-hibernate for a count in the database (R-EXE-03)", rootEntity.getSimpleName());
+        }
+        // Read through the check site: the group rows carry the checks, and no group carries none (R-SRC-08).
+        return rows(q, built, create(q, built)).size();
     }
 
     private static boolean hasToManyJoin(From<?, ?> from) {
