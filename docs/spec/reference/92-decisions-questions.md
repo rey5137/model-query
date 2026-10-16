@@ -2178,8 +2178,8 @@ orders, and is an order key for offset pages, offset export and `primaryKeyFirst
 in a CASE condition, `having`, an aggregate (`MQ1510`), a grouped query whose lifted columns are not all group keys or
 as a group key (`MQ1314`), a `count`, `sum` or `first` whose sub-select crosses a to-many join (`MQ1511`, at first
 resolution), and inside a `SourceQuery` (`MQ1908`, at its build). `first(...)` requires an order, appends the
-sub-select root's id ascending, and renders a `DEFAULT` null precedence as NULLS LAST in either direction (an explicit
-one as written); it renders through a new `SubqueryRenderer` from `ProviderSupport#subqueries()`, and without one is
+sub-select root's id ascending, and renders null precedence as any order does (R-COL-12, D-36: `DEFAULT` follows the
+vendor, so the docs say to set `nullsFirst()`/`nullsLast()` on a nullable key for a portable value); it renders through a new `SubqueryRenderer` from `ProviderSupport#subqueries()`, and without one is
 `MQ4014`, widened to every renderer the provider lacks (`SourceRenderer`'s provider-gap defaults move from `MQ4015`).
 A lifted outer column may sit on a to-one path of the outer root (`MQ1311` narrowed to to-many paths, checked at first
 resolution), resolved through the outer `JoinContext` and rendered with `Subquery#correlate` of the outer join, which
