@@ -2168,6 +2168,34 @@ column named by exactly one `@PrimaryKey`. This is what makes a recursive source
 `SourceFeature.RECURSIVE_COMPOSITE_KEY`'s `MQ4015` on H2 and its `PortabilityCheck` report land with M26.1 (D-147,
 AC-SRC-21's H2 half). → `api/17` R-SRC-02, R-SRC-11, `processor/30`, `vendor/40` R-VND-21.
 
+**D-150 — Correlated columns and sources over sources (RFC 0015, 2026-10-17, user decision).** Resolves Q-22. A
+per-row correlated value is an `ExpressionField` built by a static `Correlated` terminal (`count`, `exists`, `min`,
+`max`, `sum`, `first`), each method bounding its own type (`Comparable` for `min`/`max`, `Number` for `sum`), declared
+through `@Computed` and rendered as a scalar sub-query in every position; there is no join lowering (the spike: with the
+child column indexed the scalar form is within a small factor of a grouped join everywhere and faster on MySQL, and
+without the index only the join finishes), and the docs say to index the correlated columns. It selects, filters and
+orders, and is an order key for offset pages, offset export and `primaryKeyFirst`; `keyset()` keeps `MQ1208`. Refused:
+in a CASE condition, `having`, an aggregate (`MQ1510`), a grouped query whose lifted columns are not all group keys or
+as a group key (`MQ1314`), a `count`, `sum` or `first` whose sub-select crosses a to-many join (`MQ1511`, at first
+resolution), and inside a `SourceQuery` (`MQ1908`, at its build). `first(...)` requires an order, appends the
+sub-select root's id ascending, and renders a `DEFAULT` null precedence as NULLS LAST in either direction (an explicit
+one as written); it renders through a new `SubqueryRenderer` from `ProviderSupport#subqueries()`, and without one is
+`MQ4014`, widened to every renderer the provider lacks (`SourceRenderer`'s provider-gap defaults move from `MQ4015`).
+A lifted outer column may sit on a to-one path of the outer root (`MQ1311` narrowed to to-many paths, checked at first
+resolution), resolved through the outer `JoinContext` and rendered with `Subquery#correlate` of the outer join, which
+keeps its `ON` (a bare reference drops it on every target); a source outer root is allowed, a sub-select rooted at a
+source is not. A `@SourceModel` may be rooted at a plain, grouped, shape or recursive source model (not itself
+recursive, a branch or a shape: `MQ3042`), one CTE per level, every level registered on the top statement through
+`SourceRenderer`'s new `CteHandle`, `register`, `registerRecursive` and `from` (defaults `MQ4014`); the walk's filter
+goes into the next body, and the walk checks and key predicates stay in the top statement. A non-branch source QModel
+generates `Rows` and `query(SourceQuery<S>)`; mixing the two vocabularies is `MQ1905` both ways. Every new type and
+member is `@Incubating`. A PostgreSQL query timeout is wrapped differently on Hibernate 6.6 and 7.4; timeout handling
+reads the root cause. Rejected: string annotations, lateral joins, a step type for the terminals, `firstRow` on
+`SourceRenderer`, a processor marker for `MQ1908`, a join lowering, a nested `WITH` per body. Request-time values in a
+`@Computed` are Q-24. → `rfc/0015`, `api/10`, `api/11` R-QRY-16, R-PAG-25, `api/12` R-FLT-17, R-FLT-27, `api/17`
+R-SRC-16..19, `processor/30` R-PROC-35, R-PROC-39, R-PROC-40, `processor/31` R-GEN-37, R-GEN-39, R-GEN-40,
+`vendor/40` R-VND-25, Q-22.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -2261,7 +2289,7 @@ the id would then come from the foreign-key column of the entity's own row. → 
 a tree count as unique, so fetch plans and keyset paging work on trees. It checks only the statement it runs in, so
 export and keyset walks across statements need more. → `rfc/0013` §5, D-143; M26, `rfc/0014` (D-145), D-147.
 
-**Q-22 — Sources over sources, and reading a source directly.** Window and aggregate fields over the combined rows of
+**Q-22 — Sources over sources, and reading a source directly.** Resolved by D-150 (M27). Was: window and aggregate fields over the combined rows of
 a set operation or a recursive source, and a source model's QModel also offering `query()`, so a source can be read
 without a trivial outer model. → `rfc/0013` §3–§5, D-143; M27, `rfc/0015` (D-145).
 
@@ -2269,6 +2297,11 @@ without a trivial outer model. → `rfc/0013` §3–§5, D-143; M27, `rfc/0015` 
 model rooted at one generate no `changes()`, `update(...)`, `from(...)` or `delete()` today, and `generateChanges` is
 ignored there. Should it instead be an `MQnnnn`, as a `@Child` or a `@Join` on such a model is? → D-144,
 `processor/31` R-GEN-37, `processor/32`.
+
+**Q-24 — Request-time values in a `@Computed` expression.** A `@Computed` definition builds once into a constant, so a
+value known only per call ("count lines with the status the request names", "days overdue relative to a date the
+caller passes") can't appear in it, correlated or not. A per-call bound parameter node in any expression, bound when
+the query runs, would answer it without breaking INV-9. → `rfc/0015` (Unresolved), D-150, `api/10` R-COL-17.
 
 ## 3. Risks
 
