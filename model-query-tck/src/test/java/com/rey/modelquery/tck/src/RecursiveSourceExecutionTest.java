@@ -697,6 +697,28 @@ class RecursiveSourceExecutionTest {
     }
 
     @TckTest
+    void ac_src_20_offset_tree_without_a_primary_key_orders_by_every_selected_column(TckDatabase db) {
+        List<FolderRow> everything = new ArrayList<>();
+        List<FolderRow> paged = new ArrayList<>();
+        List<String> sql = SqlSnapshots.assertMatches(db, "src-20-tree-offset-unkeyed", ds ->
+                withExecutor(ds, FolderNode.class, executor -> {
+                    var source = checkedTree(3, 1L);
+                    var query = unkeyedRows(source).orderBy(QFolderRow.LEVEL.asc()).build();
+                    everything.addAll(executor.list(rows(source), Limit.unlimited()));
+                    int size = 2;
+                    for (int offset = 0; offset < everything.size(); offset += size) {
+                        paged.addAll(executor.page(query, PageSpec.ofOffset(offset, size), CountMode.NO_COUNT)
+                                .content());
+                    }
+                }));
+        String last = sql.get(sql.size() - 1);
+        // LEVEL is projection 4; the definition's order is followed by every other selected column, ascending.
+        assertThat(last.substring(last.lastIndexOf(" order by "))).startsWith(" order by 4,1,2,3 ");
+        assertThat(paged).hasSameSizeAs(everything).doesNotHaveDuplicates()
+                .containsExactlyInAnyOrderElementsOf(everything);
+    }
+
+    @TckTest
     void ac_src_20_unorderable_offset_page_names_tree_only_for_a_recursive_source(TckDatabase db) {
         var root = TableField.source(FolderNode.class);
         var bytes = ColumnField.of(FolderNode.class, QFolderNode.ROOT, "name", byte[].class, String.class,
@@ -727,6 +749,35 @@ class RecursiveSourceExecutionTest {
                 if (source.recursive()) assertThat(refusal).hasMessageContaining("tree(...)");
                 else assertThat(refusal).hasMessageNotContaining("tree(...)");
             }
+        }));
+        assertThat(sql).isEmpty();
+    }
+
+    @TckTest
+    void ac_src_20_unkeyed_tree_offset_page_with_an_unorderable_column_points_to_primary_key(TckDatabase db) {
+        var root = TableField.source(FolderNode.class);
+        var bytes = ColumnField.of(FolderNode.class, QFolderNode.ROOT, "name", byte[].class, String.class,
+                new ColumnConverter<byte[], String>() {
+                    @Override
+                    public byte[] toModel(String attribute) {
+                        return attribute.getBytes(StandardCharsets.UTF_8);
+                    }
+
+                    @Override
+                    public String toAttribute(byte[] model) {
+                        return new String(model, StandardCharsets.UTF_8);
+                    }
+                }).named("payload");
+        var payload = ColumnField.over(byte[].class, root, bytes);
+        var tree = SourceQuery.builder(FolderNode.class, QFolderNode.ROOT,
+                SelectSet.of(QFolderNode.ID, QFolderNode.PARENT_ID, bytes, QFolderNode.LEVEL), QFolderNode.KEY)
+                .depth(QFolderNode.LEVEL).where(f -> f.eq(QFolderNode.ID, TckFixture.FOLDER_TREE_ROOT))
+                .tree(step -> step.childKey(QFolderNode.PARENT_ID).parentKey(QFolderNode.ID), 3).build();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, FolderNode.class, executor -> {
+            var query = ModelQuery.<FolderNode, byte[]>builder(root, row -> row.get(payload), tree)
+                    .select(SelectSet.of(payload)).build();
+            assertThat(assertCode(() -> executor.page(query, PageSpec.ofOffset(0, 2), CountMode.NO_COUNT),
+                    MqCode.MQ2212)).hasMessageContaining("primaryKey(...)").hasMessageNotContaining("make the source");
         }));
         assertThat(sql).isEmpty();
     }
@@ -841,6 +892,17 @@ class RecursiveSourceExecutionTest {
 
     private static ModelQuery.Builder<FolderNode, Long, FolderRow> rowsBuilder(SourceQuery<FolderNode> source) {
         return QFolderRow.query(source).select(QFolderRow.ALL).orderBy(QFolderRow.ID.asc());
+    }
+
+    /** Hand-built over the public builder, so it has no primary key. */
+    private static ModelQuery.Builder<FolderNode, ?, FolderRow> unkeyedRows(SourceQuery<FolderNode> source) {
+        var id = QFolderRow.ID;
+        var parent = QFolderRow.PARENT_ID;
+        var name = QFolderRow.NAME;
+        var level = QFolderRow.LEVEL;
+        return ModelQuery.builder(QFolderRow.ROOT,
+                row -> new FolderRow(row.get(id), row.get(parent), row.get(name), row.get(level)), source)
+                .select(SelectSet.of(id, parent, name, level));
     }
 
     private static ModelQuery<FolderNode, Long, FolderRow> rows(SourceQuery<FolderNode> source) {

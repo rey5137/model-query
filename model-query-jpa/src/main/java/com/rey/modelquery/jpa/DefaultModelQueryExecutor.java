@@ -1110,8 +1110,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         checkFirstRun(q);
         int offset = page.offset();
         int size = page.pageSize();
-        // A non-unique source needs every selected column to close the order; a tree's key suffices (R-SRC-09).
-        boolean everyColumn = nonUniqueSource(q);
+        // A non-unique source needs every selected column to close the order; a tree's key suffices when the query
+        // declares one (R-SRC-09).
+        boolean everyColumn = needsEveryColumn(q);
         LOG.log(DEBUG, () -> "page " + q + ": offset " + offset + " size " + size + ", " + mode
                 + (mode != CountMode.ONLY_COUNT && primaryKeyFirst(q, offset) ? ", primary-key-first" : ""));
         int batch = 0; // the step-2 batch of a primary-key-first page
@@ -2632,6 +2633,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         if (everyColumn) {
             for (SelectField<M, ?> column : q.select().fields()) {
                 if (!orderable(column)) {
+                    if (unkeyedTree(q)) {
+                        throw new ModelQueryDefinitionException(MqCode.MQ2212, q + ": the query has no primary key, "
+                                + "so every selected column closes the order of an offset page, and the selected "
+                                + "column '" + column.name() + "' can't be ordered; deselect it or declare "
+                                + ".primaryKey(...) on the query");
+                    }
                     throw new ModelQueryDefinitionException(MqCode.MQ2212, q + ": the source has no unique key, so "
                             + "every selected column closes the order of an offset page, and the selected column '"
                             + column.name() + "' can't be ordered; deselect it or make the source unique"
@@ -2671,6 +2678,19 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private static boolean orderable(SelectField<?, ?> column) {
         return !(column instanceof ColumnField<?, ?, ?> named)
                 || Comparable.class.isAssignableFrom(named.type());
+    }
+
+    /**
+     * Whether an offset page orders by every selected column: a non-unique source, or an ungrouped source query with
+     * no primary key, over a {@code tree(...)}, which has no declared key to close the order (R-PAG-01, R-SRC-09).
+     */
+    private static boolean needsEveryColumn(ModelQuery<?, ?, ?> q) {
+        return nonUniqueSource(q) || unkeyedTree(q);
+    }
+
+    /** Whether {@code q} is an ungrouped query over a {@code tree(...)} with no primary key of its own (R-SRC-09). */
+    private static boolean unkeyedTree(ModelQuery<?, ?, ?> q) {
+        return !q.isGrouped() && q.primaryKey().isEmpty() && q.source().filter(SourceQuery::tree).isPresent();
     }
 
     /** Whether {@code q} reads a source whose rows have no unique key (R-SRC-09). */

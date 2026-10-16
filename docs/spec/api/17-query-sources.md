@@ -230,7 +230,10 @@ name `tree(...)` as the opt-in for a checked recursive walk.
   the vendor calls equal are interchangeable to it, not to the caller.
 - **The tree exception.** A `tree(...)` source proves its node keys unique on each statement (R-SRC-14, R-SRC-15).
   Offset `page` therefore appends only the key after the definition's order, as R-PAG-01 does for a table. It adds no
-  every-column tie-breakers and does not refuse an unorderable selected column on that ground. A plain
+  every-column tie-breakers and does not refuse an unorderable selected column on that ground. That holds when the
+  query has a primary key (the generated `query(SourceQuery)` always sets one); an ungrouped tree query built without
+  `.primaryKey(...)` orders by every selected column, as a non-unique source does, and likewise refuses an
+  unorderable selected column with `MQ2212`, whose message points to declaring `.primaryKey(...)` on the query. A plain
   `recursive(...)` source keeps the every-column tie-breakers and the refusals above.
 
 ## 5. Window fields

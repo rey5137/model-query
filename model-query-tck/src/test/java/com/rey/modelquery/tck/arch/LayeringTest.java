@@ -225,5 +225,6 @@ class LayeringTest {
     @Test
     void ac_src_25_tupleReadsStayInTheCheckSite() {
         proves(LayeringRules::tupleReadsStayInTheCheckSite, F + "jpa.BadTupleRead", "getResultList");
+        proves(LayeringRules::tupleReadsStayInTheCheckSite, F + "jpa.BadTupleReadInCheckSiteName", "getResultList");
     }
 }

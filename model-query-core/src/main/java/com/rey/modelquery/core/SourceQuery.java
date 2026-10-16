@@ -580,6 +580,13 @@ public final class SourceQuery<S> {
         return recursion != null;
     }
 
+    /** Whether this source is a checked {@code tree(...)} walk rather than a plain recursive one (R-SRC-14). */
+    @Incubating
+    @EngineFacing
+    public boolean tree() {
+        return recursion != null && recursion.tree();
+    }
+
     /** The CTE column alias of the level, or {@code null} for a source that does not recurse (R-SRC-07). */
     String levelAlias() {
         return recursion == null ? null : alias(recursion.depth());
