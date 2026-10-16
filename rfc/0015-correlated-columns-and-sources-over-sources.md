@@ -64,7 +64,7 @@ public final class LastNote implements ExpressionDefinition<OrderRow, String> {
     public ExpressionField<OrderRow, String> expression() {
         return Correlated.first(OrderRow.class, SubSelect.of(QNoteView.TEXT),
                 (s, outer) -> s.compare(QNoteView.ORDER_ID, EQ, outer.column(QOrderRow.ID)),
-                QNoteView.CREATED_AT.desc());
+                QNoteView.CREATED_AT.desc().nullsLast());
     }
 }
 
@@ -169,11 +169,14 @@ public final class Correlated {                             // static vocabulary
 appends the sub-select root's id, ascending, as the last order key, as R-SRC-04 appends the source key to a window's
 order, so the value is deterministic under ties (`MQ1511` keeps that id unique).
 
-**Null precedence is explicit.** An order key with `NullPrecedence.DEFAULT` on a nullable attribute sorts NULLs first
-on one vendor and last on another (R-COL-12, `vendor/41` §4), and here a row-order difference is a different value
-(INV-6). Inside `first(...)`, a `DEFAULT` precedence renders as NULLS LAST in either direction, so "the latest note"
-is never a row whose `created_at` is NULL while a dated one exists, and every vendor returns the same row; an explicit
-precedence renders as written. Spike probe 2 checks a NULL order key on every vendor.
+**Null precedence follows R-COL-12.** An order key inside `first(...)` renders its null precedence as it does in any
+`ORDER BY`: `DEFAULT` renders no null clause (or the provider's configured default, D-36), so the vendor's own NULL
+ordering applies; `nullsFirst()` and `nullsLast()` mean the same thing on every vendor. Here a row-order difference is
+a different value: with `DEFAULT` on a nullable key, "the latest note by `created_at desc`" is the undated note on
+PostgreSQL and a dated one on MySQL and H2. That is the same vendor dependence `DEFAULT` already has in a page's order,
+so `DEFAULT` keeps one meaning; the docs say to set `nullsFirst()` or `nullsLast()` on a nullable key for the same value
+on every vendor, as the examples do. Spike probe 2 showed an explicit precedence returns the same row on every vendor
+and both lines.
 
 It renders `order by … fetch first 1 rows only` inside the scalar sub-query, which standard Criteria can't say. That is
 not a source feature, so it gets its own capability (R-VND-25), in the shape of `nullPrecedence`, `locks`, `constants`
@@ -410,7 +413,7 @@ new `Rfc15SpikeTest`, on Hibernate 6.6.58 and 7.4.11, each against H2, PostgreSQ
    outer query whose lifted column is a group key.
 2. **`first`.** `JpaSubQuery#orderBy` and `#fetch(1)` as a correlated scalar sub-query in the select list, in `where`
    and as an order key; ties broken by the appended id give the same row on every vendor; an order key that is NULL on
-   some rows, with `DEFAULT` precedence rendered explicitly (§2), gives the same row on every vendor.
+   some rows, with an explicit `nullsLast()` (§2), gives the same row on every vendor.
 3. **A lifted to-one column.** A correlation on `outer.column(QOrderRow.CUSTOMER_REGION)` (root → customer → region):
    the sub-query references the outer LEFT join's alias, adds no `FROM` item, and the outer `ON` is kept. A NULL path
    gives `count = 0`. A lifted column across a collection join is still `MQ1311`. **A correlation whose outer root is a
@@ -439,7 +442,7 @@ acceptance decision is the next free `D-n` (D-150 today; coordinate with RFC 001
 | Id | Where | What |
 |---|---|---|
 | R-COL-31 | `api/10` | `Correlated`'s terminals: a scalar sub-query per row, an `ExpressionField`; equality; `MQ1511` |
-| R-COL-32 | `api/10` | `first(...)`: required order, the appended id tie-breaker, explicit null precedence, `MQ4014` without the renderer |
+| R-COL-32 | `api/10` | `first(...)`: required order, the appended id tie-breaker, null precedence as R-COL-12, `MQ4014` without the renderer |
 | R-COL-33 | `api/10` | Where a correlated expression is refused: CASE, `having`, aggregation, grouped without its keys, as a group key, `keyset()` (`MQ1208`), a source (`MQ1908`) |
 | R-FLT-27 | `api/12` | A lifted column on a to-one path, resolved through the outer `JoinContext`, checked at first resolution; a source root |
 | R-SRC-16 | `api/17` | A source over a source: root kinds, what it adds, its key, uniqueness and non-uniqueness carried, `MQ1908` |
