@@ -142,6 +142,7 @@ See [Queries and Filters](queries.md), [Grouped queries](grouped-queries.md), [B
 | `MQ2605` | `stream` with a fetch plan that loads children, join plans or enrichers; use `export`. |
 | `MQ2701` | A recursive source's tree is deeper than its `maxDepth`. The message names the model, the limit and the key of the first row past it. |
 | `MQ2702` | A recursive source's graph closed a cycle. The message names the model and the first key the cycle clause marked. |
+| `MQ2703` | A [tree](source-models.md#trees) reached a key twice; narrow the seeds or use `recursive(...)`. The message names the model and the first column of the smallest duplicated key. |
 
 See [Paging and export](paging-export.md) and [Bulk writes](bulk-writes.md).
 
@@ -236,8 +237,12 @@ See [Models and QModels](models.md).
 | `MQ4011` | A returning write the factory cannot return rows for, such as any returning write on MySQL. |
 | `MQ4012` | A factory is not on one of the declared target vendors; the message names the factory, its vendor, how it was found and the list. |
 | `MQ4013` | The [portability check](portability.md) cannot boot your unit offline for a target: no provider support for its vendor, a vendor with no offline boot (Oracle, SQL Server, `OTHER`), or a version that is not numeric. |
-| `MQ4014` | A query reads a source and the factory's provider has no source support: `ProviderSupport#sources()` is empty, or there is no `ProviderSupport` at all. |
+| `MQ4014` | Missing provider source support, or a missing duplicate-key check for a [tree](source-models.md#trees). |
 | `MQ4015` | The target vendor lacks a source feature the query uses, or a recursive source whose `maxDepth + 2` exceeds `VendorProfile#maxRecursionDepth()`. The message names the feature or the depth. |
+
+For `MQ4014`, `ProviderSupport#sources()` is empty, there is no `ProviderSupport`, or the provider's `SourceRenderer`
+returned no duplicate-key check for `tree(...)`. All are refused before any statement; the
+[portability check](portability.md) reports them per declared target with no database attached.
 
 See [Spring Data and the starter](spring.md) and [Vendor notes](vendors.md).
 

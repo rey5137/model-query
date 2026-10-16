@@ -279,15 +279,57 @@ var rows = QFolderRow.query(tree).select(QFolderRow.ALL).orderBy(QFolderRow.ID.a
 
 The rows `where` keeps are level 0 and each step adds one, so `maxDepth = 20` returns levels 0 to 20. `recursive(step,
 maxDepth)` names the two columns a row is a child of another by, both of the source's root entity, so a swapped pair
-reads wrong at the call site rather than at run time. A recursive model must call `recursive(...)` before `build()`:
+reads wrong at the call site rather than at run time. A recursive model must call `recursive(...)` or `tree(...)`
+before `build()`:
 without it the source would quietly return the seed rows alone, which is `MQ1902`, as is a `maxDepth` below 1 or above
-`Integer.MAX_VALUE - 2`. A recursive source takes no `@Window`, `@Aggregate` or `@GroupBy` — every database forbids all
-three in the recursive term — and exactly one `@Depth`, an `Integer` (`MQ3037`).
+`Integer.MAX_VALUE - 2`. A recursive source takes no `@Window`, `@Aggregate` or `@GroupBy` — every database forbids
+all three in the recursive term — and exactly one `@Depth`, an `Integer` (`MQ3037`).
 
 The CTE steps to level `maxDepth + 1`, and the cycle clause marks the row that closes a cycle; the outer query filters
 both out. The statement reads the smallest key past `maxDepth` and the smallest marked key from its own first row and
 refuses the whole result: a row too deep is `MQ2701` and a cycle is `MQ2702`, each naming the model and the first
 offending key. Nothing is refused on an empty result, which carries no row to read.
+
+### Trees
+
+Use `tree(...)` when the walk should reach each node once. It takes the same step and depth limit as
+`recursive(...)`, and checks that no node key repeats across the whole walk in each statement (R-SRC-13..15).
+
+<!-- from RecursiveSourceExecutionTest#ac_src_17_every_key_identified_read_visits_each_tree_node_once -->
+
+```java
+var source = QFolderNode.source().where(f -> f.in(QFolderNode.ID, List.of(1L)))
+        .tree(step -> step.childKey(QFolderNode.PARENT_ID).parentKey(QFolderNode.ID), 3).build();
+var keyset = QFolderRow.query(source).select(QFolderRow.ALL).orderBy(QFolderRow.ID.asc()).keyset().build();
+```
+
+The checked source is unique, so keyset and primary-key-first paging, `byKeys`, `one(q, key)`, both export modes and
+fetch plans work over it. Offset `page` adds only the key as a tie-breaker to the definition's order. A plain
+`recursive(...)` source keeps its `MQ1901` and `MQ2212` refusals and its every-column offset tie-breakers.
+
+<!-- from RecursiveSourceExecutionTest#ac_src_17_every_key_identified_read_visits_each_tree_node_once -->
+
+=== "Plain JPA"
+
+    ```java
+    List<FolderRow> exported = new ArrayList<>();
+    executor.export(keyset, ExportOptions.of(2), page -> page, exported::add);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    ModelQueryExecutor<FolderNode> folders = ModelQueryExecutor.create(em, FolderNode.class, config);
+    List<FolderRow> exported = new ArrayList<>();
+    folders.export(keyset, ExportOptions.of(2), page -> page, exported::add);
+    ```
+
+Overlapping seeds (a node and one of its descendants) or a link-table diamond can reach a node twice. That is
+[`MQ2703`](diagnostics.md), naming the model and the first column of the smallest duplicated key: narrow the seeds,
+or use `recursive(...)` if repeated paths are intended. The engine checks depth (`MQ2701`), then cycles (`MQ2702`),
+then duplicates, before delivering a row. An outer filter cannot hide duplicates when the statement returns a row;
+an empty result carries no check value. Each statement checks the whole walk again, with no state carried between
+pages or export chunks.
 
 ## What a source needs to run: the provider and the vendor
 
@@ -296,6 +338,7 @@ CTE and returns the root the outer statement reads:
 
 - `ProviderSupport#sources()` (`@Incubating`) returns the factory's `SourceRenderer`, empty by default. Empty, or a
   factory whose provider has no `ProviderSupport` at all, is `MQ4014` before any statement.
+  A renderer that returns no duplicate-key check for `tree(...)` is `MQ4014` too.
 - `VendorProfile#sources(SourceFeature)` (`@Incubating`) answers per feature — `CTE`, `RECURSIVE`, `WINDOW`, `UNION`,
   `INTERSECT` and `EXCEPT` — and is `false` by default, so a profile written before a constant was added fails safe. A
   `false` is `MQ4015`, naming the feature and the vendor, before any statement.
@@ -314,16 +357,37 @@ declared target with no database attached, because both codes are raised before 
 - **Windows see other transactions' writes.** A window value is computed again on every statement, so a write to another
   row between two pages can change a row's `rank`, and a keyset walk ordered by a window value can then skip or repeat a
   row without `MQ2205`. Run the walk in a `REPEATABLE READ` transaction or stronger: one snapshot is the guard.
+- **Tree order values can move a subtree.** A concurrent change to a node's parent can change `@Depth` for every node
+  below it. A keyset or offset walk ordered by such derived values can skip or repeat a subtree while every statement
+  still sees a valid tree; `MQ2205` catches a repeat only on the very next page. Use `REPEATABLE READ` or a snapshot
+  around a walk (an export, or keyset or offset paging) ordered by derived values. Ordering by the node key alone
+  is unaffected by moves within the walk.
+  If a write instead makes a node reachable twice, a later page raises `MQ2703` when it reads a check row; pages
+  already delivered stay delivered. Each statement checks its own snapshot, with no check state between pages.
 - **MySQL's export cost is quadratic.** Each export page recomputes the whole CTE, and MySQL materializes CTEs, so an
   export over a source costs work quadratic in the source's size. Keyset paging with a small page size has the same
   shape; prefer a narrow source for large exports.
+- **Tree checks scan the whole walk per statement.** An export of `N` nodes in pages of `P` runs about `N/P`
+  statements, each walking and checking `N` nodes: quadratic work at a fixed page size. The measured vendor costs
+  below include the duplicate-key check.
 - **The emulated `cycle` cost on H2 and MySQL.** PostgreSQL renders `cycle` natively. On H2 and MySQL Hibernate emulates
   it with a path that grows by one key per level and is searched on every row, so the work grows quadratically with
   depth: in the spike a 999-level chain took about 14 s on H2 against about 85 ms on PostgreSQL, even with the parent
   column indexed. MySQL's path is a fixed-width column, so long keys fill it at the default ceiling.
-- **The empty-result race under READ COMMITTED.** The depth and cycle checks read their keys from the statement's own
+- **The empty-result race under READ COMMITTED.** Depth, cycle and duplicate checks read from the statement's own
   first row, so an empty result carries nothing to read them from: under READ COMMITTED (PostgreSQL's default) a
-  statement can return an empty page while the data has gone too deep or formed a cycle in the meantime. A REPEATABLE
-  READ transaction around the call is the full guarantee.
+  statement can return an empty page while the data has gone too deep, formed a cycle or reached a node twice in the
+  meantime. A REPEATABLE READ transaction around the call is the full guarantee.
+
+The tree-check spike measured these costs (RFC 0014 §6):
+
+- **PostgreSQL** computes the recursive CTE once per statement; the duplicate check adds a scan, not another walk.
+  A 100k-node content statement took 253 ms with the check against 209 ms without it.
+- **MySQL 8.0.31** materializes the recursive CTE once per statement and shares it with the checks: 376 ms against
+  315 ms at 100k nodes. A 10k-node keyset export in pages of 100 took 2.4 s against 2.1 s.
+- **H2's check cost is a test-database limit.** It re-walks for each check and each outer row: work grows as rows ×
+  tree size × checks. A 1k-node content read took 2 ms with no checks, 1.1 s with depth and cycle checks, and 1.8 s
+  with the duplicate check too; doubling the tree quadrupled the time. A count has one outer row and avoids that
+  multiplier. Keep trees in H2 tests small.
 
 See [Diagnostics](diagnostics.md) for every code, and [Portability](portability.md) for what is refused per target.
