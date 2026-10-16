@@ -410,7 +410,7 @@ user can push the `v0.8.0` tag.
 
 Spec: `docs/plan/litepos-gaps.md` §1 and §3 (M17), `api/10` (new `AC-COL` rows from AC-COL-29), `api/13` (new
 `AC-AGG` rows from AC-AGG-16), `api/14` (new `AC-WRT` rows from AC-WRT-41), CC-DOC-01 (every runnable snippet gets the
-Plain JPA and Spring tabs). Runs before the freeze, M29, which stays last. No API change; ships in 0.9.0 with M18–M22 (the
+Plain JPA and Spring tabs). Runs before the freeze, M30, which stays last. No API change; ships in 0.9.0 with M18–M22 (the
 docs site still publishes from `main` as it merges). Model: none; the M17.1 cases may each fail, and a failing case is recorded as a gap
 in `litepos-gaps.md` and left out of M17.2's docs rather than fixed here.
 
@@ -581,7 +581,7 @@ R-VND-21, R-VND-22), `vendor/41` (the Tier-1 MySQL floor 8.0 → 8.0.31), the `j
 models" page; the comparison page's Reach row). The acceptance spike is done (`rfc/0013-spike-results.md`). Model: an
 `architect-review` at the gate (public API and generics of `SourceQuery`/`WindowField`, paging and export over sources,
 the `VendorProfile` and `SourceSupport` surface, INV-6 and INV-7). Every new public type and member is `@Incubating`.
-Ships in 0.10.0 with M26–M28 (D-145), before the freeze, M29, which stays last. Spec rows land with the slice that implements them; AC-SRC
+Ships in 0.10.0 with M26–M29 (D-145, D-148), before the freeze, M30, which stays last. Spec rows land with the slice that implements them; AC-SRC
 and AC-PROC numbers are taken in slice order. The `spike/rfc-0013` branch (unpushed, `model-query-tck/.../tck/spike/`)
 is the reference for the Hibernate hooks.
 
@@ -635,23 +635,37 @@ Spec: D-145, a new `rfc/0016` (written in M28.0). Query models over a polymorphi
 through `cb.treat`, one model per subtype, and a discriminated union of subtype models through M25.4's `shape`;
 refusals, before any statement, for what a Hibernate line can't render. Model: an `architect-review` of the RFC and at
 the gate (processor contracts, the generated shape, INV-6, INV-7). Every new public type and member is `@Incubating`.
-The last slice carries the 0.10.0 release prep (`CHANGELOG.md` section). Slices are written once the RFC is accepted
-(§4).
+Slices are written once the RFC is accepted (§4).
 
 | Slice | Content | Done when |
 |---|---|---|
 | M28.0 | `rfc/0016` and its acceptance spike of `cb.treat` on both Hibernate lines and Tier 1 (`rfc/0016-spike-results.md`) | RFC accepted as a `D-n`; slice rows written here and in `AGENTS.md`'s model table |
 
-## 29. M29 — Freeze → 1.0.0
+## 29. M29 — Custom filter operators → 0.10.0
+
+Spec: D-148, `rfc/0017` (drafted; accepted in M29.0). A typed, named `FilterOperator<C, V>` applied with
+`Filters.op(operator, column, value)` and `Having.op`, its value bound by the engine (R-FLT-08), recorded for inspection
+as `Condition.Kind.OPERATOR`; a `model-query-hibernate` catalogue (`ilike(LikeMode)`, regex match, array and `jsonb`
+containment) whose vendor reach is a `VendorProfile` fact (`OperatorFeature`, `MQ4015`, `PortabilityCheck`). The
+extension point for operators once D-85 seals `Filters` and `Having` at the freeze. Model: an `architect-review` of the
+RFC and at the gate (public API and generics, the `VendorProfile` surface, INV-6, INV-7). Every new public type and
+member is `@Incubating`. The last slice carries the 0.10.0 release prep (`CHANGELOG.md` section), moved from M28.
+Slices are written once the RFC is accepted (§4).
+
+| Slice | Content | Done when |
+|---|---|---|
+| M29.0 | `rfc/0017`'s two `architect-review` passes and its acceptance spike on both Hibernate lines and Tier 1 (`rfc/0017-spike-results.md`), PostgreSQL index use included | RFC accepted as a `D-n`; slice rows written here and in `AGENTS.md`'s model table |
+
+## 30. M30 — Freeze → 1.0.0
 
 Spec: D-85 (amended by D-106, D-116 and D-118), D-86, D-111, D-116, D-118. Starts only when the user says the D-111 adopter has migrated onto 0.5.0 or later
-and run it in production long enough. Model: `architect-review` at M29.1. Both slices are attended. Tagging `v1.0.0`
+and run it in production long enough. Model: `architect-review` at M30.1. Both slices are attended. Tagging `v1.0.0`
 is the user's step after the gate, never a slice's.
 
 | Slice | Contents | Done when |
 |---|---|---|
-| M29.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field, M13 field-index, M14 single-model and M15 insert-column and multi-key types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
-| M29.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M29` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M29 started |
+| M30.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field, M13 field-index, M14 single-model and M15 insert-column and multi-key types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
+| M30.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M30` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M30 started |
 
-**Exit:** the M29 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M29.1 decision, so the user can
+**Exit:** the M30 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M30.1 decision, so the user can
 push the `v1.0.0` tag.
