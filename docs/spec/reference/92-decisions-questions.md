@@ -2152,6 +2152,10 @@ stays. Rejected: every recursive source unique (link-table walks repeat keys by 
 (P-2); a temporary table, a tree fingerprint, or refusing export and keyset across statements; a grouped-count SPI
 taking the query's parts. → `rfc/0014`, `api/17` R-SRC-08, R-SRC-09, R-SRC-13..15, `engine/20` R-EXE-03, R-EXE-05,
 `engine/21`, `vendor/40` R-VND-21, Q-21.
+Amended 2026-10-16: the pre-tree constructors of `RecursiveCte` and
+`RecursiveSpec` are dropped before 0.10.0 (nothing shipped).
+A customizer that drops a source's check columns raises `MQ1205` (R-QRY-11, AC-QRY-10), not a new code,
+after the customizer runs and before any statement.
 
 **D-148 — Custom filter operators join 0.10.0 (2026-10-16, user decision).** RFC 0017's typed, named
 `FilterOperator` (`Filters.op`, `Having.op`) and its `model-query-hibernate` catalogue ship in 0.10.0 as M29, after M28,

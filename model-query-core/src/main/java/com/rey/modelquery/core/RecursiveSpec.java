@@ -34,12 +34,6 @@ import java.util.Objects;
 public record RecursiveSpec(CriteriaBuilder cb, CriteriaQuery<Tuple> seed, RecursiveTerm term, Class<?> keyType,
         List<String> keyAliases, String levelAlias, String markAlias, int maxDepth, @Incubating boolean tree) {
 
-    /** Builds a recursive source without a duplicate-key check (R-SRC-07). */
-    public RecursiveSpec(CriteriaBuilder cb, CriteriaQuery<Tuple> seed, RecursiveTerm term, Class<?> keyType,
-            List<String> keyAliases, String levelAlias, String markAlias, int maxDepth) {
-        this(cb, seed, term, keyType, keyAliases, levelAlias, markAlias, maxDepth, false);
-    }
-
     /** Validates the components. */
     public RecursiveSpec {
         Objects.requireNonNull(cb, "cb");

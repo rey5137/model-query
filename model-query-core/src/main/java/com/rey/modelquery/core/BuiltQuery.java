@@ -44,16 +44,14 @@ public final class BuiltQuery<M> {
     private final List<Selection<?>> recursionChecks;
     /** The source's {@code maxDepth}, or 0 for a query that reads no recursive source (R-SRC-07). */
     private final int maxDepth;
-    private final String sourceKeyColumn;
-    private final int sourceKeyColumnCount;
+    private final List<String> sourceKeyColumns;
 
     BuiltQuery(CriteriaQuery<Tuple> query, JoinContext joins, RowSelection selection, Function<Row, M> mapping) {
-        this(query, joins, selection, mapping, null, List.of(), 0, null, 0);
+        this(query, joins, selection, mapping, null, List.of(), 0, List.of());
     }
 
     BuiltQuery(CriteriaQuery<Tuple> query, JoinContext joins, RowSelection selection, Function<Row, M> mapping,
-            Expression<?> parentKey, List<Selection<?>> recursionChecks, int maxDepth, String sourceKeyColumn,
-            int sourceKeyColumnCount) {
+            Expression<?> parentKey, List<Selection<?>> recursionChecks, int maxDepth, List<String> sourceKeyColumns) {
         this.query = query;
         this.joins = joins;
         this.selection = selection;
@@ -61,8 +59,7 @@ public final class BuiltQuery<M> {
         this.parentKey = parentKey;
         this.recursionChecks = List.copyOf(recursionChecks);
         this.maxDepth = maxDepth;
-        this.sourceKeyColumn = sourceKeyColumn;
-        this.sourceKeyColumnCount = sourceKeyColumnCount;
+        this.sourceKeyColumns = List.copyOf(sourceKeyColumns);
     }
 
     /** The Criteria query, selecting {@link Tuple}s. */
@@ -101,18 +98,11 @@ public final class BuiltQuery<M> {
         return recursionChecks;
     }
 
-    /** The source key's first column, named by {@code MQ2703}; null without a source (R-SRC-14). */
+    /** The source key's columns, in key order, for {@code MQ2703}; empty without a source (R-SRC-14). */
     @EngineFacing
     @Incubating
-    public String sourceKeyColumn() {
-        return sourceKeyColumn;
-    }
-
-    /** The source key's column count, for {@code MQ2703}; 0 without a source (R-SRC-14). */
-    @EngineFacing
-    @Incubating
-    public int sourceKeyColumnCount() {
-        return sourceKeyColumnCount;
+    public List<String> sourceKeyColumns() {
+        return sourceKeyColumns;
     }
 
     /** The deepest level the source returns, the seeds being level 0; 0 when the source does not recurse (R-SRC-07). */
