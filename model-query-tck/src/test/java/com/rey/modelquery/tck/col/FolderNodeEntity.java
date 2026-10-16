@@ -3,7 +3,11 @@ package com.rey.modelquery.tck.col;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.ManyToMany;
 import jakarta.persistence.Table;
+import java.util.List;
 
 /**
  * Fixture entity over {@code folder_nodes}: each row points at its parent, which a recursive source's step turns into
@@ -21,4 +25,10 @@ public class FolderNodeEntity {
     Long parentId;
 
     String name;
+
+    /** A separate graph with a diamond, 200 -> {201, 202} -> 203 (AC-SRC-18). */
+    @ManyToMany
+    @JoinTable(name = "folder_links", joinColumns = @JoinColumn(name = "child_id"),
+            inverseJoinColumns = @JoinColumn(name = "parent_id"))
+    List<FolderNodeEntity> parents;
 }

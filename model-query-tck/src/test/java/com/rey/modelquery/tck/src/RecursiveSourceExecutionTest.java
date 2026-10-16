@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
@@ -14,14 +15,18 @@ import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.SourceQuery;
+import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
+import com.rey.modelquery.tck.col.FolderNodeEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
+import com.rey.modelquery.tck.portability.LegacyRecursiveProviderSupport;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
 import com.rey.modelquery.tck.vnd.VendorSources;
+import jakarta.persistence.criteria.JoinType;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -304,6 +309,79 @@ class RecursiveSourceExecutionTest {
         assertThat(rows.get(rows.size() - 1).level()).isEqualTo(998);
     }
 
+    // ---- AC-SRC-18, the same statement checks the whole walk before returning any result
+
+    @TckTest
+    void ac_src_18_a_tree_selects_its_duplicate_probe_on_every_vendor(TckDatabase db) {
+        SqlSnapshots.assertMatches(db, "src-18-tree", ds -> withExecutor(ds, FolderNode.class, executor -> {
+            SourceQuery<FolderNode> source = checkedTree(3, 1L);
+            assertThat(executor.list(rows(source), Limit.unlimited())).hasSize(6);
+        }));
+        SqlSnapshots.capture(db, ds -> withExecutor(ds, FolderNode.class, executor -> {
+            assertThat(executor.count(rows(checkedTree(3, 1L)))).isEqualTo(6);
+            assertThat(executor.count(levels(checkedTree(3, 1L)))).isEqualTo(3);
+        }));
+    }
+
+    @TckTest
+    void ac_src_18_overlapping_seeds_and_a_diamond_refuse_content_count_and_grouped_count(TckDatabase db) {
+        SqlSnapshots.capture(db, ds -> withExecutor(ds, FolderNode.class, executor -> {
+            for (SourceQuery<FolderNode> source : List.of(checkedTree(3, 1L, 2L), diamond())) {
+                assertThat(assertDuplicate(() -> executor.list(rows(source), Limit.unlimited()), "FolderRow", "id="))
+                        .hasMessageNotContaining("first column");
+                assertThat(assertDuplicate(() -> executor.count(rows(source)), "FolderRow", "id="))
+                        .hasMessageNotContaining("first column");
+                assertThat(assertDuplicate(() -> executor.count(levels(source)), "FolderLevelTotals", "id="))
+                        .hasMessageNotContaining("first column");
+            }
+        }));
+    }
+
+    @TckTest
+    void ac_src_18_the_probe_ignores_outer_filters_and_checks_streams_before_delivery(TckDatabase db) {
+        SqlSnapshots.capture(db, ds -> withTransaction(ds, FolderNode.class, executor -> {
+            ModelQuery<FolderNode, ?, FolderRow> filtered = rowsBuilder(checkedTree(3, 1L, 2L))
+                    .where(f -> f.eq(QFolderRow.ID, 1L)).build();
+            assertDuplicate(() -> executor.list(filtered, Limit.unlimited()), "FolderRow", "id=2");
+            List<FolderRow> delivered = new ArrayList<>();
+            assertDuplicate(() -> executor.stream(rows(diamond()), Limit.unlimited(), stream -> {
+                stream.forEach(delivered::add);
+                return delivered.size();
+            }), "FolderRow", "id=203");
+            assertThat(delivered).isEmpty();
+        }));
+    }
+
+    @TckTest
+    void ac_src_18_depth_and_cycle_errors_precede_the_duplicate_error(TckDatabase db) {
+        SqlSnapshots.capture(db, ds -> withExecutor(ds, FolderNode.class, executor -> {
+            assertCode(() -> executor.list(rows(checkedTree(1, 10L, 11L)), Limit.unlimited()), MqCode.MQ2701);
+            assertCode(() -> executor.list(rows(checkedTree(5, 100L)), Limit.unlimited()), MqCode.MQ2702);
+        }));
+    }
+
+    @TckTest
+    void ac_src_22_one_checks_the_walk_before_deciding_how_many_rows_it_returned(TckDatabase db) {
+        SqlSnapshots.capture(db, ds -> withExecutor(ds, FolderNode.class, executor ->
+                assertDuplicate(() -> executor.one(rows(checkedTree(3, 1L, 2L))), "FolderRow", "id=2")));
+    }
+
+    @TckTest
+    void ac_src_24_an_old_renderer_refuses_trees_before_any_statement_but_still_serves_recursive(TckDatabase db) {
+        List<String> sql = SqlSnapshots.capture(db, ds -> LegacyRecursiveProviderSupport.serving(false,
+                () -> withExecutor(ds, FolderNode.class, executor -> {
+                    assertCode(() -> executor.list(rows(checkedTree(3, 1L)), Limit.unlimited()), MqCode.MQ4014);
+                    assertCode(() -> executor.count(rows(checkedTree(3, 1L))), MqCode.MQ4014);
+                })));
+        assertThat(sql).isEmpty();
+        for (boolean extraCheck : new boolean[] {false, true}) {
+            List<String> recursiveSql = SqlSnapshots.capture(db, ds -> LegacyRecursiveProviderSupport
+                    .serving(extraCheck, () -> withExecutor(ds, FolderNode.class, executor ->
+                            assertThat(executor.list(rows(tree(1L, 3)), Limit.unlimited())).hasSize(6))));
+            SqlSnapshots.assertMatches(db, "src-12-tree", recursiveSql);
+        }
+    }
+
     // ---- AC-SRC-21, a node key of more than one column
 
     @TckTest
@@ -334,11 +412,27 @@ class RecursiveSourceExecutionTest {
                 .containsExactlyInAnyOrder("1|1|0", "1|2|1", "1|3|1", "1|4|2", "1|5|2", "1|6|2");
     }
 
-    /** The tree {@code composite_nodes} holds, from its root to level 3 (AC-SRC-21, R-SRC-07). */
+    @TckTest
+    void ac_src_21_postgres_and_mysql_check_the_whole_composite_key(TckDatabase db) {
+        Assumptions.assumeTrue(!VendorSources.refusesCompositeNodeKey(db), "H2 refuses a composite node key");
+        SourceQuery<CompositeNode> source = QCompositeNode.source()
+                .where(f -> f.in(QCompositeNode.ID, List.of(1L, 2L)))
+                .tree(step -> step.childKey(QCompositeNode.PARENT_ID).parentKey(QCompositeNode.ID), 3).build();
+        ModelQuery<CompositeNode, ?, CompositeNodeRow> query = QCompositeNodeRow.query(source)
+                .select(QCompositeNodeRow.ALL).orderBy(QCompositeNodeRow.ID.asc()).build();
+        SqlSnapshots.capture(db, ds -> withExecutor(ds, CompositeNode.class, executor -> {
+            assertThat(assertDuplicate(() -> executor.list(query, Limit.unlimited()), "CompositeNodeRow", "tenantId=1"))
+                    .hasMessageContaining("only the key's first column is shown");
+            assertThat(assertDuplicate(() -> executor.count(query), "CompositeNodeRow", "tenantId=1"))
+                    .hasMessageContaining("only the key's first column is shown");
+        }));
+    }
+
+    /** The tree {@code composite_nodes} holds, from its root to level 3 (AC-SRC-21, R-SRC-13). */
     private static ModelQuery<CompositeNode, ?, CompositeNodeRow> compositeTree() {
         SourceQuery<CompositeNode> source = QCompositeNode.source()
                 .where(f -> f.eq(QCompositeNode.ID, TckFixture.COMPOSITE_TREE_ROOT))
-                .recursive(step -> step.childKey(QCompositeNode.PARENT_ID).parentKey(QCompositeNode.ID), 3).build();
+                .tree(step -> step.childKey(QCompositeNode.PARENT_ID).parentKey(QCompositeNode.ID), 3).build();
         return QCompositeNodeRow.query(source).select(QCompositeNodeRow.ALL)
                 .orderBy(QCompositeNodeRow.ID.asc()).build();
     }
@@ -346,6 +440,33 @@ class RecursiveSourceExecutionTest {
     private static SourceQuery<FolderNode> tree(long root, int maxDepth) {
         return QFolderNode.source().where(f -> f.eq(QFolderNode.ID, root))
                 .recursive(step -> step.childKey(QFolderNode.PARENT_ID).parentKey(QFolderNode.ID), maxDepth).build();
+    }
+
+    private static SourceQuery<FolderNode> checkedTree(int maxDepth, Long... seeds) {
+        return QFolderNode.source().where(f -> f.in(QFolderNode.ID, List.of(seeds)))
+                .tree(step -> step.childKey(QFolderNode.PARENT_ID).parentKey(QFolderNode.ID), maxDepth).build();
+    }
+
+    private static SourceQuery<FolderNode> diamond() {
+        TableField<FolderNodeEntity, FolderNodeEntity> folders = TableField.root(FolderNodeEntity.class);
+        ColumnField<FolderNode, FolderNodeEntity, Long> parent = ColumnField.of(FolderNode.class,
+                TableField.join(folders, "parents", JoinType.INNER), "id", Long.class);
+        return QFolderNode.source().where(f -> f.eq(QFolderNode.ID, 200L))
+                .tree(step -> step.childKey(parent).parentKey(QFolderNode.ID), 3).build();
+    }
+
+    private static ModelQueryException assertDuplicate(Runnable work, String model, String key) {
+        ModelQueryException refusal = assertCode(work, MqCode.MQ2703);
+        assertThat(refusal).hasMessageContaining(model).hasMessageContaining(key)
+                .hasMessageContaining("narrow the seeds").hasMessageContaining("recursive(...)");
+        return refusal;
+    }
+
+    private static ModelQueryException assertCode(Runnable work, MqCode code) {
+        Throwable refusal = catchThrowable(work::run);
+        assertThat(refusal).isInstanceOf(ModelQueryException.class);
+        assertThat(((ModelQueryException) refusal).code()).isEqualTo(code);
+        return (ModelQueryException) refusal;
     }
 
     /** The seed of the cyclic graph: 100's parent is 101, whose parent is 100 again (AC-SRC-13). */

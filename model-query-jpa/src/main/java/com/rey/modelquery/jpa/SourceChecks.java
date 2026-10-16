@@ -19,14 +19,14 @@ final class SourceChecks {
     private SourceChecks() {}
 
     /**
-     * Refuses a read of a recursive source whose tree is deeper than its {@code maxDepth} ({@code MQ2701}) or whose
-     * graph closed a cycle ({@code MQ2702}), from the check columns of the statement's own first row, so no
+     * Refuses depth ({@code MQ2701}), then cycle ({@code MQ2702}), then a tree's duplicate key ({@code MQ2703}),
+     * from the check columns of the statement's own first row (R-SRC-14), so no
      * too-deep or doubled row reaches the mapper or a sink (R-SRC-07). A statement over no recursive source carries
      * no check columns, and an empty result carries no row to read: nothing is refused then, which is the race
      * {@code engine/21} and RFC 0013 §5 leave documented under READ COMMITTED.
      *
-     * @throws ModelQueryExecutionException {@code MQ2701} or {@code MQ2702}, naming the model and the first
-     *     offending key
+     * @throws ModelQueryExecutionException {@code MQ2701}, {@code MQ2702} or {@code MQ2703}, naming the model and
+     *     the first offending key
      */
     static void checkRecursion(Object label, BuiltQuery<?> built, List<Tuple> tuples) {
         if (built.recursionChecks().isEmpty() || tuples.isEmpty()) {
@@ -44,6 +44,17 @@ final class SourceChecks {
             throw new ModelQueryExecutionException(MqCode.MQ2702, label + ": the source's graph has a cycle: key "
                     + cycle + " is reachable by two paths, which a source reads twice; remove the cycle or filter it "
                     + "out of the source's where(...)");
+        }
+        if (built.recursionChecks().stream()
+                .anyMatch(check -> BuiltQuery.RECURSION_DUPLICATE_KEY.equals(check.getAlias()))) {
+            Object duplicate = first.get(BuiltQuery.RECURSION_DUPLICATE_KEY);
+            if (duplicate != null) {
+                String keyNote = built.sourceKeyColumnCount() > 1 ? " (only the key's first column is shown)" : "";
+                throw new ModelQueryExecutionException(MqCode.MQ2703, label + ": the tree source reaches key "
+                        + built.sourceKeyColumn() + "=" + duplicate + " twice" + keyNote
+                        + "; narrow the seeds or use recursive(...) "
+                        + "for a graph that reaches a node by more than one path");
+            }
         }
     }
 }

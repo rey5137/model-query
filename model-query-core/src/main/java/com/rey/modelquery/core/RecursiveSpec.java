@@ -10,7 +10,7 @@ import java.util.Objects;
 /**
  * A recursive source's CTE at render time (R-SRC-07, R-SRC-12): the seed the source's own rows come from,
  * the {@link RecursiveTerm} that steps one level deeper, the depth limit, and the CTE column names the provider needs
- * to cycle on and to build the two checks of {@link RecursiveCte}. Built by {@link SourceQuery} per statement and
+ * to cycle on and to build the checks of {@link RecursiveCte}. Built by {@link SourceQuery} per statement and
  * handed to {@code SourceRenderer#recursive}, which registers it as a {@code WITH RECURSIVE} CTE.
  *
  * <p>The seed is level 0 for every row it holds. The term recurses while the parent's level is below
@@ -26,12 +26,19 @@ import java.util.Objects;
  * @param levelAlias the CTE column alias of the level: the {@code @Depth} field's name
  * @param markAlias the CTE column alias of the cycle mark, which the provider sets and the outer query filters on
  * @param maxDepth the deepest level the outer query returns, the seed rows being level 0
- * @implSpec R-SRC-07, R-SRC-12, R-PROC-37
+ * @param tree whether every node must be reached once, checked by the provider's duplicate-key sub-select
+ * @implSpec R-SRC-07, R-SRC-12, R-SRC-13, R-SRC-14, R-PROC-37
  */
 @EngineFacing
 @Incubating
 public record RecursiveSpec(CriteriaBuilder cb, CriteriaQuery<Tuple> seed, RecursiveTerm term, Class<?> keyType,
-        List<String> keyAliases, String levelAlias, String markAlias, int maxDepth) {
+        List<String> keyAliases, String levelAlias, String markAlias, int maxDepth, @Incubating boolean tree) {
+
+    /** Builds a recursive source without a duplicate-key check (R-SRC-07). */
+    public RecursiveSpec(CriteriaBuilder cb, CriteriaQuery<Tuple> seed, RecursiveTerm term, Class<?> keyType,
+            List<String> keyAliases, String levelAlias, String markAlias, int maxDepth) {
+        this(cb, seed, term, keyType, keyAliases, levelAlias, markAlias, maxDepth, false);
+    }
 
     /** Validates the components. */
     public RecursiveSpec {

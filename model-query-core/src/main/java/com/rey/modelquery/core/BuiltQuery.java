@@ -30,6 +30,10 @@ public final class BuiltQuery<M> {
     /** The alias of a recursive source's cycle check, a column of the statement's selection (R-SRC-07). */
     public static final String RECURSION_CYCLE = "mqRecursionCycle";
 
+    /** The alias of a tree source's duplicate-key check, read after depth and cycle (R-SRC-14). */
+    @Incubating
+    public static final String RECURSION_DUPLICATE_KEY = "mqRecursionDuplicateKey";
+
     private final CriteriaQuery<Tuple> query;
     private final JoinContext joins;
     private final RowSelection selection;
@@ -40,13 +44,16 @@ public final class BuiltQuery<M> {
     private final List<Selection<?>> recursionChecks;
     /** The source's {@code maxDepth}, or 0 for a query that reads no recursive source (R-SRC-07). */
     private final int maxDepth;
+    private final String sourceKeyColumn;
+    private final int sourceKeyColumnCount;
 
     BuiltQuery(CriteriaQuery<Tuple> query, JoinContext joins, RowSelection selection, Function<Row, M> mapping) {
-        this(query, joins, selection, mapping, null, List.of(), 0);
+        this(query, joins, selection, mapping, null, List.of(), 0, null, 0);
     }
 
     BuiltQuery(CriteriaQuery<Tuple> query, JoinContext joins, RowSelection selection, Function<Row, M> mapping,
-            Expression<?> parentKey, List<Selection<?>> recursionChecks, int maxDepth) {
+            Expression<?> parentKey, List<Selection<?>> recursionChecks, int maxDepth, String sourceKeyColumn,
+            int sourceKeyColumnCount) {
         this.query = query;
         this.joins = joins;
         this.selection = selection;
@@ -54,6 +61,8 @@ public final class BuiltQuery<M> {
         this.parentKey = parentKey;
         this.recursionChecks = List.copyOf(recursionChecks);
         this.maxDepth = maxDepth;
+        this.sourceKeyColumn = sourceKeyColumn;
+        this.sourceKeyColumnCount = sourceKeyColumnCount;
     }
 
     /** The Criteria query, selecting {@link Tuple}s. */
@@ -85,11 +94,25 @@ public final class BuiltQuery<M> {
      * The checks of a recursive source, to append to a statement this query is the model of — a statement that
      * replaces the selection, as the count does; empty when the source does not recurse (R-SRC-07). Each is a scalar
      * sub-select over the source's CTE, read from the statement's first row by its alias
-     * ({@link #RECURSION_DEPTH}, {@link #RECURSION_CYCLE}).
+     * ({@link #RECURSION_DEPTH}, {@link #RECURSION_CYCLE}, and for a tree {@link #RECURSION_DUPLICATE_KEY}).
      */
     @EngineFacing
     public List<Selection<?>> recursionChecks() {
         return recursionChecks;
+    }
+
+    /** The source key's first column, named by {@code MQ2703}; null without a source (R-SRC-14). */
+    @EngineFacing
+    @Incubating
+    public String sourceKeyColumn() {
+        return sourceKeyColumn;
+    }
+
+    /** The source key's column count, for {@code MQ2703}; 0 without a source (R-SRC-14). */
+    @EngineFacing
+    @Incubating
+    public int sourceKeyColumnCount() {
+        return sourceKeyColumnCount;
     }
 
     /** The deepest level the source returns, the seeds being level 0; 0 when the source does not recurse (R-SRC-07). */

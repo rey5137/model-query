@@ -186,6 +186,28 @@ class SourcePortabilityTest {
                 .contains("with recursive"));
     }
 
+    @Test
+    void ac_src_24_a_renderer_without_the_tree_check_reports_the_reason_per_target_without_a_database() {
+        SourceQuery<FolderNode> source = QFolderNode.source().where(f -> f.eq(QFolderNode.ID, 1L))
+                .tree(step -> step.childKey(QFolderNode.PARENT_ID).parentKey(QFolderNode.ID), 3).build();
+        ModelQuery<FolderNode, ?, FolderRow> query = QFolderRow.query(source).select(QFolderRow.ALL)
+                .orderBy(QFolderRow.ID.asc()).build();
+        List<String> lines = new ArrayList<>();
+        LegacyRecursiveProviderSupport.serving(false, () -> lines.addAll(report(check(ModelQueryConfig.defaults())
+                .targets(H2, POSTGRESQL, MYSQL)
+                .call("TREE", FolderNode.class, x -> x.list(query, Limit.of(10)))
+                .call("RECURSIVE", FolderNode.class, x -> x.list(tree(3), Limit.of(10))))));
+
+        assertThat(lines).hasSize(7);
+        for (Target target : List.of(H2, POSTGRESQL, MYSQL)) {
+            assertThat(lines).anySatisfy(line -> assertThat(line)
+                    .startsWith("TREE on " + target + ": REFUSED MQ4014")
+                    .contains("SourceRenderer returned no duplicate-key check for a tree(...) source"));
+            assertThat(lines).anySatisfy(line -> assertThat(line)
+                    .startsWith("RECURSIVE on " + target + ": REACHED").contains("with recursive"));
+        }
+    }
+
     /** A recursive read of the composite tree to level 3 (api/17 AC-SRC-21, R-SRC-07). */
     private static ModelQuery<CompositeNode, ?, CompositeNodeRow> compositeTree() {
         SourceQuery<CompositeNode> source = QCompositeNode.source().where(f -> f.eq(QCompositeNode.ID, 1L))

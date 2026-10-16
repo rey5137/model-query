@@ -34,7 +34,7 @@ import java.util.stream.Stream;
  * any statement (spec api/17 R-SRC-11). Found with {@code ServiceLoader} only inside {@link #serving(Runnable)}, so
  * the offline boot still serves the factory through Hibernate's own offline properties.
  */
-public final class NoSourceProviderSupport implements ProviderSupport {
+public class NoSourceProviderSupport implements ProviderSupport {
 
     private static final String SERVICE = "META-INF/services/" + ProviderSupport.class.getName();
 
@@ -122,11 +122,15 @@ public final class NoSourceProviderSupport implements ProviderSupport {
 
     /** Runs {@code work} where this class is the only {@code ProviderSupport} {@code ServiceLoader} finds. */
     static void serving(Runnable work) {
+        serving(NoSourceProviderSupport.class, work);
+    }
+
+    static void serving(Class<? extends ProviderSupport> provider, Runnable work) {
         URL service;
         Path file;
         try {
             file = Files.createTempFile("provider-support", ".txt");
-            Files.writeString(file, NoSourceProviderSupport.class.getName() + "\n");
+            Files.writeString(file, provider.getName() + "\n");
             service = file.toUri().toURL();
         } catch (IOException e) {
             throw new UncheckedIOException(e);

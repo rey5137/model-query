@@ -14,6 +14,7 @@ import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import java.math.BigDecimal;
+import java.util.List;
 import org.hibernate.query.criteria.HibernateCriteriaBuilder;
 import org.hibernate.query.criteria.JpaCriteriaQuery;
 import org.hibernate.query.criteria.JpaCteCriteria;
@@ -56,7 +57,7 @@ final class HibernateSourceRenderer implements SourceRenderer {
 
     /**
      * The recursive CTE of {@code query}, registered as {@code with recursive} over {@code spec}'s seed and term,
-     * with the cycle clause marking the row that closes a cycle, and the two checks as scalar sub-selects over the
+     * with the cycle clause marking the row that closes a cycle, and the checks as scalar sub-selects over the
      * same CTE (R-SRC-07). Everything here is identical on Hibernate 6.6 and 7.4 (RFC 0013 spike, items 3 and 10).
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -71,8 +72,8 @@ final class HibernateSourceRenderer implements SourceRenderer {
         cte.cycle(spec.markAlias(), spec.keyAliases().stream()
                 .map(alias -> cte.getType().getAttribute(alias))
                 .toArray(JpaCteCriteriaAttribute[]::new));
-        // Two scalar sub-selects over the same CTE, read from the outer statement's first row: the smallest key past
-        // maxDepth and the smallest marked key. Each is null where the CTE holds no such row.
+        // Scalar sub-selects over the same CTE, read from the outer statement's first row: the smallest key past
+        // maxDepth, the smallest marked key, and, for a tree, the first duplicated whole key (R-SRC-14).
         JpaSubQuery depth = (JpaSubQuery) query.subquery(spec.keyType());
         JpaRoot<Tuple> deepest = (JpaRoot<Tuple>) depth.from(cte);
         Expression<?> depthKey = firstKey(depth, deepest, spec, cb,
@@ -81,7 +82,17 @@ final class HibernateSourceRenderer implements SourceRenderer {
         JpaRoot<Tuple> closed = (JpaRoot<Tuple>) cycle.from(cte);
         Expression<?> cycleKey = firstKey(cycle, closed, spec, cb,
                 cb.isTrue(closed.<Boolean>get(spec.markAlias())));
-        return new RecursiveCte(query.from(cte), depthKey, cycleKey);
+        Expression<?> duplicateKey = null;
+        if (spec.tree()) {
+            JpaSubQuery duplicate = (JpaSubQuery) query.subquery(spec.keyType());
+            JpaRoot<Tuple> node = (JpaRoot<Tuple>) duplicate.from(cte);
+            List<Expression<?>> keys = spec.keyAliases().stream().<Expression<?>>map(node::get).toList();
+            duplicate.select(keys.get(0)).groupBy(keys).having(cb.gt(cb.count(cb.literal(1)), 1));
+            duplicate.orderBy(keys.stream().map(cb::asc).toList());
+            duplicate.fetch(1);
+            duplicateKey = duplicate;
+        }
+        return new RecursiveCte(query.from(cte), depthKey, cycleKey, duplicateKey);
     }
 
     /** {@code sub} selecting the smallest key of the CTE rows {@code where} matches, as the sub-query itself. */

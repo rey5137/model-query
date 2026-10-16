@@ -132,7 +132,8 @@ public final class TckFixture {
     }
 
     private static void seed(Connection c, TckVendor vendor) throws SQLException {
-        insert(c, "INSERT INTO customers (id, name, email, country, vip, created_at) VALUES (?,?,?,?,?,?)", CUSTOMERS, (ps, i) -> {
+        insert(c, "INSERT INTO customers (id, name, email, country, vip, created_at) VALUES (?,?,?,?,?,?)",
+                CUSTOMERS, (ps, i) -> {
             ps.setLong(1, i);
             ps.setString(2, "Customer " + pad(i, 4));
             ps.setString(3, "customer" + pad(i, 4) + "@example.test");
@@ -141,7 +142,8 @@ public final class TckFixture {
             ps.setTimestamp(6, Timestamp.valueOf(BASE.plusHours(i)));
         });
         // A third of the orders have a referrer: a nullable to-one reference, where an INNER join removes rows.
-        insert(c, "INSERT INTO orders (id, customer_id, status, total, placed_at, referrer_id) VALUES (?,?,?,?,?,?)", ORDERS, (ps, i) -> {
+        insert(c, "INSERT INTO orders (id, customer_id, status, total, placed_at, referrer_id) VALUES (?,?,?,?,?,?)",
+                ORDERS, (ps, i) -> {
             ps.setLong(1, i);
             ps.setLong(2, (i * 37L) % CUSTOMERS + 1);
             ps.setString(3, STATUSES[i % STATUSES.length]);
@@ -153,14 +155,16 @@ public final class TckFixture {
                 ps.setNull(6, Types.BIGINT);
             }
         });
-        insert(c, "INSERT INTO order_items (id, order_id, product_code, quantity, unit_price) VALUES (?,?,?,?,?)", ORDER_ITEMS, (ps, i) -> {
+        insert(c, "INSERT INTO order_items (id, order_id, product_code, quantity, unit_price) VALUES (?,?,?,?,?)",
+                ORDER_ITEMS, (ps, i) -> {
             ps.setLong(1, i);
             ps.setLong(2, ((i - 1) * 7L) % ORDERS + 1);
             ps.setString(3, "P" + pad(i % 50, 3));
             ps.setInt(4, i % 9 + 1);
             ps.setBigDecimal(5, BigDecimal.valueOf((i * 31L) % 10_000 + 100, 2));
         });
-        insert(c, "INSERT INTO composite_key_items (tenant_id, item_no, label, amount) VALUES (?,?,?,?)", COMPOSITE_KEY_ITEMS, (ps, i) -> {
+        insert(c, "INSERT INTO composite_key_items (tenant_id, item_no, label, amount) VALUES (?,?,?,?)",
+                COMPOSITE_KEY_ITEMS, (ps, i) -> {
             int tenant = (i - 1) / COMPOSITE_ITEMS_PER_TENANT + 1;
             int itemNo = (i - 1) % COMPOSITE_ITEMS_PER_TENANT + 1;
             ps.setInt(1, tenant);
@@ -169,7 +173,8 @@ public final class TckFixture {
             ps.setBigDecimal(4, BigDecimal.valueOf((i * 53L) % 5_000, 2));
         });
         // Nullable sort columns hold duplicates (i % 50) and NULLs on independent cycles (5, 7, 11).
-        insert(c, "INSERT INTO nullable_sort_rows (id, sort_int, sort_text, sort_ts) VALUES (?,?,?,?)", NULLABLE_SORT_ROWS, (ps, i) -> {
+        insert(c, "INSERT INTO nullable_sort_rows (id, sort_int, sort_text, sort_ts) VALUES (?,?,?,?)",
+                NULLABLE_SORT_ROWS, (ps, i) -> {
             ps.setLong(1, i);
             if (i % 5 == 0) {
                 ps.setNull(2, Types.INTEGER);
@@ -329,6 +334,12 @@ public final class TckFixture {
             nullableText(ps, 7, status == null ? null : status.substring(0, 1));
         });
         seedFolders(c);
+        try (Statement statement = c.createStatement()) {
+            statement.executeUpdate("INSERT INTO folder_nodes (id, parent_id, name) VALUES "
+                    + "(200, NULL, 'diamond-root'), (201, NULL, 'left'), (202, NULL, 'right'), (203, NULL, 'leaf')");
+            statement.executeUpdate("INSERT INTO folder_links (parent_id, child_id) VALUES "
+                    + "(200, 201), (200, 202), (201, 203), (202, 203)");
+        }
         seedCompositeNodes(c);
     }
 
@@ -426,7 +437,7 @@ public final class TckFixture {
     public static final int FOLDER_DEEP_NODES = 999;
 
     public static final int FOLDER_NODES =
-            FOLDER_TREE_NODES + FOLDER_CHAIN_NODES + FOLDER_CYCLE_NODES + FOLDER_DEEP_NODES;
+            FOLDER_TREE_NODES + FOLDER_CHAIN_NODES + FOLDER_CYCLE_NODES + FOLDER_DEEP_NODES + 4;
 
     /** Root ids of the tree, the chain, the cycle and the deep chain, each a step's seed row. */
     public static final long FOLDER_TREE_ROOT = 1;

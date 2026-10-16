@@ -1,0 +1,264 @@
+package com.rey.modelquery.core;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
+
+import jakarta.persistence.Tuple;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Path;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Selection;
+import java.lang.reflect.Proxy;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.UnaryOperator;
+import org.junit.jupiter.api.Test;
+
+/** The tree declaration and the provider's mandatory duplicate check (R-SRC-13, R-SRC-14, AC-SRC-24). */
+class TreeSourceQueryTest {
+
+    static final class Entity {}
+    static final class Node {}
+    static final class View {}
+
+    private static final TableField<Entity, Entity> ENTITY_ROOT = TableField.root(Entity.class);
+    private static final OrderedColumnField<Node, Entity, Long> ID =
+            ColumnField.of(Node.class, ENTITY_ROOT, "id", Long.class).named("id");
+    private static final OrderedColumnField<Node, Entity, Long> PARENT_ID =
+            ColumnField.of(Node.class, ENTITY_ROOT, "parentId", Long.class).named("parentId");
+    private static final OrderedColumnField<Node, Entity, Integer> LEVEL =
+            ColumnField.of(Node.class, ENTITY_ROOT, "level", Integer.class).named("level");
+    private static final SelectSet<Node> ALL = SelectSet.of(ID, PARENT_ID, LEVEL);
+    private static final PrimaryKey<Node, Long> KEY = PrimaryKey.of(ID);
+    private static final TableField<Node, Node> SOURCE_ROOT = TableField.source(Node.class);
+    private static final OrderedColumnField<View, Node, Long> VIEW_ID =
+            ColumnField.over(View.class, SOURCE_ROOT, ID).named("id");
+
+    private static SourceQuery.Builder<Entity, Node, Node> builder() {
+        return SourceQuery.builder(Node.class, ENTITY_ROOT, ALL, KEY).depth(LEVEL);
+    }
+
+    private static SourceQuery<Node> tree() {
+        return builder().tree(step -> step.childKey(PARENT_ID).parentKey(ID), 3).build();
+    }
+
+    private static SourceQuery<Node> recursive() {
+        return builder().recursive(step -> step.childKey(PARENT_ID).parentKey(ID), 3).build();
+    }
+
+    @Test
+    void r_src_13_tree_is_carried_to_the_renderer_without_changing_the_base_builder() {
+        var base = builder().recursive(step -> step.childKey(PARENT_ID).parentKey(ID), 2);
+        var tree = base.tree(step -> step.childKey(ID).parentKey(PARENT_ID), 5).build();
+
+        assertThat(spec(base.build()).tree()).isFalse();
+        assertThat(spec(tree).tree()).isTrue();
+        assertThat(tree.recursive()).isTrue();
+        assertThat(tree.levelAlias()).isEqualTo("mq_level");
+        assertThat(tree.maxDepth()).isEqualTo(5);
+        assertThat(base.build().maxDepth()).isEqualTo(2);
+        // M26.3 enables the key-based paths once the execution checks are in place.
+        assertThat(tree.unique()).isFalse();
+    }
+
+    @Test
+    void r_src_13_the_last_tree_or_recursive_call_replaces_the_previous_one() {
+        var treeBuilder = builder().tree(step -> step.childKey(ID).parentKey(PARENT_ID), 5);
+        SourceQuery<Node> recursive = treeBuilder
+                .recursive(step -> step.childKey(PARENT_ID).parentKey(ID), 2).build();
+        SourceQuery<Node> tree = treeBuilder
+                .tree(step -> step.childKey(PARENT_ID).parentKey(ID), 4).build();
+
+        assertThat(spec(recursive).tree()).isFalse();
+        assertThat(recursive.maxDepth()).isEqualTo(2);
+        assertThat(spec(tree).tree()).isTrue();
+        assertThat(tree.maxDepth()).isEqualTo(4);
+        assertThat(treeBuilder.build().maxDepth()).isEqualTo(5);
+    }
+
+    @Test
+    void r_src_13_tree_uses_the_recursive_depth_limits() {
+        for (int depth : new int[] {Integer.MIN_VALUE, -1, 0, Integer.MAX_VALUE - 1, Integer.MAX_VALUE}) {
+            Throwable thrown = catchThrowable(() -> builder()
+                    .tree(step -> step.childKey(PARENT_ID).parentKey(ID), depth));
+
+            assertThat(thrown).isInstanceOf(ModelQueryDefinitionException.class);
+            assertThat(((ModelQueryDefinitionException) thrown).code()).isEqualTo(MqCode.MQ1902);
+            assertThat(thrown.getMessage()).contains("Node: maxDepth " + depth + " is out of range");
+        }
+        for (int depth : new int[] {1, Integer.MAX_VALUE - 2}) {
+            assertThat(builder().tree(step -> step.childKey(PARENT_ID).parentKey(ID), depth).build().maxDepth())
+                    .isEqualTo(depth);
+        }
+    }
+
+    @Test
+    void r_src_13_tree_requires_a_depth_column() {
+        Throwable thrown = catchThrowable(() -> SourceQuery.builder(Node.class, ENTITY_ROOT, ALL, KEY)
+                .tree(step -> step.childKey(PARENT_ID).parentKey(ID), 3));
+
+        assertThat(thrown).isInstanceOf(ModelQueryDefinitionException.class);
+        assertThat(((ModelQueryDefinitionException) thrown).code()).isEqualTo(MqCode.MQ1902);
+        assertThat(thrown.getMessage()).contains("Node: only a source whose model declares a @Depth field");
+    }
+
+    @Test
+    void r_src_13_tree_is_never_a_set_operation_branch() {
+        SourceQuery<Node> tree = tree();
+        SourceQuery<Node> plain = SourceQuery.builder(Node.class, ENTITY_ROOT, ALL, KEY).build();
+        List<UnaryOperator<SourceQuery<Node>>> operations = List.of(tree::union, tree::unionAll,
+                tree::intersect, tree::except, plain::union, plain::unionAll, plain::intersect, plain::except);
+
+        for (UnaryOperator<SourceQuery<Node>> operation : operations) {
+            Throwable thrown = catchThrowable(() -> operation.apply(tree));
+            assertThat(thrown).isInstanceOf(ModelQueryDefinitionException.class);
+            assertThat(((ModelQueryDefinitionException) thrown).code()).isEqualTo(MqCode.MQ1904);
+        }
+    }
+
+    @Test
+    void ac_src_24_the_old_recursive_spec_constructor_defaults_to_no_tree_and_copies_the_key_aliases() {
+        RecursiveSpec original = spec(tree());
+        var aliases = new ArrayList<>(original.keyAliases());
+        var legacy = new RecursiveSpec(original.cb(), original.seed(), original.term(), original.keyType(),
+                aliases, original.levelAlias(), original.markAlias(), original.maxDepth());
+        aliases.clear();
+
+        assertThat(legacy.tree()).isFalse();
+        assertThat(legacy.cb()).isSameAs(original.cb());
+        assertThat(legacy.seed()).isSameAs(original.seed());
+        assertThat(legacy.term()).isSameAs(original.term());
+        assertThat(legacy.keyType()).isEqualTo(original.keyType());
+        assertThat(legacy.keyAliases()).containsExactlyElementsOf(original.keyAliases());
+        assertThat(legacy.levelAlias()).isEqualTo(original.levelAlias());
+        assertThat(legacy.markAlias()).isEqualTo(original.markAlias());
+        assertThat(legacy.maxDepth()).isEqualTo(original.maxDepth());
+    }
+
+    @Test
+    void ac_src_24_the_old_recursive_cte_constructor_defaults_to_no_duplicate_check() {
+        Root<Tuple> root = expression(Root.class, Tuple.class);
+        Expression<?> depth = expression(Expression.class, Long.class);
+        Expression<?> cycle = expression(Expression.class, Long.class);
+        var cte = new RecursiveCte(root, depth, cycle);
+
+        assertThat(cte.root()).isSameAs(root);
+        assertThat(cte.depthKey()).isSameAs(depth);
+        assertThat(cte.cycleKey()).isSameAs(cycle);
+        assertThat(cte.duplicateKey()).isNull();
+    }
+
+    @Test
+    void ac_src_24_a_tree_renderer_without_a_duplicate_check_is_mq4014_at_statement_build() {
+        ModelQuery<Node, Long, View> query = query(tree());
+
+        for (Phase phase : Phase.values()) {
+            Throwable thrown = catchThrowable(() -> query.buildQuery(criteria(), phase,
+                    RenderOptions.portable().withSourceRenderer(renderer(false))));
+
+            assertThat(thrown).isInstanceOf(ModelQueryConfigurationException.class);
+            assertThat(((ModelQueryConfigurationException) thrown).code()).isEqualTo(MqCode.MQ4014);
+            assertThat(thrown.getMessage()).contains("View", "Node", "SourceRenderer returned no duplicate-key check",
+                    "tree(...) source");
+        }
+    }
+
+    @Test
+    void ac_src_24_each_tree_statement_selects_the_duplicate_check_after_depth_and_cycle() {
+        ModelQuery<Node, Long, View> query = query(tree());
+
+        for (Phase phase : Phase.values()) {
+            BuiltQuery<View> built = query.buildQuery(criteria(), phase,
+                    RenderOptions.portable().withSourceRenderer(renderer(true)));
+
+            assertThat(built.recursionChecks()).extracting(Selection::getAlias).containsExactly(
+                    BuiltQuery.RECURSION_DEPTH, BuiltQuery.RECURSION_CYCLE, BuiltQuery.RECURSION_DUPLICATE_KEY);
+            assertThat(built.sourceMaxDepth()).isEqualTo(3);
+            assertThat(built.sourceKeyColumn()).isEqualTo("id");
+            assertThat(built.sourceKeyColumnCount()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void ac_src_24_recursive_keeps_two_checks_whether_the_renderer_supplies_a_duplicate_check_or_not() {
+        for (boolean duplicateCheck : new boolean[] {false, true}) {
+            BuiltQuery<View> built = query(recursive()).buildQuery(criteria(), Phase.MODEL,
+                    RenderOptions.portable().withSourceRenderer(renderer(duplicateCheck)));
+
+            assertThat(built.recursionChecks()).extracting(Selection::getAlias)
+                    .containsExactly(BuiltQuery.RECURSION_DEPTH, BuiltQuery.RECURSION_CYCLE);
+        }
+    }
+
+    private static RecursiveSpec spec(SourceQuery<Node> source) {
+        return source.recursiveSpec(criteria(), RenderOptions.portable(), renderer(false));
+    }
+
+    private static ModelQuery<Node, Long, View> query(SourceQuery<Node> source) {
+        return ModelQuery.builder(SOURCE_ROOT, row -> new View(), source).select(SelectSet.of(VIEW_ID))
+                .primaryKey(PrimaryKey.of(VIEW_ID)).build();
+    }
+
+    private static SourceRenderer renderer(boolean duplicateCheck) {
+        return new SourceRenderer() {
+            @Override
+            public Root<Tuple> cte(CriteriaQuery<?> outer, CriteriaQuery<Tuple> body) {
+                throw new AssertionError("a recursive source must use recursive");
+            }
+
+            @Override
+            public RecursiveCte recursive(CriteriaQuery<?> outer, RecursiveSpec spec) {
+                Root<Tuple> root = expression(Root.class, Tuple.class);
+                Expression<?> depth = expression(Expression.class, Long.class);
+                Expression<?> cycle = expression(Expression.class, Long.class);
+                return duplicateCheck
+                        ? new RecursiveCte(root, depth, cycle, expression(Expression.class, Long.class))
+                        : new RecursiveCte(root, depth, cycle);
+            }
+        };
+    }
+
+    private static CriteriaBuilder criteria() {
+        return (CriteriaBuilder) Proxy.newProxyInstance(CriteriaBuilder.class.getClassLoader(),
+                new Class<?>[] {CriteriaBuilder.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "createTupleQuery" -> criteriaQuery();
+                    case "literal" -> expression(Expression.class, args[0].getClass());
+                    case "le", "isFalse" -> expression(Predicate.class, Boolean.class);
+                    default -> throw new AssertionError(method.getName());
+                });
+    }
+
+    @SuppressWarnings("unchecked")
+    private static CriteriaQuery<Tuple> criteriaQuery() {
+        return (CriteriaQuery<Tuple>) Proxy.newProxyInstance(CriteriaQuery.class.getClassLoader(),
+                new Class<?>[] {CriteriaQuery.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "from" -> expression(Root.class, Entity.class);
+                    case "multiselect", "where" -> proxy;
+                    default -> throw new AssertionError(method.getName());
+                });
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T expression(Class<T> type, Class<?> javaType) {
+        String[] alias = {null};
+        return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "getJavaType" -> javaType;
+                    case "getModel" -> null;
+                    case "get" -> expression(Path.class,
+                            args[0].toString().contains("level") ? Integer.class : Long.class);
+                    case "alias" -> {
+                        alias[0] = (String) args[0];
+                        yield proxy;
+                    }
+                    case "getAlias" -> alias[0];
+                    case "equals" -> proxy == args[0];
+                    case "hashCode" -> System.identityHashCode(proxy);
+                    case "toString" -> type.getSimpleName();
+                    default -> throw new AssertionError(method.getName());
+                });
+    }
+}

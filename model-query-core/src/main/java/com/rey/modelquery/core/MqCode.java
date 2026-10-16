@@ -437,6 +437,10 @@ public enum MqCode {
      */
     MQ2702("A recursive source's graph closed a cycle"),
 
+    /** A tree source reaches a node twice; names the model and the key's first column (R-SRC-14). */
+    @Incubating
+    MQ2703("A tree source's walk reaches a node key twice"),
+
     /**
      * {@code modelquery.vendor} or {@code modelquery.target-vendors}, or {@code ModelQueryConfig.vendor(String)} or
      * {@code targetVendors(String...)}, names an unknown vendor (R-VND-04, R-VND-19).
@@ -460,9 +464,11 @@ public enum MqCode {
 
     /**
      * A {@code ModelQueryConfig} bean of the application's own drops a {@code VendorProfile},
-     * {@code WriteAssignment} or {@code ChunkTransactions} bean, or a set {@code modelquery.*} property (R-SPR-13, D-54).
+     * {@code WriteAssignment} or {@code ChunkTransactions} bean, or a set {@code modelquery.*} property
+     * (R-SPR-13, D-54).
      */
-    MQ4006("A ModelQueryConfig bean of the application drops a VendorProfile, WriteAssignment or ChunkTransactions bean,"
+    MQ4006("A ModelQueryConfig bean of the application drops a VendorProfile,"
+            + " WriteAssignment or ChunkTransactions bean,"
             + " or a set modelquery.* property"),
 
     /**
