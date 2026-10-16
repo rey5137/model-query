@@ -617,9 +617,8 @@ state between statements, and the count over groups over a source counts client-
 
 ## 27. M27 — Correlated columns and sources over sources → 0.10.0
 
-Spec: D-112 (outer columns root-only, `MQ1311`), Q-22, D-145, a new `rfc/0015` (written in M27.0). Per-row correlated
-sub-query columns on a query model (a count, a latest value or an `exists` per row), rendered as a scalar sub-query or
-a left join to a grouped source, picked in the spike by plan cost per Tier-1 vendor; a source over sources (window and
+Spec: D-150, `rfc/0015` (accepted), D-112, D-145. Per-row correlated sub-query columns on a query model (a count, a
+latest value or an `exists` per row), rendered as a scalar sub-query everywhere (the spike's cost finding); a source over sources (window and
 aggregate fields over a set operation's or a recursive source's rows, chained CTEs); a source QModel also offering
 `query()`, so a source reads without a trivial outer model (Q-22's second half). Model: an `architect-review` of the
 RFC and at the gate (public generics of the new column shapes, INV-9, the `SourceSupport` surface). Every new public
@@ -627,7 +626,14 @@ type and member is `@Incubating`. Slices are written once the RFC is accepted (�
 
 | Slice | Content | Done when |
 |---|---|---|
-| M27.0 | `rfc/0015` and its acceptance spike on both Hibernate lines and Tier 1 (`rfc/0015-spike-results.md`) | RFC accepted as a `D-n`; slice rows written here and in `AGENTS.md`'s model table |
+| M27.0 | `rfc/0015` and its acceptance spike on both Hibernate lines and Tier 1 (`rfc/0015-spike-results.md`) | Done: D-150 |
+| M27.1 | `Correlated` `count`, `exists`, `min`, `max`, `sum` (R-COL-31, R-COL-33): equality, one node per statement, the refusals (`MQ1505`, `MQ1510`, `MQ1314`, `MQ1511`, `keyset()` `MQ1208`), the count statement keeping a row-changing lifted join (R-EXE-05) | AC-COL-36..39, 41, 42 green on both lines and Tier 1 |
+| M27.2 | A lifted to-one column (R-FLT-27, R-FLT-17 amended): `MQ1311` narrowed and moved to first resolution, `Subquery#correlate` of the outer join, a source outer root, a sub-select rooted at a source refused | AC-FLT-15 amended, AC-FLT-28, 29 green |
+| M27.3 | `Correlated.first` (R-COL-32): required order, appended id, NULLS LAST for `DEFAULT`; `SubqueryRenderer` and `ProviderSupport#subqueries()` (R-VND-25); `MQ4014` widened, `SourceRenderer`'s provider-gap defaults moved from `MQ4015`; `PortabilityCheck` | AC-COL-40 green, `reference/90` rows amended |
+| M27.4 | Source over source in the processor and generator (R-SRC-16, R-PROC-35, R-PROC-39 amended, R-PROC-40, R-GEN-39): root kinds, key and nullability, `MQ3031`'s new branch, `MQ3042`, `source(SourceQuery<X> inner)`, `SourceQuery`'s inner source, `MQ1907`, `MQ1908` | AC-PROC-41 and the compile-time AC-SRC cases green |
+| M27.5 | A chain's statement (R-SRC-18): `CteHandle`, `register`, `registerRecursive`, `from`; the walk filter in the next body; walk checks and key predicates in the top statement on every statement kind; uniqueness carried | AC-SRC-26..32 green on both lines and Tier 1 |
+| M27.6 | Reading a source directly (R-SRC-17, R-GEN-40, R-GEN-37 amended): `Rows` with fully qualified names, `query(SourceQuery<S>)`, `MQ1905` both ways | AC-SRC-33..37 green |
+| M27.7 | Docs: "Correlated columns" on the Columns page (index advice and the cost table, concurrent writes), "Sources over sources" and "Reading a source" on the Source models page, the comparison page's Reach row; R-SRC-19 | `mkdocs build --strict` green, every runnable snippet with JPA and Spring tabs |
 
 ## 28. M28 — Inheritance roots → 0.10.0
 
