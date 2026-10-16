@@ -2153,6 +2153,14 @@ stays. Rejected: every recursive source unique (link-table walks repeat keys by 
 taking the query's parts. → `rfc/0014`, `api/17` R-SRC-08, R-SRC-09, R-SRC-13..15, `engine/20` R-EXE-03, R-EXE-05,
 `engine/21`, `vendor/40` R-VND-21, Q-21.
 
+**D-148 — Custom filter operators join 0.10.0 (2026-10-16, user decision).** RFC 0017's typed, named
+`FilterOperator` (`Filters.op`, `Having.op`) and its `model-query-hibernate` catalogue ship in 0.10.0 as M29, after M28,
+with an RFC acceptance spike first (M29.0); the method is named `op`. It is the extension point for operators the
+library doesn't ship once D-85 seals `Filters` and `Having`, so it lands before the freeze. The freeze moves from M29 to
+M30 and stays last, and the 0.10.0 release prep moves from M28's last slice to M29's. Everything new is `@Incubating`,
+so the M30.1 freeze review decides each type. → `rfc/0017`, `docs/plan/mvp-plan.md` §29–§30, `delivery/62`, D-85,
+D-145.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
