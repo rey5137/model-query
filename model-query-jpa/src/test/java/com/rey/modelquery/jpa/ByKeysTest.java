@@ -7,15 +7,18 @@ import com.rey.modelquery.core.ColumnConverter;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.Enricher;
+import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.SelectSet;
+import com.rey.modelquery.core.SourceQuery;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.VendorProfile;
@@ -56,6 +59,10 @@ class ByKeysTest {
     record Keyed(String id) {}
 
     record Pair(Integer first, Integer second) {}
+
+    record Node(Long id, Integer level) {}
+
+    private enum SourceKind { TREE, RECURSIVE, UNION_ALL }
 
     private static final TableField<KeysetRowEntity, KeysetRowEntity> ROOT = TableField.root(KeysetRowEntity.class);
     private static final ColumnField<Row, KeysetRowEntity, Long> ID = ColumnField.of(Row.class, ROOT, "id", Long.class);
@@ -334,6 +341,75 @@ class ByKeysTest {
         assertThatThrownBy(call)
                 .isInstanceOfSatisfying(ModelQueryExecutionException.class, e -> assertThat(e.code()).isEqualTo(code))
                 .hasMessage(code.code() + ": " + message);
+    }
+
+    @Test
+    void ac_src_17_tree_key_reads_pass_the_source_guard_and_require_an_outer_key() {
+        var query = sourceRows(true);
+        try (EntityManager em = sessions.createEntityManager()) {
+            var executor = ModelQueryExecutor.create(em, Node.class, ModelQueryConfig.defaults());
+            assertThatThrownBy(() -> executor.one(query, 1L))
+                    .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ2203));
+            assertThatThrownBy(() -> executor.byKeys(query, List.of(1L)))
+                    .isInstanceOfSatisfying(ModelQueryExecutionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ2203));
+        }
+        assertThat(SQL).isEmpty();
+    }
+
+    @Test
+    void ac_src_20_recursive_key_reads_keep_mq2212_and_name_tree() {
+        var query = sourceRows(false);
+        var fetching = query.withFetch(FetchPlan.of(query.select()).enrich(Enricher.of(page -> page)));
+        try (EntityManager em = sessions.createEntityManager()) {
+            var executor = ModelQueryExecutor.create(em, Node.class, ModelQueryConfig.defaults());
+            for (ThrowingCallable read : List.<ThrowingCallable>of(() -> executor.one(query, 1L),
+                    () -> executor.byKeys(query, List.of(1L)),
+                    () -> executor.export(query, ExportOptions.of(2), page -> page, row -> { }),
+                    () -> executor.list(fetching, Limit.unlimited()))) {
+                assertThatThrownBy(read).isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ2212)).hasMessageContaining("tree(...)");
+            }
+        }
+        assertThat(SQL).isEmpty();
+    }
+
+    @Test
+    void ac_src_20_union_all_key_reads_keep_mq2212_without_a_tree_hint() {
+        var query = sourceRows(SourceKind.UNION_ALL);
+        var fetching = query.withFetch(FetchPlan.of(query.select()).enrich(Enricher.of(page -> page)));
+        try (EntityManager em = sessions.createEntityManager()) {
+            var executor = ModelQueryExecutor.create(em, Node.class, ModelQueryConfig.defaults());
+            for (ThrowingCallable read : List.<ThrowingCallable>of(() -> executor.one(query, 1L),
+                    () -> executor.byKeys(query, List.of(1L)),
+                    () -> executor.export(query, ExportOptions.of(2), page -> page, row -> { }),
+                    () -> executor.list(fetching, Limit.unlimited()))) {
+                assertThatThrownBy(read).isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ2212)).hasMessageNotContaining("tree(...)");
+            }
+        }
+        assertThat(SQL).isEmpty();
+    }
+
+    private static ModelQuery<Node, Object, Row> sourceRows(boolean tree) {
+        return sourceRows(tree ? SourceKind.TREE : SourceKind.RECURSIVE);
+    }
+
+    private static ModelQuery<Node, Object, Row> sourceRows(SourceKind kind) {
+        var nodeId = ColumnField.of(Node.class, ROOT, "id", Long.class).named("id");
+        var level = ColumnField.of(Node.class, ROOT, "a", Integer.class).named("level");
+        var builder = SourceQuery.builder(Node.class, ROOT, SelectSet.of(nodeId, level), PrimaryKey.of(nodeId));
+        var source = switch (kind) {
+            case TREE -> builder.depth(level).tree(step -> step.childKey(nodeId).parentKey(nodeId), 3).build();
+            case RECURSIVE -> builder.depth(level)
+                    .recursive(step -> step.childKey(nodeId).parentKey(nodeId), 3).build();
+            case UNION_ALL -> builder.build().unionAll(builder.build());
+        };
+        var root = TableField.source(Node.class);
+        var id = ColumnField.over(Row.class, root, nodeId).named("id");
+        return ModelQuery.<Node, Row>builder(root, row -> new Row(row.get(id), null), source)
+                .select(SelectSet.of(id)).build();
     }
 
     private static void withExecutor(ModelQueryConfig config, Consumer<ModelQueryExecutor<KeysetRowEntity>> work) {

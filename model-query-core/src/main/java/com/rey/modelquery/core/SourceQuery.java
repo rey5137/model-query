@@ -283,6 +283,7 @@ public final class SourceQuery<S> {
             if (recursion != null && recursion.keys() == null) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1902, model.getSimpleName()
                         + ": a recursive source needs recursive(step -> step.childKey(childKey).parentKey(parentKey), "
+                        + "maxDepth) or tree(step -> step.childKey(childKey).parentKey(parentKey), "
                         + "maxDepth) before build()");
             }
             if (recursion != null && !fields.fields().contains(recursion.depth())) {
@@ -470,7 +471,7 @@ public final class SourceQuery<S> {
     /**
      * Whether every row this source produces has a key no other row shares (R-SRC-05, R-SRC-06, R-SRC-08). A plain or
      * windowed source is unique by construction (R-SRC-02); a combined one is unique where the rules of R-SRC-05
-     * hold; a recursive one never is, because a node a graph reaches by two paths is emitted twice (R-SRC-08).
+     * hold; a tree is checked for uniqueness, while a plain recursive source can emit a node twice (R-SRC-08).
      * Everything non-unique is refused for the features that identify a row by its key (R-SRC-09).
      *
      * <p>Engine-facing: {@code core} raises {@code MQ1901} from it at the outer {@code build()}, and {@code jpa}
@@ -479,7 +480,7 @@ public final class SourceQuery<S> {
     @EngineFacing
     public boolean unique() {
         if (recursion != null) {
-            return false;
+            return recursion.tree();
         }
         if (operation == null) {
             return true;

@@ -297,10 +297,10 @@ public enum MqCode {
 
     /**
      * A recursive source built wrongly: a {@code maxDepth} below 1 or above {@code Integer.MAX_VALUE - 2},
-     * {@code recursive(...)} on a source whose model declares no {@code @Depth}, or a {@code @Depth} model built
+     * {@code recursive(...)} or {@code tree(...)} on a model with no {@code @Depth}, or a {@code @Depth} model built
      * without the step (R-SRC-07, R-PROC-37). Raised where the source is built, before any statement.
      */
-    MQ1902("A recursive source's maxDepth is out of range, or its step and @Depth do not match"),
+    MQ1902("recursive(...) or tree(...): maxDepth is out of range, or the step and @Depth do not match"),
 
     /**
      * A row lock on a query that reads a source: the source's rows come from a CTE, which a locking clause cannot
