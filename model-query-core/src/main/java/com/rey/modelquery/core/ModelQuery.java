@@ -525,11 +525,11 @@ public final class ModelQuery<E, K, M> {
      * field-named elements (R-SRC-10).
      *
      * <p>A recursive source is registered as {@code with recursive} instead, and its statement reads neither the
-     * extra level nor a marked row: it filters on {@code level <= maxDepth and not mark} and carries the two checks
-     * whose first row {@code jpa} reads (R-SRC-07).
+     * extra level nor a marked row: it filters on {@code level <= maxDepth and not mark} and carries the checks
+     * whose first row {@code jpa} reads (R-SRC-07, R-SRC-14).
      *
      * @throws ModelQueryConfigurationException {@code MQ4014} when no {@link SourceRenderer} is configured, which is
-     *     the factory's provider having no source support
+     *     the factory's provider having no source support, or no duplicate-key check for a tree source
      */
     private SourceStatement sourceStatement(CriteriaQuery<Tuple> query, CriteriaBuilder cb, RenderOptions options) {
         SourceRenderer renderer = options.sourceRenderer()
@@ -541,7 +541,13 @@ public final class ModelQuery<E, K, M> {
             return new SourceStatement(JoinContext.sourceOf(renderer.cte(query, source.body(cb, options, renderer)),
                     source.model(), cb, query, options), List.of(), List.of());
         }
-        RecursiveCte cte = renderer.recursive(query, source.recursiveSpec(cb, options, renderer));
+        RecursiveSpec spec = source.recursiveSpec(cb, options, renderer);
+        RecursiveCte cte = renderer.recursive(query, spec);
+        if (spec.tree() && cte.duplicateKey() == null) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4014, modelName() + ": the source "
+                    + source.model().getSimpleName() + ": the persistence provider's SourceRenderer returned no "
+                    + "duplicate-key check for a tree(...) source");
+        }
         JoinContext joins = JoinContext.sourceOf(cte.root(), source.model(), cb, query, options);
         // The extra level the recursion produced and the row that closed a cycle are both hidden here, in the same
         // statement that produced them (RFC 0013 §5, R-SRC-07).
@@ -549,12 +555,16 @@ public final class ModelQuery<E, K, M> {
         Expression<Integer> level = (Expression<Integer>) (Expression<?>) cte.root().get(source.levelAlias());
         @SuppressWarnings("unchecked")
         Expression<Boolean> marked = (Expression<Boolean>) (Expression<?>) cte.root().get(SourceQuery.MARK_ALIAS);
-        return new SourceStatement(joins, List.of(cb.le(level, source.maxDepth()), cb.isFalse(marked)),
-                List.<Selection<?>>of(cte.depthKey().alias(BuiltQuery.RECURSION_DEPTH),
-                        cte.cycleKey().alias(BuiltQuery.RECURSION_CYCLE)));
+        var checks = new ArrayList<Selection<?>>();
+        checks.add(cte.depthKey().alias(BuiltQuery.RECURSION_DEPTH));
+        checks.add(cte.cycleKey().alias(BuiltQuery.RECURSION_CYCLE));
+        if (spec.tree()) {
+            checks.add(cte.duplicateKey().alias(BuiltQuery.RECURSION_DUPLICATE_KEY));
+        }
+        return new SourceStatement(joins, List.of(cb.le(level, source.maxDepth()), cb.isFalse(marked)), checks);
     }
 
-    /** What {@link #sourceStatement} adds to a statement: the joins, the recursive guards, and its two checks. */
+    /** What {@link #sourceStatement} adds to a statement: the joins, the recursive guards, and its checks. */
     private record SourceStatement(JoinContext joins, List<Predicate> guards, List<Selection<?>> checks) {}
 
     /**
@@ -620,7 +630,8 @@ public final class ModelQuery<E, K, M> {
             query.having(predicates.get(1).toArray(Predicate[]::new));
         }
         return new BuiltQuery<>(query, joins, selection, mapping, parentKey, checks,
-                source == null ? 0 : source.maxDepth());
+                source == null ? 0 : source.maxDepth(), source == null ? null : source.key().columns().get(0).name(),
+                source == null ? 0 : source.key().columns().size());
     }
 
     /**
@@ -642,9 +653,9 @@ public final class ModelQuery<E, K, M> {
     }
 
     /**
-     * {@link #checkPhases(CriteriaBuilder)} for an executor whose {@code options} carry the source renderer a query over
-     * a source builds with: the scratch builds register the source's CTE too (R-SRC-12), and take no other limit from
-     * {@code options}.
+     * {@link #checkPhases(CriteriaBuilder)} for an executor whose {@code options} carry the source renderer its
+     * query over a source builds with: the scratch builds register the source's CTE too (R-SRC-12), and take no other
+     * limit from {@code options}.
      */
     @EngineFacing
     public void checkPhases(CriteriaBuilder cb, RenderOptions options) {

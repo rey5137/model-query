@@ -34,7 +34,8 @@ public interface SourceRenderer {
 
     /**
      * Registers {@code spec} as the {@code WITH RECURSIVE} CTE of {@code outer} and returns its root together with
-     * the two check expressions the statement's first row is read for (R-SRC-07, R-SRC-12). The CTE recurses to
+     * the check expressions the statement's first row is read for (R-SRC-07, R-SRC-12, R-SRC-14). A tree source
+     * requires a duplicate-key check; returning none is {@code MQ4014} before any statement. The CTE recurses to
      * {@code maxDepth + 1} levels, marks the row that closes a cycle, and joins each level to the previous one
      * through the step's keys (RFC 0013 §5).
      */

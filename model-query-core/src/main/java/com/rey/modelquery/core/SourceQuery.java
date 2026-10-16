@@ -195,7 +195,7 @@ public final class SourceQuery<S> {
          */
         public Builder<E, M, S> depth(ColumnField<M, ?, Integer> field) {
             return new Builder<>(model, root, fields, key, groupKeys, where, having,
-                    settings.withRecursion(new Recursion(Objects.requireNonNull(field, "field"), null, 0)));
+                    settings.withRecursion(new Recursion(Objects.requireNonNull(field, "field"), null, 0, false)));
         }
 
         /**
@@ -211,6 +211,24 @@ public final class SourceQuery<S> {
          *     {@code Integer.MAX_VALUE - 2}, or the model declares no {@code @Depth}
          */
         public Builder<E, M, S> recursive(Function<RecursiveStep<M>, RecursiveKeys<M, ?>> step, int maxDepth) {
+            return recurse(step, maxDepth, false);
+        }
+
+        /**
+         * Makes this a recursive source whose walk must reach every node once (R-SRC-13, R-SRC-14).
+         * Uses the same step and depth limits as {@link #recursive}; the last call to either replaces the other.
+         *
+         * @param step names the pair of keys a row is a child of another by
+         * @param maxDepth the deepest level the source returns, the seeds being level 0
+         * @throws ModelQueryDefinitionException {@code MQ1902} for an invalid depth or a model without {@code @Depth}
+         */
+        @Incubating
+        public Builder<E, M, S> tree(Function<RecursiveStep<M>, RecursiveKeys<M, ?>> step, int maxDepth) {
+            return recurse(step, maxDepth, true);
+        }
+
+        private Builder<E, M, S> recurse(Function<RecursiveStep<M>, RecursiveKeys<M, ?>> step, int maxDepth,
+                boolean tree) {
             if (maxDepth < 1 || maxDepth > Integer.MAX_VALUE - 2) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1902, model.getSimpleName() + ": maxDepth " + maxDepth
                         + " is out of range; it is at least 1 and at most " + (Integer.MAX_VALUE - 2) + ", so that "
@@ -223,7 +241,7 @@ public final class SourceQuery<S> {
             }
             RecursiveKeys<M, ?> keys = Objects.requireNonNull(step, "step").apply(new RecursiveStep<>());
             return new Builder<>(model, root, fields, key, groupKeys, where, having,
-                    settings.withRecursion(new Recursion(depth, keys, maxDepth)));
+                    settings.withRecursion(new Recursion(depth, keys, maxDepth, tree)));
         }
 
         /**
@@ -288,7 +306,7 @@ public final class SourceQuery<S> {
     private record Discriminator(ColumnField<?, ?, ?> field, String value) {}
 
     /** The recursion of a source: the {@code @Depth} column the level is aliased by, its step, and its depth limit. */
-    private record Recursion(ColumnField<?, ?, ?> depth, RecursiveKeys<?, ?> keys, int maxDepth) {}
+    private record Recursion(ColumnField<?, ?, ?> depth, RecursiveKeys<?, ?> keys, int maxDepth, boolean tree) {}
 
     /** What a builder has set besides the source's structure: its shape, its discriminator and its recursion. */
     private record Settings(Class<?> shape, Discriminator discriminator, Recursion recursion) {
@@ -323,7 +341,8 @@ public final class SourceQuery<S> {
      * immutable; {@code this} and {@code other} are unchanged.
      *
      * @throws ModelQueryDefinitionException {@code MQ1904} when both sides are a {@code union} or {@code unionAll} and
-     *     two of their branches can carry the same discriminator value (R-SRC-06), unless every branch reads one model and the operation is a {@code union}, or either side is recursive
+     *     two of their branches can carry the same discriminator value (R-SRC-06), unless every branch reads one
+     *     model and the operation is a {@code union}, or either side is recursive
      *     (R-SRC-07)
      */
     public SourceQuery<S> union(SourceQuery<S> other) {
@@ -603,7 +622,7 @@ public final class SourceQuery<S> {
         Recursion recursion = Objects.requireNonNull(this.recursion, "recursion");
         return new RecursiveSpec(cb, select(cb, options, renderer, cb.literal(0)), term(cb, options, renderer),
                 key.columns().get(0).type(), keyAliases(), alias(recursion.depth()), MARK_ALIAS,
-                recursion.maxDepth());
+                recursion.maxDepth(), recursion.tree());
     }
 
     /** The one level of the recursion a recursive source's CTE steps by (R-SRC-07). */
@@ -717,8 +736,8 @@ public final class SourceQuery<S> {
     }
 
     /**
-     * The name {@code field} is aliased by in the CTE, which the outer column reads it by: its property prefixed by the engine (D-146), as the
-     * source's QModel sets it with {@code named} (R-SRC-10, R-GEN-37, R-GEN-38).
+     * The name {@code field} is aliased by in the CTE, which the outer column reads it by: its property prefixed by
+     * the engine (D-146), as the source's QModel sets it with {@code named} (R-SRC-10, R-GEN-37, R-GEN-38).
      */
     private static String alias(SelectField<?, ?> field) {
         return columnName(propertyOf(field).orElseThrow(() -> new ModelQueryDefinitionException(MqCode.MQ1905,
