@@ -1,0 +1,490 @@
+==== H2 6.6.58.Final balanced 1000
+with recursive cte0 (id,level,mark,path) as (select sn1_0.id,0,false,array[sn1_0.id] from spike_node sn1_0 where sn1_0.id in (30000001) union all select sn2_0.id,(cte01_0.level+1),case when array_contains(cte01_0.path,sn2_0.id) then true else false end,cte01_0.path||array[sn2_0.id] from cte0 cte01_0,spike_node sn2_0 where sn2_0.parentId=cte01_0.id and cte01_0.level<51 and not(cte01_0.mark)) select cte02_0.id,cte02_0.level,(select min(cte03_0.id) from cte0 cte03_0 where cte03_0.level>50),(select min(cte04_0.id) from cte0 cte04_0 where cte04_0.mark),(select cte05_0.id c0 from cte0 cte05_0 group by c0 having count(*)>1 order by 1 fetch first 1 rows only) from cte0 cte02_0 where cte02_0.level<=50 and not(cte02_0.mark) order by 2,1
+---
+WITH  RECURSIVE "CTE0"("ID", "LEVEL", "MARK", "PATH") AS (
+    (SELECT
+        "SN1_0"."ID",
+        0,
+        FALSE,
+        ARRAY ["SN1_0"."ID"]
+    FROM "PUBLIC"."SPIKE_NODE" "SN1_0"
+    WHERE "SN1_0"."ID" = CAST(30000001 AS BIGINT))
+    UNION ALL
+    (SELECT
+        "SN2_0"."ID",
+        "CTE01_0"."LEVEL" + 1,
+        CASE WHEN ARRAY_CONTAINS("CTE01_0"."PATH", "SN2_0"."ID") THEN TRUE ELSE FALSE END,
+        "CTE01_0"."PATH" || ARRAY ["SN2_0"."ID"]
+    FROM "CTE0" "CTE01_0"
+    INNER JOIN "PUBLIC"."SPIKE_NODE" "SN2_0"
+        ON 1=1
+    WHERE (NOT "CTE01_0"."MARK")
+        AND ("CTE01_0"."LEVEL" < 51)
+        AND ("SN2_0"."PARENTID" = "CTE01_0"."ID"))
+)
+SELECT
+    "CTE02_0"."ID",
+    "CTE02_0"."LEVEL",
+    (SELECT
+        MIN("CTE03_0"."ID")
+    FROM "CTE0" "CTE03_0"
+        /* (SELECT
+            SN1_0.ID,
+            0,
+            FALSE,
+            ARRAY [SN1_0.ID]
+        FROM PUBLIC.SPIKE_NODE SN1_0
+            /* PUBLIC.PRIMARY_KEY_22F9: ID = CAST(30000001 AS BIGINT) */
+            /* scanCount: 2 */
+        WHERE SN1_0.ID = CAST(30000001 AS BIGINT))
+        UNION ALL
+        (SELECT
+            SN2_0.ID,
+            CTE01_0.LEVEL + 1,
+            CASE WHEN ARRAY_CONTAINS(CTE01_0.PATH, SN2_0.ID) THEN TRUE ELSE FALSE END,
+            CTE01_0.PATH || ARRAY [SN2_0.ID]
+        FROM CTE0 CTE01_0
+            /* null */
+            /* WHERE (CTE01_0.MARK = FALSE)
+                AND (CTE01_0.LEVEL < 51)
+            */
+            /* scanCount: 660 */
+        INNER JOIN PUBLIC.SPIKE_NODE SN2_0
+            /* PUBLIC.IDXQVFKCCT8H5AK4IOR8JR4BOPER: PARENTID = CTE01_0.ID */
+            ON 1=1
+            /* scanCount: 659 */
+        WHERE (SN2_0.PARENTID = CTE01_0.ID)
+            AND (CTE01_0.MARK = FALSE)
+            AND (CTE01_0.LEVEL < 51))
+         */
+        /* scanCount: 1001 */
+    WHERE "CTE03_0"."LEVEL" > 50),
+    (SELECT
+        MIN("CTE04_0"."ID")
+    FROM "CTE0" "CTE04_0"
+        /* (SELECT
+            SN1_0.ID,
+            0,
+            FALSE,
+            ARRAY [SN1_0.ID]
+        FROM PUBLIC.SPIKE_NODE SN1_0
+            /* PUBLIC.PRIMARY_KEY_22F9: ID = CAST(30000001 AS BIGINT) */
+            /* scanCount: 2 */
+        WHERE SN1_0.ID = CAST(30000001 AS BIGINT))
+        UNION ALL
+        (SELECT
+            SN2_0.ID,
+            CTE01_0.LEVEL + 1,
+            CASE WHEN ARRAY_CONTAINS(CTE01_0.PATH, SN2_0.ID) THEN TRUE ELSE FALSE END,
+            CTE01_0.PATH || ARRAY [SN2_0.ID]
+        FROM CTE0 CTE01_0
+            /* null */
+            /* WHERE (CTE01_0.MARK = FALSE)
+                AND (CTE01_0.LEVEL < 51)
+            */
+            /* scanCount: 660 */
+        INNER JOIN PUBLIC.SPIKE_NODE SN2_0
+            /* PUBLIC.IDXQVFKCCT8H5AK4IOR8JR4BOPER: PARENTID = CTE01_0.ID */
+            ON 1=1
+            /* scanCount: 659 */
+        WHERE (SN2_0.PARENTID = CTE01_0.ID)
+            AND (CTE01_0.MARK = FALSE)
+            AND (CTE01_0.LEVEL < 51))
+         */
+        /* scanCount: 1001 */
+    WHERE "CTE04_0"."MARK"),
+    (SELECT
+        "CTE05_0"."ID" AS "C0"
+    FROM "CTE0" "CTE05_0"
+        /* (SELECT
+            SN1_0.ID,
+            0,
+            FALSE,
+            ARRAY [SN1_0.ID]
+        FROM PUBLIC.SPIKE_NODE SN1_0
+            /* PUBLIC.PRIMARY_KEY_22F9: ID = CAST(30000001 AS BIGINT) */
+            /* scanCount: 2 */
+        WHERE SN1_0.ID = CAST(30000001 AS BIGINT))
+        UNION ALL
+        (SELECT
+            SN2_0.ID,
+            CTE01_0.LEVEL + 1,
+            CASE WHEN ARRAY_CONTAINS(CTE01_0.PATH, SN2_0.ID) THEN TRUE ELSE FALSE END,
+            CTE01_0.PATH || ARRAY [SN2_0.ID]
+        FROM CTE0 CTE01_0
+            /* null */
+            /* WHERE (CTE01_0.MARK = FALSE)
+                AND (CTE01_0.LEVEL < 51)
+            */
+            /* scanCount: 660 */
+        INNER JOIN PUBLIC.SPIKE_NODE SN2_0
+            /* PUBLIC.IDXQVFKCCT8H5AK4IOR8JR4BOPER: PARENTID = CTE01_0.ID */
+            ON 1=1
+            /* scanCount: 659 */
+        WHERE (SN2_0.PARENTID = CTE01_0.ID)
+            AND (CTE01_0.MARK = FALSE)
+            AND (CTE01_0.LEVEL < 51))
+         */
+        /* scanCount: 1001 */
+    GROUP BY "CTE05_0"."ID"
+    HAVING COUNT(*) > 1
+    ORDER BY 1
+    FETCH FIRST ROW ONLY)
+FROM "CTE0" "CTE02_0"
+    /* (SELECT
+        SN1_0.ID,
+        0,
+        FALSE,
+        ARRAY [SN1_0.ID]
+    FROM PUBLIC.SPIKE_NODE SN1_0
+        /* PUBLIC.PRIMARY_KEY_22F9: ID = CAST(30000001 AS BIGINT) */
+        /* scanCount: 2 */
+    WHERE SN1_0.ID = CAST(30000001 AS BIGINT))
+    UNION ALL
+    (SELECT
+        SN2_0.ID,
+        CTE01_0.LEVEL + 1,
+        CASE WHEN ARRAY_CONTAINS(CTE01_0.PATH, SN2_0.ID) THEN TRUE ELSE FALSE END,
+        CTE01_0.PATH || ARRAY [SN2_0.ID]
+    FROM CTE0 CTE01_0
+        /* null */
+        /* WHERE (CTE01_0.MARK = FALSE)
+            AND (CTE01_0.LEVEL < 51)
+        */
+        /* scanCount: 660 */
+    INNER JOIN PUBLIC.SPIKE_NODE SN2_0
+        /* PUBLIC.IDXQVFKCCT8H5AK4IOR8JR4BOPER: PARENTID = CTE01_0.ID */
+        ON 1=1
+        /* scanCount: 659 */
+    WHERE (SN2_0.PARENTID = CTE01_0.ID)
+        AND (CTE01_0.MARK = FALSE)
+        AND (CTE01_0.LEVEL < 51))
+     */
+    /* scanCount: 1001 */
+WHERE ("CTE02_0"."LEVEL" <= 50)
+    AND ("CTE02_0"."MARK" = FALSE)
+ORDER BY 2, 1
+
+==== H2 6.6.58.Final chain 900
+with recursive cte0 (id,level,mark,path) as (select sn1_0.id,0,false,array[sn1_0.id] from spike_node sn1_0 where sn1_0.id in (90000001) union all select sn2_0.id,(cte01_0.level+1),case when array_contains(cte01_0.path,sn2_0.id) then true else false end,cte01_0.path||array[sn2_0.id] from cte0 cte01_0,spike_node sn2_0 where sn2_0.parentId=cte01_0.id and cte01_0.level<951 and not(cte01_0.mark)) select cte02_0.id,cte02_0.level,(select min(cte03_0.id) from cte0 cte03_0 where cte03_0.level>950),(select min(cte04_0.id) from cte0 cte04_0 where cte04_0.mark),(select cte05_0.id c0 from cte0 cte05_0 group by c0 having count(*)>1 order by 1 fetch first 1 rows only) from cte0 cte02_0 where cte02_0.level<=950 and not(cte02_0.mark) order by 2,1
+---
+WITH  RECURSIVE "CTE0"("ID", "LEVEL", "MARK", "PATH") AS (
+    (SELECT
+        "SN1_0"."ID",
+        0,
+        FALSE,
+        ARRAY ["SN1_0"."ID"]
+    FROM "PUBLIC"."SPIKE_NODE" "SN1_0"
+    WHERE "SN1_0"."ID" = CAST(90000001 AS BIGINT))
+    UNION ALL
+    (SELECT
+        "SN2_0"."ID",
+        "CTE01_0"."LEVEL" + 1,
+        CASE WHEN ARRAY_CONTAINS("CTE01_0"."PATH", "SN2_0"."ID") THEN TRUE ELSE FALSE END,
+        "CTE01_0"."PATH" || ARRAY ["SN2_0"."ID"]
+    FROM "CTE0" "CTE01_0"
+    INNER JOIN "PUBLIC"."SPIKE_NODE" "SN2_0"
+        ON 1=1
+    WHERE (NOT "CTE01_0"."MARK")
+        AND ("CTE01_0"."LEVEL" < 951)
+        AND ("SN2_0"."PARENTID" = "CTE01_0"."ID"))
+)
+SELECT
+    "CTE02_0"."ID",
+    "CTE02_0"."LEVEL",
+    (SELECT
+        MIN("CTE03_0"."ID")
+    FROM "CTE0" "CTE03_0"
+        /* (SELECT
+            SN1_0.ID,
+            0,
+            FALSE,
+            ARRAY [SN1_0.ID]
+        FROM PUBLIC.SPIKE_NODE SN1_0
+            /* PUBLIC.PRIMARY_KEY_22F9: ID = CAST(90000001 AS BIGINT) */
+            /* scanCount: 2 */
+        WHERE SN1_0.ID = CAST(90000001 AS BIGINT))
+        UNION ALL
+        (SELECT
+            SN2_0.ID,
+            CTE01_0.LEVEL + 1,
+            CASE WHEN ARRAY_CONTAINS(CTE01_0.PATH, SN2_0.ID) THEN TRUE ELSE FALSE END,
+            CTE01_0.PATH || ARRAY [SN2_0.ID]
+        FROM CTE0 CTE01_0
+            /* null */
+            /* WHERE (CTE01_0.MARK = FALSE)
+                AND (CTE01_0.LEVEL < 951)
+            */
+            /* scanCount: 2 */
+        INNER JOIN PUBLIC.SPIKE_NODE SN2_0
+            /* PUBLIC.IDXQVFKCCT8H5AK4IOR8JR4BOPER: PARENTID = CTE01_0.ID */
+            ON 1=1
+            /* scanCount: 1 */
+        WHERE (SN2_0.PARENTID = CTE01_0.ID)
+            AND (CTE01_0.MARK = FALSE)
+            AND (CTE01_0.LEVEL < 951))
+         */
+        /* scanCount: 901 */
+    WHERE "CTE03_0"."LEVEL" > 950),
+    (SELECT
+        MIN("CTE04_0"."ID")
+    FROM "CTE0" "CTE04_0"
+        /* (SELECT
+            SN1_0.ID,
+            0,
+            FALSE,
+            ARRAY [SN1_0.ID]
+        FROM PUBLIC.SPIKE_NODE SN1_0
+            /* PUBLIC.PRIMARY_KEY_22F9: ID = CAST(90000001 AS BIGINT) */
+            /* scanCount: 2 */
+        WHERE SN1_0.ID = CAST(90000001 AS BIGINT))
+        UNION ALL
+        (SELECT
+            SN2_0.ID,
+            CTE01_0.LEVEL + 1,
+            CASE WHEN ARRAY_CONTAINS(CTE01_0.PATH, SN2_0.ID) THEN TRUE ELSE FALSE END,
+            CTE01_0.PATH || ARRAY [SN2_0.ID]
+        FROM CTE0 CTE01_0
+            /* null */
+            /* WHERE (CTE01_0.MARK = FALSE)
+                AND (CTE01_0.LEVEL < 951)
+            */
+            /* scanCount: 2 */
+        INNER JOIN PUBLIC.SPIKE_NODE SN2_0
+            /* PUBLIC.IDXQVFKCCT8H5AK4IOR8JR4BOPER: PARENTID = CTE01_0.ID */
+            ON 1=1
+            /* scanCount: 1 */
+        WHERE (SN2_0.PARENTID = CTE01_0.ID)
+            AND (CTE01_0.MARK = FALSE)
+            AND (CTE01_0.LEVEL < 951))
+         */
+        /* scanCount: 901 */
+    WHERE "CTE04_0"."MARK"),
+    (SELECT
+        "CTE05_0"."ID" AS "C0"
+    FROM "CTE0" "CTE05_0"
+        /* (SELECT
+            SN1_0.ID,
+            0,
+            FALSE,
+            ARRAY [SN1_0.ID]
+        FROM PUBLIC.SPIKE_NODE SN1_0
+            /* PUBLIC.PRIMARY_KEY_22F9: ID = CAST(90000001 AS BIGINT) */
+            /* scanCount: 2 */
+        WHERE SN1_0.ID = CAST(90000001 AS BIGINT))
+        UNION ALL
+        (SELECT
+            SN2_0.ID,
+            CTE01_0.LEVEL + 1,
+            CASE WHEN ARRAY_CONTAINS(CTE01_0.PATH, SN2_0.ID) THEN TRUE ELSE FALSE END,
+            CTE01_0.PATH || ARRAY [SN2_0.ID]
+        FROM CTE0 CTE01_0
+            /* null */
+            /* WHERE (CTE01_0.MARK = FALSE)
+                AND (CTE01_0.LEVEL < 951)
+            */
+            /* scanCount: 2 */
+        INNER JOIN PUBLIC.SPIKE_NODE SN2_0
+            /* PUBLIC.IDXQVFKCCT8H5AK4IOR8JR4BOPER: PARENTID = CTE01_0.ID */
+            ON 1=1
+            /* scanCount: 1 */
+        WHERE (SN2_0.PARENTID = CTE01_0.ID)
+            AND (CTE01_0.MARK = FALSE)
+            AND (CTE01_0.LEVEL < 951))
+         */
+        /* scanCount: 901 */
+    GROUP BY "CTE05_0"."ID"
+    HAVING COUNT(*) > 1
+    ORDER BY 1
+    FETCH FIRST ROW ONLY)
+FROM "CTE0" "CTE02_0"
+    /* (SELECT
+        SN1_0.ID,
+        0,
+        FALSE,
+        ARRAY [SN1_0.ID]
+    FROM PUBLIC.SPIKE_NODE SN1_0
+        /* PUBLIC.PRIMARY_KEY_22F9: ID = CAST(90000001 AS BIGINT) */
+        /* scanCount: 2 */
+    WHERE SN1_0.ID = CAST(90000001 AS BIGINT))
+    UNION ALL
+    (SELECT
+        SN2_0.ID,
+        CTE01_0.LEVEL + 1,
+        CASE WHEN ARRAY_CONTAINS(CTE01_0.PATH, SN2_0.ID) THEN TRUE ELSE FALSE END,
+        CTE01_0.PATH || ARRAY [SN2_0.ID]
+    FROM CTE0 CTE01_0
+        /* null */
+        /* WHERE (CTE01_0.MARK = FALSE)
+            AND (CTE01_0.LEVEL < 951)
+        */
+        /* scanCount: 2 */
+    INNER JOIN PUBLIC.SPIKE_NODE SN2_0
+        /* PUBLIC.IDXQVFKCCT8H5AK4IOR8JR4BOPER: PARENTID = CTE01_0.ID */
+        ON 1=1
+        /* scanCount: 1 */
+    WHERE (SN2_0.PARENTID = CTE01_0.ID)
+        AND (CTE01_0.MARK = FALSE)
+        AND (CTE01_0.LEVEL < 951))
+     */
+    /* scanCount: 901 */
+WHERE ("CTE02_0"."LEVEL" <= 950)
+    AND ("CTE02_0"."MARK" = FALSE)
+ORDER BY 2, 1
+
+==== POSTGRESQL 6.6.58.Final balanced 10000
+with recursive cte0 (id,level) as (select sn1_0.id,0 from spike_node sn1_0 where sn1_0.id in (50000001) union all select sn2_0.id,(cte01_0.level+1) from cte0 cte01_0,spike_node sn2_0 where sn2_0.parentId=cte01_0.id and cte01_0.level<51) cycle id set mark to true default false using path select cte02_0.id,cte02_0.level,(select min(cte03_0.id) from cte0 cte03_0 where cte03_0.level>50),(select min(cte04_0.id) from cte0 cte04_0 where cte04_0.mark),(select cte05_0.id from cte0 cte05_0 group by 1 having count(*)>1 order by 1 fetch first 1 rows only) from cte0 cte02_0 where cte02_0.level<=50 and not(cte02_0.mark) order by 2,1
+---
+Sort  (cost=3291.19..3291.60 rows=167 width=36) (actual time=20.004..20.248 rows=10000 loops=1)
+  Sort Key: cte02_0.level, cte02_0.id
+  Sort Method: quicksort  Memory: 775kB
+  CTE cte0
+    ->  Recursive Union  (cost=0.29..3189.99 rows=1001 width=45) (actual time=0.014..12.474 rows=10000 loops=1)
+          ->  Index Only Scan using spike_node_pkey on spike_node sn1_0  (cost=0.29..8.30 rows=1 width=45) (actual time=0.013..0.014 rows=1 loops=1)
+                Index Cond: (id = 50000001)
+                Heap Fetches: 1
+          ->  Nested Loop  (cost=4.67..317.17 rows=100 width=45) (actual time=0.343..1.451 rows=1250 loops=8)
+                ->  WorkTable Scan on cte0 cte01_0  (cost=0.00..0.22 rows=2 width=44) (actual time=0.000..0.078 rows=1250 loops=8)
+                      Filter: ((NOT mark) AND (level < 51))
+                ->  Bitmap Heap Scan on spike_node sn2_0  (cost=4.67..157.10 rows=50 width=16) (actual time=0.000..0.000 rows=1 loops=10000)
+                      Recheck Cond: (parentid = cte01_0.id)
+                      Heap Blocks: exact=2548
+                      ->  Bitmap Index Scan on idxqvfkcct8h5ak4ior8jr4boper  (cost=0.00..4.66 rows=50 width=0) (actual time=0.000..0.000 rows=1 loops=10000)
+                            Index Cond: (parentid = cte01_0.id)
+  InitPlan 2 (returns $3)
+    ->  Aggregate  (cost=23.36..23.37 rows=1 width=8) (actual time=15.106..15.106 rows=1 loops=1)
+          ->  CTE Scan on cte0 cte03_0  (cost=0.00..22.52 rows=334 width=8) (actual time=15.104..15.104 rows=0 loops=1)
+                Filter: (level > 50)
+                Rows Removed by Filter: 10000
+  InitPlan 3 (returns $4)
+    ->  Aggregate  (cost=21.27..21.28 rows=1 width=8) (actual time=0.608..0.608 rows=1 loops=1)
+          ->  CTE Scan on cte0 cte04_0  (cost=0.00..20.02 rows=500 width=8) (actual time=0.607..0.607 rows=0 loops=1)
+                Filter: mark
+                Rows Removed by Filter: 10000
+  InitPlan 4 (returns $5)
+    ->  Limit  (cost=27.86..27.86 rows=1 width=8) (actual time=2.454..2.455 rows=0 loops=1)
+          ->  Sort  (cost=27.86..28.03 rows=67 width=8) (actual time=2.453..2.454 rows=0 loops=1)
+                Sort Key: cte05_0.id
+                Sort Method: quicksort  Memory: 25kB
+                ->  HashAggregate  (cost=25.03..27.53 rows=67 width=8) (actual time=2.446..2.446 rows=0 loops=1)
+                      Group Key: cte05_0.id
+                      Filter: (count(*) > 1)
+                      Batches: 1  Memory Usage: 1185kB
+                      Rows Removed by Filter: 10000
+                      ->  CTE Scan on cte0 cte05_0  (cost=0.00..20.02 rows=1001 width=8) (actual time=0.001..0.765 rows=10000 loops=1)
+  ->  CTE Scan on cte0 cte02_0  (cost=0.00..22.52 rows=167 width=36) (actual time=18.186..19.196 rows=10000 loops=1)
+        Filter: ((NOT mark) AND (level <= 50))
+Planning Time: 0.148 ms
+Execution Time: 20.829 ms
+
+==== POSTGRESQL 6.6.58.Final chain 900
+with recursive cte0 (id,level) as (select sn1_0.id,0 from spike_node sn1_0 where sn1_0.id in (90000001) union all select sn2_0.id,(cte01_0.level+1) from cte0 cte01_0,spike_node sn2_0 where sn2_0.parentId=cte01_0.id and cte01_0.level<951) cycle id set mark to true default false using path select cte02_0.id,cte02_0.level,(select min(cte03_0.id) from cte0 cte03_0 where cte03_0.level>950),(select min(cte04_0.id) from cte0 cte04_0 where cte04_0.mark),(select cte05_0.id from cte0 cte05_0 group by 1 having count(*)>1 order by 1 fetch first 1 rows only) from cte0 cte02_0 where cte02_0.level<=950 and not(cte02_0.mark) order by 2,1
+---
+Sort  (cost=3291.19..3291.60 rows=167 width=36) (actual time=36.499..36.522 rows=900 loops=1)
+  Sort Key: cte02_0.level, cte02_0.id
+  Sort Method: quicksort  Memory: 60kB
+  CTE cte0
+    ->  Recursive Union  (cost=0.29..3189.99 rows=1001 width=45) (actual time=0.013..20.324 rows=900 loops=1)
+          ->  Index Only Scan using spike_node_pkey on spike_node sn1_0  (cost=0.29..8.30 rows=1 width=45) (actual time=0.013..0.014 rows=1 loops=1)
+                Index Cond: (id = 90000001)
+                Heap Fetches: 1
+          ->  Nested Loop  (cost=4.67..317.17 rows=100 width=45) (actual time=0.020..0.021 rows=1 loops=900)
+                ->  WorkTable Scan on cte0 cte01_0  (cost=0.00..0.22 rows=2 width=44) (actual time=0.000..0.000 rows=1 loops=900)
+                      Filter: ((NOT mark) AND (level < 951))
+                ->  Bitmap Heap Scan on spike_node sn2_0  (cost=4.67..157.10 rows=50 width=16) (actual time=0.001..0.001 rows=1 loops=900)
+                      Recheck Cond: (parentid = cte01_0.id)
+                      Heap Blocks: exact=899
+                      ->  Bitmap Index Scan on idxqvfkcct8h5ak4ior8jr4boper  (cost=0.00..4.66 rows=50 width=0) (actual time=0.001..0.001 rows=1 loops=900)
+                            Index Cond: (parentid = cte01_0.id)
+  InitPlan 2 (returns $3)
+    ->  Aggregate  (cost=23.36..23.37 rows=1 width=8) (actual time=27.803..27.804 rows=1 loops=1)
+          ->  CTE Scan on cte0 cte03_0  (cost=0.00..22.52 rows=334 width=8) (actual time=27.800..27.800 rows=0 loops=1)
+                Filter: (level > 950)
+                Rows Removed by Filter: 900
+  InitPlan 3 (returns $4)
+    ->  Aggregate  (cost=21.27..21.28 rows=1 width=8) (actual time=3.399..3.400 rows=1 loops=1)
+          ->  CTE Scan on cte0 cte04_0  (cost=0.00..20.02 rows=500 width=8) (actual time=3.398..3.398 rows=0 loops=1)
+                Filter: mark
+                Rows Removed by Filter: 900
+  InitPlan 4 (returns $5)
+    ->  Limit  (cost=27.86..27.86 rows=1 width=8) (actual time=2.564..2.565 rows=0 loops=1)
+          ->  Sort  (cost=27.86..28.03 rows=67 width=8) (actual time=2.563..2.563 rows=0 loops=1)
+                Sort Key: cte05_0.id
+                Sort Method: quicksort  Memory: 25kB
+                ->  HashAggregate  (cost=25.03..27.53 rows=67 width=8) (actual time=2.556..2.557 rows=0 loops=1)
+                      Group Key: cte05_0.id
+                      Filter: (count(*) > 1)
+                      Batches: 1  Memory Usage: 121kB
+                      Rows Removed by Filter: 900
+                      ->  CTE Scan on cte0 cte05_0  (cost=0.00..20.02 rows=1001 width=8) (actual time=0.002..2.375 rows=900 loops=1)
+  ->  CTE Scan on cte0 cte02_0  (cost=0.00..22.52 rows=167 width=36) (actual time=33.785..36.417 rows=900 loops=1)
+        Filter: ((NOT mark) AND (level <= 950))
+Planning Time: 0.112 ms
+Execution Time: 37.261 ms
+
+==== MYSQL 6.6.58.Final balanced 10000
+with recursive cte0 (id,level,mark,path) as (select sn1_0.id,0,0,cast(concat(char(0 using ascii),coalesce(concat(sn1_0.id,''),char(0 using ascii)),char(0 using ascii),char(0 using ascii)) as char(22000)) from spike_node sn1_0 where sn1_0.id in (50000001) union all select sn2_0.id,(cte01_0.level+1),case when cte01_0.path like concat('%',replace(replace(replace(concat(char(0 using ascii),coalesce(concat(sn2_0.id,''),char(0 using ascii)),char(0 using ascii),char(0 using ascii)),'~','~~'),'?','~?'),'%','~%'),'%') escape '~' then 1 else 0 end,concat(cte01_0.path,char(0 using ascii),coalesce(concat(sn2_0.id,''),char(0 using ascii)),char(0 using ascii),char(0 using ascii)) from cte0 cte01_0,spike_node sn2_0 where sn2_0.parentId=cte01_0.id and cte01_0.level<51 and not(cte01_0.mark)) select cte02_0.id,cte02_0.level,(select min(cte03_0.id) from cte0 cte03_0 where cte03_0.level>50),(select min(cte04_0.id) from cte0 cte04_0 where cte04_0.mark),(select cte05_0.id from cte0 cte05_0 group by 1 having count(*)>1 order by 1 limit 1) from cte0 cte02_0 where cte02_0.level<=50 and not(cte02_0.mark) order by 2,1
+---
+-> Sort row IDs: cte02_0.`level`, cte02_0.id  (cost=233968.44..233968.44 rows=111931) (actual time=21.801..22.100 rows=10000 loops=1)
+    -> Filter: ((cte02_0.mark = 0) and (cte02_0.`level` <= 50))  (cost=22447.24..35041.87 rows=111931) (actual time=19.890..20.956 rows=10000 loops=1)
+        -> Table scan on cte02_0  (cost=22447.14..23848.77 rows=111931) (actual time=19.890..20.483 rows=10000 loops=1)
+            -> Materialize recursive CTE cte0  (cost=22447.13..22447.13 rows=111931) (actual time=19.889..19.889 rows=10000 loops=1)
+                -> Rows fetched before execution  (cost=0.00..0.00 rows=1) (actual time=0.000..0.000 rows=1 loops=1)
+                -> Repeat until convergence
+                    -> Nested loop inner join  (cost=11254.03 rows=111930) (actual time=0.003..4.763 rows=5000 loops=2)
+                        -> Filter: ((cte01_0.mark = 0) and (cte01_0.`level` < 51) and (cte01_0.id is not null))  (cost=2.73 rows=1) (actual time=0.001..0.466 rows=5000 loops=2)
+                            -> Scan new records on cte01_0  (cost=2.73 rows=2) (actual time=0.000..0.176 rows=5000 loops=2)
+                        -> Covering index lookup on sn2_0 using IDXqvfkcct8h5ak4ior8jr4boper (parentId=cte01_0.id)  (cost=11251.30 rows=111930) (actual time=0.001..0.001 rows=1 loops=10000)
+-> Select #2 (subquery in projection; run only once)
+    -> Aggregate: min(cte03_0.id)  (cost=16325.40..16325.40 rows=1) (actual time=0.823..0.823 rows=1 loops=1)
+        -> Filter: (cte03_0.`level` > 50)  (cost=22446.87..12594.74 rows=37307) (actual time=0.822..0.822 rows=0 loops=1)
+            -> Table scan on cte03_0  (cost=22447.14..23848.77 rows=111931) (actual time=0.001..0.596 rows=10000 loops=1)
+                -> Materialize recursive CTE cte0  (cost=22447.13..22447.13 rows=111931) (never executed)
+-> Select #7 (subquery in projection; run only once)
+    -> Aggregate: min(cte04_0.id)  (cost=22668.53..22668.53 rows=1) (actual time=0.827..0.827 rows=1 loops=1)
+        -> Filter: (0 <> cte04_0.mark)  (cost=22447.03..12594.74 rows=100738) (actual time=0.826..0.826 rows=0 loops=1)
+            -> Table scan on cte04_0  (cost=22447.14..23848.77 rows=111931) (actual time=0.000..0.603 rows=10000 loops=1)
+                -> Materialize recursive CTE cte0  (cost=22447.13..22447.13 rows=111931) (never executed)
+-> Select #12 (subquery in projection; run only once)
+    -> Limit: 1 row(s)  (actual time=2.840..2.840 rows=0 loops=1)
+        -> Sort: cte05_0.id  (actual time=2.840..2.840 rows=0 loops=1)
+            -> Filter: (count(0) > 1)  (actual time=2.839..2.839 rows=0 loops=1)
+                -> Table scan on <temporary>  (actual time=2.090..2.594 rows=10000 loops=1)
+                    -> Aggregate using temporary table  (actual time=2.090..2.090 rows=10000 loops=1)
+                        -> Table scan on cte05_0  (cost=22447.14..23848.77 rows=111931) (actual time=0.000..0.618 rows=10000 loops=1)
+                            -> Materialize recursive CTE cte0  (cost=22447.13..22447.13 rows=111931) (never executed)
+
+
+==== MYSQL 6.6.58.Final chain 900
+with recursive cte0 (id,level,mark,path) as (select sn1_0.id,0,0,cast(concat(char(0 using ascii),coalesce(concat(sn1_0.id,''),char(0 using ascii)),char(0 using ascii),char(0 using ascii)) as char(22000)) from spike_node sn1_0 where sn1_0.id in (90000001) union all select sn2_0.id,(cte01_0.level+1),case when cte01_0.path like concat('%',replace(replace(replace(concat(char(0 using ascii),coalesce(concat(sn2_0.id,''),char(0 using ascii)),char(0 using ascii),char(0 using ascii)),'~','~~'),'?','~?'),'%','~%'),'%') escape '~' then 1 else 0 end,concat(cte01_0.path,char(0 using ascii),coalesce(concat(sn2_0.id,''),char(0 using ascii)),char(0 using ascii),char(0 using ascii)) from cte0 cte01_0,spike_node sn2_0 where sn2_0.parentId=cte01_0.id and cte01_0.level<951 and not(cte01_0.mark)) select cte02_0.id,cte02_0.level,(select min(cte03_0.id) from cte0 cte03_0 where cte03_0.level>950),(select min(cte04_0.id) from cte0 cte04_0 where cte04_0.mark),(select cte05_0.id from cte0 cte05_0 group by 1 having count(*)>1 order by 1 limit 1) from cte0 cte02_0 where cte02_0.level<=950 and not(cte02_0.mark) order by 2,1
+---
+-> Sort row IDs: cte02_0.`level`, cte02_0.id  (cost=233968.44..233968.44 rows=111931) (actual time=38.823..38.853 rows=900 loops=1)
+    -> Filter: ((cte02_0.mark = 0) and (cte02_0.`level` <= 950))  (cost=22447.24..35041.87 rows=111931) (actual time=38.647..38.759 rows=900 loops=1)
+        -> Table scan on cte02_0  (cost=22447.14..23848.77 rows=111931) (actual time=38.646..38.714 rows=900 loops=1)
+            -> Materialize recursive CTE cte0  (cost=22447.13..22447.13 rows=111931) (actual time=38.645..38.645 rows=900 loops=1)
+                -> Rows fetched before execution  (cost=0.00..0.00 rows=1) (actual time=0.000..0.000 rows=1 loops=1)
+                -> Repeat until convergence
+                    -> Nested loop inner join  (cost=11254.03 rows=111930) (actual time=0.003..0.542 rows=450 loops=2)
+                        -> Filter: ((cte01_0.mark = 0) and (cte01_0.`level` < 951) and (cte01_0.id is not null))  (cost=2.73 rows=1) (actual time=0.001..0.053 rows=450 loops=2)
+                            -> Scan new records on cte01_0  (cost=2.73 rows=2) (actual time=0.000..0.021 rows=450 loops=2)
+                        -> Covering index lookup on sn2_0 using IDXqvfkcct8h5ak4ior8jr4boper (parentId=cte01_0.id)  (cost=11251.30 rows=111930) (actual time=0.001..0.001 rows=1 loops=900)
+-> Select #2 (subquery in projection; run only once)
+    -> Aggregate: min(cte03_0.id)  (cost=16325.40..16325.40 rows=1) (actual time=0.083..0.083 rows=1 loops=1)
+        -> Filter: (cte03_0.`level` > 950)  (cost=22446.87..12594.74 rows=37307) (actual time=0.081..0.081 rows=0 loops=1)
+            -> Table scan on cte03_0  (cost=22447.14..23848.77 rows=111931) (actual time=0.001..0.061 rows=900 loops=1)
+                -> Materialize recursive CTE cte0  (cost=22447.13..22447.13 rows=111931) (never executed)
+-> Select #7 (subquery in projection; run only once)
+    -> Aggregate: min(cte04_0.id)  (cost=22668.53..22668.53 rows=1) (actual time=0.081..0.081 rows=1 loops=1)
+        -> Filter: (0 <> cte04_0.mark)  (cost=22447.03..12594.74 rows=100738) (actual time=0.080..0.080 rows=0 loops=1)
+            -> Table scan on cte04_0  (cost=22447.14..23848.77 rows=111931) (actual time=0.000..0.060 rows=900 loops=1)
+                -> Materialize recursive CTE cte0  (cost=22447.13..22447.13 rows=111931) (never executed)
+-> Select #12 (subquery in projection; run only once)
+    -> Limit: 1 row(s)  (actual time=0.252..0.252 rows=0 loops=1)
+        -> Sort: cte05_0.id  (actual time=0.252..0.252 rows=0 loops=1)
+            -> Filter: (count(0) > 1)  (actual time=0.251..0.251 rows=0 loops=1)
+                -> Table scan on <temporary>  (actual time=0.178..0.224 rows=900 loops=1)
+                    -> Aggregate using temporary table  (actual time=0.177..0.177 rows=900 loops=1)
+                        -> Table scan on cte05_0  (cost=22447.14..23848.77 rows=111931) (actual time=0.000..0.061 rows=900 loops=1)
+                            -> Materialize recursive CTE cte0  (cost=22447.13..22447.13 rows=111931) (never executed)
+
+

@@ -604,11 +604,16 @@ same statement (the M25 spike's `count(*)` against `count(distinct key)` over th
 too) raises a new `MQ27xx` where it finds one, instead of M25.4/M25.5's non-unique refusal. Export and keyset walks
 across statements (Q-21's open half) are decided by the RFC. Model: an `architect-review` of the RFC and at the gate
 (paging and export correctness over recursive sources, INV-4, INV-5). Every new public type and member is
-`@Incubating`. Slices are written once the RFC is accepted (§4).
+`@Incubating`. Accepted as D-147: the opt-in is `Builder#tree(step, maxDepth)`, the check is per statement with no
+state between statements, and the count over groups over a source counts client-side.
 
 | Slice | Content | Done when |
 |---|---|---|
-| M26.0 | `rfc/0014` and its acceptance spike on both Hibernate lines and Tier 1 (`rfc/0014-spike-results.md`) | RFC accepted as a `D-n`; slice rows written here and in `AGENTS.md`'s model table |
+| M26.0 | `rfc/0014` and its acceptance spike on both Hibernate lines and Tier 1 (`rfc/0014-spike-results.md`) | RFC accepted as D-147; slice rows written here and in `AGENTS.md`'s model table |
+| M26.1 | One check site and two M25 fixes (`rfc/0014` §3, §7): the `BuiltQuery` overloads of `rows`, `single` and `resultStream` read a source's checks before any row, and every `Tuple` read goes through them (ArchUnit, AC-SRC-25); a count over groups over a recursive source counts client-side with the check columns, no R-EXE-03 warning (the M25.5 fix); `SourceFeature.RECURSIVE_COMPOSITE_KEY`, false on H2, so a composite node key is `MQ4015` there before any statement and `PortabilityCheck` reports it; `engine/20` R-EXE-03, R-EXE-05 and `vendor/40` R-VND-21 amended | Grouped count over a too-deep or cyclic `recursive(...)` source is `MQ2701`/`MQ2702` on every Tier-1 vendor and both lines; H2 composite key is `MQ4015`; ArchUnit rule green; M25 SQL snapshots unchanged |
+| M26.2 | The tree source and its check (§1, §2, §7): `Builder#tree`, `RecursiveSpec.tree` and `RecursiveCte.duplicateKey` with kept constructors, `model-query-hibernate`'s third sub-select, `MQ2703` read after `MQ2701`/`MQ2702`, `MQ4014`'s no-check reason; R-SRC-13, R-SRC-14, `MQ2703` in `reference/90`, `delivery/61` incubating list | AC-SRC-22, AC-SRC-24, AC-SRC-21's check half, and AC-SRC-18 on the content query, the count and the count over groups; SQL snapshot per vendor |
+| M26.3 | Trees as unique (§3, §4, §5): `SourceQuery.unique()` true for a tree; `MQ1901`, `MQ2212` and `MQ1902` messages name `tree(...)`; offset `page` drops R-SRC-09's every-column tie-breakers for a tree; keyset, primary-key-first, `byKeys`, `one(q, key)`, export and fetch plans over a tree; R-SRC-08, R-SRC-09 amended, R-SRC-15, `engine/21`'s R-PAG-01 pointer and `@Depth` known limit | AC-SRC-17, AC-SRC-18's remaining statement kinds, AC-SRC-19, AC-SRC-20, AC-SRC-23 on every Tier-1 vendor and both lines |
+| M26.4 | Docs: the "Source models" page's "Trees" section (both tabs, CC-DOC-01), the cost per vendor with H2's as a test-database limit, the snapshot advice for walks ordered by derived values | `mkdocs build --strict` green; every snippet mirrors a test |
 
 ## 27. M27 — Correlated columns and sources over sources → 0.10.0
 
