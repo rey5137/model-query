@@ -329,6 +329,7 @@ public final class TckFixture {
             nullableText(ps, 7, status == null ? null : status.substring(0, 1));
         });
         seedFolders(c);
+        seedCompositeNodes(c);
     }
 
     /** A {@code folder_nodes} row: its id and its parent's, {@code null} at a root. */
@@ -372,6 +373,34 @@ public final class TckFixture {
         }
     }
 
+    /** A {@code composite_nodes} row: its parent's id, {@code null} at the root (AC-SRC-21). */
+    private record CompositeNode(long id, Long parent) {}
+
+    /** The one tree {@code composite_nodes} holds, in one tenant, shaped as {@code folder_nodes}' tree is. */
+    private static List<CompositeNode> compositeNodes() {
+        return List.of(new CompositeNode(COMPOSITE_TREE_ROOT, null), new CompositeNode(2, 1L),
+                new CompositeNode(3, 1L), new CompositeNode(4, 2L), new CompositeNode(5, 2L),
+                new CompositeNode(6, 3L));
+    }
+
+    private static void seedCompositeNodes(Connection c) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement(
+                "INSERT INTO composite_nodes (tenant_id, id, parent_id, name) VALUES (?,?,?,?)")) {
+            for (CompositeNode node : compositeNodes()) {
+                ps.setInt(1, COMPOSITE_TREE_TENANT);
+                ps.setLong(2, node.id());
+                if (node.parent() == null) {
+                    ps.setNull(3, Types.BIGINT);
+                } else {
+                    ps.setLong(3, node.parent());
+                }
+                ps.setString(4, "node-" + node.id());
+                ps.addBatch();
+            }
+            ps.executeBatch();
+        }
+    }
+
     /** Sets {@code index} to {@code value}, or NULL when it is {@code null}. */
     private static void nullableText(PreparedStatement ps, int index, String value) throws SQLException {
         if (value == null) {
@@ -407,6 +436,13 @@ public final class TckFixture {
     public static final long FOLDER_CYCLE_ROOT = 100;
 
     public static final long FOLDER_DEEP_ROOT = 1_000;
+
+    /** The tree {@code composite_nodes} holds: one tenant, a root and five rows below it (AC-SRC-21). */
+    public static final int COMPOSITE_TREE_TENANT = 1;
+
+    public static final int COMPOSITE_TREE_NODES = 6;
+
+    public static final long COMPOSITE_TREE_ROOT = 1;
 
     /** The labels of order {@code order}, ascending: none past {@link #LABELED_ORDERS}. */
     public static List<Long> labelsOf(long order) {

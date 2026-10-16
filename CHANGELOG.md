@@ -81,6 +81,9 @@ Nothing is frozen yet: every public type stays `@Incubating`, and the additions 
   fields differ in order, type or converter is `MQ1904`.
 - `WindowField` joins `SelectField`'s sealed permits (RFC 0013), so an exhaustive `switch` over `SelectField` needs a
   new case and already-compiled code meets a `MatchException`.
+- `MQ3031` checks an ungrouped source's `@PrimaryKey` against the root entity's id as a whole (D-149, RFC 0014): a
+  source over an `@IdClass` or `@EmbeddedId` entity now compiles with every id column as its key, where it was refused
+  for keying more than one column, and the message no longer calls the key "one row's key".
 
 ## [0.9.0] - 2026-10-14
 

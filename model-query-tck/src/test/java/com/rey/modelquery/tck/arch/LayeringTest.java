@@ -221,4 +221,9 @@ class LayeringTest {
                 .isInstanceOf(AssertionError.class)
                 .hasMessageContaining("com.rey.modelquery.tck.sql.SqlSnapshots");
     }
+
+    @Test
+    void ac_src_25_tupleReadsStayInTheCheckSite() {
+        proves(LayeringRules::tupleReadsStayInTheCheckSite, F + "jpa.BadTupleRead", "getResultList");
+    }
 }

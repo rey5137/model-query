@@ -338,10 +338,11 @@ final class ModelValidator {
         List<ModelField> keys = model.keys().stream().filter(key -> !key.discriminated()).toList();
         if (!model.grouped()) {
             Set<String> attributes = keys.stream().map(ModelField::attribute).collect(Collectors.toSet());
-            if (keys.size() != 1 || !metamodel.id(model.root()).is(attributes)) {
+            // The whole id, each id column named by exactly one @PrimaryKey (D-149).
+            if (keys.size() != attributes.size() || !metamodel.id(model.root()).is(attributes)) {
                 diagnostics.error(model.type(), DiagnosticCode.MQ3031, model.name() + ": @PrimaryKey must be "
                         + model.root().getSimpleName() + "'s id " + metamodel.id(model.root()).label()
-                        + ", one row's key; group the source to key it by its @GroupBy columns");
+                        + "; group the source to key it by its @GroupBy columns");
             }
             reportToManyReads(model, diagnostics);
             return;

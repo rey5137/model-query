@@ -38,7 +38,12 @@ skipped. A fetch plan runs on the content only, after the `NO_COUNT` probe row i
 `select count(*) from (<grouped query>)`, built with Hibernate's `JpaCriteriaQuery#createCountQuery()` when
 `model-query-hibernate` is present, as its `ProviderSupport#countQuery` (D-34), and run by the executor like any
 other statement, so the configured timeout applies (R-EXE-11). The portable fallback counts rows
-client-side and logs a warning, because a correct-but-slow total is better than a wrong one (INV-5).
+client-side and logs a warning, because a correct-but-slow total is better than a wrong one (INV-5). A grouped query
+over a **source that carries checks** takes the client-side path even when `model-query-hibernate` is present, with the
+source's check columns selected beside the group keys: `createCountQuery()` moves the source's CTE into its derived
+table, out of the checks' reach (RFC 0014 §3). It counts the group rows it reads, logs no warning — no provider
+support could count these groups — and reads the checks off the first of them, so a too-deep tree is `MQ2701` and a
+cyclic graph `MQ2702` (R-SRC-08). Zero groups leave the checks unread, as `list` is on an empty result.
 
 **R-EXE-04** *(was R7)* `count` is not inflated by collection joins. After predicates are built, the engine inspects
 `root.getJoins()` recursively and uses `count(distinct root)` only when a to-many join exists. A query using
@@ -47,7 +52,9 @@ join, each joined row is a result, so `count` counts rows and agrees with `list`
 (`engine/21` R-PAG-13).
 
 **R-EXE-05** The count query drops `orderBy` and any selection the count does not need, and keeps every predicate and
-join that can change the number of matching rows. A direct `count(q)` on a query with an `orderBy` logs one `WARNING`
+join that can change the number of matching rows. A source's check sub-selects are never dropped: a count over a
+source that carries checks selects them beside what it counts, on its own statement or on the group rows it counts
+(R-SRC-08, RFC 0014 §3). A direct `count(q)` on a query with an `orderBy` logs one `WARNING`
 per `ModelQuery`, `<Model>: count(query) ignores the query's orderBy`; the count `page` runs for its total logs
 nothing, since `page` uses the order (D-126). `count` refuses a locked query with `MQ2211` (R-EXE-14): a count returns
 no row to lock.

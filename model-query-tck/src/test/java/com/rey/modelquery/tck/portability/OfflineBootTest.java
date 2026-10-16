@@ -52,6 +52,7 @@ class OfflineBootTest {
     /** The TCK unit: sequences, table, identity and UUID generators, {@code @Formula}, secondary tables, a view. */
     static final List<String> TCK_UNIT = Stream.of(
             "col.CardEntity", "col.CardHolderEntity", "col.CompositeKeyCopyEntity", "col.CompositeKeyItemEntity",
+            "col.CompositeNodeEntity",
             "col.ConstantRowEntity", "col.CounterRowEntity", "col.CustomerEntity", "col.CustomerNoteEntity",
             "col.DatedRowEntity", "col.DeliveryEntity", "col.EmbeddedKeyEntity", "col.FormulaLineEntity",
             "col.FormulaProductEntity", "col.FolderNodeEntity", "col.KeysetTypeEntity", "col.LabelEntity",

@@ -111,7 +111,7 @@ final class KeysetWrite {
                 rounds.run(on -> {
                     // The run bounds the keys, so the select needs no limit and no cursor.
                     BuiltQuery<M> built = write.keySelect().apply(run);
-                    List<Tuple> rows = rows(on, built, 0, lockKeys, null, null, null);
+                    List<Tuple> rows = rows(write.label(), on, built, 0, lockKeys, null, null, null);
                     Set<Object> distinct = keysOf(write, built, rows, Set.of());
                     List<Object> keys = new ArrayList<>(distinct);
                     return new Round(keys, distinct, rows.size(), null, writeKeys(on, write, keys));
@@ -135,7 +135,7 @@ final class KeysetWrite {
                     built.query().where(own == null ? past.predicate() : cb.and(own, past.predicate()));
                 }
                 keyset.appendOrder(built, cb);
-                List<Tuple> rows = rows(on, built, n, lockKeys, keyset, after, past);
+                List<Tuple> rows = rows(write.label(), on, built, n, lockKeys, keyset, after, past);
                 if (rows.isEmpty()) {
                     return Round.NONE;
                 }
@@ -152,9 +152,13 @@ final class KeysetWrite {
         }
     }
 
-    /** The rows of {@code built}, at most {@code max} unless it is zero, locked with {@code lockKeys}. */
-    private List<Tuple> rows(EntityManager on, BuiltQuery<?> built, int max, boolean lockKeys, Keyset<?> keyset,
-            Object[] cursor, Keyset.Beyond beyond) {
+    /**
+     * The rows of {@code built}, at most {@code max} unless it is zero, locked with {@code lockKeys}, read through
+     * the check site like every {@code Tuple} read (R-SRC-08, AC-SRC-25). A key select is never built over a source,
+     * which never writes, so the checks are empty here and the read stays unchecked.
+     */
+    private List<Tuple> rows(Object label, EntityManager on, BuiltQuery<?> built, int max, boolean lockKeys,
+            Keyset<?> keyset, Object[] cursor, Keyset.Beyond beyond) {
         TypedQuery<Tuple> query = select.create(on, built, keyset, cursor);
         if (beyond != null) {
             beyond.bindTo(query);
@@ -165,11 +169,14 @@ final class KeysetWrite {
         if (lockKeys) {
             query.setLockMode(LockModeType.PESSIMISTIC_WRITE);
         }
+        List<Tuple> rows;
         try {
-            return query.getResultList();
+            rows = query.getResultList();
         } catch (PersistenceException e) {
             throw timeouts.apply(e);
         }
+        SourceChecks.checkRecursion(label, built, rows);
+        return rows;
     }
 
     /**

@@ -2161,6 +2161,13 @@ M30 and stays last, and the 0.10.0 release prep moves from M28's last slice to M
 so the M30.1 freeze review decides each type. → `rfc/0017`, `docs/plan/mvp-plan.md` §29–§30, `delivery/62`, D-85,
 D-145.
 
+**D-149 — A source over a composite id compiles (M26.1, 2026-10-16, user decision).** `MQ3031` checks an ungrouped
+source's `@PrimaryKey` against the root entity's id as a whole, as `api/17` R-SRC-02 states, instead of also requiring
+one key column: a source over an `@IdClass` or `@EmbeddedId` entity compiles with every id column as its key, each id
+column named by exactly one `@PrimaryKey`. This is what makes a recursive source over a composite node key reachable, so
+`SourceFeature.RECURSIVE_COMPOSITE_KEY`'s `MQ4015` on H2 and its `PortabilityCheck` report land with M26.1 (D-147,
+AC-SRC-21's H2 half). → `api/17` R-SRC-02, R-SRC-11, `processor/30`, `vendor/40` R-VND-21.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

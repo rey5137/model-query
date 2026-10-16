@@ -351,6 +351,8 @@ the same field and type annotations, and the same checks, codes and messages. Th
 compilation carrying source models alone generates them, as one carrying query models alone does. It is one statement,
 so a `@Child` on it is `MQ3030`. `MQ3031` checks its key: the root entity's id for an ungrouped source, the full
 `@GroupBy` set for a grouped one, no group key nullable in its mapping, and no `@FilterColumn` crossing a to-many join (a to-many `@Join` is `MQ3003`).
+The id is checked as a whole, so an `@IdClass` or `@EmbeddedId` root gives an ungrouped source one key column per id
+attribute (D-149, M26.1).
 Its QModel declares
 `source()` in place of `query()`, and no `MAPPER` and no write method, since nothing maps a source row and no write
 reads a source (`processor/31` R-GEN-37). A `shape` makes it a branch (§10, R-PROC-38).
