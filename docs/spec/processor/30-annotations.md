@@ -159,7 +159,8 @@ is the projection of its CTE body (R-GEN-37).
 
 **R-PROC-22** *(D-115)* `@Aggregate(expression = Def.class)` aggregates the definition's expression, emitted after
 every other constant of the model so the definition may read any of them (`processor/31` R-GEN-27). `attribute` and
-`expression` together are `MQ3208`. `MQ3202`, `MQ3205` and `MQ3206` read the expression's type.
+`expression` together are `MQ3208`. `MQ3202`, `MQ3205` and `MQ3206` read the expression's type. A correlated
+expression is `MQ1510` when the generated constant initializes; declare it through `@Computed` instead (R-COL-33, D-150).
 
 **R-PROC-25** *(D-120)* **`@Selected`.** A `@QueryModel` may declare one field or record component marked `@Selected` (no
 members, `@Incubating`), typed exactly `SelectSet<M>` with `M` the model itself; the generated mapper fills it with the

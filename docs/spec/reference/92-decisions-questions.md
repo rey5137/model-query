@@ -2179,9 +2179,11 @@ through `@Computed` and rendered as a scalar sub-query in every position; there 
 child column indexed the scalar form is within a small factor of a grouped join everywhere and faster on MySQL, and
 without the index only the join finishes), and the docs say to index the correlated columns. It selects, filters and
 orders, and is an order key for offset pages, offset export and `primaryKeyFirst`; `keyset()` keeps `MQ1208`. Refused:
-in a CASE condition, `having`, an aggregate (`MQ1510`), a grouped query whose lifted columns are not all group keys or
-as a group key (`MQ1314`), a `count`, `sum` or `first` whose sub-select crosses a to-many join (`MQ1511`, at first
-resolution), and inside a `SourceQuery` (`MQ1908`, at its build). `first(...)` requires an order, appends the
+in a CASE condition, `having`, an aggregate (`MQ1510`), a grouped query's selection or orders whose lifted columns
+are not all group keys or as a group key (`MQ1314`), a `count`, `sum` or `first` whose sub-select crosses a to-many
+join (`MQ1511`, at first resolution), and inside a `SourceQuery` (`MQ1908`, at its build).
+(amended 2026-10-17, M27.1: MQ1314 covers the selection and orders; a correlated value in a grouped query's where is
+allowed, evaluated before grouping). `first(...)` requires an order, appends the
 sub-select root's id ascending, and renders null precedence as any order does (R-COL-12, D-36: `DEFAULT` follows the
 vendor, so the docs say to set `nullsFirst()`/`nullsLast()` on a nullable key for a portable value); it renders through a new `SubqueryRenderer` from `ProviderSupport#subqueries()`, and without one is
 `MQ4014`, widened to every renderer the provider lacks (`SourceRenderer`'s provider-gap defaults move from `MQ4015`).

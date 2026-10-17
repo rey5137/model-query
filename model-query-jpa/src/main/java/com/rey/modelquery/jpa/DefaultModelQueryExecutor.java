@@ -3313,6 +3313,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             return countGroups(q, built);
         }
         // Every predicate and join stays, since one can change the number of rows; only the selection is replaced.
+        // This drops select-only correlated sub-queries but keeps those in WHERE (R-EXE-05).
         From<?, ?> root = query.getRoots().iterator().next();
         // A source's root is the CTE's, whose derived model part has no identifying parts to count or expand, so the
         // rows are counted by a constant (R-SRC-12); a source root has no to-many join, which needs no dedup.

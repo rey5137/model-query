@@ -375,31 +375,41 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
         checkOpen();
         Objects.requireNonNull(rows, "rows");
         Objects.requireNonNull(correlation, "correlation");
-        // The inner group accepts the sub-select's root columns and the lifted outer columns (R-FLT-17). Its root
-        // entity is the sub-select's own, so a nested correlation here lifts against the sub-select's root.
-        var inner = new FilterGroup<S>(rows.root(), MqCode.MQ1003, true, rows.rootEntity());
         List<Filter> group;
         beginNesting();
         try {
-            group = ConditionGroup.collect(inner, correlation, new Outer<M, S>(rootEntity));
+            group = collectCorrelation(rows, correlation, rootEntity);
         } finally {
             endNesting();
         }
+        return record(Condition.existsSubSelect(
+                        negated ? Kind.NOT_EXISTS_SUBSELECT : Kind.EXISTS_SUBSELECT, rows,
+                        ConditionGroup.conditions(group)),
+                ctx -> Optional.of(ctx.existsSubSelect(rows, group, negated)));
+    }
+
+    /** Records the correlation once, with the same scope and lifted-column rules for predicates and columns. */
+    static <M, S> List<Filter> collectCorrelation(SubSelect<S, ?> rows,
+            BiFunction<Filters<S>, Outer<M, S>, Filters<S>> correlation, Class<?> rootEntity) {
+        Objects.requireNonNull(correlation, "correlation");
+        // A nested correlation lifts against this sub-select's root, not the enclosing query's (R-FLT-17).
+        var inner = new FilterGroup<S>(rows.root(), MqCode.MQ1003, true, rows.rootEntity());
+        List<Filter> group = ConditionGroup.collect(inner, correlation, new Outer<M, S>(rootEntity));
         List<Condition> conditions = ConditionGroup.conditions(group);
         if (!anyLifted(conditions)) {
-            throw new ModelQueryDefinitionException(MqCode.MQ1309, "exists(...) over " + rows
+            throw new ModelQueryDefinitionException(MqCode.MQ1309, "correlation over " + rows
                     + ": its correlation lifts no outer column; use in(...) or a plain exists(path, ...) instead");
         }
-        return record(Condition.existsSubSelect(
-                        negated ? Kind.NOT_EXISTS_SUBSELECT : Kind.EXISTS_SUBSELECT, rows, conditions),
-                ctx -> Optional.of(ctx.existsSubSelect(rows, group, negated)));
+        return group;
     }
 
     /** Whether any condition, at any depth, reads a lifted outer column (R-FLT-17, MQ1309). */
     private static boolean anyLifted(List<Condition> conditions) {
         for (Condition condition : conditions) {
             if (lifted(condition.column().orElse(null)) || lifted(condition.right().orElse(null))
-                    || condition.operands().stream().anyMatch(FilterGroup::lifted) || anyLifted(condition.children())) {
+                    || condition.operands().stream().anyMatch(FilterGroup::lifted)
+                    || condition.kind() != Kind.EXISTS_SUBSELECT && condition.kind() != Kind.NOT_EXISTS_SUBSELECT
+                            && anyLifted(condition.children())) {
                 return true;
             }
         }

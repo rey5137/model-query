@@ -54,6 +54,43 @@ source model; a hand-written `ColumnField.of(...)` over it, or a `TableField.joi
 there is no metamodel for INV-3 to check it against. A source root's column is
 `ColumnField.over(Outer.class, ROOT, QSource.CONSTANT)` (`api/17` R-SRC-10).
 
+**R-COL-31** *(D-150)* **Correlated scalar values.** The `@Incubating` static terminals
+`Correlated.count(model, rows, correlation)`, `exists`, `min`, `max` and `sum` return an
+`ExpressionField<M, C>`. `model` types the outer vocabulary; `rows` is a `SubSelect<S, C>`;
+`correlation` takes `Filters<S>` and `Outer<M, S>` and returns `Filters<S>`, as R-FLT-17 does. The factory records
+it once, requires an actual lifted outer column (`MQ1309`) and closes the recorder (INV-9). A lifted column is
+usable only in that correlation (`MQ1310`); it must be on the outer root (`MQ1311`). The sub-select's own filters
+and the recorded correlation are combined with AND.
+
+Each terminal is a scalar sub-query in every scalar position: selection, projection, filter and order; there is
+no join lowering. `count` counts the sub-select's selected column's non-NULL values, returns `Long` and yields
+zero when none match. `exists` ignores that column and renders `case when exists(select 1 …) then true else false
+end`, returning a non-NULL `Boolean`. `min` and `max` have per-method `Comparable` bounds and preserve the column's
+type; `sum` has a per-method `Number` bound and follows R-AGG-04's SUM types (`BigDecimal`, `Double`, `Long`),
+including its converted-column refusal. `min` and `max` refuse a converted column with `MQ1501`. These three
+terminals return NULL when no non-NULL value matches. An expression may coalesce or otherwise compose the result.
+
+Equality is the sub-select, the recorded correlation and the terminal; a custom predicate compares by the identity
+of its recorded condition, even when labelled, at any depth of either WHERE tree. Correlation-lambda identity and
+`named` are outside it. Equal values share one Criteria node per statement (R-COL-19), also when selected, filtered
+and ordered.
+Only lifted columns contribute outer joins; the inner query's paths belong to its own context. A count statement
+keeps row-changing lifted joins of a select-only correlated value (R-EXE-05). Offset pages, offset export and
+`primaryKeyFirst` accept a correlated order key; `keyset()` refuses it with `MQ1208` (R-QRY-16).
+
+**R-COL-33** *(D-150)* **Correlated refusals.** A correlated value at any depth of a CASE condition is `MQ1505`;
+a CASE result may use it. An aggregate over it is `MQ1510`, including the `Agg` expression factories,
+`@Aggregate(expression = …)` when the generated constant initializes, and `Agg.of` at first resolution. Declare
+the scalar through `@Computed` (R-PROC-21). `having` keeps R-FLT-14's aggregate-only operands. A correlated group
+key, including `@GroupBy @Computed`, is `MQ1314`; in a grouped query's selection and orders every lifted column
+of a correlated value must be a group-key column, checked at definition. A correlated value in WHERE may lift
+non-group-key columns because it is evaluated per row before grouping.
+
+A correlated `count` or `sum` whose selected column, sub-select's own WHERE or inner side of the correlation
+crosses a to-many join is `MQ1511` at first resolution, before any statement runs: joining can multiply the
+counted or summed rows. The message points to `Filters.exists(path, inner)`, whose separate context does not
+multiply them. `min`, `max` and `exists` are exempt. These checks also apply through nested expressions.
+
 **R-COL-04** A `TableField` carrying an `on(...)` condition must have an alias, because a lambda cannot be compared.
 Two `TableField`s with the same join key and different condition instances throw `MQ1101` when the query is built.
 
@@ -499,3 +536,20 @@ the planner must see as a literal (a partial index's predicate, a selective enum
 | AC-COL-33 | On H2 and PostgreSQL, `Expr.nextval("seq")` selected over a table's rows returns a distinct value per row and a second query continues the sequence above the first's values; the snapshot shows the dialect's own call. A sequence name that is not an identifier (`a b`, `a;b`, `a.b.c`) is `MQ1509` at definition; a `nextval` in a filter, a `having` (inside an aggregate), an order or a group key, and a `distinct()` query selecting it, is `MQ1509` with no statement run, also when the select renders the same expression first; on MySQL it is `MQ1509` at first resolution with no statement run (R-COL-28, R-VND-18). |
 | AC-COL-34 | On every Tier-1 vendor, on both Hibernate lines, a hand-written column of type `Long` over the nullable `referrer` keeps the `NULL`-foreign-key orders in a select, an `isNull` and an `eq` filter, an order with `nullsFirst` and an offset page across the last `NULL`s, and `count`; a keyset export ordered by it with `nullsLast` or `nullsFirst` visits each order once in that order, and without a null precedence is `MQ2202`; a primary-key-first page with a to-many filter returns the same rows as the database; an insert-select whose source selects it inserts the `NULL`-foreign-key orders with a `NULL` value; it reads through a `@Join`ed table, as a child's foreign key, through an inverse `@OneToOne` and through a `@NotFound` to-one whose key is `NULL` or names no row, each without dropping a row; a locked read is `MQ2211` before any statement; a bulk update and a bulk delete filtering by it render the foreign-key column with no join, `throughEntities` writes the same rows, and an `updateReturning` returns it; over `SkuOrderLineEntity`'s non-key `referencedColumnName` a bulk update, `throughEntities` update and bulk delete filtering by it are `MQ1004` and a returning write selecting it `MQ1809` (`MQ4011` where the vendor returns no rows), and a bulk delete filtering by the `@NotFound` to-one or by the inverse `@OneToOne` is `MQ1004`, all before any statement; the snapshots also record the read over that mapping and the read and write over a `@JoinFormula` and a `@MapsId` `@OneToOne` (R-COL-29, R-COL-25, R-WRT-48). |
 | AC-COL-35 | On every Tier-1 vendor, a runtime `groupBy` on the id form of `referrer` with a `count` returns the `NULL` group first under `nullsFirst` and each referrer's count, and a grouped export returns the same groups; PostgreSQL accepts the statement (R-COL-29, `api/13` R-AGG-09). |
+| AC-COL-36 | Correlated count: non-NULL counts, zero for no match, composition and node equality (R-COL-31). |
+| AC-COL-37 | Correlated exists: non-NULL Boolean CASE, empty matches and NULL columns (R-COL-31). |
+| AC-COL-38 | Correlated min/max: comparable typing, extrema and NULL for no match (R-COL-31). |
+| AC-COL-39 | Correlated sum: SUM typing, filtering, ordering and NULL for no match (R-COL-31). |
+| AC-COL-40 | Reserved for `Correlated.first` (M27.3). |
+| AC-COL-41 | Refusals, grouped WHERE and root-only counts; lifted-join counts land in M27.2 (R-COL-33, R-EXE-05). |
+| AC-COL-42 | To-many count/sum: MQ1511; EXISTS filtering and min/max/exists exemptions (R-COL-33). |
+
+AC-COL-36..39, 41 and 42 run on every Tier-1 vendor and both Hibernate lines. Each scalar terminal selects,
+filters and orders. AC-COL-41 covers all R-COL-33 refusals, including generated annotations and
+nested operands, with no statement on a resolution refusal. MQ1314 checks the grouped selection and orders;
+a grouped WHERE may lift a non-group-key column and returns the expected groups. It accepts correlated order keys
+in offset paging, offset export and primary-key-first. Its root-only count checks omit select-only correlated values
+and retain correlated WHERE predicates. The count cases retaining an INNER lifted path and using LEFT lifted joins inside
+OR/NOT (R-FLT-10) land with M27.2, when lifted to-one columns arrive. AC-COL-42 crosses
+the to-many path separately through the selected column, own WHERE and inner correlation, checks no statement
+runs, and verifies the EXISTS remedy and every exempt terminal.

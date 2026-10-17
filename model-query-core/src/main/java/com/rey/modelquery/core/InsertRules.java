@@ -85,6 +85,10 @@ final class InsertRules {
      */
     static void checkConflictWhere(TableField<?, ?> root, List<Condition> conditions) {
         for (Condition condition : conditions) {
+            if (ExpressionField.containsCorrelated(condition)) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1804, CONFLICT_WHERE + " with a correlated value: "
+                        + "the conflict action filters the stored row on its own columns, with no join or sub-query");
+            }
             switch (condition.kind()) {
                 case EXISTS, NOT_EXISTS, IN_SUBSELECT, NOT_IN_SUBSELECT, EXISTS_SUBSELECT, NOT_EXISTS_SUBSELECT ->
                     throw new ModelQueryDefinitionException(MqCode.MQ1804, CONFLICT_WHERE + " with "
