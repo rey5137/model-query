@@ -1,0 +1,4 @@
+select ce1_0.id,(select oe1_0.id from orders oe1_0 join customers c1_0 on c1_0.id=oe1_0.customer_id where c1_0.id=ce1_0.id order by oe1_0.referrer_id,1 limit ?) from customers ce1_0 where ce1_0.id<=? order by 1
+select ce1_0.id,(select oe1_0.id from orders oe1_0 join customers c1_0 on c1_0.id=oe1_0.customer_id where c1_0.id=ce1_0.id order by case when (oe1_0.referrer_id) is null then 1 else 0 end,oe1_0.referrer_id,1 limit ?) from customers ce1_0 where ce1_0.id<=? order by 1
+select ce1_0.id,(select oe1_0.id from orders oe1_0 join customers c1_0 on c1_0.id=oe1_0.customer_id where c1_0.id=ce1_0.id order by case when (oe1_0.referrer_id) is null then 0 else 1 end,oe1_0.referrer_id desc,1 limit ?) from customers ce1_0 where ce1_0.id<=? order by 1
+select ce1_0.id,(select oe1_0.id from orders oe1_0 join customers c1_0 on c1_0.id=oe1_0.customer_id where c1_0.id=ce1_0.id order by oe1_0.referrer_id desc,1 limit ?) from customers ce1_0 where ce1_0.id<=? order by 1

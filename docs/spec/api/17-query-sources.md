@@ -410,7 +410,9 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
 
 - **The provider's support.** `ProviderSupport#sources()` returns the factory's `SourceRenderer`. Empty — the default,
   and the only answer where the factory's provider has no `ProviderSupport` at all — is `MQ4014`, before any statement,
-  the same fail-safe as `ProviderSupport#inserts()` (R-VND-14). `model-query-hibernate` serves Hibernate on both lines.
+  the same fail-safe as `ProviderSupport#inserts()` (R-VND-14). `SourceRenderer`'s default `recursive`, `window` and
+  `combine` methods also refuse with `MQ4014`: the provider lacks that renderer, rather than the vendor lacking a
+  feature (D-150). `model-query-hibernate` serves Hibernate on both lines.
 - **The vendor's features.** `VendorProfile#sources(SourceFeature)` answers for each feature the source uses, `false`
   by default so a profile written before a constant was added fails safe. A `false` is `MQ4015`, before any statement,
   naming the feature and the vendor. `RECURSIVE_COMPOSITE_KEY` is one of them, answered `false` by H2 alone, so a

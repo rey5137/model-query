@@ -2187,6 +2187,8 @@ allowed, evaluated before grouping). `first(...)` requires an order, appends the
 sub-select root's id ascending, and renders null precedence as any order does (R-COL-12, D-36: `DEFAULT` follows the
 vendor, so the docs say to set `nullsFirst()`/`nullsLast()` on a nullable key for a portable value); it renders through a new `SubqueryRenderer` from `ProviderSupport#subqueries()`, and without one is
 `MQ4014`, widened to every renderer the provider lacks (`SourceRenderer`'s provider-gap defaults move from `MQ4015`).
+(amended 2026-10-17, M27.3 review: every composite id's tie-breaker parts are ordered by attribute name, for field
+and property access; Hibernate's `hibernate.jpa.compliance.query=true` refuses `first` with `MQ4014` before SQL).
 A lifted outer column may sit on a to-one path of the outer root (`MQ1311` narrowed to to-many paths, checked at first
 resolution), resolved through the outer `JoinContext` and rendered with `Subquery#correlate` of the outer join, which
 keeps its `ON` (a bare reference drops it on every target); a source outer root is allowed, a sub-select rooted at a

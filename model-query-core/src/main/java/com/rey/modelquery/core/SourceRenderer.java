@@ -18,7 +18,7 @@ import jakarta.persistence.criteria.Root;
  * A query over a source with no renderer is {@code MQ4014}, raised at build time, before any statement.
  *
  * <p>{@link #cte} is the one method a provider must implement; {@link #recursive}, {@link #window} and {@link #combine}
- * default to {@code MQ4015}, so a provider can ship CTE support only.
+ * default to {@code MQ4014}, so a provider can ship CTE support only.
  *
  * @implSpec R-SRC-10, R-SRC-12, R-SRC-04, INV-7
  */
@@ -69,7 +69,7 @@ public interface SourceRenderer {
     }
 
     private static ModelQueryConfigurationException unsupported(String feature) {
-        return new ModelQueryConfigurationException(MqCode.MQ4015,
+        return new ModelQueryConfigurationException(MqCode.MQ4014,
                 "the factory's persistence provider renders CTE sources only, not " + feature);
     }
 }

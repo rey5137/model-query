@@ -251,6 +251,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 .flatMap(support -> support.sequences(emf))
                 .map(options::withSequenceRenderer)
                 .orElse(options);
+        options = vendor.providerSupport()
+                .flatMap(ProviderSupport::subqueries)
+                .map(options::withSubqueryRenderer)
+                .orElse(options);
         this.renderOptions = sources(options);
         this.keyLimits = new Keys(profile.maxInListSize(), profile.maxBindParameters());
         this.primaryKeyFirstBatchSize = config.primaryKeyFirstBatchSize();

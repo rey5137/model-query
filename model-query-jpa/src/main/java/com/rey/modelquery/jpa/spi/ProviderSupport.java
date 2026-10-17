@@ -6,6 +6,7 @@ import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
 import com.rey.modelquery.core.SequenceRenderer;
 import com.rey.modelquery.core.SourceRenderer;
+import com.rey.modelquery.core.SubqueryRenderer;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -172,6 +173,15 @@ public interface ProviderSupport {
      * {@link #inserts()} (R-SRC-11, D-143).
      */
     default Optional<SourceRenderer> sources() {
+        return Optional.empty();
+    }
+
+    /**
+     * The ordered scalar sub-query renderer, or empty by default: {@code Correlated.first} then throws
+     * {@code MQ4014} at build time, before any statement (R-VND-25, R-COL-32).
+     */
+    @Incubating
+    default Optional<SubqueryRenderer> subqueries() {
         return Optional.empty();
     }
 }

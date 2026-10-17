@@ -678,6 +678,7 @@ public final class ModelQuery<E, K, M> {
         Objects.requireNonNull(cb, "cb");
         RenderOptions scratchOptions = Objects.requireNonNull(options, "options").sourceRenderer()
                 .map(PHASE_SCRATCH::withSourceRenderer).orElse(PHASE_SCRATCH);
+        scratchOptions = options.subqueryRenderer().map(scratchOptions::withSubqueryRenderer).orElse(scratchOptions);
         if (customizer == null) {
             return;
         }

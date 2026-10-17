@@ -317,13 +317,23 @@ clause Hibernate emulates with `array[row(a, b)]`, a form H2 rejects — on Post
 it, so a recursive source over a composite node key is `MQ4015` there before any statement (M26.1, D-149; `api/17`
 AC-SRC-21). `OTHER` keeps the default. A database fact, no SQL (R-VND-11, INV-6). The SQL side is
 `core.SourceRenderer`, the one source hook `ProviderSupport#sources()` returns (`cte` abstract; `window`, `combine`
-and `recursive` default to `MQ4015`; D-146).
+and `recursive` default to `MQ4014`, a missing provider renderer, rather than a vendor fact; D-146, D-150).
 
 **R-VND-22** A database's own recursion ceiling is a profile fact (D-143). `VendorProfile` gains `@Incubating
 int maxRecursionDepth()`, `Integer.MAX_VALUE` by default, meaning the database sets no ceiling this library knows of.
 MySQL's is 1000, its `cte_max_recursion_depth` default, so the Tier-1 MySQL profiles return it and a recursive source
 whose `maxDepth + 2` exceeds it is `MQ4015` before any statement (the extra level and the final, empty iteration
 count too; `api/17` R-SRC-08). A database fact, no SQL (R-VND-11, INV-6).
+
+**R-VND-25** *(D-150)* `ProviderSupport#subqueries()` is an `@Incubating` default method returning an empty
+`Optional<SubqueryRenderer>`. The core `SubqueryRenderer` SPI is `@EngineFacing` and `@Incubating`; its
+`@Incubating firstRow(CriteriaBuilder, Subquery<C>, List<Order>)` returns the ordered, one-row scalar expression.
+The engine supplies the inner orders, including the root id tie-breaker, through `RenderOptions`; the renderer
+applies the order and a limit of one inside the sub-query. `model-query-hibernate` implements it through
+`JpaSubQuery#orderBy` and `fetch(1)` on both Hibernate lines. An empty hook (including no `ProviderSupport`) is
+`MQ4014` for `Correlated.first` before any statement; `PortabilityCheck` reports it per target without a database
+(R-COL-32, AC-COL-40). Other correlated terminals need no renderer. This is a provider capability, with no
+`VendorProfile` change (R-VND-11, INV-6).
 
 ## 2. Detection
 

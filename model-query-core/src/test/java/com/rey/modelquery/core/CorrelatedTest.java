@@ -61,6 +61,61 @@ class CorrelatedTest {
             (f, outer) -> f.compare(ORDER_ID, Op.EQ, outer.column(ID));
 
     @Test
+    void ac_col_40_first_preserves_the_column_type_and_copies_orders_for_equality() {
+        var more = new OrderField<?, ?>[] {AMOUNT.asc().nullsLast()};
+        @SuppressWarnings("unchecked")
+        var typed = (OrderField<RefundView, ?>[]) more;
+        var first = Correlated.first(View.class, ROWS, MATCH, REASON.desc().nullsFirst(), typed);
+        typed[0] = AMOUNT.desc();
+        var same = Correlated.first(View.class, ROWS, MATCH, REASON.desc().nullsFirst(), AMOUNT.asc().nullsLast());
+
+        assertThat(first.type()).isEqualTo(Long.class);
+        assertThat(first.columns()).containsExactly(ID);
+        assertThat(first).isEqualTo(same.named("first")).hasSameHashCodeAs(same);
+        assertThat(SelectSet.of(first, same).fields()).hasSize(1);
+        assertThat(first).isNotEqualTo(Correlated.first(View.class, ROWS, MATCH,
+                REASON.asc().nullsFirst(), AMOUNT.asc().nullsLast()));
+        assertThat(first).isNotEqualTo(Correlated.first(View.class, ROWS, MATCH,
+                REASON.desc().nullsLast(), AMOUNT.asc().nullsLast()));
+        assertThat(first).isNotEqualTo(Correlated.first(View.class, ROWS, MATCH,
+                AMOUNT.asc().nullsLast(), REASON.desc().nullsFirst()));
+        assertThat(first).isNotEqualTo(Correlated.first(View.class, ROWS, MATCH, REASON.desc().nullsFirst()));
+        assertThat(first).isNotEqualTo(Correlated.min(View.class, ROWS, MATCH));
+        assertThat(Correlated.first(View.class, SubSelect.of(REASON), MATCH, AMOUNT.asc()).type())
+                .isEqualTo(String.class);
+        assertThat(first.binds()).isEqualTo(2);
+        assertThat(Correlated.first(View.class, ROWS, MATCH, Expr.coalesce(AMOUNT, 0L).asc()).binds()).isEqualTo(3);
+    }
+
+    @Test
+    void ac_col_40_first_requires_a_non_null_order_and_inner_scoped_keys() {
+        assertThatThrownBy(() -> Correlated.first(View.class, ROWS, MATCH, null))
+                .isInstanceOf(NullPointerException.class).hasMessage("order");
+        assertThatThrownBy(() -> Correlated.first(View.class, ROWS, MATCH, AMOUNT.asc(),
+                (OrderField<RefundView, ?>[]) null)).isInstanceOf(NullPointerException.class);
+        assertThatThrownBy(() -> Correlated.first(View.class, ROWS, MATCH, AMOUNT.asc(),
+                (OrderField<RefundView, ?>) null)).isInstanceOf(NullPointerException.class);
+        TableField<Order, Order> otherRoot = TableField.root(Order.class);
+        ColumnField<RefundView, Order, Long> other = ColumnField.of(RefundView.class, otherRoot, "id", Long.class);
+        assertThatThrownBy(() -> Correlated.first(View.class, ROWS, MATCH, other.asc()))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1003));
+    }
+
+    @Test
+    void ac_col_40_first_cannot_be_called_without_an_order(@TempDir Path out) throws IOException {
+        List<String> members = List.of(
+                "static final class Entity {}", "static final class Model {}",
+                "static final TableField<Entity, Entity> ROOT = TableField.root(Entity.class);",
+                "static final ColumnField<Model, Entity, Long> ID = "
+                        + "ColumnField.of(Model.class, ROOT, \"id\", Long.class);");
+        assertThat(CompileProbe.problems(out, members,
+                "Correlated.first(Model.class, SubSelect.of(ID), "
+                        + "(f, outer) -> f.compare(ID, Op.EQ, outer.column(ID)))"))
+                .isNotEmpty();
+    }
+
+    @Test
     void ac_col_36_count_is_a_long_expression_over_only_the_lifted_outer_columns() {
         ExpressionField<View, Long> count = Correlated.count(View.class, ROWS, MATCH);
 
@@ -343,7 +398,7 @@ class CorrelatedTest {
             assertThat(annotations.getAnnotation(Incubating.class.getName())).isNotNull();
             assertThat(type.getMethods().stream()
                     .filter(method -> java.lang.reflect.Modifier.isPublic(method.getAccessFlags())))
-                    .hasSize(5).allSatisfy(method -> {
+                    .hasSize(6).allSatisfy(method -> {
                         var members = (AnnotationsAttribute) method.getAttribute(AnnotationsAttribute.invisibleTag);
                         assertThat(members).isNotNull();
                         assertThat(members.getAnnotation(Incubating.class.getName())).isNotNull();
