@@ -100,8 +100,8 @@ public enum MqCode {
     /** An {@code Outer.column} resolved outside the correlation it was made in, or lifted through two levels. */
     MQ1310("An Outer.column was resolved outside the correlation it was made in, or lifted through two levels"),
 
-    /** {@code Outer.column} given a column that is not on the outer query's root. */
-    MQ1311("Outer.column(...) takes a column of the outer query's root"),
+    /** A lifted path crosses a to-many join or another root, or a sub-select's root is a source. */
+    MQ1311("A lifted column must follow a to-one path of the outer root; a sub-select cannot be rooted at a source"),
 
     /** {@code in} or {@code notIn} over a sub-select with an embeddable-valued column on either side. */
     MQ1312("in(...) and notIn(...) over a sub-select do not take an embeddable-valued column"),

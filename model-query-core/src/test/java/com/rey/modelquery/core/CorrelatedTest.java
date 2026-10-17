@@ -277,22 +277,50 @@ class CorrelatedTest {
     }
 
     @Test
-    void ac_col_36_a_correlation_reuses_inner_scope_and_outer_root_only_checks() {
+    void ac_col_36_a_correlation_reuses_inner_scope_and_double_lift_checks() {
         ColumnField<RefundView, Order, Long> wrongRoot = ColumnField.of(RefundView.class, ROOT, "id", Long.class);
         assertThatThrownBy(() -> Correlated.count(View.class, ROWS,
                 (f, outer) -> f.eq(wrongRoot, 1L).compare(ORDER_ID, Op.EQ, outer.column(ID))))
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ1003));
-        TableField<Order, Refund> joined = TableField.join(ROOT, "refunds", INNER);
-        ColumnField<View, Refund, Long> joinedId = ColumnField.of(View.class, joined, "id", Long.class);
-        assertThatThrownBy(() -> Correlated.count(View.class, ROWS,
-                (f, outer) -> f.compare(ORDER_ID, Op.EQ, outer.column(joinedId))))
-                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
-                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1311));
         assertThatThrownBy(() -> Correlated.count(View.class, ROWS,
                 (f, outer) -> f.compare(ORDER_ID, Op.EQ, outer.column(Outer.reference(ID)))))
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ1310));
+    }
+
+    @Test
+    void ac_flt_29_a_correlated_column_accepts_a_joined_lift_before_cardinality_is_known() {
+        TableField<Order, Refund> joined = TableField.join(ROOT, "refunds", INNER);
+        ColumnField<View, Refund, Long> joinedId = ColumnField.of(View.class, joined, "id", Long.class);
+        ExpressionField<View, Long> count = Correlated.count(View.class, ROWS,
+                (f, outer) -> f.compare(ORDER_ID, Op.EQ, outer.column(joinedId)));
+
+        assertThat(count.columns()).containsExactly(joinedId);
+    }
+
+    @Test
+    void ac_flt_29_a_source_outer_root_can_be_lifted_at_definition() {
+        TableField<View, View> source = TableField.source(View.class);
+        ColumnField<View, View, Long> id = ColumnField.over(View.class, source, ID.named("id"));
+        ExpressionField<View, Long> count = Correlated.count(View.class, ROWS,
+                (f, outer) -> f.compare(ORDER_ID, Op.EQ, outer.column(id)));
+
+        assertThat(count.columns()).containsExactly(id);
+    }
+
+    @Test
+    void ac_flt_15_a_correlated_source_rooted_sub_select_is_mq1311_at_first_resolution() {
+        TableField<RefundView, RefundView> source = TableField.source(RefundView.class);
+        ColumnField<RefundView, RefundView, Long> id =
+                ColumnField.over(RefundView.class, source, ORDER_ID.named("orderId"));
+        ExpressionField<View, Long> count = Correlated.count(View.class, SubSelect.of(id),
+                (f, outer) -> f.compare(id, Op.EQ, outer.column(ID)));
+
+        assertThatThrownBy(() -> count.expression(JoinContext.rootless(null, RenderOptions.portable())))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1311))
+                .hasMessageContaining("the sub-select's root is a source");
     }
 
     @Test

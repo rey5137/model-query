@@ -93,6 +93,8 @@ public final class JoinContext {
     private TableField<?, ?> existsPath;
     private From<?, ?> existsFrom;
     private int leftJoining;
+    /** Enclosing path-exists scopes preserve OR/NOT semantics when a descendant reads a lifted outer column. */
+    private boolean enclosingLeftJoining;
     private int sequencesRefused;
     private int aggregating;
     /**
@@ -101,8 +103,8 @@ public final class JoinContext {
      */
     private final Set<Class<?>> existsJoined;
     /**
-     * Inside a correlated {@code exists} over a sub-select, the context a lifted outer column resolves through, over
-     * the correlated outer root; {@code null} everywhere else (R-FLT-17).
+     * Inside a correlated sub-select, the enclosing context whose joins a lifted column reuses; {@code null}
+     * everywhere else (R-FLT-27).
      */
     private final JoinContext outer;
     private boolean readsToOneLeft;
@@ -393,6 +395,7 @@ public final class JoinContext {
                     parameters, foreignKeyReads);
             ctx.readsToOneLeft = readsToOneLeft;
         }
+        ctx.enclosingLeftJoining = enclosingLeftJoining || leftJoining > 0;
         ctx.existsPath = path;
         ctx.existsFrom = path.resolve(ctx);
         sub.select(cb.literal(1));
@@ -405,17 +408,32 @@ public final class JoinContext {
     }
 
     /**
-     * The outer root path a lifted column reads, resolved through this context's correlation. {@code lift} is the
+     * The outer path a lifted column reads, resolved through this context's correlation. {@code lift} is the
      * column an {@link Outer#column} built; resolving it here rather than outside any correlation is {@code MQ1310}
      * (R-FLT-17).
      */
-    @SuppressWarnings("unchecked")
+    @SuppressWarnings({"unchecked", "rawtypes"})
     <T, C> Path<C> liftedColumn(ColumnField<?, T, C> lift) {
         if (outer == null) {
             throw new ModelQueryDefinitionException(MqCode.MQ1310, lift
                     + " was resolved outside the correlation it was made in; lift it again inside exists(...)");
         }
-        return (Path<C>) lift.liftedFrom().orElseThrow().path(outer);
+        ColumnField<?, T, C> column = (ColumnField<?, T, C>) lift.liftedFrom().orElseThrow();
+        From<?, ?> from = enclosingLeftJoining || leftJoining > 0
+                ? outer.leftJoining(() -> column.table().resolve(outer)) : column.table().resolve(outer);
+        for (From<?, ?> node = from; node != outer.root && node instanceof Join<?, ?> join;
+                node = join.getParent()) {
+            if (join.getAttribute() instanceof PluralAttribute<?, ?, ?>) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1311, column
+                        + ": the lifted path crosses a to-many join; lift a root or to-one column");
+            }
+        }
+        Subquery<?> sq = (Subquery<?>) query;
+        From<?, ?> correlated = from instanceof Root<?> ? sq.correlate((Root) from) : sq.correlate((Join) from);
+        JoinContext ctx = new JoinContext(correlated, outer.rootType, cb, sq, column.table().key(), Set.of(),
+                renderOptions, existsJoined, null, repeatedExpressionBinds, parameters, foreignKeyReads);
+        ctx.readsToOneLeft = outer.readsToOneLeft;
+        return column.path(ctx);
     }
 
     /**
@@ -424,6 +442,7 @@ public final class JoinContext {
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
     <C> Predicate inSubSelect(ScalarField<?, C> column, SubSelect<?, C> sub, boolean negated) {
+        checkSubSelectRoot(sub);
         if (query == null) {
             throw new IllegalStateException("in(...) over a sub-select needs the JoinContext of a ModelQuery build");
         }
@@ -461,7 +480,9 @@ public final class JoinContext {
      * context's root through which a lifted outer column resolves (R-FLT-17). The sub-select's column is not rendered.
      */
     Predicate existsSubSelect(SubSelect<?, ?> sub, List<Filter> correlation, boolean negated) {
-        Predicate exists = cb.exists(correlatedSubSelect(sub, correlation, Integer.class, ctx -> cb.literal(1), false));
+        Supplier<Subquery<Integer>> render =
+                () -> correlatedSubSelect(sub, correlation, Integer.class, ctx -> cb.literal(1), false);
+        Predicate exists = cb.exists(negated ? leftJoining(render) : render.get());
         return negated ? cb.not(exists) : exists;
     }
 
@@ -489,18 +510,14 @@ public final class JoinContext {
     @SuppressWarnings({"unchecked", "rawtypes"})
     private <C> Subquery<C> correlatedSubSelect(SubSelect<?, ?> sub, List<Filter> correlation, Class<C> type,
             Function<JoinContext, Expression<C>> selection, boolean refuseToMany) {
+        checkSubSelectRoot(sub);
         if (query == null) {
             throw new IllegalStateException("a correlated sub-select needs the JoinContext of a ModelQuery build");
         }
         Subquery<C> sq = query.subquery(type);
         Root<?> inner = sq.from(sub.rootEntity());
-        // The correlated outer root a lifted column reads; a through child's root is a join (D-100).
-        From<?, ?> correlated = root instanceof Root<?> ? sq.correlate((Root) root) : sq.correlate((Join) root);
-        JoinContext outerCtx = new JoinContext(correlated, rootType, cb, sq, rootKey, Set.of(), renderOptions,
-                existsJoined, null, repeatedExpressionBinds, parameters, foreignKeyReads);
         JoinContext ctx = new JoinContext(inner, sub.rootEntity(), cb, sq, null, Set.of(), renderOptions,
-                existsJoined, outerCtx, repeatedExpressionBinds, parameters, foreignKeyReads);
-        outerCtx.readsToOneLeft = readsToOneLeft;
+                existsJoined, this, repeatedExpressionBinds, parameters, foreignKeyReads);
         ctx.readsToOneLeft = readsToOneLeft;
         sq.select(selection.apply(ctx));
         var where = new ArrayList<>(ConditionGroup.toPredicates(sub.filters(), ctx));
@@ -515,6 +532,12 @@ public final class JoinContext {
         }
         existsJoined.add(sub.rootEntity());
         return sq;
+    }
+
+    private static void checkSubSelectRoot(SubSelect<?, ?> sub) {
+        if (sub.root().isSource()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1311, sub + ": the sub-select's root is a source");
+        }
     }
 
     boolean aggregating() {

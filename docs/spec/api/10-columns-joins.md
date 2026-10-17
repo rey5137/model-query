@@ -541,15 +541,15 @@ the planner must see as a literal (a partial index's predicate, a selective enum
 | AC-COL-38 | Correlated min/max: comparable typing, extrema and NULL for no match (R-COL-31). |
 | AC-COL-39 | Correlated sum: SUM typing, filtering, ordering and NULL for no match (R-COL-31). |
 | AC-COL-40 | Reserved for `Correlated.first` (M27.3). |
-| AC-COL-41 | Refusals, grouped WHERE and root-only counts; lifted-join counts land in M27.2 (R-COL-33, R-EXE-05). |
+| AC-COL-41 | Refusals, grouped WHERE and counts retaining lifted joins (R-COL-33, R-EXE-05). |
 | AC-COL-42 | To-many count/sum: MQ1511; EXISTS filtering and min/max/exists exemptions (R-COL-33). |
 
 AC-COL-36..39, 41 and 42 run on every Tier-1 vendor and both Hibernate lines. Each scalar terminal selects,
 filters and orders. AC-COL-41 covers all R-COL-33 refusals, including generated annotations and
 nested operands, with no statement on a resolution refusal. MQ1314 checks the grouped selection and orders;
 a grouped WHERE may lift a non-group-key column and returns the expected groups. It accepts correlated order keys
-in offset paging, offset export and primary-key-first. Its root-only count checks omit select-only correlated values
-and retain correlated WHERE predicates. The count cases retaining an INNER lifted path and using LEFT lifted joins inside
-OR/NOT (R-FLT-10) land with M27.2, when lifted to-one columns arrive. AC-COL-42 crosses
+in offset paging, offset export and primary-key-first. Its count checks omit select-only correlated values,
+retain correlated WHERE predicates and an INNER lifted path, and use LEFT lifted joins inside OR/NOT (R-FLT-10).
+AC-COL-42 crosses
 the to-many path separately through the selected column, own WHERE and inner correlation, checks no statement
 runs, and verifies the EXISTS remedy and every exempt terminal.

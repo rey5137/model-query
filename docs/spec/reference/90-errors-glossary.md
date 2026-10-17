@@ -62,7 +62,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1308` | A value cannot be converted to its column's attribute type: a value filter or a write converts it through `ColumnField.toAttribute` and the converter throws `IllegalArgumentException`, for example `InstantTimestampConverter` with an `Instant` beyond `Timestamp`'s range; `persist` setting a primitive attribute to `null` | `api/10` R-COL-14, D-84 |
 | `MQ1309` | `exists` or `notExists` over a sub-select whose correlation lifts no outer column | `api/12` R-FLT-17, D-112 |
 | `MQ1310` | An `Outer.column` resolved outside the correlation it was made in, or lifted through two sub-select levels | `api/12` R-FLT-17 |
-| `MQ1311` | `Outer.column` given a column that is not on the outer query's root | `api/12` R-FLT-17 |
+| `MQ1311` | Lifted path crosses to-many, or sub-select root is a source; at resolution | `api/12` R-FLT-27 |
 | `MQ1312` | `in` or `notIn` over a sub-select with an embeddable-valued column on either side; checked at first resolution | `api/12` R-FLT-16 |
 | `MQ1314` | Correlated group key or grouped selection/order lifting non-keys; at definition | `api/10` R-COL-33 |
 | `MQ1401` | A selected non-aggregate column or expression does not fit the group-by | `api/13` R-AGG-08, R-AGG-14 |

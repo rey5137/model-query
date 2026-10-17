@@ -154,6 +154,9 @@ R-COL-19).
 branch would remove rows another branch should match. If the same path is already joined as INNER elsewhere in the
 query, that join is reused, because those rows are already required.
 
+`notExists(subSelect, correlation)` is a negation like `not(g -> g.exists(subSelect, correlation))`: its lifted
+outer joins follow this LEFT rule, including through nested path-exists scopes (R-FLT-27).
+
 ## 7. `exists` and sub-selects
 
 **R-FLT-11** `exists(ITEMS_TABLE, inner)` renders `EXISTS (SELECT 1 FROM order_items i WHERE i.order_id = o.id AND
@@ -225,10 +228,9 @@ nested `exists(path, …)` inside the correlation may use it (exempt from `MQ130
             g -> g.isNull(QAuditView.ACTOR))))
 ```
 
-- The lifted column must sit on the outer query's root, else `MQ1311` at definition; it is read through a correlation
-  of that root (or of a `through` child's join, D-100), so the outer query joins nothing. Hibernate renders joins off
-  a correlated root as the sub-query's `FROM` and drops their `ON`, which would turn a LEFT join INNER and lose a
-  collection join's row pairing (INV-5); widening this later turns a throw into working code.
+- The lifted column may sit on the outer root or a to-one join path below it (R-FLT-27, D-150), a `through` child's
+  join included as a base (D-100). A path starting at another root is `MQ1311` at definition; cardinality is checked
+  at first resolution.
 - The correlation must record at least one lifted column, else `MQ1309`, so R-FLT-01 skipping never empties it.
 - A lifted column resolved outside the correlation it was made in, or lifted through two sub-select levels, throws
   `MQ1310`.
@@ -268,6 +270,19 @@ nested `exists(path, …)` inside the correlation may use it (exempt from `MQ130
   an `in(column, List.of(a, b))` of fields reads as the value form's `Collection<? extends C>`. There is no varargs
   form, because an interface method cannot carry `@SafeVarargs` (D-87).
 
+**R-FLT-27** *(D-150)* **Lifted to-one paths.** In `exists`/`notExists` and `Correlated` columns, a lifted column may
+sit on the outer root or a to-one path at any depth. A path crossing a to-many join is `MQ1311` at first resolution,
+before any statement executes (INV-5). A `through` child's join is the base, so only joins below that base are checked.
+The outer query's `JoinContext` resolves the path and reuses the join a selected column would use, including its
+`ON` and join type; joins needed only inside `or`/`not` or sub-select `notExists` are LEFT (R-FLT-10), including
+when the lift is inside nested path-exists scopes. The sub-query calls
+`Subquery#correlate(outerJoin)` and reads the column from the correlated join. It never joins off a correlated root
+or reads a bare outer join path: either can lose the outer `ON` (D-112, D-150).
+
+Equality with a NULL lifted value matches no row: correlated count is zero and exists is false.
+`isNull(outer.column(...))` matches as written. An outer root that is a source is allowed and renders
+`correlate(cteRoot)` (R-SRC-10). A sub-select whose own root is a source is `MQ1311` at first resolution.
+
 ## 8. Scope
 
 **R-FLT-13** *(was R15)* Filter values never change a query's meaning by accident: empty `Optional` skips; an empty
@@ -294,9 +309,22 @@ collection means "none"; negation includes NULLs; `like` input is escaped; long 
 | AC-FLT-12 | `in(col, sub)` returns the rows whose column is among the sub-select's filtered values; an empty sub-select returns none; a sub-select over the outer root's own entity works (R-FLT-15, R-FLT-16, D-112). |
 | AC-FLT-13 | `notIn(col, sub)` keeps the rows whose column is NULL, is not emptied by a NULL value of the sub-select, and returns every row for an empty sub-select (R-FLT-16). |
 | AC-FLT-14 | `exists` and `notExists` over an entity with no association to the outer root, correlated on an outer-root column; an `or` mixing an inner and a lifted condition matches through either branch; a `through` child's query correlates to its join (R-FLT-17). |
-| AC-FLT-15 | A mismatched `C`, and `Outer.column` given another model's column, have compile-failure cases; `MQ1309`, `MQ1310`, `MQ1311`, `MQ1312` and `MQ1001` (converted attribute types) each have a case (R-FLT-15 to R-FLT-17). |
+| AC-FLT-15 | Sub-select typing and refusals, including a to-many lifted path (R-FLT-15..17, R-FLT-27). |
 | AC-FLT-16 | With `in(sub)` and `exists(sub, …)`, `count` equals the list size, and keyset page, primary-key-first and export visit every row once; a bulk delete whose sub-select reads its target runs key-first on MySQL (R-FLT-12, R-WRT-11, INV-4). |
 | AC-FLT-17 | Every operator, value and `Optional` form, over an expression operand, and `compare` between an expression and a column, return on every Tier-1 vendor the rows the same predicate written over a column computed in a view or in Java returns. `ne` and `notIn` over a nullable expression include its NULL rows. A skipped filter over an expression adds no join (R-FLT-18, R-FLT-04, R-FLT-03). |
 | AC-FLT-18 | An expression over a column outside the `exists` path throws `MQ1302`. One in a sub-select's `where` over another root throws `MQ1003`. A correlation whose only lifted column sits inside an expression is not `MQ1309` (R-FLT-18). |
 | AC-FLT-19 | A bulk update and a bulk delete whose `where` compares an expression change exactly the rows `list` returns for that filter, key-first on MySQL too (R-FLT-18, `api/14` R-WRT-11). |
 | AC-FLT-20 | On every Tier-1 vendor, `in(col, a, b)`, `in(col, a, b, c)` and the same two for `notIn` return the rows whose column equals one of the operands, `notIn` also returns the rows whose column is NULL, and a `'` and a `\` in a constant operand round-trip. The statement inlines the operand literals, e.g. `in ('PENDING','FAILED')`. `var` infers the call, and operands of another model or type do not compile (R-FLT-19, R-COL-27). |
+| AC-FLT-28 | Lifted to-one paths in exists/notExists (R-FLT-27). |
+| AC-FLT-29 | Lifted to-one paths in correlated columns and count statements (R-FLT-27, R-EXE-05). |
+
+AC-FLT-15 includes compile-failure cases for a mismatched `C` and another model's lifted column, and cases for
+`MQ1309`, `MQ1310`, `MQ1311` (a path crossing a to-many join, checked at first resolution), `MQ1312` and `MQ1001`
+(converted attribute types). A source-rooted sub-select is also `MQ1311`, with no statement executed.
+
+AC-FLT-21..27 are reserved by RFC 0017. AC-FLT-28 and 29 run on every Tier-1 vendor and both Hibernate lines.
+AC-FLT-28 covers exists/notExists, a to-one path of depth two, a through child's join as the base, NULL equality
+and an explicit lifted isNull, and LEFT joins inside or/not. AC-FLT-29 covers a correlated column lifting a to-one
+path, zero count and false exists for a NULL lifted value, and a source outer root. Its count statements omit
+select-only correlated values while retaining an INNER lifted join, retain correlated WHERE predicates, and use
+LEFT lifted joins inside or/not (R-FLT-10, R-EXE-05).

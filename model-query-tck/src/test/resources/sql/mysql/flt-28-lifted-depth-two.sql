@@ -1,0 +1,1 @@
+select oie1_0.id from order_items oie1_0 join orders o1_0 on o1_0.id=oie1_0.order_id left join customers r1_0 on r1_0.id=o1_0.referrer_id where oie1_0.id<=? and exists(select 1 from customers ce1_0 where ce1_0.name=r1_0.name) order by 1
