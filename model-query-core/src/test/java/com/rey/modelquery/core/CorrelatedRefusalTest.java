@@ -26,6 +26,16 @@ class CorrelatedRefusalTest {
             (f, outer) -> f.compare(INNER_ID, Op.EQ, outer.column(ID)));
 
     @Test
+    void ac_col_40_first_without_a_renderer_is_mq4014_at_first_resolution() {
+        var first = Correlated.first(Model.class, SubSelect.of(INNER_ID),
+                (f, outer) -> f.compare(INNER_ID, Op.EQ, outer.column(ID)), INNER_ID.asc());
+        assertThatThrownBy(() -> first.expression(JoinContext.rootless(null, RenderOptions.portable())))
+                .isInstanceOfSatisfying(ModelQueryConfigurationException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ4014))
+                .hasMessageContainingAll("Correlated.first", "SubqueryRenderer", "ProviderSupport#subqueries()");
+    }
+
+    @Test
     void ac_col_41_case_conditions_refuse_correlated_values_on_either_side_and_nested() {
         assertMq(MqCode.MQ1505, () -> Expr.cases(Model.class, Long.class).when(f -> f.eq(COUNT, 1L), 1L));
         assertMq(MqCode.MQ1505, () -> Expr.cases(Model.class, Long.class)

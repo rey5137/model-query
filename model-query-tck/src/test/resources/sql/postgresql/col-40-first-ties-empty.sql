@@ -1,0 +1,2 @@
+select ce1_0.id,(select oe1_0.id from orders oe1_0 join customers c1_0 on c1_0.id=oe1_0.customer_id where c1_0.id=ce1_0.id order by oe1_0.status desc,1 fetch first ? rows only) from customers ce1_0 where ce1_0.id<=? order by 1
+select ce1_0.id,(select oe1_0.id from orders oe1_0 join customers c1_0 on c1_0.id=oe1_0.customer_id where oe1_0.id<? and c1_0.id=ce1_0.id order by oe1_0.status desc,1 fetch first ? rows only) from customers ce1_0 where ce1_0.id<=? order by 1

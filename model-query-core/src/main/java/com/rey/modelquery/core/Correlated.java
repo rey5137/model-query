@@ -1,6 +1,8 @@
 package com.rey.modelquery.core;
 
 import com.rey.modelquery.annotations.Incubating;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.function.BiFunction;
 
@@ -58,14 +60,34 @@ public final class Correlated {
         return field(model, rows, correlation, Terminal.SUM, rows.column().type());
     }
 
+    /** The first matching value in {@code order}, breaking ties by the inner root's id (R-COL-32). */
+    @SafeVarargs
+    @Incubating
+    public static <M, S, C> ExpressionField<M, C> first(Class<M> model, SubSelect<S, C> rows,
+            BiFunction<Filters<S>, Outer<M, S>, Filters<S>> correlation, OrderField<S, ?> order,
+            OrderField<S, ?>... more) {
+        Objects.requireNonNull(rows, "rows");
+        var orders = new ArrayList<OrderField<S, ?>>();
+        orders.add(Objects.requireNonNull(order, "order"));
+        orders.addAll(List.of(more));
+        FilterGroup.checkSubSelectOrders(rows, orders);
+        return field(model, rows, correlation, Terminal.FIRST, rows.column().type(), new ArrayList<>(orders));
+    }
+
     private static <M, S, C> ExpressionField<M, C> field(Class<M> model, SubSelect<S, ?> rows,
             BiFunction<Filters<S>, Outer<M, S>, Filters<S>> correlation, Terminal terminal, Class<C> type) {
+        return field(model, rows, correlation, terminal, type, List.of());
+    }
+
+    private static <M, S, C> ExpressionField<M, C> field(Class<M> model, SubSelect<S, ?> rows,
+            BiFunction<Filters<S>, Outer<M, S>, Filters<S>> correlation, Terminal terminal, Class<C> type,
+            List<OrderField<?, ?>> orders) {
         Objects.requireNonNull(model, "model");
         Objects.requireNonNull(rows, "rows");
         var filters = FilterGroup.collectCorrelation(rows, correlation, null);
         return new ExpressionField<>(new ExpressionField.CorrelatedValue(rows, filters,
-                ConditionGroup.conditions(filters), terminal, type), type, null);
+                ConditionGroup.conditions(filters), terminal, type, List.copyOf(orders)), type, null);
     }
 
-    enum Terminal { COUNT, EXISTS, MIN, MAX, SUM }
+    enum Terminal { COUNT, EXISTS, MIN, MAX, SUM, FIRST }
 }

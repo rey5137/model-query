@@ -2,16 +2,23 @@ package com.rey.modelquery.tck.portability;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.Correlated;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.NullOrdering;
+import com.rey.modelquery.core.Op;
+import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.SourceQuery;
+import com.rey.modelquery.core.SubSelect;
+import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.SourceFeature;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.portability.PortabilityCheck;
 import com.rey.modelquery.portability.Target;
+import com.rey.modelquery.tck.col.OrderEntity;
 import com.rey.modelquery.tck.src.CompositeNode;
 import com.rey.modelquery.tck.src.CompositeNodeRow;
 import com.rey.modelquery.tck.src.DispatchFeed;
@@ -39,10 +46,15 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * AC-SRC-16: {@code MQ4014} and {@code MQ4015} are reported per declared target without a database. Each check runs
+ * AC-SRC-16 and AC-COL-40: {@code MQ4014} and {@code MQ4015} are reported per target without a database.
+ * Each check runs
  * one call over a source on each target's offline factory (spec api/17 R-SRC-11).
  */
 class SourcePortabilityTest {
+
+    record FirstValue(Long value) {}
+
+    static final class FirstRows {}
 
     private static final Target H2 = Target.of(DatabaseVendor.H2, "2.3.232");
     private static final Target POSTGRESQL = Target.of(DatabaseVendor.POSTGRESQL, "15.4");
@@ -66,6 +78,30 @@ class SourcePortabilityTest {
             assertThat(lines).anySatisfy(line -> assertThat(line)
                     .startsWith("FEED on " + target + ": REFUSED MQ4014")
                     .contains("SourceRenderer"));
+        }
+    }
+
+    @Test
+    void ac_col_40_a_provider_without_subqueries_reports_mq4014_per_target_without_a_database() {
+        var root = TableField.root(OrderEntity.class);
+        var id = ColumnField.of(FirstRows.class, root, "id", Long.class);
+        var status = ColumnField.of(FirstRows.class, root, "status", String.class);
+        var outerStatus = ColumnField.of(FirstValue.class, root, "status", String.class);
+        var first = Correlated.first(FirstValue.class, SubSelect.of(id),
+                (f, outer) -> f.compare(status, Op.EQ, outer.column(outerStatus)), id.asc());
+        var query = ModelQuery.builder(root, row -> new FirstValue(row.get(first))).select(SelectSet.of(first)).build();
+        check(ModelQueryConfig.defaults()).targets(H2, POSTGRESQL, MYSQL)
+                .call("FIRST", OrderEntity.class, executor -> executor.list(query, Limit.of(10))).assertPortable();
+
+        List<String> lines = new ArrayList<>();
+        // This provider still boots offline; its inherited subqueries() default alone refuses the scalar value.
+        NoSourceProviderSupport.serving(() -> lines.addAll(report(check(ModelQueryConfig.defaults())
+                .targets(H2, POSTGRESQL, MYSQL)
+                .call("FIRST", OrderEntity.class, executor -> executor.list(query, Limit.of(10))))));
+        assertThat(lines).hasSize(4);
+        for (Target target : List.of(H2, POSTGRESQL, MYSQL)) {
+            assertThat(lines).anySatisfy(line -> assertThat(line)
+                    .startsWith("FIRST on " + target + ": REFUSED MQ4014").contains("SubqueryRenderer"));
         }
     }
 

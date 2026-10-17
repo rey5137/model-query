@@ -171,9 +171,9 @@ public enum MqCode {
     @Incubating
     MQ1510("A correlated value cannot be aggregated; select it through @Computed"),
 
-    /** A correlated count or sum crosses a to-many join in its inner query (R-COL-33). */
+    /** A correlated count, sum or first crosses a to-many join in its inner query (R-COL-33). */
     @Incubating
-    MQ1511("A correlated count or sum crosses a to-many join; use Filters.exists(path, inner)"),
+    MQ1511("A correlated count, sum or first crosses a to-many join; use Filters.exists(path, inner)"),
 
     /** A bulk write chose its rows with {@code where(...)} and no predicate is left (R-WRT-12). */
     MQ1601("A bulk write's where(...) left no predicate; all() is the only way to write every row"),
@@ -518,12 +518,10 @@ public enum MqCode {
     MQ4013("The portability dry run cannot boot a factory offline for the target"),
 
     /**
-     * A query reads a source and the factory's persistence provider has no {@code SourceRenderer}, so nothing can
-     * register the CTE; raised before any statement, as bulk inserts and row locks are (R-SRC-11, D-143). Also raised
-     * for a {@code tree(...)} source whose renderer returns no duplicate-key check ({@code RecursiveCte.duplicateKey}
-     * is {@code null}), since the tree can't be proven unique (R-SRC-14).
+     * The persistence provider lacks a source, ordered sub-query or source-feature renderer, including a tree's
+     * duplicate-key check; raised at build time, before any statement (R-SRC-11, R-SRC-14, R-COL-32, R-VND-25).
      */
-    MQ4014("No SourceRenderer, or one with no duplicate-key check for a tree"),
+    MQ4014("The persistence provider lacks a renderer the query needs"),
 
     /**
      * The target's vendor lacks a source feature the query uses, {@code VendorProfile#sources(SourceFeature)} returning

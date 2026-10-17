@@ -7,6 +7,7 @@ import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.ParameterExpression;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
@@ -489,21 +490,35 @@ public final class JoinContext {
     /** The scalar sub-query of a correlated column; EXISTS is a non-null Boolean CASE (R-COL-31). */
     @SuppressWarnings({"unchecked", "rawtypes"})
     Expression<?> correlatedValue(SubSelect<?, ?> sub, List<Filter> correlation, Correlated.Terminal terminal,
-            Class<?> type) {
+            Class<?> type, List<OrderField<?, ?>> orderBy) {
+        checkSubSelectRoot(sub);
+        SubqueryRenderer renderer = terminal == Correlated.Terminal.FIRST
+                ? renderOptions.subqueryRenderer().orElseThrow(() -> new ModelQueryConfigurationException(MqCode.MQ4014,
+                        sub + ": Correlated.first needs the provider's SubqueryRenderer; "
+                                + "add model-query-hibernate for Hibernate (ProviderSupport#subqueries())"))
+                : null;
         if (terminal == Correlated.Terminal.EXISTS) {
             return cb.<Boolean>selectCase().when(existsSubSelect(sub, correlation, false), cb.literal(true))
                     .otherwise(cb.literal(false));
         }
-        return correlatedSubSelect(sub, correlation, type, ctx -> {
+        var orders = new ArrayList<Order>();
+        var sq = correlatedSubSelect(sub, correlation, type, ctx -> {
             Expression<?> column = sub.column().expression(ctx);
+            if (terminal == Correlated.Terminal.FIRST) {
+                orderBy.forEach(order -> orders.addAll(order.toOrders(ctx, cb)));
+                SubqueryOrders.appendId((Root<?>) ctx.root, cb, orders);
+            }
             return ExpressionField.raw(switch (terminal) {
                 case COUNT -> cb.count(column);
                 case MIN -> cb.least(ExpressionField.<Comparable>raw(column));
                 case MAX -> cb.greatest(ExpressionField.<Comparable>raw(column));
                 case SUM -> cb.sum(ExpressionField.<Number>raw(column));
+                case FIRST -> column;
                 case EXISTS -> throw new AssertionError("EXISTS renders as a Boolean CASE");
             });
-        }, terminal == Correlated.Terminal.COUNT || terminal == Correlated.Terminal.SUM);
+        }, terminal == Correlated.Terminal.COUNT || terminal == Correlated.Terminal.SUM
+                || terminal == Correlated.Terminal.FIRST);
+        return renderer == null ? sq : renderer.firstRow(cb, sq, List.copyOf(orders));
     }
 
     /** A fresh statement-local sub-query over the inner root and its correlated outer root (R-FLT-17, INV-9). */
@@ -524,7 +539,7 @@ public final class JoinContext {
         where.addAll(ConditionGroup.toPredicates(correlation, ctx));
         if (refuseToMany && !ctx.toManyJoins.isEmpty()) {
             throw new ModelQueryDefinitionException(MqCode.MQ1511, sub
-                    + ": correlated count/sum crosses a to-many join, which can multiply the inner rows; "
+                    + ": correlated count/sum/first crosses a to-many join, which can multiply the inner rows; "
                     + "filter with Filters.exists(path, inner) instead");
         }
         if (!where.isEmpty()) {

@@ -70,6 +70,11 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
         return new FilterGroup<>(scope, scopeCode, allowLifted, rootEntity);
     }
 
+    static <S> void checkSubSelectOrders(SubSelect<S, ?> rows, List<OrderField<S, ?>> orders) {
+        var scope = new FilterGroup<S>(rows.root(), MqCode.MQ1003, false, rows.rootEntity());
+        orders.forEach(order -> scope.check(order.column()));
+    }
+
     /** A column must sit on the scope's path or below it: MQ1302 inside {@code exists}, MQ1003 in a sub-select. */
     @Override
     void check(SelectField<M, ?> column) {

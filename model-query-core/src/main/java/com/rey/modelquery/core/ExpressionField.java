@@ -281,10 +281,10 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
     }
 
     record CorrelatedValue(SubSelect<?, ?> rows, List<Filter> correlation, List<Condition> conditions,
-            Correlated.Terminal terminal, Class<?> type) implements Node {
+            Correlated.Terminal terminal, Class<?> type, List<OrderField<?, ?>> orders) implements Node {
         @Override
         public Expression<?> render(JoinContext ctx) {
-            return ctx.correlatedValue(rows, correlation, terminal, type);
+            return ctx.correlatedValue(rows, correlation, terminal, type, orders);
         }
 
         @Override
@@ -311,24 +311,28 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         @Override
         public int binds() {
             return rows.conditions().stream().mapToInt(ExpressionField::conditionBinds).sum()
-                    + conditions.stream().mapToInt(ExpressionField::conditionBinds).sum();
+                    + conditions.stream().mapToInt(ExpressionField::conditionBinds).sum()
+                    + orders.stream().mapToInt(order -> ExpressionField.binds(order.column())).sum()
+                    + (terminal == Correlated.Terminal.FIRST ? 1 : 0);
         }
 
         @Override
         public String text() {
-            return "correlated(" + terminal + ", " + rows + ", " + conditions + ")";
+            return "correlated(" + terminal + ", " + rows + ", " + conditions
+                    + (orders.isEmpty() ? "" : ", " + orders) + ")";
         }
 
         @Override
         public boolean equals(Object o) {
             return o instanceof CorrelatedValue other && rows.equals(other.rows)
                     && equalConditions(rows.conditions(), other.rows.conditions())
-                    && equalConditions(conditions, other.conditions) && terminal == other.terminal;
+                    && equalConditions(conditions, other.conditions) && terminal == other.terminal
+                    && orders.equals(other.orders);
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(rows, conditionsHash(rows.conditions()), conditionsHash(conditions), terminal);
+            return Objects.hash(rows, conditionsHash(rows.conditions()), conditionsHash(conditions), terminal, orders);
         }
 
         private static boolean equalConditions(List<Condition> first, List<Condition> second) {

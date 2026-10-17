@@ -55,7 +55,7 @@ there is no metamodel for INV-3 to check it against. A source root's column is
 `ColumnField.over(Outer.class, ROOT, QSource.CONSTANT)` (`api/17` R-SRC-10).
 
 **R-COL-31** *(D-150)* **Correlated scalar values.** The `@Incubating` static terminals
-`Correlated.count(model, rows, correlation)`, `exists`, `min`, `max` and `sum` return an
+`Correlated.count(model, rows, correlation)`, `exists`, `min`, `max`, `sum` and `first` return an
 `ExpressionField<M, C>`. `model` types the outer vocabulary; `rows` is a `SubSelect<S, C>`;
 `correlation` takes `Filters<S>` and `Outer<M, S>` and returns `Filters<S>`, as R-FLT-17 does. The factory records
 it once, requires an actual lifted outer column (`MQ1309`) and closes the recorder (INV-9). A lifted column is
@@ -70,13 +70,27 @@ type; `sum` has a per-method `Number` bound and follows R-AGG-04's SUM types (`B
 including its converted-column refusal. `min` and `max` refuse a converted column with `MQ1501`. These three
 terminals return NULL when no non-NULL value matches. An expression may coalesce or otherwise compose the result.
 
-Equality is the sub-select, the recorded correlation and the terminal; a custom predicate compares by the identity
-of its recorded condition, even when labelled, at any depth of either WHERE tree. Correlation-lambda identity and
+Equality is the sub-select, the recorded correlation, the terminal and, for `first`, its order keys, directions and
+null precedence; a custom predicate compares by the identity of its recorded condition, even when labelled, at any
+depth of either WHERE tree. Correlation-lambda identity and
 `named` are outside it. Equal values share one Criteria node per statement (R-COL-19), also when selected, filtered
 and ordered.
 Only lifted columns contribute outer joins; the inner query's paths belong to its own context. A count statement
 keeps row-changing lifted joins of a select-only correlated value (R-EXE-05). Offset pages, offset export and
 `primaryKeyFirst` accept a correlated order key; `keyset()` refuses it with `MQ1208` (R-QRY-16).
+
+**R-COL-32** *(D-150)* **First correlated value.** `Correlated.first(model, rows, correlation, order, more...)`
+requires at least one order key and returns an `ExpressionField<M, C>` preserving the sub-select column's type.
+It orders the matching inner rows, appends the sub-select root's id ascending as the final tie-breaker (every
+component of a composite id, by attribute name), and returns the first row's selected value, or NULL when no row
+matches. R-COL-31's scalar positions, composition, equality, node reuse and paging rules apply to `first` too.
+Null precedence follows R-COL-12: `DEFAULT` renders no null clause (or uses the provider's configured default,
+D-36); `nullsFirst()` and `nullsLast()` use the existing `NullPrecedenceRenderer` path, with its portable fallback.
+The engine renders the orders in the inner context and calls `SubqueryRenderer#firstRow` to apply
+`order by … fetch first 1 rows only` inside the scalar sub-query (R-VND-25). Without that renderer, building the
+statement is `MQ4014`, before any statement runs; `PortabilityCheck` reports it per declared target without a
+database. Hibernate's `hibernate.jpa.compliance.query=true` also refuses `first` with `MQ4014` before any statement.
+Other correlated terminals do not need that renderer.
 
 **R-COL-33** *(D-150)* **Correlated refusals.** A correlated value at any depth of a CASE condition is `MQ1505`;
 a CASE result may use it. An aggregate over it is `MQ1510`, including the `Agg` expression factories,
@@ -86,10 +100,11 @@ key, including `@GroupBy @Computed`, is `MQ1314`; in a grouped query's selection
 of a correlated value must be a group-key column, checked at definition. A correlated value in WHERE may lift
 non-group-key columns because it is evaluated per row before grouping.
 
-A correlated `count` or `sum` whose selected column, sub-select's own WHERE or inner side of the correlation
-crosses a to-many join is `MQ1511` at first resolution, before any statement runs: joining can multiply the
-counted or summed rows. The message points to `Filters.exists(path, inner)`, whose separate context does not
-multiply them. `min`, `max` and `exists` are exempt. These checks also apply through nested expressions.
+A correlated `count`, `sum` or `first` whose selected column, sub-select's own WHERE, inner side of the correlation
+or (for `first`) order crosses a to-many join is `MQ1511` at first resolution, before any statement runs: joining
+can multiply the counted or summed rows or make `first`'s id tie-breaker non-unique. The message points to
+`Filters.exists(path, inner)`, whose separate context does not multiply them. `min`, `max` and `exists` are exempt.
+These checks also apply through nested expressions.
 
 **R-COL-04** A `TableField` carrying an `on(...)` condition must have an alias, because a lambda cannot be compared.
 Two `TableField`s with the same join key and different condition instances throw `MQ1101` when the query is built.
@@ -540,7 +555,7 @@ the planner must see as a literal (a partial index's predicate, a selective enum
 | AC-COL-37 | Correlated exists: non-NULL Boolean CASE, empty matches and NULL columns (R-COL-31). |
 | AC-COL-38 | Correlated min/max: comparable typing, extrema and NULL for no match (R-COL-31). |
 | AC-COL-39 | Correlated sum: SUM typing, filtering, ordering and NULL for no match (R-COL-31). |
-| AC-COL-40 | Reserved for `Correlated.first` (M27.3). |
+| AC-COL-40 | Correlated first: required order, id tie-breaker, R-COL-12 null precedence, NULL without a match, selection/filter/order and lifted to-one correlation on Tier 1 and both Hibernate lines; missing `SubqueryRenderer` is MQ4014 before any statement and per portability target (R-COL-32). |
 | AC-COL-41 | Refusals, grouped WHERE and counts retaining lifted joins (R-COL-33, R-EXE-05). |
 | AC-COL-42 | To-many count/sum: MQ1511; EXISTS filtering and min/max/exists exemptions (R-COL-33). |
 

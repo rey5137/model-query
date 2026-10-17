@@ -2,10 +2,13 @@ package com.rey.modelquery.hibernate;
 
 import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ConstantRenderer;
+import com.rey.modelquery.core.ModelQueryConfigurationException;
+import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
 import com.rey.modelquery.core.SequenceRenderer;
 import com.rey.modelquery.core.SourceRenderer;
+import com.rey.modelquery.core.SubqueryRenderer;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.EntityWriteSupport;
 import com.rey.modelquery.jpa.spi.ForeignKeyColumn;
@@ -20,6 +23,7 @@ import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Order;
+import jakarta.persistence.criteria.Subquery;
 import java.io.Serializable;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -52,6 +56,7 @@ import org.hibernate.persister.entity.EntityPersister;
 import org.hibernate.query.SortDirection;
 import org.hibernate.query.criteria.HibernateCriteriaBuilder;
 import org.hibernate.query.criteria.JpaCriteriaQuery;
+import org.hibernate.query.criteria.JpaSubQuery;
 import org.hibernate.query.criteria.JpaExpression;
 
 /**
@@ -370,6 +375,26 @@ public final class HibernateProviderSupport implements ProviderSupport {
     @Override
     public Optional<SourceRenderer> sources() {
         return Optional.of(HibernateSourceRenderer.INSTANCE);
+    }
+
+    /** Ordered scalar sub-queries through the same Criteria methods on both Hibernate lines (R-VND-25). */
+    @Override
+    @Incubating
+    public Optional<SubqueryRenderer> subqueries() {
+        return Optional.of(new SubqueryRenderer() {
+            @Override
+            @Incubating
+            public <C> Expression<C> firstRow(CriteriaBuilder cb, Subquery<C> sub, List<Order> order) {
+                JpaSubQuery<C> query = (JpaSubQuery<C>) sub;
+                try {
+                    query.orderBy(order);
+                    return query.fetch(1);
+                } catch (IllegalStateException e) {
+                    throw new ModelQueryConfigurationException(MqCode.MQ4014,
+                            "ordered scalar sub-queries require hibernate.jpa.compliance.query=false", e);
+                }
+            }
+        });
     }
 
     /**
