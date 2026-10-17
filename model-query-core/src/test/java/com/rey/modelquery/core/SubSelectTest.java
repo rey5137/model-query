@@ -4,9 +4,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.Condition.Kind;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
+import jakarta.persistence.metamodel.PluralAttribute;
+import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.BiFunction;
 import java.util.function.UnaryOperator;
 import org.junit.jupiter.api.Test;
 
@@ -33,7 +41,7 @@ class SubSelectTest {
             ColumnField.of(OrderView.class, ROOT, "id", Long.class);
     private static final ColumnField<OrderView, Order, String> NAME =
             ColumnField.of(OrderView.class, ROOT, "name", String.class);
-    /** A column of the outer root's join, so {@code Outer.column} refuses it as MQ1311. */
+    /** Cardinality is checked at resolution, so this joined column can be lifted at definition (R-FLT-27). */
     private static final ColumnField<OrderView, Item, String> SKU =
             ColumnField.of(OrderView.class, ITEMS, "sku", String.class);
     private static final ColumnField<RefundView, Refund, Long> REFUND_ORDER =
@@ -173,10 +181,8 @@ class SubSelectTest {
     }
 
     @Test
-    void ac_flt_17_outer_column_given_a_column_not_on_the_outer_root_throws_mq1311() {
-        assertThatThrownBy(() -> new Outer<OrderView, RefundView>(Order.class).column(SKU))
-                .isInstanceOf(ModelQueryDefinitionException.class)
-                .hasMessageContaining("MQ1311");
+    void ac_flt_28_outer_column_accepts_a_joined_column_before_cardinality_is_known() {
+        assertThat(Outer.referenced(new Outer<OrderView, RefundView>(Order.class).column(SKU))).contains(SKU);
     }
 
     @Test
@@ -215,11 +221,37 @@ class SubSelectTest {
     }
 
     @Test
-    void ac_flt_17_reference_given_a_column_not_on_a_root_throws_mq1311() {
-        // A1: reference skips no refusal Outer.column makes (api/12 R-FLT-17, D-112).
-        assertThatThrownBy(() -> Outer.reference(SKU))
-                .isInstanceOf(ModelQueryDefinitionException.class)
-                .hasMessageContaining("MQ1311");
+    void ac_flt_28_reference_accepts_a_joined_column_before_cardinality_is_known() {
+        assertThat(Outer.referenced(Outer.reference(SKU))).contains(SKU);
+    }
+
+    @Test
+    void ac_flt_28_a_joined_column_starting_at_another_root_is_still_mq1311() {
+        TableField<Refund, Item> items = TableField.join(REFUND_ROOT, "items", JoinType.INNER);
+        ColumnField<OrderView, Item, String> sku = ColumnField.of(OrderView.class, items, "sku", String.class);
+        assertThatThrownBy(() -> new Outer<OrderView, RefundView>(Order.class).column(sku))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1311));
+    }
+
+    @Test
+    void ac_flt_15_a_source_rooted_sub_select_is_mq1311_at_first_resolution() {
+        TableField<RefundView, RefundView> source = TableField.source(RefundView.class);
+        ColumnField<RefundView, RefundView, Long> id =
+                ColumnField.over(RefundView.class, source, REFUND_ORDER.named("orderId"));
+        SubSelect<RefundView, Long> sub = SubSelect.of(id);
+        JoinContext ctx = JoinContext.rootless(null, RenderOptions.portable());
+
+        for (boolean negated : List.of(false, true)) {
+            assertThatThrownBy(() -> ctx.inSubSelect(ID, sub, negated))
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1311))
+                    .hasMessageContaining("the sub-select's root is a source");
+            assertThatThrownBy(() -> ctx.existsSubSelect(sub, List.of(), negated))
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1311))
+                    .hasMessageContaining("the sub-select's root is a source");
+        }
     }
 
     @Test
@@ -229,6 +261,46 @@ class SubSelectTest {
                 f -> f.exists(sub, (s, outer) -> s.eq(REFUND_STATUS, "DONE"))))
                 .isInstanceOf(ModelQueryDefinitionException.class)
                 .hasMessageContaining("MQ1309");
+    }
+
+    @Test
+    void ac_flt_15_a_to_many_lift_is_mq1311_at_resolution() {
+        var plural = criteria(PluralAttribute.class, (name, args) -> null);
+        var items = criteria(Join.class, (name, args) -> switch (name) {
+            case "getAttribute" -> plural;
+            default -> throw new AssertionError(name);
+        });
+        var root = criteria(Root.class, (name, args) -> switch (name) {
+            case "getJavaType" -> Order.class;
+            case "join" -> items;
+            default -> throw new AssertionError(name);
+        });
+        var sub = criteria(Subquery.class, (name, args) -> switch (name) {
+            case "from", "select" -> null;
+            default -> throw new AssertionError(name);
+        });
+        var query = criteria(CriteriaQuery.class, (name, args) -> switch (name) {
+            case "subquery" -> sub;
+            default -> throw new AssertionError(name);
+        });
+        var cb = criteria(CriteriaBuilder.class, (name, args) -> switch (name) {
+            case "literal" -> null;
+            default -> throw new AssertionError(name);
+        });
+        var ctx = JoinContext.of(root, cb, query, RenderOptions.portable());
+        var rows = SubSelect.of(REFUND_ORDER);
+        List<Filter> correlation = FilterGroup.<OrderView, RefundView>collectCorrelation(rows,
+                (s, outer) -> s.isNull(outer.column(SKU)), Order.class);
+        assertThatThrownBy(() -> ctx.existsSubSelect(rows, correlation, false))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1311))
+                .hasMessageContaining("to-many");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T criteria(Class<T> type, BiFunction<String, Object[], Object> calls) {
+        return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type},
+                (proxy, method, args) -> calls.apply(method.getName(), args));
     }
 
     /** The conditions {@code operator} records on a {@code where} group. */

@@ -1,0 +1,4 @@
+select oe1_0.id from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id and r1_0.vip where oe1_0.id<=? and exists(select 1 from customers ce1_0 where ce1_0.id<=? and ce1_0.name=r1_0.name) order by 1
+select oe1_0.id from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id and r1_0.vip where oe1_0.id<=? and not exists(select 1 from customers ce1_0 where ce1_0.id<=? and ce1_0.name=r1_0.name) order by 1
+select oe1_0.id from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id and r1_0.vip where oe1_0.id<=? and exists(select 1 from customers ce1_0 where ce1_0.id<=? and r1_0.name is null) order by 1
+select oe1_0.id from orders oe1_0 left join customers r1_0 on r1_0.id=oe1_0.referrer_id where oe1_0.id<=? and not exists(select 1 from customers ce1_0 where ce1_0.id<=? and ce1_0.name=r1_0.name) order by 1
