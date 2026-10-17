@@ -38,7 +38,9 @@ public final class JoinContext {
 
     private record Resolved(From<?, ?> from, Object condition) {}
 
-    /** The memo key of {@link #expression}: the expression and whether the context was left-joining when it rendered. */
+    /**
+     * The memo key of {@link #expression}: the expression and whether the context was left-joining when it rendered.
+     */
     private record ExpressionKey(ExpressionField<?, ?> field, boolean leftJoining) {}
 
     private final From<?, ?> root;
@@ -92,6 +94,7 @@ public final class JoinContext {
     private From<?, ?> existsFrom;
     private int leftJoining;
     private int sequencesRefused;
+    private int aggregating;
     /**
      * The types every {@code exists} sub-query of this build joined, nested ones included: shared with each nested
      * context, so a bulk write learns whether a sub-query reads its own table (R-WRT-11).
@@ -431,7 +434,8 @@ public final class JoinContext {
         ctx.readsToOneLeft = readsToOneLeft;
         Path<C> selected = sub.column().path(ctx);
         // A lifted column reads the outer root, so its embeddable check runs against the outer context, not this one.
-        boolean embeddable = column instanceof ColumnField<?, ?, ?> outerColumn && outerColumn.isLifted() && outer != null
+        boolean embeddable = column instanceof ColumnField<?, ?, ?> outerColumn
+                && outerColumn.isLifted() && outer != null
                 ? outerColumn.liftedFrom().orElseThrow().embeddableValued(outer)
                 : column instanceof ColumnField<?, ?, ?> plain && plain.embeddableValued(this);
         if (embeddable || sub.column().embeddableValued(ctx)) {
@@ -456,12 +460,39 @@ public final class JoinContext {
      * {@code EXISTS (SELECT 1 FROM <sub's root> s WHERE <sub's filters> AND <correlation>)}, correlated to this
      * context's root through which a lifted outer column resolves (R-FLT-17). The sub-select's column is not rendered.
      */
-    @SuppressWarnings({"unchecked", "rawtypes"})
     Predicate existsSubSelect(SubSelect<?, ?> sub, List<Filter> correlation, boolean negated) {
-        if (query == null) {
-            throw new IllegalStateException("exists(...) needs the JoinContext of a ModelQuery build");
+        Predicate exists = cb.exists(correlatedSubSelect(sub, correlation, Integer.class, ctx -> cb.literal(1), false));
+        return negated ? cb.not(exists) : exists;
+    }
+
+    /** The scalar sub-query of a correlated column; EXISTS is a non-null Boolean CASE (R-COL-31). */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    Expression<?> correlatedValue(SubSelect<?, ?> sub, List<Filter> correlation, Correlated.Terminal terminal,
+            Class<?> type) {
+        if (terminal == Correlated.Terminal.EXISTS) {
+            return cb.<Boolean>selectCase().when(existsSubSelect(sub, correlation, false), cb.literal(true))
+                    .otherwise(cb.literal(false));
         }
-        Subquery<Integer> sq = query.subquery(Integer.class);
+        return correlatedSubSelect(sub, correlation, type, ctx -> {
+            Expression<?> column = sub.column().expression(ctx);
+            return ExpressionField.raw(switch (terminal) {
+                case COUNT -> cb.count(column);
+                case MIN -> cb.least(ExpressionField.<Comparable>raw(column));
+                case MAX -> cb.greatest(ExpressionField.<Comparable>raw(column));
+                case SUM -> cb.sum(ExpressionField.<Number>raw(column));
+                case EXISTS -> throw new AssertionError("EXISTS renders as a Boolean CASE");
+            });
+        }, terminal == Correlated.Terminal.COUNT || terminal == Correlated.Terminal.SUM);
+    }
+
+    /** A fresh statement-local sub-query over the inner root and its correlated outer root (R-FLT-17, INV-9). */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private <C> Subquery<C> correlatedSubSelect(SubSelect<?, ?> sub, List<Filter> correlation, Class<C> type,
+            Function<JoinContext, Expression<C>> selection, boolean refuseToMany) {
+        if (query == null) {
+            throw new IllegalStateException("a correlated sub-select needs the JoinContext of a ModelQuery build");
+        }
+        Subquery<C> sq = query.subquery(type);
         Root<?> inner = sq.from(sub.rootEntity());
         // The correlated outer root a lifted column reads; a through child's root is a join (D-100).
         From<?, ?> correlated = root instanceof Root<?> ? sq.correlate((Root) root) : sq.correlate((Join) root);
@@ -471,15 +502,32 @@ public final class JoinContext {
                 existsJoined, outerCtx, repeatedExpressionBinds, parameters, foreignKeyReads);
         outerCtx.readsToOneLeft = readsToOneLeft;
         ctx.readsToOneLeft = readsToOneLeft;
-        sq.select(cb.literal(1));
+        sq.select(selection.apply(ctx));
         var where = new ArrayList<>(ConditionGroup.toPredicates(sub.filters(), ctx));
         where.addAll(ConditionGroup.toPredicates(correlation, ctx));
+        if (refuseToMany && !ctx.toManyJoins.isEmpty()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1511, sub
+                    + ": correlated count/sum crosses a to-many join, which can multiply the inner rows; "
+                    + "filter with Filters.exists(path, inner) instead");
+        }
         if (!where.isEmpty()) {
             sq.where(where.toArray(Predicate[]::new));
         }
         existsJoined.add(sub.rootEntity());
-        Predicate exists = cb.exists(sq);
-        return negated ? cb.not(exists) : exists;
+        return sq;
+    }
+
+    boolean aggregating() {
+        return aggregating > 0;
+    }
+
+    <R> R aggregating(Supplier<R> render) {
+        aggregating++;
+        try {
+            return render.get();
+        } finally {
+            aggregating--;
+        }
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})

@@ -52,7 +52,10 @@ join, each joined row is a result, so `count` counts rows and agrees with `list`
 (`engine/21` R-PAG-13).
 
 **R-EXE-05** The count query drops `orderBy` and any selection the count does not need, and keeps every predicate and
-join that can change the number of matching rows. A source's check sub-selects are never dropped: a count over a
+join that can change the number of matching rows. A correlated scalar value used only in the select list adds
+nothing to the count statement except row-changing joins its lifted columns need; an INNER lifted path stays.
+A correlated value used in WHERE remains in the count, and lifted joins needed only inside OR/NOT are LEFT
+(R-FLT-10, R-COL-31). A source's check sub-selects are never dropped: a count over a
 source that carries checks selects them beside what it counts, on its own statement or on the group rows it counts
 (R-SRC-08, RFC 0014 §3). A direct `count(q)` on a query with an `orderBy` logs one `WARNING`
 per `ModelQuery`, `<Model>: count(query) ignores the query's orderBy`; the count `page` runs for its total logs

@@ -106,6 +106,10 @@ public enum MqCode {
     /** {@code in} or {@code notIn} over a sub-select with an embeddable-valued column on either side. */
     MQ1312("in(...) and notIn(...) over a sub-select do not take an embeddable-valued column"),
 
+    /** A correlated group key, or a grouped selection/order lifting a non-group-key column (R-COL-33). */
+    @Incubating
+    MQ1314("A correlated value cannot be a group key and must lift only group keys in grouped selections and orders"),
+
     /** A selected non-aggregate column or expression does not fit the group-by (R-AGG-08, R-AGG-14). */
     MQ1401("A selected non-aggregate column or expression does not fit the group-by"),
 
@@ -162,6 +166,14 @@ public enum MqCode {
 
     /** A sequence value cannot be read: a bad name, a filter, having, order or group key, no sequences (R-COL-28). */
     MQ1509("A sequence value cannot be read here"),
+
+    /** An aggregate reads a correlated value, including through an expression (R-COL-33). */
+    @Incubating
+    MQ1510("A correlated value cannot be aggregated; select it through @Computed"),
+
+    /** A correlated count or sum crosses a to-many join in its inner query (R-COL-33). */
+    @Incubating
+    MQ1511("A correlated count or sum crosses a to-many join; use Filters.exists(path, inner)"),
 
     /** A bulk write chose its rows with {@code where(...)} and no predicate is left (R-WRT-12). */
     MQ1601("A bulk write's where(...) left no predicate; all() is the only way to write every row"),

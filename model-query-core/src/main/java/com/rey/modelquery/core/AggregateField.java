@@ -133,7 +133,8 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
      */
     @Override
     public Expression<C> expression(JoinContext ctx) {
-        Expression<C> result = expression.apply(Objects.requireNonNull(ctx, "ctx"), ctx.cb());
+        Objects.requireNonNull(ctx, "ctx");
+        Expression<C> result = ctx.aggregating(() -> expression.apply(ctx, ctx.cb()));
         // Only an Agg.of function can return null; failing here names it, where Criteria would fail anonymously.
         if (result == null) {
             throw new ModelQueryDefinitionException(MqCode.MQ1405,

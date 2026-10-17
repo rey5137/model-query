@@ -1143,6 +1143,10 @@ public final class ModelQuery<E, K, M> {
 
         /** One group key, which may be an expression (R-AGG-05, R-COL-19). */
         private ScalarField<M, ?> groupKey(SelectField<M, ?> column) {
+            if (ExpressionField.containsCorrelated(column)) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1314,
+                        column + ": a correlated value cannot be a group key; group by its lifted columns");
+            }
             return (ScalarField<M, ?>) column;
         }
 
@@ -1248,6 +1252,8 @@ public final class ModelQuery<E, K, M> {
                 checkKeyTypes(keyset);
             }
             if (grouped) {
+                selection.fields().forEach(field -> ExpressionField.checkCorrelatedGroup(field, groupBy));
+                orderBy.forEach(order -> ExpressionField.checkCorrelatedGroup(order.column(), groupBy));
                 String child = fetch == null ? null : fetch.firstChild();
                 if (child != null) {
                     // Before MQ1401, which the child's key would otherwise raise first (R-FCH-10).

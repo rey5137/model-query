@@ -49,7 +49,8 @@ public final class Expr {
     public static <M, C> ExpressionField<M, C> coalesce(ScalarField<M, C> first, ScalarField<M, C> second) {
         checkFields(first);
         checkFields(second);
-        return new ExpressionField<>(new ExpressionField.Coalesce(first, second, ColumnField.boxed(first.type())), first.type(),
+        return new ExpressionField<>(new ExpressionField.Coalesce(first, second, ColumnField.boxed(first.type())),
+                first.type(),
                 null);
     }
 
@@ -57,15 +58,19 @@ public final class Expr {
     public static <M, C> ExpressionField<M, C> coalesce(ScalarField<M, C> first, C fallback) {
         checkFields(first);
         checkValue(fallback);
-        return new ExpressionField<>(new ExpressionField.Coalesce(first, fallback, ColumnField.boxed(first.type())), first.type(),
+        return new ExpressionField<>(new ExpressionField.Coalesce(first, fallback, ColumnField.boxed(first.type())),
+                first.type(),
                 null);
     }
 
-    /** {@code nullIf(value, sentinel)}: NULL when {@code value} equals the bound {@code sentinel}, else {@code value}. */
+    /**
+     * {@code nullIf(value, sentinel)}: NULL when {@code value} equals the bound {@code sentinel}, else {@code value}.
+     */
     public static <M, C> ExpressionField<M, C> nullIf(ScalarField<M, C> value, C sentinel) {
         checkFields(value);
         checkValue(sentinel);
-        return new ExpressionField<>(new ExpressionField.NullIf(value, sentinel, ColumnField.boxed(value.type())), value.type(),
+        return new ExpressionField<>(new ExpressionField.NullIf(value, sentinel, ColumnField.boxed(value.type())),
+                value.type(),
                 null);
     }
 
@@ -142,7 +147,8 @@ public final class Expr {
     /** {@code -value}. */
     public static <M, C extends Number> ExpressionField<M, C> negate(ScalarField<M, C> value) {
         checkFields(value);
-        return new ExpressionField<>(new ExpressionField.Negate(value, ColumnField.boxed(value.type())), value.type(), null);
+        return new ExpressionField<>(new ExpressionField.Negate(value, ColumnField.boxed(value.type())),
+                value.type(), null);
     }
 
     /** {@code concat(a, b)}: NULL when any operand is NULL (R-COL-17). */
@@ -316,7 +322,7 @@ public final class Expr {
     // ---- validation
 
     /** {@code MQ1501} for a column with a {@code ColumnConverter} anywhere in {@code field}'s operands. */
-    private static void checkFields(ScalarField<?, ?> field) {
+    static void checkFields(ScalarField<?, ?> field) {
         Objects.requireNonNull(field, "field");
         if (field instanceof ColumnField<?, ?, ?> column && column.isConverted()) {
             throw new ModelQueryDefinitionException(MqCode.MQ1501, column + ": an expression reads a column with a "
@@ -456,6 +462,10 @@ public final class Expr {
 
     /** {@code MQ1505} for {@code add}, {@code exists} or a sub-select inside a CASE condition (R-COL-17). */
     private static void checkCaseCondition(Condition condition) {
+        if (ExpressionField.containsCorrelated(condition)) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1505,
+                    "cases(...).when(...) cannot use a correlated value in its condition");
+        }
         switch (condition.kind()) {
             case CUSTOM, EXISTS, NOT_EXISTS, IN_SUBSELECT, NOT_IN_SUBSELECT, EXISTS_SUBSELECT, NOT_EXISTS_SUBSELECT ->
                     throw new ModelQueryDefinitionException(MqCode.MQ1505, "cases(...).when(...): a CASE condition "

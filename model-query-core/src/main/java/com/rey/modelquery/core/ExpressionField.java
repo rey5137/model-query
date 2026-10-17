@@ -5,6 +5,7 @@ import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Predicate;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -28,7 +29,9 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
 
     private final Node node;
     private final Class<C> type;
-    /** The model field the expression fills, or {@code null}; not part of {@link #equals}, as {@code ColumnField.named}. */
+    /**
+     * The model field the expression fills, or {@code null}; not part of {@link #equals}, as {@code ColumnField.named}.
+     */
     private final String property;
 
     ExpressionField(Node node, Class<C> type, String property) {
@@ -70,6 +73,10 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
     @SuppressWarnings("unchecked")
     private Expression<C> render(JoinContext ctx, boolean operand) {
         Objects.requireNonNull(ctx, "ctx");
+        if (ctx.aggregating() && correlated()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1510,
+                    node.text() + ": a correlated value cannot be aggregated; select it through @Computed");
+        }
         if (node instanceof TypedConst typed && !operand) {
             // Its literal is the stored value, typed by the attribute, not by the declared model type: read as a
             // model value it would not fit (R-COL-27).
@@ -128,7 +135,9 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         return node.binds();
     }
 
-    /** The bind values one rendering of {@code operand} binds: an expression's own, one for a raw value, none for a column. */
+    /**
+     * The binds of {@code operand}: an expression's own, one for a raw value, none for a column.
+     */
     private static int binds(Object operand) {
         if (operand instanceof ExpressionField<?, ?> expression) {
             return expression.binds();
@@ -152,43 +161,67 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
 
     /** Whether {@code operand} is an expression reading {@code Expr.nextval} anywhere, CASE conditions included. */
     private static boolean readsSequence(Object operand) {
+        return containsNode(operand, node -> node instanceof Nextval);
+    }
+
+    /** A correlated value at any depth of this expression (R-COL-33). */
+    boolean correlated() {
+        return containsNode(this, node -> node instanceof CorrelatedValue);
+    }
+
+    /** A correlated value in a grouped selection or order must lift only group keys (R-COL-33). */
+    static void checkCorrelatedGroup(Object operand, List<? extends ScalarField<?, ?>> keys) {
+        containsNode(operand, node -> {
+            if (node instanceof CorrelatedValue correlated && !keys.containsAll(correlated.columns())) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1314, correlated.text()
+                        + ": a correlated value in a grouped selection or order must lift only group keys");
+            }
+            return false;
+        });
+    }
+
+    static boolean containsCorrelated(Object operand) {
+        return containsNode(operand, node -> node instanceof CorrelatedValue);
+    }
+
+    private static boolean containsNode(Object operand, java.util.function.Predicate<Node> test) {
+        if (operand instanceof Condition condition) {
+            return containsNode(condition.column().orElse(null), test)
+                    || containsNode(condition.right().orElse(null), test)
+                    || condition.operands().stream().anyMatch(value -> containsNode(value, test))
+                    || condition.children().stream().anyMatch(child -> containsNode(child, test));
+        }
         if (!(operand instanceof ExpressionField<?, ?> expression)) {
             return false;
         }
         Node node = expression.node;
-        if (node instanceof Nextval) {
+        if (test.test(node)) {
             return true;
         }
         if (node instanceof Coalesce n) {
-            return readsSequence(n.first()) || readsSequence(n.second());
+            return containsNode(n.first(), test) || containsNode(n.second(), test);
         }
         if (node instanceof NullIf n) {
-            return readsSequence(n.value());
+            return containsNode(n.value(), test);
         }
         if (node instanceof Arith n) {
-            return readsSequence(n.first()) || readsSequence(n.second());
+            return containsNode(n.first(), test) || containsNode(n.second(), test);
         }
         if (node instanceof Negate n) {
-            return readsSequence(n.value());
+            return containsNode(n.value(), test);
         }
         if (node instanceof Concat n) {
-            return readsSequence(n.first()) || readsSequence(n.second());
+            return containsNode(n.first(), test) || containsNode(n.second(), test);
         }
         if (node instanceof Fn n) {
-            return n.args().stream().anyMatch(ExpressionField::readsSequence);
+            return n.args().stream().anyMatch(value -> containsNode(value, test));
         }
         if (node instanceof Case n) {
-            return readsSequence(n.otherwise()) || n.branches().stream().anyMatch(branch ->
-                    readsSequence(branch.result()) || branch.conditions().stream().anyMatch(ExpressionField::reads));
+            return containsNode(n.otherwise(), test) || n.branches().stream().anyMatch(branch ->
+                    containsNode(branch.result(), test)
+                            || branch.conditions().stream().anyMatch(condition -> containsNode(condition, test)));
         }
         return false; // Const, TypedConst and Value read nothing
-    }
-
-    /** Whether a CASE condition reads {@code Expr.nextval} in an operand or a child condition. */
-    private static boolean reads(Condition condition) {
-        return readsSequence(condition.column().orElse(null)) || readsSequence(condition.right().orElse(null))
-                || condition.operands().stream().anyMatch(ExpressionField::readsSequence)
-                || condition.children().stream().anyMatch(ExpressionField::reads);
     }
 
     /** The bind values a CASE condition binds: its values, its operands' expressions and its children's (R-COL-18). */
@@ -205,6 +238,11 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         }
         for (Condition child : condition.children()) {
             total += conditionBinds(child);
+        }
+        if (condition.subSelect().isPresent()) {
+            for (Condition inner : condition.subSelect().orElseThrow().conditions()) {
+                total += conditionBinds(inner);
+            }
         }
         return total;
     }
@@ -226,7 +264,8 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
 
     /** The structure behind an expression: equal nodes are equal expressions (R-COL-20). */
     sealed interface Node
-            permits Coalesce, NullIf, Arith, Negate, Concat, Fn, Const, TypedConst, Value, Nextval, Case {
+            permits Coalesce, NullIf, Arith, Negate, Concat, Fn, Const, TypedConst, Value, Nextval, Case,
+                    CorrelatedValue {
 
         Class<?> type();
 
@@ -239,6 +278,92 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
 
         /** The canonical text, values shown as {@code ?} (R-INS-09). */
         String text();
+    }
+
+    record CorrelatedValue(SubSelect<?, ?> rows, List<Filter> correlation, List<Condition> conditions,
+            Correlated.Terminal terminal, Class<?> type) implements Node {
+        @Override
+        public Expression<?> render(JoinContext ctx) {
+            return ctx.correlatedValue(rows, correlation, terminal, type);
+        }
+
+        @Override
+        public List<ColumnField<?, ?, ?>> columns() {
+            var read = new LinkedHashSet<ColumnField<?, ?, ?>>();
+            conditions.forEach(condition -> liftedColumns(condition, read));
+            // Only the lifted columns belong to the enclosing query; the inner columns join inside the sub-query.
+            return read.stream().filter(ColumnField::isLifted)
+                    .<ColumnField<?, ?, ?>>map(column -> column.liftedFrom().orElseThrow())
+                    .distinct().toList();
+        }
+
+        private static void liftedColumns(Condition condition, LinkedHashSet<ColumnField<?, ?, ?>> into) {
+            condition.column().ifPresent(field -> Expr.operand(field, into));
+            condition.right().ifPresent(field -> Expr.operand(field, into));
+            condition.operands().forEach(field -> Expr.operand(field, into));
+            // A nested sub-select lifts its own enclosing root, not this correlated column's outer root.
+            if (condition.kind() != Condition.Kind.EXISTS_SUBSELECT
+                    && condition.kind() != Condition.Kind.NOT_EXISTS_SUBSELECT) {
+                condition.children().forEach(child -> liftedColumns(child, into));
+            }
+        }
+
+        @Override
+        public int binds() {
+            return rows.conditions().stream().mapToInt(ExpressionField::conditionBinds).sum()
+                    + conditions.stream().mapToInt(ExpressionField::conditionBinds).sum();
+        }
+
+        @Override
+        public String text() {
+            return "correlated(" + terminal + ", " + rows + ", " + conditions + ")";
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            return o instanceof CorrelatedValue other && rows.equals(other.rows)
+                    && equalConditions(rows.conditions(), other.rows.conditions())
+                    && equalConditions(conditions, other.conditions) && terminal == other.terminal;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(rows, conditionsHash(rows.conditions()), conditionsHash(conditions), terminal);
+        }
+
+        private static boolean equalConditions(List<Condition> first, List<Condition> second) {
+            if (first.size() != second.size()) {
+                return false;
+            }
+            for (int i = 0; i < first.size(); i++) {
+                Condition a = first.get(i);
+                Condition b = second.get(i);
+                // A label describes a custom predicate but cannot establish equal executable sub-queries.
+                if (a.kind() == Condition.Kind.CUSTOM ? a != b : !a.equals(b)) {
+                    return false;
+                }
+                if (!equalConditions(a.children(), b.children())) {
+                    return false;
+                }
+                if (a.subSelect().isPresent() && !equalConditions(a.subSelect().orElseThrow().conditions(),
+                        b.subSelect().orElseThrow().conditions())) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private static int conditionsHash(List<Condition> conditions) {
+            int hash = 1;
+            for (Condition condition : conditions) {
+                int value = condition.kind() == Condition.Kind.CUSTOM
+                        ? System.identityHashCode(condition) : condition.hashCode();
+                value = 31 * value + conditionsHash(condition.children());
+                value = 31 * value + condition.subSelect().map(sub -> conditionsHash(sub.conditions())).orElse(0);
+                hash = 31 * hash + value;
+            }
+            return hash;
+        }
     }
 
     /** A bound value: {@code MQ1502} covers null, arrays, {@code Date}, {@code Calendar}, enums and entities. */

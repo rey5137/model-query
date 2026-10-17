@@ -154,9 +154,10 @@ public final class Correlated {                             // static vocabulary
   `min`, `max`, `sum` and `first` are nullable. `Expr.coalesce`, arithmetic and `nullIf` take it as an operand.
 - **Where it is refused.** In a CASE condition (`MQ1505`, unchanged); in `having` (R-FLT-14, unchanged); aggregated by
   `@Aggregate(expression = …)` or `Agg.of` (`MQ1510`: PostgreSQL allows `sum((select …))`, MySQL refuses it inside
-  `ONLY_FULL_GROUP_BY`, and nothing needs it); in a grouped query whose lifted columns are not all group keys
-  (`MQ1314`, at definition: the database would refuse the statement), and as a `@GroupBy` key itself (`MQ1314`); inside
-  a source (`MQ1908`, §4).
+  `ONLY_FULL_GROUP_BY`, and nothing needs it); in a grouped query's selection or orders whose lifted columns are
+  not all group keys (`MQ1314`, at definition: the database would refuse the statement), and as a `@GroupBy` key
+  itself (`MQ1314`); inside a source (`MQ1908`, §4). A correlated value in a grouped query's WHERE may lift a
+  non-group-key column: it is evaluated per row before grouping.
 - **The count is not the content.** A correlated column only in the select list adds nothing to the count statement
   except the joins its lifted columns need where those joins can change the row count (R-EXE-05: an INNER lifted path
   stays). One in `where` is in it, as any filter is. Inside `or`/`not`, the lifted join is LEFT (R-FLT-10).
@@ -443,7 +444,7 @@ acceptance decision is the next free `D-n` (D-150 today; coordinate with RFC 001
 |---|---|---|
 | R-COL-31 | `api/10` | `Correlated`'s terminals: a scalar sub-query per row, an `ExpressionField`; equality; `MQ1511` |
 | R-COL-32 | `api/10` | `first(...)`: required order, the appended id tie-breaker, null precedence as R-COL-12, `MQ4014` without the renderer |
-| R-COL-33 | `api/10` | Where a correlated expression is refused: CASE, `having`, aggregation, grouped without its keys, as a group key, `keyset()` (`MQ1208`), a source (`MQ1908`) |
+| R-COL-33 | `api/10` | Correlated refusals, including grouped selection/orders lifting non-group keys |
 | R-FLT-27 | `api/12` | A lifted column on a to-one path, resolved through the outer `JoinContext`, checked at first resolution; a source root |
 | R-SRC-16 | `api/17` | A source over a source: root kinds, what it adds, its key, uniqueness and non-uniqueness carried, `MQ1908` |
 | R-SRC-17 | `api/17` | Reading a source directly: `Rows`, `query(source)`, `MQ1905` both ways |
@@ -453,7 +454,7 @@ acceptance decision is the next free `D-n` (D-150 today; coordinate with RFC 001
 | R-GEN-39 | `processor/31` | `source(SourceQuery<X> inner)` on a source over a source |
 | R-GEN-40 | `processor/31` | The `Rows` vocabulary (fully qualified names) and `query(SourceQuery<S>)` on a non-branch source QModel |
 | R-VND-25 | `vendor/40` | `ProviderSupport#subqueries()` and `SubqueryRenderer` |
-| `MQ1314` | `reference/90` | A correlated expression in a grouped query whose lifted columns are not all group keys, or as a group key |
+| `MQ1314` | `reference/90` | Correlated group key, or grouped selection/orders lifting non-group keys |
 | `MQ1510` | `reference/90` | A correlated expression aggregated |
 | `MQ1511` | `reference/90` | A `count`, `sum` or `first` whose sub-select crosses a to-many join |
 | `MQ1907` | `reference/90` | A source over a source built without, or with the wrong, inner `SourceQuery` |

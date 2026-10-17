@@ -64,6 +64,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1310` | An `Outer.column` resolved outside the correlation it was made in, or lifted through two sub-select levels | `api/12` R-FLT-17 |
 | `MQ1311` | `Outer.column` given a column that is not on the outer query's root | `api/12` R-FLT-17 |
 | `MQ1312` | `in` or `notIn` over a sub-select with an embeddable-valued column on either side; checked at first resolution | `api/12` R-FLT-16 |
+| `MQ1314` | Correlated group key or grouped selection/order lifting non-keys; at definition | `api/10` R-COL-33 |
 | `MQ1401` | A selected non-aggregate column or expression does not fit the group-by | `api/13` R-AGG-08, R-AGG-14 |
 | `MQ1402` | Keyset paging or primary-key-first on a grouped query | `api/13` R-AGG-10 |
 | `MQ1403` | `Agg.sum` or `Agg.sumAsLong` over a column whose SQL sum type differs from the declared result type | `api/13` R-AGG-03 |
@@ -78,11 +79,13 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1502` | An expression is given a null value, or a value of a type it cannot bind (`Optional`, arrays, `Collection`, `Map`, `Date`, `Calendar`, enums, entities) | `api/10` R-COL-18, R-COL-26 |
 | `MQ1503` | `dividedBy` over two integral operands, which truncates on PostgreSQL and H2 and not on MySQL | `api/10` R-COL-17 |
 | `MQ1504` | A CASE condition has no filter left, so it would always match | `api/10` R-COL-17 |
-| `MQ1505` | A CASE condition uses `add(...)`, `exists(...)` or a sub-select | `api/10` R-COL-17 |
+| `MQ1505` | CASE condition uses add, exists, a sub-select or a correlated value | `api/10` R-COL-17 |
 | `MQ1506` | `function(name, …)` with a name that is not a plain SQL identifier, or is a built-in aggregate | `api/10` R-COL-17 |
 | `MQ1507` | An expression's declared type is not the type the provider resolves; checked at first resolution | `api/10` R-COL-17 |
 | `MQ1508` | A column-typed `Expr.constant` cannot be rendered as a literal: the value after its column's converter and the attribute's JPA mapping is not a `String`, `Number` or `Boolean`, the witness is not a basic attribute of a root table's entity (a joined column is none), the provider has no constant renderer, or the constant is used other than as a comparison or `in`/`notIn` operand (a model column, projection, order or group key); the message names which cause applies; for an arbiter predicate's value, on first execution before any statement (D-132) | `api/10` R-COL-27, `vendor/40` R-VND-16 |
 | `MQ1509` | `Expr.nextval` with a name that is not a plain, optionally schema-qualified SQL identifier (at definition); used in a filter (a CASE condition included), a `having`, an order or a group key, a `distinct()` query selecting it, at any depth of an expression, on a vendor whose profile's `sequences()` is false, or without a provider sequence renderer (at first resolution, before any statement; on a write, before the flush, a chunk's key select or any statement) | `api/10` R-COL-28, `api/14` R-WRT-53, `vendor/40` R-VND-18 |
+| `MQ1510` | Aggregate over a correlated value; use `@Computed` | `api/10` R-COL-33 |
+| `MQ1511` | Correlated count/sum crosses to-many; use `Filters.exists(path, inner)` | `api/10` R-COL-33 |
 | `MQ1601` | A bulk write chose its rows with `where(...)` and no predicate is left, or a conflict arbiter's `where(...)` left none | `api/14` R-WRT-12, R-WRT-52 |
 | `MQ1602` | A column is assigned twice in one update | `api/14` R-WRT-13 |
 | `MQ1603` | `set(column, null)`; NULL must be written with `setNull` | `api/14` R-WRT-06 |

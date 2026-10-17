@@ -66,8 +66,13 @@ public final class Agg {
      * @throws ModelQueryDefinitionException {@code MQ1403} for any other column type (D-25)
      */
     public static <M, C extends Number> AggregateField<M, C> sum(ColumnField<M, ?, C> column) {
-        return over(AggregateField.Kind.SUM, summable(column, SUM_TYPES, "sum", "use Agg.sumAsLong"), column.type(),
+        return over(AggregateField.Kind.SUM, summable(column, "Agg.sum", "use Agg.sumAsLong"), column.type(),
                 (ctx, cb) -> cb.sum(column.path(ctx)));
+    }
+
+    /** A column whose sum keeps its type, shared by grouped and correlated sums (R-AGG-03). */
+    static <T extends ColumnField<?, ?, ?>> T summable(T column, String function, String instead) {
+        return summable(column, SUM_TYPES, function, instead);
     }
 
     /**
@@ -79,7 +84,8 @@ public final class Agg {
      */
     @SuppressWarnings("unchecked")
     public static <M> AggregateField<M, Long> sumAsLong(ColumnField<M, ?, ? extends Number> column) {
-        return over(AggregateField.Kind.SUM_AS_LONG, summable(column, SUM_AS_LONG_TYPES, "sumAsLong", "use Agg.sum"),
+        return over(AggregateField.Kind.SUM_AS_LONG,
+                summable(column, SUM_AS_LONG_TYPES, "Agg.sumAsLong", "use Agg.sum"),
                 Long.class,
                 // Unchecked: sumAsLong only declares the result type, which is the point of this function.
                 (ctx, cb) -> cb.sumAsLong((Expression<Integer>) (Expression<?>) column.path(ctx)));
@@ -146,6 +152,7 @@ public final class Agg {
      */
     public static <M, C extends Number> AggregateField<M, C> sum(ExpressionField<M, C> expression) {
         Objects.requireNonNull(expression, "expression");
+        checkCorrelated(expression);
         requireSumType(expression.type(), SUM_TYPES, "sum", "use Agg.sumAsLong", expression);
         return expressionOver(AggregateField.Kind.SUM, expression, expression.type(),
                 (ctx, cb) -> cb.sum(expression.expression(ctx)));
@@ -159,6 +166,7 @@ public final class Agg {
     @SuppressWarnings("unchecked")
     public static <M> AggregateField<M, Long> sumAsLong(ExpressionField<M, ? extends Number> expression) {
         Objects.requireNonNull(expression, "expression");
+        checkCorrelated(expression);
         requireSumType(expression.type(), SUM_AS_LONG_TYPES, "sumAsLong", "use Agg.sum", expression);
         return expressionOver(AggregateField.Kind.SUM_AS_LONG, expression, Long.class,
                 // Unchecked: sumAsLong only declares the result type, which is the point of this function.
@@ -192,7 +200,8 @@ public final class Agg {
      * (D-24), so resolve columns through {@link ColumnField#path} with that context to share the query's joins. It
      * must return an expression of {@code type}, else {@code MQ1405} when the query is built. A primitive
      * {@code type} is stored as its wrapper. It is for aggregate expressions only, since any aggregate makes the query
-     * grouped; a value derived per row belongs in {@code afterMap} (R-QRY-08, D-27).
+     * grouped; a value derived per row belongs in {@code afterMap} (R-QRY-08, D-27). A correlated value resolved
+     * through the context is refused with {@code MQ1510} (R-COL-33).
      */
     @SuppressWarnings("unchecked")
     public static <M, C> AggregateField<M, C> of(
@@ -213,7 +222,7 @@ public final class Agg {
         supported(Objects.requireNonNull(column, "column"));
         if (!types.contains(column.type())) {
             throw new ModelQueryDefinitionException(MqCode.MQ1403, String.format(
-                    "%s: Agg.%s does not take column type %s, only %s; %s", column, function,
+                    "%s: %s does not take column type %s, only %s; %s", column, function,
                     column.type().getSimpleName(), types.stream().map(Class::getSimpleName).toList(), instead));
         }
         return column;
@@ -246,7 +255,15 @@ public final class Agg {
     private static <M, C> AggregateField<M, C> expressionOver(AggregateField.Kind kind,
             ExpressionField<M, ?> expression, Class<C> type,
             BiFunction<JoinContext, CriteriaBuilder, Expression<C>> render) {
+        checkCorrelated(expression);
         return new AggregateField<>(kind, null, "", "", type, null, expression, render);
+    }
+
+    private static void checkCorrelated(ExpressionField<?, ?> expression) {
+        if (expression.correlated()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1510,
+                    expression + ": a correlated value cannot be aggregated; select it through @Computed");
+        }
     }
 
     /**

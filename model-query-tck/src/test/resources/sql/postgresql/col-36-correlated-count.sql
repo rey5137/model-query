@@ -1,0 +1,5 @@
+select oe1_0.id,(select count(oe2_0.id) from orders oe2_0 where oe2_0.id<=? and (oe2_0.status<>? or oe2_0.status is null) and oe2_0.status=oe1_0.status) from orders oe1_0 where oe1_0.id<=? order by 1
+select oe1_0.id,(select count(oe2_0.referrer_id) from orders oe2_0 where oe2_0.id<=? and (oe2_0.status<>? or oe2_0.status is null) and oe2_0.status=oe1_0.status) from orders oe1_0 where oe1_0.id<=? order by 1
+select oe1_0.id,((select count(oe2_0.id) from orders oe2_0 where oe2_0.id<=? and (oe2_0.status<>? or oe2_0.status is null) and oe2_0.status=oe1_0.status)+cast(? as bigint)) from orders oe1_0 where oe1_0.id<=? order by 1
+select oe1_0.id,(select count(oe2_0.id) from orders oe2_0 where oe2_0.id<=? and (oe2_0.status<>? or oe2_0.status is null) and oe2_0.status=oe1_0.status) from orders oe1_0 where oe1_0.id<=? and (select count(oe3_0.id) from orders oe3_0 where oe3_0.id<=? and (oe3_0.status<>? or oe3_0.status is null) and oe3_0.status=oe1_0.status)=? order by 1
+select oe1_0.id,(select count(oe2_0.id) from orders oe2_0 where oe2_0.id<=? and (oe2_0.status<>? or oe2_0.status is null) and oe2_0.status=oe1_0.status) from orders oe1_0 where oe1_0.id<=? order by 2,1
