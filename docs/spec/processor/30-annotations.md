@@ -11,7 +11,7 @@
 | Annotation | Target | Purpose |
 |---|---|---|
 | `@QueryModel(root = X.class, generateSelectSets = true, prefix = "Q", suffix = "", singleGroup = false, generateChanges = false, generateInserts = false)` | model class or record | Enables generation |
-| `@SourceModel(root = X.class, shape = void.class)` | class or record | A query an outer model reads by field name; generates `source()` in place of `query()`. A `shape` makes it a branch of that shape's set operations (§10, R-PROC-35, R-PROC-38) |
+| `@SourceModel(root = X.class, shape = void.class)` | class or record | A query read by field name; generates `source()`, and `query(SourceQuery<S>)` when not a branch. A `shape` makes it a branch of that shape's set operations (§10, R-PROC-35, R-PROC-38) |
 | `@UpdateModel(root = X.class, prefix = "Q")` | class or record | The attributes a bulk update may write; generates columns and a change set (§7) |
 | `@InsertModel(root = X.class, prefix = "Q")` | class or record | The attributes an insert writes, one instance per row; generates columns, `INSERT_COLUMNS` and the insert builders (§8) |
 | `@PrimaryKey` | field or record component | Primary-key column(s); composite keys supported |
@@ -356,9 +356,10 @@ ungrouped source, the full `@GroupBy` set for a grouped one, no group key nullab
 The id is checked as a whole, so an `@IdClass` or `@EmbeddedId` root gives an ungrouped source one key column per id
 attribute (D-149, M26.1).
 Its QModel declares
-`source()` for an entity root or `source(SourceQuery<X> inner)` for a source root, in place of `query()`, and no
-`MAPPER` and no write method, since nothing maps a source row and no write
-reads a source (`processor/31` R-GEN-37). A `shape` makes it a branch (§10, R-PROC-38).
+`source()` for an entity root or `source(SourceQuery<X> inner)` for a source root, and `query(SourceQuery<S>)` when
+not a branch. Its own constants have no `MAPPER`; nested `Rows` maps direct source reads (`processor/31` R-GEN-40).
+It has no write method, since no write reads a source (`processor/31` R-GEN-37).
+A `shape` makes it a branch (§10, R-PROC-38).
 
 **R-PROC-36** *(D-143)* **`@Window`.** A `@Window` field of a source is a window function over the source's rows
 (`api/17` R-SRC-04, `processor/31` R-GEN-38). An ill-written one is `MQ3032`:

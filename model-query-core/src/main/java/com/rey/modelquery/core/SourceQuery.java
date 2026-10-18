@@ -323,6 +323,16 @@ public final class SourceQuery<S> {
         @SuppressWarnings("unchecked")
         public SourceQuery<S> build() {
             checkSource();
+            var vocabulary = new SourceVocabulary(model, root, null);
+            fields.fields().forEach(vocabulary::field);
+            key.columns().forEach(vocabulary::field);
+            vocabulary.filters(where);
+            if (groupKeys != null) {
+                groupKeys.fields().forEach(vocabulary::field);
+            }
+            if (having != null) {
+                vocabulary.filters(having.filters());
+            }
             if (having != null && (groupKeys == null || groupKeys.fields().isEmpty())) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1407, model.getSimpleName()
                         + ": having(...) needs a grouped source; give it GROUP_KEYS, or filter rows with where(...)");

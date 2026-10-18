@@ -160,6 +160,16 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         return sourceExpression;
     }
 
+    void checkSourceVocabulary(SourceVocabulary vocabulary) {
+        if (sourceExpression != null) {
+            vocabulary.field(sourceExpression);
+        } else if (converted != null) {
+            vocabulary.field(converted);
+        } else {
+            vocabulary.table(source, attribute);
+        }
+    }
+
     /** Whether {@code a} and {@code b} are one {@code Agg.of} key defined by different functions (R-AGG-02). */
     static boolean conflict(SelectField<?, ?> a, SelectField<?, ?> b) {
         return a instanceof AggregateField<?, ?> x && b instanceof AggregateField<?, ?> y

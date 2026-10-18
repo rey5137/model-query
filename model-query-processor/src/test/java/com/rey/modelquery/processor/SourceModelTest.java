@@ -170,14 +170,16 @@ class SourceModelTest {
     }
 
     @Test
-    void ac_proc_35_a_source_model_generates_no_mapper_and_no_write_member() {
+    void ac_src_33_a_source_model_keeps_its_mapper_in_rows_and_has_no_write_member() {
         Compilation compilation = compileShop();
 
         assertThat(compilation).succeededWithoutWarnings();
         assertThat(generatedFlat(compilation, "shop.QStatusTotals"))
                 .contains("public static SourceQuery.Builder<OrderEntity, StatusTotals, StatusTotals> source()",
                         "SourceQuery.builder(StatusTotals.class, ROOT, ALL, KEY, GROUP_KEYS)")
-                .doesNotContain("MAPPER", "map(Row row)", "delete()", "update(", "insert", "Changes");
+                .contains("public static final class Rows", "Rows.MAPPER")
+                .doesNotContain("public static final RowMapper<StatusTotals> MAPPER", "map(Row row)",
+                        "delete()", "update(", "insert", "Changes");
     }
 
     @Test
