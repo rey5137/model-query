@@ -136,7 +136,14 @@ public final class ModelQueryProcessor extends AbstractProcessor {
         if (nullness == null) {
             nullness = nullness(elements);
         }
-        var round = new Round(reader, nestedModels, new ModelValidator(types, metamodel, nestedModels, builtIns),
+        List<ModelDefinition> sources = Stream.concat(
+                roundEnv.getElementsAnnotatedWith(QueryModelReader.annotation(Kind.SOURCE)).stream()
+                        .map(element -> (TypeElement) element),
+                deferred.stream().filter(model -> model.kind() == Kind.SOURCE)
+                        .map(model -> elements.getTypeElement(model.name())).filter(Objects::nonNull))
+                .distinct().map(element -> reader.read(element, Kind.SOURCE)).filter(Objects::nonNull).toList();
+        var round = new Round(reader, nestedModels,
+                new ModelValidator(types, metamodel, nestedModels, builtIns, sources),
                 new QModelWriter(types, metamodel, nestedModels, builtIns, nullness),
                 // A model module without Bean Validation, or without model-query-jpa, compiles and references neither.
                 new ChangesWriter(types, metamodel, elements.getTypeElement(ChangesWriter.VALID_CHANGES) != null

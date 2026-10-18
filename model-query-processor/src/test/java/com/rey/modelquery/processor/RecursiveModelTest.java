@@ -142,7 +142,7 @@ class RecursiveModelTest {
         assertThat(compilation).failed();
         assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3037,
                 "FolderNode.rank: a recursive source takes no @Window; a database forbids one in the recursive "
-                        + "term"));
+                        + "term; declare it on a source over this source instead"));
     }
 
     @Test
@@ -154,9 +154,9 @@ class RecursiveModelTest {
         // The @GroupBy the aggregate needs is refused too: both are forbidden in the recursive term (R-PROC-37).
         assertThat(errors(compilation)).contains(
                 message(DiagnosticCode.MQ3037, "FolderNode.files: a recursive source takes no @Aggregate; a database "
-                        + "forbids one in the recursive term"),
+                        + "forbids one in the recursive term; declare it on a source over this source instead"),
                 message(DiagnosticCode.MQ3037, "FolderNode.id: a recursive source takes no @GroupBy; a database "
-                        + "forbids one in the recursive term"));
+                        + "forbids one in the recursive term; declare it on a source over this source instead"));
     }
 
     @Test
@@ -166,7 +166,8 @@ class RecursiveModelTest {
 
         assertThat(compilation).failed();
         assertThat(errors(compilation)).contains(message(DiagnosticCode.MQ3037,
-                "FolderNode.id: a recursive source takes no @GroupBy; a database forbids one in the recursive term"));
+                "FolderNode.id: a recursive source takes no @GroupBy; a database forbids one in the recursive term; "
+                        + "declare it on a source over this source instead"));
     }
 
     @Test

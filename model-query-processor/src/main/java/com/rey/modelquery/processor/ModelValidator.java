@@ -95,21 +95,27 @@ final class ModelValidator {
     private final BuiltInConverters builtIns;
     private final WriteChecks writeChecks;
     private final ChildChecks childChecks;
+    private final SourceModelChecks sourceChecks;
 
     ModelValidator(
-            Types types, EntityMetamodel metamodel, NestedModels nestedModels, BuiltInConverters builtIns) {
+            Types types, EntityMetamodel metamodel, NestedModels nestedModels, BuiltInConverters builtIns,
+            List<ModelDefinition> sources) {
         this.types = types;
         this.metamodel = metamodel;
         this.nestedModels = nestedModels;
         this.builtIns = builtIns;
         this.writeChecks = new WriteChecks(types, metamodel);
         this.childChecks = new ChildChecks(types, metamodel, nestedModels);
+        this.sourceChecks = new SourceModelChecks(metamodel, sources);
     }
 
     void validate(ModelDefinition model, Diagnostics diagnostics) {
         // A root that is neither an @Entity nor a @SourceModel, or both, decides no kind of read: every check below
         // would run against the wrong metamodel (MQ3038, R-PROC-39).
         if (model.readModel() && !rootKindOk(model, diagnostics)) {
+            return;
+        }
+        if (!sourceChecks.kindOk(model, diagnostics)) {
             return;
         }
         // An update model is only read, and an insert model is instantiated by its caller, never by a mapper: neither
@@ -178,7 +184,7 @@ final class ModelValidator {
             // A source root resolves no association, so an outer model reads its fields by name alone (R-SRC-10).
             if (model.readsSource()) {
                 diagnostics.error(join.element(), DiagnosticCode.MQ3035, where + "@Join needs an entity root; "
-                        + model.source().name() + " is a @SourceModel, whose columns an outer model reads by name");
+                        + model.source().name() + " is a @SourceModel, whose columns a model reads by field name");
                 continue;
             }
             ModelDefinition nested = checkJoin(model, join, where, diagnostics);
@@ -189,12 +195,9 @@ final class ModelValidator {
             }
         }
         Set<String> ofJoins = Set.copyOf(constants.keySet());
-        // A filter path is laid out over the joins that can be generated: one that failed is reported above. An outer
-        // model over a source declares none: its fields are read by name, and no CTE column carries an alias of its
-        // own (MQ3011, R-SRC-10).
-        FilterLayout filters = model.readsSource()
-                ? new FilterLayout(List.of(), List.of(), List.of())
-                : FilterLayout.of(model, joined, metamodel);
+        // Lay out entity paths over the joins that can be generated, or source filters over CTE columns
+        // (R-SRC-16). An outer query over a source declares none (MQ3011, R-SRC-10).
+        FilterLayout filters = FilterLayout.of(model, joined, metamodel);
         filters.problems().forEach(problem -> diagnostics.error(model.type(), problem.code(), problem.detail()));
         claimFilterTables(model, filters, constants, diagnostics);
         if (model.readModel()) {
@@ -270,7 +273,7 @@ final class ModelValidator {
             String where = model.name() + " " + column.label() + ": ";
             // A filter column reads the CTE column its constant aliases; an outer model owns no CTE column of its
             // own, so it reads the source's fields by name alone (R-SRC-10).
-            if (model.readsSource()) {
+            if (model.queryModel() && model.readsSource()) {
                 diagnostics.error(model.type(), DiagnosticCode.MQ3011, where + "an outer model reads a source's "
                         + "fields by field name; a @FilterColumn of its own has no CTE column to alias");
                 continue;
@@ -289,7 +292,7 @@ final class ModelValidator {
             }
         }
         for (FilterLayout.Column column : filters.columns()) {
-            if (column.definition().converter() != null) {
+            if (column.read() != null && column.definition().converter() != null) {
                 checkConverter(model, model.type(), column.definition().converter(), null, column.read(),
                         model.name() + " " + column.definition().label() + ": ", diagnostics);
             }
@@ -305,38 +308,46 @@ final class ModelValidator {
     }
 
     /**
-     * Whether {@code model}'s {@code root} is the kind of read the model is: an {@code @Entity} for a source model,
-     * and an {@code @Entity} or an {@code @SourceModel}, not both, for a query model. One that is neither, or both,
+     * Whether {@code model}'s {@code root} is an {@code @Entity} or an {@code @SourceModel}, not both, for either
+     * kind of read. One that is neither, or both,
      * is {@code MQ3038} and decides no read (R-PROC-39).
      */
     private static boolean rootKindOk(ModelDefinition model, Diagnostics diagnostics) {
         boolean entity = QueryModelReader.isEntity(model.root());
         boolean source = QueryModelReader.isSourceModel(model.root());
         String name = model.name() + ": root " + model.root().getSimpleName();
-        if (model.sourceModel() && source) {
-            diagnostics.error(model.type(), DiagnosticCode.MQ3038,
-                    name + " is a @SourceModel; a source model reads an @Entity");
-            return false;
-        }
         if (entity == source) {
             diagnostics.error(model.type(), DiagnosticCode.MQ3038, entity
                     ? name + " is both @Entity and @SourceModel; keep one"
                     : name + " is neither @Entity nor @SourceModel");
             return false;
         }
+        var roots = new HashSet<TypeElement>();
+        for (ModelDefinition current = model; current != null; current = current.source()) {
+            roots.add(current.type());
+            if (QueryModelReader.isSourceModel(current.root()) && roots.contains(current.root())) {
+                diagnostics.error(model.type(), DiagnosticCode.MQ3038, model.name()
+                        + ": root chain cycles through " + current.root().getSimpleName());
+                return false;
+            }
+        }
         return true;
     }
 
     /**
      * {@code MQ3031} for a source whose key is not unique per row: an ungrouped source's {@code @PrimaryKey} is the
-     * root entity's id, a grouped one's is its full {@code @GroupBy} set with every group key non-nullable in its
-     * mapping, and no field reads through a to-many association (R-SRC-02, R-SRC-03).
+     * root entity's id or inner source's key fields, a grouped one's is its full {@code @GroupBy} set with every
+     * group key non-nullable in its mapping, and no field reads through a to-many association (R-SRC-02, R-SRC-16).
      */
     private void checkSourceKey(ModelDefinition model, Diagnostics diagnostics) {
         // A @Discriminator key column is a constant the branch fixes, not a path into the root: the key it takes
         // part in is the root's own key plus the discriminator (R-SRC-06).
         List<ModelField> keys = model.keys().stream().filter(key -> !key.discriminated()).toList();
         if (!model.grouped()) {
+            if (model.readsSource()) {
+                sourceChecks.checkKey(model, diagnostics);
+                return;
+            }
             Set<String> attributes = keys.stream().map(ModelField::attribute).collect(Collectors.toSet());
             // The whole id, each id column named by exactly one @PrimaryKey (D-149).
             if (keys.size() != attributes.size() || !metamodel.id(model.root()).is(attributes)) {
@@ -357,6 +368,15 @@ final class ModelValidator {
                     + ", since a group is one row");
         } else {
             for (ModelField key : keys) {
+                if (model.readsSource()) {
+                    ModelField inner = model.sourceField(key.attribute());
+                    if (inner != null && sourceChecks.nullable(model.source(), inner)) {
+                        diagnostics.error(key.element(), DiagnosticCode.MQ3031, model.name() + "." + key.name()
+                                + ": a group key must be non-nullable, and " + model.source().name() + "."
+                                + inner.name() + " is nullable in the inner source");
+                    }
+                    continue;
+                }
                 EntityAttribute attribute = metamodel.resolve(model.root(), key.attribute()).attribute();
                 if (attribute != null && attribute.nullable()) {
                     diagnostics.error(key.element(), DiagnosticCode.MQ3031, model.name() + "." + key.name()
@@ -373,6 +393,9 @@ final class ModelValidator {
      * reads one row per key, so the filter is an explicit {@code Filters.exists} instead (R-SRC-03).
      */
     private void reportToManyReads(ModelDefinition model, Diagnostics diagnostics) {
+        if (model.readsSource()) {
+            return;
+        }
         for (FilterColumnDefinition column : model.filterColumns()) {
             EntityMetamodel.Walk walk = metamodel.walk(model.root(), column.path());
             String crossing = walk.steps().stream()
@@ -410,15 +433,18 @@ final class ModelValidator {
     private static void checkRecursive(ModelDefinition model, Diagnostics diagnostics) {
         for (ModelField field : model.windows()) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3037, model.name() + "." + field.name()
-                    + ": a recursive source takes no @Window; a database forbids one in the recursive term");
+                    + ": a recursive source takes no @Window; a database forbids one in the recursive term; "
+                    + "declare it on a source over this source instead");
         }
         for (ModelField field : model.aggregates()) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3037, model.name() + "." + field.name()
-                    + ": a recursive source takes no @Aggregate; a database forbids one in the recursive term");
+                    + ": a recursive source takes no @Aggregate; a database forbids one in the recursive term; "
+                    + "declare it on a source over this source instead");
         }
         for (ModelField field : model.groupKeys()) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3037, model.name() + "." + field.name()
-                    + ": a recursive source takes no @GroupBy; a database forbids one in the recursive term");
+                    + ": a recursive source takes no @GroupBy; a database forbids one in the recursive term; "
+                    + "declare it on a source over this source instead");
         }
     }
 
@@ -460,13 +486,14 @@ final class ModelValidator {
         String byName = "a branch maps the shape's fields one for one, by name, in declaration order";
         for (ModelField field : model.windows()) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3034, model.name() + "." + field.name()
-                    + ": a branch declares no @Window field; a window over the combined rows is not supported "
+                    + ": a branch declares no @Window field; declare a window over the combined rows "
+                    + "on a source over the shape "
                     + "(R-PROC-38)");
         }
         for (ModelField field : shape.windows()) {
             diagnostics.error(model.type(), DiagnosticCode.MQ3034, model.name() + ": the shape " + shape.name()
                     + " declares the @Window field " + field.name() + ", which no branch can combine with; a shape "
-                    + "with branches declares no @Window (R-PROC-38)");
+                    + "with branches declares no @Window; declare it on a source over the shape (R-PROC-38)");
         }
         // A recursive model is neither a branch nor a shape: a shape's branches are combined, and the recursion has
         // one seed and one step (R-PROC-37).
@@ -726,6 +753,15 @@ final class ModelValidator {
                     + "' is neither a group key nor an @Aggregate of this grouped source; name one of GROUP_KEYS or "
                     + "an aggregate field");
             return null;
+        }
+        if (model.readsSource()) {
+            ModelField source = model.sourceField(term);
+            if (source == null) {
+                diagnostics.error(field.element(), DiagnosticCode.MQ3032, where + kind + " '" + term
+                        + "' is no field of " + model.source().name() + ", the source this model reads");
+                return null;
+            }
+            return boxed(source.type());
         }
         Resolution resolution = metamodel.resolve(model.root(), term);
         if (resolution.attribute() == null) {

@@ -111,7 +111,7 @@ enum DiagnosticCode {
 
     /** A source model's key is not unique per row: not the root id or the full group set, a nullable group key, or a
      * to-many read. */
-    MQ3031("Source model key is not the root id or the full non-nullable group set"),
+    MQ3031("Source model key is not the root id, the inner source key fields or the full non-nullable group set"),
 
     /** A {@code @Window} is not well written: a bad path or type, no {@code orderBy} where one is needed, a missing
      * or misplaced {@code frame}, or a grouped-source term that is neither a group key nor an aggregate. */
@@ -142,6 +142,9 @@ enum DiagnosticCode {
     /** {@code @QueryModel(generateChanges)} on a model rooted at a source: a write needs an entity root (R-GEN-37,
      * R-PROC-39). */
     MQ3040("generateChanges on a model rooted at a source"),
+
+    /** A source over a source is recursive, a branch or a shape, or roots at a branch model (R-PROC-40). */
+    MQ3042("A source over a source cannot be recursive, a branch, a shape or rooted at a branch"),
 
     /** An {@code @Aggregate} field is primitive, though an aggregate can be {@code NULL}. */
     MQ3201("@Aggregate field is primitive"),

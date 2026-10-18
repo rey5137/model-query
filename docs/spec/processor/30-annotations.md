@@ -350,12 +350,14 @@ originating element, so an isolating recompile of the outer model alone would mi
 **R-PROC-35** *(D-143)* **`@SourceModel`.** A source model is read and validated exactly as a `@QueryModel` is (§2–§6):
 the same field and type annotations, and the same checks, codes and messages. The processor is registered for it, so a
 compilation carrying source models alone generates them, as one carrying query models alone does. It is one statement,
-so a `@Child` on it is `MQ3030`. `MQ3031` checks its key: the root entity's id for an ungrouped source, the full
-`@GroupBy` set for a grouped one, no group key nullable in its mapping, and no `@FilterColumn` crossing a to-many join (a to-many `@Join` is `MQ3003`).
+so a `@Child` on it is `MQ3030`. `MQ3031` checks its key: the root entity's id, or the inner source's key fields, for an
+ungrouped source, the full `@GroupBy` set for a grouped one, no group key nullable in its mapping, and no
+`@FilterColumn` crossing a to-many join (a to-many `@Join` is `MQ3003`).
 The id is checked as a whole, so an `@IdClass` or `@EmbeddedId` root gives an ungrouped source one key column per id
 attribute (D-149, M26.1).
 Its QModel declares
-`source()` in place of `query()`, and no `MAPPER` and no write method, since nothing maps a source row and no write
+`source()` for an entity root or `source(SourceQuery<X> inner)` for a source root, in place of `query()`, and no
+`MAPPER` and no write method, since nothing maps a source row and no write
 reads a source (`processor/31` R-GEN-37). A `shape` makes it a branch (§10, R-PROC-38).
 
 **R-PROC-36** *(D-143)* **`@Window`.** A `@Window` field of a source is a window function over the source's rows
@@ -387,7 +389,8 @@ are the nodes of a tree or graph, and the level of a row is what the CTE assigns
 
 - The field is an `Integer`, and a model declares at most one. Anything else is `MQ3037`, as is a recursive model
   carrying a `@Window`, an `@Aggregate` or a `@GroupBy`: PostgreSQL forbids all three in the recursive term, and a
-  window or aggregate over a recursive result is Q-22. `@Depth` outside a `@SourceModel` is `MQ3037` too — only a
+  window or aggregate over a recursive result belongs on a source over this source (R-PROC-40, D-150). `@Depth` outside
+  a `@SourceModel` is `MQ3037` too — only a
   source recurses.
 - The `@Depth` field names no attribute: the CTE's level column is what it maps, so `MQ3001`'s attribute check reads it
   as satisfied, exactly as a `@Discriminator`'s constant does (R-PROC-38).
@@ -411,8 +414,8 @@ of the compilation, and `MQ3034` covers the rest:
 4. the branch declares the shape's `@Discriminator` fields, and no other; a `@Discriminator` is part of its model's key
    — the constant it fixes is what keeps the branches' keys disjoint — and a model declares at most one, the generated
    builder fixing one constant. The discriminator field names no attribute of its own: its value is that constant;
-5. a branch declares no `@Window` field, and neither does a shape that has branches; a window over the combined rows is
-   a later question (Q-22);
+5. a branch declares no `@Window` field, and neither does a shape that has branches; a window over the combined rows
+   belongs on a source over the shape (R-PROC-40, D-150);
 6. a branch is a source model like any other: `MQ3031` reads its key as the root entity's id or the source's
    `@GroupBy` set, plus the discriminator, and the branch's own fields are checked against its own root as §2–§6 do.
 
@@ -422,12 +425,30 @@ ordinary source model over its own root and the first branch of its own operatio
 
 **R-PROC-39** *(D-143)* **The root kind.** `@QueryModel(root = X.class)` reads `X`'s kind from the annotation on `X`:
 an entity root when `X` is `@Entity`, a source root when `X` is `@SourceModel`. A root that is neither, or both, is
-`MQ3038`. On a model rooted at a source the processor checks every field against the source model's fields by name and
+`MQ3038`. A cyclic source-root chain is also `MQ3038`, naming the root through which the chain cycles.
+On a model rooted at a source the processor checks every field against the source model's fields by name and
 then by type (INV-3), a `@Column` path being a single segment and taking the converter of the source's field, so an
 outer `@Column(converter = ...)` is `MQ3014` and an outer `@FilterColumn` is `MQ3011`; a `@Join` is `MQ3035`, a
 `@Child` whose child model is rooted at a source is `MQ3039` (on a parent rooted at a source its parent-side key
 names a source field), and an outer `@PrimaryKey` that is not exactly the source's key is `MQ3036`.
 `@BindQueryModel.root` may name a source model, as a model's own `root` does (`api/17` R-SRC-10).
+
+These root-kind and field-name checks also apply when the model reading the source is itself a `@SourceModel`
+(R-PROC-40); its factory takes the inner source, and its key is checked by `MQ3031` rather than `MQ3036`. An outer
+`@QueryModel` over that source still uses this rule unchanged and accepts the complete built chain.
+
+**R-PROC-40** *(D-150)* **Source over a source.** A `@SourceModel` whose root is another `@SourceModel` uses
+R-PROC-39's root-kind and field-name/type/converter checks, and `MQ3035` for `@Join`. `@Child` stays `MQ3030`.
+Unlike an outer `@QueryModel`, it permits `@FilterColumn` with a single-segment path naming an inner CTE column;
+the outer query still reports `MQ3011`. It may add windows, aggregates, group keys and computed fields.
+`MQ3031` checks an ungrouped key against the inner source's key fields in order, with a reason naming that source;
+a grouped key is the full group set, with nullability inherited from the inner fields, including every branch of a
+shape (R-SRC-16). Computed nullability remains a runtime check. A source over a source that is recursive (`@Depth`),
+a branch, or a shape is `MQ3042` and generates no file. Rooting at a branch model is also `MQ3042`: root at its
+shape instead, since a branch builds a `SourceQuery` of its shape. Shape/branch checks and group-key nullability
+consider source models within the compilation, including deferred models, as R-PROC-38 does. Recursive-term and
+branch/shape refusals (R-PROC-37/38) direct callers to a source over the recursive source or the combined shape
+respectively.
 
 ## 11. Acceptance criteria
 

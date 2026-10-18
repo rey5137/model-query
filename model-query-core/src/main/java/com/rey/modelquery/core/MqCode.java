@@ -341,6 +341,14 @@ public enum MqCode {
      */
     MQ1906("A source where predicate crosses a to-many join; use Filters.exists"),
 
+    /** A source root with a missing or mismatched inner source, or an entity root given one (R-SRC-16). */
+    @Incubating
+    MQ1907("A source over a source needs an inner source of its root's shape; an entity root takes none"),
+
+    /** A correlated expression in a source's field list (R-SRC-16). */
+    @Incubating
+    MQ1908("A source cannot carry a correlated field; select it in an outer query instead"),
+
     /** A page size or {@code maxPerParent} that is not positive, or a limit that is negative (R-EXE-06, R-FCH-11). */
     MQ2001("A page or chunk size and maxPerParent must be positive, and a limit must not be negative"),
 

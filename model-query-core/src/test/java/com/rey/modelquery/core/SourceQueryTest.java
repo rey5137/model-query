@@ -3,7 +3,10 @@ package com.rey.modelquery.core;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.JoinType;
+import java.lang.reflect.Proxy;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -252,5 +255,126 @@ class SourceQueryTest {
         Throwable thrown = catchThrowable(call::run);
         assertThat(thrown).isInstanceOf(ModelQueryDefinitionException.class);
         return (ModelQueryDefinitionException) thrown;
+    }
+
+    @Test
+    void ac_src_26_inner_source_survives_builder_copies_without_mutating_the_base() {
+        var inner = source();
+        var base = SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL, O_KEY, inner);
+        var filtered = base.where(f -> f.eq(O_STATUS, "PAID")).shape(Outer.class).build();
+
+        assertThat(base.build().inner()).isSameAs(inner);
+        assertThat(base.build().where()).isEmpty();
+        assertThat(filtered.inner()).isSameAs(inner);
+        assertThat(filtered.where()).hasSize(1);
+        assertThat(filtered.unique()).isTrue();
+        assertThat(source().inner()).isNull();
+    }
+
+    @Test
+    void ac_src_31_chained_ctes_are_mq4014_before_building_any_body_or_statement() {
+        var chain = SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL, O_KEY, source()).build();
+        var root = TableField.source(Outer.class);
+        var id = ColumnField.over(OtherSource.class, root, O_ID);
+        var criteria = Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[] {CriteriaQuery.class},
+                (proxy, method, args) -> {
+                    throw new AssertionError("Unexpected statement: " + method);
+                });
+        var cb = (CriteriaBuilder) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] {CriteriaBuilder.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("createTupleQuery")) {
+                        return criteria;
+                    }
+                    throw new AssertionError("Unexpected source body: " + method);
+                });
+        var options = RenderOptions.portable().withSourceRenderer((outer, body) -> {
+            throw new AssertionError("Unexpected CTE registration");
+        });
+
+        var plain = SourceQuery.builder(Outer.class, TableField.root(Entity.class), O_ALL, O_KEY).build();
+        for (var definition : List.of(chain, chain.union(chain), plain.union(chain), chain.union(plain),
+                plain.unionAll(chain), chain.unionAll(plain), chain.intersect(plain), plain.intersect(chain),
+                chain.except(plain), plain.except(chain), plain.union(chain).intersect(plain),
+                plain.union(plain.union(chain)))) {
+            var query = ModelQuery.builder(root, row -> new OtherSource(), definition)
+                    .select(SelectSet.of(id)).primaryKey(PrimaryKey.of(id)).build();
+            for (Phase phase : Phase.values()) {
+                Throwable thrown = catchThrowable(() -> query.buildQuery(cb, phase, options));
+                assertThat(thrown).isInstanceOf(ModelQueryConfigurationException.class)
+                        .hasMessageContaining("chained CTEs");
+                assertThat(((ModelQueryConfigurationException) thrown).code()).isEqualTo(MqCode.MQ4014);
+            }
+        }
+    }
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void ac_src_26_missing_wrong_and_entity_inner_sources_are_mq1907() {
+        assertThat(code(() -> SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL, O_KEY)).code())
+                .isEqualTo(MqCode.MQ1907);
+        assertThat(code(() -> SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL, O_KEY,
+                SelectSet.of(O_ID))).code()).isEqualTo(MqCode.MQ1907);
+        assertThat(code(() -> SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL, O_KEY,
+                (SourceQuery<Source>) null)).code()).isEqualTo(MqCode.MQ1907);
+        assertThat(code(() -> SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL, O_KEY,
+                (SourceQuery) entitySource())).code()).isEqualTo(MqCode.MQ1907);
+        assertThat(code(() -> SourceQuery.builder(Source.class, ENTITY_ROOT, S_ALL, S_KEY, entitySource())).code())
+                .isEqualTo(MqCode.MQ1907);
+        assertThat(code(() -> SourceQuery.builder(Source.class, ENTITY_ROOT, S_ALL, S_KEY,
+                S_GROUP_KEYS, entitySource())).code()).isEqualTo(MqCode.MQ1907);
+    }
+
+    @Test
+    void ac_src_28_a_branch_inner_is_checked_by_its_shape() {
+        SourceQuery<Source> branch = SourceQuery.builder(Entity.class, ENTITY_ROOT, SelectSet.of(E_ID),
+                PrimaryKey.of(E_ID)).shape(Source.class).build();
+        assertThat(SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL, O_KEY, branch).build().inner())
+                .isSameAs(branch);
+        SourceQuery<Source> combined = branch.union(branch);
+        assertThat(SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL, O_KEY, combined).build().inner())
+                .isSameAs(combined);
+    }
+
+    @Test
+    void ac_src_29_ungrouped_inherits_walk_uniqueness_and_grouped_restores_it() {
+        var depth = ColumnField.of(Source.class, ENTITY_ROOT, "level", Integer.class).named("level");
+        var parent = ColumnField.of(Source.class, ENTITY_ROOT, "parentId", Long.class).named("parentId");
+        var walk = SourceQuery.builder(Source.class, ENTITY_ROOT, S_ALL.with(depth), S_KEY).depth(depth)
+                .recursive(step -> step.childKey(parent).parentKey(S_ID), 4).build();
+        var tree = SourceQuery.builder(Source.class, ENTITY_ROOT, S_ALL.with(depth), S_KEY).depth(depth)
+                .tree(step -> step.childKey(parent).parentKey(S_ID), 4).build();
+        var derived = SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL, O_KEY, walk).build();
+        assertThat(derived.unique()).isFalse();
+        assertThat(SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL, O_KEY, tree).build().unique()).isTrue();
+        var grouped = SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL, O_KEY, SelectSet.of(O_ID), walk)
+                .where(f -> f.eq(O_STATUS, "PAID")).having(h -> h.gt(O_COUNT, 1L)).build();
+        assertThat(grouped.inner()).isSameAs(walk);
+        assertThat(grouped.unique()).isTrue();
+        assertThat(grouped.having()).isNotNull();
+        var root = TableField.source(Outer.class);
+        var id = ColumnField.over(OtherSource.class, root, O_ID).named("id");
+        var query = ModelQuery.builder(root, row -> new OtherSource(), derived).select(SelectSet.of(id))
+                .primaryKey(PrimaryKey.of(id));
+        assertThat(code(() -> query.keyset().build()).code()).isEqualTo(MqCode.MQ1901);
+        assertThat(code(() -> query.primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(1)).build()).code())
+                .isEqualTo(MqCode.MQ1901);
+        assertThat(ModelQuery.builder(root, row -> new OtherSource(), grouped).select(SelectSet.of(id))
+                .primaryKey(PrimaryKey.of(id)).keyset().build().isKeyset()).isTrue();
+    }
+
+    @Test
+    void ac_src_37_direct_and_nested_correlated_fields_are_mq1908_at_the_builder() {
+        var correlated = Correlated.count(Source.class, SubSelect.of(E_ID),
+                (f, outer) -> f.compare(E_ID, Op.EQ, outer.column(S_ID)));
+        for (var field : List.of(correlated, Expr.plus(Expr.coalesce(correlated, 0L), 1L))) {
+            assertThat(code(() -> SourceQuery.builder(Source.class, ENTITY_ROOT, S_ALL.with(field), S_KEY)).code())
+                    .isEqualTo(MqCode.MQ1908);
+            assertThat(code(() -> SourceQuery.builder(Source.class, ENTITY_ROOT, S_ALL.with(field), S_KEY,
+                    S_GROUP_KEYS)).code()).isEqualTo(MqCode.MQ1908);
+        }
+        var outerCorrelated = Correlated.count(Outer.class, SubSelect.of(E_ID),
+                (f, outer) -> f.compare(E_ID, Op.EQ, outer.column(O_ID)));
+        assertThat(code(() -> SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL.with(outerCorrelated), O_KEY,
+                source())).code()).isEqualTo(MqCode.MQ1908);
     }
 }

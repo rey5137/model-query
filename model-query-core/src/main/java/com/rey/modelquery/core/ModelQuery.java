@@ -545,7 +545,7 @@ public final class ModelQuery<E, K, M> {
      * whose first row {@code jpa} reads (R-SRC-07, R-SRC-14).
      *
      * @throws ModelQueryConfigurationException {@code MQ4014} when no {@link SourceRenderer} is configured, which is
-     *     the factory's provider having no source support, or no duplicate-key check for a tree source
+     *     the factory's provider having no source support, chained CTEs, or no duplicate-key check for a tree source
      */
     private SourceStatement sourceStatement(CriteriaQuery<Tuple> query, CriteriaBuilder cb, RenderOptions options) {
         SourceRenderer renderer = options.sourceRenderer()
@@ -553,6 +553,10 @@ public final class ModelQuery<E, K, M> {
                         + ": this query reads the source " + source.model().getSimpleName()
                         + ", and the factory's persistence provider has no SourceRenderer "
                         + "(ProviderSupport#sources()); model-query-hibernate serves Hibernate"));
+        if (SourceQuery.branches(source).stream().anyMatch(branch -> branch.inner() != null)) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4014, modelName()
+                    + ": chained CTEs are not supported yet");
+        }
         if (!source.recursive()) {
             return new SourceStatement(JoinContext.sourceOf(renderer.cte(query, source.body(cb, options, renderer)),
                     source.model(), cb, query, options), List.of(), List.of());

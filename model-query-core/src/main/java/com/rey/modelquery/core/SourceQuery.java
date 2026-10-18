@@ -47,6 +47,7 @@ public final class SourceQuery<S> {
 
     private final Class<?> model;
     private final Class<?> shape;
+    private final SourceQuery<?> inner;
     private final TableField<?, ?> root;
     private final SelectSet<?> fields;
     private final PrimaryKey<?, ?> key;
@@ -64,8 +65,9 @@ public final class SourceQuery<S> {
 
     private SourceQuery(Class<?> model, Class<?> shape, TableField<?, ?> root, SelectSet<?> fields,
             PrimaryKey<?, ?> key, SelectSet<?> groupKeys, List<Filter> where, HavingGroup.Clause having,
-            Discriminator discriminator, Recursion recursion) {
+            Discriminator discriminator, Recursion recursion, SourceQuery<?> inner) {
         this.model = model;
+        this.inner = inner;
         this.shape = shape;
         this.root = root;
         this.fields = fields;
@@ -84,6 +86,7 @@ public final class SourceQuery<S> {
      */
     private SourceQuery(SetOperation operation, SourceQuery<?> left, SourceQuery<?> right) {
         this.model = left.shape;
+        this.inner = null;
         this.shape = left.shape;
         this.root = null;
         this.fields = left.fields;
@@ -101,22 +104,48 @@ public final class SourceQuery<S> {
      * Starts an ungrouped source of {@code model}: the entity the model is read from, the fields it carries and the
      * key that identifies a row. Only {@code where} is added afterwards; a source with no predicate reads every row.
      *
-     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code root} is a join, not a root
+     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code root} is a join; {@code MQ1907} for a
+     *     source root without an inner source; {@code MQ1908} for a correlated field
      */
     public static <E, M> Builder<E, M, M> builder(
             Class<M> model, TableField<E, E> root, SelectSet<M> fields, PrimaryKey<M, ?> key) {
-        return new Builder<>(model, root, fields, key, null);
+        return new Builder<>(model, root, fields, key, null, null);
     }
 
     /**
      * Starts a grouped source of {@code model}, as {@link #builder} does: {@code groupKeys} are the source's
      * {@code GROUP_KEYS}, which are also its key (R-SRC-02).
      *
-     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code root} is a join, not a root
+     * @throws ModelQueryDefinitionException {@code MQ1203} when {@code root} is a join; {@code MQ1907} for a
+     *     source root without an inner source; {@code MQ1908} for a correlated field
      */
     public static <E, M> Builder<E, M, M> builder(Class<M> model, TableField<E, E> root, SelectSet<M> fields,
             PrimaryKey<M, ?> key, SelectSet<M> groupKeys) {
-        return new Builder<>(model, root, fields, key, Objects.requireNonNull(groupKeys, "groupKeys"));
+        return new Builder<>(model, root, fields, key, Objects.requireNonNull(groupKeys, "groupKeys"), null);
+    }
+
+    /**
+     * Starts an ungrouped source over {@code inner}, whose shape must match {@code root} (R-SRC-16).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1907} for a missing or mismatched inner source, or an entity
+     *     root; {@code MQ1908} for a correlated field
+     */
+    @Incubating
+    public static <E, M> Builder<E, M, M> builder(Class<M> model, TableField<E, E> root, SelectSet<M> fields,
+            PrimaryKey<M, ?> key, SourceQuery<E> inner) {
+        return new Builder<>(model, root, fields, key, null, inner);
+    }
+
+    /**
+     * Starts a grouped source over {@code inner}, unique by {@code groupKeys} even when the inner is not.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1907} for a missing or mismatched inner source, or an entity
+     *     root; {@code MQ1908} for a correlated field
+     */
+    @Incubating
+    public static <E, M> Builder<E, M, M> builder(Class<M> model, TableField<E, E> root, SelectSet<M> fields,
+            PrimaryKey<M, ?> key, SelectSet<M> groupKeys, SourceQuery<E> inner) {
+        return new Builder<>(model, root, fields, key, Objects.requireNonNull(groupKeys, "groupKeys"), inner);
     }
 
     /**
@@ -131,6 +160,7 @@ public final class SourceQuery<S> {
     public static final class Builder<E, M, S> {
 
         private final Class<M> model;
+        private final SourceQuery<?> inner;
         private final TableField<E, E> root;
         private final SelectSet<M> fields;
         private final PrimaryKey<M, ?> key;
@@ -143,25 +173,42 @@ public final class SourceQuery<S> {
         private final Settings settings;
 
         private Builder(Class<M> model, TableField<E, E> root, SelectSet<M> fields, PrimaryKey<M, ?> key,
-                SelectSet<M> groupKeys) {
-            this(model, root, fields, key, groupKeys, List.of(), null, Settings.NONE);
+                SelectSet<M> groupKeys, SourceQuery<?> inner) {
+            this(model, root, fields, key, groupKeys, List.of(), null, Settings.NONE, inner);
         }
 
         private Builder(Class<M> model, TableField<E, E> root, SelectSet<M> fields, PrimaryKey<M, ?> key,
-                SelectSet<M> groupKeys, List<Filter> where, HavingGroup.Clause having, Settings settings) {
+                SelectSet<M> groupKeys, List<Filter> where, HavingGroup.Clause having, Settings settings,
+                SourceQuery<?> inner) {
             this.model = Objects.requireNonNull(model, "model");
             this.root = Objects.requireNonNull(root, "root");
             this.fields = Objects.requireNonNull(fields, "fields");
             this.key = Objects.requireNonNull(key, "key");
+            this.inner = inner;
             if (root.rootEntity() == null) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1203,
                         "builder(...) takes a TableField.root(...) or a TableField.source(...), not the "
                                 + root.describe());
             }
+            checkSource();
             this.groupKeys = groupKeys;
             this.where = where;
             this.having = having;
             this.settings = settings;
+        }
+
+        private void checkSource() {
+            if (root.isSource() ? inner == null || inner.shape != root.rootEntity() : inner != null) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1907, model.getSimpleName()
+                        + ": the root " + root.rootEntity().getSimpleName()
+                        + (root.isSource() ? " needs an inner source of that shape"
+                                : " is an entity and takes no inner")
+                        + "; got " + (inner == null ? "none" : inner.shape.getSimpleName()));
+            }
+            if (fields.fields().stream().anyMatch(ExpressionField::containsCorrelated)) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1908, model.getSimpleName()
+                        + ": a source cannot carry a correlated field; select it in an outer query instead");
+            }
         }
 
         /**
@@ -173,7 +220,7 @@ public final class SourceQuery<S> {
          */
         public <S> Builder<E, M, S> shape(Class<S> shape) {
             return new Builder<>(model, root, fields, key, groupKeys, where, having,
-                    settings.withShape(Objects.requireNonNull(shape, "shape")));
+                    settings.withShape(Objects.requireNonNull(shape, "shape")), inner);
         }
 
         /**
@@ -183,7 +230,8 @@ public final class SourceQuery<S> {
          */
         public Builder<E, M, S> discriminator(ColumnField<M, ?, String> field, String value) {
             return new Builder<>(model, root, fields, key, groupKeys, where, having, settings.withDiscriminator(
-                    new Discriminator(Objects.requireNonNull(field, "field"), Objects.requireNonNull(value, "value"))));
+                    new Discriminator(Objects.requireNonNull(field, "field"), Objects.requireNonNull(value, "value"))),
+                    inner);
         }
 
         /**
@@ -195,7 +243,8 @@ public final class SourceQuery<S> {
          */
         public Builder<E, M, S> depth(ColumnField<M, ?, Integer> field) {
             return new Builder<>(model, root, fields, key, groupKeys, where, having,
-                    settings.withRecursion(new Recursion(Objects.requireNonNull(field, "field"), null, 0, false)));
+                    settings.withRecursion(new Recursion(Objects.requireNonNull(field, "field"), null, 0, false)),
+                    inner);
         }
 
         /**
@@ -241,7 +290,7 @@ public final class SourceQuery<S> {
             }
             RecursiveKeys<M, ?> keys = Objects.requireNonNull(step, "step").apply(new RecursiveStep<>());
             return new Builder<>(model, root, fields, key, groupKeys, where, having,
-                    settings.withRecursion(new Recursion(depth, keys, maxDepth, tree)));
+                    settings.withRecursion(new Recursion(depth, keys, maxDepth, tree)), inner);
         }
 
         /**
@@ -252,7 +301,7 @@ public final class SourceQuery<S> {
         public Builder<E, M, S> where(UnaryOperator<Filters<M>> filters) {
             return new Builder<>(model, root, fields, key, groupKeys,
                     FilterGroup.collect(root.rootEntity(), Objects.requireNonNull(filters, "filters")), having,
-                    settings);
+                    settings, inner);
         }
 
         /**
@@ -261,17 +310,19 @@ public final class SourceQuery<S> {
          */
         public Builder<E, M, S> having(UnaryOperator<Having<M>> filters) {
             return new Builder<>(model, root, fields, key, groupKeys, where,
-                    HavingGroup.collect(Objects.requireNonNull(filters, "filters")), settings);
+                    HavingGroup.collect(Objects.requireNonNull(filters, "filters")), settings, inner);
         }
 
         /**
          * Builds the immutable source.
          *
          * @throws ModelQueryDefinitionException {@code MQ1407} for {@code having(...)} on an ungrouped source, and
-         *     {@code MQ1902} for a recursive source built without its step
+         *     {@code MQ1902} for a recursive source built without its step; {@code MQ1907} for an invalid inner source;
+         *     {@code MQ1908} for a correlated field
          */
         @SuppressWarnings("unchecked")
         public SourceQuery<S> build() {
+            checkSource();
             if (having != null && (groupKeys == null || groupKeys.fields().isEmpty())) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1407, model.getSimpleName()
                         + ": having(...) needs a grouped source; give it GROUP_KEYS, or filter rows with where(...)");
@@ -299,7 +350,7 @@ public final class SourceQuery<S> {
             Class<?> shape = settings.shape();
             return new SourceQuery<>(model, shape == null ? model : shape, root, (SelectSet<S>) fields,
                     (PrimaryKey<S, ?>) key, (SelectSet<S>) groupKeys, where, having, settings.discriminator(),
-                    recursion);
+                    recursion, inner);
         }
     }
 
@@ -470,7 +521,9 @@ public final class SourceQuery<S> {
 
     /**
      * Whether every row this source produces has a key no other row shares (R-SRC-05, R-SRC-06, R-SRC-08). A plain or
-     * windowed source is unique by construction (R-SRC-02); a combined one is unique where the rules of R-SRC-05
+     * windowed source over an entity is unique by construction (R-SRC-02); an ungrouped source over a source
+     * inherits its uniqueness, and grouping makes it unique by its group set (R-SRC-16). A combined one is unique
+     * where the rules of R-SRC-05
      * hold; a tree is checked for uniqueness, while a plain recursive source can emit a node twice (R-SRC-08).
      * Everything non-unique is refused for the features that identify a row by its key (R-SRC-09).
      *
@@ -483,7 +536,7 @@ public final class SourceQuery<S> {
             return recursion.tree();
         }
         if (operation == null) {
-            return true;
+            return inner == null || groupKeys != null && !groupKeys.fields().isEmpty() || inner.unique();
         }
         return switch (operation.operation) {
             // The result is a subset of the left rows (R-SRC-05).
@@ -510,7 +563,7 @@ public final class SourceQuery<S> {
      * Every leaf branch of {@code source}, in order: a plain source is one branch, a combined one the branches of
      * its two sides.
      */
-    private static List<SourceQuery<?>> branches(SourceQuery<?> source) {
+    static List<SourceQuery<?>> branches(SourceQuery<?> source) {
         if (source.operation == null) {
             return List.of(source);
         }
@@ -539,6 +592,11 @@ public final class SourceQuery<S> {
      */
     Class<?> model() {
         return model;
+    }
+
+    /** The source this body reads, or {@code null} for an entity root or a combined source. */
+    SourceQuery<?> inner() {
+        return inner;
     }
 
     /** The entity the source reads. */

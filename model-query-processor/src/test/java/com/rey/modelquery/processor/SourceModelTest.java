@@ -195,7 +195,7 @@ class SourceModelTest {
 
         assertThat(compilation).failed();
         assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3035, "JoinRow.total: @Join needs"
-                + " an entity root; OrderTotals is a @SourceModel, whose columns an outer model reads by name"));
+                + " an entity root; OrderTotals is a @SourceModel, whose columns a model reads by field name"));
     }
 
     @Test

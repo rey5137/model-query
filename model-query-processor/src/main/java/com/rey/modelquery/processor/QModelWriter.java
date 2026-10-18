@@ -156,9 +156,10 @@ final class QModelWriter {
         }
         // A filter-only column has no field to map: it is in no SelectSet and not in map(Row) (R-PROC-10).
         for (FilterLayout.Column column : filters.columns()) {
-            type.addField(column(
-                    modelName, column.entity(), column.definition().name(), column.table(), column.attribute(),
-                    column.read().type(), column.definition().converter(), null));
+            type.addField(model.readsSource()
+                    ? overColumn(modelName, model, column.definition().name(), column.attribute(), false)
+                    : column(modelName, column.entity(), column.definition().name(), column.table(), column.attribute(),
+                            column.read().type(), column.definition().converter(), null));
         }
         // A computed constant comes after every column constant, so a definition reading Q<Model> columns finds them
         // already set when the generated class initialises it (R-GEN-27).
@@ -490,9 +491,15 @@ final class QModelWriter {
      */
     private static MethodSpec source(ModelDefinition model, ClassName modelName, ClassName entity, boolean grouped) {
         ClassName shapeName = ClassName.get(model.branch() ? model.shape().type() : model.type());
-        CodeBlock.Builder body = CodeBlock.builder().add(grouped
-                ? "return $T.builder($T.class, ROOT, ALL, KEY, GROUP_KEYS)"
-                : "return $T.builder($T.class, ROOT, ALL, KEY)", SOURCE_QUERY, modelName);
+        CodeBlock.Builder body = CodeBlock.builder().add("return $T.builder($T.class, ROOT, ALL, KEY", SOURCE_QUERY,
+                modelName);
+        if (grouped) {
+            body.add(", GROUP_KEYS");
+        }
+        if (model.readsSource()) {
+            body.add(", inner");
+        }
+        body.add(")");
         // Only a branch names a shape: a source over its own root is read as its own model (R-PROC-38).
         if (model.branch()) {
             body.add(".shape($T.class)", shapeName);
@@ -506,12 +513,16 @@ final class QModelWriter {
         for (ModelField field : model.depths()) {
             body.add(".depth($L)", field.constant());
         }
-        return MethodSpec.methodBuilder("source")
+        MethodSpec.Builder method = MethodSpec.methodBuilder("source")
                 .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
                 .returns(ParameterizedTypeName.get(SOURCE_QUERY.nestedClass("Builder"), entity, modelName,
                         shapeName))
-                .addStatement("$L", body.build())
-                .build();
+                .addStatement("$L", body.build());
+        if (model.readsSource()) {
+            method.addAnnotation(INCUBATING)
+                    .addParameter(ParameterizedTypeName.get(SOURCE_QUERY, entity), "inner");
+        }
+        return method.build();
     }
 
     /**
@@ -519,14 +530,20 @@ final class QModelWriter {
      * source's own constant names, keeping its alias, its type and its converter (R-GEN-37).
      */
     private FieldSpec overColumn(ClassName modelName, ModelDefinition model, ModelField field) {
-        ModelField source = model.sourceField(field.attribute());
+        return overColumn(modelName, model, field.constant(), field.attribute(), true);
+    }
+
+    private FieldSpec overColumn(
+            ClassName modelName, ModelDefinition model, String constant, String attribute, boolean named) {
+        ModelField source = model.sourceField(attribute);
         ClassName kind = ConverterType.ordered(types, converter(model.source(), source))
                 ? ORDERED_COLUMN_FIELD : COLUMN_FIELD;
         return FieldSpec.builder(
                         ParameterizedTypeName.get(kind, modelName, ClassName.get(model.source().type()),
-                                column(field.type())), field.constant(), CONSTANT)
-                .initializer("$T.over($T.class,$WROOT,$W$T.$L).named($S)", COLUMN_FIELD, modelName,
-                        generatedName(model.source()), source.constant(), source.name())
+                                column(source.type())), constant, CONSTANT)
+                .initializer("$T.over($T.class,$WROOT,$W$T.$L)$L", COLUMN_FIELD, modelName,
+                        generatedName(model.source()), source.constant(),
+                        named ? CodeBlock.of(".named($S)", source.name()) : CodeBlock.of(""))
                 .build();
     }
 
@@ -658,6 +675,10 @@ final class QModelWriter {
                 .findFirst().orElse(null);
         if (declared != null) {
             return CodeBlock.of("$L", declared.constant());
+        }
+        if (model.readsSource()) {
+            return CodeBlock.of("$T.over($T.class,$WROOT,$W$T.$L)", COLUMN_FIELD, modelName,
+                    generatedName(model.source()), model.sourceField(term).constant());
         }
         Resolution resolution = metamodel.resolve(model.root(), term);
         CodeBlock type = resolution.attribute() == null
