@@ -26,14 +26,16 @@ public record OrderTotals(
 public record CustomerTotals(@PrimaryKey Long customerId, BigDecimal total) {}
 ```
 
-**R-SRC-01** A source model is declared with `@SourceModel(root = X.class)`. `X` is the `@Entity` the source reads,
-and the source model is what an outer model reads by field name. A source takes the same field and type annotations as
+**R-SRC-01** A source model is declared with `@SourceModel(root = X.class)`. `X` is an `@Entity` or another
+`@SourceModel` the source reads (R-SRC-16), and the source model is what an outer model reads by field name. A source
+takes the same field and type annotations as
 `@QueryModel` — `@Column`, a to-one `@Join`, `@Computed`, `@Aggregate`, `@GroupBy` and `@FilterColumn` — and the
 processor validates it against `X` with the same checks and codes (`processor/30` R-PROC-35). A source is one
 statement, so a `@Child` on it is `MQ3030`. A source that names a `shape` is a **branch** of that shape's set operations
 (§4, R-PROC-38): the processor checks its fields against the shape's, `MQ3034`.
 
-The generated QModel declares a `source()` builder in place of `query()`: `where` and `having`, no `select` — a source
+For an entity root, the generated QModel declares a `source()` builder in place of `query()`: `where` and `having`,
+no `select` — a source
 always carries every field of its model, which keeps an outer model's columns checkable at compile time — and
 `build()` returning an immutable `SourceQuery<S>` (R-GEN-37, INV-9). A source QModel declares no `MAPPER` and no
 write method, since nothing maps a source row and no write reads a source.
@@ -49,8 +51,9 @@ public static SourceQuery.Builder<OrderEntity, OrderTotals, OrderTotals> source(
 Every key-based feature of the outer query needs the source's key to be unique in its result (INV-4), so the key is
 unique by construction, or the source is non-unique and refused for those features (R-SRC-09, §4).
 
-**R-SRC-02** A source model's `@PrimaryKey` is the root entity's id, for an ungrouped source, or the full `@GroupBy`
-set, for a grouped source; anything else is `MQ3031`. The id is checked as a whole, so a root entity with an `@IdClass`
+**R-SRC-02** A source model's `@PrimaryKey` is the root entity's id, or the inner source's key fields in order
+(R-SRC-16), for an ungrouped source, or the full `@GroupBy` set, for a grouped source; anything else is `MQ3031`. The id
+is checked as a whole, so a root entity with an `@IdClass`
 or `@EmbeddedId` id gives the source one key column per id attribute, and a key holding part of the id alone is
 `MQ3031` still (D-149). Each group-key column must be non-nullable in its own mapping
 — an id, a primitive, `nullable = false` or `optional = false` — because a NULL group key surfaces as `MQ2201` or
@@ -81,6 +84,12 @@ public final class SourceQuery<S> {
             PrimaryKey<M, ?> key);
     public static <E, M> Builder<E, M, M> builder(Class<M> model, TableField<E, E> root, SelectSet<M> fields,
             PrimaryKey<M, ?> key, SelectSet<M> groupKeys);
+    @Incubating
+    public static <E, M> Builder<E, M, M> builder(Class<M> model, TableField<E, E> root, SelectSet<M> fields,
+            PrimaryKey<M, ?> key, SourceQuery<E> inner);
+    @Incubating
+    public static <E, M> Builder<E, M, M> builder(Class<M> model, TableField<E, E> root, SelectSet<M> fields,
+            PrimaryKey<M, ?> key, SelectSet<M> groupKeys, SourceQuery<E> inner);
 
     public static final class Builder<E, M, S> {
         public <S2> Builder<E, M, S2> shape(Class<S2> shape);
@@ -99,7 +108,7 @@ public final class SourceQuery<S> {
 }
 ```
 
-**R-SRC-10** An outer query's source and root.
+**R-SRC-10** A model's source and root, including a source over a source (R-SRC-16).
 
 - **`TableField.source(Class<S>)`.** The source root kind: the generated `ROOT` of a model rooted at a source. It
   resolves no `From` of its own; the outer query reads the CTE's columns by field name, and its `rootEntity()` is the
@@ -207,7 +216,9 @@ for the operation's `SourceFeature` is `MQ4015`, before any statement (R-SRC-11)
   there (R-SRC-09). This covers "owned `union` shared", where the rows a customer owns are unioned with the rows they
   share.
 
-**R-SRC-09** A source that R-SRC-05 doesn't make unique, and that is not unique by construction, is **non-unique** —
+**R-SRC-09** A source over a source inherits uniqueness when ungrouped and establishes it on its group key when
+grouped (R-SRC-16). A source that R-SRC-05 doesn't make unique, and that is not unique by construction, is
+**non-unique** —
 as is a plain `recursive(...)` source (M25.5). A `tree(...)` source is unique under R-SRC-13 (M26.3); the set-operation
 rules in R-SRC-05 and R-SRC-06 are unchanged. On a query over a non-unique source, every feature that identifies a row
 by its key is refused before any statement:
@@ -314,7 +325,8 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
 **R-SRC-08** What a recursive source returns, and what it refuses:
 
 - **The width.** A recursive CTE's rows are as wide as the non-recursive case: the source's fields, with the `@Depth`
-  field carrying the level. A `@Window` or `@Aggregate` over a recursive result is Q-22.
+  field carrying the level. A `@Window` or `@Aggregate` over a recursive result uses a source over that source
+  (R-SRC-16, D-150).
 - **The depth limit is loud.** The `with recursive` CTE steps to level `maxDepth + 1` and the cycle clause marks the
   row that closes a cycle; the outer query filters on `level <= maxDepth and not mark`, so neither reaches a result.
   Every statement over the source (R-SRC-15) carries depth and cycle scalar sub-selects over the same CTE — the
@@ -432,7 +444,43 @@ primary-key-first steps, each export page, `byKeys` (every chunk) and the parent
 that reaches the database without its CTE is therefore a bug in the engine, not a state the user can hold: the body is
 built per statement from the immutable `SourceQuery`, which itself carries no Criteria object (INV-9).
 
-## 8. Acceptance criteria
+## 8. Sources over sources
+
+**R-SRC-16** *(D-150)* A `@SourceModel(root = X.class)` may read another `@SourceModel`: a plain or grouped
+source, a set-operation shape, a recursive walk, or a checked tree. Its `ROOT` is `TableField.source(X.class)`.
+Mapped fields name one CTE column of `X` by field name, with the same type and converter checks as an outer model
+(R-SRC-10, R-PROC-39). No association exists on that root: `@Join` is `MQ3035`; a source's `@Child` stays `MQ3030`.
+It may add `@Window`, `@Aggregate`, `@GroupBy`, `@Computed` and a `@FilterColumn` naming one column of `X`.
+An outer `@QueryModel` rooted at a source still refuses `@FilterColumn` with `MQ3011`.
+A source over a source cannot itself be recursive (`@Depth`), a branch, or a shape (`MQ3042`, R-PROC-40).
+Its root cannot be a branch model either: root at that branch's shape instead (`MQ3042`). Shape/branch checks use
+source models within the compilation, including deferred models, as R-PROC-38 does. A cyclic root chain is `MQ3038`.
+
+An ungrouped source's `@PrimaryKey` fields must map exactly to `X`'s key fields, in order. A grouped source's key is
+its full `@GroupBy` set. A mismatch is `MQ3031`, whose message names the inner source and its key. Group keys must be
+non-nullable: a mapped field inherits the inner field's nullability; a shape field is nullable if any branch's
+corresponding field is nullable, considering branches within the compilation, including deferred models.
+`@Depth`, `@Discriminator`, ranking windows and `COUNT` are non-nullable; other windows and aggregates are nullable. `@Computed` nullability is checked at execution (`MQ2201`/`MQ2202`), as for an
+entity-rooted source. An ungrouped source inherits its inner source's uniqueness; grouping establishes uniqueness
+on the whole group key even over a non-unique walk or set operation (R-SRC-09). An aggregate over a walk counts
+paths; over a checked tree it counts nodes.
+
+The generated factory is `source(SourceQuery<X> inner)`, replacing `source()` (R-GEN-39). The ungrouped and grouped
+`SourceQuery.builder(...)` overloads take the inner source after the key or group keys. Missing or wrong-shaped
+inner sources, including through raw types or casts, are `MQ1907` at the builder/build boundary; an entity-rooted
+source given an inner is also `MQ1907`. A branch or combined source is checked by its shape, not its branch model.
+`SourceQuery` retains the immutable inner definition through every builder copy (INV-9); a chain may have any
+number of levels. A `@QueryModel` over the final source takes the built chain in its existing
+`query(SourceQuery<S>)` factory. During M27.4, building a statement over a chain refuses `MQ4014` ("chained CTEs")
+at `ModelQuery.sourceStatement()` before constructing the source body or registering a CTE, including when any
+branch of a combined source carries an inner source; rendering is M27.5.
+
+A correlated expression anywhere in a source's field list, including inside another expression, is `MQ1908` at
+`SourceQuery.builder(...)`/`build()`. The message directs the caller to select it in an outer query. Generated
+`@Computed` constants can initialize normally: the refusal occurs when `source(...)` is called, never in the
+QModel's static initializer where it would become `ExceptionInInitializerError`.
+
+## 9. Acceptance criteria
 
 | ID | Criterion |
 |---|---|
@@ -461,3 +509,10 @@ built per statement from the immutable `SourceQuery`, which itself carries no Cr
 | AC-SRC-23 | Over a tree that reaches a node twice, an outer filter matching no row gives an empty `list`, `MQ2703` from `page`'s count, and an empty count-free page. A count over groups matching no group returns `0`; one matching a group is `MQ2703` (R-SRC-14, R-SRC-15). |
 | AC-SRC-24 | A `SourceRenderer` returning a `RecursiveCte` without a duplicate check for a tree source is `MQ4014` before any statement, and `PortabilityCheck` reports the no-check reason per declared target with no database. The same renderer still serves `recursive(...)`; a renderer returning a duplicate check for `recursive(...)` leaves its SQL snapshot unchanged (M26.2; R-SRC-14). |
 | AC-SRC-25 | In `model-query-jpa`, `getResultList`, `getSingleResult` and `getResultStream` on a `Tuple` query are called only from methods named `rows`, `single` or `resultStream` — the check-site overloads — so no `Tuple` row reaches a caller before its source's checks are read (an ArchUnit rule, M26.1; R-SRC-08). The rule is stated **by method**, the RFC's fallback, because ArchUnit sees a call's erased target types and not the statement's `Tuple` element; the other half of that fallback, no untyped read of a `BuiltQuery`'s statement, is the compiler's: the executor's `rows` and `single` without a `BuiltQuery` take only an entity and a `Long` query, so a `Tuple` query has no unchecked overload to call. `resultStream` reads the first row before it returns the stream, so a body's `count()` cannot skip it. |
+| AC-SRC-26 | A source over a plain source compiles; its generated factory requires the correctly typed inner source, carries it through immutable builder copies, and rejects missing or wrong inner definitions with `MQ1907` (R-SRC-16, R-GEN-39). |
+| AC-SRC-27 | A source over a grouped source compiles and its generated `source(inner)` builds; a grouped source over a source passes its group keys and inner to the builder (R-SRC-16, R-GEN-39). |
+| AC-SRC-28 | A source over a union shape compiles and builds with the combined source or a branch of that shape; inner validation compares the shape rather than the branch model (R-SRC-16). |
+| AC-SRC-29 | A source over a recursive walk compiles and builds; an ungrouped definition inherits non-uniqueness and refuses keyset and primary-key-first with `MQ1901`, while a grouped definition is unique (R-SRC-16, R-SRC-09). |
+| AC-SRC-30 | A source over a checked tree compiles and builds, retaining uniqueness (R-SRC-16). |
+| AC-SRC-31 | Three source levels compile and build through generated factories. Until chain rendering lands in M27.5, every outer query phase refuses `MQ4014` ("chained CTEs") before any source body, CTE registration or statement (R-SRC-16). |
+| AC-SRC-37 | Direct and nested correlated expressions in source fields are `MQ1908` at the builder boundary; a generated QModel with such a `@Computed` initializes successfully and refuses only when `source(...)` is called (R-SRC-16). |

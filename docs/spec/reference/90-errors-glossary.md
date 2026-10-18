@@ -122,6 +122,8 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1904` | Two branches of one `union` or `unionAll` fix the same `@Discriminator` value, so the operation would quietly lose key uniqueness, or two combined sources read different shapes or fields in a different order, type or converter, or a `discriminator` column is not a key column, or either side of a set operation is a recursive source; where the operation is built | `api/17` R-SRC-06, R-SRC-07, R-PROC-38 |
 | `MQ1905` | A hand-written `ColumnField.of` or `TableField.join` over a source root, which the processor's metamodel cannot check; a generated outer column is `ColumnField.over(model, root, sourceConstant)` | `api/17` R-SRC-10, `api/10` R-COL-30 |
 | `MQ1906` | A source's `where` predicate whose path crosses a to-many join, which no join inside the CTE can express; the message points at `Filters.exists(path, inner)`, the explicit form; before any statement | `api/17` R-SRC-03 |
+| `MQ1907` | A source over a source has no inner `SourceQuery`, or its inner's shape is not the root source model; an entity-rooted source given an inner also fails. Checked at `SourceQuery.builder(...)`/`build()`, including raw types and casts | `api/17` R-SRC-16, `processor/31` R-GEN-39 |
+| `MQ1908` | A correlated expression occurs directly or nested in a `SourceQuery` field list; at the builder/build boundary, never a generated QModel's static initializer. Select the correlated field in an outer query instead | `api/17` R-SRC-16 |
 
 ## 3. `MQ2xxx` — execution
 
@@ -164,7 +166,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 
 ## 4. `MQ3xxx` — annotation processing
 
-Catalogued with messages in `processor/32` §1: `MQ3001`–`MQ3040` for structural checks, options, bound models and
+Catalogued with messages in `processor/32` §1: `MQ3001`–`MQ3042` for structural checks, options, bound models and
 query sources (D-134, D-143, D-145), `MQ3201`–`MQ3208` for aggregate models, `MQ3301`–`MQ3307` for update models,
 `MQ3401`–`MQ3406` for `@Child` (`api/15`), `MQ3501`–`MQ3506` for insert models and `generateInserts` (D-116, D-117,
 D-123). Codes are not repeated here to keep one owner.

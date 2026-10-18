@@ -179,6 +179,11 @@ The tree-source members (`api/17` R-SRC-13, R-SRC-14, D-147) are `@Incubating` t
 constructors (D-147). `SourceFeature.RECURSIVE_COMPOSITE_KEY` (D-149) is
 `@Incubating` the same way.
 
+The source-over-source members (D-150, M27.4) are `@Incubating` through 1.0: both
+`SourceQuery.builder(...)` overloads taking an inner `SourceQuery`, generated `source(SourceQuery<X> inner)`
+factories, and `MqCode.MQ1907`/`MQ1908`. The retained inner definition is immutable and safe in `static final`
+constants (INV-9); it exposes no new public accessor.
+
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from
 Conventional Commits. A commit that breaks an `@Incubating` type is still marked breaking (`!` and a

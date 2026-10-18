@@ -2195,7 +2195,13 @@ keeps its `ON` (a bare reference drops it on every target); a source outer root 
 source is not. A `@SourceModel` may be rooted at a plain, grouped, shape or recursive source model (not itself
 recursive, a branch or a shape: `MQ3042`), one CTE per level, every level registered on the top statement through
 `SourceRenderer`'s new `CteHandle`, `register`, `registerRecursive` and `from` (defaults `MQ4014`); the walk's filter
-goes into the next body, and the walk checks and key predicates stay in the top statement. A non-branch source QModel
+goes into the next body, and the walk checks and key predicates stay in the top statement. (amended 2026-10-18, M27.4:
+until M27.5 renders chains, `ModelQuery.sourceStatement()` refuses an inner-bearing
+`SourceQuery` with `MQ4014` ("chained CTEs") at its CTE call site, before building the source body; the executor
+callback has no source definition and remains unchanged. This refusal also walks every combined-source branch.
+A source rooted at a branch is `MQ3042`, directing the caller to root at the shape, since the branch builds
+`SourceQuery<Shape>`. Shape/branch checks include deferred source models within the compilation, using the existing
+round lookup without new cross-round tracking). A non-branch source QModel
 generates `Rows` and `query(SourceQuery<S>)`; mixing the two vocabularies is `MQ1905` both ways. Every new type and
 member is `@Incubating`. A PostgreSQL query timeout is wrapped differently on Hibernate 6.6 and 7.4; timeout handling
 reads the root cause. Rejected: string annotations, lateral joins, a step type for the terminals, `firstRow` on

@@ -31,8 +31,10 @@ import com.rey.modelquery.processor.ModelDefinition.WindowOrder;
 import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import javax.lang.model.element.AnnotationMirror;
 import javax.lang.model.element.AnnotationValue;
@@ -102,6 +104,12 @@ final class QueryModelReader {
      * nothing.
      */
     ModelDefinition read(TypeElement type, Kind kind, AnnotationMirror annotation, Element origin) {
+        return read(type, kind, annotation, origin, new HashSet<>());
+    }
+
+    private ModelDefinition read(TypeElement type, Kind kind, AnnotationMirror annotation, Element origin,
+            Set<TypeElement> roots) {
+        roots.add(type);
         if (!(explicit(annotation, ROOT) instanceof DeclaredType rootType) || rootType.getKind() != TypeKind.DECLARED) {
             return null;
         }
@@ -165,12 +173,13 @@ final class QueryModelReader {
                     discriminator(field),
                     mirror(field, Depth.class) != null));
         }
-        // A source model's root is an entity: a source reading another source is MQ3038, not a chain of reads
-        // (R-PROC-39), so a source is resolved for a query model alone. An update or insert model writes an entity;
-        // its own checks report a root that is neither.
+        // Both kinds of read may be rooted at a source (R-PROC-39, R-PROC-40). Writes still need an entity.
         TypeElement rootElement = (TypeElement) rootType.asElement();
-        ModelDefinition source = kind == Kind.QUERY && isSourceModel(rootElement)
-                ? read(rootElement, Kind.SOURCE) : null;
+        // Stop at a repeated root; the root-kind check reports MQ3038 before checking any fields.
+        ModelDefinition source = (kind == Kind.QUERY || kind == Kind.SOURCE) && isSourceModel(rootElement)
+                && !roots.contains(rootElement)
+                ? read(rootElement, Kind.SOURCE, mirror(rootElement, annotation(Kind.SOURCE)), rootElement, roots)
+                : null;
         // The shape a source model names is another source model of the compilation, read the same way (R-PROC-38);
         // its own checks report one that is not a source model.
         ModelDefinition shape = kind == Kind.SOURCE && shape(annotation) instanceof DeclaredType shapeType

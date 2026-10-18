@@ -450,6 +450,8 @@ hand-written `ColumnField.of(...)` over it is `MQ1905` (`api/17` R-SRC-10). An o
 source model itself is not writable (R-PROC-39). Setting `generateChanges` on it is `MQ3040` rather than ignored,
 message and all (`processor/32`, D-145).
 
+A source rooted at another source uses R-GEN-39's `source(SourceQuery<X> inner)` factory instead of `source()`.
+
 **R-GEN-38** *(D-143)* **`WindowField`.** A `@Window` field of a source (`processor/30` R-PROC-36, `api/17` R-SRC-04)
 generates a `WindowField<S, T>`, a `SelectField` and neither a `ColumnField` nor an `AggregateField`, named after the
 field and carrying the window's terms:
@@ -467,6 +469,18 @@ source's `ALL` is its CTE's projection (R-GEN-37), it is aliased by the field's 
 source field is, and `fields()` indexes it by that name (R-GEN-32). It is not a `ScalarField`: `where` and `having`
 take no `WindowField`, and neither does an `orderBy`, so a window's value is filtered and ordered through the outer
 model that reads it (R-PROC-36).
+
+**R-GEN-39** *(D-150)* **Source over a source.** For `@SourceModel(root = X.class)` where `X` is a
+`@SourceModel`, generate `ROOT = TableField.source(X.class)` and columns with `ColumnField.over(...)`, exactly as
+for an outer query (R-GEN-37). Replace the zero-argument factory with an `@Incubating`
+`source(SourceQuery<X> inner)` returning `SourceQuery.Builder<X, S, S>` for source model `S`. Its body returns
+`SourceQuery.builder(S.class, ROOT, ALL, KEY, inner)` for an ungrouped source, or
+`SourceQuery.builder(S.class, ROOT, ALL, KEY, GROUP_KEYS, inner)` for a grouped one. Mapped column constants and
+window/filter terms refer to `X`'s CTE columns. No zero-argument overload, mapper or write method is generated.
+The typed argument accepts a combined shape, recursive walk, checked tree, grouped source or another built chain;
+missing or wrongly typed arguments fail compilation. Raw-type/cast misuse is `MQ1907` in core. A correlated
+`@Computed` is refused by the builder (`MQ1908`), never during the generated constants' initialization (R-SRC-16).
+A `@QueryModel` over `S` keeps its existing `query(SourceQuery<S>)` factory, which accepts the built chain.
 
 ## 9. Acceptance criteria
 

@@ -301,8 +301,8 @@ class SetOperationModelTest {
 
         assertThat(compilation).failed();
         assertThat(errors(compilation)).contains(
-                message(DiagnosticCode.MQ3034, "RefundFeedItem.rank: a branch declares no @Window field; a window "
-                        + "over the combined rows is not supported (R-PROC-38)"),
+                message(DiagnosticCode.MQ3034, "RefundFeedItem.rank: a branch declares no @Window field; declare a "
+                        + "window over the combined rows on a source over the shape (R-PROC-38)"),
                 message(DiagnosticCode.MQ3034, "RefundFeedItem.rank: the shape FeedItem declares no field at this "
                         + "position; a branch maps the shape's fields one for one, by name, in declaration order"));
     }
@@ -321,8 +321,8 @@ class SetOperationModelTest {
         assertThat(compilation).failed();
         assertThat(errors(compilation)).contains(
                 message(DiagnosticCode.MQ3034, "WindowedRefund: the shape WindowedFeed declares the @Window field "
-                        + "rank, which no branch can combine with; a shape with branches declares no @Window "
-                        + "(R-PROC-38)"),
+                        + "rank, which no branch can combine with; a shape with branches declares no @Window; "
+                        + "declare it on a source over the shape (R-PROC-38)"),
                 message(DiagnosticCode.MQ3034, "WindowedRefund: the shape WindowedFeed declares the field 'rank' "
                         + "after every field of the branch; a branch maps the shape's fields one for one, by name, "
                         + "in declaration order"));

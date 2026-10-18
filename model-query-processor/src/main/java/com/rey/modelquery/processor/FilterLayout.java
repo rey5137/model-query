@@ -57,7 +57,7 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
      * @param table the constant of the table the column sits on
      * @param entity that table's entity
      * @param attribute the attribute path on {@code entity}, dotted through embedded values
-     * @param read the entity attribute the path ends at
+     * @param read the entity attribute the path ends at, or {@code null} for a source column
      */
     record Column(
             FilterColumnDefinition definition, String table, TypeElement entity, String attribute,
@@ -80,6 +80,9 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
         // An insert model reads no row of its root, so it declares no table; its @FilterColumn is MQ3502 (R-PROC-23).
         if (model.insertModel()) {
             return new FilterLayout(List.of(), List.of(), List.of());
+        }
+        if (model.readsSource()) {
+            return overSource(model);
         }
         // Keyed by what makes a join its own: alias and association path, and the @Join it hangs below (R-PROC-12).
         var tables = new LinkedHashMap<List<String>, Table>();
@@ -104,6 +107,31 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
             }
         }
         return new FilterLayout(new ArrayList<>(tables.values()), columns, problems);
+    }
+
+    /** Source filter columns alias a single CTE column; an outer query declares none (R-SRC-16). */
+    private static FilterLayout overSource(ModelDefinition model) {
+        var columns = new ArrayList<Column>();
+        var problems = new ArrayList<Problem>();
+        if (model.sourceModel()) {
+            for (FilterColumnDefinition definition : model.filterColumns()) {
+                String where = model.name() + " " + definition.label() + ": ";
+                if (model.sourceField(definition.path()) == null) {
+                    problems.add(new Problem(DiagnosticCode.MQ3011, where + "'" + definition.path()
+                            + "' is no field of " + model.source().name()
+                            + "; a source filter reads one CTE column by field name"));
+                } else if (!definition.alias().isEmpty()) {
+                    problems.add(new Problem(DiagnosticCode.MQ3011, where
+                            + "a source column has no join to alias"));
+                } else if (definition.converter() != null) {
+                    problems.add(new Problem(DiagnosticCode.MQ3014, where
+                            + "a source filter reads its source column's converter; drop converter"));
+                } else {
+                    columns.add(new Column(definition, ROOT, model.root(), definition.path(), null));
+                }
+            }
+        }
+        return new FilterLayout(List.of(), columns, problems);
     }
 
     /**
