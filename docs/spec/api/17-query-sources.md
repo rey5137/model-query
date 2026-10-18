@@ -478,6 +478,28 @@ A correlated expression anywhere in a source's field list, including inside anot
 `@Computed` constants can initialize normally: the refusal occurs when `source(...)` is called, never in the
 QModel's static initializer where it would become `ExceptionInInitializerError`.
 
+**R-SRC-17** *(D-150)* **Reading a source directly.** Every non-branch source QModel declares an `@Incubating`
+`Rows` class and `@Incubating query(SourceQuery<S> source)`, returning `ModelQuery.Builder<S, K, S>` for source model
+`S` and its key type `K`. A branch declares neither; a shape's own QModel declares both. A source over a source takes
+the outer `SourceQuery<S>` built by `source(inner)`, rather than that inner definition.
+
+`Rows.ROOT` is `TableField.source(S.class)`. Each mapped field has a `ColumnField.over(...)` constant over that root,
+including aggregate and window fields; ordered columns retain their ordered type. `Rows.DEFAULT`, `Rows.ALL`,
+`Rows.KEY` when keyed, and `Rows.MAPPER` select and map the source model itself (R-GEN-40). The factory uses
+`Rows.ROOT` and `Rows.MAPPER`, and sets `primaryKey(Rows.KEY)` when keyed. All constants are immutable `static final`
+(INV-9). Selecting `Rows.DEFAULT` and filtering on `Rows.RANK`, for example, filters the completed source's window
+result in the outer statement.
+
+The two vocabularies cannot mix. At `ModelQuery.Builder.build()`, a source's own constant in the direct read's
+select set, `where` or order keys is `MQ1905`, with a message naming the `QX.Rows.FOO` constant to use. At
+`SourceQuery.Builder.build()`, a `Rows` column in the source's `where`, fields, group keys, `having` or orders is
+`MQ1905`, naming `QX.FOO` instead. Both refusals precede any statement.
+
+Everything in R-SRC-10 about an outer model holds for `Rows`. Its key is the source's key, and key-based features
+follow the source's uniqueness (R-SRC-09, R-SRC-13): non-unique sources refuse keyset and primary-key-first with
+`MQ1901`, and key-identifying execution with `MQ2212`. Key predicates stay in the top statement (R-SRC-18), preserving
+the full source's window ranks and aggregates. There are no fetch plans, because a source model cannot have `@Child`.
+
 **R-SRC-18** *(D-150)* A chain registers every level on the top statement from innermost to outermost, rebuilding its
 CTE handles per statement (content, count, each key phase, each export page) with no state on `SourceQuery` or
 `ModelQuery` (R-SRC-12, INV-9). A combined inner source registers as one CTE whose body combines its branches; a branch
@@ -537,4 +559,9 @@ In a chain over a `recursive(...)` or `tree(...)` source:
 | AC-SRC-30 | A source over a checked tree compiles and builds, retaining uniqueness (R-SRC-16). |
 | AC-SRC-31 | Three source levels compile, build and execute through generated factories; a `SourceRenderer` without `register`/`registerRecursive`/`from` refuses `MQ4014` ("chained CTEs") before any statement (R-SRC-16, R-SRC-18). |
 | AC-SRC-32 | In a chain's statement on every statement kind, the walk filter (`level <= maxDepth and not mark`) runs inside the next CTE body before its windows and aggregates (so a window never ranks a row past `maxDepth` or on a cycle), depth/cycle/duplicate-key checks live in the top statement over the inner CTE (`list`, `page` and every other row-returning statement whose outer or intermediate `having` drops every row returns empty with no check, while an ungrouped `count` still raises because its checks read the inner CTE), and key predicates (`byKeys`, keyset cursor, `primaryKeyFirst` step 2, `one(q, key)`) apply only to the top statement so ranks and counts are computed over the full source (R-SRC-18). |
+| AC-SRC-33 | `Rows`/`query` goldens: plain, grouped, window; neither on a branch; user `Rows` compiles (R-GEN-40). |
+| AC-SRC-34 | Direct `Rows.DEFAULT`, window `where`, unique `Rows.KEY` keyset; non-unique is `MQ1901` (R-SRC-17). |
+| AC-SRC-35 | Own constants in a direct read's select/where/order give `MQ1905`: use `QX.Rows.FOO` (R-SRC-17). |
+| AC-SRC-36 | `Rows` in source fields, `where` or orders gives `MQ1905` naming `QX.FOO` (R-SRC-17). |
 | AC-SRC-37 | Direct and nested correlated expressions in source fields are `MQ1908` at the builder boundary; a generated QModel with such a `@Computed` initializes successfully and refuses only when `source(...)` is called (R-SRC-16). |
+| AC-SRC-38 | Direct chain/tree reads: count, `byKeys`, `one(q, key)` and every export page (R-SRC-17, R-SRC-18). |

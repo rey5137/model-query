@@ -3,6 +3,7 @@ package shop;
 import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.FieldIndex;
+import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.OrderedColumnField;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.SelectSet;
@@ -37,12 +38,48 @@ public final class QOrderTotals {
         return SourceQuery.builder(OrderTotals.class, ROOT, ALL, KEY);
     }
 
+    @Incubating
+    public static ModelQuery.Builder<OrderTotals, Long, OrderTotals> query(
+            SourceQuery<OrderTotals> source) {
+        return ModelQuery.builder(Rows.ROOT, Rows.MAPPER, source).primaryKey(Rows.KEY);
+    }
+
     /**
      * This model's fields by name, built on the first call ({@code R-GEN-32}); incubating.
      */
     @Incubating
     public static FieldIndex<OrderTotals> fields() {
         return Index.INSTANCE;
+    }
+
+    @com.rey.modelquery.annotations.Incubating
+    public static final class Rows {
+        public static final com.rey.modelquery.core.TableField<shop.OrderTotals, shop.OrderTotals> ROOT = com.rey.modelquery.core.TableField.source(shop.OrderTotals.class);
+
+        public static final com.rey.modelquery.core.OrderedColumnField<shop.OrderTotals, shop.OrderTotals, java.lang.Long> ID = com.rey.modelquery.core.ColumnField.over(shop.OrderTotals.class,
+                ROOT, shop.QOrderTotals.ID).named("id");
+
+        public static final com.rey.modelquery.core.OrderedColumnField<shop.OrderTotals, shop.OrderTotals, java.lang.String> STATUS = com.rey.modelquery.core.ColumnField.over(shop.OrderTotals.class,
+                ROOT, shop.QOrderTotals.STATUS).named("status");
+
+        public static final com.rey.modelquery.core.OrderedColumnField<shop.OrderTotals, shop.OrderTotals, java.math.BigDecimal> TOTAL = com.rey.modelquery.core.ColumnField.over(shop.OrderTotals.class,
+                ROOT, shop.QOrderTotals.TOTAL).named("total");
+
+        public static final com.rey.modelquery.core.SelectSet<shop.OrderTotals> ALL = com.rey.modelquery.core.SelectSet.of(ID,
+                STATUS, TOTAL);
+
+        public static final com.rey.modelquery.core.SelectSet<shop.OrderTotals> DEFAULT = ALL;
+
+        public static final com.rey.modelquery.core.PrimaryKey<shop.OrderTotals, java.lang.Long> KEY = com.rey.modelquery.core.PrimaryKey.of(ID);
+
+        public static final com.rey.modelquery.core.RowMapper<shop.OrderTotals> MAPPER = shop.QOrderTotals.Rows::map;
+
+        private Rows() {
+        }
+
+        private static shop.OrderTotals map(com.rey.modelquery.core.Row row) {
+            return new shop.OrderTotals(row.get(ID), row.get(STATUS), row.get(TOTAL));
+        }
     }
 
     private static final class Index {

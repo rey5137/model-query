@@ -153,6 +153,29 @@ class SourceOverSourceModelTest {
     }
 
     @Test
+    void ac_src_33_a_source_over_a_source_queries_its_own_source_query() {
+        Compilation compilation = compile(ENTITY, INNER, model("Ranked", "Inner", """
+                @PrimaryKey Long id,
+                @Window(function = WindowFunction.ROW_NUMBER, orderBy = "name") Long rank"""),
+                source("shop.ReadRanked", """
+                        package shop;
+                        import com.rey.modelquery.core.ModelQuery;
+                        public class ReadRanked {
+                            public static ModelQuery<Ranked, Long, Ranked> read() {
+                                var inner = QInner.source().build();
+                                var ranked = QRanked.source(inner).build();
+                                return QRanked.query(ranked).select(QRanked.Rows.DEFAULT).build();
+                            }
+                        }
+                        """));
+
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(generatedFlat(compilation, "shop.QRanked"))
+                .contains("ModelQuery.Builder<Ranked, Long, Ranked> query(SourceQuery<Ranked> source)",
+                        "ModelQuery.builder(Rows.ROOT, Rows.MAPPER, source).primaryKey(Rows.KEY)");
+    }
+
+    @Test
     void ac_src_26_a_source_filter_aliases_an_inner_cte_column() {
         Compilation compilation = compile(ENTITY, INNER, source("shop.Filtered", HEADER + """
                 @FilterColumn(name = "NAME_FILTER", path = "name")

@@ -429,8 +429,9 @@ public static SourceQuery.Builder<FolderEntity, FolderNode, FolderNode> source()
 The step itself is the caller's: which pair of columns a row is a child of another by is data, not a model, so the
 generated `source()` stops at naming the level column (`api/17` R-SRC-07).
 
-It declares no `MAPPER`, no `map(Row)` and no write method, since nothing maps a source row and no write reads a
-source. A source model the root names in a `@QueryModel` (R-PROC-39) generates the outer QModel:
+Its own constants declare no `MAPPER` or `map(Row)`; a non-branch's nested `Rows` maps direct reads (R-GEN-40).
+It declares no write method, since no write reads a source. A source model the root names in a `@QueryModel`
+(R-PROC-39) generates the outer QModel:
 
 ```java
 public static final TableField<OrderTotals, OrderTotals> ROOT = TableField.source(OrderTotals.class);
@@ -476,11 +477,33 @@ for an outer query (R-GEN-37). Replace the zero-argument factory with an `@Incub
 `source(SourceQuery<X> inner)` returning `SourceQuery.Builder<X, S, S>` for source model `S`. Its body returns
 `SourceQuery.builder(S.class, ROOT, ALL, KEY, inner)` for an ungrouped source, or
 `SourceQuery.builder(S.class, ROOT, ALL, KEY, GROUP_KEYS, inner)` for a grouped one. Mapped column constants and
-window/filter terms refer to `X`'s CTE columns. No zero-argument overload, mapper or write method is generated.
+window/filter terms refer to `X`'s CTE columns. No zero-argument source factory or write method is generated.
+Its own constants have no mapper; direct reads use `Rows.MAPPER` (R-GEN-40).
 The typed argument accepts a combined shape, recursive walk, checked tree, grouped source or another built chain;
 missing or wrongly typed arguments fail compilation. Raw-type/cast misuse is `MQ1907` in core. A correlated
 `@Computed` is refused by the builder (`MQ1908`), never during the generated constants' initialization (R-SRC-16).
 A `@QueryModel` over `S` keeps its existing `query(SourceQuery<S>)` factory, which accepts the built chain.
+
+**R-GEN-40** *(D-150)* **Direct source rows.** Every source QModel that is not a branch generates an `@Incubating`
+`public static final class Rows` with a private constructor. A shape's own QModel is not a branch and generates it;
+a branch generates neither `Rows` nor `query`. Every type name inside `Rows` is fully qualified, including the source
+model, core types, JDK types and annotations, so a user model named `Rows` cannot be shadowed by the nested class.
+
+`Rows` declares immutable `public static final` constants (INV-9):
+
+- `ROOT = TableField.source(S.class)` for source model `S`.
+- One column per mapped source field, including window and aggregate fields, written with the same outer-model
+  column writer as R-GEN-37: `ColumnField.over(S.class, ROOT, QX.FOO)`, retaining the field's name, type and converter.
+  An ordered field is an `OrderedColumnField` exactly as in an outer model.
+- `ALL`, `DEFAULT` and, when keyed, `KEY`, following the ordinary model's select-set exclusions and key order.
+- `MAPPER`, mapping the source model itself, including its window and aggregate values.
+
+A private `map(Row)` has the same record/class, partial-selection and nullability behavior as an outer model.
+
+The source QModel also declares `@Incubating query(SourceQuery<S> source)`, returning
+`ModelQuery.Builder<S, K, S>` over `Rows.ROOT` and `Rows.MAPPER`, with `.primaryKey(Rows.KEY)` when keyed. A source over
+a source takes the outer `SourceQuery<S>` built from `source(inner)`. The source QModel's own constants still have
+no mapper or write method (R-GEN-37); the two vocabularies are checked at `build()` (R-SRC-17).
 
 ## 9. Acceptance criteria
 

@@ -5,6 +5,7 @@ import com.rey.modelquery.annotations.WindowFrame;
 import com.rey.modelquery.annotations.WindowFunction;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.FieldIndex;
+import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.OrderedColumnField;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.SelectSet;
@@ -50,12 +51,52 @@ public final class QRankedOrder {
         return SourceQuery.builder(RankedOrder.class, ROOT, ALL, KEY);
     }
 
+    @Incubating
+    public static ModelQuery.Builder<RankedOrder, Long, RankedOrder> query(
+            SourceQuery<RankedOrder> source) {
+        return ModelQuery.builder(Rows.ROOT, Rows.MAPPER, source).primaryKey(Rows.KEY);
+    }
+
     /**
      * This model's fields by name, built on the first call ({@code R-GEN-32}); incubating.
      */
     @Incubating
     public static FieldIndex<RankedOrder> fields() {
         return Index.INSTANCE;
+    }
+
+    @com.rey.modelquery.annotations.Incubating
+    public static final class Rows {
+        public static final com.rey.modelquery.core.TableField<shop.RankedOrder, shop.RankedOrder> ROOT = com.rey.modelquery.core.TableField.source(shop.RankedOrder.class);
+
+        public static final com.rey.modelquery.core.OrderedColumnField<shop.RankedOrder, shop.RankedOrder, java.lang.Long> ID = com.rey.modelquery.core.ColumnField.over(shop.RankedOrder.class,
+                ROOT, shop.QRankedOrder.ID).named("id");
+
+        public static final com.rey.modelquery.core.OrderedColumnField<shop.RankedOrder, shop.RankedOrder, java.lang.String> CUSTOMER = com.rey.modelquery.core.ColumnField.over(shop.RankedOrder.class,
+                ROOT, shop.QRankedOrder.CUSTOMER).named("customer");
+
+        public static final com.rey.modelquery.core.OrderedColumnField<shop.RankedOrder, shop.RankedOrder, java.lang.Long> RANK = com.rey.modelquery.core.ColumnField.over(shop.RankedOrder.class,
+                ROOT, shop.QRankedOrder.RANK).named("rank");
+
+        public static final com.rey.modelquery.core.OrderedColumnField<shop.RankedOrder, shop.RankedOrder, java.math.BigDecimal> RUNNING = com.rey.modelquery.core.ColumnField.over(shop.RankedOrder.class,
+                ROOT, shop.QRankedOrder.RUNNING).named("running");
+
+        public static final com.rey.modelquery.core.SelectSet<shop.RankedOrder> ALL = com.rey.modelquery.core.SelectSet.of(ID,
+                CUSTOMER, RANK, RUNNING);
+
+        public static final com.rey.modelquery.core.SelectSet<shop.RankedOrder> DEFAULT = ALL;
+
+        public static final com.rey.modelquery.core.PrimaryKey<shop.RankedOrder, java.lang.Long> KEY = com.rey.modelquery.core.PrimaryKey.of(ID);
+
+        public static final com.rey.modelquery.core.RowMapper<shop.RankedOrder> MAPPER = shop.QRankedOrder.Rows::map;
+
+        private Rows() {
+        }
+
+        private static shop.RankedOrder map(com.rey.modelquery.core.Row row) {
+            return new shop.RankedOrder(row.get(ID), row.get(CUSTOMER), row.get(RANK),
+                    row.get(RUNNING));
+        }
     }
 
     private static final class Index {

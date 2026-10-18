@@ -198,6 +198,17 @@ class SetOperationModelTest {
     }
 
     @Test
+    void ac_src_33_a_shape_has_rows_and_query_but_its_branch_has_neither() {
+        Compilation compilation = compileFeed();
+
+        assertThat(compilation).succeededWithoutWarnings();
+        assertThat(generatedFlat(compilation, "shop.QFeedItem"))
+                .contains("public static final class Rows", "SourceQuery<FeedItem> source)");
+        assertThat(generatedFlat(compilation, "shop.QRefundFeedItem"))
+                .doesNotContain("class Rows", "query(", "MAPPER");
+    }
+
+    @Test
     void ac_proc_34_a_branch_source_is_a_source_query_of_its_shape() {
         Compilation compilation = compileFeed();
 

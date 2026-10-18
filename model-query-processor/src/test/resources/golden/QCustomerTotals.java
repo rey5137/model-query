@@ -7,6 +7,7 @@ import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.FieldIndex;
+import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.OrderedColumnField;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.SelectSet;
@@ -54,12 +55,55 @@ public final class QCustomerTotals {
         return SourceQuery.builder(CustomerTotals.class, ROOT, ALL, KEY, GROUP_KEYS);
     }
 
+    @Incubating
+    public static ModelQuery.Builder<CustomerTotals, String, CustomerTotals> query(
+            SourceQuery<CustomerTotals> source) {
+        return ModelQuery.builder(Rows.ROOT, Rows.MAPPER, source).primaryKey(Rows.KEY);
+    }
+
     /**
      * This model's fields by name, built on the first call ({@code R-GEN-32}); incubating.
      */
     @Incubating
     public static FieldIndex<CustomerTotals> fields() {
         return Index.INSTANCE;
+    }
+
+    @com.rey.modelquery.annotations.Incubating
+    public static final class Rows {
+        public static final com.rey.modelquery.core.TableField<shop.CustomerTotals, shop.CustomerTotals> ROOT = com.rey.modelquery.core.TableField.source(shop.CustomerTotals.class);
+
+        public static final com.rey.modelquery.core.OrderedColumnField<shop.CustomerTotals, shop.CustomerTotals, java.lang.String> CUSTOMER = com.rey.modelquery.core.ColumnField.over(shop.CustomerTotals.class,
+                ROOT, shop.QCustomerTotals.CUSTOMER).named("customer");
+
+        public static final com.rey.modelquery.core.OrderedColumnField<shop.CustomerTotals, shop.CustomerTotals, java.math.BigDecimal> TOTAL = com.rey.modelquery.core.ColumnField.over(shop.CustomerTotals.class,
+                ROOT, shop.QCustomerTotals.TOTAL).named("total");
+
+        public static final com.rey.modelquery.core.OrderedColumnField<shop.CustomerTotals, shop.CustomerTotals, java.lang.Long> ORDERS = com.rey.modelquery.core.ColumnField.over(shop.CustomerTotals.class,
+                ROOT, shop.QCustomerTotals.ORDERS).named("orders");
+
+        public static final com.rey.modelquery.core.OrderedColumnField<shop.CustomerTotals, shop.CustomerTotals, java.lang.Long> PLACING = com.rey.modelquery.core.ColumnField.over(shop.CustomerTotals.class,
+                ROOT, shop.QCustomerTotals.PLACING).named("placing");
+
+        public static final com.rey.modelquery.core.OrderedColumnField<shop.CustomerTotals, shop.CustomerTotals, java.math.BigDecimal> GRAND = com.rey.modelquery.core.ColumnField.over(shop.CustomerTotals.class,
+                ROOT, shop.QCustomerTotals.GRAND).named("grand");
+
+        public static final com.rey.modelquery.core.SelectSet<shop.CustomerTotals> ALL = com.rey.modelquery.core.SelectSet.of(CUSTOMER,
+                TOTAL, ORDERS, PLACING, GRAND);
+
+        public static final com.rey.modelquery.core.SelectSet<shop.CustomerTotals> DEFAULT = ALL;
+
+        public static final com.rey.modelquery.core.PrimaryKey<shop.CustomerTotals, java.lang.String> KEY = com.rey.modelquery.core.PrimaryKey.of(CUSTOMER);
+
+        public static final com.rey.modelquery.core.RowMapper<shop.CustomerTotals> MAPPER = shop.QCustomerTotals.Rows::map;
+
+        private Rows() {
+        }
+
+        private static shop.CustomerTotals map(com.rey.modelquery.core.Row row) {
+            return new shop.CustomerTotals(row.get(CUSTOMER), row.get(TOTAL), row.get(ORDERS),
+                    row.get(PLACING), row.get(GRAND));
+        }
     }
 
     private static final class Index {

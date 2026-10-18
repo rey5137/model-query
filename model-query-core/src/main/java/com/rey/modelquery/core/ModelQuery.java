@@ -1212,6 +1212,19 @@ public final class ModelQuery<E, K, M> {
             }
             SelectSet<M> selection = selection();
             List<ColumnField<M, ?, ?>> needed = needed();
+            if (root.isSource()) {
+                var vocabulary = new SourceVocabulary(root.rootEntity(), root, source, sourceReadModel(selection));
+                selection.fields().forEach(vocabulary::field);
+                vocabulary.filters(where);
+                orderBy.forEach(order -> vocabulary.field(order.column()));
+                groupBy.forEach(vocabulary::field);
+                if (primaryKey != null) {
+                    primaryKey.columns().forEach(vocabulary::field);
+                }
+                if (having != null) {
+                    vocabulary.filters(having.filters());
+                }
+            }
             String model = modelName(selection, root.rootEntity());
             boolean grouped = isGrouped(selection);
             if (!grouped && having != null) {
@@ -1307,6 +1320,18 @@ public final class ModelQuery<E, K, M> {
         /** The columns the fetch plan needs besides its selection (R-FCH-02). */
         private List<ColumnField<M, ?, ?>> needed() {
             return fetch == null ? List.of() : List.copyOf(fetch.needed());
+        }
+
+        /** Only correctly rooted columns identify the erased read model; a definition column cannot do so. */
+        private Class<?> sourceReadModel(SelectSet<M> selection) {
+            var fields = new ArrayList<SelectField<?, ?>>(selection.fields());
+            if (primaryKey != null) {
+                fields.addAll(primaryKey.columns());
+            }
+            return fields.stream().filter(ColumnField.class::isInstance)
+                    .map(field -> (ColumnField<?, ?, ?>) field)
+                    .filter(field -> field.table().key().equals(root.key()))
+                    .map(ColumnField::model).findFirst().orElse(null);
         }
 
         /** Structural, so skipping every having filter cannot turn a plain query into a grouped one (D-28). */

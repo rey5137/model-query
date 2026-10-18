@@ -8,6 +8,7 @@ import com.rey.modelquery.processor.ModelDefinition.WindowDefinition;
 import com.rey.modelquery.processor.ModelDefinition.WindowOrder;
 import com.rey.modelquery.processor.EntityMetamodel.Resolution;
 import com.squareup.javapoet.AnnotationSpec;
+import com.squareup.javapoet.ArrayTypeName;
 import com.squareup.javapoet.ClassName;
 import com.squareup.javapoet.CodeBlock;
 import com.squareup.javapoet.FieldSpec;
@@ -230,6 +231,10 @@ final class QModelWriter {
         }
         if (model.sourceModel()) {
             type.addMethod(source(model, modelName, entity, grouped));
+            if (!model.branch()) {
+                type.addType(rows(model, modelName, generated, keyType));
+                type.addMethod(sourceQuery(modelName, keyed, keyType));
+            }
             type.addMethod(MethodSpec.constructorBuilder().addModifiers(Modifier.PRIVATE).build());
             fieldIndex(model, modelName, generated, joined, FilterIndex.of(model, joined, filters), type);
             return file(generated, type);
@@ -483,6 +488,89 @@ final class QModelWriter {
                 .build();
     }
 
+    private static MethodSpec sourceQuery(ClassName modelName, boolean keyed, TypeName keyType) {
+        return MethodSpec.methodBuilder("query")
+                .addAnnotation(INCUBATING)
+                .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
+                .returns(ParameterizedTypeName.get(MODEL_QUERY.nestedClass("Builder"), modelName,
+                        keyed ? keyType : TypeName.OBJECT, modelName))
+                .addParameter(ParameterizedTypeName.get(SOURCE_QUERY, modelName), "source")
+                .addStatement("return $T.builder(Rows.ROOT, Rows.MAPPER, source)$L", MODEL_QUERY,
+                        keyed ? ".primaryKey(Rows.KEY)" : "")
+                .build();
+    }
+
+    /** The read vocabulary of a source, whose own constants describe its CTE body (R-GEN-40). */
+    private TypeSpec rows(ModelDefinition model, ClassName modelName, ClassName generated, TypeName keyType) {
+        ClassName rowModel = qualified(modelName);
+        ClassName selectSet = qualified(SELECT_SET);
+        TypeSpec.Builder rows = TypeSpec.classBuilder("Rows")
+                .addAnnotation(qualified(INCUBATING))
+                .addModifiers(Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
+                .addField(FieldSpec.builder(ParameterizedTypeName.get(qualified(TABLE_FIELD), rowModel, rowModel),
+                                "ROOT", CONSTANT)
+                        .initializer("$T.source($T.class)", qualified(TABLE_FIELD), rowModel)
+                        .build());
+        List<ModelField> fields = model.sourceFields();
+        for (ModelField field : fields) {
+            rows.addField(overColumn(rowModel, model, field, field.constant(), true, true));
+        }
+        rows.addField(FieldSpec.builder(ParameterizedTypeName.get(selectSet, rowModel), "ALL", CONSTANT)
+                .initializer("$T.of($L)", selectSet, constants(fields)).build());
+        List<ModelField> excluded = fields.stream().filter(ModelField::excludedFromDefaults).toList();
+        rows.addField(FieldSpec.builder(ParameterizedTypeName.get(selectSet, rowModel), "DEFAULT", CONSTANT)
+                .initializer(excluded.isEmpty() ? CodeBlock.of("ALL")
+                        : CodeBlock.of("ALL.without($L)", constants(excluded))).build());
+        List<ModelField> keys = model.keys();
+        if (!keys.isEmpty()) {
+            ClassName primaryKey = qualified(PRIMARY_KEY);
+            rows.addField(FieldSpec.builder(ParameterizedTypeName.get(primaryKey, rowModel, qualified(keyType)),
+                            "KEY", CONSTANT)
+                    .initializer(keys.size() == 1 ? "$T.of($L)" : "$T.composite($L)", primaryKey, constants(keys))
+                    .build());
+        }
+        rows.addField(FieldSpec.builder(ParameterizedTypeName.get(qualified(ROW_MAPPER), rowModel), "MAPPER", CONSTANT)
+                .initializer("$T::map", qualified(generated.nestedClass("Rows"))).build());
+        rows.addMethod(MethodSpec.constructorBuilder().addModifiers(Modifier.PRIVATE).build());
+        MethodSpec.Builder map = MethodSpec.methodBuilder("map")
+                .addModifiers(Modifier.PRIVATE, Modifier.STATIC)
+                .returns(rowModel)
+                .addParameter(qualified(ROW), "row");
+        if (model.isRecord()) {
+            mapRecord(model, rowModel, generated, map);
+        } else {
+            mapClass(model, rowModel, generated, map);
+        }
+        if (nullness.on()) {
+            map.addAnnotation(qualified(ClassName.get("org.jspecify.annotations", "NullUnmarked")));
+        }
+        rows.addMethod(map.build());
+        return rows.build();
+    }
+
+    /** An import-free name keeps the nested Rows vocabulary from shadowing a user's types. */
+    private static ClassName qualified(ClassName type) {
+        return ClassName.get("", type.canonicalName());
+    }
+
+    private static TypeName qualified(TypeName type) {
+        if (type instanceof ClassName name) {
+            return qualified(name);
+        }
+        if (type instanceof ParameterizedTypeName parameterized) {
+            return ParameterizedTypeName.get(qualified(parameterized.rawType), parameterized.typeArguments.stream()
+                    .map(QModelWriter::qualified).toArray(TypeName[]::new));
+        }
+        if (type instanceof ArrayTypeName array) {
+            return ArrayTypeName.of(qualified(array.componentType));
+        }
+        if (type instanceof WildcardTypeName wildcard) {
+            return wildcard.lowerBounds.isEmpty() ? WildcardTypeName.subtypeOf(qualified(wildcard.upperBounds.get(0)))
+                    : WildcardTypeName.supertypeOf(qualified(wildcard.lowerBounds.get(0)));
+        }
+        return type;
+    }
+
     /**
      * {@code source()}: the query an outer model reads this source with, over the source model's own root, fields
      * and key. An ungrouped source takes the four-argument factory, whose {@code having} is {@code MQ1407}
@@ -535,14 +623,22 @@ final class QModelWriter {
 
     private FieldSpec overColumn(
             ClassName modelName, ModelDefinition model, String constant, String attribute, boolean named) {
-        ModelField source = model.sourceField(attribute);
-        ClassName kind = ConverterType.ordered(types, converter(model.source(), source))
+        return overColumn(modelName, model.source(), model.sourceField(attribute), constant, named, false);
+    }
+
+    private FieldSpec overColumn(ClassName modelName, ModelDefinition sourceModel, ModelField source,
+            String constant, boolean named, boolean qualify) {
+        ClassName kind = ConverterType.ordered(types, converter(sourceModel, source))
                 ? ORDERED_COLUMN_FIELD : COLUMN_FIELD;
+        ClassName sourceType = ClassName.get(sourceModel.type());
+        ClassName sourceQModel = generatedName(sourceModel);
+        TypeName value = column(source.type());
         return FieldSpec.builder(
-                        ParameterizedTypeName.get(kind, modelName, ClassName.get(model.source().type()),
-                                column(source.type())), constant, CONSTANT)
-                .initializer("$T.over($T.class,$WROOT,$W$T.$L)$L", COLUMN_FIELD, modelName,
-                        generatedName(model.source()), source.constant(),
+                        ParameterizedTypeName.get(qualify ? qualified(kind) : kind, modelName,
+                                qualify ? qualified(sourceType) : sourceType, qualify ? qualified(value) : value),
+                        constant, CONSTANT)
+                .initializer("$T.over($T.class,$WROOT,$W$T.$L)$L", qualify ? qualified(COLUMN_FIELD) : COLUMN_FIELD,
+                        modelName, qualify ? qualified(sourceQModel) : sourceQModel, source.constant(),
                         named ? CodeBlock.of(".named($S)", source.name()) : CodeBlock.of(""))
                 .build();
     }
@@ -732,7 +828,7 @@ final class QModelWriter {
         CodeBlock arguments = model.fields().stream()
                 .map(field -> field.join() != null ? nested(field) : field.child() != null ? unloaded(field)
                         : field.selected() ? selected(generated)
-                        : field.column() || field.computed() || field.aggregate() != null
+                        : field.column() || field.computed() || field.aggregate() != null || field.window() != null
                         ? CodeBlock.of("row.get($L)", field.constant()) : CodeBlock.of(unset(field.type())))
                 .collect(CodeBlock.joining(",$W"));
         map.addStatement("return new $T($L)", modelName, arguments);
@@ -747,7 +843,7 @@ final class QModelWriter {
             ModelDefinition model, ClassName modelName, ClassName generated, MethodSpec.Builder map) {
         map.addStatement("$T m = new $T()", modelName, modelName);
         for (ModelField field : model.fields()) {
-            if (!field.column() && !field.computed() && field.aggregate() == null) {
+            if (!field.column() && !field.computed() && field.aggregate() == null && field.window() == null) {
                 continue;
             }
             map.beginControlFlow("if (row.isSelected($L))", field.constant())

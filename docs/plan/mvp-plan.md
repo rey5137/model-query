@@ -632,7 +632,7 @@ type and member is `@Incubating`. Slices are written once the RFC is accepted (�
 | M27.3 | `Correlated.first` (R-COL-32): required order, appended id, NULLS LAST for `DEFAULT`; `SubqueryRenderer` and `ProviderSupport#subqueries()` (R-VND-25); `MQ4014` widened, `SourceRenderer`'s provider-gap defaults moved from `MQ4015`; `PortabilityCheck` | AC-COL-40 green, `reference/90` rows amended |
 | M27.4 | Source over source in the processor and generator (R-SRC-16, R-PROC-35, R-PROC-39 amended, R-PROC-40, R-GEN-39): root kinds, key and nullability, `MQ3031`'s new branch, `MQ3042`, `source(SourceQuery<X> inner)`, `SourceQuery`'s inner source, `MQ1907`, `MQ1908` | AC-PROC-41 and the compile-time AC-SRC cases green |
 | M27.5 | A chain's statement (R-SRC-18): `CteHandle`, `register`, `registerRecursive`, `from`; the walk filter in the next body; walk checks and key predicates in the top statement on every statement kind; uniqueness carried | AC-SRC-26..32 green on both lines and Tier 1 |
-| M27.6 | Reading a source directly (R-SRC-17, R-GEN-40, R-GEN-37 amended): `Rows` with fully qualified names, `query(SourceQuery<S>)`, `MQ1905` both ways | AC-SRC-33..37 green |
+| M27.6 | Reading a source directly (R-SRC-17, R-GEN-40, R-GEN-37 amended): `Rows` with fully qualified names, `query(SourceQuery<S>)`, `MQ1905` both ways | AC-SRC-33..36, 38 green |
 | M27.7 | Docs: "Correlated columns" on the Columns page (index advice and the cost table, concurrent writes), "Sources over sources" and "Reading a source" on the Source models page, the comparison page's Reach row; R-SRC-19 | `mkdocs build --strict` green, every runnable snippet with JPA and Spring tabs |
 
 ## 28. M28 — Inheritance roots → 0.10.0

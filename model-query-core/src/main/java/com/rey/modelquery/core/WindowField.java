@@ -140,6 +140,14 @@ public final class WindowField<M, C> implements SelectField<M, C> {
         return List.copyOf(columns);
     }
 
+    void checkSourceVocabulary(SourceVocabulary vocabulary) {
+        if (argument != null) {
+            vocabulary.field(argument);
+        }
+        partitionBy.forEach(vocabulary::field);
+        orderBy.forEach(order -> vocabulary.field(order.column()));
+    }
+
     private static List<String> names(List<? extends SelectField<?, ?>> fields) {
         return fields.stream().map(SelectField::name).toList();
     }
