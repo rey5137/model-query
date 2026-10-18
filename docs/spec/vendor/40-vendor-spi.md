@@ -316,8 +316,9 @@ plain CTE, recursion, window functions and the three set operations (`vendor/41`
 clause Hibernate emulates with `array[row(a, b)]`, a form H2 rejects — on PostgreSQL and MySQL. H2 answers `false` for
 it, so a recursive source over a composite node key is `MQ4015` there before any statement (M26.1, D-149; `api/17`
 AC-SRC-21). `OTHER` keeps the default. A database fact, no SQL (R-VND-11, INV-6). The SQL side is
-`core.SourceRenderer`, the one source hook `ProviderSupport#sources()` returns (`cte` abstract; `window`, `combine`
-and `recursive` default to `MQ4014`, a missing provider renderer, rather than a vendor fact; D-146, D-150).
+`core.SourceRenderer`, the one source hook `ProviderSupport#sources()` returns (`cte` abstract; `CteHandle` and
+`RecursiveHandle` nested types; `window`, `combine`, `recursive`, `register`, `registerRecursive` and `from` default to
+`MQ4014`, a missing provider renderer, rather than a vendor fact; D-146, D-150).
 
 **R-VND-22** A database's own recursion ceiling is a profile fact (D-143). `VendorProfile` gains `@Incubating
 int maxRecursionDepth()`, `Integer.MAX_VALUE` by default, meaning the database sets no ceiling this library knows of.

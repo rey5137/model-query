@@ -329,8 +329,14 @@ public final class SourceQuery<S> {
             }
             // A recursive model's source() names its @Depth field, so the level column is known; the step is still
             // required. Without it the build is refused rather than read as a plain source, which would quietly
-            // return the seed rows alone (R-SRC-07).
+            // return the seed rows alone (R-SRC-07). A source over a source cannot recurse or be a branch (R-SRC-16).
             Recursion recursion = settings.recursion();
+            Class<?> shape = settings.shape();
+            if (inner != null && (recursion != null || shape != null)) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1907, model.getSimpleName()
+                        + ": a source over " + root.rootEntity().getSimpleName() + " cannot be "
+                        + (recursion != null ? "recursive" : "a branch"));
+            }
             if (recursion != null && recursion.keys() == null) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1902, model.getSimpleName()
                         + ": a recursive source needs recursive(step -> step.childKey(childKey).parentKey(parentKey), "
@@ -347,7 +353,6 @@ public final class SourceQuery<S> {
                         + discriminator.field().name() + " is not one of the source key's columns");
             }
             // The shape is the model itself unless shape(...) named another one, which makes this a branch (R-PROC-38).
-            Class<?> shape = settings.shape();
             return new SourceQuery<>(model, shape == null ? model : shape, root, (SelectSet<S>) fields,
                     (PrimaryKey<S, ?>) key, (SelectSet<S>) groupKeys, where, having, settings.discriminator(),
                     recursion, inner);
@@ -630,29 +635,117 @@ public final class SourceQuery<S> {
     }
 
     /**
-     * Whether this source recurses (R-SRC-07): its model declares a {@code @Depth} field and its builder took the
-     * step, so its CTE is registered as {@code with recursive} rather than as a plain one.
+     * Whether this source recurses (R-SRC-07, R-SRC-16): its model declares a {@code @Depth} field and its builder
+     * took the step, or it is an ungrouped source over one that recurses. Unlike {@link #maxDepth()} and
+     * {@link #levelAlias()}, which answer for this level only ({@code 0}/{@code null} on an outer source), this
+     * answers for the chain; engine callers that need the walk's own level metadata read {@link #recursiveSource()}.
      */
     @EngineFacing
     public boolean recursive() {
-        return recursion != null;
+        return recursion != null
+                || inner != null && (groupKeys == null || groupKeys.fields().isEmpty()) && inner.recursive();
     }
 
-    /** Whether this source is a checked {@code tree(...)} walk rather than a plain recursive one (R-SRC-14). */
+    /**
+     * Whether this source is a checked {@code tree(...)} walk, or an ungrouped source over one (R-SRC-14, R-SRC-16).
+     * Unlike {@link #maxDepth()} and {@link #levelAlias()}, which answer for this level only ({@code 0}/{@code null}
+     * on an outer source), this answers for the chain; engine callers that need the walk's own level metadata read
+     * {@link #recursiveSource()}.
+     */
     @Incubating
     @EngineFacing
     public boolean tree() {
-        return recursion != null && recursion.tree();
+        return recursion != null
+                ? recursion.tree()
+                : inner != null && (groupKeys == null || groupKeys.fields().isEmpty()) && inner.tree();
     }
 
-    /** The CTE column alias of the level, or {@code null} for a source that does not recurse (R-SRC-07). */
+    /** Whether this level itself is registered as a {@code with recursive} CTE (R-SRC-07). */
+    boolean recurses() {
+        return recursion != null;
+    }
+
+    /** Whether this source, or any branch of a combined source, reads an inner source (R-SRC-16, R-SRC-18). */
+    boolean hasInner() {
+        return branches(this).stream().anyMatch(branch -> branch.inner != null);
+    }
+
+    /** The recursive source in this chain, or {@code null} when no level recurses (R-SRC-07, R-SRC-18). */
+    SourceQuery<?> recursiveSource() {
+        if (recursion != null) {
+            return this;
+        }
+        if (inner != null) {
+            return inner.recursiveSource();
+        }
+        if (operation != null) {
+            SourceQuery<?> left = operation.left.recursiveSource();
+            return left != null ? left : operation.right.recursiveSource();
+        }
+        return null;
+    }
+
+    /**
+     * The CTE column alias of the level on this level itself, or {@code null} when this level does not recurse
+     * (including an outer source over a recursive walk; engine callers read {@link #recursiveSource()} for the walk's
+     * level, R-SRC-07).
+     */
     String levelAlias() {
         return recursion == null ? null : alias(recursion.depth());
     }
 
-    /** The deepest level the outer query returns, the seed rows being level 0 (R-SRC-07). */
+    /**
+     * The deepest level this level itself returns, the seed rows being level 0, or {@code 0} when this level does not
+     * recurse (including an outer source over a recursive walk; engine callers read {@link #recursiveSource()} for the
+     * walk's limit, R-SRC-07).
+     */
     int maxDepth() {
         return recursion == null ? 0 : recursion.maxDepth();
+    }
+
+    /**
+     * The walk filter over {@code cte}, a root reading this recursive source's CTE: hides the extra level past
+     * {@code maxDepth} and the row that closed a cycle (RFC 0013 §5, R-SRC-08, R-SRC-18).
+     */
+    @SuppressWarnings("unchecked")
+    List<Predicate> walkGuards(CriteriaBuilder cb, Root<Tuple> cte) {
+        Expression<Integer> level = (Expression<Integer>) (Expression<?>) cte.get(levelAlias());
+        Expression<Boolean> marked = (Expression<Boolean>) (Expression<?>) cte.get(MARK_ALIAS);
+        return List.of(cb.le(level, maxDepth()), cb.isFalse(marked));
+    }
+
+    /** Aliases a recursive source's check expressions for the top statement and verifies a tree's duplicate check. */
+    static List<Selection<?>> recursionChecks(String outerModel, SourceQuery<?> recursive, RecursiveSpec spec,
+            Expression<?> depthKey, Expression<?> cycleKey, Expression<?> duplicateKey) {
+        if (spec.tree() && duplicateKey == null) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4014, outerModel + ": the source "
+                    + recursive.model().getSimpleName() + ": the persistence provider's SourceRenderer returned no "
+                    + "duplicate-key check for a tree(...) source");
+        }
+        var checks = new ArrayList<Selection<?>>(3);
+        checks.add(depthKey.alias(BuiltQuery.RECURSION_DEPTH));
+        checks.add(cycleKey.alias(BuiltQuery.RECURSION_CYCLE));
+        if (spec.tree()) {
+            checks.add(duplicateKey.alias(BuiltQuery.RECURSION_DUPLICATE_KEY));
+        }
+        return checks;
+    }
+
+    /**
+     * Registers this source and every inner source it reads on {@code top}, innermost first, and returns the handle
+     * for the next CTE body or {@code top} to select from (R-SRC-18). A recursive inner source's walk filter goes
+     * into the next CTE body's {@code WHERE}, and its checks are added to {@code checks} for {@code top} to select.
+     */
+    SourceRenderer.CteHandle register(CriteriaQuery<?> top, CriteriaBuilder cb, RenderOptions options,
+            SourceRenderer renderer, String outerModel, List<Selection<?>> checks) {
+        if (recursion != null) {
+            RecursiveSpec spec = recursiveSpec(cb, options, renderer);
+            SourceRenderer.RecursiveHandle registered = renderer.registerRecursive(top, spec);
+            checks.addAll(recursionChecks(outerModel, this, spec, registered.depthKey(), registered.cycleKey(),
+                    registered.duplicateKey()));
+            return registered.handle();
+        }
+        return renderer.register(top, body(top, cb, options, renderer, outerModel, checks));
     }
 
     /**
@@ -669,11 +762,26 @@ public final class SourceQuery<S> {
      *     join, which no join inside the CTE can express (R-SRC-03)
      */
     CriteriaQuery<Tuple> body(CriteriaBuilder cb, RenderOptions options, SourceRenderer renderer) {
+        return body(null, cb, options, renderer, model.getSimpleName(), new ArrayList<>());
+    }
+
+    private CriteriaQuery<Tuple> body(CriteriaQuery<?> top, CriteriaBuilder cb, RenderOptions options,
+            SourceRenderer renderer, String outerModel, List<Selection<?>> checks) {
         if (operation != null) {
             // The combined body: each branch's own body, combined in the order the operations were called, and
             // itself a statement the provider registers as the source (R-SRC-05, R-SRC-12).
-            return renderer.combine(cb, operation.operation, operation.left.body(cb, options, renderer),
-                    operation.right.body(cb, options, renderer));
+            return renderer.combine(cb, operation.operation,
+                    operation.left.body(top, cb, options, renderer, outerModel, checks),
+                    operation.right.body(top, cb, options, renderer, outerModel, checks));
+        }
+        if (inner != null) {
+            SourceRenderer.CteHandle handle = inner.register(
+                    Objects.requireNonNull(top, "top"), cb, options, renderer, outerModel, checks);
+            CriteriaQuery<Tuple> query = cb.createTupleQuery();
+            Root<Tuple> from = renderer.from(query, handle);
+            JoinContext joins = JoinContext.sourceOf(from, root.rootEntity(), cb, query, options);
+            List<Predicate> guards = inner.recurses() ? inner.walkGuards(cb, from) : List.of();
+            return select(query, joins, cb, renderer, null, guards);
         }
         return select(cb, options, renderer, null);
     }
@@ -733,7 +841,11 @@ public final class SourceQuery<S> {
             Expression<?> level) {
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root from = query.from(root.rootEntity());
-        JoinContext joins = JoinContext.readOf(from, cb, query, options);
+        return select(query, JoinContext.readOf(from, cb, query, options), cb, renderer, level, List.of());
+    }
+
+    private CriteriaQuery<Tuple> select(CriteriaQuery<Tuple> query, JoinContext joins, CriteriaBuilder cb,
+            SourceRenderer renderer, Expression<?> level, List<Predicate> guards) {
         List<Selection<?>> selections = new ArrayList<>(fields.fields().size());
         for (SelectField<?, ?> field : fields.fields()) {
             selections.add(expression(cb, joins, renderer, field, level).alias(alias(field)));
@@ -752,8 +864,10 @@ public final class SourceQuery<S> {
                     + "; two conditions on one joined line would match different lines, so write it as "
                     + "Filters.exists(path, inner)");
         }
-        if (!predicates.get(0).isEmpty()) {
-            query.where(predicates.get(0).toArray(Predicate[]::new));
+        if (!predicates.get(0).isEmpty() || !guards.isEmpty()) {
+            var restrictions = new ArrayList<>(predicates.get(0));
+            restrictions.addAll(guards);
+            query.where(restrictions.toArray(Predicate[]::new));
         }
         if (!predicates.get(1).isEmpty()) {
             query.having(predicates.get(1).toArray(Predicate[]::new));

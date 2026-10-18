@@ -468,17 +468,38 @@ paths; over a checked tree it counts nodes.
 The generated factory is `source(SourceQuery<X> inner)`, replacing `source()` (R-GEN-39). The ungrouped and grouped
 `SourceQuery.builder(...)` overloads take the inner source after the key or group keys. Missing or wrong-shaped
 inner sources, including through raw types or casts, are `MQ1907` at the builder/build boundary; an entity-rooted
-source given an inner is also `MQ1907`. A branch or combined source is checked by its shape, not its branch model.
-`SourceQuery` retains the immutable inner definition through every builder copy (INV-9); a chain may have any
-number of levels. A `@QueryModel` over the final source takes the built chain in its existing
-`query(SourceQuery<S>)` factory. During M27.4, building a statement over a chain refuses `MQ4014` ("chained CTEs")
-at `ModelQuery.sourceStatement()` before constructing the source body or registering a CTE, including when any
-branch of a combined source carries an inner source; rendering is M27.5.
+source given an inner, or an inner-bearing builder that also sets recursion or `shape(...)`, is also `MQ1907` at
+`build()`. A branch or combined source is checked by its shape, not its branch model. `SourceQuery` retains the
+immutable inner definition through every builder copy (INV-9); a chain may have any number of levels. A `@QueryModel`
+over the final source takes the built chain in its existing `query(SourceQuery<S>)` factory.
 
 A correlated expression anywhere in a source's field list, including inside another expression, is `MQ1908` at
 `SourceQuery.builder(...)`/`build()`. The message directs the caller to select it in an outer query. Generated
 `@Computed` constants can initialize normally: the refusal occurs when `source(...)` is called, never in the
 QModel's static initializer where it would become `ExceptionInInitializerError`.
+
+**R-SRC-18** *(D-150)* A chain registers every level on the top statement from innermost to outermost, rebuilding its
+CTE handles per statement (content, count, each key phase, each export page) with no state on `SourceQuery` or
+`ModelQuery` (R-SRC-12, INV-9). A combined inner source registers as one CTE whose body combines its branches; a branch
+that itself reads an inner source registers that inner first. Each next level builds its body as its own
+`CriteriaQuery<Tuple>` selecting from the inner CTE handle via `SourceRenderer#from(AbstractQuery<?>, CteHandle)`.
+`SourceRenderer` gains `@Incubating interface CteHandle {}`, `@Incubating record RecursiveHandle(CteHandle handle,
+Expression<?> depthKey, Expression<?> cycleKey, Expression<?> duplicateKey)`,
+`register(CriteriaQuery<?> top, CriteriaQuery<Tuple> body)`, `registerRecursive(CriteriaQuery<?> top, RecursiveSpec
+spec)` and `from(AbstractQuery<?> query, CteHandle inner)`; the three methods default to `MQ4014` ("chained CTEs"),
+leaving `cte` and `recursive` unchanged for single-level sources.
+
+In a chain over a `recursive(...)` or `tree(...)` source:
+- **The walk filter goes into the next body.** The next CTE body applies `level <= maxDepth and not mark` in its own
+  `where` before its windows and aggregates, so a window never ranks a row past `maxDepth` or on a cycle.
+- **Checks stay in the top statement.** The depth, cycle and duplicate-key checks (R-SRC-08, R-SRC-15) are scalar
+  sub-selects over the inner recursive CTE returned on `RecursiveHandle` and placed in the top statement of every
+  statement kind. R-SRC-14's "no row, no check" applies: `list`, `page` and every other row-returning statement whose
+  outer or intermediate `having` drops every row returns empty with no check; a statement that always returns a row (an
+  ungrouped `count`) still raises, because its checks read the inner CTE.
+- **Key predicates stay in the top statement.** `byKeys`' `IN`, the keyset cursor, `primaryKeyFirst`'s step 2 and
+  `one(q, key)` apply only to the top statement, never inside a CTE body with a window or aggregate, so ranks and
+  counts are computed over the full source.
 
 ## 9. Acceptance criteria
 
@@ -514,5 +535,6 @@ QModel's static initializer where it would become `ExceptionInInitializerError`.
 | AC-SRC-28 | A source over a union shape compiles and builds with the combined source or a branch of that shape; inner validation compares the shape rather than the branch model (R-SRC-16). |
 | AC-SRC-29 | A source over a recursive walk compiles and builds; an ungrouped definition inherits non-uniqueness and refuses keyset and primary-key-first with `MQ1901`, while a grouped definition is unique (R-SRC-16, R-SRC-09). |
 | AC-SRC-30 | A source over a checked tree compiles and builds, retaining uniqueness (R-SRC-16). |
-| AC-SRC-31 | Three source levels compile and build through generated factories. Until chain rendering lands in M27.5, every outer query phase refuses `MQ4014` ("chained CTEs") before any source body, CTE registration or statement (R-SRC-16). |
+| AC-SRC-31 | Three source levels compile, build and execute through generated factories; a `SourceRenderer` without `register`/`registerRecursive`/`from` refuses `MQ4014` ("chained CTEs") before any statement (R-SRC-16, R-SRC-18). |
+| AC-SRC-32 | In a chain's statement on every statement kind, the walk filter (`level <= maxDepth and not mark`) runs inside the next CTE body before its windows and aggregates (so a window never ranks a row past `maxDepth` or on a cycle), depth/cycle/duplicate-key checks live in the top statement over the inner CTE (`list`, `page` and every other row-returning statement whose outer or intermediate `having` drops every row returns empty with no check, while an ungrouped `count` still raises because its checks read the inner CTE), and key predicates (`byKeys`, keyset cursor, `primaryKeyFirst` step 2, `one(q, key)`) apply only to the top statement so ranks and counts are computed over the full source (R-SRC-18). |
 | AC-SRC-37 | Direct and nested correlated expressions in source fields are `MQ1908` at the builder boundary; a generated QModel with such a `@Computed` initializes successfully and refuses only when `source(...)` is called (R-SRC-16). |

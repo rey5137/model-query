@@ -72,6 +72,7 @@ import jakarta.persistence.Query;
 import jakarta.persistence.QueryTimeoutException;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.TypedQuery;
+import jakarta.persistence.criteria.AbstractQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.CriteriaUpdate;
@@ -287,16 +288,42 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return options.withSourceRenderer(new SourceRenderer() {
             @Override
             public Root<Tuple> cte(CriteriaQuery<?> outer, CriteriaQuery<Tuple> body) {
+                requireCte();
+                return renderer.cte(outer, body);
+            }
+
+            @Override
+            public CteHandle register(CriteriaQuery<?> top, CriteriaQuery<Tuple> body) {
+                requireCte();
+                return renderer.register(top, body);
+            }
+
+            @Override
+            public RecursiveCte recursive(CriteriaQuery<?> outer, RecursiveSpec spec) {
+                requireRecursive(spec);
+                return renderer.recursive(outer, spec);
+            }
+
+            @Override
+            public RecursiveHandle registerRecursive(CriteriaQuery<?> top, RecursiveSpec spec) {
+                requireRecursive(spec);
+                return renderer.registerRecursive(top, spec);
+            }
+
+            @Override
+            public Root<Tuple> from(AbstractQuery<?> query, CteHandle inner) {
+                return renderer.from(query, inner);
+            }
+
+            private void requireCte() {
                 if (!vendor.profile().sources(SourceFeature.CTE)) {
                     throw new ModelQueryConfigurationException(MqCode.MQ4015, rootEntity.getSimpleName()
                             + ": this query reads a source, and " + vendor.detectedVendor()
                             + " has no CTE support (VendorProfile#sources(SourceFeature.CTE))");
                 }
-                return renderer.cte(outer, body);
             }
 
-            @Override
-            public RecursiveCte recursive(CriteriaQuery<?> outer, RecursiveSpec spec) {
+            private void requireRecursive(RecursiveSpec spec) {
                 if (!vendor.profile().sources(SourceFeature.RECURSIVE)) {
                     throw new ModelQueryConfigurationException(MqCode.MQ4015, rootEntity.getSimpleName()
                             + ": this source recurses, and " + vendor.detectedVendor()
@@ -323,7 +350,6 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                             + vendor.detectedVendor() + " allows " + ceiling
                             + " (VendorProfile#maxRecursionDepth()); lower maxDepth or target another vendor");
                 }
-                return renderer.recursive(outer, spec);
             }
 
             @Override

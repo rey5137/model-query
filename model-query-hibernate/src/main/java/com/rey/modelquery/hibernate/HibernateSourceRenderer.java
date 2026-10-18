@@ -7,6 +7,7 @@ import com.rey.modelquery.core.SetOperation;
 import com.rey.modelquery.core.SourceRenderer;
 import com.rey.modelquery.core.WindowSpec;
 import jakarta.persistence.Tuple;
+import jakarta.persistence.criteria.AbstractQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
@@ -20,14 +21,15 @@ import org.hibernate.query.criteria.JpaCriteriaQuery;
 import org.hibernate.query.criteria.JpaCteCriteria;
 import org.hibernate.query.criteria.JpaCteCriteriaAttribute;
 import org.hibernate.query.criteria.JpaRoot;
+import org.hibernate.query.criteria.JpaSelectCriteria;
 import org.hibernate.query.criteria.JpaSubQuery;
 import org.hibernate.query.criteria.JpaWindow;
 
 /**
  * Hibernate's {@link SourceRenderer}: {@code JpaCriteriaQuery#with} registers the source's body as the statement's
- * common table expression and {@code JpaCriteriaQuery#from(JpaCteCriteria)} reads it, identical on Hibernate 6.6 and
- * 7.4 (R-SRC-12, D-143). The CTE is registered on each statement {@code jpa} builds over a source, so the call is
- * per statement and carries no state.
+ * common table expression and {@code JpaSelectCriteria#from(JpaCteCriteria)} reads it, identical on Hibernate 6.6 and
+ * 7.4 (R-SRC-12, R-SRC-18, D-143, D-150). Every CTE in a chain is registered on the top statement and carries no
+ * cross-statement state.
  *
  * <p>A window is {@code createWindow()} with the partition, order and frame terms, handed to a function: the typed
  * {@code rowNumber}, {@code rank}, {@code denseRank}, {@code sum} and {@code firstValue} carry the function's result
@@ -38,30 +40,53 @@ final class HibernateSourceRenderer implements SourceRenderer {
 
     static final HibernateSourceRenderer INSTANCE = new HibernateSourceRenderer();
 
+    private record HibernateCteHandle(JpaCteCriteria<Tuple> cte) implements CteHandle {}
+
     private HibernateSourceRenderer() {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public Root<Tuple> cte(CriteriaQuery<?> outer, CriteriaQuery<Tuple> body) {
-        // jpa builds the outer statement with the provider's own CriteriaBuilder, so it is Hibernate's query type.
-        JpaCriteriaQuery<Tuple> query = (JpaCriteriaQuery<Tuple>) outer;
-        JpaCteCriteria<Tuple> cte = query.with(body);
-        return query.from(cte);
+        return from(outer, register(outer, body));
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public CteHandle register(CriteriaQuery<?> top, CriteriaQuery<Tuple> body) {
+        // jpa builds the top statement with the provider's own CriteriaBuilder, so it is Hibernate's query type.
+        JpaCriteriaQuery<Tuple> query = (JpaCriteriaQuery<Tuple>) top;
+        return new HibernateCteHandle(query.with(body));
     }
 
     @Override
     public RecursiveCte recursive(CriteriaQuery<?> outer, RecursiveSpec spec) {
-        return recursive((JpaCriteriaQuery<Tuple>) outer, spec);
+        RecursiveHandle registered = registerRecursive(outer, spec);
+        return new RecursiveCte(from(outer, registered.handle()), registered.depthKey(), registered.cycleKey(),
+                registered.duplicateKey());
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public RecursiveHandle registerRecursive(CriteriaQuery<?> top, RecursiveSpec spec) {
+        return registerRecursive((JpaCriteriaQuery<Tuple>) top, spec);
+    }
+
+    @Override
+    public Root<Tuple> from(AbstractQuery<?> query, CteHandle inner) {
+        if (!(inner instanceof HibernateCteHandle handle)) {
+            throw new IllegalArgumentException("Expected a Hibernate CteHandle, got: " + inner);
+        }
+        return ((JpaSelectCriteria<?>) query).from(handle.cte());
     }
 
     /**
      * The recursive CTE of {@code query}, registered as {@code with recursive} over {@code spec}'s seed and term,
      * with the cycle clause marking the row that closes a cycle, and the checks as scalar sub-selects over the
-     * same CTE (R-SRC-07). Everything here is identical on Hibernate 6.6 and 7.4 (RFC 0013 spike, items 3 and 10).
+     * same CTE (R-SRC-07, R-SRC-18). Everything here is identical on Hibernate 6.6 and 7.4 (RFC 0013 spike, items 3
+     * and 10; RFC 0015 probe 6).
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private RecursiveCte recursive(JpaCriteriaQuery<Tuple> query, RecursiveSpec spec) {
+    private RecursiveHandle registerRecursive(JpaCriteriaQuery<Tuple> query, RecursiveSpec spec) {
         HibernateCriteriaBuilder cb = (HibernateCriteriaBuilder) spec.cb();
         JpaCteCriteria<Tuple> cte = query.withRecursiveUnionAll((JpaCriteriaQuery<Tuple>) spec.seed(), criteria -> {
             JpaCriteriaQuery<Tuple> term = (JpaCriteriaQuery<Tuple>) spec.cb().createTupleQuery();
@@ -92,7 +117,7 @@ final class HibernateSourceRenderer implements SourceRenderer {
             duplicate.fetch(1);
             duplicateKey = duplicate;
         }
-        return new RecursiveCte(query.from(cte), depthKey, cycleKey, duplicateKey);
+        return new RecursiveHandle(new HibernateCteHandle(cte), depthKey, cycleKey, duplicateKey);
     }
 
     /** {@code sub} selecting the smallest key of the CTE rows {@code where} matches, as the sub-query itself. */

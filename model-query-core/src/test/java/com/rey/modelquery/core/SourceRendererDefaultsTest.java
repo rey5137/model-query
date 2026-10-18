@@ -20,14 +20,18 @@ class SourceRendererDefaultsTest {
 
     @Test
     void ac_src_16_window_combine_and_recursive_default_to_mq4014() {
-        assertMq4014(() -> CTE_ONLY.window(null, null));
-        assertMq4014(() -> CTE_ONLY.combine(null, SetOperation.UNION, null, null));
-        assertMq4014(() -> CTE_ONLY.recursive(null, null));
+        assertMq4014(() -> CTE_ONLY.window(null, null), "window functions");
+        assertMq4014(() -> CTE_ONLY.combine(null, SetOperation.UNION, null, null), "set operations");
+        assertMq4014(() -> CTE_ONLY.recursive(null, null), "recursive CTEs");
+        assertMq4014(() -> CTE_ONLY.register(null, null), "chained CTEs");
+        assertMq4014(() -> CTE_ONLY.registerRecursive(null, null), "chained CTEs");
+        assertMq4014(() -> CTE_ONLY.from(null, null), "chained CTEs");
     }
 
-    private static void assertMq4014(Runnable call) {
+    private static void assertMq4014(Runnable call, String feature) {
         Throwable thrown = catchThrowable(call::run);
-        assertThat(thrown).isInstanceOf(ModelQueryConfigurationException.class);
+        assertThat(thrown).isInstanceOf(ModelQueryConfigurationException.class)
+                .hasMessageContaining(feature);
         assertThat(((ModelQueryConfigurationException) thrown).code()).isEqualTo(MqCode.MQ4014);
     }
 }
