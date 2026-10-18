@@ -536,13 +536,14 @@ public final class ModelQuery<E, K, M> {
     }
 
     /**
-     * The joins of {@code query}, a statement over {@link #source}: the source's CTE is registered on it first, so
-     * every statement this query builds over the source carries it (R-SRC-12), and the outer columns read the CTE's
-     * field-named elements (R-SRC-10).
+     * The joins of {@code query}, a statement over {@link #source}: every CTE in the source chain is registered on it
+     * first, innermost first, so every statement this query builds over the source carries it (R-SRC-12, R-SRC-18),
+     * and the outer columns read the outermost CTE's field-named elements (R-SRC-10).
      *
-     * <p>A recursive source is registered as {@code with recursive} instead, and its statement reads neither the
-     * extra level nor a marked row: it filters on {@code level <= maxDepth and not mark} and carries the checks
-     * whose first row {@code jpa} reads (R-SRC-07, R-SRC-14).
+     * <p>A recursive source is registered as {@code with recursive} instead; its walk filter
+     * ({@code level <= maxDepth and not mark}) goes into the next CTE body in a chain or into {@code query} when it
+     * is the sole level, while its depth, cycle and duplicate-key checks stay in {@code query}'s selection (R-SRC-07,
+     * R-SRC-14, R-SRC-18).
      *
      * @throws ModelQueryConfigurationException {@code MQ4014} when no {@link SourceRenderer} is configured, which is
      *     the factory's provider having no source support, chained CTEs, or no duplicate-key check for a tree source
@@ -553,35 +554,25 @@ public final class ModelQuery<E, K, M> {
                         + ": this query reads the source " + source.model().getSimpleName()
                         + ", and the factory's persistence provider has no SourceRenderer "
                         + "(ProviderSupport#sources()); model-query-hibernate serves Hibernate"));
-        if (SourceQuery.branches(source).stream().anyMatch(branch -> branch.inner() != null)) {
-            throw new ModelQueryConfigurationException(MqCode.MQ4014, modelName()
-                    + ": chained CTEs are not supported yet");
+        if (source.hasInner()) {
+            var checks = new ArrayList<Selection<?>>();
+            SourceRenderer.CteHandle handle = source.register(query, cb, options, renderer, modelName(), checks);
+            JoinContext joins = JoinContext.sourceOf(
+                    renderer.from(query, handle), source.model(), cb, query, options);
+            return new SourceStatement(joins, List.of(), checks);
         }
-        if (!source.recursive()) {
+        if (!source.recurses()) {
             return new SourceStatement(JoinContext.sourceOf(renderer.cte(query, source.body(cb, options, renderer)),
                     source.model(), cb, query, options), List.of(), List.of());
         }
         RecursiveSpec spec = source.recursiveSpec(cb, options, renderer);
         RecursiveCte cte = renderer.recursive(query, spec);
-        if (spec.tree() && cte.duplicateKey() == null) {
-            throw new ModelQueryConfigurationException(MqCode.MQ4014, modelName() + ": the source "
-                    + source.model().getSimpleName() + ": the persistence provider's SourceRenderer returned no "
-                    + "duplicate-key check for a tree(...) source");
-        }
+        List<Selection<?>> checks = SourceQuery.recursionChecks(
+                modelName(), source, spec, cte.depthKey(), cte.cycleKey(), cte.duplicateKey());
         JoinContext joins = JoinContext.sourceOf(cte.root(), source.model(), cb, query, options);
         // The extra level the recursion produced and the row that closed a cycle are both hidden here, in the same
         // statement that produced them (RFC 0013 §5, R-SRC-07).
-        @SuppressWarnings("unchecked")
-        Expression<Integer> level = (Expression<Integer>) (Expression<?>) cte.root().get(source.levelAlias());
-        @SuppressWarnings("unchecked")
-        Expression<Boolean> marked = (Expression<Boolean>) (Expression<?>) cte.root().get(SourceQuery.MARK_ALIAS);
-        var checks = new ArrayList<Selection<?>>();
-        checks.add(cte.depthKey().alias(BuiltQuery.RECURSION_DEPTH));
-        checks.add(cte.cycleKey().alias(BuiltQuery.RECURSION_CYCLE));
-        if (spec.tree()) {
-            checks.add(cte.duplicateKey().alias(BuiltQuery.RECURSION_DUPLICATE_KEY));
-        }
-        return new SourceStatement(joins, List.of(cb.le(level, source.maxDepth()), cb.isFalse(marked)), checks);
+        return new SourceStatement(joins, source.walkGuards(cb, cte.root()), checks);
     }
 
     /** What {@link #sourceStatement} adds to a statement: the joins, the recursive guards, and its checks. */
@@ -649,9 +640,11 @@ public final class ModelQuery<E, K, M> {
         if (!predicates.get(1).isEmpty()) {
             query.having(predicates.get(1).toArray(Predicate[]::new));
         }
+        SourceQuery<?> recursive = source == null ? null : source.recursiveSource();
+        SourceQuery<?> keyed = recursive != null ? recursive : source;
         return new BuiltQuery<>(query, joins, selection, mapping, parentKey, checks,
-                source == null ? 0 : source.maxDepth(),
-                source == null ? List.of() : source.key().columns().stream().map(ColumnField::name).toList());
+                recursive == null ? 0 : recursive.maxDepth(),
+                keyed == null ? List.of() : keyed.key().columns().stream().map(ColumnField::name).toList());
     }
 
     /**

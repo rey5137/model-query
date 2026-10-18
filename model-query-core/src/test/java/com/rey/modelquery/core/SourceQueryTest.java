@@ -3,11 +3,22 @@ package com.rey.modelquery.core;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+import jakarta.persistence.Tuple;
+import jakarta.persistence.criteria.AbstractQuery;
+import jakarta.persistence.criteria.CompoundSelection;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Path;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Selection;
 import java.lang.reflect.Proxy;
+import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -261,7 +272,7 @@ class SourceQueryTest {
     void ac_src_26_inner_source_survives_builder_copies_without_mutating_the_base() {
         var inner = source();
         var base = SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL, O_KEY, inner);
-        var filtered = base.where(f -> f.eq(O_STATUS, "PAID")).shape(Outer.class).build();
+        var filtered = base.where(f -> f.eq(O_STATUS, "PAID")).build();
 
         assertThat(base.build().inner()).isSameAs(inner);
         assertThat(base.build().where()).isEmpty();
@@ -272,27 +283,34 @@ class SourceQueryTest {
     }
 
     @Test
-    void ac_src_31_chained_ctes_are_mq4014_before_building_any_body_or_statement() {
+    void ac_src_31_chained_ctes_are_mq4014_when_the_renderer_does_not_implement_the_chain_spi() {
         var chain = SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL, O_KEY, source()).build();
+        var depth = ColumnField.of(Source.class, ENTITY_ROOT, "level", Integer.class).named("level");
+        var parent = ColumnField.of(Source.class, ENTITY_ROOT, "parentId", Long.class).named("parentId");
+        var walk = SourceQuery.builder(Source.class, ENTITY_ROOT, S_ALL.with(depth), S_KEY).depth(depth)
+                .recursive(step -> step.childKey(parent).parentKey(S_ID), 4).build();
+        var walkChain = SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL, O_KEY, walk).build();
         var root = TableField.source(Outer.class);
-        var id = ColumnField.over(OtherSource.class, root, O_ID);
-        var criteria = Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[] {CriteriaQuery.class},
-                (proxy, method, args) -> {
-                    throw new AssertionError("Unexpected statement: " + method);
-                });
-        var cb = (CriteriaBuilder) Proxy.newProxyInstance(getClass().getClassLoader(),
-                new Class<?>[] {CriteriaBuilder.class}, (proxy, method, args) -> {
-                    if (method.getName().equals("createTupleQuery")) {
-                        return criteria;
-                    }
-                    throw new AssertionError("Unexpected source body: " + method);
-                });
-        var options = RenderOptions.portable().withSourceRenderer((outer, body) -> {
-            throw new AssertionError("Unexpected CTE registration");
+        var id = ColumnField.over(OtherSource.class, root, O_ID).named("id");
+        var cb = criteria();
+        var options = RenderOptions.portable().withSourceRenderer(new SourceRenderer() {
+            @Override
+            public Root<Tuple> cte(CriteriaQuery<?> outer, CriteriaQuery<Tuple> body) {
+                throw new AssertionError("Unexpected single-level cte");
+            }
+
+            @Override
+            public CriteriaQuery<Tuple> combine(CriteriaBuilder builder, SetOperation op, CriteriaQuery<Tuple> left,
+                    CriteriaQuery<Tuple> right) {
+                return left;
+            }
         });
 
-        var plain = SourceQuery.builder(Outer.class, TableField.root(Entity.class), O_ALL, O_KEY).build();
-        for (var definition : List.of(chain, chain.union(chain), plain.union(chain), chain.union(plain),
+        var plainId = ColumnField.of(Outer.class, ENTITY_ROOT, "id", Long.class).named("id");
+        var plainStatus = ColumnField.of(Outer.class, ENTITY_ROOT, "status", String.class).named("status");
+        var plain = SourceQuery.builder(
+                Outer.class, ENTITY_ROOT, SelectSet.of(plainId, plainStatus), PrimaryKey.of(plainId)).build();
+        for (var definition : List.of(chain, walkChain, chain.union(chain), plain.union(chain), chain.union(plain),
                 plain.unionAll(chain), chain.unionAll(plain), chain.intersect(plain), plain.intersect(chain),
                 chain.except(plain), plain.except(chain), plain.union(chain).intersect(plain),
                 plain.union(plain.union(chain)))) {
@@ -305,6 +323,78 @@ class SourceQueryTest {
                 assertThat(((ModelQueryConfigurationException) thrown).code()).isEqualTo(MqCode.MQ4014);
             }
         }
+    }
+
+    @Test
+    void ac_src_31_and_32_a_chain_registers_every_level_on_top_and_places_walk_guards_in_the_next_body() {
+        var outerRoot = TableField.source(Outer.class);
+        var otherId = ColumnField.over(OtherSource.class, outerRoot, O_ID).named("id");
+        var otherStatus = ColumnField.over(OtherSource.class, outerRoot, O_STATUS).named("status");
+        var otherAll = SelectSet.of(otherId, otherStatus);
+        var otherKey = PrimaryKey.of(otherId);
+        var topRoot = TableField.source(OtherSource.class);
+        var topId = ColumnField.over(Entity.class, topRoot, otherId).named("id");
+
+        // 3-level plain chain: Source -> Outer -> OtherSource
+        var level1 = source();
+        var level2 = SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL, O_KEY, level1).build();
+        var level3 = SourceQuery.builder(OtherSource.class, outerRoot, otherAll, otherKey, level2).build();
+        var threeLevelQuery = ModelQuery.builder(topRoot, row -> new Entity(), level3)
+                .select(SelectSet.of(topId)).primaryKey(PrimaryKey.of(topId)).build();
+        for (Phase phase : Phase.values()) {
+            var recorder = new ChainRecorder(true);
+            BuiltQuery<Entity> built = threeLevelQuery.buildQuery(
+                    criteria(), phase, RenderOptions.portable().withSourceRenderer(recorder));
+            assertThat(recorder.registeredTops).containsOnly(built.query());
+            assertThat(recorder.registeredHandles).hasSize(3);
+            assertThat(recorder.fromCalls.get(recorder.registeredBodies.get(1)))
+                    .isSameAs(recorder.registeredHandles.get(0));
+            assertThat(recorder.fromCalls.get(recorder.registeredBodies.get(2)))
+                    .isSameAs(recorder.registeredHandles.get(1));
+            assertThat(recorder.fromCalls.get(built.query()))
+                    .isSameAs(recorder.registeredHandles.get(2));
+            assertThat(built.recursionChecks()).isEmpty();
+        }
+
+        // Union shape as inner: combined branches register as the inner CTE on top
+        var combined = source().unionAll(source());
+        var overUnion = SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL, O_KEY, combined).build();
+        var unionRecorder = new ChainRecorder(true);
+        BuiltQuery<OtherSource> builtUnion = ModelQuery.builder(outerRoot, row -> new OtherSource(), overUnion)
+                .select(SelectSet.of(otherId)).primaryKey(PrimaryKey.of(otherId)).build()
+                .buildQuery(criteria(), Phase.MODEL, RenderOptions.portable().withSourceRenderer(unionRecorder));
+        assertThat(unionRecorder.combinedCount).isEqualTo(1);
+        assertThat(unionRecorder.registeredHandles).hasSize(2);
+        assertThat(unionRecorder.registeredTops).containsOnly(builtUnion.query());
+
+        // 3-level chain over a tree: walk filter goes into level 2's body, checks stay in the top statement
+        var depth = ColumnField.of(Source.class, ENTITY_ROOT, "level", Integer.class).named("level");
+        var parent = ColumnField.of(Source.class, ENTITY_ROOT, "parentId", Long.class).named("parentId");
+        var tree = SourceQuery.builder(Source.class, ENTITY_ROOT, S_ALL.with(depth), S_KEY).depth(depth)
+                .tree(step -> step.childKey(parent).parentKey(S_ID), 4).build();
+        var overTree = SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL, O_KEY, tree).build();
+        var topOverTree = SourceQuery.builder(OtherSource.class, outerRoot, otherAll, otherKey, overTree).build();
+        var treeQuery = ModelQuery.builder(topRoot, row -> new Entity(), topOverTree)
+                .select(SelectSet.of(topId)).primaryKey(PrimaryKey.of(topId)).build();
+        var treeRecorder = new ChainRecorder(true);
+        BuiltQuery<Entity> builtTree = treeQuery.buildQuery(
+                criteria(), Phase.MODEL, RenderOptions.portable().withSourceRenderer(treeRecorder));
+        assertThat(treeRecorder.registeredTops).containsOnly(builtTree.query());
+        assertThat(treeRecorder.registeredHandles).hasSize(3);
+        assertThat(wherePredicates.get(treeRecorder.registeredBodies.get(1))).hasSize(2);
+        assertThat(wherePredicates.get(treeRecorder.registeredBodies.get(2))).isNull();
+        assertThat(wherePredicates.get(builtTree.query())).isNull();
+        assertThat(builtTree.recursionChecks()).extracting(Selection::getAlias).containsExactly(
+                BuiltQuery.RECURSION_DEPTH, BuiltQuery.RECURSION_CYCLE, BuiltQuery.RECURSION_DUPLICATE_KEY);
+        assertThat(builtTree.sourceMaxDepth()).isEqualTo(4);
+        assertThat(builtTree.sourceKeyColumns()).containsExactly("id");
+
+        // Missing duplicate check on an inner tree is MQ4014
+        Throwable noDup = catchThrowable(() -> treeQuery.buildQuery(
+                criteria(), Phase.MODEL, RenderOptions.portable().withSourceRenderer(new ChainRecorder(false))));
+        assertThat(noDup).isInstanceOf(ModelQueryConfigurationException.class)
+                .hasMessageContaining("duplicate-key check");
+        assertThat(((ModelQueryConfigurationException) noDup).code()).isEqualTo(MqCode.MQ4014);
     }
 
     @Test
@@ -322,6 +412,22 @@ class SourceQueryTest {
                 .isEqualTo(MqCode.MQ1907);
         assertThat(code(() -> SourceQuery.builder(Source.class, ENTITY_ROOT, S_ALL, S_KEY,
                 S_GROUP_KEYS, entitySource())).code()).isEqualTo(MqCode.MQ1907);
+        var depth = ColumnField.of(Source.class, ENTITY_ROOT, "level", Integer.class).named("level");
+        var oDepth = ColumnField.over(Outer.class, SOURCE_ROOT, depth).named("level");
+        var withDepth = SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL.with(oDepth), O_KEY, source())
+                .depth(oDepth);
+        assertThat(code(withDepth::build)).hasMessageContaining("Outer: a source over Source cannot be recursive")
+                .extracting(ModelQueryDefinitionException::code).isEqualTo(MqCode.MQ1907);
+        assertThat(code(() -> withDepth.recursive(step -> step.childKey(O_ID).parentKey(O_ID), 3).build()))
+                .hasMessageContaining("Outer: a source over Source cannot be recursive")
+                .extracting(ModelQueryDefinitionException::code).isEqualTo(MqCode.MQ1907);
+        assertThat(code(() -> withDepth.tree(step -> step.childKey(O_ID).parentKey(O_ID), 3).build()))
+                .hasMessageContaining("Outer: a source over Source cannot be recursive")
+                .extracting(ModelQueryDefinitionException::code).isEqualTo(MqCode.MQ1907);
+        assertThat(code(() -> SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL, O_KEY, source())
+                .shape(OtherSource.class).build()))
+                .hasMessageContaining("Outer: a source over Source cannot be a branch")
+                .extracting(ModelQueryDefinitionException::code).isEqualTo(MqCode.MQ1907);
     }
 
     @Test
@@ -355,7 +461,8 @@ class SourceQueryTest {
         var id = ColumnField.over(OtherSource.class, root, O_ID).named("id");
         var query = ModelQuery.builder(root, row -> new OtherSource(), derived).select(SelectSet.of(id))
                 .primaryKey(PrimaryKey.of(id));
-        assertThat(code(() -> query.keyset().build()).code()).isEqualTo(MqCode.MQ1901);
+        assertThat(code(() -> query.keyset().build())).hasMessageContaining("tree(...)").extracting(
+                ModelQueryDefinitionException::code).isEqualTo(MqCode.MQ1901);
         assertThat(code(() -> query.primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(1)).build()).code())
                 .isEqualTo(MqCode.MQ1901);
         assertThat(ModelQuery.builder(root, row -> new OtherSource(), grouped).select(SelectSet.of(id))
@@ -376,5 +483,125 @@ class SourceQueryTest {
                 (f, outer) -> f.compare(E_ID, Op.EQ, outer.column(O_ID)));
         assertThat(code(() -> SourceQuery.builder(Outer.class, SOURCE_ROOT, O_ALL.with(outerCorrelated), O_KEY,
                 source())).code()).isEqualTo(MqCode.MQ1908);
+    }
+
+    private final Map<CriteriaQuery<?>, List<Predicate>> wherePredicates = new IdentityHashMap<>();
+
+    private static final class ChainRecorder implements SourceRenderer {
+
+        private final boolean duplicateCheck;
+        private final List<CriteriaQuery<?>> registeredTops = new ArrayList<>();
+        private final List<CriteriaQuery<Tuple>> registeredBodies = new ArrayList<>();
+        private final List<CteHandle> registeredHandles = new ArrayList<>();
+        private final Map<AbstractQuery<?>, CteHandle> fromCalls = new IdentityHashMap<>();
+        private int combinedCount;
+
+        private ChainRecorder(boolean duplicateCheck) {
+            this.duplicateCheck = duplicateCheck;
+        }
+
+        @Override
+        public Root<Tuple> cte(CriteriaQuery<?> outer, CriteriaQuery<Tuple> body) {
+            throw new AssertionError("a chain must register levels via register/from, not single-level cte");
+        }
+
+        @Override
+        public CteHandle register(CriteriaQuery<?> top, CriteriaQuery<Tuple> body) {
+            registeredTops.add(top);
+            registeredBodies.add(body);
+            CteHandle handle = new CteHandle() {};
+            registeredHandles.add(handle);
+            return handle;
+        }
+
+        @Override
+        public RecursiveHandle registerRecursive(CriteriaQuery<?> top, RecursiveSpec spec) {
+            registeredTops.add(top);
+            registeredBodies.add(spec.seed());
+            CteHandle handle = new CteHandle() {};
+            registeredHandles.add(handle);
+            Expression<?> depth = expression(Expression.class, Long.class);
+            Expression<?> cycle = expression(Expression.class, Long.class);
+            Expression<?> dup = duplicateCheck ? expression(Expression.class, Long.class) : null;
+            return new RecursiveHandle(handle, depth, cycle, dup);
+        }
+
+        @Override
+        public Root<Tuple> from(AbstractQuery<?> query, CteHandle inner) {
+            fromCalls.put(query, inner);
+            return expression(Root.class, Tuple.class);
+        }
+
+        @Override
+        public CriteriaQuery<Tuple> combine(CriteriaBuilder cb, SetOperation operation, CriteriaQuery<Tuple> left,
+                CriteriaQuery<Tuple> right) {
+            combinedCount++;
+            return left;
+        }
+    }
+
+    private CriteriaBuilder criteria() {
+        return (CriteriaBuilder) Proxy.newProxyInstance(CriteriaBuilder.class.getClassLoader(),
+                new Class<?>[] {CriteriaBuilder.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "createTupleQuery" -> criteriaQuery();
+                    case "literal" -> expression(Expression.class, args[0].getClass());
+                    case "le", "isFalse" -> expression(Predicate.class, Boolean.class);
+                    default -> throw new AssertionError(method.getName());
+                });
+    }
+
+    @SuppressWarnings("unchecked")
+    private CriteriaQuery<Tuple> criteriaQuery() {
+        var selected = new ArrayList<Selection<?>>();
+        CompoundSelection<Tuple> selection = (CompoundSelection<Tuple>) Proxy.newProxyInstance(
+                CompoundSelection.class.getClassLoader(), new Class<?>[] {CompoundSelection.class},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "isCompoundSelection" -> true;
+                    case "getCompoundSelectionItems" -> List.copyOf(selected);
+                    default -> throw new AssertionError(method.getName());
+                });
+        return (CriteriaQuery<Tuple>) Proxy.newProxyInstance(CriteriaQuery.class.getClassLoader(),
+                new Class<?>[] {CriteriaQuery.class}, (proxy, method, args) -> switch (method.getName()) {
+                    case "from" -> expression(Root.class, Entity.class);
+                    case "multiselect" -> {
+                        selected.clear();
+                        selected.addAll(args[0] instanceof List<?> list
+                                ? (List<Selection<?>>) list : List.of((Selection<?>[]) args[0]));
+                        yield proxy;
+                    }
+                    case "getSelection" -> selection;
+                    case "getOrderList", "getGroupList" -> List.of();
+                    case "isDistinct" -> false;
+                    case "where" -> {
+                        wherePredicates.put((CriteriaQuery<?>) proxy, List.of((Predicate[]) args[0]));
+                        yield proxy;
+                    }
+                    case "equals" -> proxy == args[0];
+                    case "hashCode" -> System.identityHashCode(proxy);
+                    case "toString" -> "CriteriaQuery";
+                    default -> throw new AssertionError(method.getName());
+                });
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T expression(Class<T> type, Class<?> javaType) {
+        String[] alias = {null};
+        return (T) Proxy.newProxyInstance(type.getClassLoader(), new Class<?>[] {type},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "getJavaType" -> javaType;
+                    case "getModel" -> null;
+                    case "get" -> expression(Path.class,
+                            args[0].toString().contains("level") ? Integer.class
+                                    : args[0].toString().contains("status") ? String.class : Long.class);
+                    case "alias" -> {
+                        alias[0] = (String) args[0];
+                        yield proxy;
+                    }
+                    case "getAlias" -> alias[0];
+                    case "equals" -> proxy == args[0];
+                    case "hashCode" -> System.identityHashCode(proxy);
+                    case "toString" -> type.getSimpleName();
+                    default -> throw new AssertionError(method.getName());
+                });
     }
 }

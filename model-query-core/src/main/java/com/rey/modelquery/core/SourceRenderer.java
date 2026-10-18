@@ -2,6 +2,7 @@ package com.rey.modelquery.core;
 
 import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.Tuple;
+import jakarta.persistence.criteria.AbstractQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
@@ -17,20 +18,53 @@ import jakarta.persistence.criteria.Root;
  * statement it builds over a source, so a statement never reaches the database without its CTE registered (R-SRC-12).
  * A query over a source with no renderer is {@code MQ4014}, raised at build time, before any statement.
  *
- * <p>{@link #cte} is the one method a provider must implement; {@link #recursive}, {@link #window} and {@link #combine}
- * default to {@code MQ4014}, so a provider can ship CTE support only.
+ * <p>{@link #cte} is the one method a provider must implement; {@link #recursive}, {@link #window}, {@link #combine},
+ * {@link #register}, {@link #registerRecursive} and {@link #from} default to {@code MQ4014}, so a provider can ship
+ * single-level plain CTE support only.
  *
- * @implSpec R-SRC-10, R-SRC-12, R-SRC-04, INV-7
+ * @implSpec R-SRC-10, R-SRC-12, R-SRC-18, R-SRC-04, INV-7
  */
 @EngineFacing
 @Incubating
 public interface SourceRenderer {
 
     /**
+     * An opaque handle to a CTE registered on one top statement, for the next CTE body in the chain or the top
+     * statement to read through {@link #from} (R-SRC-18, D-150).
+     */
+    @EngineFacing
+    @Incubating
+    interface CteHandle {}
+
+    /**
+     * A recursive source's CTE once registered on the top statement (R-SRC-18, D-150): its {@link CteHandle}, for the
+     * next CTE body to read through {@link #from}, and the check expressions the top statement selects (R-SRC-08,
+     * R-SRC-14).
+     *
+     * @param handle the registered recursive CTE
+     * @param depthKey the smallest key of the rows past {@code maxDepth}, or {@code null} for none
+     * @param cycleKey the smallest key of the marked rows, or {@code null} for none
+     * @param duplicateKey the duplicate-key check, or {@code null} when the renderer supplies none
+     */
+    @EngineFacing
+    @Incubating
+    record RecursiveHandle(CteHandle handle, Expression<?> depthKey, Expression<?> cycleKey,
+            Expression<?> duplicateKey) {}
+
+    /**
      * Registers {@code body} as the CTE of {@code outer} and returns the root whose columns the outer statement reads
      * by the source field names, each a {@link Tuple} element aliased to that name (R-SRC-12).
      */
     Root<Tuple> cte(CriteriaQuery<?> outer, CriteriaQuery<Tuple> body);
+
+    /**
+     * Registers {@code body} as a CTE on {@code top} without adding it to {@code top}'s {@code FROM} clause, returning
+     * a handle that the next CTE body or {@code top} reads through {@link #from} (R-SRC-18).
+     */
+    @Incubating
+    default CteHandle register(CriteriaQuery<?> top, CriteriaQuery<Tuple> body) {
+        throw unsupported("chained CTEs");
+    }
 
     /**
      * Registers {@code spec} as the {@code WITH RECURSIVE} CTE of {@code outer} and returns its root together with
@@ -41,6 +75,25 @@ public interface SourceRenderer {
      */
     default RecursiveCte recursive(CriteriaQuery<?> outer, RecursiveSpec spec) {
         throw unsupported("recursive CTEs");
+    }
+
+    /**
+     * Registers {@code spec} as a {@code WITH RECURSIVE} CTE on {@code top} without adding it to {@code top}'s
+     * {@code FROM} clause, returning its handle together with the check scalar sub-selects over that CTE for
+     * {@code top} to select (R-SRC-18, R-SRC-08, R-SRC-14).
+     */
+    @Incubating
+    default RecursiveHandle registerRecursive(CriteriaQuery<?> top, RecursiveSpec spec) {
+        throw unsupported("chained CTEs");
+    }
+
+    /**
+     * Adds {@code inner}, a CTE registered on the top statement, to {@code query}'s {@code FROM} clause and returns
+     * the root whose columns {@code query} reads by the inner source's field aliases (R-SRC-18).
+     */
+    @Incubating
+    default Root<Tuple> from(AbstractQuery<?> query, CteHandle inner) {
+        throw unsupported("chained CTEs");
     }
 
     /**
