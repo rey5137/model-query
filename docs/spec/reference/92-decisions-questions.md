@@ -2232,6 +2232,39 @@ is allowed in an update or delete `where`, where a key-first rewrite on MySQL co
 `ModelUpdate.setExpression(column, ExpressionField)`: a correlated value reads the root's lifted columns, so `MQ1613`
 already refuses it, and no new code or `build()` guard is added. → `api/10` R-COL-31, `api/14` R-WRT-13, D-150.
 
+**D-154 — Inheritance roots (RFC 0016, 2026-10-19, user decision).** A query model reads a polymorphic entity root
+through `TableField#treat(Sub.class)`, a treated node rendered by `cb.treat`, and a downcast `@Join`; a subtype column
+reads NULL on a sibling's rows in select, predicates, order, keyset and count (R-COL-35), including a shared
+`SINGLE_TABLE` column, which both lines guard with a `CASE`. Every count over a statement with a treated node (a `treat`
+node or a downcast join, not `typeOf` or `ofType` alone) is built fresh with only its predicates and counts
+`root.<id>`; a grouped `@Subtype` query's total keeps R-AGG's group count. Content statements and ungrouped source
+bodies with a treated node select the untreated root id, hidden as `mq_0id` when the model selects none (outside D-146's
+`mq_<property>` space, never in `fields()`, `DEFAULT`, `ALL`, a mapper or `Rows`); a `distinct()` query or a non-ALL set
+operation that would need it is `MQ4016` unless the model selects the root id. `Expr.typeOf` is an offset order key of
+unspecified order, `MQ1208` in a keyset, and `MQ4016` on `JOINED` without a discriminator; `@Subtype` is `Class` only
+(Q-25). The default is strict: a provider without a `TreatRenderer` (`ProviderSupport#treats(emf)`) gets `MQ4014` for
+every treated use. `TreatSite` carries its `StatementShape` and `anchored`, the renderer's allow-list is keyed by shape,
+anchoring and use set, and anything else is `MQ4016` before the first statement. Refused with `MQ4016` in M28: group
+keys and aggregates over treated fields (Q-27), a treated node in a `CHILD` statement, a treated `ModelUpdate` or
+`ModelDelete` `where` on every strategy (before R-WRT-11's path choice, so alike on every vendor, INV-6), a subtype
+`@SQLRestriction` on 6.6, a `@DiscriminatorValue("null")`/`("not null")` hierarchy, a composite id, and unmeasured
+mapping variants; compliance mode is `MQ4014`. `TABLE_PER_CLASS` ids are trusted (Q-26); R-PAG-26's `MQ2213` guards
+the reads that rely on a unique key on every root. Five guards cover relying on observed Hibernate behaviour: the
+renderer serves only the 6.6.x and 7.4.x minors; every admitted cell is a TCK case; a per-line statement preflight in
+`model-query-hibernate` walks each derived select statement's SQL AST before the first statement, fails closed on a
+narrowing it can't attribute or a shape it doesn't recognise, and caches nothing; R-PAG-27 logs one `WARNING`
+`MQ2214` per `ModelQuery` for an offset page whose rows exceed `total - offset`, with no bound values (D-95), and
+returns the page; `PortabilityCheck` reports treat sites offline from the table alone. A union of subtype source
+models is M25.4 unchanged. Every new type and member is `@Incubating`. Rejected: treat in a path string, a portable
+default renderer over `cb.treat`, a flat per-use refusal, a site without its statement, repairing the count after the
+fact, the LEFT entity join (Q-27), throwing on the page fallback, admitting `JOINED`/`TABLE_PER_CLASS` writes on the
+table alone, a `VendorProfile#treats` fact and the `MQ4015` treat path (no vendor split measured), `TABLE_PER_CLASS`
+roots as non-unique, "disjoint by hierarchy" for a union without `@Discriminator`, and Blaze-style view inheritance.
+→ `rfc/0016`, `api/10` R-COL-03, R-COL-08, R-COL-34..36, `api/12` R-FLT-28, `api/14` R-WRT-11, `api/15`, `api/17`
+R-SRC-20, `engine/20` R-EXE-05, `engine/21` R-PAG-19, R-PAG-26, R-PAG-27, `processor/30` R-PROC-08, R-PROC-41..43,
+`processor/31` R-GEN-41, R-GEN-42, `processor/32` `MQ3003`, `MQ3042`, `MQ3043`, `vendor/40` R-VND-26, `reference/90`,
+Q-25, Q-26, Q-27.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -2338,6 +2371,21 @@ ignored there. Should it instead be an `MQnnnn`, as a `@Child` or a `@Join` on s
 value known only per call ("count lines with the status the request names", "days overdue relative to a date the
 caller passes") can't appear in it, correlated or not. A per-call bound parameter node in any expression, bound when
 the query runs, would answer it without breaking INV-9. → `rfc/0015` (Unresolved), D-150, `api/10` R-COL-17.
+
+**Q-25 — `@Subtype`'s value type.** `Class` only for now (D-154). A `String` (entity name or discriminator value) or
+an enum through a converter is additive, once a use shows which; `JOINED` has no discriminator value to give, and a
+`@Computed` CASE covers it today. → `rfc/0016` §4, D-154, `processor/30` R-PROC-43.
+
+**Q-26 — `TABLE_PER_CLASS` id uniqueness.** The concrete tables share no key, so `@Id` is unique by mapping, not by
+the database, and is trusted as today; R-PAG-26's `MQ2213` is a partial guard on the reads that rely on a unique key,
+while `list()` and offset pages stay unchecked. Revisited if a user needs keyset or export over such a root with ids
+written outside JPA. → `rfc/0016` §6, D-154, `engine/21` R-PAG-26.
+
+**Q-27 — Group keys and aggregates over treated fields.** Refused in M28 (`MQ4016`): Hibernate narrows a grouped
+statement to the treated subtype. The LEFT entity join on the id (spike S2.4) and a `min(root.id)` anchor beside the
+original group key (S2.3) keep the NULL rule in every measured shape; a later release designs the rendering, measures
+its cost and composition, and lifts the refusal, with `treat` on `@Aggregate`. → `rfc/0016` §2, §11, D-154, `api/10`
+R-COL-35.
 
 ## 3. Risks
 
