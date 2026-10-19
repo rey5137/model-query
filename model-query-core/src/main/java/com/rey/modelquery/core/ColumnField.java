@@ -586,6 +586,21 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
         return above.isEmpty() ? attribute : above + "." + attribute;
     }
 
+    /** The attribute path qualified by each treated node, for indexes that distinguish sibling columns. */
+    String identityPath() {
+        String above = identityPath(table.key());
+        return above.isEmpty() ? attribute : above + "." + attribute;
+    }
+
+    private static String identityPath(JoinKey key) {
+        if (key.parent() == null) {
+            return "";
+        }
+        String above = identityPath(key.parent());
+        String segment = key.type() == null ? "treat(" + key.attribute() + ")" : key.attribute();
+        return above.isEmpty() ? segment : above + "." + segment;
+    }
+
     /**
      * The model field names from the query's root: the property for a root column, {@code customer.name} for a
      * column named {@code name} of a join named {@code customer}; {@code null} when the column or a join on the way

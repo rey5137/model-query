@@ -57,7 +57,14 @@ nothing to the count statement except row-changing joins its lifted columns need
 A correlated value used in WHERE remains in the count, and lifted joins needed only inside OR/NOT are LEFT
 (R-FLT-10, R-COL-31). A source's check sub-selects are never dropped: a count over a
 source that carries checks selects them beside what it counts, on its own statement or on the group rows it counts
-(R-SRC-08, RFC 0014 §3). A direct `count(q)` on a query with an `orderBy` logs one `WARNING`
+(R-SRC-08, RFC 0014 §3). *(D-154)* A count over an ungrouped entity-rooted statement with a treated node
+(`api/10` R-COL-35) is not the content statement with its selection replaced, which loses the rows a select-only or
+order-only treat narrows away: it is built fresh from the definition, with the `where` predicates and the path of
+each column a model or order field reads (inside an `Expr`, a `@Computed` value or a window too, and a correlated
+value's lifted outer columns), whole when it holds a join other than `LEFT` and otherwise up to its first treated node,
+and it selects `count(root.<id>)` (`count(distinct root.<id>)` when a predicate's to-many join repeats a root, and
+rows when a selected column is read through one, as R-EXE-04). A treated column that is only selected or ordered is
+absent from it. The customizer runs on it as on `MODEL`. A grouped query keeps its count of groups. A direct `count(q)` on a query with an `orderBy` logs one `WARNING`
 per `ModelQuery`, `<Model>: count(query) ignores the query's orderBy`; the count `page` runs for its total logs
 nothing, since `page` uses the order (D-126). `count` refuses a locked query with `MQ2211` (R-EXE-14): a count returns
 no row to lock.

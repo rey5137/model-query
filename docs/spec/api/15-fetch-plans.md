@@ -64,6 +64,9 @@ join plans and the children's own plans, and checks a one-key round of it agains
 statement, a zero limit, no keys and an empty page included, so a child's refusals (`MQ1306`, `MQ1307`, the `MQ15xx`
 codes, the child's own `MQ1702`) never follow a statement (INV-5, D-138). That check depends on the vendor's limits and
 renderers, so it is remembered per factory and profile once passed.
+*(D-154)* A treated node in a child statement, in a child's parent-side key, in a join plan's selection or in an
+enricher's declared columns is a `CHILD` site, `MQ4016` before any statement of every call that returns models,
+whatever the provider's `TreatRenderer` says (`vendor/40` R-VND-26); `count` loads no children and does not check it.
 `select()` returns the selection without them, as it does without the primary key, so `orderedBy` cannot sort on
 them; a join plan's re-rooted selection is part of `select()`. They stay filled on the returned models.
 

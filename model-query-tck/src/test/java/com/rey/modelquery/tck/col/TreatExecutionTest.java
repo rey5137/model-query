@@ -185,27 +185,43 @@ class TreatExecutionTest {
     }
 
     @TckTest
-    void ac_vnd_16_factory_renderer_reaches_fetch_and_returning_scratch_checks(TckDatabase db) {
+    void ac_vnd_17_factory_renderer_renders_admitted_reads_and_child_keys_and_returning_models_are_refused(
+            TckDatabase db) {
+        // The factory's renderer renders an admitted treated read; a treated child key and a treated returning model
+        // reach M28's own refusals (MQ4016, R-VND-26) instead of MQ4014, before the renderer is asked; an untreated
+        // returning model reaches the transaction check.
         assertThat(SqlSnapshots.capture(db, ds -> {
             try (SessionFactory factory = factory(ds)) {
                 CountingRenderer renderer = new CountingRenderer();
                 ServingProvider.serving(factory, renderer, () -> factory.inSession(em -> {
                     var executor = ModelQueryExecutor.create(em, Payment.class, ModelQueryConfig.defaults());
-                    assertThat(executor.list(fetchQuery(true), Limit.of(0))).isEmpty();
+                    // Stopped by its customizer once built, so no statement runs.
+                    var admitted = ModelQuery.builder(ROOT, row -> row.get(NUMBER)).select(SelectSet.of(ID, NUMBER))
+                            .customize((spec, joins, statement, cb, phase) -> { throw new Built(); }).build();
+                    assertThatThrownBy(() -> executor.list(admitted, Limit.of(3))).isExactlyInstanceOf(Built.class);
                     assertThat(renderer.calls).isPositive();
                     int calls = renderer.calls;
-                    var returning = ModelQuery.builder(ROOT, row -> row.get(NUMBER))
+                    assertTreatRefused(() -> executor.list(fetchQuery(true), Limit.of(0)));
+                    var treated = ModelQuery.builder(ROOT, row -> row.get(NUMBER))
                             .select(SelectSet.of(NUMBER)).build();
+                    var plain = ModelQuery.builder(ROOT, row -> row.get(STATUS))
+                            .select(SelectSet.of(STATUS)).build();
                     var persist = ModelPersist.of(InsertColumns.<String, Payment>of(ROOT)
                             .add(STATUS, value -> value), Long.class, "paid");
-                    assertThatThrownBy(() -> executor.persist(persist, returning))
+                    assertTreatRefused(() -> executor.persist(persist, treated));
+                    assertThat(renderer.calls).isEqualTo(calls); // refused before any treated node is rendered
+                    assertThatThrownBy(() -> executor.persist(persist, plain))
                             .isExactlyInstanceOf(ModelQueryExecutionException.class)
                             .extracting(failure -> ((ModelQueryExecutionException) failure).code())
                             .isEqualTo(MqCode.MQ2501);
-                    assertThat(renderer.calls).isGreaterThan(calls);
                 }));
             }
         })).isEmpty();
+    }
+
+    private static void assertTreatRefused(Runnable action) {
+        assertThatThrownBy(action::run).isExactlyInstanceOf(ModelQueryConfigurationException.class)
+                .extracting(failure -> ((ModelQueryConfigurationException) failure).code()).isEqualTo(MqCode.MQ4016);
     }
 
     @TckTest
@@ -349,7 +365,7 @@ class TreatExecutionTest {
     }
 
     /** A treated parent key, or a treat found only in the child's own filter. */
-    private static ModelQuery<Payment, Long, String> fetchQuery(boolean treatedKey) {
+    static ModelQuery<Payment, Long, String> fetchQuery(boolean treatedKey) {
         var childId = ColumnField.of(String.class, HOLDERS, "id", Long.class);
         var childKey = ColumnField.of(String.class, HOLDERS, "label", String.class);
         var innerNumber = ColumnField.of(String.class, PAYMENT.treat(Card.class), "number", String.class);

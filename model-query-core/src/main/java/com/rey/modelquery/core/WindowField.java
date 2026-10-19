@@ -131,6 +131,17 @@ public final class WindowField<M, C> implements SelectField<M, C> {
         return new WindowSpec(function, resolvedArgument, partitions, orders, frame);
     }
 
+    /** The fields this window reads: its argument, if any, its partition keys and its order keys (R-EXE-05). */
+    List<SelectField<M, ?>> readFields() {
+        var fields = new ArrayList<SelectField<M, ?>>();
+        if (argument != null) {
+            fields.add(argument);
+        }
+        fields.addAll(partitionBy);
+        fields.addAll(orderedColumns());
+        return fields;
+    }
+
     /** The columns this window orders by, which the key append skips, so no key column is repeated (R-SRC-04). */
     List<SelectField<M, ?>> orderedColumns() {
         var columns = new ArrayList<SelectField<M, ?>>(orderBy.size());
@@ -150,8 +161,8 @@ public final class WindowField<M, C> implements SelectField<M, C> {
 
     void checkTreats(TreatChecks checks) {
         checks.field(argument);
-        partitionBy.forEach(checks::field);
-        orderBy.forEach(order -> checks.field(order.column()));
+        checks.using(TreatUse.GROUP_BY, () -> partitionBy.forEach(checks::field));
+        checks.using(TreatUse.ORDER, () -> orderBy.forEach(order -> checks.field(order.column())));
     }
 
     private static List<String> names(List<? extends SelectField<?, ?>> fields) {

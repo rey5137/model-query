@@ -35,6 +35,7 @@ import com.rey.modelquery.core.RecursiveCte;
 import com.rey.modelquery.core.RecursiveSpec;
 import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.core.TreatChecks;
+import com.rey.modelquery.core.StatementShape;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowLock;
 import com.rey.modelquery.core.ScalarField;
@@ -1146,7 +1147,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(page, "page");
         Objects.requireNonNull(mode, "mode");
         refuseLock(q, "page(query, PageSpec, CountMode)");
-        checkFirstRun(q);
+        checkFirstRun(q, mode != CountMode.ONLY_COUNT,
+                mode == CountMode.ONLY_COUNT ? StatementShape.COUNT : StatementShape.CONTENT,
+                false, mode == CountMode.COUNT);
         int offset = page.offset();
         int size = page.pageSize();
         // A non-unique source needs every selected column to close the order; a tree's key suffices when the query
@@ -1203,7 +1206,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         // Before any query, in R-PAG-16/R-PAG-23's order: the to-many selection, then the first-run phase check
         // (R-PAG-15) and the fetch plan's own check, so MQ2207 and MQ2204 precede MQ2206 as the design orders them.
         refuseToManySelection(q, built, "keyset paging");
-        checkFirstRun(q);
+        checkFirstRun(q, true, StatementShape.CONTENT, true, false);
         PrimaryKey<M, ?> key = q.primaryKey().orElseThrow(() -> new ModelQueryExecutionException(MqCode.MQ2203,
                 q + ": a keyset page needs a primary key to order and identify its rows"));
         Keyset<M> forward = Keyset.of(q, key, vendor.profile().defaultAscendingNullOrdering(), providerNulls,
@@ -1311,7 +1314,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(pageTransformer, "pageTransformer");
         Objects.requireNonNull(sink, "sink");
         refuseLock(q, "export(...)");
-        checkFirstRun(q);
+        checkFirstRun(q, true, StatementShape.CONTENT, q.isKeyset(), false);
         refuseNonUniqueSource(q, "export(...)");
         long limit = options.limit().maxRows().isPresent() ? options.limit().maxRows().getAsInt() : Long.MAX_VALUE;
         int pageSize = options.pageSize().orElse(exportPageSize);
@@ -2510,6 +2513,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     private void checkTreats(Object definition) {
         if (renderOptions.treatRenderer().isPresent()) {
+            TreatChecks.check(definition, renderOptions, em.getMetamodel(), StatementShape.WRITE, false, false);
             return;
         }
         Set<Object> checked = TREATS_CHECKED.computeIfAbsent(em.getEntityManagerFactory(),
@@ -2546,7 +2550,19 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * {@code MQ1702}, and is not remembered, so the next call that returns models throws it.
      */
     private <E2> void checkFirstRun(ModelQuery<E2, ?, ?> q, boolean fetchesModels) {
-        checkTreats(q);
+        checkFirstRun(q, fetchesModels, fetchesModels ? StatementShape.CONTENT : StatementShape.COUNT, false, false);
+    }
+
+    private <E2> void checkFirstRun(ModelQuery<E2, ?, ?> q, boolean fetchesModels, StatementShape shape,
+            boolean laterPages, boolean withCount) {
+        if (renderOptions.treatRenderer().isPresent()) {
+            TreatChecks.check(q, renderOptions, em.getMetamodel(), shape, laterPages, fetchesModels);
+            if (withCount) {
+                TreatChecks.check(q, renderOptions, em.getMetamodel(), StatementShape.COUNT, false, false);
+            }
+        } else {
+            checkTreats(q);
+        }
         // An orderedBy copy is covered by the check of its definition, so a per-request sort does not repeat it.
         ModelQuery<E2, ?, ?> definition = q.definition();
         if (!FIRST_RUN_CHECKED.contains(definition)) {
@@ -3362,6 +3378,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     private <M> long countRows(ModelQuery<E, ?, M> q) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
+        if (!q.isGrouped() && q.source().isEmpty() && TreatChecks.treated(q)) {
+            // Built fresh and counting the root id: the content statement with its selection replaced would lose the
+            // rows a select-only or order-only treat narrows away, and count(root) those a null-accepting predicate
+            // keeps (R-COL-35, R-EXE-05). A grouped query keeps its count of groups below.
+            BuiltQuery<M> fresh = q.buildRootIdCount(cb, renderOptions);
+            return ((Number) single(q, fresh, create(q, fresh)).get(0)).longValue();
+        }
         BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL, renderOptions);
         CriteriaQuery<Tuple> query = built.query();
         query.orderBy(List.<Order>of()); // the count needs no order (R-EXE-05)

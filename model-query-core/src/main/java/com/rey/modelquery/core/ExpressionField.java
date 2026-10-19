@@ -127,16 +127,68 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
     }
 
     void checkTreats(TreatChecks checks) {
-        columns().forEach(checks::field);
-        containsNode(this, node -> {
-            if (node instanceof CorrelatedValue value) {
-                checks.subSelect(value.rows());
-                value.conditions().forEach(checks::condition);
-                value.orders().forEach(order -> checks.field(order.column()));
+        if (node instanceof CorrelatedValue value) {
+            checks.using(TreatUse.SUBQUERY, () -> {
+                if (value.terminal() == Correlated.Terminal.COUNT && checks.ownTreatedRoot(value.rows())) {
+                    // The count reads its own treated root, counting subtype rows: R-COL-31 admits that count site
+                    // anchored (R-VND-26), while the rest of the sub-select still reads no anchored root.
+                    checks.correlatedCount(value.rows().column());
+                    checks.unanchored(() -> {
+                        value.rows().conditions().forEach(checks::condition);
+                        value.conditions().forEach(checks::condition);
+                    });
+                    return;
+                }
+                // The sub-select reads its own root, which no anchor covers, so every site in it is unanchored.
+                checks.unanchored(() -> {
+                    if (value.terminal() == Correlated.Terminal.COUNT) {
+                        checks.correlatedCount(value.rows().column());
+                        value.rows().conditions().forEach(checks::condition);
+                    } else {
+                        checks.subSelect(value.rows());
+                    }
+                    value.conditions().forEach(checks::condition);
+                    checks.using(TreatUse.ORDER,
+                            () -> value.orders().forEach(order -> checks.field(order.column())));
+                });
+            });
+            return;
+        }
+        checks.using(TreatUse.EXPRESSION, () -> {
+            if (node instanceof Coalesce value) {
+                checks.field(value.first());
+                if (value.second() instanceof SelectField<?, ?> field) {
+                    checks.field(field);
+                }
+            } else if (node instanceof NullIf value) {
+                checks.field(value.value());
+            } else if (node instanceof Arith value) {
+                checks.field(value.first());
+                if (value.second() instanceof SelectField<?, ?> field) {
+                    checks.field(field);
+                }
+            } else if (node instanceof Negate value) {
+                checks.field(value.value());
+            } else if (node instanceof Concat value) {
+                if (value.first() instanceof SelectField<?, ?> field) {
+                    checks.field(field);
+                }
+                if (value.second() instanceof SelectField<?, ?> field) {
+                    checks.field(field);
+                }
+            } else if (node instanceof Fn value) {
+                value.args().forEach(checks::field);
             } else if (node instanceof Case value) {
-                value.branches().forEach(branch -> branch.conditions().forEach(checks::condition));
+                value.branches().forEach(branch -> {
+                    branch.conditions().forEach(checks::condition);
+                    if (branch.result() instanceof SelectField<?, ?> field) {
+                        checks.field(field);
+                    }
+                });
+                if (value.otherwise() instanceof SelectField<?, ?> field) {
+                    checks.field(field);
+                }
             }
-            return false;
         });
     }
 
