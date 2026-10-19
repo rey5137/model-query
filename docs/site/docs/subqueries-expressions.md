@@ -200,6 +200,143 @@ page stably.
 
 Tested by `PrimaryKeyFirstTest`, `OffsetExportTest` and `ModelQueryTest`.
 
+## Correlated columns
+
+The `@Incubating` `Correlated` API builds a scalar value for each outer row from a `SubSelect` and a correlation
+lambda. Its result is an `ExpressionField`: select it, filter it, order by it, or compose it with `Expr.coalesce`
+and arithmetic. The sub-select's own filters and the correlation are combined with AND.
+
+| Terminal | Value when no rows match | Meaning |
+|---|---|---|
+| `count` | `0L` | Count non-NULL values of the selected column, returning `Long`. |
+| `exists` | `false` | Whether a row matches, ignoring the selected column; never NULL. |
+| `min`, `max` | NULL | Least or greatest non-NULL value; requires a comparable column. |
+| `sum` | NULL | Sum non-NULL numeric values, using the usual aggregate SUM types. |
+| `first` | NULL | Selected value of the first matching row in the required order. |
+
+`min`, `max` and `sum` also return NULL when all selected values are NULL. `first` can return NULL from the chosen
+row. To filter on existence alone, prefer `Filters.exists`; `Correlated.exists` produces a Boolean column using
+`CASE WHEN EXISTS`, which can obstruct the semi-join plan when used in WHERE.
+
+For example, adapt the `OrderEntity` status correlation from `CorrelatedExecutionTest` into a computed field.
+These declarations go in their respective Java files, with the usual Model Query imports:
+
+```java
+@QueryModel(root = OrderEntity.class)
+public record OrderCounts(@PrimaryKey Long id, @Computed(SameStatusCount.class) Long count) {}
+```
+
+```java
+public final class SameStatusCount implements ExpressionDefinition<OrderCounts, Long> {
+    public static final SameStatusCount INSTANCE = new SameStatusCount();
+    private static final TableField<OrderEntity, OrderEntity> ROOT = TableField.root(OrderEntity.class);
+    private static final ColumnField<OrderCounts, OrderEntity, String> STATUS =
+            ColumnField.of(OrderCounts.class, ROOT, "status", String.class);
+    private static final ColumnField<Inner, OrderEntity, Long> INNER_ID =
+            ColumnField.of(Inner.class, ROOT, "id", Long.class);
+    private static final ColumnField<Inner, OrderEntity, String> INNER_STATUS =
+            ColumnField.of(Inner.class, ROOT, "status", String.class);
+
+    private static final class Inner {}
+
+    @Override
+    public ExpressionField<OrderCounts, Long> expression() {
+        return Correlated.count(OrderCounts.class, SubSelect.of(INNER_ID),
+                (f, outer) -> f.compare(INNER_STATUS, Op.EQ, outer.column(STATUS)));
+    }
+}
+```
+
+Or build the query by hand using that same expression, without selecting the generated computed constant:
+
+```java
+var root = TableField.root(OrderEntity.class);
+var id = ColumnField.of(OrderCounts.class, root, "id", Long.class);
+var count = SameStatusCount.INSTANCE.expression();
+var query = ModelQuery.builder(root, row -> new OrderCounts(row.get(id), row.get(count)))
+        .select(SelectSet.of(id, count)).primaryKey(PrimaryKey.of(id))
+        .orderBy(count.desc(), id.asc()).build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<OrderCounts> rows = executor.list(query, Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<OrderCounts> rows = orders.findAll(query, Limit.unlimited());
+    ```
+
+The lambda must lift an outer column with `outer.column(...)`. A lifted column may follow a to-one path on the
+outer root, including a joined column with an `on(...)` condition; the outer join context preserves that condition.
+A lifted to-many path is refused with `MQ1311`. A source may be the outer root, but cannot root the sub-select.
+
+### First value and refusals
+
+`Correlated.first(model, rows, correlation, order, more...)` requires at least one inner order key. The engine
+appends the inner root's id ascending as a tie-breaker (every composite-id component, by attribute name).
+On a nullable order key, set `nullsFirst()` or `nullsLast()` explicitly for the same value on every vendor;
+`DEFAULT` renders no null clause, so the configured default null precedence (if any) or the vendor's own ordering
+applies. `first` requires the Hibernate integration's ordered sub-query
+renderer; without it, or with `hibernate.jpa.compliance.query=true`, statement construction fails with
+[`MQ4014`](diagnostics.md#mq4xxx-configuration). Other terminals do not need this renderer.
+
+The refusals to know are:
+
+- `MQ1505`: a correlated value inside a CASE condition; CASE results may use one.
+- `MQ1510`: an aggregate over a correlated value, including `Agg.of` and `@Aggregate(expression = ...)`.
+- `MQ1314`: a correlated group key, or a grouped selection/order lifting a column that is not a group key.
+  WHERE is evaluated before grouping and may lift a non-group-key column.
+- `MQ1511`: `count`, `sum` or `first` crossing a to-many join in the inner selected column, filters, correlation,
+  or `first` order. Use `Filters.exists(path, inner)` for the child condition instead. `min`, `max` and `exists`
+  are unaffected by duplicate inner rows.
+- `MQ1208`: keyset ordering by a correlated expression. Offset paging, offset export and `primaryKeyFirst` accept it.
+- `MQ1908`: a correlated expression in a source body's fields.
+
+### Cost and concurrent writes
+
+Every position uses a scalar sub-query, including SELECT, WHERE and ORDER BY. There is no join lowering or vendor
+switch. A small page needs an index probe per outer row and correlated column; a whole-table filter or export
+needs a probe per parent. An offset export ordered or filtered by the value repeatedly evaluates it for rows it
+sorts past: roughly N sub-queries per page, for P pages. An index cannot remove that repeated work.
+
+**Index the sub-select's correlated columns.** PostgreSQL does not automatically index a foreign key's child
+column. The RFC 0015 §6 measurements below used 100,000 parents with ten children each on Hibernate 6.6 and 7.4;
+"join" means a comparison query joining a grouped child table, not a rendering the engine selects.
+
+<table>
+<thead><tr>
+<th>Child FK indexed?</th><th>Page of 20 / 100</th><th>Export</th>
+<th>Export ordered by it</th><th>WHERE on it</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Yes</td>
+<td>Scalar ~1–3 ms on PG/MySQL; join 1–2 ms on PG, ~105 ms on MySQL.</td>
+<td>PG: join 1.5× faster; MySQL: scalar 4× faster; H2: scalar 6× faster.</td>
+<td>PG/MySQL: join ~1.3–1.4× faster; H2: scalar faster.</td>
+<td>PG/MySQL: join ~1.6× faster.</td>
+</tr>
+<tr>
+<td>No</td>
+<td>Scalar 0.5–6 s; join 40–180 ms on PG/MySQL; H2 the same both ways.</td>
+<td>Scalar over 10 s on every vendor; join 0.6–2.3 s on PG/MySQL; H2 over 10 s both ways.</td>
+<td>As export.</td><td>As export.</td>
+</tr>
+</tbody>
+</table>
+
+An export ordered by a correlated value can silently skip or repeat rows under concurrent writes as rows move between
+offset pages. The value can change when **another table** is written: keeping parents unchanged is insufficient.
+Use REPEATABLE READ or a consistent snapshot across the export for the full guarantee. The engine does not check
+for this movement or warn about it (R-PAG-25).
+
+Behavior is covered by `CorrelatedExecutionTest`, `CorrelatedFirstTest`, `CorrelatedResolutionTest` and
+`LiftedColumnTest`; the computed declaration follows `OrderNet` / `RowNet`.
+
 ## Computed fields
 
 `@Computed` maps a field to an `ExpressionDefinition<Model, FieldType>`, a class with one

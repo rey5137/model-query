@@ -523,6 +523,12 @@ In a chain over a `recursive(...)` or `tree(...)` source:
   `one(q, key)` apply only to the top statement, never inside a CTE body with a window or aggregate, so ranks and
   counts are computed over the full source.
 
+**R-SRC-19** *(D-150)* A correlated column renders as a scalar sub-query in every position: select, where and
+order. There is no join lowering and no `VendorProfile` fact for choosing a different rendering. Index the
+sub-select's correlated columns: without an index, each outer row may scan the inner table. RFC 0015 §6 records
+indexed and unindexed costs; the Subqueries and expressions page, §Correlated columns, documents the cost table
+and index advice.
+
 ## 9. Acceptance criteria
 
 | ID | Criterion |
