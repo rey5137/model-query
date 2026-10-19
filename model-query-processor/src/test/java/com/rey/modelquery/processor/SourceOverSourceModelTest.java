@@ -93,7 +93,7 @@ class SourceOverSourceModelTest {
                 """), model("Outer", "Branch", "@PrimaryKey Long id"));
 
         assertThat(compilation).failed();
-        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3042,
+        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3041,
                 "Outer: root Branch is a branch and cannot be read directly; root at the shape Inner instead"));
     }
 
@@ -109,7 +109,7 @@ class SourceOverSourceModelTest {
                 """));
 
         assertThat(compilation).failed();
-        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3042,
+        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3041,
                 "Reader: root Branch is a branch and cannot be read directly; root at the shape Inner instead"));
     }
 
@@ -156,8 +156,8 @@ class SourceOverSourceModelTest {
 
         assertThat(compilation).failed();
         assertThat(errors(compilation)).containsExactlyInAnyOrder(
-                message(DiagnosticCode.MQ3042, "Outer: a source over Inner cannot be a shape"),
-                message(DiagnosticCode.MQ3042, "Branch: the shape Outer is a source over Inner; "
+                message(DiagnosticCode.MQ3041, "Outer: a source over Inner cannot be a shape"),
+                message(DiagnosticCode.MQ3041, "Branch: the shape Outer is a source over Inner; "
                         + "a source over a source cannot be a shape"));
     }
 
@@ -319,7 +319,7 @@ class SourceOverSourceModelTest {
                 model("Outer", "Inner", "@PrimaryKey Long id, @Depth Integer level"));
 
         assertThat(compilation).failed();
-        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3042,
+        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3041,
                 "Outer: a source over Inner cannot be recursive"));
     }
 
@@ -332,7 +332,7 @@ class SourceOverSourceModelTest {
                 """));
 
         assertThat(compilation).failed();
-        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3042,
+        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3041,
                 "Outer: a source over Inner cannot be a branch"));
     }
 
@@ -347,8 +347,8 @@ class SourceOverSourceModelTest {
 
         assertThat(compilation).failed();
         assertThat(errors(compilation)).containsExactly(
-                message(DiagnosticCode.MQ3042, "Outer: a source over Inner cannot be a shape"),
-                message(DiagnosticCode.MQ3042, "Branch: the shape Outer is a source over Inner; "
+                message(DiagnosticCode.MQ3041, "Outer: a source over Inner cannot be a shape"),
+                message(DiagnosticCode.MQ3041, "Branch: the shape Outer is a source over Inner; "
                         + "a source over a source cannot be a shape"));
     }
 

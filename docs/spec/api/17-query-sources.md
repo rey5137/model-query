@@ -452,9 +452,9 @@ Mapped fields name one CTE column of `X` by field name, with the same type and c
 (R-SRC-10, R-PROC-39). No association exists on that root: `@Join` is `MQ3035`; a source's `@Child` stays `MQ3030`.
 It may add `@Window`, `@Aggregate`, `@GroupBy`, `@Computed` and a `@FilterColumn` naming one column of `X`.
 An outer `@QueryModel` rooted at a source still refuses `@FilterColumn` with `MQ3011`.
-A source over a source cannot itself be recursive (`@Depth`), a branch, or a shape (`MQ3042`, R-PROC-40).
+A source over a source cannot itself be recursive (`@Depth`), a branch, or a shape (`MQ3041`, R-PROC-40).
 Its root cannot be a branch model either, nor can a `@QueryModel`'s: root at that branch's shape instead
-(`MQ3042`, D-152). Shape/branch checks use
+(`MQ3041`, D-152). Shape/branch checks use
 source models within the compilation, including deferred models, as R-PROC-38 does. A cyclic root chain is `MQ3038`.
 
 An ungrouped source's `@PrimaryKey` fields must map exactly to `X`'s key fields, in order. A grouped source's key is

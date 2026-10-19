@@ -20,7 +20,7 @@
   - **`processor/31`:** R-GEN-37 is amended (a non-branch source QModel has a `MAPPER`, inside `Rows`). New R-GEN-39 and
     R-GEN-40: `source(SourceQuery<I>)` on a source over a source, and the `Rows` vocabulary and `query(...)` on every
     source QModel that is not a branch.
-  - **`processor/32`:** new `MQ3042`, with AC-PROC-41.
+  - **`processor/32`:** new `MQ3041`, with AC-PROC-41.
   - **`vendor/40`:** new R-VND-25: `ProviderSupport#subqueries()` and `SubqueryRenderer`.
   - **`core` SPI:** a new `@EngineFacing @Incubating` `SubqueryRenderer` with `firstRow`; `SourceRenderer` gains a
     `CteHandle` and three default methods for a chained CTE (§4); `SourceQuery` carries an inner source.
@@ -255,7 +255,7 @@ public record SubtreeSize(@PrimaryKey @GroupBy Long rootId,
   branch themselves, and their messages now name the source-over-a-source form. `@FilterColumn` is allowed here,
   though R-PROC-39 makes it `MQ3011` on a model rooted at a source: the filtered column is one of `X`'s CTE columns, a
   single segment, so there is no path to resolve.
-- **What it may not be.** Recursive (`@Depth`), a branch or a shape: `MQ3042`. A recursive walk over a CTE, or a
+- **What it may not be.** Recursive (`@Depth`), a branch or a shape: `MQ3041`. A recursive walk over a CTE, or a
   `union` of derived sources, is a later question.
 - **No correlated column inside (`MQ1908`).** A source is one CTE body, and its rows would carry a per-row sub-query
   the outer query can read once instead. The processor sees a `@Computed` class, not what its `expression()` builds,
@@ -450,7 +450,7 @@ acceptance decision is the next free `D-n` (D-150 today; coordinate with RFC 001
 | R-SRC-17 | `api/17` | Reading a source directly: `Rows`, `query(source)`, `MQ1905` both ways |
 | R-SRC-18 | `api/17` | A chain's CTEs: one per level, engine-named; the walk's filter in the next body; checks and key predicates in the top statement |
 | R-SRC-19 | `api/17` | A correlated column renders as a scalar sub-query everywhere; index the correlated columns (§6) |
-| R-PROC-40 | `processor/30` | The source-over-source limits (`MQ3042`) |
+| R-PROC-40 | `processor/30` | The source-over-source limits (`MQ3041`) |
 | R-GEN-39 | `processor/31` | `source(SourceQuery<X> inner)` on a source over a source |
 | R-GEN-40 | `processor/31` | The `Rows` vocabulary (fully qualified names) and `query(SourceQuery<S>)` on a non-branch source QModel |
 | R-VND-25 | `vendor/40` | `ProviderSupport#subqueries()` and `SubqueryRenderer` |
@@ -459,12 +459,12 @@ acceptance decision is the next free `D-n` (D-150 today; coordinate with RFC 001
 | `MQ1511` | `reference/90` | A `count`, `sum` or `first` whose sub-select crosses a to-many join |
 | `MQ1907` | `reference/90` | A source over a source built without, or with the wrong, inner `SourceQuery` |
 | `MQ1908` | `reference/90` | A correlated expression in a `SourceQuery`'s field list, at `SourceQuery` build |
-| `MQ3042` | `reference/90` | A source over a source that is recursive, a branch or a shape |
+| `MQ3041` | `reference/90` | A source over a source that is recursive, a branch or a shape |
 | Q-24 | `reference/92` | Request-time values in a `@Computed` expression: a per-call bound parameter node |
 | AC-COL-36..42 | `api/10` | One per terminal; `first` ties and NULL order keys; the refusals; `MQ1511` |
 | AC-FLT-28, 29 | `api/12` | A lifted to-one column in `exists` and in a correlated column; NULL path; a to-many path still `MQ1311` (AC-FLT-15 amended) |
 | AC-SRC-26..37 | `api/17` | Source over plain, grouped, union, recursive and tree sources; three levels; walk filter and top-statement checks; direct read; `MQ1905` select, where, order and source-side; `MQ1908` |
-| AC-PROC-41 | `processor/32` | `MQ3042` |
+| AC-PROC-41 | `processor/32` | `MQ3041` |
 
 ## Compatibility
 

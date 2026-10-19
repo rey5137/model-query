@@ -379,8 +379,8 @@ var query = QRankedOrderFeed.query(ranked).select(QRankedOrderFeed.ALL)
     ```
 
 A root may be a plain or grouped source, a set-operation **shape**, a recursive walk or a checked tree. Root at the
-shape to read a branch's rows; a branch model itself cannot be the root (`MQ3042`). A source over a source cannot
-itself be recursive, a branch or a shape (`MQ3042`). Fields name single columns of the inner model; association
+shape to read a branch's rows; a branch model itself cannot be the root (`MQ3041`). A source over a source cannot
+itself be recursive, a branch or a shape (`MQ3041`). Fields name single columns of the inner model; association
 joins remain unavailable (`MQ3035`). A missing or wrong inner definition is `MQ1907` at the builder/build boundary,
 including misuse through raw types or casts. The generated factory requires the inner argument at compile time.
 A correlated expression in a source's fields is `MQ1908` when the source definition is built; select it in the

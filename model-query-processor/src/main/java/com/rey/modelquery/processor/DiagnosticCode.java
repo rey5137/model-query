@@ -144,7 +144,7 @@ enum DiagnosticCode {
     MQ3040("generateChanges on a model rooted at a source"),
 
     /** A source over a source is recursive, a branch or a shape, or roots at a branch model (R-PROC-40). */
-    MQ3042("A source over a source cannot be recursive, a branch, a shape or rooted at a branch"),
+    MQ3041("A source over a source cannot be recursive, a branch, a shape or rooted at a branch"),
 
     /** An {@code @Aggregate} field is primitive, though an aggregate can be {@code NULL}. */
     MQ3201("@Aggregate field is primitive"),

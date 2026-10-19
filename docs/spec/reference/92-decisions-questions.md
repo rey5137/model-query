@@ -2193,10 +2193,10 @@ A lifted outer column may sit on a to-one path of the outer root (`MQ1311` narro
 resolution), resolved through the outer `JoinContext` and rendered with `Subquery#correlate` of the outer join, which
 keeps its `ON` (a bare reference drops it on every target); a source outer root is allowed, a sub-select rooted at a
 source is not. A `@SourceModel` may be rooted at a plain, grouped, shape or recursive source model (not itself
-recursive, a branch or a shape: `MQ3042`), one CTE per level, every level registered on the top statement through
+recursive, a branch or a shape: `MQ3041`), one CTE per level, every level registered on the top statement through
 `SourceRenderer`'s new `CteHandle`, `register`, `registerRecursive` and `from` (defaults `MQ4014`); the walk's filter
 goes into the next body, and the walk checks and key predicates stay in the top statement. (amended 2026-10-18, M27.4:
-A source rooted at a branch is `MQ3042`, directing the caller to root at the shape, since the branch builds
+A source rooted at a branch is `MQ3041`, directing the caller to root at the shape, since the branch builds
 `SourceQuery<Shape>`. Shape/branch checks include deferred source models within the compilation, using the existing
 round lookup without new cross-round tracking). (amended 2026-10-18, M27.5:
 `SourceRenderer.registerRecursive(CriteriaQuery<?> top, RecursiveSpec spec)` takes the existing `RecursiveSpec` and
@@ -2219,8 +2219,8 @@ implements those (a provider may still override the old pair); with nothing over
 sub-select rooted at a source moves from `MQ1311` to the new `MQ1909`, since a released code does not take a new meaning
 (INV-10); `MQ1311` keeps the lifted-path meaning only. → `api/12` R-FLT-27, `vendor/40` R-VND-21, D-150.
 
-**D-152 — A `@QueryModel` rooted at a branch is `MQ3042` (M27 gate, 2026-10-19, user decision).** A
-`@QueryModel` whose root is a branch of a set-operation source is refused at compile time with `MQ3042`, as a source
+**D-152 — A `@QueryModel` rooted at a branch is `MQ3041` (M27 gate, 2026-10-19, user decision).** A
+`@QueryModel` whose root is a branch of a set-operation source is refused at compile time with `MQ3041`, as a source
 rooted at a branch already is (M27.4): the branch builds a fragment of its shape and generates no `Rows` and no `query`
 (R-GEN-40), so the caller roots at the shape. The message covers both kinds: `X: root Branch is a branch and cannot be
 read directly; root at the shape S instead`. Sources are unreleased, so refusing now and allowing later stays
