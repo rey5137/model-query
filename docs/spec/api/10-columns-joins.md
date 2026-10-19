@@ -59,7 +59,8 @@ there is no metamodel for INV-3 to check it against. A source root's column is
 `ExpressionField<M, C>`. `model` types the outer vocabulary; `rows` is a `SubSelect<S, C>`;
 `correlation` takes `Filters<S>` and `Outer<M, S>` and returns `Filters<S>`, as R-FLT-17 does. The factory records
 it once, requires an actual lifted outer column (`MQ1309`) and closes the recorder (INV-9). A lifted column is
-usable only in that correlation (`MQ1310`); it must be on the outer root (`MQ1311`). The sub-select's own filters
+usable only in that correlation (`MQ1310`); it must be on the outer root or a to-one path from it (a path crossing a to-many join is `MQ1311` at first
+resolution). The sub-select's own filters
 and the recorded correlation are combined with AND.
 
 Each terminal is a scalar sub-query in every scalar position: selection, projection, filter and order; there is
@@ -69,6 +70,9 @@ end`, returning a non-NULL `Boolean`. `min` and `max` have per-method `Comparabl
 type; `sum` has a per-method `Number` bound and follows R-AGG-04's SUM types (`BigDecimal`, `Double`, `Long`),
 including its converted-column refusal. `min` and `max` refuse a converted column with `MQ1501`. These three
 terminals return NULL when no non-NULL value matches. An expression may coalesce or otherwise compose the result.
+A correlated value is allowed in an update or delete `where` (MySQL runs it key-first when it reads the target
+table, R-WRT-12), refused in a conflict update's `where` (`MQ1804`) and in `setExpression` (`MQ1613`: it reads
+the root's lifted columns) (D-153).
 
 Equality is the sub-select, the recorded correlation, the terminal and, for `first`, its order keys, directions and
 null precedence; a custom predicate compares by the identity of its recorded condition, even when labelled, at any
@@ -558,6 +562,7 @@ the planner must see as a literal (a partial index's predicate, a selective enum
 | AC-COL-40 | Correlated first: required order, id tie-breaker, R-COL-12 null precedence, NULL without a match, selection/filter/order and lifted to-one correlation on Tier 1 and both Hibernate lines; missing `SubqueryRenderer` is MQ4014 before any statement and per portability target (R-COL-32). |
 | AC-COL-41 | Refusals, grouped WHERE and counts retaining lifted joins (R-COL-33, R-EXE-05). |
 | AC-COL-42 | To-many count/sum: MQ1511; EXISTS filtering and min/max/exists exemptions (R-COL-33). |
+| AC-COL-43 | A correlated value in an update or delete `where` over the target table: MySQL runs key-first and matches the other vendors' rows; a conflict `where` is `MQ1804`, `setExpression` is `MQ1613` (R-COL-31, R-WRT-13, D-153). |
 
 AC-COL-36..39, 41 and 42 run on every Tier-1 vendor and both Hibernate lines. Each scalar terminal selects,
 filters and orders. AC-COL-41 covers all R-COL-33 refusals, including generated annotations and

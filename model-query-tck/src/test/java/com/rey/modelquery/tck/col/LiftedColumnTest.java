@@ -66,6 +66,7 @@ class LiftedColumnTest {
     private static final ExpressionField<Row, Long> COUNT = count(NAME);
     private static final String MATCH = "exists (select 1 from customers c where c.id <= 100 and c.name = r.name)";
 
+    // AC-FLT-28
     @TckTest
     void ac_flt_28_exists_not_exists_and_null_preserve_outer_on(TckDatabase db) throws SQLException {
         var expected = ids(db, "select o.id from orders o left join customers r on r.id=o.referrer_id and r.vip=true "
@@ -93,6 +94,7 @@ class LiftedColumnTest {
         }));
     }
 
+    // AC-FLT-28
     @TckTest
     void ac_flt_28_nested_to_one_depth_two(TckDatabase db) throws SQLException {
         var items = TableField.root(OrderItemEntity.class);
@@ -113,6 +115,7 @@ class LiftedColumnTest {
                         .extracting(Row::id).isEqualTo(expected)));
     }
 
+    // AC-FLT-28
     @TckTest
     void ac_flt_28_through_child_is_the_to_one_paths_base(TckDatabase db) throws SQLException {
         var referrer = TableField.<OrderEntity, CustomerEntity>join(ROOT, "referrer", LEFT);
@@ -143,6 +146,7 @@ class LiftedColumnTest {
         assertThat(actual).isEqualTo(expected);
     }
 
+    // AC-FLT-28
     @TckTest
     void ac_flt_28_or_and_not_make_lifted_inner_paths_left(TckDatabase db) throws SQLException {
         var either = ids(db, "select o.id from orders o left join customers r on r.id=o.referrer_id "
@@ -163,6 +167,7 @@ class LiftedColumnTest {
         }));
     }
 
+    // AC-FLT-28
     @TckTest
     void ac_flt_28_nested_path_exists_preserves_enclosing_left_joining(TckDatabase db) {
         var orders = TableField.<CustomerEntity, OrderEntity>join(CUSTOMERS, "orders", INNER);
@@ -203,6 +208,7 @@ class LiftedColumnTest {
         assertRefused(db, LabelEntity.class, query, "to-many");
     }
 
+    // AC-FLT-29
     @TckTest
     void ac_flt_29_correlated_values_reuse_the_selected_join_and_its_on(TckDatabase db) throws SQLException {
         var count = count(VIP_NAME);
@@ -223,6 +229,7 @@ class LiftedColumnTest {
         assertThat(sql).allSatisfy(statement -> assertThat(statement.split("left join customers", -1)).hasSize(2));
     }
 
+    // AC-FLT-29
     @TckTest
     void ac_flt_29_ac_col_41_count_keeps_inner_lifted_joins_and_left_or_not(TckDatabase db) throws SQLException {
         long inner = ids(db, "select o.id from orders o join customers r on r.id=o.referrer_id where o.id<=12").size();
@@ -246,6 +253,7 @@ class LiftedColumnTest {
                 assertThat(statement).contains("left join customers", "(select count("));
     }
 
+    // AC-FLT-29
     @TckTest
     void ac_flt_29_source_outer_root_can_be_correlated(TckDatabase db) {
         var root = TableField.source(OrderSource.class);
@@ -279,12 +287,12 @@ class LiftedColumnTest {
                 (s, outer) -> s.compare(CUSTOMER_NAME, Op.EQ, outer.column(status)))).build(), "to-many");
         var sourceId = ColumnField.over(Inner.class, TableField.source(OrderSource.class), QOrderSource.ID);
         var sourceRows = SubSelect.of(sourceId);
-        assertRefused(db, selecting(ID).where(f -> f.in(ID, sourceRows)).build(), "root is a source");
+        assertRefused(db, selecting(ID).where(f -> f.in(ID, sourceRows)).build(), MqCode.MQ1909, "root is a source");
         assertRefused(db, selecting(ID).where(f -> f.exists(sourceRows,
-                (s, outer) -> s.compare(sourceId, Op.EQ, outer.column(ID)))).build(), "root is a source");
+                (s, outer) -> s.compare(sourceId, Op.EQ, outer.column(ID)))).build(), MqCode.MQ1909, "root is a source");
         var sourceCount = Correlated.count(Row.class, sourceRows,
                 (s, outer) -> s.compare(sourceId, Op.EQ, outer.column(ID)));
-        assertRefused(db, selecting(sourceCount).build(), "root is a source");
+        assertRefused(db, selecting(sourceCount).build(), MqCode.MQ1909, "root is a source");
     }
 
     private static ExpressionField<Row, Long> count(ColumnField<Row, CustomerEntity, String> name) {
@@ -309,18 +317,28 @@ class LiftedColumnTest {
     }
 
     private static <E, M> void assertRefused(TckDatabase db, Class<E> root, ModelQuery<E, ?, M> query, String message) {
+        assertRefused(db, root, query, MqCode.MQ1311, message);
+    }
+
+    private static <E, M> void assertRefused(TckDatabase db, Class<E> root, ModelQuery<E, ?, M> query, MqCode code,
+            String message) {
         List<Throwable> errors = new ArrayList<>();
         var sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, root,
                 executor -> errors.add(catchThrowable(() -> executor.list(query, Limit.unlimited())))));
         assertThat(sql).isEmpty();
         assertThat(errors).hasSize(1).allSatisfy(error -> assertThat(error)
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
-                        failure -> assertThat(failure.code()).isEqualTo(MqCode.MQ1311))
+                        failure -> assertThat(failure.code()).isEqualTo(code))
                 .hasMessageContaining(message));
     }
 
     private static void assertRefused(TckDatabase db, ModelQuery<OrderEntity, ?, Row> query, String message) {
         assertRefused(db, OrderEntity.class, query, message);
+    }
+
+    private static void assertRefused(TckDatabase db, ModelQuery<OrderEntity, ?, Row> query, MqCode code,
+            String message) {
+        assertRefused(db, OrderEntity.class, query, code, message);
     }
 
     private static <E> void withExecutor(DataSource ds, Class<E> root, Consumer<ModelQueryExecutor<E>> work) {

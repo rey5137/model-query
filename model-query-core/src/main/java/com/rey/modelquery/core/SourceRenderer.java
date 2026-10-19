@@ -7,6 +7,7 @@ import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Root;
+import java.util.Objects;
 
 /**
  * How a query rooted at a source reaches its provider's CTE and window support, so {@code core} names no provider
@@ -18,9 +19,9 @@ import jakarta.persistence.criteria.Root;
  * statement it builds over a source, so a statement never reaches the database without its CTE registered (R-SRC-12).
  * A query over a source with no renderer is {@code MQ4014}, raised at build time, before any statement.
  *
- * <p>{@link #cte} is the one method a provider must implement; {@link #recursive}, {@link #window}, {@link #combine},
- * {@link #register}, {@link #registerRecursive} and {@link #from} default to {@code MQ4014}, so a provider can ship
- * single-level plain CTE support only.
+ * <p>A provider implements {@link #register} and {@link #from}, and {@link #registerRecursive} for recursion;
+ * {@link #cte} and {@link #recursive} default over them (D-151). Those three, {@link #window} and {@link #combine}
+ * default to {@code MQ4014}, so a provider can ship plain CTE support only.
  *
  * @implSpec R-SRC-10, R-SRC-12, R-SRC-18, R-SRC-04, INV-7
  */
@@ -30,7 +31,8 @@ public interface SourceRenderer {
 
     /**
      * An opaque handle to a CTE registered on one top statement, for the next CTE body in the chain or the top
-     * statement to read through {@link #from} (R-SRC-18, D-150).
+     * statement to read through {@link #from} (R-SRC-18, D-150). A handle is valid only on the {@code top} statement it
+     * was registered on and that statement's sub-queries.
      */
     @EngineFacing
     @Incubating
@@ -39,23 +41,39 @@ public interface SourceRenderer {
     /**
      * A recursive source's CTE once registered on the top statement (R-SRC-18, D-150): its {@link CteHandle}, for the
      * next CTE body to read through {@link #from}, and the check expressions the top statement selects (R-SRC-08,
-     * R-SRC-14).
+     * R-SRC-14). Valid only on the {@code top} statement it was registered on and that statement's sub-queries.
      *
      * @param handle the registered recursive CTE
-     * @param depthKey the smallest key of the rows past {@code maxDepth}, or {@code null} for none
-     * @param cycleKey the smallest key of the marked rows, or {@code null} for none
+     * @param depthKey the depth check, always present: the smallest key of the rows past {@code maxDepth}, {@code null}
+     *         in the statement's row where the CTE holds none
+     * @param cycleKey the cycle check, always present: the smallest key of the marked rows, {@code null} in the
+     *         statement's row where the CTE holds none
      * @param duplicateKey the duplicate-key check, or {@code null} when the renderer supplies none
      */
     @EngineFacing
     @Incubating
     record RecursiveHandle(CteHandle handle, Expression<?> depthKey, Expression<?> cycleKey,
-            Expression<?> duplicateKey) {}
+            Expression<?> duplicateKey) {
+
+        public RecursiveHandle {
+            Objects.requireNonNull(handle, "handle");
+            Objects.requireNonNull(depthKey, "depthKey");
+            Objects.requireNonNull(cycleKey, "cycleKey");
+        }
+    }
 
     /**
      * Registers {@code body} as the CTE of {@code outer} and returns the root whose columns the outer statement reads
-     * by the source field names, each a {@link Tuple} element aliased to that name (R-SRC-12).
+     * by the source field names, each a {@link Tuple} element aliased to that name (R-SRC-12). Defaults to
+     * {@link #register} then {@link #from}.
      */
-    Root<Tuple> cte(CriteriaQuery<?> outer, CriteriaQuery<Tuple> body);
+    default Root<Tuple> cte(CriteriaQuery<?> outer, CriteriaQuery<Tuple> body) {
+        try {
+            return from(outer, register(outer, body));
+        } catch (ModelQueryConfigurationException e) {
+            throw refused(e, null);
+        }
+    }
 
     /**
      * Registers {@code body} as a CTE on {@code top} without adding it to {@code top}'s {@code FROM} clause, returning
@@ -71,10 +89,16 @@ public interface SourceRenderer {
      * the check expressions the statement's first row is read for (R-SRC-07, R-SRC-12, R-SRC-14). A tree source
      * requires a duplicate-key check; returning none is {@code MQ4014} before any statement. The CTE recurses to
      * {@code maxDepth + 1} levels, marks the row that closes a cycle, and joins each level to the previous one
-     * through the step's keys (RFC 0013 §5).
+     * through the step's keys (RFC 0013 §5). Defaults to {@link #registerRecursive} then {@link #from}.
      */
     default RecursiveCte recursive(CriteriaQuery<?> outer, RecursiveSpec spec) {
-        throw unsupported("recursive CTEs");
+        try {
+            RecursiveHandle registered = registerRecursive(outer, spec);
+            return new RecursiveCte(from(outer, registered.handle()), registered.depthKey(), registered.cycleKey(),
+                    registered.duplicateKey());
+        } catch (ModelQueryConfigurationException e) {
+            throw refused(e, "recursive CTEs");
+        }
     }
 
     /**
@@ -119,6 +143,22 @@ public interface SourceRenderer {
     default CriteriaQuery<Tuple> combine(CriteriaBuilder cb, SetOperation operation, CriteriaQuery<Tuple> left,
             CriteriaQuery<Tuple> right) {
         throw unsupported("set operations");
+    }
+
+    /**
+     * The single-statement entry points report their own feature, not the chain's, keeping the cause; a {@code null}
+     * feature is {@link #cte}'s, where the provider renders no CTE source at all.
+     */
+    private static ModelQueryConfigurationException refused(ModelQueryConfigurationException e, String feature) {
+        if (e.code() != MqCode.MQ4014) {
+            return e;
+        }
+        var refused = feature == null
+                ? new ModelQueryConfigurationException(MqCode.MQ4014,
+                        "the factory's persistence provider renders no CTE sources")
+                : unsupported(feature);
+        refused.initCause(e);
+        return refused;
     }
 
     private static ModelQueryConfigurationException unsupported(String feature) {

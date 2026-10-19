@@ -48,6 +48,7 @@ class SourceReadTest {
         return ModelQuery.builder(SOURCE_ROOT, MAPPER, sourceBuilder().build()).primaryKey(ROW_KEY);
     }
 
+    // AC-SRC-35
     @Test
     void ac_src_35_selecting_definition_columns_is_mq1905_at_build() {
         var builder = readBuilder().select(SelectSet.of(ID));
@@ -69,6 +70,7 @@ class SourceReadTest {
         rejects(builder::build, "QSource.Rows.CUSTOMER_ID");
     }
 
+    // AC-SRC-35
     @Test
     @SuppressWarnings({"rawtypes", "unchecked"})
     void ac_src_35_an_outer_read_names_its_own_constant_in_select_where_and_order_errors() {
@@ -129,6 +131,7 @@ class SourceReadTest {
         rejects(filtered::build, "QSource.Rows.CUSTOMER_ID");
     }
 
+    // AC-SRC-36
     @Test
     void ac_src_36_filtering_rows_columns_in_a_source_is_mq1905_at_build() {
         var builder = sourceBuilder().where(f -> f.eq(ROW_CUSTOMER_ID, Optional.of(3L)));
@@ -136,6 +139,7 @@ class SourceReadTest {
         rejects(builder::build, "QSource.CUSTOMER_ID");
     }
 
+    // AC-SRC-36
     @Test
     void ac_src_36_selecting_rows_columns_in_a_source_is_mq1905_at_build() {
         var builder = SourceQuery.builder(Source.class, ENTITY_ROOT, ALL.with(ROW_CUSTOMER_ID), KEY);

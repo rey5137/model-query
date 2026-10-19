@@ -235,7 +235,7 @@ class SubSelectTest {
     }
 
     @Test
-    void ac_flt_15_a_source_rooted_sub_select_is_mq1311_at_first_resolution() {
+    void ac_flt_15_a_source_rooted_sub_select_is_mq1909_at_first_resolution() {
         TableField<RefundView, RefundView> source = TableField.source(RefundView.class);
         ColumnField<RefundView, RefundView, Long> id =
                 ColumnField.over(RefundView.class, source, REFUND_ORDER.named("orderId"));
@@ -245,11 +245,11 @@ class SubSelectTest {
         for (boolean negated : List.of(false, true)) {
             assertThatThrownBy(() -> ctx.inSubSelect(ID, sub, negated))
                     .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
-                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1311))
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1909))
                     .hasMessageContaining("the sub-select's root is a source");
             assertThatThrownBy(() -> ctx.existsSubSelect(sub, List.of(), negated))
                     .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
-                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1311))
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1909))
                     .hasMessageContaining("the sub-select's root is a source");
         }
     }

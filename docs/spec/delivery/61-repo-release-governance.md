@@ -184,6 +184,19 @@ The source-over-source members (D-150, M27.4) are `@Incubating` through 1.0: bot
 factories, and `MqCode.MQ1907`/`MQ1908`. The retained inner definition is immutable and safe in `static final`
 constants (INV-9); it exposes no new public accessor.
 
+The correlated-column members (D-150, M27.1) are `@Incubating` through 1.0: `Correlated` and its terminals `count`,
+`exists`, `min`, `max` and `sum`, and `MqCode.MQ1314`, `MqCode.MQ1510` and `MqCode.MQ1511`.
+
+The correlated-first member (D-150, M27.3) is `@Incubating` through 1.0: `Correlated.first`, `SubqueryRenderer` and
+`ProviderSupport#subqueries()`.
+
+The source-chain members (D-150, M27.5) are `@Incubating` through 1.0: `SourceRenderer.CteHandle`,
+`SourceRenderer.RecursiveHandle`, the `SourceRenderer` methods `register`, `registerRecursive` and `from`, and
+`SourceQuery#tree()`.
+
+The source-read members (D-150, M27.6) are `@Incubating` through 1.0: the generated `Rows` type and
+`query(SourceQuery<S>)` on a source QModel.
+
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from
 Conventional Commits. A commit that breaks an `@Incubating` type is still marked breaking (`!` and a

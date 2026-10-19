@@ -45,6 +45,7 @@ class SourceRowsModelTest {
                     @Window(function = WindowFunction.ROW_NUMBER, orderBy = "id") Long rank) {}
             """);
 
+    // AC-SRC-33
     @Test
     void ac_src_33_a_source_named_rows_has_a_fully_qualified_read_vocabulary() throws Exception {
         Compilation compilation = compile(ITEM, ROWS, source("shop.ReadRows", """
@@ -74,6 +75,7 @@ class SourceRowsModelTest {
         assertThat(loader.loadClass("shop.ReadRows").getMethod("read").invoke(null)).isNotNull();
     }
 
+    // AC-SRC-33
     @Test
     void ac_src_33_a_class_mapper_reads_windows_and_preserves_unselected_initializers() throws Exception {
         Compilation compilation = compile(ITEM, source("shop.Bean", """
@@ -105,6 +107,7 @@ class SourceRowsModelTest {
         assertThat(mapped.getClass().getMethod("getRank").invoke(mapped)).isEqualTo(3L);
     }
 
+    // AC-SRC-33
     @Test
     void ac_src_33_a_grouped_record_mapper_reads_aggregate_and_window_values() throws Exception {
         Compilation compilation = compile(ITEM, source("shop.Counts", """
@@ -131,6 +134,7 @@ class SourceRowsModelTest {
         assertThat(mapped.getClass().getMethod("rank").invoke(mapped)).isEqualTo(3L);
     }
 
+    // AC-SRC-33
     @Test
     void ac_src_33_nullness_annotations_inside_rows_are_fully_qualified() {
         Compilation compilation = compileWithOptions(List.of("-Amodelquery.jspecify=true"), ITEM, ROWS);

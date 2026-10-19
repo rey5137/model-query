@@ -469,6 +469,7 @@ class SourceQueryTest {
                 .primaryKey(PrimaryKey.of(id)).keyset().build().isKeyset()).isTrue();
     }
 
+    // AC-SRC-37
     @Test
     void ac_src_37_direct_and_nested_correlated_fields_are_mq1908_at_the_builder() {
         var correlated = Correlated.count(Source.class, SubSelect.of(E_ID),

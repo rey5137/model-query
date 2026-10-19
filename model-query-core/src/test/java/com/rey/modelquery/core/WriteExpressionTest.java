@@ -175,6 +175,19 @@ class WriteExpressionTest {
                 .checkSequences(none)).doesNotThrowAnyException();
     }
 
+    // ---- AC-WRT-48
+    @Test
+    void ac_wrt_48_a_correlated_value_in_set_expression_is_mq1613_at_the_call() {
+        ExpressionField<NewCounter, Long> sum = Correlated.sum(NewCounter.class, SubSelect.of(SOURCE_ID),
+                (f, outer) -> f.compare(SOURCE_ID, Op.EQ, outer.column(ID)));
+        ExpressionField<NewCounter, Long> count = Correlated.count(NewCounter.class, SubSelect.of(SOURCE_ID),
+                (f, outer) -> f.compare(SOURCE_ID, Op.EQ, outer.column(ID)));
+        ExpressionField<NewCounter, Long> lifted = Expr.plus(ColumnField.<NewCounter, Counter, Long>lifted(ID), 1L);
+        for (ExpressionField<NewCounter, Long> value : List.of(sum, count, lifted)) {
+            assertCode(() -> update().setExpression(NEXT, value), MqCode.MQ1613);
+        }
+    }
+
     private static ModelUpdate.Builder<Counter, Long, NewCounter> update() {
         return ModelUpdate.builder(ROOT).primaryKey(PrimaryKey.of(ID));
     }

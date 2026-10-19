@@ -551,7 +551,7 @@ public final class JoinContext {
 
     private static void checkSubSelectRoot(SubSelect<?, ?> sub) {
         if (sub.root().isSource()) {
-            throw new ModelQueryDefinitionException(MqCode.MQ1311, sub + ": the sub-select's root is a source");
+            throw new ModelQueryDefinitionException(MqCode.MQ1909, sub + ": the sub-select's root is a source");
         }
     }
 

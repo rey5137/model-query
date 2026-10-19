@@ -374,7 +374,7 @@ class CorrelatedTest {
 
         assertThatThrownBy(() -> count.expression(JoinContext.rootless(null, RenderOptions.portable())))
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
-                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1311))
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1909))
                 .hasMessageContaining("the sub-select's root is a source");
     }
 

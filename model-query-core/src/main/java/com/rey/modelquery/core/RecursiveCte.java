@@ -4,6 +4,7 @@ import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Root;
+import java.util.Objects;
 
 /**
  * A recursive source's CTE once the provider registered it on a statement (R-SRC-07, R-SRC-12): the root the outer
@@ -18,8 +19,10 @@ import jakarta.persistence.criteria.Root;
  * {@link #duplicateKey()}, read last, naming the first column of the smallest duplicated whole key ({@code MQ2703}).
  *
  * @param root the root of the CTE's columns, to read the source by
- * @param depthKey the smallest key of the rows past {@code maxDepth}, or {@code null} for none
- * @param cycleKey the smallest key of the marked rows, or {@code null} for none
+ * @param depthKey the depth check, always present: the smallest key of the rows past {@code maxDepth}, {@code null}
+ *        where the CTE holds none
+ * @param cycleKey the cycle check, always present: the smallest key of the marked rows, {@code null} where the CTE
+ *        holds none
  * @param duplicateKey the duplicate-key check, or {@code null} when the renderer supplies none
  * @implSpec R-SRC-07, R-SRC-12, R-SRC-14
  */
@@ -28,4 +31,9 @@ import jakarta.persistence.criteria.Root;
 public record RecursiveCte(Root<Tuple> root, Expression<?> depthKey, Expression<?> cycleKey,
         @Incubating Expression<?> duplicateKey) {
 
+    public RecursiveCte {
+        Objects.requireNonNull(root, "root");
+        Objects.requireNonNull(depthKey, "depthKey");
+        Objects.requireNonNull(cycleKey, "cycleKey");
+    }
 }

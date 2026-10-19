@@ -2211,6 +2211,27 @@ reads the root cause. Rejected: string annotations, lateral joins, a step type f
 R-SRC-16..19, `processor/30` R-PROC-35, R-PROC-39, R-PROC-40, `processor/31` R-GEN-37, R-GEN-39, R-GEN-40,
 `vendor/40` R-VND-25, Q-22.
 
+**D-151 — `SourceRenderer` SPI and MQ1909 (M27 gate, 2026-10-19, user decision).** `RecursiveHandle` and `CteHandle` are
+approved as `@Incubating`; `RecursiveHandle`'s `handle`, `depthKey` and `cycleKey` are non-null, `duplicateKey` stays
+nullable, and a handle is valid only on the top statement it was registered on and that statement's sub-queries.
+`SourceRenderer#cte` and `#recursive` become defaults over `register`, `registerRecursive` and `from`, so a provider
+implements those (a provider may still override the old pair); with nothing overridden every method ends in `MQ4014`. A
+sub-select rooted at a source moves from `MQ1311` to the new `MQ1909`, since a released code does not take a new meaning
+(INV-10); `MQ1311` keeps the lifted-path meaning only. → `api/12` R-FLT-27, `vendor/40` R-VND-21, D-150.
+
+**D-152 — A `@QueryModel` rooted at a branch is `MQ3042` (M27 gate, 2026-10-19, user decision).** A
+`@QueryModel` whose root is a branch of a set-operation source is refused at compile time with `MQ3042`, as a source
+rooted at a branch already is (M27.4): the branch builds a fragment of its shape and generates no `Rows` and no `query`
+(R-GEN-40), so the caller roots at the shape. The message covers both kinds: `X: root Branch is a branch and cannot be
+read directly; root at the shape S instead`. Sources are unreleased, so refusing now and allowing later stays
+compatible. → `processor/30` R-PROC-40, `processor/32` AC-PROC-41, `api/17`, D-150.
+
+**D-153 — Correlated values in bulk writes (M27 gate, 2026-10-19, user decision).** A `Correlated.*` terminal (R-COL-31)
+is allowed in an update or delete `where`, where a key-first rewrite on MySQL covers a sub-select over the target table
+(`targetTableInSubquery()`, R-WRT-12). It stays refused in a conflict update's `where` (`MQ1804`) and in
+`ModelUpdate.setExpression(column, ExpressionField)`: a correlated value reads the root's lifted columns, so `MQ1613`
+already refuses it, and no new code or `build()` guard is added. → `api/10` R-COL-31, `api/14` R-WRT-13, D-150.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

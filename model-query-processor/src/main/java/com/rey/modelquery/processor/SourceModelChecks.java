@@ -19,13 +19,15 @@ final class SourceModelChecks {
     }
 
     boolean kindOk(ModelDefinition model, Diagnostics diagnostics) {
+        if (model.readsSource() && model.source().branch()) {
+            // A branch builds a fragment of its shape, never a query of its own: a source or a query model alike
+            // roots at the shape (D-152, R-GEN-40).
+            diagnostics.error(model.type(), DiagnosticCode.MQ3042, model.name() + ": root "
+                    + model.source().name() + " is a branch and cannot be read directly; root at the shape "
+                    + model.source().shape().name() + " instead");
+            return false;
+        }
         if (model.sourceModel() && model.readsSource()) {
-            if (model.source().branch()) {
-                diagnostics.error(model.type(), DiagnosticCode.MQ3042, model.name() + ": root "
-                        + model.source().name() + " is a branch; root at the shape "
-                        + model.source().shape().name() + " instead");
-                return false;
-            }
             String kind = model.recursive() ? "recursive" : model.branch() ? "a branch"
                     : branches(model).isEmpty() ? null : "a shape";
             if (kind != null) {

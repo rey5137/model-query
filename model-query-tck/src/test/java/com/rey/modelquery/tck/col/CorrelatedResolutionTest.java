@@ -49,6 +49,7 @@ class CorrelatedResolutionTest {
     private static final ExpressionField<Model, Long> COUNT = Correlated.count(Model.class, SubSelect.of(INNER_ID),
             (f, outer) -> f.compare(INNER_ID, Op.EQ, outer.column(ID)));
 
+    // AC-COL-42
     @TckTest
     void ac_col_42_count_and_sum_refuse_to_many_in_the_column_own_where_and_correlation(TckDatabase db) {
         var values = new ArrayList<ExpressionField<Model, ?>>();
@@ -68,6 +69,7 @@ class CorrelatedResolutionTest {
         }
     }
 
+    // AC-COL-42
     @TckTest
     void ac_col_42_exists_filters_avoid_fanout_and_min_max_exists_accept_to_many(TckDatabase db) {
         var rows = SubSelect.of(TOTAL).where(f -> f.exists(ITEMS, item -> item.eq(CODE, "P007")));

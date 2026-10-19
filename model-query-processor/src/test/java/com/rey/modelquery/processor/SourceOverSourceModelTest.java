@@ -62,6 +62,7 @@ class SourceOverSourceModelTest {
 
     private static final JavaFileObject INNER = model("Inner", "Item", "@PrimaryKey Long id, String name, Long amount");
 
+    // AC-PROC-38
     @Test
     void ac_proc_38_a_self_rooted_source_reports_a_cycle() {
         Compilation compilation = compile(model("A", "A", "@PrimaryKey Long id"));
@@ -71,6 +72,7 @@ class SourceOverSourceModelTest {
                 message(DiagnosticCode.MQ3038, "A: root chain cycles through A"));
     }
 
+    // AC-PROC-38
     @Test
     void ac_proc_38_mutually_rooted_sources_report_cycles() {
         Compilation compilation = compile(model("A", "B", "@PrimaryKey Long id"),
@@ -82,6 +84,7 @@ class SourceOverSourceModelTest {
                 message(DiagnosticCode.MQ3038, "B: root chain cycles through B"));
     }
 
+    // AC-PROC-41
     @Test
     void ac_proc_41_a_source_rooted_at_a_branch_must_root_at_its_shape() {
         Compilation compilation = compile(ENTITY, INNER, source("shop.Branch", HEADER + """
@@ -91,7 +94,23 @@ class SourceOverSourceModelTest {
 
         assertThat(compilation).failed();
         assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3042,
-                "Outer: root Branch is a branch; root at the shape Inner instead"));
+                "Outer: root Branch is a branch and cannot be read directly; root at the shape Inner instead"));
+    }
+
+    // AC-PROC-41
+    @Test
+    void ac_proc_41_a_query_model_rooted_at_a_branch_must_root_at_its_shape() {
+        Compilation compilation = compile(ENTITY, INNER, source("shop.Branch", HEADER + """
+                @SourceModel(root = Item.class, shape = Inner.class)
+                public record Branch(@PrimaryKey Long id, String name, Long amount) {}
+                """), source("shop.Reader", HEADER + """
+                @com.rey.modelquery.annotations.QueryModel(root = Branch.class)
+                public record Reader(@PrimaryKey Long id) {}
+                """));
+
+        assertThat(compilation).failed();
+        assertThat(errors(compilation)).containsExactly(message(DiagnosticCode.MQ3042,
+                "Reader: root Branch is a branch and cannot be read directly; root at the shape Inner instead"));
     }
 
     @Test
@@ -119,6 +138,7 @@ class SourceOverSourceModelTest {
         assertNullable(compilation, "Shape", "name");
     }
 
+    // AC-PROC-41
     @Test
     void ac_proc_41_a_deferred_branch_makes_a_source_over_a_source_a_shape() {
         Compilation compilation = javac().withProcessors(new ModelQueryProcessor(), new SourceGenerator(Map.of(
@@ -203,6 +223,7 @@ class SourceOverSourceModelTest {
                         + "a source filter reads one CTE column by field name"));
     }
 
+    // AC-PROC-31
     @Test
     void ac_src_26_a_source_over_a_source_needs_the_inner_key_fields() {
         Compilation compilation = compile(ENTITY, INNER, model("WrongKey", "Inner", "@PrimaryKey String name"));
@@ -291,6 +312,7 @@ class SourceOverSourceModelTest {
         assertThat(compilation).succeeded();
     }
 
+    // AC-PROC-41
     @Test
     void ac_proc_41_a_source_over_a_source_cannot_be_recursive() {
         Compilation compilation = compile(ENTITY, INNER,
@@ -301,6 +323,7 @@ class SourceOverSourceModelTest {
                 "Outer: a source over Inner cannot be recursive"));
     }
 
+    // AC-PROC-41
     @Test
     void ac_proc_41_a_source_over_a_source_cannot_be_a_branch() {
         Compilation compilation = compile(ENTITY, INNER, source("shop.Outer", HEADER + """
@@ -313,6 +336,7 @@ class SourceOverSourceModelTest {
                 "Outer: a source over Inner cannot be a branch"));
     }
 
+    // AC-PROC-41
     @Test
     void ac_proc_41_a_source_over_a_source_cannot_be_a_shape() {
         Compilation compilation = compile(ENTITY, INNER, model("Outer", "Inner", "@PrimaryKey Long id"),
@@ -356,6 +380,7 @@ class SourceOverSourceModelTest {
         assertThat(compilation).succeeded();
     }
 
+    // AC-PROC-31
     @Test
     void ac_src_26_a_grouped_source_over_a_source_needs_the_full_group_key() {
         Compilation compilation = compile(ENTITY, INNER, model("Summary", "Inner", """
@@ -472,6 +497,7 @@ import javax.lang.model.element.TypeElement;
         }
     }
 
+    // AC-SRC-37
     @ParameterizedTest
     @ValueSource(strings = {"Item", "Inner"})
     void ac_src_37_a_computed_correlated_source_loads_but_source_factory_is_mq1908(String root) throws Exception {
