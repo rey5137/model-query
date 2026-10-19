@@ -2,14 +2,15 @@
 
 !!! warning "Incubating"
     Source models, and every type on this page — `@SourceModel`, `SourceQuery`, `@Window`, `@Depth`,
-    `@Discriminator`, `SourceRenderer` and the generated `source()` and `WindowField` members — are new in 0.10.0 and
-    annotated `@Incubating`, as the rest of the API in 0.x is (see [API stability](stability.md)). They are complete
+    `@Discriminator`, `SourceRenderer` and the generated `source()`, `query(source)`, `Rows` and `WindowField`
+    members — are new in 0.10.0 and annotated `@Incubating`, as the rest of the API in 0.x is
+    (see [API stability](stability.md)). They are complete
     and tested, but their API may still change in a minor release.
 
-A **source model** is a query you name once and read through another model. The library renders it as a common table
-expression (CTE) and reads the CTE's columns by field name, so the same query can be an outer model's rows, a window
-over them or one branch of a set operation. This is how CTEs, window functions, set operations and recursion become
-reachable through a model instead of hand-written SQL:
+A **source model** is a query you name once and read directly or through another model. The library renders it as a
+common table expression (CTE) and reads the CTE's columns by field name, so the same query can be an outer model's
+rows, a window over them or one branch of a set operation. This is how CTEs, window functions, set operations and
+recursion become reachable through a model instead of hand-written SQL:
 
 ```java
 @SourceModel(root = OrderEntity.class)                     // the entity the source reads
@@ -25,8 +26,9 @@ same checks and codes. The source's `@PrimaryKey` is either the root entity's id
 grouped source; anything else is `MQ3031`, because a source's key has to identify one row (see
 [Non-unique sources](#non-unique-sources)).
 
-The generated `QOrderSource` declares `source()` in place of `query()`: `where` and `having`, no `select` (a source
-always carries every field of its model), and `build()` giving an immutable `SourceQuery<OrderSource>`:
+The generated `QOrderSource.source()` builds the source body: `where` and `having`, no `select` (a source always
+carries every field of its model), and `build()` giving an immutable `SourceQuery<OrderSource>`. Its
+[`query(source)` factory](#reading-a-source) reads the completed source:
 
 ```java
 public static SourceQuery.Builder<OrderEntity, OrderSource, OrderSource> source() {
@@ -330,6 +332,124 @@ or use `recursive(...)` if repeated paths are intended. The engine checks depth 
 then duplicates, before delivering a row. An outer filter cannot hide duplicates when the statement returns a row;
 an empty result carries no check value. Each statement checks the whole walk again, with no state carried between
 pages or export chunks.
+
+## Sources over sources
+
+A `@SourceModel` can read another source model's completed rows and add windows, aggregates, groups, computed
+fields or filter columns. For example, the TCK's `RankedOrderSource` ranks the `OrderSource` rows within each status:
+
+```java
+@SourceModel(root = OrderSource.class)
+@FilterColumn(name = "ORDER_TOTAL", path = "total")
+public record RankedOrderSource(
+        @PrimaryKey Long id,
+        String status,
+        BigDecimal total,
+        @Window(function = WindowFunction.ROW_NUMBER, partitionBy = "status", orderBy = "total desc") Long rank) {}
+```
+
+The generated `@Incubating` factory is `source(SourceQuery<X> inner)` instead of `source()`. Pass the completed
+inner definition, then filter the rows the next level will rank. This is the shape used by
+`ChainedSourceExecutionTest#ac_src_26_a_source_over_a_plain_source_executes_and_matches_hand_written_sql`:
+
+```java
+SourceQuery<OrderSource> inner = QOrderSource.source()
+        .where(f -> f.in(QOrderSource.STATUS, List.of("PAID", "SHIPPED")))
+        .build();
+SourceQuery<RankedOrderSource> ranked = QRankedOrderSource.source(inner)
+        .where(f -> f.gte(QRankedOrderSource.ORDER_TOTAL, new BigDecimal("50.00")))
+        .build();
+var query = QRankedOrderFeed.query(ranked).select(QRankedOrderFeed.ALL)
+        .where(f -> f.lte(QRankedOrderFeed.RANK, 3L))
+        .orderBy(QRankedOrderFeed.STATUS.asc(), QRankedOrderFeed.RANK.asc()).build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<RankedOrderFeed> rows = executor.list(query, Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    ModelQueryExecutor<RankedOrderSource> executor =
+            ModelQueryExecutor.create(em, RankedOrderSource.class, config);
+    List<RankedOrderFeed> rows = executor.list(query, Limit.unlimited());
+    ```
+
+A root may be a plain or grouped source, a set-operation **shape**, a recursive walk or a checked tree. Root at the
+shape to read a branch's rows; a branch model itself cannot be the root (`MQ3042`). A source over a source cannot
+itself be recursive, a branch or a shape (`MQ3042`). Fields name single columns of the inner model; association
+joins remain unavailable (`MQ3035`). A missing or wrong inner definition is `MQ1907` at the builder/build boundary,
+including misuse through raw types or casts. The generated factory requires the inner argument at compile time.
+A correlated expression in a source's fields is `MQ1908` when the source definition is built; select it in the
+[outer query](subqueries-expressions.md#correlated-columns) instead.
+
+An ungrouped level keeps exactly the inner source's key fields, in order, and inherits its uniqueness. A grouped
+level uses the full non-null group key and establishes uniqueness even over a non-unique inner source. Over a plain
+recursive walk, aggregates count paths; use a checked `tree(...)` source to count nodes instead.
+
+Each level becomes an engine-named CTE in the same statement, from the innermost source out. Chains have no fixed
+depth limit, and each content, count, key-phase or export-page statement rebuilds its own chain. If an inner source
+is recursive, the next level applies its depth/cycle walk filter **before** computing windows and aggregates.
+Depth, cycle and duplicate-key checks still read the inner walk from the top statement. As with a single source,
+a row-returning statement that produces no rows carries no check value, including when an intermediate HAVING
+removes every group; an ungrouped count still returns a check row.
+
+Key predicates also stay in the top statement: `byKeys`, the keyset cursor, `primaryKeyFirst`'s second step and
+`one(query, key)` filter the finished result. They do not narrow a CTE before its ranks or aggregates are computed,
+so a rank always counts the full source defined by its own filters.
+
+## Reading a source
+
+A separate outer model is optional. Every non-branch source QModel generates the `@Incubating` `Rows` vocabulary
+and `query(SourceQuery<S>)` factory, returning rows of source model `S` itself. Shapes generate both; branches are
+read through their shape. A source over a source takes its completed **outer** definition in `query(...)`.
+
+`Rows` supplies a column for every field, including windows and aggregates, plus `DEFAULT`, `ALL`, `MAPPER` and,
+when keyed, `KEY`. The factory sets that key automatically. Its columns read the completed CTE: a predicate on
+`Rows.RANK` filters the window result, rather than the rows entering the window.
+
+<!-- from SourceReadExecutionTest#ac_src_34_a_window_filter_and_keyset_cursor_read_the_completed_source -->
+
+```java
+SourceQuery<OrderSource> inner = QOrderSource.source().where(f -> f.lte(QOrderSource.ID, 8L)).build();
+SourceQuery<RankedOrderSource> source = QRankedOrderSource.source(inner).build();
+var query = QRankedOrderSource.query(source)
+        .select(QRankedOrderSource.Rows.DEFAULT)
+        .where(f -> f.eq(QRankedOrderSource.Rows.RANK, 1L))
+        .orderBy(QRankedOrderSource.Rows.ID.asc()).keyset().build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    KeysetSlice<RankedOrderSource> first = executor.page(query, KeysetSpec.first(2));
+    ```
+
+=== "Spring repository"
+
+    ```java
+    ModelQueryExecutor<RankedOrderSource> executor =
+            ModelQueryExecutor.create(em, RankedOrderSource.class, config);
+    KeysetSlice<RankedOrderSource> first = executor.page(query, KeysetSpec.first(2));
+    ```
+
+Keep the two vocabularies separate. `QRankedOrderSource`'s own constants define the source body;
+`QRankedOrderSource.Rows` constants read its result. Mixing them is `MQ1905` before any statement:
+
+- A source's own constant in a direct read's selection, WHERE or order is refused at `ModelQuery.Builder.build()`.
+- A `Rows` column in the source body's fields, WHERE, group keys, HAVING or order is refused at
+  `SourceQuery.Builder.build()`.
+
+The error names the matching constant to use. For example, select `QRankedOrderSource.Rows.DEFAULT` in the direct
+read, and use `QRankedOrderSource.ID` in the source body's filters.
+
+Key-based features follow the source's uniqueness, just as with a separate outer model. A non-unique source
+refuses keyset and primary-key-first paging with `MQ1901`, and key-identifying execution with `MQ2212`.
+Grouping or a checked tree can establish uniqueness. Key predicates stay above the full source as described
+[above](#sources-over-sources), and direct reads have no fetch plans because a source cannot declare `@Child`.
 
 ## What a source needs to run: the provider and the vendor
 
