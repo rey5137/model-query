@@ -41,6 +41,10 @@ public enum MqCode {
     /** {@code FieldIndex.only} names a key the index doesn't hold, or leaves a kept set empty (R-COL-24). */
     MQ1105("FieldIndex.only names a key the index doesn't hold, or leaves a kept set empty"),
 
+    /** R-COL-34: a treated node has an invalid source, subtype or join modifier. */
+    @Incubating
+    MQ1106("treat(...) requires an untreated entity node and a strict mapped subtype; modify joins before treating"),
+
     /** {@code keyset()} or {@code primaryKeyFirst(...)} without a primary key (R-QRY-03). */
     MQ1201("keyset() and primaryKeyFirst(...) require a primary key"),
 
@@ -533,7 +537,8 @@ public enum MqCode {
      * The persistence provider lacks a source, ordered sub-query or source-feature renderer, including a tree's
      * duplicate-key check; raised at build time, before any statement (R-SRC-11, R-SRC-14, R-COL-32, R-VND-25).
      */
-    MQ4014("The persistence provider lacks a renderer the query needs"),
+    MQ4014("The persistence provider lacks a renderer for a source, ordered sub-query, source feature "
+            + "or a treated path"),
 
     /**
      * The target's vendor lacks a source feature the query uses, {@code VendorProfile#sources(SourceFeature)} returning

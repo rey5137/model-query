@@ -5,6 +5,7 @@ import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.metamodel.PluralAttribute;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
@@ -38,6 +39,12 @@ public final class TableField<P, T> {
     /** Whether this root is a source's, read by field name from a CTE rather than from an entity (R-SRC-10). */
     private final boolean source;
     private final JoinKey key;
+    private final Class<T> subtype;
+    private final TableField<?, ?> treatOrigin;
+
+    Class<T> treatedType() {
+        return subtype;
+    }
 
     private TableField(
             Class<T> rootEntity,
@@ -49,6 +56,12 @@ public final class TableField<P, T> {
             PrimaryKey<?, ?> presenceKey,
             String property,
             boolean source) {
+        this(rootEntity, parent, attribute, type, alias, condition, presenceKey, property, source, null, null);
+    }
+
+    private TableField(Class<T> rootEntity, TableField<?, P> parent, String attribute, JoinType type, String alias,
+            BiFunction<From<?, T>, CriteriaBuilder, Predicate> condition, PrimaryKey<?, ?> presenceKey,
+            String property, boolean source, Class<T> subtype, TableField<?, ?> treatOrigin) {
         this.rootEntity = rootEntity;
         this.parent = parent;
         this.attribute = attribute;
@@ -58,15 +71,35 @@ public final class TableField<P, T> {
         this.presenceKey = presenceKey;
         this.property = property;
         this.source = source;
+        this.subtype = subtype;
+        this.treatOrigin = treatOrigin;
         this.key = rootEntity != null
                 ? JoinKey.root(rootEntity)
-                : new JoinKey(parent.key, attribute, type, alias);
+                : new JoinKey(parent.key, subtype == null ? attribute : subtype.getName(), type, alias);
     }
 
     /** The query's root table. */
     public static <T> TableField<T, T> root(Class<T> entity) {
         return new TableField<>(Objects.requireNonNull(entity, "entity"), null, null, null, "", null, null, null,
                 false);
+    }
+
+    /**
+     * This node read as a strict entity subtype, sharing its treated Criteria node per statement (R-COL-34).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1106} for an improper subtype, a source or another treat
+     */
+    @Incubating
+    public <S extends T> TableField<T, S> treat(Class<S> subtype) {
+        Objects.requireNonNull(subtype, "subtype");
+        if (this.subtype != null || source) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1106,
+                    describe() + ": treat(...) requires an untreated entity root or join");
+        }
+        if (rootEntity != null) {
+            requireStrictSubtype(rootEntity, subtype);
+        }
+        return new TableField<>(null, this, null, null, "", null, presenceKey, property, false, subtype, this);
     }
 
     /**
@@ -112,6 +145,7 @@ public final class TableField<P, T> {
     public TableField<P, T> as(String alias) {
         Objects.requireNonNull(alias, "alias");
         requireJoin("as(...)");
+        requireUntreated("as(...)");
         return new TableField<>(rootEntity, parent, attribute, type, alias, condition, presenceKey, property, false);
     }
 
@@ -123,6 +157,7 @@ public final class TableField<P, T> {
     public TableField<P, T> on(BiFunction<From<?, T>, CriteriaBuilder, Predicate> condition) {
         Objects.requireNonNull(condition, "condition");
         requireJoin("on(...)");
+        requireUntreated("on(...)");
         return new TableField<>(rootEntity, parent, attribute, type, alias, condition, presenceKey, property, false);
     }
 
@@ -138,7 +173,8 @@ public final class TableField<P, T> {
     public TableField<P, T> presentBy(PrimaryKey<?, ?> key) {
         Objects.requireNonNull(key, "key");
         requireJoin("presentBy(...)");
-        return new TableField<>(rootEntity, parent, attribute, type, alias, condition, key, property, false);
+        return new TableField<>(rootEntity, parent, attribute, type, alias, condition, key, property, false,
+                subtype, treatOrigin);
     }
 
     /**
@@ -148,7 +184,7 @@ public final class TableField<P, T> {
      */
     public TableField<P, T> named(String property) {
         return new TableField<>(rootEntity, parent, attribute, type, alias, condition, presenceKey,
-                Objects.requireNonNull(property, "property"), false);
+                Objects.requireNonNull(property, "property"), source, subtype, treatOrigin);
     }
 
     /**
@@ -161,7 +197,7 @@ public final class TableField<P, T> {
         }
         return new TableField<>(
                 null, Objects.requireNonNull(newParent, "newParent"), attribute, type, alias, condition, presenceKey,
-                property, false);
+                property, false, subtype, treatOrigin);
     }
 
     /**
@@ -191,6 +227,19 @@ public final class TableField<P, T> {
     /** {@link #resolve(JoinContext)}, naming {@code owner} (a column, or {@code null}) in its failures. */
     @SuppressWarnings("unchecked")
     From<?, T> resolve(JoinContext ctx, Object owner) {
+        if (subtype != null) {
+            Class<?> declared = treatOrigin.declaredType(ctx.cb());
+            requireStrictSubtype(declared, subtype);
+            try {
+                ctx.cb().createQuery().from(subtype);
+            } catch (IllegalArgumentException e) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1106, prefix(owner) + describe()
+                        + ": " + subtype.getSimpleName() + " is not a mapped entity subtype of "
+                        + declared.getSimpleName(), e);
+            }
+            From<?, ?> reached = parent.rootEntity != null ? ctx.root() : parent.resolve(ctx, owner);
+            return ctx.treat(key, reached, subtype, prefix(owner) + describe());
+        }
         if (key.equals(ctx.rootKey())) {
             return (From<?, T>) ctx.root();
         }
@@ -199,7 +248,10 @@ public final class TableField<P, T> {
             // Otherwise a column declared on another entity's root would silently read the query root's attribute.
             if (!rootEntity.isAssignableFrom(queried)) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1003, prefix(owner) + "sits on " + describe()
-                        + ", but the query is rooted at " + queried.getSimpleName());
+                        + ", but the query is rooted at " + queried.getSimpleName()
+                        + (queried.isAssignableFrom(rootEntity)
+                                ? "; read subtype columns through ROOT.treat(" + rootEntity.getSimpleName() + ".class)"
+                                : ""));
             }
             return (From<?, T>) ctx.root();
         }
@@ -248,6 +300,9 @@ public final class TableField<P, T> {
      * join below a join. An alias and an {@code on} condition are not part of it (R-QRY-14).
      */
     String path() {
+        if (subtype != null) {
+            return parent.path();
+        }
         if (parent == null) {
             return "";
         }
@@ -261,6 +316,9 @@ public final class TableField<P, T> {
      * property (R-QRY-14, D-55).
      */
     String propertyPath() {
+        if (subtype != null) {
+            return parent.propertyPath();
+        }
         if (parent == null) {
             return "";
         }
@@ -308,9 +366,39 @@ public final class TableField<P, T> {
     }
 
     private void requireJoin(String method) {
-        if (rootEntity != null) {
+        if (rootEntity != null || subtype != null && parent.rootEntity != null) {
             throw new ModelQueryDefinitionException(MqCode.MQ1104, describe() + ": " + method
                     + " applies to a join; a root is the query's FROM, not a join");
+        }
+    }
+
+    private void requireUntreated(String method) {
+        if (subtype != null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1106,
+                    describe() + ": apply " + method + " to the join before treat(...)");
+        }
+    }
+
+    private Class<?> declaredType(CriteriaBuilder cb) {
+        if (rootEntity != null || subtype != null) {
+            return rootEntity != null ? rootEntity : subtype;
+        }
+        var entity = cb.createQuery().from(parent.declaredType(cb)).getModel();
+        try {
+            var target = entity.getAttribute(attribute);
+            return target instanceof PluralAttribute<?, ?, ?> plural
+                    ? plural.getElementType().getJavaType() : target.getJavaType();
+        } catch (IllegalArgumentException e) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1002,
+                    describe() + ": " + entity.getJavaType().getSimpleName()
+                            + " has no attribute '" + attribute + "'", e);
+        }
+    }
+
+    private static void requireStrictSubtype(Class<?> entity, Class<?> subtype) {
+        if (entity.equals(subtype) || !entity.isAssignableFrom(subtype)) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1106, "treat(" + subtype.getSimpleName()
+                    + ".class) requires a strict subtype of " + entity.getSimpleName());
         }
     }
 
@@ -324,6 +412,9 @@ public final class TableField<P, T> {
      */
     @Override
     public String toString() {
+        if (subtype != null) {
+            return parent + ".treat(" + subtype.getSimpleName() + ".class)";
+        }
         if (rootEntity != null) {
             return rootEntity.getSimpleName();
         }
@@ -332,6 +423,9 @@ public final class TableField<P, T> {
     }
 
     String describe() {
+        if (subtype != null) {
+            return parent.describe() + ".treat(" + subtype.getSimpleName() + ".class)";
+        }
         if (rootEntity != null) {
             return "root " + rootEntity.getSimpleName();
         }

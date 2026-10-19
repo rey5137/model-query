@@ -2255,7 +2255,14 @@ renderer serves only the 6.6.x and 7.4.x minors; every admitted cell is a TCK ca
 narrowing it can't attribute or a shape it doesn't recognise, and caches nothing; R-PAG-27 logs one `WARNING`
 `MQ2214` per `ModelQuery` for an offset page whose rows exceed `total - offset`, with no bound values (D-95), and
 returns the page; `PortabilityCheck` reports treat sites offline from the table alone. A union of subtype source
-models is M25.4 unchanged. Every new type and member is `@Incubating`. Rejected: treat in a path string, a portable
+models is M25.4 unchanged. Every new type and member is `@Incubating`. An improper
+`treat(T.class)` is `MQ1106` at definition on a root and at first resolution on a join, whose declared target
+comes from the metamodel. This check keeps the same message and is separate from comparing the subtype with the
+actual query root or re-rooted join target; re-rooting preserves the original declared target. With no renderer,
+fail closed for every reachable treated node before any statement, including a treat that would render untreated;
+cache successful no-renderer definition checks per factory across executors, including nested query definitions,
+never on the immutable query. Executors with a renderer neither populate nor consult this cache.
+Rejected: treat in a path string, a portable
 default renderer over `cb.treat`, a flat per-use refusal, a site without its statement, repairing the count after the
 fact, the LEFT entity join (Q-27), throwing on the page fallback, admitting `JOINED`/`TABLE_PER_CLASS` writes on the
 table alone, a `VendorProfile#treats` fact and the `MQ4015` treat path (no vendor split measured), `TABLE_PER_CLASS`

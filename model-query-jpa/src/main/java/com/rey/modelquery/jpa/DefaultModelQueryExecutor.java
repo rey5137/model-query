@@ -34,6 +34,7 @@ import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.RecursiveCte;
 import com.rey.modelquery.core.RecursiveSpec;
 import com.rey.modelquery.core.RenderOptions;
+import com.rey.modelquery.core.TreatChecks;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowLock;
 import com.rey.modelquery.core.ScalarField;
@@ -167,6 +168,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private static final Map<EntityManagerFactory, Set<Object>> WRITES_CHECKED =
             Collections.synchronizedMap(new WeakHashMap<>());
 
+    /** Successful no-renderer scans, weak on both levels as {@link #WRITES_CHECKED} is. */
+    private static final Map<EntityManagerFactory, Set<Object>> TREATS_CHECKED =
+            Collections.synchronizedMap(new WeakHashMap<>());
+
     /**
      * The query definitions whose fetch plans' child statements were built and checked for a one-key round, per
      * factory and vendor profile, which together set the render options the builds depend on (D-138). Weak on every
@@ -255,6 +260,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         options = vendor.providerSupport()
                 .flatMap(ProviderSupport::subqueries)
                 .map(options::withSubqueryRenderer)
+                .orElse(options);
+        options = vendor.providerSupport()
+                .flatMap(support -> support.treats(emf))
+                .map(options::withTreatRenderer)
                 .orElse(options);
         this.renderOptions = sources(options);
         this.keyLimits = new Keys(profile.maxInListSize(), profile.maxBindParameters());
@@ -1667,7 +1676,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         if (chunk.map(ChunkOptions::commitsEachChunk).orElse(false)) {
             throw returningRefused(kind, "commitEachChunk()");
         }
-        checkWriteOnce(returning, metamodel -> returning.checkReturning(em.getCriteriaBuilder()));
+        checkWriteOnce(returning, metamodel -> returning.checkReturning(em.getCriteriaBuilder(), renderOptions));
         ReturningShape shape = vendor.profile().returning(kind).orElse(null);
         ReturningSupport support = vendor.providerSupport().flatMap(ProviderSupport::returning).orElse(null);
         if (shape == null) {
@@ -1804,6 +1813,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /** {@link #insert(ModelInsert)}, collecting the written rows into {@code returning} when it is given (R-WRT-50). */
     private long insert(ModelInsert<E, ?> i, Returning<?> returning) {
+        checkTreats(i);
         InsertSupport support = insertSupport(i);
         WriteAssignments assignments = writeAssignments();
         Map<String, Function<CriteriaBuilder, Expression<?>>> computed = checkInsertOnce(i, support, assignments);
@@ -1911,6 +1921,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     @Override
     public <K> List<K> insertReturningKeys(ValuesInsert<E, K, ?> i) {
         Objects.requireNonNull(i, "i");
+        checkTreats(i);
         i.checkKeysReturnable();
         InsertSupport support = insertSupport(i);
         WriteAssignments assignments = writeAssignments();
@@ -2024,7 +2035,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(persist, "persist");
         Objects.requireNonNull(returning, "returning");
         // Keyed by the query itself, which the caller holds, so the weak set keeps the entry while it lives
-        checkWriteOnce(returning, metamodel -> returning.checkReturning(em.getCriteriaBuilder()));
+        checkWriteOnce(returning, metamodel -> returning.checkReturning(em.getCriteriaBuilder(), renderOptions));
         // Read from the managed entity, a to-one's id without initializing it: through an INNER join field whose
         // foreign key is null the column is null, where a read would drop the row (R-WRT-48)
         PersistenceUnitUtil util = em.getEntityManagerFactory().getPersistenceUnitUtil();
@@ -2497,8 +2508,22 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 config.writeAssignments());
     }
 
+    private void checkTreats(Object definition) {
+        if (renderOptions.treatRenderer().isPresent()) {
+            return;
+        }
+        Set<Object> checked = TREATS_CHECKED.computeIfAbsent(em.getEntityManagerFactory(),
+                factory -> Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>())));
+        synchronized (checked) {
+            if (!checked.contains(definition)) {
+                checked.addAll(TreatChecks.check(definition));
+            }
+        }
+    }
+
     /** Runs {@code check} the first time {@code definition} runs on this executor's factory, before any statement. */
     private void checkWriteOnce(Object definition, Consumer<Metamodel> check) {
+        checkTreats(definition);
         Set<Object> checked = WRITES_CHECKED.computeIfAbsent(em.getEntityManagerFactory(),
                 factory -> Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>())));
         if (!checked.contains(definition)) {
@@ -2521,13 +2546,14 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * {@code MQ1702}, and is not remembered, so the next call that returns models throws it.
      */
     private <E2> void checkFirstRun(ModelQuery<E2, ?, ?> q, boolean fetchesModels) {
+        checkTreats(q);
         // An orderedBy copy is covered by the check of its definition, so a per-request sort does not repeat it.
         ModelQuery<E2, ?, ?> definition = q.definition();
         if (!FIRST_RUN_CHECKED.contains(definition)) {
             CriteriaBuilder cb = em.getCriteriaBuilder();
             q.checkPhases(cb, renderOptions);
             try {
-                q.checkFetch(cb);
+                q.checkFetch(cb, renderOptions);
             } catch (ModelQueryDefinitionException e) {
                 if (fetchesModels) {
                     throw e;

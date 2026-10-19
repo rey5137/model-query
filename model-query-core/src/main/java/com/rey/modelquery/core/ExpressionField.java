@@ -126,6 +126,20 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         return columns;
     }
 
+    void checkTreats(TreatChecks checks) {
+        columns().forEach(checks::field);
+        containsNode(this, node -> {
+            if (node instanceof CorrelatedValue value) {
+                checks.subSelect(value.rows());
+                value.conditions().forEach(checks::condition);
+                value.orders().forEach(order -> checks.field(order.column()));
+            } else if (node instanceof Case value) {
+                value.branches().forEach(branch -> branch.conditions().forEach(checks::condition));
+            }
+            return false;
+        });
+    }
+
     /**
      * The bind values one rendering of this expression binds, its node's nested expressions and CASE conditions
      * included (R-COL-18). A memoised node rendered again repeats them, so the bind-limit check adds this once per

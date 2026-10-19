@@ -148,6 +148,12 @@ public final class WindowField<M, C> implements SelectField<M, C> {
         orderBy.forEach(order -> vocabulary.field(order.column()));
     }
 
+    void checkTreats(TreatChecks checks) {
+        checks.field(argument);
+        partitionBy.forEach(checks::field);
+        orderBy.forEach(order -> checks.field(order.column()));
+    }
+
     private static List<String> names(List<? extends SelectField<?, ?>> fields) {
         return fields.stream().map(SelectField::name).toList();
     }

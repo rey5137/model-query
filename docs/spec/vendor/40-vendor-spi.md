@@ -337,6 +337,35 @@ applies the order and a limit of one inside the sub-query. `model-query-hibernat
 (R-COL-32, AC-COL-40). Other correlated terminals need no renderer. This is a provider capability, with no
 `VendorProfile` change (R-VND-11, INV-6).
 
+**R-VND-26** *(D-154)* `ProviderSupport#treats(EntityManagerFactory emf)` is an `@Incubating` default method
+returning `Optional.empty()`. The core SPI uses only JPA and JDK types (INV-7); every type and member is
+`@Incubating`, and `TreatRenderer` is `@EngineFacing`:
+
+```java
+interface TreatRenderer {
+    <T, S extends T> From<?, S> treat(CriteriaBuilder cb, From<?, T> from, Class<S> subtype);
+    Optional<String> refusal(TreatSite site);
+    Optional<String> preflight(EntityManager em, CommonAbstractCriteria statement, StatementShape shape);
+}
+record TreatSite(Class<?> entity, Class<?> subtype, Optional<String> attribute,
+                 StatementShape shape, boolean anchored, Set<TreatUse> uses) {}
+enum StatementShape { CONTENT, COUNT, GROUPED, SOURCE_BODY, CHILD, WRITE }
+enum TreatUse {
+    SELECT, ORDER, GROUP_BY, AGGREGATE, EXPRESSION, PREDICATE, NULL_TEST, NEGATED, DISJUNCTION,
+    LEFT_JOIN, INNER_JOIN, SUBQUERY, CORRELATION, TYPE
+}
+```
+
+`preflight` has no default implementation. `TreatSite.uses()` is an immutable copy with enum-set semantics;
+consume its accessors rather than deconstructing the record, since components may be added. `refusal` and
+`preflight` return an empty optional on acceptance, or the reason for refusal. The executor passes the factory's
+renderer through `RenderOptions#withTreatRenderer`; scratch options retain it. There is no `VendorProfile#treats`
+and no `MQ4015` treat fact (INV-6). With no renderer, every treated node, including a redundant treat, is `MQ4014`
+at build time, before any statement, across content, count, export and writes (R-COL-34, AC-VND-16).
+
+The provider allow-list, mapping gates and supported minor lines belong to M28.3; collecting statement sites
+belongs to M28.2, and invoking preflight belongs to M28.4.
+
 ## 2. Detection
 
 **R-VND-04** Resolution order:
@@ -416,3 +445,4 @@ explicitly (`likeIgnoreCase`, `nullsFirst`), and the library renders it the same
 | AC-VND-13 | `LockSupport.rendered` is per dialect on both Hibernate lines (H2's `NO_WAIT`/`SKIP_LOCKED` refused on 6.6, allowed only for `exclusive()` on 7.x); a lock with no `locks()`, an unrendered wait, or a multi-table root is `MQ4010`; `apply` sets the lock mode, the Hibernate timeout hint and `followOnLocking=false` (R-VND-15, `engine/20` R-EXE-14). |
 | AC-VND-14 | `ProviderSupport#returning()` and `VendorProfile#returning(WriteStatement)` default to empty, so a write whose factory has neither is `MQ4011` at method entry; the built-in H2 profile reports `DELTA_TABLE` and PostgreSQL `SUFFIX` for update and delete, MySQL nothing; `model-query-hibernate`'s `ReturningSupport.rendered` is true on both Hibernate lines for a single-table entity and false for a `@SecondaryTable` root, and `rows` returns the columns of a changed row as a read tuple holds them; the translated SQL per line and dialect is `vendor/41` §7's (R-VND-17, R-WRT-50). |
 | AC-VND-15 | Target vendors are undeclared by default and kept by the other setters; the three forms declare the same set in enum order; an empty `Collection` or `String...` list is `MQ4003` and an unknown name `MQ4001`; each factory is checked against its own vendor (an H2 factory detected from `DatabaseMetaData` passes `[H2]`, an undetected one is `OTHER` and passes only when `OTHER` is listed); an explicit `vendor(...)` outside the list is refused; an explicit `MARIADB` passes `[MARIADB]` though its profile is `OTHER`'s; `ModelQueryExecutor.create` refuses a factory off the list; and the `MQ4012` message names the factory (quoting `ProviderSupport#factoryName`'s answer, default empty, else its class and identity; Hibernate answers a named session factory's name and nothing for an unnamed, blank-named or non-Hibernate factory), the vendor, how it was found and the list (R-VND-19). |
+| AC-VND-16 | `ProviderSupport#treats(emf)` defaults to empty; with no renderer, every treated node, including a redundant treat, is `MQ4014` at build time before any statement in content, count, export and writes (R-VND-26). The provider minor-line and compliance cases belong to M28.3. |

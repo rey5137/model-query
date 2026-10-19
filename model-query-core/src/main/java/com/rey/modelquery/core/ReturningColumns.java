@@ -54,12 +54,14 @@ final class ReturningColumns {
             }
         }
         String beyond = "on the join " + table + ", beyond the id of a to-one association" + SELECT_AFTER;
-        if (table.parent() != null && table.parent().parent() != null) {
+        TableField<?, ?> relation = untreated(table);
+        TableField<?, ?> parent = relation.parent();
+        if (parent != null && untreated(parent).parent() != null) {
             return beyond;
         }
         field.path(joins); // MQ1001, MQ1002 or MQ1003 before the metamodel is walked as the path resolved
-        if (table.parent() == null) {
-            Attribute<?, ?> last = attribute(root, field.name());
+        if (parent == null) {
+            Attribute<?, ?> last = attribute(managedType(table, root, joins), field.name());
             if (last.isCollection()) {
                 return "the collection " + field.name() + ", which a query joins" + SELECT_AFTER;
             }
@@ -69,13 +71,22 @@ final class ReturningColumns {
                     + " itself; select its target's id through a join from the root, or a column of the id's type "
                     + "over the association, instead" : null;
         }
-        Attribute<?, ?> joined = root.getAttribute(table.path());
+        Attribute<?, ?> joined = attribute(managedType(parent, root, joins), relation.key().attribute());
         if (joined instanceof SingularAttribute<?, ?> toOne && toOne.isAssociation()
                 && toOne.getType() instanceof IdentifiableType<?> target && target.hasSingleIdAttribute()
                 && field.name().equals(target.getId(target.getIdType().getJavaType()).getName())) {
             return null;
         }
         return beyond;
+    }
+
+    private static TableField<?, ?> untreated(TableField<?, ?> table) {
+        return table.treatedType() == null ? table : table.parent();
+    }
+
+    /** The subtype's mapped type, obtained from a scratch root without creating a statement. */
+    private static ManagedType<?> managedType(TableField<?, ?> table, ManagedType<?> root, JoinContext joins) {
+        return table.treatedType() == null ? root : joins.cb().createQuery().from(table.treatedType()).getModel();
     }
 
     /** The attribute {@code path} ends at, walking embeddables from {@code root}, as the column's path resolved. */

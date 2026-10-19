@@ -84,6 +84,31 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         return definition.columns().rootEntity();
     }
 
+    void checkTreats(TreatChecks checks) {
+        definition.columns().columns().forEach(checks::field);
+        definition.constants().forEach(checks::assignment);
+        definition.mappings().forEach(mapping -> {
+            checks.field(mapping.target());
+            checks.field(mapping.source());
+        });
+        if (definition.source() != null) {
+            checks.table(definition.source().key());
+        }
+        if (definition.where() != null) {
+            ConditionGroup.conditions(definition.where().where()).forEach(checks::condition);
+        }
+        InsertDraft.Conflict<E, M> conflict = definition.conflict();
+        if (conflict != null) {
+            conflict.keys().forEach(checks::field);
+            conflict.arbiter().forEach(checks::condition);
+            if (conflict.update() != null) {
+                conflict.update().fromRow().forEach(checks::field);
+                conflict.update().assignments().forEach(checks::assignment);
+                ConditionGroup.conditions(conflict.update().where()).forEach(checks::condition);
+            }
+        }
+    }
+
     /** The insert's {@code chunked(...)} options, or empty without them (R-WRT-28, R-WRT-29). */
     public Optional<ChunkOptions> chunkOptions() {
         return Optional.ofNullable(definition.chunkOptions());

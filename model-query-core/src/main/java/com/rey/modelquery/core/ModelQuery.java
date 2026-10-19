@@ -676,6 +676,7 @@ public final class ModelQuery<E, K, M> {
         RenderOptions scratchOptions = Objects.requireNonNull(options, "options").sourceRenderer()
                 .map(PHASE_SCRATCH::withSourceRenderer).orElse(PHASE_SCRATCH);
         scratchOptions = options.subqueryRenderer().map(scratchOptions::withSubqueryRenderer).orElse(scratchOptions);
+        scratchOptions = options.treatRenderer().map(scratchOptions::withTreatRenderer).orElse(scratchOptions);
         if (customizer == null) {
             return;
         }
@@ -719,12 +720,19 @@ public final class ModelQuery<E, K, M> {
      */
     @EngineFacing
     public void checkFetch(CriteriaBuilder cb) {
+        checkFetch(cb, UNLIMITED);
+    }
+
+    /** Checks fetch keys with the factory's renderers and without statement limits (R-FCH-02, R-COL-34). */
+    @EngineFacing
+    @Incubating
+    public void checkFetch(CriteriaBuilder cb, RenderOptions options) {
         Objects.requireNonNull(cb, "cb");
         if (needed.isEmpty() || source != null) {
             return; // a source's columns are the CTE's elements, none read through a join (R-SRC-10)
         }
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
-        JoinContext joins = JoinContext.of(query.from(root.rootEntity()), cb, query, UNLIMITED);
+        JoinContext joins = JoinContext.of(query.from(root.rootEntity()), cb, query, scratchRenderers(options));
         for (ColumnField<M, ?, ?> column : needed) {
             for (Path<?> path = column.path(joins); path != null; path = path.getParentPath()) {
                 if (path instanceof Join<?, ?> join && join.getAttribute() instanceof PluralAttribute<?, ?, ?> many) {
@@ -750,6 +758,13 @@ public final class ModelQuery<E, K, M> {
      */
     @EngineFacing
     public void checkReturning(CriteriaBuilder cb) {
+        checkReturning(cb, UNLIMITED);
+    }
+
+    /** Checks returning columns with the factory's renderers (R-WRT-48, R-COL-34). */
+    @EngineFacing
+    @Incubating
+    public void checkReturning(CriteriaBuilder cb, RenderOptions options) {
         Objects.requireNonNull(cb, "cb");
         var clauses = new ArrayList<String>();
         if (!where.isEmpty()) {
@@ -786,7 +801,28 @@ public final class ModelQuery<E, K, M> {
         }
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root<E> from = query.from(root.rootEntity());
-        ReturningColumns.check(modelName(), modelColumns, from.getModel(), JoinContext.of(from, cb, query, UNLIMITED));
+        ReturningColumns.check(modelName(), modelColumns, from.getModel(),
+                JoinContext.of(from, cb, query, scratchRenderers(options)));
+    }
+
+    private static RenderOptions scratchRenderers(RenderOptions options) {
+        RenderOptions scratch = Objects.requireNonNull(options, "options").subqueryRenderer()
+                .map(UNLIMITED::withSubqueryRenderer).orElse(UNLIMITED);
+        return options.treatRenderer().map(scratch::withTreatRenderer).orElse(scratch);
+    }
+
+    void checkTreats(TreatChecks checks) {
+        modelColumns.forEach(checks::field);
+        needed.forEach(checks::field);
+        if (primaryKey != null) {
+            primaryKey.columns().forEach(checks::field);
+        }
+        orderBy.forEach(order -> checks.field(order.column()));
+        groupBy.forEach(checks::field);
+        conditions.where().forEach(checks::condition);
+        conditions.having().forEach(checks::condition);
+        checks.fetch(fetch);
+        checks.source(source);
     }
 
     /**

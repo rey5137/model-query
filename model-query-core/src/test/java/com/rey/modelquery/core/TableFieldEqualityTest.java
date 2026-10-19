@@ -15,12 +15,35 @@ class TableFieldEqualityTest {
 
     static final class Address {}
 
+    static class Payment {}
+
+    static final class CardPayment extends Payment {}
+
+    static final class BankPayment extends Payment {}
+
     private static final TableField<Order, Order> ROOT = TableField.root(Order.class);
+
+    @Test
+    void ac_col_48_treat_identity_keeps_the_parent_and_subtype_and_survives_rerooting() {
+        var payment = TableField.root(Payment.class);
+        var card = payment.treat(CardPayment.class);
+        assertThat(card).isEqualTo(payment.treat(CardPayment.class))
+                .hasSameHashCodeAs(payment.treat(CardPayment.class));
+        assertThat(card).isNotEqualTo(payment).isNotEqualTo(payment.treat(BankPayment.class));
+        TableField<Order, Payment> first = TableField.join(ROOT, "payment", LEFT);
+        TableField<Order, Payment> second = first.as("other");
+        assertThat(first.treat(CardPayment.class)).isNotEqualTo(second.treat(CardPayment.class));
+        assertThat(card.under(first)).isEqualTo(first.treat(CardPayment.class));
+        assertThat(card.under(first).key()).isEqualTo(card.key().reroot(first.key()));
+        assertThat(card.path()).isEmpty();
+        assertThat(first.named("payment").treat(CardPayment.class).propertyPath()).isEqualTo("payment");
+    }
 
     @Test
     void cc_imm_04_two_separately_built_equal_joins_are_equal() {
         TableField<Order, Customer> first = TableField.<Order, Customer>join(ROOT, "customer", LEFT).as("c");
-        TableField<Order, Customer> second = TableField.<Order, Customer>join(TableField.root(Order.class), "customer", LEFT).as("c");
+        TableField<Order, Customer> second =
+                TableField.<Order, Customer>join(TableField.root(Order.class), "customer", LEFT).as("c");
 
         assertThat(first).isEqualTo(second).hasSameHashCodeAs(second);
         assertThat(first.on((from, cb) -> cb.conjunction())).isEqualTo(first);

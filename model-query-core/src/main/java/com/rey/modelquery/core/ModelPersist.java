@@ -50,6 +50,10 @@ public final class ModelPersist<E, K, M> {
         return columns.rootEntity();
     }
 
+    void checkTreats(TreatChecks checks) {
+        columns.columns().forEach(checks::field);
+    }
+
     /** The root's id type, which the key is returned as. */
     public Class<K> keyType() {
         return keyType;

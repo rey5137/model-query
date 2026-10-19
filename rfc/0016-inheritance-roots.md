@@ -133,9 +133,12 @@ public final class TableField<P, T> {
   rules: it is filter-only (R-PAG-13) and feeds `exists`. `presentBy(...)` on a treated join is allowed, and is how a
   downcast nested model reads its presence (§5). On a treated root, `as(...)`, `on(...)` and `presentBy(...)` stay
   `MQ1104`: a treated root is still a root.
-- **`MQ1106` is treat-only misuse.** At definition: `treat(T.class)` (an improper subtype), `treat` of a treated node,
-  and `as(...)` or `on(...)` on a treated join, which belong on the join before it is treated. At first resolution:
-  `treat` on a source root (no entity metamodel, as `MQ1905`), a subtype the metamodel doesn't map as an entity, and a
+- **`MQ1106` is treat-only misuse.** At definition: `treat(T.class)` on a root (an improper subtype), `treat` of a
+  treated node,
+  `treat` on a source root (no entity metamodel), and `as(...)` or `on(...)` on a treated join, which belong on the
+  join before it is treated. At first resolution:
+  `treat(T.class)` on a join (its target type is known only from the metamodel), a subtype the metamodel
+  does not map as an entity, and a
   treated node that resolves over a sibling type (below). The generic bound rejects a type outside the hierarchy at
   compile time (P-2).
 - **What a treat resolves over.** At resolution the treated node's subtype is compared with the entity the node
