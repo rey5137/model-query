@@ -551,7 +551,7 @@ public final class SourceQuery<S> {
             return recursion.tree();
         }
         if (operation == null) {
-            return inner == null || groupKeys != null && !groupKeys.fields().isEmpty() || inner.unique();
+            return inner == null || grouped() || inner.unique();
         }
         return switch (operation.operation) {
             // The result is a subset of the left rows (R-SRC-05).
@@ -653,7 +653,7 @@ public final class SourceQuery<S> {
     @EngineFacing
     public boolean recursive() {
         return recursion != null
-                || inner != null && (groupKeys == null || groupKeys.fields().isEmpty()) && inner.recursive();
+                || inner != null && !grouped() && inner.recursive();
     }
 
     /**
@@ -667,7 +667,12 @@ public final class SourceQuery<S> {
     public boolean tree() {
         return recursion != null
                 ? recursion.tree()
-                : inner != null && (groupKeys == null || groupKeys.fields().isEmpty()) && inner.tree();
+                : inner != null && !grouped() && inner.tree();
+    }
+
+    /** Whether this level groups by a non-empty group set. */
+    private boolean grouped() {
+        return groupKeys != null && !groupKeys.fields().isEmpty();
     }
 
     /** Whether this level itself is registered as a {@code with recursive} CTE (R-SRC-07). */
@@ -861,7 +866,7 @@ public final class SourceQuery<S> {
             selections.add(expression(cb, joins, renderer, field, level).alias(alias(field)));
         }
         query.multiselect(selections);
-        if (groupKeys != null && !groupKeys.fields().isEmpty()) {
+        if (grouped()) {
             query.groupBy(groupKeys.fields().stream().<Expression<?>>map(key -> key.expression(joins)).toList());
         }
         int joined = joins.toManyJoins().size();

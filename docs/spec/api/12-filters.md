@@ -281,7 +281,7 @@ or reads a bare outer join path: either can lose the outer `ON` (D-112, D-150).
 
 Equality with a NULL lifted value matches no row: correlated count is zero and exists is false.
 `isNull(outer.column(...))` matches as written. An outer root that is a source is allowed and renders
-`correlate(cteRoot)` (R-SRC-10). A sub-select whose own root is a source is `MQ1311` at first resolution.
+`correlate(cteRoot)` (R-SRC-10). A sub-select whose own root is a source is `MQ1909` at first resolution.
 
 ## 8. Scope
 
@@ -320,7 +320,7 @@ collection means "none"; negation includes NULLs; `like` input is escaped; long 
 
 AC-FLT-15 includes compile-failure cases for a mismatched `C` and another model's lifted column, and cases for
 `MQ1309`, `MQ1310`, `MQ1311` (a path crossing a to-many join, checked at first resolution), `MQ1312` and `MQ1001`
-(converted attribute types). A source-rooted sub-select is also `MQ1311`, with no statement executed.
+(converted attribute types). A source-rooted sub-select is `MQ1909`, with no statement executed.
 
 AC-FLT-21..27 are reserved by RFC 0017. AC-FLT-28 and 29 run on every Tier-1 vendor and both Hibernate lines.
 AC-FLT-28 covers exists/notExists, a to-one path of depth two, a through child's join as the base, NULL equality

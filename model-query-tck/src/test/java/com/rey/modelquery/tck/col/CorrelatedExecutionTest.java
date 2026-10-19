@@ -12,7 +12,9 @@ import com.rey.modelquery.core.ExpressionField;
 import com.rey.modelquery.core.Filters;
 import com.rey.modelquery.core.JoinContext;
 import com.rey.modelquery.core.Limit;
+import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
+import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.Op;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.Phase;
@@ -39,6 +41,7 @@ import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
+import jakarta.persistence.EntityManager;
 import javax.sql.DataSource;
 
 /** Scalar sub-queries execute in every supported position, without joining their inner rows to the result. */
@@ -63,6 +66,18 @@ class CorrelatedExecutionTest {
             ColumnField.of(Inner.class, ROOT, "total", BigDecimal.class);
     private static final ColumnField<Inner, OrderEntity, Long> REFERRER =
             ColumnField.of(Inner.class, ROOT, "referrerId", Long.class);
+    private static final TableField<OrderItemEntity, OrderItemEntity> ITEMS = TableField.root(OrderItemEntity.class);
+    private static final ColumnField<Value, OrderItemEntity, Long> ITEM_ID =
+            ColumnField.of(Value.class, ITEMS, "id", Long.class);
+    private static final ColumnField<Value, OrderItemEntity, String> ITEM_CODE =
+            ColumnField.of(Value.class, ITEMS, "productCode", String.class);
+    private static final ColumnField<Inner, OrderItemEntity, Long> OTHER_ID =
+            ColumnField.of(Inner.class, ITEMS, "id", Long.class);
+    private static final ColumnField<Inner, OrderItemEntity, String> OTHER_CODE =
+            ColumnField.of(Inner.class, ITEMS, "productCode", String.class);
+    private static final ExpressionField<Value, Long> SAME_CODE = Correlated.count(Value.class,
+            SubSelect.of(OTHER_ID).where(f -> f.lte(OTHER_ID, 75L)),
+            (f, outer) -> f.compare(OTHER_CODE, Op.EQ, outer.column(ITEM_CODE)));
     private static final ExpressionField<Value, Long> COUNT = count(INNER_ID);
     private static final ExpressionField<Value, Long> NULLABLE_COUNT = count(REFERRER);
     private static final ExpressionField<Value, Boolean> EXISTS = Correlated.exists(Value.class, rows(REFERRER),
@@ -74,6 +89,7 @@ class CorrelatedExecutionTest {
     private static final ExpressionField<Value, BigDecimal> SUM = Correlated.sum(Value.class, rows(TOTAL),
             (f, outer) -> f.compare(INNER_STATUS, Op.EQ, outer.column(STATUS)));
 
+    // AC-COL-36
     @TckTest
     void ac_col_36_count_counts_non_null_values_returns_zero_and_composes(TckDatabase db) {
         SqlSnapshots.assertMatches(db, "col-36-correlated-count", ds -> withExecutor(ds, executor -> {
@@ -86,6 +102,7 @@ class CorrelatedExecutionTest {
         }));
     }
 
+    // AC-COL-37
     @TckTest
     void ac_col_37_exists_is_true_for_null_columns_false_for_no_rows_and_never_null(TckDatabase db) {
         List<String> sql = SqlSnapshots.assertMatches(db, "col-37-correlated-exists", ds ->
@@ -99,6 +116,7 @@ class CorrelatedExecutionTest {
                 .contains("case when exists(select 1").contains("then").contains("else"));
     }
 
+    // AC-COL-38
     @TckTest
     void ac_col_38_min_and_max_preserve_extrema_and_return_null_without_values(TckDatabase db) {
         SqlSnapshots.assertMatches(db, "col-38-correlated-extrema", ds -> withExecutor(ds, executor -> {
@@ -121,6 +139,7 @@ class CorrelatedExecutionTest {
         }));
     }
 
+    // AC-COL-39
     @TckTest
     void ac_col_39_sum_preserves_sum_typing_and_null_without_values(TckDatabase db) {
         SqlSnapshots.assertMatches(db, "col-39-correlated-sum", ds -> withExecutor(ds, executor -> {
@@ -194,6 +213,7 @@ class CorrelatedExecutionTest {
         }));
     }
 
+    // AC-COL-41
     @TckTest
     void ac_col_41_grouped_where_can_lift_a_non_group_key(TckDatabase db) {
         var status = ColumnField.of(Group.class, ROOT, "status", String.class);
@@ -209,6 +229,7 @@ class CorrelatedExecutionTest {
                         new Group("CANCELLED", 1L), new Group("PAID", 2L), new Group("SHIPPED", 2L))));
     }
 
+    // AC-COL-41
     @TckTest
     void ac_col_41_count_omits_select_only_correlated_values_and_retains_correlated_where(TckDatabase db) {
         List<String> sql = SqlSnapshots.assertMatches(db, "col-41-correlated-count-statement", ds ->
@@ -233,6 +254,7 @@ class CorrelatedExecutionTest {
         assertThat(sql.get(5)).contains("(select sum(");
     }
 
+    // AC-COL-39, AC-COL-41
     @TckTest
     void ac_col_39_ac_col_41_correlated_order_keys_page_export_and_primary_key_first(TckDatabase db) {
         List<String> sql = SqlSnapshots.assertMatches(db, "col-41-correlated-paging", ds ->
@@ -252,6 +274,65 @@ class CorrelatedExecutionTest {
         assertThat(sql.get(2).substring(0, sql.get(2).indexOf(" from ")))
                 .as("primary-key-first selects keys before their models").doesNotContain("sum(");
         assertThat(sql).hasSize(8);
+    }
+
+    // AC-COL-43
+    @TckTest
+    void ac_col_43_an_update_where_over_the_targets_own_table_matches_the_same_rows_on_every_vendor(TckDatabase db) {
+        var update = ModelUpdate.builder(ROOT).primaryKey(PrimaryKey.of(ID)).set(STATUS, "MARKED")
+                .where(f -> f.lte(ID, 8L).eq(COUNT, 2L)).build();
+        List<Long> marked = new ArrayList<>();
+        long[] written = new long[1];
+
+        SqlSnapshots.assertMatches(db, "col-43-correlated-update", ds -> inRolledBackTransaction(ds, em -> {
+            written[0] = executor(em).update(update);
+            marked.addAll(ids(em, "o.status = 'MARKED'"));
+        }));
+
+        assertThat(written[0]).isEqualTo(4L);
+        assertThat(marked).containsExactly(1L, 2L, 5L, 6L);
+    }
+
+    // AC-COL-43
+    @TckTest
+    void ac_col_43_a_delete_where_over_the_targets_own_table_matches_the_same_rows_on_every_vendor(TckDatabase db) {
+        // Item codes repeat every 50 ids, so of ids 1..75 the codes of 1..25 are held twice and 26..50 once.
+        var delete = ModelDelete.builder(ITEMS).primaryKey(PrimaryKey.of(ITEM_ID))
+                .where(f -> f.lte(ITEM_ID, 75L).eq(SAME_CODE, 2L)).build();
+        List<Long> left = new ArrayList<>();
+        long[] written = new long[1];
+
+        SqlSnapshots.assertMatches(db, "col-43-correlated-delete", ds -> inRolledBackTransaction(ds, em -> {
+            written[0] = ModelQueryExecutor.create(em, OrderItemEntity.class, ModelQueryConfig.defaults())
+                    .delete(delete);
+            left.addAll(em.createQuery("select i.id from OrderItemEntity i where i.id <= 75 order by i.id",
+                    Long.class).getResultList());
+        }));
+
+        assertThat(written[0]).isEqualTo(50L);
+        assertThat(left).hasSize(25).first().isEqualTo(26L);
+    }
+
+    private static ModelQueryExecutor<OrderEntity> executor(EntityManager em) {
+        return ModelQueryExecutor.create(em, OrderEntity.class, ModelQueryConfig.defaults());
+    }
+
+    private static List<Long> ids(EntityManager em, String predicate) {
+        return em.createQuery("select o.id from OrderEntity o where " + predicate + " order by o.id", Long.class)
+                .getResultList();
+    }
+
+    private static void inRolledBackTransaction(DataSource dataSource, Consumer<EntityManager> work) {
+        try (var sf = JoinTestSupport.sessionFactory(dataSource)) {
+            sf.inSession(em -> {
+                em.getTransaction().begin();
+                try {
+                    work.accept(em);
+                } finally {
+                    em.getTransaction().rollback();
+                }
+            });
+        }
     }
 
     private static <C> SubSelect<Inner, C> rows(ColumnField<Inner, OrderEntity, C> column) {

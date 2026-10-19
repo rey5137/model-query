@@ -132,6 +132,7 @@ public sealed interface Filters<M> permits FilterGroup {
      * does not compile; when a converter hides different attribute types the check is {@code MQ1001} at definition.
      *
      * @throws ModelQueryDefinitionException {@code MQ1312} for an embeddable-valued column on either side
+     * @throws ModelQueryDefinitionException {@code MQ1909} for a sub-select rooted at a source
      */
     <C> Filters<M> in(ScalarField<M, C> column, SubSelect<?, C> values);
 
@@ -141,6 +142,7 @@ public sealed interface Filters<M> permits FilterGroup {
      * NULL match, the same rows as a {@code notExists} correlated on equality. An empty sub-select matches every row.
      *
      * @throws ModelQueryDefinitionException {@code MQ1312} for an embeddable-valued column on either side
+     * @throws ModelQueryDefinitionException {@code MQ1909} for a sub-select rooted at a source
      */
     <C> Filters<M> notIn(ScalarField<M, C> column, SubSelect<?, C> values);
 
@@ -152,7 +154,9 @@ public sealed interface Filters<M> permits FilterGroup {
      *
      * @throws ModelQueryDefinitionException {@code MQ1309} when the correlation lifts no outer column
      * @throws ModelQueryDefinitionException {@code MQ1310} for a lifted column resolved outside its correlation
-     * @throws ModelQueryDefinitionException {@code MQ1311} for an outer column that is not on the outer root
+     * @throws ModelQueryDefinitionException {@code MQ1311} for an outer column that is not on the outer root or a
+     *         to-one path from it
+     * @throws ModelQueryDefinitionException {@code MQ1909} for a sub-select rooted at a source
      */
     <S> Filters<M> exists(SubSelect<S, ?> rows, BiFunction<Filters<S>, Outer<M, S>, Filters<S>> correlation);
 

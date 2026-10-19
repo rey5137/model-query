@@ -62,7 +62,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1308` | A value cannot be converted to its column's attribute type: a value filter or a write converts it through `ColumnField.toAttribute` and the converter throws `IllegalArgumentException`, for example `InstantTimestampConverter` with an `Instant` beyond `Timestamp`'s range; `persist` setting a primitive attribute to `null` | `api/10` R-COL-14, D-84 |
 | `MQ1309` | `exists` or `notExists` over a sub-select whose correlation lifts no outer column | `api/12` R-FLT-17, D-112 |
 | `MQ1310` | An `Outer.column` resolved outside the correlation it was made in, or lifted through two sub-select levels | `api/12` R-FLT-17 |
-| `MQ1311` | Lifted path crosses to-many, or sub-select root is a source; at resolution | `api/12` R-FLT-27 |
+| `MQ1311` | Lifted path starts at another root at definition; crosses a to-many join at first resolution | `api/12` R-FLT-27 |
 | `MQ1312` | `in` or `notIn` over a sub-select with an embeddable-valued column on either side; checked at first resolution | `api/12` R-FLT-16 |
 | `MQ1314` | Correlated group key or grouped selection/order lifting non-keys; at definition | `api/10` R-COL-33 |
 | `MQ1401` | A selected non-aggregate column or expression does not fit the group-by | `api/13` R-AGG-08, R-AGG-14 |
@@ -98,7 +98,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1610` | An update `throughEntities()` combined with `keepVersion()`, `expectVersion(v)` or any `setExpression`, the `ExpressionField` form included, whatever the call order; at `build()` | `api/14` R-WRT-41, R-WRT-46, R-WRT-53, D-118 |
 | `MQ1611` | A write assignment whose path is unknown, an id, a `@Version`, a collection, a to-one or a whole embeddable, two assignments of overlapping kinds for one root and path, or an assignment naming a strict subclass of the root; on the first write per root per factory, before any statement | `api/14` R-WRT-49, D-118, D-119 |
 | `MQ1612` | A write assignment whose type the attribute cannot take after boxing (on the first write per root per factory), or whose supplier returns `null` or a value of the wrong type (at execution); before any statement | `api/14` R-WRT-49, D-118 |
-| `MQ1613` | A write's `setExpression(column, ExpressionField)` whose expression reads a column or binds a parameter (at the call); or an insert-values with one where `InsertSupport.computedValuesRendered` is false (on each execution, before the flush, D-132; the default of the six-argument `insertValues` throws it instead of building the statement) | `api/14` R-WRT-53, `vendor/40` R-VND-14, D-130, D-132 |
+| `MQ1613` | A write's `setExpression(column, ExpressionField)` whose expression reads a column or binds a parameter, or is a `Correlated.*` value (at the call); or an insert-values with one where `InsertSupport.computedValuesRendered` is false (on each execution, before the flush, D-132; the default of the six-argument `insertValues` throws it instead of building the statement) | `api/14` R-WRT-53, `vendor/40` R-VND-14, D-130, D-132 |
 | `MQ1701` | A join plan whose join ends up with no selected column | `api/15` R-FCH-07 |
 | `MQ1702` | A column a fetch plan needs (a child's key, an enricher's column) is read through a to-many join; checked on first execution (`count` logs a `WARNING` instead) | `api/15` R-FCH-02 |
 | `MQ1703` | A fetch plan names the same child or join twice | `api/15` R-FCH-01 |
@@ -124,6 +124,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1906` | A source's `where` predicate whose path crosses a to-many join, which no join inside the CTE can express; the message points at `Filters.exists(path, inner)`, the explicit form; before any statement | `api/17` R-SRC-03 |
 | `MQ1907` | A source over a source has no inner `SourceQuery`, its inner's shape is not the root source model, or its builder also sets recursion or `shape(...)`; an entity-rooted source given an inner also fails. Checked at `SourceQuery.builder(...)`/`build()`, including raw types and casts | `api/17` R-SRC-16, `processor/31` R-GEN-39 |
 | `MQ1908` | A correlated expression occurs directly or nested in a `SourceQuery` field list; at the builder/build boundary, never a generated QModel's static initializer. Select the correlated field in an outer query instead | `api/17` R-SRC-16 |
+| `MQ1909` | A sub-select (`exists`, `in`, `Correlated`) whose own root is a source; at first resolution, no statement executed. Read the source in an outer query instead | `api/12` R-FLT-27 |
 
 ## 3. `MQ2xxx` — execution
 

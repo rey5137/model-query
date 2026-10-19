@@ -1,7 +1,6 @@
 package com.rey.modelquery.hibernate;
 
 import com.rey.modelquery.annotations.WindowFrame;
-import com.rey.modelquery.core.RecursiveCte;
 import com.rey.modelquery.core.RecursiveSpec;
 import com.rey.modelquery.core.SetOperation;
 import com.rey.modelquery.core.SourceRenderer;
@@ -46,23 +45,11 @@ final class HibernateSourceRenderer implements SourceRenderer {
     }
 
     @Override
-    public Root<Tuple> cte(CriteriaQuery<?> outer, CriteriaQuery<Tuple> body) {
-        return from(outer, register(outer, body));
-    }
-
-    @Override
     @SuppressWarnings("unchecked")
     public CteHandle register(CriteriaQuery<?> top, CriteriaQuery<Tuple> body) {
         // jpa builds the top statement with the provider's own CriteriaBuilder, so it is Hibernate's query type.
         JpaCriteriaQuery<Tuple> query = (JpaCriteriaQuery<Tuple>) top;
         return new HibernateCteHandle(query.with(body));
-    }
-
-    @Override
-    public RecursiveCte recursive(CriteriaQuery<?> outer, RecursiveSpec spec) {
-        RecursiveHandle registered = registerRecursive(outer, spec);
-        return new RecursiveCte(from(outer, registered.handle()), registered.depthKey(), registered.cycleKey(),
-                registered.duplicateKey());
     }
 
     @Override

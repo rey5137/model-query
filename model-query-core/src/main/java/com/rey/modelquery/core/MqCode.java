@@ -100,8 +100,8 @@ public enum MqCode {
     /** An {@code Outer.column} resolved outside the correlation it was made in, or lifted through two levels. */
     MQ1310("An Outer.column was resolved outside the correlation it was made in, or lifted through two levels"),
 
-    /** A lifted path crosses a to-many join or another root, or a sub-select's root is a source. */
-    MQ1311("A lifted column must follow a to-one path of the outer root; a sub-select cannot be rooted at a source"),
+    /** A lifted path crosses a to-many join or starts at another root. */
+    MQ1311("A lifted column must follow a to-one path of the outer root"),
 
     /** {@code in} or {@code notIn} over a sub-select with an embeddable-valued column on either side. */
     MQ1312("in(...) and notIn(...) over a sub-select do not take an embeddable-valued column"),
@@ -348,6 +348,10 @@ public enum MqCode {
     /** A correlated expression in a source's field list (R-SRC-16). */
     @Incubating
     MQ1908("A source cannot carry a correlated field; select it in an outer query instead"),
+
+    /** A sub-select whose own root is a source (R-FLT-27). */
+    @Incubating
+    MQ1909("A sub-select cannot be rooted at a source; read the source in an outer query instead"),
 
     /** A page size or {@code maxPerParent} that is not positive, or a limit that is negative (R-EXE-06, R-FCH-11). */
     MQ2001("A page or chunk size and maxPerParent must be positive, and a limit must not be negative"),

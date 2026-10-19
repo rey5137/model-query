@@ -445,7 +445,7 @@ the outer query still reports `MQ3011`. It may add windows, aggregates, group ke
 `MQ3031` checks an ungrouped key against the inner source's key fields in order, with a reason naming that source;
 a grouped key is the full group set, with nullability inherited from the inner fields, including every branch of a
 shape (R-SRC-16). Computed nullability remains a runtime check. A source over a source that is recursive (`@Depth`),
-a branch, or a shape is `MQ3042` and generates no file. Rooting at a branch model is also `MQ3042`: root at its
+a branch, or a shape is `MQ3042` and generates no file. Rooting a `@SourceModel` or a `@QueryModel` at a branch model is also `MQ3042` (D-152): root at its
 shape instead, since a branch builds a `SourceQuery` of its shape. Shape/branch checks and group-key nullability
 consider source models within the compilation, including deferred models, as R-PROC-38 does. Recursive-term and
 branch/shape refusals (R-PROC-37/38) direct callers to a source over the recursive source or the combined shape

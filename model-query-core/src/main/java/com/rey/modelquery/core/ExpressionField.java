@@ -166,7 +166,7 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
 
     /** A correlated value at any depth of this expression (R-COL-33). */
     boolean correlated() {
-        return containsNode(this, node -> node instanceof CorrelatedValue);
+        return containsCorrelated(this);
     }
 
     /** A correlated value in a grouped selection or order must lift only group keys (R-COL-33). */
