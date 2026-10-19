@@ -1,0 +1,427 @@
+statement_shape	use_envelope	strategy	decision	observations	failures	evidence_or_reason	current_SPI_decision
+COUNT	COMBINED_TYPE_TREAT/AND	SINGLE_TABLE	REFUSE: composition unmodelled	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+COUNT	COMBINED_TYPE_TREAT/AND	JOINED	REFUSE: composition unmodelled	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+COUNT	COMBINED_TYPE_TREAT/AND	TABLE_PER_CLASS	REFUSE: composition unmodelled	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+COUNT	COMBINED_TYPE_TREAT/OR	SINGLE_TABLE	REFUSE: composition unmodelled	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+COUNT	COMBINED_TYPE_TREAT/OR	JOINED	REFUSE: composition unmodelled	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+COUNT	COMBINED_TYPE_TREAT/OR	TABLE_PER_CLASS	REFUSE: composition unmodelled	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+COUNT	COMBINED_TYPE_TREAT/SELECT	SINGLE_TABLE	REFUSE: composition unmodelled	6	6	5-combined/SELECT/count	REFUSE
+COUNT	COMBINED_TYPE_TREAT/SELECT	JOINED	REFUSE: composition unmodelled	6	6	5-combined/SELECT/count	REFUSE
+COUNT	COMBINED_TYPE_TREAT/SELECT	TABLE_PER_CLASS	REFUSE: composition unmodelled	6	6	5-combined/SELECT/count	REFUSE
+COUNT	DISJUNCTION+INNER_JOIN+NULL_TEST+PREDICATE	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+INNER_JOIN+NULL_TEST+PREDICATE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+INNER_JOIN+NULL_TEST+PREDICATE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+LEFT_JOIN+NEGATED+NULL_TEST+PREDICATE+TYPE	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+LEFT_JOIN+NEGATED+NULL_TEST+PREDICATE+TYPE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+LEFT_JOIN+NEGATED+NULL_TEST+PREDICATE+TYPE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+LEFT_JOIN+NULL_TEST+PREDICATE	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+LEFT_JOIN+NULL_TEST+PREDICATE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+LEFT_JOIN+NULL_TEST+PREDICATE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NEGATED+NULL_TEST	SINGLE_TABLE	ALLOW	72	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NEGATED+NULL_TEST	JOINED	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NEGATED+NULL_TEST	TABLE_PER_CLASS	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NEGATED+NULL_TEST+SUBQUERY	SINGLE_TABLE	ALLOW	36	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NEGATED+NULL_TEST+SUBQUERY	JOINED	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NEGATED+NULL_TEST+SUBQUERY	TABLE_PER_CLASS	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NEGATED+PREDICATE	SINGLE_TABLE	ALLOW	36	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NEGATED+PREDICATE	JOINED	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NEGATED+PREDICATE	TABLE_PER_CLASS	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NEGATED+PREDICATE+SUBQUERY	SINGLE_TABLE	ALLOW	18	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NEGATED+PREDICATE+SUBQUERY	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NEGATED+PREDICATE+SUBQUERY	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NULL_TEST	SINGLE_TABLE	ALLOW	84	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NULL_TEST	JOINED	ALLOW	36	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NULL_TEST	TABLE_PER_CLASS	ALLOW	36	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NULL_TEST+PREDICATE	SINGLE_TABLE	REFUSE	126	42	3-differentA/PREDICATE/ne/count/alone; 3-differentA/PREDICATE/notIn/count/alone; 3-shared/PREDICATE/ne/count/alone; 3-shared/PREDICATE/notIn/count/alone; 3-valueA/PREDICATE/ne/count/alone; 3-valueA/PREDICATE/notIn/count/alone; 6/COUNT,PREDICATE,NULL_TEST,DISJUNCTION	REFUSE
+COUNT	DISJUNCTION+NULL_TEST+PREDICATE	JOINED	REFUSE	54	18	3-valueA/PREDICATE/ne/count/alone; 3-valueA/PREDICATE/notIn/count/alone; 6/COUNT,PREDICATE,NULL_TEST,DISJUNCTION	REFUSE
+COUNT	DISJUNCTION+NULL_TEST+PREDICATE	TABLE_PER_CLASS	REFUSE	54	18	3-valueA/PREDICATE/ne/count/alone; 3-valueA/PREDICATE/notIn/count/alone; 6/COUNT,PREDICATE,NULL_TEST,DISJUNCTION	REFUSE
+COUNT	DISJUNCTION+NULL_TEST+PREDICATE+SUBQUERY	SINGLE_TABLE	ALLOW	72	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NULL_TEST+PREDICATE+SUBQUERY	JOINED	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NULL_TEST+PREDICATE+SUBQUERY	TABLE_PER_CLASS	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NULL_TEST+SUBQUERY	SINGLE_TABLE	ALLOW	36	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NULL_TEST+SUBQUERY	JOINED	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+NULL_TEST+SUBQUERY	TABLE_PER_CLASS	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+PREDICATE	SINGLE_TABLE	ALLOW	420	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+PREDICATE	JOINED	ALLOW	156	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+PREDICATE	TABLE_PER_CLASS	ALLOW	156	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+PREDICATE+SUBQUERY	SINGLE_TABLE	ALLOW	198	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+PREDICATE+SUBQUERY	JOINED	ALLOW	66	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	DISJUNCTION+PREDICATE+SUBQUERY	TABLE_PER_CLASS	ALLOW	66	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	EXPRESSION+GROUP_BY+SELECT	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+COUNT	EXPRESSION+GROUP_BY+SELECT	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+COUNT	EXPRESSION+GROUP_BY+SELECT	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+COUNT	EXPRESSION+ORDER	SINGLE_TABLE	REFUSE	6	6	2-expression/ORDER/count	REFUSE
+COUNT	EXPRESSION+ORDER	JOINED	REFUSE	6	6	2-expression/ORDER/count	REFUSE
+COUNT	EXPRESSION+ORDER	TABLE_PER_CLASS	REFUSE	6	6	2-expression/ORDER/count	REFUSE
+COUNT	EXPRESSION+PREDICATE	SINGLE_TABLE	REFUSE	6	6	2-expression/PREDICATE/count	REFUSE
+COUNT	EXPRESSION+PREDICATE	JOINED	REFUSE	6	6	2-expression/PREDICATE/count	REFUSE
+COUNT	EXPRESSION+PREDICATE	TABLE_PER_CLASS	REFUSE	6	6	2-expression/PREDICATE/count	REFUSE
+COUNT	INNER_JOIN+NEGATED+NULL_TEST	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	INNER_JOIN+NEGATED+NULL_TEST	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	INNER_JOIN+NEGATED+NULL_TEST	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	INNER_JOIN+NULL_TEST	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	INNER_JOIN+NULL_TEST	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	INNER_JOIN+NULL_TEST	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	INNER_JOIN+ORDER	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	INNER_JOIN+ORDER	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	INNER_JOIN+ORDER	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	INNER_JOIN+PREDICATE	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	INNER_JOIN+PREDICATE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	INNER_JOIN+PREDICATE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	LEFT_JOIN+NEGATED+NULL_TEST	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	LEFT_JOIN+NEGATED+NULL_TEST	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	LEFT_JOIN+NEGATED+NULL_TEST	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	LEFT_JOIN+NULL_TEST	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	LEFT_JOIN+NULL_TEST	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	LEFT_JOIN+NULL_TEST	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	LEFT_JOIN+ORDER	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	LEFT_JOIN+ORDER	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	LEFT_JOIN+ORDER	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	LEFT_JOIN+PREDICATE	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	LEFT_JOIN+PREDICATE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	LEFT_JOIN+PREDICATE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	NEGATED+NULL_TEST	SINGLE_TABLE	REFUSE	36	18	3-differentA/PREDICATE/not(isNotNull)/count/alone; 3-shared/PREDICATE/not(isNotNull)/count/alone; 3-valueA/PREDICATE/not(isNotNull)/count/alone	REFUSE
+COUNT	NEGATED+NULL_TEST	JOINED	REFUSE	12	6	3-valueA/PREDICATE/not(isNotNull)/count/alone	REFUSE
+COUNT	NEGATED+NULL_TEST	TABLE_PER_CLASS	REFUSE	12	6	3-valueA/PREDICATE/not(isNotNull)/count/alone	REFUSE
+COUNT	NEGATED+NULL_TEST+SUBQUERY	SINGLE_TABLE	ALLOW	36	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	NEGATED+NULL_TEST+SUBQUERY	JOINED	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	NEGATED+NULL_TEST+SUBQUERY	TABLE_PER_CLASS	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	NEGATED+PREDICATE	SINGLE_TABLE	ALLOW	18	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	NEGATED+PREDICATE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	NEGATED+PREDICATE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	NEGATED+PREDICATE+SUBQUERY	SINGLE_TABLE	ALLOW	18	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	NEGATED+PREDICATE+SUBQUERY	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	NEGATED+PREDICATE+SUBQUERY	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	NULL_TEST	SINGLE_TABLE	REFUSE	60	18	3-differentA/PREDICATE/isNull/count/alone; 3-shared/PREDICATE/isNull/count/alone; 3-valueA/PREDICATE/isNull/count/alone	REFUSE
+COUNT	NULL_TEST	JOINED	REFUSE	36	6	3-valueA/PREDICATE/isNull/count/alone	REFUSE
+COUNT	NULL_TEST	TABLE_PER_CLASS	REFUSE	36	6	3-valueA/PREDICATE/isNull/count/alone	REFUSE
+COUNT	NULL_TEST+SUBQUERY	SINGLE_TABLE	ALLOW	36	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	NULL_TEST+SUBQUERY	JOINED	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	NULL_TEST+SUBQUERY	TABLE_PER_CLASS	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	PREDICATE	SINGLE_TABLE	ALLOW	198	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	PREDICATE	JOINED	ALLOW	66	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	PREDICATE	TABLE_PER_CLASS	ALLOW	66	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	PREDICATE+SUBQUERY	SINGLE_TABLE	ALLOW	198	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	PREDICATE+SUBQUERY	JOINED	ALLOW	66	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	PREDICATE+SUBQUERY	TABLE_PER_CLASS	ALLOW	66	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	PREDICATE+TYPE	SINGLE_TABLE	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	PREDICATE+TYPE	JOINED	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT	PREDICATE+TYPE	TABLE_PER_CLASS	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT_DERIVED	FROM_EXPRESSION	SINGLE_TABLE	REFUSE: orphan treat after pruning	6	6	6-derived/COUNT_FROM/EXPRESSION	REFUSE
+COUNT_DERIVED	FROM_EXPRESSION	JOINED	REFUSE: orphan treat after pruning	6	6	6-derived/COUNT_FROM/EXPRESSION	REFUSE
+COUNT_DERIVED	FROM_EXPRESSION	TABLE_PER_CLASS	REFUSE: orphan treat after pruning	6	6	6-derived/COUNT_FROM/EXPRESSION	REFUSE
+COUNT_DERIVED	FROM_INNER_JOIN	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT_DERIVED	FROM_INNER_JOIN	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT_DERIVED	FROM_INNER_JOIN	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT_DERIVED	FROM_LEFT_JOIN	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT_DERIVED	FROM_LEFT_JOIN	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT_DERIVED	FROM_LEFT_JOIN	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT_DERIVED	FROM_ORDER	SINGLE_TABLE	REFUSE: orphan treat after pruning	6	6	6-derived/COUNT_FROM/ORDER	REFUSE
+COUNT_DERIVED	FROM_ORDER	JOINED	REFUSE: orphan treat after pruning	6	6	6-derived/COUNT_FROM/ORDER	REFUSE
+COUNT_DERIVED	FROM_ORDER	TABLE_PER_CLASS	REFUSE: orphan treat after pruning	6	6	6-derived/COUNT_FROM/ORDER	REFUSE
+COUNT_DERIVED	FROM_SELECT	SINGLE_TABLE	REFUSE: orphan treat after pruning	6	6	6-derived/COUNT_FROM/SELECT	REFUSE
+COUNT_DERIVED	FROM_SELECT	JOINED	REFUSE: orphan treat after pruning	6	6	6-derived/COUNT_FROM/SELECT	REFUSE
+COUNT_DERIVED	FROM_SELECT	TABLE_PER_CLASS	REFUSE: orphan treat after pruning	6	6	6-derived/COUNT_FROM/SELECT	REFUSE
+COUNT_DERIVED	FROM_TYPE	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT_DERIVED	FROM_TYPE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+COUNT_DERIVED	FROM_TYPE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+DELETE	DISJUNCTION+NULL_TEST+WRITE_PREDICATE	SINGLE_TABLE	REFUSE	12	12	10/WRITE_PREDICATE/ne/delete; 10/WRITE_PREDICATE/notIn/delete	REFUSE
+DELETE	DISJUNCTION+NULL_TEST+WRITE_PREDICATE	JOINED	REFUSE	12	12	10/WRITE_PREDICATE/ne/delete; 10/WRITE_PREDICATE/notIn/delete	REFUSE
+DELETE	DISJUNCTION+NULL_TEST+WRITE_PREDICATE	TABLE_PER_CLASS	REFUSE	12	12	10/WRITE_PREDICATE/ne/delete; 10/WRITE_PREDICATE/notIn/delete	REFUSE
+DELETE	NEGATED+NULL_TEST+WRITE_PREDICATE	SINGLE_TABLE	REFUSE	12	12	10/WRITE_PREDICATE/not(isNotNull)/delete; 10/WRITE_PREDICATE/not(isNull)/delete	REFUSE
+DELETE	NEGATED+NULL_TEST+WRITE_PREDICATE	JOINED	REFUSE	12	6	10/WRITE_PREDICATE/not(isNotNull)/delete	REFUSE
+DELETE	NEGATED+NULL_TEST+WRITE_PREDICATE	TABLE_PER_CLASS	REFUSE	12	6	10/WRITE_PREDICATE/not(isNotNull)/delete	REFUSE
+DELETE	NEGATED+WRITE_PREDICATE	SINGLE_TABLE	REFUSE	6	6	10/WRITE_PREDICATE/not(eq)/delete	REFUSE
+DELETE	NEGATED+WRITE_PREDICATE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+DELETE	NEGATED+WRITE_PREDICATE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+DELETE	NULL_TEST+WRITE_PREDICATE	SINGLE_TABLE	REFUSE	12	12	10/WRITE_PREDICATE/isNotNull/delete; 10/WRITE_PREDICATE/isNull/delete	REFUSE
+DELETE	NULL_TEST+WRITE_PREDICATE	JOINED	REFUSE	12	6	10/WRITE_PREDICATE/isNull/delete	REFUSE
+DELETE	NULL_TEST+WRITE_PREDICATE	TABLE_PER_CLASS	REFUSE	12	6	10/WRITE_PREDICATE/isNull/delete	REFUSE
+DELETE	WRITE_PREDICATE	SINGLE_TABLE	REFUSE	66	66	10/WRITE_PREDICATE/between/delete; 10/WRITE_PREDICATE/eq/delete; 10/WRITE_PREDICATE/eqBeta/delete; 10/WRITE_PREDICATE/ge/delete; 10/WRITE_PREDICATE/gt/delete; 10/WRITE_PREDICATE/in/delete; 10/WRITE_PREDICATE/inBeta/delete; 10/WRITE_PREDICATE/le/delete; 10/WRITE_PREDICATE/like/delete; 10/WRITE_PREDICATE/likeBeta/delete; 10/WRITE_PREDICATE/lt/delete	REFUSE
+DELETE	WRITE_PREDICATE	JOINED	ALLOW	66	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+DELETE	WRITE_PREDICATE	TABLE_PER_CLASS	ALLOW	66	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	AGGREGATE+LEFT_JOIN+SELECT+SUBQUERY	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	AGGREGATE+LEFT_JOIN+SELECT+SUBQUERY	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	AGGREGATE+LEFT_JOIN+SELECT+SUBQUERY	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	AGGREGATE+SELECT	SINGLE_TABLE	REFUSE	18	18	2-different/SELECT,AGGREGATE; 2-shared/SELECT,AGGREGATE; 2/SELECT,AGGREGATE	REFUSE
+READ	AGGREGATE+SELECT	JOINED	REFUSE	6	6	2/SELECT,AGGREGATE	REFUSE
+READ	AGGREGATE+SELECT	TABLE_PER_CLASS	REFUSE	6	6	2/SELECT,AGGREGATE	REFUSE
+READ	AGGREGATE+SELECT+SOURCE	SINGLE_TABLE	REFUSE	6	6	9-context/SOURCE/AGGREGATE	REFUSE
+READ	AGGREGATE+SELECT+SOURCE	JOINED	REFUSE	6	6	9-context/SOURCE/AGGREGATE	REFUSE
+READ	AGGREGATE+SELECT+SOURCE	TABLE_PER_CLASS	REFUSE	6	6	9-context/SOURCE/AGGREGATE	REFUSE
+READ	AGGREGATE+SELECT+SUBQUERY	SINGLE_TABLE	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	AGGREGATE+SELECT+SUBQUERY	JOINED	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	AGGREGATE+SELECT+SUBQUERY	TABLE_PER_CLASS	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	COMBINED_TYPE_TREAT/AND	SINGLE_TABLE	REFUSE: composition unmodelled	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	COMBINED_TYPE_TREAT/AND	JOINED	REFUSE: composition unmodelled	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	COMBINED_TYPE_TREAT/AND	TABLE_PER_CLASS	REFUSE: composition unmodelled	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	COMBINED_TYPE_TREAT/OR	SINGLE_TABLE	REFUSE: composition unmodelled	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	COMBINED_TYPE_TREAT/OR	JOINED	REFUSE: composition unmodelled	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	COMBINED_TYPE_TREAT/OR	TABLE_PER_CLASS	REFUSE: composition unmodelled	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	COMBINED_TYPE_TREAT/SELECT	SINGLE_TABLE	REFUSE: composition unmodelled	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	COMBINED_TYPE_TREAT/SELECT	JOINED	REFUSE: composition unmodelled	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	COMBINED_TYPE_TREAT/SELECT	TABLE_PER_CLASS	REFUSE: composition unmodelled	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	DISJUNCTION+INNER_JOIN+NULL_TEST+PREDICATE	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+INNER_JOIN+NULL_TEST+PREDICATE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+INNER_JOIN+NULL_TEST+PREDICATE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+LEFT_JOIN+NEGATED+NULL_TEST+PREDICATE+TYPE	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+LEFT_JOIN+NEGATED+NULL_TEST+PREDICATE+TYPE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+LEFT_JOIN+NEGATED+NULL_TEST+PREDICATE+TYPE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+LEFT_JOIN+NULL_TEST+PREDICATE	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+LEFT_JOIN+NULL_TEST+PREDICATE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+LEFT_JOIN+NULL_TEST+PREDICATE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NEGATED+NULL_TEST	SINGLE_TABLE	ALLOW	72	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NEGATED+NULL_TEST	JOINED	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NEGATED+NULL_TEST	TABLE_PER_CLASS	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NEGATED+NULL_TEST+SUBQUERY	SINGLE_TABLE	ALLOW	36	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NEGATED+NULL_TEST+SUBQUERY	JOINED	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NEGATED+NULL_TEST+SUBQUERY	TABLE_PER_CLASS	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NEGATED+PREDICATE	SINGLE_TABLE	ALLOW	36	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NEGATED+PREDICATE	JOINED	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NEGATED+PREDICATE	TABLE_PER_CLASS	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NEGATED+PREDICATE+SUBQUERY	SINGLE_TABLE	ALLOW	18	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NEGATED+PREDICATE+SUBQUERY	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NEGATED+PREDICATE+SUBQUERY	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NULL_TEST	SINGLE_TABLE	ALLOW	72	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NULL_TEST	JOINED	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NULL_TEST	TABLE_PER_CLASS	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NULL_TEST+ORDER+PREDICATE+SELECT	SINGLE_TABLE	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NULL_TEST+ORDER+PREDICATE+SELECT	JOINED	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NULL_TEST+ORDER+PREDICATE+SELECT	TABLE_PER_CLASS	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NULL_TEST+PREDICATE	SINGLE_TABLE	ALLOW	114	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	DISJUNCTION+NULL_TEST+PREDICATE	JOINED	ALLOW	42	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	DISJUNCTION+NULL_TEST+PREDICATE	TABLE_PER_CLASS	ALLOW	42	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	DISJUNCTION+NULL_TEST+PREDICATE+SUBQUERY	SINGLE_TABLE	ALLOW	72	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NULL_TEST+PREDICATE+SUBQUERY	JOINED	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NULL_TEST+PREDICATE+SUBQUERY	TABLE_PER_CLASS	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NULL_TEST+SUBQUERY	SINGLE_TABLE	ALLOW	36	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NULL_TEST+SUBQUERY	JOINED	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+NULL_TEST+SUBQUERY	TABLE_PER_CLASS	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+PREDICATE	SINGLE_TABLE	ALLOW	396	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+PREDICATE	JOINED	ALLOW	132	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+PREDICATE	TABLE_PER_CLASS	ALLOW	132	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+PREDICATE+SUBQUERY	SINGLE_TABLE	ALLOW	198	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+PREDICATE+SUBQUERY	JOINED	ALLOW	66	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	DISJUNCTION+PREDICATE+SUBQUERY	TABLE_PER_CLASS	ALLOW	66	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	EXPRESSION+GROUP_BY+SELECT	SINGLE_TABLE	REFUSE	6	6	2-expression/GROUP_BY/content	REFUSE
+READ	EXPRESSION+GROUP_BY+SELECT	JOINED	REFUSE	6	6	2-expression/GROUP_BY/content	REFUSE
+READ	EXPRESSION+GROUP_BY+SELECT	TABLE_PER_CLASS	REFUSE	6	6	2-expression/GROUP_BY/content	REFUSE
+READ	EXPRESSION+ORDER	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	EXPRESSION+ORDER	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	EXPRESSION+ORDER	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	EXPRESSION+PREDICATE	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	EXPRESSION+PREDICATE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	EXPRESSION+PREDICATE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	EXPRESSION+SELECT	SINGLE_TABLE	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	EXPRESSION+SELECT	JOINED	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	EXPRESSION+SELECT	TABLE_PER_CLASS	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	GROUP_BY+SELECT	SINGLE_TABLE	REFUSE	18	18	2-different/GROUP_BY; 2-shared/GROUP_BY; 2/GROUP_BY	REFUSE
+READ	GROUP_BY+SELECT	JOINED	REFUSE	6	6	2/GROUP_BY	REFUSE
+READ	GROUP_BY+SELECT	TABLE_PER_CLASS	REFUSE	6	6	2/GROUP_BY	REFUSE
+READ	GROUP_BY+TYPE	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	GROUP_BY+TYPE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	GROUP_BY+TYPE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	INNER_JOIN+NEGATED+NULL_TEST	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	INNER_JOIN+NEGATED+NULL_TEST	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	INNER_JOIN+NEGATED+NULL_TEST	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	INNER_JOIN+NULL_TEST	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	INNER_JOIN+NULL_TEST	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	INNER_JOIN+NULL_TEST	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	INNER_JOIN+ORDER	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	INNER_JOIN+ORDER	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	INNER_JOIN+ORDER	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	INNER_JOIN+PREDICATE	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	INNER_JOIN+PREDICATE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	INNER_JOIN+PREDICATE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	INNER_JOIN+SELECT	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	INNER_JOIN+SELECT	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	INNER_JOIN+SELECT	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	LEFT_JOIN+NEGATED+NULL_TEST	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	LEFT_JOIN+NEGATED+NULL_TEST	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	LEFT_JOIN+NEGATED+NULL_TEST	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	LEFT_JOIN+NULL_TEST	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	LEFT_JOIN+NULL_TEST	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	LEFT_JOIN+NULL_TEST	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	LEFT_JOIN+ORDER	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	LEFT_JOIN+ORDER	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	LEFT_JOIN+ORDER	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	LEFT_JOIN+PREDICATE	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	LEFT_JOIN+PREDICATE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	LEFT_JOIN+PREDICATE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	LEFT_JOIN+SELECT	SINGLE_TABLE	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	LEFT_JOIN+SELECT	JOINED	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	LEFT_JOIN+SELECT	TABLE_PER_CLASS	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	LEFT_JOIN+SELECT+TYPE	SINGLE_TABLE	REFUSE	6	6	5/TYPE,SELECT,LEFT_JOIN	REFUSE
+READ	LEFT_JOIN+SELECT+TYPE	JOINED	REFUSE	6	6	5/TYPE,SELECT,LEFT_JOIN	REFUSE
+READ	LEFT_JOIN+SELECT+TYPE	TABLE_PER_CLASS	REFUSE	6	6	5/TYPE,SELECT,LEFT_JOIN	REFUSE
+READ	NEGATED+NULL_TEST	SINGLE_TABLE	ALLOW	36	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	NEGATED+NULL_TEST	JOINED	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	NEGATED+NULL_TEST	TABLE_PER_CLASS	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	NEGATED+NULL_TEST+SUBQUERY	SINGLE_TABLE	ALLOW	36	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	NEGATED+NULL_TEST+SUBQUERY	JOINED	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	NEGATED+NULL_TEST+SUBQUERY	TABLE_PER_CLASS	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	NEGATED+PREDICATE	SINGLE_TABLE	ALLOW	18	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	NEGATED+PREDICATE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	NEGATED+PREDICATE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	NEGATED+PREDICATE+SUBQUERY	SINGLE_TABLE	ALLOW	18	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	NEGATED+PREDICATE+SUBQUERY	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	NEGATED+PREDICATE+SUBQUERY	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	NULL_TEST	SINGLE_TABLE	ALLOW	36	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	NULL_TEST	JOINED	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	NULL_TEST	TABLE_PER_CLASS	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	NULL_TEST+SOURCE	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	NULL_TEST+SOURCE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	NULL_TEST+SOURCE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	NULL_TEST+SUBQUERY	SINGLE_TABLE	ALLOW	36	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	NULL_TEST+SUBQUERY	JOINED	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	NULL_TEST+SUBQUERY	TABLE_PER_CLASS	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	ORDER	SINGLE_TABLE	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	ORDER	JOINED	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	ORDER	TABLE_PER_CLASS	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	ORDER+TYPE	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	ORDER+TYPE	JOINED	REFUSE	6	6	5/TYPE,ORDER	REFUSE
+READ	ORDER+TYPE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	PREDICATE	SINGLE_TABLE	ALLOW	198	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	PREDICATE	JOINED	ALLOW	66	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	PREDICATE	TABLE_PER_CLASS	ALLOW	66	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	PREDICATE+SUBQUERY	SINGLE_TABLE	ALLOW	198	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	PREDICATE+SUBQUERY	JOINED	ALLOW	66	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	PREDICATE+SUBQUERY	TABLE_PER_CLASS	ALLOW	66	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	PREDICATE+TYPE	SINGLE_TABLE	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	PREDICATE+TYPE	JOINED	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	PREDICATE+TYPE	TABLE_PER_CLASS	ALLOW	24	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	SELECT	SINGLE_TABLE	ALLOW	18	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	SELECT	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	SELECT	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE
+READ	SELECT+SOURCE	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	SELECT+SOURCE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	SELECT+SOURCE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	SELECT+TYPE	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	SELECT+TYPE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	SELECT+TYPE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+S2_ENGINE_COUNT	ORDER_ONLY	SINGLE_TABLE	REFUSE	6	6	S2.1/ENGINE_COUNT/ORDER_ONLY	REFUSE: experimental statement rewrite needs engine design
+S2_ENGINE_COUNT	ORDER_ONLY	JOINED	REFUSE	6	6	S2.1/ENGINE_COUNT/ORDER_ONLY	REFUSE: experimental statement rewrite needs engine design
+S2_ENGINE_COUNT	ORDER_ONLY	TABLE_PER_CLASS	REFUSE	6	6	S2.1/ENGINE_COUNT/ORDER_ONLY	REFUSE: experimental statement rewrite needs engine design
+S2_ENGINE_COUNT	SELECT_ONLY	SINGLE_TABLE	REFUSE	6	6	S2.1/ENGINE_COUNT/SELECT_ONLY	REFUSE: experimental statement rewrite needs engine design
+S2_ENGINE_COUNT	SELECT_ONLY	JOINED	REFUSE	6	6	S2.1/ENGINE_COUNT/SELECT_ONLY	REFUSE: experimental statement rewrite needs engine design
+S2_ENGINE_COUNT	SELECT_ONLY	TABLE_PER_CLASS	REFUSE	6	6	S2.1/ENGINE_COUNT/SELECT_ONLY	REFUSE: experimental statement rewrite needs engine design
+S2_ENGINE_COUNT	isNull	SINGLE_TABLE	REFUSE	6	6	S2.1/ENGINE_COUNT/isNull	REFUSE: experimental statement rewrite needs engine design
+S2_ENGINE_COUNT	isNull	JOINED	REFUSE	6	6	S2.1/ENGINE_COUNT/isNull	REFUSE: experimental statement rewrite needs engine design
+S2_ENGINE_COUNT	isNull	TABLE_PER_CLASS	REFUSE	6	6	S2.1/ENGINE_COUNT/isNull	REFUSE: experimental statement rewrite needs engine design
+S2_ENGINE_COUNT	ne	SINGLE_TABLE	REFUSE	6	6	S2.1/ENGINE_COUNT/ne	REFUSE: experimental statement rewrite needs engine design
+S2_ENGINE_COUNT	ne	JOINED	REFUSE	6	6	S2.1/ENGINE_COUNT/ne	REFUSE: experimental statement rewrite needs engine design
+S2_ENGINE_COUNT	ne	TABLE_PER_CLASS	REFUSE	6	6	S2.1/ENGINE_COUNT/ne	REFUSE: experimental statement rewrite needs engine design
+S2_ENGINE_COUNT	not(isNotNull)	SINGLE_TABLE	REFUSE	6	6	S2.1/ENGINE_COUNT/not(isNotNull)	REFUSE: experimental statement rewrite needs engine design
+S2_ENGINE_COUNT	not(isNotNull)	JOINED	REFUSE	6	6	S2.1/ENGINE_COUNT/not(isNotNull)	REFUSE: experimental statement rewrite needs engine design
+S2_ENGINE_COUNT	not(isNotNull)	TABLE_PER_CLASS	REFUSE	6	6	S2.1/ENGINE_COUNT/not(isNotNull)	REFUSE: experimental statement rewrite needs engine design
+S2_ENGINE_COUNT	notIn	SINGLE_TABLE	REFUSE	6	6	S2.1/ENGINE_COUNT/notIn	REFUSE: experimental statement rewrite needs engine design
+S2_ENGINE_COUNT	notIn	JOINED	REFUSE	6	6	S2.1/ENGINE_COUNT/notIn	REFUSE: experimental statement rewrite needs engine design
+S2_ENGINE_COUNT	notIn	TABLE_PER_CLASS	REFUSE	6	6	S2.1/ENGINE_COUNT/notIn	REFUSE: experimental statement rewrite needs engine design
+S2_ENTITY_LEFT	AGGREGATE	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_ENTITY_LEFT	AGGREGATE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_ENTITY_LEFT	AGGREGATE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_ENTITY_LEFT	COUNT	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_ENTITY_LEFT	COUNT	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_ENTITY_LEFT	COUNT	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_ENTITY_LEFT	GROUP	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_ENTITY_LEFT	GROUP	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_ENTITY_LEFT	GROUP	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_ENTITY_LEFT	SELECT	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_ENTITY_LEFT	SELECT	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_ENTITY_LEFT	SELECT	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_ENTITY_LEFT	isNull	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_ENTITY_LEFT	isNull	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_ENTITY_LEFT	isNull	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_ENTITY_LEFT	ne	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_ENTITY_LEFT	ne	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_ENTITY_LEFT	ne	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ID	DISJUNCTION+NULL_TEST+PREDICATE	SINGLE_TABLE	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ID	DISJUNCTION+NULL_TEST+PREDICATE	JOINED	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ID	DISJUNCTION+NULL_TEST+PREDICATE	TABLE_PER_CLASS	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ID	NEGATED+NULL_TEST	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ID	NEGATED+NULL_TEST	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ID	NEGATED+NULL_TEST	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ID	NULL_TEST	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ID	NULL_TEST	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ID	NULL_TEST	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ID_ANCHOR	DISJUNCTION+NULL_TEST+PREDICATE	SINGLE_TABLE	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ID_ANCHOR	DISJUNCTION+NULL_TEST+PREDICATE	JOINED	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ID_ANCHOR	DISJUNCTION+NULL_TEST+PREDICATE	TABLE_PER_CLASS	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ID_ANCHOR	NEGATED+NULL_TEST	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ID_ANCHOR	NEGATED+NULL_TEST	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ID_ANCHOR	NEGATED+NULL_TEST	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ID_ANCHOR	NULL_TEST	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ID_ANCHOR	NULL_TEST	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ID_ANCHOR	NULL_TEST	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ROOT	DISJUNCTION+NULL_TEST+PREDICATE	SINGLE_TABLE	REFUSE	12	12	S2.2/FRESH_COUNT/ne/ROOT; S2.2/FRESH_COUNT/notIn/ROOT	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ROOT	DISJUNCTION+NULL_TEST+PREDICATE	JOINED	REFUSE	12	12	S2.2/FRESH_COUNT/ne/ROOT; S2.2/FRESH_COUNT/notIn/ROOT	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ROOT	DISJUNCTION+NULL_TEST+PREDICATE	TABLE_PER_CLASS	REFUSE	12	12	S2.2/FRESH_COUNT/ne/ROOT; S2.2/FRESH_COUNT/notIn/ROOT	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ROOT	NEGATED+NULL_TEST	SINGLE_TABLE	REFUSE	6	6	S2.2/FRESH_COUNT/not(isNotNull)/ROOT	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ROOT	NEGATED+NULL_TEST	JOINED	REFUSE	6	6	S2.2/FRESH_COUNT/not(isNotNull)/ROOT	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ROOT	NEGATED+NULL_TEST	TABLE_PER_CLASS	REFUSE	6	6	S2.2/FRESH_COUNT/not(isNotNull)/ROOT	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ROOT	NULL_TEST	SINGLE_TABLE	REFUSE	6	6	S2.2/FRESH_COUNT/isNull/ROOT	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ROOT	NULL_TEST	JOINED	REFUSE	6	6	S2.2/FRESH_COUNT/isNull/ROOT	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ROOT	NULL_TEST	TABLE_PER_CLASS	REFUSE	6	6	S2.2/FRESH_COUNT/isNull/ROOT	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ROOT_ANCHOR	DISJUNCTION+NULL_TEST+PREDICATE	SINGLE_TABLE	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ROOT_ANCHOR	DISJUNCTION+NULL_TEST+PREDICATE	JOINED	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ROOT_ANCHOR	DISJUNCTION+NULL_TEST+PREDICATE	TABLE_PER_CLASS	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ROOT_ANCHOR	NEGATED+NULL_TEST	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ROOT_ANCHOR	NEGATED+NULL_TEST	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ROOT_ANCHOR	NEGATED+NULL_TEST	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ROOT_ANCHOR	NULL_TEST	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ROOT_ANCHOR	NULL_TEST	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_ROOT_ANCHOR	NULL_TEST	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_STAR	DISJUNCTION+NULL_TEST+PREDICATE	SINGLE_TABLE	REFUSE	12	12	S2.2/FRESH_COUNT/ne/STAR; S2.2/FRESH_COUNT/notIn/STAR	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_STAR	DISJUNCTION+NULL_TEST+PREDICATE	JOINED	REFUSE	12	12	S2.2/FRESH_COUNT/ne/STAR; S2.2/FRESH_COUNT/notIn/STAR	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_STAR	DISJUNCTION+NULL_TEST+PREDICATE	TABLE_PER_CLASS	REFUSE	12	12	S2.2/FRESH_COUNT/ne/STAR; S2.2/FRESH_COUNT/notIn/STAR	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_STAR	NEGATED+NULL_TEST	SINGLE_TABLE	REFUSE	6	6	S2.2/FRESH_COUNT/not(isNotNull)/STAR	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_STAR	NEGATED+NULL_TEST	JOINED	REFUSE	6	6	S2.2/FRESH_COUNT/not(isNotNull)/STAR	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_STAR	NEGATED+NULL_TEST	TABLE_PER_CLASS	REFUSE	6	6	S2.2/FRESH_COUNT/not(isNotNull)/STAR	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_STAR	NULL_TEST	SINGLE_TABLE	REFUSE	6	6	S2.2/FRESH_COUNT/isNull/STAR	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_STAR	NULL_TEST	JOINED	REFUSE	6	6	S2.2/FRESH_COUNT/isNull/STAR	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_STAR	NULL_TEST	TABLE_PER_CLASS	REFUSE	6	6	S2.2/FRESH_COUNT/isNull/STAR	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_STAR_ANCHOR	DISJUNCTION+NULL_TEST+PREDICATE	SINGLE_TABLE	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_STAR_ANCHOR	DISJUNCTION+NULL_TEST+PREDICATE	JOINED	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_STAR_ANCHOR	DISJUNCTION+NULL_TEST+PREDICATE	TABLE_PER_CLASS	ALLOW	12	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_STAR_ANCHOR	NEGATED+NULL_TEST	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_STAR_ANCHOR	NEGATED+NULL_TEST	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_STAR_ANCHOR	NEGATED+NULL_TEST	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_STAR_ANCHOR	NULL_TEST	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_STAR_ANCHOR	NULL_TEST	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_FRESH_COUNT_STAR_ANCHOR	NULL_TEST	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_GROUP_ID_ANCHOR=false	GROUP_BY+SELECT	SINGLE_TABLE	REFUSE	6	6	S2.3/GROUP/ID_ANCHOR=false	REFUSE: experimental statement rewrite needs engine design
+S2_GROUP_ID_ANCHOR=false	GROUP_BY+SELECT	JOINED	REFUSE	6	6	S2.3/GROUP/ID_ANCHOR=false	REFUSE: experimental statement rewrite needs engine design
+S2_GROUP_ID_ANCHOR=false	GROUP_BY+SELECT	TABLE_PER_CLASS	REFUSE	6	6	S2.3/GROUP/ID_ANCHOR=false	REFUSE: experimental statement rewrite needs engine design
+S2_GROUP_ID_ANCHOR=true	GROUP_BY+SELECT	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_GROUP_ID_ANCHOR=true	GROUP_BY+SELECT	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_GROUP_ID_ANCHOR=true	GROUP_BY+SELECT	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_SELECT_ID_ANCHOR=false	SELECT	SINGLE_TABLE	REFUSE	6	6	S2.3/SELECT/ID_ANCHOR=false	REFUSE: experimental statement rewrite needs engine design
+S2_SELECT_ID_ANCHOR=false	SELECT	JOINED	REFUSE	6	6	S2.3/SELECT/ID_ANCHOR=false	REFUSE: experimental statement rewrite needs engine design
+S2_SELECT_ID_ANCHOR=false	SELECT	TABLE_PER_CLASS	REFUSE	6	6	S2.3/SELECT/ID_ANCHOR=false	REFUSE: experimental statement rewrite needs engine design
+S2_SELECT_ID_ANCHOR=true	SELECT	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_SELECT_ID_ANCHOR=true	SELECT	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_SELECT_ID_ANCHOR=true	SELECT	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_SOURCE_ID_ANCHOR=false	SELECT	SINGLE_TABLE	REFUSE	6	6	S2.3/SOURCE/ID_ANCHOR=false	REFUSE: experimental statement rewrite needs engine design
+S2_SOURCE_ID_ANCHOR=false	SELECT	JOINED	REFUSE	6	6	S2.3/SOURCE/ID_ANCHOR=false	REFUSE: experimental statement rewrite needs engine design
+S2_SOURCE_ID_ANCHOR=false	SELECT	TABLE_PER_CLASS	REFUSE	6	6	S2.3/SOURCE/ID_ANCHOR=false	REFUSE: experimental statement rewrite needs engine design
+S2_SOURCE_ID_ANCHOR=true	SELECT	SINGLE_TABLE	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_SOURCE_ID_ANCHOR=true	SELECT	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+S2_SOURCE_ID_ANCHOR=true	SELECT	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	REFUSE: experimental statement rewrite needs engine design
+UPDATE	DISJUNCTION+NULL_TEST+WRITE_PREDICATE	SINGLE_TABLE	REFUSE	12	12	10/WRITE_PREDICATE/ne/update; 10/WRITE_PREDICATE/notIn/update	REFUSE
+UPDATE	DISJUNCTION+NULL_TEST+WRITE_PREDICATE	JOINED	REFUSE	12	12	10/WRITE_PREDICATE/ne/update; 10/WRITE_PREDICATE/notIn/update	REFUSE
+UPDATE	DISJUNCTION+NULL_TEST+WRITE_PREDICATE	TABLE_PER_CLASS	REFUSE	12	12	10/WRITE_PREDICATE/ne/update; 10/WRITE_PREDICATE/notIn/update	REFUSE
+UPDATE	NEGATED+NULL_TEST+WRITE_PREDICATE	SINGLE_TABLE	REFUSE	12	12	10/WRITE_PREDICATE/not(isNotNull)/update; 10/WRITE_PREDICATE/not(isNull)/update	REFUSE
+UPDATE	NEGATED+NULL_TEST+WRITE_PREDICATE	JOINED	REFUSE	12	6	10/WRITE_PREDICATE/not(isNotNull)/update	REFUSE
+UPDATE	NEGATED+NULL_TEST+WRITE_PREDICATE	TABLE_PER_CLASS	REFUSE	12	6	10/WRITE_PREDICATE/not(isNotNull)/update	REFUSE
+UPDATE	NEGATED+WRITE_PREDICATE	SINGLE_TABLE	REFUSE	6	6	10/WRITE_PREDICATE/not(eq)/update	REFUSE
+UPDATE	NEGATED+WRITE_PREDICATE	JOINED	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+UPDATE	NEGATED+WRITE_PREDICATE	TABLE_PER_CLASS	ALLOW	6	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+UPDATE	NULL_TEST+WRITE_PREDICATE	SINGLE_TABLE	REFUSE	12	12	10/WRITE_PREDICATE/isNotNull/update; 10/WRITE_PREDICATE/isNull/update	REFUSE
+UPDATE	NULL_TEST+WRITE_PREDICATE	JOINED	REFUSE	12	6	10/WRITE_PREDICATE/isNull/update	REFUSE
+UPDATE	NULL_TEST+WRITE_PREDICATE	TABLE_PER_CLASS	REFUSE	12	6	10/WRITE_PREDICATE/isNull/update	REFUSE
+UPDATE	WRITE_PREDICATE	SINGLE_TABLE	REFUSE	66	66	10/WRITE_PREDICATE/between/update; 10/WRITE_PREDICATE/eq/update; 10/WRITE_PREDICATE/eqBeta/update; 10/WRITE_PREDICATE/ge/update; 10/WRITE_PREDICATE/gt/update; 10/WRITE_PREDICATE/in/update; 10/WRITE_PREDICATE/inBeta/update; 10/WRITE_PREDICATE/le/update; 10/WRITE_PREDICATE/like/update; 10/WRITE_PREDICATE/likeBeta/update; 10/WRITE_PREDICATE/lt/update	REFUSE
+UPDATE	WRITE_PREDICATE	JOINED	ALLOW	66	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+UPDATE	WRITE_PREDICATE	TABLE_PER_CLASS	ALLOW	66	0	All recorded cases assert values on both lines and all three vendors	ALLOW bounded contexts
+READ	CORRELATION+SUBQUERY	SINGLE_TABLE	REFUSE: unprobed	0	0	Own-root scalar counts correlate untreated outer id, not a treated outer node	REFUSE
+READ	CORRELATION+SUBQUERY	JOINED	REFUSE: unprobed	0	0	Own-root scalar counts correlate untreated outer id, not a treated outer node	REFUSE
+READ	CORRELATION+SUBQUERY	TABLE_PER_CLASS	REFUSE: unprobed	0	0	Own-root scalar counts correlate untreated outer id, not a treated outer node	REFUSE

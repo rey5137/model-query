@@ -1,0 +1,54 @@
+public interface org.hibernate.Session extends org.hibernate.SharedSessionContract,jakarta.persistence.EntityManager {
+
+public interface org.hibernate.engine.spi.SessionFactoryImplementor extends org.hibernate.SessionFactory {
+  public abstract org.hibernate.query.spi.QueryEngine getQueryEngine();
+  public abstract org.hibernate.query.sql.spi.SqlTranslationEngine getSqlTranslationEngine();
+
+public interface org.hibernate.query.spi.SqmQuery<R> extends org.hibernate.query.CommonQueryContract {
+  public abstract org.hibernate.query.sqm.tree.SqmStatement<R> getSqmStatement();
+  public abstract org.hibernate.query.spi.QueryOptions getQueryOptions();
+
+public interface org.hibernate.query.spi.QueryImplementor<R> extends org.hibernate.query.Query<R> {
+  public abstract org.hibernate.engine.spi.SharedSessionContractImplementor getSession();
+  public abstract org.hibernate.query.spi.QueryParameterBindings getParameterBindings();
+  public default org.hibernate.SharedSessionContract getSession();
+
+public class org.hibernate.query.sqm.internal.DomainParameterXref {
+  public static org.hibernate.query.sqm.internal.DomainParameterXref from(org.hibernate.query.sqm.tree.SqmStatement<?>);
+
+public interface org.hibernate.query.sqm.sql.SqmTranslatorFactory {
+  public abstract org.hibernate.query.sqm.sql.SqmTranslator<org.hibernate.sql.ast.tree.select.SelectStatement> createSelectTranslator(org.hibernate.query.sqm.tree.select.SqmSelectStatement<?>, org.hibernate.query.spi.QueryOptions, org.hibernate.query.sqm.internal.DomainParameterXref, org.hibernate.query.spi.QueryParameterBindings, org.hibernate.engine.spi.LoadQueryInfluencers, org.hibernate.sql.ast.spi.SqlAstCreationContext, boolean);
+
+public interface org.hibernate.query.sqm.sql.SqmTranslation<T extends org.hibernate.sql.ast.tree.Statement> {
+  public abstract T getSqlAst();
+
+public interface org.hibernate.sql.ast.spi.SqlAstCreationContext extends org.hibernate.type.BindingContext {
+
+public class org.hibernate.sql.ast.tree.select.SelectStatement extends org.hibernate.sql.ast.tree.AbstractStatement implements org.hibernate.sql.ast.tree.SqlAstNode,org.hibernate.sql.ast.tree.expression.Expression,org.hibernate.query.sqm.sql.internal.DomainResultProducer {
+
+public interface org.hibernate.sql.ast.tree.from.TableGroup extends org.hibernate.sql.ast.tree.SqlAstNode,org.hibernate.sql.ast.tree.from.ColumnReferenceQualifier,org.hibernate.query.sqm.sql.internal.SqmPathInterpretation,org.hibernate.query.sqm.sql.internal.DomainResultProducer {
+  public abstract java.util.List<org.hibernate.sql.ast.tree.from.TableGroupJoin> getTableGroupJoins();
+  public abstract java.util.List<org.hibernate.sql.ast.tree.from.TableGroupJoin> getNestedTableGroupJoins();
+  public abstract org.hibernate.sql.ast.tree.from.TableReference getPrimaryTableReference();
+  public abstract java.util.List<org.hibernate.sql.ast.tree.from.TableReferenceJoin> getTableReferenceJoins();
+
+public class org.hibernate.sql.ast.tree.from.TableGroupJoin implements org.hibernate.sql.ast.tree.from.TableJoin,org.hibernate.sql.ast.tree.predicate.PredicateContainer,org.hibernate.query.sqm.sql.internal.DomainResultProducer {
+  public org.hibernate.sql.ast.SqlAstJoinType getJoinType();
+
+public class org.hibernate.sql.ast.tree.from.TableReferenceJoin implements org.hibernate.sql.ast.tree.from.TableJoin,org.hibernate.sql.ast.tree.predicate.PredicateContainer {
+  public org.hibernate.sql.ast.SqlAstJoinType getJoinType();
+
+public class org.hibernate.sql.ast.tree.from.NamedTableReference extends org.hibernate.sql.ast.tree.from.AbstractTableReference {
+  public java.lang.String getTableExpression();
+
+public class org.hibernate.sql.ast.tree.from.UnionTableReference extends org.hibernate.sql.ast.tree.from.NamedTableReference {
+
+org.hibernate.query.spi.QueryEngine
+public interface org.hibernate.query.spi.QueryEngine extends org.hibernate.type.BindingContext {
+  public abstract org.hibernate.query.sqm.NodeBuilder getCriteriaBuilder();
+  public abstract org.hibernate.query.sqm.sql.SqmTranslatorFactory getSqmTranslatorFactory();
+
+org.hibernate.query.sql.spi.SqlTranslationEngine
+public interface org.hibernate.query.sql.spi.SqlTranslationEngine extends org.hibernate.sql.ast.spi.SqlAstCreationContext {
+org.hibernate.sql.ast.package-info: org.hibernate.Incubating
+org.hibernate.sql.ast.tree.package-info: org.hibernate.Incubating
