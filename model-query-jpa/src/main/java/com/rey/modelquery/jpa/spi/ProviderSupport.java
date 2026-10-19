@@ -7,6 +7,7 @@ import com.rey.modelquery.core.NullPrecedenceRenderer;
 import com.rey.modelquery.core.SequenceRenderer;
 import com.rey.modelquery.core.SourceRenderer;
 import com.rey.modelquery.core.SubqueryRenderer;
+import com.rey.modelquery.core.TreatRenderer;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -182,6 +183,12 @@ public interface ProviderSupport {
      */
     @Incubating
     default Optional<SubqueryRenderer> subqueries() {
+        return Optional.empty();
+    }
+
+    /** The factory's treated-path renderer, or empty: a treated node is then {@code MQ4014} (R-VND-26). */
+    @Incubating
+    default Optional<TreatRenderer> treats(EntityManagerFactory emf) {
         return Optional.empty();
     }
 }

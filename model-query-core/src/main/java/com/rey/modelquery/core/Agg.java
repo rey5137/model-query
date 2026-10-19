@@ -41,6 +41,10 @@ public final class Agg {
     public static <M> AggregateField<M, Long> count(TableField<?, ?> table) {
         Objects.requireNonNull(table, "table");
         String name = table.rootEntity() != null ? table.rootEntity().getSimpleName() : table.key().attribute();
+        if (table.treatedType() != null) {
+            String subtype = table.treatedType().getSimpleName();
+            name = Character.toLowerCase(subtype.charAt(0)) + subtype.substring(1);
+        }
         boolean source = table.isSource();
         return new AggregateField<>(AggregateField.Kind.COUNT, table.key(), name, "", Long.class, null, null,
                 (ctx, cb) -> source ? cb.count(cb.literal(1)) : cb.count(table.resolve(ctx)));

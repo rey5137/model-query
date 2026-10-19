@@ -55,6 +55,11 @@ public final class ModelDelete<E, M> {
         return definition.root().rootEntity();
     }
 
+    void checkTreats(TreatChecks checks) {
+        primaryKey().columns().forEach(checks::field);
+        ConditionGroup.conditions(definition.rows().where()).forEach(checks::condition);
+    }
+
     /**
      * The entity and how the rows are chosen, for the executor's log: never a key or a filter's values (D-95,
      * R-INS-05). The format is not API.

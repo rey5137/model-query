@@ -624,6 +624,28 @@ public final class SourceQuery<S> {
         return fields;
     }
 
+    void checkTreats(TreatChecks checks) {
+        fields.fields().forEach(checks::field);
+        key.columns().forEach(checks::field);
+        if (groupKeys != null) {
+            groupKeys.fields().forEach(checks::field);
+        }
+        ConditionGroup.conditions(where).forEach(checks::condition);
+        if (having != null) {
+            ConditionGroup.conditions(having.filters()).forEach(checks::condition);
+        }
+        checks.source(inner);
+        if (operation != null) {
+            checks.source(operation.left());
+            checks.source(operation.right());
+        }
+        if (recursion != null) {
+            checks.field(recursion.depth());
+            checks.field(recursion.keys().childKey());
+            checks.field(recursion.keys().parentKey());
+        }
+    }
+
     /** The key that identifies a source row: unique by construction, or made so by the branches (R-SRC-02). */
     PrimaryKey<?, ?> key() {
         return key;

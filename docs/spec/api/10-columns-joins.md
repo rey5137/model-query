@@ -15,6 +15,8 @@ public final class TableField<P, T> {
     public static <T> TableField<T, T> root(Class<T> entity);
     public static <S> TableField<S, S> source(Class<S> model);              // the root of a query over a source
     public static <P, T> TableField<P, T> join(TableField<?, P> parent, String attribute, JoinType type);
+    @Incubating
+    public <S extends T> TableField<T, S> treat(Class<S> subtype);          // this node read as an entity subtype
     public TableField<P, T> as(String alias);                              // a separate join to the same path
     public TableField<P, T> on(BiFunction<From<?, T>, CriteriaBuilder, Predicate> condition);   // requires as(...)
     public TableField<P, T> withParent(TableField<?, P> newParent);        // keeps alias, ON condition and presence key
@@ -44,8 +46,31 @@ tell a LEFT-join miss from a match whose other columns are `NULL` (`processor/31
   → two joins to `address`).
 - `as("x")` gives the same path its own join. Children of an aliased join are separate too
   (`ITEMS.as("b") → product` is not `ITEMS → product`).
+- A treated root still rejects `as`, `on` and `presentBy` with `MQ1104` (R-COL-34).
 - `on(...)` adds its condition through JPA's `Join#on`, which preserves LEFT-join semantics that a `WHERE` predicate
   would break.
+
+**R-COL-34** *(D-154)* **A treated table.** The `@Incubating TableField#treat(Class<S>)` returns a
+`TableField<T, S>` over an entity root, to-one join or to-many join. Its join key is its parent key and subtype;
+one `JoinContext` renders it once per statement through `TreatRenderer#treat`. Columns, joins and `exists` paths
+hang off it. It is immutable and safe as a `static final` definition (INV-9). A to-many path keeps R-PAG-13's
+filter-only rules. `presentBy` on a treated join is allowed and retained by copies.
+With no `TreatRenderer` every treated node is `MQ4014`, including one that would render untreated. The executor
+checks the reachable definition before any statement, including fetch children, sub-queries and source bodies.
+`Agg.count` names a treated table from its subtype's simple name with a lower-case first letter: `count(card)`
+for `ROOT.treat(Card.class)`, also when the treated table is a join.
+
+`MQ1106` rejects an improper subtype at definition on a root, whose entity class is known, and at first resolution
+on a join, whose declared target is obtained from the metamodel. Both checks require a strict subtype and use the
+same diagnostic. At definition it also rejects treating a treated node or a source root, and `as` or `on` on a
+treated join; apply those modifiers before treating. At first resolution an unmapped entity subtype is `MQ1106`.
+Entity mapping comes from the provider, including XML mappings, rather than the presence of an `@Entity` annotation.
+
+The declared-target check is separate from the actual entity reached: the query root or the join target under
+which `under` re-roots the node. A strict subtype of that entity renders the treat. The subtype itself, or a
+supertype of the entity reached, renders untreated. An unrelated or sibling type is `MQ1106`, naming both types.
+Re-rooting retains the original declared target for the improper-subtype check. On a treated root, `as`, `on` and
+`presentBy` remain `MQ1104`.
 
 **R-COL-30** *(D-143)* **A `TableField` may be a source's root.** `TableField.source(model)` is the root of a query
 over a `@SourceModel` (`api/17` R-SRC-10): its `rootEntity()` is the source model, and the query reads the CTE's
@@ -190,7 +215,9 @@ whose attribute type is `java.util.Date` also matches a reported `java.sql.Date`
 JPA stores a `Date` attribute as one of the three, and a provider may report that type, as Hibernate does (D-122). The same
 resolution throws `MQ1002` for an attribute, of a column or a join, that the entity does not have, and `MQ1003` for a
 column whose path starts at a root the query is not rooted at, which would otherwise read the query root's attribute of
-the same name. An attribute may be a dotted path through embedded values (`"address.city"`); a segment that is unknown
+the same name. A supertype root is accepted; a strict subtype root is refused with a message naming
+`ROOT.treat(<Subtype>.class)` (R-COL-34). An attribute may be a dotted path through embedded values
+(`"address.city"`); a segment that is unknown
 or crosses an association throws `MQ1002` naming it (D-41).
 
 **R-COL-14** **A converted column.** A column built with a `ColumnConverter<C, F>` has the model type `C` as its type
@@ -563,6 +590,7 @@ the planner must see as a literal (a partial index's predicate, a selective enum
 | AC-COL-41 | Refusals, grouped WHERE and counts retaining lifted joins (R-COL-33, R-EXE-05). |
 | AC-COL-42 | To-many count/sum: MQ1511; EXISTS filtering and min/max/exists exemptions (R-COL-33). |
 | AC-COL-43 | A correlated value in an update or delete `where` over the target table: MySQL runs key-first and matches the other vendors' rows; a conflict `where` is `MQ1804`, `setExpression` is `MQ1613` (R-COL-31, R-WRT-13, D-153). |
+| AC-COL-48 | `MQ1106` for an improper subtype at definition on a root and at first resolution on a join; treating a treat or source root; modifiers on a treated join; an unmapped subtype; a sibling root or sibling re-root. `MQ1104` for `as`/`on`/`presentBy` on a treated root. `MQ1003` names `ROOT.treat(...)` for a subtype-root column in a base-root query (R-COL-34, D-154). |
 
 AC-COL-36..39, 41 and 42 run on every Tier-1 vendor and both Hibernate lines. Each scalar terminal selects,
 filters and orders. AC-COL-41 covers all R-COL-33 refusals, including generated annotations and

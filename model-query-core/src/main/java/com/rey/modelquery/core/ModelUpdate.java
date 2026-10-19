@@ -88,6 +88,12 @@ public final class ModelUpdate<E, M> {
         return definition.assignments();
     }
 
+    void checkTreats(TreatChecks checks) {
+        primaryKey().columns().forEach(checks::field);
+        assignments().forEach(checks::assignment);
+        ConditionGroup.conditions(definition.rows().where()).forEach(checks::condition);
+    }
+
     /** The version {@code expectVersion} expects the row to have, or empty without it (R-WRT-16). */
     public Optional<Object> expectedVersion() {
         return Optional.ofNullable(definition.expectedVersion());

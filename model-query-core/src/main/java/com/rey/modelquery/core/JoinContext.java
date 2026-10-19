@@ -617,6 +617,30 @@ public final class JoinContext {
         return join;
     }
 
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    <T> From<?, T> treat(JoinKey key, From<?, ?> parent, Class<T> subtype, String description) {
+        Class<?> reached = parent.getJavaType();
+        if (!reached.isAssignableFrom(subtype) && !subtype.isAssignableFrom(reached)) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1106, description + ": cannot treat "
+                    + reached.getSimpleName() + " as " + subtype.getSimpleName());
+        }
+        JoinKey cacheKey = new JoinKey(keys.getOrDefault(parent, key.parent()), subtype.getName(), null, "");
+        Resolved cached = joins.get(cacheKey);
+        if (cached != null) {
+            return (From<?, T>) cached.from();
+        }
+        TreatRenderer renderer = renderOptions.treatRenderer().orElseThrow(() ->
+                new ModelQueryConfigurationException(MqCode.MQ4014, description
+                        + ": a treated path needs the provider's TreatRenderer (ProviderSupport#treats(emf))"));
+        From<?, T> treated = subtype.isAssignableFrom(reached) ? (From<?, T>) parent
+                : renderer.treat(cb, (From) parent, subtype);
+        joins.put(cacheKey, new Resolved(treated, null));
+        if (treated != parent) {
+            keys.put(treated, cacheKey);
+        }
+        return treated;
+    }
+
     private JoinType resolvedType(JoinKey key, JoinKey parentKey, JoinType type) {
         if (required.contains(key)) {
             return JoinType.INNER; // a LEFT join would make every row "exist"
