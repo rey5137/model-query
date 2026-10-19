@@ -328,7 +328,8 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
                             : "attribute type " + name(attributeType, actual) + " for "
                                     + converter.getClass().getSimpleName(),
                     from.getJavaType().getSimpleName(),
-                    attribute, (actual == null ? "of unknown type" : name(actual, attributeType)) + idNamed(from)));
+                    attribute, (actual == null ? "of unknown type" : name(actual, attributeType))
+                            + idNamed(from, ctx)));
         }
         return path;
     }
@@ -351,7 +352,7 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
      */
     @SuppressWarnings("unchecked")
     private Path<C> attributePath(From<?, T> from, JoinContext ctx) {
-        SingularAttribute<?, ?> toOne = toOne(from);
+        SingularAttribute<?, ?> toOne = toOne(from, ctx);
         if (toOne == null) {
             return from.get(attribute);
         }
@@ -366,11 +367,40 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
         return (Path<C>) association.get(id.getName());
     }
 
-    /** The attribute when it is a singular association of {@code from}'s type, whose path would join it inner. */
-    private SingularAttribute<?, ?> toOne(From<?, T> from) {
+    /**
+     * The attribute when it is a singular association of {@code from}'s type, whose path would join it inner. A
+     * treated join's attribute names its declared target, which lacks the subtype's own attributes: one of those is
+     * read as {@code from.get(...)} resolves it on the subtype. A subtype's to-one there is {@code MQ1001}, whatever
+     * the column's type: its path would join it {@code INNER} and drop the rows with a {@code NULL} foreign key, where
+     * a read joins a to-one {@code LEFT} (D-124); join it with a {@code TableField} (R-COL-34).
+     */
+    private SingularAttribute<?, ?> toOne(From<?, T> from, JoinContext ctx) {
         ManagedType<?> owner = managedType(from);
-        return owner != null && owner.getAttribute(attribute) instanceof SingularAttribute<?, ?> singular
-                && singular.isAssociation() ? singular : null;
+        Attribute<?, ?> found;
+        try {
+            found = owner == null ? null : owner.getAttribute(attribute);
+        } catch (IllegalArgumentException e) {
+            if (owner.getJavaType() == from.getJavaType()) {
+                throw e;
+            }
+            if (subtypeAttribute(from, ctx) instanceof SingularAttribute<?, ?> own && own.isAssociation()) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1001, String.format(
+                        "%s.%s: %s.%s is a to-one of the subtype a treated join reads, which its path would join "
+                                + "INNER; join it with a TableField (R-COL-34, D-124)", model.getSimpleName(),
+                        attribute, from.getJavaType().getSimpleName(), attribute));
+            }
+            return null;
+        }
+        return found instanceof SingularAttribute<?, ?> singular && singular.isAssociation() ? singular : null;
+    }
+
+    /** {@code attribute} on the subtype a treated join reads, or {@code null} when the subtype has none. */
+    private Attribute<?, ?> subtypeAttribute(From<?, T> from, JoinContext ctx) {
+        try {
+            return ctx.cb().createQuery().from(from.getJavaType()).getModel().getAttribute(attribute);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     /**
@@ -392,8 +422,8 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
     }
 
     /** {@code MQ1001}'s mention of the id a to-one column could also read by, or {@code ""} (R-COL-29). */
-    private String idNamed(From<?, T> from) {
-        SingularAttribute<?, ?> toOne = attribute.indexOf('.') < 0 ? toOne(from) : null;
+    private String idNamed(From<?, T> from, JoinContext ctx) {
+        SingularAttribute<?, ?> toOne = attribute.indexOf('.') < 0 ? toOne(from, ctx) : null;
         SingularAttribute<?, ?> id = toOne == null ? null : basicId(toOne.getType());
         return id == null ? "" : ", or its id " + id.getJavaType().getSimpleName();
     }

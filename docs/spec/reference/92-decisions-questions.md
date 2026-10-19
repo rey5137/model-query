@@ -2272,6 +2272,44 @@ R-SRC-20, `engine/20` R-EXE-05, `engine/21` R-PAG-19, R-PAG-26, R-PAG-27, `proce
 `processor/31` R-GEN-41, R-GEN-42, `processor/32` `MQ3003`, `MQ3042`, `MQ3043`, `vendor/40` R-VND-26, `reference/90`,
 Q-25, Q-26, Q-27.
 
+**D-155 — Treat `MQ4014` names its reason in a WARN (M28.3, 2026-10-19).** The core-thrown `MQ4014` for a treated path
+without a renderer keeps its generic message ("a treated path needs the provider's TreatRenderer"), since the SPI has no
+channel for the provider to name the reason in a refusal the core throws. `model-query-hibernate`'s `treats(emf)` logs
+one `WARNING` per factory naming the specific reason — a Hibernate minor outside 6.6.x and 7.4.x, or
+`hibernate.jpa.compliance.query=true` — before returning empty. Rejected: a new SPI hook so the provider could name the
+reason inside the exception, and a `RenderOptions` override that would bypass the gate. On a served line the renderer is
+built once per factory, after the line and compliance checks, and cached weakly on it: it reads the mapping when built,
+is immutable and keeps no reference to the factory, so every executor and thread shares it. → `vendor/40` R-VND-26,
+`reference/90` `MQ4014`.
+
+**D-156 — The Hibernate treat table is the measured envelopes, not their combinations (M28.3, 2026-10-19).** The
+renderer admits a use set only where the spike recorded it and every recorded case passed on both lines, all three
+vendors and the strategy; it does not extend a measured context to an unmeasured join or expression form (`{PREDICATE,
+SUBQUERY, LEFT_JOIN}` and `{SELECT, EXPRESSION, LEFT_JOIN}` are refused). A shared `SINGLE_TABLE` column takes the
+shared probes' own content cells, the `NULL_TEST` ones included; in a count it takes only the `or` cells (a set with
+`DISJUNCTION` and no `SUBQUERY`, less `{PREDICATE, NULL_TEST, DISJUNCTION}`), as the accepted RFC's §10 prose says,
+though the spike's standalone count rows on it also passed: no root-id count was measured there. On `SINGLE_TABLE` a
+dotted path's column is its first segment's (the subtype's own attribute, or its foreign key); a join or path through a
+shared column, and an attribute whose columns the renderer can't read, are refused, since only a shared column's own
+read was measured. A mapping variant takes
+the table less the cells its runs lacked. Because `ne`, `notIn` and their field and sub-select forms render an `IS NULL`
+branch (R-FLT-04), the engine reports them as `{PREDICATE, NULL_TEST, DISJUNCTION}`, the spike's envelope for them, not
+as a plain `PREDICATE`; otherwise a shared column or a variant would admit a null-accepting count the spike saw
+undercount. An `add(...)` predicate's SQL may accept nulls too, but its condition records no column, so it can't report
+even that set: the engine refuses a subtype treat reached while it renders (`MQ4016`, before its statement runs),
+whatever the table admits; a child statement's `add(...)` renders when the call's fetch plan is built, before the first
+statement (R-FCH-02). A correlated count's `{SELECT, AGGREGATE, SUBQUERY, LEFT_JOIN}` is refused: the spike counted that
+left treated join from an untreated sub-select root, which the engine reports unanchored, and the only anchored site
+with that set treats twice, which nobody ran. The anchored `PREDICATE` sets with `SUBQUERY` run as a path `exists` under
+a treat (AC-VND-19). Every admitted cell is a TCK case, so the sets no definition reaches are refused: the `NULL_TEST`
+sets with `SUBQUERY` and no `PREDICATE` (a null test inside a path `exists` also reports the exists' `PREDICATE`), and
+every shared-column set with `SUBQUERY`, content and count (a path `exists` reads only columns on its path, an outer
+column inside it is `MQ1302`, and a path through a shared column is refused). The TCK probes the renderer with
+synthesized sites over every use set of at most four uses, per strategy, shape, anchoring, shared column and mapping
+variant, and asserts the admitted sets equal the ones its cases ran.
+`TYPE` cells wait for M28.5, which adds them with `typeOf`/`ofType` and their TCK cases. Rejected: the RFC table's prose
+read as "any join with any predicate context", which admits sets nobody ran. → `vendor/40` R-VND-26, `api/10` R-COL-35.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

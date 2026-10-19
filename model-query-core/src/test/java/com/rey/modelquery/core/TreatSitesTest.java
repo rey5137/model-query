@@ -56,6 +56,39 @@ class TreatSitesTest {
     }
 
     @Test
+    void ac_vnd_17_a_custom_predicate_reports_no_site_so_its_treated_reads_are_refused_at_render() {
+        // add(...) records no column, so it can't report even the null-accepting set: JoinContext refuses (D-156).
+        var custom = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID))
+                .where(f -> f.add((ctx, cb) -> cb.conjunction()).add("card", (ctx, cb) -> cb.conjunction()))
+                .build();
+        for (var shape : List.of(StatementShape.CONTENT, StatementShape.COUNT)) {
+            assertThat(sites(custom, shape, false)).isEmpty();
+        }
+        var beside = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID))
+                .where(f -> f.or(a -> a.add((ctx, cb) -> cb.conjunction()), b -> b.eq(NUMBER, "1"))).build();
+        assertThat(sites(beside, StatementShape.COUNT, false)).containsExactly(
+                site(StatementShape.COUNT, true, TreatUse.PREDICATE, TreatUse.DISJUNCTION));
+    }
+
+    @Test
+    void ac_vnd_17_ne_and_not_in_carry_their_is_null_branch_as_null_test_and_disjunction() {
+        for (var shape : List.of(StatementShape.CONTENT, StatementShape.COUNT)) {
+            var ne = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID))
+                    .where(f -> f.ne(NUMBER, "1")).build();
+            assertThat(sites(ne, shape, false)).containsExactly(
+                    site(shape, true, TreatUse.PREDICATE, TreatUse.NULL_TEST, TreatUse.DISJUNCTION));
+            var notIn = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID))
+                    .where(f -> f.not(n -> n.notIn(NUMBER, List.of("1", "2")))).build();
+            assertThat(sites(notIn, shape, false)).containsExactly(site(shape, true, TreatUse.PREDICATE,
+                    TreatUse.NULL_TEST, TreatUse.DISJUNCTION, TreatUse.NEGATED));
+            var eq = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID))
+                    .where(f -> f.not(n -> n.eq(NUMBER, "1"))).build();
+            assertThat(sites(eq, shape, false)).containsExactly(
+                    site(shape, true, TreatUse.PREDICATE, TreatUse.NEGATED));
+        }
+    }
+
+    @Test
     void ac_vnd_17_later_keyset_pages_are_checked_before_the_first_page() {
         var query = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID, NUMBER))
                 .primaryKey(PrimaryKey.of(ID)).orderBy(NUMBER.asc().nullsLast()).keyset().build();

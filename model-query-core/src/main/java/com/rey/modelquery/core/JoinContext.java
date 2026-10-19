@@ -94,6 +94,9 @@ public final class JoinContext {
     private TableField<?, ?> existsPath;
     private From<?, ?> existsFrom;
     private int leftJoining;
+
+    /** Above zero while an {@code add(...)} predicate renders, whose reads no {@code TreatSite} records (D-156). */
+    private int custom;
     /** Enclosing path-exists scopes preserve OR/NOT semantics when a descendant reads a lifted outer column. */
     private boolean enclosingLeftJoining;
     private int sequencesRefused;
@@ -371,6 +374,19 @@ public final class JoinContext {
     }
 
     /**
+     * Runs {@code render}, an {@code add(...)} predicate, refusing any subtype treat it reaches: its condition records
+     * no column, so no {@code TreatSite} reports the read and the provider's table never checked it (D-156).
+     */
+    <R> R custom(Supplier<R> render) {
+        custom++;
+        try {
+            return render.get();
+        } finally {
+            custom--;
+        }
+    }
+
+    /**
      * {@code EXISTS (SELECT 1 ... WHERE <inner>)} over {@code path}, correlated to this context's root, or to its own
      * {@code exists} path when this context is itself an {@code exists}. The sub-query joins {@code path} from there,
      * as INNER, and {@code inner} renders against the sub-query's own context, so the outer query joins nothing
@@ -623,6 +639,10 @@ public final class JoinContext {
         if (!reached.isAssignableFrom(subtype) && !subtype.isAssignableFrom(reached)) {
             throw new ModelQueryDefinitionException(MqCode.MQ1106, description + ": cannot treat "
                     + reached.getSimpleName() + " as " + subtype.getSimpleName());
+        }
+        if (custom > 0 && !subtype.isAssignableFrom(reached)) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4016, description + ": a treated node read inside "
+                    + "add(...) has no site the provider's table can check; filter it with a typed condition");
         }
         JoinKey cacheKey = new JoinKey(keys.getOrDefault(parent, key.parent()), subtype.getName(), null, "");
         Resolved cached = joins.get(cacheKey);

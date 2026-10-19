@@ -9,6 +9,7 @@ import com.rey.modelquery.core.NullPrecedenceRenderer;
 import com.rey.modelquery.core.SequenceRenderer;
 import com.rey.modelquery.core.SourceRenderer;
 import com.rey.modelquery.core.SubqueryRenderer;
+import com.rey.modelquery.core.TreatRenderer;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.EntityWriteSupport;
 import com.rey.modelquery.jpa.spi.ForeignKeyColumn;
@@ -37,6 +38,7 @@ import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 import org.hibernate.SessionFactory;
+import org.hibernate.Version;
 import org.hibernate.boot.model.naming.Identifier;
 import org.hibernate.boot.model.relational.SqlStringGenerationContext;
 import org.hibernate.boot.spi.SessionFactoryOptions;
@@ -79,6 +81,19 @@ public final class HibernateProviderSupport implements ProviderSupport {
      */
     private static final Map<EntityManagerFactory, Map<Class<?>, Set<String>>> TABLES =
             Collections.synchronizedMap(new WeakHashMap<>());
+
+    private static final System.Logger LOG = System.getLogger(HibernateProviderSupport.class.getName());
+
+    /**
+     * The treat renderer per factory: its mapping is read once, not per executor (R-VND-26). Weak on the factory,
+     * and the renderer keeps no reference to it, so a closed one does not stay reachable.
+     */
+    private static final Map<EntityManagerFactory, TreatRenderer> TREATS =
+            Collections.synchronizedMap(new WeakHashMap<>());
+
+    /** The factories already warned about a disabled treated path, so one WARN per factory (R-VND-26). */
+    private static final Set<EntityManagerFactory> TREATS_WARNED =
+            Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
 
     /** In a holder, as {@link DefaultNullPrecedence} is, so the provider stays loadable without Hibernate. */
     private static final class Inserts {
@@ -359,6 +374,43 @@ public final class HibernateProviderSupport implements ProviderSupport {
         return sessionFactory(emf).map(HibernateConstantRenderer::new);
     }
 
+    /**
+     * {@link HibernateTreatRenderer} on the 6.6.x and 7.4.x lines, outside compliance mode (R-VND-26, AC-VND-16).
+     * Empty, so every treated node is {@code MQ4014}, on any other minor line or under
+     * {@code hibernate.jpa.compliance.query=true}; a WARN names the reason, once per factory. The renderer is built
+     * once per factory and shared.
+     */
+    @Override
+    @Incubating
+    public Optional<TreatRenderer> treats(EntityManagerFactory emf) {
+        return treats(emf, Version.getVersionString());
+    }
+
+    /** {@link #treats(EntityManagerFactory)} for the Hibernate {@code version} given, a test seam. */
+    static Optional<TreatRenderer> treats(EntityManagerFactory emf, String version) {
+        Optional<SessionFactoryImplementor> factory = sessionFactory(emf);
+        if (factory.isEmpty()) {
+            return Optional.empty();
+        }
+        if (!treatsLine(version)) {
+            return warn(emf, "Hibernate " + version + " is outside the measured 6.6.x and 7.4.x lines");
+        }
+        if (factory.get().getSessionFactoryOptions().getJpaCompliance().isJpaQueryComplianceEnabled()) {
+            return warn(emf, "hibernate.jpa.compliance.query=true");
+        }
+        return Optional.of(TREATS.computeIfAbsent(emf, key -> new HibernateTreatRenderer(factory.get())));
+    }
+
+    /** Whether {@code version} is on the 6.6.x or 7.4.x line, the CI matrix's minor lines (R-VND-26). */
+    static boolean treatsLine(String version) {
+        if (version == null) {
+            return false;
+        }
+        String[] parts = version.split("\\.");
+        return parts.length > 2 && ("6".equals(parts[0]) && "6".equals(parts[1])
+                || "7".equals(parts[0]) && "4".equals(parts[1]));
+    }
+
     /** {@link HibernateSequenceRenderer}: the dialect's own sequence call (R-VND-18). */
     @Override
     public Optional<SequenceRenderer> sequences(EntityManagerFactory emf) {
@@ -440,5 +492,13 @@ public final class HibernateProviderSupport implements ProviderSupport {
         } catch (PersistenceException notHibernate) {
             return Optional.empty();
         }
+    }
+
+    /** Empty, and one WARN naming why a treated path is disabled (R-VND-26). */
+    private static Optional<TreatRenderer> warn(EntityManagerFactory emf, String reason) {
+        if (TREATS_WARNED.add(emf)) {
+            LOG.log(System.Logger.Level.WARNING, "MQ4014: treated paths are disabled: " + reason);
+        }
+        return Optional.empty();
     }
 }

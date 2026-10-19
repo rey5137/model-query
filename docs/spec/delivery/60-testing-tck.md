@@ -43,6 +43,7 @@ customer notes keyed on a case-insensitive column, and about 20 000 seeded rows.
 | Streaming | 20 000 rows with a bounded-heap assertion, early exit releases the connection (checked against the pool's active count), PostgreSQL without a transaction fails fast |
 | Timeout | a slow query is cancelled (`SLEEP()` / `pg_sleep()` / an H2 user function) |
 | Detection | each container resolves to the expected profile |
+| Treated paths | on both Hibernate lines, every Tier-1 vendor and each of `SINGLE_TABLE`, `JOINED` and `TABLE_PER_CLASS`: every admitted treat cell a definition reaches, asserting its ids, values, row count and total, each `COUNT` cell as `count(root.id)` (AC-VND-19); the mapping gates and variants (AC-VND-18); the `SINGLE_TABLE` shared-column cells (AC-COL-51) |
 | Bulk writes | the `api/14` acceptance criteria AC-WRT-01..19 on every Tier-1 vendor, including the write/read parity check over every Filters fixture (AC-WRT-07) |
 | Portability conformance | with no container, on both Hibernate lines: the dry run (`api/16` R-INS-11) reproduces on H2, PostgreSQL and MySQL every vendor-dependent refusal the live TCK asserts for M18 to M22, and on each target that serves a call its first statement equals the live run's SQL snapshot for that vendor and line (AC-INS-11) |
 
@@ -62,7 +63,11 @@ whole fixture and assert the multiset of visited keys.
 layering (INV-7), and SQL-snapshot diff; JDK 21 also runs it against the latest Hibernate 7.x.
 
 **R-QA-09** Nightly: the full matrix — PostgreSQL 14–17, MySQL 8.0.31/8.4, Hibernate 6.6 and latest 7.x, JDK 17/21/25 —
-plus any Tier-2/3 profiles present. A release runs the same matrix on the tag commit and publishes only when it passes.
+plus any Tier-2/3 profiles present. The treated-path cells (`vendor/40` R-VND-26) run on the measured minors, 6.6.x and
+7.4.x, and are `MQ4014` on any other minor; adopting a Hibernate minor adds it to `ProviderSupport#treats(emf)` and to
+this matrix in one change, once every admitted cell (AC-VND-19) passes on it. A patch bump on a measured line,
+Dependabot's included, runs the cells on that line, and a failing cell blocks the bump; the nightly canary on a newer
+minor fails them with `MQ4014` until that minor is adopted. A release runs the same matrix on the tag commit and publishes only when it passes.
 
 **R-QA-10** Also in CI: JaCoCo coverage, mutation testing (PIT) on the `jpa` keyset predicate builder (`Keyset`),
 dependency and CVE scanning, and from 1.0 `japicmp` binary-compatibility checks (`delivery/61`).

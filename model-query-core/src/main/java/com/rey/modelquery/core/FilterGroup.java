@@ -466,7 +466,7 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
     private Filters<M> addCustom(Condition condition, BiFunction<JoinContext, CriteriaBuilder, Predicate> custom) {
         Objects.requireNonNull(custom, "custom");
         return record(condition, ctx -> {
-            Predicate predicate = custom.apply(ctx, ctx.cb());
+            Predicate predicate = ctx.custom(() -> custom.apply(ctx, ctx.cb()));
             if (predicate == null) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1305,
                         "add(...): the custom predicate returned null; skip it explicitly with when(...)");

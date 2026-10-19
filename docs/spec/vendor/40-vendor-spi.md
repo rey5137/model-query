@@ -394,8 +394,41 @@ R-PAG-06's OR-expansion and, under an explicit null precedence, `{PREDICATE, DIS
 a row. Whatever the renderer answers, the engine refuses with `MQ4016` in M28: every `CHILD` site, every `WRITE`
 site (a treated `ModelUpdate`/`ModelDelete` `where`, decided before R-WRT-11 picks a path, and a treated returning
 model of any returning write or `persist`), and a site whose uses hold `GROUP_BY` or `AGGREGATE` (Q-27), except a
-correlated count's column over its own treated root (R-COL-31). The provider allow-list, mapping gates and supported
-minor lines belong to M28.3, and invoking preflight belongs to M28.4.
+correlated count's column over its own treated root (R-COL-31).
+
+**The provider half (M28.3).** `model-query-hibernate`'s `treats(emf)` serves a `TreatRenderer` on the 6.6.x and 7.4.x
+minor lines only, read from `org.hibernate.Version`; on any other line, an unreadable version, or under
+`hibernate.jpa.compliance.query=true`, it is empty and every treated node is `MQ4014`, with one WARN per factory naming
+the reason (D-155). `treat` calls `CriteriaBuilder#treat` for a `Root` and every join type. `refusal` answers from the
+spike's measured cells (`rfc/0016-spike-data/renderer-allowlist.tsv` and `statement-matrix.tsv`): a use set is admitted
+only where every recorded case passed on both lines, all three vendors and every strategy, and anything the table
+doesn't name is `MQ4016` (D-156). Admitted anchored `CONTENT` sets: `SELECT`, `ORDER`, `EXPRESSION` with `SELECT`,
+`ORDER` or `PREDICATE`; `PREDICATE` alone or with any of `NEGATED`, `DISJUNCTION`, `SUBQUERY`; `NULL_TEST` alone or
+with any of `NEGATED`, `DISJUNCTION`;
+`{PREDICATE, NULL_TEST, DISJUNCTION}` (the `IS NULL` branch of `ne`, `notIn`, R-FLT-04) with or without `SUBQUERY`;
+`LEFT_JOIN` or `INNER_JOIN` with `SELECT`, `ORDER`, `PREDICATE`, `NULL_TEST`, `{NULL_TEST, NEGATED}` or
+`{PREDICATE, NULL_TEST, DISJUNCTION}`; and a correlated count's `{SELECT, AGGREGATE, SUBQUERY}` on its own treated
+root (R-COL-31), but not its `LEFT_JOIN` form, which treats twice when anchored (D-156). Admitted anchored `COUNT`
+sets: the same predicate and `NULL_TEST` sets
+(the three null-accepting ones as `count(root.id)`, `S2_FRESH_COUNT_ID`), their `LEFT_JOIN` and `INNER_JOIN` forms
+of `PREDICATE`, `NULL_TEST`, `{NULL_TEST, NEGATED}` and `{PREDICATE, NULL_TEST, DISJUNCTION}`, and a treated join a
+count keeps, `{INNER_JOIN}` or `{LEFT_JOIN}` with no attribute. A `SINGLE_TABLE` column more than one entity of the
+hierarchy maps (AC-COL-51) is admitted in `CONTENT` `SELECT`, `ORDER`, `{SELECT, EXPRESSION}` and the unjoined
+predicate and `NULL_TEST` sets without `SUBQUERY`, and in `COUNT` only in the `or` cells that passed on the spike's
+count path: the predicate and `NULL_TEST` sets with `DISJUNCTION` and without `SUBQUERY`, less
+`{PREDICATE, NULL_TEST, DISJUNCTION}`, which a standalone `ne` also reports. A dotted path's column is its first
+segment's; a join or path through a shared column, or an attribute whose columns the renderer can't read, is refused on
+`SINGLE_TABLE` (D-156). A standalone predicate on it in a `COUNT` is refused until the root-id count is
+measured there (`rfc/0016` §10). A mapping variant (`@DiscriminatorOptions(force = true)`, `@DiscriminatorFormula` or a
+`@SecondaryTable` on `SINGLE_TABLE`; a `JOINED` discriminator column, or either `JOINED` discriminator setting) keeps
+the table less what its runs didn't measure, the three null-accepting `COUNT` sets; a shared column in a variant, and
+a variant on another strategy, is refused. `TYPE` (until M28.5), a
+correlated outer node, an unanchored site and every `GROUPED`, `SOURCE_BODY`, `CHILD` and `WRITE` site are refused.
+The mapping gates are `MQ4016` for the whole hierarchy: a subtype `@SQLRestriction` (ignored by 6.6, refused at
+bootstrap by 7.4), a `@DiscriminatorValue("null")` or `("not null")`, an `@IdClass` or `@EmbeddedId` id, and other
+`@DiscriminatorOptions`; a root `@SQLRestriction` runs. The mapping is read from the entity persisters once per
+factory, and `treats(emf)` returns the same renderer for a factory (D-155). `preflight` is not measured before
+M28.4, so it refuses rather than returning empty ("statement preflight lands in M28.4").
 
 ## 2. Detection
 
@@ -476,6 +509,8 @@ explicitly (`likeIgnoreCase`, `nullsFirst`), and the library renders it the same
 | AC-VND-13 | `LockSupport.rendered` is per dialect on both Hibernate lines (H2's `NO_WAIT`/`SKIP_LOCKED` refused on 6.6, allowed only for `exclusive()` on 7.x); a lock with no `locks()`, an unrendered wait, or a multi-table root is `MQ4010`; `apply` sets the lock mode, the Hibernate timeout hint and `followOnLocking=false` (R-VND-15, `engine/20` R-EXE-14). |
 | AC-VND-14 | `ProviderSupport#returning()` and `VendorProfile#returning(WriteStatement)` default to empty, so a write whose factory has neither is `MQ4011` at method entry; the built-in H2 profile reports `DELTA_TABLE` and PostgreSQL `SUFFIX` for update and delete, MySQL nothing; `model-query-hibernate`'s `ReturningSupport.rendered` is true on both Hibernate lines for a single-table entity and false for a `@SecondaryTable` root, and `rows` returns the columns of a changed row as a read tuple holds them; the translated SQL per line and dialect is `vendor/41` §7's (R-VND-17, R-WRT-50). |
 | AC-VND-15 | Target vendors are undeclared by default and kept by the other setters; the three forms declare the same set in enum order; an empty `Collection` or `String...` list is `MQ4003` and an unknown name `MQ4001`; each factory is checked against its own vendor (an H2 factory detected from `DatabaseMetaData` passes `[H2]`, an undetected one is `OTHER` and passes only when `OTHER` is listed); an explicit `vendor(...)` outside the list is refused; an explicit `MARIADB` passes `[MARIADB]` though its profile is `OTHER`'s; `ModelQueryExecutor.create` refuses a factory off the list; and the `MQ4012` message names the factory (quoting `ProviderSupport#factoryName`'s answer, default empty, else its class and identity; Hibernate answers a named session factory's name and nothing for an unnamed, blank-named or non-Hibernate factory), the vendor, how it was found and the list (R-VND-19). |
-| AC-VND-16 | `ProviderSupport#treats(emf)` defaults to empty; with no renderer, every treated node, including a redundant treat, is `MQ4014` at build time before any statement in content, count, export and writes (R-VND-26). The provider minor-line and compliance cases belong to M28.3. |
-| AC-VND-17 | A site outside the table is `MQ4016` before any statement, an export's later page shapes and its count included; a treated node in a `CHILD` statement is `MQ4016`; `PortabilityCheck` reports the same sites offline, from the table alone (R-VND-26, D-154). The engine half (sites, later keyset page shapes, the count's sites, `CHILD`) is pinned with a test renderer; the table and `PortabilityCheck` belong to M28.3. |
+| AC-VND-16 | No renderer, a Hibernate minor outside 6.6 and 7.4, or compliance mode: every treated node, `typeOf` and `ofType` is `MQ4014` before any statement in content, count, export and writes; `model-query-hibernate` serves the renderer on the 6.6.x and 7.4.x lines only and logs one WARN naming the reason, once per factory, and builds one renderer per factory (R-VND-26, D-154, D-155). |
+| AC-VND-17 | A site outside the table is `MQ4016` before any statement, an export's later page shapes and its count included; a treated node in a `CHILD` statement is `MQ4016`; the table's answer is per site, keyed by shape, anchoring, use set, strategy and shared column, on both Hibernate lines; `PortabilityCheck` reports the same sites offline, from the table alone (M28.8) (R-VND-26, D-154). |
+| AC-VND-18 | A subtype `@SQLRestriction` on 6.6, a null/not-null discriminator value and an `@IdClass` or `@EmbeddedId` hierarchy are `MQ4016`; a root `@SQLRestriction` runs; each admitted mapping variant runs under its own cells (R-VND-26, D-154). |
+| AC-VND-19 | Every admitted cell a definition reaches runs as a TCK case per strategy on every Tier-1 vendor and both lines, asserting ids, values, the row count and the total, on each mapping variant as well; each admitted `COUNT` cell as `count(root.id)`; probing the renderer with synthesized sites, per strategy, shape, anchoring, shared column and variant, admits exactly the use sets the cases run, so a set no definition reaches is refused (D-156) (R-VND-26, D-154). |
 | AC-VND-20 | A treated `ModelUpdate`/`ModelDelete` `where` and a treated returning model (`updateReturning`, `deleteReturning`, `persist`) are `MQ4016` before any statement, on every strategy, vendor and path, key-first included (R-VND-26, D-154). |
