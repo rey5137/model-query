@@ -21,6 +21,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
@@ -468,6 +469,12 @@ public final class ModelQuery<E, K, M> {
         if (phase != Phase.PRIMARY_KEY && query.isDistinct()) {
             checkDistinctSequences();
         }
+        if (query.isDistinct() && TreatChecks.treated(this) && selectsRootIdAnchor(query)) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4016, modelName() + ": the QueryCustomizer made "
+                    + "phase " + phase + " distinct, and its treated statement selects the hidden root-id anchor "
+                    + BuiltQuery.ROOT_ID_ANCHOR + ", so equal visible rows would stop collapsing (R-COL-35); select "
+                    + "the root id in the model, or drop the distinct");
+        }
         if (lock == null) {
             return;
         }
@@ -478,6 +485,13 @@ public final class ModelQuery<E, K, M> {
                     + "lock is applied to the query's own rows, so drop the customizer's distinct or having, or the "
                     + "lock");
         }
+    }
+
+    private static boolean selectsRootIdAnchor(CriteriaQuery<Tuple> query) {
+        Selection<?> selection = query.getSelection();
+        List<? extends Selection<?>> selected = selection == null ? List.of()
+                : selection.isCompoundSelection() ? selection.getCompoundSelectionItems() : List.of(selection);
+        return selected.stream().anyMatch(item -> BuiltQuery.ROOT_ID_ANCHOR.equals(item.getAlias()));
     }
 
     /**
@@ -612,6 +626,7 @@ public final class ModelQuery<E, K, M> {
             selections.add(parentKey.alias(BuiltQuery.PARENT_KEY));
         }
         selections.addAll(checks);
+        rootIdAnchor(joins, selection).ifPresent(selections::add);
         query.multiselect(selections);
         List<Order> orders = new ArrayList<>();
         for (OrderField<M, ?> order : orderBy) {
@@ -645,6 +660,121 @@ public final class ModelQuery<E, K, M> {
         return new BuiltQuery<>(query, joins, selection, mapping, parentKey, checks,
                 recursive == null ? 0 : recursive.maxDepth(),
                 keyed == null ? List.of() : keyed.key().columns().stream().map(ColumnField::name).toList());
+    }
+
+    /**
+     * The hidden anchor of an ungrouped statement over an entity root that has a treated node and whose selection reads
+     * no untreated root id: {@code root.<id>} aliased {@code mq_0id}, selected last (R-COL-35). Reading the root
+     * untreated keeps the provider from narrowing the root to the subtype, so other subtypes' rows stay. The row a
+     * mapper reads holds only {@code selection}'s columns, so the anchor never reaches a model or {@code Rows}.
+     */
+    private Optional<Selection<?>> rootIdAnchor(JoinContext joins, RowSelection selection) {
+        if (grouped || source != null || !(joins.root() instanceof Root<?> from) || !TreatChecks.treated(this)) {
+            return Optional.empty();
+        }
+        String id = TreatChecks.rootId(from.getModel(), modelName());
+        return TreatChecks.selectsRootId(selection.fields(), id) ? Optional.empty()
+                : Optional.of(from.get(id).alias(BuiltQuery.ROOT_ID_ANCHOR));
+    }
+
+    /**
+     * The fresh count of a statement with a treated node (R-COL-35, R-EXE-05): {@code count(root.<id>)} over the
+     * query's {@code where} and the joins that can change its row count, with no selection and no order. A treated
+     * column that is only selected or ordered is absent, since resolving it could narrow the root to its subtype: the
+     * path of each column a model or order field reads, an expression's and a window's included, is joined when it
+     * holds an {@code INNER} join, and otherwise only up to its first treated node. The count is distinct when a
+     * predicate's to-many join repeats a root, and counts rows when a selected column is read through a to-many join,
+     * as {@code list} returns it (R-EXE-04). The customizer runs on it as on
+     * {@code MODEL}, before the count replaces its selection. Only for an ungrouped query over an entity root.
+     */
+    @EngineFacing
+    @Incubating
+    public BuiltQuery<M> buildRootIdCount(CriteriaBuilder cb, RenderOptions options) {
+        Objects.requireNonNull(cb, "cb");
+        Objects.requireNonNull(options, "options");
+        if (grouped || source != null) {
+            throw new IllegalStateException(modelName() + ": a root-id count needs an ungrouped entity-rooted query");
+        }
+        CriteriaQuery<Tuple> query = cb.createTupleQuery();
+        Root<E> from = query.from(root.rootEntity());
+        JoinContext joins = JoinContext.readOf(from, cb, query, options);
+        Path<?> id = from.get(TreatChecks.rootId(from.getModel(), modelName()));
+        boolean readsToMany = false;
+        var counted = new ArrayList<SelectField<M, ?>>(modelColumns);
+        orderBy.forEach(order -> counted.add(order.column()));
+        // Every column the selection and order read, inside an expression or a window too, in content's order, so an
+        // or(...) filter reuses the INNER join they make as it does in content (R-FLT-10).
+        var columns = new LinkedHashSet<ColumnField<?, ?, ?>>();
+        counted.forEach(field -> readColumns(field, columns));
+        for (ColumnField<?, ?, ?> column : columns) {
+            TableField<?, ?> rowChanging = rowChangingPath(column.table());
+            if (rowChanging.parent() != null) {
+                readsToMany |= toMany(rowChanging.resolve(joins));
+            }
+        }
+        List<Predicate> restrictions = ConditionGroup.clausePredicates(List.of(where, having), joins).get(0);
+        if (!restrictions.isEmpty()) {
+            query.where(restrictions.toArray(Predicate[]::new));
+        }
+        query.multiselect(List.of(id));
+        BuiltQuery<M> built = new BuiltQuery<>(query, joins, RowSelection.of(List.of()), mapping, null, List.of(),
+                0, List.of());
+        if (customizer != null) {
+            customize(built, cb, Phase.MODEL);
+        }
+        query.orderBy(List.<Order>of());
+        query.multiselect(List.of(!readsToMany && hasToManyJoin(from) ? cb.countDistinct(id) : cb.count(id)));
+        return built;
+    }
+
+    /**
+     * The part of {@code table}'s path a count joins: all of it when it holds a join other than {@code LEFT}, which
+     * can drop rows, else the path up to its first treated node, whose own joins may still repeat rows.
+     */
+    private static TableField<?, ?> rowChangingPath(TableField<?, ?> table) {
+        boolean narrowing = false;
+        TableField<?, ?> untreated = table;
+        for (TableField<?, ?> node = table; node != null && node.parent() != null; node = node.parent()) {
+            JoinKey key = node.key();
+            narrowing |= key.type() != null && key.type() != JoinType.LEFT;
+            if (key.type() == null) {
+                untreated = node.parent();
+            }
+        }
+        return narrowing ? table : untreated;
+    }
+
+    /**
+     * The columns {@code field} reads in the enclosing statement: a column itself, an expression's operands at any
+     * depth (a correlated value's lifted outer columns, not its inner ones), and a window's argument, partition and
+     * order keys; an aggregate reads none in an ungrouped statement.
+     */
+    private static void readColumns(SelectField<?, ?> field, Set<ColumnField<?, ?, ?>> columns) {
+        if (field instanceof ColumnField<?, ?, ?> column) {
+            columns.add(column.liftedFrom().orElse(column));
+        } else if (field instanceof ExpressionField<?, ?> expression) {
+            columns.addAll(expression.columns());
+        } else if (field instanceof WindowField<?, ?> window) {
+            window.readFields().forEach(read -> readColumns(read, columns));
+        }
+    }
+
+    private static boolean toMany(From<?, ?> from) {
+        for (From<?, ?> node = from; node instanceof Join<?, ?> join; node = join.getParent()) {
+            if (join.getAttribute() instanceof PluralAttribute<?, ?, ?>) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasToManyJoin(From<?, ?> from) {
+        for (Join<?, ?> join : from.getJoins()) {
+            if (join.getAttribute() instanceof PluralAttribute<?, ?, ?> || hasToManyJoin(join)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -811,17 +941,41 @@ public final class ModelQuery<E, K, M> {
         return options.treatRenderer().map(scratch::withTreatRenderer).orElse(scratch);
     }
 
-    void checkTreats(TreatChecks checks) {
-        modelColumns.forEach(checks::field);
-        needed.forEach(checks::field);
-        if (primaryKey != null) {
-            primaryKey.columns().forEach(checks::field);
+    /** The primary-key columns missing from {@code orderBy}, as the executor's keyset and stable order append them. */
+    private List<OrderField<M, ?>> keyTieBreakers() {
+        if (primaryKey == null || grouped) {
+            return List.of();
         }
-        orderBy.forEach(order -> checks.field(order.column()));
-        groupBy.forEach(checks::field);
+        boolean ascending = orderBy.isEmpty() || orderBy.get(orderBy.size() - 1).ascending();
+        var tieBreakers = new ArrayList<OrderField<M, ?>>();
+        for (ColumnField<M, ?, ?> column : primaryKey.columns()) {
+            if (orderBy.stream().noneMatch(order -> order.column().equals(column))) {
+                tieBreakers.add(new OrderField<>(column, ascending, NullPrecedence.DEFAULT));
+            }
+        }
+        return tieBreakers;
+    }
+
+    void checkTreats(TreatChecks checks) {
+        if (checks.countOnly()) {
+            modelColumns.forEach(checks::joins);
+            orderBy.forEach(order -> checks.joins(order.column()));
+        } else {
+            checks.using(TreatUse.SELECT, () -> modelColumns.forEach(checks::field));
+            checks.using(TreatUse.ORDER, () -> orderBy.forEach(order -> checks.field(order.column())));
+            checks.using(TreatUse.GROUP_BY, () -> groupBy.forEach(checks::field));
+            orderBy.forEach(checks::laterKey);
+            // The executor closes an ordered content statement, a keyset's included, with the primary-key columns the
+            // order lacks, as ascending as its last key and with the default precedence (R-PAG-01, R-PAG-06).
+            List<OrderField<M, ?>> tieBreakers = keyTieBreakers();
+            checks.using(TreatUse.ORDER, () -> tieBreakers.forEach(order -> checks.field(order.column())));
+            tieBreakers.forEach(checks::laterKey);
+        }
         conditions.where().forEach(checks::condition);
         conditions.having().forEach(checks::condition);
-        checks.fetch(fetch);
+        if (checks.fetchesModels()) {
+            checks.fetch(fetch);
+        }
         checks.source(source);
     }
 
@@ -845,6 +999,7 @@ public final class ModelQuery<E, K, M> {
     @EngineFacing
     public List<String> returningPaths() {
         var paths = new LinkedHashSet<String>();
+        // Raw attribute paths: a treated returning column never reaches here, refused MQ4016 before any statement.
         modelColumns.forEach(column -> paths.add(((ColumnField<?, ?, ?>) column).path()));
         return List.copyOf(paths);
     }

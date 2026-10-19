@@ -72,6 +72,48 @@ supertype of the entity reached, renders untreated. An unrelated or sibling type
 Re-rooting retains the original declared target for the improper-subtype check. On a treated root, `as`, `on` and
 `presentBy` remain `MQ1104`.
 
+**R-COL-35** *(D-154)* **A subtype column reads NULL on other subtypes.** A column over a treated node reads the
+attribute on rows of the subtype and its own subtypes, and NULL on every other row, wherever it is admitted:
+
+- in the select list, alone or as an operand of an `Expr` or `@Computed` function, the row is kept with a NULL
+  value; a treat in a select never removes a row;
+- in a predicate it compares as NULL: `eq`, `lt`, `like`, `in` and `isNotNull` are false and `isNull` is true; `ne`
+  and `notIn` include the row through their D-5 `IS NULL` branch; `not(eq)` excludes it (SQL `NOT` over NULL, D-5);
+  a treat inside `or` restricts only its own operand;
+- in an order the row sorts as NULL under the column's null precedence (R-COL-12); a keyset key over it is nullable:
+  NULL is `MQ2202` by default, and `nullsFirst()`/`nullsLast()` add R-PAG-05's `IS NULL` branches;
+- in a count it appears only where it can change the row count: in a predicate or under an `INNER` treated join;
+- for every nullability rule the column is nullable, whatever the attribute's mapping says.
+
+A treated column in `GROUP BY` or under an aggregate, directly or inside an `Expr`, in a query or a source body, is
+`MQ4016` before any statement (Q-27): a provider narrows a grouped statement to the subtype. A correlated count whose
+own root is treated (R-COL-31) is unaffected.
+
+**Where the rule holds.** A provider keeps the root's other rows only while the statement also reads the root
+untreated, so the engine builds only these renderings. A statement with a treated node is one with a `treat` node or
+a downcast join in its selection, order, grouping or filters:
+
+- **An anchored content statement.** Every ungrouped content statement with a treated node over an entity root
+  selects the root's single id untreated. When its model selects no untreated `root.<id>`, the engine adds it as a
+  hidden column, `mq_0id`, selected last, in every phase, and never in `fields()`, `select()`, `DEFAULT`, `ALL`, a
+  mapper or `Rows`. The name sits outside D-146's `mq_<property>` space. A source body's anchor is `api/17` R-SRC-20's.
+- **A LEFT treated join,** whose type restriction sits in its `ON` (R-COL-34).
+- **A count of the root id.** A count over an ungrouped statement with a treated node is built fresh from the
+  definition (`engine/20` R-EXE-05) and selects `count(root.<id>)`: only its predicates and the joins that can change
+  its row count, with no selection and no order. A grouped query's total keeps R-AGG's count of groups.
+
+A hidden anchor changes the rows of a `distinct()` query and of a `union`, `intersect` or `except`, so a query whose
+customizer makes a statement with the anchor distinct, and a non-ALL set operation whose branch has a treated node and
+selects no untreated root id, are `MQ4016` before any statement; selecting the root id in the model or the branch
+admits them, and `unionAll` is unaffected. An `@IdClass` or `@EmbeddedId` root with a treated statement is `MQ4016`:
+the anchor and the count were measured over a single id attribute. Every other treated statement, a grouped one, a
+fetch plan's child statement, a join plan or an enricher, a bulk write's `where` and a returning model among them, is
+refused before the first statement by the engine or its `TreatRenderer` (`vendor/40` R-VND-26).
+
+On `SINGLE_TABLE`, two subtypes may map one physical column; the provider reads it under a `CASE` on the
+discriminator, so a sibling's value never shows. A shared-column site in a shape or use set the provider's table
+lacks is `MQ4016`.
+
 **R-COL-30** *(D-143)* **A `TableField` may be a source's root.** `TableField.source(model)` is the root of a query
 over a `@SourceModel` (`api/17` R-SRC-10): its `rootEntity()` is the source model, and the query reads the CTE's
 columns by field name rather than from an entity `From`. It is generated, for a `@QueryModel` whose `root` names a
@@ -591,6 +633,7 @@ the planner must see as a literal (a partial index's predicate, a selective enum
 | AC-COL-42 | To-many count/sum: MQ1511; EXISTS filtering and min/max/exists exemptions (R-COL-33). |
 | AC-COL-43 | A correlated value in an update or delete `where` over the target table: MySQL runs key-first and matches the other vendors' rows; a conflict `where` is `MQ1804`, `setExpression` is `MQ1613` (R-COL-31, R-WRT-13, D-153). |
 | AC-COL-48 | `MQ1106` for an improper subtype at definition on a root and at first resolution on a join; treating a treat or source root; modifiers on a treated join; an unmapped subtype; a sibling root or sibling re-root. `MQ1104` for `as`/`on`/`presentBy` on a treated root. `MQ1003` names `ROOT.treat(...)` for a subtype-root column in a base-root query (R-COL-34, D-154). |
+| AC-COL-52 | Per strategy, `page()`'s total and `count(q)` with a select-only or order-only treat and with `isNull`, `ne`, `notIn` and `not(isNotNull)` equal the content's rows, rendered as `count(root.id)` with no selection or order (SQL snapshot); a grouped `@Subtype` total counts groups; a keyless model's content and a source body select the root id last as `mq_0id`, absent from `fields()`, the default sets, the mapper and `Rows`; a `distinct()` query or a `union`/`intersect`/`except` that would need it is `MQ4016`, and runs when the model selects the root id (R-COL-35, D-154). |
 
 AC-COL-36..39, 41 and 42 run on every Tier-1 vendor and both Hibernate lines. Each scalar terminal selects,
 filters and orders. AC-COL-41 covers all R-COL-33 refusals, including generated annotations and

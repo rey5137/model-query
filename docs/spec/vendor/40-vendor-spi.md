@@ -363,8 +363,39 @@ renderer through `RenderOptions#withTreatRenderer`; scratch options retain it. T
 and no `MQ4015` treat fact (INV-6). With no renderer, every treated node, including a redundant treat, is `MQ4014`
 at build time, before any statement, across content, count, export and writes (R-COL-34, AC-VND-16).
 
-The provider allow-list, mapping gates and supported minor lines belong to M28.3; collecting statement sites
-belongs to M28.2, and invoking preflight belongs to M28.4.
+**Sites before the first statement (the engine half).** With a renderer, the executor derives every `TreatSite` of
+a call from the definition and the call, not from the statements built so far, and checks each against `refusal`
+before the first statement; a refusal is `MQ4016`, naming the model, the attribute, the shape, the uses, the root's
+strategy and the reason. Nothing is cached: each call checks again. A site is one treated read in one statement:
+
+- `entity` is the entity the treated node treats and `subtype` its subtype; `attribute` is the attribute path read
+  through it, empty for a treated join's own rendering;
+- `shape` is the statement it sits in: `CONTENT` (a list, page, keyset or export page, `one`, `byKeys`), `COUNT` (a
+  total or `count(q)`), `GROUPED` (a statement with `GROUP BY` or an aggregate select), `SOURCE_BODY`, `CHILD` (a
+  fetch plan's child statement, its join plans' selections and its declared columns, enrichers' included) or
+  `WRITE` (a bulk write's `where` and a returning model). A site in a sub-select takes its statement's shape and
+  adds `SUBQUERY`;
+- `anchored` is true in a `CONTENT` and a `COUNT` statement, which the engine anchors (`api/10` R-COL-35), and false
+  in a `GROUPED`, `CHILD`, `WRITE` or `SOURCE_BODY` statement (until a body anchors its root id, `api/17` R-SRC-20) and
+  in a sub-select, since no anchor covers the sub-select's own root. A correlated count's counted column over its own
+  treated root (`SubSelect.of(ROOT.treat(Sub.class).id)`-style) is the one anchored site in a sub-select: the count
+  reads the treated root itself, so its `{SELECT, AGGREGATE, SUBQUERY}` site stays anchored and is not refused as an
+  aggregate (R-COL-31); a treated node elsewhere in a correlated value — a counted column, condition, correlation or
+  order over a sub-select whose root is not treated — is unanchored;
+- `uses` is the site's own use and every enclosing context: `not(isNull(x))` is `{NULL_TEST, NEGATED}`, an operand
+  inside `or` adds `DISJUNCTION`, an order key selected as well (R-QRY-04) gives a `{SELECT}` and an `{ORDER}` site,
+  and a primary-key column the order lacks, which the executor appends as a tie-breaker, is an order key too.
+
+The sites cover the content statement, the count of a `page(..., COUNT)` or `count(q)` (only predicates and
+row-changing joins: a select-only or order-only treat is absent, R-EXE-05), each source body and each child statement.
+A keyset query's later pages, which page 1 renders none of, add per treated key `{PREDICATE, DISJUNCTION}` from
+R-PAG-06's OR-expansion and, under an explicit null precedence, `{PREDICATE, DISJUNCTION, NULL_TEST}` and a top-level
+`{NULL_TEST}` for a page after a NULL cursor value; a keyset `export` adds them too, so it is refused before it writes
+a row. Whatever the renderer answers, the engine refuses with `MQ4016` in M28: every `CHILD` site, every `WRITE`
+site (a treated `ModelUpdate`/`ModelDelete` `where`, decided before R-WRT-11 picks a path, and a treated returning
+model of any returning write or `persist`), and a site whose uses hold `GROUP_BY` or `AGGREGATE` (Q-27), except a
+correlated count's column over its own treated root (R-COL-31). The provider allow-list, mapping gates and supported
+minor lines belong to M28.3, and invoking preflight belongs to M28.4.
 
 ## 2. Detection
 
@@ -446,3 +477,5 @@ explicitly (`likeIgnoreCase`, `nullsFirst`), and the library renders it the same
 | AC-VND-14 | `ProviderSupport#returning()` and `VendorProfile#returning(WriteStatement)` default to empty, so a write whose factory has neither is `MQ4011` at method entry; the built-in H2 profile reports `DELTA_TABLE` and PostgreSQL `SUFFIX` for update and delete, MySQL nothing; `model-query-hibernate`'s `ReturningSupport.rendered` is true on both Hibernate lines for a single-table entity and false for a `@SecondaryTable` root, and `rows` returns the columns of a changed row as a read tuple holds them; the translated SQL per line and dialect is `vendor/41` §7's (R-VND-17, R-WRT-50). |
 | AC-VND-15 | Target vendors are undeclared by default and kept by the other setters; the three forms declare the same set in enum order; an empty `Collection` or `String...` list is `MQ4003` and an unknown name `MQ4001`; each factory is checked against its own vendor (an H2 factory detected from `DatabaseMetaData` passes `[H2]`, an undetected one is `OTHER` and passes only when `OTHER` is listed); an explicit `vendor(...)` outside the list is refused; an explicit `MARIADB` passes `[MARIADB]` though its profile is `OTHER`'s; `ModelQueryExecutor.create` refuses a factory off the list; and the `MQ4012` message names the factory (quoting `ProviderSupport#factoryName`'s answer, default empty, else its class and identity; Hibernate answers a named session factory's name and nothing for an unnamed, blank-named or non-Hibernate factory), the vendor, how it was found and the list (R-VND-19). |
 | AC-VND-16 | `ProviderSupport#treats(emf)` defaults to empty; with no renderer, every treated node, including a redundant treat, is `MQ4014` at build time before any statement in content, count, export and writes (R-VND-26). The provider minor-line and compliance cases belong to M28.3. |
+| AC-VND-17 | A site outside the table is `MQ4016` before any statement, an export's later page shapes and its count included; a treated node in a `CHILD` statement is `MQ4016`; `PortabilityCheck` reports the same sites offline, from the table alone (R-VND-26, D-154). The engine half (sites, later keyset page shapes, the count's sites, `CHILD`) is pinned with a test renderer; the table and `PortabilityCheck` belong to M28.3. |
+| AC-VND-20 | A treated `ModelUpdate`/`ModelDelete` `where` and a treated returning model (`updateReturning`, `deleteReturning`, `persist`) are `MQ4016` before any statement, on every strategy, vendor and path, key-first included (R-VND-26, D-154). |

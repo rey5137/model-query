@@ -625,10 +625,16 @@ public final class SourceQuery<S> {
     }
 
     void checkTreats(TreatChecks checks) {
-        fields.fields().forEach(checks::field);
-        key.columns().forEach(checks::field);
+        // Not anchored yet: the body's root-id anchor is R-SRC-20's, so a renderer refuses an unanchored body.
+        checks.statement(groupKeys == null ? StatementShape.SOURCE_BODY : StatementShape.GROUPED,
+                false, () -> checkTreatBody(checks));
+    }
+
+    private void checkTreatBody(TreatChecks checks) {
+        checks.using(TreatUse.SELECT, () -> fields.fields().forEach(checks::field));
+        checks.using(TreatUse.SELECT, () -> key.columns().forEach(checks::field));
         if (groupKeys != null) {
-            groupKeys.fields().forEach(checks::field);
+            checks.using(TreatUse.GROUP_BY, () -> groupKeys.fields().forEach(checks::field));
         }
         ConditionGroup.conditions(where).forEach(checks::condition);
         if (having != null) {
@@ -636,8 +642,8 @@ public final class SourceQuery<S> {
         }
         checks.source(inner);
         if (operation != null) {
-            checks.source(operation.left());
-            checks.source(operation.right());
+            checks.setOperationBranch(operation.operation(), operation.left());
+            checks.setOperationBranch(operation.operation(), operation.right());
         }
         if (recursion != null) {
             checks.field(recursion.depth());

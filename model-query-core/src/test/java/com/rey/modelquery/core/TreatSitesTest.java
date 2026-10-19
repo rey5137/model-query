@@ -1,0 +1,284 @@
+package com.rey.modelquery.core;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.criteria.CommonAbstractCriteria;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.From;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import org.junit.jupiter.api.Test;
+
+/** Statement-specific sites are checked without building or running a Criteria statement (R-VND-26). */
+class TreatSitesTest {
+
+    static class Payment {}
+    static class Card extends Payment {}
+    static class Bank extends Payment {}
+    static class View {}
+    static class Source {}
+
+    private static final TableField<Payment, Payment> ROOT = TableField.root(Payment.class);
+    private static final ColumnField<View, Payment, Long> ID = ColumnField.of(View.class, ROOT, "id", Long.class);
+    private static final ColumnField<View, Payment, String> STATUS =
+            ColumnField.of(View.class, ROOT, "status", String.class);
+    private static final ColumnField<View, Card, String> NUMBER =
+            ColumnField.of(View.class, ROOT.treat(Card.class), "number", String.class);
+
+    @Test
+    void ac_vnd_17_each_read_keeps_its_statement_and_enclosing_uses() {
+        var query = ModelQuery.builder(ROOT, row -> new View())
+                .select(SelectSet.of(ID, Expr.coalesce(NUMBER, "unknown")))
+                .orderBy(NUMBER.asc())
+                .where(f -> f.or(a -> a.not(n -> n.isNull(NUMBER)), a -> a.eq(ID, 1L))).build();
+        var sites = sites(query, StatementShape.CONTENT, false);
+        // An order key is selected too (R-QRY-04), so it reads in the select list as well.
+        assertThat(sites).containsExactly(
+                site(StatementShape.CONTENT, true, TreatUse.SELECT, TreatUse.EXPRESSION),
+                site(StatementShape.CONTENT, true, TreatUse.SELECT),
+                site(StatementShape.CONTENT, true, TreatUse.ORDER),
+                site(StatementShape.CONTENT, true, TreatUse.NULL_TEST, TreatUse.NEGATED, TreatUse.DISJUNCTION));
+        assertThatThrownBy(sites::clear).isExactlyInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void ac_col_52_count_sites_drop_selection_and_order_but_keep_predicates() {
+        var selected = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID, NUMBER))
+                .orderBy(NUMBER.asc()).build();
+        assertThat(sites(selected, StatementShape.COUNT, false)).isEmpty();
+        var filtered = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID, NUMBER))
+                .orderBy(NUMBER.asc()).where(f -> f.not(n -> n.isNotNull(NUMBER))).build();
+        assertThat(sites(filtered, StatementShape.COUNT, false)).containsExactly(
+                site(StatementShape.COUNT, true, TreatUse.NULL_TEST, TreatUse.NEGATED));
+    }
+
+    @Test
+    void ac_vnd_17_later_keyset_pages_are_checked_before_the_first_page() {
+        var query = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID, NUMBER))
+                .primaryKey(PrimaryKey.of(ID)).orderBy(NUMBER.asc().nullsLast()).keyset().build();
+        var sites = sites(query, StatementShape.CONTENT, true);
+        assertThat(sites).contains(
+                site(StatementShape.CONTENT, true, TreatUse.NULL_TEST),
+                site(StatementShape.CONTENT, true, TreatUse.PREDICATE, TreatUse.DISJUNCTION),
+                site(StatementShape.CONTENT, true, TreatUse.PREDICATE, TreatUse.DISJUNCTION, TreatUse.NULL_TEST));
+        assertThat(sites(query, StatementShape.CONTENT, false)).doesNotContain(
+                site(StatementShape.CONTENT, true, TreatUse.NULL_TEST),
+                site(StatementShape.CONTENT, true, TreatUse.PREDICATE, TreatUse.DISJUNCTION));
+        // Without an explicit precedence a NULL key is MQ2202, so no page resumes after one.
+        var defaultNulls = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID, NUMBER))
+                .primaryKey(PrimaryKey.of(ID)).orderBy(NUMBER.asc()).keyset().build();
+        assertThat(sites(defaultNulls, StatementShape.CONTENT, true))
+                .contains(site(StatementShape.CONTENT, true, TreatUse.PREDICATE, TreatUse.DISJUNCTION))
+                .doesNotContain(site(StatementShape.CONTENT, true, TreatUse.NULL_TEST),
+                        site(StatementShape.CONTENT, true, TreatUse.PREDICATE, TreatUse.DISJUNCTION,
+                                TreatUse.NULL_TEST));
+    }
+
+    @Test
+    void ac_vnd_17_a_primary_key_tie_breaker_is_an_order_key_and_a_later_page_key() {
+        var query = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(STATUS))
+                .primaryKey(PrimaryKey.of(NUMBER)).orderBy(STATUS.asc()).keyset().build();
+        assertThat(sites(query, StatementShape.CONTENT, true)).containsExactly(
+                site(StatementShape.CONTENT, true, TreatUse.SELECT),
+                site(StatementShape.CONTENT, true, TreatUse.ORDER),
+                site(StatementShape.CONTENT, true, TreatUse.PREDICATE, TreatUse.DISJUNCTION));
+        assertThat(sites(query, StatementShape.CONTENT, false)).containsExactly(
+                site(StatementShape.CONTENT, true, TreatUse.SELECT),
+                site(StatementShape.CONTENT, true, TreatUse.ORDER));
+        // A key the order already holds is not appended again.
+        var ordered = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(STATUS))
+                .primaryKey(PrimaryKey.of(NUMBER)).orderBy(NUMBER.desc()).keyset().build();
+        assertThat(sites(ordered, StatementShape.CONTENT, true)).containsExactly(
+                site(StatementShape.CONTENT, true, TreatUse.SELECT),
+                site(StatementShape.CONTENT, true, TreatUse.ORDER),
+                site(StatementShape.CONTENT, true, TreatUse.PREDICATE, TreatUse.DISJUNCTION));
+    }
+
+    @Test
+    void ac_vnd_17_a_correlated_value_reads_its_own_root_unanchored() {
+        var innerId = ColumnField.of(Source.class, ROOT, "id", Long.class);
+        var innerStatus = ColumnField.of(Source.class, ROOT, "status", String.class);
+        var innerNumber = ColumnField.of(Source.class, ROOT.treat(Card.class), "number", String.class);
+        var rows = SubSelect.of(innerId).where(f -> f.isNull(innerNumber));
+        var count = Correlated.count(View.class, rows,
+                (s, outer) -> s.compare(innerStatus, Op.EQ, outer.column(STATUS)));
+        var query = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID, count)).build();
+        assertThat(sites(query, StatementShape.CONTENT, false)).containsExactly(
+                site(StatementShape.CONTENT, false, TreatUse.SELECT, TreatUse.NULL_TEST, TreatUse.SUBQUERY));
+        var max = Correlated.max(View.class, SubSelect.of(innerStatus).where(f -> f.isNull(innerNumber)),
+                (s, outer) -> s.compare(innerStatus, Op.EQ, outer.column(STATUS)));
+        var maxQuery = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID, max)).build();
+        assertThat(sites(maxQuery, StatementShape.CONTENT, false)).containsExactly(
+                site(StatementShape.CONTENT, false, TreatUse.SELECT, TreatUse.NULL_TEST, TreatUse.SUBQUERY));
+    }
+
+    @Test
+    void ac_vnd_17_a_correlated_count_over_its_own_treated_root_is_anchored() {
+        var treatedId = ColumnField.of(Source.class, ROOT.treat(Card.class), "id", Long.class);
+        var rows = SubSelect.of(treatedId);
+        var count = Correlated.count(View.class, rows,
+                (s, outer) -> s.compare(treatedId, Op.EQ, outer.column(ID)));
+        var query = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID, count)).build();
+        // The counted column reads the sub-select's own treated root, so its count site is anchored and not refused
+        // as an aggregate (R-COL-31); the correlation's inner treated column stays inside the unanchored sub-select.
+        assertThat(sites(query, StatementShape.CONTENT, false)).containsExactly(
+                site("id", StatementShape.CONTENT, true, TreatUse.SELECT, TreatUse.AGGREGATE, TreatUse.SUBQUERY),
+                site("id", StatementShape.CONTENT, false, TreatUse.SELECT, TreatUse.PREDICATE, TreatUse.SUBQUERY));
+    }
+
+    @Test
+    void ac_col_46_group_keys_and_aggregate_arguments_are_refused_even_by_an_accepting_renderer() {
+        var grouped = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(NUMBER, Agg.count(ID)))
+                .groupBy(NUMBER).build();
+        var aggregated = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(STATUS, Agg.count(NUMBER)))
+                .groupBy(STATUS).build();
+        for (var query : List.of(grouped, aggregated)) {
+            assertRefused(() -> sites(query, StatementShape.CONTENT, false), "group key or aggregate");
+            assertRefused(() -> sites(query, StatementShape.COUNT, false), "group key or aggregate");
+        }
+        // A treated predicate on a grouped query is a GROUPED site, unanchored, for the renderer to decide.
+        var filtered = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(STATUS, Agg.count(ID)))
+                .groupBy(STATUS).where(f -> f.eq(NUMBER, "1")).build();
+        assertThat(sites(filtered, StatementShape.CONTENT, false)).containsExactly(
+                site(StatementShape.GROUPED, false, TreatUse.PREDICATE));
+    }
+
+    @Test
+    void ac_col_52_a_treated_node_is_found_in_the_statement_but_not_in_its_source_or_children() {
+        var plain = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID, STATUS)).build();
+        var selected = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID, NUMBER)).build();
+        var filtered = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID))
+                .where(f -> f.isNull(NUMBER)).build();
+        var ordered = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID))
+                .orderBy(NUMBER.asc()).build();
+        assertThat(TreatChecks.treated(plain)).isFalse();
+        assertThat(TreatChecks.treated(selected)).isTrue();
+        assertThat(TreatChecks.treated(filtered)).isTrue();
+        assertThat(TreatChecks.treated(ordered)).isTrue();
+        assertThat(TreatChecks.selectsRootId(List.of(ID, NUMBER), "id")).isTrue();
+        assertThat(TreatChecks.selectsRootId(List.of(STATUS, NUMBER), "id")).isFalse();
+        var treatedId = ColumnField.of(View.class, ROOT.treat(Card.class), "id", Long.class);
+        assertThat(TreatChecks.selectsRootId(List.of(treatedId), "id")).isFalse();
+    }
+
+    @Test
+    void ac_vnd_17_source_statements_keep_their_own_shape() {
+        var sourceId = ColumnField.of(Source.class, ROOT, "id", Long.class).named("id");
+        var number = ColumnField.of(Source.class, ROOT.treat(Card.class), "number", String.class).named("number");
+        var source = SourceQuery.builder(Source.class, ROOT, SelectSet.of(sourceId, number), PrimaryKey.of(sourceId))
+                .build();
+        var sourceRoot = TableField.source(Source.class);
+        var outer = ColumnField.over(View.class, sourceRoot, sourceId);
+        var query = ModelQuery.builder(sourceRoot, row -> new View(), source).select(SelectSet.of(outer)).build();
+        // Unanchored until a source body selects its root id (R-SRC-20), so a renderer refuses it.
+        assertThat(sites(query, StatementShape.CONTENT, false)).containsExactly(
+                site(StatementShape.SOURCE_BODY, false, TreatUse.SELECT));
+        assertThat(TreatChecks.treated(query)).isFalse();
+    }
+
+    @Test
+    void ac_col_52_a_distinct_set_operation_over_a_treated_branch_without_the_root_id_is_refused() {
+        var sourceId = ColumnField.of(Source.class, ROOT, "id", Long.class).named("id");
+        var number = ColumnField.of(Source.class, ROOT.treat(Card.class), "number", String.class).named("number");
+        var status = ColumnField.of(Source.class, ROOT, "status", String.class).named("number");
+        var treated = SourceQuery.builder(Source.class, ROOT, SelectSet.of(sourceId, number), PrimaryKey.of(sourceId))
+                .build();
+        var plain = SourceQuery.builder(Source.class, ROOT, SelectSet.of(sourceId, status), PrimaryKey.of(sourceId))
+                .build();
+        var sourceRoot = TableField.source(Source.class);
+        var outer = ColumnField.over(View.class, sourceRoot, sourceId);
+        for (var combined : List.of(treated.union(plain), plain.intersect(treated), treated.except(plain))) {
+            var query = ModelQuery.builder(sourceRoot, row -> new View(), combined).select(SelectSet.of(outer))
+                    .build();
+            // Without a metamodel the root id is unknown, so the branch is refused, failing closed.
+            assertRefused(() -> sites(query, StatementShape.CONTENT, false), "unionAll");
+        }
+        var all = ModelQuery.builder(sourceRoot, row -> new View(), treated.unionAll(plain))
+                .select(SelectSet.of(outer)).build();
+        assertThat(sites(all, StatementShape.CONTENT, false)).isNotEmpty();
+    }
+
+    private static void assertRefused(Runnable check, String reason) {
+        assertThatThrownBy(check::run).isExactlyInstanceOf(ModelQueryConfigurationException.class)
+                .hasMessageContaining(reason)
+                .extracting(failure -> ((ModelQueryConfigurationException) failure).code())
+                .isEqualTo(MqCode.MQ4016);
+    }
+
+    @Test
+    void ac_vnd_17_renderer_refusals_are_rechecked_for_each_call_and_name_the_site() {
+        var query = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(NUMBER)).build();
+        var renderer = new Renderer() {
+            @Override public Optional<String> refusal(TreatSite site) { return Optional.of("unmeasured cell"); }
+        };
+        for (int call = 0; call < 2; call++) {
+            assertThatThrownBy(() -> TreatChecks.check(query, RenderOptions.portable().withTreatRenderer(renderer),
+                    null, StatementShape.CONTENT, false, true))
+                    .isExactlyInstanceOf(ModelQueryConfigurationException.class)
+                    .hasMessageContaining("number").hasMessageContaining("CONTENT")
+                    .hasMessageContaining("SELECT").hasMessageContaining("unmeasured cell")
+                    .extracting(failure -> ((ModelQueryConfigurationException) failure).code())
+                    .isEqualTo(MqCode.MQ4016);
+        }
+    }
+
+    @Test
+    void ac_vnd_20_treated_write_predicates_are_refused_even_by_an_accepting_renderer() {
+        var update = ModelUpdate.builder(ROOT).primaryKey(PrimaryKey.of(ID)).set(STATUS, "paid")
+                .where(f -> f.eq(NUMBER, "x")).build();
+        var delete = ModelDelete.builder(ROOT).primaryKey(PrimaryKey.of(ID))
+                .where(f -> f.eq(NUMBER, "x")).build();
+        for (Object definition : List.of(update, delete)) {
+            assertThatThrownBy(() -> TreatChecks.check(definition,
+                    RenderOptions.portable().withTreatRenderer(new Renderer()), null,
+                    StatementShape.WRITE, false, false))
+                    .isExactlyInstanceOf(ModelQueryConfigurationException.class)
+                    .extracting(failure -> ((ModelQueryConfigurationException) failure).code())
+                    .isEqualTo(MqCode.MQ4016);
+        }
+    }
+
+    @Test
+    void ac_col_48_sibling_attribute_indexes_keep_the_treat_chain() {
+        var bank = ColumnField.of(View.class, ROOT.treat(Bank.class), "number", String.class);
+        var selected = FieldIndex.builder(View.class).select(NUMBER, bank).build();
+        var filtered = FieldIndex.builder(View.class).filterOnly(NUMBER, bank).build();
+        String cardPath = "treat(" + Card.class.getName() + ").number";
+        String bankPath = "treat(" + Bank.class.getName() + ").number";
+        assertThat(selected.filter(cardPath)).contains(NUMBER);
+        assertThat(selected.filter(bankPath)).contains(bank);
+        assertThat(filtered.filter(cardPath)).contains(NUMBER);
+        assertThat(filtered.filter(bankPath)).contains(bank);
+        assertThat(NUMBER.path()).isEqualTo("number");
+    }
+
+    private static List<TreatSite> sites(ModelQuery<?, ?, ?> query, StatementShape shape, boolean laterPages) {
+        return TreatChecks.check(query, RenderOptions.portable().withTreatRenderer(new Renderer()), null,
+                shape, laterPages, true);
+    }
+
+    private static TreatSite site(StatementShape shape, boolean anchored, TreatUse... uses) {
+        return site("number", shape, anchored, uses);
+    }
+
+    private static TreatSite site(String attribute, StatementShape shape, boolean anchored, TreatUse... uses) {
+        return new TreatSite(Payment.class, Card.class, Optional.of(attribute), shape, anchored, Set.of(uses));
+    }
+
+    private static class Renderer implements TreatRenderer {
+        @Override
+        public <T, S extends T> From<?, S> treat(CriteriaBuilder cb, From<?, T> from, Class<S> subtype) {
+            throw new AssertionError("sites require no Criteria rendering");
+        }
+
+        @Override public Optional<String> refusal(TreatSite site) { return Optional.empty(); }
+
+        @Override
+        public Optional<String> preflight(EntityManager em, CommonAbstractCriteria statement, StatementShape shape) {
+            throw new AssertionError("preflight belongs to M28.4");
+        }
+    }
+}

@@ -158,6 +158,9 @@ intersects, ignoring case, the tables `ProviderSupport.tablesOf` reports for the
 `exists(...)` sub-query or sub-select reads, and where either set is empty, as without `model-query-hibernate`, compares the entities
 alone, so two entities on one table then go undetected and MySQL fails loudly with error 1093 (`vendor/40` R-VND-13,
 D-109). `core` reports the entities a sub-query reads, never a table (INV-7).
+*(D-154)* A treated node in an update's or delete's `where`, or in a returning write's returning model, is `MQ4016`
+before this path choice and before any statement, so a key-first and a single-statement write are refused alike on
+every vendor (`vendor/40` R-VND-26, AC-VND-20).
 
 **R-WRT-12** **No accidental full-table writes.** A builder chooses its rows with `where(...)` and `whereKey(s)(...)`,
 which combine with `AND`, or with `all()`, which excludes both: `all()` returns a stage with no `where`, and neither

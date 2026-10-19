@@ -24,6 +24,12 @@ public final class BuiltQuery<M> {
     /** The alias of a {@code through} child query's parent key, selected after the model's columns (D-100). */
     static final String PARENT_KEY = "parent_key";
 
+    /**
+     * The alias of the hidden root-id anchor a statement with a treated node selects last when its model selects no
+     * untreated root id (R-COL-35): outside D-146's {@code mq_<property>} space, never in the row a mapper reads.
+     */
+    static final String ROOT_ID_ANCHOR = "mq_0id";
+
     /** The alias of a recursive source's depth check, a column of the statement's selection (R-SRC-07). */
     public static final String RECURSION_DEPTH = "mqRecursionDepth";
 

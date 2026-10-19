@@ -544,7 +544,11 @@ public enum MqCode {
      * The target's vendor lacks a source feature the query uses, {@code VendorProfile#sources(SourceFeature)} returning
      * false for it, or a recursion deeper than {@code maxRecursionDepth()}; raised before any statement (R-SRC-11).
      */
-    MQ4015("The target's vendor lacks a source feature the query uses, or the recursion is deeper than it allows");
+    MQ4015("The target's vendor lacks a source feature the query uses, or the recursion is deeper than it allows"),
+
+    /** A treated statement cannot preserve R-COL-35 for its shape, anchoring or uses (R-VND-26). */
+    @Incubating
+    MQ4016("The provider refuses a treated statement's shape, anchoring or uses");
 
     private final String defaultMessage;
 

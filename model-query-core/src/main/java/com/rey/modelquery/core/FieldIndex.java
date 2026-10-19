@@ -204,7 +204,7 @@ public final class FieldIndex<M> {
         if (key != null) {
             return key;
         }
-        return field instanceof ColumnField<?, ?, ?> column ? column.path() : field.name();
+        return field instanceof ColumnField<?, ?, ?> column ? column.identityPath() : field.name();
     }
 
     /**
@@ -259,7 +259,7 @@ public final class FieldIndex<M> {
         @SafeVarargs
         public final Builder<M> filterOnly(ColumnField<M, ?, ?>... columns) {
             for (ColumnField<M, ?, ?> column : checked(columns, "columns")) {
-                add(filterOnly, column.path(), column, "filter-only");
+                add(filterOnly, column.identityPath(), column, "filter-only");
             }
             return this;
         }
