@@ -54,7 +54,10 @@ tell a LEFT-join miss from a match whose other columns are `NULL` (`processor/31
 `TableField<T, S>` over an entity root, to-one join or to-many join. Its join key is its parent key and subtype;
 one `JoinContext` renders it once per statement through `TreatRenderer#treat`. Columns, joins and `exists` paths
 hang off it. It is immutable and safe as a `static final` definition (INV-9). A to-many path keeps R-PAG-13's
-filter-only rules. `presentBy` on a treated join is allowed and retained by copies.
+filter-only rules. A column over a treated join that names a to-one only the subtype declares is `MQ1001`, whatever its
+type: its path would join that to-one `INNER` and drop the rows with a `NULL` foreign key, where a read joins a to-one
+`LEFT` (D-124); join it with a `TableField` and read its column.
+`presentBy` on a treated join is allowed and retained by copies.
 With no `TreatRenderer` every treated node is `MQ4014`, including one that would render untreated. The executor
 checks the reachable definition before any statement, including fetch children, sub-queries and source bodies.
 `Agg.count` names a treated table from its subtype's simple name with a lower-case first letter: `count(card)`
@@ -108,7 +111,9 @@ selects no untreated root id, are `MQ4016` before any statement; selecting the r
 admits them, and `unionAll` is unaffected. An `@IdClass` or `@EmbeddedId` root with a treated statement is `MQ4016`:
 the anchor and the count were measured over a single id attribute. Every other treated statement, a grouped one, a
 fetch plan's child statement, a join plan or an enricher, a bulk write's `where` and a returning model among them, is
-refused before the first statement by the engine or its `TreatRenderer` (`vendor/40` R-VND-26).
+refused before the first statement by the engine or its `TreatRenderer` (`vendor/40` R-VND-26). An `add(...)`
+predicate records no column, so no site reports what it reads: a subtype treat it reaches is `MQ4016` while its
+statement renders, before that statement runs (D-156).
 
 On `SINGLE_TABLE`, two subtypes may map one physical column; the provider reads it under a `CASE` on the
 discriminator, so a sibling's value never shows. A shared-column site in a shape or use set the provider's table
@@ -632,8 +637,13 @@ the planner must see as a literal (a partial index's predicate, a selective enum
 | AC-COL-41 | Refusals, grouped WHERE and counts retaining lifted joins (R-COL-33, R-EXE-05). |
 | AC-COL-42 | To-many count/sum: MQ1511; EXISTS filtering and min/max/exists exemptions (R-COL-33). |
 | AC-COL-43 | A correlated value in an update or delete `where` over the target table: MySQL runs key-first and matches the other vendors' rows; a conflict `where` is `MQ1804`, `setExpression` is `MQ1613` (R-COL-31, R-WRT-13, D-153). |
+| AC-COL-44 | Per strategy, a treated column in the select list keeps every row, reads the value on subtype and grandchild rows and NULL on sibling rows, alone and in a `coalesce`, in a keyed and in a keyless model; a column over a treated join naming the subtype's own to-one is `MQ1001`, typed as its id or as its entity (R-COL-34, R-COL-35, D-154). |
+| AC-COL-45 | Per strategy, `eq`/`in`/`like`/`isNotNull` keep only matching subtype rows; `isNull`, `ne`, `notIn` include sibling rows; `not(eq)` excludes them (SQL `NOT` over NULL, D-5, where JPA's "false" would include them); a treat in `or` keeps the base operand's sibling rows; each `page()` total equals the content's rows (R-COL-35, D-154). |
+| AC-COL-46 | Per strategy, an offset order by a treated key places sibling rows by NULL under `nullsFirst`/`nullsLast`; a treated group key or aggregate argument, in a query or a source, is `MQ4016` before any statement; the source cases land with M28.8 (R-COL-35, D-154). |
 | AC-COL-48 | `MQ1106` for an improper subtype at definition on a root and at first resolution on a join; treating a treat or source root; modifiers on a treated join; an unmapped subtype; a sibling root or sibling re-root. `MQ1104` for `as`/`on`/`presentBy` on a treated root. `MQ1003` names `ROOT.treat(...)` for a subtype-root column in a base-root query (R-COL-34, D-154). |
-| AC-COL-52 | Per strategy, `page()`'s total and `count(q)` with a select-only or order-only treat and with `isNull`, `ne`, `notIn` and `not(isNotNull)` equal the content's rows, rendered as `count(root.id)` with no selection or order (SQL snapshot); a grouped `@Subtype` total counts groups; a keyless model's content and a source body select the root id last as `mq_0id`, absent from `fields()`, the default sets, the mapper and `Rows`; a `distinct()` query or a `union`/`intersect`/`except` that would need it is `MQ4016`, and runs when the model selects the root id (R-COL-35, D-154). |
+| AC-COL-50 | Per strategy, a model rooted at a mid-level subtype reads its and the grandchild's rows only in content, count, keyset and export; `MQ4010` on a `JOINED` or `TABLE_PER_CLASS` base root; a lock on a `SINGLE_TABLE` subtype root (R-COL-34, D-154). |
+| AC-COL-51 | Per line, a treated column on a `SINGLE_TABLE` column a sibling maps, same-named and differently named, reads NULL on the sibling's rows in the select list, an order and a predicate that matches only the sibling's value; a shared-column site the table lacks is `MQ4016` before any statement (R-COL-35, D-154). |
+| AC-COL-52 | Per strategy, `page()`'s total and `count(q)` with a select-only or order-only treat and with `isNull`, `ne`, `notIn` and `not(isNotNull)` equal the content's rows, rendered as `count(root.id)` with no selection or order (SQL snapshot); a grouped `@Subtype` total counts groups; a keyless model's content and a source body select the root id last as `mq_0id`, absent from `fields()`, the default sets, the mapper and `Rows`; a `distinct()` query or a `union`/`intersect`/`except` that would need it is `MQ4016`, and runs when the model selects the root id; the grouped `@Subtype` and source-body cases land with M28.5 and M28.8 (R-COL-35, D-154). |
 
 AC-COL-36..39, 41 and 42 run on every Tier-1 vendor and both Hibernate lines. Each scalar terminal selects,
 filters and orders. AC-COL-41 covers all R-COL-33 refusals, including generated annotations and

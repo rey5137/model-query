@@ -23,6 +23,10 @@ import java.util.Set;
 @Incubating
 public final class TreatChecks {
 
+    /** The conditions that also accept a NULL column through a D-5 {@code IS NULL} branch (R-FLT-04). */
+    private static final Set<Condition.Kind> NULL_ACCEPTING = EnumSet.of(Condition.Kind.NE, Condition.Kind.NOT_IN,
+            Condition.Kind.NOT_IN_FIELDS, Condition.Kind.NOT_IN_SUBSELECT);
+
     private final Set<Object> seen = Collections.newSetFromMap(new IdentityHashMap<>());
     private final Set<Object> checked = Collections.newSetFromMap(new IdentityHashMap<>());
 
@@ -387,23 +391,31 @@ public final class TreatChecks {
             case OR -> using(TreatUse.DISJUNCTION, () -> condition.children().forEach(this::condition));
             case NOT -> using(TreatUse.NEGATED, () -> condition.children().forEach(this::condition));
             case AND -> condition.children().forEach(this::condition);
-            default -> using(condition.kind() == Condition.Kind.IS_NULL
-                    || condition.kind() == Condition.Kind.IS_NOT_NULL ? TreatUse.NULL_TEST : TreatUse.PREDICATE,
-                    () -> {
-                        condition.column().ifPresent(this::field);
-                        condition.right().ifPresent(this::field);
-                        condition.operands().forEach(this::field);
-                        condition.path().ifPresent(path -> {
-                            register(path);
-                            using(TreatUse.SUBQUERY, () -> table(path.key()));
-                        });
-                        if (condition.subSelect().isPresent() || condition.path().isPresent()) {
-                            using(TreatUse.SUBQUERY, () -> condition.children().forEach(this::condition));
-                        } else {
-                            condition.children().forEach(this::condition);
-                        }
-                        condition.subSelect().ifPresent(this::subSelect);
+            default -> {
+                Runnable scan = () -> {
+                    condition.column().ifPresent(this::field);
+                    condition.right().ifPresent(this::field);
+                    condition.operands().forEach(this::field);
+                    condition.path().ifPresent(path -> {
+                        register(path);
+                        using(TreatUse.SUBQUERY, () -> table(path.key()));
                     });
+                    if (condition.subSelect().isPresent() || condition.path().isPresent()) {
+                        using(TreatUse.SUBQUERY, () -> condition.children().forEach(this::condition));
+                    } else {
+                        condition.children().forEach(this::condition);
+                    }
+                    condition.subSelect().ifPresent(this::subSelect);
+                };
+                Condition.Kind kind = condition.kind();
+                if (NULL_ACCEPTING.contains(kind)) {
+                    // Rendered as "<test> OR column IS NULL" (R-FLT-04): the site is the spike's ne/notIn envelope.
+                    using(TreatUse.PREDICATE, () -> using(TreatUse.NULL_TEST, () -> using(TreatUse.DISJUNCTION, scan)));
+                } else {
+                    using(kind == Condition.Kind.IS_NULL || kind == Condition.Kind.IS_NOT_NULL ? TreatUse.NULL_TEST
+                            : TreatUse.PREDICATE, scan);
+                }
+            }
         }
     }
 

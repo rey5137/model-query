@@ -82,7 +82,8 @@ class TreatExecutionTest {
         var exported = new ArrayList<String>();
         assertThat(SqlSnapshots.capture(db, ds -> {
             try (SessionFactory factory = factory(ds)) {
-                factory.inSession(em -> {
+                // Hibernate serves a renderer on its measured lines (R-VND-26), so a provider without one stands in.
+                ServingProvider.serving(factory, null, () -> factory.inSession(em -> {
                     ModelQueryExecutor<Payment> executor =
                             ModelQueryExecutor.create(em, Payment.class, ModelQueryConfig.defaults());
                     assertMissingRenderer(() -> executor.list(query, Limit.of(3)));
@@ -97,7 +98,7 @@ class TreatExecutionTest {
                     } finally {
                         em.getTransaction().rollback();
                     }
-                });
+                }));
             }
         })).isEmpty();
         assertThat(exported).isEmpty();
@@ -147,11 +148,11 @@ class TreatExecutionTest {
                         .primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
                 assertThat(SqlSnapshots.capture(db, ds -> {
                     try (SessionFactory factory = factory(ds)) {
-                        factory.inSession(em -> {
+                        ServingProvider.serving(factory, null, () -> factory.inSession(em -> {
                             var executor = ModelQueryExecutor.create(em, Payment.class, ModelQueryConfig.defaults());
                             assertMissingRenderer(() -> executor.page(treated, PageSpec.of(1, 1), CountMode.NO_COUNT));
                             assertMissingRenderer(() -> executor.page(treated, PageSpec.of(1, 1), CountMode.COUNT));
-                        });
+                        }));
                     }
                 })).isEmpty();
             }
@@ -167,7 +168,7 @@ class TreatExecutionTest {
                 Long.class, "paid");
         assertThat(SqlSnapshots.capture(db, ds -> {
             try (SessionFactory factory = factory(ds)) {
-                factory.inSession(em -> {
+                ServingProvider.serving(factory, null, () -> factory.inSession(em -> {
                     var executor = ModelQueryExecutor.create(em, Payment.class, ModelQueryConfig.defaults());
                     assertMissingRenderer(() -> executor.page(query, KeysetSpec.first(1)));
                     assertMissingRenderer(() -> executor.stream(query, Limit.of(3), Stream::count));
@@ -179,7 +180,7 @@ class TreatExecutionTest {
                     } finally {
                         em.getTransaction().rollback();
                     }
-                });
+                }));
             }
         })).isEmpty();
     }
@@ -214,6 +215,67 @@ class TreatExecutionTest {
                             .isExactlyInstanceOf(ModelQueryExecutionException.class)
                             .extracting(failure -> ((ModelQueryExecutionException) failure).code())
                             .isEqualTo(MqCode.MQ2501);
+                }));
+            }
+        })).isEmpty();
+    }
+
+    @TckTest
+    void ac_vnd_17_a_treated_read_inside_a_custom_predicate_is_refused_even_by_an_admitting_renderer(
+            TckDatabase db) {
+        // add(...) records no column, so no TreatSite reports what it reads (D-156): a subtype treat it reaches is
+        // MQ4016 while the statement renders, before it runs, in content and count, cached by a select or not.
+        assertThat(SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory factory = factory(ds)) {
+                ServingProvider.serving(factory, new CountingRenderer(), () -> factory.inSession(em -> {
+                    var executor = ModelQueryExecutor.create(em, Payment.class, ModelQueryConfig.defaults());
+                    var alone = ModelQuery.builder(ROOT, row -> row.get(STATUS)).select(SelectSet.of(ID, STATUS))
+                            .where(f -> f.add((ctx, cb) -> cb.equal(NUMBER.expression(ctx), "4111"))).build();
+                    var selected = ModelQuery.builder(ROOT, row -> row.get(NUMBER)).select(SelectSet.of(ID, NUMBER))
+                            .where(f -> f.add("card", (ctx, cb) -> cb.isNull(NUMBER.expression(ctx)))).build();
+                    assertTreatRefused(() -> executor.list(alone, Limit.of(3)));
+                    assertTreatRefused(() -> executor.count(alone));
+                    assertTreatRefused(() -> executor.list(selected, Limit.of(3)));
+                    // An untreated read inside add(...) beside a treated select renders; stopped once built.
+                    var untreated = ModelQuery.builder(ROOT, row -> row.get(NUMBER)).select(SelectSet.of(ID, NUMBER))
+                            .where(f -> f.add((ctx, cb) -> cb.equal(STATUS.expression(ctx), "paid")))
+                            .customize((spec, joins, statement, cb, phase) -> { throw new Built(); }).build();
+                    assertThatThrownBy(() -> executor.list(untreated, Limit.of(3))).isExactlyInstanceOf(Built.class);
+                }));
+            }
+        })).isEmpty();
+    }
+
+    @TckTest
+    void ac_vnd_17_a_treated_read_inside_a_child_custom_predicate_is_refused_before_the_root_statement(
+            TckDatabase db) {
+        // The child statement is built before the first statement of the call (R-FCH-02), its add(...) included, so
+        // the D-156 refusal comes before the root rows are read, not when the children load.
+        var childId = ColumnField.of(String.class, HOLDERS, "id", Long.class);
+        var childKey = ColumnField.of(String.class, HOLDERS, "label", String.class);
+        var innerNumber = ColumnField.of(String.class, PAYMENT.treat(Card.class), "number", String.class);
+        ChildField<String, String> child = new ChildField<>() {
+            @Override public String name() { return "children"; }
+            @Override public ColumnField<String, ?, ?> key() { return STATUS; }
+            @Override public Optional<ColumnField<String, ?, ?>> foreignKey() { return Optional.of(childKey); }
+            @Override public Optional<TableField<?, ?>> through() { return Optional.empty(); }
+            @Override public boolean isToMany() { return true; }
+            @Override public ModelQuery.Builder<?, ?, String> query() {
+                return ModelQuery.builder(HOLDERS, row -> row.get(childKey)).select(SelectSet.of(childId, childKey))
+                        .primaryKey(PrimaryKey.of(childId));
+            }
+            @Override public String with(String parent, List<String> children) { return parent; }
+        };
+        var query = ModelQuery.builder(ROOT, row -> "parent").primaryKey(PrimaryKey.of(ID))
+                .fetch(FetchPlan.of(SelectSet.of(ID)).child(child, FetchPlan.of(SelectSet.of(childId, childKey)),
+                        each -> each.where(f -> f.add((ctx, cb) -> cb.equal(innerNumber.expression(ctx), "1234")))))
+                .build();
+        assertThat(SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory factory = factory(ds)) {
+                ServingProvider.serving(factory, new CountingRenderer(), () -> factory.inSession(em -> {
+                    var executor = ModelQueryExecutor.create(em, Payment.class, ModelQueryConfig.defaults());
+                    assertTreatRefused(() -> executor.list(query, Limit.of(3)));
+                    assertTreatRefused(() -> executor.list(query, Limit.of(3))); // a failed check is not remembered
                 }));
             }
         })).isEmpty();
@@ -302,10 +364,10 @@ class TreatExecutionTest {
             for (int factoryIndex = 1; factoryIndex <= 2; factoryIndex++) {
                 try (SessionFactory factory = factory(ds)) {
                     for (int executorIndex = 0; executorIndex < 2; executorIndex++) {
-                        factory.inSession(em -> {
+                        ServingProvider.serving(factory, null, () -> factory.inSession(em -> {
                             var executor = ModelQueryExecutor.create(em, Payment.class, ModelQueryConfig.defaults());
                             assertThat(executor.list(query, Limit.of(0))).isEmpty();
-                        });
+                        }));
                         assertThat(scans).hasValue(2 * factoryIndex);
                     }
                 }
@@ -324,10 +386,12 @@ class TreatExecutionTest {
                 try {
                     var runs = new ArrayList<CompletableFuture<Void>>();
                     for (int i = 0; i < 12; i++) {
-                        runs.add(CompletableFuture.runAsync(() -> factory.inSession(em -> {
-                            var executor = ModelQueryExecutor.create(em, Payment.class, ModelQueryConfig.defaults());
-                            assertThat(executor.list(query, Limit.of(0))).isEmpty();
-                        }), workers));
+                        runs.add(CompletableFuture.runAsync(() -> ServingProvider.serving(factory, null,
+                                () -> factory.inSession(em -> {
+                                    var executor = ModelQueryExecutor.create(em, Payment.class,
+                                            ModelQueryConfig.defaults());
+                                    assertThat(executor.list(query, Limit.of(0))).isEmpty();
+                                })), workers));
                     }
                     CompletableFuture.allOf(runs.toArray(CompletableFuture[]::new))
                             .orTimeout(30, TimeUnit.SECONDS).join();
