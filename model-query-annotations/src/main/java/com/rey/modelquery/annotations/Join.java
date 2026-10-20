@@ -24,6 +24,14 @@ public @interface Join {
     String attribute() default "";
 
     /**
+     * The strict entity subtype of the model's root that declares the attribute (R-PROC-41).
+     *
+     * @return the subtype, or {@code void.class} for none
+     */
+    @Incubating
+    Class<?> treat() default void.class;
+
+    /**
      * How the association is joined.
      *
      * @return the join kind

@@ -54,6 +54,9 @@ record FilterIndex(List<Column> kept, List<Shadowed> shadowed) {
         var shadowed = new ArrayList<Shadowed>();
         for (Column column : filters.columns()) {
             String key = column.definition().path();
+            if (column.definition().treat() != null) {
+                key = "treat(" + column.definition().treat() + ")." + key;
+            }
             String holder = holders.get(key);
             if (holder == null) {
                 holders.put(key, "@FilterColumn(" + column.definition().name() + ")");

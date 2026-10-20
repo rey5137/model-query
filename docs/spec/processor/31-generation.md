@@ -68,6 +68,17 @@ classpath. It does not consume `hibernate-jpamodelgen` output, so processor orde
 **R-GEN-03** Attribute names are emitted as string literals that the processor validated against the metamodel. A
 literal the processor could not validate is a diagnostic, never a guess (INV-3).
 
+**R-GEN-41** Each distinct `treat` target of a model generates one `<SUBTYPE>_TREAT` constant, named as R-PROC-13
+names `ITEMS_TABLE`, through `ROOT.treat(Subtype.class)`. Columns, joins and filter paths share that node; a generated
+name clash is `MQ3015`. The treated tables precede columns that read them. Treated columns are ordinary ordered
+columns under R-PROC-07 and appear in `DEFAULT`, `ALL` and `fields()` as other columns do. A downcast `@Join` emits
+`.treat(Subtype.class).presentBy(NestedQModel.KEY)`, so presence follows the treated join (D-154).
+
+**R-GEN-42** A `@Subtype` field generates an `ExpressionField` through `Expr.typeOf(Model.class, ROOT)`, named as any
+field. It is in the default sets, and the mapper reads a `Class` through that constant. With JSpecify enabled it
+requires no additional nullness handling (`R-GEN-36`). The key, mapper, query builder and source otherwise keep their
+existing shape (D-154).
+
 **R-GEN-04** A joined `SelectSet` is derived from the nested model (`CustomerView`), so a column added to
 `CustomerView` appears in `QOrderView.CUSTOMER` with no list to update by hand. The processor reads the nested model's
 own fields and refers to its QModel by name only, so the order in which models are processed does not matter (D-39).
@@ -146,6 +157,9 @@ that join's `@PrimaryKey` columns — as `engine/21` R-PAG-03 does for the root.
 of its components is non-null. A LEFT-join miss makes every joined column
 `NULL`, so the nested model stays empty; a matched row has a non-null key, so the nested model is present even when all
 its other selected columns are `NULL`.
+
+When the nested root is a strict subtype of the association target, `treat` precedes `presentBy` on the generated
+join. A nested root identical to or a supertype of the target uses a plain join (R-PROC-42, R-GEN-41, D-154).
 
 **R-GEN-14** Nesting composes. `OrderView.customer → CustomerView.address` yields `Optional<CustomerView>` containing
 `Optional<AddressView>`; classes and records may be nested in each other freely, because each QModel's `map(Row)` builds
@@ -542,3 +556,5 @@ no mapper or write method (R-GEN-37); the two vocabularies are checked at `build
 | AC-GEN-31 | With `modelquery.jspecify=true`, `QOrderView`, `QInvoiceView`, `QCustomerViewWithInvoices`, `OrderPatchChanges` and `QNewOrder` match their golden files under `golden/jspecify/`, and a change set over a nested type, a type whose simple name is `Nullable` and an array type compiles with the annotation on the type (R-GEN-36, D-135). |
 | AC-GEN-32 | The shop, update and insert fixtures compiled with `-Amodelquery.jspecify=true` under Error Prone and NullAway in JSpecify mode (`AnnotatedPackages` covering the fixture and generated packages) report no NullAway error, and a dereferenced `@Nullable` change-set getter in an extra fixture is reported, which shows NullAway ran (R-GEN-36, D-135). |
 | AC-GEN-33 | A `generateChanges` and `generateInserts` query model with a to-one column of the target's id, one converted from it and a whole-entity to-one matches its golden files `IdFormRowChanges` and `QIdFormRow`: the id forms have a setter, a `from` branch and an `INSERT_COLUMNS` entry, the whole-entity one is named in both Javadocs; on every Tier-1 vendor the change set and the insert write the foreign key (a `NULL` one too), a returning write returns it, and a `NULL`-foreign-key row reads back (R-PROC-33, R-GEN-19, R-GEN-21, D-136). |
+| AC-GEN-34 | Generated `<SUBTYPE>_TREAT` constants, columns over them and downcast `.treat(...).presentBy(...)` joins follow R-GEN-41; a generated name clash is `MQ3015` (D-154). |
+| AC-GEN-35 | The `@Subtype` constant is generated through `Expr.typeOf`, included in the default sets and mapped as a `Class` (R-GEN-42, D-154). |

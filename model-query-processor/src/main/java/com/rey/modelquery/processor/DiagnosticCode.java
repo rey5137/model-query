@@ -12,8 +12,8 @@ enum DiagnosticCode {
     /** A column's model type is not the entity attribute's type. */
     MQ3002("Model type does not match the entity attribute type"),
 
-    /** A {@code @Join} attribute is not a to-one association, or not one to the nested model's root. */
-    MQ3003("@Join attribute is not a to-one association to the nested model's root"),
+    /** A {@code @Join} is not to-one, or its nested root or treat target is unrelated to the association target. */
+    MQ3003("@Join needs a to-one target related to the nested root and its treat targets"),
 
     /** A model without aggregates has no {@code @PrimaryKey}. */
     MQ3004("Missing @PrimaryKey"),
@@ -103,7 +103,9 @@ enum DiagnosticCode {
     /** {@code @GroupBy} on a column that selects a whole to-one entity; group by the foreign key's id instead. */
     MQ3028("@GroupBy on a whole-entity to-one column"),
 
-    /** The id form of a to-one whose target has {@code @SQLRestriction} or {@code @Where}: a read could miss the key. */
+    /**
+     * The id form of a to-one whose target has {@code @SQLRestriction} or {@code @Where}: a read could miss the key.
+     */
     MQ3029("Id form over a target with a Hibernate restriction"),
 
     /** A {@code @Child} on a source model, which is one statement and has no parent query to fill it. */
@@ -145,6 +147,12 @@ enum DiagnosticCode {
 
     /** A source over a source is recursive, a branch or a shape, or roots at a branch model (R-PROC-40). */
     MQ3041("A source over a source cannot be recursive, a branch, a shape or rooted at a branch"),
+
+    /** A {@code treat} member is invalid, redundant, or part of a key, source-rooted model or write. */
+    MQ3042("Invalid treat declaration"),
+
+    /** A {@code @Subtype} is repeated, has another type or annotation, or is source-rooted or written. */
+    MQ3043("Invalid @Subtype declaration"),
 
     /** An {@code @Aggregate} field is primitive, though an aggregate can be {@code NULL}. */
     MQ3201("@Aggregate field is primitive"),
