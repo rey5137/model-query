@@ -65,9 +65,10 @@ a `default`:
 | `IN_SUBSELECT`, `NOT_IN_SUBSELECT` | `in`, `notIn` over a sub-select | `column`, `subSelect` |
 | `IN_FIELDS`, `NOT_IN_FIELDS` | `in`, `notIn` against operand fields (`api/12` R-FLT-19) | `column`, `operands()` |
 | `EXISTS_SUBSELECT`, `NOT_EXISTS_SUBSELECT` | `exists`, `notExists` over a sub-select | `subSelect`, `children` (the correlation, an implicit AND) |
+| `OF_TYPE`, `NOT_OF_TYPE` | `ofType`, `notOfType` (`api/12` R-FLT-28) | `column` (the node's `Expr.typeOf`), `values` (the types as passed) |
 
-`having` records the same kinds over aggregate columns, except `EXISTS`, `NOT_EXISTS`, `CUSTOM` and the four
-`*_SUBSELECT` kinds, which it has no operator for.
+`having` records the same kinds over aggregate columns, except `EXISTS`, `NOT_EXISTS`, `CUSTOM`, the four
+`*_SUBSELECT` kinds and `OF_TYPE`/`NOT_OF_TYPE`, which it has no operator for.
 
 ## 2. Rules
 

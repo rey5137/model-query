@@ -12,6 +12,8 @@ public enum StatementShape {
     @Incubating COUNT,
     /** A grouped or aggregate selection. */
     @Incubating GROUPED,
+    /** The count of a grouped selection's groups, built by the persistence provider over the grouped statement. */
+    @Incubating GROUPED_COUNT,
     /** A source's CTE body. */
     @Incubating SOURCE_BODY,
     /** A fetch-plan child, join plan or enricher. */

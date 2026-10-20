@@ -92,9 +92,10 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         }
         return (Expression<C>) ctx.expression(this, () -> {
             Expression<?> rendered = node.render(ctx);
-            if (node instanceof TypedConst) {
-                // The declared type is the witness column's model type and the literal's is the stored value's, so the
-                // two are not compared (R-COL-27).
+            if (node instanceof TypedConst || node instanceof TypeOf) {
+                // A TYPE read is the provider's entity type expression, whose Java type JPA leaves unspecified.
+                // A typed constant's declared type is the witness column's model type and the literal's is the stored
+                // value's, so the two are not compared (R-COL-27).
                 return rendered;
             }
             Class<?> actual = rendered.getJavaType();
@@ -127,6 +128,10 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
     }
 
     void checkTreats(TreatChecks checks) {
+        if (node instanceof TypeOf value) {
+            checks.typeOf(value.table()); // its own site, not an expression operand (R-COL-36)
+            return;
+        }
         if (node instanceof CorrelatedValue value) {
             checks.using(TreatUse.SUBQUERY, () -> {
                 if (value.terminal() == Correlated.Terminal.COUNT && checks.ownTreatedRoot(value.rows())) {
@@ -230,6 +235,18 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
         return containsNode(operand, node -> node instanceof Nextval);
     }
 
+    /** The nodes whose entity type {@code operand} reads through {@code Expr.typeOf}, at any depth (R-COL-36). */
+    static List<TableField<?, ?>> typeReads(Object operand) {
+        var tables = new ArrayList<TableField<?, ?>>();
+        containsNode(operand, node -> {
+            if (node instanceof TypeOf read) {
+                tables.add(read.table());
+            }
+            return false;
+        });
+        return tables;
+    }
+
     /** A correlated value at any depth of this expression (R-COL-33). */
     boolean correlated() {
         return containsCorrelated(this);
@@ -287,7 +304,7 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
                     containsNode(branch.result(), test)
                             || branch.conditions().stream().anyMatch(condition -> containsNode(condition, test)));
         }
-        return false; // Const, TypedConst and Value read nothing
+        return false; // Const, TypedConst, Value and TypeOf hold no operand
     }
 
     /** The bind values a CASE condition binds: its values, its operands' expressions and its children's (R-COL-18). */
@@ -331,7 +348,7 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
     /** The structure behind an expression: equal nodes are equal expressions (R-COL-20). */
     sealed interface Node
             permits Coalesce, NullIf, Arith, Negate, Concat, Fn, Const, TypedConst, Value, Nextval, Case,
-                    CorrelatedValue {
+                    CorrelatedValue, TypeOf {
 
         Class<?> type();
 
@@ -753,6 +770,37 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
     }
 
     /**
+     * {@code TYPE(node)}, the exact entity class of each row's {@code table} node, through {@code From#type()}
+     * (R-COL-36). It reads no column and binds nothing; equality is by node (R-COL-20).
+     */
+    record TypeOf(TableField<?, ?> table) implements Node {
+        @Override
+        public Class<?> type() {
+            return Class.class;
+        }
+
+        @Override
+        public Expression<?> render(JoinContext ctx) {
+            return ctx.type(table, text());
+        }
+
+        @Override
+        public List<ColumnField<?, ?, ?>> columns() {
+            return List.of();
+        }
+
+        @Override
+        public int binds() {
+            return 0;
+        }
+
+        @Override
+        public String text() {
+            return "typeOf(" + table.describe() + ")";
+        }
+    }
+
+    /**
      * A CASE over a condition and a result per branch, with an {@code otherwise} or a NULL. {@code filters} render the
      * condition; {@code conditions} are its structure, which equality compares (R-COL-20).
      */
@@ -776,7 +824,7 @@ public final class ExpressionField<M, C> implements ScalarField<M, C> {
             CriteriaBuilder cb = ctx.cb();
             CriteriaBuilder.Case caseExpr = cb.selectCase();
             for (CaseBranch branch : branches) {
-                Predicate when = and(cb, ConditionGroup.toPredicates(branch.filters(), ctx));
+                Predicate when = ctx.inCase(() -> and(cb, ConditionGroup.toPredicates(branch.filters(), ctx)));
                 if (branch.result() instanceof ScalarField<?, ?> field) {
                     caseExpr.when(when, (Expression) field.expression(ctx));
                 } else {

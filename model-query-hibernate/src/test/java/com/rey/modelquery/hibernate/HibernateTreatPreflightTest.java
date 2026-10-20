@@ -767,6 +767,94 @@ class HibernateTreatPreflightTest {
         }
     }
 
+    /** The concrete entities an {@code ofType(card)} renders: the card and its own subtype, if it has one. */
+    private static Class<?>[] cards(Strategy strategy) {
+        return strategy.card() == StCard.class ? new Class<?>[] {StCard.class, StVisa.class}
+                : strategy == nested ? new Class<?>[] {NestCard.class, NestVisa.class}
+                : strategy == formula ? new Class<?>[] {FormulaCard.class, FormulaVisa.class}
+                : new Class<?>[] {strategy.card()};
+    }
+
+    /**
+     * {@code root.id} of a treated statement, its card's {@code number} null, restricted as the engine renders a
+     * top-level {@code ofType} to {@code types}: a {@code TYPE IN} of their literals, here or in an {@code exists}.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static CriteriaQuery<Long> ofType(CriteriaBuilder cb, Strategy strategy, boolean inExists,
+            Class<?>... types) {
+        CriteriaQuery<Long> query = cb.createQuery(Long.class);
+        Root root = query.from(strategy.root());
+        var treated = cb.isNull(cb.treat(root, strategy.card()).get("number"));
+        if (types.length == 0) {
+            return query.select(root.get("id")).where(treated);
+        }
+        Root typed = root;
+        Subquery<Long> sub = null;
+        if (inExists) {
+            sub = query.subquery(Long.class);
+            typed = sub.from(strategy.root());
+        }
+        var in = typed.type().in(Stream.of(types).map(cb::literal)
+                .toArray(jakarta.persistence.criteria.Expression[]::new));
+        if (sub != null) {
+            sub.select(typed.get("id")).where(in, cb.equal(typed.get("id"), root.get("id")));
+            return query.select(root.get("id")).where(treated, cb.exists(sub));
+        }
+        return query.select(root.get("id")).where(treated, in);
+    }
+
+    private static List<Strategy> typedStrategies() {
+        return Stream.concat(strategies.stream(), Stream.of(nested, formula)).toList();
+    }
+
+    @Test
+    void ac_flt_30_a_declared_type_restriction_is_expected_and_needs_no_narrowing() {
+        var restriction = ExpectedNarrowing.Kind.TYPE_RESTRICTION;
+        for (Strategy strategy : typedStrategies()) {
+            Class<?>[] cards = cards(strategy);
+            // Undeclared, the restriction loses the other subtypes' rows.
+            assertThat(preflight(strategy.factory(), StatementShape.CONTENT, cb -> ofType(cb, strategy, false,
+                    cards))).as(strategy.name()).isPresent();
+            // 6.6 renders JOINED's type with no column naming its root, so it stays unattributed there.
+            boolean unattributed = strategy.root() == JdPayment.class
+                    && line(strategy.factory().unwrap(SessionFactoryImplementor.class)) instanceof Hibernate6Preflight;
+            for (StatementShape shape : List.of(StatementShape.CONTENT, StatementShape.COUNT)) {
+                var answer = assertThat(preflight(strategy.factory(), shape, declared(restriction, strategy, cards),
+                        cb -> ofType(cb, strategy, false, cards))).as(strategy.name() + " " + shape);
+                if (unattributed) {
+                    answer.hasValue("a discriminator restriction reads no root of its query the preflight can "
+                            + "attribute it to");
+                } else {
+                    answer.isEmpty();
+                }
+            }
+            // A declaration whose node the statement doesn't narrow is no refusal: the provider need not narrow it.
+            assertThat(preflight(strategy.factory(), StatementShape.CONTENT, declared(restriction, strategy, cards),
+                    cb -> ofType(cb, strategy, false))).as(strategy.name()).isEmpty();
+        }
+    }
+
+    @Test
+    void ac_flt_30_a_narrowing_no_declared_type_restriction_explains_is_refused() {
+        var restriction = ExpectedNarrowing.Kind.TYPE_RESTRICTION;
+        for (Strategy strategy : typedStrategies()) {
+            Class<?>[] cards = cards(strategy);
+            // Declared as the bank, rendered as the card: the bank's rows are lost.
+            assertThat(preflight(strategy.factory(), StatementShape.CONTENT,
+                    declared(restriction, strategy, strategy.bank()), cb -> ofType(cb, strategy, false, cards)))
+                    .as(strategy.name()).isPresent();
+            // A declaration of the statement's own where never explains a sub-select's restriction.
+            assertThat(preflight(strategy.factory(), StatementShape.CONTENT, declared(restriction, strategy, cards),
+                    cb -> ofType(cb, strategy, true, cards))).as(strategy.name()).isPresent();
+        }
+        // Two restrictions of one node to different types are two ofType conjuncts, not a conflict.
+        Strategy single = strategies.get(0);
+        assertThat(preflight(single.factory(), StatementShape.CONTENT,
+                List.of(new ExpectedNarrowing(restriction, StPayment.class, Set.of(StCard.class, StVisa.class)),
+                        new ExpectedNarrowing(restriction, StPayment.class, Set.of(StVisa.class))),
+                cb -> ofType(cb, single, false, StCard.class, StVisa.class))).isEmpty();
+    }
+
     /** {@code root.id} whose type is one of {@code types}, alone or in an {@code or} with its status. */
     @SuppressWarnings({"unchecked", "rawtypes"})
     private static CriteriaQuery<Long> typed(CriteriaBuilder cb, Strategy strategy, boolean or, Class<?>... types) {

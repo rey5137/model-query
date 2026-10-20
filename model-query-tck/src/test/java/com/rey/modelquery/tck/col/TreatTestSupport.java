@@ -8,6 +8,7 @@ import com.rey.modelquery.core.StatementShape;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.core.TreatRenderer;
 import com.rey.modelquery.core.TreatSite;
+import com.rey.modelquery.hibernate.HibernateProviderSupport;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import jakarta.persistence.Entity;
@@ -21,6 +22,7 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
@@ -110,6 +112,7 @@ public final class TreatTestSupport {
     public static final class ServingProvider implements ProviderSupport {
         private static final ThreadLocal<EntityManagerFactory> FACTORY = new ThreadLocal<>();
         private static final ThreadLocal<TreatRenderer> RENDERER = new ThreadLocal<>();
+        private static final ThreadLocal<Boolean> COUNTS_GROUPS = new ThreadLocal<>();
 
         @Override
         public boolean supports(EntityManagerFactory emf) {
@@ -119,6 +122,23 @@ public final class TreatTestSupport {
         @Override
         public <T> Stream<T> resultStream(TypedQuery<T> query, int fetchSize) {
             throw new AssertionError("no statement is executed");
+        }
+
+        /** Hibernate's count of groups inside {@link #countingGroups}, else none, so groups are counted client-side. */
+        @Override
+        public Optional<CriteriaQuery<Long>> countQuery(CriteriaQuery<?> groupedQuery) {
+            return Boolean.TRUE.equals(COUNTS_GROUPS.get())
+                    ? new HibernateProviderSupport().countQuery(groupedQuery) : Optional.empty();
+        }
+
+        /** Runs {@code work} with the provider's count of groups served, as Hibernate's own support serves it. */
+        public static void countingGroups(Runnable work) {
+            COUNTS_GROUPS.set(true);
+            try {
+                work.run();
+            } finally {
+                COUNTS_GROUPS.remove();
+            }
         }
 
         @Override

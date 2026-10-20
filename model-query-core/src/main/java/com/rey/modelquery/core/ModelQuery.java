@@ -803,10 +803,7 @@ public final class ModelQuery<E, K, M> {
     @EngineFacing
     public void checkPhases(CriteriaBuilder cb, RenderOptions options) {
         Objects.requireNonNull(cb, "cb");
-        RenderOptions scratchOptions = Objects.requireNonNull(options, "options").sourceRenderer()
-                .map(PHASE_SCRATCH::withSourceRenderer).orElse(PHASE_SCRATCH);
-        scratchOptions = options.subqueryRenderer().map(scratchOptions::withSubqueryRenderer).orElse(scratchOptions);
-        scratchOptions = options.treatRenderer().map(scratchOptions::withTreatRenderer).orElse(scratchOptions);
+        RenderOptions scratchOptions = PHASE_SCRATCH.withRenderersOf(Objects.requireNonNull(options, "options"));
         if (customizer == null) {
             return;
         }
@@ -936,9 +933,7 @@ public final class ModelQuery<E, K, M> {
     }
 
     private static RenderOptions scratchRenderers(RenderOptions options) {
-        RenderOptions scratch = Objects.requireNonNull(options, "options").subqueryRenderer()
-                .map(UNLIMITED::withSubqueryRenderer).orElse(UNLIMITED);
-        return options.treatRenderer().map(scratch::withTreatRenderer).orElse(scratch);
+        return UNLIMITED.withRenderersOf(Objects.requireNonNull(options, "options"));
     }
 
     /** The primary-key columns missing from {@code orderBy}, as the executor's keyset and stable order append them. */
@@ -961,9 +956,17 @@ public final class ModelQuery<E, K, M> {
             modelColumns.forEach(checks::joins);
             orderBy.forEach(order -> checks.joins(order.column()));
         } else {
-            checks.using(TreatUse.SELECT, () -> modelColumns.forEach(checks::field));
+            // A selected group key is one site, {SELECT, GROUP_BY}, as a grouped typeOf is measured (R-COL-36).
+            checks.using(TreatUse.SELECT, () -> modelColumns.forEach(field -> {
+                if (groupBy.contains(field)) {
+                    checks.using(TreatUse.GROUP_BY, () -> checks.field(field));
+                } else {
+                    checks.field(field);
+                }
+            }));
             checks.using(TreatUse.ORDER, () -> orderBy.forEach(order -> checks.field(order.column())));
-            checks.using(TreatUse.GROUP_BY, () -> groupBy.forEach(checks::field));
+            checks.using(TreatUse.GROUP_BY, () -> groupBy.stream().filter(key -> !modelColumns.contains(key))
+                    .forEach(checks::field));
             orderBy.forEach(checks::laterKey);
             // The executor closes an ordered content statement, a keyset's included, with the primary-key columns the
             // order lacks, as ascending as its last key and with the default precedence (R-PAG-01, R-PAG-06).
@@ -1550,8 +1553,10 @@ public final class ModelQuery<E, K, M> {
          * never matched to a group key, since a database that matches by text cannot equal two bound parameters.
          */
         private boolean fitsGroup(ScalarField<M, ?> field) {
+            // A type read is per row, so an expression reading one fits only as a group key itself (R-COL-36).
             return groupBy.contains(field)
                     || field instanceof ExpressionField<?, ?> expression
+                            && ExpressionField.typeReads(expression).isEmpty()
                             && expression.columns().stream().allMatch(groupBy::contains);
         }
 

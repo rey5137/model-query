@@ -3,6 +3,7 @@ package com.rey.modelquery.tck.col;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.ChunkOptions;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.CountMode;
@@ -764,6 +765,42 @@ class TreatStatementsTest {
             expected.clear();
             statements.clear();
             refused = -1;
+        }
+    }
+
+    @TckTest
+    void ac_exe_03_a_refused_count_of_type_groups_counts_them_client_side_and_a_refused_group_is_mq4016(
+            TckDatabase db) {
+        Strategy<StPayment, StCard> s = (Strategy<StPayment, StCard>) STRATEGIES.get(0);
+        var type = Expr.typeOf(String.class, s.root);
+        var counted = Agg.<String>count(s.id);
+        var grouped = ModelQuery.builder(s.root, row -> row.get(type).getSimpleName() + ":" + row.get(counted))
+                .select(SelectSet.of(type, counted)).groupBy(type).build();
+        try (SessionFactory schema = s.schema(db)) {
+            schema.inTransaction(s::insertRows);
+            // Admitted, the provider counts the groups; a refused GROUPED_COUNT runs the grouped statement and
+            // counts its rows instead (D-159).
+            Predicate<TreatSite> none = site -> false;
+            List<String> admitted = statements(db, ds -> s.serving(ds, refusing(none), executor ->
+                    ServingProvider.countingGroups(() -> assertThat(executor.count(grouped)).isEqualTo(4))));
+            assertThat(admitted).singleElement().asString().contains("count(*)");
+            Predicate<TreatSite> groupCounts = site -> site.shape() == StatementShape.GROUPED_COUNT;
+            List<String> sql = statements(db, ds -> s.serving(ds, refusing(groupCounts), executor ->
+                    ServingProvider.countingGroups(() -> {
+                        assertThat(executor.count(grouped)).isEqualTo(4);
+                        var page = executor.page(grouped, PageSpec.of(0, 3), CountMode.COUNT);
+                        assertThat(page.total()).hasValue(4);
+                        assertThat(page.content()).hasSize(3);
+                    })));
+            assertThat(sql).hasSize(3).allSatisfy(statement -> assertThat(statement).doesNotContain("count(*)")
+                    .contains("group by"));
+            // The client-side count's sites are checked as GROUPED: refused there, the count is MQ4016.
+            Predicate<TreatSite> groups = site -> site.shape() == StatementShape.GROUPED
+                    || site.shape() == StatementShape.GROUPED_COUNT;
+            assertThat(statements(db, ds -> s.serving(ds, refusing(groups), executor -> {
+                assertRefused(() -> executor.count(grouped), "GROUPED [");
+                assertRefused(() -> executor.page(grouped, PageSpec.of(0, 3), CountMode.ONLY_COUNT), "GROUPED [");
+            }))).isEmpty();
         }
     }
 

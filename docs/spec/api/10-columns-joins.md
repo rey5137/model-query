@@ -119,6 +119,33 @@ On `SINGLE_TABLE`, two subtypes may map one physical column; the provider reads 
 discriminator, so a sibling's value never shows. A shared-column site in a shape or use set the provider's table
 lacks is `MQ4016`.
 
+**R-COL-36** *(D-154, D-158, D-159)* **The row's entity type.** The `@Incubating` `Expr.typeOf(Class<M> model,
+TableField<?, T> table)` is an `ExpressionField<M, Class<? extends T>>` reading `TYPE(table)`, the exact entity class
+of each row's node, through `From#type()`. It selects, groups, filters with `eq` and `in`, and orders an offset page,
+an offset export and `primaryKeyFirst` (`engine/21` R-PAG-25). `eq(typeOf(ROOT), CardPayment.class)` keeps
+`CardPayment` rows only, not those of its entity subtypes; `Filters#ofType` (`api/12` R-FLT-28) keeps those too.
+
+- **Order.** Unspecified: the provider's type rendering, the discriminator value on `SINGLE_TABLE` (and on `JOINED`
+  with a discriminator) and the union's synthetic type column on `TABLE_PER_CLASS`. With R-PAG-01's id tie-breaker
+  it is deterministic per deployment, which is all an offset page needs; order by a `@Computed` `CASE` for a named
+  order.
+- **Keyset.** A `keyset()` order key over it is `MQ1208` at `build()`, as every expression is (R-QRY-16).
+- **No treated statement.** It reads no column and makes no treated statement (R-COL-35): no root-id count and no
+  `mq_0id` anchor. A grouped query's total by it keeps R-AGG's count of groups; on a `JOINED` root without a
+  physical discriminator the Hibernate renderer refuses that count (`GROUPED_COUNT`), whose `createCountQuery()`
+  drops the subtype joins, and the engine counts the groups client-side (`engine/20` R-EXE-03, D-159). Selected in
+  a grouped query, it must itself be a group key (`MQ1401`), since it is per row; selected as a group key it is one
+  site, `{SELECT, GROUP_BY, TYPE}`.
+- **Refusals.** Without the provider's `TreatRenderer` it is `MQ4014`, at the call's site check and at rendering
+  (`vendor/40` R-VND-26). Over a node reached through a LEFT join, in a select, order or group key, it is `MQ4016`
+  before any statement: on a row whose join is absent both measured lines fail to resolve the type instead of reading
+  NULL; `notOfType` over such a join is admitted. An order by it on a `JOINED` root whose persister has no
+  discriminator is `MQ4016` from the Hibernate renderer: both lines render `order by case end`, which no vendor
+  accepts. Over a treated node, a treat of the root or a downcast join, it is `MQ4016` before any statement, since
+  no cell measures it; read the untreated node's type. Over a source root it is `MQ1106`.
+- **An unmapped discriminator value.** Reading `typeOf` on a row whose discriminator value no entity maps fails with
+  the provider's error, so the row is never skipped silently.
+
 **R-COL-30** *(D-143)* **A `TableField` may be a source's root.** `TableField.source(model)` is the root of a query
 over a `@SourceModel` (`api/17` R-SRC-10): its `rootEntity()` is the source model, and the query reads the CTE's
 columns by field name rather than from an entity `From`. It is generated, for a `@QueryModel` whose `root` names a
@@ -641,6 +668,7 @@ the planner must see as a literal (a partial index's predicate, a selective enum
 | AC-COL-45 | Per strategy, `eq`/`in`/`like`/`isNotNull` keep only matching subtype rows; `isNull`, `ne`, `notIn` include sibling rows; `not(eq)` excludes them (SQL `NOT` over NULL, D-5, where JPA's "false" would include them); a treat in `or` keeps the base operand's sibling rows; each `page()` total equals the content's rows (R-COL-35, D-154). |
 | AC-COL-46 | Per strategy, an offset order by a treated key places sibling rows by NULL under `nullsFirst`/`nullsLast`; a treated group key or aggregate argument, in a query or a source, is `MQ4016` before any statement; the source cases land with M28.8 (R-COL-35, D-154). |
 | AC-COL-48 | `MQ1106` for an improper subtype at definition on a root and at first resolution on a join; treating a treat or source root; modifiers on a treated join; an unmapped subtype; a sibling root or sibling re-root. `MQ1104` for `as`/`on`/`presentBy` on a treated root. `MQ1003` names `ROOT.treat(...)` for a subtype-root column in a base-root query (R-COL-34, D-154). |
+| AC-COL-49 | `typeOf` selects each row's exact class, `eq` matches exactly, a group by type counts per type and its page total counts the groups, an offset order by it repeats across two runs on `SINGLE_TABLE`, `TABLE_PER_CLASS` and `JOINED` with a discriminator; `JOINED` without one and `typeOf` over a LEFT-joined node are `MQ4016` before any statement; keyset is `MQ1208`; `ofType` of an unmapped type is `MQ1106`, and every type read without the provider's `TreatRenderer` is `MQ4014` (R-COL-36, D-158). |
 | AC-COL-50 | Per strategy, a model rooted at a mid-level subtype reads its and the grandchild's rows only in content, count, keyset and export; `MQ4010` on a `JOINED` or `TABLE_PER_CLASS` base root; a lock on a `SINGLE_TABLE` subtype root (R-COL-34, D-154). |
 | AC-COL-51 | Per line, a treated column on a `SINGLE_TABLE` column a sibling maps, same-named and differently named, reads NULL on the sibling's rows in the select list, an order and a predicate that matches only the sibling's value; a shared-column site the table lacks is `MQ4016` before any statement (R-COL-35, D-154). |
 | AC-COL-52 | Per strategy, `page()`'s total and `count(q)` with a select-only or order-only treat and with `isNull`, `ne`, `notIn` and `not(isNotNull)` equal the content's rows, rendered as `count(root.id)` with no selection or order (SQL snapshot); a grouped `@Subtype` total counts groups; a keyless model's content and a source body select the root id last as `mq_0id`, absent from `fields()`, the default sets, the mapper and `Rows`; a `distinct()` query or a `union`/`intersect`/`except` that would need it is `MQ4016`, and runs when the model selects the root id; the grouped `@Subtype` and source-body cases land with M28.5 and M28.8 (R-COL-35, D-154). |

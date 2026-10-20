@@ -1,6 +1,7 @@
 package com.rey.modelquery.core;
 
 import com.rey.modelquery.annotations.Incubating;
+import jakarta.persistence.metamodel.Metamodel;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -16,7 +17,8 @@ import java.util.Optional;
 public final class RenderOptions {
 
     /** The limits of the {@code OTHER} profile, which are safe on any database (R-VND-06). */
-    private static final RenderOptions PORTABLE = new RenderOptions(1_000, 2_000, null, null, null, null, null, null);
+    private static final RenderOptions PORTABLE =
+            new RenderOptions(1_000, 2_000, null, null, null, null, null, null, null);
 
     private final int maxInListSize;
     private final int maxBindParameters;
@@ -26,10 +28,11 @@ public final class RenderOptions {
     private final SourceRenderer sourceRenderer;
     private final SubqueryRenderer subqueryRenderer;
     private final TreatRenderer treatRenderer;
+    private final Metamodel metamodel;
 
     private RenderOptions(int maxInListSize, int maxBindParameters, NullPrecedenceRenderer nullPrecedenceRenderer,
             ConstantRenderer constantRenderer, SequenceRenderer sequenceRenderer, SourceRenderer sourceRenderer,
-            SubqueryRenderer subqueryRenderer, TreatRenderer treatRenderer) {
+            SubqueryRenderer subqueryRenderer, TreatRenderer treatRenderer, Metamodel metamodel) {
         this.maxInListSize = maxInListSize;
         this.maxBindParameters = maxBindParameters;
         this.nullPrecedenceRenderer = nullPrecedenceRenderer;
@@ -38,6 +41,7 @@ public final class RenderOptions {
         this.sourceRenderer = sourceRenderer;
         this.subqueryRenderer = subqueryRenderer;
         this.treatRenderer = treatRenderer;
+        this.metamodel = metamodel;
     }
 
     /** The options of an unknown database: the {@code OTHER} limits and no renderer. */
@@ -55,46 +59,61 @@ public final class RenderOptions {
             throw new IllegalArgumentException("maxInListSize and maxBindParameters must be positive, got "
                     + maxInListSize + " and " + maxBindParameters);
         }
-        return new RenderOptions(maxInListSize, maxBindParameters, null, null, null, null, null, null);
+        return new RenderOptions(maxInListSize, maxBindParameters, null, null, null, null, null, null, null);
     }
 
     /** These options with {@code renderer} rendering explicit null precedence. */
     public RenderOptions withNullPrecedenceRenderer(NullPrecedenceRenderer renderer) {
         return new RenderOptions(maxInListSize, maxBindParameters, Objects.requireNonNull(renderer, "renderer"),
-                constantRenderer, sequenceRenderer, sourceRenderer, subqueryRenderer, treatRenderer);
+                constantRenderer, sequenceRenderer, sourceRenderer, subqueryRenderer, treatRenderer, metamodel);
     }
 
     /** These options with {@code renderer} rendering a column-typed constant (R-COL-27). */
     public RenderOptions withConstantRenderer(ConstantRenderer renderer) {
         return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer,
                 Objects.requireNonNull(renderer, "renderer"), sequenceRenderer, sourceRenderer, subqueryRenderer,
-                treatRenderer);
+                treatRenderer, metamodel);
     }
 
     /** These options with {@code renderer} rendering a sequence's next value (R-COL-28). */
     public RenderOptions withSequenceRenderer(SequenceRenderer renderer) {
         return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer, constantRenderer,
-                Objects.requireNonNull(renderer, "renderer"), sourceRenderer, subqueryRenderer, treatRenderer);
+                Objects.requireNonNull(renderer, "renderer"), sourceRenderer, subqueryRenderer, treatRenderer,
+                metamodel);
     }
 
     /** These options with {@code renderer} registering a source's CTE on every statement that reads it (R-SRC-12). */
     public RenderOptions withSourceRenderer(SourceRenderer renderer) {
         return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer, constantRenderer,
-                sequenceRenderer, Objects.requireNonNull(renderer, "renderer"), subqueryRenderer, treatRenderer);
+                sequenceRenderer, Objects.requireNonNull(renderer, "renderer"), subqueryRenderer, treatRenderer,
+                metamodel);
     }
 
     /** These options with {@code renderer} limiting an ordered scalar sub-query to one row (R-VND-25). */
     @Incubating
     public RenderOptions withSubqueryRenderer(SubqueryRenderer renderer) {
         return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer, constantRenderer,
-                sequenceRenderer, sourceRenderer, Objects.requireNonNull(renderer, "renderer"), treatRenderer);
+                sequenceRenderer, sourceRenderer, Objects.requireNonNull(renderer, "renderer"), treatRenderer,
+                metamodel);
     }
 
     /** These options with the provider's treated-path renderer (R-VND-26). */
     @Incubating
     public RenderOptions withTreatRenderer(TreatRenderer renderer) {
         return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer, constantRenderer,
-                sequenceRenderer, sourceRenderer, subqueryRenderer, Objects.requireNonNull(renderer, "renderer"));
+                sequenceRenderer, sourceRenderer, subqueryRenderer, Objects.requireNonNull(renderer, "renderer"),
+                metamodel);
+    }
+
+    /**
+     * These options with the persistence unit's {@code metamodel}, from which {@code ofType} reads the entity subtypes
+     * of each type it lists (R-FLT-28, D-158).
+     */
+    @Incubating
+    public RenderOptions withMetamodel(Metamodel metamodel) {
+        return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer, constantRenderer,
+                sequenceRenderer, sourceRenderer, subqueryRenderer, treatRenderer,
+                Objects.requireNonNull(metamodel, "metamodel"));
     }
 
     /** The most values one {@code IN} list takes before it is split (R-FLT-09). */
@@ -139,5 +158,26 @@ public final class RenderOptions {
     @Incubating
     public Optional<TreatRenderer> treatRenderer() {
         return Optional.ofNullable(treatRenderer);
+    }
+
+    /**
+     * These limits with each renderer and the metamodel {@code other} has, keeping this one's where {@code other} has
+     * none: a scratch build renders as the executor's real build does, under its own limits.
+     */
+    RenderOptions withRenderersOf(RenderOptions other) {
+        return new RenderOptions(maxInListSize, maxBindParameters,
+                orElse(other.nullPrecedenceRenderer, nullPrecedenceRenderer),
+                orElse(other.constantRenderer, constantRenderer), orElse(other.sequenceRenderer, sequenceRenderer),
+                orElse(other.sourceRenderer, sourceRenderer), orElse(other.subqueryRenderer, subqueryRenderer),
+                orElse(other.treatRenderer, treatRenderer), orElse(other.metamodel, metamodel));
+    }
+
+    private static <T> T orElse(T value, T fallback) {
+        return value != null ? value : fallback;
+    }
+
+    /** The persistence unit's metamodel, or empty: an {@code ofType} then cannot render (R-FLT-28). */
+    Optional<Metamodel> metamodel() {
+        return Optional.ofNullable(metamodel);
     }
 }

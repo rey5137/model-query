@@ -25,7 +25,7 @@ import java.util.function.UnaryOperator;
  * {@code exists} inner group) is valid only inside its own operator, and the enclosing one cannot be used while it
  * runs: add the nested filters to the {@code Filters} the operator receives. Either misuse throws {@code MQ1303}.
  *
- * @implSpec api/12 §1, R-FLT-01..08, R-FLT-10, R-FLT-11, R-FLT-13, R-FLT-14
+ * @implSpec api/12 §1, R-FLT-01..08, R-FLT-10, R-FLT-11, R-FLT-13, R-FLT-14, R-FLT-28
  */
 @Incubating
 public sealed interface Filters<M> permits FilterGroup {
@@ -103,6 +103,59 @@ public sealed interface Filters<M> permits FilterGroup {
 
     /** {@link #notIn(ScalarField, Collection)}, skipped when {@code values} is empty. */
     <C> Filters<M> notIn(ScalarField<M, C> column, Optional<? extends Collection<? extends C>> values);
+
+    /**
+     * Rows whose {@code table} node is an instance of {@code type} or of one of {@code more}: its exact entity class
+     * is a listed type or one of their entity subtypes, read from the persistence unit's metamodel, so a grandchild
+     * and a subtype mapped in {@code orm.xml} count (R-FLT-28). It renders {@code TYPE(table) IN (...)} over those
+     * classes; {@code eq(Expr.typeOf(...), type)} matches the exact class only. A row whose discriminator value no
+     * entity maps is dropped. A type that is not the node's entity or one of its subtypes does not compile.
+     *
+     * <p>No {@code @SafeVarargs}: an interface method cannot carry it, so a call may warn of an unchecked generic
+     * array; the implementation reads the array only (D-158).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1301} for a null type; {@code MQ1106} at first resolution for a
+     *     type the metamodel does not map as an entity, and for a source root
+     * @throws ModelQueryConfigurationException {@code MQ4014} without the provider's {@code TreatRenderer}
+     */
+    @Incubating
+    <T> Filters<M> ofType(TableField<?, T> table, Class<? extends T> type, Class<? extends T>... more);
+
+    /**
+     * {@link #ofType(TableField, Class, Class[])} over a collection. An empty collection means "none of these types"
+     * and keeps no row, as {@link #in(ScalarField, Collection)} does.
+     */
+    @Incubating
+    <T> Filters<M> ofType(TableField<?, T> table, Collection<? extends Class<? extends T>> types);
+
+    /** {@link #ofType(TableField, Collection)}, skipped when {@code types} is empty (P-3). */
+    @Incubating
+    <T> Filters<M> ofType(TableField<?, T> table, Optional<? extends Collection<? extends Class<? extends T>>> types);
+
+    /**
+     * The negation of {@link #ofType(TableField, Class, Class[])}: rows whose {@code table} node is an instance of
+     * none of the listed types, {@code TYPE(table) NOT IN (...)}. Over a node reached through a LEFT join it also keeps
+     * rows where the join is absent, {@code OR TYPE(table) IS NULL}, as {@code notIn} keeps NULL (R-FLT-04). A row
+     * whose discriminator value no entity maps is kept, since the list does not name it (R-FLT-28).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1301} for a null type; {@code MQ1106} at first resolution for a
+     *     type the metamodel does not map as an entity, and for a source root
+     * @throws ModelQueryConfigurationException {@code MQ4014} without the provider's {@code TreatRenderer}
+     */
+    @Incubating
+    <T> Filters<M> notOfType(TableField<?, T> table, Class<? extends T> type, Class<? extends T>... more);
+
+    /**
+     * {@link #notOfType(TableField, Class, Class[])} over a collection. An empty collection keeps every row, as
+     * {@link #notIn(ScalarField, Collection)} does.
+     */
+    @Incubating
+    <T> Filters<M> notOfType(TableField<?, T> table, Collection<? extends Class<? extends T>> types);
+
+    /** {@link #notOfType(TableField, Collection)}, skipped when {@code types} is empty (P-3). */
+    @Incubating
+    <T> Filters<M> notOfType(TableField<?, T> table,
+            Optional<? extends Collection<? extends Class<? extends T>>> types);
 
     /**
      * {@code column IN (first, second)} over scalar fields of the column's own model and type, so an

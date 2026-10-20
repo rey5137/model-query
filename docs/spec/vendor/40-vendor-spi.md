@@ -351,23 +351,24 @@ interface TreatRenderer {
 record TreatSite(Class<?> entity, Class<?> subtype, Optional<String> attribute,
                  StatementShape shape, boolean anchored, Set<TreatUse> uses) {}
 record ExpectedNarrowing(Kind kind, Class<?> entity, Set<Class<?>> types) {
-    enum Kind { EXISTS_ROOT }
+    enum Kind { EXISTS_ROOT, TYPE_RESTRICTION }
 }
-enum StatementShape { CONTENT, COUNT, GROUPED, SOURCE_BODY, CHILD, WRITE }
+enum StatementShape { CONTENT, COUNT, GROUPED, GROUPED_COUNT, SOURCE_BODY, CHILD, WRITE }
 enum TreatUse {
     SELECT, ORDER, GROUP_BY, AGGREGATE, EXPRESSION, PREDICATE, NULL_TEST, NEGATED, DISJUNCTION,
     LEFT_JOIN, INNER_JOIN, SUBQUERY, CORRELATION, TYPE
 }
 ```
 
-`preflight` has no default implementation. `TreatSite.uses()` is an immutable copy with enum-set semantics;
-consume its accessors rather than deconstructing the record, since components may be added. `ExpectedNarrowing` and
-its `Kind` are `@EngineFacing`; its `types` are a non-empty, unmodifiable copy of subtypes of `entity`, and a renderer
-refuses a `Kind` it doesn't know (D-157). `refusal` and
-`preflight` return an empty optional on acceptance, or the reason for refusal. The executor passes the factory's
-renderer through `RenderOptions#withTreatRenderer`; scratch options retain it. There is no `VendorProfile#treats`
-and no `MQ4015` treat fact (INV-6). With no renderer, every treated node, including a redundant treat, is `MQ4014`
-at build time, before any statement, across content, count, export and writes (R-COL-34, AC-VND-16).
+`preflight` has no default implementation. `TreatSite.uses()` is an immutable copy with enum-set semantics; consume its
+accessors rather than deconstructing the record, since components may be added. `ExpectedNarrowing` and its `Kind` are
+`@EngineFacing`; its `types` are a non-empty, unmodifiable copy of subtypes of `entity`, and a renderer refuses a `Kind`
+it doesn't know (D-157). `refusal` and `preflight` return an empty optional on acceptance, or the reason for refusal.
+The executor passes the factory's renderer through `RenderOptions#withTreatRenderer`, and the persistence unit's
+metamodel, from which `ofType` reads its subtypes, through `RenderOptions#withMetamodel` (D-158); scratch options retain
+both. There is no `VendorProfile#treats` and no `MQ4015` treat fact (INV-6). With no renderer, every treated node,
+including a redundant treat, is `MQ4014` at build time, before any statement, across content, count, export and writes
+(R-COL-34, AC-VND-16).
 
 **Sites before the first statement (the engine half).** With a renderer, the executor derives every `TreatSite` of
 a call from the definition and the call, not from the statements built so far, and checks each against `refusal`
@@ -377,17 +378,19 @@ strategy and the reason. Nothing is cached: each call checks again. A site is on
 - `entity` is the entity the treated node treats and `subtype` its subtype; `attribute` is the attribute path read
   through it, empty for a treated join's own rendering;
 - `shape` is the statement it sits in: `CONTENT` (a list, page, keyset or export page, `one`, `byKeys`), `COUNT` (a
-  total or `count(q)`), `GROUPED` (a statement with `GROUP BY` or an aggregate select), `SOURCE_BODY`, `CHILD` (a
+  total or `count(q)`), `GROUPED` (a statement with `GROUP BY` or an aggregate select), `GROUPED_COUNT` (the count of
+  a grouped statement's groups, which the engine counts client-side, its sites checked as `GROUPED`, when the
+  renderer refuses it; `engine/20` R-EXE-03, D-159), `SOURCE_BODY`, `CHILD` (a
   fetch plan's child statement, its join plans' selections and its declared columns, enrichers' included) or
   `WRITE` (a bulk write's `where` and a returning model). A site in a sub-select takes its statement's shape and
   adds `SUBQUERY`;
 - `anchored` is true in a `CONTENT` and a `COUNT` statement, which the engine anchors (`api/10` R-COL-35), and false
-  in a `GROUPED`, `CHILD`, `WRITE` or `SOURCE_BODY` statement (until a body anchors its root id, `api/17` R-SRC-20) and
-  in a sub-select, since no anchor covers the sub-select's own root. A correlated count's counted column over its own
-  treated root (`SubSelect.of(ROOT.treat(Sub.class).id)`-style) is the one anchored site in a sub-select: the count
-  reads the treated root itself, so its `{SELECT, AGGREGATE, SUBQUERY}` site stays anchored and is not refused as an
-  aggregate (R-COL-31); a treated node elsewhere in a correlated value — a counted column, condition, correlation or
-  order over a sub-select whose root is not treated — is unanchored;
+  in a `GROUPED`, `GROUPED_COUNT`, `CHILD`, `WRITE` or `SOURCE_BODY` statement (until a body anchors its root id,
+  `api/17` R-SRC-20) and in a sub-select, since no anchor covers the sub-select's own root. A correlated count's
+  counted column over its own treated root (`SubSelect.of(ROOT.treat(Sub.class).id)`-style) is the one anchored site
+  in a sub-select: the count reads the treated root itself, so its `{SELECT, AGGREGATE, SUBQUERY}` site stays anchored
+  and is not refused as an aggregate (R-COL-31); a treated node elsewhere in a correlated value — a counted column,
+  condition, correlation or order over a sub-select whose root is not treated — is unanchored;
 - `uses` is the site's own use and every enclosing context: `not(isNull(x))` is `{NULL_TEST, NEGATED}`, an operand
   inside `or` adds `DISJUNCTION`, an order key selected as well (R-QRY-04) gives a `{SELECT}` and an `{ORDER}` site,
   and a primary-key column the order lacks, which the executor appends as a tie-breaker, is an order key too.
@@ -428,8 +431,10 @@ segment's; a join or path through a shared column, or an attribute whose columns
 measured there (`rfc/0016` §10). A mapping variant (`@DiscriminatorOptions(force = true)`, `@DiscriminatorFormula` or a
 `@SecondaryTable` on `SINGLE_TABLE`; a `JOINED` discriminator column, or either `JOINED` discriminator setting) keeps
 the table less what its runs didn't measure, the three null-accepting `COUNT` sets; a shared column in a variant, and
-a variant on another strategy, is refused. `TYPE` (until M28.5), a
-correlated outer node, an unanchored site and every `GROUPED`, `SOURCE_BODY`, `CHILD` and `WRITE` site are refused.
+a variant on another strategy, is refused. A
+correlated outer node, an unanchored site and every non-`TYPE` `GROUPED`, `GROUPED_COUNT`, `SOURCE_BODY`, `CHILD` and
+`WRITE` site are refused; a `GROUPED_COUNT` type site is admitted as its `GROUPED` cell, except on a `JOINED` root
+without a physical discriminator (D-159).
 The mapping gates are `MQ4016` for the whole hierarchy: a subtype `@SQLRestriction` (ignored by 6.6, refused at
 bootstrap by 7.4), a `@DiscriminatorValue("null")` or `("not null")`, an `@IdClass` or `@EmbeddedId` id, and other
 `@DiscriminatorOptions`; a root `@SQLRestriction` runs. The mapping is read from the entity persisters once per
@@ -450,7 +455,10 @@ purpose, in build order, compared as a multiset: an `EXISTS_ROOT` for the correl
 through a treat, naming every subtype it was treated as, unless an `or` in that `exists` reads a column of the treated
 root in some of its branches only, where Hibernate reads the root whole. Nothing else is declared: an `in` sub-select's
 own treated root, a `CASE WHEN EXISTS` and a correlated count's own treated root (which neither line narrows) are not,
-so a narrowing there is `MQ4016`. `ofType` adds a kind in M28.5.
+so a narrowing there is `MQ4016`. A `TYPE_RESTRICTION` names a node a non-empty `ofType` restricts to the rendered
+classes, declared only for an `ofType` that is a top-level conjunct of a select statement's own `where`, where a
+narrowing to them loses no row the filter keeps; none under `or`, `not`, a `CASE`, `add(...)` or in a sub-select
+(`api/12` R-FLT-28, D-158).
 
 *Hibernate's preflight.* `model-query-hibernate` translates the criteria statement to Hibernate's SQL AST with no
 JDBC call, through a per-line adapter for 6.6 and 7.4, and walks every query spec, its CTE bodies, derived tables

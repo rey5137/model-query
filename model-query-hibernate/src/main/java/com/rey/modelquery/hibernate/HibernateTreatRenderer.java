@@ -95,6 +95,23 @@ final class HibernateTreatRenderer implements TreatRenderer {
     /** A treated join's own site in a count, with no attribute ({@code COUNT_DERIVED FROM_*_JOIN}). */
     private static final Set<Set<TreatUse>> COUNT_JOINS = cells(List.of(), List.of("INNER_JOIN", "LEFT_JOIN"));
 
+    /**
+     * The {@code TYPE} cells of a content statement: the {@code READ} rows the spike's table marks {@code ALLOW}, the
+     * order only where the persister maps a discriminator, and a type predicate under an {@code or}, measured in the
+     * {@code COMBINED_TYPE_TREAT/OR} rows, which RFC 0016 §10 admits per site (D-158).
+     */
+    private static final Set<Set<TreatUse>> TYPE_CONTENT = cells(List.of(), List.of("TYPE+SELECT", "TYPE+ORDER",
+            "TYPE+PREDICATE", "TYPE+PREDICATE+DISJUNCTION",
+            "TYPE+PREDICATE+NEGATED+NULL_TEST+DISJUNCTION+LEFT_JOIN"));
+
+    /** The {@code TYPE} cells of a count: its {@code COUNT} rows marked {@code ALLOW}, and the {@code or} above. */
+    private static final Set<Set<TreatUse>> TYPE_COUNT = cells(List.of(), List.of("TYPE+PREDICATE",
+            "TYPE+PREDICATE+DISJUNCTION", "TYPE+PREDICATE+NEGATED+NULL_TEST+DISJUNCTION+LEFT_JOIN"));
+
+    /** The {@code TYPE} cells of a grouped statement: a type group key, selected or not ({@code GROUP_BY+TYPE}). */
+    private static final Set<Set<TreatUse>> TYPE_GROUPED = cells(List.of(), List.of("TYPE+GROUP_BY",
+            "TYPE+SELECT+GROUP_BY"));
+
     /** The null-accepting count sets, measured as a root-id count on the core mappings only. */
     private static final Set<Set<TreatUse>> ROOT_ID_COUNTED =
             cells(List.of(), List.of("NULL_TEST", "NULL_TEST+NEGATED", "PREDICATE+NULL_TEST+DISJUNCTION"));
@@ -185,11 +202,11 @@ final class HibernateTreatRenderer implements TreatRenderer {
     @Incubating
     public Optional<String> refusal(TreatSite site) {
         Set<TreatUse> uses = site.uses();
-        if (uses.contains(TreatUse.TYPE)) {
-            return Optional.of("typeOf and ofType have no measured cell before M28.5");
-        }
         if (uses.contains(TreatUse.CORRELATION)) {
             return Optional.of("a sub-select correlated on a treated outer node is not measured");
+        }
+        if (uses.contains(TreatUse.TYPE)) {
+            return typeRefusal(site);
         }
         if (site.shape() != StatementShape.CONTENT && site.shape() != StatementShape.COUNT) {
             return Optional.of("no " + site.shape() + " cell is measured");
@@ -243,6 +260,47 @@ final class HibernateTreatRenderer implements TreatRenderer {
         }
         return Optional.of(shared ? "an unmeasured use set for a column another entity of the hierarchy maps"
                 : hierarchy.variant() ? "an unmeasured use set for this mapping variant" : "an unmeasured use set");
+    }
+
+    /**
+     * A {@code typeOf} or {@code ofType} site's refusal: its shape's measured {@code TYPE} cells, and an order over a
+     * {@code JOINED} root without a discriminator, which renders {@code order by case ... end}, invalid on every
+     * vendor and line (R-COL-36); and a count of type groups over such a root, which {@code createCountQuery} counts
+     * without the subtype joins, so the engine counts those groups client-side (D-159).
+     */
+    private Optional<String> typeRefusal(TreatSite site) {
+        Set<Set<TreatUse>> cells = switch (site.shape()) {
+            case CONTENT -> TYPE_CONTENT;
+            case COUNT -> TYPE_COUNT;
+            case GROUPED, GROUPED_COUNT -> TYPE_GROUPED;
+            default -> null;
+        };
+        if (cells == null) {
+            return Optional.of("no " + site.shape() + " cell is measured for a type read");
+        }
+        boolean grouped = site.shape() == StatementShape.GROUPED || site.shape() == StatementShape.GROUPED_COUNT;
+        if (!grouped && !site.anchored()) {
+            return Optional.of("a type read in a statement that doesn't read its root is not measured");
+        }
+        Mapped entity = entities.get(site.entity());
+        if (entity == null) {
+            return Optional.of(site.entity().getName() + " is not a mapped entity");
+        }
+        if (entity.hierarchy().refusal().isPresent()) {
+            return entity.hierarchy().refusal();
+        }
+        if (!cells.contains(site.uses())) {
+            return Optional.of("an unmeasured use set for a type read");
+        }
+        if (site.shape() == StatementShape.GROUPED_COUNT && !entity.hierarchy().typeOrdered()) {
+            return Optional.of("the provider's count of type groups on a JOINED root without a discriminator drops "
+                    + "the subtype joins (createCountQuery), so the groups are counted client-side");
+        }
+        if (site.uses().contains(TreatUse.ORDER) && !entity.hierarchy().typeOrdered()) {
+            return Optional.of("a typeOf order on a JOINED root without a discriminator renders an invalid "
+                    + "order by case ... end; map a discriminator column or order by another column");
+        }
+        return Optional.empty();
     }
 
     @Override
@@ -300,18 +358,21 @@ final class HibernateTreatRenderer implements TreatRenderer {
             if (options != null && !(options.force() && options.insert())) {
                 return Hierarchy.refused("@DiscriminatorOptions other than force = true is not measured");
             }
-            return new Hierarchy(Optional.empty(), true, options != null || formula || secondary, owners(members));
+            return new Hierarchy(Optional.empty(), true, options != null || formula || secondary, true,
+                    owners(members));
         }
         if (options != null || formula || secondary) {
             return Hierarchy.refused("a discriminator option, formula or secondary table is measured on "
                     + "SINGLE_TABLE only");
         }
         if (root instanceof JoinedSubclassEntityPersister joined) {
-            return new Hierarchy(Optional.empty(), false, joinedSettings || joined.getDiscriminatorMapping() != null
-                    && joined.getDiscriminatorMapping().hasPhysicalColumn(), Map.of());
+            // Without a physical discriminator Hibernate reads the type from a CASE over the subtype tables.
+            boolean discriminator = joined.getDiscriminatorMapping() != null
+                    && joined.getDiscriminatorMapping().hasPhysicalColumn();
+            return new Hierarchy(Optional.empty(), false, joinedSettings || discriminator, discriminator, Map.of());
         }
         if (root instanceof UnionSubclassEntityPersister) {
-            return new Hierarchy(Optional.empty(), false, false, Map.of());
+            return new Hierarchy(Optional.empty(), false, false, true, Map.of());
         }
         return Hierarchy.refused("an unrecognised persister " + root.getClass().getSimpleName());
     }
@@ -434,14 +495,15 @@ final class HibernateTreatRenderer implements TreatRenderer {
     private record Property(List<String> columns, boolean association) {}
 
     /**
-     * A hierarchy's gate refusal, whether it is {@code SINGLE_TABLE}, whether it is a measured mapping variant, and
-     * its shared-column owners.
+     * A hierarchy's gate refusal, whether it is {@code SINGLE_TABLE}, whether it is a measured mapping variant,
+     * whether a {@code typeOf} order over it renders (a discriminator column, a formula or {@code clazz_}), and its
+     * shared-column owners.
      */
-    private record Hierarchy(Optional<String> refusal, boolean singleTable, boolean variant,
+    private record Hierarchy(Optional<String> refusal, boolean singleTable, boolean variant, boolean typeOrdered,
             Map<String, Set<String>> owners) {
 
         static Hierarchy refused(String reason) {
-            return new Hierarchy(Optional.of(reason), false, false, Map.of());
+            return new Hierarchy(Optional.of(reason), false, false, false, Map.of());
         }
 
         /** Whether any of {@code columns} is mapped by more than one entity of a {@code SINGLE_TABLE} hierarchy. */

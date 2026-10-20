@@ -8,7 +8,8 @@ import java.util.Set;
 
 /**
  * A narrowing the engine rendered on purpose in one statement, which the provider's preflight expects rather than
- * refuses (R-VND-26, D-157): a sub-select's root of {@code entity}, read through a treat as each of {@code types}. A
+ * refuses (R-VND-26, D-157): a sub-select's root of {@code entity}, read through a treat as each of {@code types}, or a
+ * node an {@code ofType} restricts to {@code types} (D-158). A
  * statement's narrowings are listed in build order and compared as a multiset, so two equal {@code exists} are two
  * entries. Providers should read accessors rather than use record deconstruction patterns, so later components remain
  * compatible.
@@ -36,11 +37,18 @@ public record ExpectedNarrowing(@Incubating Kind kind, @Incubating Class<?> enti
         types = Collections.unmodifiableSet(copy);
     }
 
-    /** Which sub-select root the engine narrowed; unknown future kinds must be refused (R-VND-26). */
+    /** Which narrowing the engine rendered on purpose; unknown future kinds must be refused (R-VND-26). */
     @EngineFacing
     @Incubating
     public enum Kind {
         /** The correlated root of a path {@code exists}, read through a treat (R-FLT-11). */
-        @Incubating EXISTS_ROOT
+        @Incubating EXISTS_ROOT,
+        /**
+         * A node of the statement's own {@code where}, restricted by a top-level {@code ofType} to {@code types}, its
+         * listed types and their mapped concrete subtypes (R-FLT-28): a narrowing to them loses no row the filter
+         * keeps. Not declared under an {@code or}, a {@code not}, a {@code CASE}, an {@code add(...)} or in a
+         * sub-select, where a narrowing would.
+         */
+        @Incubating TYPE_RESTRICTION
     }
 }
