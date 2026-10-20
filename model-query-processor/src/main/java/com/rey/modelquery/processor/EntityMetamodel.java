@@ -75,6 +75,23 @@ final class EntityMetamodel {
      */
     record Resolution(EntityAttribute attribute, String owner, String problem, boolean association) {}
 
+    /** Whether {@code subtype} is a strict, annotation-mapped entity subtype of {@code root} (R-PROC-41). */
+    boolean strictEntitySubtype(TypeMirror subtype, TypeElement root) {
+        return subtype instanceof DeclaredType declared && subtype.getKind() == TypeKind.DECLARED
+                && QueryModelReader.isEntity((TypeElement) declared.asElement())
+                && !types.isSameType(subtype, root.asType()) && types.isSubtype(subtype, root.asType());
+    }
+
+    /** Whether two entity types lie on the same inheritance branch (R-PROC-42). */
+    boolean related(TypeMirror first, TypeMirror second) {
+        return types.isSubtype(first, second) || types.isSubtype(second, first);
+    }
+
+    /** The entity whose hierarchy an attribute reads, after its treat declaration has been checked. */
+    static TypeElement treatedRoot(TypeElement root, TypeMirror treat) {
+        return treat == null ? root : (TypeElement) ((DeclaredType) treat).asElement();
+    }
+
     /**
      * Resolves {@code path} from {@code root}. Every segment but the last must be an embedded value: a column's path
      * never crosses an association (R-PROC-06, D-41).
@@ -113,7 +130,7 @@ final class EntityMetamodel {
      * @param steps the segments that resolved, in order: all of them when {@code problem} is {@code null}
      * @param problem why the segment after {@code steps} does not resolve, worded to follow {@code "Model.field: "}
      */
-    record Walk(List<Step> steps, String problem) {}
+    record Walk(List<Step> steps, String problem, boolean missingAttribute) {}
 
     /**
      * Follows {@code path} from {@code root}, as a {@code @FilterColumn} may write it: a segment before the last is
@@ -132,11 +149,11 @@ final class EntityMetamodel {
             EntityAttribute found = attributes(hierarchy, property).get(segments[i]);
             String ownerName = owner.asElement().getSimpleName().toString();
             if (found == null) {
-                return new Walk(steps, "no attribute '" + segments[i] + "' on " + ownerName);
+                return new Walk(steps, "no attribute '" + segments[i] + "' on " + ownerName, true);
             }
             steps.add(new Step(ownerName, found));
             if (i == segments.length - 1) {
-                return new Walk(steps, null);
+                return new Walk(steps, null, false);
             }
             if (found.kind() == EntityAttribute.Kind.EMBEDDED) {
                 owner = (DeclaredType) found.type();
@@ -146,10 +163,10 @@ final class EntityMetamodel {
                 property = false;
             } else if (found.kind() == EntityAttribute.Kind.BASIC) {
                 return new Walk(steps, "'" + segments[i] + "' on " + ownerName
-                        + " is not an embedded value, so it has no attribute '" + segments[i + 1] + "'");
+                        + " is not an embedded value, so it has no attribute '" + segments[i + 1] + "'", false);
             } else {
                 return new Walk(steps, "'" + segments[i] + "' on " + ownerName + " has no entity to join, so '"
-                        + path + "' can't go through it");
+                        + path + "' can't go through it", false);
             }
         }
     }
@@ -186,7 +203,8 @@ final class EntityMetamodel {
     }
 
     /**
-     * The id of {@code root}, read once per instance (one processing round): its {@code @Id} attributes, its {@code @IdClass} attributes, its {@code @EmbeddedId}
+     * The id of {@code root}, read once per instance (one processing round): its {@code @Id} attributes,
+     * its {@code @IdClass} attributes, its {@code @EmbeddedId}
      * and that id's components, as the engine checks a bulk write's key on first execution ({@code MQ1608}).
      *
      * @implSpec R-GEN-22

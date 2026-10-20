@@ -199,7 +199,9 @@ record ModelDefinition(
         return fields.stream().filter(ModelField::discriminated).toList();
     }
 
-    /** The {@code @GroupBy} columns or computed expressions, in declaration order: the members of {@code GROUP_KEYS}. */
+    /**
+     * The {@code @GroupBy} columns or computed expressions, in declaration order: the members of {@code GROUP_KEYS}.
+     */
     List<ModelField> groupKeys() {
         return fields.stream().filter(field -> (field.column() || field.computed()) && field.groupBy()).toList();
     }
@@ -280,12 +282,14 @@ record ModelDefinition(
      * @param discriminator the value named by {@code @Discriminator}, which fixes the field to a constant, or
      *     {@code null} when the field carries none (R-PROC-38)
      * @param depth whether the field carries {@code @Depth}, which makes the model recursive (R-PROC-37)
+     * @param treat the subtype named by {@code @Column(treat)}, or {@code null} for none (R-PROC-41)
+     * @param subtype whether the field carries {@code @Subtype} (R-PROC-43)
      */
     record ModelField(
             VariableElement element, boolean column, String attribute, String constant, boolean primaryKey,
             boolean excludedFromDefaults, TypeMirror converter, TypeMirror definition, JoinDefinition join,
             AggregateDefinition aggregate, WindowDefinition window, boolean groupBy, ChildDefinition child,
-            boolean selected, String discriminator, boolean depth) {
+            boolean selected, String discriminator, boolean depth, TypeMirror treat, boolean subtype) {
 
         String name() {
             return element.getSimpleName().toString();
@@ -325,8 +329,10 @@ record ModelDefinition(
      * @param alias the join's alias, the field's name when another {@code @Join} reads the same attribute
      *     (R-PROC-09); {@code ""} for none
      * @param nested {@code X} of a field declared {@code Optional<X>}, or {@code null} for any other type
+     * @param treat the subtype that declares the association, or {@code null} for none (R-PROC-41)
      */
-    record JoinDefinition(String attribute, String type, String prefix, String alias, TypeMirror nested) {}
+    record JoinDefinition(
+            String attribute, String type, String prefix, String alias, TypeMirror nested, TypeMirror treat) {}
 
     /**
      * A {@code @Child} as written on its field.
@@ -397,9 +403,11 @@ record ModelDefinition(
      *     which alone can differ from the type of a {@code @Join} the path reuses
      * @param alias the alias that puts the path on a join of its own; {@code ""} for none
      * @param converter the class named by {@code converter}, or {@code null} for none
+     * @param treat the subtype that declares the first path segment, or {@code null} for none (R-PROC-41)
      */
     record FilterColumnDefinition(
-            String name, String path, String joinType, boolean explicitJoinType, String alias, TypeMirror converter) {
+            String name, String path, String joinType, boolean explicitJoinType, String alias, TypeMirror converter,
+            TypeMirror treat) {
 
         /** The column as a diagnostic names it, after the model's name: {@code @FilterColumn(CUSTOMER_COUNTRY)}. */
         String label() {

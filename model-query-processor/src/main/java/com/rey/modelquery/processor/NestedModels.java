@@ -115,12 +115,13 @@ final class NestedModels {
         String prefix = join.join().prefix();
         var tables = new ArrayList<JoinedTable>();
         tables.add(new JoinedTable(
-                join, nested, prefix, null, join.name(), join.join().attribute(), model.root(), nested.root(),
+                join, nested, prefix, null, join.name(), join.join().attribute(),
+                EntityMetamodel.treatedRoot(model.root(), join.join().treat()), nested.root(),
                 join.join().type(),
                 nested.columns().stream()
                         .map(column -> new JoinedColumn(prefix + "_" + column.constant(), column.type(),
                                 join.name() + "." + column.name(), nested, column))
-                        .toList()));
+                        .toList(), model, join));
         for (JoinedTable below : tables(nested)) {
             tables.add(new JoinedTable(
                     join, nested, prefix + "_" + below.prefix(),
@@ -130,7 +131,7 @@ final class NestedModels {
                     below.columns().stream()
                             .map(column -> new JoinedColumn(prefix + "_" + column.constant(), column.type(),
                                     join.name() + "." + column.path(), column.owner(), column.field()))
-                            .toList()));
+                            .toList(), below.owner(), below.declaration()));
         }
         return tables;
     }

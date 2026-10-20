@@ -15,15 +15,16 @@
 | `@UpdateModel(root = X.class, prefix = "Q")` | class or record | The attributes a bulk update may write; generates columns and a change set (§7) |
 | `@InsertModel(root = X.class, prefix = "Q")` | class or record | The attributes an insert writes, one instance per row; generates columns, `INSERT_COLUMNS` and the insert builders (§8) |
 | `@PrimaryKey` | field or record component | Primary-key column(s); composite keys supported |
-| `@Column(attribute = "...", converter = Foo.class)` | field or component | Rename the attribute or convert the value (`ColumnConverter<C, F>`) |
-| `@Join(attribute = "...", type = LEFT, prefix = "CUSTOMER", alias = "")` | `Optional<NestedModel>` field or component | Join the association and reuse the nested model's QModel columns |
+| `@Column(attribute = "...", converter = Foo.class, treat = void.class)` | field or component | Rename the attribute or convert the value (`ColumnConverter<C, F>`) |
+| `@Join(attribute = "...", type = LEFT, prefix = "CUSTOMER", alias = "", treat = void.class)` | `Optional<NestedModel>` field or component | Join the association and reuse the nested model's QModel columns |
 | `@Child(key = {}, foreignKey = {})` | `List<ChildModel>` or `Optional<ChildModel>` field or component | Filled from another model's rows when a fetch plan names it (`api/15`) |
-| `@FilterColumn(name = "...", path = "...", joinType = LEFT, alias = "", converter = Foo.class)` | model type (repeatable) | A filter-only column: a `ColumnField` constant with no model field, left out of every generated `SelectSet` and of `map(Row)` |
+| `@FilterColumn(name = "...", path = "...", joinType = LEFT, alias = "", converter = Foo.class, treat = void.class)` | model type (repeatable) | A filter-only column: a `ColumnField` constant with no model field, left out of every generated `SelectSet` and of `map(Row)` |
 | `@FilterColumns` | model type | The container that makes `@FilterColumn` repeatable; never written by hand |
 | `@Aggregate(fn = SUM, attribute = "...", expression = Def.class, distinct = false)` | field or component | An `AggregateField` constant, mapped into this field (`api/13`); `expression` aggregates a `@Computed`-style definition instead of an attribute |
 | `@Computed(Def.class)` | field or component | An `ExpressionField` constant, mapped into this field (`api/10` §3a); a bound model may leave the class to its binding's `@BindExpression` (R-PROC-29) |
 | `@Window(function = ROW_NUMBER, argument = "", partitionBy = {}, orderBy = {}, frame = NONE)` | field or component of a `@SourceModel` | A `WindowField<S, T>` constant, a window function over the source's rows (`api/17` R-SRC-04, R-PROC-36) |
 | `@Discriminator("REFUND")` | field or component of a `@SourceModel` | The constant a branch fixes its shape's discriminator column to; part of the key (`api/17` R-SRC-06, R-PROC-38) |
+| `@Subtype` | field or component | The exact entity class as `Class<? extends R>`, through `Expr.typeOf(ROOT)` (R-PROC-43, D-154) |
 | `@Depth` | field or component of a `@SourceModel` | The level the recursive CTE assigns a row, one `Integer`; makes the model recursive (`api/17` R-SRC-07, R-PROC-37) |
 | `@GroupBy` | field or component | The column joins the generated `GROUP_KEYS` set and the query's group-by |
 | `@ExcludeFromDefaults` | field or component | Leave the column out of `DEFAULT` (heavy BLOB/TEXT columns) |
@@ -80,11 +81,36 @@ and any other mismatch is still `MQ3002` (D-84). A generated column is declared 
 converter or its converter, named or built-in, is an `OrderedColumnConverter`, and `ColumnField` otherwise, following
 nested-model joins (D-93).
 
+**R-PROC-41** `@Column`, `@FilterColumn` and `@Join` declare an `@Incubating Class<?> treat()` member, default
+`void.class` for none (R-PROC-01, D-154). It names a strict `@Entity` subtype of the model's root: a non-entity,
+`@MappedSuperclass`, embeddable, unrelated type or the root itself is `MQ3042`. The processor reads its hierarchy in
+source or on the classpath. A column's attribute (including an embedded path), a filter path's first segment, or a
+join's association is read from that subtype; a missing attribute is `MQ3001`, naming the subtype. An attribute
+already declared by the root's hierarchy is `MQ3042`, directing the caller to drop `treat`. The usual type and
+converter checks (`MQ3002`, `MQ3014`) apply. A treated field cannot be a `@PrimaryKey`, a `@Child`'s parent-side key,
+a `@Discriminator`, or part of a source-rooted, update or insert model (`MQ3042`). A model declaring a treated or
+`@Subtype` field cannot set `generateChanges` or `generateInserts` (`MQ3042`); the field is never silently dropped
+from a write (Q-23).
+
+**R-PROC-43** `@Subtype` is an incubating, class-retained field or record-component annotation marking one
+`Class<? extends R>` field, where `R` is the model's root (D-154, Q-25). It maps `Expr.typeOf(ROOT)` (R-GEN-42).
+A second field, another type, combination with `@Column`, `@Computed`, `@Aggregate` or `@PrimaryKey`, or use on a
+source-rooted or write model is `MQ3043`. `@GroupBy @Subtype` is allowed.
+
 ## 4. `@Join` and nested models
 
 **R-PROC-08** A `@Join` field or component is always `Optional<NestedModel>`. The generated mapper assigns it on every
 row, so a mapped model never holds `null` there; a class model that is also built by hand should initialise the field
-to `Optional.empty()`, which the processor can't check (D-45). Semantics — empty means "no data", presence follows the joined primary key — are `processor/31` §4.
+to `Optional.empty()`, which the processor can't check (D-45). Semantics — empty means "no data", presence follows the joined primary key — are `processor/31` §4. The nested root follows R-PROC-42 (D-154).
+
+**R-PROC-42** A `@Join` nested model may be rooted at the association's target, a subtype or a supertype of it
+(D-154). A subtype generates a downcast join with the nested presence key on the treated join; LEFT is empty for a
+sibling or absent target, and INNER drops those parents. A supertype uses a plain join and reads inherited
+attributes. Each root-level `treat` the nested model declares through `@Column`, `@FilterColumn` or `@Join` must also
+be a subtype or supertype of the association's target, or the target itself. A sibling target is `MQ3003`, naming
+the treated field. The check applies at every nested `@Join` level against that association's own target. An
+unrelated nested root is `MQ3003`. An owner's `@Join(treat = ...)` and a nested subtype compose: the former reads
+the association from the owner's subtype, the latter downcasts its target.
 
 **R-PROC-09** Two `@Join`s on the same attribute get the field name as their alias automatically, so they become two
 joins (`api/10` R-COL-03); an `alias` written on the annotation wins (D-45).

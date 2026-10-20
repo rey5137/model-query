@@ -33,6 +33,14 @@ public @interface FilterColumn {
     String path();
 
     /**
+     * The strict entity subtype of the model's root that declares the attribute (R-PROC-41).
+     *
+     * @return the subtype, or {@code void.class} for none
+     */
+    @Incubating
+    Class<?> treat() default void.class;
+
+    /**
      * How an association on the path is joined when no {@link Join} already joins it.
      *
      * @return the join kind

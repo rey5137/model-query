@@ -87,7 +87,7 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
         // Keyed by what makes a join its own: alias and association path, and the @Join it hangs below (R-PROC-12).
         var tables = new LinkedHashMap<List<String>, Table>();
         for (EntityAttribute collection : metamodel.collections(model.root())) {
-            tables.put(List.of("", collection.name()), new Table(
+            tables.put(List.of("", collection.name(), ROOT), new Table(
                     QueryModelReader.constantName(collection.name()) + "_TABLE", ROOT, model.root(),
                     (TypeElement) collection.target().asElement(), collection.name(), LEFT, "",
                     "the collection '" + collection.name() + "'", null));
@@ -95,10 +95,14 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
         var columns = new ArrayList<Column>();
         var problems = new ArrayList<Problem>();
         for (FilterColumnDefinition definition : model.filterColumns()) {
-            Walk walk = metamodel.walk(model.root(), definition.path());
+            Walk walk = metamodel.walk(
+                    EntityMetamodel.treatedRoot(model.root(), definition.treat()), definition.path());
             if (walk.problem() != null) {
+                // Only a first segment missing on the subtype is MQ3001 naming it; a later one is a path problem.
                 problems.add(new Problem(
-                        DiagnosticCode.MQ3011, model.name() + " " + definition.label() + ": " + walk.problem()));
+                        definition.treat() != null && walk.missingAttribute() && walk.steps().isEmpty()
+                                ? DiagnosticCode.MQ3001 : DiagnosticCode.MQ3011,
+                        model.name() + " " + definition.label() + ": " + walk.problem()));
                 continue;
             }
             Column column = place(model, definition, walk, joined, tables, problems);
@@ -143,13 +147,14 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
             Map<List<String>, Table> tables, List<Problem> problems) {
         String where = model.name() + " " + definition.label() + ": ";
         String alias = definition.alias();
-        String table = ROOT;
+        String root = TreatTables.root(definition.treat());
+        String table = root;
         String prefix = "";
         String crossed = "";
         // The @Join the path is on so far, until it leaves the declared joins for one generated here.
         JoinedTable under = null;
         boolean generated = false;
-        TypeElement entity = model.root();
+        TypeElement entity = EntityMetamodel.treatedRoot(model.root(), definition.treat());
         var embedded = new ArrayList<String>();
         Step last = walk.steps().get(walk.steps().size() - 1);
         for (Step step : walk.steps().subList(0, walk.steps().size() - 1)) {
@@ -168,7 +173,7 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
             }
             crossed = crossed.isEmpty() ? attribute.name() : crossed + "." + attribute.name();
             var target = (TypeElement) attribute.target().asElement();
-            JoinedTable declared = generated ? null : declared(joined, under, crossed, alias);
+            JoinedTable declared = generated ? null : declared(joined, under, crossed, alias, root);
             if (declared != null) {
                 if (definition.explicitJoinType() && !declared.joinType().equals(definition.joinType())) {
                     problems.add(new Problem(DiagnosticCode.MQ3012, where + "joinType is " + definition.joinType()
@@ -198,7 +203,7 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
             boolean aliased = !alias.isEmpty() && prefix.isEmpty();
             String segment = QueryModelReader.constantName(aliased ? alias : attribute.name());
             prefix = prefix.isEmpty() ? segment : prefix + "_" + segment;
-            List<String> key = under == null ? List.of(alias, crossed) : List.of("", crossed, under.table());
+            List<String> key = List.of(under == null ? alias : "", crossed, under == null ? root : under.table());
             Table existing = tables.get(key);
             if (existing == null) {
                 tables.put(key, new Table(
@@ -228,13 +233,15 @@ record FilterLayout(List<Table> tables, List<Column> columns, List<Problem> prob
      * The declared join of the association path {@code crossed}: below {@code under} when the path is already on a
      * {@code @Join}, else the {@code @Join} of the model itself that {@code alias} names, the first one for none.
      */
-    private static JoinedTable declared(List<JoinedTable> joined, JoinedTable under, String crossed, String alias) {
+    private static JoinedTable declared(
+            List<JoinedTable> joined, JoinedTable under, String crossed, String alias, String root) {
         for (JoinedTable table : joined) {
             if (!table.attributes().equals(crossed)) {
                 continue;
             }
             boolean matches = under == null
-                    ? table.parent() == null && (alias.isEmpty() || alias.equals(table.join().join().alias()))
+                    ? table.parent() == null && root.equals(TreatTables.root(table.join().join().treat()))
+                            && (alias.isEmpty() || alias.equals(table.join().join().alias()))
                     : under.prefix().equals(table.parent());
             if (matches) {
                 return table;

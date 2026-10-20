@@ -96,6 +96,7 @@ final class ModelValidator {
     private final WriteChecks writeChecks;
     private final ChildChecks childChecks;
     private final SourceModelChecks sourceChecks;
+    private final TreatChecks treatChecks;
 
     ModelValidator(
             Types types, EntityMetamodel metamodel, NestedModels nestedModels, BuiltInConverters builtIns,
@@ -107,12 +108,17 @@ final class ModelValidator {
         this.writeChecks = new WriteChecks(types, metamodel);
         this.childChecks = new ChildChecks(types, metamodel, nestedModels);
         this.sourceChecks = new SourceModelChecks(metamodel, sources);
+        this.treatChecks = new TreatChecks(types, metamodel);
     }
 
     void validate(ModelDefinition model, Diagnostics diagnostics) {
         // A root that is neither an @Entity nor a @SourceModel, or both, decides no kind of read: every check below
         // would run against the wrong metamodel (MQ3038, R-PROC-39).
         if (model.readModel() && !rootKindOk(model, diagnostics)) {
+            return;
+        }
+        // Invalid declarations cannot choose the metamodel for the dependent attribute checks.
+        if (!treatChecks.check(model, diagnostics)) {
             return;
         }
         if (!sourceChecks.kindOk(model, diagnostics)) {
@@ -177,6 +183,16 @@ final class ModelValidator {
         // What each constant is generated for, as a clash names it: a joined column first, so that a field taking its
         // name is the one reported.
         var constants = new HashMap<String, String>();
+        var treats = new HashSet<String>();
+        for (TypeElement subtype : TreatTables.targets(model)) {
+            String constant = TreatTables.constant(subtype);
+            String earlier = constants.putIfAbsent(constant, "treat of " + subtype.getQualifiedName());
+            treats.add(constant);
+            if (earlier != null) {
+                diagnostics.error(model.type(), DiagnosticCode.MQ3015, model.name() + ": constant " + constant
+                        + " of treat of " + subtype.getQualifiedName() + " is also generated for " + earlier);
+            }
+        }
         var joined = new ArrayList<JoinedTable>();
         // An update model's @Join is MQ3302, an insert model's MQ3502, and joins nothing.
         for (ModelField join : model.readModel() ? model.joins() : List.<ModelField>of()) {
@@ -239,7 +255,7 @@ final class ModelValidator {
             }
             // A branch's @Discriminator is a constant, never a path into the root: read the attribute check as
             // satisfied (R-PROC-38). A @Depth is the CTE's level column, read from no attribute either (R-PROC-37).
-            if (field.column() && !field.discriminated() && !field.depth()) {
+            if (field.column() && !field.discriminated() && !field.depth() && !field.subtype()) {
                 checkAttribute(model, field, where, diagnostics);
             }
             if (field.column() && model.isRecord() && model.readModel() && field.type().getKind().isPrimitive()
@@ -287,7 +303,8 @@ final class ModelValidator {
             } else {
                 String earlier = constants.putIfAbsent(column.name(), "another @FilterColumn");
                 if (earlier != null) {
-                    diagnostics.error(model.type(), DiagnosticCode.MQ3013, where + "name already used by " + earlier);
+                    diagnostics.error(model.type(), treats.contains(column.name())
+                            ? DiagnosticCode.MQ3015 : DiagnosticCode.MQ3013, where + "name already used by " + earlier);
                 }
             }
         }
@@ -932,7 +949,8 @@ final class ModelValidator {
      * {@code ExpressionDefinition<Model, C>}, then the field's type against the function's result over the
      * expression's type {@code C} (R-PROC-22).
      */
-    private void checkExpressionAggregate(ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
+    private void checkExpressionAggregate(
+            ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
         AggregateDefinition aggregate = field.aggregate();
         ExpressionDefinitionType definition = ExpressionDefinitionType.of(types, aggregate.expression());
         if (!usableDefinition(model, field, where, definition, diagnostics)) {
@@ -1252,13 +1270,17 @@ final class ModelValidator {
         TypeElement target = checkAssociation(model, field, where, diagnostics);
         if (target == null) {
             joinable = false;
-        } else if (nested != null && !target.equals(nested.root())) {
+        } else if (nested != null && !metamodel.related(target.asType(), nested.root().asType())) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3003, where + nested.name() + ".root is "
                     + nested.root().getSimpleName() + ", association targets " + target.getSimpleName());
             joinable = false;
         }
         if (nested == null) {
             return null;
+        }
+        if (target != null && !checkNestedTreats(nested, target, field.element(), where,
+                new HashSet<>(), diagnostics)) {
+            joinable = false;
         }
         if (!nested.aggregates().isEmpty()) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3005, where + "@Join model " + nested.name()
@@ -1282,17 +1304,63 @@ final class ModelValidator {
         return joinable ? nested : null;
     }
 
+    /** Root-level treats must stay on the branch of each association they are re-rooted over (R-PROC-42). */
+    private boolean checkNestedTreats(ModelDefinition nested, TypeElement target, Element element, String where,
+            Set<TypeElement> visiting, Diagnostics diagnostics) {
+        if (!visiting.add(nested.type())) {
+            return true;
+        }
+        boolean valid = true;
+        for (ModelField field : nested.fields()) {
+            valid &= checkTreatTarget(field.treat(), nested.name() + "." + field.name(), target,
+                    element, where, diagnostics);
+            TypeMirror joinTreat = QueryModelReader.treat(field.element(), Join.class);
+            valid &= checkTreatTarget(joinTreat, nested.name() + "." + field.name(), target,
+                    element, where, diagnostics);
+        }
+        for (FilterColumnDefinition column : nested.filterColumns()) {
+            valid &= checkTreatTarget(column.treat(), nested.name() + " " + column.label(), target,
+                    element, where, diagnostics);
+        }
+        for (ModelField join : nested.joins()) {
+            ModelDefinition below = nestedModels.of(join);
+            TypeMirror treat = join.join().treat();
+            if (below == null || treat != null && !metamodel.strictEntitySubtype(treat, nested.root())) {
+                continue;
+            }
+            Resolution resolution = metamodel.resolve(
+                    EntityMetamodel.treatedRoot(nested.root(), treat), join.join().attribute());
+            if (resolution.attribute() != null && resolution.attribute().kind() == EntityAttribute.Kind.TO_ONE) {
+                var next = (TypeElement) resolution.attribute().target().asElement();
+                valid &= checkNestedTreats(below, next, element, where, visiting, diagnostics);
+            }
+        }
+        visiting.remove(nested.type());
+        return valid;
+    }
+
+    private boolean checkTreatTarget(TypeMirror treat, String field, TypeElement target, Element element,
+            String where, Diagnostics diagnostics) {
+        if (treat != null && !metamodel.related(treat, target.asType())) {
+            diagnostics.error(element, DiagnosticCode.MQ3003, where + field + " treats " + display(treat)
+                    + ", association targets " + target.getSimpleName());
+            return false;
+        }
+        return true;
+    }
+
     /** The entity a {@code @Join}'s attribute reaches, or {@code null} with {@code MQ3001} or {@code MQ3003}. */
     private TypeElement checkAssociation(
             ModelDefinition model, ModelField field, String where, Diagnostics diagnostics) {
         String attribute = field.join().attribute();
-        String root = model.root().getSimpleName().toString();
+        TypeElement owner = EntityMetamodel.treatedRoot(model.root(), field.join().treat());
+        String root = owner.getSimpleName().toString();
         if (attribute.contains(".")) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3003, where + "'" + attribute
                     + "' is a path; @Join takes a to-one association of " + root + " itself");
             return null;
         }
-        Resolution resolution = metamodel.resolve(model.root(), attribute);
+        Resolution resolution = metamodel.resolve(owner, attribute);
         if (resolution.attribute() == null) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3001, where + resolution.problem());
             return null;
@@ -1399,7 +1467,8 @@ final class ModelValidator {
             checkSourceAttribute(model, field, where, diagnostics);
             return;
         }
-        Resolution resolution = metamodel.resolve(model.root(), field.attribute());
+        Resolution resolution = metamodel.resolve(
+                EntityMetamodel.treatedRoot(model.root(), field.treat()), field.attribute());
         if (!model.readModel() && !writeChecks.checkColumn(model, field, resolution, where, diagnostics)) {
             return;
         }

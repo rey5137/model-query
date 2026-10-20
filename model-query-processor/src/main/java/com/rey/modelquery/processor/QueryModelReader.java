@@ -17,6 +17,7 @@ import com.rey.modelquery.annotations.PrimaryKey;
 import com.rey.modelquery.annotations.QueryModel;
 import com.rey.modelquery.annotations.Selected;
 import com.rey.modelquery.annotations.SourceModel;
+import com.rey.modelquery.annotations.Subtype;
 import com.rey.modelquery.annotations.Transient;
 import com.rey.modelquery.annotations.UpdateModel;
 import com.rey.modelquery.annotations.Window;
@@ -70,6 +71,7 @@ final class QueryModelReader {
     private static final String GENERATE_CHANGES = "generateChanges";
     private static final String GENERATE_INSERTS = "generateInserts";
     private static final String CONVERTER = "converter";
+    private static final String TREAT = "treat";
     private static final String OPTIONAL = "java.util.Optional";
     private static final String LIST = "java.util.List";
 
@@ -150,7 +152,7 @@ final class QueryModelReader {
             boolean computed = mirror(field, Computed.class) != null;
             // Read even beside @Transient or @Join, so that the validator reports the pair (MQ3204).
             AggregateDefinition aggregate = child == null ? aggregate(field, computed ? null : expression) : null;
-            // A @Computed field is no column: its constant is an ExpressionField, emitted after every column (R-GEN-27).
+            // A @Computed field is no column: its ExpressionField follows every column (R-GEN-27).
             TypeMirror definition = computed ? computed(field, expression) : null;
             boolean selected = field.getAnnotation(Selected.class) != null;
             WindowDefinition window = child == null ? window(field) : null;
@@ -171,7 +173,9 @@ final class QueryModelReader {
                     child,
                     selected,
                     discriminator(field),
-                    mirror(field, Depth.class) != null));
+                    mirror(field, Depth.class) != null,
+                    treat(field, Column.class),
+                    mirror(field, Subtype.class) != null));
         }
         // Both kinds of read may be rooted at a source (R-PROC-39, R-PROC-40). Writes still need an entity.
         TypeElement rootElement = (TypeElement) rootType.asElement();
@@ -345,7 +349,7 @@ final class QueryModelReader {
                     joinType instanceof Element constant ? constant.getSimpleName().toString() : JoinKind.LEFT.name(),
                     joinType instanceof Element,
                     explicit(mirror, "alias") instanceof String alias ? alias : "",
-                    converter(mirror)));
+                    converter(mirror), type(mirror, TREAT)));
         }
         return columns;
     }
@@ -371,7 +375,12 @@ final class QueryModelReader {
             nested = optional.getTypeArguments().get(0);
         }
         return new JoinDefinition(joinAttribute(field), join.type().name(),
-                join.prefix().isEmpty() ? constantName(name) : join.prefix(), alias, nested);
+                join.prefix().isEmpty() ? constantName(name) : join.prefix(), alias, nested, treat(field, Join.class));
+    }
+
+    /** The subtype named by an annotation's {@code treat} member, or {@code null} for none. */
+    static TypeMirror treat(Element element, Class<? extends Annotation> annotation) {
+        return type(mirror(element, annotation), TREAT);
     }
 
     /** The class named by {@code @Column(converter)}, or {@code null} when it is left at {@code void.class}. */

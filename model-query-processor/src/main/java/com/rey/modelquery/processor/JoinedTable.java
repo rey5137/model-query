@@ -22,10 +22,13 @@ import javax.lang.model.type.TypeMirror;
  * @param entity the entity the join reaches
  * @param joinType the JPA join type's name, as the {@code @Join} that makes the join declares it
  * @param columns the columns read through the join
+ * @param owner the model that declares the association, including for a join below another join
+ * @param declaration that model's own join field
  */
 record JoinedTable(
         ModelField join, ModelDefinition nested, String prefix, String parent, String path, String attributes,
-        TypeElement parentEntity, TypeElement entity, String joinType, List<JoinedColumn> columns) {
+        TypeElement parentEntity, TypeElement entity, String joinType, List<JoinedColumn> columns,
+        ModelDefinition owner, ModelField declaration) {
 
     JoinedTable {
         columns = List.copyOf(columns);

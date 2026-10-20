@@ -25,6 +25,14 @@ public @interface Column {
     String attribute() default "";
 
     /**
+     * The strict entity subtype of the model's root that declares the attribute (R-PROC-41).
+     *
+     * @return the subtype, or {@code void.class} for none
+     */
+    @Incubating
+    Class<?> treat() default void.class;
+
+    /**
      * The {@code ColumnConverter} between the model type and the entity attribute type. It is declared as
      * {@code Class<?>} because this module depends on nothing but the JDK.
      *
