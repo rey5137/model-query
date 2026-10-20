@@ -39,6 +39,14 @@ public final class AnchorEntities {
         @ManyToOne public StPayment payment;
     }
 
+    /** Keyed by a {@code String} id, for a combination whose branches' root ids differ in type (R-SRC-20). */
+    @Entity(name = "AnchorStVoucher")
+    public static class StVoucher {
+        @Id public String id;
+        public String status;
+        public String code;
+    }
+
     @Entity(name = "AnchorStCard")
     public static class StCard extends StPayment {
         public String number;

@@ -29,6 +29,7 @@ import com.rey.modelquery.core.RowLock;
 import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.Slice;
+import com.rey.modelquery.core.SourceQuery;
 import com.rey.modelquery.core.StatementShape;
 import com.rey.modelquery.core.SubSelect;
 import com.rey.modelquery.core.TableField;
@@ -99,6 +100,9 @@ class TreatCellsTest {
                     run(em, renderer, tree, each, ran);
                 }
                 for (Case each : tree.shared()) {
+                    run(em, renderer, tree, each, ran);
+                }
+                for (Case each : tree.sources()) {
                     run(em, renderer, tree, each, ran);
                 }
                 tree.assertEveryAdmittedCellRan(renderer, ran);
@@ -477,6 +481,9 @@ class TreatCellsTest {
     /** The sub-select vocabulary of a correlated count. */
     private static final class Inner {}
 
+    /** The vocabulary of a source over the payment root (R-SRC-20). */
+    private static final class Body {}
+
     /** One strategy's hierarchy, its fields and the cases it runs. */
     private static final class Tree<P, C extends P, H> {
         final String name;
@@ -652,6 +659,56 @@ class TreatCellsTest {
                     b -> b.eq(status, "s2"))), List.of("5"), true, "NULL_TEST+NEGATED+DISJUNCTION");
             sharedPredicate(cases, "shared ne", f -> f.ne(code, "C2"), List.of("1", "3", "4", "5"), false,
                     "PREDICATE+NULL_TEST+DISJUNCTION");
+            return cases;
+        }
+
+        /**
+         * The anchored source-body cells (AC-SRC-39): a treated column and a {@code typeOf} field selected in the body,
+         * the latter where the type is ordered, a treated null test in its {@code where}, and a body keyed by another
+         * column, which selects the hidden {@code mq_0id}. Each keeps every payment row the body reads; its total is
+         * the outer count over the body.
+         */
+        List<Case> sources() {
+            var bodyId = ColumnField.of(Body.class, root, "id", Long.class).named("id");
+            var bodyStatus = ColumnField.of(Body.class, root, "status", String.class).named("status");
+            var bodyNumber = ColumnField.of(Body.class, cards, "number", String.class).named("number");
+            var bodyKind = Expr.typeOf(Body.class, root).named("kind");
+            var bodyRoot = TableField.source(Body.class);
+            var outerId = ColumnField.over(String.class, bodyRoot, bodyId);
+            var outerStatus = ColumnField.over(String.class, bodyRoot, bodyStatus);
+            var outerNumber = ColumnField.over(String.class, bodyRoot, bodyNumber);
+            var outerKind = ColumnField.over(String.class, bodyRoot, bodyKind);
+            List<Case> cases = new ArrayList<>();
+            var selected = SourceQuery.builder(Body.class, root, SelectSet.of(bodyId, bodyNumber),
+                    PrimaryKey.of(bodyId)).build();
+            cases.add(new Case("source select", ModelQuery.builder(bodyRoot,
+                    row -> row.get(outerId) + ":" + row.get(outerNumber), selected).select(SelectSet.of(outerId,
+                    outerNumber)).primaryKey(PrimaryKey.of(outerId)).orderBy(outerId.asc()).build(),
+                    List.of("1:null", "2:1111", "3:null", "4:null", "5:5555"), uses("SELECT"), uses("SELECT")));
+            var filtered = SourceQuery.builder(Body.class, root, SelectSet.of(bodyId), PrimaryKey.of(bodyId))
+                    .where(f -> f.isNull(bodyNumber)).build();
+            cases.add(new Case("source isNull", ModelQuery.builder(bodyRoot, row -> String.valueOf(row.get(outerId)),
+                    filtered).select(SelectSet.of(outerId)).primaryKey(PrimaryKey.of(outerId))
+                    .orderBy(outerId.asc()).build(), List.of("1", "3", "4"), uses("NULL_TEST"), uses("NULL_TEST")));
+            var keyless = SourceQuery.builder(Body.class, root, SelectSet.of(bodyStatus, bodyNumber),
+                    PrimaryKey.of(bodyStatus)).build();
+            cases.add(new Case("source keyed by another column", ModelQuery.builder(bodyRoot,
+                    row -> row.get(outerStatus) + ":" + row.get(outerNumber), keyless).select(SelectSet.of(
+                    outerStatus, outerNumber)).primaryKey(PrimaryKey.of(outerStatus)).orderBy(outerStatus.asc())
+                    .build(), List.of("s1:null", "s2:1111", "s3:null", "s4:null", "s5:5555"), uses("SELECT"),
+                    uses("SELECT")));
+            if (!typeOrdered) {
+                // On JOINED without a discriminator a body's typeOf reads the root's class: refused (D-162).
+                return cases;
+            }
+            var typed = SourceQuery.builder(Body.class, root, SelectSet.of(bodyId, bodyKind), PrimaryKey.of(bodyId))
+                    .build();
+            cases.add(new Case("source typeOf", ModelQuery.builder(bodyRoot,
+                    row -> row.get(outerId) + ":" + row.get(outerKind).getSimpleName(), typed).select(SelectSet.of(
+                    outerId, outerKind)).primaryKey(PrimaryKey.of(outerId)).orderBy(outerId.asc()).build(),
+                    List.of("1:" + payment.getSimpleName(), "2:" + card.getSimpleName(), "3:" + card.getSimpleName(),
+                            "4:" + bank.getSimpleName(), "5:" + premium.getSimpleName()),
+                    uses("TYPE+SELECT"), uses("TYPE+SELECT")));
             return cases;
         }
 

@@ -213,10 +213,12 @@ class HibernateTreatRendererTest {
                 TreatUse.SELECT), "only through the treat");
         assertRefused(renderer, site(JdPayment.class, JdCard.class, "number", StatementShape.COUNT, false,
                 TreatUse.PREDICATE), "only through the treat");
-        for (var shape : List.of(StatementShape.GROUPED, StatementShape.GROUPED_COUNT, StatementShape.SOURCE_BODY,
-                StatementShape.CHILD, StatementShape.WRITE)) {
+        for (var shape : List.of(StatementShape.GROUPED, StatementShape.GROUPED_COUNT, StatementShape.CHILD,
+                StatementShape.WRITE)) {
             assertRefused(renderer, card(shape, TreatUse.PREDICATE), "no " + shape + " cell");
         }
+        assertRefused(renderer, site(JdPayment.class, JdCard.class, "number", StatementShape.SOURCE_BODY, false,
+                TreatUse.SELECT), "only through the treat");
         assertRefused(renderer, card(StatementShape.CONTENT, TreatUse.SELECT, TreatUse.SUBQUERY,
                 TreatUse.CORRELATION), "correlated on a treated outer node");
     }
@@ -258,9 +260,21 @@ class HibernateTreatRendererTest {
             }
             assertRefused(renderer, type(root, StatementShape.CONTENT, false, TreatUse.SELECT),
                     "doesn't read its root");
-            for (var shape : List.of(StatementShape.SOURCE_BODY, StatementShape.CHILD, StatementShape.WRITE)) {
+            for (var shape : List.of(StatementShape.CHILD, StatementShape.WRITE)) {
                 assertRefused(renderer, type(root, shape, false, TreatUse.PREDICATE), "no " + shape + " cell");
             }
+            // A @Subtype field in an anchored source body is selected, never filtered or ordered there; on JOINED
+            // without a discriminator the body reads the root's class on every row (D-162).
+            if (factory == single) {
+                assertThat(renderer.refusal(type(root, StatementShape.SOURCE_BODY, true, TreatUse.SELECT))).isEmpty();
+            } else {
+                assertRefused(renderer, type(root, StatementShape.SOURCE_BODY, true, TreatUse.SELECT),
+                        "JOINED root without a discriminator");
+            }
+            assertRefused(renderer, type(root, StatementShape.SOURCE_BODY, true, TreatUse.PREDICATE),
+                    "unmeasured use set for a type read");
+            assertRefused(renderer, type(root, StatementShape.SOURCE_BODY, false, TreatUse.SELECT),
+                    "doesn't read its root");
             assertRefused(renderer, type(String.class, StatementShape.CONTENT, true, TreatUse.SELECT),
                     "not a mapped entity");
         }
@@ -341,6 +355,28 @@ class HibernateTreatRendererTest {
     }
 
     @Test
+    void ac_src_39_an_anchored_source_body_admits_the_measured_select_and_null_test_only() {
+        var renderer = renderer(joined);
+        for (var uses : List.of(EnumSet.of(TreatUse.SELECT), EnumSet.of(TreatUse.NULL_TEST))) {
+            assertThat(renderer.refusal(card(StatementShape.SOURCE_BODY, uses.toArray(TreatUse[]::new))))
+                    .as(uses.toString()).isEmpty();
+        }
+        for (var uses : List.of(EnumSet.of(TreatUse.PREDICATE), EnumSet.of(TreatUse.ORDER),
+                EnumSet.of(TreatUse.SELECT, TreatUse.AGGREGATE), EnumSet.of(TreatUse.NULL_TEST, TreatUse.NEGATED),
+                EnumSet.of(TreatUse.SELECT, TreatUse.EXPRESSION), EnumSet.of(TreatUse.SELECT, TreatUse.LEFT_JOIN))) {
+            assertRefused(renderer, card(StatementShape.SOURCE_BODY, uses.toArray(TreatUse[]::new)),
+                    "unmeasured use set");
+        }
+        // A treated join's own site and a shared SINGLE_TABLE column have no source-body cell.
+        assertRefused(renderer, site(JdPayment.class, JdCard.class, null, StatementShape.SOURCE_BODY, true,
+                TreatUse.INNER_JOIN), "treated join");
+        assertRefused(renderer(single), site(StPayment.class, StCard.class, "number", StatementShape.SOURCE_BODY,
+                true, TreatUse.SELECT), "core mappings over an unshared column");
+        assertThat(renderer(single).refusal(site(StPayment.class, StCard.class, "cvv", StatementShape.SOURCE_BODY,
+                true, TreatUse.SELECT))).isEmpty();
+    }
+
+    @Test
     void ac_col_51_a_path_through_a_foreign_key_a_sibling_shares_is_refused() {
         var renderer = renderer(single);
         // StCard.owner and StBank.owner both map owner_id: a treated read through it could read the bank's owner.
@@ -362,6 +398,49 @@ class HibernateTreatRendererTest {
         // Off SINGLE_TABLE no column is shared: a dotted path takes the core cells.
         assertThat(renderer(joined).refusal(site(JdPayment.class, JdCard.class, "owner.name",
                 StatementShape.CONTENT, true, TreatUse.SELECT))).isEmpty();
+    }
+
+    @Test
+    void ac_vnd_17_the_offline_boot_gives_the_tables_answer_alone_and_skips_the_preflight() {
+        assertThat(new HibernateProviderSupport().offlineProperties(com.rey.modelquery.jpa.spi.DatabaseVendor.H2))
+                .hasValueSatisfying(properties -> assertThat(properties)
+                        .containsEntry(HibernateProviderSupport.OFFLINE_BOOT, HibernateProviderSupport.offlineToken()));
+        Configuration cfg = offlineCandidate("treat-renderer-offline");
+        cfg.getProperties().put(HibernateProviderSupport.OFFLINE_BOOT, HibernateProviderSupport.offlineToken());
+        try (SessionFactory offline = cfg.buildSessionFactory()) {
+            // A statement with no root fails translation: refused at execution, not preflighted offline (D-163).
+            CriteriaQuery<Long> rootless = offline.getCriteriaBuilder().createQuery(Long.class);
+            try (var em = joined.createEntityManager()) {
+                assertThat(renderer(joined).preflight(em, rootless, StatementShape.CONTENT, List.of())).isPresent();
+            }
+            try (var em = offline.createEntityManager()) {
+                TreatRenderer renderer = renderer(offline);
+                assertThat(renderer.preflight(em, rootless, StatementShape.CONTENT, List.of())).isEmpty();
+                assertThat(renderer.preflight(em, rootless, StatementShape.WRITE, List.of())).isPresent();
+                // The table still answers per site.
+                assertRefused(renderer, card(StatementShape.GROUPED, TreatUse.GROUP_BY), "no GROUPED cell");
+                assertThat(renderer.refusal(card(StatementShape.CONTENT, TreatUse.SELECT))).isEmpty();
+            }
+        }
+    }
+
+    @Test
+    void ac_vnd_17_a_user_set_offline_boot_setting_still_preflights() {
+        // Only the dry run's own token skips the preflight: a setting a user writes is not the offline boot (D-163).
+        Configuration cfg = offlineCandidate("treat-renderer-user-offline")
+                .setProperty(HibernateProviderSupport.OFFLINE_BOOT, "true");
+        try (SessionFactory factory = cfg.buildSessionFactory(); var em = factory.createEntityManager()) {
+            CriteriaQuery<Long> rootless = factory.getCriteriaBuilder().createQuery(Long.class);
+            assertThat(renderer(factory).preflight(em, rootless, StatementShape.CONTENT, List.of())).isPresent();
+        }
+    }
+
+    private static Configuration offlineCandidate(String database) {
+        return new Configuration()
+                .setProperty(AvailableSettings.JAKARTA_JDBC_URL, "jdbc:h2:mem:" + database)
+                .setProperty(AvailableSettings.HBM2DDL_AUTO, "create-drop")
+                .addAnnotatedClass(JdPayment.class).addAnnotatedClass(JdCard.class).addAnnotatedClass(JdBank.class)
+                .addAnnotatedClass(JdHolder.class);
     }
 
     @Test

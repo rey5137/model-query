@@ -9,6 +9,7 @@ import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Selection;
+import jakarta.persistence.metamodel.Metamodel;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -625,12 +626,23 @@ public final class SourceQuery<S> {
     }
 
     void checkTreats(TreatChecks checks) {
-        // Not anchored yet: the body's root-id anchor is R-SRC-20's, so a renderer refuses an unanchored body.
+        // An ungrouped body over an entity root, or a combination of such bodies, selects its root id (R-SRC-20); a
+        // grouped body, a recursive one and a body over another source read their root as written.
         checks.statement(groupKeys == null ? StatementShape.SOURCE_BODY : StatementShape.GROUPED,
-                false, () -> checkTreatBody(checks));
+                anchors(), () -> checkTreatBody(checks));
     }
 
-    private void checkTreatBody(TreatChecks checks) {
+    /** Whether this body is anchored on its root id when it has a treated node: see {@link #rootIdAnchored}. */
+    boolean anchors() {
+        return groupKeys == null && inner == null && recursion == null;
+    }
+
+    /** Whether this body has a treated node in its own fields, key or filters, not in its branches (R-SRC-20). */
+    boolean treated() {
+        return operation == null && TreatChecks.treated(this);
+    }
+
+    void checkTreatBody(TreatChecks checks) {
         checks.using(TreatUse.SELECT, () -> fields.fields().forEach(checks::field));
         checks.using(TreatUse.SELECT, () -> key.columns().forEach(checks::field));
         if (groupKeys != null) {
@@ -644,6 +656,7 @@ public final class SourceQuery<S> {
         if (operation != null) {
             checks.setOperationBranch(operation.operation(), operation.left());
             checks.setOperationBranch(operation.operation(), operation.right());
+            checks.combinedAnchor(this);
         }
         if (recursion != null) {
             checks.field(recursion.depth());
@@ -788,7 +801,79 @@ public final class SourceQuery<S> {
                     registered.duplicateKey()));
             return registered.handle();
         }
-        return renderer.register(top, body(top, cb, options, renderer, outerModel, checks));
+        return renderer.register(top, body(top, cb, options, renderer, outerModel, checks,
+                operation != null && rootIdAnchored(options)));
+    }
+
+    /**
+     * Whether a combined body's branches select the hidden root-id anchor (R-SRC-20, R-COL-35): when any branch with a
+     * treated node reads no untreated root id, every branch selects it, so they keep one arity. A plain body decides
+     * it from its own root when it is built; without a metamodel a treated branch's root id is unknown, so it counts.
+     */
+    private boolean rootIdAnchored(RenderOptions options) {
+        return rootIdAnchored(options.metamodel());
+    }
+
+    boolean rootIdAnchored(Optional<Metamodel> found) {
+        if (operation != null) {
+            return operation.left.rootIdAnchored(found) || operation.right.rootIdAnchored(found);
+        }
+        if (!anchors() || !treated()) {
+            return false;
+        }
+        return found.map(metamodel -> !TreatChecks.selectsRootId(fields.fields(),
+                TreatChecks.rootId(metamodel.entity(root.rootEntity()), model.getSimpleName()))).orElse(true);
+    }
+
+    /**
+     * The first plain branch of this combination that can't select the hidden anchor, being grouped, recursive or over
+     * another source, or {@code null} when every branch can (R-SRC-20).
+     */
+    SourceQuery<?> unanchoredBranch() {
+        if (operation == null) {
+            return anchors() ? null : this;
+        }
+        SourceQuery<?> left = operation.left.unanchoredBranch();
+        return left != null ? left : operation.right.unanchoredBranch();
+    }
+
+    /**
+     * The first operation of this combination, nested ones included, that is not a {@code unionAll}, or {@code null}
+     * when every one is (R-SRC-20).
+     */
+    SetOperation distinctOperation() {
+        if (operation == null) {
+            return null;
+        }
+        if (operation.operation != SetOperation.UNION_ALL) {
+            return operation.operation;
+        }
+        SetOperation left = operation.left.distinctOperation();
+        return left != null ? left : operation.right.distinctOperation();
+    }
+
+    /** Adds this combination's plain branches to {@code out}, in the order the operations were called (R-SRC-20). */
+    void plainBranches(List<SourceQuery<?>> out) {
+        if (operation == null) {
+            out.add(this);
+        } else {
+            operation.left.plainBranches(out);
+            operation.right.plainBranches(out);
+        }
+    }
+
+    /**
+     * The hidden anchor of a plain body over an entity root (R-SRC-20): {@code root.<id>} aliased {@code mq_0id},
+     * selected last, when the body has a treated node and reads no untreated root id, or when {@code combined} asks
+     * every branch for it. No outer column reads it, so it never reaches a model, a mapper or {@code Rows}.
+     */
+    private Optional<Selection<?>> rootIdAnchor(Root<?> from, boolean combined) {
+        if (!anchors() || !combined && !treated()) {
+            return Optional.empty();
+        }
+        String id = TreatChecks.rootId(from.getModel(), model.getSimpleName());
+        return !combined && TreatChecks.selectsRootId(fields.fields(), id) ? Optional.empty()
+                : Optional.of(from.get(id).alias(BuiltQuery.ROOT_ID_ANCHOR));
     }
 
     /**
@@ -805,17 +890,18 @@ public final class SourceQuery<S> {
      *     join, which no join inside the CTE can express (R-SRC-03)
      */
     CriteriaQuery<Tuple> body(CriteriaBuilder cb, RenderOptions options, SourceRenderer renderer) {
-        return body(null, cb, options, renderer, model.getSimpleName(), new ArrayList<>());
+        return body(null, cb, options, renderer, model.getSimpleName(), new ArrayList<>(),
+                operation != null && rootIdAnchored(options));
     }
 
     private CriteriaQuery<Tuple> body(CriteriaQuery<?> top, CriteriaBuilder cb, RenderOptions options,
-            SourceRenderer renderer, String outerModel, List<Selection<?>> checks) {
+            SourceRenderer renderer, String outerModel, List<Selection<?>> checks, boolean combinedAnchor) {
         if (operation != null) {
             // The combined body: each branch's own body, combined in the order the operations were called, and
             // itself a statement the provider registers as the source (R-SRC-05, R-SRC-12).
             return renderer.combine(cb, operation.operation,
-                    operation.left.body(top, cb, options, renderer, outerModel, checks),
-                    operation.right.body(top, cb, options, renderer, outerModel, checks));
+                    operation.left.body(top, cb, options, renderer, outerModel, checks, combinedAnchor),
+                    operation.right.body(top, cb, options, renderer, outerModel, checks, combinedAnchor));
         }
         if (inner != null) {
             SourceRenderer.CteHandle handle = inner.register(
@@ -824,9 +910,12 @@ public final class SourceQuery<S> {
             Root<Tuple> from = renderer.from(query, handle);
             JoinContext joins = JoinContext.sourceOf(from, root.rootEntity(), cb, query, options);
             List<Predicate> guards = inner.recurses() ? inner.walkGuards(cb, from) : List.of();
-            return select(query, joins, cb, renderer, null, guards);
+            return select(query, joins, cb, renderer, null, guards, Optional.empty());
         }
-        return select(cb, options, renderer, null);
+        CriteriaQuery<Tuple> query = cb.createTupleQuery();
+        Root<?> from = query.from(root.rootEntity());
+        return select(query, JoinContext.readOf(from, cb, query, options), cb, renderer, null, List.of(),
+                rootIdAnchor(from, combinedAnchor));
     }
 
     /**
@@ -884,15 +973,17 @@ public final class SourceQuery<S> {
             Expression<?> level) {
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root from = query.from(root.rootEntity());
-        return select(query, JoinContext.readOf(from, cb, query, options), cb, renderer, level, List.of());
+        return select(query, JoinContext.readOf(from, cb, query, options), cb, renderer, level, List.of(),
+                Optional.empty());
     }
 
     private CriteriaQuery<Tuple> select(CriteriaQuery<Tuple> query, JoinContext joins, CriteriaBuilder cb,
-            SourceRenderer renderer, Expression<?> level, List<Predicate> guards) {
-        List<Selection<?>> selections = new ArrayList<>(fields.fields().size());
+            SourceRenderer renderer, Expression<?> level, List<Predicate> guards, Optional<Selection<?>> anchor) {
+        List<Selection<?>> selections = new ArrayList<>(fields.fields().size() + 1);
         for (SelectField<?, ?> field : fields.fields()) {
             selections.add(expression(cb, joins, renderer, field, level).alias(alias(field)));
         }
+        anchor.ifPresent(selections::add);
         query.multiselect(selections);
         if (grouped()) {
             query.groupBy(groupKeys.fields().stream().<Expression<?>>map(key -> key.expression(joins)).toList());

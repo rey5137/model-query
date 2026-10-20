@@ -530,6 +530,29 @@ sub-select's correlated columns: without an index, each outer row may scan the i
 indexed and unindexed costs; the Subqueries and expressions page, §Correlated columns, documents the cost table
 and index advice.
 
+**R-SRC-20** *(D-154, D-162)* **Subtypes in a source.** A source over a polymorphic root may declare treated and
+`@Subtype` fields, and filter by a treated column, rendered in its CTE body (`vendor/40` R-VND-26 `SOURCE_BODY`):
+
+- **The body selects the root id.** An ungrouped body over an entity root with a treated node keeps every root row
+  only while it reads the root untreated (`api/10` R-COL-35). When none of its fields reads the untreated root id, it
+  selects it last as the hidden `mq_0id`, which no outer column, `fields()`, mapper or `Rows` reads. In a combined
+  source every branch selects it when one needs it, so the branches keep one arity; a `union`, `intersect` or `except`
+  branch that would need it is `MQ4016`, and `unionAll` is unaffected. A combination that needs it is `MQ4016` while
+  any of its operations, nested ones included, is a `union`, `intersect` or `except`, whose compared rows the anchor
+  would change. A grouped, recursive or source-over-source branch can't select it, so a combination that needs it
+  with such a branch is `MQ4016` before any statement, as is one whose branches' root ids differ in Java type. A body
+  or branch with an `@IdClass` or `@EmbeddedId` root is `MQ4016`, as a content statement is.
+- **No group or aggregate over a treated field.** A grouped source's sites are `GROUPED`: a treated group key, an
+  aggregate argument and a window function's argument over a treated node are `MQ4016` before any statement. A
+  recursive body and a body over another source are unanchored. A `@Subtype` field in a body over a `JOINED` root
+  without a discriminator column is `MQ4016`: the provider reads the root's class on every row there.
+- **A union of subtype models.** Any entity of the hierarchy may root a branch; R-SRC-05 and R-SRC-06 are unchanged.
+  `(kind, id)` is unique by `@Discriminator`; without one, a union of two subtype roots is non-unique (R-SRC-09), even
+  where their ids can't collide. Branches rooted at a subtype and its own subtype read a row of the latter twice under
+  `unionAll`, with two `kind` values, so the keys stay unique.
+- **Which form to use.** A base model reads one polymorphic statement, with NULL in fields that don't apply; a union
+  maps each subtype's own attributes into one shape, one table read per branch.
+
 ## 9. Acceptance criteria
 
 | ID | Criterion |
@@ -572,3 +595,6 @@ and index advice.
 | AC-SRC-36 | `Rows` in source fields, `where` or orders gives `MQ1905` naming `QX.FOO` (R-SRC-17). |
 | AC-SRC-37 | Direct and nested correlated expressions in source fields are `MQ1908` at the builder boundary; a generated QModel with such a `@Computed` initializes successfully and refuses only when `source(...)` is called (R-SRC-16). |
 | AC-SRC-38 | Direct chain/tree reads: count, `byKeys`, `one(q, key)` and every export page (R-SRC-17, R-SRC-18). |
+| AC-SRC-39 | Per strategy, treated and `@Subtype` fields in a source body read as AC-COL-44 and AC-COL-49, with the root id selected in the body (R-SRC-20, D-162). |
+| AC-SRC-40 | Per strategy, a `unionAll` of card and bank branches by `@Discriminator` returns each `(kind, id)` once with `reference` from `last4` or `iban`; without the discriminator it is non-unique (`MQ2212` on export) (R-SRC-20). |
+| AC-SRC-41 | Branches rooted at `CardPayment` and `PremiumCardPayment` return a premium row twice with two `kind` values and unique keys (R-SRC-20). |

@@ -88,8 +88,9 @@ attribute on rows of the subtype and its own subtypes, and NULL on every other r
 - in a count it appears only where it can change the row count: in a predicate or under an `INNER` treated join;
 - for every nullability rule the column is nullable, whatever the attribute's mapping says.
 
-A treated column in `GROUP BY` or under an aggregate, directly or inside an `Expr`, in a query or a source body, is
-`MQ4016` before any statement (Q-27): a provider narrows a grouped statement to the subtype. A correlated count whose
+A treated column in `GROUP BY`, under an aggregate or as a window function's argument, directly or inside an `Expr`,
+in a query or a source body, is `MQ4016` before any statement (Q-27): a provider narrows a grouped statement to the
+subtype, and no window over a treated argument was measured (D-162). A correlated count whose
 own root is treated (R-COL-31) is unaffected.
 
 **Where the rule holds.** A provider keeps the root's other rows only while the statement also reads the root
@@ -666,7 +667,7 @@ the planner must see as a literal (a partial index's predicate, a selective enum
 | AC-COL-43 | A correlated value in an update or delete `where` over the target table: MySQL runs key-first and matches the other vendors' rows; a conflict `where` is `MQ1804`, `setExpression` is `MQ1613` (R-COL-31, R-WRT-13, D-153). |
 | AC-COL-44 | Per strategy, a treated column in the select list keeps every row, reads the value on subtype and grandchild rows and NULL on sibling rows, alone and in a `coalesce`, in a keyed and in a keyless model; a column over a treated join naming the subtype's own to-one is `MQ1001`, typed as its id or as its entity (R-COL-34, R-COL-35, D-154). |
 | AC-COL-45 | Per strategy, `eq`/`in`/`like`/`isNotNull` keep only matching subtype rows; `isNull`, `ne`, `notIn` include sibling rows; `not(eq)` excludes them (SQL `NOT` over NULL, D-5, where JPA's "false" would include them); a treat in `or` keeps the base operand's sibling rows; each `page()` total equals the content's rows (R-COL-35, D-154). |
-| AC-COL-46 | Per strategy, an offset order by a treated key places sibling rows by NULL under `nullsFirst`/`nullsLast`; a treated group key or aggregate argument, in a query or a source, is `MQ4016` before any statement; the source cases land with M28.8 (R-COL-35, D-154). |
+| AC-COL-46 | Per strategy, an offset order by a treated key places sibling rows by NULL under `nullsFirst`/`nullsLast`; a treated group key, aggregate argument or window argument, in a query or a source, is `MQ4016` before any statement (R-COL-35, D-154, D-162, `api/17` R-SRC-20). |
 | AC-COL-47 | Per strategy, a LEFT downcast join is empty for a sibling or absent target and present for the subtype, also when its values are all NULL; INNER drops those parents; on `TABLE_PER_CLASS` an INNER downcast that reads an inherited attribute, its presence key included, is `MQ4016` before any statement, and one keyed by and reading only the subtype's own columns still drops them (D-161); an upcast nested model reads inherited attributes; a join from a treated root (R-COL-34, R-COL-35, D-154, D-161). |
 | AC-COL-48 | `MQ1106` for an improper subtype at definition on a root and at first resolution on a join; treating a treat or source root; modifiers on a treated join; an unmapped subtype; a sibling root or sibling re-root. `MQ1104` for `as`/`on`/`presentBy` on a treated root. `MQ1003` names `ROOT.treat(...)` for a subtype-root column in a base-root query (R-COL-34, D-154). |
 | AC-COL-49 | `typeOf` selects each row's exact class, `eq` matches exactly, a group by type counts per type and its page total counts the groups, an offset order by it repeats across two runs on `SINGLE_TABLE`, `TABLE_PER_CLASS` and `JOINED` with a discriminator; `JOINED` without one and `typeOf` over a LEFT-joined node are `MQ4016` before any statement; keyset is `MQ1208`; `ofType` of an unmapped type is `MQ1106`, and every type read without the provider's `TreatRenderer` is `MQ4014` (R-COL-36, D-158). |

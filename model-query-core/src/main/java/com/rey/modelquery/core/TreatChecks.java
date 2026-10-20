@@ -7,6 +7,7 @@ import jakarta.persistence.metamodel.Metamodel;
 import jakarta.persistence.metamodel.PluralAttribute;
 import jakarta.persistence.metamodel.SingularAttribute;
 import jakarta.persistence.metamodel.Type;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -98,6 +99,17 @@ public final class TreatChecks {
     }
 
     /**
+     * Whether {@code source}'s own body has a treated node in its fields, key or filters, not in an inner source or a
+     * branch: such an anchoring body selects the untreated root id (R-SRC-20).
+     */
+    static boolean treated(SourceQuery<?> source) {
+        var checks = new TreatChecks(null, null, StatementShape.SOURCE_BODY, false, false);
+        checks.detecting = true;
+        checks.statement(StatementShape.SOURCE_BODY, true, () -> source.checkTreatBody(checks));
+        return checks.found;
+    }
+
+    /**
      * The name of {@code entity}'s single id attribute, which the hidden anchor selects and the count counts
      * (R-COL-35).
      *
@@ -105,10 +117,15 @@ public final class TreatChecks {
      *     anchor and the root-id count were measured over a single id attribute only (R-VND-26)
      */
     static String rootId(EntityType<?> entity, String owner) {
+        return rootIdAttribute(entity, owner).getName();
+    }
+
+    /** {@code entity}'s single basic id attribute: see {@link #rootId}. */
+    static SingularAttribute<?, ?> rootIdAttribute(EntityType<?> entity, String owner) {
         if (entity.hasSingleIdAttribute()) {
             for (SingularAttribute<?, ?> attribute : entity.getSingularAttributes()) {
                 if (attribute.isId() && attribute.getType().getPersistenceType() == Type.PersistenceType.BASIC) {
-                    return attribute.getName();
+                    return attribute;
                 }
             }
         }
@@ -577,6 +594,10 @@ public final class TreatChecks {
 
     void source(SourceQuery<?> source) {
         if (source != null && !detecting && seen.add(source)) {
+            if (metamodel != null && source.anchors() && source.treated()) {
+                // An anchored body selects its single root id, as a content statement does (R-SRC-20, R-COL-35).
+                rootId(metamodel.entity(source.root().rootEntity()), owner);
+            }
             source.checkTreats(this);
         }
     }
@@ -599,6 +620,49 @@ public final class TreatChecks {
                     + (entity == null ? "a source" : entity.getSimpleName()) + " has a treated node and selects no "
                     + "untreated root id, so the hidden id anchor would change the rows it compares; select the root "
                     + "id in the branch, or use unionAll");
+        }
+    }
+
+    /**
+     * Refuses a combination whose treated branch needs the hidden root-id anchor that every branch then selects
+     * (R-SRC-20): while another branch can't select it, being grouped, recursive or over another source, as the
+     * branches would differ in arity; while any operation in it, nested ones included, is not a {@code unionAll}, as
+     * the anchor would change the rows that operation compares; and while the branches' root ids differ in Java type,
+     * as the anchor column would have no one type.
+     */
+    void combinedAnchor(SourceQuery<?> combined) {
+        if (detecting || !combined.rootIdAnchored(Optional.ofNullable(metamodel))) {
+            return;
+        }
+        SourceQuery<?> branch = combined.unanchoredBranch();
+        if (branch != null) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4016, owner + ": a set operation's "
+                    + (branch.groupKeys() != null ? "grouped" : branch.recursive() ? "recursive" : "source-over-source")
+                    + " branch can't select the hidden id anchor another branch's treated node needs, so the branches "
+                    + "would differ in arity; select the untreated root id in the treated branch");
+        }
+        SetOperation operation = combined.distinctOperation();
+        if (operation != null) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4016, owner + ": a treated branch needs the hidden id "
+                    + "anchor every branch of the combination selects, which would change the rows its " + operation
+                    + " compares; select the untreated root id in the treated branch, or use unionAll throughout");
+        }
+        if (metamodel == null) {
+            return;
+        }
+        List<SourceQuery<?>> branches = new ArrayList<>();
+        combined.plainBranches(branches);
+        Class<?> idType = null;
+        for (SourceQuery<?> plain : branches) {
+            Class<?> type = ColumnField.boxed(
+                    rootIdAttribute(metamodel.entity(plain.root().rootEntity()), owner).getJavaType());
+            if (idType != null && !idType.equals(type)) {
+                throw new ModelQueryConfigurationException(MqCode.MQ4016, owner + ": a treated branch needs the "
+                        + "hidden id anchor every branch of the combination selects, and the branches' root ids "
+                        + "differ in type (" + idType.getSimpleName() + ", " + type.getSimpleName() + "); select the "
+                        + "untreated root id in the treated branch");
+            }
+            idType = type;
         }
     }
 
