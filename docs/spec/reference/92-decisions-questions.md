@@ -2415,6 +2415,27 @@ such a join keeps `MQ2003` and its existing `Filters.exists` hint; without that 
 Child rows remain deduplicated per parent (R-FCH-04, D-99), even with a nested fetch plan; only parent rows are in
 R-PAG-26's scope. → `engine/20` R-EXE-12, R-EXE-13, `engine/21` R-PAG-26.
 
+**D-161 — Check TABLE_PER_CLASS treated join targets as well as roots (M28, 2026-10-20, user decision).**
+D-157's root preflight does not prove that an `INNER` downcast target excludes other concrete types. The admitted
+`READ INNER_JOIN+SELECT TABLE_PER_CLASS` cell (`rfc/0016-spike-data/renderer-allowlist.tsv:238`) was measured with a
+concrete base, but only the subtype's `number` selected. On both 6.6.58 and 7.4.11, selecting inherited `id` or
+`status` keeps the concrete base branch's real join key; guarding those selected values with a `CASE` still lets
+the base match the `INNER` join. Extend R-VND-26 guard 3 before any JDBC statement: collect declared treated joins
+from the statement's SQM, associate them with the translated SQL table groups, and check every union branch outside
+the declared subtype's tables. Admit it only with a NULL key in a mandatory join equality or an effective subtype
+restriction (the `where`, its own `ON`, or an `INNER` join from the target), reusing D-157's lexical NULL projection
+and discriminator checks. Unknown or unattributable shapes are `MQ4016`. Subtype-only `number` still runs: the
+extra base branch projects a NULL id and cannot match. A to-one `LEFT` join may keep a real base key when all its
+target column reads in `select`, `where`, `group by`, `having` and `order by`, including its hidden presence key
+and later-page keyset predicates, are NULL for that branch, either projected NULL or guarded by a subtype `CASE`
+with a NULL `ELSE`; it then yields `Optional.empty()`. Reads through any join nested under the treated target
+count as target reads too. Any read not proven NULL or guarded on every outside branch is `MQ4016`; an unguarded
+presence key never produces `Optional.of` a view of NULLs. Walk derived roots and joins and 7.4 FROM-function
+arguments when collecting the SQM declarations, including grouped counts wrapped in a derived table. A SQL TPC
+union join with no recorded treated declaration fails closed even inside a `QueryPartTableReference`.
+Keep the site allow-list as the first guard; this statement-specific
+check refines it without a new SPI or diagnostic. → `vendor/40` R-VND-26, AC-VND-21; D-157.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

@@ -16,14 +16,27 @@ import java.util.function.BooleanSupplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import org.hibernate.engine.spi.SessionFactoryImplementor;
 import org.hibernate.metamodel.mapping.DiscriminatorConverter;
+import org.hibernate.metamodel.mapping.EntityAssociationMapping;
 import org.hibernate.metamodel.mapping.EntityDiscriminatorMapping;
 import org.hibernate.metamodel.mapping.EntityMappingType;
+import org.hibernate.metamodel.mapping.SingularAttributeMapping;
 import org.hibernate.persister.entity.AbstractEntityPersister;
 import org.hibernate.persister.entity.JoinedSubclassEntityPersister;
 import org.hibernate.persister.entity.SingleTableEntityPersister;
 import org.hibernate.persister.entity.UnionSubclassEntityPersister;
 import org.hibernate.query.sqm.ComparisonOperator;
+import org.hibernate.query.sqm.spi.BaseSemanticQueryWalker;
+import org.hibernate.query.sqm.tree.SqmJoinType;
+import org.hibernate.query.sqm.tree.SqmVisitableNode;
+import org.hibernate.query.sqm.tree.domain.SqmDerivedRoot;
+import org.hibernate.query.sqm.tree.domain.SqmTreatedPath;
+import org.hibernate.query.sqm.tree.from.SqmDerivedJoin;
+import org.hibernate.query.sqm.tree.from.SqmFrom;
+import org.hibernate.query.sqm.tree.from.SqmJoin;
+import org.hibernate.query.sqm.tree.select.SqmQuerySpec;
+import org.hibernate.query.sqm.tree.select.SqmSelectStatement;
 import org.hibernate.sql.Template;
 import org.hibernate.sql.ast.SqlAstJoinType;
 import org.hibernate.sql.ast.spi.AbstractSqlAstWalker;
@@ -43,6 +56,7 @@ import org.hibernate.sql.ast.tree.from.QueryPartTableGroup;
 import org.hibernate.sql.ast.tree.from.TableGroup;
 import org.hibernate.sql.ast.tree.from.TableGroupJoin;
 import org.hibernate.sql.ast.tree.from.TableReferenceJoin;
+import org.hibernate.sql.ast.tree.from.UnionTableReference;
 import org.hibernate.sql.ast.tree.from.ValuesTableReference;
 import org.hibernate.sql.ast.tree.predicate.ComparisonPredicate;
 import org.hibernate.sql.ast.tree.predicate.ExistsPredicate;
@@ -53,6 +67,7 @@ import org.hibernate.sql.ast.tree.predicate.NegatedPredicate;
 import org.hibernate.sql.ast.tree.predicate.Predicate;
 import org.hibernate.sql.ast.tree.select.QuerySpec;
 import org.hibernate.sql.ast.tree.select.SelectStatement;
+import org.hibernate.spi.NavigablePath;
 
 /**
  * The statement preflight's walk of a translated select (R-VND-26, RFC 0016 §11 guard 3): every query spec of the
@@ -63,8 +78,10 @@ import org.hibernate.sql.ast.tree.select.SelectStatement;
  * root to a table that holds only some of its subtypes' rows ({@code JOINED}), or a discriminator restriction in the
  * {@code where} that leaves out one of its entity's concrete subtypes, the discriminator a column, a formula,
  * {@code TABLE_PER_CLASS}'s {@code clazz_} or {@code JOINED}'s {@code CASE}. A subtype root is expected to hold only
- * its subtype's rows, and is checked against them. A joined node is not checked: a narrowed {@code LEFT} join keeps the
- * owner row, and a narrowed {@code INNER} join is the treated join the statement asked for.
+ * its subtype's rows, and is checked against them. A treated {@code TABLE_PER_CLASS} join must exclude rows outside
+ * its subtype: each extra union branch must have a null join key or an effective discriminator restriction (D-161).
+ * Guarding selected values with a {@code CASE} does not exclude a matching {@code INNER} row. A to-one {@code LEFT}
+ * join may keep it when all target reads, its presence key included, are null for that row.
  *
  * <p>A sub-select root the engine declares narrowed ({@link ExpectedNarrowing}, D-157) is expected rather than
  * refused: the correlated root of an {@code exists} that is a direct operand of its parent's {@code where} or
@@ -121,6 +138,12 @@ final class TreatPreflight extends AbstractSqlAstWalker {
     /** The statement's own query spec, the only one whose roots a {@link #restrictions} declaration describes. */
     private QuerySpec top;
 
+    private final Map<NavigablePath, List<TreatedJoin>> treatedJoins = new HashMap<>();
+
+    private final Set<NavigablePath> checkedJoins = new HashSet<>();
+
+    private final List<JoinRoot> joinRoots = new ArrayList<>();
+
     /** The sub-selects a declaration can narrow, found in their parent's clauses before they are walked. */
     private final Map<QuerySpec, Candidate> candidates = new IdentityHashMap<>();
 
@@ -138,7 +161,23 @@ final class TreatPreflight extends AbstractSqlAstWalker {
      * sub-select roots {@code expected} declares, each consumed once (R-VND-26, D-157).
      */
     static Optional<String> walk(SelectStatement statement, List<ExpectedNarrowing> expected) {
+        return walk(statement, expected, null, null);
+    }
+
+    /** Adds the statement's declared treated joins, without relying on the selected expressions to identify them. */
+    static Optional<String> walk(SelectStatement statement, List<ExpectedNarrowing> expected,
+            SqmSelectStatement<?> sqm, SessionFactoryImplementor factory) {
         TreatPreflight walk = new TreatPreflight(expected);
+        if (sqm != null) {
+            sqm.accept(new BaseSemanticQueryWalker() {
+                @Override
+                public Object visitQuerySpec(SqmQuerySpec<?> spec) {
+                    Set<SqmFrom<?, ?>> seen = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+                    spec.getFromClause().getRoots().forEach(root -> walk.treatedJoins(root, factory, seen, this));
+                    return super.visitQuerySpec(spec);
+                }
+            });
+        }
         walk.declarations(expected);
         walk.top = statement.getQueryPart() instanceof QuerySpec spec ? spec : null;
         if (walk.refusal == null) {
@@ -149,7 +188,55 @@ final class TreatPreflight extends AbstractSqlAstWalker {
             walk.refuse("the engine declared a " + left.kind() + " narrowing of " + left.entity().getSimpleName()
                     + " as " + simpleNames(left.types()) + " that no sub-select root of the statement renders");
         }
+        if (walk.refusal == null) {
+            for (JoinRoot root : walk.joinRoots) {
+                walk.joins(root.group(), root.spec());
+                if (walk.refusal != null) {
+                    break;
+                }
+            }
+        }
+        if (walk.refusal == null && !walk.checkedJoins.containsAll(walk.treatedJoins.keySet())) {
+            walk.refuse("a treated TABLE_PER_CLASS join has no recognised SQL table group");
+        }
         return Optional.ofNullable(walk.refusal);
+    }
+
+    private void treatedJoins(SqmFrom<?, ?> from, SessionFactoryImplementor factory, Set<SqmFrom<?, ?>> seen,
+            BaseSemanticQueryWalker walker) {
+        if (!seen.add(from)) {
+            return;
+        }
+        if (from instanceof SqmTreatedPath<?, ?> treated && treated.getWrappedPath() instanceof SqmJoin<?, ?> join
+                && factory.getMappingMetamodel().getEntityDescriptor(join.getJavaType())
+                        instanceof UnionSubclassEntityPersister entity) {
+            if (join.getSqmJoinType() != SqmJoinType.INNER && join.getSqmJoinType() != SqmJoinType.LEFT) {
+                refuse("a treated TABLE_PER_CLASS join has an unrecognised join type");
+            }
+            treatedJoins.computeIfAbsent(join.getNavigablePath(), ignored -> new ArrayList<>())
+                    .add(new TreatedJoin(entity, treated.getTreatTarget().getJavaType()));
+        }
+        // Hibernate's semantic walker does not descend into these FROM nodes on either supported line.
+        if (from instanceof SqmDerivedRoot<?> derived) {
+            derived.getQueryPart().accept(walker);
+        } else if (from instanceof SqmDerivedJoin<?> derived) {
+            derived.getQueryPart().accept(walker);
+        } else if (from.getClass().getSimpleName().equals("SqmFunctionRoot")
+                || from.getClass().getSimpleName().equals("SqmFunctionJoin")) {
+            // Set-returning FROM functions exist only on 7.4; keep the module compilable against 6.6.
+            try {
+                Object function = from.getClass().getMethod("getFunction").invoke(from);
+                if (function instanceof SqmVisitableNode node) {
+                    node.accept(walker);
+                } else {
+                    refuse("a FROM function has no recognised semantic query part");
+                }
+            } catch (ReflectiveOperationException failed) {
+                refuse("a FROM function has no accessible semantic query part");
+            }
+        }
+        from.getSqmJoins().forEach(join -> treatedJoins(join, factory, seen, walker));
+        from.getSqmTreats().forEach(treat -> treatedJoins(treat, factory, seen, walker));
     }
 
     /**
@@ -193,6 +280,7 @@ final class TreatPreflight extends AbstractSqlAstWalker {
         Map<String, Read> roots = new HashMap<>();
         for (TableGroup root : spec.getFromClause().getRoots()) {
             root(root, discriminated, roots, spec, candidate);
+            joinRoots.add(new JoinRoot(root, spec));
         }
         if (refusal == null && spec.getWhereClauseRestrictions() != null && !discriminated.isEmpty()) {
             where(spec.getWhereClauseRestrictions(), discriminated, spec);
@@ -202,6 +290,152 @@ final class TreatPreflight extends AbstractSqlAstWalker {
             exists(spec.getHavingClauseRestrictions(), roots);
             super.visitQuerySpec(spec);
         }
+    }
+
+    /** Checks the actual join target, including nested joins, after the root and declaration checks have passed. */
+    private void joins(TableGroup owner, QuerySpec spec) {
+        for (TableGroupJoin join : Stream.concat(owner.getTableGroupJoins().stream(),
+                owner.getNestedTableGroupJoins().stream()).toList()) {
+            TableGroup group = join.getJoinedGroup();
+            List<TreatedJoin> declared = treatedJoins.get(group.getNavigablePath());
+            if (declared == null && group.isInitialized()
+                    && group.getPrimaryTableReference() instanceof UnionTableReference) {
+                refuse("a TABLE_PER_CLASS join has no recorded treated declaration");
+                return;
+            }
+            if (declared != null) {
+                checkedJoins.add(group.getNavigablePath());
+                for (TreatedJoin treated : declared) {
+                    treatedJoin(join, spec, treated);
+                }
+            }
+            if (group.isInitialized()) {
+                joins(group, spec);
+            }
+        }
+    }
+
+    private void treatedJoin(TableGroupJoin join, QuerySpec spec, TreatedJoin treated) {
+        TableGroup group = join.getJoinedGroup();
+        if (!group.isInitialized() || !(group.getPrimaryTableReference() instanceof NamedTableReference table)
+                || (join.getJoinType() != SqlAstJoinType.INNER && join.getJoinType() != SqlAstJoinType.LEFT)) {
+            refuse("a treated TABLE_PER_CLASS join has an unrecognised SQL shape");
+            return;
+        }
+        String expression = table.getTableExpression();
+        Set<String> observed = branches(expression);
+        Set<String> allowed = narrowing(treated.entity(), treated.subtype());
+        EntityMappingType subtype = subtype(treated.entity(), treated.subtype());
+        if (allowed == null || subtype == null || observed.isEmpty()
+                || !branches(treated.entity().getTableName()).containsAll(observed)
+                || !knownUnion(expression)) {
+            refuse("a treated TABLE_PER_CLASS join has an unrecognised union shape");
+            return;
+        }
+        Set<String> outside = new TreeSet<>(observed);
+        outside.removeAll(allowed);
+        if (outside.isEmpty() || restrictedTo(spec, group, table.getIdentificationVariable(), treated.entity(),
+                subtype, join.getPredicate())) {
+            return;
+        }
+        if (join.getJoinType() == SqlAstJoinType.LEFT
+                && nullLeftReads(spec, group, table.getIdentificationVariable(), treated, outside, expression)) {
+            return;
+        }
+        List<Predicate> conjuncts = new ArrayList<>();
+        if (join.getPredicate() != null) {
+            conjuncts(join.getPredicate(), conjuncts);
+        }
+        for (String branch : outside) {
+            boolean nullKey = conjuncts.stream().anyMatch(predicate -> {
+                if (predicate instanceof ComparisonPredicate equal && equal.getOperator() == ComparisonOperator.EQUAL
+                        && equal.getLeftHandExpression() instanceof ColumnReference left
+                        && equal.getRightHandExpression() instanceof ColumnReference right) {
+                    String alias = table.getIdentificationVariable();
+                    ColumnReference key = alias.equals(left.getQualifier()) && !alias.equals(right.getQualifier())
+                            ? left : alias.equals(right.getQualifier()) && !alias.equals(left.getQualifier())
+                            ? right : null;
+                    return key != null && nullId(expression, branch, key.getColumnExpression());
+                }
+                return false;
+            });
+            if (!nullKey) {
+                refuse("the treated " + name(treated.entity()) + " join as " + treated.subtype().getSimpleName()
+                        + " keeps the union branch " + branch + " without a null join key or subtype restriction");
+            }
+        }
+    }
+
+    /** A to-one LEFT match is indistinguishable from a miss only when every target read is null or guarded. */
+    private static boolean nullLeftReads(QuerySpec spec, TableGroup group, String alias, TreatedJoin treated,
+            Set<String> outside, String expression) {
+        if (!(group.getModelPart() instanceof EntityAssociationMapping)
+                || !(group.getModelPart() instanceof SingularAttributeMapping)) {
+            return false;
+        }
+        Set<String> aliases = new HashSet<>();
+        targetAliases(group, aliases);
+        class Reads extends AbstractSqlAstWalker {
+            private boolean safe = true;
+
+            @Override
+            public void visitColumnReference(ColumnReference column) {
+                String qualifier = column.getQualifier();
+                if (aliases.contains(qualifier) && (!alias.equals(qualifier) || outside.stream()
+                        .anyMatch(branch -> !nullId(expression, branch, column.getColumnExpression())))) {
+                    safe = false;
+                }
+            }
+
+            @Override
+            public void visitCaseSearchedExpression(CaseSearchedExpression value) {
+                Set<String> concrete = concrete(subtype(treated.entity(), treated.subtype()), new TreeSet<>());
+                Map<String, Discriminated> target =
+                        Map.of(alias, new Discriminated(treated.entity(), treated.entity()));
+                boolean nullElse = value.getOtherwise() == null
+                        || value.getOtherwise() instanceof QueryLiteral<?> literal && literal.getLiteralValue() == null;
+                if (nullElse && !value.getWhenFragments().isEmpty()
+                        && value.getWhenFragments().stream().allMatch(when -> {
+                    Restriction restriction = restriction(when.getPredicate(), target);
+                    return restriction != null && restriction.root() != UNATTRIBUTED
+                            && restriction.admitted() != null && concrete.containsAll(restriction.admitted());
+                })) {
+                    return;
+                }
+                super.visitCaseSearchedExpression(value);
+            }
+
+            @Override
+            public void visitFromClause(FromClause fromClause) {
+                // Join equalities are checked separately; inspect expressions in every query clause.
+            }
+
+            @Override
+            public void visitSqlSelectionExpression(SqlSelectionExpression selection) {
+                // The select clause already checks the referenced expression, which may refer to itself.
+            }
+        }
+        Reads reads = new Reads();
+        spec.accept(reads);
+        return reads.safe;
+    }
+
+    private static void targetAliases(TableGroup group, Set<String> aliases) {
+        if (!group.isInitialized()) {
+            return;
+        }
+        aliases.add(group.getPrimaryTableReference().getIdentificationVariable());
+        group.getTableReferenceJoins().forEach(join ->
+                aliases.add(join.getJoinedTableReference().getIdentificationVariable()));
+        Stream.concat(group.getTableGroupJoins().stream(), group.getNestedTableGroupJoins().stream())
+                .forEach(join -> targetAliases(join.getJoinedGroup(), aliases));
+    }
+
+    /** The same lexical union shape understood by {@link #nullId}; anything else fails closed. */
+    private static boolean knownUnion(String expression) {
+        return !expression.startsWith("(") ? !expression.contains(" ")
+                : expression.endsWith(")") && Stream.of(expression.substring(1, expression.length() - 1)
+                        .split(" union all ")).allMatch(branch -> UNION_SELECT.matcher(branch).matches());
     }
 
     /**
@@ -477,7 +711,15 @@ final class TreatPreflight extends AbstractSqlAstWalker {
      */
     private static boolean restrictedTo(QuerySpec spec, TableGroup group, String alias,
             AbstractEntityPersister entity, EntityMappingType subtype) {
+        return restrictedTo(spec, group, alias, entity, subtype, null);
+    }
+
+    private static boolean restrictedTo(QuerySpec spec, TableGroup group, String alias,
+            AbstractEntityPersister entity, EntityMappingType subtype, Predicate on) {
         List<Predicate> conjuncts = new ArrayList<>();
+        if (on != null) {
+            conjuncts(on, conjuncts);
+        }
         if (spec.getWhereClauseRestrictions() != null) {
             conjuncts(spec.getWhereClauseRestrictions(), conjuncts);
         }
@@ -803,6 +1045,12 @@ final class TreatPreflight extends AbstractSqlAstWalker {
 
     /** A root a query spec reads, and whether a declaration let it be narrowed. */
     private record Read(AbstractEntityPersister entity, boolean narrowed) {
+    }
+
+    private record TreatedJoin(UnionSubclassEntityPersister entity, Class<?> subtype) {
+    }
+
+    private record JoinRoot(TableGroup group, QuerySpec spec) {
     }
 
     /** A sub-select a declaration of {@code kind} can narrow, and the roots of its parent query spec. */
