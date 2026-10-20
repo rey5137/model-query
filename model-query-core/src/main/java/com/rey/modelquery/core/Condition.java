@@ -85,7 +85,19 @@ public final class Condition {
         /** {@code notExists} over a sub-select: {@code subSelect} and the correlation as {@code children}. */
         NOT_EXISTS_SUBSELECT,
         /** {@code add}: {@code label} when given; nothing else about the predicate is recorded. */
-        CUSTOM
+        CUSTOM,
+        /**
+         * {@code ofType}: {@code column}, the node's {@code Expr.typeOf}, and the types as passed, none for an empty
+         * collection (R-FLT-28).
+         */
+        @Incubating
+        OF_TYPE,
+        /**
+         * {@code notOfType}: {@code column}, the node's {@code Expr.typeOf}, and the types as passed, none for an
+         * empty collection (R-FLT-28).
+         */
+        @Incubating
+        NOT_OF_TYPE
     }
 
     private final Kind kind;
@@ -245,7 +257,8 @@ public final class Condition {
         // Computed per call: a mutable value changed after the call changes the view (R-INS-04).
         return kind == Kind.CUSTOM
                 ? Objects.hash(kind, label)
-                : Objects.hash(kind, column, right, op, likeMode, pathKey(), values, children, label, subSelect, operands);
+                : Objects.hash(kind, column, right, op, likeMode, pathKey(), values, children, label, subSelect,
+                        operands);
     }
 
     /** {@code path}'s identity: a {@code TableField} compares by its join key, not by instance (CC-IMM-04). */

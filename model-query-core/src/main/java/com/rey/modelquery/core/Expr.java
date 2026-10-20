@@ -277,6 +277,42 @@ public final class Expr {
     }
 
     /**
+     * {@code TYPE(table)}, the exact entity class of each row's {@code table} node, through {@code From#type()}
+     * (R-COL-36). {@code eq(typeOf(ROOT), CardPayment.class)} keeps {@code CardPayment} rows only, not its entity
+     * subtypes' rows; {@link Filters#ofType} keeps those too. It selects, groups, filters with {@code eq} and
+     * {@code in}, and orders an offset page, an offset export and {@code primaryKeyFirst}: its order is the provider's
+     * type rendering, unspecified but deterministic per deployment with the id tie-breaker; order by a {@code CASE} for
+     * a named order. A row whose discriminator value no entity maps fails to read with the provider's error, so it is
+     * never skipped silently.
+     *
+     * <p>It reads no column and makes no treated statement: no root-id count and no id anchor (R-COL-35).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1106} over a source root, which has no entity type;
+     *     {@code MQ1208} from {@code build()} as a {@code keyset()} order key, as every expression is (R-QRY-16)
+     * @throws ModelQueryConfigurationException {@code MQ4014} without the provider's {@code TreatRenderer}, and
+     *     {@code MQ4016} before any statement where it refuses the site: over a LEFT-joined node, whose absent row
+     *     has no type to read, and, on Hibernate, as an order key of a {@code JOINED} root without a discriminator
+     */
+    @Incubating
+    @SuppressWarnings("unchecked")
+    public static <M, T> ExpressionField<M, Class<? extends T>> typeOf(Class<M> model, TableField<?, T> table) {
+        Objects.requireNonNull(model, "model");
+        return (ExpressionField<M, Class<? extends T>>) (ExpressionField<?, ?>) typeOf(table);
+    }
+
+    /** {@link #typeOf(Class, TableField)}, for the filter {@code ofType} records (R-FLT-28). */
+    static <M> ExpressionField<M, Class<?>> typeOf(TableField<?, ?> table) {
+        Objects.requireNonNull(table, "table");
+        if (table.isSource()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1106, table.describe() + ": typeOf and ofType read an "
+                    + "entity node's type, and a source root is read by field name from its CTE");
+        }
+        @SuppressWarnings("unchecked")
+        Class<Class<?>> type = (Class<Class<?>>) (Class<?>) Class.class;
+        return new ExpressionField<>(new ExpressionField.TypeOf(table), type, null);
+    }
+
+    /**
      * A CASE builder whose {@code when(...)} chains at least once; a CASE with no WHEN does not compile. {@code type}
      * is boxed, so {@code cases(M.class, int.class)} is the {@code Integer.class} CASE.
      */

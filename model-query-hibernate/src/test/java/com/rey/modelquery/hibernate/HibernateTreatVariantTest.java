@@ -202,6 +202,21 @@ class HibernateTreatVariantTest {
     }
 
     @Test
+    void ac_col_49_a_joined_type_order_is_admitted_only_where_the_persister_maps_a_discriminator() {
+        var order = new TreatSite(JoinedPayment.class, JoinedPayment.class, Optional.empty(), StatementShape.CONTENT,
+                true, Set.of(TreatUse.TYPE, TreatUse.ORDER));
+        assertThat(renderer(implicit).refusal(order)).isEmpty();
+        assertThat(renderer(variants).refusal(new TreatSite(ExplicitPayment.class, ExplicitPayment.class,
+                Optional.empty(), StatementShape.CONTENT, true, Set.of(TreatUse.TYPE, TreatUse.ORDER)))).isEmpty();
+        // Without a setting, or with the explicit column ignored, the type is a CASE over the subtype tables.
+        assertThat(renderer(variants).refusal(order))
+                .hasValueSatisfying(text -> assertThat(text).contains("without a discriminator"));
+        assertThat(renderer(ignoring).refusal(new TreatSite(ExplicitPayment.class, ExplicitPayment.class,
+                Optional.empty(), StatementShape.CONTENT, true, Set.of(TreatUse.TYPE, TreatUse.ORDER))))
+                .hasValueSatisfying(text -> assertThat(text).contains("without a discriminator"));
+    }
+
+    @Test
     void ac_vnd_18_the_core_mappings_keep_the_cells_a_variant_lacks() {
         // Without either setting a JOINED hierarchy is no variant: its root-id-counted null tests are admitted.
         var renderer = renderer(variants);

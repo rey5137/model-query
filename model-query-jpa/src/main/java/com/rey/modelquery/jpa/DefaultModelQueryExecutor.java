@@ -266,7 +266,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         options = vendor.providerSupport()
                 .flatMap(support -> support.treats(emf))
                 .map(options::withTreatRenderer)
-                .orElse(options);
+                .orElse(options)
+                .withMetamodel(emf.getMetamodel()); // ofType's subtypes (R-FLT-28)
         this.renderOptions = sources(options);
         this.keyLimits = new Keys(profile.maxInListSize(), profile.maxBindParameters());
         this.primaryKeyFirstBatchSize = config.primaryKeyFirstBatchSize();
@@ -1184,7 +1185,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(page, "page");
         Objects.requireNonNull(mode, "mode");
         refuseLock(q, "page(query, PageSpec, CountMode)");
-        checkFirstRun(q, mode != CountMode.ONLY_COUNT,
+        Optional<String> clientSide = checkFirstRun(q, mode != CountMode.ONLY_COUNT,
                 mode == CountMode.ONLY_COUNT ? StatementShape.COUNT : StatementShape.CONTENT,
                 false, mode == CountMode.COUNT);
         int offset = page.offset();
@@ -1205,7 +1206,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         // With a treated node, every statement the page runs is built and preflighted before the first of them runs,
         // and then run as built (R-VND-26).
-        Counting<M> counting = mode != CountMode.NO_COUNT ? preflightedCounting(q) : null;
+        Counting<M> counting = mode != CountMode.NO_COUNT ? preflightedCounting(q, clientSide) : null;
         BuiltQuery<M> first = null;
         if (mode != CountMode.ONLY_COUNT && preflights(q)) {
             first = primaryKeyFirst(q, offset) ? keyQuery(q) : offsetPage(q, everyColumn);
@@ -1353,10 +1354,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     public long count(ModelQuery<E, ?, ?> q) {
         Objects.requireNonNull(q, "q");
         refuseLock(q, "count(query)");
-        checkFirstRun(q, false);
+        Optional<String> clientSide = checkFirstRun(q, false);
         LOG.log(DEBUG, () -> "count " + q);
         warnOfIgnoredOrder(q, "count(query)");
-        return countRows(q);
+        return countRows(q, clientSide);
     }
 
     @Override
@@ -2600,18 +2601,25 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     /**
      * As {@link #checkFirstRun(ModelQuery)}; without {@code fetchesModels}, as for {@code count}, which loads no
      * children and runs no enricher, a failed fetch-plan check logs a {@code WARNING} instead of throwing
-     * {@code MQ1702}, and is not remembered, so the next call that returns models throws it.
+     * {@code MQ1702}, and is not remembered, so the next call that returns models throws it. Returns
+     * {@link #checkCount}'s reason to count the groups client-side.
      */
-    private <E2> void checkFirstRun(ModelQuery<E2, ?, ?> q, boolean fetchesModels) {
-        checkFirstRun(q, fetchesModels, fetchesModels ? StatementShape.CONTENT : StatementShape.COUNT, false, false);
+    private <E2> Optional<String> checkFirstRun(ModelQuery<E2, ?, ?> q, boolean fetchesModels) {
+        return checkFirstRun(q, fetchesModels, fetchesModels ? StatementShape.CONTENT : StatementShape.COUNT, false,
+                false);
     }
 
-    private <E2> void checkFirstRun(ModelQuery<E2, ?, ?> q, boolean fetchesModels, StatementShape shape,
+    private <E2> Optional<String> checkFirstRun(ModelQuery<E2, ?, ?> q, boolean fetchesModels, StatementShape shape,
             boolean laterPages, boolean withCount) {
+        Optional<String> clientSide = Optional.empty();
         if (renderOptions.treatRenderer().isPresent()) {
-            TreatChecks.check(q, renderOptions, em.getMetamodel(), shape, laterPages, fetchesModels);
+            if (shape == StatementShape.COUNT) {
+                clientSide = checkCount(q, laterPages, fetchesModels);
+            } else {
+                TreatChecks.check(q, renderOptions, em.getMetamodel(), shape, laterPages, fetchesModels);
+            }
             if (withCount) {
-                TreatChecks.check(q, renderOptions, em.getMetamodel(), StatementShape.COUNT, false, false);
+                clientSide = checkCount(q, false, false);
             }
         } else {
             checkTreats(q);
@@ -2629,7 +2637,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 }
                 LOG.log(System.Logger.Level.WARNING, "count runs, but the fetch plan of the query is invalid, and "
                         + "every call that returns models throws: {0}", e.getMessage());
-                return;
+                return clientSide;
             }
             FIRST_RUN_CHECKED.add(definition); // only once they passed, so a check that threw runs again next time
         }
@@ -2640,6 +2648,27 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 refuseNonUniqueSource(q, "a fetch plan with a child, a join plan or an enricher");
             }
             checkFetchBuilds(q);
+        }
+        return clientSide;
+    }
+
+    /**
+     * Checks the sites of {@code q}'s count. A grouped query's count of groups is a {@code GROUPED_COUNT} statement;
+     * when that shape is refused and the same sites pass as {@code GROUPED}, the groups are counted client-side and
+     * the refusal is returned as the reason. A site refused as {@code GROUPED} too throws its {@code MQ4016}. Decided
+     * per call: no verdict is kept (R-EXE-03, R-VND-26, D-159, INV-9).
+     */
+    private Optional<String> checkCount(ModelQuery<?, ?, ?> q, boolean laterPages, boolean fetchesModels) {
+        try {
+            TreatChecks.check(q, renderOptions, em.getMetamodel(), StatementShape.COUNT, laterPages, fetchesModels);
+            return Optional.empty();
+        } catch (ModelQueryConfigurationException e) {
+            if (!q.isGrouped() || e.code() != MqCode.MQ4016) {
+                throw e;
+            }
+            TreatChecks.check(q, renderOptions, em.getMetamodel(), StatementShape.GROUPED, laterPages, fetchesModels);
+            // The renderer's refusal without its code: the count runs, so no MQ4016 is raised (D-159).
+            return Optional.of(e.getMessage().substring(e.code().code().length() + 2));
         }
     }
 
@@ -2664,7 +2693,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     /** As {@link #preflight(ModelQuery, String, StatementShape, BuiltQuery)}, for {@code query} built by another. */
     private void preflight(ModelQuery<?, ?, ?> q, String statement, StatementShape shape, CriteriaQuery<?> query,
             List<ExpectedNarrowing> expected) {
-        // A grouped statement is GROUPED, as its sites are (TreatChecks).
+        // A grouped statement is GROUPED, as its sites are (TreatChecks); the count of its groups is preflighted as
+        // GROUPED too, whether the provider builds it or it runs client-side (D-159).
         StatementShape actual = q.isGrouped() ? StatementShape.GROUPED : shape;
         renderOptions.treatRenderer().orElseThrow().preflight(em, query, actual, expected).ifPresent(reason -> {
             throw new ModelQueryConfigurationException(MqCode.MQ4016, q + ": the preflight refuses the " + statement
@@ -3517,14 +3547,20 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     // ---- count
 
-    /** Counts {@code q}'s rows, its count statement preflighted first when it holds a treated node (R-VND-26). */
-    private <M> long countRows(ModelQuery<E, ?, M> q) {
-        return countRows(q, preflightedCounting(q));
+    /**
+     * Counts {@code q}'s rows, its count statement preflighted first when it holds a treated node (R-VND-26), and a
+     * grouped one's groups client-side when {@code clientSide} holds a reason (D-159).
+     */
+    private <M> long countRows(ModelQuery<E, ?, M> q, Optional<String> clientSide) {
+        return countRows(q, preflightedCounting(q, clientSide));
     }
 
-    /** {@code q}'s count statement, preflighted when it holds a treated node (R-VND-26). */
-    private <M> Counting<M> preflightedCounting(ModelQuery<E, ?, M> q) {
-        Counting<M> counting = counting(q);
+    /**
+     * {@code q}'s count statement, preflighted when it holds a treated node (R-VND-26); a grouped one counts its rows
+     * client-side when {@code clientSide} holds the reason its sites were refused as {@code GROUPED_COUNT} (D-159).
+     */
+    private <M> Counting<M> preflightedCounting(ModelQuery<E, ?, M> q, Optional<String> clientSide) {
+        Counting<M> counting = counting(q, clientSide);
         if (preflights(q)) {
             preflight(q, "count", StatementShape.COUNT, counting.statement(),
                     counting.built().expectedNarrowings());
@@ -3539,7 +3575,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             return single(q, create(q, em, counting.groups(), null, null, built.joins()));
         }
         if (counting.inMemory()) {
-            if (built.recursionChecks().isEmpty()) {
+            if (counting.refusal().isPresent()) {
+                LOG.log(System.Logger.Level.WARNING, "count over the grouped query on {0} runs it and counts its "
+                        + "rows in memory, because the treat renderer refuses the count of its groups: {1} (R-EXE-03)",
+                        rootEntity.getSimpleName(), counting.refusal().get());
+            } else if (built.recursionChecks().isEmpty()) {
                 LOG.log(System.Logger.Level.WARNING, "count over the grouped query on {0} runs it and counts its "
                         + "rows in memory, because no ProviderSupport counts groups for this persistence provider; "
                         + "add model-query-hibernate for a count in the database (R-EXE-03)",
@@ -3553,9 +3593,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * A count's statement, built and not run: {@code built}'s own, or {@code groups}, the provider's count over a
-     * grouped statement; {@code inMemory} when a grouped statement's rows are counted client-side.
+     * grouped statement; {@code inMemory} when a grouped statement's rows are counted client-side, with the treat
+     * renderer's {@code refusal} when it refused the count of the groups (D-159).
      */
-    private record Counting<M>(BuiltQuery<M> built, CriteriaQuery<Long> groups, boolean inMemory) {
+    private record Counting<M>(BuiltQuery<M> built, CriteriaQuery<Long> groups, boolean inMemory,
+            Optional<String> refusal) {
 
         /** The statement the count runs. */
         CriteriaQuery<?> statement() {
@@ -3563,20 +3605,23 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
     }
 
-    /** The statement that counts {@code q}'s rows, or its groups for a grouped query (R-EXE-05). */
-    private <M> Counting<M> counting(ModelQuery<E, ?, M> q) {
+    /**
+     * The statement that counts {@code q}'s rows, or its groups for a grouped query (R-EXE-05), client-side when
+     * {@code clientSide} holds the renderer's refusal of the count of the groups (D-159).
+     */
+    private <M> Counting<M> counting(ModelQuery<E, ?, M> q, Optional<String> clientSide) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
         if (!q.isGrouped() && q.source().isEmpty() && TreatChecks.treated(q)) {
             // Built fresh and counting the root id: the content statement with its selection replaced would lose the
             // rows a select-only or order-only treat narrows away, and count(root) those a null-accepting predicate
             // keeps (R-COL-35, R-EXE-05). A grouped query keeps its count of groups below.
-            return new Counting<>(q.buildRootIdCount(cb, renderOptions), null, false);
+            return new Counting<>(q.buildRootIdCount(cb, renderOptions), null, false, Optional.empty());
         }
         BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL, renderOptions);
         CriteriaQuery<Tuple> query = built.query();
         query.orderBy(List.<Order>of()); // the count needs no order (R-EXE-05)
         if (q.isGrouped()) {
-            return groupCounting(q, built);
+            return groupCounting(q, built, clientSide);
         }
         // Every predicate and join stays, since one can change the number of rows; only the selection is replaced.
         // This drops select-only correlated sub-queries but keeps those in WHERE (R-EXE-05).
@@ -3593,11 +3638,14 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         selections.add(count);
         selections.addAll(built.recursionChecks());
         query.multiselect(selections);
-        return new Counting<>(built, null, false);
+        return new Counting<>(built, null, false, Optional.empty());
     }
 
-    /** {@code count(*)} over the groups: in the database when the provider support can, else client-side. */
-    private <M> Counting<M> groupCounting(ModelQuery<E, ?, M> q, BuiltQuery<M> built) {
+    /**
+     * {@code count(*)} over the groups: in the database when the provider support can, else client-side, as when
+     * {@code clientSide} holds the renderer's refusal of the count of the groups (D-159).
+     */
+    private <M> Counting<M> groupCounting(ModelQuery<E, ?, M> q, BuiltQuery<M> built, Optional<String> clientSide) {
         CriteriaQuery<Tuple> query = built.query();
         // A source's own checks are part of every statement's selection and a count keeps them (R-EXE-05, R-SRC-08).
         List<Selection<?>> checks = built.recursionChecks();
@@ -3619,10 +3667,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         // createCountQuery() projects, the grouped query's CTE ends up inside its derived table, out of the checks'
         // reach, and with zero groups no row carries them (R-EXE-03, RFC 0014 §3). The provider support only builds
         // the count; it runs here, so the configured timeout applies (R-EXE-11).
-        Optional<CriteriaQuery<Long>> count = checks.isEmpty()
+        // A renderer that refuses the count of the groups (GROUPED_COUNT) has them counted client-side too (D-159).
+        Optional<CriteriaQuery<Long>> count = checks.isEmpty() && clientSide.isEmpty()
                 ? vendor.providerSupport().flatMap(p -> p.countQuery(query))
                 : Optional.empty();
-        return new Counting<>(built, count.orElse(null), count.isEmpty());
+        return new Counting<>(built, count.orElse(null), count.isEmpty(), clientSide);
     }
 
     private static boolean hasToManyJoin(From<?, ?> from) {

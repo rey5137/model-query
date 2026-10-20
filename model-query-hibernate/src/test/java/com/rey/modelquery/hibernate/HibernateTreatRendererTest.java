@@ -213,14 +213,80 @@ class HibernateTreatRendererTest {
                 TreatUse.SELECT), "only through the treat");
         assertRefused(renderer, site(JdPayment.class, JdCard.class, "number", StatementShape.COUNT, false,
                 TreatUse.PREDICATE), "only through the treat");
-        for (var shape : List.of(StatementShape.GROUPED, StatementShape.SOURCE_BODY, StatementShape.CHILD,
-                StatementShape.WRITE)) {
+        for (var shape : List.of(StatementShape.GROUPED, StatementShape.GROUPED_COUNT, StatementShape.SOURCE_BODY,
+                StatementShape.CHILD, StatementShape.WRITE)) {
             assertRefused(renderer, card(shape, TreatUse.PREDICATE), "no " + shape + " cell");
         }
-        assertRefused(renderer, site(JdPayment.class, JdPayment.class, null, StatementShape.CONTENT, true,
-                TreatUse.TYPE, TreatUse.SELECT), "M28.5");
         assertRefused(renderer, card(StatementShape.CONTENT, TreatUse.SELECT, TreatUse.SUBQUERY,
                 TreatUse.CORRELATION), "correlated on a treated outer node");
+    }
+
+    private static TreatSite type(Class<?> entity, StatementShape shape, boolean anchored, TreatUse... uses) {
+        var all = EnumSet.of(TreatUse.TYPE, uses);
+        return new TreatSite(entity, entity, Optional.empty(), shape, anchored, Set.copyOf(all));
+    }
+
+    @Test
+    void ac_col_49_type_cells_are_admitted_by_shape_and_use_set_as_measured() {
+        var left = new TreatUse[] {TreatUse.PREDICATE, TreatUse.NEGATED, TreatUse.NULL_TEST, TreatUse.DISJUNCTION,
+            TreatUse.LEFT_JOIN};
+        for (var factory : List.of(single, joined)) {
+            var renderer = renderer(factory);
+            Class<?> root = factory == single ? StPayment.class : JdPayment.class;
+            for (var admitted : List.of(type(root, StatementShape.CONTENT, true, TreatUse.SELECT),
+                    type(root, StatementShape.CONTENT, true, TreatUse.PREDICATE),
+                    type(root, StatementShape.CONTENT, true, TreatUse.PREDICATE, TreatUse.DISJUNCTION),
+                    type(root, StatementShape.CONTENT, true, left),
+                    type(root, StatementShape.COUNT, true, TreatUse.PREDICATE),
+                    type(root, StatementShape.COUNT, true, TreatUse.PREDICATE, TreatUse.DISJUNCTION),
+                    type(root, StatementShape.COUNT, true, left),
+                    type(root, StatementShape.GROUPED, false, TreatUse.SELECT, TreatUse.GROUP_BY),
+                    type(root, StatementShape.GROUPED, false, TreatUse.GROUP_BY))) {
+                assertThat(renderer.refusal(admitted)).as(root.getSimpleName() + " " + admitted).isEmpty();
+            }
+            // A LEFT-joined node's type in the select fails on both lines; the rest was never measured.
+            for (var refused : List.of(type(root, StatementShape.CONTENT, true, TreatUse.SELECT, TreatUse.LEFT_JOIN),
+                    type(root, StatementShape.CONTENT, true, TreatUse.PREDICATE, TreatUse.INNER_JOIN),
+                    type(root, StatementShape.CONTENT, true, TreatUse.PREDICATE, TreatUse.LEFT_JOIN),
+                    type(root, StatementShape.CONTENT, true, TreatUse.PREDICATE, TreatUse.NEGATED),
+                    type(root, StatementShape.CONTENT, true, TreatUse.PREDICATE, TreatUse.SUBQUERY),
+                    type(root, StatementShape.CONTENT, true, TreatUse.SELECT, TreatUse.EXPRESSION),
+                    type(root, StatementShape.COUNT, true, TreatUse.SELECT),
+                    type(root, StatementShape.GROUPED, false, TreatUse.ORDER),
+                    type(root, StatementShape.GROUPED, false, TreatUse.PREDICATE))) {
+                assertRefused(renderer, refused, "unmeasured use set for a type read");
+            }
+            assertRefused(renderer, type(root, StatementShape.CONTENT, false, TreatUse.SELECT),
+                    "doesn't read its root");
+            for (var shape : List.of(StatementShape.SOURCE_BODY, StatementShape.CHILD, StatementShape.WRITE)) {
+                assertRefused(renderer, type(root, shape, false, TreatUse.PREDICATE), "no " + shape + " cell");
+            }
+            assertRefused(renderer, type(String.class, StatementShape.CONTENT, true, TreatUse.SELECT),
+                    "not a mapped entity");
+        }
+    }
+
+    @Test
+    void ac_col_49_a_type_order_is_refused_on_a_joined_root_without_a_discriminator() {
+        assertThat(renderer(single).refusal(type(StPayment.class, StatementShape.CONTENT, true, TreatUse.ORDER)))
+                .isEmpty();
+        assertRefused(renderer(joined), type(JdPayment.class, StatementShape.CONTENT, true, TreatUse.ORDER),
+                "JOINED root without a discriminator");
+    }
+
+    @Test
+    void ac_exe_03_a_count_of_type_groups_is_refused_on_a_joined_root_without_a_discriminator() {
+        var singleTable = renderer(single);
+        for (var uses : List.of(new TreatUse[] {TreatUse.SELECT, TreatUse.GROUP_BY},
+                new TreatUse[] {TreatUse.GROUP_BY})) {
+            assertThat(singleTable.refusal(type(StPayment.class, StatementShape.GROUPED_COUNT, false, uses))).isEmpty();
+            // createCountQuery drops the subtype joins there, so the engine counts the groups client-side (D-159).
+            assertRefused(renderer(joined), type(JdPayment.class, StatementShape.GROUPED_COUNT, false, uses),
+                    "counted client-side");
+            assertThat(renderer(joined).refusal(type(JdPayment.class, StatementShape.GROUPED, false, uses))).isEmpty();
+        }
+        assertRefused(singleTable, type(StPayment.class, StatementShape.GROUPED_COUNT, false, TreatUse.PREDICATE),
+                "unmeasured use set for a type read");
     }
 
     @Test

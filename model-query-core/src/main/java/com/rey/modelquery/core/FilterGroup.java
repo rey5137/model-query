@@ -3,6 +3,8 @@ package com.rey.modelquery.core;
 import com.rey.modelquery.core.Condition.Kind;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Predicate;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
@@ -83,8 +85,20 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
             for (ColumnField<?, ?, ?> read : expression.columns()) {
                 checkColumn(read);
             }
+            for (TableField<?, ?> read : ExpressionField.typeReads(expression)) {
+                checkTable(read);
+            }
         } else if (column instanceof ColumnField<?, ?, ?> plain) {
             checkColumn(plain);
+        }
+    }
+
+    /** A {@code typeOf} node must sit on the scope's path or below it, as a column must (R-COL-36). */
+    private void checkTable(TableField<?, ?> table) {
+        if (scope != null && !table.isAtOrBelow(scope)) {
+            throw new ModelQueryDefinitionException(scopeCode, "typeOf(" + table.describe() + ") sits outside "
+                    + (scopeCode == MqCode.MQ1003 ? "the sub-select's root " : "the exists(...) path ")
+                    + scope.describe());
         }
     }
 
@@ -211,6 +225,91 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
     @Override
     public <C> Filters<M> notIn(ScalarField<M, C> column, Optional<? extends Collection<? extends C>> values) {
         return super.notIn(column, values);
+    }
+
+    // ---- the row's entity type (R-FLT-28)
+
+    @Override
+    @SafeVarargs
+    public final <T> Filters<M> ofType(TableField<?, T> table, Class<? extends T> type, Class<? extends T>... more) {
+        return typeFilter(table, Kind.OF_TYPE, varargs(table, "ofType", type, more));
+    }
+
+    @Override
+    public <T> Filters<M> ofType(TableField<?, T> table, Collection<? extends Class<? extends T>> types) {
+        return typeFilter(table, Kind.OF_TYPE, types);
+    }
+
+    @Override
+    public <T> Filters<M> ofType(TableField<?, T> table,
+            Optional<? extends Collection<? extends Class<? extends T>>> types) {
+        return presentTypes(table, types) ? ofType(table, types.get()) : this;
+    }
+
+    @Override
+    @SafeVarargs
+    public final <T> Filters<M> notOfType(TableField<?, T> table, Class<? extends T> type,
+            Class<? extends T>... more) {
+        return typeFilter(table, Kind.NOT_OF_TYPE, varargs(table, "notOfType", type, more));
+    }
+
+    @Override
+    public <T> Filters<M> notOfType(TableField<?, T> table, Collection<? extends Class<? extends T>> types) {
+        return typeFilter(table, Kind.NOT_OF_TYPE, types);
+    }
+
+    @Override
+    public <T> Filters<M> notOfType(TableField<?, T> table,
+            Optional<? extends Collection<? extends Class<? extends T>>> types) {
+        return presentTypes(table, types) ? notOfType(table, types.get()) : this;
+    }
+
+    private static List<Class<?>> varargs(TableField<?, ?> table, String operator, Class<?> type, Class<?>[] more) {
+        if (more == null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1301, Objects.requireNonNull(table, "table").describe()
+                    + ": " + operator + "(...) received a null type array");
+        }
+        var types = new ArrayList<Class<?>>(more.length + 1);
+        types.add(type);
+        types.addAll(Arrays.asList(more));
+        return types;
+    }
+
+    private boolean presentTypes(TableField<?, ?> table, Optional<?> types) {
+        checkOpen();
+        Objects.requireNonNull(table, "table");
+        return Objects.requireNonNull(types, "types").isPresent();
+    }
+
+    /**
+     * {@code ofType} or {@code notOfType}, recorded over the node's {@code Expr.typeOf} with the types as passed. An
+     * empty collection is FALSE for {@code ofType} and holds for every row for {@code notOfType}, so it reads no type
+     * and joins nothing (R-FLT-02, R-FLT-28).
+     */
+    private Filters<M> typeFilter(TableField<?, ?> table, Kind kind,
+            Collection<? extends Class<?>> types) {
+        checkOpen();
+        ExpressionField<M, Class<?>> typeOf = Expr.typeOf(Objects.requireNonNull(table, "table"));
+        check(typeOf);
+        String operator = kind == Kind.OF_TYPE ? "ofType" : "notOfType";
+        if (types == null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1301, table.describe() + ": " + operator
+                    + "(...) received null; pass Optional.empty() to skip the filter");
+        }
+        for (Class<?> type : types) {
+            if (type == null) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1301, table.describe() + ": " + operator
+                        + "(...) received a null type");
+            }
+        }
+        List<Class<?>> copy = List.copyOf(types);
+        Condition condition = Condition.of(kind, typeOf, copy);
+        boolean negated = kind == Kind.NOT_OF_TYPE;
+        if (copy.isEmpty()) {
+            return record(condition, ctx -> negated ? Optional.empty() : Optional.of(ctx.cb().disjunction()));
+        }
+        return record(condition, ctx -> Optional.of(ctx.ofType(table, copy, negated,
+                operator + "(" + table.describe() + ")")));
     }
 
     @Override

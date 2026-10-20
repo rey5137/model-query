@@ -226,8 +226,10 @@ public final class TreatChecks {
         owner = definition.toString();
         if (definition instanceof ModelQuery<?, ?, ?> query) {
             entities.put(query.rootEntity().getName(), query.rootEntity());
-            StatementShape statement = query.isGrouped() && shape != StatementShape.CHILD
-                    ? StatementShape.GROUPED : shape;
+            // A grouped statement is GROUPED, and the count of its groups GROUPED_COUNT: the engine counts the groups
+            // client-side when the renderer refuses that shape (R-EXE-03, D-159).
+            StatementShape statement = !query.isGrouped() || shape == StatementShape.CHILD ? shape
+                    : shape == StatementShape.COUNT ? StatementShape.GROUPED_COUNT : StatementShape.GROUPED;
             // Only a content statement and a count are anchored: the engine selects or counts the untreated root id
             // there (R-COL-35); a grouped, child or write statement reads its root as written.
             boolean anchor = statement == StatementShape.CONTENT || statement == StatementShape.COUNT;
@@ -316,18 +318,101 @@ public final class TreatChecks {
             }
             var site = new TreatSite(entity(parent), entity(node), joinsOnly ? Optional.empty() : path,
                     shape, anchored, siteUses);
-            // The engine's refusal is decided per occurrence: an equal site may be admitted in a correlated count.
             occurrences++;
-            boolean added = sites.add(site);
-            Optional<String> refused = engineRefusal(site);
-            if (refused.isEmpty() && added) {
-                refused = renderer.refusal(site);
+            admit(site, site.attribute().orElse(site.subtype().getSimpleName()));
+        }
+    }
+
+    /**
+     * Records {@code site} and asks the renderer about it the first time, {@code MQ4016} naming {@code read} when the
+     * engine or the renderer refuses it. The engine's refusal is decided per occurrence: an equal site may be
+     * admitted in a correlated count.
+     */
+    private void admit(TreatSite site, String read) {
+        boolean added = sites.add(site);
+        Optional<String> refused = engineRefusal(site);
+        if (refused.isEmpty() && added) {
+            refused = renderer.refusal(site);
+        }
+        refused.ifPresent(reason -> {
+            throw new ModelQueryConfigurationException(MqCode.MQ4016, owner + "." + read + ": " + shape + " "
+                    + site.uses() + " on " + strategy(site.entity()) + ": " + reason);
+        });
+    }
+
+    /**
+     * A {@code typeOf} read of {@code table}'s node: the treats on its path, then its own {@code TYPE} site, whose
+     * entity and subtype are both the node's entity, with no attribute and the node's join, if any (R-COL-36,
+     * R-VND-26). A type read makes no treated statement, so it is neither found nor counted as a treated node.
+     *
+     * @throws ModelQueryConfigurationException {@code MQ4014} without a renderer; {@code MQ4016} over a treated node,
+     *     a treat of the root or a downcast join, which no cell measures
+     */
+    void typeOf(TableField<?, ?> table) {
+        register(table);
+        table(table.key());
+        if (joinsOnly || detecting) {
+            return; // a count drops the selection and the order: the type read is not in it
+        }
+        if (renderer == null) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4014, "typeOf(" + table.describe()
+                    + "): a type read needs the provider's TreatRenderer (ProviderSupport#treats(emf))");
+        }
+        if (table.treatedType() != null) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4016, owner + ".typeOf(" + table.describe()
+                    + "): a type read over a treated node is not a measured cell (R-COL-36); read the type of the "
+                    + "untreated node");
+        }
+        var siteUses = EnumSet.noneOf(TreatUse.class);
+        siteUses.addAll(uses);
+        siteUses.add(TreatUse.TYPE);
+        TreatUse join = joinUse(table.key());
+        if (join != null) {
+            siteUses.add(join);
+        }
+        Class<?> entity = entity(table.key());
+        admit(new TreatSite(entity, entity, Optional.empty(), shape, anchored, siteUses),
+                "typeOf(" + table.describe() + ")");
+    }
+
+    /**
+     * How {@code key}'s node is reached: {@code LEFT_JOIN} when any join on its path is LEFT, since the node is then
+     * absent on some rows, else {@code INNER_JOIN} below a join, else {@code null} for the root or a treat of it.
+     */
+    static TreatUse joinUse(JoinKey key) {
+        TreatUse use = null;
+        for (JoinKey node = key; node != null && node.parent() != null; node = node.parent()) {
+            if (node.type() == JoinType.LEFT) {
+                return TreatUse.LEFT_JOIN;
             }
-            refused.ifPresent(reason -> {
-                throw new ModelQueryConfigurationException(MqCode.MQ4016, owner + "."
-                        + site.attribute().orElse(site.subtype().getSimpleName()) + ": " + shape + " "
-                        + site.uses() + " on " + strategy(site.entity()) + ": " + reason);
-            });
+            if (node.type() != null) {
+                use = TreatUse.INNER_JOIN;
+            }
+        }
+        return use;
+    }
+
+    /**
+     * {@code MQ1106} for an {@code ofType} or {@code notOfType} type the metamodel does not map as an entity, or that
+     * is not its node's entity or a subtype of it, before any statement (R-FLT-28); the build checks it again.
+     */
+    private void checkTypes(Condition condition) {
+        if (metamodel == null || renderer == null || detecting
+                || !(condition.column().orElse(null) instanceof ExpressionField<?, ?> typeOf)) {
+            return;
+        }
+        for (TableField<?, ?> table : ExpressionField.typeReads(typeOf)) {
+            Class<?> node = entity(table.key());
+            for (Object value : condition.values()) {
+                Class<?> type = (Class<?>) value;
+                boolean mapped = metamodel.getEntities().stream().anyMatch(each -> each.getJavaType() == type);
+                if (!mapped || !node.isAssignableFrom(type)) {
+                    throw new ModelQueryDefinitionException(MqCode.MQ1106, owner + ": "
+                            + (condition.kind() == Condition.Kind.OF_TYPE ? "ofType" : "notOfType") + "("
+                            + table.describe() + "): " + type.getName() + (mapped ? " is not " + node.getSimpleName()
+                                    + " or a subtype of it" : " is not a mapped entity"));
+                }
+            }
         }
     }
 
@@ -346,8 +431,15 @@ public final class TreatChecks {
         if (site.shape() == StatementShape.WRITE) {
             return Optional.of("a treated node in a bulk write or a returning model is not supported");
         }
-        if (site.uses().contains(TreatUse.GROUP_BY) || site.uses().contains(TreatUse.AGGREGATE) && !correlatedCount) {
+        boolean type = site.uses().contains(TreatUse.TYPE);
+        if (site.uses().contains(TreatUse.GROUP_BY) && !type
+                || site.uses().contains(TreatUse.AGGREGATE) && !correlatedCount) {
             return Optional.of("a treated group key or aggregate argument is not supported (Q-27)");
+        }
+        if (type && site.uses().contains(TreatUse.LEFT_JOIN) && !site.uses().contains(TreatUse.PREDICATE)
+                && !site.uses().contains(TreatUse.NULL_TEST)) {
+            return Optional.of("typeOf over a LEFT-joined node reads no type on a row whose join is absent, and the "
+                    + "provider fails to resolve it rather than reading NULL (R-COL-36); filter it with notOfType");
         }
         return Optional.empty();
     }
@@ -408,7 +500,9 @@ public final class TreatChecks {
                     condition.subSelect().ifPresent(this::subSelect);
                 };
                 Condition.Kind kind = condition.kind();
-                if (NULL_ACCEPTING.contains(kind)) {
+                if (kind == Condition.Kind.OF_TYPE || kind == Condition.Kind.NOT_OF_TYPE) {
+                    typeCondition(condition, scan);
+                } else if (NULL_ACCEPTING.contains(kind)) {
                     // Rendered as "<test> OR column IS NULL" (R-FLT-04): the site is the spike's ne/notIn envelope.
                     using(TreatUse.PREDICATE, () -> using(TreatUse.NULL_TEST, () -> using(TreatUse.DISJUNCTION, scan)));
                 } else {
@@ -416,6 +510,30 @@ public final class TreatChecks {
                             : TreatUse.PREDICATE, scan);
                 }
             }
+        }
+    }
+
+    /**
+     * An {@code ofType} or {@code notOfType}: a {@code TYPE} predicate, none for an empty collection, which reads no
+     * type. A {@code notOfType} over a LEFT-joined node is the spike's {@code NOT IN ... OR IS NULL} envelope
+     * (R-FLT-28).
+     */
+    private void typeCondition(Condition condition, Runnable scan) {
+        if (condition.values().isEmpty()) {
+            return;
+        }
+        Runnable checked = () -> {
+            scan.run();
+            checkTypes(condition);
+        };
+        boolean left = condition.column().orElse(null) instanceof ExpressionField<?, ?> typeOf
+                && ExpressionField.typeReads(typeOf).stream().anyMatch(table ->
+                        joinUse(table.key()) == TreatUse.LEFT_JOIN);
+        if (condition.kind() == Condition.Kind.NOT_OF_TYPE && left) {
+            using(TreatUse.PREDICATE, () -> using(TreatUse.NEGATED, () -> using(TreatUse.NULL_TEST,
+                    () -> using(TreatUse.DISJUNCTION, checked))));
+        } else {
+            using(TreatUse.PREDICATE, checked);
         }
     }
 

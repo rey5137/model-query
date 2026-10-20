@@ -78,6 +78,11 @@ import org.hibernate.sql.ast.tree.select.SelectStatement;
  * consumes none, a declaration left unconsumed, an unknown kind, a declaration of several subtypes, or two
  * declarations of one kind and entity naming different subtypes are refusals.
  *
+ * <p>A top-level {@code ofType} of the statement's own {@code where} is declared as a type restriction of its node
+ * (D-158): the statement's single root of that entity may then be narrowed, in its table expression, its joins or by
+ * a top-level discriminator restriction, to any set of rows that holds every declared type's, and need not be. Such a
+ * declaration is consumed by nothing; it never describes a sub-select's root or another narrowing, which stay refused.
+ *
  * <p>Both lines hide the {@code SINGLE_TABLE} and {@code TABLE_PER_CLASS} narrowing in the root's table expression,
  * an opaque SQL string, so those are compared with the persister's own table expression: lexically, never parsed. A
  * shape the walk does not recognise (a root that is neither an entity, a CTE nor a derived table, a function or values
@@ -104,8 +109,17 @@ final class TreatPreflight extends AbstractSqlAstWalker {
     private static final Pattern DERIVED = Pattern.compile(
             "\\(select \\* from (\\S+) t where t\\.(\\S+?)(?: in \\((.+)\\)|=(.+))\\)");
 
-    /** The declarations no sub-select root has consumed yet, in build order. */
+    /** The {@code exists} declarations no sub-select root has consumed yet, in build order. */
     private final List<ExpectedNarrowing> unused;
+
+    /**
+     * The statement's {@code ofType} restrictions (D-158): the provider may narrow their node to the declared types,
+     * in its root or by its discriminator, but need not, so none has to be consumed.
+     */
+    private final List<ExpectedNarrowing> restrictions;
+
+    /** The statement's own query spec, the only one whose roots a {@link #restrictions} declaration describes. */
+    private QuerySpec top;
 
     /** The sub-selects a declaration can narrow, found in their parent's clauses before they are walked. */
     private final Map<QuerySpec, Candidate> candidates = new IdentityHashMap<>();
@@ -113,7 +127,10 @@ final class TreatPreflight extends AbstractSqlAstWalker {
     private String refusal;
 
     private TreatPreflight(List<ExpectedNarrowing> expected) {
-        this.unused = new ArrayList<>(expected);
+        this.unused = new ArrayList<>(expected.stream()
+                .filter(each -> each.kind() != ExpectedNarrowing.Kind.TYPE_RESTRICTION).toList());
+        this.restrictions = expected.stream()
+                .filter(each -> each.kind() == ExpectedNarrowing.Kind.TYPE_RESTRICTION).toList();
     }
 
     /**
@@ -123,6 +140,7 @@ final class TreatPreflight extends AbstractSqlAstWalker {
     static Optional<String> walk(SelectStatement statement, List<ExpectedNarrowing> expected) {
         TreatPreflight walk = new TreatPreflight(expected);
         walk.declarations(expected);
+        walk.top = statement.getQueryPart() instanceof QuerySpec spec ? spec : null;
         if (walk.refusal == null) {
             statement.accept(walk);
         }
@@ -134,10 +152,16 @@ final class TreatPreflight extends AbstractSqlAstWalker {
         return Optional.ofNullable(walk.refusal);
     }
 
-    /** Refuses a declaration the walk cannot attribute: an unknown kind, several subtypes, two subtypes apart. */
+    /**
+     * Refuses a declaration the walk cannot attribute: an unknown kind, an {@code exists} root of several subtypes or
+     * two {@code exists} roots of one entity apart. A type restriction may name several types, and two may differ.
+     */
     private void declarations(List<ExpectedNarrowing> expected) {
         for (ExpectedNarrowing each : expected) {
             String entity = each.entity().getSimpleName();
+            if (each.kind() == ExpectedNarrowing.Kind.TYPE_RESTRICTION) {
+                continue;
+            }
             if (each.kind() != ExpectedNarrowing.Kind.EXISTS_ROOT) {
                 refuse("a " + each.kind() + " narrowing of " + entity + " is a kind the preflight does not recognise");
                 return;
@@ -171,7 +195,7 @@ final class TreatPreflight extends AbstractSqlAstWalker {
             root(root, discriminated, roots, spec, candidate);
         }
         if (refusal == null && spec.getWhereClauseRestrictions() != null && !discriminated.isEmpty()) {
-            where(spec.getWhereClauseRestrictions(), discriminated);
+            where(spec.getWhereClauseRestrictions(), discriminated, spec);
         }
         if (refusal == null) {
             exists(spec.getWhereClauseRestrictions(), roots);
@@ -269,12 +293,15 @@ final class TreatPreflight extends AbstractSqlAstWalker {
         EntityMappingType readAs = entity;
         if (lost != null) {
             if (candidate == null) {
-                refuse(lost);
-                return;
-            }
-            readAs = attribute(candidate, entity, root, narrowing, spec, lost);
-            if (readAs == null) {
-                return;
+                if (spec != top || !typeRestricted(entity, narrowing)) {
+                    refuse(lost);
+                    return;
+                }
+            } else {
+                readAs = attribute(candidate, entity, root, narrowing, spec, lost);
+                if (readAs == null) {
+                    return;
+                }
             }
         }
         roots.put(table.getIdentificationVariable(), new Read(entity, lost != null));
@@ -506,6 +533,55 @@ final class TreatPreflight extends AbstractSqlAstWalker {
     }
 
     /**
+     * Whether an {@code ofType} the engine declared keeps no row a root of {@code entity} narrowed to
+     * {@code narrowing} loses (D-158): every declared type's rows are read, in the derived table's discriminator
+     * values on {@code SINGLE_TABLE}, the union's tables on {@code TABLE_PER_CLASS}, and on {@code JOINED} every
+     * table the root is {@code INNER} joined to holds them. Only the statement's own single root of that entity.
+     */
+    private boolean typeRestricted(AbstractEntityPersister entity, Set<String> narrowing) {
+        if (narrowing == null || top.getFromClause().getRoots().stream()
+                .filter(root -> root.getModelPart() == entity).count() != 1) {
+            return false;
+        }
+        for (ExpectedNarrowing declared : restrictions) {
+            if (declared.entity() != entity.getMappedClass()) {
+                continue;
+            }
+            boolean kept = true;
+            for (Class<?> type : declared.types()) {
+                Set<String> rows = narrowing(entity, type);
+                kept &= rows != null && (entity instanceof JoinedSubclassEntityPersister ? rows.containsAll(narrowing)
+                        : narrowing.containsAll(rows));
+            }
+            if (kept) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether {@code restriction}, a top-level conjunct of {@code spec}'s {@code where}, admits every type an
+     * {@code ofType} the engine declared on its root keeps, so it loses no row that {@code ofType} keeps (D-158).
+     */
+    private boolean typeRestricted(Restriction restriction, Map<String, Discriminated> discriminated,
+            QuerySpec spec) {
+        AbstractEntityPersister entity = restriction.root().entity();
+        if (spec != top || discriminated.values().stream().filter(root -> root.entity() == entity).count() != 1) {
+            return false;
+        }
+        for (ExpectedNarrowing declared : restrictions) {
+            if (declared.entity() == entity.getMappedClass() && declared.types().stream().allMatch(type -> {
+                EntityMappingType subtype = subtype(restriction.root().readAs(), type);
+                return subtype != null && restriction.admitted().contains(name(subtype));
+            })) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Marks each {@code exists} that is a direct operand of {@code predicate}, under {@code AND}, {@code OR} and
      * {@code NOT}, as a sub-select whose correlated root a declaration can narrow.
      */
@@ -529,7 +605,7 @@ final class TreatPreflight extends AbstractSqlAstWalker {
      * cannot attribute. A discriminator is a column, a formula, {@code TABLE_PER_CLASS}'s {@code clazz_} or
      * {@code JOINED}'s {@code CASE} over the root's tables.
      */
-    private void where(Predicate where, Map<String, Discriminated> discriminated) {
+    private void where(Predicate where, Map<String, Discriminated> discriminated, QuerySpec spec) {
         List<Predicate> others = new ArrayList<>();
         for (Predicate conjunct : conjuncts(where, new ArrayList<>())) {
             Restriction restriction = restriction(conjunct, discriminated);
@@ -549,7 +625,7 @@ final class TreatPreflight extends AbstractSqlAstWalker {
             }
             Set<String> lost = concrete(restriction.root().readAs(), new TreeSet<>());
             lost.removeAll(restriction.admitted());
-            if (!lost.isEmpty()) {
+            if (!lost.isEmpty() && !typeRestricted(restriction, discriminated, spec)) {
                 refuse(entity + " is restricted by its discriminator, so the rows of " + lost + " are lost");
                 return;
             }

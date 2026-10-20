@@ -43,7 +43,13 @@ over a **source that carries checks** takes the client-side path even when `mode
 source's check columns selected beside the group keys: `createCountQuery()` moves the source's CTE into its derived
 table, out of the checks' reach (RFC 0014 §3). It counts the group rows it reads, logs no warning — no provider
 support could count these groups — and reads the checks off the first of them, so a too-deep tree is `MQ2701` and a
-cyclic graph `MQ2702` (R-SRC-08). Zero groups leave the checks unread, as `list` is on an empty result.
+cyclic graph `MQ2702` (R-SRC-08). Zero groups leave the checks unread, as `list` is on an empty result. A grouped
+query whose count of groups the `TreatRenderer` refuses as a `GROUPED_COUNT` statement (`vendor/40` R-VND-26) takes
+the client-side path too, even when `model-query-hibernate` is present: its sites are checked as `GROUPED` instead
+(`MQ4016` when refused there), its statement is preflighted as `GROUPED`, and each such count logs a warning with the
+renderer's reason and no bound value (D-95, D-159). Hibernate's renderer refuses it over a `typeOf` group key on a
+`JOINED` root without a physical discriminator, where `createCountQuery()` drops the subtype joins and reads one type
+for every row, so the total would be silently wrong.
 
 **R-EXE-04** *(was R7)* `count` is not inflated by collection joins. After predicates are built, the engine inspects
 `root.getJoins()` recursively and uses `count(distinct root)` only when a to-many join exists. A query using
@@ -240,7 +246,7 @@ returning clause, compose into one statement.
 |---|---|
 | AC-EXE-01 | `Limit.of(0)` and `pageSize + 1` probing are observable in the SQL snapshot; no query runs for a zero limit (R-EXE-01, R-EXE-06). |
 | AC-EXE-02 | `NO_COUNT` reports `hasNext` correctly on an exact multiple of the page size (R-EXE-02). |
-| AC-EXE-03 | `count` over a grouped query equals the number of groups, with and without `model-query-hibernate` (R-EXE-03). |
+| AC-EXE-03 | `count` over a grouped query equals the number of groups, with and without `model-query-hibernate`, and client-side when the treat renderer refuses its `GROUPED_COUNT` site, as Hibernate's does for a `typeOf` group key on `JOINED` without a discriminator, whose sites are then checked as `GROUPED` (`MQ4016` when refused there) (R-EXE-03, D-159). |
 | AC-EXE-04 | `count` over a query with a to-many join equals the number of distinct roots (R-EXE-04). |
 | AC-EXE-10 | `count` over a query selecting a column through a to-many join equals the number of rows `list` returns (R-EXE-04). |
 | AC-EXE-05 | `pageSize <= 0` throws `MQ2001`; a negative offset throws `MQ2002` (R-EXE-06). |

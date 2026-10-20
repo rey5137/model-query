@@ -283,6 +283,46 @@ Equality with a NULL lifted value matches no row: correlated count is zero and e
 `isNull(outer.column(...))` matches as written. An outer root that is a source is allowed and renders
 `correlate(cteRoot)` (R-SRC-10). A sub-select whose own root is a source is `MQ1909` at first resolution.
 
+**R-FLT-28** *(D-154, D-158)* **Filtering by entity type.** `Filters` gains, all `@Incubating`:
+
+```java
+<T> Filters<M> ofType(TableField<?, T> table, Class<? extends T> type, Class<? extends T>... more);
+<T> Filters<M> ofType(TableField<?, T> table, Collection<? extends Class<? extends T>> types);
+<T> Filters<M> ofType(TableField<?, T> table, Optional<? extends Collection<? extends Class<? extends T>>> types);
+// and notOfType with the same three forms
+```
+
+- **Instance-of.** `ofType(ROOT, CardPayment.class)` keeps rows whose node is a `CardPayment` or one of its entity
+  subtypes. It renders `TYPE(table) IN (...)` over every concrete entity the persistence unit's
+  `Metamodel#getEntities()` maps whose Java type is assignable to a listed type, in class-name order, so a grandchild
+  and a subtype mapped in `orm.xml` count, and an abstract type keeps its concrete subtypes. The engine reads the list,
+  not the provider (`vendor/40` R-VND-26); the executor hands the metamodel to the build through
+  `RenderOptions#withMetamodel`. `eq(Expr.typeOf(...), type)` (`api/10` R-COL-36) matches the exact class only.
+- **`notOfType`** is its negation, `TYPE(table) NOT IN (...)`. Over a node reached through a LEFT join it also keeps
+  rows whose join is absent, `OR TYPE(table) IS NULL`, as `notIn` keeps NULL (R-FLT-04, D-5).
+- **Empty forms.** An empty `Optional` skips the filter (P-3, R-FLT-03). An empty collection is "none of these
+  types" (R-FLT-02): `ofType` keeps no row and `notOfType` keeps every row, and neither reads a type, so neither needs
+  a renderer. A null type, collection or varargs array is `MQ1301`.
+- **Typing and refusals.** A type that is not the node's entity or one of its subtypes does not compile. A type the
+  metamodel doesn't map as an entity, or (through a raw call) one outside the node's hierarchy, is `MQ1106` before
+  any statement and at first resolution. Without the provider's `TreatRenderer` a non-empty form is `MQ4014`. Over a
+  treated node, a treat of the root or a downcast join, a non-empty form is `MQ4016` before any statement, as `typeOf`
+  over it is (R-COL-36). Inside
+  `exists(path, ...)` or a sub-select's `where`, the node must sit on the path or the sub-select's root (`MQ1302`,
+  `MQ1003`), as a column must.
+- **An unmapped discriminator value.** A row whose discriminator value no entity maps is kept by `notOfType`, whose
+  `NOT IN` doesn't name it, and dropped by `ofType`.
+- **No `@SafeVarargs`.** An interface method cannot carry it (D-87), so a varargs call may warn of an unchecked
+  generic array; the implementation only reads the array (D-158).
+- **Recorded.** Each records `Condition.Kind#OF_TYPE` or `#NOT_OF_TYPE` (`api/16`), its `column` the node's
+  `Expr.typeOf` and its `values` the types as passed.
+- **Sites and narrowing.** Each is a `TYPE` site (R-VND-26): `{PREDICATE, TYPE}`, and over a LEFT-joined node
+  `notOfType`'s `{PREDICATE, NEGATED, NULL_TEST, DISJUNCTION, LEFT_JOIN, TYPE}`. A non-empty `ofType` that is a
+  top-level conjunct of a select statement's own `where` (not under `or`, `not`, a `CASE`, `add(...)` or in a
+  sub-select) declares a `TYPE_RESTRICTION` `ExpectedNarrowing` of its node to the rendered classes, a narrowing that
+  loses no row the filter keeps (D-157, D-158). `typeOf` and `ofType` alone make no treated statement
+  (`api/10` R-COL-35).
+
 ## 8. Scope
 
 **R-FLT-13** *(was R15)* Filter values never change a query's meaning by accident: empty `Optional` skips; an empty
@@ -317,6 +357,8 @@ collection means "none"; negation includes NULLs; `like` input is escaped; long 
 | AC-FLT-20 | On every Tier-1 vendor, `in(col, a, b)`, `in(col, a, b, c)` and the same two for `notIn` return the rows whose column equals one of the operands, `notIn` also returns the rows whose column is NULL, and a `'` and a `\` in a constant operand round-trip. The statement inlines the operand literals, e.g. `in ('PENDING','FAILED')`. `var` infers the call, and operands of another model or type do not compile (R-FLT-19, R-COL-27). |
 | AC-FLT-28 | Lifted to-one paths in exists/notExists (R-FLT-27). |
 | AC-FLT-29 | Lifted to-one paths in correlated columns and count statements (R-FLT-27, R-EXE-05). |
+| AC-FLT-30 | Per strategy, `ofType` keeps a grandchild and an `orm.xml` subtype, accepts an abstract type, skips on an empty `Optional` and keeps no row for an empty collection; beside a treated read in one statement it runs, except on 6.6 `JOINED`, whose preflight refuses it (`MQ4016`) (R-FLT-28, D-158). |
+| AC-FLT-31 | Per strategy, `notOfType` includes the rows of an absent LEFT join and, on `SINGLE_TABLE`, of a discriminator value no entity maps, which `ofType` drops and `typeOf` fails on; an empty collection keeps every row (R-FLT-28). |
 
 AC-FLT-15 includes compile-failure cases for a mismatched `C` and another model's lifted column, and cases for
 `MQ1309`, `MQ1310`, `MQ1311` (a path crossing a to-many join, checked at first resolution), `MQ1312` and `MQ1001`

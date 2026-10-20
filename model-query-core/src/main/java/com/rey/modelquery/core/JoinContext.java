@@ -3,6 +3,7 @@ package com.rey.modelquery.core;
 import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Join;
@@ -13,9 +14,13 @@ import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
+import jakarta.persistence.metamodel.EntityType;
+import jakarta.persistence.metamodel.Metamodel;
 import jakarta.persistence.metamodel.PluralAttribute;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -25,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -109,6 +115,8 @@ public final class JoinContext {
 
     /** Above zero while an {@code add(...)} predicate renders, whose reads no {@code TreatSite} records (D-156). */
     private int custom;
+    /** Above zero while a CASE condition renders, where an {@code ofType} restricts no row of the statement. */
+    private int cases;
     /** Enclosing path-exists scopes preserve OR/NOT semantics when a descendant reads a lifted outer column. */
     private boolean enclosingLeftJoining;
     private int sequencesRefused;
@@ -438,6 +446,95 @@ public final class JoinContext {
             return render.get();
         } finally {
             custom--;
+        }
+    }
+
+    /** Runs {@code render}, a CASE condition, whose {@code ofType} declares no restriction (D-158). */
+    <R> R inCase(Supplier<R> render) {
+        cases++;
+        try {
+            return render.get();
+        } finally {
+            cases--;
+        }
+    }
+
+    /**
+     * {@code TYPE(table)}, the exact entity class of its rows (R-COL-36).
+     *
+     * @throws ModelQueryConfigurationException {@code MQ4014} without the provider's {@code TreatRenderer}: JPA
+     *     leaves a type read outside {@code WHERE} to the provider, so it renders only where the provider's table
+     *     checks it (R-VND-26)
+     */
+    Expression<?> type(TableField<?, ?> table, String description) {
+        requireTreatRenderer(description);
+        return table.resolve(this).type();
+    }
+
+    /**
+     * {@code TYPE(table) IN (...)} over every concrete mapped entity assignable to one of {@code types}, read from the
+     * metamodel so a grandchild and an {@code orm.xml} subtype count, or its negation, ORed with
+     * {@code TYPE(table) IS NULL} over a node reached through a LEFT join (R-FLT-28). A top-level {@code ofType} of
+     * the statement over its untreated root declares its restriction for the preflight (D-158).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1106} for a type the metamodel does not map as an entity, or one
+     *     that is not the node's entity or a subtype of it
+     * @throws ModelQueryConfigurationException {@code MQ4014} without the provider's {@code TreatRenderer} or the
+     *     persistence unit's metamodel
+     */
+    Predicate ofType(TableField<?, ?> table, List<Class<?>> types, boolean negated, String description) {
+        requireTreatRenderer(description);
+        Metamodel metamodel = renderOptions.metamodel().orElseThrow(() -> new ModelQueryConfigurationException(
+                MqCode.MQ4014, description + ": an ofType needs the persistence unit's metamodel, which the executor "
+                        + "gives with its renderers (RenderOptions#withMetamodel)"));
+        From<?, ?> from = table.resolve(this);
+        Class<?> node = from.getJavaType();
+        var mapped = new HashSet<Class<?>>();
+        for (EntityType<?> entity : metamodel.getEntities()) {
+            mapped.add(entity.getJavaType());
+        }
+        for (Class<?> type : types) {
+            if (!mapped.contains(type) || !node.isAssignableFrom(type)) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1106, description + ": " + type.getName()
+                        + (mapped.contains(type) ? " is not " + node.getSimpleName() + " or a subtype of it"
+                                : " is not a mapped entity"));
+            }
+        }
+        // By name, so the IN list is the same on every run (R-COL-36).
+        var expanded = new TreeSet<Class<?>>(Comparator.comparing(Class::getName));
+        for (Class<?> entity : mapped) {
+            if (!Modifier.isAbstract(entity.getModifiers())
+                    && types.stream().anyMatch(type -> type.isAssignableFrom(entity))) {
+                expanded.add(entity);
+            }
+        }
+        if (expanded.isEmpty()) {
+            // An abstract type with no concrete subtype: no row has it.
+            return negated ? cb.conjunction() : cb.disjunction();
+        }
+        Expression<?> type = from.type();
+        // Type literals, not binds: the provider's preflight reads them to attribute the restriction (D-158).
+        Predicate in = type.in(expanded.stream().map(cb::literal).toArray(Expression<?>[]::new));
+        if (negated) {
+            return TreatChecks.joinUse(table.key()) == TreatUse.LEFT_JOIN ? cb.or(cb.not(in), cb.isNull(type))
+                    : cb.not(in);
+        }
+        // Only the statement's untreated root declares: the preflight matches the declaration to the single root of
+        // its entity, so a joined node of the same entity, such as a self-join, must not vouch for it (D-158).
+        if (query instanceof CriteriaQuery<?> criteria && table.rootEntity() != null
+                && criteria.getRoots().contains(from) && leftJoining == 0 && !enclosingLeftJoining && custom == 0
+                && cases == 0) {
+            var declaration = new Declared(ExpectedNarrowing.Kind.TYPE_RESTRICTION, table.rootEntity());
+            declaration.types.addAll(expanded);
+            narrowings.add(declaration);
+        }
+        return in;
+    }
+
+    private void requireTreatRenderer(String description) {
+        if (renderOptions.treatRenderer().isEmpty()) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4014, description
+                    + ": a type read needs the provider's TreatRenderer (ProviderSupport#treats(emf))");
         }
     }
 

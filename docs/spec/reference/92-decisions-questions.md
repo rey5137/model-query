@@ -2359,6 +2359,53 @@ lines, since a correlated root shares its `NavigablePath` with the outer root an
 so no ordinal or path matches in the AST. S3 never measured sub-selects, so this is the first rule for them.
 → `vendor/40` R-VND-26, AC-VND-21, `rfc/0016` §11 guard 3.
 
+**D-158 — How `typeOf` and `ofType` reach the build and the preflight (M28.5, 2026-10-20).** Six choices the RFC left to
+the slice. (1) The build reads `ofType`'s subtypes from the persistence unit's `Metamodel`, which a `CriteriaBuilder`
+doesn't expose, so `RenderOptions` gains `withMetamodel(Metamodel)` and a package-private `metamodel()`. Both sit on the
+D-86 `@EngineFacing` type, so they are not API; the executor sets it from its factory and scratch options keep it with
+the renderers. An `ofType` rendered without one is `MQ4014`, as a missing renderer is. The expansion keeps the concrete
+entities only, in class-name order, so the IN list repeats across runs, and renders type literals rather than binds,
+which the preflight reads to attribute it. (2) The varargs forms carry no `@SafeVarargs`, which an interface method
+can't (D-87); the RFC's sketch had it. A `Collection` form sits beside them, as `in` has, so an empty collection needs
+no `Optional`. (3) `notOfType` renders `TYPE NOT IN (...)`, measured on the root, and only over a node reached through a
+LEFT join adds `OR TYPE IS NULL`, the measured `notOfType`-over-LEFT envelope `{PREDICATE, NEGATED, NULL_TEST,
+DISJUNCTION, LEFT_JOIN, TYPE}`; over the root or an INNER join its site is `{PREDICATE, TYPE}` (plus the join use). (4)
+The engine refuses a `typeOf` read (select, order or group key) over a LEFT-joined node itself, since both lines fail on
+it; a `typeOf` group key is exempt from the treated-group-key refusal (Q-27), and a selected group key is one site,
+`{SELECT, GROUP_BY}` with its other uses. The `JOINED`-without-discriminator order refusal needs the persister, so it is
+the Hibernate renderer's. (5) `ExpectedNarrowing.Kind#TYPE_RESTRICTION` is declared for a non-empty `ofType` only where
+it is a top-level conjunct of a select statement's own `where`: not under `or`, `not`, a `CASE`, `add(...)` or in a
+sub-select, where narrowing the node to the rendered classes would lose rows, and only over the statement's untreated
+root, never a joined node of its entity such as a self-join; its `entity` is the root's entity and its `types` the
+rendered classes. A type read over a treated node, a treat of the root or a downcast join, measures no cell and is
+`MQ4016` before any statement. The Hibernate preflight lets the statement's single root of that entity be narrowed to any
+rows that hold every declared type's, in its table expression, its `INNER` joins or a top-level discriminator
+restriction, and needs no narrowing to consume it; any other narrowing stays refused. (6) The Hibernate renderer admits
+the `TYPE` cells measured `ALLOW` in the spike's table, the `JOINED` order only where the persister maps a physical
+discriminator, and `{PREDICATE, DISJUNCTION, TYPE}` from the `COMBINED_TYPE_TREAT/OR` rows, a type site beside a treated
+one admitted per site (RFC 0016 §10). (7) An `ofType` built without a metamodel reuses `MQ4014`: only a custom executor
+that wires a `TreatRenderer` without one reaches it. (8) Three cells the table doesn't name as such are admitted:
+`{PREDICATE, DISJUNCTION, TYPE}`, a subset of the measured `DISJUNCTION+LEFT_JOIN+NEGATED+NULL_TEST+PREDICATE+TYPE`
+envelope and admitted per site; `{SELECT, GROUP_BY, TYPE}`, the engine's site for the table's `GROUP_BY+TYPE` row, whose
+count of groups is a `GROUPED_COUNT` site, counted client-side on `JOINED` without a discriminator (D-159); and the
+`TYPE` cells on the measured mapping variants, as their content cells are. Each has a TCK case. (9) On 6.6 a `JOINED`
+statement with a treated read and an `ofType` stays refused by the preflight (`MQ4016`), which can't attribute the type
+restriction to its root; 7.4 admits and runs it. → `api/10` R-COL-36, `api/12` R-FLT-28, `vendor/40` R-VND-26.
+
+**D-159 — A refused count of groups runs client-side (M28.5, 2026-10-20, user decision).** On `JOINED` without a
+physical discriminator, on 6.6 and 7.4, Hibernate's `createCountQuery()` drops the subtype joins from its derived
+table, and its `CASE` type then reads one type for every row: a page grouped by `typeOf(ROOT)` reported a total of 1
+for 4 groups, silently, while its content was right. A count over groups whose type site the renderer refuses as
+`GROUPED_COUNT`, the new `@Incubating` `StatementShape` of a grouped statement's count, runs client-side: the engine
+runs the grouped statement and counts its rows, as R-EXE-03's portable path does. Its sites are checked as `GROUPED`
+instead (`MQ4016` when refused there too), its statement is preflighted as `GROUPED`, and each such count logs a
+WARNING with the renderer's reason and no bound value (D-95). The decision is per call, never kept (INV-9). Hibernate
+refuses it on `JOINED` without a physical discriminator, the same mapping fact that refuses a `typeOf` order there
+(D-158 (4)), because `createCountQuery` drops the subtype joins; it admits it elsewhere as its `GROUPED` cell. Unknown
+shapes are refused (R-VND-26), so another renderer counts these groups client-side until it admits the shape.
+Refusing the grouped type site outright was rejected: the content is right, and only the provider's count is wrong.
+→ `engine/20` R-EXE-03, `api/10` R-COL-36, `vendor/40` R-VND-26.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

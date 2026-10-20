@@ -9,6 +9,7 @@ import com.rey.modelquery.core.Correlated;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Expr;
+import com.rey.modelquery.core.ExpressionField;
 import com.rey.modelquery.core.Filters;
 import com.rey.modelquery.core.KeysetSlice;
 import com.rey.modelquery.core.KeysetSpec;
@@ -60,6 +61,7 @@ import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
+import org.hibernate.Version;
 import org.hibernate.cfg.AvailableSettings;
 import org.hibernate.cfg.Configuration;
 
@@ -79,8 +81,14 @@ class TreatCellsTest {
     private static final Set<Set<TreatUse>> ROOT_ID_COUNTED =
             uses("NULL_TEST", "NULL_TEST+NEGATED", "PREDICATE+NULL_TEST+DISJUNCTION");
 
-    /** Every use set of at most four uses, the candidates a renderer's table is probed with (AC-VND-19). */
-    private static final List<Set<TreatUse>> CANDIDATES = candidates();
+    /**
+     * Every use set of at most four uses without {@code TYPE}, the candidates a renderer's treat table is probed with
+     * (AC-VND-19).
+     */
+    private static final List<Set<TreatUse>> CANDIDATES = candidates(false);
+
+    /** Every use set with {@code TYPE}, of any size, the candidates its type table is probed with (AC-COL-49). */
+    private static final List<Set<TreatUse>> TYPE_CANDIDATES = candidates(true);
 
     @TckTest
     void ac_vnd_19_every_admitted_cell_runs_per_strategy_with_its_values_rows_and_total(TckDatabase db) {
@@ -230,14 +238,78 @@ class TreatCellsTest {
         }
     }
 
+    @TckTest
+    void ac_col_49_type_of_selects_matches_groups_and_orders_by_the_exact_class(TckDatabase db) {
+        List<Tree<?, ?, ?>> typed = new ArrayList<>(trees());
+        typed.add(variants().stream().filter(tree -> tree.name.equals("joined-explicit")).findFirst().orElseThrow());
+        for (Tree<?, ?, ?> tree : typed) {
+            tree.seeded(db, (em, renderer) -> {
+                for (Case each : tree.types()) {
+                    run(em, renderer, tree.name, each);
+                }
+                if (tree.typeOrdered) {
+                    tree.repeatedTypeOrder(em);
+                }
+            });
+            assertThatThrownBy(() -> ModelQuery.builder(tree.root, row -> String.valueOf(row.get(tree.id)))
+                    .select(SelectSet.of(tree.id)).primaryKey(PrimaryKey.of(tree.id))
+                    .orderBy(tree.type.asc(), tree.id.asc()).keyset().build()).as(tree.name)
+                    .isExactlyInstanceOf(ModelQueryDefinitionException.class)
+                    .extracting(failure -> ((ModelQueryDefinitionException) failure).code()).isEqualTo(MqCode.MQ1208);
+            tree.refusedBeforeAnyStatementIn(db, em -> {
+                // An absent LEFT row has no type to read: the provider fails on it rather than reading NULL.
+                var leftTyped = tree.holderPairs(tree.leftType);
+                assertTreatRefused(() -> executor(em, leftTyped).list(raw(leftTyped), Limit.of(5)));
+                var leftOrdered = tree.holderIds(f -> f, tree.leftType.asc());
+                assertTreatRefused(() -> executor(em, leftOrdered).list(raw(leftOrdered), Limit.of(5)));
+                if (!tree.typeOrdered) {
+                    // Without a discriminator JOINED renders order by case ... end, invalid SQL (R-COL-36).
+                    var ordered = tree.typeOrder();
+                    assertTreatRefused(() -> executor(em, ordered).list(raw(ordered), Limit.of(5)));
+                    assertTreatRefused(() -> executor(em, ordered).page(raw(ordered), PageSpec.of(0, 2),
+                            CountMode.NO_COUNT));
+                }
+            });
+        }
+    }
+
+    @TckTest
+    void ac_flt_30_of_type_keeps_subtypes_and_grandchildren_and_its_empty_forms_skip_or_keep_nothing(
+            TckDatabase db) {
+        for (Tree<?, ?, ?> tree : trees()) {
+            tree.seeded(db, (em, renderer) -> tree.ofTypes(em));
+        }
+    }
+
+    @TckTest
+    void ac_flt_31_not_of_type_keeps_absent_left_joins_and_its_empty_forms_keep_every_row(TckDatabase db) {
+        for (Tree<?, ?, ?> tree : trees()) {
+            tree.seeded(db, (em, renderer) -> tree.notOfTypes(em));
+        }
+    }
+
     // ---- running a case
 
     /**
      * One definition: the rows its content returns, the use sets of its {@code CONTENT} sites, and those of its
-     * {@code COUNT} sites, or {@code null} when its count is refused ({@code MQ4016}).
+     * {@code COUNT} sites, or {@code null} when its count is refused ({@code MQ4016}); {@code unordered} when the
+     * content's order is unspecified, as a group's or a type order's is; {@code clientSide} when the renderer refuses
+     * the count of its groups ({@code GROUPED_COUNT}) and the engine counts them client-side, its {@code count} sites
+     * then checked as {@code GROUPED} (D-159).
      */
     private record Case(String name, ModelQuery<?, ?, String> query, List<String> rows, Set<Set<TreatUse>> content,
-            Set<Set<TreatUse>> count) {}
+            Set<Set<TreatUse>> count, boolean unordered, boolean clientSide) {
+
+        Case(String name, ModelQuery<?, ?, String> query, List<String> rows, Set<Set<TreatUse>> content,
+                Set<Set<TreatUse>> count) {
+            this(name, query, rows, content, count, false);
+        }
+
+        Case(String name, ModelQuery<?, ?, String> query, List<String> rows, Set<Set<TreatUse>> content,
+                Set<Set<TreatUse>> count, boolean unordered) {
+            this(name, query, rows, content, count, unordered, false);
+        }
+    }
 
     private static void run(EntityManager em, TreatRenderer renderer, String tree, Case each) {
         try {
@@ -258,11 +330,12 @@ class TreatCellsTest {
                 ? new Case(each.name, each.query, each.rows, each.content, null) : each;
         run(em, renderer, tree.name, adjusted);
         List<StatementShape> shapes = adjusted.count == null ? List.of(StatementShape.CONTENT)
-                : List.of(StatementShape.CONTENT, StatementShape.COUNT);
+                : List.of(StatementShape.CONTENT, adjusted.clientSide ? StatementShape.GROUPED : StatementShape.COUNT);
         for (StatementShape shape : shapes) {
             for (TreatSite site : TreatChecks.check(adjusted.query, RenderOptions.portable()
                     .withTreatRenderer(renderer), em.getMetamodel(), shape, false, false)) {
-                ran.computeIfAbsent(key(tree.kind(site), shape, site.anchored()), k -> new HashSet<>())
+                // A grouped definition's sites are GROUPED, and GROUPED_COUNT when checked for a count.
+                ran.computeIfAbsent(key(tree.kind(site), site.shape(), site.anchored()), k -> new HashSet<>())
                         .add(site.uses());
             }
         }
@@ -275,15 +348,17 @@ class TreatCellsTest {
     /** The use sets {@code renderer} admits for one synthesized site, probed over {@link #CANDIDATES}. */
     private static Set<Set<TreatUse>> admitted(TreatRenderer renderer, Class<?> entity, Class<?> subtype,
             Optional<String> attribute, StatementShape shape, boolean anchored) {
-        return CANDIDATES.stream().filter(uses -> renderer.refusal(new TreatSite(entity, subtype, attribute, shape,
-                anchored, uses)).isEmpty()).collect(Collectors.toSet());
+        return (entity == subtype ? TYPE_CANDIDATES : CANDIDATES).stream().filter(uses -> renderer.refusal(
+                new TreatSite(entity, subtype, attribute, shape, anchored, uses)).isEmpty())
+                .collect(Collectors.toSet());
     }
 
-    private static List<Set<TreatUse>> candidates() {
+    private static List<Set<TreatUse>> candidates(boolean type) {
         List<Set<TreatUse>> sets = new ArrayList<>();
         TreatUse[] all = TreatUse.values();
+        int typeBit = 1 << TreatUse.TYPE.ordinal();
         for (int mask = 0; mask < 1 << all.length; mask++) {
-            if (Integer.bitCount(mask) <= 4) {
+            if (type ? (mask & typeBit) != 0 : (mask & typeBit) == 0 && Integer.bitCount(mask) <= 4) {
                 var uses = EnumSet.noneOf(TreatUse.class);
                 for (int i = 0; i < all.length; i++) {
                     if ((mask & 1 << i) != 0) {
@@ -300,17 +375,31 @@ class TreatCellsTest {
         assertThat(sites(em, renderer, each.query, StatementShape.CONTENT)).as(as).isEqualTo(each.content);
         var executor = executor(em, each.query);
         var query = raw(each.query);
-        assertThat(executor.list(query, Limit.of(20))).as(as).containsExactlyElementsOf(each.rows);
+        if (each.unordered) {
+            assertThat(executor.list(query, Limit.of(20))).as(as).containsExactlyInAnyOrderElementsOf(each.rows);
+        } else {
+            assertThat(executor.list(query, Limit.of(20))).as(as).containsExactlyElementsOf(each.rows);
+        }
         if (each.count == null) {
             assertTreatRefused(() -> executor.count(query));
             assertTreatRefused(() -> executor.page(query, PageSpec.of(0, 2), CountMode.COUNT));
             return;
         }
-        assertThat(sites(em, renderer, each.query, StatementShape.COUNT)).as(as).isEqualTo(each.count);
+        if (each.clientSide) {
+            // The count's GROUPED_COUNT site is refused, so the engine counts the groups client-side (D-159).
+            assertTreatRefused(() -> sites(em, renderer, each.query, StatementShape.COUNT));
+            assertThat(sites(em, renderer, each.query, StatementShape.GROUPED)).as(as).isEqualTo(each.count);
+        } else {
+            assertThat(sites(em, renderer, each.query, StatementShape.COUNT)).as(as).isEqualTo(each.count);
+        }
         assertThat(executor.count(query)).as(as).isEqualTo(each.rows.size());
         Slice<String> page = executor.page(query, PageSpec.of(0, 2), CountMode.COUNT);
-        assertThat(page.content()).as(as).containsExactlyElementsOf(each.rows.subList(0,
-                Math.min(2, each.rows.size())));
+        if (each.unordered) {
+            assertThat(page.content()).as(as).hasSize(Math.min(2, each.rows.size())).isSubsetOf(each.rows);
+        } else {
+            assertThat(page.content()).as(as).containsExactlyElementsOf(each.rows.subList(0,
+                    Math.min(2, each.rows.size())));
+        }
         assertThat(page.total()).as(as).hasValue(each.rows.size());
     }
 
@@ -346,7 +435,8 @@ class TreatCellsTest {
     private static List<Tree<?, ?, ?>> trees() {
         return List.of(singleTable(),
                 new Tree<>("JOINED", CellEntities.JdPayment.class, CellEntities.JdCard.class,
-                        CellEntities.JdBank.class, CellEntities.JdPremium.class, CellEntities.JdHolder.class),
+                        CellEntities.JdBank.class, CellEntities.JdPremium.class, CellEntities.JdHolder.class)
+                        .typeUnordered(),
                 new Tree<>("TABLE_PER_CLASS", CellEntities.TpPayment.class, CellEntities.TpCard.class,
                         CellEntities.TpBank.class, CellEntities.TpPremium.class, CellEntities.TpHolder.class));
     }
@@ -378,7 +468,7 @@ class TreatCellsTest {
                 new Tree<>("joined-explicit-ignored", VariantEntities.JoinedPayment.class,
                         VariantEntities.JoinedCard.class, VariantEntities.JoinedBank.class,
                         VariantEntities.JoinedPremium.class, VariantEntities.JoinedHolder.class)
-                        .variant("hibernate.discriminator.ignore_explicit_for_joined"),
+                        .variant("hibernate.discriminator.ignore_explicit_for_joined").typeUnordered(),
                 new Tree<>("joined-implicit", CellEntities.JdPayment.class, CellEntities.JdCard.class,
                         CellEntities.JdBank.class, CellEntities.JdPremium.class, CellEntities.JdHolder.class)
                         .variant("hibernate.discriminator.implicit_for_joined"));
@@ -418,6 +508,12 @@ class TreatCellsTest {
         final List<String> settings = new ArrayList<>();
         /** Whether this is a measured mapping variant, whose runs had no root-id count. */
         boolean variant;
+        /** Whether a {@code typeOf} order renders: not on {@code JOINED} without a discriminator column. */
+        boolean typeOrdered = true;
+        /** Each payment's exact class, and that of the holder's left-joined payment. */
+        final ExpressionField<String, Class<? extends P>> type;
+        final TableField<H, P> leftPayments;
+        final ExpressionField<String, Class<? extends P>> leftType;
 
         Tree(String name, Class<P> payment, Class<C> card, Class<? extends P> bank, Class<? extends C> premium,
                 Class<H> holder) {
@@ -443,6 +539,14 @@ class TreatCellsTest {
                     TableField.<H, P>join(holders, "payment", JoinType.INNER).treat(card), "number", String.class);
             this.ownerId = ColumnField.of(String.class, TableField.<C, H>join(leftCards, "owner", JoinType.INNER),
                     "id", Long.class);
+            this.type = Expr.typeOf(String.class, root);
+            this.leftPayments = TableField.join(holders, "payment", JoinType.LEFT);
+            this.leftType = Expr.typeOf(String.class, leftPayments);
+        }
+
+        Tree<P, C, H> typeUnordered() {
+            typeOrdered = false;
+            return this;
         }
 
         Tree<P, C, H> sharing(String... attributes) {
@@ -456,8 +560,14 @@ class TreatCellsTest {
             return this;
         }
 
-        /** A site's kind: a treated join's own site, a read of a shared column, or any other treated read. */
+        /**
+         * A site's kind: a type read, a treated join's own site, a read of a shared column, or any other treated
+         * read.
+         */
         String kind(TreatSite site) {
+            if (site.uses().contains(TreatUse.TYPE)) {
+                return "type";
+            }
             String attribute = site.attribute().orElse(null);
             if (attribute == null) {
                 return "join";
@@ -477,12 +587,26 @@ class TreatCellsTest {
             if (!sharedAttributes.isEmpty()) {
                 kinds.put("shared", Optional.of(sharedAttributes.iterator().next()));
             }
+            kinds.put("type", Optional.empty());
             kinds.forEach((kind, attribute) -> {
+                // A type site's entity and subtype are both its node's entity (R-VND-26).
+                Class<?> subtype = kind.equals("type") ? payment : card;
                 for (StatementShape shape : StatementShape.values()) {
                     for (boolean anchored : List.of(true, false)) {
                         String key = key(kind, shape, anchored);
-                        assertThat(admitted(renderer, payment, card, attribute, shape, anchored)).as(name + " " + key)
-                                .isEqualTo(ran.getOrDefault(key, Set.of()));
+                        // The engine never anchors a grouped statement, and the renderer doesn't read the anchoring
+                        // of a grouped type key, so an anchored one is admitted as the unanchored one ran (D-158).
+                        boolean grouped = kind.equals("type")
+                                && (shape == StatementShape.GROUPED || shape == StatementShape.GROUPED_COUNT);
+                        Set<Set<TreatUse>> expected = new HashSet<>(ran.getOrDefault(grouped
+                                ? key(kind, shape, false) : key, Set.of()));
+                        // The table's GROUP_BY+TYPE row has no engine site here: a model selects its group keys.
+                        // Without a discriminator the count of type groups is refused and runs client-side (D-159).
+                        if (grouped && (shape == StatementShape.GROUPED || typeOrdered)) {
+                            expected.addAll(uses("GROUP_BY+TYPE"));
+                        }
+                        assertThat(admitted(renderer, payment, subtype, attribute, shape, anchored))
+                                .as(name + " " + key).isEqualTo(expected);
                     }
                 }
             });
@@ -553,6 +677,53 @@ class TreatCellsTest {
             cases.addAll(joins());
             cases.add(new Case("correlated count", counted(false), List.of("1:0", "2:1", "3:1", "4:0", "5:1"),
                     uses("SELECT+AGGREGATE+SUBQUERY"), none));
+            cases.addAll(types());
+            return cases;
+        }
+
+        /**
+         * The admitted type cells, once each (AC-COL-49, AC-FLT-30, AC-FLT-31): the spike's {@code TYPE} rows marked
+         * {@code ALLOW}, with the order only where a discriminator column is mapped. The table's
+         * {@code COUNT_DERIVED FROM_TYPE} row has no engine site: a type read makes no treated statement, so its count
+         * is the plain one (D-158).
+         */
+        List<Case> types() {
+            Set<Set<TreatUse>> none = Set.of();
+            List<Case> cases = new ArrayList<>();
+            cases.add(new Case("type select", typePairs(), List.of("1:" + payment.getSimpleName(),
+                    "2:" + card.getSimpleName(), "3:" + card.getSimpleName(), "4:" + bank.getSimpleName(),
+                    "5:" + premium.getSimpleName()), uses("SELECT+TYPE"), none));
+            if (typeOrdered) {
+                // The content statement also selects its order keys, so the order key is a select site too.
+                cases.add(new Case("type order", typeOrder(), List.of("1", "2", "3", "4", "5"),
+                        uses("ORDER+TYPE", "SELECT+TYPE"), none, true));
+            }
+            predicate(cases, "type eq", f -> f.eq(type, card), List.of("2", "3"), "PREDICATE+TYPE");
+            predicate(cases, "type in", f -> f.in(type, List.<Class<? extends P>>of(card, bank)),
+                    List.of("2", "3", "4"), "PREDICATE+TYPE");
+            predicate(cases, "ofType", f -> f.ofType(root, card), List.of("2", "3", "5"), "PREDICATE+TYPE");
+            predicate(cases, "notOfType", f -> f.notOfType(root, card), List.of("1", "4"), "PREDICATE+TYPE");
+            // No row of the table: admitted per site from the COMBINED_TYPE_TREAT/OR rows (D-158).
+            predicate(cases, "or ofType", f -> f.or(a -> a.ofType(root, bank), b -> b.eq(status, "s1")),
+                    List.of("1", "4"), "PREDICATE+DISJUNCTION+TYPE");
+            // Holder 14 has no payment: TYPE(...) NOT IN (...) OR TYPE(...) IS NULL keeps it (R-FLT-28).
+            holderPredicate(cases, "left notOfType", f -> f.notOfType(leftPayments, card), List.of("10", "12", "14"),
+                    "PREDICATE+NEGATED+NULL_TEST+DISJUNCTION+LEFT_JOIN+TYPE");
+            // A grouped total counts the groups, so its count statement groups by the type too. A model query
+            // selects its group keys, so an unselected one is a select site as well. On JOINED without a
+            // discriminator, Hibernate's count of groups (createCountQuery, 6.6 and 7.4) prunes the subtype joins and
+            // its CASE type reads one type, so the renderer refuses it and the groups are counted client-side (D-159).
+            boolean clientSide = !typeOrdered;
+            Set<Set<TreatUse>> grouped = uses("SELECT+GROUP_BY+TYPE");
+            cases.add(new Case("group by type", groupedByType(true), List.of(payment.getSimpleName() + ":1",
+                    card.getSimpleName() + ":2", bank.getSimpleName() + ":1", premium.getSimpleName() + ":1"),
+                    grouped, grouped, true, clientSide));
+            cases.add(new Case("group by an unselected type", groupedByType(false), List.of("1", "2", "1", "1"),
+                    grouped, grouped, true, clientSide));
+            cases.add(new Case("group by type and a column", groupedByTypeAndStatus(), List.of(
+                    payment.getSimpleName() + ":s1:1", card.getSimpleName() + ":s2:1", card.getSimpleName() + ":s3:1",
+                    bank.getSimpleName() + ":s4:1", premium.getSimpleName() + ":s5:1"), grouped, grouped, true,
+                    clientSide));
             return cases;
         }
 
@@ -698,6 +869,114 @@ class TreatCellsTest {
                     .primaryKey(PrimaryKey.of(id)).orderBy(id.asc()).build();
         }
 
+        /**
+         * An offset order by the type, unspecified but repeated: two runs of a list and of each offset page return the
+         * same rows, each type's rows together and by id within it (AC-COL-49).
+         */
+        void repeatedTypeOrder(EntityManager em) {
+            var ordered = typeOrder();
+            var executor = executor(em, ordered);
+            List<String> first = executor.list(raw(ordered), Limit.of(20));
+            assertThat(executor.list(raw(ordered), Limit.of(20))).as(name).isEqualTo(first);
+            assertThat(first).as(name).containsExactlyInAnyOrder("1", "2", "3", "4", "5");
+            // The cards 2 and 3 share a type: adjacent, by id.
+            assertThat(first.indexOf("3") - first.indexOf("2")).as(name + " " + first).isEqualTo(1);
+            for (int offset : List.of(0, 2, 4)) {
+                Slice<String> page = executor.page(raw(ordered), PageSpec.of(offset / 2, 2), CountMode.COUNT);
+                assertThat(page.content()).as(name + " page " + offset)
+                        .isEqualTo(first.subList(offset, Math.min(offset + 2, 5)));
+                assertThat(page.total()).as(name).hasValue(5);
+                assertThat(executor.page(raw(ordered), PageSpec.of(offset / 2, 2), CountMode.COUNT).content())
+                        .as(name + " page " + offset).isEqualTo(page.content());
+            }
+        }
+
+        /**
+         * {@code ofType} keeps the subtype and its grandchild, varargs and collections alike; the root type keeps every
+         * row; an empty {@code Optional} skips the filter and an empty collection keeps no row (AC-FLT-30). With a
+         * treated read in the same statement it runs per site, but 6.6's preflight can't attribute {@code JOINED}'s
+         * type restriction to its root: {@code MQ4016} there, the rows on 7.4 (D-158).
+         */
+        void ofTypes(EntityManager em) {
+            Map<String, UnaryOperator<Filters<String>>> filters = new LinkedHashMap<>();
+            filters.put("2,3,5", f -> f.ofType(root, card));
+            filters.put("4,5", f -> f.ofType(root, bank, premium));
+            filters.put("1,2,3,4,5", f -> f.ofType(root, payment));
+            filters.put("2,3,4,5", f -> f.ofType(root, List.<Class<? extends P>>of(card, bank)));
+            filters.put("5", f -> f.ofType(root, Optional.of(List.<Class<? extends P>>of(premium))));
+            filters.put("1,2,3,4,5 skipped", f -> f.ofType(root, Optional.<List<Class<? extends P>>>empty()));
+            filters.put("", f -> f.ofType(root, List.<Class<? extends P>>of()));
+            filters.forEach((rows, where) -> {
+                var query = ids(where);
+                List<String> expected = rows.isEmpty() ? List.of() : List.of(rows.split(" ")[0].split(","));
+                assertThat(executor(em, query).list(raw(query), Limit.of(20))).as(name + " " + rows)
+                        .containsExactlyElementsOf(expected);
+                assertThat(executor(em, query).count(raw(query))).as(name + " " + rows).isEqualTo(expected.size());
+            });
+            var combined = ids(f -> f.ofType(root, card).isNull(number));
+            if (payment == CellEntities.JdPayment.class && Version.getVersionString().startsWith("6.")) {
+                assertThatThrownBy(() -> executor(em, combined).list(raw(combined), Limit.of(5))).as(name)
+                        .isExactlyInstanceOf(ModelQueryConfigurationException.class)
+                        .hasMessageContaining("attribute")
+                        .extracting(failure -> ((ModelQueryConfigurationException) failure).code())
+                        .isEqualTo(MqCode.MQ4016);
+            } else {
+                assertThat(executor(em, combined).list(raw(combined), Limit.of(5))).as(name).containsExactly("3");
+                assertThat(executor(em, combined).count(raw(combined))).as(name).isEqualTo(1);
+            }
+        }
+
+        /**
+         * {@code notOfType} keeps the other types' rows and, over a LEFT join, the rows where it is absent; an empty
+         * collection keeps every row and an empty {@code Optional} skips the filter (AC-FLT-31).
+         */
+        void notOfTypes(EntityManager em) {
+            Map<String, UnaryOperator<Filters<String>>> filters = new LinkedHashMap<>();
+            filters.put("1,4", f -> f.notOfType(root, card));
+            filters.put("1,2,3", f -> f.notOfType(root, bank, premium));
+            filters.put("1,2,3,5", f -> f.notOfType(root, Optional.of(List.<Class<? extends P>>of(bank))));
+            filters.put("1,2,3,4,5", f -> f.notOfType(root, List.<Class<? extends P>>of()));
+            filters.put("1,2,3,4,5 skipped", f -> f.notOfType(root, Optional.<List<Class<? extends P>>>empty()));
+            filters.forEach((rows, where) -> {
+                var query = ids(where);
+                List<String> expected = List.of(rows.split(" ")[0].split(","));
+                assertThat(executor(em, query).list(raw(query), Limit.of(20))).as(name + " " + rows)
+                        .containsExactlyElementsOf(expected);
+                assertThat(executor(em, query).count(raw(query))).as(name + " " + rows).isEqualTo(expected.size());
+            });
+            // Holders 10 and 12 reach the payment and the bank; holder 14 reaches no payment.
+            var reached = holderIds(f -> f.notOfType(leftPayments, card, bank), holderId.asc());
+            assertThat(executor(em, reached).list(raw(reached), Limit.of(20))).as(name).containsExactly("10", "14");
+            assertThat(executor(em, reached).count(raw(reached))).as(name).isEqualTo(2);
+        }
+
+        ModelQuery<P, ?, String> typePairs() {
+            return ModelQuery.builder(root, row -> row.get(id) + ":" + row.get(type).getSimpleName())
+                    .select(SelectSet.of(id, type)).primaryKey(PrimaryKey.of(id)).orderBy(id.asc()).build();
+        }
+
+        ModelQuery<P, ?, String> typeOrder() {
+            return ModelQuery.builder(root, row -> String.valueOf(row.get(id))).select(SelectSet.of(id))
+                    .primaryKey(PrimaryKey.of(id)).orderBy(type.asc(), id.asc()).build();
+        }
+
+        /** The payments counted per exact class, with the class selected or not. */
+        ModelQuery<P, ?, String> groupedByType(boolean selected) {
+            var counted = Agg.<String>count(id);
+            return selected
+                    ? ModelQuery.builder(root, row -> row.get(type).getSimpleName() + ":" + row.get(counted))
+                            .select(SelectSet.of(type, counted)).groupBy(type).build()
+                    : ModelQuery.builder(root, row -> String.valueOf(row.get(counted)))
+                            .select(SelectSet.of(counted)).groupBy(type).build();
+        }
+
+        /** The payments counted per exact class and status. */
+        ModelQuery<P, ?, String> groupedByTypeAndStatus() {
+            var counted = Agg.<String>count(id);
+            return ModelQuery.builder(root, row -> row.get(type).getSimpleName() + ":" + row.get(status) + ":"
+                    + row.get(counted)).select(SelectSet.of(type, status, counted)).groupBy(type, status).build();
+        }
+
         ModelQuery<P, ?, String> keyless() {
             return ModelQuery.builder(root, row -> row.get(id) + ":" + row.get(number))
                     .select(SelectSet.of(id, number)).orderBy(id.asc()).build();
@@ -820,7 +1099,14 @@ class TreatCellsTest {
         }
 
         /** {@code work} on a payment executor over an empty schema, capturing that it runs no statement. */
+        @SuppressWarnings({"unchecked", "rawtypes"})
         void refusedBeforeAnyStatement(TckDatabase db, Consumer<ModelQueryExecutor<Object>> work) {
+            refusedBeforeAnyStatementIn(db, em -> work.accept((ModelQueryExecutor) ModelQueryExecutor.create(em,
+                    payment, ModelQueryConfig.defaults())));
+        }
+
+        /** {@code work} in a session over an empty schema, capturing that it runs no statement. */
+        void refusedBeforeAnyStatementIn(TckDatabase db, Consumer<EntityManager> work) {
             try (SessionFactory schema = schema(db)) {
                 List<String> statements = SqlSnapshots.capture(db, ds -> serving(ds, work)).stream()
                         .filter(sql -> !sql.startsWith("create ") && !sql.startsWith("drop ")).toList();
@@ -835,14 +1121,12 @@ class TreatCellsTest {
                     .setProperty(AvailableSettings.HBM2DDL_AUTO, "create-drop").buildSessionFactory();
         }
 
-        @SuppressWarnings({"unchecked", "rawtypes"})
-        private void serving(DataSource ds, Consumer<ModelQueryExecutor<Object>> work) {
+        private void serving(DataSource ds, Consumer<EntityManager> work) {
             Configuration cfg = configuration();
             cfg.getProperties().put(AvailableSettings.JAKARTA_NON_JTA_DATASOURCE, ds);
             cfg.setProperty(AvailableSettings.HBM2DDL_AUTO, "none");
             try (SessionFactory factory = cfg.buildSessionFactory()) {
-                factory.inSession(em -> work.accept((ModelQueryExecutor) ModelQueryExecutor.create(em, payment,
-                        ModelQueryConfig.defaults())));
+                factory.inSession(work::accept);
             }
         }
 
