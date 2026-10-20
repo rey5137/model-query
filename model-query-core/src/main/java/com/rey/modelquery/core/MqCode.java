@@ -403,8 +403,9 @@ public enum MqCode {
     /** A malformed or edited keyset cursor (R-PAG-18). */
     MQ2208("The keyset cursor is not one this library issued; start again with KeysetSpec.first"),
 
-    /** A keyset cursor from another order, entity or deployment (R-PAG-19). */
-    MQ2209("The keyset cursor belongs to another order; start again with KeysetSpec.first"),
+    /** A keyset cursor from another sort, treat, direction, precedence, entity or deployment (R-PAG-19). */
+    MQ2209("The keyset cursor belongs to another order (sort, treat, direction, null precedence, entity or deployment "
+            + "changed); start again with KeysetSpec.first"),
 
     /** A keyset column cannot be carried in a cursor, or makes it longer than 8192 characters (R-PAG-17, R-PAG-18). */
     MQ2210("A keyset column cannot be carried in a cursor, or makes it longer than 8192 characters"),
@@ -419,6 +420,12 @@ public enum MqCode {
      * executor call, before any statement (R-SRC-09).
      */
     MQ2212("A key-identified read over a non-unique source, or an unorderable tie-breaker column"),
+
+    /** A duplicate primary key in a read that relies on a unique row identity (R-PAG-26). */
+    MQ2213("More than one row has the same primary key"),
+
+    /** A treated offset page contradicts its total; logged once per query as a WARNING, never thrown (R-PAG-27). */
+    MQ2214("A treated offset page returned more rows than its total allows"),
 
     /** A sort property names no selected column or aggregate, or more than one (R-QRY-14, D-52). */
     MQ2301("A sort property resolves to no selected column or to more than one"),

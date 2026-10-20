@@ -616,8 +616,9 @@ public sealed class ColumnField<M, T, C> implements ScalarField<M, C> permits Or
         return above.isEmpty() ? attribute : above + "." + attribute;
     }
 
-    /** The attribute path qualified by each treated node, for indexes that distinguish sibling columns. */
-    String identityPath() {
+    /** The attribute path qualified by each treated subtype name, for indexes and cursor fingerprints (R-PAG-19). */
+    @EngineFacing
+    public String identityPath() {
         String above = identityPath(table.key());
         return above.isEmpty() ? attribute : above + "." + attribute;
     }

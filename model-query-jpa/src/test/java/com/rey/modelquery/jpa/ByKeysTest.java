@@ -266,14 +266,14 @@ class ByKeysTest {
     }
 
     @Test
-    void ac_exe_14_a_key_matching_two_rows_throws_mq2003_before_any_row_is_mapped() {
+    void ac_pag_31_a_key_matching_two_rows_throws_mq2213_before_any_row_is_mapped() {
         var byC = ModelQuery.builder(ROOT, row -> {
             MAPPED.incrementAndGet();
             return new Row(row.get(ID), row.get(A));
         }).select(SelectSet.of(ID, A)).primaryKey(PrimaryKey.of(C)).build();
         withExecutor(ModelQueryConfig.defaults(), executor -> {
-            assertMq(() -> executor.byKeys(byC, List.of(0)), MqCode.MQ2003,
-                    "Row: byKeys(query, keys) found more than one row for key 0");
+            assertMq(() -> executor.byKeys(byC, List.of(0)), MqCode.MQ2213,
+                    "Row: more than one row has primary key 0");
             assertThat(MAPPED).hasValue(0);
         });
     }

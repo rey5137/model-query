@@ -132,10 +132,12 @@ non-id column that matches two rows is `MQ2003`. On a Spring repository the thre
 
 The map iterates in the order of the keys' first occurrence, and a key with no row — or one `q`'s filter excludes — is
 absent rather than a `null` entry. Each key is converted as `whereKey` converts it, so two keys a converter maps to
-one value share one model, read once, and rows are matched back by the converted attribute value. A key that matches
-two rows is `MQ2003`, as `one(q, key)` gives; a row whose key equals none of the requested values is `MQ2005`, naming
-the value, before any row is mapped. That happens when the column's collation is case-insensitive or ignores trailing
-spaces, or a `BigDecimal` key has a different scale, so the row the database matched is not one the caller asked for.
+one value share one model, read once, and rows are matched back by the converted attribute value. A duplicate key
+is `MQ2213`, as `one(q, key)` gives, including a non-id model key matching two rows. If a filter-only to-many join
+repeats the row, both calls give `MQ2003` with a `Filters.exists` hint. A row whose key equals none of the requested
+values is `MQ2005`, naming the value, before any row is mapped. That happens when the column's collation is
+case-insensitive or ignores trailing spaces, or a `BigDecimal` key has a different scale, so the row the database
+matched is not one the caller asked for.
 `keys` may be larger than the vendor's limits: the library spreads them over as many statements as the bind limits
 allow, and each key is read in exactly one. No keys return an empty map and run no SQL.
 
