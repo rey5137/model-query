@@ -200,6 +200,7 @@ CREATE TABLE folder_nodes (
     parent_id BIGINT NULL,
     name      VARCHAR(40) @COLLATE@ NOT NULL
 );
+CREATE INDEX ix_folder_nodes_parent ON folder_nodes (parent_id);
 -- The diamond 200 -> {201, 202} -> 203 reaches node 203 twice without a cycle (AC-SRC-18).
 CREATE TABLE folder_links (
     parent_id BIGINT NOT NULL,
