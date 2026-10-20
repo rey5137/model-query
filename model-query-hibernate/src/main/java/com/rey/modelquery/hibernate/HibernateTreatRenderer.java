@@ -323,7 +323,7 @@ final class HibernateTreatRenderer implements TreatRenderer {
                 return Optional.of("the statement is not translated as a select");
             }
             return TreatPreflight.walk(translation.translate(query.getSession().getFactory(), query, sqm),
-                    List.copyOf(expected));
+                    List.copyOf(expected), sqm, query.getSession().getFactory());
         } catch (RuntimeException | LinkageError failed) {
             // Fails closed: a statement the adapter can't translate, or a line whose internals moved, is refused.
             return Optional.of("the statement could not be translated for the preflight: " + failed);

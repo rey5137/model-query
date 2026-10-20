@@ -467,7 +467,18 @@ read from a derived table restricted to some discriminator values, a `TABLE_PER_
 lacks one of its entity's tables, a `JOINED` root `INNER` joined to a table that holds only some of its subtypes'
 rows, and a discriminator restriction in the `where` that leaves out a concrete subtype are narrowings, the
 discriminator a column, a formula, `TABLE_PER_CLASS`'s `clazz_` or `JOINED`'s `CASE`. A subtype
-root and an `INNER` treated join are expected; a `LEFT` join and a `CASE` guard don't narrow. A narrowed sub-select
+root is expected; a `LEFT` join and a `CASE` guard don't narrow a root. A declared `TABLE_PER_CLASS` treated join is
+also checked against its translated target union (D-161). Every branch outside the declared subtype's tables must
+have a NULL key in a top-level join equality, or an effective discriminator restriction to the subtype in the
+`where`, the join's own `ON`, or an `INNER` join from its target. A `CASE` guarding selected inherited columns does
+not exclude a matching branch, so an `INNER` target that retains its real key is `MQ4016`. A to-one `LEFT` target
+may retain it only when every target column read in `select`, `where`, `group by`, `having` and `order by`, the
+hidden presence key and later-page keyset predicates included, is NULL for that branch: the branch projects NULL,
+or the value has a subtype discriminator `CASE` guard with a NULL `ELSE`. Columns read through joins nested under
+the treated group count as target reads. Otherwise it is refused too. Collect declarations inside derived roots,
+derived joins and FROM-function arguments; a TPC union join with no recorded treated declaration, including inside
+a derived count's `QueryPartTableReference`, fails closed. An unknown join, union, key or guard shape fails closed.
+A narrowed sub-select
 root is expected only when it consumes a declaration: its sub-select is a direct operand of an `exists` in its
 parent's `where` or `having` (under `AND`, `OR` and `NOT`), correlated to an untreated parent root by a top-level `=`
 of their single id columns, and it reads what a treat as the declared subtype renders (on `TABLE_PER_CLASS` the union
@@ -564,4 +575,11 @@ explicitly (`likeIgnoreCase`, `nullsFirst`), and the library renders it the same
 | AC-VND-20 | A treated `ModelUpdate`/`ModelDelete` `where` and a treated returning model (`updateReturning`, `deleteReturning`, `persist`) are `MQ4016` before any statement, on every strategy, vendor and path, key-first included (R-VND-26, D-154). |
 | AC-VND-21 | On both lines and every strategy, the preflight of an unanchored `count(root)` over `isNull` is `MQ4016` and of its anchored form empty, with no JDBC statement; each later keyset page shape, over every combination of NULL cursor values, is preflighted before page 1, a keyset
 `export`'s too, and `byKeys` with no keys and its first chunk built again; a `TABLE_PER_CLASS`, `JOINED` or formula
-discriminator restriction leaving out a subtype is refused; an unrecognised AST shape and a narrowing it can't attribute are `MQ4016`; a declared path `exists` root, `not` and `or` forms included, is admitted and a wider, narrower, sibling, missing, left-over or two-subtype declaration refused; an `or` reading the treated root in some branches only declares nothing; a nested `TABLE_PER_CLASS` union keeping its root's table is admitted under a null id or an exact `clazz_` restriction and refused under a `CASE`-guarded inherited column; a correlated count over its own treated root passes with no declaration; every admitted cell passes the preflight (R-VND-26, D-157). |
+discriminator restriction leaving out a subtype is refused; an unrecognised AST shape and a narrowing it can't attribute are `MQ4016`; a declared path `exists` root, `not` and `or` forms included, is admitted and a wider, narrower, sibling, missing, left-over or two-subtype declaration refused; an `or` reading the treated root in some branches only declares nothing; a nested `TABLE_PER_CLASS` union keeping its root's table is admitted under a null id or an exact `clazz_` restriction and refused under a `CASE`-guarded inherited column; a correlated count over its own treated root passes with no declaration; a `TABLE_PER_CLASS` treated `INNER` target
+retaining a concrete base or sibling branch with a real join key and no effective subtype restriction is `MQ4016`
+before any statement, while a NULL join key still admits the subtype-only selection; a to-one `LEFT` target
+keeps an empty Optional for a base, sibling or absent target and a present Optional for a subtype with NULL values,
+and an unguarded presence key is refused; grouped derived counts, later keyset pages, streams and unguarded reads
+through nested target joins are checked before any statement; admitted joins page through the entire fixture;
+unknown target shapes fail closed; every admitted cell passes the
+preflight (R-VND-26, D-157, D-161). |
