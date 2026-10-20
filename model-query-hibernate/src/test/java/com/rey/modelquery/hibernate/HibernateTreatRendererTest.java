@@ -351,14 +351,4 @@ class HibernateTreatRendererTest {
             assertThat(listTreat).isInstanceOf(ListJoin.class);
         });
     }
-
-    @Test
-    void ac_vnd_17_preflight_fails_closed_until_m28_4() {
-        var renderer = renderer(joined);
-        joined.inSession(em -> {
-            CriteriaQuery<Object> query = em.getCriteriaBuilder().createQuery(Object.class);
-            assertThat(renderer.preflight(em, query, StatementShape.CONTENT)).hasValueSatisfying(
-                    text -> assertThat(text).contains("M28.4"));
-        });
-    }
 }

@@ -25,10 +25,12 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The keyset of an ungrouped query, or of a primary key alone: its order closed by the primary key, the cursor read
@@ -384,7 +386,10 @@ final class Keyset<M> {
                 // but JPA reports it once, so the bind limit check would undercount (D-82).
                 List<Predicate> branch = new ArrayList<>();
                 for (int j = 0; j < i; j++) {
-                    branch.add(cursor[j] == null ? cb.isNull(columns.get(j)) : cb.equal(columns.get(j), cursor[j]));
+                    branch.add(cursor[j] == null ? cb.isNull(columns.get(j))
+                            : cursor[j] instanceof Placeholder placeholder
+                                    ? cb.equal(columns.get(j), placeholder.parameter())
+                                    : cb.equal(columns.get(j), cursor[j]));
                 }
                 branch.add(beyond);
                 branches.add(branch.size() == 1 ? beyond : cb.and(branch.toArray(Predicate[]::new)));
@@ -392,6 +397,47 @@ final class Keyset<M> {
             columns.add(column);
         }
         return new Beyond(cb.or(branches.toArray(Predicate[]::new)), parameters);
+    }
+
+    /**
+     * A cursor value standing for any non-NULL value of its key, as an unbound parameter: it shapes a later page's
+     * predicate for the preflight, and no statement that runs holds one (R-VND-26).
+     */
+    private record Placeholder(ParameterExpression<?> parameter) {}
+
+    /**
+     * The cursors whose {@link #after} predicates are the shapes of every later page, each value a fresh placeholder
+     * parameter: every value non-NULL, then each combination of NULLs at the keys whose cursor value can be NULL,
+     * {@code 2^k} cursors over {@code k} such keys (R-VND-26). A primary-key column and a key that refuses its NULLs
+     * never carry one (R-PAG-03, R-PAG-05).
+     */
+    List<Object[]> laterPageCursors(CriteriaBuilder cb) {
+        List<Integer> nullable = new ArrayList<>();
+        for (int i = 0; i < keys.size(); i++) {
+            if (!keys.get(i).refuseNull() && !keys.get(i).primaryKey()) {
+                nullable.add(i);
+            }
+        }
+        List<Object[]> cursors = new ArrayList<>();
+        for (int nulls = 0; nulls < 1 << nullable.size(); nulls++) {
+            Set<Integer> nullKeys = new HashSet<>();
+            for (int bit = 0; bit < nullable.size(); bit++) {
+                if ((nulls & 1 << bit) != 0) {
+                    nullKeys.add(nullable.get(bit));
+                }
+            }
+            cursors.add(placeholders(cb, nullKeys));
+        }
+        return cursors;
+    }
+
+    private Object[] placeholders(CriteriaBuilder cb, Set<Integer> nullKeys) {
+        Object[] cursor = new Object[keys.size()];
+        for (int i = 0; i < cursor.length; i++) {
+            cursor[i] = nullKeys.contains(i) ? null
+                    : new Placeholder(cb.parameter(box(column(keys.get(i)).attributeType())));
+        }
+        return cursor;
     }
 
     /**
@@ -462,6 +508,10 @@ final class Keyset<M> {
     @SuppressWarnings({"unchecked", "rawtypes"})
     private static Predicate comparison(boolean ascending, Expression<?> column, Object value, CriteriaBuilder cb,
             Map<ParameterExpression<?>, Object> parameters) {
+        if (value instanceof Placeholder placeholder) {
+            return ascending ? cb.greaterThan((Expression) column, (Expression) placeholder.parameter())
+                    : cb.lessThan((Expression) column, (Expression) placeholder.parameter());
+        }
         if (value instanceof Comparable) {
             return ascending ? cb.greaterThan((Expression) column, (Comparable) value)
                     : cb.lessThan((Expression) column, (Comparable) value);

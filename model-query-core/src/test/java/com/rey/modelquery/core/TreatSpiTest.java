@@ -8,7 +8,10 @@ import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.From;
 import java.lang.reflect.Proxy;
+import java.util.Collections;
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -28,6 +31,32 @@ class TreatSpiTest {
     }
 
     @Test
+    void ac_vnd_21_an_expected_narrowing_names_subtypes_of_its_entity_and_keeps_its_own_copy() {
+        var kind = ExpectedNarrowing.Kind.EXISTS_ROOT;
+        var types = new LinkedHashSet<Class<?>>(List.of(Integer.class, Long.class));
+        var narrowing = new ExpectedNarrowing(kind, Number.class, types);
+        types.clear();
+        assertThat(narrowing.types()).containsExactly(Integer.class, Long.class);
+        assertThatThrownBy(() -> narrowing.types().add(Short.class))
+                .isInstanceOf(UnsupportedOperationException.class);
+        // Equal narrowings stay equal, so a statement's list compares as a multiset.
+        assertThat(new ExpectedNarrowing(kind, Number.class, Set.of(Long.class, Integer.class))).isEqualTo(narrowing);
+        assertThatThrownBy(() -> new ExpectedNarrowing(null, Number.class, Set.of(Long.class)))
+                .isExactlyInstanceOf(NullPointerException.class).hasMessage("kind");
+        assertThatThrownBy(() -> new ExpectedNarrowing(kind, null, Set.of(Long.class)))
+                .isExactlyInstanceOf(NullPointerException.class).hasMessage("entity");
+        assertThatThrownBy(() -> new ExpectedNarrowing(kind, Number.class, null))
+                .isExactlyInstanceOf(NullPointerException.class).hasMessage("types");
+        assertThatThrownBy(() -> new ExpectedNarrowing(kind, Number.class, Collections.singleton(null)))
+                .isExactlyInstanceOf(NullPointerException.class).hasMessage("type");
+        assertThatThrownBy(() -> new ExpectedNarrowing(kind, Number.class, Set.of()))
+                .isExactlyInstanceOf(IllegalArgumentException.class)
+                .hasMessage("an expected narrowing of Number names no subtype");
+        assertThatThrownBy(() -> new ExpectedNarrowing(kind, Number.class, Set.of(Long.class, String.class)))
+                .isExactlyInstanceOf(IllegalArgumentException.class).hasMessage("String is not a subtype of Number");
+    }
+
+    @Test
     void ac_vnd_16_render_options_are_immutable_and_keep_the_treat_renderer_in_every_copy() {
         TreatRenderer renderer = new TreatRenderer() {
             @Override
@@ -42,7 +71,7 @@ class TreatSpiTest {
 
             @Override
             public Optional<String> preflight(EntityManager em, CommonAbstractCriteria statement,
-                    StatementShape shape) {
+                    StatementShape shape, List<ExpectedNarrowing> expected) {
                 return Optional.empty();
             }
         };

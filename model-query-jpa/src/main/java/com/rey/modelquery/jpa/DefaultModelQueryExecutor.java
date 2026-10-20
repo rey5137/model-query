@@ -7,6 +7,7 @@ import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.Enricher;
 import com.rey.modelquery.core.EntityLoad;
+import com.rey.modelquery.core.ExpectedNarrowing;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.ExpressionField;
 import com.rey.modelquery.core.FetchPlan;
@@ -404,6 +405,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
             lock = lockChecks(q, built, "list(query, limit)");
         }
+        if (preflights(q)) {
+            // Before the zero-limit short cut too, so a refused statement fails the same way for any limit.
+            if (built == null) {
+                built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
+            }
+            preflight(q, "list", StatementShape.CONTENT, built);
+        }
         if (zeroLimit(limit)) {
             return List.of(); // no statement runs for a zero limit (R-EXE-06)
         }
@@ -430,6 +438,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         warnOfIgnoredOrder(q, "one(query)");
         BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
         built.query().orderBy(List.<Order>of()); // at most one row is read, so no order (R-EXE-12)
+        if (preflights(q)) {
+            preflight(q, "one(query)", StatementShape.CONTENT, built);
+        }
         return atMostOne(q, built, "one(query)");
     }
 
@@ -456,6 +467,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         built.query().orderBy(orders);
         Optional<LockSupport> lock = lockChecks(q, built, "first(query)");
+        if (preflights(q)) {
+            preflight(q, "first(query)", StatementShape.CONTENT, built);
+        }
         TypedQuery<Tuple> query = create(q, built);
         query.setMaxResults(1);
         applyLock(lock, q, query);
@@ -481,6 +495,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Predicate byKey = primaryKey.equal(key, built.joins(), cb);
         Predicate own = built.query().getRestriction();
         built.query().where(own == null ? byKey : cb.and(own, byKey));
+        if (preflights(q)) {
+            preflight(q, "one(query, key)", StatementShape.CONTENT, built);
+        }
         return atMostOne(q, built, "one(query, key)");
     }
 
@@ -524,6 +541,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             }
         }
         if (converted.isEmpty()) {
+            if (preflights(q)) {
+                // Before the no-keys short cut too, so a refused statement fails the same way for any keys.
+                preflight(q, "byKeys(query, keys)", StatementShape.CONTENT, counted);
+            }
             return Map.of();
         }
         warnOfIgnoredOrder(q, "byKeys(query, keys)");
@@ -538,6 +559,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         for (int from = 0; from < distinct.size(); from += chunk) {
             List<Object> chunkKeys = distinct.subList(from, Math.min(distinct.size(), from + chunk));
             BuiltQuery<M> built = byKeysChunk(q, primaryKey, cb, lock, chunkKeys);
+            if (!sized && preflights(q)) {
+                // The first chunk, before any statement; the others differ only in how many keys their IN holds.
+                preflight(q, "byKeys(query, keys)", StatementShape.CONTENT, built);
+            }
             TypedQuery<Tuple> statement;
             if (sized) {
                 statement = create(q, built);
@@ -551,9 +576,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 if (chunkKeys.size() <= sizedChunk) {
                     statement = checked(q, probe, null, null, built.joins());
                 } else {
-                    // More keys than the statement's own binds leave room for: the first chunk is built again, smaller.
+                    // More keys than the statement's own binds leave room for: the first chunk is built again, smaller,
+                    // and that build is the statement that runs, so it is preflighted too.
                     chunkKeys = distinct.subList(from, Math.min(distinct.size(), from + sizedChunk));
                     built = byKeysChunk(q, primaryKey, cb, lock, chunkKeys);
+                    if (preflights(q)) {
+                        preflight(q, "byKeys(query, keys)", StatementShape.CONTENT, built);
+                    }
                     statement = create(q, built);
                 }
                 chunk = sizedChunk;
@@ -813,12 +842,20 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         }
         checkFirstRun(q);
         LOG.log(DEBUG, () -> "stream " + q + ": " + limit);
+        BuiltQuery<M> built = null;
+        if (preflights(q)) {
+            // Before the zero-limit short cut, as list's, so a refused statement fails the same way for any limit.
+            built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
+            preflight(q, "stream", StatementShape.CONTENT, built);
+        }
         if (zeroLimit(limit)) {
             try (Stream<M> none = Stream.empty()) {
                 return body.apply(none); // no statement runs for a zero limit (R-EXE-06)
             }
         }
-        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
+        if (built == null) {
+            built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
+        }
         TypedQuery<Tuple> query = limited(q, built, limit);
         // Precondition first, so a refusal runs no statement. The profile decides the size from the configured one,
         // and the provider's support opens the stream with it (R-EXE-08, R-QRY-15, R-VND-12).
@@ -1164,17 +1201,27 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             BuiltQuery<M> byKeys = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL_BY_KEYS, renderOptions);
             refuseToManySelection(q, byKeys, "primary-key-first paging");
             batch = keyBatchSize(q, q.primaryKey().orElseThrow(), byKeys); // primaryKeyFirst(...) needs one (MQ1201)
+            preflightRowsByKeys(q, byKeys);
+        }
+        // With a treated node, every statement the page runs is built and preflighted before the first of them runs,
+        // and then run as built (R-VND-26).
+        Counting<M> counting = mode != CountMode.NO_COUNT ? preflightedCounting(q) : null;
+        BuiltQuery<M> first = null;
+        if (mode != CountMode.ONLY_COUNT && preflights(q)) {
+            first = primaryKeyFirst(q, offset) ? keyQuery(q) : offsetPage(q, everyColumn);
+            preflight(q, primaryKeyFirst(q, offset) ? "primary-key-first page's keys" : "page",
+                    StatementShape.CONTENT, first);
         }
         switch (mode) {
             case ONLY_COUNT: {
-                long total = countRows(q);
+                long total = countRows(q, counting);
                 return new Slice<>(List.of(), page.pageNumber(), size, offset + (long) size < total,
                         OptionalLong.of(total));
             }
             case COUNT: {
-                long total = countRows(q);
+                long total = countRows(q, counting);
                 List<M> content = offset >= total ? List.of()
-                        : models(q, fetch(q, offset, size, batch, everyColumn));
+                        : models(q, fetch(q, offset, size, batch, everyColumn, first));
                 return new Slice<>(content, page.pageNumber(), size, offset + (long) content.size() < total,
                         OptionalLong.of(total));
             }
@@ -1182,7 +1229,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 // One row beyond the page tells whether another follows, so an exact multiple of the page size
                 // does not report a next page that is empty (R-EXE-02).
                 List<Loaded<M>> rows = fetch(q, offset, size == Integer.MAX_VALUE ? size : size + 1, batch,
-                        everyColumn);
+                        everyColumn, first);
                 boolean hasNext = rows.size() > size;
                 // The plan runs after the probe row is dropped, so that row's children are never read (R-FCH-09).
                 return new Slice<>(models(q, hasNext ? rows.subList(0, size) : rows), page.pageNumber(), size,
@@ -1235,6 +1282,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             built.query().where(own == null ? after.predicate() : cb.and(own, after.predicate()));
         }
         readKeyset.applyOrder(built, cb);
+        if (preflights(q)) {
+            // This page, then the shape of each later page it can lead to, either way, before this page runs.
+            preflight(q, "keyset page", StatementShape.CONTENT, built);
+            preflightLaterPages(q, forward, true, "later keyset page");
+            preflightLaterPages(q, forward.reversed(), true, "later keyset page read before its cursor");
+        }
         int size = keyset.size();
         // One row beyond the page tells whether another follows (R-PAG-21); size + 1 fits an int (KeysetSpec).
         TypedQuery<Tuple> query = create(q, em, built.query(), readKeyset, cursor, built.joins());
@@ -2591,6 +2644,61 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     }
 
     /**
+     * Whether {@code q}'s statements go to the renderer's preflight: with a renderer, when its own statement holds a
+     * treated node. Without one, no statement is built for it and the renderer is not called (R-VND-26).
+     */
+    private boolean preflights(ModelQuery<?, ?, ?> q) {
+        return renderOptions.treatRenderer().isPresent() && TreatChecks.treated(q);
+    }
+
+    /**
+     * Hands {@code query}, a select statement the call runs, to the renderer's preflight, before the call's first
+     * statement and after its sites passed {@code refusal}, with the narrowings its build declared ({@code expected},
+     * D-157); {@code MQ4016} names the model, the statement, its shape and the renderer's reason. Each call preflights
+     * again: no verdict is kept (R-VND-26, INV-9).
+     */
+    private void preflight(ModelQuery<?, ?, ?> q, String statement, StatementShape shape, BuiltQuery<?> built) {
+        preflight(q, statement, shape, built.query(), built.expectedNarrowings());
+    }
+
+    /** As {@link #preflight(ModelQuery, String, StatementShape, BuiltQuery)}, for {@code query} built by another. */
+    private void preflight(ModelQuery<?, ?, ?> q, String statement, StatementShape shape, CriteriaQuery<?> query,
+            List<ExpectedNarrowing> expected) {
+        // A grouped statement is GROUPED, as its sites are (TreatChecks).
+        StatementShape actual = q.isGrouped() ? StatementShape.GROUPED : shape;
+        renderOptions.treatRenderer().orElseThrow().preflight(em, query, actual, expected).ifPresent(reason -> {
+            throw new ModelQueryConfigurationException(MqCode.MQ4016, q + ": the preflight refuses the " + statement
+                    + " (" + actual + " statement): " + reason);
+        });
+    }
+
+    /**
+     * Preflights each later page of a keyset read, built as the read builds it, with a placeholder parameter for
+     * each cursor value: every value non-NULL, then each combination of NULLs at the keys that can hold one
+     * (R-VND-26). {@code reorder}
+     * replaces the order with the keyset's, as {@code page(query, KeysetSpec)} does; else the tie-breakers are
+     * appended to the query's own, as a keyset export does.
+     */
+    private <M> void preflightLaterPages(ModelQuery<E, ?, M> q, Keyset<M> keyset, boolean reorder, String read) {
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        for (Object[] cursor : keyset.laterPageCursors(cb)) {
+            BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL, renderOptions);
+            Predicate after = keyset.after(cursor, built.joins(), cb).predicate();
+            Predicate own = built.query().getRestriction();
+            built.query().where(own == null ? after : cb.and(own, after));
+            if (reorder) {
+                keyset.applyOrder(built, cb);
+            } else {
+                keyset.appendOrder(built, cb);
+            }
+            long nulls = Arrays.stream(cursor).filter(Objects::isNull).count();
+            preflight(q, read + ", over a cursor with " + (nulls == 0 ? "no NULL value"
+                    : nulls == 1 ? "a NULL value" : nulls + " NULL values"),
+                    StatementShape.CONTENT, built);
+        }
+    }
+
+    /**
      * {@code MQ2212} for a read that identifies one row by the source's key, which a non-unique source has none of
      * (R-SRC-09): {@code byKeys}, {@code one(query, key)}, {@code export}, and a fetch plan that fills children
      * through a child, a join plan or an enricher. Raised at the call, before any statement.
@@ -2661,28 +2769,47 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * page, which {@code page} sized before any statement.
      */
     private <M> List<Loaded<M>> fetch(ModelQuery<E, ?, M> q, int offset, int maxRows, int batch) {
-        return fetch(q, offset, maxRows, batch, false);
+        return fetch(q, offset, maxRows, batch, false, null);
     }
 
     /**
      * As {@link #fetch(ModelQuery, int, int, int)}; {@code everyColumn} closes the order with every selected column,
-     * which an offset page over a non-unique source does (R-SRC-09).
+     * which an offset page over a non-unique source does (R-SRC-09). {@code first}, when set, is the page's first
+     * statement, which the caller built and preflighted (R-VND-26).
      */
     private <M> List<Loaded<M>> fetch(ModelQuery<E, ?, M> q, int offset, int maxRows, int batch,
-            boolean everyColumn) {
+            boolean everyColumn, BuiltQuery<M> first) {
         if (primaryKeyFirst(q, offset)) {
             PrimaryKey<M, ?> key = q.primaryKey().orElseThrow(); // primaryKeyFirst(...) needs one (MQ1201)
             // Read the page's keys in the stable order, then their rows: the same rows as the one-step page, a key
             // read twice through a predicate's to-many join included.
-            List<Object> keys = readKeys(q, key, keyQuery(q), offset, maxRows);
+            List<Object> keys = readKeys(q, key, first != null ? first : keyQuery(q), offset, maxRows);
             return readByKeys(q, key, keys, batch);
         }
-        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
-        appendStableOrder(q, built, everyColumn);
+        BuiltQuery<M> built = first != null ? first : offsetPage(q, everyColumn);
         TypedQuery<Tuple> query = create(q, built);
         query.setFirstResult(offset);
         query.setMaxResults(maxRows);
         return mapAll(q, built, query);
+    }
+
+    /** An offset page's one-step statement, in the stable order (R-PAG-01, R-SRC-09). */
+    private <M> BuiltQuery<M> offsetPage(ModelQuery<E, ?, M> q, boolean everyColumn) {
+        BuiltQuery<M> built = q.buildQuery(em.getCriteriaBuilder(), Phase.MODEL, renderOptions);
+        appendStableOrder(q, built, everyColumn);
+        return built;
+    }
+
+    /**
+     * Preflights step 2 of a primary-key-first read from {@code byKeys}, its {@code MODEL_BY_KEYS} statement as built
+     * to size the batch, which it then orders as each step-2 statement is. Each step-2 statement adds the batch's
+     * {@code IN} over the primary key, whose columns the order already reads (R-PAG-07, R-VND-26).
+     */
+    private <M> void preflightRowsByKeys(ModelQuery<E, ?, M> q, BuiltQuery<M> byKeys) {
+        if (preflights(q)) {
+            appendStableOrder(q, byKeys);
+            preflight(q, "primary-key-first page's rows", StatementShape.CONTENT, byKeys);
+        }
     }
 
     /**
@@ -2921,6 +3048,14 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             refuseToManySelection(q, byKeys, "primary-key-first paging");
             keyQuery = keyQuery(q);
             batch = keyBatchSize(q, key, byKeys);
+            preflightRowsByKeys(q, byKeys);
+        }
+        if (preflights(q)) {
+            // Every page runs one of these statements, at another offset (R-VND-26).
+            preflight(q, "export page", StatementShape.CONTENT, built);
+            if (keyQuery != null) {
+                preflight(q, "primary-key-first export page's keys", StatementShape.CONTENT, keyQuery);
+            }
         }
         // The only state carried from page to page, so memory stays bounded by one page (R-PAG-02, INV-4).
         Set<Object> previousKeys = Set.of();
@@ -2987,6 +3122,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         // page (INV-4).
         Object[] cursor = null;
         Set<Object> previousKeys = Set.of();
+        keyset.appendOrder(first, cb);
+        if (preflights(q)) {
+            // The first page, then each later page's shape, before the first page runs (R-VND-26).
+            preflight(q, "keyset export page", StatementShape.CONTENT, first);
+            preflightLaterPages(q, keyset, false, "later keyset export page");
+        }
         while (passed < limit) {
             Keyset.Beyond after = null;
             if (cursor != null) {
@@ -2994,8 +3135,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 after = keyset.after(cursor, built.joins(), cb);
                 Predicate own = built.query().getRestriction();
                 built.query().where(own == null ? after.predicate() : cb.and(own, after.predicate()));
+                keyset.appendOrder(built, cb);
             }
-            keyset.appendOrder(built, cb);
             TypedQuery<Tuple> query = create(q, em, built.query(), keyset, cursor, built.joins());
             if (after != null) {
                 after.bindTo(query);
@@ -3376,20 +3517,66 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     // ---- count
 
+    /** Counts {@code q}'s rows, its count statement preflighted first when it holds a treated node (R-VND-26). */
     private <M> long countRows(ModelQuery<E, ?, M> q) {
+        return countRows(q, preflightedCounting(q));
+    }
+
+    /** {@code q}'s count statement, preflighted when it holds a treated node (R-VND-26). */
+    private <M> Counting<M> preflightedCounting(ModelQuery<E, ?, M> q) {
+        Counting<M> counting = counting(q);
+        if (preflights(q)) {
+            preflight(q, "count", StatementShape.COUNT, counting.statement(),
+                    counting.built().expectedNarrowings());
+        }
+        return counting;
+    }
+
+    /** Runs {@code counting}, the count statement {@link #counting} built for {@code q}. */
+    private <M> long countRows(ModelQuery<E, ?, M> q, Counting<M> counting) {
+        BuiltQuery<M> built = counting.built();
+        if (counting.groups() != null) {
+            return single(q, create(q, em, counting.groups(), null, null, built.joins()));
+        }
+        if (counting.inMemory()) {
+            if (built.recursionChecks().isEmpty()) {
+                LOG.log(System.Logger.Level.WARNING, "count over the grouped query on {0} runs it and counts its "
+                        + "rows in memory, because no ProviderSupport counts groups for this persistence provider; "
+                        + "add model-query-hibernate for a count in the database (R-EXE-03)",
+                        rootEntity.getSimpleName());
+            }
+            // Read through the check site: the group rows carry the checks, and no group carries none (R-SRC-08).
+            return rows(q, built, create(q, built)).size();
+        }
+        return ((Number) single(q, built, create(q, built)).get(0)).longValue();
+    }
+
+    /**
+     * A count's statement, built and not run: {@code built}'s own, or {@code groups}, the provider's count over a
+     * grouped statement; {@code inMemory} when a grouped statement's rows are counted client-side.
+     */
+    private record Counting<M>(BuiltQuery<M> built, CriteriaQuery<Long> groups, boolean inMemory) {
+
+        /** The statement the count runs. */
+        CriteriaQuery<?> statement() {
+            return groups != null ? groups : built.query();
+        }
+    }
+
+    /** The statement that counts {@code q}'s rows, or its groups for a grouped query (R-EXE-05). */
+    private <M> Counting<M> counting(ModelQuery<E, ?, M> q) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
         if (!q.isGrouped() && q.source().isEmpty() && TreatChecks.treated(q)) {
             // Built fresh and counting the root id: the content statement with its selection replaced would lose the
             // rows a select-only or order-only treat narrows away, and count(root) those a null-accepting predicate
             // keeps (R-COL-35, R-EXE-05). A grouped query keeps its count of groups below.
-            BuiltQuery<M> fresh = q.buildRootIdCount(cb, renderOptions);
-            return ((Number) single(q, fresh, create(q, fresh)).get(0)).longValue();
+            return new Counting<>(q.buildRootIdCount(cb, renderOptions), null, false);
         }
         BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL, renderOptions);
         CriteriaQuery<Tuple> query = built.query();
         query.orderBy(List.<Order>of()); // the count needs no order (R-EXE-05)
         if (q.isGrouped()) {
-            return countGroups(q, built);
+            return groupCounting(q, built);
         }
         // Every predicate and join stays, since one can change the number of rows; only the selection is replaced.
         // This drops select-only correlated sub-queries but keeps those in WHERE (R-EXE-05).
@@ -3406,12 +3593,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         selections.add(count);
         selections.addAll(built.recursionChecks());
         query.multiselect(selections);
-        Tuple counted = single(q, built, create(q, built));
-        return ((Number) counted.get(0)).longValue();
+        return new Counting<>(built, null, false);
     }
 
     /** {@code count(*)} over the groups: in the database when the provider support can, else client-side. */
-    private <M> long countGroups(ModelQuery<E, ?, M> q, BuiltQuery<M> built) {
+    private <M> Counting<M> groupCounting(ModelQuery<E, ?, M> q, BuiltQuery<M> built) {
         CriteriaQuery<Tuple> query = built.query();
         // A source's own checks are part of every statement's selection and a count keeps them (R-EXE-05, R-SRC-08).
         List<Selection<?>> checks = built.recursionChecks();
@@ -3436,16 +3622,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Optional<CriteriaQuery<Long>> count = checks.isEmpty()
                 ? vendor.providerSupport().flatMap(p -> p.countQuery(query))
                 : Optional.empty();
-        if (count.isPresent()) {
-            return single(q, create(q, em, count.get(), null, null, built.joins()));
-        }
-        if (checks.isEmpty()) {
-            LOG.log(System.Logger.Level.WARNING, "count over the grouped query on {0} runs it and counts its rows in "
-                    + "memory, because no ProviderSupport counts groups for this persistence provider; add "
-                    + "model-query-hibernate for a count in the database (R-EXE-03)", rootEntity.getSimpleName());
-        }
-        // Read through the check site: the group rows carry the checks, and no group carries none (R-SRC-08).
-        return rows(q, built, create(q, built)).size();
+        return new Counting<>(built, count.orElse(null), count.isEmpty());
     }
 
     private static boolean hasToManyJoin(From<?, ?> from) {

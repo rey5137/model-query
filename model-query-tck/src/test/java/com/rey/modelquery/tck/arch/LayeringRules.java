@@ -298,11 +298,12 @@ final class LayeringRules {
     }
 
     /**
-     * Only {@code model-query-hibernate}'s two mutation adapters depend on a type in an
-     * {@code org.hibernate..internal..} package (api/14 R-WRT-50, vendor/40 R-VND-17, RFC 0010 §Compatibility). This
-     * confines the internal packages alone: the module's other classes still call SPI types, such as the SQL AST's
-     * statements, that may move between lines too; such a move is not caught here, but surfaces as a
-     * {@code LinkageError} that {@code HibernateMutations} catches and refuses with {@code MQ4011} (D-132).
+     * Only {@code model-query-hibernate}'s two mutation adapters and two preflight adapters depend on a type in an
+     * {@code org.hibernate..internal..} package (api/14 R-WRT-50, vendor/40 R-VND-17 and R-VND-26, RFC 0010
+     * §Compatibility). This confines the internal packages alone: the module's other classes still call SPI types,
+     * such as the SQL AST's statements, that may move between lines too; such a move is not caught here, but surfaces
+     * as a {@code LinkageError} that {@code HibernateMutations} refuses with {@code MQ4011} (D-132) and the treat
+     * preflight refuses with its reason (R-VND-26).
      */
     ArchRule onlyMutationAdaptersImportHibernateInternals() {
         return noClasses()
@@ -312,10 +313,14 @@ final class LayeringRules {
                 .doNotHaveFullyQualifiedName(root + ".hibernate.Hibernate6Mutations")
                 .and()
                 .doNotHaveFullyQualifiedName(root + ".hibernate.Hibernate7Mutations")
+                .and()
+                .doNotHaveFullyQualifiedName(root + ".hibernate.Hibernate6Preflight")
+                .and()
+                .doNotHaveFullyQualifiedName(root + ".hibernate.Hibernate7Preflight")
                 .should()
                 .dependOnClassesThat()
                 .resideInAPackage("org.hibernate..internal..")
-                .as("only the Hibernate mutation adapters import org.hibernate internals")
+                .as("only the Hibernate mutation and preflight adapters import org.hibernate internals")
                 .allowEmptyShould(allowEmptyShould);
     }
 

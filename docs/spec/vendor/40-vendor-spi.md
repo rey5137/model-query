@@ -345,10 +345,14 @@ returning `Optional.empty()`. The core SPI uses only JPA and JDK types (INV-7); 
 interface TreatRenderer {
     <T, S extends T> From<?, S> treat(CriteriaBuilder cb, From<?, T> from, Class<S> subtype);
     Optional<String> refusal(TreatSite site);
-    Optional<String> preflight(EntityManager em, CommonAbstractCriteria statement, StatementShape shape);
+    Optional<String> preflight(EntityManager em, CommonAbstractCriteria statement, StatementShape shape,
+                               List<ExpectedNarrowing> expected);
 }
 record TreatSite(Class<?> entity, Class<?> subtype, Optional<String> attribute,
                  StatementShape shape, boolean anchored, Set<TreatUse> uses) {}
+record ExpectedNarrowing(Kind kind, Class<?> entity, Set<Class<?>> types) {
+    enum Kind { EXISTS_ROOT }
+}
 enum StatementShape { CONTENT, COUNT, GROUPED, SOURCE_BODY, CHILD, WRITE }
 enum TreatUse {
     SELECT, ORDER, GROUP_BY, AGGREGATE, EXPRESSION, PREDICATE, NULL_TEST, NEGATED, DISJUNCTION,
@@ -357,7 +361,9 @@ enum TreatUse {
 ```
 
 `preflight` has no default implementation. `TreatSite.uses()` is an immutable copy with enum-set semantics;
-consume its accessors rather than deconstructing the record, since components may be added. `refusal` and
+consume its accessors rather than deconstructing the record, since components may be added. `ExpectedNarrowing` and
+its `Kind` are `@EngineFacing`; its `types` are a non-empty, unmodifiable copy of subtypes of `entity`, and a renderer
+refuses a `Kind` it doesn't know (D-157). `refusal` and
 `preflight` return an empty optional on acceptance, or the reason for refusal. The executor passes the factory's
 renderer through `RenderOptions#withTreatRenderer`; scratch options retain it. There is no `VendorProfile#treats`
 and no `MQ4015` treat fact (INV-6). With no renderer, every treated node, including a redundant treat, is `MQ4014`
@@ -427,8 +433,42 @@ correlated outer node, an unanchored site and every `GROUPED`, `SOURCE_BODY`, `C
 The mapping gates are `MQ4016` for the whole hierarchy: a subtype `@SQLRestriction` (ignored by 6.6, refused at
 bootstrap by 7.4), a `@DiscriminatorValue("null")` or `("not null")`, an `@IdClass` or `@EmbeddedId` id, and other
 `@DiscriminatorOptions`; a root `@SQLRestriction` runs. The mapping is read from the entity persisters once per
-factory, and `treats(emf)` returns the same renderer for a factory (D-155). `preflight` is not measured before
-M28.4, so it refuses rather than returning empty ("statement preflight lands in M28.4").
+factory, and `treats(emf)` returns the same renderer for a factory (D-155).
+
+**The statement preflight (M28.4, `rfc/0016` §11 guard 3).** With a renderer and a definition whose own statement holds
+a treated node, the executor builds every select statement the call will run and hands each to `preflight`, with its
+shape, before the call's first statement: the content statement, the count, a primary-key-first page's two steps,
+`byKeys`' first chunk and, when it is built again smaller, the build that runs, `byKeys` with no keys too, and for a
+keyset page or a keyset `export` every later page shape, over every combination of NULLs at the keys whose cursor value
+can be NULL (all non-NULL included), with placeholder parameters. A non-empty answer is `MQ4016` naming the model, the
+statement, its shape and the reason; no JDBC statement has run. Without a treated node nothing is built for it and
+`preflight` is not called. Nothing is cached: each call preflights again (INV-9). The site check runs first, so the
+preflight never widens the table. Writes stay refused by the table (`WRITE`), so only select statements are preflighted.
+
+*Engine-declared narrowings (D-157).* Each statement comes with the `ExpectedNarrowing`s its own build rendered on
+purpose, in build order, compared as a multiset: an `EXISTS_ROOT` for the correlated root of a path `exists` read
+through a treat, naming every subtype it was treated as, unless an `or` in that `exists` reads a column of the treated
+root in some of its branches only, where Hibernate reads the root whole. Nothing else is declared: an `in` sub-select's
+own treated root, a `CASE WHEN EXISTS` and a correlated count's own treated root (which neither line narrows) are not,
+so a narrowing there is `MQ4016`. `ofType` adds a kind in M28.5.
+
+*Hibernate's preflight.* `model-query-hibernate` translates the criteria statement to Hibernate's SQL AST with no
+JDBC call, through a per-line adapter for 6.6 and 7.4, and walks every query spec, its CTE bodies, derived tables
+and sub-selects included. Each `from` root is checked against the rows its own entity holds: a `SINGLE_TABLE` root
+read from a derived table restricted to some discriminator values, a `TABLE_PER_CLASS` root read from a union that
+lacks one of its entity's tables, a `JOINED` root `INNER` joined to a table that holds only some of its subtypes'
+rows, and a discriminator restriction in the `where` that leaves out a concrete subtype are narrowings, the
+discriminator a column, a formula, `TABLE_PER_CLASS`'s `clazz_` or `JOINED`'s `CASE`. A subtype
+root and an `INNER` treated join are expected; a `LEFT` join and a `CASE` guard don't narrow. A narrowed sub-select
+root is expected only when it consumes a declaration: its sub-select is a direct operand of an `exists` in its
+parent's `where` or `having` (under `AND`, `OR` and `NOT`), correlated to an untreated parent root by a top-level `=`
+of their single id columns, and it reads what a treat as the declared subtype renders (on `TABLE_PER_CLASS` the union
+may also keep the root entity's own table for a subtype with subtypes of its own, when that table's rows read a null id
+or a `clazz_` restriction to exactly the subtype is a top-level conjunct of the `where` or of an `INNER` join's
+condition; a discriminator restriction on it must admit the declared subtype). An
+unattributed narrowing, a declaration left unconsumed, an unknown kind, a declaration of several subtypes, two
+declarations of one kind and entity naming different subtypes, and an AST shape the walk doesn't recognise are refused:
+it fails closed (AC-VND-21).
 
 ## 2. Detection
 
@@ -514,3 +554,6 @@ explicitly (`likeIgnoreCase`, `nullsFirst`), and the library renders it the same
 | AC-VND-18 | A subtype `@SQLRestriction` on 6.6, a null/not-null discriminator value and an `@IdClass` or `@EmbeddedId` hierarchy are `MQ4016`; a root `@SQLRestriction` runs; each admitted mapping variant runs under its own cells (R-VND-26, D-154). |
 | AC-VND-19 | Every admitted cell a definition reaches runs as a TCK case per strategy on every Tier-1 vendor and both lines, asserting ids, values, the row count and the total, on each mapping variant as well; each admitted `COUNT` cell as `count(root.id)`; probing the renderer with synthesized sites, per strategy, shape, anchoring, shared column and variant, admits exactly the use sets the cases run, so a set no definition reaches is refused (D-156) (R-VND-26, D-154). |
 | AC-VND-20 | A treated `ModelUpdate`/`ModelDelete` `where` and a treated returning model (`updateReturning`, `deleteReturning`, `persist`) are `MQ4016` before any statement, on every strategy, vendor and path, key-first included (R-VND-26, D-154). |
+| AC-VND-21 | On both lines and every strategy, the preflight of an unanchored `count(root)` over `isNull` is `MQ4016` and of its anchored form empty, with no JDBC statement; each later keyset page shape, over every combination of NULL cursor values, is preflighted before page 1, a keyset
+`export`'s too, and `byKeys` with no keys and its first chunk built again; a `TABLE_PER_CLASS`, `JOINED` or formula
+discriminator restriction leaving out a subtype is refused; an unrecognised AST shape and a narrowing it can't attribute are `MQ4016`; a declared path `exists` root, `not` and `or` forms included, is admitted and a wider, narrower, sibling, missing, left-over or two-subtype declaration refused; an `or` reading the treated root in some branches only declares nothing; a nested `TABLE_PER_CLASS` union keeping its root's table is admitted under a null id or an exact `clazz_` restriction and refused under a `CASE`-guarded inherited column; a correlated count over its own treated root passes with no declaration; every admitted cell passes the preflight (R-VND-26, D-157). |

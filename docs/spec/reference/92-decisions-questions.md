@@ -2310,6 +2310,55 @@ variant, and asserts the admitted sets equal the ones its cases ran.
 `TYPE` cells wait for M28.5, which adds them with `typeOf`/`ofType` and their TCK cases. Rejected: the RFC table's prose
 read as "any join with any predicate context", which admits sets nobody ran. → `vendor/40` R-VND-26, `api/10` R-COL-35.
 
+**D-157 — The engine declares the sub-select roots it narrows; the preflight expects only those (M28.4, 2026-10-20,
+user decision).** `TreatRenderer#preflight` takes a fourth argument, the statement's `List<ExpectedNarrowing>`: each
+sub-select root the engine narrowed through a treat on purpose, with every subtype it was treated as, in build order and
+compared as a multiset, so two equal `exists` are two entries (`BuiltQuery#expectedNarrowings()`, one list per built
+statement, each later keyset page shape its own build's). `ExpectedNarrowing(kind, entity, types)` and its `Kind` are
+`@EngineFacing @Incubating`; `types` is a non-empty, unmodifiable copy of subtypes of `entity` (INV-9), and a renderer
+refuses a kind it doesn't know. M28.4's one kind is `EXISTS_ROOT`: the correlated root of a path `exists`, read through
+a treat; M28.5 adds one for `ofType`. The engine declares it only where Hibernate narrows the root, as measured on
+6.6.58 and 7.4.11 on every strategy: a treat of the correlated root narrows it, whether a column of the treated root is
+read at the top of the `exists`' own filters, under a `not`, inside a `CASE`, or not at all (a join from the treat
+alone narrows); but an `or` that reads a column of the treated root in some of its branches only keeps the root whole,
+even beside a read at the top, and so does an untreated read of the root (which `MQ1302` keeps out of a path `exists`).
+So an `or` that reads such a column in some branches only withdraws the declaration; an `or` reading it in every branch,
+which Hibernate narrows, still does, and one reading only the path's joined columns doesn't count. A position the
+engine declares and the provider doesn't narrow, or the other way round, is `MQ4016`, never a lost row. Nothing else is declared, so an `in` sub-select's own treated root, a
+`CASE WHEN EXISTS`, and any other narrowed sub-select root stay `MQ4016`. A correlated count's own treated sub-select
+root is not declared: measured on 6.6.58 and 7.4.11, all three strategies, the treat in the counted column or in a
+filter, neither line narrows it (pruning skips projection uses, and a fresh sub-select root stays untreated), so there
+is nothing to expect; if a later line did narrow it, the preflight refuses it as unattributed, which is the fail-closed
+answer. Hibernate's preflight matches each narrowed sub-select root to a declaration: the root's sub-select must be a
+direct operand of an `exists` in its parent's `where` or `having` (under `AND`, `OR` and `NOT`; not inside an
+expression or a `CASE`), correlated to an untreated parent root by a top-level `=` of their single id columns, and its
+narrowing must equal what a treat as the declared subtype renders: the derived table's discriminator values on
+`SINGLE_TABLE` (a column or a `@DiscriminatorFormula`, whose template is rendered over the derived table's alias), the
+tables it is `INNER` joined to on `JOINED`, the union's tables on `TABLE_PER_CLASS`, compared lexically as the root
+check compares them. Measured on both lines: the union of a treat as a subtype that has subtypes of its own also keeps
+the root entity's own table. That table is expected only for a declared subtype with subtypes of its own, and only when
+none of its rows can match: its union branch reads a null id (`null as id`, or `cast(null as bigint) as id` on some
+dialects), which the required id correlation never matches, as both lines render a read of the subtype's own column; or
+a `clazz_` restriction to exactly the declared subtype's concrete entities is a top-level conjunct of the sub-select's
+`where` or of the condition of an `INNER` join from the root, which drops a failing row as the `where` does, as both
+lines render a join from the treat. A branch that keeps its id and is read only through a `CASE` guard, as both lines
+render a read of an inherited column such as `status`, is refused: an `is null` of the guarded column matches the root
+table's rows, so a `not exists` would drop the outer row. A leaf subtype never keeps it. The `@DiscriminatorFormula`
+derived table is expected only for a declared `EXISTS_ROOT`, and only when its restriction's values are exactly the
+declared subtype's concrete discriminator values; on the statement's own root it stays refused. A discriminator
+restriction in a `where` is recognised for every strategy: a column, a formula, `TABLE_PER_CLASS`'s `clazz_` and
+`JOINED`'s `CASE` (typed by its discriminator mapping; 6.6 renders it with no column, so there it is never attributed
+and is refused). A top-level `in` or `=` on a root's discriminator must admit every concrete entity the root is read
+as, its own, or the declared subtype's for a root that consumed a declaration; any other read of it outside a `CASE`
+guard is refused. A narrowed root that consumes no declaration, a declaration left unconsumed, an unknown kind, a
+declaration of several subtypes, and two declarations of one kind and entity naming different subtypes ("cannot
+attribute") are `MQ4016`. Rejected: pairing each narrowed root with a `TreatSite`. Sites are a set per call, so two
+equal `exists` collapse; a site is a read, not a narrowing; sites are per call while statements differ (a count drops a
+correlated count, primary-key-first steps and later keyset pages build their own); and the pairing failed on both
+lines, since a correlated root shares its `NavigablePath` with the outer root and `getCorrelatedRoot()` returns itself,
+so no ordinal or path matches in the AST. S3 never measured sub-selects, so this is the first rule for them.
+→ `vendor/40` R-VND-26, AC-VND-21, `rfc/0016` §11 guard 3.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
