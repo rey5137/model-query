@@ -52,9 +52,16 @@ class TreatDefinitionTest {
         assertMq(MqCode.MQ1106, () -> treated.on((from, cb) -> cb.conjunction()));
         var present = treated.presentBy(key);
         assertThat(present).isEqualTo(treated);
-        assertThat(present.named("card").presenceKey()).isSameAs(key);
+        assertMq(MqCode.MQ1106, () -> present.named("card"));
+        assertThat(join.named("card").treat(CardPayment.class).presentBy(key).presenceKey()).isSameAs(key);
         assertThat(present.withParent(join).presenceKey()).isSameAs(key);
         assertThat(join.presentBy(key).treat(CardPayment.class).presenceKey()).isSameAs(key);
+    }
+
+    @Test
+    void ac_col_48_a_treated_root_is_named_before_its_treat() {
+        assertMq(MqCode.MQ1106, () -> ROOT.treat(CardPayment.class).named("card"));
+        assertThat(ROOT.named("card").treat(CardPayment.class)).isNotNull();
     }
 
     private static void assertMq(MqCode code, Runnable action) {

@@ -718,8 +718,8 @@ ArchUnit checks. `hibernate-validator` and `tomcat-embed-el` are test-scope only
 `checkFetch`, `checkReturning` and `mapReturning` (D-118), and on `ModelUpdate` and `ModelDelete` `checkMetamodel`,
 `writesNothing`, every `buildWrite` and `buildKeySelect` overload, `readsTargetInSubquery`, `distinctKeys`,
 `startAfter`, `modelKey` and `buildEntityLoad`, on `ModelUpdate` `assignedAttributes` and `assignedValues`, and on
-`ModelInsert` `conflictUpdateAdds` (D-118), and `ColumnField.identityPath` (R-PAG-19). Like `jpa.vendor` (R-REL-10)
-they may change in any release; `japicmp`
+`ModelInsert` `conflictUpdateAdds` (D-118), `ColumnField.identityPath` (R-PAG-19) and `TreatChecks.reachesTreat`.
+Like `jpa.vendor` (R-REL-10) they may change in any release; `japicmp`
 excludes them. This makes D-67's `readsTargetInSubquery` boolean (now `entitiesReadInSubquery`, D-109) non-API. →
 `delivery/61` R-REL-10, R-REL-11.
 
@@ -2467,6 +2467,19 @@ is still `MQ4014` without a renderer and `MQ4016` outside the table, per target.
 change: the executor cannot tell an offline factory from a live one, and a provider's own offline boot is what knows.
 A statement the preflight would refuse is therefore reported offline as reached and refused only at execution, the
 blind spot `rfc/0016` records for the offline check. → `vendor/40` R-VND-26, AC-VND-17.
+
+**D-164 — A nested `exists` under a treated `exists` path is refused by the table (M28 gate).** A path `exists` nested
+under an `exists` whose path holds a treat correlates on a treated node: its sites carry `TreatUse` `CORRELATION`,
+which the Hibernate table refuses (`MQ4016`); a lifted `Outer.column` read carries it too. The engine itself refuses
+only a non-join correlation target, with `MQ4016` rather than a cast (CC-ERR-01). The mark applies when the outer
+path holds a treat anywhere, not only at its leaf (deliberately fail-closed). Amends R-FLT-11, R-VND-26.
+
+**D-165 — Guard 3 also covers the source bodies a definition reads (M28 gate).** The statement preflight runs for a
+definition whose own statement, or a source body it reads (sources, set-operation branches, inner sources), holds a
+treated node. The `mq_0id` anchor and `MQ2214` still key on the top statement's own treat. Amends R-VND-26.
+
+**D-166 — `named(...)` on a treated join is `MQ1106` (M28 gate).** `named(...)` on a treated join is `MQ1106` like
+`as` and `on`; apply those modifiers before treating. Amends R-COL-34, R-GEN-41.
 
 ## 2. Open questions
 

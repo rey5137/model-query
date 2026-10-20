@@ -204,9 +204,9 @@ The inheritance-roots members (D-154..D-163, M28) are `@Incubating` through 1.0:
 methods (`vendor/40` R-VND-26) are `@Incubating` the same way: `TreatRenderer`, `TreatSite`, `StatementShape`,
 `TreatUse`, `ExpectedNarrowing` and its `Kind` (D-157), `RenderOptions#withTreatRenderer`, `#withMetamodel` and
 `#treatRenderer()`, `ProviderSupport#treats(EntityManagerFactory)`, and `TreatChecks`.
-`ColumnField.identityPath()` (D-160), `ModelQuery#buildRootIdCount`, `#checkFetch(CriteriaBuilder, RenderOptions)`,
-`#checkReturning(CriteriaBuilder, RenderOptions)` and `BuiltQuery#expectedNarrowings()` are `@EngineFacing`, so they
-are not API.
+`ColumnField.identityPath()` (D-160), `TreatChecks.reachesTreat(ModelQuery)`, `ModelQuery#buildRootIdCount`,
+`#checkFetch(CriteriaBuilder, RenderOptions)`, `#checkReturning(CriteriaBuilder, RenderOptions)` and
+`BuiltQuery#expectedNarrowings()` are `@EngineFacing`, so they are not API.
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from

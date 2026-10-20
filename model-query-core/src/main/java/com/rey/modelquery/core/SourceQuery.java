@@ -821,6 +821,7 @@ public final class SourceQuery<S> {
         if (!anchors() || !treated()) {
             return false;
         }
+        // Fail closed: true means more anchor checks; the executor always sets a metamodel.
         return found.map(metamodel -> !TreatChecks.selectsRootId(fields.fields(),
                 TreatChecks.rootId(metamodel.entity(root.rootEntity()), model.getSimpleName()))).orElse(true);
     }

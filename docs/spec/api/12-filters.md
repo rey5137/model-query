@@ -164,7 +164,8 @@ outer joins follow this LEFT rule, including through nested path-exists scopes (
 throws `MQ1302` naming the column. Aliased paths and `on(...)` conditions are carried into the sub-query. `path` must
 be a join, else `MQ1304`. A nested `exists` correlates to the enclosing `exists` path: on a path below it, to rows of
 that child; on exactly the same path, to the **same child row**, so its filters narrow the row the enclosing `exists`
-found rather than asking for another row of that path.
+found rather than asking for another row of that path. A nested `exists` under an `exists` whose path holds a treat
+correlates on a treated node and is `MQ4016` (D-164).
 
 **R-FLT-12** Because `exists` and sub-selects join nothing on the outer query, `count` and export need no distinct or
 dedupe work (`engine/20` R-EXE-04). `exists` is the preferred form for "has a child matching X".

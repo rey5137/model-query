@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.rey.modelquery.core.Agg;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.CountMode;
+import com.rey.modelquery.core.ExpectedNarrowing;
 import com.rey.modelquery.core.ExportOptions;
 import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.Limit;
@@ -18,18 +19,28 @@ import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.SourceQuery;
+import com.rey.modelquery.core.StatementShape;
 import com.rey.modelquery.core.TableField;
+import com.rey.modelquery.core.TreatChecks;
+import com.rey.modelquery.core.TreatRenderer;
+import com.rey.modelquery.core.TreatSite;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
+import com.rey.modelquery.tck.col.TreatTestSupport;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.inheritance.AnchorEntities;
 import com.rey.modelquery.tck.inheritance.CellEntities;
+import com.rey.modelquery.tck.inheritance.GateEntities;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.criteria.CommonAbstractCriteria;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.From;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Consumer;
 import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
@@ -115,6 +126,94 @@ class TreatSourceTest {
                 assertRefused(() -> executor.list(typed, Limit.of(10)), "without a discriminator");
             }
         });
+    }
+
+    @TckTest
+    void ac_vnd_21_an_untreated_query_over_a_treated_source_body_reaches_the_renderers_preflight(TckDatabase db) {
+        for (Strategy<?, ?> strategy : STRATEGIES) {
+            refusedAtPreflight(db, strategy);
+        }
+    }
+
+    private static <P, C extends P> void refusedAtPreflight(TckDatabase db, Strategy<P, C> s) {
+        var id = ColumnField.of(Body.class, s.root, "id", Long.class).named("id");
+        var number = ColumnField.of(Body.class, s.root.treat(s.card), "number", String.class).named("number");
+        var root = TableField.source(Body.class);
+        var outerId = ColumnField.over(String.class, root, id);
+        var source = SourceQuery.builder(Body.class, s.root, SelectSet.of(id, number), PrimaryKey.of(id)).build();
+        var query = ModelQuery.builder(root, row -> String.valueOf(row.get(outerId)), source)
+                .select(SelectSet.of(outerId)).primaryKey(PrimaryKey.of(outerId)).build();
+        // The outer query has no treated node of its own, so it needs no anchor, but its source's statement is
+        // preflighted all the same (R-VND-26).
+        assertThat(TreatChecks.treated(query)).isFalse();
+        assertThat(TreatChecks.reachesTreat(query)).isTrue();
+        var preflighted = new ArrayList<StatementShape>();
+        try (SessionFactory schema = s.schema(db)) {
+            var rendering = new TreatTestSupport.CountingRenderer();
+            assertThat(statements(db, ds -> TreatTestSupport.ServingProvider.renderingSources(() -> s.serving(ds,
+                    new TreatRenderer() {
+                @Override
+                public <T, X extends T> From<?, X> treat(CriteriaBuilder cb, From<?, T> from, Class<X> subtype) {
+                    return rendering.treat(cb, from, subtype);
+                }
+
+                @Override
+                public Optional<String> refusal(TreatSite site) {
+                    return Optional.empty();
+                }
+
+                @Override
+                public Optional<String> preflight(EntityManager em, CommonAbstractCriteria statement,
+                        StatementShape shape, List<ExpectedNarrowing> expected) {
+                    preflighted.add(shape);
+                    return Optional.of("refused by the test");
+                }
+            }, executor -> {
+                assertRefused(() -> executor.list(query, Limit.of(10)), "refused by the test");
+                assertRefused(() -> executor.count(query), "refused by the test");
+            })))).as(s.name).isEmpty();
+        }
+        assertThat(preflighted).as(s.name).hasSize(2);
+    }
+
+    @TckTest
+    void ac_vnd_18_a_combined_source_with_a_composite_id_branch_needing_the_anchor_is_mq4016_before_any_statement(
+            TckDatabase db) {
+        TableField<GateEntities.IdClassPayment, GateEntities.IdClassPayment> payments =
+                TableField.root(GateEntities.IdClassPayment.class);
+        var status = ColumnField.of(Body.class, payments, "status", String.class).named("status");
+        var number = ColumnField.of(Body.class, payments.treat(GateEntities.IdClassCard.class), "number",
+                String.class).named("reference");
+        // Keyed by its status, the treated branch needs the hidden anchor, a single root id attribute (D-162).
+        var treated = SourceQuery.builder(Body.class, payments, SelectSet.of(status, number), PrimaryKey.of(status))
+                .build();
+        TableField<GateEntities.IdClassCard, GateEntities.IdClassCard> cards =
+                TableField.root(GateEntities.IdClassCard.class);
+        var cardStatus = ColumnField.of(Body.class, cards, "status", String.class).named("status");
+        var cardNumber = ColumnField.of(Body.class, cards, "number", String.class).named("reference");
+        var plain = SourceQuery.builder(Body.class, cards, SelectSet.of(cardStatus, cardNumber),
+                PrimaryKey.of(cardStatus)).build();
+        var root = TableField.source(Body.class);
+        var outerStatus = ColumnField.over(String.class, root, status);
+        var combined = ModelQuery.builder(root, row -> row.get(outerStatus), treated.unionAll(plain))
+                .select(SelectSet.of(outerStatus)).build();
+        Configuration cfg = new Configuration().addAnnotatedClass(GateEntities.IdClassPayment.class)
+                .addAnnotatedClass(GateEntities.IdClassCard.class)
+                .setProperty(AvailableSettings.JAKARTA_JDBC_URL, db.jdbcUrl())
+                .setProperty(AvailableSettings.JAKARTA_JDBC_USER, db.username())
+                .setProperty(AvailableSettings.JAKARTA_JDBC_PASSWORD, db.password())
+                .setProperty(AvailableSettings.HBM2DDL_AUTO, "create-drop");
+        try (SessionFactory factory = cfg.buildSessionFactory()) {
+            factory.getStatistics().setStatisticsEnabled(true);
+            long prepared = factory.getStatistics().getPrepareStatementCount();
+            factory.inSession(em -> {
+                var executor = Strategy.executor(em);
+                assertRefused(() -> executor.list(combined, Limit.of(10)), "composite id");
+                assertRefused(() -> executor.count(combined), "composite id");
+            });
+            assertThat(factory.getStatistics().getPrepareStatementCount()).as("JDBC statements prepared")
+                    .isEqualTo(prepared);
+        }
     }
 
     @TckTest
@@ -470,6 +569,17 @@ class TreatSourceTest {
             cfg.setProperty(AvailableSettings.HBM2DDL_AUTO, "none");
             try (SessionFactory factory = cfg.buildSessionFactory()) {
                 factory.inSession(em -> work.accept(executor(em)));
+            }
+        }
+
+        /** {@link #serving} with a provider that serves {@code renderer}. */
+        void serving(DataSource ds, TreatRenderer renderer, Consumer<ModelQueryExecutor<Body>> work) {
+            Configuration cfg = configuration();
+            cfg.getProperties().put(AvailableSettings.JAKARTA_NON_JTA_DATASOURCE, ds);
+            cfg.setProperty(AvailableSettings.HBM2DDL_AUTO, "none");
+            try (SessionFactory factory = cfg.buildSessionFactory()) {
+                TreatTestSupport.ServingProvider.serving(factory, renderer, () -> factory.inSession(em ->
+                        work.accept(executor(em))));
             }
         }
 

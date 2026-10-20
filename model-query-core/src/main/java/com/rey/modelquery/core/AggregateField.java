@@ -171,7 +171,7 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
     }
 
     void checkTreats(TreatChecks checks) {
-        checks.table(source, java.util.Optional.of(attribute));
+        checks.table(source, Optional.of(attribute));
         checks.field(converted);
         checks.field(sourceExpression);
     }

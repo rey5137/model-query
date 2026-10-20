@@ -410,6 +410,42 @@ class TreatStatementsTest {
 
     @TckTest
     @SuppressWarnings("unchecked")
+    void ac_vnd_17_an_exists_nested_under_a_treated_exists_path_is_mq4016_before_any_statement(TckDatabase db) {
+        Strategy<StPayment, StCard> s = (Strategy<StPayment, StCard>) STRATEGIES.get(0);
+        TableField<StPayment, StCard> treated = s.root.treat(StCard.class);
+        TableField<StCard, StItem> cardItems = TableField.join(treated, "items", JoinType.LEFT);
+        TableField<StCard, StItem> nestedItems = TableField.join(treated, "items", JoinType.INNER);
+        TableField<StItem, StPayment> itemPayment = TableField.join(cardItems, "payment", JoinType.INNER);
+        // The nested sub-select would correlate on the outer exists' treated root (a treated root resolves to no join)
+        // or on its treated join, which the renderer's table has no cell for.
+        var onTreatedRoot = statusesWhere(s, f -> f.exists(treated, e -> e.exists(nestedItems)));
+        var onTreatedJoin = statusesWhere(s, f -> f.exists(cardItems, e -> e.exists(itemPayment)));
+        try (SessionFactory schema = s.schema(db)) {
+            schema.inTransaction(s::insertRows);
+            assertThat(statements(db, ds -> {
+                s.serving(ds, executor -> assertTreatRefused(() -> executor.list(onTreatedRoot, Limit.of(10))));
+                // A renderer that admits every site, then the provider's own renderer: JoinContext refuses the root.
+                Configuration cfg = s.configuration();
+                cfg.getProperties().put(AvailableSettings.JAKARTA_NON_JTA_DATASOURCE, ds);
+                cfg.setProperty(AvailableSettings.HBM2DDL_AUTO, "none");
+                try (SessionFactory factory = cfg.buildSessionFactory()) {
+                    factory.inSession(em -> {
+                        var executor = ModelQueryExecutor.create(em, s.payment, ModelQueryConfig.defaults());
+                        assertTreatRefused(() -> executor.list(onTreatedRoot, Limit.of(10)));
+                        assertTreatRefused(() -> executor.list(onTreatedJoin, Limit.of(10)));
+                    });
+                }
+            })).isEmpty();
+        }
+    }
+
+    private static void assertTreatRefused(Runnable action) {
+        assertThatThrownBy(action::run).isExactlyInstanceOf(ModelQueryConfigurationException.class)
+                .extracting(failure -> ((ModelQueryConfigurationException) failure).code()).isEqualTo(MqCode.MQ4016);
+    }
+
+    @TckTest
+    @SuppressWarnings("unchecked")
     void ac_vnd_21_each_preflighted_statement_carries_the_narrowings_its_own_build_declares(TckDatabase db) {
         Strategy<StPayment, StCard> s = (Strategy<StPayment, StCard>) STRATEGIES.get(0);
         TableField<StPayment, StItem> items = TableField.join(s.root, "items", JoinType.LEFT);
