@@ -131,10 +131,12 @@ one, a value that fails to decode, and a NULL in a refusing or primary-key colum
 echoes the whole cursor, and sends the caller back to `KeysetSpec.first`.
 
 **R-PAG-19 — A cursor's fingerprint.** The fingerprint is the first 8 bytes of SHA-256 over a canonical UTF-8 form of
-the root entity class name and, per keyset key in order, its attribute path, `attributeType` name, direction and
+the root entity class name and, per keyset key in order, its attribute path qualified by its treat chain (the subtype
+entity class names along the path, root to column), `attributeType` name, direction and
 resolved null precedence (FIRST, LAST or refusing). It excludes the filter, the model class and the selection: under
 another filter the cursor gives a different window, never wrong rows, so the same order under another filter is
-accepted. A mismatch — another sort, direction, precedence, entity or deployment — throws `MQ2209` before any query
+accepted. An untreated key's canonical form is unchanged, so existing cursors remain valid.
+A mismatch — another sort, treat, direction, precedence, entity or deployment — throws `MQ2209` before any query
 runs. The fingerprint catches another order and the CRC32C catches truncation and typos; a deliberately rebuilt
 cursor is accepted and only moves within rows the query allows, and nothing is signed.
 
@@ -183,6 +185,26 @@ row's keyset value changes while it is used.
 - A key that binds a value relies on `api/10` R-COL-19 under grouping.
 - Keyset paging refuses a locked query with `MQ2211` (`engine/20` R-EXE-14): a locking clause can return ordered rows
   out of order under READ COMMITTED, and `SKIP_LOCKED` moves the cursor past locked rows for good.
+
+**R-PAG-26** *(D-154, D-160)* On every root, a keyset page, each export page, `byKeys`, `one(q, key)` and a fetch
+plan's parent rows check for a duplicate primary key before returning the page or key-to-row map. A page compares
+adjacent row keys; a key-to-row map refuses a key seen twice. An identity duplicate is `MQ2213`, naming the model
+and key, including a non-id model key matching two rows. When the built statement has a filter-only to-many join
+(`filterOnlyToManyJoin(built).isPresent()`), repeats retain their existing deduplication (R-PAG-02, D-99) and never
+raise `MQ2213`; `byKeys` and `one(q, key)` instead raise `MQ2003` with the join and `Filters.exists` hint.
+Child rows remain deduplicated per parent (R-FCH-04); only parent rows are in this rule's scope.
+`list()` and offset pages without fetch-plan work are unchecked. This partial guard misses duplicates split across
+page boundaries and non-adjacent duplicates under an order with a leading non-key column. A view or an assigned id
+can duplicate a key as a `TABLE_PER_CLASS` hierarchy can; the guard applies to every root.
+
+**R-PAG-27** *(D-154)* An offset `page()` with a total over a statement with a treated node logs one `WARNING`
+`MQ2214` if it returns at least one row and more rows than `total - offset`. It returns the page unchanged. The
+warning names the model, offset, rows and total, never a bound value (D-95), and fires once per `ModelQuery`
+identity. The weak warning state belongs to the executor, never the query (INV-9), as the ignored-`orderBy`
+warning does. It is logged, never thrown: a concurrent commit between count and content can cause it under READ
+COMMITTED. The message names that cause and advises REPEATABLE READ or a snapshot around the call. An empty page
+past the end, an early page whose rows fit the total, an uncounted page, keyset paging, export and `count(q)` alone
+are unchecked. It cannot detect an overcount or a count and content that lose the same rows.
 
 ## 3. Primary-key-first deep paging
 
@@ -276,3 +298,25 @@ that could overlap pages, and R-PAG-11 makes it unreachable.
 | AC-PAG-26 | Over a table with duplicated expression values: offset export ordered by an expression visits every row once; `primaryKeyFirst` returns the same rows in the same order as plain offset paging, single and composite keys; the step-2 batch split keeps the order (R-PAG-25, R-PAG-01, R-PAG-07, R-PAG-08). |
 | AC-PAG-27 | A selected or ordered expression reading a column through a to-many join throws `MQ2204` for offset export, keyset and `primaryKeyFirst` before querying, and `count` equals `list`'s size for the same query (R-PAG-13). |
 | AC-PAG-28 | A `byte[]` keyset cursor value is a bind parameter, never an inlined literal (R-FLT-08). |
+| AC-PAG-29 | Treated keyset paging and cursor identity, as detailed below (R-PAG-19). |
+| AC-PAG-30 | Treated offset paging and full export, as detailed below. |
+| AC-PAG-31 | Duplicate row identities are refused by key-identified reads, as detailed below (R-PAG-26). |
+| AC-PAG-32 | A treated offset page contradicting its total logs once and returns its rows (R-PAG-27). |
+
+**AC-PAG-29.** Per strategy, keyset pages both ways ordered by a treated key under explicit precedence, NULLs at page
+edges and a page resuming after a NULL cursor value, visit every id once and the count equals the rows; a cursor of
+`CARD_TREAT.reference asc` on `BANK_TREAT.reference asc` is `MQ2209`; an untreated key's cursor is unchanged.
+
+**AC-PAG-30.** Per strategy, offset pages and a full export ordered by id with a treated predicate visit every
+matching id once.
+
+**AC-PAG-31.** Two `TABLE_PER_CLASS` rows with one id, written by SQL, on one id-ordered export page or keyset
+page, in `byKeys`, `one(q, key)` or as fetch-plan parents are `MQ2213` before the page or map returns. `list()` and
+an offset page over the same rows return both rows. A non-inheritance entity over a view with a duplicated `@Id`
+behaves the same.
+
+**AC-PAG-32.** Commit a matching row between the count and the content statement of a treated offset page. A
+non-empty page with `rows > total - offset` returns its rows and logs `WARNING` `MQ2214` with model, offset, rows
+and total, no bound value, the concurrent-commit cause and REPEATABLE READ or snapshot advice. A second such call
+on the same query is silent, including through another executor; a separate query definition can warn. An empty
+past-end page, an early page, an uncounted page, a count-only page and an untreated page log nothing.

@@ -133,7 +133,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 |---|---|---|
 | `MQ2001` | `pageSize`, `ExportOptions.pageSize`, `ChunkOptions.size` or `ChildQuery.maxPerParent` is not positive, a `KeysetSpec` size is outside `1..Integer.MAX_VALUE - 1`, or a `Limit` is negative | `engine/20` R-EXE-06, `engine/21` R-PAG-16, `api/15` R-FCH-04 |
 | `MQ2002` | Negative offset | `engine/20` R-EXE-06 |
-| `MQ2003` | `one(q)`, `one(q, key)` or `byKeys(q, keys)` read a second row for one request: `<Model>: one(query) found more than one row` (`byKeys`: `... found more than one row for key <k>`); through a predicate-only to-many join the message names the join and points at `Filters.exists`. Thrown before any row is mapped or the fetch plan runs | `engine/20` R-EXE-12, R-EXE-13 |
+| `MQ2003` | `one(q)` reads a second row, or `one(q, key)` or `byKeys(q, keys)` repeats a key through a filter-only to-many join (D-160): `<Model>: one(query) found more than one row` (`byKeys`: `... found more than one row for key <k>`); through a predicate-only to-many join the message names the join and points at `Filters.exists`. Thrown before any row is mapped or the fetch plan runs | `engine/20` R-EXE-12, R-EXE-13 |
 | `MQ2005` | `byKeys(q, keys)` read a row whose key equals none of the requested values (a case-insensitive or padding collation, a `BigDecimal` scale); the message names the value. Thrown before any row is mapped | `engine/20` R-EXE-13 |
 | `MQ2101` | Streaming requires a transaction on this vendor | `engine/20` R-EXE-08 |
 | `MQ2102` | A locked read ran without an active transaction: `<Model>: <call> locks <lock> and needs an active transaction, and the EntityManager is not joined to one`; checked before any statement | `engine/20` R-EXE-14, `api/11` R-QRY-17 |
@@ -145,10 +145,12 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ2206` | A customizer narrows the phases of a query with `primaryKeyFirst(...)` differently | `engine/21` R-PAG-15 |
 | `MQ2207` | A keyset page on a query without `keyset()`: `<Model>: page(query, KeysetSpec) needs a keyset() query; add keyset() or page by PageSpec` | `api/11` R-QRY-03, `engine/21` R-PAG-16 |
 | `MQ2208` | A malformed or edited cursor (null or blank, not base64, unknown version, bad checksum, truncated, a value that fails to decode, a NULL in a refusing or primary-key column, over 8192 characters): `<Model>: the keyset cursor is not one this library issued: <reason>; start again with KeysetSpec.first`; the whole cursor is never echoed | `engine/21` R-PAG-18 |
-| `MQ2209` | A cursor's fingerprint names another order (sort, direction, null precedence, entity or deployment changed): `<Model>: the keyset cursor belongs to another order (sort, direction, null precedence, entity or deployment changed); start again with KeysetSpec.first` | `engine/21` R-PAG-19 |
+| `MQ2209` | A cursor's fingerprint names another order; message below | `engine/21` R-PAG-19 |
 | `MQ2210` | A key column cannot be carried in a cursor, or makes it longer than 8192 characters: `<Model>: keyset column <col> of type <T> cannot be carried in a cursor` or `... makes the cursor longer than 8192 characters` | `engine/21` R-PAG-17, R-PAG-18 |
 | `MQ2211` | A lock on a read that refuses one, or on a query whose built statement has a join: `page`, keyset `page`, `count`, `stream` and `export` refuse any lock; `one(q)` refuses `SKIP_LOCKED`; `list`, `list(q, Limit)`, `first`, `one(q)`, `one(q, key)` and `byKeys` refuse a joined query, whose message suggests `Filters.exists(...)`; at method entry, before any statement | `engine/20` R-EXE-14, `engine/21`, `api/11` R-QRY-17 |
 | `MQ2212` | A read that identifies a row by its key on a query over a non-unique source: `export`, `byKeys`, `one(q, key)` and a fetch plan with a child, join plan or enricher; or an offset `page` over one whose selected column cannot be ordered, where the message names the column; at the executor call, before any statement. For a recursive source, the message suggests `tree(...)` for a checked recursive walk | `api/17` R-SRC-09, R-SRC-13, `engine/21` |
+| `MQ2213` | Duplicate identity key, including a non-id model key matching two rows: `<Model>: more than one row has primary key <key>`; a filter-only to-many join keeps deduplication, or `MQ2003` with the `Filters.exists` hint for `byKeys` and `one(q, key)` (D-160) | `engine/21` R-PAG-26 |
+| `MQ2214` | A treated offset page contradicts its total; logged `WARNING`, never thrown | `engine/21` R-PAG-27 |
 | `MQ2301` | A sort property resolves to no selected column or to more than one (on any tier), or asks for `ignoreCase`; a sort on an ungrouped query without a primary key; a sorted copy that fails `build()`, as the cause | `api/11` R-QRY-14, `integration/50` R-SPR-06 |
 | `MQ2501` | A bulk write, other than `commitEachChunk()`, or `persist` ran without an active transaction | `api/14` R-WRT-18, R-WRT-39 |
 | `MQ2502` | A per-chunk write failed; `ChunkedWriteException` carries the committed rows, the last committed key and the keys of a chunk in doubt | `api/14` R-WRT-20 |
@@ -162,6 +164,14 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ2701` | A recursive source's tree is deeper than its `maxDepth`; the message names the model, the limit and the key of the first row past it. Read from the statement's own first row, so a too-deep tree is refused whole rather than returned in part; nothing is refused on an empty result | `api/17` R-SRC-08, D-144 |
 | `MQ2702` | A recursive source's graph closed a cycle: the message names the model and the first key the cycle clause marked, which is the row the source would read twice. Read as `MQ2701` is | `api/17` R-SRC-08, D-144 |
 | `MQ2703` | A tree source's walk reaches a node key twice, through overlapping seeds or more than one path. The message names the model and the key's first column. Read from the statement's first row after `MQ2701` and `MQ2702`, over the whole CTE; nothing is refused on an empty result | `api/17` R-SRC-14, D-147 |
+
+`MQ2214` is a logged `WARNING`, an exception to §1's exception mapping, as `MQ1702` on `count` is. Its message
+names the model, offset, rows and total, never a bound value (D-95), and warns once per `ModelQuery` identity. A
+concurrent commit between count and content can cause it; REPEATABLE READ or a snapshot around `page()` rules
+that out. The page is returned unchanged.
+
+`MQ2209` names the changed order: `<Model>: the keyset cursor belongs to another order (sort, treat, direction, null
+precedence, entity or deployment changed); start again with KeysetSpec.first`.
 
 **R-ERR-04** One JPA exception is thrown deliberately instead of a library type: `OptimisticLockException` when an
 `expectVersion` update affects no rows (`api/14` R-WRT-16), because callers already handle it for entity writes.

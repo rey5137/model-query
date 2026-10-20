@@ -718,7 +718,8 @@ ArchUnit checks. `hibernate-validator` and `tomcat-embed-el` are test-scope only
 `checkFetch`, `checkReturning` and `mapReturning` (D-118), and on `ModelUpdate` and `ModelDelete` `checkMetamodel`,
 `writesNothing`, every `buildWrite` and `buildKeySelect` overload, `readsTargetInSubquery`, `distinctKeys`,
 `startAfter`, `modelKey` and `buildEntityLoad`, on `ModelUpdate` `assignedAttributes` and `assignedValues`, and on
-`ModelInsert` `conflictUpdateAdds` (D-118). Like `jpa.vendor` (R-REL-10) they may change in any release; `japicmp`
+`ModelInsert` `conflictUpdateAdds` (D-118), and `ColumnField.identityPath` (R-PAG-19). Like `jpa.vendor` (R-REL-10)
+they may change in any release; `japicmp`
 excludes them. This makes D-67's `readsTargetInSubquery` boolean (now `entitiesReadInSubquery`, D-109) non-API. →
 `delivery/61` R-REL-10, R-REL-11.
 
@@ -2405,6 +2406,14 @@ refuses it on `JOINED` without a physical discriminator, the same mapping fact t
 shapes are refused (R-VND-26), so another renderer counts these groups client-side until it admits the shape.
 Refusing the grouped type site outright was rejected: the content is right, and only the provider's count is wrong.
 → `engine/20` R-EXE-03, `api/10` R-COL-36, `vendor/40` R-VND-26.
+
+**D-160 — Duplicate identity and filter-only to-many repeats (M28.6, 2026-10-20, user decision).**
+R-PAG-26's `MQ2213` guards identity duplicates only, on every root, including a non-id model key matching two rows.
+When `filterOnlyToManyJoin(built).isPresent()`, rows repeated by a to-many join that only a predicate uses retain
+existing deduplication (R-PAG-02, D-99, AC-PAG-12/13/23) and never raise `MQ2213`. For `byKeys` and `one(q, key)`,
+such a join keeps `MQ2003` and its existing `Filters.exists` hint; without that join, duplicate keys are `MQ2213`.
+Child rows remain deduplicated per parent (R-FCH-04, D-99), even with a nested fetch plan; only parent rows are in
+R-PAG-26's scope. → `engine/20` R-EXE-12, R-EXE-13, `engine/21` R-PAG-26.
 
 ## 2. Open questions
 

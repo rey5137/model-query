@@ -136,8 +136,9 @@ extra row, so none is one (`delivery/61` R-REL-07).
   together, and contradictory ones give empty. A `null` key, a `null` component, or a composite key with the wrong
   number of components throws `IllegalArgumentException`. A query without a primary key throws `MQ2203`, before any
   statement: a keyless query has `K = Object`, and a grouped query keeps the builder's `K` but drops its key
-  (`api/13` R-AGG-09), so in both any key compiles. A second row is possible only for a `@PrimaryKey` that is not the
-  id (a unique column on a view), and is `MQ2003` there too.
+  (`api/13` R-AGG-09), so in both any key compiles. A duplicate key is `MQ2213` (R-PAG-26), including a non-id model
+  key matching two rows. A filter-only to-many join instead gives `MQ2003` with the join and `Filters.exists` hint
+  above (D-160).
 - `one(q)` and `one(q, key)` read at most one row, so neither renders an `ORDER BY`; each logs one `WARNING` per
   `ModelQuery` and call when `q` has an `orderBy`, `<Model>: one(query) ignores the query's orderBy` (`one(query,
   key)` for the keyed one). `first` uses the order and is unchanged (D-126).
@@ -160,8 +161,9 @@ extra row, so none is one (`delivery/61` R-REL-07).
   bind per key component), without `primaryKeyFirstBatchSize`. Every statement is built in `Phase.MODEL` and renders no
   `ORDER BY`; `q`'s `orderBy` is ignored, with one `WARNING` per `ModelQuery`, `<Model>: byKeys(query, keys) ignores
   the query's orderBy; the map is in key order`.
-- Every chunk is read, then checked, then mapped. A key matching two rows is `MQ2003` (`<Model>: byKeys(query, keys)
-  found more than one row for key <k>`, naming the filter-only to-many join and `Filters.exists` as `one` does). A row
+- Every chunk is read, then checked, then mapped. A duplicate key is `MQ2213` (R-PAG-26), including a non-id model
+  key matching two rows. A filter-only to-many join instead gives `MQ2003` (`<Model>: byKeys(query, keys) found more
+  than one row for key <k>`, naming the join and `Filters.exists` as `one` does; D-160). A row
   whose key equals none of the requested values (a case-insensitive or padding collation, a `BigDecimal` scale) is
   `MQ2005`, naming the value. Neither lets `afterMap` or the fetch plan see a row.
 - Rows are matched to keys by the converted attribute value (`api/10` R-COL-11). Every caller key whose value matched
@@ -257,7 +259,7 @@ returning clause, compose into one statement.
 | AC-EXE-11 | `one` reads at a limit of 2 and returns the single row or empty; a second row throws `MQ2003` before an enricher or `afterMap` sees it, and through a predicate-only to-many join the message names the join and `Filters.exists` (R-EXE-12). |
 | AC-EXE-12 | `first` orders by `orderBy`, then the key with explicit `nullsLast`: on a nullable non-id `@PrimaryKey` it returns the same row on every Tier-1 vendor; a grouped `first` orders by its group keys; a query with neither an `orderBy` nor a key throws `MQ2203`, an aggregate-only query excepted (R-EXE-12). |
 | AC-EXE-13 | `one(q, key)` ANDs the converted key with `q`'s filter, and contradictory filters give empty; a `null` key or component, or a wrong component count, throws `IllegalArgumentException`; a keyless or grouped query throws `MQ2203` (R-EXE-12). |
-| AC-EXE-14 | `byKeys` returns the map in first-occurrence key order with missing keys absent and duplicates read once, for single and composite keys; more keys than the vendor's limits give several statements and one fetch-plan run, and a configured `primaryKeyFirstBatchSize` does not change the chunks; no keys run no SQL; the `orderBy` is ignored with one `WARNING` and no `ORDER BY`; a key matching two rows is `MQ2003`; a keyless query is `MQ2203`, with empty keys too; two keys converting to one value are both present with `afterMap` run once; a `MODEL`-phase customizer applies; a case-insensitive string key on MySQL and SQL Server whose row matches no requested value is `MQ2005` (R-EXE-13). |
+| AC-EXE-14 | `byKeys` returns the map in first-occurrence key order with missing keys absent and duplicates read once, for single and composite keys; more keys than the vendor's limits give several statements and one fetch-plan run, and a configured `primaryKeyFirstBatchSize` does not change the chunks; no keys run no SQL; the `orderBy` is ignored with one `WARNING` and no `ORDER BY`; a duplicate key is `MQ2213`, or `MQ2003` with the `Filters.exists` hint for a filter-only to-many join; a keyless query is `MQ2203`, with empty keys too; two keys converting to one value are both present with `afterMap` run once; a `MODEL`-phase customizer applies; a case-insensitive string key on MySQL and SQL Server whose row matches no requested value is `MQ2005` (R-EXE-13). |
 | AC-EXE-15 | `count(q)`, `one(q)` and `one(q, key)` on an ordered query each log one `WARNING` per `ModelQuery`; the `one` statements render no `ORDER BY`; `page`'s count and `first` log nothing (R-EXE-05, R-EXE-12). |
 | AC-EXE-16 | Each read in R-EXE-14's table locks or refuses as stated, before any SQL: `list`, `list(q, Limit)`, `first`, `one(q)`, `one(q, key)` and `byKeys` lock; `page`, `count`, `stream` and `export` refuse with `MQ2211`, as does a joined query and `one(q)` with `SKIP_LOCKED`; `MQ2102` outside a transaction; fetch-plan statements carry no lock and `byKeys` chunks are ordered by key (R-EXE-14). |
 | AC-EXE-17 | (TCK, PostgreSQL and MySQL, two connections) a second `first` with `WAIT` blocks until the first commits; with `SKIP_LOCKED` it returns the next row; with `NO_WAIT` it throws `PessimisticLockException` or `LockTimeoutException`, as recorded per vendor (R-EXE-14). |

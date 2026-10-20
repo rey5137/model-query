@@ -319,7 +319,7 @@ final class Keyset<M> {
         canonical.append(rootEntity.getName()).append('\n');
         for (Key<M> key : keys) {
             ColumnField<M, ?, ?> column = column(key);
-            canonical.append(column.path()).append('\u0000')
+            canonical.append(column.identityPath()).append('\u0000')
                     .append(column.attributeType().getName()).append('\u0000')
                     .append(key.order().ascending() ? "ASC" : "DESC").append('\u0000')
                     .append(key.refuseNull() || key.primaryKey() ? "REFUSING" : key.nulls().name()).append('\n');

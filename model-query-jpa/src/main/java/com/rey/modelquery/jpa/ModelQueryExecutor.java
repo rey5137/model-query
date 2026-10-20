@@ -189,7 +189,8 @@ public interface ModelQueryExecutor<E> {
      * @throws IllegalArgumentException for a {@code null} key or component, or a composite key with the wrong number
      *     of components
      * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2203} for a query without a primary key,
-     *     a grouped one included, before any statement; {@code MQ2003} when a non-id primary key matches two rows
+     *     a grouped one included, before any statement; {@code MQ2213} for a duplicate key;
+     *     {@code MQ2003} for repeats through a filter-only to-many join, with a {@code Filters.exists} hint
      * @implSpec R-EXE-12
      */
     @Incubating
@@ -209,7 +210,9 @@ public interface ModelQueryExecutor<E> {
      * @throws IllegalArgumentException for a {@code null} key or component, or a composite key with the wrong number
      *     of components
      * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2203} for a query without a primary key,
-     *     a grouped one included, also for no keys; {@code MQ2003} when a key matches two rows; {@code MQ2005} when a
+     *     a grouped one included, also for no keys; {@code MQ2213} for a duplicate key;
+     *     {@code MQ2003} for repeats through a filter-only to-many join, with a {@code Filters.exists} hint;
+     *     {@code MQ2005} when a
      *     row's key equals none of the requested values (a case-insensitive or padding collation)
      * @implSpec R-EXE-13
      */

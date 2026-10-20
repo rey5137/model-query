@@ -117,6 +117,15 @@ class SingleRowTest {
                         + "Filters.exists(...) instead"));
     }
 
+    @TckTest
+    void ac_exe_13_one_by_key_keeps_the_filter_only_join_hint(TckDatabase db) {
+        var throughItems = ORDER_ROWS.where(f -> f.eq(ITEM_PRODUCT_FILTER, "P001")).build();
+        withExecutor(db, executor -> assertMq(() -> executor.one(throughItems, 1L), MqCode.MQ2003,
+                "OrderRow: one(query, key) found more than one row; if the to-many join OrderEntity.items, which no "
+                        + "selected column reads, repeats the row once per matching child, filter with "
+                        + "Filters.exists(...) instead"));
+    }
+
     // ---- AC-EXE-12
 
     @TckTest

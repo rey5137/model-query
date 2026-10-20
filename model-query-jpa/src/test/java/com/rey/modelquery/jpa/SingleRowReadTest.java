@@ -291,10 +291,10 @@ class SingleRowReadTest {
     }
 
     @Test
-    void ac_exe_13_a_non_id_key_matching_two_rows_throws_mq2003() {
+    void ac_pag_31_a_non_id_key_matching_two_rows_throws_mq2213() {
         var byC = rows(new AtomicInteger()).primaryKey(PrimaryKey.of(C)).build();
-        withExecutor(executor -> assertMq(() -> executor.one(byC, 0), MqCode.MQ2003,
-                "Row: one(query, key) found more than one row"));
+        withExecutor(executor -> assertMq(() -> executor.one(byC, 0), MqCode.MQ2213,
+                "Row: more than one row has primary key 0"));
     }
 
     /** Every row's id and {@code a}, counting the rows the mapper maps. */

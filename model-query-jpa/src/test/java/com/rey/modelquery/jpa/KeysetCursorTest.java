@@ -30,6 +30,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import org.hibernate.SessionFactory;
@@ -234,6 +235,57 @@ class KeysetCursorTest {
                 + "id\u0000java.lang.Long\u0000ASC\u0000REFUSING\n";
         assertThat(keyset.fingerprint()).containsExactly(firstEightOfSha256(canonical));
     }
+
+    @Test
+    void ac_pag_29_an_untreated_fingerprint_keeps_its_existing_bytes() {
+        var q = readQuery(A.asc().nullsFirst(), B.asc());
+        var keyset = keyset(q, NullOrdering.UNKNOWN, KeysetNullKeys.HONOUR_NULL_PRECEDENCE);
+        assertThat(HexFormat.of().formatHex(keyset.fingerprint())).isEqualTo("c803b257811c8201");
+    }
+
+    @Test
+    void ac_pag_29_sibling_treats_of_the_same_reference_have_different_fingerprints() {
+        var root = TableField.root(CursorPayment.class);
+        var card = ColumnField.of(String.class, root.treat(CursorCard.class), "reference", String.class);
+        var bank = ColumnField.of(String.class, root.treat(CursorBank.class), "reference", String.class);
+        assertThat(card.path()).isEqualTo(bank.path());
+        assertThat(referenceFingerprint(card)).isNotEqualTo(referenceFingerprint(bank));
+    }
+
+    @Test
+    void ac_pag_29_a_fingerprint_carries_every_treated_subtype_from_root_to_column() {
+        var root = TableField.root(CursorPayment.class);
+        var card = root.treat(CursorCard.class);
+        TableField<CursorCard, CursorOwner> owner =
+                TableField.join(card, "owner", jakarta.persistence.criteria.JoinType.LEFT);
+        var reference = ColumnField.of(String.class, owner.treat(CursorVip.class), "reference", String.class);
+        String path = "treat(" + CursorCard.class.getName() + ").owner.treat("
+                + CursorVip.class.getName() + ").reference";
+        assertThat(reference.identityPath()).isEqualTo(path);
+        String canonical = CursorPayment.class.getName() + "\n" + path + "\u0000java.lang.String\u0000ASC\u0000FIRST\n"
+                + "id\u0000java.lang.Long\u0000ASC\u0000REFUSING\n";
+        assertThat(referenceFingerprint(reference)).containsExactly(firstEightOfSha256(canonical));
+    }
+
+    private static byte[] referenceFingerprint(ColumnField<String, ?, String> reference) {
+        var root = TableField.root(CursorPayment.class);
+        var id = ColumnField.of(String.class, root, "id", Long.class);
+        var query = ModelQuery.builder(root, row -> String.valueOf(row.get(id)))
+                .select(SelectSet.of(id)).primaryKey(PrimaryKey.of(id))
+                .orderBy(reference.asc().nullsFirst()).keyset().build();
+        return Keyset.of(query, query.primaryKey().orElseThrow(), NullOrdering.UNKNOWN, Optional.empty(),
+                KeysetNullKeys.HONOUR_NULL_PRECEDENCE).fingerprint();
+    }
+
+    private static class CursorPayment {}
+
+    private static class CursorCard extends CursorPayment {}
+
+    private static class CursorBank extends CursorPayment {}
+
+    private static class CursorOwner {}
+
+    private static class CursorVip extends CursorOwner {}
 
     // ---- R-PAG-17, unsupportedColumn()
 

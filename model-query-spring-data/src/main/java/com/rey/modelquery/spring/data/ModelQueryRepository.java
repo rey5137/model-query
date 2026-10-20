@@ -101,7 +101,8 @@ public interface ModelQueryRepository<E> {
      * @throws IllegalArgumentException for a {@code null} key or component, or a composite key with the wrong number
      *     of components
      * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2203} for a query without a primary key,
-     *     a grouped one included; {@code MQ2003} when a non-id primary key matches two rows
+     *     a grouped one included; {@code MQ2213} for a duplicate key;
+     *     {@code MQ2003} for repeats through a filter-only to-many join, with a {@code Filters.exists} hint
      */
     @Incubating
     <K, M> Optional<M> findByKey(ModelQuery<E, K, M> q, K key);
@@ -109,15 +110,16 @@ public interface ModelQueryRepository<E> {
     /**
      * {@link ModelQueryExecutor#byKeys(ModelQuery, Collection)}: the models of {@code keys} by key, an unmodifiable
      * map in the keys' first-occurrence order, a key with no row absent (R-SPR-15). The call returns the executor's
-     * map unchanged and adds no semantics of its own (R-SPR-01): an {@code MQ2003} or {@code MQ2005} failure is the
-     * executor's {@code ModelQueryExecutionException}, not a Spring exception (D-126, INV-8).
+     * map unchanged and adds no semantics of its own (R-SPR-01): an {@code MQ2213}, {@code MQ2003} or {@code MQ2005}
+     * failure is the executor's {@code ModelQueryExecutionException}, not a Spring exception (D-126, INV-8).
      *
      * @throws NullPointerException for a {@code null} {@code q} or {@code keys}
      * @throws IllegalArgumentException for a {@code null} key or component, or a composite key with the wrong number
      *     of components
      * @throws com.rey.modelquery.core.ModelQueryExecutionException {@code MQ2203} for a query without a primary key,
-     *     a grouped one included; {@code MQ2003} when a key matches two rows; {@code MQ2005} when a row's key equals
-     *     none of the requested values
+     *     a grouped one included; {@code MQ2213} for a duplicate key;
+     *     {@code MQ2003} for repeats through a filter-only to-many join, with a {@code Filters.exists} hint;
+     *     {@code MQ2005} when a row's key equals none of the requested values
      */
     @Incubating
     <K, M> Map<K, M> findAllByKeys(ModelQuery<E, K, M> q, Collection<? extends K> keys);

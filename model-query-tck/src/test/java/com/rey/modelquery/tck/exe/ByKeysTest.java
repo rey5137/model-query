@@ -5,12 +5,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.Enricher;
 import com.rey.modelquery.core.FetchPlan;
+import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.PrimaryKeyFirst;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
@@ -158,6 +162,22 @@ class ByKeysTest {
                 MqCode.MQ2003, "OrderRow: byKeys(query, keys) found more than one row for key 1; if the to-many join "
                         + "OrderEntity.items, which no selected column reads, repeats the row once per matching "
                         + "child, filter with Filters.exists(...) instead"));
+    }
+
+    @TckTest
+    void ac_pag_31_filter_only_join_repeats_are_allowed_as_fetch_plan_parents(TckDatabase db) {
+        var plan = FetchPlan.of(SelectSet.of(ID, STATUS, TOTAL)).enrich(Enricher.of(rows -> rows));
+        var filtered = orders().where(f -> f.eq(ID, 1L).eq(ITEM_PRODUCT_FILTER, "P001")).fetch(plan);
+        withExecutor(db, ModelQueryConfig.defaults(), executor -> {
+            assertThat(executor.list(filtered.build(), Limit.of(10))).extracting(OrderRow::id)
+                    .containsExactly(1L, 1L, 1L, 1L);
+            for (boolean deep : List.of(false, true)) {
+                var query = deep ? filtered.primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build()
+                        : filtered.build();
+                assertThat(executor.page(query, PageSpec.ofOffset(1, 2), CountMode.NO_COUNT).content())
+                        .extracting(OrderRow::id).containsExactly(1L, 1L);
+            }
+        });
     }
 
     @TckTest

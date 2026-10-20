@@ -16,6 +16,7 @@ import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.PrimaryKeyFirst;
 import com.rey.modelquery.core.QueryCustomizer;
 import com.rey.modelquery.core.RowMapper;
 import com.rey.modelquery.core.SelectSet;
@@ -389,6 +390,23 @@ class OffsetExportTest {
                     }
                 }));
         assertThat(sql).as("refused before any query runs").isEmpty();
+    }
+
+    @TckTest
+    void ac_pag_12_primary_key_first_export_keeps_predicate_only_join_deduplication(TckDatabase db) {
+        var withItem = ORDER_ROWS.where(f -> f.eq(ORDER_ITEM_PRODUCT, Optional.of("P001")))
+                .orderBy(ORDER_STATUS.asc()).primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
+        List<Long> expected = new ArrayList<>();
+        inSession(db, em -> expected.addAll(em.createQuery("select distinct o.id from OrderEntity o join o.items i"
+                + " where i.productCode = 'P001'", Long.class).getResultList()));
+        for (int pageSize : new int[] {3, 4, 7, 1_000}) {
+            List<OrderRow> rows = new ArrayList<>();
+            withExecutor(db, OrderEntity.class,
+                    executor -> executor.export(withItem, ExportOptions.of(pageSize), page -> page, rows::add));
+            assertThat(rows).extracting(OrderRow::id).as("page size %d", pageSize)
+                    .containsExactlyInAnyOrderElementsOf(expected).doesNotHaveDuplicates();
+            assertThat(rows).extracting(OrderRow::status).isSorted();
+        }
     }
 
     @TckTest

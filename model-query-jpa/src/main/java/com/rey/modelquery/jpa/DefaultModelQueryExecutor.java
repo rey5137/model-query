@@ -190,6 +190,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private static final Map<ModelQuery<?, ?, ?>, Set<String>> ORDER_IGNORED =
             Collections.synchronizedMap(new WeakHashMap<>());
 
+    /** The query definitions warned of a total contradicted by a treated offset page, once each (R-PAG-27). */
+    private static final Set<ModelQuery<?, ?, ?>> TOTAL_CONTRADICTED =
+            Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
+
     /** The mapped entity classes of each factory, read from its metamodel once; weak, so a closed factory is freed. */
     private static final Map<EntityManagerFactory, Set<Class<?>>> MAPPED_ENTITIES =
             Collections.synchronizedMap(new WeakHashMap<>());
@@ -442,7 +446,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         if (preflights(q)) {
             preflight(q, "one(query)", StatementShape.CONTENT, built);
         }
-        return atMostOne(q, built, "one(query)");
+        return atMostOne(q, built, "one(query)", null);
     }
 
     @Override
@@ -499,7 +503,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         if (preflights(q)) {
             preflight(q, "one(query, key)", StatementShape.CONTENT, built);
         }
-        return atMostOne(q, built, "one(query, key)");
+        return atMostOne(q, built, "one(query, key)", primaryKey);
     }
 
     /** Warns once per query and call that {@code call} ignores {@code q}'s {@code orderBy} (R-EXE-05, R-EXE-13). */
@@ -514,6 +518,21 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         if (first) {
             LOG.log(System.Logger.Level.WARNING, "{0}: {1} ignores the query''s orderBy{2}", q, call,
                     call.startsWith("byKeys") ? "; the map is in key order" : "");
+        }
+    }
+
+    private void warnOfContradictedTotal(ModelQuery<?, ?, ?> q, long offset, int rows, long total) {
+        if (rows == 0 || rows <= total - offset || !TreatChecks.treated(q)) {
+            return;
+        }
+        boolean first;
+        synchronized (TOTAL_CONTRADICTED) {
+            first = TOTAL_CONTRADICTED.add(q);
+        }
+        if (first) {
+            LOG.log(System.Logger.Level.WARNING, "MQ2214: {0}: offset {1} returned {2} rows with total {3}; "
+                    + "a row may have committed between the count and content; use REPEATABLE READ or a snapshot "
+                    + "around page()", q, offset, rows, total);
         }
     }
 
@@ -598,6 +617,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                             + "collation, or a BigDecimal scale, can match; compare the key as the database does");
                 }
                 if (found.putIfAbsent(rowKey, new ReadRow<>(built, row)) != null) {
+                    if (filterOnlyToManyJoin(built).isEmpty()) {
+                        throw duplicateKey(q, rowKey);
+                    }
                     throw new ModelQueryExecutionException(MqCode.MQ2003, q + ": byKeys(query, keys) found more than "
                             + "one row for key " + rowKey + filterOnlyToManyJoin(built).map(join -> "; if the to-many "
                                     + "join " + joinName(join) + ", which no selected column reads, repeats the row "
@@ -650,16 +672,20 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     }
 
     /**
-     * The model of {@code built}'s one row, or empty. It reads at a limit of 2, and a second row throws {@code MQ2003}
-     * before any row is mapped, so neither {@code afterMap} nor the fetch plan sees it (R-EXE-12).
+     * The model of {@code built}'s one row, or empty. It reads at a limit of 2 and checks a second row before mapping,
+     * so neither {@code afterMap} nor the fetch plan sees it (R-EXE-12, R-PAG-26, D-160).
      */
-    private <M> Optional<M> atMostOne(ModelQuery<E, ?, M> q, BuiltQuery<M> built, String call) {
+    private <M> Optional<M> atMostOne(ModelQuery<E, ?, M> q, BuiltQuery<M> built, String call,
+            PrimaryKey<M, ?> uniqueKey) {
         Optional<LockSupport> lock = lockChecks(q, built, call);
         TypedQuery<Tuple> query = create(q, built);
         query.setMaxResults(2);
         applyLock(lock, q, query);
         List<Tuple> tuples = rows(q, built, query);
         if (tuples.size() > 1) {
+            if (uniqueKey != null && filterOnlyToManyJoin(built).isEmpty()) {
+                throw duplicateKey(q, Keys.keyOf(q, uniqueKey, built.selection().row(tuples.get(0))));
+            }
             throw new ModelQueryExecutionException(MqCode.MQ2003, q + ": " + call + " found more than one row"
                     + filterOnlyToManyJoin(built).map(join -> "; if the to-many join " + joinName(join) + ", which no "
                             + "selected column reads, repeats the row once per matching child, filter with "
@@ -1223,6 +1249,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 long total = countRows(q, counting);
                 List<M> content = offset >= total ? List.of()
                         : models(q, fetch(q, offset, size, batch, everyColumn, first));
+                warnOfContradictedTotal(q, offset, content.size(), total);
                 return new Slice<>(content, page.pageNumber(), size, offset + (long) content.size() < total,
                         OptionalLong.of(total));
             }
@@ -1265,9 +1292,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                     + column.attributeType().getName() + " cannot be carried in a cursor");
         });
         if (keyset.hasCursor() && !Arrays.equals(forward.fingerprint(), keyset.fingerprint())) {
-            // Another sort, direction, precedence, entity or deployment: refused before any query runs (R-PAG-19).
+            // Another sort, treat, direction, precedence, entity or deployment: refused before querying (R-PAG-19).
             throw new ModelQueryExecutionException(MqCode.MQ2209, q + ": the keyset cursor belongs to another order "
-                    + "(sort, direction, null precedence, entity or deployment changed); start again with "
+                    + "(sort, treat, direction, null precedence, entity or deployment changed); start again with "
                     + "KeysetSpec.first");
         }
         Object[] cursor = keyset.hasCursor() ? forward.resolve(keyset.values(), q) : null;
@@ -1311,6 +1338,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             // Drop the furthest look-ahead row, then reverse the rest into the query's order (R-PAG-20).
             kept = new ArrayList<>(kept);
             Collections.reverse(kept);
+        }
+        if (filterOnlyToManyJoin(built).isEmpty()) {
+            checkAdjacentKeys(q, kept.stream().map(row -> Keys.keyOf(q, key, row)).toList());
         }
         Set<Object> seen = new HashSet<>();
         List<Loaded<M>> fresh = new ArrayList<>(kept.size());
@@ -2814,7 +2844,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             // Read the page's keys in the stable order, then their rows: the same rows as the one-step page, a key
             // read twice through a predicate's to-many join included.
             List<Object> keys = readKeys(q, key, first != null ? first : keyQuery(q), offset, maxRows);
-            return readByKeys(q, key, keys, batch);
+            boolean uniqueParents = q.fetch().filter(DefaultModelQueryExecutor::hasFetchWork).isPresent();
+            return readByKeys(q, key, keys, batch, uniqueParents);
         }
         BuiltQuery<M> built = first != null ? first : offsetPage(q, everyColumn);
         TypedQuery<Tuple> query = create(q, built);
@@ -2984,7 +3015,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * key whose row no longer matches between the two steps is skipped.
      */
     private <M> List<Loaded<M>> readByKeys(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> key, List<Object> keys,
-            int batch) {
+            int batch, boolean unique) {
         if (keys.isEmpty()) {
             return List.of();
         }
@@ -3000,7 +3031,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             built.query().where(own == null ? byKey : cb.and(own, byKey));
             appendStableOrder(q, built);
             for (Tuple tuple : rows(q, built, create(q, built))) {
-                found.putIfAbsent(Keys.keyOf(q, key, built.selection().row(tuple)), new Found<>(built, tuple));
+                Object rowKey = Keys.keyOf(q, key, built.selection().row(tuple));
+                if (found.putIfAbsent(rowKey, new Found<>(built, tuple)) != null && unique
+                        && filterOnlyToManyJoin(built).isEmpty()) {
+                    throw duplicateKey(q, rowKey);
+                }
             }
         }
         List<Loaded<M>> models = new ArrayList<>(keys.size());
@@ -3097,19 +3132,26 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 // Only an ungrouped query with a primary key gets here (MQ1201, MQ1402); keyQuery is unset only when
                 // the limit cannot reach the threshold, where a duplicate-thinned page may still cross it.
                 List<Object> pageKeys = readKeys(q, key, keyQuery, offset, pageSize);
+                if (filterOnlyToManyJoin(keyQuery).isEmpty()) {
+                    checkAdjacentKeys(q, pageKeys);
+                }
                 List<Object> freshKeys = new ArrayList<>(pageKeys.size());
                 for (Object rowKey : pageKeys) {
                     if (isFresh(keys, previousKeys, rowKey)) {
                         freshKeys.add(rowKey);
                     }
                 }
-                fresh = readByKeys(q, key, freshKeys, batch); // only the fresh keys' rows are read (R-PAG-07)
+                fresh = readByKeys(q, key, freshKeys, batch, true); // only the fresh keys' rows are read (R-PAG-07)
                 read = pageKeys.size();
             } else {
                 TypedQuery<Tuple> query = create(q, built);
                 query.setFirstResult(offset);
                 query.setMaxResults(pageSize);
                 List<Tuple> rows = rows(q, built, query);
+                if (key != null && filterOnlyToManyJoin(built).isEmpty()) {
+                    checkAdjacentKeys(q, rows.stream()
+                            .map(tuple -> keyOfRow.apply(built.selection().row(tuple))).toList());
+                }
                 fresh = new ArrayList<>(rows.size());
                 for (Tuple tuple : rows) {
                     Row row = built.selection().row(tuple);
@@ -3173,6 +3215,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             }
             query.setMaxResults(pageSize);
             List<Tuple> rows = rows(q, built, query);
+            checkPageKeys(q, key, built, rows);
             Set<Object> keys = new HashSet<>();
             List<Loaded<M>> fresh = new ArrayList<>(rows.size());
             for (Tuple tuple : rows) {
@@ -3302,15 +3345,44 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return null;
     }
 
+    private static <M> void checkPageKeys(Object label, PrimaryKey<M, ?> key, BuiltQuery<M> built,
+            List<Tuple> rows) {
+        if (filterOnlyToManyJoin(built).isEmpty()) {
+            checkAdjacentKeys(label, rows.stream()
+                    .map(tuple -> Keys.keyOf(label, key, built.selection().row(tuple))).toList());
+        }
+    }
+
+    /** One comparison per row, within this page only (R-PAG-26). */
+    private static void checkAdjacentKeys(Object label, List<Object> keys) {
+        for (int i = 1; i < keys.size(); i++) {
+            if (Objects.equals(keys.get(i - 1), keys.get(i))) {
+                throw duplicateKey(label, keys.get(i));
+            }
+        }
+    }
+
+    private static ModelQueryExecutionException duplicateKey(Object label, Object key) {
+        return new ModelQueryExecutionException(MqCode.MQ2213, label + ": more than one row has primary key " + key);
+    }
+
+    private static boolean hasFetchWork(FetchPlan<?> plan) {
+        return !plan.childLoads().isEmpty() || !plan.joinPlans().isEmpty() || !plan.enrichers().isEmpty();
+    }
+
     // ---- fetch plans
 
     /** A mapped row and the row it was read from, whose raw values a child load keys on (R-FCH-05). */
-    private record Loaded<M>(M model, Row row) {}
+    private record Loaded<M>(M model, Row row, boolean filterOnlyToManyJoin) {
+        private Loaded(M model, Row row) {
+            this(model, row, false);
+        }
+    }
 
     /** {@code tuple} as a {@link Loaded}, its row built once. */
     private static <M> Loaded<M> loaded(BuiltQuery<M> built, Tuple tuple) {
         Row row = built.selection().row(tuple);
-        return new Loaded<>(built.map(row), row);
+        return new Loaded<>(built.map(row), row, filterOnlyToManyJoin(built).isPresent());
     }
 
     /** The models of {@code rows}, in order. */
@@ -3327,6 +3399,16 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private <M> List<M> models(ModelQuery<?, ?, M> q, List<Loaded<M>> rows) {
         Optional<FetchPlan<M>> plan = q.fetch();
         if (plan.isPresent() && !rows.isEmpty()) {
+            if (hasFetchWork(plan.get()) && q.primaryKey().isPresent()) {
+                PrimaryKey<M, ?> key = q.primaryKey().orElseThrow();
+                Set<Object> seen = new HashSet<>();
+                for (Loaded<M> loaded : rows) {
+                    Object rowKey = Keys.keyOf(q, key, loaded.row());
+                    if (!loaded.filterOnlyToManyJoin() && !seen.add(rowKey)) {
+                        throw duplicateKey(q, rowKey);
+                    }
+                }
+            }
             return run(plan.get(), q.toString(), rows);
         }
         return modelsOf(rows);
@@ -3480,7 +3562,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 Set<Object> children = kept.computeIfAbsent(parent, k -> new HashSet<>());
                 // A child filter through a to-many join repeats a child, and a many-to-many child belongs to several
                 // keys, so a child is kept once per key (R-FCH-04, D-99). Without a primary key, every row is one.
-                if (children.add(childKey == null ? new Object() : Keys.keyOf(load, childKey, row))) {
+                Object rowKey = childKey == null ? new Object() : Keys.keyOf(load, childKey, row);
+                boolean fresh = children.add(rowKey);
+                if (fresh) {
                     if (children.size() > 1 && !load.field().isToMany()) {
                         throw new ModelQueryExecutionException(MqCode.MQ2601, load + ": the to-one child found two "
                                 + "distinct rows for key " + parent + "; key it on a column unique per child, or "
@@ -3494,7 +3578,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 checkBound(load, roundKeys.size(), tuples.size() >= cap, kept, read);
             }
         }
-        List<C> children = models(q, loaded);
+        // Children are deduplicated per parent; a many-to-many child can still belong to several (R-FCH-04).
+        List<C> children = loaded.isEmpty() ? List.of()
+                : q.fetch().map(plan -> run(plan, q.toString(), loaded)).orElseGet(() -> modelsOf(loaded));
         Map<Object, List<C>> grouped = new HashMap<>();
         for (int i = 0; i < children.size(); i++) {
             grouped.computeIfAbsent(parents.get(i), k -> new ArrayList<>()).add(children.get(i));
