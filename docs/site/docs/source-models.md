@@ -131,6 +131,9 @@ var feed = QQuantityFeed.query(QQuantitySource.source().build()).select(QQuantit
     long rows = sources.export(feed, ExportOptions.of(4), page -> page, exported::add);
     ```
 
+A source over a polymorphic entity root can also declare treated columns and `@Subtype` fields in its body; see
+[Inheritance roots](inheritance-roots.md#union-of-subtype-models-through-a-source-shape).
+
 ## Window fields
 
 `@Window` puts a window function in the source's CTE, so an outer model reads its value as a plain column. The field's
@@ -233,6 +236,9 @@ shape does not compile, and they nest in the order they are called: `a.union(b).
 apart. Two branches of one `union` or `unionAll` fixing the same value are `MQ1904` where the operation is built, since
 the union would quietly lose key uniqueness. A distinct `union` whose branches all read one branch model is unique too:
 every root row yields the same columns, so a row reached by both branches collapses to one.
+
+A union can also combine models rooted at different subtypes of a polymorphic entity hierarchy into a single shape;
+see [Inheritance roots](inheritance-roots.md#union-of-subtype-models-through-a-source-shape).
 
 ### Non-unique sources
 

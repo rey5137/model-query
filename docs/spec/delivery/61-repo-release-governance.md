@@ -197,6 +197,17 @@ The source-chain members (D-150, M27.5) are `@Incubating` through 1.0: `SourceRe
 The source-read members (D-150, M27.6) are `@Incubating` through 1.0: the generated `Rows` type and
 `query(SourceQuery<S>)` on a source QModel.
 
+The inheritance-roots members (D-154..D-163, M28) are `@Incubating` through 1.0: `TableField#treat` (R-COL-34),
+`Expr.typeOf` (R-COL-36), `Filters.ofType` and `notOfType` with their `Optional` and collection overloads (R-FLT-28),
+`Condition.Kind#OF_TYPE` and `#NOT_OF_TYPE`, the `treat` member on `@Column`, `@FilterColumn` and `@Join`, the
+`@Subtype` annotation (R-PROC-41..43), and the generated `<SUBTYPE>_TREAT` constants (R-GEN-41). The SPI types and
+methods (`vendor/40` R-VND-26) are `@Incubating` the same way: `TreatRenderer`, `TreatSite`, `StatementShape`,
+`TreatUse`, `ExpectedNarrowing` and its `Kind` (D-157), `RenderOptions#withTreatRenderer`, `#withMetamodel` and
+`#treatRenderer()`, `ProviderSupport#treats(EntityManagerFactory)`, and `TreatChecks`.
+`ColumnField.identityPath()` (D-160), `ModelQuery#buildRootIdCount`, `#checkFetch(CriteriaBuilder, RenderOptions)`,
+`#checkReturning(CriteriaBuilder, RenderOptions)` and `BuiltQuery#expectedNarrowings()` are `@EngineFacing`, so they
+are not API.
+
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from
 Conventional Commits. A commit that breaks an `@Incubating` type is still marked breaking (`!` and a

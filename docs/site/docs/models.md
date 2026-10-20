@@ -21,7 +21,7 @@ public record OrderView(
 |---|---|
 | `@QueryModel(root = ...)` | Marks a model and names its root entity. `prefix` and `suffix` rename the generated class; `singleGroup` is covered in [Grouped queries](grouped-queries.md), `generateChanges` in [Shared accessors across models](#shared-accessors-across-models). |
 | `@PrimaryKey` | The entity id. Paging, export and nested-model presence read it. Required on a model without aggregates. |
-| `@Column(attribute = ..., converter = ...)` | Maps a field to a differently named attribute, or one inside an embedded value, or converts between the model type and the attribute type. |
+| `@Column(attribute = ..., converter = ..., treat = ...)` | Maps a field to a differently named attribute, converts between types, or reads a subtype attribute in a polymorphic hierarchy; see [Inheritance roots](inheritance-roots.md). |
 | `@Join` | A nested model read through a to-one association. The field must be an `Optional` of another `@QueryModel`; it is empty when a LEFT join found nothing. |
 | `@FilterColumn(name, path, ...)` | Adds a filter-only constant for an attribute path (`customer.country`) that the model does not select. |
 | `@ExcludeFromDefaults` | Leaves a heavy column (a BLOB, a long text) out of the generated default column set. |
@@ -58,6 +58,8 @@ For `OrderView` you get `QOrderView` with:
   per `@Join` (`CUSTOMER`);
 - a constant per `@FilterColumn`, and a `TableField` for every collection association on the root (`ITEMS_TABLE`),
   which you use with `Filters.exists`;
+- one `<SUBTYPE>_TREAT` constant per distinct `treat` target (R-GEN-41);
+  see [Inheritance roots](inheritance-roots.md);
 - `ROOT`, `KEY` (the primary key) and `MAPPER`;
 - `query()`, a pre-configured `ModelQuery` builder, and `delete()`.
 

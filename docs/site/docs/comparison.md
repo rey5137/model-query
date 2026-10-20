@@ -41,7 +41,7 @@ shapes, because a query selects column sets of it rather than declaring a new vi
 | Row locks | `for update`, in each vendor's syntax | `LockModeType`; skip-locked through a provider hint | `setLockMode` | `setLockMode` | `RowLock` with `WAIT`, `NO_WAIT` or `SKIP_LOCKED` (`@Incubating`) |
 | Several databases | One statement per vendor, or the common subset | The provider's dialect | The provider's dialect | The provider's dialect | The provider's dialect; a feature a target lacks is refused before any statement, and a unit test checks every target offline (`@Incubating`) |
 | What you add to the project | Nothing, or a template helper | Nothing | An annotation processor and a runtime | A runtime, integrations and view definitions | An annotation processor and a runtime |
-| Reach | Everything your database supports | Any JPA query | Most of JPQL | Beyond JPQL: CTEs, window functions, set operations | What Criteria expresses, plus CTEs, window functions, set operations and recursive queries through [source models](source-models.md), including sources over sources (`@Incubating`); [correlated columns](subqueries-expressions.md#correlated-columns) (`@Incubating`); `QueryCustomizer` for the rest |
+| Reach | Everything your database supports | Any JPA query | Most of JPQL | Beyond JPQL: CTEs, window functions, set operations | What Criteria expresses, plus CTEs, window functions, set operations and recursive queries through [source models](source-models.md), including sources over sources (`@Incubating`); [correlated columns](subqueries-expressions.md#correlated-columns) (`@Incubating`); inheritance roots via treat ([Inheritance roots](inheritance-roots.md), `@Incubating`); `QueryCustomizer` for the rest |
 
 ## Plain SQL
 
