@@ -50,6 +50,7 @@ nav:
   - Paging and export: paging-export.md
   - Grouped queries: grouped-queries.md
   - Source models (incubating): source-models.md
+  - Inheritance roots (incubating): inheritance-roots.md
   - Fetch plans: fetch-plans.md
   - Migration recipes: recipes.md
   - Testing queries: testing.md

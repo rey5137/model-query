@@ -247,6 +247,7 @@ The available filters:
 | Strings | `like`, `likeIgnoreCase`, `eqIgnoreCase`, with a `LikeMode` of `EXACT`, `CONTAINS`, `STARTS_WITH` or `ENDS_WITH` |
 | Nulls | `isNull`, `isNotNull`, and a tri-state `isNull(column, Optional<Boolean>)` |
 | Column against column | `compare(left, Op, right)` |
+| Entity type | `ofType`, `notOfType` (see [Inheritance roots](inheritance-roots.md#entity-type-typeof-oftype-and-notoftype)) |
 | Composition | `or` (two or three branches, or a `List` of them), `not`, `when`, `apply` (reuse a shared fragment) |
 | Sub-queries | `exists`, `notExists` |
 | Escape hatch | `add((joinContext, criteriaBuilder) -> predicate)`, or `add("label", ...)` to name it for logs and [tests](testing.md); the label is a constant, never a value |
@@ -263,6 +264,9 @@ The available filters:
   `NOT (...)`, so rows where the group is unknown are excluded.
 - **Strings are escaped.** `CONTAINS`, `STARTS_WITH` and `ENDS_WITH` escape `%`, `_` and the escape character, so a
   search for `50%` finds that literal text. `EXACT` passes the pattern through unchanged.
+- **Filtering by entity type.** `ofType(table, Subtype.class)` restricts rows to the named entity subtype and its
+  subclasses, and `notOfType` negates it; see
+  [Inheritance roots](inheritance-roots.md#entity-type-typeof-oftype-and-notoftype).
 - **`likeIgnoreCase` lower-cases the column**, so it needs a functional index to be fast. Without it, case
   sensitivity follows the column's collation; see [Vendor notes](vendors.md).
 - **Every value is a bind parameter.** The library never inlines a value into SQL.

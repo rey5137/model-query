@@ -256,6 +256,7 @@ bridges, and `java.util.logging` without one (where `DEBUG` is `FINE` and `TRACE
 | `com.rey.modelquery.core.ModelQuery` | `DEBUG` | Each query definition `build()` returns: model, entity, selected fields, primary key, filters (kind and column, each value shown as `?`), group-by, order and paging mode. |
 | `com.rey.modelquery.jpa.DefaultModelQueryExecutor` | `DEBUG` | Each `list`, `stream`, `page`, `count`, `export`, `update` and `delete` call, with its limit, page or export options; a write also lists how it chose its rows (the number of keys or all rows) and its filters, each value shown as `?`, and how it runs. |
 | `com.rey.modelquery.jpa.DefaultModelQueryExecutor` | `TRACE` | Each statement's bind count against the vendor's limit, then its rows read or written and the time it took. |
+| `com.rey.modelquery.jpa.DefaultModelQueryExecutor` | `WARNING` | `MQ2214`: an offset page over a treated statement that returns more rows than `total - offset`, logged once per `ModelQuery` (never thrown). |
 
 ```
 DEBUG com.rey.modelquery.core.ModelQuery - built OrderView over OrderEntity: select [id, status, total], primaryKey [id], where [EQ(OrderView.status, ?), GT(OrderView.total, ?)], orderBy [total DESC NULLS LAST], paging keyset
