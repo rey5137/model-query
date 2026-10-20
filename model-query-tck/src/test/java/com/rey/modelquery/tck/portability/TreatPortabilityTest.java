@@ -1,15 +1,19 @@
 package com.rey.modelquery.tck.portability;
 
+import static com.rey.modelquery.tck.col.TreatTestSupport.CARD;
 import static com.rey.modelquery.tck.col.TreatTestSupport.ID;
 import static com.rey.modelquery.tck.col.TreatTestSupport.NUMBER;
 import static com.rey.modelquery.tck.col.TreatTestSupport.ROOT;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelDelete;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.SelectSet;
+import com.rey.modelquery.core.SourceQuery;
+import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.portability.PortabilityCheck;
@@ -69,6 +73,35 @@ class TreatPortabilityTest {
                     .startsWith("UNNUMBERED on " + target + ": REFUSED MQ4016").contains("WRITE"));
         }
     }
+
+    @Test
+    void ac_vnd_17_a_source_bodys_sites_are_reported_for_an_untreated_outer_query() {
+        List<String> lines = report(check()
+                .call("ADMITTED", Body.class, x -> x.list(sourced(false), Limit.of(10)))
+                .call("UNMEASURED", Body.class, x -> x.list(sourced(true), Limit.of(10))));
+
+        assertThat(lines.get(0)).isEqualTo("Not portable: 3 of 6 results failed");
+        for (Target target : TARGETS) {
+            assertThat(lines).anySatisfy(line -> assertThat(line).startsWith("ADMITTED on " + target + ": REACHED"));
+            assertThat(lines).anySatisfy(line -> assertThat(line)
+                    .startsWith("UNMEASURED on " + target + ": REFUSED MQ4016").contains("unmeasured"));
+        }
+    }
+
+    /** An untreated outer query over a source whose body filters on the treated number (R-SRC-20). */
+    private static ModelQuery<Body, Long, Long> sourced(boolean unmeasured) {
+        var id = ColumnField.of(Body.class, ROOT, "id", Long.class).named("id");
+        var number = ColumnField.of(Body.class, CARD, "number", String.class).named("number");
+        var source = SourceQuery.builder(Body.class, ROOT, SelectSet.of(id), PrimaryKey.of(id))
+                .where(f -> unmeasured ? f.or(a -> a.isNull(number), b -> b.eq(id, 1L)) : f.isNull(number)).build();
+        var root = TableField.source(Body.class);
+        var outerId = ColumnField.over(Long.class, root, id);
+        return ModelQuery.builder(root, row -> row.get(outerId), source).select(SelectSet.of(outerId))
+                .primaryKey(PrimaryKey.of(outerId)).build();
+    }
+
+    /** A source body's model. */
+    public static final class Body {}
 
     @Test
     void ac_vnd_17_without_a_treat_renderer_every_site_is_mq4014_on_every_target() {

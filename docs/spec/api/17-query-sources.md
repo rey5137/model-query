@@ -596,5 +596,5 @@ and index advice.
 | AC-SRC-37 | Direct and nested correlated expressions in source fields are `MQ1908` at the builder boundary; a generated QModel with such a `@Computed` initializes successfully and refuses only when `source(...)` is called (R-SRC-16). |
 | AC-SRC-38 | Direct chain/tree reads: count, `byKeys`, `one(q, key)` and every export page (R-SRC-17, R-SRC-18). |
 | AC-SRC-39 | Per strategy, treated and `@Subtype` fields in a source body read as AC-COL-44 and AC-COL-49, with the root id selected in the body (R-SRC-20, D-162). |
-| AC-SRC-40 | Per strategy, a `unionAll` of card and bank branches by `@Discriminator` returns each `(kind, id)` once with `reference` from `last4` or `iban`; without the discriminator it is non-unique (`MQ2212` on export) (R-SRC-20). |
+| AC-SRC-40 | Per strategy, a `unionAll` of card and bank branches by `@Discriminator` returns each `(kind, id)` once with `reference` from `number` or `iban`; without the discriminator it is non-unique (`MQ2212` on export) (R-SRC-20). |
 | AC-SRC-41 | Branches rooted at `CardPayment` and `PremiumCardPayment` return a premium row twice with two `kind` values and unique keys (R-SRC-20). |

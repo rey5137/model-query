@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ExpectedNarrowing;
 import com.rey.modelquery.core.StatementShape;
+import com.rey.modelquery.core.SourceRenderer;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.core.TreatRenderer;
 import com.rey.modelquery.core.TreatSite;
@@ -113,6 +114,7 @@ public final class TreatTestSupport {
         private static final ThreadLocal<EntityManagerFactory> FACTORY = new ThreadLocal<>();
         private static final ThreadLocal<TreatRenderer> RENDERER = new ThreadLocal<>();
         private static final ThreadLocal<Boolean> COUNTS_GROUPS = new ThreadLocal<>();
+        private static final ThreadLocal<Boolean> RENDERS_SOURCES = new ThreadLocal<>();
 
         @Override
         public boolean supports(EntityManagerFactory emf) {
@@ -138,6 +140,23 @@ public final class TreatTestSupport {
                 work.run();
             } finally {
                 COUNTS_GROUPS.remove();
+            }
+        }
+
+        /** Hibernate's source rendering inside {@link #renderingSources}, else none, as a provider without one. */
+        @Override
+        public Optional<SourceRenderer> sources() {
+            return Boolean.TRUE.equals(RENDERS_SOURCES.get()) ? new HibernateProviderSupport().sources()
+                    : Optional.empty();
+        }
+
+        /** Runs {@code work} with Hibernate's source rendering served, so a source body's statement is rendered. */
+        public static void renderingSources(Runnable work) {
+            RENDERS_SOURCES.set(true);
+            try {
+                work.run();
+            } finally {
+                RENDERS_SOURCES.remove();
             }
         }
 

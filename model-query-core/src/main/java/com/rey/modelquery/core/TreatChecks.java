@@ -14,9 +14,9 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.IdentityHashMap;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 /** Per-call statement sites and provider refusals before any statement (R-COL-35, R-VND-26). */
@@ -42,9 +42,13 @@ public final class TreatChecks {
     private boolean joinsOnly;
     /** Inside the counted column of a correlated count, whose own treated root R-COL-35 leaves admitted. */
     private boolean correlatedCount;
+    /** Inside an {@code exists} whose path holds a treat, which a nested {@code exists} correlates on. */
+    private boolean treatedExists;
     /** Only finding whether the statement has a treated node, for {@link #treated(ModelQuery)}. */
     private boolean detecting;
     private boolean found;
+    /** While detecting, also following the source's body, inner sources and branches, for {@link #reachesTreat}. */
+    private boolean throughSources;
     /** The treated reads found so far, equal sites counted each time. */
     private int occurrences;
     private String owner;
@@ -92,8 +96,24 @@ public final class TreatChecks {
     @EngineFacing
     @Incubating
     public static boolean treated(ModelQuery<?, ?, ?> query) {
+        return detects(query, false);
+    }
+
+    /**
+     * Whether a statement {@code query} runs has a treated node: its own, as {@link #treated(ModelQuery)} finds, or its
+     * source's body, that body's inner sources and its set-operation branches, at any depth. Such a call's statements
+     * go to the renderer's preflight (R-VND-26); the anchor stays decided by {@link #treated(ModelQuery)}.
+     */
+    @EngineFacing
+    @Incubating
+    public static boolean reachesTreat(ModelQuery<?, ?, ?> query) {
+        return detects(query, true);
+    }
+
+    private static boolean detects(ModelQuery<?, ?, ?> query, boolean throughSources) {
         var checks = new TreatChecks(null, null, StatementShape.CONTENT, false, false);
         checks.detecting = true;
+        checks.throughSources = throughSources;
         checks.statement(StatementShape.CONTENT, true, () -> query.checkTreats(checks));
         return checks.found;
     }
@@ -236,7 +256,8 @@ public final class TreatChecks {
     }
 
     void definition(Object definition) {
-        if (!seen.add(definition)) {
+        // A detecting scan has its answer once it found a node; the rest of the tree changes nothing.
+        if (found || !seen.add(definition)) {
             return;
         }
         String previousOwner = owner;
@@ -505,11 +526,9 @@ public final class TreatChecks {
                     condition.column().ifPresent(this::field);
                     condition.right().ifPresent(this::field);
                     condition.operands().forEach(this::field);
-                    condition.path().ifPresent(path -> {
-                        register(path);
-                        using(TreatUse.SUBQUERY, () -> table(path.key()));
-                    });
-                    if (condition.subSelect().isPresent() || condition.path().isPresent()) {
+                    if (condition.path().isPresent()) {
+                        exists(condition.path().get(), condition.children());
+                    } else if (condition.subSelect().isPresent()) {
                         using(TreatUse.SUBQUERY, () -> condition.children().forEach(this::condition));
                     } else {
                         condition.children().forEach(this::condition);
@@ -528,6 +547,41 @@ public final class TreatChecks {
                 }
             }
         }
+    }
+
+    /**
+     * An {@code exists} over {@code path} and its {@code inner} conditions. Nested in an {@code exists} whose path
+     * holds a treat, its sub-select correlates on that treated node, so each of its sites is a {@code CORRELATION}
+     * (R-FLT-11, R-VND-26).
+     */
+    private void exists(TableField<?, ?> path, List<Condition> inner) {
+        Runnable scan = () -> {
+            register(path);
+            using(TreatUse.SUBQUERY, () -> {
+                table(path.key());
+                boolean previous = treatedExists;
+                treatedExists = previous || holdsTreat(path.key());
+                try {
+                    inner.forEach(this::condition);
+                } finally {
+                    treatedExists = previous;
+                }
+            });
+        };
+        if (treatedExists) {
+            using(TreatUse.CORRELATION, scan);
+        } else {
+            scan.run();
+        }
+    }
+
+    private static boolean holdsTreat(JoinKey key) {
+        for (JoinKey node = key; node != null && node.parent() != null; node = node.parent()) {
+            if (node.type() == null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -561,14 +615,20 @@ public final class TreatChecks {
         }));
     }
 
-    /** Scans a sub-select, whose own root no anchor covers, with {@code anchored} false (R-VND-26). */
+    /**
+     * Scans a sub-select, whose own root no anchor covers, with {@code anchored} false (R-VND-26). An {@code exists}
+     * in it correlates on that root, not on an enclosing {@code exists}' treated path.
+     */
     void unanchored(Runnable scan) {
         boolean previous = anchored;
+        boolean previousExists = treatedExists;
         anchored = false;
+        treatedExists = false;
         try {
             scan.run();
         } finally {
             anchored = previous;
+            treatedExists = previousExists;
         }
     }
 
@@ -593,7 +653,7 @@ public final class TreatChecks {
     }
 
     void source(SourceQuery<?> source) {
-        if (source != null && !detecting && seen.add(source)) {
+        if (source != null && !found && (!detecting || throughSources) && seen.add(source)) {
             if (metamodel != null && source.anchors() && source.treated()) {
                 // An anchored body selects its single root id, as a content statement does (R-SRC-20, R-COL-35).
                 rootId(metamodel.entity(source.root().rootEntity()), owner);

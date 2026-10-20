@@ -368,3 +368,7 @@ Before deploying queries with inheritance roots:
    detecting `MQ4014` and `MQ4016` configuration issues before deployment.
 3. **Use single-column IDs**: Polymorphic hierarchies should use a single `@Id` attribute rather than `@IdClass` or
    `@EmbeddedId`.
+4. **Check `TABLE_PER_CLASS` downcast joins**: An `INNER` join that downcasts a `TABLE_PER_CLASS` base entity and
+   reads an inherited attribute is refused with `MQ4016` by the statement preflight, because the union keeps a branch
+   for base rows the join cannot exclude (D-161). Make the base entity abstract, declare the join `LEFT` (base rows
+   then read `Optional.empty()`), or read only subtype-own columns.

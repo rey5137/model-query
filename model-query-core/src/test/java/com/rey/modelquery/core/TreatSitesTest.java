@@ -9,6 +9,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.From;
+import jakarta.persistence.criteria.JoinType;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -319,6 +320,71 @@ class TreatSitesTest {
         assertThat(filtered.filter(cardPath)).contains(NUMBER);
         assertThat(filtered.filter(bankPath)).contains(bank);
         assertThat(NUMBER.path()).isEqualTo("number");
+    }
+
+    @Test
+    void ac_vnd_17_an_exists_nested_under_a_treated_exists_path_is_a_correlation_site_but_a_sibling_is_not() {
+        TableField<Payment, Card> treated = ROOT.treat(Card.class);
+        TableField<Card, View> nested = TableField.join(treated, "views", JoinType.INNER);
+        TableField<Card, View> sibling = TableField.join(treated, "views", JoinType.LEFT);
+        var nesting = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID))
+                .where(f -> f.exists(treated, e -> e.exists(nested))).build();
+        var siblings = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID))
+                .where(f -> f.exists(treated).exists(sibling)).build();
+        assertThat(sites(nesting, StatementShape.CONTENT, false))
+                .anySatisfy(site -> assertThat(site.uses()).contains(TreatUse.CORRELATION, TreatUse.SUBQUERY));
+        assertThat(sites(siblings, StatementShape.CONTENT, false))
+                .isNotEmpty().allSatisfy(site -> assertThat(site.uses()).doesNotContain(TreatUse.CORRELATION));
+    }
+
+    @Test
+    void ac_vnd_17_an_exists_in_a_sub_select_under_a_treated_exists_correlates_on_the_sub_selects_root() {
+        TableField<Payment, Card> treated = ROOT.treat(Card.class);
+        var cardId = ColumnField.of(View.class, treated, "id", Long.class);
+        var innerId = ColumnField.of(Source.class, ROOT, "id", Long.class);
+        TableField<Card, View> innerViews = TableField.join(ROOT.treat(Card.class), "views", JoinType.INNER);
+        var rows = SubSelect.of(innerId).where(s -> s.exists(innerViews));
+        var query = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID))
+                .where(f -> f.exists(treated, e -> e.in(cardId, rows))).build();
+        // The sub-select's exists correlates on the sub-select's own root, not on the enclosing treated path.
+        assertThat(sites(query, StatementShape.CONTENT, false))
+                .isNotEmpty().allSatisfy(site -> assertThat(site.uses()).doesNotContain(TreatUse.CORRELATION));
+    }
+
+    @Test
+    void ac_vnd_21_a_treated_node_in_a_source_body_branch_or_inner_source_is_reached_not_anchored() {
+        var sourceId = ColumnField.of(Source.class, ROOT, "id", Long.class).named("id");
+        var number = ColumnField.of(Source.class, ROOT.treat(Card.class), "number", String.class).named("number");
+        var treated = SourceQuery.builder(Source.class, ROOT, SelectSet.of(sourceId, number), PrimaryKey.of(sourceId))
+                .build();
+        var untreatedNumber = ColumnField.of(Source.class, ROOT, "status", String.class).named("number");
+        var plain = SourceQuery.builder(Source.class, ROOT, SelectSet.of(sourceId, untreatedNumber),
+                PrimaryKey.of(sourceId)).build();
+        var sourceRoot = TableField.source(Source.class);
+        var outerId = ColumnField.over(View.class, sourceRoot, sourceId);
+        assertThat(reaches(treated, sourceRoot, outerId)).isTrue();
+        assertThat(reaches(plain, sourceRoot, outerId)).isFalse();
+        // A set-operation branch, on either side, and a source over a treated inner source, at depth.
+        assertThat(reaches(plain.unionAll(treated), sourceRoot, outerId)).isTrue();
+        assertThat(reaches(treated.unionAll(plain), sourceRoot, outerId)).isTrue();
+        assertThat(reaches(plain.unionAll(plain), sourceRoot, outerId)).isFalse();
+        var middleId = ColumnField.over(Source.class, sourceRoot, sourceId).named("id");
+        var over = SourceQuery.builder(Source.class, sourceRoot, SelectSet.of(middleId), PrimaryKey.of(middleId),
+                treated).build();
+        assertThat(reaches(over, sourceRoot, outerId)).isTrue();
+        // The outer query has no treated node of its own, so the anchor decision is unchanged.
+        var query = ModelQuery.builder(sourceRoot, row -> new View(), treated).select(SelectSet.of(outerId)).build();
+        assertThat(TreatChecks.treated(query)).isFalse();
+        assertThat(TreatChecks.reachesTreat(query)).isTrue();
+        // An own treated node is reached too.
+        assertThat(TreatChecks.reachesTreat(ModelQuery.builder(ROOT, row -> new View())
+                .select(SelectSet.of(ID, NUMBER)).build())).isTrue();
+    }
+
+    private static boolean reaches(SourceQuery<Source> source, TableField<Source, Source> root,
+            ColumnField<View, Source, Long> outerId) {
+        return TreatChecks.reachesTreat(ModelQuery.builder(root, row -> new View(), source)
+                .select(SelectSet.of(outerId)).build());
     }
 
     private static List<TreatSite> sites(ModelQuery<?, ?, ?> query, StatementShape shape, boolean laterPages) {

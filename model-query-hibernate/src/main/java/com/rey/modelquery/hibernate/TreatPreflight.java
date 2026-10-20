@@ -2,6 +2,7 @@ package com.rey.modelquery.hibernate;
 
 import com.rey.modelquery.core.ExpectedNarrowing;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -172,7 +173,7 @@ final class TreatPreflight extends AbstractSqlAstWalker {
             sqm.accept(new BaseSemanticQueryWalker() {
                 @Override
                 public Object visitQuerySpec(SqmQuerySpec<?> spec) {
-                    Set<SqmFrom<?, ?>> seen = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+                    Set<SqmFrom<?, ?>> seen = Collections.newSetFromMap(new IdentityHashMap<>());
                     spec.getFromClause().getRoots().forEach(root -> walk.treatedJoins(root, factory, seen, this));
                     return super.visitQuerySpec(spec);
                 }
@@ -361,7 +362,8 @@ final class TreatPreflight extends AbstractSqlAstWalker {
             });
             if (!nullKey) {
                 refuse("the treated " + name(treated.entity()) + " join as " + treated.subtype().getSimpleName()
-                        + " keeps the union branch " + branch + " without a null join key or subtype restriction");
+                        + " keeps the union branch " + branch + " without a null join key or subtype restriction;"
+                        + " make the base entity abstract, declare the join LEFT, or read only subtype-own columns");
             }
         }
     }

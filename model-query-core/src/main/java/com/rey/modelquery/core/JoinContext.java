@@ -559,6 +559,14 @@ public final class JoinContext {
             ctx.readsToOneLeft = readsToOneLeft;
             ctx.declares = ExpectedNarrowing.Kind.EXISTS_ROOT; // a treat of the correlated root narrows the sub-select
         } else {
+            // A treat of the root, which an exists path may be (R-FLT-11), resolves to a root that no nested
+            // sub-select correlates as a join; TreatChecks refuses that correlation first for a measured renderer.
+            if (!(existsFrom instanceof Join<?, ?>)) {
+                throw new ModelQueryConfigurationException(MqCode.MQ4016, path.describe() + ": an exists(...) nested "
+                        + "in exists(...) on " + existsPath.describe() + " would correlate on its treated root, which "
+                        + "the TreatRenderer resolves to no join; filter the subtype with ofType(...), or make it a "
+                        + "sibling exists(...)");
+            }
             From<?, ?> correlated = sub.correlate((Join) existsFrom);
             ctx = new JoinContext(correlated, correlated.getJavaType(), cb, sub, existsPath.key(),
                     path.keysUpTo(existsPath.key()), renderOptions, existsJoined, outer, repeatedExpressionBinds,

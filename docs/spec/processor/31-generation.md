@@ -72,7 +72,8 @@ literal the processor could not validate is a diagnostic, never a guess (INV-3).
 names `ITEMS_TABLE`, through `ROOT.treat(Subtype.class)`. Columns, joins and filter paths share that node; a generated
 name clash is `MQ3015`. The treated tables precede columns that read them. Treated columns are ordinary ordered
 columns under R-PROC-07 and appear in `DEFAULT`, `ALL` and `fields()` as other columns do. A downcast `@Join` emits
-`.treat(Subtype.class).presentBy(NestedQModel.KEY)`, so presence follows the treated join (D-154).
+`.named("field").treat(Subtype.class).presentBy(NestedQModel.KEY)` (D-166), so presence follows the treated join
+(D-154).
 
 **R-GEN-42** A `@Subtype` field generates an `ExpressionField` through `Expr.typeOf(Model.class, ROOT)`, named as any
 field. It is in the default sets, and the mapper reads a `Class` through that constant. With JSpecify enabled it

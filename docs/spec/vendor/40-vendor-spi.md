@@ -404,7 +404,10 @@ R-PAG-06's OR-expansion and, under an explicit null precedence, `{PREDICATE, DIS
 a row. Whatever the renderer answers, the engine refuses with `MQ4016` in M28: every `CHILD` site, every `WRITE`
 site (a treated `ModelUpdate`/`ModelDelete` `where`, decided before R-WRT-11 picks a path, and a treated returning
 model of any returning write or `persist`), and a site whose uses hold `GROUP_BY` or `AGGREGATE` (Q-27), except a
-correlated count's column over its own treated root (R-COL-31).
+correlated count's column over its own treated root (R-COL-31). The engine also refuses a non-join correlation target
+with `MQ4016` rather than casting it. A `CORRELATION` site, which a path `exists` nested under an `exists` whose path
+holds a treat carries and a lifted `Outer.column` read carries too (D-164), is left to the renderer: Hibernate's table
+refuses it with `MQ4016`.
 
 **The provider half (M28.3).** `model-query-hibernate`'s `treats(emf)` serves a `TreatRenderer` on the 6.6.x and 7.4.x
 minor lines only, read from `org.hibernate.Version`; on any other line, an unreadable version, or under
@@ -443,18 +446,19 @@ bootstrap by 7.4), a `@DiscriminatorValue("null")` or `("not null")`, an `@IdCla
 `@DiscriminatorOptions`; a root `@SQLRestriction` runs. The mapping is read from the entity persisters once per
 factory, and `treats(emf)` returns the same renderer for a factory (D-155).
 
-**The statement preflight (M28.4, `rfc/0016` §11 guard 3).** With a renderer and a definition whose own statement holds
-a treated node, the executor builds every select statement the call will run and hands each to `preflight`, with its
-shape, before the call's first statement: the content statement, the count, a primary-key-first page's two steps,
-`byKeys`' first chunk and, when it is built again smaller, the build that runs, `byKeys` with no keys too, and for a
-keyset page or a keyset `export` every later page shape, over every combination of NULLs at the keys whose cursor value
-can be NULL (all non-NULL included), with placeholder parameters. A non-empty answer is `MQ4016` naming the model, the
-statement, its shape and the reason; no JDBC statement has run. Without a treated node nothing is built for it and
-`preflight` is not called. Nothing is cached: each call preflights again (INV-9). The site check runs first, so the
-preflight never widens the table. Writes stay refused by the table (`WRITE`), so only select statements are preflighted.
-The preflight runs at execution only: on R-VND-20's offline factory the renderer accepts every statement, so
-`PortabilityCheck` reports each target's treat sites from the table alone, `MQ4014` without a renderer and `MQ4016`
-outside the table, with no database (AC-VND-17, D-163).
+**The statement preflight (M28.4, `rfc/0016` §11 guard 3).** With a renderer and a definition whose own statement, or a
+source body it reads, holds a treated node, the executor builds every select statement the call will run and hands each
+to `preflight`, with its shape, before the call's first statement: the content statement, the count, a primary-key-first
+page's two steps, `byKeys`' first chunk and, when it is built again smaller, the build that runs, `byKeys` with no keys
+too, and for a keyset page or a keyset `export` every later page shape, over every combination of NULLs at the keys
+whose cursor value can be NULL (all non-NULL included), with placeholder parameters. The `mq_0id` anchor and `MQ2214`
+still key on the top statement's own treat (D-165). A non-empty answer is `MQ4016` naming the model, the statement, its
+shape and the reason; no JDBC statement has run. Without a treated node nothing is built for it and `preflight` is not
+called. Nothing is cached: each call preflights again (INV-9). The site check runs first, so the preflight never widens
+the table. Writes stay refused by the table (`WRITE`), so only select statements are preflighted. The preflight runs at
+execution only: on R-VND-20's offline factory the renderer accepts every statement, so `PortabilityCheck` reports each
+target's treat sites from the table alone, `MQ4014` without a renderer and `MQ4016` outside the table, with no database
+(AC-VND-17, D-163).
 
 *Engine-declared narrowings (D-157).* Each statement comes with the `ExpectedNarrowing`s its own build rendered on
 purpose, in build order, compared as a multiset: an `EXISTS_ROOT` for the correlated root of a path `exists` read

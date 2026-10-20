@@ -181,10 +181,15 @@ public final class TableField<P, T> {
      * This node with {@code property} as the name of the model field the join fills, which a sort property's path is
      * matched against (R-QRY-14). The join key is unchanged. A root's property is never part of a path: a column of
      * the root has only its own property.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1106} after {@link #treat(Class)}: a treated node's path is its
+     *     join's, so it is named before the treat (R-COL-34)
      */
     public TableField<P, T> named(String property) {
-        return new TableField<>(rootEntity, parent, attribute, type, alias, condition, presenceKey,
-                Objects.requireNonNull(property, "property"), source, subtype, treatOrigin);
+        Objects.requireNonNull(property, "property");
+        requireUntreated("named(...)");
+        return new TableField<>(rootEntity, parent, attribute, type, alias, condition, presenceKey, property,
+                source, subtype, treatOrigin);
     }
 
     /**

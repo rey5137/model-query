@@ -560,8 +560,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 converted.put(key, primaryKey.attributeKey(key));
             }
         }
+        boolean preflighted = preflights(q);
         if (converted.isEmpty()) {
-            if (preflights(q)) {
+            if (preflighted) {
                 // Before the no-keys short cut too, so a refused statement fails the same way for any keys.
                 preflight(q, "byKeys(query, keys)", StatementShape.CONTENT, counted);
             }
@@ -579,7 +580,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         for (int from = 0; from < distinct.size(); from += chunk) {
             List<Object> chunkKeys = distinct.subList(from, Math.min(distinct.size(), from + chunk));
             BuiltQuery<M> built = byKeysChunk(q, primaryKey, cb, lock, chunkKeys);
-            if (!sized && preflights(q)) {
+            if (!sized && preflighted) {
                 // The first chunk, before any statement; the others differ only in how many keys their IN holds.
                 preflight(q, "byKeys(query, keys)", StatementShape.CONTENT, built);
             }
@@ -600,7 +601,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                     // and that build is the statement that runs, so it is preflighted too.
                     chunkKeys = distinct.subList(from, Math.min(distinct.size(), from + sizedChunk));
                     built = byKeysChunk(q, primaryKey, cb, lock, chunkKeys);
-                    if (preflights(q)) {
+                    if (preflighted) {
                         preflight(q, "byKeys(query, keys)", StatementShape.CONTENT, built);
                     }
                     statement = create(q, built);
@@ -2703,11 +2704,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     }
 
     /**
-     * Whether {@code q}'s statements go to the renderer's preflight: with a renderer, when its own statement holds a
-     * treated node. Without one, no statement is built for it and the renderer is not called (R-VND-26).
+     * Whether {@code q}'s statements go to the renderer's preflight: with a renderer, when its own statement or its
+     * source's body, inner sources or branches hold a treated node. Without one, no statement is built for it and the
+     * renderer is not called (R-VND-26).
      */
     private boolean preflights(ModelQuery<?, ?, ?> q) {
-        return renderOptions.treatRenderer().isPresent() && TreatChecks.treated(q);
+        return renderOptions.treatRenderer().isPresent() && TreatChecks.reachesTreat(q);
     }
 
     /**

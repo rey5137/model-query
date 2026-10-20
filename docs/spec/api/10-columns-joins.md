@@ -65,8 +65,9 @@ for `ROOT.treat(Card.class)`, also when the treated table is a join.
 
 `MQ1106` rejects an improper subtype at definition on a root, whose entity class is known, and at first resolution
 on a join, whose declared target is obtained from the metamodel. Both checks require a strict subtype and use the
-same diagnostic. At definition it also rejects treating a treated node or a source root, and `as` or `on` on a
-treated join; apply those modifiers before treating. At first resolution an unmapped entity subtype is `MQ1106`.
+same diagnostic. At definition it also rejects treating a treated node or a source root, and `as`, `on` or `named` on
+a treated join (D-166); apply those modifiers before treating. At first resolution an unmapped entity subtype is
+`MQ1106`.
 Entity mapping comes from the provider, including XML mappings, rather than the presence of an `@Entity` annotation.
 
 The declared-target check is separate from the actual entity reached: the query root or the join target under
