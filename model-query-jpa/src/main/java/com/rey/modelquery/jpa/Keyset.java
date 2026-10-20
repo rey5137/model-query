@@ -421,8 +421,8 @@ final class Keyset<M> {
         List<Object[]> cursors = new ArrayList<>();
         for (int nulls = 0; nulls < 1 << nullable.size(); nulls++) {
             Set<Integer> nullKeys = new HashSet<>();
-            for (int bit = 0; bit < nullable.size(); bit++) {
-                if ((nulls & 1 << bit) != 0) {
+            for (int bit = 0, rest = nulls; rest != 0; bit++, rest >>= 1) {
+                if ((rest & 1) != 0) {
                     nullKeys.add(nullable.get(bit));
                 }
             }

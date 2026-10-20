@@ -435,6 +435,97 @@ class KeysetTest {
         assertThat(cursorRow(q, keyset, 7)).containsExactly(7L);
     }
 
+    /** Which positions of each later-page cursor are NULL, as a string of 'n' (NULL) and 'v' (a placeholder). */
+    private static List<String> shapesOf(ModelQuery<?, ?, Row3> q, NullOrdering ordering, KeysetNullKeys nullKeys) {
+        try (EntityManager em = sessions.createEntityManager()) {
+            return keyset(q, ordering, nullKeys).laterPageCursors(em.getCriteriaBuilder()).stream()
+                    .map(c -> Arrays.stream(c).map(v -> v == null ? "n" : "v").reduce("", String::concat))
+                    .toList();
+        }
+    }
+
+    @Test
+    void ac_vnd_21_later_page_cursors_of_no_nullable_key_are_the_one_all_value_cursor() {
+        // The primary-key column never carries a NULL (R-PAG-03), so a keyset of it alone has one cursor.
+        assertThat(shapesOf(query(), NullOrdering.NULLS_FIRST, KeysetNullKeys.FAIL)).containsExactly("v");
+        // A key that refuses its NULLs never carries one either: a bare order under FAIL refuses.
+        assertThat(shapesOf(query(A.asc(), B.asc()), NullOrdering.NULLS_FIRST, KeysetNullKeys.FAIL))
+                .containsExactly("vvv");
+        // An unknown profile ordering leaves a bare order's NULLs unplaced, so it refuses them too.
+        assertThat(shapesOf(query(A.asc()), NullOrdering.UNKNOWN, KeysetNullKeys.HONOUR_NULL_PRECEDENCE))
+                .containsExactly("vv");
+    }
+
+    @Test
+    void ac_vnd_21_later_page_cursors_cover_every_combination_of_nulls_at_the_nullable_keys_in_order() {
+        NullPrecedence first = NullPrecedence.FIRST;
+        // One nullable key (a), then the id: 2 cursors.
+        assertThat(shapesOf(query(of(A, true, first)), NullOrdering.NULLS_FIRST, KeysetNullKeys.FAIL))
+                .containsExactly("vv", "nv");
+        // Two: the first nullable key is the lowest bit, so it varies fastest; b is the second bit.
+        assertThat(shapesOf(query(of(A, true, first), of(B, false, NullPrecedence.LAST)), NullOrdering.NULLS_FIRST,
+                KeysetNullKeys.FAIL)).containsExactly("vvv", "nvv", "vnv", "nnv");
+        // Three: 8 cursors, one per subset, the id last and never NULL.
+        assertThat(shapesOf(query(of(A, true, first), of(B, true, first), of(C, true, first)),
+                NullOrdering.NULLS_FIRST, KeysetNullKeys.FAIL)).containsExactly(
+                        "vvvv", "nvvv", "vnvv", "nnvv", "vvnv", "nvnv", "vnnv", "nnnv");
+        // A refusing key between two nullable ones is skipped when numbering the bits.
+        assertThat(shapesOf(query(of(A, true, first), B.asc(), of(C, true, first)), NullOrdering.UNKNOWN,
+                KeysetNullKeys.FAIL)).containsExactly("vvvv", "nvvv", "vvnv", "nvnv");
+    }
+
+    /** The rows {@code keyset.after} the {@code index}th later-page cursor selects once its placeholders are bound: a to 1, id to 5. */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static List<Long> afterPlaceholders(ModelQuery<KeysetRowEntity, Long, Row3> q, Keyset<Row3> keyset,
+            int index) {
+        try (EntityManager em = sessions.createEntityManager()) {
+            CriteriaBuilder cb = em.getCriteriaBuilder();
+            BuiltQuery<Row3> built = q.buildQuery(cb, Phase.MODEL, portable());
+            Object[] cursor = keyset.laterPageCursors(cb).get(index);
+            built.query().where(keyset.after(cursor, built.joins(), cb).predicate());
+            keyset.appendOrder(built, cb);
+            TypedQuery<Tuple> typed = em.createQuery(built.query());
+            for (var parameter : typed.getParameters()) {
+                // Only the cursor's placeholders: the order's own literals are already bound by the provider.
+                if (typed.isBound(parameter)) {
+                    continue;
+                }
+                typed.setParameter((jakarta.persistence.Parameter) parameter,
+                        parameter.getParameterType() == Long.class ? (Object) 5L : (Object) 1);
+            }
+            return typed.getResultList().stream().map(t -> built.map(t).id()).toList();
+        }
+    }
+
+    @Test
+    void ac_vnd_21_a_placeholder_cursor_selects_the_rows_a_value_cursor_does_in_both_directions() {
+        for (boolean asc : List.of(true, false)) {
+            for (NullPrecedence nulls : EXPLICIT) {
+                var q = query(of(A, asc, nulls));
+                Keyset<Row3> keyset = keyset(q, NullOrdering.NULLS_FIRST, KeysetNullKeys.FAIL);
+                assertThat(afterPlaceholders(q, keyset, 0)).as("%s %s value", asc, nulls)
+                        .containsExactlyElementsOf(
+                                after(q, keyset, new Object[] {1, 5L}).stream().map(Row3::id).toList());
+                assertThat(afterPlaceholders(q, keyset, 1)).as("%s %s null", asc, nulls)
+                        .containsExactlyElementsOf(
+                                after(q, keyset, new Object[] {null, 5L}).stream().map(Row3::id).toList());
+            }
+        }
+    }
+
+    @Test
+    void ac_vnd_21_every_later_page_cursor_value_is_a_fresh_placeholder() {
+        try (EntityManager em = sessions.createEntityManager()) {
+            var q = query(of(A, true, NullPrecedence.FIRST));
+            List<Object[]> cursors = keyset(q, NullOrdering.NULLS_FIRST, KeysetNullKeys.FAIL)
+                    .laterPageCursors(em.getCriteriaBuilder());
+            assertThat(cursors).hasSize(2).allSatisfy(c -> assertThat(c).hasSize(2));
+            assertThat(cursors.get(0)[0]).isNotNull().isNotSameAs(cursors.get(0)[1]);
+            assertThat(cursors.get(0)[1]).isNotSameAs(cursors.get(1)[1]);
+            assertThat(cursors.get(1)[0]).isNull();
+        }
+    }
+
     private static Keyset<Row3> keyset(ModelQuery<?, ?, Row3> q, NullOrdering ordering, KeysetNullKeys nullKeys) {
         return keyset(q, ordering, Optional.empty(), nullKeys);
     }
