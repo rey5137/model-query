@@ -1,26 +1,30 @@
 # RFC 0017 — Custom filter operators
 
-- **Status:** draft (revised after two `architect-review` passes, each "accept with changes", all folded in)
+- **Status:** accepted 2026-10-21 as D-167 (after two `architect-review`s and the acceptance spike, §7). M29, 0.10.0
+  (D-148).
 - **Affects:**
   - **`api/12`:** new R-FLT-20 (`FilterOperator`, `Filters.op`, `Having.op`, `MQ1313`), R-FLT-21 (how an operator's
-    value is prepared, converted, typed and bound) and R-FLT-22 (NULLs and negation), AC-FLT-21 to AC-FLT-27.
-    R-FLT-08 covers the operand the engine binds; R-FLT-13's skip rule covers the `Optional` form; AC-FLT-01's "every
-    operator on every Tier-1 vendor" excludes gated operators. The escape hatch (`add`, D-24) is unchanged.
+    value is prepared, converted, typed and bound) and R-FLT-22 (NULLs and negation), AC-FLT-21 to AC-FLT-27 and
+    AC-FLT-32 (full text). R-FLT-08 covers the operand the engine binds; R-FLT-13's skip rule covers the `Optional`
+    form; AC-FLT-01's "every operator on every Tier-1 vendor" excludes gated operators. The escape hatch (`add`, D-24)
+    is unchanged.
   - **`api/10`:** R-COL-18's binding bans are lifted for an operator's value only, when the provider's `OperandBinder`
     types it by the column's mapping (R-FLT-21).
   - **`api/16`:** new `Condition.Kind.OPERATOR` recording the operator, the column and the value or right operand
     (R-INS-13); R-INS-04 amended (operators compare by identity); R-INS-07 gains `FilterMatchers.op(...)`.
   - **`vendor/40`:** new R-VND-23: `OperatorFeature` (a `core` enum), `VendorProfile#operators(OperatorFeature)` and
     `ProviderSupport#operators(EntityManagerFactory, OperatorFeature)`, the two checks behind the shipped catalogue
-    (§4); new R-VND-24: `ProviderSupport#operands(EntityManagerFactory)`, an `OperandBinder` that types an operator's
-    parameter by the column's mapping (§2), in the shape of `ConstantRenderer` (R-VND-16).
+    (§4), `FULL_TEXT` among them; new R-VND-24: `ProviderSupport#operands(EntityManagerFactory)`, an `OperandBinder`
+    that types an operator's parameter by the column's mapping (§2), in the shape of `ConstantRenderer` (R-VND-16).
   - **`api/10`:** R-COL-17's CASE conditions refuse `OPERATOR` (`MQ1505`), as they refuse `CUSTOM` (§5).
-  - **`model-query-hibernate`:** a catalogue, `HibernateOperators` (§4), and a `FunctionContributor` that registers the
-    pattern functions it renders through.
-  - **`reference/90`:** new `MQ1313` (an operator renderer returned `null` or threw); `MQ4014` and `MQ4015` widened to
-    an operator feature the provider or the target lacks; `MQ1804`'s message names an operator in a conflict update's
-    `where` (§2).
-  - **`reference/92`:** D-148 (release and name, decided before acceptance); a D-n at acceptance.
+  - **`model-query-hibernate`:** a catalogue, `HibernateOperators` (§4), `fullTextMatch(configuration)` included, a
+    `FunctionContributor` that registers the `mq_*` pattern functions it renders through for PostgreSQL's dialect
+    only, and an `OperandBinder` per served line (§2).
+  - **`reference/90`:** new `MQ1313` (an operator renderer returned `null` or threw) and `MQ1315` (a full-text
+    configuration that is not a plain SQL identifier); `MQ4014` and `MQ4015` widened to an operator feature the
+    provider or the target lacks; `MQ1502`'s message names an operator's value that can't be bound (§2); `MQ1804`'s
+    message names an operator in a conflict update's `where` (§2).
+  - **`reference/92`:** D-148 (release and name, decided before acceptance), D-167 (acceptance), Q-28.
   - **`delivery/61`:** the incubating list.
   - **`docs/site`:** the filters page gains "Custom operators" (both tabs, CC-DOC-01), with the index advice (§6).
 - **Discussion:** to open
@@ -34,8 +38,9 @@ is defined once (`static final`, INV-9) and applied with `Filters.op(operator, c
 operators get: compile-time column and value types, a value the engine binds and types by the column's attribute, an
 `Optional` form that skips, a converted column's value converted, a loud refusal on a bad renderer, and a recorded
 condition that query inspection and `FilterMatchers` can see. `model-query-hibernate` ships a small catalogue (`ilike`,
-regex match, array and `jsonb` containment). Its reach is two facts, the provider's and the vendor's, so a
-PostgreSQL-only operator on an H2 target is refused before any statement and reported by `PortabilityCheck`.
+regex match, array and `jsonb` containment, PostgreSQL full text). Its reach is two facts, the provider's and the
+vendor's, so a PostgreSQL-only operator on an H2 target is refused before any statement and reported by
+`PortabilityCheck`.
 
 ```java
 // Ships in model-query-hibernate
@@ -120,8 +125,12 @@ public interface OperatorContext {
   `Map<String, Object>`, so the factories take none: `C` is inferred from the call, and `requiringAttribute` adds the
   runtime check where the operator needs one (`ilike` requires `String`).
 - **The renderer sees two expressions, never the operand's value.** The engine binds that value itself (§2), so the
-  operand can't be inlined by mistake. A renderer that captures some other value and passes it to `cb.literal` still
-  inlines it; R-FLT-08 is guaranteed for the operand, and the docs say not to capture values.
+  operand can't be inlined by mistake. That holds because `right` is an explicit parameter, which Hibernate never
+  inlines, even under `hibernate.criteria.value_handling_mode=inline`; `cb.equal(left, someValue)` lets Hibernate
+  turn the value into a parameter itself, and under that setting it inlines it (spike finding 8). So R-FLT-08 is
+  guaranteed for the operand only, and the docs say a renderer must use the `right` it is given and never capture a
+  value, through `cb.equal(left, someValue)`, `cb.literal` or otherwise. Whether the engine's own value paths have the
+  same exposure is Q-28.
 - **Layering.** `FilterOperator`, `OperatorRenderer`, `OperatorContext` and `OperatorFeature` are `core` types that see
   `jakarta.persistence.criteria` and the JDK only (INV-7). `OperatorFeature` names features and holds no SQL; the facts
   about them live in `jpa`'s `VendorProfile` and `ProviderSupport` (§4).
@@ -144,8 +153,10 @@ public interface OperatorContext {
      declared `valueType` (the `<C, V>` form), never by `value.getClass()` alone. A `core` parameter can only be
      typed by a Java class (`cb.parameter(Class)`, `JoinContext.parameter`), and for an enum the attribute's class is
      the value's class: the parameter knows nothing of `@Enumerated(STRING)` or a JPA `@Convert`. Inside
-     `cb.function(...)` Hibernate then binds an enum by ordinal, and on MySQL `status_col = 0` is true for every
-     non-numeric string, so rows come back silently wrong (INV-5). So the parameter comes from a provider hook,
+     `cb.function(...)` Hibernate then binds a `STRING` enum by ordinal (`setByte(0)`), and a `@Convert` value fails
+     to bind (spike finding 1). PostgreSQL and H2 refuse the ordinal, but MySQL is silently wrong both ways (INV-5):
+     over a `varchar` column `status_col = 0` is true for every non-numeric string, so every row matches, and over
+     Hibernate's default native `enum(...)` column no row does. So the parameter comes from a provider hook,
      R-VND-24, in the shape of `ConstantRenderer`:
 
      ```java
@@ -156,15 +167,39 @@ public interface OperatorContext {
      ```
 
      `ProviderSupport#operands(EntityManagerFactory)` supplies it, resolved once per executor and carried by
-     `RenderOptions.withOperandBinder(...)`. `model-query-hibernate` implements it with
-     `SqmExpression#applyInferableType`, whose argument type differs by line (`SqmExpressible` on 6.6,
-     `SqmBindableType` on 7.4), so it has one adapter per line. For the `<C, C>` form `typedBy` is the column's path;
-     for the `<C, V>` form it is absent and the declared `valueType` types the parameter.
+     `RenderOptions.withOperandBinder(...)`. For the `<C, C>` form `typedBy` is the column's path; for the `<C, V>`
+     form it is absent and the declared `valueType` types the parameter.
+
+     `model-query-hibernate` implements it as a `JpaCriteriaParameter` whose anticipated type is `typedBy`'s node
+     type (the spike's `ANTICIPATED_PATH`), the route that typed all eight operand types by the column's mapping on
+     every Tier-1 vendor and both lines, MySQL's `STRING` enum bound as `setString('ACTIVE')` (spike finding 7). It is
+     a `ParameterExpression` whose value `JoinContext` sets per statement (step 6), and it stays `?` under
+     `value_handling_mode=inline` (finding 8). `SqmExpression#applyInferableType` types nothing by the mapping on
+     either line, so it is not used.
+     - **One adapter, two line differences**, found by reflection as `model-query-hibernate`'s other per-line
+       adapters are: the constructor (its `BindableType` parameter is `org.hibernate.query.BindableType` on 6.6 and
+       `org.hibernate.type.BindableType` on 7.4), and the unwrap, on 6.6 only (6.6's node type is a
+       `BasicSqmPathSource` whose `getSqmPathType()` is the attribute's type; 7.4's node type already is that type
+       and has no `getSqmPathType()`).
+     - **Served lines only.** `operands(emf)` returns the binder on Hibernate 6.6.x and 7.4.x only
+       (`org.hibernate.Version`), as `treats(emf)` does (R-VND-26), and is empty elsewhere, so step 5's rules apply.
+     - **Loud, never a fallback.** The adapter knows per line which node type it expects. A node type it doesn't
+       expect, a missing unwrap on 6.6 or a missing constructor is `MQ1502` naming the operator and the column,
+       before any statement; it never falls back to the raw node type or to `cb.parameter(class)`. Both types it
+       relies on are outside Jakarta and Hibernate's public API (`org.hibernate.query.sqm.tree.expression`, and
+       `getSqmPathType()`), so a later line may move them; the TCK binds every operand type on each line.
+     - **Not `SqmCriteriaNodeBuilder#value(value, path)`**, the other route that typed by the mapping: it lives in an
+       `internal` package, carries the value in the expression rather than setting it per statement, inlines it
+       under `value_handling_mode=inline`, and breaks there for enums, `@Convert` and arrays.
   5. With the binder, the value may be an enum, an array or a converted value, which `Expr.value` refuses
      (R-COL-18). Without one (no `ProviderSupport`, or `RenderOptions.portable()`), only a value whose binding doesn't
      depend on the mapping binds: `String`, a number, `Boolean`, a `java.time` value or a `UUID`. Anything else is
      `MQ1502`, never bound by its class. `Optional`, `Collection` and `Map` values are always `MQ1502`: a
      `Collection` operand is an `IN`, and a `Map` has no portable binding (a `jsonb` value is passed as its text).
+     The spike bore the split out: `String`, `LocalDate` and `ORDINAL` enums bound correctly by class, `STRING` enums
+     and `@Convert` didn't. Arrays bound correctly by class on PostgreSQL's fixture, so refusing them without a
+     binder is conservative there; it stays, because an array's element mapping can still differ. `UUID`, numbers and
+     `Boolean` were not probed, and bind by class as `Expr.value` binds them today.
   6. The bind is per statement through `JoinContext`'s parameters, so every statement that renders the filter binds
      it: the content query, the count, each export page, a keyset page, and a sub-select's parameters merged into its
      outer query (`JoinContext#addSubqueryBinds`). It counts toward R-FLT-09's bind limit.
@@ -224,28 +259,54 @@ cached factory, generic where the column type is:
 | `regexMatch()` | `FilterOperator<String, String>` | `col ~ ?` | `REGEX_MATCH` |
 | `<E> arrayContains()`, `<E> arrayOverlaps()` | `FilterOperator<E[], E[]>` | `col @> ?`, `col && ?` | `ARRAY_CONTAINMENT` |
 | `<C> jsonbContains()` | `FilterOperator<C, String>` | `col @> cast(? as jsonb)` | `JSONB_CONTAINMENT` |
+| `fullTextMatch(String config)` | `FilterOperator<String, String>` | `to_tsvector('c', col) @@ …('c', ?)` | `FULL_TEXT` |
 
 - **`ilike(LikeMode)`** prepares the value as `like` does (R-FLT-06: escaped, wrapped for `CONTAINS`, `STARTS_WITH`
   and `ENDS_WITH`), renders the escape character, and requires a `String` attribute. It goes through
   `HibernateCriteriaBuilder#ilike`.
-  - PostgreSQL and H2 have `ILIKE` natively. MySQL has none, and Hibernate would emulate it silently, which R-VND-10
-    forbids. So `ILIKE` is a feature, false on MySQL.
+  - PostgreSQL and H2 have `ILIKE` natively and match `%`, `_` and `\` literally once escaped (spike finding 4).
+    MySQL has none, and Hibernate emulates it silently as `lower(col) like lower(?)`, which R-VND-10 forbids. So
+    `ILIKE` is a feature, false on MySQL on both checks.
   - It doesn't replace `likeIgnoreCase`, whose one rendering everywhere D-22 and R-VND-10 keep.
-- **Pattern functions.** The other three render through boolean-valued pattern functions named `mq_*`
-  (`mq_regex_match` as `(?1 ~ ?2)`), registered by a `FunctionContributor` in `model-query-hibernate`
-  (`META-INF/services/org.hibernate.boot.model.FunctionContributor`) for the dialects that have the operator. The
-  renderer calls `cb.isTrue(cb.function("mq_…", Boolean.class, left, right))`. Where Hibernate's own array functions
-  render `@>` and `&&` on both lines, the catalogue uses them instead (spike probe 6).
+- **Pattern functions.** `regexMatch`, the array operators and `jsonbContains` render through boolean-valued pattern
+  functions named `mq_*` (`mq_regex_match` as `(?1 ~ ?2)`, `mq_array_contains` as `(?1 @> ?2)`, `mq_array_overlaps` as
+  `(?1 && ?2)`, `mq_jsonb_contains`), registered by a `FunctionContributor` in `model-query-hibernate`
+  (`META-INF/services/org.hibernate.boot.model.FunctionContributor`) for PostgreSQL's dialect only. The renderer calls
+  `cb.isTrue(cb.function("mq_…", Boolean.class, left, right))`, which renders the bare pattern, never `= true`, on
+  both lines (finding 2).
+  - **Not Hibernate's array functions.** `array_includes` and `array_intersects` / `array_overlaps` render the same
+    `@>` and `&&` on PostgreSQL and use the same index, but Hibernate registers them on H2 too, where
+    `array_intersects` fails to prepare and `array_includes` is an emulation; MySQL has none, and
+    `cb.arrayIncludes` throws there (finding 6). A provider check that looked them up would pass on H2 and reach a
+    database error. The `mq_*` functions are one mechanism for every pattern feature, gated before rendering.
+- **`fullTextMatch(String configuration)`** is PostgreSQL's full text, a value-form operator: the value is the
+  request's text, bound unconverted as a `String` (the `<C, V>` form), and the column is a `String` attribute.
+  - **The configuration** is required, a constant of the definition, and rendered as a literal:
+    `to_tsvector('english', col)`. It must be a plain, optionally schema-qualified SQL identifier (`english`,
+    `public.my_config`); null, blank or anything else is `MQ1315` when the factory is called. It is rendered rather
+    than bound because an expression index matches only `to_tsvector('<config>', col)`: a one-argument
+    `to_tsvector(col)` (the server's `default_text_search_config`) returns the right rows but never uses the index,
+    even with `enable_seqscan = off` (finding 9). The factory is cached per configuration.
+  - **The text** goes through `plainto_tsquery` or `websearch_to_tsquery`, chosen by a probe that opens the slice
+    building it and recorded there as a D-n; `to_tsquery` is not offered, because it raises on free text such as
+    `acme corp`. Either takes request text without a database error.
+  - It renders through `mq_ts_match` (`(?1 @@ ?2)`), registered for PostgreSQL's dialect only; whether the
+    `to_tsvector` and tsquery calls sit in the pattern or are passed to it is the slice's, since the spike measured
+    both shapes rendering and planning alike.
+  - Not a field form with `Expr.function` operands: that works in raw Criteria, but every caller would build both
+    calls and pass the configuration as a literal by hand.
 - **The two checks**, mirroring R-SRC-11's for sources, run when the filter is rendered, before any statement. The
   vendor check runs first, because the vendor is the real reason an operator can't run:
   1. **The vendor.** `VendorProfile#operators(OperatorFeature)`, `@Incubating`, false by default. PostgreSQL answers
-     all four true, H2 only `ILIKE`, and MySQL none. False is `MQ4015`, widened to "the target's vendor lacks a source
+     all five true, H2 only `ILIKE`, and MySQL none. False is `MQ4015`, widened to "the target's vendor lacks a source
      or operator feature".
   2. **The provider.** `ProviderSupport#operators(EntityManagerFactory, OperatorFeature)`, `@Incubating`, false by
      default. It takes the factory, as `constants(emf)` and `sequences(emf)` do, because a `ProviderSupport` is a
-     stateless ServiceLoader service. Hibernate's answers a pattern-function feature by looking the `mq_*` function up
-     in that factory's function registry, so it is true exactly where the contributor registered it, whatever a
-     custom profile says. It answers `ILIKE` true always, because `ilike` is an HQL predicate rather than a registry
+     stateless ServiceLoader service. Hibernate's answers a pattern-function feature (`REGEX_MATCH`,
+     `ARRAY_CONTAINMENT`, `JSONB_CONTAINMENT`, `FULL_TEXT`) by looking its `mq_*` function up in that factory's
+     function registry, so it is true exactly where the contributor registered it, whatever a custom profile says
+     (finding 5). It answers `ILIKE` by the factory's dialect: true for PostgreSQL's and H2's (subclasses included),
+     false elsewhere, because `ilike` is an HQL predicate Hibernate emulates on other dialects rather than a registry
      function. False is `MQ4014`, widened to "the persistence provider can't render operator feature F".
 - **How the checks reach the render.** The executor resolves both facts once, as it resolves the provider's other
   per-factory facts, into an operator gate that `RenderOptions.withOperatorGate(...)` carries to every render path:
@@ -256,7 +317,9 @@ cached factory, generic where the column type is:
   - **`checkPhases`' scratch build** gets a stand-in gate that answers true (D-132's pattern). Without it, every
     query with an `op` and a customizer would fail there.
   - **Hibernate's pass-through rendering** of an unknown function is never reached: a profile answering true on a
-    dialect the contributor skipped stops at check 2.
+    dialect the contributor skipped stops at check 2. Without the gate Hibernate renders `mq_regex_match(...)`
+    through and the database refuses it (`SQLGrammarException`, finding 5), so check 2 is the only thing between a
+    wrong profile and that error.
 - **`PortabilityCheck`** (`rfc/0011`) reaches both checks because it renders the calls it runs. It sees an `op` only
   when the value is present in that run: an empty `Optional` records and renders nothing (R-INS-02), so a definition
   checked with an empty value is not gated. The docs say to give the check a present value, and an AC covers it.
@@ -277,15 +340,20 @@ cached factory, generic where the column type is:
 
 ### 6. Indexes
 
-The docs page says plainly that an operator is only as fast as the index that matches its form:
+The docs page says plainly that an operator is only as fast as the index that matches its form, and that the index
+use is the planner's, per plan, not something the operator guarantees. On PostgreSQL 16 (spike finding 3):
 
-- `ILIKE '%x%'` and `~` need `gin (col gin_trgm_ops)`;
-- `@>` and `&&` need a GIN index on the column;
+- `@>` and `&&` on an array column use `gin (col)`, under a custom and a generic plan alike;
+- `fullTextMatch(config)` uses `gin (to_tsvector('<config>', col))` under both plans, only when the index's
+  configuration is the operator's;
+- `ILIKE '%x%'` uses `gin (col gin_trgm_ops)` and `jsonb @>` uses `gin (col)` under a custom plan, where the planner
+  sees the value. Under a generic plan (`plan_cache_mode = force_generic_plan`, the plan a reused server-side
+  prepared statement can get) both were a Seq Scan at 20 000 rows. Whether `plan_cache_mode = auto` picks that plan
+  once pgjdbc server-prepares the statement was not measured;
+- `~` can use `gin (col gin_trgm_ops)` too, as `pg_trgm` documents; the spike did not measure it;
 - a `lower(col)` index serves `likeIgnoreCase`, not `ILIKE`.
 
-Spike probe 3 records the plans.
-
-### 7. Spike plan
+### 7. Spike plan and results
 
 On Hibernate 6.6.58 and 7.4.11, against H2, PostgreSQL 16 and MySQL 8.0.31, results in `rfc/0017-spike-results.md`:
 
@@ -316,6 +384,20 @@ On Hibernate 6.6.58 and 7.4.11, against H2, PostgreSQL 16 and MySQL 8.0.31, resu
 6. **Arrays.** Record Hibernate's array function names on each line (`array_contains`, `array_overlaps`, or their
    renamed forms), and whether they render `@>` and `&&` on PostgreSQL or a function form that skips the index.
 
+The spike added probe 8 (the binder routes under `hibernate.criteria.value_handling_mode=inline`) and `FT` (full
+text). What it changed here:
+
+- **Probe 7 and 8:** `applyInferableType` types nothing by the mapping; the binder is `ANTICIPATED_PATH`, loud on
+  failure, one adapter with two line differences, and not `SqmCriteriaNodeBuilder#value` (§2 step 4).
+- **Probe 1:** MySQL's two silent shapes for a `STRING` enum bound by ordinal (§2 step 4, AC-FLT-22); the
+  no-binder split stands (§2 step 5).
+- **Probes 4 to 6:** `ILIKE` answered by dialect on the provider side, the `mq_*` array functions for PostgreSQL's
+  dialect only rather than Hibernate's, and check 2 as the only guard against Hibernate's pass-through (§4).
+- **Probe 3:** the index list, with the generic-plan caveat and `~` unmeasured (§6); `= true` is never rendered and
+  is moot.
+- **`FT`:** `fullTextMatch(configuration)` ships behind `FULL_TEXT` (§4, AC-FLT-32).
+- **Probe 8:** a renderer must use `right` (§1); the engine's own value paths are Q-28.
+
 ### New ids
 
 | Id | Where | What |
@@ -324,18 +406,23 @@ On Hibernate 6.6.58 and 7.4.11, against H2, PostgreSQL 16 and MySQL 8.0.31, resu
 | R-FLT-21 | `api/12` | An operator's value: prepared, converted, typed by attribute or declared type, bound per statement |
 | R-FLT-22 | `api/12` | An operator over NULL, and under `not` |
 | R-INS-13 | `api/16` | `Kind.OPERATOR`, `Condition#operator()`, identity equality, `FilterMatchers.op` |
-| R-VND-23 | `vendor/40` | `OperatorFeature`, `VendorProfile#operators`, `ProviderSupport#operators`, `MQ4015`/`MQ4014` widened |
-| R-VND-24 | `vendor/40` | `OperandBinder`, `ProviderSupport#operands(emf)`, `RenderOptions.withOperandBinder` |
+| R-VND-23 | `vendor/40` | `OperatorFeature`, `operators` on `VendorProfile` and `ProviderSupport`, `MQ4015`/`MQ4014` |
+| R-VND-24 | `vendor/40` | `OperandBinder`, `ProviderSupport#operands(emf)`, `withOperandBinder`, `MQ1502` widened |
 | MQ1313 | `reference/90` | An operator renderer returned `null` or threw |
-| AC-FLT-21..27 | `api/12` | below |
+| MQ1315 | `reference/90` | A `fullTextMatch` configuration that is not a plain SQL identifier |
+| AC-FLT-21..27, 32 | `api/12` | below (AC-FLT-28..31 are D-150's and D-154's) |
 
 - **AC-FLT-21:** a user operator and `ilike(mode)` filter on PostgreSQL and H2 on both lines:
   - in value, `Optional` and field form, and inside `or`, `not`, `exists` and a sub-select;
   - an empty `Optional` creates no join;
   - the value is a bind parameter (SQL snapshot).
 - **AC-FLT-22:** an operator's value is typed and converted correctly:
-  - with Hibernate's binder, an enum (`STRING` and `ORDINAL`), a `@Convert` attribute, an array and a converted value
-    bind typed by the column's mapping, and a MySQL enum column never matches through `= 0`;
+  - with Hibernate's binder, on each served line, an enum (`STRING` and `ORDINAL`), a `@Convert` attribute, an array
+    and a converted value bind typed by the column's mapping, the statement shows `?` with the default value handling
+    and under `hibernate.criteria.value_handling_mode=inline`, and on MySQL a `STRING` enum over a `varchar` column
+    and over a native `enum(...)` column each returns exactly its matching rows, never every row or none;
+  - the binder refuses a node type its line doesn't expect with `MQ1502` (a test double for the node type), and
+    `operands(emf)` is empty outside 6.6.x and 7.4.x;
   - with no binder, an enum or an array value is `MQ1502`, and a `String`, number or `java.time` value binds;
   - a `FilterOperator<C, V>` binds `V` unconverted, and one with `requiringAttribute` over the wrong attribute is
     `MQ1001` (R-COL-14);
@@ -346,12 +433,23 @@ On Hibernate 6.6.58 and 7.4.11, against H2, PostgreSQL 16 and MySQL 8.0.31, resu
 - **AC-FLT-24:** the catalogue's `regexMatch`, `arrayContains`, `arrayOverlaps` and `jsonbContains` return the right
   rows on PostgreSQL. On H2 and MySQL each is refused before any statement:
   - `MQ4015` with H2's and MySQL's profiles (the vendor check runs first);
-  - `MQ4014` with a custom profile that answers true and Hibernate's provider, which has no `mq_*` function there;
+  - `MQ4014` with a custom profile that answers true and Hibernate's provider, which has no `mq_*` function there, and
+    for `arrayOverlaps` on H2 never `Unknown data type`;
   - an operator that requires a feature is `MQ4014` with no gate (`RenderOptions.portable()`), and a query with an
     `op` and a customizer passes `checkPhases`;
-  - `ilike` is `MQ4015` on MySQL;
+  - `ilike` is `MQ4015` on MySQL with its profile, and `MQ4014` with a custom profile answering true there (the
+    provider answers `ILIKE` by dialect), never the `lower(col) like lower(?)` emulation;
   - `PortabilityCheck` reports each per target when the value is present, and an `op` with an empty `Optional` is not
     reported.
+- **AC-FLT-32:** `fullTextMatch(config)` on PostgreSQL, both lines:
+  - returns the right rows for request text with spaces and punctuation (`acme corp`, a quote), with no database
+    error;
+  - the statement renders the configuration as a literal and the text as `?` (SQL snapshot);
+  - a null, blank or non-identifier configuration (`english'`, `a b`) is `MQ1315` at the factory call, and two calls
+    with one configuration return the same instance;
+  - it is `MQ4015` on H2 and MySQL with their profiles, and `MQ4014` with a custom profile answering `FULL_TEXT` true
+    there;
+  - `PortabilityCheck` reports it per target.
 - **AC-FLT-25:** inspection and matching:
   - inspection records `OPERATOR` with the operator, column and unprepared value;
   - `FilterMatchers.op` matches it, and a different operator with the same name doesn't;
@@ -369,13 +467,16 @@ On Hibernate 6.6.58 and 7.4.11, against H2, PostgreSQL 16 and MySQL 8.0.31, resu
 ## Compatibility
 
 Additive. Every new type and member is `@Incubating`: `FilterOperator`, `OperatorRenderer`, `OperatorContext`,
-`OperatorFeature`, `Filters.op`, `Having.op`, `Condition.Kind.OPERATOR`, `Condition#operator()`,
-`OperandBinder`, `ProviderSupport#operators`, `ProviderSupport#operands` and `VendorProfile#operators` (default
-methods), `RenderOptions.withOperatorGate` and `withOperandBinder`, and `HibernateOperators`.
+`OperatorFeature` (`ILIKE`, `REGEX_MATCH`, `ARRAY_CONTAINMENT`, `JSONB_CONTAINMENT`, `FULL_TEXT`), `Filters.op`,
+`Having.op`, `Condition.Kind.OPERATOR`, `Condition#operator()`, `FilterMatchers.op`, `OperandBinder`,
+`ProviderSupport#operators`, `ProviderSupport#operands` and `VendorProfile#operators` (default methods),
+`RenderOptions.withOperatorGate` and `withOperandBinder`, and `HibernateOperators` with its factories,
+`fullTextMatch(String)` included. The `mq_*` function names are internal to `model-query-hibernate`.
 
 - `Filters` and `Having` are already sealed, so the new methods break no implementation.
 - A `switch` over `Condition.Kind` without a default gains a case, as each earlier kind did.
-- The messages of `MQ4014`, `MQ4015` and `MQ1804` widen; their codes don't change.
+- The messages of `MQ4014`, `MQ4015`, `MQ1502` and `MQ1804` widen; their codes don't change. `MQ1313` and `MQ1315`
+  are new.
 
 ## Alternatives
 
@@ -399,22 +500,30 @@ methods), `RenderOptions.withOperatorGate` and `withOperandBinder`, and `Hiberna
 - **`OperatorFeature` in `jpa`, beside `SourceFeature`.** Then `core`'s `FilterOperator` couldn't name its feature
   (INV-7).
 
+- **Binding through `applyInferableType`, `SqmCriteriaNodeBuilder#value` or a function's
+  `ARGUMENT_OR_IMPLIED_RESULT_TYPE`.** The first types nothing by the mapping; the second is `internal`, carries the
+  value and inlines it under `value_handling_mode=inline`; the third fixes `STRING` enums but not `@Convert`, and
+  only for the catalogue's own functions, never a user's (spike finding 7, §2 step 4).
+- **Hibernate's array functions in the catalogue.** Same SQL on PostgreSQL, but registered on H2, where they fail or
+  emulate, so the provider check can't gate them (§4).
+- **Full text as a field form over `Expr.function` operands.** Works, but every caller builds both calls and passes
+  the configuration as a literal by hand (§4).
+
 ## Unresolved questions
 
-- **Release (decided 2026-10-16, D-148):** M29, in 0.10.0 after M28. The freeze moves to M30 and stays last. Every
-  new public type and member is `@Incubating`, so the M30.1 freeze review decides each one.
-- **The method's name (decided 2026-10-16, D-148):** `op`, which doesn't clash with `apply(UnaryOperator)`; `test`,
-  `matches` and `where` were rejected.
-- **Full text (`@@`).** `to_tsvector(...) @@ to_tsquery(...)` needs expressions on both sides and a language argument.
-  It fits the field form with `Expr.function` operands; whether the catalogue ships it is left to the spike.
+The design questions of the two reviews and the acceptance spike were decided on 2026-10-21 (D-167), the release and
+the method's name on 2026-10-16 (D-148): the binder (§2), the `mq_*` array functions and `ILIKE` by dialect (§4),
+full text behind `FULL_TEXT` (§4), the index advice (§6). One stays open in `reference/92`:
+
+1. **Q-28, the engine's own value paths under `value_handling_mode=inline`.** `cb.equal(path, value)`-style binding
+   inlines under that setting (spike finding 8). Whether any engine path relies on it rather than on an explicit
+   parameter is to be checked outside this RFC.
+
+Left to a slice, not open: the tsquery function for `fullTextMatch` (`plainto_tsquery` or `websearch_to_tsquery`),
+picked by the probe that opens its slice.
+
+Later, not in this RFC:
+
 - **Regex on MySQL and H2.** Both have a regex operator, with different syntax and case rules. This RFC gates
   `regexMatch` to PostgreSQL rather than claim equal semantics; a per-vendor regex is a later RFC.
 - **Ordering by an operator.** Out of scope: an operator is a predicate. A computed sort key stays `Expr`.
-- **Acceptance D-n**, to record:
-  - an operator's value binds typed by the column's mapping through the provider's `OperandBinder`, or by the
-    declared value type; without a binder only mapping-independent types bind, others are `MQ1502`;
-  - `OperatorFeature` is a `core` enum;
-  - the gate is two checks at render time, the vendor's (`MQ4015`) and then the provider's (`MQ4014`), carried by
-    `RenderOptions`; no gate is `MQ4014`; `checkPhases` uses a stand-in;
-  - an `OPERATOR` condition is refused inside `Expr.cases()` (`MQ1505`);
-  - operators compare by identity (R-INS-04 amended).

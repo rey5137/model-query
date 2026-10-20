@@ -2481,6 +2481,44 @@ treated node. The `mq_0id` anchor and `MQ2214` still key on the top statement's 
 **D-166 — `named(...)` on a treated join is `MQ1106` (M28 gate).** `named(...)` on a treated join is `MQ1106` like
 `as` and `on`; apply those modifiers before treating. Amends R-COL-34, R-GEN-41.
 
+**D-167 — Custom filter operators (RFC 0017, 2026-10-21, user decision).** A filter applies a typed, named
+`FilterOperator<C, V>`, an immutable `core` definition compared by identity (R-INS-04 amended), with `Filters.op` and
+`Having.op` in value, `Optional` and field form; its renderer gets the column's path and an operand expression, never
+the value, and `null` or a thrown `RuntimeException` from it is `MQ1313`. The engine binds the value per statement:
+converted for the `<C, C>` form, unconverted for `<C, V>`, typed by the column's mapping through the provider's
+`OperandBinder` (`ProviderSupport#operands(emf)`, carried by `RenderOptions.withOperandBinder`) or by the declared
+value type. Hibernate's binder is a `JpaCriteriaParameter` typed by the column's node type (the spike's
+`ANTICIPATED_PATH`), served on 6.6.x and 7.4.x only, one reflective adapter with two line differences (the
+constructor's `BindableType` package, and the `getSqmPathType()` unwrap on 6.6 only); a node type it doesn't expect
+is `MQ1502`, never a fallback to `cb.parameter(class)`, and each line has a TCK case. Without a binder only
+mapping-independent values bind and the rest are `MQ1502`, because a class-typed parameter binds a `STRING` enum by
+ordinal, which MySQL answers silently wrong over a `varchar` column (every row) and a native `enum(...)` column (no
+row). `OperatorFeature` is a `core` enum (`ILIKE`, `REGEX_MATCH`, `ARRAY_CONTAINMENT`, `JSONB_CONTAINMENT`,
+`FULL_TEXT`); the gate is two checks at render time, before any statement, the vendor's
+(`VendorProfile#operators`, `MQ4015`) and then the provider's (`ProviderSupport#operators(emf, f)`, `MQ4014`),
+resolved once per executor into a gate `RenderOptions` carries; no gate is `MQ4014`, and `checkPhases` uses a
+stand-in (D-132). Hibernate's provider answers a pattern feature by looking its `mq_*` function up in the factory's
+registry, and `ILIKE` by dialect (PostgreSQL's and H2's, never MySQL's emulation). `model-query-hibernate`'s
+`HibernateOperators` ships `ilike(LikeMode)`, `regexMatch()`, `arrayContains()`, `arrayOverlaps()`, `jsonbContains()`
+and `fullTextMatch(String configuration)`; every `mq_*` function, `mq_array_contains` and `mq_array_overlaps`
+included, is registered for PostgreSQL's dialect only. Full text is a value-form operator whose configuration is a
+required plain, optionally schema-qualified SQL identifier (`MQ1315` otherwise), rendered as a literal so the
+expression index matches; the tsquery function (`plainto_tsquery` or `websearch_to_tsquery`) is chosen by a probe
+that opens its slice. An `OPERATOR` condition is refused inside `Expr.cases()` (`MQ1505`); any `op` in an arbiter's
+`where` and a value-form one in a conflict update's `where` are `MQ1804`; `op` adds no NULL handling (R-FLT-22). The
+docs page says a renderer must use the `right` it is given, and that index use is the planner's per plan: under a
+generic plan `ILIKE` over a trigram index and `jsonb @>` were a Seq Scan, and `~` over a trigram index is unmeasured.
+Every new type and member is `@Incubating`. Rejected: `applyInferableType` (types nothing by the mapping),
+`SqmCriteriaNodeBuilder#value` (an `internal` package, inlines under `value_handling_mode=inline`, breaks for enums,
+`@Convert` and arrays there), a function's `ARGUMENT_OR_IMPLIED_RESULT_TYPE` (catalogue functions only, not
+`@Convert`), Hibernate's own array functions (registered on H2, where they fail or emulate, so the provider check
+can't gate them), `ILIKE` answered true on every dialect, full text as a field form over `Expr.function` operands or
+with a bound or default configuration, a built-in `ilike` per vendor (D-22, R-VND-10), SQL templates in `core`, a
+renderer given the raw value, binding through `Expr.value`, one vendor check only, and `OperatorFeature` in `jpa`.
+→ `rfc/0017`, `rfc/0017-spike-results.md`, `api/10` R-COL-17, R-COL-18, `api/12` R-FLT-20..22, `api/13`, `api/14`
+R-WRT-34, R-WRT-52, `api/16` R-INS-04, R-INS-07, R-INS-13, `vendor/40` R-VND-23, R-VND-24, `reference/90` `MQ1313`,
+`MQ1315`, `MQ1502`, `MQ1804`, `MQ4014`, `MQ4015`, D-148, Q-28.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -2602,6 +2640,13 @@ statement to the treated subtype. The LEFT entity join on the id (spike S2.4) an
 original group key (S2.3) keep the NULL rule in every measured shape; a later release designs the rendering, measures
 its cost and composition, and lifts the refusal, with `treat` on `@Aggregate`. → `rfc/0016` §2, §11, D-154, `api/10`
 R-COL-35.
+
+**Q-28 — The engine's value paths under `value_handling_mode=inline`.** RFC 0017's spike found that
+`cb.equal(path, value)`-style binding, where Hibernate turns the value into a parameter itself, inlines the value
+under `hibernate.criteria.value_handling_mode=inline`, while an explicit parameter never does. An operator's operand
+is explicit (D-167); whether any engine value path (filters, writes, keyset cursors, sources) relies on Hibernate's
+conversion, and so breaks R-FLT-08 under that setting, is unchecked. An audit and a TCK case under that setting would
+answer it. → `rfc/0017` §1, D-167, `api/12` R-FLT-08.
 
 ## 3. Risks
 
