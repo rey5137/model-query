@@ -3,6 +3,7 @@ package com.rey.modelquery.tck.col;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.ExpectedNarrowing;
 import com.rey.modelquery.core.StatementShape;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.core.TreatRenderer;
@@ -101,7 +102,7 @@ public final class TreatTestSupport {
 
         @Override
         public Optional<String> preflight(EntityManager em, CommonAbstractCriteria statement,
-                    StatementShape shape) {
+                    StatementShape shape, List<ExpectedNarrowing> expected) {
             return Optional.empty();
         }
     }

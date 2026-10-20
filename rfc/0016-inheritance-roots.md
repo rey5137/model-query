@@ -594,7 +594,9 @@ is Hibernate's own choice. Five guards keep a change in that behaviour from losi
    fragment of the root's table reference, a derived table or a pruned union, so the walk inspects those fragments
    too; a walk of joins and the outer `where` alone missed 19 narrowed shapes per `SINGLE_TABLE` target. CTE bodies
    and sub-selects are walked recursively. A restriction the statement asks for (a subtype root, an INNER treated
-   join, `ofType`) is expected. A narrowed node is `MQ4016`, and so is an AST shape the adapter doesn't recognise:
+   join, a sub-select root the engine declares it narrowed, `ofType`) is expected; S3 never covered sub-selects, so
+   the engine lists the ones it narrows on purpose, a path `exists`'s correlated root, with each statement (D-157). A
+   narrowed node is `MQ4016`, and so is an AST shape the adapter doesn't recognise:
    it fails closed. S3 found no false positive or negative over 45 shapes on three vendors, 135 observations per line
    and strategy. Each page shape of a keyset page or export is built with placeholder parameters and preflighted
    before page 1, per key and for a non-NULL and a NULL cursor value. A first translation and walk took a median

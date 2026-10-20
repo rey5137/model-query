@@ -1,6 +1,7 @@
 package com.rey.modelquery.hibernate;
 
 import com.rey.modelquery.annotations.Incubating;
+import com.rey.modelquery.core.ExpectedNarrowing;
 import com.rey.modelquery.core.StatementShape;
 import com.rey.modelquery.core.TreatRenderer;
 import com.rey.modelquery.core.TreatSite;
@@ -12,6 +13,7 @@ import jakarta.persistence.SecondaryTables;
 import jakarta.persistence.criteria.CollectionJoin;
 import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.ListJoin;
@@ -27,10 +29,13 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.hibernate.Session;
+import org.hibernate.Version;
 import org.hibernate.annotations.DiscriminatorOptions;
 import org.hibernate.annotations.SQLRestriction;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
@@ -40,6 +45,9 @@ import org.hibernate.persister.entity.EntityPersister;
 import org.hibernate.persister.entity.JoinedSubclassEntityPersister;
 import org.hibernate.persister.entity.SingleTableEntityPersister;
 import org.hibernate.persister.entity.UnionSubclassEntityPersister;
+import org.hibernate.query.spi.QueryImplementor;
+import org.hibernate.query.spi.SqmQuery;
+import org.hibernate.query.sqm.tree.select.SqmSelectStatement;
 import org.hibernate.type.Type;
 
 /**
@@ -47,13 +55,18 @@ import org.hibernate.type.Type;
  * {@code refusal} from the cells RFC 0016's spike measured on 6.6 and 7.4, all three Tier-1 vendors and every
  * strategy, keyed by shape, anchoring, use set, strategy, mapping variant and, on {@code SINGLE_TABLE}, whether the
  * attribute's column is shared (AC-COL-51). The mapping gates of AC-VND-18 refuse a whole hierarchy. Anything the
- * table doesn't name is refused. The statement preflight lands in M28.4, so it refuses here.
+ * table doesn't name is refused. {@code preflight} translates a select statement to Hibernate's SQL AST through the
+ * line's adapter ({@link PreflightTranslation}), with no JDBC call, and refuses it when {@link TreatPreflight} finds a
+ * node it reads untreated narrowed, a sub-select root narrowed that the engine did not declare, or a shape it does not
+ * recognise. It never widens the table: {@code refusal} runs
+ * first, and the preflight after it.
  *
  * <p>The mapping is read from the entity persisters once, when the renderer is built; it is immutable and holds no
  * reference to the factory, so one instance serves every thread and is cached per factory. On {@code SINGLE_TABLE} a
- * dotted path's column is its first segment's, and a join or path through a shared column is refused.
+ * dotted path's column is its first segment's, and a join or path through a shared column is refused. Nothing a
+ * preflight computes is kept: each call translates and walks its statement again.
  *
- * @implSpec R-VND-26, AC-VND-17, AC-VND-18, AC-COL-51
+ * @implSpec R-VND-26, AC-VND-17, AC-VND-18, AC-VND-21, AC-COL-51
  */
 final class HibernateTreatRenderer implements TreatRenderer {
 
@@ -107,6 +120,10 @@ final class HibernateTreatRenderer implements TreatRenderer {
     /** The count cells a mapping variant measured: its runs had no root-id count; its content cells are the core's. */
     private static final Set<Set<TreatUse>> VARIANT_COUNT = minus(COUNT, ROOT_ID_COUNTED);
 
+    /** The preflight's line adapters, the newest first: at most one probes true on a Hibernate line (R-VND-26). */
+    private static final List<PreflightTranslation> LINES = List.of(new Hibernate7Preflight(),
+            new Hibernate6Preflight());
+
     private static final String IMPLICIT_FOR_JOINED = "hibernate.discriminator.implicit_for_joined";
 
     private static final String IGNORE_EXPLICIT_FOR_JOINED = "hibernate.discriminator.ignore_explicit_for_joined";
@@ -117,7 +134,11 @@ final class HibernateTreatRenderer implements TreatRenderer {
      */
     private final Map<Class<?>, Mapped> entities;
 
+    /** The line adapter whose probe passed on the factory, or {@code null}, when every preflight is refused. */
+    private final PreflightTranslation translation;
+
     HibernateTreatRenderer(SessionFactoryImplementor factory) {
+        this.translation = LINES.stream().filter(line -> line.probes(factory)).findFirst().orElse(null);
         Map<String, Object> properties = factory.getProperties();
         boolean joinedSettings = on(properties.get(IMPLICIT_FOR_JOINED))
                 || on(properties.get(IGNORE_EXPLICIT_FOR_JOINED));
@@ -226,8 +247,29 @@ final class HibernateTreatRenderer implements TreatRenderer {
 
     @Override
     @Incubating
-    public Optional<String> preflight(EntityManager em, CommonAbstractCriteria statement, StatementShape shape) {
-        return Optional.of("statement preflight lands in M28.4");
+    public Optional<String> preflight(EntityManager em, CommonAbstractCriteria statement, StatementShape shape,
+            List<ExpectedNarrowing> expected) {
+        Objects.requireNonNull(em, "em");
+        Objects.requireNonNull(statement, "statement");
+        Objects.requireNonNull(shape, "shape");
+        Objects.requireNonNull(expected, "expected");
+        if (shape == StatementShape.WRITE || !(statement instanceof CriteriaQuery<?> select)) {
+            return Optional.of("only a select statement is preflighted");
+        }
+        if (translation == null) {
+            return Optional.of("no preflight adapter translates statements on Hibernate " + Version.getVersionString());
+        }
+        try {
+            QueryImplementor<?> query = em.unwrap(Session.class).createQuery(select).unwrap(QueryImplementor.class);
+            if (!(query.unwrap(SqmQuery.class).getSqmStatement() instanceof SqmSelectStatement<?> sqm)) {
+                return Optional.of("the statement is not translated as a select");
+            }
+            return TreatPreflight.walk(translation.translate(query.getSession().getFactory(), query, sqm),
+                    List.copyOf(expected));
+        } catch (RuntimeException | LinkageError failed) {
+            // Fails closed: a statement the adapter can't translate, or a line whose internals moved, is refused.
+            return Optional.of("the statement could not be translated for the preflight: " + failed);
+        }
     }
 
     /** Reads a hierarchy's strategy, gates, variant and column owners from its persisters (AC-VND-18). */

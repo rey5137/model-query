@@ -111,6 +111,17 @@ public final class BuiltQuery<M> {
         return sourceKeyColumns;
     }
 
+    /**
+     * The sub-select roots this statement narrows through a treat on purpose, in build order, for the provider's
+     * preflight to expect; empty when it narrows none (R-VND-26, D-157). Read after the statement is complete: a
+     * customizer's {@code exists} on {@link #joins()} adds to it.
+     */
+    @EngineFacing
+    @Incubating
+    public List<ExpectedNarrowing> expectedNarrowings() {
+        return joins.expectedNarrowings();
+    }
+
     /** The deepest level the source returns, the seeds being level 0; 0 when the source does not recurse (R-SRC-07). */
     @EngineFacing
     public int sourceMaxDepth() {

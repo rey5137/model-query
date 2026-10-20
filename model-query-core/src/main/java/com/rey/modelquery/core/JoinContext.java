@@ -20,6 +20,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -86,6 +87,17 @@ public final class JoinContext {
      * D-136). Shared with the build's nested contexts, as {@link #parameters} is.
      */
     private final Map<ForeignKeyRead, ColumnField<?, ?, ?>> foreignKeyReads;
+    /**
+     * The sub-select roots this build narrowed through a treat on purpose, in build order, which the provider's
+     * preflight expects (R-VND-26, D-157). Shared with the build's nested contexts, as {@link #parameters} is.
+     */
+    private final List<Declared> narrowings;
+    /** The narrowing a treat of {@link #root} declares: a path {@code exists}'s correlated root, else none. */
+    private ExpectedNarrowing.Kind declares;
+    /** This context's entry in {@link #narrowings}, made by the first treat of {@link #root}; else {@code null}. */
+    private Declared declared;
+    /** The columns read so far on a treat of {@link #root} that declares a narrowing (D-157). */
+    private int treatedReads;
     /** The key each join was cached under, which is not the declared key when its type was changed. */
     private final Map<From<?, ?>, JoinKey> keys = new IdentityHashMap<>();
     /** In an {@code exists}, the {@code on(...)} conditions of its required joins, rendered in its WHERE instead. */
@@ -122,13 +134,13 @@ public final class JoinContext {
     private JoinContext(From<?, ?> root, Class<?> rootType, CriteriaBuilder cb, CommonAbstractCriteria query,
             JoinKey rootKey, Set<JoinKey> required, RenderOptions renderOptions, Set<Class<?>> existsJoined) {
         this(root, rootType, cb, query, rootKey, required, renderOptions, existsJoined, null, new int[1],
-                new LinkedHashMap<>(), new LinkedHashMap<>());
+                new LinkedHashMap<>(), new LinkedHashMap<>(), new ArrayList<>());
     }
 
     private JoinContext(From<?, ?> root, Class<?> rootType, CriteriaBuilder cb, CommonAbstractCriteria query,
             JoinKey rootKey, Set<JoinKey> required, RenderOptions renderOptions, Set<Class<?>> existsJoined,
             JoinContext outer, int[] repeatedExpressionBinds, Map<ParameterExpression<?>, Object> parameters,
-            Map<ForeignKeyRead, ColumnField<?, ?, ?>> foreignKeyReads) {
+            Map<ForeignKeyRead, ColumnField<?, ?, ?>> foreignKeyReads, List<Declared> narrowings) {
         this.root = root;
         this.rootType = rootType;
         this.cb = cb;
@@ -141,6 +153,7 @@ public final class JoinContext {
         this.repeatedExpressionBinds = repeatedExpressionBinds;
         this.parameters = parameters;
         this.foreignKeyReads = foreignKeyReads;
+        this.narrowings = narrowings;
     }
 
     /** A context over {@code root}, the query's root table, rendering with {@link RenderOptions#portable()}. */
@@ -196,7 +209,7 @@ public final class JoinContext {
 
     JoinContext rootedAt(From<?, ?> join, Class<?> entity) {
         JoinContext ctx = new JoinContext(join, entity, cb, query, null, Set.of(), renderOptions, existsJoined, null,
-                repeatedExpressionBinds, parameters, foreignKeyReads);
+                repeatedExpressionBinds, parameters, foreignKeyReads, narrowings);
         ctx.readsToOneLeft = readsToOneLeft;
         return ctx;
     }
@@ -222,6 +235,48 @@ public final class JoinContext {
     /** The to-one attributes this build rendered as their foreign-key column, each with its column (R-COL-29). */
     Map<ForeignKeyRead, ColumnField<?, ?, ?>> foreignKeyReads() {
         return Collections.unmodifiableMap(foreignKeyReads);
+    }
+
+    /**
+     * A sub-select root a build narrowed on purpose, gaining each subtype a treat of it reads, unless an {@code or}
+     * read a column of the treated root in only some of its branches (D-157).
+     */
+    private static final class Declared {
+        final ExpectedNarrowing.Kind kind;
+        final Class<?> entity;
+        final Set<Class<?>> types = new LinkedHashSet<>();
+        boolean whole;
+
+        Declared(ExpectedNarrowing.Kind kind, Class<?> entity) {
+            this.kind = kind;
+            this.entity = entity;
+        }
+    }
+
+    /**
+     * The sub-select roots this build narrowed through a treat on purpose so far, in build order, each with every
+     * subtype it was treated as: only the correlated root of a path {@code exists}, and not one an {@code or} keeps
+     * whole. Nothing else is declared, so the preflight refuses any other narrowing (R-VND-26, D-157).
+     */
+    List<ExpectedNarrowing> expectedNarrowings() {
+        return narrowings.stream().filter(each -> !each.whole)
+                .map(each -> new ExpectedNarrowing(each.kind, each.entity, each.types)).toList();
+    }
+
+    /** The columns read so far on a treat of this context's root that declares a narrowing (D-157). */
+    int treatedReads() {
+        return treatedReads;
+    }
+
+    /**
+     * Withdraws the narrowing a treat of this context's root declared: an {@code or} read a column of the treated
+     * root in some of its branches only, and Hibernate, measured on 6.6 and 7.4, then reads the root whole. A
+     * provider that narrows it anyway is refused by the preflight, which expects nothing of it (D-157).
+     */
+    void readsTreatedRootUnevenly() {
+        if (declared != null) {
+            declared.whole = true;
+        }
     }
 
     /** Whether an {@code exists} sub-query of this build rendered so far, at any depth (R-WRT-11). */
@@ -403,13 +458,14 @@ public final class JoinContext {
             // The root of a through child's context is a join, which the sub-query correlates as a join (D-100).
             From<?, ?> correlated = root instanceof Root<?> ? sub.correlate((Root) root) : sub.correlate((Join) root);
             ctx = new JoinContext(correlated, rootType, cb, sub, null, path.keysUpTo(null), renderOptions,
-                    existsJoined, outer, repeatedExpressionBinds, parameters, foreignKeyReads);
+                    existsJoined, outer, repeatedExpressionBinds, parameters, foreignKeyReads, narrowings);
             ctx.readsToOneLeft = readsToOneLeft;
+            ctx.declares = ExpectedNarrowing.Kind.EXISTS_ROOT; // a treat of the correlated root narrows the sub-select
         } else {
             From<?, ?> correlated = sub.correlate((Join) existsFrom);
             ctx = new JoinContext(correlated, correlated.getJavaType(), cb, sub, existsPath.key(),
                     path.keysUpTo(existsPath.key()), renderOptions, existsJoined, outer, repeatedExpressionBinds,
-                    parameters, foreignKeyReads);
+                    parameters, foreignKeyReads, narrowings);
             ctx.readsToOneLeft = readsToOneLeft;
         }
         ctx.enclosingLeftJoining = enclosingLeftJoining || leftJoining > 0;
@@ -448,7 +504,7 @@ public final class JoinContext {
         Subquery<?> sq = (Subquery<?>) query;
         From<?, ?> correlated = from instanceof Root<?> ? sq.correlate((Root) from) : sq.correlate((Join) from);
         JoinContext ctx = new JoinContext(correlated, outer.rootType, cb, sq, column.table().key(), Set.of(),
-                renderOptions, existsJoined, null, repeatedExpressionBinds, parameters, foreignKeyReads);
+                renderOptions, existsJoined, null, repeatedExpressionBinds, parameters, foreignKeyReads, narrowings);
         ctx.readsToOneLeft = outer.readsToOneLeft;
         return column.path(ctx);
     }
@@ -466,7 +522,7 @@ public final class JoinContext {
         Subquery<C> sq = query.subquery(sub.column().type());
         Root<?> inner = sq.from(sub.rootEntity());
         JoinContext ctx = new JoinContext(inner, sub.rootEntity(), cb, sq, null, Set.of(), renderOptions,
-                existsJoined, null, repeatedExpressionBinds, parameters, foreignKeyReads);
+                existsJoined, null, repeatedExpressionBinds, parameters, foreignKeyReads, narrowings);
         ctx.readsToOneLeft = readsToOneLeft;
         Path<C> selected = sub.column().path(ctx);
         // A lifted column reads the outer root, so its embeddable check runs against the outer context, not this one.
@@ -548,7 +604,7 @@ public final class JoinContext {
         Subquery<C> sq = query.subquery(type);
         Root<?> inner = sq.from(sub.rootEntity());
         JoinContext ctx = new JoinContext(inner, sub.rootEntity(), cb, sq, null, Set.of(), renderOptions,
-                existsJoined, this, repeatedExpressionBinds, parameters, foreignKeyReads);
+                existsJoined, this, repeatedExpressionBinds, parameters, foreignKeyReads, narrowings);
         ctx.readsToOneLeft = readsToOneLeft;
         sq.select(selection.apply(ctx));
         var where = new ArrayList<>(ConditionGroup.toPredicates(sub.filters(), ctx));
@@ -633,8 +689,12 @@ public final class JoinContext {
         return join;
     }
 
+    /**
+     * {@code parent} read as {@code subtype}, the node shared per statement. {@code read} says a column of the treated
+     * node is read, rather than a join made from it or the node itself reached as a path (D-157).
+     */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    <T> From<?, T> treat(JoinKey key, From<?, ?> parent, Class<T> subtype, String description) {
+    <T> From<?, T> treat(JoinKey key, From<?, ?> parent, Class<T> subtype, String description, boolean read) {
         Class<?> reached = parent.getJavaType();
         if (!reached.isAssignableFrom(subtype) && !subtype.isAssignableFrom(reached)) {
             throw new ModelQueryDefinitionException(MqCode.MQ1106, description + ": cannot treat "
@@ -646,17 +706,29 @@ public final class JoinContext {
         }
         JoinKey cacheKey = new JoinKey(keys.getOrDefault(parent, key.parent()), subtype.getName(), null, "");
         Resolved cached = joins.get(cacheKey);
+        From<?, T> treated;
         if (cached != null) {
-            return (From<?, T>) cached.from();
+            treated = (From<?, T>) cached.from();
+        } else {
+            TreatRenderer renderer = renderOptions.treatRenderer().orElseThrow(() ->
+                    new ModelQueryConfigurationException(MqCode.MQ4014, description
+                            + ": a treated path needs the provider's TreatRenderer (ProviderSupport#treats(emf))"));
+            treated = subtype.isAssignableFrom(reached) ? (From<?, T>) parent
+                    : renderer.treat(cb, (From) parent, subtype);
+            joins.put(cacheKey, new Resolved(treated, null));
+            if (treated != parent) {
+                keys.put(treated, cacheKey);
+            }
         }
-        TreatRenderer renderer = renderOptions.treatRenderer().orElseThrow(() ->
-                new ModelQueryConfigurationException(MqCode.MQ4014, description
-                        + ": a treated path needs the provider's TreatRenderer (ProviderSupport#treats(emf))"));
-        From<?, T> treated = subtype.isAssignableFrom(reached) ? (From<?, T>) parent
-                : renderer.treat(cb, (From) parent, subtype);
-        joins.put(cacheKey, new Resolved(treated, null));
-        if (treated != parent) {
-            keys.put(treated, cacheKey);
+        if (treated != parent && parent == root && declares != null) {
+            if (declared == null) {
+                declared = new Declared(declares, reached);
+                narrowings.add(declared);
+            }
+            declared.types.add(subtype);
+            if (read) {
+                treatedReads++;
+            }
         }
         return treated;
     }

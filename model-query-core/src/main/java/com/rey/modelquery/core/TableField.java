@@ -225,8 +225,13 @@ public final class TableField<P, T> {
     }
 
     /** {@link #resolve(JoinContext)}, naming {@code owner} (a column, or {@code null}) in its failures. */
-    @SuppressWarnings("unchecked")
     From<?, T> resolve(JoinContext ctx, Object owner) {
+        return resolve(ctx, owner, owner != null);
+    }
+
+    /** {@code read} when {@code owner} reads a column of this node, rather than of a join below it (D-157). */
+    @SuppressWarnings("unchecked")
+    private From<?, T> resolve(JoinContext ctx, Object owner, boolean read) {
         if (subtype != null) {
             Class<?> declared = treatOrigin.declaredType(ctx.cb());
             requireStrictSubtype(declared, subtype);
@@ -237,8 +242,8 @@ public final class TableField<P, T> {
                         + ": " + subtype.getSimpleName() + " is not a mapped entity subtype of "
                         + declared.getSimpleName(), e);
             }
-            From<?, ?> reached = parent.rootEntity != null ? ctx.root() : parent.resolve(ctx, owner);
-            return ctx.treat(key, reached, subtype, prefix(owner) + describe());
+            From<?, ?> reached = parent.rootEntity != null ? ctx.root() : parent.resolve(ctx, owner, false);
+            return ctx.treat(key, reached, subtype, prefix(owner) + describe(), read);
         }
         if (key.equals(ctx.rootKey())) {
             return (From<?, T>) ctx.root();
@@ -260,7 +265,7 @@ public final class TableField<P, T> {
                     MqCode.MQ1102,
                     describe() + ": on(...) has no alias; call as(...) so the condition can be compared");
         }
-        From<?, P> parentFrom = parent.resolve(ctx, owner);
+        From<?, P> parentFrom = parent.resolve(ctx, owner, false);
         return (From<?, T>) ctx.join(key, parentFrom, attribute, type, condition, prefix(owner) + describe());
     }
 

@@ -7,6 +7,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.From;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -289,8 +290,12 @@ class TreatSitesTest {
     }
 
     private static List<TreatSite> sites(ModelQuery<?, ?, ?> query, StatementShape shape, boolean laterPages) {
-        return TreatChecks.check(query, RenderOptions.portable().withTreatRenderer(new Renderer()), null,
+        var renderer = new Renderer();
+        var sites = TreatChecks.check(query, RenderOptions.portable().withTreatRenderer(renderer), null,
                 shape, laterPages, true);
+        // The site check builds no statement, so it preflights none: the executor preflights the ones it builds.
+        assertThat(renderer.preflighted).isEmpty();
+        return sites;
     }
 
     private static TreatSite site(StatementShape shape, boolean anchored, TreatUse... uses) {
@@ -302,6 +307,8 @@ class TreatSitesTest {
     }
 
     private static class Renderer implements TreatRenderer {
+        final List<StatementShape> preflighted = new ArrayList<>();
+
         @Override
         public <T, S extends T> From<?, S> treat(CriteriaBuilder cb, From<?, T> from, Class<S> subtype) {
             throw new AssertionError("sites require no Criteria rendering");
@@ -310,8 +317,10 @@ class TreatSitesTest {
         @Override public Optional<String> refusal(TreatSite site) { return Optional.empty(); }
 
         @Override
-        public Optional<String> preflight(EntityManager em, CommonAbstractCriteria statement, StatementShape shape) {
-            throw new AssertionError("preflight belongs to M28.4");
+        public Optional<String> preflight(EntityManager em, CommonAbstractCriteria statement, StatementShape shape,
+                List<ExpectedNarrowing> expected) {
+            preflighted.add(shape);
+            return Optional.empty();
         }
     }
 }

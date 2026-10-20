@@ -510,12 +510,21 @@ abstract class ConditionGroup<M, G> {
         return record(Condition.group(Kind.OR, branchConditions), new LeftJoining(ctx -> {
             CriteriaBuilder cb = ctx.cb();
             var alternatives = new ArrayList<Predicate>(recorded.size());
+            boolean someRead = false;
+            boolean everyRead = true;
             for (List<Filter> group : recorded) {
+                int reads = ctx.treatedReads();
                 List<Predicate> parts = toPredicates(group, ctx);
                 if (parts.isEmpty()) {
                     return Optional.empty(); // this branch holds for every row, so the or does too
                 }
+                boolean read = ctx.treatedReads() > reads;
+                someRead |= read;
+                everyRead &= read;
                 alternatives.add(and(cb, parts));
+            }
+            if (someRead && !everyRead) {
+                ctx.readsTreatedRootUnevenly(); // a branch without the treated read keeps the root whole (D-157)
             }
             return Optional.of(alternatives.size() == 1
                     ? alternatives.get(0)

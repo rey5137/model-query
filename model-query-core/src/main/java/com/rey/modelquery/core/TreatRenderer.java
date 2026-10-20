@@ -5,6 +5,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.From;
+import java.util.List;
 import java.util.Optional;
 
 /** The provider's treated-path rendering and statement checks (R-VND-26, INV-7). */
@@ -20,7 +21,12 @@ public interface TreatRenderer {
     @Incubating
     Optional<String> refusal(TreatSite site);
 
-    /** The translation's refusal reason, or empty when the statement preserves all intended rows (R-VND-26). */
+    /**
+     * The translation's refusal reason, or empty when the statement preserves all intended rows (R-VND-26).
+     * {@code expected} lists the narrowings the engine rendered in this statement on purpose, in build order and
+     * compared as a multiset; empty when it rendered none (D-157).
+     */
     @Incubating
-    Optional<String> preflight(EntityManager em, CommonAbstractCriteria statement, StatementShape shape);
+    Optional<String> preflight(EntityManager em, CommonAbstractCriteria statement, StatementShape shape,
+            List<ExpectedNarrowing> expected);
 }
