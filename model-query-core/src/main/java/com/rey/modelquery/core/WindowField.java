@@ -160,7 +160,9 @@ public final class WindowField<M, C> implements SelectField<M, C> {
     }
 
     void checkTreats(TreatChecks checks) {
-        checks.field(argument);
+        // A window computes over its partition's rows, as an aggregate over its group does: no cell measured a
+        // treated argument there, so it is refused as an aggregate argument is, in a query or a source (R-COL-35).
+        checks.using(TreatUse.AGGREGATE, () -> checks.field(argument));
         checks.using(TreatUse.GROUP_BY, () -> partitionBy.forEach(checks::field));
         checks.using(TreatUse.ORDER, () -> orderBy.forEach(order -> checks.field(order.column())));
     }

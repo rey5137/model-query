@@ -196,6 +196,28 @@ class TreatModelDiagnosticsTest {
     }
 
     @Test
+    void ac_proc_42_a_source_model_over_a_polymorphic_root_keeps_its_treat_checks() {
+        Compilation compilation = compile(ENTITIES, model("""
+                @SourceModel(root = Payment.class)
+                @FilterColumn(name = "NAME_FILTER", path = "name", treat = Customer.class)
+                public record View(@PrimaryKey Long id, @Column(treat = Payment.class) String reference,
+                        @Column(treat = BankPayment.class) String iban) {}
+                """));
+
+        assertCode(compilation, DiagnosticCode.MQ3042);
+        assertThat(errors(compilation)).hasSize(2);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Class<? extends CardPayment>", "Class<?>"})
+    void ac_proc_43_a_source_model_subtype_must_be_class_extends_its_root(String type) {
+        assertCode(compile(ENTITIES, model("""
+                @SourceModel(root = Payment.class)
+                public record View(@PrimaryKey Long id, @Subtype %s kind) {}
+                """.formatted(type))), DiagnosticCode.MQ3043);
+    }
+
+    @Test
     void ac_proc_43_grouped_subtype_compiles() {
         Compilation compilation = compile(ENTITIES, model("""
                 @QueryModel(root = Payment.class)

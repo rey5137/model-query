@@ -2436,6 +2436,38 @@ union join with no recorded treated declaration fails closed even inside a `Quer
 Keep the site allow-list as the first guard; this statement-specific
 check refines it without a new SPI or diagnostic. → `vendor/40` R-VND-26, AC-VND-21; D-157.
 
+**D-162 — What an anchored source body admits (M28.8, 2026-10-20).** Four choices R-SRC-20 left to the slice. (1) A
+body is anchored, its sites `anchored = true`, when it is ungrouped and reads an entity root itself: a plain body and
+each branch of a combination. A grouped body stays `GROUPED`, and a recursive body and a body over another source stay
+unanchored, since no anchor was measured there. (2) The Hibernate renderer admits the spike's measured source rows
+only, `{SELECT}` and `{NULL_TEST}` (`READ SELECT+SOURCE`, `NULL_TEST+SOURCE`, run with the body reading the root id),
+on the three core strategies over an unshared column; a mapping variant and a shared `SINGLE_TABLE` column have no
+source row, so they are refused. (3) `{SELECT, TYPE}` is admitted too, though the spike ran no type read in a body:
+R-SRC-20 names `@Subtype` fields in a source, a type read makes no treated statement (R-COL-36), and it is the content
+cell the spike measured, read from a CTE. Its TCK case runs per strategy, as D-158's unnamed cells do, and found that
+on `JOINED` without a physical discriminator both lines read the root's class on every row of the body, so there it
+is refused (`MQ4016`), as a type order is (R-COL-36). (4) A combined
+body's branches select `mq_0id` all or none: when one branch with a treated node reads no untreated root id, each
+branch selects its own, so a `unionAll` keeps one arity; a `union`, `intersect` or `except` that would need it stays
+`MQ4016` (R-COL-35), as does a combination needing it with such an operation anywhere in it, nested under a
+`unionAll` included: every branch would select the anchor, so a nested `union` would stop collapsing and an `except`
+would remove nothing. Once a combination needs it, every branch's root id is checked before any statement: a composite
+id, or root ids differing in Java type, is `MQ4016`, since the anchor column would have no one type. A window
+function's argument over a treated node is reported as an aggregate argument and refused as one, in every statement, a
+query's select list as well as a source body: no cell measured a window over a treated argument in any shape, and
+D-155 admits measured sets only. → `api/17` R-SRC-20, `api/10` R-COL-35, `vendor/40` R-VND-26.
+
+**D-163 — The offline report skips the preflight (M28.8, 2026-10-20).** `rfc/0016` §10 item 5 has `PortabilityCheck`
+report treat sites from the table's answer alone, since the preflight was never run over R-VND-20's offline factory.
+The dry run calls the executor as a deployment does, so the skip sits with the provider that boots offline:
+Hibernate's `offlineProperties` adds a library setting, `com.rey.modelquery.hibernate.offline_boot`, whose value is a
+private token object rather than a string, and a renderer built over a factory carrying that very object accepts every
+select statement in `preflight`: a user who sets the key, to `"true"` or anything else, still gets the preflight; `refusal` is unchanged, so each site
+is still `MQ4014` without a renderer and `MQ4016` outside the table, per target. No public API or `PortabilityCheck`
+change: the executor cannot tell an offline factory from a live one, and a provider's own offline boot is what knows.
+A statement the preflight would refuse is therefore reported offline as reached and refused only at execution, the
+blind spot `rfc/0016` records for the offline check. → `vendor/40` R-VND-26, AC-VND-17.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

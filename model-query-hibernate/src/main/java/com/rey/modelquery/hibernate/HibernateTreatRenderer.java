@@ -112,6 +112,19 @@ final class HibernateTreatRenderer implements TreatRenderer {
     private static final Set<Set<TreatUse>> TYPE_GROUPED = cells(List.of(), List.of("TYPE+GROUP_BY",
             "TYPE+SELECT+GROUP_BY"));
 
+    /**
+     * The anchored {@code SOURCE_BODY} cells, on the core mappings and an unshared column only: the {@code READ}
+     * rows {@code SELECT+SOURCE} and {@code NULL_TEST+SOURCE}, measured with the body reading the root id
+     * ({@code S2_SOURCE_ID_ANCHOR=true}); the aggregate row is refused (R-SRC-20).
+     */
+    private static final Set<Set<TreatUse>> SOURCE_BODY = cells(List.of(), List.of("SELECT", "NULL_TEST"));
+
+    /**
+     * A {@code typeOf} field in an anchored source body, on the core mappings with a physical discriminator or a
+     * union's type column: on {@code JOINED} without one it reads the root's class on every row (R-SRC-20, D-162).
+     */
+    private static final Set<Set<TreatUse>> TYPE_SOURCE_BODY = cells(List.of(), List.of("TYPE+SELECT"));
+
     /** The null-accepting count sets, measured as a root-id count on the core mappings only. */
     private static final Set<Set<TreatUse>> ROOT_ID_COUNTED =
             cells(List.of(), List.of("NULL_TEST", "NULL_TEST+NEGATED", "PREDICATE+NULL_TEST+DISJUNCTION"));
@@ -154,9 +167,13 @@ final class HibernateTreatRenderer implements TreatRenderer {
     /** The line adapter whose probe passed on the factory, or {@code null}, when every preflight is refused. */
     private final PreflightTranslation translation;
 
+    /** Whether the factory is the portability dry run's offline boot, whose statements are not preflighted (D-163). */
+    private final boolean offline;
+
     HibernateTreatRenderer(SessionFactoryImplementor factory) {
         this.translation = LINES.stream().filter(line -> line.probes(factory)).findFirst().orElse(null);
         Map<String, Object> properties = factory.getProperties();
+        this.offline = properties.get(HibernateProviderSupport.OFFLINE_BOOT) == HibernateProviderSupport.offlineToken();
         boolean joinedSettings = on(properties.get(IMPLICIT_FOR_JOINED))
                 || on(properties.get(IGNORE_EXPLICIT_FOR_JOINED));
         Map<String, List<EntityPersister>> byRoot = new HashMap<>();
@@ -208,7 +225,8 @@ final class HibernateTreatRenderer implements TreatRenderer {
         if (uses.contains(TreatUse.TYPE)) {
             return typeRefusal(site);
         }
-        if (site.shape() != StatementShape.CONTENT && site.shape() != StatementShape.COUNT) {
+        if (site.shape() != StatementShape.CONTENT && site.shape() != StatementShape.COUNT
+                && site.shape() != StatementShape.SOURCE_BODY) {
             return Optional.of("no " + site.shape() + " cell is measured");
         }
         if (!site.anchored()) {
@@ -246,7 +264,12 @@ final class HibernateTreatRenderer implements TreatRenderer {
             }
         }
         Set<Set<TreatUse>> cells;
-        if (shared && hierarchy.variant()) {
+        if (site.shape() == StatementShape.SOURCE_BODY) {
+            if (shared || hierarchy.variant()) {
+                return Optional.of("a source body was measured on the core mappings over an unshared column only");
+            }
+            cells = SOURCE_BODY;
+        } else if (shared && hierarchy.variant()) {
             return Optional.of("a shared column in a mapping variant is not measured");
         } else if (shared) {
             cells = count ? SHARED_COUNT : SHARED_CONTENT;
@@ -273,6 +296,7 @@ final class HibernateTreatRenderer implements TreatRenderer {
             case CONTENT -> TYPE_CONTENT;
             case COUNT -> TYPE_COUNT;
             case GROUPED, GROUPED_COUNT -> TYPE_GROUPED;
+            case SOURCE_BODY -> TYPE_SOURCE_BODY;
             default -> null;
         };
         if (cells == null) {
@@ -289,8 +313,15 @@ final class HibernateTreatRenderer implements TreatRenderer {
         if (entity.hierarchy().refusal().isPresent()) {
             return entity.hierarchy().refusal();
         }
+        if (site.shape() == StatementShape.SOURCE_BODY && entity.hierarchy().variant()) {
+            return Optional.of("a type read in a source body was measured on the core mappings only");
+        }
         if (!cells.contains(site.uses())) {
             return Optional.of("an unmeasured use set for a type read");
+        }
+        if (site.shape() == StatementShape.SOURCE_BODY && !entity.hierarchy().typeOrdered()) {
+            return Optional.of("a typeOf in a source body over a JOINED root without a discriminator reads the "
+                    + "root's class on every row; map a discriminator column or read it in the outer model");
         }
         if (site.shape() == StatementShape.GROUPED_COUNT && !entity.hierarchy().typeOrdered()) {
             return Optional.of("the provider's count of type groups on a JOINED root without a discriminator drops "
@@ -313,6 +344,10 @@ final class HibernateTreatRenderer implements TreatRenderer {
         Objects.requireNonNull(expected, "expected");
         if (shape == StatementShape.WRITE || !(statement instanceof CriteriaQuery<?> select)) {
             return Optional.of("only a select statement is preflighted");
+        }
+        if (offline) {
+            // The preflight was measured only at execution: offline the report is the table's answer alone (D-163).
+            return Optional.empty();
         }
         if (translation == null) {
             return Optional.of("no preflight adapter translates statements on Hibernate " + Version.getVersionString());

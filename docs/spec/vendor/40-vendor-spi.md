@@ -384,9 +384,10 @@ strategy and the reason. Nothing is cached: each call checks again. A site is on
   fetch plan's child statement, its join plans' selections and its declared columns, enrichers' included) or
   `WRITE` (a bulk write's `where` and a returning model). A site in a sub-select takes its statement's shape and
   adds `SUBQUERY`;
-- `anchored` is true in a `CONTENT` and a `COUNT` statement, which the engine anchors (`api/10` R-COL-35), and false
-  in a `GROUPED`, `GROUPED_COUNT`, `CHILD`, `WRITE` or `SOURCE_BODY` statement (until a body anchors its root id,
-  `api/17` R-SRC-20) and in a sub-select, since no anchor covers the sub-select's own root. A correlated count's
+- `anchored` is true in a `CONTENT` and a `COUNT` statement, which the engine anchors (`api/10` R-COL-35), and in
+  an ungrouped `SOURCE_BODY` over an entity root, which selects its root id (`api/17` R-SRC-20); it is false in a
+  `GROUPED`, `GROUPED_COUNT`, `CHILD` or `WRITE` statement, in a recursive body or one over another source, and in a
+  sub-select, since no anchor covers the sub-select's own root. A correlated count's
   counted column over its own treated root (`SubSelect.of(ROOT.treat(Sub.class).id)`-style) is the one anchored site
   in a sub-select: the count reads the treated root itself, so its `{SELECT, AGGREGATE, SUBQUERY}` site stays anchored
   and is not refused as an aggregate (R-COL-31); a treated node elsewhere in a correlated value — a counted column,
@@ -431,8 +432,10 @@ segment's; a join or path through a shared column, or an attribute whose columns
 measured there (`rfc/0016` §10). A mapping variant (`@DiscriminatorOptions(force = true)`, `@DiscriminatorFormula` or a
 `@SecondaryTable` on `SINGLE_TABLE`; a `JOINED` discriminator column, or either `JOINED` discriminator setting) keeps
 the table less what its runs didn't measure, the three null-accepting `COUNT` sets; a shared column in a variant, and
-a variant on another strategy, is refused. A
-correlated outer node, an unanchored site and every non-`TYPE` `GROUPED`, `GROUPED_COUNT`, `SOURCE_BODY`, `CHILD` and
+a variant on another strategy, is refused. An anchored `SOURCE_BODY` admits `{SELECT}`, `{NULL_TEST}` and
+`{SELECT, TYPE}` on the three core strategies over an unshared column, the type except on a `JOINED` root without a
+physical discriminator, and nothing on a variant or a shared column (`api/17` R-SRC-20, D-162). A
+correlated outer node, an unanchored site and every non-`TYPE` `GROUPED`, `GROUPED_COUNT`, `CHILD` and
 `WRITE` site are refused; a `GROUPED_COUNT` type site is admitted as its `GROUPED` cell, except on a `JOINED` root
 without a physical discriminator (D-159).
 The mapping gates are `MQ4016` for the whole hierarchy: a subtype `@SQLRestriction` (ignored by 6.6, refused at
@@ -449,6 +452,9 @@ can be NULL (all non-NULL included), with placeholder parameters. A non-empty an
 statement, its shape and the reason; no JDBC statement has run. Without a treated node nothing is built for it and
 `preflight` is not called. Nothing is cached: each call preflights again (INV-9). The site check runs first, so the
 preflight never widens the table. Writes stay refused by the table (`WRITE`), so only select statements are preflighted.
+The preflight runs at execution only: on R-VND-20's offline factory the renderer accepts every statement, so
+`PortabilityCheck` reports each target's treat sites from the table alone, `MQ4014` without a renderer and `MQ4016`
+outside the table, with no database (AC-VND-17, D-163).
 
 *Engine-declared narrowings (D-157).* Each statement comes with the `ExpectedNarrowing`s its own build rendered on
 purpose, in build order, compared as a multiset: an `EXISTS_ROOT` for the correlated root of a path `exists` read

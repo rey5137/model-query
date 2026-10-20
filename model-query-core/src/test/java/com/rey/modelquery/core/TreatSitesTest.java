@@ -3,6 +3,8 @@ package com.rey.modelquery.core;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.rey.modelquery.annotations.WindowFrame;
+import com.rey.modelquery.annotations.WindowFunction;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
@@ -207,10 +209,40 @@ class TreatSitesTest {
         var sourceRoot = TableField.source(Source.class);
         var outer = ColumnField.over(View.class, sourceRoot, sourceId);
         var query = ModelQuery.builder(sourceRoot, row -> new View(), source).select(SelectSet.of(outer)).build();
-        // Unanchored until a source body selects its root id (R-SRC-20), so a renderer refuses it.
+        // An ungrouped body over an entity root selects its root id, so its sites are anchored (R-SRC-20).
         assertThat(sites(query, StatementShape.CONTENT, false)).containsExactly(
-                site(StatementShape.SOURCE_BODY, false, TreatUse.SELECT));
+                site(StatementShape.SOURCE_BODY, true, TreatUse.SELECT));
+        assertThat(source.treated()).isTrue();
         assertThat(TreatChecks.treated(query)).isFalse();
+    }
+
+    @Test
+    void ac_col_46_a_treated_group_key_or_window_argument_in_a_source_body_is_refused() {
+        var sourceId = ColumnField.of(Source.class, ROOT, "id", Long.class).named("id");
+        var number = ColumnField.of(Source.class, ROOT.treat(Card.class), "number", String.class).named("number");
+        var sourceRoot = TableField.source(Source.class);
+        var outer = ColumnField.over(View.class, sourceRoot, sourceId);
+        var grouped = SourceQuery.builder(Source.class, ROOT, SelectSet.of(number), PrimaryKey.of(number),
+                SelectSet.of(number)).build();
+        var groupedQuery = ModelQuery.builder(sourceRoot, row -> new View(), grouped)
+                .select(SelectSet.of(ColumnField.over(View.class, sourceRoot, number))).build();
+        assertRefused(() -> sites(groupedQuery, StatementShape.CONTENT, false), "group key or aggregate argument");
+        var lagged = WindowField.of(Source.class, WindowFunction.LAG, String.class, number, List.of(),
+                List.of(sourceId.asc()), WindowFrame.NONE).named("lagged");
+        var windowed = SourceQuery.builder(Source.class, ROOT, SelectSet.of(sourceId, lagged), PrimaryKey.of(sourceId))
+                .build();
+        var windowedQuery = ModelQuery.builder(sourceRoot, row -> new View(), windowed).select(SelectSet.of(outer))
+                .build();
+        assertRefused(() -> sites(windowedQuery, StatementShape.CONTENT, false), "group key or aggregate argument");
+    }
+
+    @Test
+    void ac_col_46_a_treated_window_argument_in_a_query_is_refused() {
+        // No cell measured a window over a treated argument in any statement shape (D-162).
+        var lagged = WindowField.of(View.class, WindowFunction.LAG, String.class, NUMBER, List.of(),
+                List.of(ID.asc()), WindowFrame.NONE).named("lagged");
+        var query = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID, lagged)).build();
+        assertRefused(() -> sites(query, StatementShape.CONTENT, false), "group key or aggregate argument");
     }
 
     @Test

@@ -299,6 +299,26 @@ class TreatModelTest {
         assertThat(index(q).select("card.kind")).contains(field(q, "CARD_KIND"));
     }
 
+    @Test
+    void ac_src_39_a_source_model_over_a_polymorphic_root_generates_treat_and_subtype_fields() throws Exception {
+        Compilation compilation = compile(ENTITIES, model("PaymentSource", """
+                @FilterColumn(name = "LAST4_FILTER", path = "last4", treat = CardPayment.class)
+                @SourceModel(root = Payment.class)
+                public record PaymentSource(@PrimaryKey Long id,
+                        @Column(treat = CardPayment.class) String last4,
+                        @Subtype Class<? extends Payment> kind) {}
+                """));
+        assertThat(compilation).succeeded();
+        String code = compact(compilation, "treatgen.QPaymentSource");
+        assertThat(code).contains("TableField<Payment,CardPayment>CARD_PAYMENT_TREAT=ROOT.treat(CardPayment.class)",
+                "ColumnField.of(PaymentSource.class,CARD_PAYMENT_TREAT,\"last4\",String.class).named(\"last4\")",
+                "LAST4_FILTER=ColumnField.of(PaymentSource.class,CARD_PAYMENT_TREAT,\"last4\",String.class)",
+                "KIND=Expr.typeOf(PaymentSource.class,ROOT).named(\"kind\")", "ALL=SelectSet.of(ID,LAST4,KIND)",
+                "SourceQuery.builder(PaymentSource.class,ROOT,ALL,KEY)");
+        Class<?> q = ProcessorHarness.classes(compilation).loadClass("treatgen.QPaymentSource");
+        assertThat(set(q, "ALL").fields()).contains(field(q, "LAST4"), field(q, "KIND"));
+    }
+
     private static Compilation nested(boolean subtype) {
         String kind = subtype ? ", @Subtype Class<? extends %s> kind" : "";
         return compile(ENTITIES, model("IssuerView", """

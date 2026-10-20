@@ -91,6 +91,18 @@ public final class HibernateProviderSupport implements ProviderSupport {
     private static final Map<EntityManagerFactory, TreatRenderer> TREATS =
             Collections.synchronizedMap(new WeakHashMap<>());
 
+    /**
+     * Set by {@link #offlineProperties} alone: the factory is the portability dry run's, so the treat renderer gives
+     * the table's answer alone and skips the statement preflight, never run over an offline boot (R-VND-26, D-163).
+     */
+    static final String OFFLINE_BOOT = "com.rey.modelquery.hibernate.offline_boot";
+
+    /**
+     * The value {@link #offlineProperties} sets {@link #OFFLINE_BOOT} to: compared by identity, so no setting a user
+     * writes, {@code "true"} included, skips the preflight (D-163).
+     */
+    private static final Object OFFLINE_TOKEN = new Object();
+
     /** The factories already warned about a disabled treated path, so one WARN per factory (R-VND-26). */
     private static final Set<EntityManagerFactory> TREATS_WARNED =
             Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
@@ -453,8 +465,8 @@ public final class HibernateProviderSupport implements ProviderSupport {
      * Hibernate's offline boot, for any vendor but {@code OTHER} (R-VND-20, D-133): no JDBC metadata read and no
      * schema export at boot; the dialect resolved from the target's product name, so a unit's explicit
      * {@code hibernate.dialect} is overridden while its {@code hibernate.dialect_resolvers} still apply; no unit
-     * connection provider, which would bypass the stub data source; and no global temporary tables created or dropped
-     * at boot, whose failure H2's strategy swallows.
+     * connection provider, which would bypass the stub data source; no global temporary tables created or dropped
+     * at boot, whose failure H2's strategy swallows; and {@link #OFFLINE_BOOT}, so no treat preflight runs (D-163).
      */
     @Override
     public Optional<Map<String, Object>> offlineProperties(DatabaseVendor vendor) {
@@ -468,7 +480,13 @@ public final class HibernateProviderSupport implements ProviderSupport {
                 AvailableSettings.CONNECTION_PROVIDER, "",
                 // GlobalTemporaryTableStrategy's keys; the type itself is internal (D-132), the keys are settings.
                 "hibernate.query.mutation_strategy.global_temporary.create_tables", "false",
-                "hibernate.query.mutation_strategy.global_temporary.drop_tables", "false"));
+                "hibernate.query.mutation_strategy.global_temporary.drop_tables", "false",
+                OFFLINE_BOOT, OFFLINE_TOKEN));
+    }
+
+    /** The value {@link #OFFLINE_BOOT} holds on the portability dry run's offline boot alone (D-163). */
+    static Object offlineToken() {
+        return OFFLINE_TOKEN;
     }
 
     /**
