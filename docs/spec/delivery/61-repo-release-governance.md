@@ -210,7 +210,10 @@ methods (`vendor/40` R-VND-26) are `@Incubating` the same way: `TreatRenderer`, 
 
 The custom-operator members (D-167, M29) are `@Incubating` through 1.0: `FilterOperator`, `OperatorRenderer`,
 `OperatorContext` and `OperatorFeature`, `Filters.op` and `Having.op` in their three forms (R-FLT-20),
-`Condition.Kind#OPERATOR` and `Condition#operator()`, `FilterMatchers.op` (R-INS-13), and `MqCode.MQ1313`.
+`Condition.Kind#OPERATOR` and `Condition#operator()`, `FilterMatchers.op` (R-INS-13), `MqCode.MQ1313`, and
+`model-query-hibernate`'s `HibernateOperators` (R-VND-23). `LikeMode#pattern` and `LikeMode.escapeCharacter()`, which
+`like` and `HibernateOperators.ilike` share, and the `FunctionContributor` `HibernateOperatorFunctions` are
+`@EngineFacing` or loaded by Hibernate, so they are not API (D-171).
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from

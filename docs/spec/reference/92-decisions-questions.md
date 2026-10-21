@@ -2580,6 +2580,33 @@ Rejected: the binder throwing for every such expression, which would refuse a `S
 correctly by class; repeating the no-binder check in `model-query-hibernate`. → `vendor/40` R-VND-24, `api/12`
 R-FLT-21, AC-FLT-22, `reference/90` `MQ1502`.
 
+**D-171 — Hibernate's provider check, `ilike` and `regexMatch` (M29.4, 2026-10-21).** (1) The `FunctionContributor`,
+`HibernateOperatorFunctions`, registers `mq_regex_match` as `(?1 ~ ?2)`, boolean, exactly two arguments, when the
+dialect is a `PostgreSQLDialect` (subclasses included; `CockroachDialect` is not one). The API is the same on both
+lines. (2) `ProviderSupport#operators(emf, f)` answers `ILIKE` by the dialect (PostgreSQL's or H2's), and a pattern
+feature by looking up each `mq_*` function it renders through in the factory's registry, all of which must be there:
+`mq_array_contains` and `mq_array_overlaps` for `ARRAY_CONTAINMENT`, `mq_jsonb_contains`, `mq_ts_match`. The three
+not registered yet answer `false` until their slices register them. Another provider's factory answers `false`.
+(3) `ilike(mode)` prepares its value with `LikeMode#pattern`, the helper `like` uses, moved from `ConditionGroup` to
+`LikeMode` as an `@EngineFacing` method beside `escapeCharacter()`, so the two can't drift; `like`'s SQL is unchanged.
+Like `like`, `EXACT` passes no escape character, which Hibernate renders as `escape ''` on PostgreSQL and H2. In the
+field form there is no value to prepare: the right column is the pattern as stored, so a stored `\` is literal under
+`EXACT` and escapes the next character under the other modes. (4) The operator names are `ilike(<MODE>)` and
+`regexMatch`; each factory returns one cached instance. (5) A renderer given a criteria builder that isn't Hibernate's
+throws `MQ4014`: only a provider check answering `ILIKE` true for another provider reaches it. (6) For a
+`FilterOperator<C, C>` a converted column's converter runs before `prepare`, so `prepare` builds on the attribute
+value as `like` builds its pattern (user, 2026-10-21: like's order). This supersedes D-168 (2)'s step order, under
+which `ilike(CONTAINS)` "12" over a converter adding `SKU-` bound `SKU-%12%` where `like` binds `%SKU-12%`, different
+rows with no error (INV-5); `rfc/0017` stays as written. Since `prepare` is a `C -> C`, such an operator on a converted
+column whose attribute type is not `C` is `MQ1001` when the filter is added, never a `ClassCastException`; with no
+`prepare`, in the field form and in the `<C, V>` form nothing changes. (7) A JPA `@Convert` attribute is not a
+`ColumnConverter`: Hibernate itself runs its `AttributeConverter` on the bound pattern, measured on both lines and
+Tier 1 (`ConvertedLikeTest`). `like`'s finished pattern is converted, as a parameter and as an inlined literal, and
+`ilike`'s, typed by the binder (D-170), is too; `likeIgnoreCase`'s is not, since the parameter meets `lower(col)`, so
+over a converter adding `SKU:` its `EXACT` "A12" binds `a12` and misses the stored `SKU:a12`: silently no rows. That is
+recorded as found, not changed here (shipped `like` behaviour; see Q-30). → `vendor/40` R-VND-23,
+`api/12` R-FLT-06, R-FLT-20, R-FLT-21, AC-FLT-21, AC-FLT-24, `reference/90` `MQ1001`, `rfc/0017` §4.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -2718,6 +2745,14 @@ sets; a page past the end returns no row and so no total, which needs a count fa
 (D-105); JPA Criteria has no window functions, so it sits behind `ProviderSupport` with `COUNT` as the portable
 fallback (INV-7). If adopted, an opt-in `CountMode` constant, never the default; additive, so not freeze-blocking. →
 `engine/20` R-EXE-03, D-34, D-51, D-105.
+
+**Q-30 — Case-insensitive string filters over a `@Convert` attribute.** On an attribute with a JPA `@Convert`
+`AttributeConverter`, `likeIgnoreCase` renders `lower(col) like ?` and Hibernate does not run the converter on the bound
+value, so `EXACT` and `STARTS_WITH` return no rows with no error (`CONTAINS` happens to be right); converting would not
+help, since `lower(col)` folds the stored value. `ConvertedLikeTest` pins this. `eqIgnoreCase` is probably the same and
+is untested: confirm it first. Proposed direction: refuse `likeIgnoreCase` and `eqIgnoreCase` on a `@Convert` attribute
+with `MQ1001` through a new `ProviderSupport` fact (core cannot see `@Convert` in the JPA metamodel), by RFC, since it
+narrows shipped operators. Until then `api/12` R-FLT-07 documents the limitation. → D-171, `api/12` R-FLT-07, INV-5.
 
 ## 3. Risks
 

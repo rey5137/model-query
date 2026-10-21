@@ -34,8 +34,6 @@ import java.util.function.UnaryOperator;
  */
 abstract class ConditionGroup<M, G> {
 
-    private static final char ESCAPE = '\\';
-
     private final List<Filter> filters = new ArrayList<>();
     /** The builder's public name and the clause its operator fills, for misuse messages. */
     private final String builder;
@@ -379,15 +377,16 @@ abstract class ConditionGroup<M, G> {
     // ---- strings
 
     final G like(SelectField<M, String> column, String value, LikeMode mode) {
-        String pattern = pattern(bound(column, required(column, "like", value), String.class, "like"),
-                Objects.requireNonNull(mode, "mode"));
+        String pattern = Objects.requireNonNull(mode, "mode")
+                .pattern(bound(column, required(column, "like", value), String.class, "like"));
         return record(Condition.like(Kind.LIKE, column, value, mode),
                 ctx -> Optional.of(like(ctx.cb(), column.expression(ctx), pattern, mode)));
     }
 
     /** {@code LIKE}, with the escape character only when the pattern was escaped, i.e. not {@code EXACT}. */
     private static Predicate like(CriteriaBuilder cb, Expression<String> expression, String pattern, LikeMode mode) {
-        return mode == LikeMode.EXACT ? cb.like(expression, pattern) : cb.like(expression, pattern, ESCAPE);
+        return mode == LikeMode.EXACT ? cb.like(expression, pattern)
+                : cb.like(expression, pattern, LikeMode.escapeCharacter());
     }
 
     final G like(SelectField<M, String> column, Optional<String> value, LikeMode mode) {
@@ -397,8 +396,8 @@ abstract class ConditionGroup<M, G> {
 
     final G likeIgnoreCase(SelectField<M, String> column, String value, LikeMode mode) {
         Objects.requireNonNull(mode, "mode");
-        String pattern = lower(pattern(
-                bound(column, required(column, "likeIgnoreCase", value), String.class, "likeIgnoreCase"), mode));
+        String pattern = lower(mode.pattern(
+                bound(column, required(column, "likeIgnoreCase", value), String.class, "likeIgnoreCase")));
         return record(Condition.like(Kind.LIKE_IGNORE_CASE, column, value, mode),
                 ctx -> Optional.of(like(ctx.cb(), ctx.cb().lower(column.expression(ctx)), pattern, mode)));
     }
@@ -479,7 +478,7 @@ abstract class ConditionGroup<M, G> {
     // ---- custom operators (R-FLT-20..22)
 
     /**
-     * {@code operator} over {@code column} and {@code value}: the value checked, prepared and converted here, once
+     * {@code operator} over {@code column} and {@code value}: the value checked, converted and prepared here, once
      * (R-FLT-21), and bound as a statement parameter each time the filter renders, so every statement binds it.
      */
     final <C, V> G op(FilterOperator<C, V> operator, SelectField<M, C> column, V value) {
@@ -492,8 +491,14 @@ abstract class ConditionGroup<M, G> {
                     + "value, and an Optional, a Collection or a Map is not one");
         }
         requireOperatorAttribute(operator, column);
-        V prepared = prepared(operator, column, given);
-        Object bound = operator.valueType() == null ? bound(column, uncheckedColumnValue(prepared)) : prepared;
+        Object bound;
+        if (operator.valueType() == null) {
+            // As like: the converter runs first, and prepare builds on the attribute value (R-FLT-21, D-171).
+            requirePreparable(operator, column);
+            bound = prepared(operator, column, uncheckedColumnValue(bound(column, uncheckedColumnValue(given))));
+        } else {
+            bound = prepared(operator, column, given);
+        }
         Class<?> type = operator.valueType() != null ? operator.valueType() : ColumnField.boxed(attributeType(column));
         return record(Condition.operator(operator, column, value), ctx -> {
             requireGate(operator, column, ctx);
@@ -546,6 +551,23 @@ abstract class ConditionGroup<M, G> {
                     "%s: op(%s) needs a %s attribute, and the column reads one of type %s%s", column, operator.name(),
                     needed.getSimpleName(), actual.getSimpleName(), field == null ? ""
                             : " through its converter " + field.converterClass().getSimpleName()));
+        }
+    }
+
+    /**
+     * {@code MQ1001} for a {@code FilterOperator<C, C>} with a {@code prepare} on a converted column whose attribute
+     * is not of the column's type: {@code prepare}, a {@code C -> C}, would be given the attribute value (R-FLT-21).
+     */
+    private static void requirePreparable(FilterOperator<?, ?> operator, SelectField<?, ?> column) {
+        ColumnField<?, ?, ?> field = converted(column);
+        if (operator.prepare() != null && field != null
+                && ColumnField.boxed(field.attributeType()) != ColumnField.boxed(field.type())) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1001, String.format(
+                    "%s: op(%s)'s prepare takes a %s, and the column's converter %s gives it an attribute of type %s;"
+                            + " prepare runs on the converted value, so apply the operator to a column whose"
+                            + " attribute is of its type", column, operator.name(),
+                    ColumnField.boxed(field.type()).getSimpleName(), field.converterClass().getSimpleName(),
+                    ColumnField.boxed(field.attributeType()).getSimpleName()));
         }
     }
 
@@ -907,16 +929,6 @@ abstract class ConditionGroup<M, G> {
         return chunks;
     }
 
-    /** The {@code LIKE} pattern for {@code mode}; every mode but {@code EXACT} escapes the value (R-FLT-06). */
-    private static String pattern(String value, LikeMode mode) {
-        return switch (mode) {
-            case EXACT -> value;
-            case CONTAINS -> "%" + escape(value) + "%";
-            case STARTS_WITH -> escape(value) + "%";
-            case ENDS_WITH -> "%" + escape(value);
-        };
-    }
-
     /**
      * The value side of an ignore-case filter, lowered here rather than as {@code lower(?)}: JPA 3.1 has no bound
      * value expression, so {@code lower(literal)} would inline the value (R-FLT-08), and H2 cannot type a bare
@@ -924,17 +936,5 @@ abstract class ConditionGroup<M, G> {
      */
     private static String lower(String value) {
         return value.toLowerCase(Locale.ROOT);
-    }
-
-    private static String escape(String value) {
-        var escaped = new StringBuilder(value.length() + 8);
-        for (int i = 0; i < value.length(); i++) {
-            char c = value.charAt(i);
-            if (c == ESCAPE || c == '%' || c == '_') {
-                escaped.append(ESCAPE);
-            }
-            escaped.append(c);
-        }
-        return escaped.toString();
     }
 }

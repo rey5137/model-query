@@ -34,7 +34,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 
 | Code | Meaning | Owner |
 |---|---|---|
-| `MQ1001` | A column's declared type does not match the entity attribute, or two columns compared or matched against a sub-select convert to different attribute types, or an operator's `requiringAttribute` type is not the column's attribute type, or a field-form `op` over two columns that convert to different attribute types | `api/10` R-COL-08, `api/12` R-FLT-15, R-FLT-20 |
+| `MQ1001` | A column's declared type does not match the entity attribute, or two columns compared or matched against a sub-select convert to different attribute types, or an operator's `requiringAttribute` type is not the column's attribute type, or a field-form `op` over two columns that convert to different attribute types, or a `FilterOperator<C, C>` with a `prepare` on a converted column whose attribute type is not `C` | `api/10` R-COL-08, `api/12` R-FLT-15, R-FLT-20, R-FLT-21 |
 | `MQ1002` | An attribute named by a column or join does not exist on its entity; the provider's exception is the cause | `api/10` R-COL-01, R-COL-08 |
 | `MQ1003` | A column or table sits on a root entity the query is not rooted at; a subtype root points to `ROOT.treat(<Subtype>.class)` | `api/10` R-COL-01 |
 | `MQ1004` | A write reads a to-one by its id in a clause it renders (the `where`, the set clause, an upsert's `doUpdate(...).where(...)`) where the provider does not answer that the foreign key is a local column referencing the target's primary key, so the statement would join it; the message says "the provider reports that it is not" or "the provider cannot tell"; before any statement | `api/10` R-COL-29 |
