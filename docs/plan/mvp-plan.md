@@ -685,9 +685,9 @@ Slices are written once the RFC is accepted (§4).
 ## 30. M30 — Inline count, converted ignore-case filters and inline value handling → 0.10.0
 
 Spec: D-176, `rfc/0018` (draft), Q-28, Q-29, Q-30. Three independent parts, accepted or rejected separately. Part A:
-`CountMode.INLINE_COUNT`, a page's exact total read from the page statement as `count(*) over ()` through a
-`model-query-hibernate` `InlineCountRenderer` (`ProviderSupport#inlineCounts`, R-VND-27), falling back to `COUNT`'s
-statements wherever the window can't give `COUNT`'s total (R-EXE-15). Part B: `likeIgnoreCase` and `eqIgnoreCase` over
+`CountMode.INLINE_COUNT`, a page's exact total read from the page statement as a `count(...) over ()` window rendered through
+`SourceRenderer#window` where `ProviderSupport#inlineCounts` says the dialect has windows (R-VND-27), falling back to
+`COUNT`'s statements wherever the page statement doesn't return exactly the rows `COUNT` counts (R-EXE-15). Part B: `likeIgnoreCase` and `eqIgnoreCase` over
 a JPA `@Convert` attribute convert the value through the operand binder and fold both sides in SQL
 (`OperandBinder#converts`, R-FLT-07 amended), so they stop returning no rows silently (INV-5). Part C: under
 Hibernate's `value_handling_mode=inline` (`ProviderSupport#inlinesValues`, R-VND-28), every engine value path binds

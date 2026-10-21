@@ -2834,6 +2834,14 @@ narrows shipped operators. Until then `api/12` R-FLT-07 documents the limitation
 `rfc/0018` Part B (M30, D-176): proposes converting the value through the binder and folding both sides in SQL instead
 of refusing.
 
+**Q-31 — `COUNT` against a page over a predicate-only to-many join.** A filter through a to-many join that selects no
+to-many column reaches `page` (R-PAG-13 lets it through), and its content statement has no `DISTINCT`, so a root
+matching on several children is several rows, while `COUNT` reports `count(distinct root)` (R-EXE-04). The total and
+the rows can then disagree (`warnOfContradictedTotal`). Found by RFC 0018's first review; Part A falls back to `COUNT`
+here rather than inherit it. Whether the content statement should be distinct on the root, or `COUNT` should count
+rows, is open; `Filters.exists` (R-FLT-12) avoids it today. → `engine/20` R-EXE-02, R-EXE-04, `engine/21` R-PAG-13,
+`rfc/0018` §A.3.
+
 ## 3. Risks
 
 | Risk | Mitigation |
