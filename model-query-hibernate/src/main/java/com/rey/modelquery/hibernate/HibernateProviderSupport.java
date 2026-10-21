@@ -63,6 +63,7 @@ import org.hibernate.query.criteria.HibernateCriteriaBuilder;
 import org.hibernate.query.criteria.JpaCriteriaQuery;
 import org.hibernate.query.criteria.JpaSubQuery;
 import org.hibernate.query.criteria.JpaExpression;
+import org.hibernate.query.criteria.ValueHandlingMode;
 import org.hibernate.query.sqm.function.SqmFunctionRegistry;
 
 /**
@@ -504,6 +505,19 @@ public final class HibernateProviderSupport implements ProviderSupport {
     @Incubating
     public boolean inlineCounts(EntityManagerFactory emf) {
         return sessionFactory(emf).map(sf -> sf.getJdbcServices().getDialect().supportsWindowFunctions())
+                .orElse(false);
+    }
+
+    /**
+     * Whether the session factory's options inline a criteria value,
+     * {@code hibernate.criteria.value_handling_mode=inline} (R-VND-28), on either line, whether or not
+     * {@link #operands} serves it. False for another provider's factory.
+     */
+    @Override
+    @Incubating
+    public boolean inlinesValues(EntityManagerFactory emf) {
+        return sessionFactory(emf)
+                .map(sf -> sf.getSessionFactoryOptions().getCriteriaValueHandlingMode() == ValueHandlingMode.INLINE)
                 .orElse(false);
     }
 

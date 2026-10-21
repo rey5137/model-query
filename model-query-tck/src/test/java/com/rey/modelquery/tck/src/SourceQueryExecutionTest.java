@@ -26,6 +26,7 @@ import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
 import com.rey.modelquery.tck.col.OrderItemEntity;
 import com.rey.modelquery.tck.fch.FetchTestSupport;
+import com.rey.modelquery.tck.harness.InlineValueHandling;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
@@ -74,6 +75,27 @@ class SourceQueryExecutionTest {
         assertThat(sql).isNotEmpty();
         assertThat(rows).hasSize(5_000);
         assertThat(orders(rows)).isEqualTo(rows(db, "select id, status, total from orders order by id"));
+    }
+
+    @TckTest
+    void ac_src_01_under_inline_value_handling_a_source_where_value_renders_as_before(TckDatabase db) {
+        var feed = QOrderFeed.query(QOrderSource.source().where(f -> f.eq(QOrderSource.STATUS, "PAID")).build())
+                .select(QOrderFeed.ALL).where(f -> f.gt(QOrderFeed.TOTAL, new BigDecimal("100.00")))
+                .orderBy(QOrderFeed.ID.asc()).build();
+        List<OrderFeed> expected = new ArrayList<>();
+        withExecutor(db, OrderSource.class, executor -> expected.addAll(executor.list(feed, Limit.unlimited())));
+        assertThat(expected).isNotEmpty();
+
+        try (InlineValueHandling inline = InlineValueHandling.open(db)) {
+            // The outer statement's value binds; the CTE body's parameters would sit in a context no statement binds,
+            // so its value is left to the factory, which inlines it as before R-FLT-08 (M30.6 binds it)
+            inline.watch(100);
+            List<OrderFeed> rows = new ArrayList<>();
+            inline.factory().inSession(em -> rows.addAll(ModelQueryExecutor.create(em, OrderSource.class,
+                    ModelQueryConfig.defaults()).list(feed, Limit.unlimited())));
+            assertThat(rows).isEqualTo(expected);
+            assertThat(inline.statements()).singleElement().asString().contains("'paid'").contains("?");
+        }
     }
 
     // ---- AC-SRC-02

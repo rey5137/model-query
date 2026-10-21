@@ -298,6 +298,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 .flatMap(support -> support.operands(emf))
                 .map(options::withOperandBinder)
                 .orElse(options);
+        // Asked once, as the binder is; without a ProviderSupport no Hibernate key is read here (R-VND-28, INV-7).
+        options = options.withInlinesValues(vendor.providerSupport()
+                .map(support -> support.inlinesValues(emf))
+                .orElse(false));
         this.renderOptions = sources(options.withOperatorGate(operatorGate(emf)));
         this.keyLimits = new Keys(profile.maxInListSize(), profile.maxBindParameters());
         this.primaryKeyFirstBatchSize = config.primaryKeyFirstBatchSize();

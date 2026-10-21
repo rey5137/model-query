@@ -359,16 +359,28 @@ public final class JoinContext {
      * bind on the statement that renders it (R-COL-26). The value never reaches SQL as a literal.
      */
     ParameterExpression<?> parameter(Class<?> type, Object value) {
-        return bind(cb.parameter(type), value);
+        ParameterExpression<?> parameter = cb.parameter(type);
+        parameters.put(parameter, value);
+        return parameter;
     }
 
     /**
-     * {@code parameter}, made elsewhere (an {@code OperandBinder}'s), recorded to bind {@code value} on the statement
-     * that renders it, as {@link #parameter(Class, Object)} records its own (R-FLT-21).
+     * Where {@link ValueOperands#valueOperand} records the parameters it makes, an {@code OperandBinder}'s included,
+     * to bind on the statement that renders them, as {@link #parameter(Class, Object)} records its own (R-FLT-08,
+     * R-FLT-21).
      */
-    <T> ParameterExpression<T> bind(ParameterExpression<T> parameter, Object value) {
-        parameters.put(parameter, value);
-        return parameter;
+    ParameterSink sink() {
+        return new ParameterSink() {
+            @Override
+            public boolean binds(ParameterExpression<?> parameter) {
+                return parameters.containsKey(parameter);
+            }
+
+            @Override
+            public void add(ParameterExpression<?> parameter, Object value) {
+                parameters.put(parameter, value);
+            }
+        };
     }
 
     /**

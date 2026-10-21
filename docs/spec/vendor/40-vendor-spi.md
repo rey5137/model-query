@@ -566,6 +566,17 @@ from the dialect's `supportsWindowFunctions()`, as `operators(emf, f)` answers f
 `sources()` is unconditional, so the two facts agree. Nothing is refused, so no `VendorProfile` fact and no
 `PortabilityCheck` report are needed (R-VND-11, INV-6).
 
+**R-VND-28** *(D-177, `@Incubating`)* `ProviderSupport#inlinesValues(EntityManagerFactory emf)` is an `@Incubating`
+default method returning `false`: whether the factory renders a criteria value given without a parameter as a literal.
+The executor asks it once, when it is built, and carries the answer in `RenderOptions#inlinesValues()`, as it does the
+operand binder; where it is `true` every filter value binds as an explicit parameter by the operator rule (`api/12`
+R-FLT-08, R-FLT-21), and where it is `false` every filter renders as before, so no SQL changes. `model-query-hibernate`
+answers from the session factory's options, `getCriteriaValueHandlingMode() == INLINE`
+(`hibernate.criteria.value_handling_mode=inline`), on any line, whether or not its binder serves that line (R-VND-24).
+Without `model-query-hibernate` the answer is `false`: `jpa` reads no Hibernate key, which would put provider
+knowledge outside `ProviderSupport` (INV-7), so a factory inlining values with no `ProviderSupport` renders its
+filter values as the provider does.
+
 ## 2. Detection
 
 **R-VND-04** Resolution order:

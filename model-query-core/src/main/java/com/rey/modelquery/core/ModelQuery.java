@@ -587,18 +587,21 @@ public final class ModelQuery<E, K, M> {
                         + ": this query reads the source " + source.model().getSimpleName()
                         + ", and the factory's persistence provider has no SourceRenderer "
                         + "(ProviderSupport#sources()); model-query-hibernate serves Hibernate"));
+        // A CTE body's parameters stay in its own context, which no statement binds, so its filter values render
+        // as without the inline setting until the source path binds them (R-FLT-08, RFC 0018 Part C).
+        RenderOptions bodyOptions = options.withInlinesValues(false);
         if (source.hasInner()) {
             var checks = new ArrayList<Selection<?>>();
-            SourceRenderer.CteHandle handle = source.register(query, cb, options, renderer, modelName(), checks);
+            SourceRenderer.CteHandle handle = source.register(query, cb, bodyOptions, renderer, modelName(), checks);
             JoinContext joins = JoinContext.sourceOf(
                     renderer.from(query, handle), source.model(), cb, query, options);
             return new SourceStatement(joins, List.of(), checks);
         }
         if (!source.recurses()) {
-            return new SourceStatement(JoinContext.sourceOf(renderer.cte(query, source.body(cb, options, renderer)),
+            return new SourceStatement(JoinContext.sourceOf(renderer.cte(query, source.body(cb, bodyOptions, renderer)),
                     source.model(), cb, query, options), List.of(), List.of());
         }
-        RecursiveSpec spec = source.recursiveSpec(cb, options, renderer);
+        RecursiveSpec spec = source.recursiveSpec(cb, bodyOptions, renderer);
         RecursiveCte cte = renderer.recursive(query, spec);
         List<Selection<?>> checks = SourceQuery.recursionChecks(
                 modelName(), source, spec, cte.depthKey(), cte.cycleKey(), cte.duplicateKey());
