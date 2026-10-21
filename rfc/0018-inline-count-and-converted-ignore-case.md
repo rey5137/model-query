@@ -1,7 +1,7 @@
-# RFC 0018 — Inline count, case-insensitive filters over converted attributes, values under inline value handling, and filter-only to-many joins
+# RFC 0018 — Inline count, converted ignore-case filters, inline value handling, and filter-only to-many joins
 
-- **Status:** draft, revised after three `architect-review` passes (2026-10-21). M30, 0.10.0 (D-176); the freeze moves
-  to M31.
+- **Status:** accepted as D-177 (2026-10-21, user decision), with the acceptance spike's amendments after three
+  `architect-review` passes. M30, 0.10.0 (D-176); the freeze moves to M31.
 - **Affects:**
   - **`core`:** `CountMode.INLINE_COUNT` (Part A); `OperandBinder#converts(Expression)`, a default method (Part B);
     the operator path's value rule (`ConditionGroup`'s `operand` and `requireMappingIndependent`) extracted into one
@@ -16,25 +16,27 @@
     follows `Filters`'.
   - **`engine/20`, Part D:** R-EXE-04 amended (a filter-only to-many join renders as a semi-join), R-EXE-14 amended
     (a locked read over the shape runs); new R-EXE-16, R-WRT-10 named as the shared mechanism;
-    AC-EXE-22 to AC-EXE-24; AC-EXE-11, AC-EXE-13 and `integration/50` AC-SPR-19's `MQ2003` cases move to a customizer's join.
+    AC-EXE-22 to AC-EXE-24; AC-EXE-11, AC-EXE-13 and `integration/50` AC-SPR-19's `MQ2003` cases move to a
+    customizer's join or a §D.1-excluded shape.
   - **`engine/21`:** AC-PAG-28's cursor-binding claim (and `Keyset`'s javadoc for it) amended for the setting;
-    R-PAG-02's within-page drop and R-PAG-21's short-page note scoped to a customizer's join (Part D).
+    R-PAG-02's within-page drop and R-PAG-21's short-page note scoped to a customizer's join or a §D.1-excluded
+    shape (Part D).
   - **`vendor/40`:** R-VND-24 amended (`converts`); new R-VND-27: `ProviderSupport#inlineCounts(EntityManagerFactory)`,
     a provider fact; the window itself renders through `SourceRenderer#window` (R-SRC-04); new R-VND-28:
     `ProviderSupport#inlinesValues(EntityManagerFactory)`.
   - **`model-query-hibernate`:** `inlineCounts` from the dialect's `supportsWindowFunctions()`; `converts` on
     `HibernateOperandBinder`; `inlinesValues` from the factory's criteria value handling mode.
-  - **`reference/92`:** D-176 (release, decided before acceptance), the acceptance `D-n`; Q-28, Q-29 and Q-30
+  - **`reference/92`:** D-176 (release, decided before acceptance), D-177 (acceptance); Q-28, Q-29 and Q-30
     resolved; Q-31 (`COUNT` against a page over a filter-only to-many join) resolved by Part D.
   - **`docs/site`:** the paging page's count modes, the filters page's case-insensitive section, a note on inline
-    value handling (both tabs, CC-DOC-01).
+    value handling, and the semi-join performance caveat (both tabs, CC-DOC-01).
 - **Discussion:** to open
-- **Target:** 0.10.0 (M30, D-176), `@Incubating`. Parts A and C are additive; Parts B and D change the rows of shipped filters
-  (§Compatibility).
+- **Target:** 0.10.0 (M30, D-176), `@Incubating`. Parts A and C are additive; Parts B and D change shipped filters'
+  rows (§Compatibility).
 
 ## Summary
 
-Four independent parts, accepted or rejected separately, shipped together before the 1.0 freeze.
+Four independent parts, all accepted as D-177, shipped together before the 1.0 freeze.
 
 **Part A (Q-29).** `CountMode.INLINE_COUNT` takes a page's total from the page statement itself, as a
 `count(...) over ()` window, instead of a separate count statement: one round trip, and the total and the rows from
@@ -42,7 +44,8 @@ one snapshot without a transaction. The total is `COUNT`'s, always: the window i
 returns exactly the rows `COUNT` counts, and `COUNT`'s statements run otherwise. Opt-in, never the default.
 
 **Part B (Q-30).** `likeIgnoreCase` and `eqIgnoreCase` over a JPA `@Convert` attribute today bind a value the
-converter never sees, so they return no rows and no error (INV-5). Where `model-query-hibernate`'s binder serves the
+converter never sees. Over the `SKU:` converter, equality, `EXACT` and `STARTS_WITH` miss silently (INV-5);
+`CONTAINS` and `ENDS_WITH` succeed only because their leading `%` tolerates the prefix. Where the binder serves the
 line, they will bind the value typed by the column's mapping, so Hibernate converts it, and fold both sides in SQL:
 `lower(col) = lower(?)`. They then match as `like` and `ilike` already do over a converted column (D-171). Columns
 without a converter render as today; without a binder the limitation stays, named in R-FLT-07.
@@ -73,15 +76,16 @@ page query. JPA Criteria has no window functions, so the engine can't render it 
 and the engine already renders windows through them for sources (`SourceRenderer#window`, R-SRC-04).
 
 The price is real and is why this is opt-in: the window counts the whole result before `LIMIT`, so the database
-can't stop early at the top N rows. On a large, unselective result that is often slower than a separate count. The
-spike (§A.6) measures where the line falls, against a bar set now (§Unresolved, 1).
+can't stop early at the top N rows. On a large, unselective result that is often slower than a separate count.
+The spike (§A.6) met the user's tie rule for selective flat first pages (§Resolutions, 1); its slow shapes set the
+count-mode advice in §A.1. There is no automatic performance fallback: the user chooses the mode.
 
 ### Part B
 
 `ConvertedLikeTest` pins it: over a converter adding `SKU:`, `likeIgnoreCase(EXACT, "A12")` binds `a12`, the database
-compares it with `lower('SKU:a12')`, and no row matches. `STARTS_WITH` misses the same way; `CONTAINS` matches only
-because the stored prefix doesn't matter to `%a12%`. `eqIgnoreCase` renders `lower(col) = ?` the same way and very
-likely fails the same way; the spike confirms it first (§B.4).
+compares it with `lower('SKU:a12')`, and no row matches. The spike (§B.4) confirms that `eqIgnoreCase`, `EXACT` and
+`STARTS_WITH` miss on both lines and Tier 1. `CONTAINS` and `ENDS_WITH` return the right rows only by accident:
+their leading `%` tolerates the stored prefix, not because Hibernate converted the operand.
 
 The parameter meets `lower(col)`, not `col`, so Hibernate has no mapping to type it by and never runs the converter.
 Converting it in Java wouldn't help: the engine can't see a `@Convert` converter (`core` reads the JPA metamodel,
@@ -95,8 +99,9 @@ operators bind explicitly (D-167, D-170), and AC-FLT-22 runs under the setting. 
 values: filters (`ConditionGroup`: `eq`/`ne`, ranges, `like`, the ignore-case pair), keyset cursors (`jpa`'s
 `Keyset`), primary keys (`PrimaryKey`, so `one(q, key)`, `byKeys` and primary-key-first pages), the optimistic-lock
 version check (`ModelUpdate`), fetch-plan child rounds (`load.key(built).in(roundKeys)`, raw values through
-`Expression.in(Object...)`), the executor's own `CriteriaUpdate` assignments (`setValue`), `PersistedEntity`, and very
-likely insert assignments, conflict clauses and source parameters.
+`Expression.in(Object...)`), the executor's own `CriteriaUpdate` assignments (`setValue`), `PersistedEntity`,
+insert-select predicates, conflict conditions and source cursors. The observed inventory in §C.2 separates leaks
+from already-bound insert assignments and structural literals.
 
 An inlined value still returns the right rows (D-171 (7) measured `like`'s), so this is not INV-5. What breaks is
 R-FLT-08's promise itself, the plan cache (every distinct value is a new statement), and R-FLT-09's bind limit, which
@@ -149,6 +154,16 @@ page.total(); // exact, as under COUNT
 `hasNext` as under `COUNT`, always (R-EXE-02's guarantees unchanged). Spring Data's `ModelPage` reads `Slice.total`
 and needs no change; the repository default stays `COUNT`.
 
+**Choosing the mode.** The [acceptance spike](0018-spike-results.md) favors selective filters: flat selective
+first pages tie with `COUNT` on PostgreSQL and MySQL within run-to-run spread, and grouped middle/deep pages improve
+to roughly 0.53–0.71x `COUNT`'s time. Unselective flat pages cost roughly 8–20x on first pages and 2–8x on
+middle/deep pages (deep PostgreSQL was closer to 1.3–1.4x): the window counts every matching row before the page is
+cut, while a separate count can use a cheaper index-only plan. Grouped selective first pages cost 14–32x in this
+fixture (grouped unselective first pages ~1.04–1.20x); an offset-0 planner choice is the inferred cause, not an
+EXPLAIN result. Check the application's real plan.
+These are laptop fixture measurements, not latency promises. The user chooses the count mode; there is no
+automatic performance fallback. R-EXE-15's correctness fallbacks stay as designed.
+
 #### A.2 Rendering (R-VND-27)
 
 ```java
@@ -192,9 +207,10 @@ M30 falls back until a slice admits it, rather than miscounting until someone li
    `GROUPED_COUNT` treat site). Some of these grouped cases would count correctly on the content statement; falling
    back is conservative, never wrong;
 4. where `COUNT`'s statement is not the content statement with its selection replaced: `count(distinct root)` over a
-   to-many join that no selected column reads (R-EXE-04; after Part D only a customizer's own join produces it), and a
-   treated, ungrouped root, which `COUNT` counts on a freshly built statement (`buildRootIdCount`, R-EXE-05, D-154). A
-   later slice may admit the treated shape once §A.6's probe 4 proves the totals equal;
+   to-many join that no selected column reads (R-EXE-04; after Part D, from a customizer's join or a §D.1-excluded
+   shape), and a treated, ungrouped root, which `COUNT` counts on a freshly built statement (`buildRootIdCount`,
+   R-EXE-05, D-154). The spike's probe 4 found equal treated-root totals as an HQL observation only; treated shapes
+   still fall back in M30, and admitting them is future work;
 5. on a page past the end: no row, offset above 0.
 
 | Shape | Behaviour |
@@ -203,7 +219,7 @@ M30 falls back until a slice admits it, rather than miscounting until someone li
 | Window used, no row, offset 0 | total = 0 |
 | Window used, no row, offset > 0 | `COUNT`'s statement runs for the total (fallback 5) |
 | Grouped, `COUNT` in SQL | the window runs after `GROUP BY` and `HAVING`, so it counts groups (R-EXE-03's meaning) |
-| Primary-key-first page | the window goes on step 1, the key query (R-PAG-13 refuses a to-many selection, so key rows are root rows); step 2 is unchanged |
+| Primary-key-first page | Window on step 1's key query; step 2 unchanged (R-PAG-13 keeps key rows as root rows) |
 | A fallback of 1–4 | `COUNT`'s two statements, as under `COUNT` |
 
 **Preflight (R-VND-26).** `INLINE_COUNT` builds and preflights `COUNT`'s statements exactly as `COUNT` does, before the
@@ -245,7 +261,9 @@ statements, the same `Slice`).
 
 #### A.6 Spike (M30.0)
 
-On both Hibernate lines and Tier 1:
+The [acceptance results](0018-spike-results.md#part-a--correct-window-rendering-accepted-under-the-users-relaxed-gate)
+cover these probes on both Hibernate lines and Tier 1; performance is PostgreSQL and MySQL only. Rendering and
+totals agree; fallback routing remains simulated until implementation. Part A's EXPLAIN was not run.
 
 1. `SourceRenderer#window` with `COUNT` over `cb.literal(1)` and an empty window on an entity root's page statement,
    under `setFirstResult` and `setMaxResults`: `count(1) over ()` in its SQL, and `mq_0total` read by alias;
@@ -254,9 +272,10 @@ On both Hibernate lines and Tier 1:
 4. sources (CTEs), set-operation and recursive sources, treated roots and correlated columns: the window's total
    against `COUNT`'s, as a check of the rule, not the place fallbacks are found;
 5. performance: PostgreSQL and MySQL, 1M rows, first, middle and deep pages, selective and unselective filters, flat
-   and grouped, `INLINE_COUNT` against `COUNT`'s two statements in one transaction. Part A stays only if
-   `INLINE_COUNT` beats `COUNT` on first pages with selective filters on both databases (§Unresolved, 1); the result
-   also sets the docs' advice.
+   and grouped, `INLINE_COUNT` against `COUNT`'s two statements in one transaction. The user's accepted gate is
+   no loss beyond run-to-run spread on selective first pages on both databases; a tie qualifies (§Resolutions, 1).
+   Flat selective first pages tie on both lines and databases. The slow shapes set §A.1's advice, with no automatic
+   performance fallback.
 
 ### Part B — case-insensitive filters over a converted attribute
 
@@ -287,8 +306,11 @@ by a function.
 
 | Column | `eqIgnoreCase(col, v)` | `likeIgnoreCase(col, v, mode)` |
 |---|---|---|
-| no binder, `typesBy` false, or `converts` false | `lower(col) = ?`, `v` lowered in Java (today) | `lower(col) like ?`, pattern lowered in Java (today) |
-| `typesBy` and `converts` true | `lower(col) = lower(?)`, `?` typed by the binder, bound with `v` | `lower(col) like lower(?) escape '\'`, `?` typed by the binder, bound with `mode`'s pattern of `v` |
+| no binder, `typesBy` false, or `converts` false | `lower(col) = ?` | `lower(col) like ?` |
+| `typesBy` and `converts` true | `lower(col) = lower(?)` | `lower(col) like lower(?) escape '\'` |
+
+In the first row, `v` or its pattern is lowered in Java, as today. In the second, the binder types `?` by the
+column's mapping and binds `v` for equality or `mode`'s pattern of `v` for LIKE.
 
 On a converted column, Hibernate runs the converter on the bound value, then the database folds both sides with the
 same `lower`. A model-query `ColumnConverter` runs first, as R-FLT-06 and R-COL-14 order it. The pattern's wildcards
@@ -300,7 +322,7 @@ and escapes go through the converter, exactly as for `like` and `ilike` (D-171).
 true of one that encrypts or encodes: a deterministic encryption matches only the exact same case (a silent
 case-sensitive match), and an encoding such as base64 can collide under `lower()` and return extra rows. R-FLT-07 and
 the user guide state the property; `converts` can't tell converter kinds apart, so no converter is refused
-(§Unresolved, 3).
+(§Resolutions, 3).
 
 **Without a binder** (no `model-query-hibernate`, or a Hibernate line outside the binder's, where `operands(emf)` is
 empty, D-170 (1)), `converts` is never asked and the silent miss stays. R-FLT-07 keeps it as a named limitation;
@@ -317,7 +339,12 @@ matches with the same case, both lines, Tier 1; `ConvertedLikeTest`'s pinned mis
 
 #### B.4 Spike (M30.0)
 
-1. Confirm `eqIgnoreCase` misses today over the `SKU:` converter (Q-30's open half).
+The [acceptance results](0018-spike-results.md#part-b--converted-comparison-works-qualify-the-original-failure-claim)
+support the design on both lines and Tier 1. Converter inspection stands in for the absent `converts` API.
+MySQL's default case-folding collation also matches both cases in the non-folded equality controls; H2 and
+PostgreSQL match only the exact case. That is a database observation, not a Hibernate-line difference.
+
+1. `eqIgnoreCase`, `EXACT` and `STARTS_WITH` miss today over `SKU:`; `CONTAINS` and `ENDS_WITH` succeed accidentally.
 2. `cb.lower(param)` with the binder's parameter on both lines: Hibernate accepts a converted `String` type as
    `lower`'s argument, runs the converter, and PostgreSQL types the parameter (no "could not determine data type").
 3. `typesBy` and `converts` over `min`/`max` of a converted column, and over a path through a join and an embeddable.
@@ -337,7 +364,7 @@ matches with the same case, both lines, Tier 1; `ConvertedLikeTest`'s pinned mis
 any line, whether or not its binder serves that line. The executor asks once and carries the answer through
 `RenderOptions`, as it does the binder. Without `model-query-hibernate` the answer is `false`, documented: reading a
 Hibernate key in `jpa` would put provider knowledge outside `ProviderSupport`, and would turn correct, inlined rows into
-`MQ1502` (§Unresolved, 4).
+`MQ1502` (§Resolutions, 4).
 
 #### C.2 Binding (R-FLT-08 amended)
 
@@ -362,8 +389,11 @@ parameters and are unaffected. The name stays distinct from `JoinContext`'s exis
 |---|---|---|---|
 | false | — | any | today's call, unchanged (`cb.equal(path, value)`, …) |
 | true | yes | any | the binder's parameter, typed by the column's mapping (D-170) |
-| true | no, or no binder | mapping-independent (R-FLT-21: `String`, `java.lang`/`java.math` number, `java.time`) | `cb.parameter(type)` |
-| true | no, or no binder | anything else (enum, array, `Boolean`, `UUID`, a `@Convert` value) | `MQ1502` naming the path and the column, before any statement |
+| true | no, or no binder | mapping-independent (R-FLT-21) | `cb.parameter(type)` |
+| true | no, or no binder | anything else | `MQ1502` before any statement |
+
+Mapping-independent values are `String`, `java.lang`/`java.math` numbers and `java.time` values (R-FLT-21).
+Enums, arrays, `Boolean`, `UUID` and `@Convert` values are not; `MQ1502` names the path and column.
 
 **Why only under the setting.** Under the default setting `cb.equal(path, v)` and an explicit parameter both render
 `?`, so snapshots wouldn't move either way. Binding explicitly always would cost elsewhere: without a binder (another
@@ -372,7 +402,30 @@ and every query would go through D-170's reflective constructor. Under the setti
 takes over. `MQ1502` is the operator path's code already; its message widens to name a filter, cursor, key or
 assignment. No new code, and a path the audit can't type gets `MQ1502` for that path, not a refusal of the whole
 setting. `MQ1502` is a `ModelQueryDefinitionException`; for a call-time key or cursor value it reports input the
-installation can't bind rather than a bad definition, which R-FLT-08 states and the acceptance `D-n` records.
+installation can't bind rather than a bad definition, which R-FLT-08 states and D-177 records.
+
+**Required path inventory (R-FLT-08 / AC-FLT-35).** The
+[execution-family audit](0018-spike-data/value-path-audit.md) supplies 23 observed paths on both lines and Tier 1.
+Implementation covers every path below, preserving mapping-aware binding and exact rows or DML round trips:
+
+- Filter input leaks: `comparison-eq`, `comparison-ne`, `comparison-gt`, `comparison-ge`, `comparison-lt`,
+  `comparison-le`, `comparison-range`, `filter-membership`, `eq-ignore-case`, `like`, `ignore-case`,
+  `subquery-filter`.
+- Key and cursor input leaks: `byKeys-chunk`, `fetch-key`, `keyset-UUID`; PAG-18 also observes decimal, timestamp,
+  binary and primary-key equality-prefix cursor inputs.
+- Mapped input leaks: `converted-enum`, `converted-Boolean`.
+- Write and source input leaks: `update-assignment`, `delete-filter`, `insert-select-filter`,
+  `conflict-condition`, `source-keyset`.
+- Binding success to retain: `typed-insert-binds`, whose typed insert-values operands already use `?`.
+  Insert-select assignment columns also bind already; its source predicate leaks.
+
+The first 22 paths are confirmed input leaks; the last is a regression control. Structural source tags,
+conflict-arbiter predicates needed to match a partial index, LIKE escapes, user-authored expression constants,
+discriminator restrictions and SQL NULL are classified separately, not treated as confirmed input leaks.
+The same source tag used as a cursor comparison is input (`source-keyset`). The audit's broad marker detector
+has false positives and misses some literal forms; neither its 20,739 SQL candidates nor its 912 failing tests
+per line counts independent defects. AC-FLT-35's inspector must classify structural literals and cover the
+confirmed inputs, including BETWEEN, function arguments and later IN elements the spike's regex can miss.
 
 Two texts that say the engine's values are never inlined are amended to hold under the setting: R-FLT-06's
 "(inlined under `value_handling_mode=inline` too)", which then describes a user's own `like` value only, and AC-PAG-28's
@@ -381,13 +434,20 @@ cursor claim with `Keyset`'s javadoc for it.
 #### C.3 New ids
 
 R-VND-28; AC-FLT-35 (a TCK profile with the setting on, run by the two-line verify on both lines and Tier 1: the
-filter, paging, keyset, `byKeys`, fetch-plan, write, insert, conflict and source suites with a `StatementInspector` failing on a
-marker value in SQL text, each returning the rows it returns under the default setting, enum, `@Convert`, `Boolean` and
-`UUID` columns included); AC-FLT-36 (under the setting with a test provider and no binder: a `String` filter binds,
+filter, paging, keyset, `byKeys`, fetch-plan, write, insert, conflict and source suites with a `StatementInspector`
+failing on a marker value in SQL text, each returning the rows it returns under the default setting, enum,
+`@Convert`, `Boolean` and `UUID` columns included; all 23 observed paths in §C.2 covered, with structural literals
+classified separately);
+AC-FLT-36 (under the setting with a test provider and no binder: a `String` filter binds,
 an enum filter is `MQ1502` before any statement; under the default setting both run as today). A profile rather than a
 one-off test, because the setting is a second rendering of every value path and would rot if only the spike ran it.
 
 #### C.4 Spike (M30.0)
+
+The [acceptance results](0018-spike-results.md#part-c--real-execution-family-audit-establishes-the-binding-work)
+support the binding design. The real TCK audit exposed the §C.2 inventory; explicit-parameter probes preserve
+mapped types, IN padding and computed cursors. The no-binder refusal is simulated, and the default control is
+targeted SQL equality, not a whole-project verification. Production routing and the ongoing profile remain to build.
 
 1. The audit: the AC-FLT-35 suites with the setting on and the marker inspector; the list of inlining paths goes into
    R-FLT-08 and AC-FLT-35.
@@ -460,8 +520,16 @@ rounds) is ANDed onto the outer statement and stays outside the `exists`, as it 
 - Locked reads (`list`, `first`, `one`, `byKeys`, R-EXE-14) over that shape run where they threw `MQ2211`: the outer
   statement has no join; the sub-query's tables are not locked on PostgreSQL or MySQL. A filter-only to-one join no
   longer reaches the outer statement either, so it no longer refuses. R-EXE-14 is amended.
-- Part A's fallback 4 no longer arises from the engine's own joins.
+- Part A's fallback 4 remains for a customizer's join or a §D.1-excluded shape.
 - Writes are unchanged: R-WRT-10 already renders them this way, and Part D brings reads in step with them.
+
+**Performance.** In the [acceptance spike](0018-spike-results.md), PostgreSQL's semi-join ran roughly 2–3.5x faster
+than the join or `select distinct`, but MySQL 8.0 ran 1.4–3.6x slower, with a second root lookup and duplicate weedout
+on three of four MySQL plans. MySQL's embedded-id plan differed between the two Hibernate lines despite identical
+SQL (nested-loop semijoin on 7.4). These are single executed EXPLAINs on a laptop, not repeated timing medians or
+stable performance bounds. Semi-join conversion does not guarantee speed: check the application's real plans and
+indexes. The correctness rewrite stays, with no unique-per-root escape hatch
+(§Resolutions, 7).
 
 #### D.4 New ids
 
@@ -475,6 +543,11 @@ AC-EXE-11, AC-EXE-13 and AC-SPR-19's `MQ2003` cases move to a customizer's join 
 
 #### D.5 Spike (M30.0)
 
+The [acceptance results](0018-spike-results.md#part-d--correct-semi-join-semantics-qualified-optimizer-results)
+confirm the wrong-result counterexamples and the semi-join's rows, aggregate, boolean, entity-equality and locking
+behavior on both lines and Tier 1. Scratch decision and excluded-shape routing remain implementation work.
+The PostgreSQL and MySQL plan observations set §D.3's caveat; they do not justify restoring the duplicating join.
+
 1. Today's wrong results: an offset page's total against its rows and the last page under `COUNT`; a grouped `sum`
    over a root column (AC-EXE-24 then pins the fix).
 2. The probe of D.1 on both lines: the scratch render's to-many joins by path, under `or` (LEFT) and `and` (INNER).
@@ -485,22 +558,28 @@ AC-EXE-11, AC-EXE-13 and AC-SPR-19's `MQ2003` cases move to a customizer's join 
 ## Compatibility
 
 **Part A** is additive. `CountMode.INLINE_COUNT` and `ProviderSupport#inlineCounts` (a default method) are new and
-`@Incubating`. A `switch` over `CountMode` without a default gains a case.
+`@Incubating`. A `switch` over `CountMode` without a default gains a case. The user chooses the mode (§A.1): selective
+flat first pages tie, grouped middle/deep pages improve to ~0.53–0.71x, while unselective flat first pages cost
+8–20x and middle/deep pages roughly 2–8x (deep PostgreSQL ~1.3–1.4x). Grouped selective first pages cost 14–32x
+in the fixture (grouped unselective first pages ~1.04–1.20x), with an inferred offset-0 planner cause; check real
+plans. There is no automatic performance fallback; R-EXE-15's correctness fallbacks remain.
 
 **Part B** adds `OperandBinder#converts` (a default method on an unreleased type) and changes results: where the binder
-serves the line, `likeIgnoreCase` and `eqIgnoreCase` over a converted attribute return the rows they missed, for every
-converter with the folding property (§B.2). For one without it, the result moves from "silently no rows" to a
-case-sensitive match or extra rows, as documented. It fixes a silent wrong result (INV-5) where it can, so it lands
-before the freeze rather than waiting; the `CHANGELOG.md` entry names it under *Changed*.
+serves the line, `eqIgnoreCase`, `EXACT` and `STARTS_WITH` over `SKU:` return rows they missed; `CONTAINS` and
+`ENDS_WITH` already returned the right rows by accident of the leading `%`. The rendering supports converters with
+the folding property (§B.2); without it, a case-sensitive match or extra rows remain possible. Without a binder
+the old limitation remains. MySQL's default case-folding collation is an observation from the controls, not a
+promise for all collations. It fixes a silent wrong result (INV-5) where it can, so it lands before the freeze;
+the `CHANGELOG.md` entry names it under *Changed*.
 
 **Part C** adds `ProviderSupport#inlinesValues` (a default method, `@Incubating`). Under the default setting nothing
 changes. Under `value_handling_mode=inline`, statements carry `?` instead of literals, and where no binder types a
 column, every value of an enum, `Boolean`, `UUID` or converted column becomes `MQ1502` where it ran with an inlined
 value before: not only a filter, but with such a primary key `one(q, key)`, `byKeys`, primary-key-first pages, keyset
 cursors and every fetch-plan child load. On a Hibernate line the binder doesn't serve, that is a large share of an
-application's queries. That is R-FLT-08 being kept, not narrowed. The message names the case it is in: without `model-query-hibernate`,
-add it; with it on a Hibernate line its binder doesn't serve (7.5, say), `inlinesValues` is true and the binder empty,
-so the fix is a served line or the default setting.
+application's queries. That is R-FLT-08 being kept, not narrowed. The message names the case it is in: without
+`model-query-hibernate`, add it; with it on a Hibernate line its binder doesn't serve (7.5, say), `inlinesValues`
+is true and the binder empty, so the fix is a served line or the default setting.
 
 **Part D** adds no API and changes results for one shape, a filter through a to-many join that nothing else in the
 outer statement keeps (D.1):
@@ -518,12 +597,16 @@ anything; the `CHANGELOG.md` entry names all five under *Changed*, with `Filters
 the excluded shapes as before. That shape's SQL changes; every other snapshot stays. `PortabilityCheck` has no
 read-join rule, so it reports nothing new (INV-6 unchanged).
 
+The correctness change also changes plan cost: PostgreSQL's semi-join was roughly 2–3.5x faster than join or DISTINCT
+in the spike, MySQL 8.0's 1.4–3.6x slower (duplicate weedout / second root lookup). These were single laptop
+EXPLAINs; check real plans and indexes (§D.3). There is no unique-per-root escape hatch (§Resolutions, 7).
+
 ## Alternatives
 
 **Part A**
 
 - **Do nothing.** `COUNT` stays; a caller wanting one snapshot wraps the page in a read-only transaction. Cheaper to
-  maintain, and the spike's numbers may say this is right (§A.6, probe 5).
+  maintain; D-177 accepts the opt-in mode under the tie rule, with the costs in §A.1.
 - **A new `InlineCountRenderer` in `jpa.spi` with an `mq_count_over` function** (the first draft). `RenderOptions`
   is a `core` type and carries only `core` renderers, so `core` couldn't see it (INV-7); and `SourceRenderer#window`
   already renders the window.
@@ -577,21 +660,27 @@ read-join rule, so it reports nothing new (INV-6 unchanged).
   in a correlated `exists` handles.
 - **Do nothing; keep Q-31 open.** Leaves silently wrong totals and aggregates past the freeze.
 
-## Unresolved questions
+## Resolutions (D-177)
 
-The first review's recommendations, for the second review and the spike to confirm and the acceptance `D-n` to record:
+The former unresolved items 1–7 are resolved by the user's acceptance on 2026-10-21, using the
+[spike results](0018-spike-results.md):
 
-1. **Part A, worth it?** Withdraw Part A, and close Q-29 as declined, unless probe 5 shows `INLINE_COUNT` beating
-   `COUNT` inside one transaction on first pages with selective filters, on PostgreSQL and MySQL. One snapshot alone
-   isn't worth a mode, since a read-only transaction gives it.
-2. **Part A, the name.** Keep `INLINE_COUNT`: with its fallbacks it isn't always a window, and Q-29 and D-176 use the
-   name. Its javadoc states the cost.
-3. **Part B, converters without the folding property.** Don't refuse: `converts` can't tell converter kinds apart.
-   Document the property (§B.2).
-4. **Part C, without `model-query-hibernate`.** `inlinesValues` stays false, documented (§C.1).
-5. **Part C, bind or refuse.** Bind; a path the audit can't type is `MQ1502` for that path under the setting.
-6. **Part D, scope.** Leave a customizer's own to-many join as it is: it can't be told apart from one the customizer
-   reads. Filter-only to-one joins are moot: rendered only in the sub-query, they never reach the outer statement.
-7. **Part D, performance.** No "unique per root" escape hatch: no metamodel fact says so, and such a relation should
-   be mapped to-one. Measure MySQL 8.0's semi-join conversion and PostgreSQL's second-root self-join (§D.5, probe 3);
-   if slower on a common shape, document it rather than restore the join.
+1. **Part A, worth it? Resolved: keep.** The user's gate is no loss beyond run-to-run spread against `COUNT` on
+   first pages with selective filters on PostgreSQL and MySQL; a tie qualifies. Flat selective first pages tie on
+   both lines and databases, meeting the gate. The user chooses the mode, with §A.1's measured advice and no
+   automatic performance fallback. R-EXE-15's correctness fallbacks remain. Q-29 is resolved as accepted.
+2. **Part A, the name. Resolved: `INLINE_COUNT`.** Its correctness fallbacks mean it isn't always a window;
+   its javadoc states the cost.
+3. **Part B, converters without the folding property. Resolved: document, don't refuse.** `converts` can't
+   distinguish converter kinds; §B.2's folding property and the no-binder limitation stay. Q-30 is resolved.
+4. **Part C, without `model-query-hibernate`. Resolved: `inlinesValues` stays false**, documented in §C.1.
+5. **Part C, bind or refuse. Resolved: bind.** Under the setting, a path the binder can't type uses a class-typed
+   parameter only for mapping-independent values; otherwise it is `MQ1502` for that path before any statement,
+   including call-time key/cursor inputs. Keep the ongoing audit profile and §C.2's inventory. Q-28 is resolved.
+6. **Part D, scope. Resolved: keep §D.1's exclusions.** A customizer's own to-many join stays as it is; it can't
+   be told apart from one the customizer reads. Filter-only to-one joins rendered in the sub-query never reach
+   the outer statement. The whole-predicate semi-join resolves Q-31.
+7. **Part D, performance. Resolved: document the cost, keep the rewrite.** PostgreSQL and MySQL both convert the
+   semi-join, but MySQL's measured common shapes are slower (§D.3). Check real plans and indexes; do not restore
+   the duplicating join. No unique-per-root escape hatch: no metamodel fact establishes it, and such a relation
+   should be mapped to-one.

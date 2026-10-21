@@ -684,24 +684,97 @@ Slices are written once the RFC is accepted (§4).
 
 ## 30. M30 — Inline count, converted ignore-case filters, inline value handling, filter-only to-many joins → 0.10.0
 
-Spec: D-176, `rfc/0018` (draft), Q-28 to Q-31. Four independent parts, accepted or rejected separately. Part A:
-`CountMode.INLINE_COUNT`, a page's exact total read from the page statement as a `count(...) over ()` window rendered through
-`SourceRenderer#window` where `ProviderSupport#inlineCounts` says the dialect has windows (R-VND-27), falling back to
-`COUNT`'s statements wherever the page statement doesn't return exactly the rows `COUNT` counts (R-EXE-15). Part B: `likeIgnoreCase` and `eqIgnoreCase` over
-a JPA `@Convert` attribute convert the value through the operand binder and fold both sides in SQL
-(`OperandBinder#converts`, R-FLT-07 amended), so they stop returning no rows silently where the binder serves the line (INV-5). Part C: under
-Hibernate's `value_handling_mode=inline` (`ProviderSupport#inlinesValues`, R-VND-28), every engine value path binds
-through the operator path's rule (R-FLT-21), so R-FLT-08 holds; the default setting renders as today. Part D: a filter through a to-many join no selected column reads renders, where
-the outer statement keeps no to-many join and the root isn't treated, as a correlated `exists` semi-join holding the
-whole predicate, as bulk writes do (R-EXE-16, R-WRT-10), so each root is one row and `count`, pages and
-aggregates agree (Q-31). Model: an
-`architect-review` of the RFC and at the gate (public API, the `ProviderSupport` surface, INV-5, INV-7). Every new
-public type and member is `@Incubating`. The last slice finishes the 0.10.0 release prep (`CHANGELOG.md`), moved from
-M29. Slices are written once the RFC is accepted (§4).
+Spec: D-177, `rfc/0018` (accepted as D-177), D-176; Q-28 to Q-31 resolved. Four independent parts, all accepted.
+Part A: `CountMode.INLINE_COUNT`, a page's exact total read from the page statement as a `count(...) over ()` window
+rendered through `SourceRenderer#window` where `ProviderSupport#inlineCounts` says the dialect has windows
+(R-VND-27), falling back to `COUNT`'s statements wherever the page statement doesn't return exactly the rows `COUNT`
+counts (R-EXE-15). The user chooses the mode; there is no automatic performance fallback. Part B: `likeIgnoreCase`
+and `eqIgnoreCase` over a JPA `@Convert` attribute convert the value through the operand binder and fold both sides
+in SQL (`OperandBinder#converts`, R-FLT-07 amended), correcting the observed equality, `EXACT` and `STARTS_WITH`
+misses where the binder serves the line (INV-5); `CONTAINS` and `ENDS_WITH` succeeded accidentally over `SKU:`.
+Part C: under Hibernate's `value_handling_mode=inline` (`ProviderSupport#inlinesValues`, R-VND-28), every engine
+value path binds through the operator path's rule (R-FLT-21), so R-FLT-08 holds; the default setting renders as today.
+Part D: a filter through a to-many join renders, where the outer statement keeps no to-many join and the root isn't
+treated, as a correlated `exists` semi-join holding the whole predicate, as bulk writes do (R-EXE-16, R-WRT-10), so
+each root is one row and `count`, pages and aggregates agree. Model: an `architect-review` of the RFC and at the gate
+(public API, the `ProviderSupport` surface, INV-5, INV-7, paging correctness). Every new public type and member is
+`@Incubating`. M30.1–M30.7 require Opus / high for those surfaces and invariants; M30.8 uses the default tier. The
+last slice finishes the 0.10.0 release prep (`CHANGELOG.md`), moved from M29 (D-176).
 
 | Slice | Content | Done when |
 |---|---|---|
-| M30.0 | `rfc/0018`'s `architect-review` passes and its acceptance spike on both Hibernate lines and Tier 1 (`rfc/0018-spike-results.md`): §A.6's rendering, shape and performance probes, §B.4's `eqIgnoreCase`, `lower(?)` and `converts` probes, §C.4's audit of every value path under the inline setting, §D.5's wrong-result, semi-join and plan probes; a part the spike or review rejects is withdrawn, its question closed | the RFC accepted or a part withdrawn, recorded as a `D-n` |
+| M30.0 | RFC review and acceptance spike (`rfc/0018-spike-results.md`) | Done: D-177 |
+| M30.1 | R-EXE-15, R-VND-27: API and portable fallback | AC-EXE-21 green on both lines and Tier 1 |
+| M30.2 | R-EXE-15, R-VND-27: window execution | AC-EXE-18–20 green on both lines and Tier 1 |
+| M30.3 | R-FLT-07, R-VND-24: converted ignore-case | AC-FLT-33–34 green on both lines and Tier 1 |
+| M30.4 | R-FLT-08, R-VND-28: binding | AC-FLT-35 (part), AC-FLT-36 green on both lines and Tier 1 |
+| M30.5 | R-FLT-08: executor inputs | AC-FLT-35 (part), AC-PAG-28 green on both lines and Tier 1 |
+| M30.6 | R-FLT-08: insert, conflict, sources and profile | AC-FLT-35 green on both lines and Tier 1 |
+| M30.7 | R-EXE-16: semi-joins | AC-EXE-11/13/22–24, `integration/50` AC-SPR-19 green on both lines and Tier 1 |
+| M30.8 | Docs and release prep | Docs and `CHANGELOG.md` complete; `mkdocs build --strict` green |
+
+**M30.1 — Part A's API and portable route.** Add `CountMode.INLINE_COUNT` and the default-false
+`ProviderSupport#inlineCounts(emf)` (R-VND-27). Treat the new mode as `COUNT` for execution and preflight until the
+window route is available (R-EXE-02, R-EXE-15 fallback 1), including per-executor/query DEBUG logging. AC-EXE-21
+covers the same `Slice` without `model-query-hibernate`; default capability and no-renderer cases are tested too.
+
+**M30.2 — Part A's window route.** Implement Hibernate's dialect answer (R-VND-27), `SourceRenderer#window` over
+`count(1)`, `mq_0total` appended after customizers and read by alias, and primary-key-first step 1 (R-EXE-15).
+AC-EXE-18 covers flat, grouped/HAVING and key-first pages; AC-EXE-19 covers empty first/past-end pages and refused
+treat sites before statements; AC-EXE-20 covers all shape fallbacks, customizer DISTINCT/to-many joins, and logging
+once per executor/query. Keep `COUNT`'s preflight even when the window runs; AC-EXE-21 stays green. No performance
+fallback, and `NO_COUNT`, `ONLY_COUNT`, keyset and exports keep their contracts.
+
+**M30.3 — Part B.** Add `OperandBinder#converts` and Hibernate's mapped-node answer (R-VND-24), then render
+`lower(?)` on the converted ignore-case branch, including `Having.likeIgnoreCase` (R-FLT-06–07). AC-FLT-33 covers
+equality and every `LikeMode` over `SKU:`, joined/embedded and min/max mappings, auto-applied converters and inline
+handling. AC-FLT-34 keeps plain-column and no-binder SQL unchanged; builtin enum conversion answers false.
+Retain the folding-property and missing-binder limitations.
+
+**M30.4 — Part C's seam and filters.** Add the default-false `ProviderSupport#inlinesValues(emf)` and Hibernate's
+factory-option answer, resolved once into `RenderOptions` (R-VND-28). Extract the operator rule into the shared
+`@EngineFacing` helper with a parameter sink; move filter comparisons, ranges, membership, patterns, ignore-case,
+subqueries and mapped enum/Boolean inputs onto it only under the setting (R-FLT-08, R-FLT-21). AC-FLT-35's filter
+cases cover §C.2's named paths; AC-FLT-36 covers a test provider without a binder (String binds, enum `MQ1502`
+before any statement, both unchanged under the default). Widen `MQ1502`'s message, retaining its exception type.
+
+**M30.5 — Part C's executor inputs.** Apply the helper to `PrimaryKey`, `Keyset`, `byKeys` chunks, key-first pages,
+fetch-plan key rounds and executor update assignments (R-FLT-08). Preserve each statement's parameter ownership,
+mapping types, padding, bind limits and chunking; cursor placeholders already explicit stay so. AC-FLT-35's key,
+cursor, fetch and update cases include UUID, decimal, timestamp, binary and equality prefixes, plus a computed
+cursor using a class-typed parameter. Amend AC-PAG-28 and `Keyset`'s javadoc; its cursor cases stay green on both
+lines and Tier 1. Unsupported mapped key/cursor inputs refuse per path before any statement.
+
+**M30.6 — Part C's remaining families and ongoing profile.** Cover delete, insert-select predicates, conflict
+conditions and source cursors; retain the typed insert-values and insert-select assignment binding successes
+(R-FLT-08). Finish AC-FLT-35's profile across filter, paging, keyset, byKeys, fetch, write, insert, conflict and
+source suites, wired into the two-line verify. Its inspector covers all 23 observed paths and classifies structural
+literals separately, including the spike regex's BETWEEN/function/later-IN gaps. Exact rows and mapped DML round
+trips agree with the default; default SQL snapshots stay unchanged. Amend R-FLT-06's inline-value wording too.
+
+**M30.7 — Part D's read, paging and aggregate contracts.** In `ModelQuery.assemble`, scratch-render with a fresh
+`JoinContext`, compare to-many join paths independently of join type, and render the whole WHERE in a second-root
+EXISTS with entity equality; keep HAVING outside and bind each input once (R-EXE-16, R-WRT-10). Respect every §D.1
+exclusion. AC-EXE-22's list/count/one/locked-read cases and AC-EXE-23's OR, same-child, NOT and kept-join cases cover
+single/embedded ids, nested correlation and no outer join; update R-EXE-14's lock eligibility. Move AC-EXE-11,
+AC-EXE-13 and AC-SPR-19's `MQ2003` cases to a customizer join or excluded shape and keep them green on both lines
+and Tier 1. Cover AC-EXE-22's offset-page totals/last-page cases and AC-EXE-24's grouped root sums (R-EXE-04,
+R-EXE-16), keyset/export traversal without short pages and strict `one(q, key)`/`byKeys` duplicate handling.
+Scope R-PAG-02's within-page drop and R-PAG-21's short-page note to the
+remaining excluded shapes and customizer joins, preserving their guards. Verify Part A uses the window where the
+rewrite removes its fallback 4 while a customizer's join or a §D.1-excluded shape still falls back
+(AC-EXE-18–20). Only the newly eligible shape's SQL snapshots change.
+
+**M30.8 — Docs and 0.10.0 prep.** Update paging/count modes with selective-filter advice: selective flat first
+pages tie, grouped middle/deep pages improve to ~0.53–0.71x, unselective flat first pages cost 8–20x and middle/deep
+roughly 2–8x (deep PostgreSQL ~1.3–1.4x), grouped selective first pages cost 14–32x in the fixture (grouped
+unselective first pages ~1.04–1.20x), with an inferred offset-0 planner cause. The user chooses the mode; check real
+plans, no automatic performance fallback. Explain Part D's MySQL 8.0 semi-join cost (1.4–3.6x slower versus
+PostgreSQL roughly 2–3.5x faster, single laptop EXPLAINs), without a unique-per-root escape hatch. Filters documents
+the accidental CONTAINS/ENDS_WITH successes, folding property and
+missing-binder limitation; explain inline handling and per-path `MQ1502` in Diagnostics. Finish the 0.10.0
+`CHANGELOG.md` prep moved from M29 (D-176), naming the result changes and new incubating API. `mkdocs build --strict`
+is green and every runnable snippet has tested JPA and Spring tabs (CC-DOC-01).
 
 ## 31. M31 — Freeze → 1.0.0
 

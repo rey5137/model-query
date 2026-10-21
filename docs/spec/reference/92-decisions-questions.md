@@ -2686,6 +2686,53 @@ once. The freeze moves from M30 to M31 and stays last, and M30's last slice fini
 Everything new is `@Incubating`, so the M31.1 freeze review decides each type. → `rfc/0018`,
 `docs/plan/mvp-plan.md` §30–§31, `delivery/62`, D-85, D-148.
 
+**D-177 — Inline count, converted ignore-case filters, inline value handling and filter-only to-many joins
+(RFC 0018, 2026-10-21, user decision).** All four parts are accepted for M30 / 0.10.0, with the spike's amendments.
+
+**Part A (Q-29):** keep opt-in `CountMode.INLINE_COUNT`, never the default, with `COUNT`'s exact total and
+R-EXE-15's correctness fallbacks and preflight. The window is `count(1) over ()` through `SourceRenderer#window`,
+gated by `ProviderSupport#inlineCounts` and a source renderer; Hibernate answers from the dialect's window support.
+The user's acceptance gate is no loss beyond run-to-run spread against `COUNT` on selective first pages on both
+PostgreSQL and MySQL; a tie qualifies, and flat selective first pages tie on both Hibernate lines and databases.
+Grouped middle/deep pages improved to ~0.53–0.71x, while unselective flat pages cost ~8–20x first and ~2–8x
+middle/deep (deep PostgreSQL ~1.3–1.4x), and grouped selective first pages cost 14–32x in the laptop fixture
+(grouped unselective first pages ~1.04–1.20x), with an offset-0 planner cause inferred, not established by EXPLAIN.
+The docs say when it pays and costs and to check real plans; the user chooses the mode, with no automatic
+performance fallback. Fallback reasons log once per executor/query, keeping mutable state off shared definitions
+(INV-9).
+
+**Part B (Q-30):** keep `OperandBinder#converts`, inspecting the same mapped node type the binder uses, and fold
+both sides in SQL with the mapped parameter for converted attributes; unconverted columns render as today.
+The spike confirms `eqIgnoreCase`, `EXACT` and `STARTS_WITH` miss over `SKU:` today; `CONTAINS` and `ENDS_WITH`
+return the right rows only by accident of their leading `%`, while the proposed rendering works on both lines
+and Tier 1. MySQL's default case-folding collation is a control observation. Keep the documented folding-property
+and missing-binder limitations; do not refuse converters the provider cannot classify.
+
+**Part C (Q-28):** keep R-FLT-08 under inline handling through `ProviderSupport#inlinesValues` and the shared
+`@EngineFacing` value-binding helper: mapped parameter where the binder types the expression, a class-typed
+parameter only for R-FLT-21's mapping-independent values, otherwise per-path `MQ1502` before any statement.
+The audit observes 23 paths on both lines and Tier 1: 22 input leaks and one already-bound typed-insert control;
+explicit-parameter probes preserve mapped types, padding and computed cursors, and the targeted default SQL
+control stays equal. Carry the named inventory into R-FLT-08 / AC-FLT-35, classifying structural literals separately;
+the broad detector's 20,739 candidates and 912 failing tests per line do not count independent defects.
+The ongoing TCK profile covers all execution families. Default rendering stays unchanged; without
+`model-query-hibernate`, `inlinesValues` stays false. `MQ1502` remains a `ModelQueryDefinitionException` even for a
+call-time key/cursor input the installation cannot bind; its message names that path, not only an operator.
+
+**Part D (Q-31):** keep the whole-predicate correlated semi-join over a second root, with entity equality, only
+where no other outer term keeps a to-many join and the root is not treated; customizer joins and §D.1's other
+exclusions stay as designed. The spike demonstrates wrong offset-page totals and inflated root aggregates today,
+then correct rows, totals, boolean predicates, embedded-id equality and locked reads with the semi-join on both
+lines and Tier 1. PostgreSQL ran it roughly 2–3.5x faster than join or DISTINCT, MySQL 8.0 1.4–3.6x slower with
+duplicate weedout / a second root lookup; these are single laptop EXPLAINs, so advise checking real plans and
+indexes. No unique-per-root escape hatch and no restoration of the duplicating join; document slower shapes.
+
+New ids: R-EXE-15, R-EXE-16, R-VND-27, R-VND-28; AC-EXE-18–24, AC-FLT-33–36. Amend R-EXE-02, R-EXE-04,
+R-EXE-14, R-FLT-06–08, R-VND-24, R-PAG-02, R-PAG-21 and AC-PAG-28; move AC-EXE-11, AC-EXE-13 and AC-SPR-19's
+`MQ2003` cases to a customizer join or excluded shape. New public types and members are `@Incubating`.
+→ `rfc/0018`, `rfc/0018-spike-results.md`, `api/12`, `engine/20–21`, `vendor/40`, `integration/50`,
+`reference/90` `MQ1502`, D-167, D-170, D-171, D-175, D-176; Q-28–Q-31 resolved.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -2808,41 +2855,42 @@ original group key (S2.3) keep the NULL rule in every measured shape; a later re
 its cost and composition, and lifts the refusal, with `treat` on `@Aggregate`. → `rfc/0016` §2, §11, D-154, `api/10`
 R-COL-35.
 
-**Q-28 — The engine's value paths under `value_handling_mode=inline`.** RFC 0017's spike found that
-`cb.equal(path, value)`-style binding, where Hibernate turns the value into a parameter itself, inlines the value
+**Q-28 — The engine's value paths under `value_handling_mode=inline`.** Resolved by D-177. Was: RFC 0017's spike found
+that `cb.equal(path, value)`-style binding, where Hibernate turns the value into a parameter itself, inlines the value
 under `hibernate.criteria.value_handling_mode=inline`, while an explicit parameter never does. An operator's operand
 is explicit (D-167); whether any engine value path (filters, writes, keyset cursors, sources) relies on Hibernate's
 conversion, and so breaks R-FLT-08 under that setting, is unchecked. An audit and a TCK case under that setting would
 answer it. An operator's value, typed by Hibernate's binder, stays `?` under it on both lines and Tier 1 (D-170,
-AC-FLT-22); the other paths are still unchecked. → `rfc/0017` §1, D-167, D-170, `api/12` R-FLT-08, `rfc/0018` Part C (M30, D-176).
+AC-FLT-22); the other paths are still unchecked. → `rfc/0017` §1, D-167, D-170, `api/12` R-FLT-08, `rfc/0018` Part C
+(M30, D-176).
 
-**Q-29 — An inline count.** `CountMode.COUNT` runs a separate count statement (R-EXE-03); Blaze-Persistence can
-instead inline `COUNT(*) OVER()` into the page query. That saves a round trip and takes the total and the page from
-one snapshot without a transaction (cf. R-FCH-06), and counts groups on a grouped query. Against it: the window
-evaluates the whole result before `LIMIT`, losing the top-N early stop, often slower than a separate count on large
-sets; a page past the end returns no row and so no total, which needs a count fallback; keyset pages carry no total
-(D-105); JPA Criteria has no window functions, so it sits behind `ProviderSupport` with `COUNT` as the portable
-fallback (INV-7). If adopted, an opt-in `CountMode` constant, never the default; additive, so not freeze-blocking. →
-`engine/20` R-EXE-03, D-34, D-51, D-105, `rfc/0018` Part A (M30, D-176).
+**Q-29 — An inline count.** Resolved by D-177. Was: `CountMode.COUNT` runs a separate count statement (R-EXE-03);
+Blaze-Persistence can instead inline `COUNT(*) OVER()` into the page query. That saves a round trip and takes the
+total and the page from one snapshot without a transaction (cf. R-FCH-06), and counts groups on a grouped query.
+Against it: the window evaluates the whole result before `LIMIT`, losing the top-N early stop, often slower than a
+separate count on large sets; a page past the end returns no row and so no total, which needs a count fallback; keyset
+pages carry no total (D-105); JPA Criteria has no window functions, so it sits behind `ProviderSupport` with `COUNT`
+as the portable fallback (INV-7). If adopted, an opt-in `CountMode` constant, never the default; additive, so not
+freeze-blocking. → `engine/20` R-EXE-03, D-34, D-51, D-105, `rfc/0018` Part A (M30, D-176).
 
-**Q-30 — Case-insensitive string filters over a `@Convert` attribute.** On an attribute with a JPA `@Convert`
-`AttributeConverter`, `likeIgnoreCase` renders `lower(col) like ?` and Hibernate does not run the converter on the bound
-value, so `EXACT` and `STARTS_WITH` return no rows with no error (`CONTAINS` happens to be right); converting would not
-help, since `lower(col)` folds the stored value. `ConvertedLikeTest` pins this. `eqIgnoreCase` is probably the same and
-is untested: confirm it first. Proposed direction: refuse `likeIgnoreCase` and `eqIgnoreCase` on a `@Convert` attribute
-with `MQ1001` through a new `ProviderSupport` fact (core cannot see `@Convert` in the JPA metamodel), by RFC, since it
-narrows shipped operators. Until then `api/12` R-FLT-07 documents the limitation. → D-171, `api/12` R-FLT-07, INV-5,
-`rfc/0018` Part B (M30, D-176): proposes converting the value through the binder and folding both sides in SQL instead
-of refusing.
+**Q-30 — Case-insensitive string filters over a `@Convert` attribute.** Resolved by D-177. Was: on a JPA `@Convert`
+`AttributeConverter`, `likeIgnoreCase` renders `lower(col) like ?` and Hibernate does not run the converter on the
+bound value, so `EXACT` and `STARTS_WITH` return no rows with no error (`CONTAINS` happens to be right); converting
+would not help, since `lower(col)` folds the stored value. `ConvertedLikeTest` pins this. `eqIgnoreCase` is probably
+the same and is untested: confirm it first. Proposed direction: refuse `likeIgnoreCase` and `eqIgnoreCase` on a
+`@Convert` attribute with `MQ1001` through a new `ProviderSupport` fact (core cannot see `@Convert` in the JPA
+metamodel), by RFC, since it narrows shipped operators. Until then `api/12` R-FLT-07 documents the limitation. →
+D-171, `api/12` R-FLT-07, INV-5, `rfc/0018` Part B (M30, D-176): proposes converting the value through the binder and
+folding both sides in SQL instead of refusing.
 
-**Q-31 — `COUNT` against a page over a predicate-only to-many join.** A filter through a to-many join that selects no
-to-many column reaches `page` (R-PAG-13 lets it through), and its content statement has no `DISTINCT`, so a root
-matching on several children is several rows, while `COUNT` reports `count(distinct root)` (R-EXE-04). The total and
-the rows can then disagree (`warnOfContradictedTotal`). Found by RFC 0018's first review; Part A falls back to `COUNT`
-here rather than inherit it. Whether the content statement should be distinct on the root, or `COUNT` should count
-rows, is open; `Filters.exists` (R-FLT-12) avoids it today. `rfc/0018` Part D (M30, D-176, user 2026-10-21) proposes a
-correlated semi-join holding the whole predicate. → `engine/20` R-EXE-02, R-EXE-04, `engine/21` R-PAG-02, R-PAG-13,
-`rfc/0018` §A.3, Part D.
+**Q-31 — `COUNT` against a page over a predicate-only to-many join.** Resolved by D-177. Was: a filter through a
+to-many join that selects no to-many column reaches `page` (R-PAG-13 lets it through), and its content statement has
+no `DISTINCT`, so a root matching on several children is several rows, while `COUNT` reports `count(distinct root)`
+(R-EXE-04). The total and the rows can then disagree (`warnOfContradictedTotal`). Found by RFC 0018's first review;
+Part A falls back to `COUNT` here rather than inherit it. Whether the content statement should be distinct on the
+root, or `COUNT` should count rows, is open; `Filters.exists` (R-FLT-12) avoids it today. `rfc/0018` Part D (M30,
+D-176, user 2026-10-21) proposes a correlated semi-join holding the whole predicate. → `engine/20` R-EXE-02, R-EXE-04,
+`engine/21` R-PAG-02, R-PAG-13, `rfc/0018` §A.3, Part D.
 
 ## 3. Risks
 

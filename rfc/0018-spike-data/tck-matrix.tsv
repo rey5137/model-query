@@ -1,0 +1,5 @@
+scope	hibernate	PASS	FAIL	SIMULATED	NOT_RUN	SKIP
+tests	6.6.58.Final	551	912	0	0	18
+SQL	6.6.58.Final	4703	20739	0	0	0
+tests	7.4.11.Final	551	912	0	0	18
+SQL	7.4.11.Final	4705	20739	0	0	0
