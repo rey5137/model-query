@@ -163,6 +163,11 @@ public final class OperatorProviderSupport implements ProviderSupport {
         return hibernate.treats(emf);
     }
 
+    @Override
+    public boolean inlinesValues(EntityManagerFactory emf) {
+        return hibernate.inlinesValues(emf);
+    }
+
     /**
      * Runs {@code work} where this class is the only {@code ProviderSupport} {@code ServiceLoader} finds, answering
      * {@code operators} for each feature and supplying {@code binder}, or none when it is {@code null}.

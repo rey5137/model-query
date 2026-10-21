@@ -186,12 +186,12 @@ class ConvertedLikeTest {
             run(db, handling, runs, f -> f.like(CODE, "12", LikeMode.STARTS_WITH));
             run(db, handling, runs, f -> f.like(CODE, "12", LikeMode.CONTAINS));
             // The finished pattern goes through the converter, so a prefix lands before the wildcards: under either
-            // value handling a like's literal, and an ilike's parameter (D-170), is the converted pattern.
+            // value handling a like's value, and an ilike's parameter (D-170), is the converted pattern.
             assertThat(runs).as(handling).extracting(Run::ids).containsExactly(List.of(1L), List.of(2L),
                     List.of(1L, 2L));
             assertThat(runs).as(handling).extracting(Run::pattern).containsExactly("SKU:a12", "SKU:12%", "SKU:%12%");
-            assertThat(runs).as(handling).allSatisfy(run -> assertThat(run.bound().isEmpty())
-                    .isEqualTo(handling.equals("inline")));
+            // A parameter under inline value handling too, the binder's, typed by the column (R-FLT-08, D-177).
+            assertThat(runs).as(handling).allSatisfy(run -> assertThat(run.bound()).hasSize(1));
             // likeIgnoreCase's pattern goes through the binder's parameter, never inlined, under lower(?) (D-177).
             List<Run> ignoreCase = new ArrayList<>();
             run(db, handling, ignoreCase, f -> f.likeIgnoreCase(CODE, "A12", LikeMode.EXACT));
@@ -287,13 +287,12 @@ class ConvertedLikeTest {
             assertThat(runs).as(handling).extracting(Run::ids).containsExactly(List.of(1L, 5L),
                     List.of(1L, 2L, 3L, 4L, 5L), List.of(), List.of(), List.of());
             assertThat(runs).as(handling).allSatisfy(run -> assertThat(run.sql()).doesNotContain("lower(?)"));
+            // Bound under inline value handling too: the binder's parameter, or with none a String's (R-FLT-08).
+            assertThat(runs).as(handling).extracting(Run::bound).containsExactly(List.of("g1"), List.of("g%"),
+                    List.of("a12"), List.of("a12"), List.of("12b%"));
             if (handling.equals("bind")) {
-                assertThat(runs).extracting(Run::bound).containsExactly(List.of("g1"), List.of("g%"),
-                        List.of("a12"), List.of("a12"), List.of("12b%"));
                 SqlSnapshots.assertMatches(db, "flt-34-unconverted-ignore-case",
                         runs.stream().map(Run::sql).toList());
-            } else {
-                assertThat(runs).allSatisfy(run -> assertThat(run.bound()).isEmpty());
             }
         }
     }

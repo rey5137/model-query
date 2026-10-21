@@ -116,8 +116,9 @@ rewritten portably. The Javadoc states that rows where the group is UNKNOWN are 
 `ESCAPE '\'`, so a search for `50%` finds that literal text. `EXACT` passes the pattern through as given. On a column
 with a `ColumnConverter` the value is converted first and the pattern is built from the attribute value (R-COL-14), as
 an operator's `prepare` is (R-FLT-21, D-171). On a JPA `@Convert` attribute, Hibernate runs the `AttributeConverter` on
-the finished pattern, wildcards and escapes included, for `like` (inlined under `value_handling_mode=inline` too) and
-for `HibernateOperators.ilike` through Hibernate's binder (`vendor/40` R-VND-24, D-170), and for `likeIgnoreCase`
+the finished pattern, wildcards and escapes included, for `like` (through Hibernate's binder under
+`value_handling_mode=inline`, R-FLT-08; a `like` a user's own Criteria code renders there is still inlined) and for
+`HibernateOperators.ilike` through Hibernate's binder (`vendor/40` R-VND-24, D-170), and for `likeIgnoreCase`
 through the same binder (R-FLT-07, D-177). `like`, `ilike` and `likeIgnoreCase` thus match a model value only through
 a converter that turns a pattern into the stored form's pattern, such as one adding a prefix (AC-FLT-21, AC-FLT-33,
 D-171).
@@ -149,9 +150,25 @@ closed; D-171, D-177).
 
 ## 5. Bind parameters and large sets
 
-**R-FLT-08** Every value is a bind parameter. The engine never inlines a value into SQL, for any operator. Inside an expression, values bind as `api/10` R-COL-18
-states; `Expr.constant` is definition text, not a value, and so is a validated `fullTextMatch` configuration (D-173,
-`MQ1315`), which renders as an inline literal.
+**R-FLT-08** *(D-177)* Every value is a bind parameter. The engine never inlines a value into SQL, for any operator.
+Inside an expression, values bind as `api/10` R-COL-18 states; `Expr.constant` is definition text, not a value, and so
+is a validated `fullTextMatch` configuration (D-173, `MQ1315`), which renders as an inline literal.
+
+This holds under a factory that renders a criteria value given without a parameter as a literal, Hibernate's
+`hibernate.criteria.value_handling_mode=inline`, which `ProviderSupport#inlinesValues` reports (`vendor/40` R-VND-28).
+There every filter value binds as an explicit statement parameter by R-FLT-21's operator rule, through the same
+`@EngineFacing` helper: the comparisons (`eq`, `ne`, `gt`, `gte`, `lt`, `lte`), `between` and `range` bounds, every
+`in` and `notIn` element in every chunk (R-FLT-09), the `like` pattern, the `eqIgnoreCase` and `likeIgnoreCase` value
+(lower-cased in Java as R-FLT-07 states, or the binder's `lower(?)`), and the filters of a sub-select or `EXISTS`
+(R-FLT-17), whichever group (`where`, `having`) holds them. Where the provider's `OperandBinder` types by the column's
+expression the parameter is the binder's, typed by the column's mapping, so a `@Convert` value, an enum and a mapped
+`Boolean` bind as stored (D-170); with no binder, or where it declines, only a `String`, a `java.lang` or `java.math`
+number or a `java.time` value binds, and anything else (an enum, a `Boolean`, a `UUID`, an array, a `@Convert` value)
+is `MQ1502` before any statement, naming the filter and the column. `MQ1502` is a `ModelQueryDefinitionException`; for
+a value given at call time it reports input the installation can't bind rather than a bad definition (D-177). Under
+the default setting a filter renders as before, `cb.equal(path, v)` and its kin, which already bind `?`: no SQL changes
+and the binder is not asked. Structural literals are not input values and stay as rendered: `like`'s `ESCAPE '\'`, a
+discriminator restriction, SQL `NULL` and a user's own `cb.literal` or `Expr.constant` (AC-FLT-35, AC-FLT-36).
 
 **R-FLT-09** Lists longer than `VendorProfile.maxInListSize()` render as `col IN (…) OR col IN (…)`, in chunks of at
 most that many values in the given order, and `notIn` as an AND of `NOT IN` chunks, ORed once with `col IS NULL` so
@@ -415,7 +432,8 @@ parameter typed by class binds a `STRING` enum by ordinal and a `@Convert` value
 With a binder, the `<C, C>` form's parameter is the binder's, typed by the column's mapping, so an enum, an array or a
 converted value binds; the `<C, V>` form, which no column types, keeps the no-binder rule (D-169), and so does a column
 expression the binder declines to type by (`OperandBinder#typesBy`; Hibernate's types a path or an aggregate over one,
-not a function of a column, D-170).
+not a function of a column, D-170). The rule is one `@EngineFacing` helper, `ValueOperands#valueOperand`, which
+R-FLT-08's filters share under inline value handling (D-177).
 
 **R-FLT-22** *(D-167)* **NULLs and negation.** An operator renders as its renderer builds it, with no `OR col IS NULL`
 added: a NULL column or operand makes it unknown, so the row doesn't match. `not(g -> g.op(...))` is plain `NOT (…)`
@@ -466,7 +484,9 @@ collection means "none"; negation includes NULLs; `like` input is escaped; long 
 | AC-FLT-31 | Per strategy, `notOfType` includes the rows of an absent LEFT join and, on `SINGLE_TABLE`, of a discriminator value no entity maps, which `ofType` drops and `typeOf` fails on; an empty collection keeps every row (R-FLT-28). |
 | AC-FLT-32 | `fullTextMatch(config)` on PostgreSQL, both lines: returns the right rows for request text with spaces and punctuation (`acme corp`, a quote), with no database error; the statement renders the configuration as a literal and the text as `?` (SQL snapshot); a null, blank or non-identifier configuration (`english'`, `a b`) is `MQ1315` at the factory call, and two calls with one configuration return the same instance; it is `MQ4015` on H2 and MySQL with their profiles, and `MQ4014` with a custom profile answering `FULL_TEXT` true there; `PortabilityCheck` reports it per target (`vendor/40` R-VND-23). |
 | AC-FLT-33 | Over a JPA `AttributeConverter` with Hibernate's binder, on both lines and Tier 1, under the default value handling and `hibernate.criteria.value_handling_mode=inline`: `eqIgnoreCase` and `likeIgnoreCase` in every `LikeMode` over the `SKU:` prefixing `@Convert` return the rows `like` with the same case returns (`ConvertedLikeTest`'s `likeIgnoreCase` misses become matches), the statement shows `lower(?)` and binds the converted value or pattern; the same over a path through a join and through an embeddable, over an auto-applied converter, and `Having.eqIgnoreCase` and `Having.likeIgnoreCase` over `min` and `max` of a converted column; Hibernate's `converts` is `true` there and `false` for a plain `String`, an `@Enumerated` enum and a declined expression (R-FLT-07, `vendor/40` R-VND-24, D-177). |
-| AC-FLT-34 | `eqIgnoreCase` and `likeIgnoreCase` on a column without a converter, and on any column with no `OperandBinder`, render today's SQL, `lower(col) = ?` and `lower(col) like ?` with the value lower-cased in Java (SQL snapshots unchanged), and never ask the binder for a parameter; without a binder a converted column keeps R-FLT-07's limitation (R-FLT-07, D-177). |
+| AC-FLT-34 | `eqIgnoreCase` and `likeIgnoreCase` on a column without a converter, and on any column with no `OperandBinder`, render today's SQL, `lower(col) = ?` and `lower(col) like ?` with the value lower-cased in Java (SQL snapshots unchanged), and under the default value handling never ask the binder for a parameter (under inline value handling the lowered value binds by R-FLT-08); without a binder a converted column keeps R-FLT-07's limitation (R-FLT-07, D-177). |
+| AC-FLT-35 | Under `hibernate.criteria.value_handling_mode=inline`, on both lines and Tier 1, with a `StatementInspector` that fails on a marker input value in the SQL text and classifies structural literals (`ESCAPE`, a discriminator, SQL `NULL`, a user's `cb.literal` or `Expr.constant`) separately: the filter paths `comparison-eq`, `-ne`, `-gt`, `-ge`, `-lt`, `-le`, `comparison-range` (`between`), `filter-membership` (`in`, later elements and chunked `in` included), `eq-ignore-case`, `like`, `ignore-case`, `subquery-filter`, `converted-enum` and `converted-Boolean` each bind their value and return the rows they return under the default setting (R-FLT-08, `vendor/40` R-VND-28, D-177). The key, cursor, fetch-plan and update paths, and the insert, conflict and source paths with the whole-suite profile, extend this row. |
+| AC-FLT-36 | Under the setting with a test `ProviderSupport` answering `inlinesValues` `true` and serving no `OperandBinder`: a `String` filter binds as `?`, and an enum filter is `MQ1502` naming the filter and the column before any statement; under the default setting both run as today (R-FLT-08, R-FLT-21, `vendor/40` R-VND-28). |
 
 AC-FLT-15 includes compile-failure cases for a mismatched `C` and another model's lifted column, and cases for
 `MQ1309`, `MQ1310`, `MQ1311` (a path crossing a to-many join, checked at first resolution), `MQ1312` and `MQ1001`

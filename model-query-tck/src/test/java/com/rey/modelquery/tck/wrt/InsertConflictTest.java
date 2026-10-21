@@ -142,6 +142,24 @@ class InsertConflictTest {
     }
 
     @TckTest
+    void ac_wrt_25_under_inline_value_handling_a_conflict_where_value_renders_as_before(TckDatabase db) {
+        var insert = ValuesInsert.builder(NAMED, Long.class, List.of(new Named(1L, "c1", "Y1"),
+                        new Named(2L, "c2", "Y2"), new Named(3L, "c3", "N3")))
+                .onConflict(ID).doUpdate(u -> u.setFromRow(NAME).where(f -> f.eq(NAME, "N2"))).anyUniqueKey().build();
+
+        try (InsertProbes p = InsertProbes.withInlineValues(db)) {
+            Outcome o = run(p, insert);
+
+            // As under the default setting: no executor binds a parameter in the conflict clause, so its value is not
+            // bound explicitly (no MQ1804) and the factory inlines it, as before R-FLT-08 (M30.6 binds it)
+            assertThat(o.failure()).isNull();
+            assertThat(o.count()).isEqualTo(anyKey(p.factory()) ? 4 : 2);
+            assertThat(p.rows(ROWS)).containsExactly("1|c1|N1|0", "2|c2|Y2|1", "3|c3|N3|0");
+            assertThat(o.sql()).anySatisfy(sql -> assertThat(sql).containsIgnoringCase("'N2'"));
+        }
+    }
+
+    @TckTest
     void ac_wrt_25_a_where_reading_two_assigned_columns_throws_mq1804_by_default_on_every_vendor(TckDatabase db) {
         var codeAndName = ValuesInsert.builder(NAMED, Long.class, List.of(new Named(2L, "c2x", "X2")))
                 .onConflict(ID).doUpdate(u -> u.setFromRow(CODE, NAME).where(f -> f.eq(CODE, "c2").eq(NAME, "N2")))

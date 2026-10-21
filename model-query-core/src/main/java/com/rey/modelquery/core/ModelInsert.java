@@ -523,7 +523,9 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         }
         first.forEach(Runnable::run);
         last.forEach(Runnable::run);
-        JoinContext whereContext = JoinContext.of(target, cb, null, options);
+        // No executor binds a parameter in the conflict clause, so its filter values render as without the inline
+        // setting until that path binds them (R-FLT-08, RFC 0018 Part C).
+        JoinContext whereContext = JoinContext.of(target, cb, null, options.withInlinesValues(false));
         List<Predicate> where = ConditionGroup.toPredicates(conflict.update().where(), whereContext);
         if (!whereContext.statementParameters().isEmpty()) {
             // The provider renders the conflict clause itself, so no executor binds a parameter in it (R-COL-26). A

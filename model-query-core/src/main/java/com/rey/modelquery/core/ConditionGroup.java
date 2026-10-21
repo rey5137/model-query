@@ -3,7 +3,6 @@ package com.rey.modelquery.core;
 import com.rey.modelquery.core.Condition.Kind;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
-import jakarta.persistence.criteria.ParameterExpression;
 import jakarta.persistence.criteria.Predicate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -161,7 +160,12 @@ abstract class ConditionGroup<M, G> {
     final <C> G eq(SelectField<M, C> column, C value) {
         C v = bound(column, required(column, "eq", value));
         return record(Condition.of(Kind.EQ, column, List.of(value)),
-                ctx -> Optional.of(ctx.cb().equal(column.expression(ctx), v)));
+                ctx -> {
+                    Expression<C> expression = column.expression(ctx);
+                    return Optional.of(inlines(ctx)
+                            ? ctx.cb().equal(expression, parameter(column, "eq", ctx, expression, v))
+                            : ctx.cb().equal(expression, v));
+                });
     }
 
     final <C> G eq(SelectField<M, C> column, Optional<? extends C> value) {
@@ -175,7 +179,9 @@ abstract class ConditionGroup<M, G> {
             Expression<C> expression = column.expression(ctx);
             // Plain SQL <> would drop NULL rows, which a report's "not X" means to keep (R-FLT-04). Rendered for
             // every column: a non-null attribute can still read NULL through a LEFT join.
-            return Optional.of(cb.or(cb.notEqual(expression, v), cb.isNull(expression)));
+            Predicate notEqual = inlines(ctx) ? cb.notEqual(expression, parameter(column, "ne", ctx, expression, v))
+                    : cb.notEqual(expression, v);
+            return Optional.of(cb.or(notEqual, cb.isNull(expression)));
         });
     }
 
@@ -186,7 +192,12 @@ abstract class ConditionGroup<M, G> {
     final <C extends Comparable<? super C>> G gt(SelectField<M, C> column, C value) {
         C v = bound(column, required(column, "gt", value), Comparable.class, "gt");
         return record(Condition.of(Kind.GT, column, List.of(value)),
-                ctx -> Optional.of(ctx.cb().greaterThan(column.expression(ctx), v)));
+                ctx -> {
+                    Expression<C> expression = column.expression(ctx);
+                    return Optional.of(inlines(ctx)
+                            ? ctx.cb().greaterThan(expression, parameter(column, "gt", ctx, expression, v))
+                            : ctx.cb().greaterThan(expression, v));
+                });
     }
 
     final <C extends Comparable<? super C>> G gt(SelectField<M, C> column, Optional<? extends C> value) {
@@ -196,7 +207,12 @@ abstract class ConditionGroup<M, G> {
     final <C extends Comparable<? super C>> G gte(SelectField<M, C> column, C value) {
         C v = bound(column, required(column, "gte", value), Comparable.class, "gte");
         return record(Condition.of(Kind.GTE, column, List.of(value)),
-                ctx -> Optional.of(ctx.cb().greaterThanOrEqualTo(column.expression(ctx), v)));
+                ctx -> {
+                    Expression<C> expression = column.expression(ctx);
+                    return Optional.of(inlines(ctx)
+                            ? ctx.cb().greaterThanOrEqualTo(expression, parameter(column, "gte", ctx, expression, v))
+                            : ctx.cb().greaterThanOrEqualTo(expression, v));
+                });
     }
 
     final <C extends Comparable<? super C>> G gte(SelectField<M, C> column, Optional<? extends C> value) {
@@ -206,7 +222,12 @@ abstract class ConditionGroup<M, G> {
     final <C extends Comparable<? super C>> G lt(SelectField<M, C> column, C value) {
         C v = bound(column, required(column, "lt", value), Comparable.class, "lt");
         return record(Condition.of(Kind.LT, column, List.of(value)),
-                ctx -> Optional.of(ctx.cb().lessThan(column.expression(ctx), v)));
+                ctx -> {
+                    Expression<C> expression = column.expression(ctx);
+                    return Optional.of(inlines(ctx)
+                            ? ctx.cb().lessThan(expression, parameter(column, "lt", ctx, expression, v))
+                            : ctx.cb().lessThan(expression, v));
+                });
     }
 
     final <C extends Comparable<? super C>> G lt(SelectField<M, C> column, Optional<? extends C> value) {
@@ -216,7 +237,12 @@ abstract class ConditionGroup<M, G> {
     final <C extends Comparable<? super C>> G lte(SelectField<M, C> column, C value) {
         C v = bound(column, required(column, "lte", value), Comparable.class, "lte");
         return record(Condition.of(Kind.LTE, column, List.of(value)),
-                ctx -> Optional.of(ctx.cb().lessThanOrEqualTo(column.expression(ctx), v)));
+                ctx -> {
+                    Expression<C> expression = column.expression(ctx);
+                    return Optional.of(inlines(ctx)
+                            ? ctx.cb().lessThanOrEqualTo(expression, parameter(column, "lte", ctx, expression, v))
+                            : ctx.cb().lessThanOrEqualTo(expression, v));
+                });
     }
 
     final <C extends Comparable<? super C>> G lte(SelectField<M, C> column, Optional<? extends C> value) {
@@ -232,7 +258,13 @@ abstract class ConditionGroup<M, G> {
         C from = bound(column, required(column, "between", fromInclusive), Comparable.class, "between");
         C to = bound(column, required(column, "between", toInclusive), Comparable.class, "between");
         return record(Condition.of(Kind.BETWEEN, column, List.of(fromInclusive, toInclusive)),
-                ctx -> Optional.of(ctx.cb().between(column.expression(ctx), from, to)));
+                ctx -> {
+                    Expression<C> expression = column.expression(ctx);
+                    return Optional.of(inlines(ctx)
+                            ? ctx.cb().between(expression, parameter(column, "between", ctx, expression, from),
+                                    parameter(column, "between", ctx, expression, to))
+                            : ctx.cb().between(expression, from, to));
+                });
     }
 
     final <C extends Comparable<? super C>> G between(
@@ -268,10 +300,18 @@ abstract class ConditionGroup<M, G> {
             CriteriaBuilder cb = ctx.cb();
             Expression<C> expression = column.expression(ctx);
             var parts = new ArrayList<Predicate>(2);
+            String operation = toInclusive ? "between" : "range";
+            boolean inline = inlines(ctx);
             if (lower != null) {
-                parts.add(cb.greaterThanOrEqualTo(expression, lower));
+                parts.add(inline
+                        ? cb.greaterThanOrEqualTo(expression, parameter(column, operation, ctx, expression, lower))
+                        : cb.greaterThanOrEqualTo(expression, lower));
             }
-            if (upper != null) {
+            if (upper != null && inline) {
+                Expression<C> parameter = parameter(column, operation, ctx, expression, upper);
+                parts.add(toInclusive ? cb.lessThanOrEqualTo(expression, parameter)
+                        : cb.lessThan(expression, parameter));
+            } else if (upper != null) {
                 parts.add(toInclusive ? cb.lessThanOrEqualTo(expression, upper) : cb.lessThan(expression, upper));
             }
             return Optional.of(and(cb, parts));
@@ -296,7 +336,7 @@ abstract class ConditionGroup<M, G> {
             return none(condition);
         }
         return record(condition, ctx -> {
-            List<Predicate> chunks = inChunks(column, "in", column.expression(ctx), copy, ctx.renderOptions());
+            List<Predicate> chunks = inChunks(column, "in", column.expression(ctx), copy, ctx);
             return Optional.of(chunks.size() == 1 ? chunks.get(0) : ctx.cb().or(chunks.toArray(Predicate[]::new)));
         });
     }
@@ -315,7 +355,7 @@ abstract class ConditionGroup<M, G> {
         return record(condition, ctx -> {
             CriteriaBuilder cb = ctx.cb();
             Expression<C> expression = column.expression(ctx);
-            List<Predicate> notIn = inChunks(column, "notIn", expression, copy, ctx.renderOptions()).stream()
+            List<Predicate> notIn = inChunks(column, "notIn", expression, copy, ctx).stream()
                     .map(cb::not)
                     .toList();
             // NULL is unknown in every chunk, so it is ORed in once, outside their AND: NULLs match (R-FLT-04).
@@ -380,7 +420,12 @@ abstract class ConditionGroup<M, G> {
         String pattern = Objects.requireNonNull(mode, "mode")
                 .pattern(bound(column, required(column, "like", value), String.class, "like"));
         return record(Condition.like(Kind.LIKE, column, value, mode),
-                ctx -> Optional.of(like(ctx.cb(), column.expression(ctx), pattern, mode)));
+                ctx -> {
+                    Expression<String> expression = column.expression(ctx);
+                    return Optional.of(inlines(ctx)
+                            ? like(ctx.cb(), expression, parameter(column, "like", ctx, expression, pattern), mode)
+                            : like(ctx.cb(), expression, pattern, mode));
+                });
     }
 
     /** {@code LIKE}, with the escape character only when the pattern was escaped, i.e. not {@code EXACT}. */
@@ -412,7 +457,9 @@ abstract class ConditionGroup<M, G> {
             Expression<String> folded = cb.lower(expression);
             return Optional.of(convertedOperand(column, "likeIgnoreCase", ctx, expression, pattern)
                     .map(operand -> like(cb, folded, operand, mode))
-                    .orElseGet(() -> like(cb, folded, lowered, mode)));
+                    .orElseGet(() -> inlines(ctx)
+                            ? like(cb, folded, parameter(column, "likeIgnoreCase", ctx, expression, lowered), mode)
+                            : like(cb, folded, lowered, mode)));
         });
     }
 
@@ -430,7 +477,9 @@ abstract class ConditionGroup<M, G> {
             Expression<String> folded = cb.lower(expression);
             return Optional.of(convertedOperand(column, "eqIgnoreCase", ctx, expression, v)
                     .map(operand -> cb.equal(folded, operand))
-                    .orElseGet(() -> cb.equal(folded, lowered)));
+                    .orElseGet(() -> inlines(ctx)
+                            ? cb.equal(folded, parameter(column, "eqIgnoreCase", ctx, expression, lowered))
+                            : cb.equal(folded, lowered)));
         });
     }
 
@@ -444,12 +493,33 @@ abstract class ConditionGroup<M, G> {
             JoinContext ctx, Expression<String> expression, String value) {
         Optional<OperandBinder> binder = ctx.renderOptions().operandBinder()
                 .filter(b -> b.typesBy(expression) && b.converts(expression));
-        return binder.map(b -> ctx.cb().lower(
-                typedParameter(b, column + ": " + operation, ctx, expression, String.class, value)));
+        return binder.map(b -> ctx.cb().lower(ValueOperands.typedParameter(b, column + ": " + operation, ctx.cb(),
+                expression, String.class, value, ctx.sink())));
     }
 
     final G eqIgnoreCase(SelectField<M, String> column, Optional<String> value) {
         return present(column, value) ? eqIgnoreCase(column, value.get()) : self();
+    }
+
+    /**
+     * Whether a filter's value binds as an explicit parameter: only where the factory inlines a value given without
+     * one; under the default setting {@code cb.equal(path, v)} already renders {@code ?} (R-FLT-08, R-VND-28).
+     */
+    private static boolean inlines(JoinContext ctx) {
+        return ctx.renderOptions().inlinesValues();
+    }
+
+    /**
+     * {@code value} as an explicit statement parameter on the right of {@code column}'s {@code operation}, by the
+     * operator rule: the binder's parameter typed by {@code typedBy}'s mapping, else one only a mapping-independent
+     * value takes, the rest {@code MQ1502} naming the filter and the column (R-FLT-08, R-FLT-21).
+     */
+    @SuppressWarnings("unchecked")
+    private static <C> Expression<C> parameter(SelectField<?, ?> column, String operation, JoinContext ctx,
+            Expression<?> typedBy, C value) {
+        return (Expression<C>) ValueOperands.valueOperand(ctx.renderOptions(), ctx.cb(), typedBy,
+                ColumnField.boxed(attributeType(column)), value,
+                column + ": " + operation + "(...) under inline value handling", ctx.sink());
     }
 
     // ---- nulls
@@ -541,7 +611,10 @@ abstract class ConditionGroup<M, G> {
             requireGate(operator, column, ctx);
             Expression<C> left = column.expression(ctx);
             @SuppressWarnings("unchecked")
-            Expression<V> right = (Expression<V>) operand(operator, column, ctx, left, type, bound);
+            // A <C, V> operator's value is not the column's, so the binder never types it (D-169).
+            Expression<V> right = (Expression<V>) ValueOperands.valueOperand(ctx.renderOptions(), ctx.cb(),
+                    operator.valueType() == null ? left : null, type, bound,
+                    column + ": op(" + operator.name() + ")", ctx.sink());
             return Optional.of(rendered(operator, column, ctx, left, right));
         });
     }
@@ -652,77 +725,6 @@ abstract class ConditionGroup<M, G> {
                     + ") requires " + feature + ", which the persistence provider can't render on " + gate.vendor()
                     + " (ProviderSupport#operators)");
         }
-    }
-
-    /**
-     * The value-form operand: the provider binder's parameter typed by {@code left}'s mapping for a
-     * {@code FilterOperator<C, C>} whose {@code left} the binder types by, else a parameter typed by {@code type},
-     * which only a mapping-independent value takes (R-FLT-21, R-VND-24, D-169, D-170).
-     */
-    private static Expression<?> operand(FilterOperator<?, ?> operator, SelectField<?, ?> column, JoinContext ctx,
-            Expression<?> left, Class<?> type, Object value) {
-        Optional<OperandBinder> binder = operator.valueType() == null
-                ? ctx.renderOptions().operandBinder() : Optional.empty();
-        if (binder.isEmpty() || !binder.get().typesBy(left)) {
-            requireMappingIndependent(operator, column, value, binder.isPresent());
-            return ctx.parameter(type, value);
-        }
-        return typedParameter(binder.get(), column + ": op(" + operator.name() + ")", ctx, left, type, value);
-    }
-
-    /**
-     * {@code binder}'s parameter of {@code type} typed by {@code left}'s mapping, recorded to bind {@code value} on
-     * the statement; {@code MQ1502} naming {@code what}, the column and its operation, when the binder throws, returns
-     * no parameter or one this statement already binds (R-VND-24).
-     */
-    private static <T> ParameterExpression<T> typedParameter(OperandBinder binder, String what, JoinContext ctx,
-            Expression<?> left, Class<T> type, Object value) {
-        ParameterExpression<T> parameter;
-        try {
-            parameter = binder.parameter(ctx.cb(), left, type);
-        } catch (ModelQueryException e) {
-            throw e; // an engine error keeps its own code
-        } catch (RuntimeException e) {
-            throw new ModelQueryDefinitionException(MqCode.MQ1502, what
-                    + " cannot bind its value: the provider's operand binder threw " + e, e);
-        }
-        if (parameter == null) {
-            throw new ModelQueryDefinitionException(MqCode.MQ1502, what
-                    + " cannot bind its value: the provider's operand binder returned no parameter");
-        }
-        if (ctx.statementParameters().containsKey(parameter)) {
-            // A parameter binds one value per statement: reused, the later value would replace the earlier (INV-5).
-            throw new ModelQueryDefinitionException(MqCode.MQ1502, what
-                    + " cannot bind its value: the provider's operand binder returned a parameter this statement "
-                    + "already binds; it must make a new parameter on every call");
-        }
-        return ctx.bind(parameter, value);
-    }
-
-    /**
-     * {@code MQ1502} for a value whose binding depends on the column's mapping, which a parameter typed by a Java
-     * class gets wrong: a {@code STRING} enum binds by ordinal, a {@code @Convert} value not at all, a
-     * {@code Boolean} mapped to {@code 'Y'/'N'} or a {@code UUID} stored as {@code char(36)} matches nothing (R-FLT-21,
-     * D-168). {@code declined}: the provider has a binder, but it can't type a value by this column's expression.
-     */
-    private static void requireMappingIndependent(FilterOperator<?, ?> operator, SelectField<?, ?> column,
-            Object value, boolean declined) {
-        // An array's package is its element's, so a LocalDate[] would pass the package check alone.
-        if (!(value instanceof String
-                || value instanceof Number && plainNumber(value.getClass())
-                || !value.getClass().isArray() && value.getClass().getPackageName().equals("java.time"))) {
-            throw new ModelQueryDefinitionException(MqCode.MQ1502, column + ": op(" + operator.name()
-                    + ") cannot bind a value of type " + value.getClass().getSimpleName()
-                    + (declined ? ": the provider's operand binder can't type it by this column's expression"
-                            : " without the provider's operand binder")
-                    + "; only a String, a java.lang or java.math number or a java.time value binds by its class");
-        }
-    }
-
-    /** A {@code java.lang} or {@code java.math} number, which a parameter typed by its class binds as is (D-168). */
-    private static boolean plainNumber(Class<?> type) {
-        String pkg = type.getPackageName();
-        return pkg.equals("java.lang") || pkg.equals("java.math");
     }
 
     /**
@@ -961,7 +963,8 @@ abstract class ConditionGroup<M, G> {
      * {@code MQ1306} here rather than failing in the database.
      */
     private static <C> List<Predicate> inChunks(SelectField<?, C> column, String operator, Expression<C> expression,
-            List<C> values, RenderOptions options) {
+            List<C> values, JoinContext ctx) {
+        RenderOptions options = ctx.renderOptions();
         if (values.size() > options.maxBindParameters()) {
             throw new ModelQueryDefinitionException(MqCode.MQ1306, column + ": " + operator + "(...) received "
                     + values.size() + " values, more than the " + options.maxBindParameters()
@@ -971,7 +974,11 @@ abstract class ConditionGroup<M, G> {
         var chunks = new ArrayList<Predicate>();
         for (int from = 0, to; from < values.size(); from = to) {
             to = from + Math.min(size, values.size() - from); // never from + size, which overflows a huge limit
-            chunks.add(expression.in(values.subList(from, to)));
+            List<C> chunk = values.subList(from, to);
+            // Under inline value handling each element is its own parameter, later elements included (R-FLT-08).
+            chunks.add(!options.inlinesValues() ? expression.in(chunk) : expression.in(chunk.stream()
+                    .map(value -> parameter(column, operator, ctx, expression, value))
+                    .toArray(Expression<?>[]::new)));
         }
         return chunks;
     }

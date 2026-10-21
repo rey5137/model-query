@@ -10,6 +10,7 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 import javax.sql.DataSource;
 import net.ttddyy.dsproxy.support.ProxyDataSourceBuilder;
@@ -96,7 +97,20 @@ public final class InsertProbes implements AutoCloseable {
         return open(db, null, List.of(InsArbiterEntity.class));
     }
 
+    /**
+     * As {@link #open(TckDatabase)}, with {@code hibernate.criteria.value_handling_mode=inline}, which renders a
+     * criteria value given without a parameter as a literal (R-FLT-08).
+     */
+    public static InsertProbes withInlineValues(TckDatabase db) {
+        return open(db, null, List.of(), Map.of(AvailableSettings.CRITERIA_VALUE_HANDLING_MODE, "inline"));
+    }
+
     private static InsertProbes open(TckDatabase db, EnhancingClassLoader loader, List<Class<?>> extra) {
+        return open(db, loader, extra, Map.of());
+    }
+
+    private static InsertProbes open(TckDatabase db, EnhancingClassLoader loader, List<Class<?>> extra,
+            Map<String, Object> settings) {
         List<String> recorded = Collections.synchronizedList(new ArrayList<>());
         DataSource dataSource = ProxyDataSourceBuilder.create(JoinTestSupport.dataSource(db))
                 .afterQuery((info, queries) -> queries.forEach(q -> recorded.add(SqlSnapshots.normalize(q.getQuery()))))
@@ -109,6 +123,7 @@ public final class InsertProbes implements AutoCloseable {
         var registry = new StandardServiceRegistryBuilder(bootstrapRegistry)
                 .applySetting(AvailableSettings.JAKARTA_NON_JTA_DATASOURCE, dataSource)
                 .applySetting(AvailableSettings.HBM2DDL_AUTO, "create-drop")
+                .applySettings(settings)
                 .build();
         var configuration = new Configuration(bootstrapRegistry);
         ENTITIES.forEach(configuration::addAnnotatedClass);

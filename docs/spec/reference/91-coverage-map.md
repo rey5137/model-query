@@ -119,6 +119,8 @@ RFC 0004 (rey5137/model-query#29) is mapped the same way, by its own sections, a
 | RFC 0009 (D-127) | codes `MQ1209`, `MQ2102`, `MQ2211`, `MQ4010`; `MQ1809` gains a lock; INV-1 | `reference/90` §2, `api/14` R-WRT-48, SPEC.md §2 INV-1 |
 | RFC 0018 (D-177) | Part A `CountMode.INLINE_COUNT`, its fallbacks, preflight and logging; R-EXE-15, AC-EXE-18 to AC-EXE-21 | `engine/20` R-EXE-15 |
 | RFC 0018 (D-177) | Part A rendering, `ProviderSupport#inlineCounts`; R-VND-27 | `vendor/40` R-VND-27 |
+| RFC 0018 (D-177) | Part C.1 `ProviderSupport#inlinesValues`; R-VND-28 | `vendor/40` R-VND-28 |
+| RFC 0018 (D-177) | Part C.2 the shared value helper and filter values under inline value handling; R-FLT-06, R-FLT-08, R-FLT-21, AC-FLT-35 (filter paths), AC-FLT-36, code `MQ1502` widened | `api/12` R-FLT-08, `reference/90` §2 |
 | RFC 0002 (D-128) | §Outcome 1 literal filters; R-FLT-19, AC-FLT-20 | `api/12` R-FLT-19, `api/16` R-INS-09 |
 | RFC 0002 (D-128) | §Outcome 2 constants; R-COL-27, AC-COL-32 | `api/10` R-COL-27, `vendor/40` R-VND-16 |
 | RFC 0002 (D-128) | §Outcome 3 bound arguments; R-COL-26, AC-COL-31 | `api/10` R-COL-26 |

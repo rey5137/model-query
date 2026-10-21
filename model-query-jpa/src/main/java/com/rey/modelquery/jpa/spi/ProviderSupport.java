@@ -198,6 +198,18 @@ public interface ProviderSupport {
         return false;
     }
 
+    /**
+     * Whether the factory renders a criteria value given without a parameter as a literal, such as Hibernate's
+     * {@code hibernate.criteria.value_handling_mode=inline}. {@code false}, the default, renders every filter value as
+     * today; {@code true} binds each as a parameter, typed by its column's mapping through {@link #operands} or, with
+     * none, only a mapping-independent value, the rest {@code MQ1502} (R-VND-28, api/12 R-FLT-08). Asked once per
+     * executor.
+     */
+    @Incubating
+    default boolean inlinesValues(EntityManagerFactory emf) {
+        return false;
+    }
+
     /** The factory's treated-path renderer, or empty: a treated node is then {@code MQ4014} (R-VND-26). */
     @Incubating
     default Optional<TreatRenderer> treats(EntityManagerFactory emf) {
