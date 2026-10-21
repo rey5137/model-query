@@ -2544,17 +2544,18 @@ vendor's `MQ4015` first. Rejected: a gate interface `core` calls per render, whi
 between statements of one query. (2) `OperandBinder` lives in `core` (`RenderOptions` carries it and `core` can't see
 `jpa`) and types the `<C, C>` form only, by the rendered column or aggregate expression. The `<C, V>` form keeps the
 no-binder rule even with a binder: its value has no column mapping to type it, and a parameter typed by its declared
-class is the bind the rule exists to refuse. (3) A binder that throws a `RuntimeException`, returns `null` or returns a
-parameter the statement already binds is `MQ1502` naming the operator and the column, the exception as the cause; a
-parameter binds one value per statement, so a reused one would bind the later value twice (INV-5), and a write's
-sub-query whose binds repeat one of its statement's is `MQ1502` too, when they are merged; a `ModelQueryException` it
-throws keeps its code. (4) `checkPhases`' stand-in gate serves every feature and, as D-132's scratch sequence renderer,
-is a fallback: when the executor passes its own gate, that gate decides the scratch builds too, with the codes the real
-build would raise. (5) `Expr.cases().when(...)` refuses an `op` with `MQ1505` when the filter is added, as it refuses
-`exists`; an arbiter's `where` refuses any `op` with `MQ1804` at `build()`, and a conflict update's `where` refuses a
-value-form `op` on first execution, where it refuses `Expr.value`, naming the operator. → `api/10` R-COL-17, `api/12`
-R-FLT-20, R-FLT-21, `api/14` R-WRT-34, R-WRT-52, `vendor/40` R-VND-23, R-VND-24, `reference/90` `MQ1502`, `MQ1505`,
-`MQ1804`, `MQ4014`, `MQ4015`.
+class is the bind the rule exists to refuse; this supersedes `rfc/0017` §2 step 4's binder call for the `<C, V>` form
+(user, 2026-10-21), and the RFC is left as written. (3) A binder that throws a `RuntimeException`, returns `null` or
+returns a parameter the statement already binds is `MQ1502` naming the operator and the column, the exception as the
+cause; a parameter binds one value per statement, so a reused one would bind the later value twice (INV-5), and a
+write's sub-query whose binds repeat one of its statement's is `MQ1502` too, when they are merged; a
+`ModelQueryException` it throws keeps its code. (4) `checkPhases`' stand-in gate serves every feature and, as D-132's
+scratch sequence renderer, is a fallback: when the executor passes its own gate, that gate decides the scratch builds
+too, with the codes the real build would raise. (5) `Expr.cases().when(...)` refuses an `op` with `MQ1505` when the
+filter is added, as it refuses `exists`; an arbiter's `where` refuses any `op` with `MQ1804` at `build()`, and a
+conflict update's `where` refuses a value-form `op` on first execution, where it refuses `Expr.value`, naming the
+operator. → `api/10` R-COL-17, `api/12` R-FLT-20, R-FLT-21, `api/14` R-WRT-34, R-WRT-52, `vendor/40` R-VND-23, R-VND-24,
+`reference/90` `MQ1502`, `MQ1505`, `MQ1804`, `MQ4014`, `MQ4015`.
 
 ## 2. Open questions
 
