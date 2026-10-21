@@ -1,0 +1,70 @@
+path	vendor	status_6_6	status_7_4	audit_row_6_6	audit_row_7_4
+byKeys-chunk	H2	FAIL	FAIL	9685	9687
+byKeys-chunk	MySQL 8.0.31	FAIL	FAIL	9705	9707
+byKeys-chunk	PostgreSQL 16	FAIL	FAIL	9695	9697
+comparison-eq	H2	FAIL	FAIL	6407	6409
+comparison-eq	MySQL 8.0.31	FAIL	FAIL	8489	8491
+comparison-eq	PostgreSQL 16	FAIL	FAIL	7448	7450
+comparison-ge	H2	FAIL	FAIL	6453	6455
+comparison-ge	MySQL 8.0.31	FAIL	FAIL	8535	8537
+comparison-ge	PostgreSQL 16	FAIL	FAIL	7494	7496
+comparison-gt	H2	FAIL	FAIL	6441	6443
+comparison-gt	MySQL 8.0.31	FAIL	FAIL	8523	8525
+comparison-gt	PostgreSQL 16	FAIL	FAIL	7482	7484
+comparison-le	H2	FAIL	FAIL	6471	6473
+comparison-le	MySQL 8.0.31	FAIL	FAIL	8553	8555
+comparison-le	PostgreSQL 16	FAIL	FAIL	7512	7514
+comparison-lt	H2	FAIL	FAIL	6465	6467
+comparison-lt	MySQL 8.0.31	FAIL	FAIL	8547	8549
+comparison-lt	PostgreSQL 16	FAIL	FAIL	7506	7508
+comparison-ne	H2	FAIL	FAIL	6423	6425
+comparison-ne	MySQL 8.0.31	FAIL	FAIL	8505	8507
+comparison-ne	PostgreSQL 16	FAIL	FAIL	7464	7466
+comparison-range	H2	FAIL	FAIL	6521	6523
+comparison-range	MySQL 8.0.31	FAIL	FAIL	8603	8605
+comparison-range	PostgreSQL 16	FAIL	FAIL	7562	7564
+conflict-condition	H2	FAIL	FAIL	3450	3451
+conflict-condition	MySQL 8.0.31	FAIL	FAIL	3458	3459
+conflict-condition	PostgreSQL 16	FAIL	FAIL	3454	3455
+converted-Boolean	H2	FAIL	FAIL	9639	9641
+converted-Boolean	MySQL 8.0.31	FAIL	FAIL	9649	9651
+converted-Boolean	PostgreSQL 16	FAIL	FAIL	9644	9646
+converted-enum	H2	FAIL	FAIL	9628	9630
+converted-enum	MySQL 8.0.31	FAIL	FAIL	9634	9636
+converted-enum	PostgreSQL 16	FAIL	FAIL	9631	9633
+delete-filter	H2	FAIL	FAIL	935	935
+delete-filter	MySQL 8.0.31	FAIL	FAIL	939	939
+delete-filter	PostgreSQL 16	FAIL	FAIL	937	937
+eq-ignore-case	H2	FAIL	FAIL	6605	6607
+eq-ignore-case	MySQL 8.0.31	FAIL	FAIL	8692	8694
+eq-ignore-case	PostgreSQL 16	FAIL	FAIL	7646	7648
+fetch-key	H2	FAIL	FAIL	126	126
+fetch-key	MySQL 8.0.31	FAIL	FAIL	132	132
+fetch-key	PostgreSQL 16	FAIL	FAIL	129	129
+filter-membership	H2	FAIL	FAIL	6553	6555
+filter-membership	MySQL 8.0.31	FAIL	FAIL	8635	8637
+filter-membership	PostgreSQL 16	FAIL	FAIL	7594	7596
+ignore-case	H2	FAIL	FAIL	6600	6602
+ignore-case	MySQL 8.0.31	FAIL	FAIL	8686	8688
+ignore-case	PostgreSQL 16	FAIL	FAIL	7641	7643
+insert-select-filter	H2	FAIL	FAIL	1673	1674
+insert-select-filter	MySQL 8.0.31	FAIL	FAIL	1683	1684
+insert-select-filter	PostgreSQL 16	FAIL	FAIL	1678	1679
+keyset-UUID	H2	FAIL	FAIL	23127	23129
+keyset-UUID	MySQL 8.0.31	FAIL	FAIL	23151	23153
+keyset-UUID	PostgreSQL 16	FAIL	FAIL	23139	23141
+like	H2	FAIL	FAIL	66	66
+like	MySQL 8.0.31	FAIL	FAIL	72	72
+like	PostgreSQL 16	FAIL	FAIL	69	69
+source-keyset	H2	FAIL	FAIL	25464	25466
+source-keyset	MySQL 8.0.31	FAIL	FAIL	25500	25502
+source-keyset	PostgreSQL 16	FAIL	FAIL	25482	25484
+subquery-filter	H2	FAIL	FAIL	5187	5189
+subquery-filter	MySQL 8.0.31	FAIL	FAIL	5195	5197
+subquery-filter	PostgreSQL 16	FAIL	FAIL	5191	5193
+typed-insert-binds	H2	PASS	PASS	1813	1814
+typed-insert-binds	MySQL 8.0.31	PASS	PASS	1817	1818
+typed-insert-binds	PostgreSQL 16	PASS	PASS	1815	1816
+update-assignment	H2	FAIL	FAIL	998	998
+update-assignment	MySQL 8.0.31	FAIL	FAIL	1002	1002
+update-assignment	PostgreSQL 16	FAIL	FAIL	1000	1000

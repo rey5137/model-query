@@ -1,0 +1,20 @@
+{
+  "hibernate": "6.6.58.Final",
+  "tests": 1481,
+  "outcomes": {
+    "FAIL": 912,
+    "PASS": 551,
+    "SKIP": 18
+  },
+  "engine_sql": {
+    "PASS": 4703,
+    "FAIL": 20739
+  },
+  "test_callbacks_by_vendor": {
+    "H2": 491,
+    "PostgreSQL 16": 491,
+    "MySQL 8.0.31": 491,
+    "unparameterized": 8
+  },
+  "profile_self_checks": 3
+}

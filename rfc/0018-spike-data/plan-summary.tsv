@@ -1,0 +1,25 @@
+vendor	hibernate	shape	route	rows	unique_ids	strategy	explain_elapsed_ms	over_join	over_distinct
+MYSQL	6.6.58.Final	embedded	distinct	10000	10000	Table scan on <temporary>	16.732	1.028269	1.000000
+MYSQL	6.6.58.Final	embedded	join	20000	10000	Nested loop inner join	16.272	1.000000	0.972508
+MYSQL	6.6.58.Final	embedded	semi	10000	10000	Remove duplicate (c1_0, c2_0) rows using temporary table (weedout)	58.188	3.575959	3.477648
+MYSQL	6.6.58.Final	single	distinct	10000	10000	Table scan on <temporary>	13.267	1.333367	1.000000
+MYSQL	6.6.58.Final	single	join	20000	10000	Nested loop inner join	9.950	1.000000	0.749981
+MYSQL	6.6.58.Final	single	semi	10000	10000	Remove duplicate (r1_0, r2_0) rows using temporary table (weedout)	18.003	1.809347	1.356976
+MYSQL	7.4.11.Final	embedded	distinct	10000	10000	Table scan on <temporary>	16.929	1.053257	1.000000
+MYSQL	7.4.11.Final	embedded	join	20000	10000	Nested loop inner join	16.073	1.000000	0.949436
+MYSQL	7.4.11.Final	embedded	semi	10000	10000	Nested loop semijoin	23.323	1.451067	1.377695
+MYSQL	7.4.11.Final	single	distinct	10000	10000	Table scan on <temporary>	13.010	1.276491	1.000000
+MYSQL	7.4.11.Final	single	join	20000	10000	Nested loop inner join	10.192	1.000000	0.783397
+MYSQL	7.4.11.Final	single	semi	10000	10000	Remove duplicate (r1_0, r2_0) rows using temporary table (weedout)	18.714	1.836146	1.438432
+POSTGRESQL	6.6.58.Final	embedded	distinct	10000	10000	Aggregate/Hashed > Hash Join/Inner > Seq Scan > Hash > Index Only Scan	28.898	1.126145	1.000000
+POSTGRESQL	6.6.58.Final	embedded	join	20000	10000	Hash Join/Inner > Seq Scan > Hash > Index Only Scan	25.661	1.000000	0.887985
+POSTGRESQL	6.6.58.Final	embedded	semi	10000	10000	Nested Loop/Semi > Index Only Scan > Nested Loop/Inner > Index Only Scan > Index Only Scan	12.884	0.502085	0.445844
+POSTGRESQL	6.6.58.Final	single	distinct	10000	10000	Unique > Gather Merge > Unique > Sort > Hash Join/Inner > Seq Scan > Hash > Index Only Scan	17.667	1.106054	1.000000
+POSTGRESQL	6.6.58.Final	single	join	20000	10000	Gather > Hash Join/Inner > Seq Scan > Hash > Index Only Scan	15.973	1.000000	0.904115
+POSTGRESQL	6.6.58.Final	single	semi	10000	10000	Merge Join/Semi > Index Only Scan > Merge Join/Inner > Index Only Scan > Index Only Scan	5.095	0.318976	0.288391
+POSTGRESQL	7.4.11.Final	embedded	distinct	10000	10000	Aggregate/Hashed > Hash Join/Inner > Seq Scan > Hash > Index Only Scan	27.546	1.075260	1.000000
+POSTGRESQL	7.4.11.Final	embedded	join	20000	10000	Hash Join/Inner > Seq Scan > Hash > Index Only Scan	25.618	1.000000	0.930008
+POSTGRESQL	7.4.11.Final	embedded	semi	10000	10000	Nested Loop/Semi > Index Only Scan > Nested Loop/Inner > Index Only Scan > Index Only Scan	12.909	0.503904	0.468634
+POSTGRESQL	7.4.11.Final	single	distinct	10000	10000	Unique > Gather Merge > Unique > Sort > Hash Join/Inner > Seq Scan > Hash > Index Only Scan	17.002	1.115470	1.000000
+POSTGRESQL	7.4.11.Final	single	join	20000	10000	Gather > Hash Join/Inner > Seq Scan > Hash > Index Only Scan	15.242	1.000000	0.896483
+POSTGRESQL	7.4.11.Final	single	semi	10000	10000	Merge Join/Semi > Index Only Scan > Merge Join/Inner > Index Only Scan > Index Only Scan	5.365	0.351988	0.315551
