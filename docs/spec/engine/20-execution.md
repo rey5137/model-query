@@ -52,10 +52,14 @@ The fallback reads the total from `COUNT`'s statements. It applies:
    functions, or a provider without a window renderer);
 2. on a `DISTINCT` statement;
 3. where `COUNT` counts client-side (R-EXE-03: no grouped count support, a source carrying checks, a refused
-   `GROUPED_COUNT` treat site), conservatively, even where the content statement would count correctly;
+   `GROUPED_COUNT` treat site), conservatively, even where the content statement would count correctly; an ungrouped
+   query over a source carrying checks falls back too, since `COUNT`'s one row reads the checks where an empty page
+   leaves them unread (R-SRC-08);
 4. where `COUNT`'s statement is not the content statement with its selection replaced: `count(distinct root)` over a
-   to-many join that no selected column reads (R-EXE-04), and a treated, ungrouped root, which `COUNT` counts on a
-   freshly built statement (R-EXE-05, D-154);
+   to-many join that no selected column reads (R-EXE-04), a treated, ungrouped root, which `COUNT` counts on a
+   freshly built statement (R-EXE-05, D-154), and a primary-key-first page whose step-1 key query carries a to-many
+   join (a customizer's `LEFT` join in the `PRIMARY_KEY` phase alone, which R-PAG-15 admits), which repeats keys
+   `COUNT` counts once;
 5. on a page past the end: no row, offset above 0.
 
 | Shape | Behaviour |

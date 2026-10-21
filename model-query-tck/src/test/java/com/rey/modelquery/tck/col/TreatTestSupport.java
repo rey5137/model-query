@@ -150,6 +150,12 @@ public final class TreatTestSupport {
                     : Optional.empty();
         }
 
+        /** Hibernate's dialect answer; the executor asks only where {@link #sources} serves a renderer (R-VND-27). */
+        @Override
+        public boolean inlineCounts(EntityManagerFactory emf) {
+            return new HibernateProviderSupport().inlineCounts(emf);
+        }
+
         /** Runs {@code work} with Hibernate's source rendering served, so a source body's statement is rendered. */
         public static void renderingSources(Runnable work) {
             RENDERS_SOURCES.set(true);

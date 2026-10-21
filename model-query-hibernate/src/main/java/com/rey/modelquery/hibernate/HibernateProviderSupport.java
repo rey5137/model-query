@@ -495,6 +495,18 @@ public final class HibernateProviderSupport implements ProviderSupport {
                 && functions.stream().allMatch(name -> registry.findFunctionDescriptor(name) != null);
     }
 
+    /**
+     * Whether the dialect renders a window function, its {@code supportsWindowFunctions()}, so the page statement can
+     * carry {@code count(1) over ()} (R-VND-27, R-EXE-15); {@link #sources()} is unconditional, so the two facts agree.
+     * False for another provider's factory.
+     */
+    @Override
+    @Incubating
+    public boolean inlineCounts(EntityManagerFactory emf) {
+        return sessionFactory(emf).map(sf -> sf.getJdbcServices().getDialect().supportsWindowFunctions())
+                .orElse(false);
+    }
+
     /** {@link HibernateSequenceRenderer}: the dialect's own sequence call (R-VND-18). */
     @Override
     public Optional<SequenceRenderer> sequences(EntityManagerFactory emf) {
