@@ -80,8 +80,10 @@ public final class FilterOperator<C, V> {
 
     /**
      * The same operator with its value passed through {@code prepare} (escaping, wildcards) when the filter is added,
-     * before any converter; the condition records the value unprepared (R-INS-13). A {@code null} from it or a thrown
-     * {@code RuntimeException} is {@code MQ1313}.
+     * after a converted column's converter for a {@code FilterOperator<C, C>}, so it builds on the attribute value as
+     * {@code like} does; the condition records the value unprepared (R-INS-13). A {@code null} from it or a thrown
+     * {@code RuntimeException} is {@code MQ1313}; on a converted column whose attribute is not a {@code C} it is
+     * {@code MQ1001} (R-FLT-21).
      */
     public FilterOperator<C, V> preparing(UnaryOperator<V> prepare) {
         return new FilterOperator<>(name, valueType, attributeType, feature,

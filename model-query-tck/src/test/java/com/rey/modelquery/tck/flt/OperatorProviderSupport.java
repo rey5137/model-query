@@ -1,6 +1,7 @@
 package com.rey.modelquery.tck.flt;
 
 import com.rey.modelquery.core.ConstantRenderer;
+import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
 import com.rey.modelquery.core.OperandBinder;
@@ -10,6 +11,7 @@ import com.rey.modelquery.core.SourceRenderer;
 import com.rey.modelquery.core.SubqueryRenderer;
 import com.rey.modelquery.core.TreatRenderer;
 import com.rey.modelquery.hibernate.HibernateProviderSupport;
+import com.rey.modelquery.jpa.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.EntityWriteSupport;
 import com.rey.modelquery.jpa.spi.ForeignKeyColumn;
@@ -17,7 +19,10 @@ import com.rey.modelquery.jpa.spi.InsertSupport;
 import com.rey.modelquery.jpa.spi.LockSupport;
 import com.rey.modelquery.jpa.spi.ProviderSupport;
 import com.rey.modelquery.jpa.spi.ReturningSupport;
+import com.rey.modelquery.jpa.spi.VendorProfile;
+import com.rey.modelquery.jpa.vendor.VendorResolver;
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.Query;
 import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaQuery;
 import java.io.ByteArrayInputStream;
@@ -28,6 +33,7 @@ import java.net.URL;
 import java.net.URLConnection;
 import java.net.URLStreamHandler;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
@@ -36,6 +42,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
+import org.hibernate.SessionFactory;
 
 /**
  * Hibernate's {@link ProviderSupport} with a test answer for {@link #operators} and a test {@link #operands} binder,
@@ -198,5 +205,41 @@ public final class OperatorProviderSupport implements ProviderSupport {
             OPERATORS.remove();
             BINDER.remove();
         }
+    }
+
+    /** The factory's built-in profile, answering {@code operators} as {@code vendor} says (a custom profile). */
+    public static VendorProfile answering(SessionFactory sf, Predicate<OperatorFeature> vendor) {
+        VendorProfile builtIn = VendorResolver.resolve(sf, Optional.empty(), MysqlStreamingMode.ROW_BY_ROW).profile();
+        return new VendorProfile() {
+            @Override
+            public DatabaseVendor vendor() {
+                return builtIn.vendor();
+            }
+
+            @Override
+            public int maxInListSize() {
+                return builtIn.maxInListSize();
+            }
+
+            @Override
+            public int maxBindParameters() {
+                return builtIn.maxBindParameters();
+            }
+
+            @Override
+            public void applyTimeout(Query query, Duration timeout) {
+                builtIn.applyTimeout(query, timeout);
+            }
+
+            @Override
+            public NullOrdering defaultAscendingNullOrdering() {
+                return builtIn.defaultAscendingNullOrdering();
+            }
+
+            @Override
+            public boolean operators(OperatorFeature feature) {
+                return vendor.test(feature);
+            }
+        };
     }
 }

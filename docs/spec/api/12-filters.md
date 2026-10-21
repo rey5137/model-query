@@ -113,12 +113,21 @@ rewritten portably. The Javadoc states that rows where the group is UNKNOWN are 
 ## 4. Strings
 
 **R-FLT-06** `CONTAINS`, `STARTS_WITH` and `ENDS_WITH` escape `%`, `_` and the escape character in the value and render
-`ESCAPE '\'`, so a search for `50%` finds that literal text. `EXACT` passes the pattern through as given.
+`ESCAPE '\'`, so a search for `50%` finds that literal text. `EXACT` passes the pattern through as given. On a column
+with a `ColumnConverter` the value is converted first and the pattern is built from the attribute value (R-COL-14), as
+an operator's `prepare` is (R-FLT-21, D-171). On a JPA `@Convert` attribute, Hibernate runs the `AttributeConverter` on
+the finished pattern, wildcards and escapes included, for `like` (inlined under `value_handling_mode=inline` too) and
+for `HibernateOperators.ilike` through Hibernate's binder (`vendor/40` R-VND-24, D-170), but not for `likeIgnoreCase`
+(R-FLT-07), which binds the lower-cased pattern as given and so misses the stored form. `like` and `ilike` thus match a
+model value only through a converter that turns a pattern into the stored form's pattern, such as one adding a prefix
+(AC-FLT-21, D-171).
 
 **R-FLT-07** `likeIgnoreCase` renders `lower(col) LIKE ?`; the value is lower-cased in Java with `Locale.ROOT` and
 bound (R-FLT-08, D-22). A database whose `lower()` folds only ASCII, such as PostgreSQL with C collation, can disagree
 on non-ASCII text. The user guide notes that this needs a functional index to be fast, and that case sensitivity
-otherwise follows collation (`vendor/40` §4).
+otherwise follows collation (`vendor/40` §4). Known limitation: on a JPA `@Convert` attribute `likeIgnoreCase` (and
+probably `eqIgnoreCase`, unconfirmed, Q-30) binds the unconverted, lower-cased value and can miss rows without an error
+(D-171, Q-30).
 
 ## 5. Bind parameters and large sets
 
@@ -361,12 +370,15 @@ is for logs, inspection and messages only, and two definitions with one name are
   inside `or` is LEFT (R-FLT-10), and a column outside an `exists` path is `MQ1302`.
 - **Recorded** as `Condition.Kind#OPERATOR` (`api/16` R-INS-13).
 
-**R-FLT-21** *(D-167, D-168)* **An operator's value.** In order, when the filter is added:
+**R-FLT-21** *(D-167, D-168, D-171)* **An operator's value.** In order, when the filter is added:
 1. `null` is `MQ1301` naming the column; an `Optional`, a `Collection` or a `Map` is `MQ1502` naming the operator and
    the column (a `Collection` operand is an `IN`, and a `Map` has no portable binding).
-2. `prepare` runs, if the operator has one. Returning `null` or throwing a `RuntimeException` is `MQ1313`.
-3. For a `FilterOperator<C, C>` the value goes through a converted column's converter to the attribute's type
+2. For a `FilterOperator<C, C>` the value goes through a converted column's converter to the attribute's type
    (R-COL-14, D-37); for a `FilterOperator<C, V>` it is not converted.
+3. `prepare` runs, if the operator has one, on the value step 2 gives, so on a converted column it builds on the
+   attribute value, as `like` builds its pattern (R-FLT-06, D-171). Returning `null` or throwing a `RuntimeException`
+   is `MQ1313`. A `FilterOperator<C, C>` with a `prepare` on a converted column whose attribute type is not the
+   column's type `C` is `MQ1001`, since `prepare` takes a `C`.
 
 Then, each time the filter is rendered, the engine binds it as a statement parameter through `JoinContext`, so every
 statement that renders the filter binds it (the content query, the count, each export and keyset page, a sub-select
@@ -418,7 +430,7 @@ collection means "none"; negation includes NULLs; `like` input is escaped; long 
 | AC-FLT-18 | An expression over a column outside the `exists` path throws `MQ1302`. One in a sub-select's `where` over another root throws `MQ1003`. A correlation whose only lifted column sits inside an expression is not `MQ1309` (R-FLT-18). |
 | AC-FLT-19 | A bulk update and a bulk delete whose `where` compares an expression change exactly the rows `list` returns for that filter, key-first on MySQL too (R-FLT-18, `api/14` R-WRT-11). |
 | AC-FLT-20 | On every Tier-1 vendor, `in(col, a, b)`, `in(col, a, b, c)` and the same two for `notIn` return the rows whose column equals one of the operands, `notIn` also returns the rows whose column is NULL, and a `'` and a `\` in a constant operand round-trip. The statement inlines the operand literals, e.g. `in ('PENDING','FAILED')`. `var` infers the call, and operands of another model or type do not compile (R-FLT-19, R-COL-27). |
-| AC-FLT-21 | A user operator and `ilike(mode)` filter on PostgreSQL and H2 on both lines: in value, `Optional` and field form, and inside `or`, `not`, `exists` and a sub-select; an empty `Optional` creates no join; the value is a bind parameter (SQL snapshot) (R-FLT-20, R-FLT-21). |
+| AC-FLT-21 | A user operator and `ilike(mode)` filter on PostgreSQL and H2 on both lines: in value, `Optional` and field form, and inside `or`, `not`, `exists` and a sub-select; an empty `Optional` creates no join; the value is a bind parameter (SQL snapshot); on a `ColumnConverter` column `ilike` returns the rows `like` returns with the same mode, and a `FilterOperator<C, C>` with a `prepare` on a converted column whose attribute is not a `C` is `MQ1001`; on a `@Convert` attribute `like`, `ilike` and `likeIgnoreCase` bind the patterns R-FLT-06 states, on Tier 1 (R-FLT-06, R-FLT-20, R-FLT-21). |
 | AC-FLT-22 | An operator's value is typed and converted correctly: with Hibernate's binder, on each served line, an enum (`STRING` and `ORDINAL`), a `@Convert` attribute, an array and a converted value bind typed by the column's mapping, the statement shows `?` with the default value handling and under `hibernate.criteria.value_handling_mode=inline`, and on MySQL a `STRING` enum over a `varchar` column and over a native `enum(...)` column each returns exactly its matching rows, never every row or none; `Having.op` over an aggregate of a path binds typed by the column's mapping, while over a function of a column, which Hibernate's binder declines (`typesBy`), an enum is `MQ1502` before any statement and a `String` binds by its class and returns exactly its rows; the binder refuses a node type its line doesn't expect with `MQ1502` (a test double for the node type), and `operands(emf)` is empty outside 6.6.x and 7.4.x; with no binder, an enum or an array value is `MQ1502`, a `Boolean` or `UUID` value is `MQ1502`, and a `String`, number or `java.time` value binds; a `FilterOperator<C, V>` binds `V` unconverted, and one with `requiringAttribute` over the wrong attribute is `MQ1001` (R-COL-14); a field form over two converted columns of different attribute types is `MQ1001`; a `null` through a typed variable is `MQ1301`, and a `Collection` value is `MQ1502` (R-FLT-21, `vendor/40` R-VND-24). |
 | AC-FLT-23 | A renderer returning `null` and one throwing are `MQ1313` naming the operator and column, before any statement; a `ModelQueryException` thrown from a renderer keeps its own code (R-FLT-20). |
 | AC-FLT-24 | The catalogue's `regexMatch`, `arrayContains`, `arrayOverlaps` and `jsonbContains` return the right rows on PostgreSQL. On H2 and MySQL each is refused before any statement: `MQ4015` with H2's and MySQL's profiles (the vendor check runs first); `MQ4014` with a custom profile that answers true and Hibernate's provider, which has no `mq_*` function there, and for `arrayOverlaps` on H2 never `Unknown data type`; an operator that requires a feature is `MQ4014` with no gate (`RenderOptions.portable()`), and a query with an `op` and a customizer passes `checkPhases`; `ilike` is `MQ4015` on MySQL with its profile, and `MQ4014` with a custom profile answering true there (the provider answers `ILIKE` by dialect), never the `lower(col) like lower(?)` emulation; `PortabilityCheck` reports each per target when the value is present, and an `op` with an empty `Optional` is not reported (R-FLT-20, `vendor/40` R-VND-23). |

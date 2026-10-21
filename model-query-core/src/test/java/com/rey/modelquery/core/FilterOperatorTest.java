@@ -21,7 +21,7 @@ class FilterOperatorTest {
     static final class OrderView {}
 
     /** Stores the model's {@code Long} cents as {@code Integer} whole units, so its attribute is an Integer. */
-    static final class CentsConverter implements ColumnConverter<Long, Integer> {
+    static final class CentsConverter implements OrderedColumnConverter<Long, Integer> {
         @Override
         public Long toModel(Integer attribute) {
             return attribute * 100L;
@@ -46,6 +46,19 @@ class FilterOperatorTest {
         }
     }
 
+    /** Stores the model's {@code String} with a {@code SKU-} prefix, so its attribute is a String too. */
+    static final class SkuConverter implements OrderedColumnConverter<String, String> {
+        @Override
+        public String toModel(String attribute) {
+            return attribute.substring("SKU-".length());
+        }
+
+        @Override
+        public String toAttribute(String model) {
+            return "SKU-" + model;
+        }
+    }
+
     private static final TableField<Order, Order> ROOT = TableField.root(Order.class);
     private static final ColumnField<OrderView, Order, Long> ID =
             ColumnField.of(OrderView.class, ROOT, "id", Long.class);
@@ -53,10 +66,12 @@ class FilterOperatorTest {
             ColumnField.of(OrderView.class, ROOT, "name", String.class);
     private static final ColumnField<OrderView, Order, String> CODE =
             ColumnField.of(OrderView.class, ROOT, "code", String.class);
-    private static final ColumnField<OrderView, Order, Long> CENTS =
+    private static final OrderedColumnField<OrderView, Order, Long> CENTS =
             ColumnField.of(OrderView.class, ROOT, "total", Long.class, int.class, new CentsConverter());
     private static final ColumnField<OrderView, Order, Long> REFERENCE =
             ColumnField.of(OrderView.class, ROOT, "reference", Long.class, String.class, new LongTextConverter());
+    private static final OrderedColumnField<OrderView, Order, String> SKU =
+            ColumnField.of(OrderView.class, ROOT, "code", String.class, String.class, new SkuConverter());
     private static final AggregateField<OrderView, Long> COUNT = Agg.count(ROOT);
 
     private static final FilterOperator<String, String> MATCHES =
@@ -76,6 +91,17 @@ class FilterOperatorTest {
 
     private static List<Condition> conditions(UnaryOperator<Filters<OrderView>> filters) {
         return where(filters).conditions().where();
+    }
+
+    private static List<Condition> having(AggregateField<OrderView, ?> aggregate,
+            UnaryOperator<Having<OrderView>> having) {
+        return ModelQuery.builder(ROOT, row -> new OrderView())
+                .select(SelectSet.of(NAME, aggregate))
+                .groupBy(NAME)
+                .having(having)
+                .build()
+                .conditions()
+                .having();
     }
 
     private static void assertCode(Runnable call, MqCode code) {
@@ -283,10 +309,49 @@ class FilterOperatorTest {
             return value * 2;
         });
 
-        Condition condition = conditions(f -> f.op(doubled, CENTS, 150L)).get(0);
+        Condition condition = conditions(f -> f.op(doubled, ID, 150L)).get(0);
 
         assertThat(seen).containsExactly(150L);
         assertThat(condition.values()).containsExactly(150L);
+    }
+
+    @Test
+    void ac_flt_21_prepare_gets_a_converted_columns_attribute_value_as_like_builds_its_pattern() {
+        var seen = new java.util.ArrayList<String>();
+        FilterOperator<String, String> wrapped = MATCHES.preparing(value -> {
+            seen.add(value);
+            return "%" + value + "%";
+        });
+
+        Condition condition = conditions(f -> f.op(wrapped, SKU, "12")).get(0);
+
+        // like converts first too: CONTAINS "12" is %SKU-12%, never SKU-%12% (R-FLT-06, R-FLT-21, D-171).
+        assertThat(seen).containsExactly("SKU-12");
+        assertThat(condition.values()).containsExactly("12");
+        assertThat(conditions(f -> f.op(wrapped, SKU, Optional.of("12")))).hasSize(1);
+        // Over max(SKU) in having too: the aggregate's column converts first.
+        seen.clear();
+        assertThat(having(Agg.max(SKU), h -> h.op(wrapped, Agg.max(SKU), "12")).get(0).values())
+                .containsExactly("12");
+        assertThat(seen).containsExactly("SKU-12");
+    }
+
+    @Test
+    void ac_flt_21_a_preparing_operator_on_a_converted_column_of_another_attribute_type_is_mq1001() {
+        FilterOperator<Long, Long> doubled = AT_MOST.preparing(value -> value * 2);
+
+        // prepare is a Long -> Long, and CENTS' attribute is an Integer: refused, never a ClassCastException.
+        assertThatThrownBy(() -> where(f -> f.op(doubled, CENTS, 150L)))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1001))
+                .hasMessageContaining("op(atMost)").hasMessageContaining("CentsConverter")
+                .hasMessageContaining("Integer");
+        assertCode(() -> where(f -> f.op(doubled, REFERENCE, Optional.of(150L))), MqCode.MQ1001);
+        assertCode(() -> having(Agg.max(CENTS), h -> h.op(doubled, Agg.max(CENTS), 150L)), MqCode.MQ1001);
+        // With no prepare, or in the field form, nothing is prepared; the <C, V> form is never converted.
+        assertThat(conditions(f -> f.op(AT_MOST, CENTS, 150L))).hasSize(1);
+        assertThat(conditions(f -> f.op(doubled, CENTS, CENTS))).hasSize(1);
+        assertThat(conditions(f -> f.op(TEXT_OF.preparing(String::trim), cast(CENTS), " 1 "))).hasSize(1);
     }
 
     @SuppressWarnings("unchecked")

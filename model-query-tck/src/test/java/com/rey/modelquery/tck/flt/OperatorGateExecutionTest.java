@@ -9,7 +9,6 @@ import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
-import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.OperandBinder;
 import com.rey.modelquery.core.OperatorFeature;
 import com.rey.modelquery.core.Phase;
@@ -19,24 +18,17 @@ import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.TableField;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
-import com.rey.modelquery.jpa.MysqlStreamingMode;
-import com.rey.modelquery.jpa.spi.DatabaseVendor;
-import com.rey.modelquery.jpa.spi.VendorProfile;
-import com.rey.modelquery.jpa.vendor.VendorResolver;
 import com.rey.modelquery.tck.col.ConstantRowEntity;
 import com.rey.modelquery.tck.col.ConstantStatus;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
-import jakarta.persistence.Query;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.ParameterExpression;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import javax.sql.DataSource;
@@ -181,45 +173,9 @@ class OperatorGateExecutionTest {
             // Resolved inside serving: the factory's resolution is cached, and must name the test provider.
             OperatorProviderSupport.serving(provider, binder, () -> {
                 ModelQueryConfig config = vendor == null ? ModelQueryConfig.defaults()
-                        : ModelQueryConfig.defaults().vendorProfiles(List.of(answering(sf, vendor)));
+                        : ModelQueryConfig.defaults().vendorProfiles(List.of(OperatorProviderSupport.answering(sf, vendor)));
                 sf.inSession(em -> work.accept(ModelQueryExecutor.create(em, ConstantRowEntity.class, config)));
             });
         }
-    }
-
-    /** The factory's built-in profile, answering {@code operators} as {@code vendor} says. */
-    private static VendorProfile answering(SessionFactory sf, Predicate<OperatorFeature> vendor) {
-        VendorProfile builtIn = VendorResolver.resolve(sf, Optional.empty(), MysqlStreamingMode.ROW_BY_ROW).profile();
-        return new VendorProfile() {
-            @Override
-            public DatabaseVendor vendor() {
-                return builtIn.vendor();
-            }
-
-            @Override
-            public int maxInListSize() {
-                return builtIn.maxInListSize();
-            }
-
-            @Override
-            public int maxBindParameters() {
-                return builtIn.maxBindParameters();
-            }
-
-            @Override
-            public void applyTimeout(Query query, Duration timeout) {
-                builtIn.applyTimeout(query, timeout);
-            }
-
-            @Override
-            public NullOrdering defaultAscendingNullOrdering() {
-                return builtIn.defaultAscendingNullOrdering();
-            }
-
-            @Override
-            public boolean operators(OperatorFeature feature) {
-                return vendor.test(feature);
-            }
-        };
     }
 }

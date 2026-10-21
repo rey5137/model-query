@@ -7,6 +7,7 @@ import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
 import com.rey.modelquery.core.OperandBinder;
+import com.rey.modelquery.core.OperatorFeature;
 import com.rey.modelquery.core.SequenceRenderer;
 import com.rey.modelquery.core.SourceRenderer;
 import com.rey.modelquery.core.SubqueryRenderer;
@@ -62,6 +63,7 @@ import org.hibernate.query.criteria.HibernateCriteriaBuilder;
 import org.hibernate.query.criteria.JpaCriteriaQuery;
 import org.hibernate.query.criteria.JpaSubQuery;
 import org.hibernate.query.criteria.JpaExpression;
+import org.hibernate.query.sqm.function.SqmFunctionRegistry;
 
 /**
  * Hibernate's {@link ProviderSupport}: the vendor from the dialect, without a connection, and the grouped count with
@@ -71,7 +73,7 @@ import org.hibernate.query.criteria.JpaExpression;
  * tables an entity reads from its persister's query spaces, bulk inserts through {@link HibernateInsertSupport}, and
  * entity-mode updates through {@link HibernateEntityWriteSupport}. Registered with {@code ServiceLoader}.
  *
- * @implSpec R-VND-04, R-VND-05, R-EXE-03, R-COL-12, R-PAG-05, R-VND-12, R-VND-13, R-VND-14, R-VND-20, D-119
+ * @implSpec R-VND-04, R-VND-05, R-EXE-03, R-COL-12, R-PAG-05, R-VND-12, R-VND-13, R-VND-14, R-VND-20, R-VND-23, D-119
  */
 @Incubating
 public final class HibernateProviderSupport implements ProviderSupport {
@@ -466,6 +468,30 @@ public final class HibernateProviderSupport implements ProviderSupport {
         return binder.isPresent() ? binder
                 : warnOperands(emf, "Hibernate " + version + " has no JpaCriteriaParameter(String, BindableType,"
                         + " boolean, NodeBuilder)");
+    }
+
+    /**
+     * Whether Hibernate renders {@code feature} on {@code emf} (R-VND-23): {@code ILIKE} by the dialect, true for
+     * PostgreSQL's and H2's (subclasses included), whose {@code ilike} is native, and false elsewhere, where
+     * Hibernate emulates it as {@code lower(col) like lower(?)}; a pattern feature by looking its {@code mq_*}
+     * functions up in the factory's registry, so it is true exactly where {@link HibernateOperatorFunctions}
+     * registered them, whatever a custom profile says. False for another provider's factory.
+     */
+    @Override
+    @Incubating
+    public boolean operators(EntityManagerFactory emf, OperatorFeature feature) {
+        Optional<SessionFactoryImplementor> factory = sessionFactory(emf);
+        if (factory.isEmpty()) {
+            return false;
+        }
+        if (feature == OperatorFeature.ILIKE) {
+            Dialect dialect = factory.get().getJdbcServices().getDialect();
+            return dialect instanceof PostgreSQLDialect || dialect instanceof H2Dialect;
+        }
+        List<String> functions = HibernateOperatorFunctions.functions(feature);
+        SqmFunctionRegistry registry = factory.get().getQueryEngine().getSqmFunctionRegistry();
+        return !functions.isEmpty()
+                && functions.stream().allMatch(name -> registry.findFunctionDescriptor(name) != null);
     }
 
     /** {@link HibernateSequenceRenderer}: the dialect's own sequence call (R-VND-18). */
