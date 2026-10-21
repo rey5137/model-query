@@ -66,6 +66,8 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1306` | One `in` or `notIn` filter has more values than `maxBindParameters()`. |
 | `MQ1307` | A statement binds more values than `maxBindParameters()` together; narrow its filters. A keyset page, export page or write round is refused before it runs when its own binds plus the worst cursor would pass the limit; the message says how many binds each side has. |
 | `MQ1308` | A value cannot be converted to its column's attribute type, for example an `Instant` beyond the range of `Timestamp`; `persist` setting a primitive attribute to `null`. |
+| `MQ1313` | A custom operator renderer or preparation returned null or threw; see below. |
+| `MQ1315` | Invalid full-text configuration identifier at the factory call; see below. |
 | `MQ1401` | Grouped query: selected non-aggregate column is not in the group-by. |
 | `MQ1402` | Grouped query: keyset paging or primary-key-first not allowed. |
 | `MQ1403` | Grouped query: Agg.sum or Agg.sumAsLong over a column whose SQL sum type differs from the result type. |
@@ -76,7 +78,8 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1408` | Grouped query: aggregate function over a column with a ColumnConverter (`sum`, `sumAsLong` and `avg`; `min`, `max` and `countDistinct` take an `OrderedColumnField` and do not compile over any other converted column). |
 | `MQ1409` | Grouped query: column selected under a `presentBy` join whose key columns are not all group keys. |
 | `MQ1410` | Runtime `groupBy` or group key over a column that selects a whole to-one entity. Group by the id form instead. |
-| `MQ1502` | An expression is given a null value, or a value of a type it cannot bind (`Optional`, an array, a `Collection`, a `Map`, a `Date`, a `Calendar`, an enum, an entity). |
+| `MQ1502` | An expression or custom operator value cannot bind, or an operand binder failed; see below. |
+| `MQ1505` | A CASE condition uses `add`, `exists`, a sub-select, a correlated value or `op`. |
 | `MQ1508` | An `Expr.constant` cannot be rendered as a literal: its value is not a `String`, `Number` or `Boolean` after the column's converter, the column is not a basic attribute of a root table, the provider has no constant renderer, or it is used other than as a comparison or `in` operand. The message names the cause. |
 | `MQ1509` | `Expr.nextval` misused: a name that is not a plain, optionally schema-qualified identifier, use in a filter, `having`, order or group key, or a vendor with no sequences (MySQL). |
 | `MQ1701` | A fetch plan's join plan whose join has no column of the query's selection at or below it. |
@@ -100,7 +103,7 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1801` | Insert: a column is not mapped, is mapped or set twice, is not on the written root, or is not in the model's `InsertColumns`; a `map` between columns with different converters or types; `lockKeys()` on insert-values; `insertReturningKeys` with `commitEachChunk()`. |
 | `MQ1802` | Insert: the model names a generated id, lacks an id that has no generator, a `setExpression` writes the id, or a row has a `null` assigned id; `persist` names a generated id (where the provider reports the generator) or part of a composite id. |
 | `MQ1803` | Insert: a `null` row. |
-| `MQ1804` | Insert conflict clause: the conflict columns are not the id, a natural id or a declared unique constraint; a vendor that detects a conflict on any unique key without `anyUniqueKey()`; `doNothing` the provider does not render; a `doUpdate` assigning a key column or reading two or more assigned columns in its `where` without `conflictUpdateWhereOnAssignedColumns(true)`; an `onConstraint(name)` with a blank name, or an `onConstraint` or an arbiter `where` on a vendor that does not support it (outside PostgreSQL). |
+| `MQ1804` | Invalid insert conflict clause or unsupported conflict filter; see below. |
 | `MQ1805` | Insert: a generator that is not supported for the call (a pooled sequence or a table or UUID generator on an insert-select), a `JOINED` or `@SecondaryTable` root, a composite id with generated parts, `@MapsId`, or a constructor-only embeddable under `persist`. |
 | `MQ1806` | Insert: a `chunked` insert-select whose source and target overlap, or whose tables the provider cannot name, or whose source joins through a link or collection table (`@ManyToMany`, `@ElementCollection`, a `@OneToMany` over a join table). |
 | `MQ1807` | Insert: keys requested for an `IDENTITY` or assigned id, or a key type that is not the id's type. |
@@ -112,6 +115,25 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1904` | Two branches of one set operation fix the same `@Discriminator` value, two combined sources read different shapes or fields in a different order, type or converter, a `discriminator` column is not a key column, or a side of the operation is a recursive source. |
 | `MQ1905` | A hand-written `ColumnField.of` or `TableField.join` over a source root; a generated outer column is `ColumnField.over(model, root, sourceConstant)`. |
 | `MQ1906` | A source's `where` predicate whose path crosses a to-many join, which no join inside the CTE can express; use `Filters.exists(path, inner)`. |
+
+For `MQ1313`, the message names the operator and column; a thrown `RuntimeException` is the cause. Preparation fails
+when adding the filter, rendering when building the statement. A `ModelQueryException` keeps its own code.
+`MQ1315` requires ASCII letters, digits and underscores, starting with a letter or underscore, with at most one schema
+qualifier (`english`, `public.my_config`). Null, blank, quoted, `$` and non-ASCII names are refused (AC-FLT-32).
+
+For `MQ1502`, expression values exclude null, `Optional`, arrays, `Collection`, `Map`, `Date`, `Calendar`, enums and
+entities. Operator values always exclude `Optional`, `Collection` and `Map`. Without a mapping-aware binder, only
+strings, `java.lang` or `java.math` numbers and `java.time` values bind: an enum, array, `Boolean` or `UUID` fails.
+That restriction also applies to a `<C, V>` operator and an expression the binder declines through `typesBy`, even
+with a binder installed. A binder throwing, returning null or reusing a parameter already bound by the statement
+also fails with `MQ1502`, naming the operator and column, before any statement runs (R-FLT-21, R-VND-24).
+
+For `MQ1804`, conflict columns must be the id, a natural id or a declared unique constraint. Other causes include
+`doNothing` the provider cannot render; a vendor detecting any unique key without `anyUniqueKey()`; a `doUpdate`
+assigning a key column or reading two or more assigned columns in its `where` without
+`conflictUpdateWhereOnAssignedColumns(true)`; a blank `onConstraint` name; or an `onConstraint` or arbiter `where`
+the vendor does not support. Any `op` in an arbiter's `where` fails at `build()`; a value-form `op` in a conflict
+update's `where` fails on first execution, naming the operator. Field-form `op` is allowed there (R-WRT-34, R-WRT-52).
 
 See [Queries and Filters](queries.md), [Grouped queries](grouped-queries.md), [Bulk writes](bulk-writes.md) and [Inserts](inserts.md).
 
@@ -237,12 +259,17 @@ See [Models and QModels](models.md).
 | `MQ4011` | A returning write the factory cannot return rows for, such as any returning write on MySQL. |
 | `MQ4012` | A factory is not on one of the declared target vendors; the message names the factory, its vendor, how it was found and the list. |
 | `MQ4013` | The [portability check](portability.md) cannot boot your unit offline for a target: no provider support for its vendor, a vendor with no offline boot (Oracle, SQL Server, `OTHER`), or a version that is not numeric. |
-| `MQ4014` | Missing provider source support, or a missing duplicate-key check for a [tree](source-models.md#trees). |
-| `MQ4015` | The target vendor lacks a source feature the query uses, or a recursive source whose `maxDepth + 2` exceeds `VendorProfile#maxRecursionDepth()`. The message names the feature or the depth. |
+| `MQ4014` | Missing provider renderer, source check or custom operator feature support; see below. |
+| `MQ4015` | The vendor lacks a source or operator feature, or a recursive source exceeds its depth limit. |
 
 For `MQ4014`, `ProviderSupport#sources()` is empty, there is no `ProviderSupport`, or the provider's `SourceRenderer`
-returned no duplicate-key check for `tree(...)`. All are refused before any statement; the
-[portability check](portability.md) reports them per declared target with no database attached.
+returned no duplicate-key check for `tree(...)`. An operator requiring a feature also needs an operator gate and a
+provider that serves that feature (`ProviderSupport#operators`), after the vendor check passes. All are refused before
+any statement; the [portability check](portability.md) reports them per declared target with no database attached.
+
+For `MQ4015`, `VendorProfile#operators` refuses an operator's required feature before the provider check (`MQ4014`).
+The message names the feature, vendor, operator and column. For sources it names the unsupported feature or depth:
+`maxDepth + 2` must fit `VendorProfile#maxRecursionDepth()` (R-VND-23).
 
 See [Spring Data and the starter](spring.md) and [Vendor notes](vendors.md).
 

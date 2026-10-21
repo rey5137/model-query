@@ -390,6 +390,130 @@ insert-values value or an insert-select column, each evaluated per written row (
 
 Tested by `SequenceNextvalTest` in the TCK (AC-COL-33).
 
+### Custom operators
+
+`FilterOperator<C, V>` defines a named predicate for a column of type `C` and an operand of type `V`
+(R-FLT-20..22, `@Incubating`). Define it once and reuse it:
+
+```java
+private static final FilterOperator<String, String> SAME_TEXT =
+        FilterOperator.of("sameText", (ctx, left, right) -> ctx.cb().equal(left, right));
+
+private static final FilterOperator<String, String> TRIMMED_TEXT =
+        FilterOperator.<String>of("trimmedText", (ctx, left, right) -> ctx.cb().equal(left, right))
+                .requiringAttribute(String.class)
+                .preparing(String::trim);
+```
+
+The lambda is an `OperatorRenderer<C, V>`; its `OperatorContext` exposes the statement's `CriteriaBuilder` through
+`cb()`. Use the `right` expression you are given. In value form it is a parameter bound separately for every
+statement, including counts and export pages; in field form it is the right field's expression. Never capture a
+request value in a renderer or replace `right` with `cb.literal(value)` or `cb.equal(left, value)`.
+
+`FilterOperator.of(name, renderer)` takes a value of the column's type (`C, C`). For a different operand type, use
+`FilterOperator.of(name, valueType, renderer)` (`C, V`); that value is not passed through a `ColumnConverter`.
+`requiringAttribute(type)` checks the mapped attribute's type (`MQ1001` on a mismatch). `preparing(prepare)`
+transforms a value once when the filter is added, after a `ColumnConverter` has converted it. A renderer or preparation
+returning `null` or throwing a runtime exception is `MQ1313`; a `ModelQueryException` keeps its own code.
+
+`requires(OperatorFeature.ILIKE)` declares a feature that both vendor and provider must serve; the other features are
+`REGEX_MATCH`, `ARRAY_CONTAINMENT`, `JSONB_CONTAINMENT` and `FULL_TEXT`. It does not supply a renderer. Each of
+`requiringAttribute`, `requires` and `preparing` returns a new definition, replacing that setting (D-168, D-171).
+
+Keep definitions in `static final` constants (INV-9). Operators compare by identity: two queries sharing a constant
+can be equal; creating another operator with the same name does not give it the same identity.
+
+`Filters.op` has value, `Optional` and field forms:
+
+```java
+.where(f -> f.op(SAME_TEXT, QOrderView.CUSTOMER_NAME, "Acme"))
+.where(f -> f.op(SAME_TEXT, QOrderView.CUSTOMER_NAME, Optional.of("Acme")))
+.where(f -> f.op(SAME_TEXT, QOrderView.CUSTOMER_NAME, QOrderView.CUSTOMER_EMAIL))
+```
+
+These are alternative filters. An empty `Optional` skips its filter and creates no join. `Having.op` has the same
+three forms over aggregates: `h.op(operator, aggregate, value)`, `h.op(operator, aggregate, optionalValue)` and
+`h.op(operator, leftAggregate, rightAggregate)`; see [Grouped queries](grouped-queries.md).
+
+Without an operand binder, values are limited to strings, `java.lang` or `java.math` numbers and `java.time` values.
+An enum, array, `Boolean` or `UUID` needs a binder that types the parameter by the column's mapping (`MQ1502`
+otherwise). Hibernate supplies that binder on its supported lines. A `Collection`, `Map` or nested `Optional` is
+never a single operator value (`MQ1502`); a null value is `MQ1301` (R-FLT-21).
+
+Both `op(...)` and `not(g -> g.op(...))` drop rows whose column is NULL: no `OR col IS NULL` is added (R-FLT-22).
+The NULL handling of `ne` and `notIn` does not apply here.
+
+**Hibernate catalogue.** Add `model-query-hibernate` to use `HibernateOperators`:
+
+| Factory | Meaning | Vendors served |
+|---|---|---|
+| `ilike(LikeMode)` | Case-insensitive LIKE; the value uses the same pattern preparation as `like` | PostgreSQL, H2 |
+| `regexMatch()` | PostgreSQL `~` regular-expression match | PostgreSQL |
+| `arrayContains()` | Array contains every element of the operand (`@>`) | PostgreSQL |
+| `arrayOverlaps()` | Arrays share an element (`&&`) | PostgreSQL |
+| `jsonbContains()` | JSON document contains the operand's JSON text (`@>`) | PostgreSQL |
+| `fullTextMatch(configuration)` | Plain-text words must all match (`plainto_tsquery`) | PostgreSQL |
+
+MySQL serves none of these catalogue features. At execution the vendor check runs first (`MQ4015`), then the provider
+check (`MQ4014`), before any statement. A custom vendor profile answering yes cannot bypass the provider check;
+rendering a feature-requiring operator without a gate is also `MQ4014`.
+
+```java
+private static final FilterOperator<String, String> NAME_CONTAINS =
+        HibernateOperators.ilike(LikeMode.CONTAINS);
+private static final FilterOperator<String, String> ENGLISH_TEXT =
+        HibernateOperators.fullTextMatch("english");
+
+var query = QOrderView.query()
+        .select(QOrderView.DEFAULT)
+        .where(f -> f.op(NAME_CONTAINS, QOrderView.CUSTOMER_NAME, "acme"))
+        .build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<OrderView> rows = executor.list(query, Limit.of(100));
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<OrderView> rows = orders.findAll(query, Limit.of(100));
+    ```
+
+Full text takes a required plain SQL identifier, optionally schema-qualified, as its configuration; null, blank or
+invalid text is `MQ1315` at the factory call. Request text is bound, while the configuration is a literal so an
+expression index can match. Punctuation is read as plain text, not a query language. Blank or stop-word-only text
+matches nothing and PostgreSQL emits a notice; callers should skip the filter when that input means no search
+(D-173). For a field-form `ilike`, the right field holds the pattern as stored; no value preparation runs.
+
+**Converted attributes (Q-30, D-171).** With a JPA `@Convert` attribute, Hibernate converts the finished `like` and
+`ilike` patterns, but does not convert `likeIgnoreCase`'s bound pattern against `lower(col)`. A converter adding
+`SKU:` can therefore make `likeIgnoreCase` with `EXACT` or `STARTS_WITH` silently return no rows; `CONTAINS` happens
+to work in that fixture. `eqIgnoreCase` is suspected to have the same limitation and remains untested in Q-30.
+These filters have no general converted-attribute guarantee; Q-30 remains open.
+
+Give `PortabilityCheck` a query with a present operator value to check each target's feature support. An empty
+`Optional` removes the operator and is not reported (AC-FLT-24, AC-FLT-32).
+
+**Indexes.** An operator is only as fast as an index matching its expression; index use is the planner's decision for
+each plan, never an operator guarantee (RFC 0017 §6):
+
+- Array `@>` and `&&` can use `gin (col)` under custom and generic plans.
+- Full text can use `gin (to_tsvector('english', col))` under both plans when the index's configuration matches the
+  operator's configuration.
+- `ILIKE '%x%'` can use `gin (col gin_trgm_ops)` (`pg_trgm`), and jsonb `@>` can use `gin (col)`. In the PostgreSQL 16
+  spike both used those indexes under a custom plan, but both used a sequential scan at 20,000 rows under
+  `plan_cache_mode = force_generic_plan`. A reused server-side prepared statement can get a generic plan; whether
+  `auto` chooses it after pgjdbc starts server preparation was not measured.
+- Regex `~` can also use a trigram GIN index; the spike did not measure it.
+- A `lower(col)` index serves `likeIgnoreCase`, not `ILIKE`.
+
+Tested by `UserOperatorTest`, `CatalogueOperatorsTest`, `ContainmentOperatorsTest`, `FullTextOperatorTest`,
+`ConvertedLikeTest`, `OperatorGateExecutionTest`, `OperatorFeaturesTest` and `OperatorPortabilityTest` in the TCK
+(AC-FLT-21..27, AC-FLT-32).
+
 ### Returning writes
 
 An update, a delete or an insert can give back the rows it wrote in the same statement: `updateReturning`,

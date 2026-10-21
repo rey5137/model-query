@@ -210,10 +210,14 @@ methods (`vendor/40` R-VND-26) are `@Incubating` the same way: `TreatRenderer`, 
 
 The custom-operator members (D-167, M29) are `@Incubating` through 1.0: `FilterOperator`, `OperatorRenderer`,
 `OperatorContext` and `OperatorFeature`, `Filters.op` and `Having.op` in their three forms (R-FLT-20),
-`Condition.Kind#OPERATOR` and `Condition#operator()`, `FilterMatchers.op` (R-INS-13), `MqCode.MQ1313`, and
-`model-query-hibernate`'s `HibernateOperators` (R-VND-23). `LikeMode#pattern` and `LikeMode.escapeCharacter()`, which
-`like` and `HibernateOperators.ilike` share, and the `FunctionContributor` `HibernateOperatorFunctions` are
-`@EngineFacing` or loaded by Hibernate, so they are not API (D-171).
+`Condition.Kind#OPERATOR` and `Condition#operator()`, `FilterMatchers.op` (R-INS-13), `MqCode.MQ1313` and `MQ1315`,
+and `model-query-hibernate`'s `HibernateOperators` (R-VND-23). The SPI surface is `@Incubating` the same way:
+`OperandBinder` with `parameter` and `typesBy` (R-VND-24), `ProviderSupport#operands(EntityManagerFactory)` and
+`#operators(EntityManagerFactory, OperatorFeature)`, `VendorProfile#operators(OperatorFeature)`, and
+`RenderOptions#withOperatorGate`, `#withOperandBinder`, `#operatorGate()` and `#operandBinder()` (R-VND-23).
+`OperatorGate`, `LikeMode#pattern` and `LikeMode.escapeCharacter()`, which `like` and `HibernateOperators.ilike`
+share, are `@EngineFacing`; the `FunctionContributor` `HibernateOperatorFunctions` is loaded by Hibernate.
+They are not API (D-169, D-171).
 
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from
