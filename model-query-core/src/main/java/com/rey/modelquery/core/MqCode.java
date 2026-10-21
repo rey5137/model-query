@@ -160,8 +160,8 @@ public enum MqCode {
     /** A CASE condition has no filter left (R-COL-17). */
     MQ1504("A CASE condition has no filter left, so it would always match"),
 
-    /** A CASE condition uses {@code add(...)}, {@code exists(...)} or a sub-select (R-COL-17). */
-    MQ1505("A CASE condition uses add(...), exists(...) or a sub-select"),
+    /** A CASE condition uses {@code add(...)}, {@code exists(...)}, a sub-select or an {@code op} (R-COL-17). */
+    MQ1505("A CASE condition uses add(...), exists(...), a sub-select or op(...)"),
 
     /** {@code function(name, ...)} with a name that is not a plain identifier or is a built-in aggregate (R-COL-17). */
     MQ1506("function(name, ...) with a name that is not a plain SQL identifier or is a built-in aggregate"),
@@ -546,16 +546,19 @@ public enum MqCode {
 
     /**
      * The persistence provider lacks a source, ordered sub-query or source-feature renderer, including a tree's
-     * duplicate-key check; raised at build time, before any statement (R-SRC-11, R-SRC-14, R-COL-32, R-VND-25).
+     * duplicate-key check, or can't render an operator feature; raised at build time, before any statement (R-SRC-11,
+     * R-SRC-14, R-COL-32, R-VND-25, R-VND-23).
      */
-    MQ4014("The persistence provider lacks a renderer for a source, ordered sub-query, source feature "
-            + "or a treated path"),
+    MQ4014("The persistence provider lacks a renderer for a source, ordered sub-query, source feature, "
+            + "treated path or operator feature"),
 
     /**
-     * The target's vendor lacks a source feature the query uses, {@code VendorProfile#sources(SourceFeature)} returning
-     * false for it, or a recursion deeper than {@code maxRecursionDepth()}; raised before any statement (R-SRC-11).
+     * The target's vendor lacks a source or operator feature the query uses, {@code VendorProfile#sources} or
+     * {@code VendorProfile#operators} returning false for it, or a recursion deeper than {@code maxRecursionDepth()};
+     * raised before any statement (R-SRC-11, R-VND-23).
      */
-    MQ4015("The target's vendor lacks a source feature the query uses, or the recursion is deeper than it allows"),
+    MQ4015("The target's vendor lacks a source or operator feature the query uses, or the recursion is deeper than "
+            + "it allows"),
 
     /** A treated statement cannot preserve R-COL-35 for its shape, anchoring or uses (R-VND-26). */
     @Incubating

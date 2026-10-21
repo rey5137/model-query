@@ -2,6 +2,7 @@ package com.rey.modelquery.jpa.spi;
 
 import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.NullOrdering;
+import com.rey.modelquery.core.OperatorFeature;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import java.time.Duration;
@@ -12,7 +13,8 @@ import java.util.Optional;
  * discovered with {@code ServiceLoader}; a discovered profile takes precedence over the built-in one for its vendor
  * (R-VND-03). A new behaviour is a new method with a default.
  *
- * @implSpec R-VND-01, R-VND-02, R-VND-03, R-VND-11, R-VND-12, R-VND-14, R-VND-17, R-VND-21, R-VND-22
+ * @implSpec R-VND-01, R-VND-02, R-VND-03, R-VND-11, R-VND-12, R-VND-14, R-VND-17, R-VND-21, R-VND-22,
+ *     R-VND-23
  */
 @Incubating
 public interface VendorProfile {
@@ -132,6 +134,18 @@ public interface VendorProfile {
      * added must answer {@code false} for it.
      */
     default boolean sources(SourceFeature feature) {
+        return false;
+    }
+
+    /**
+     * Whether the database has {@code feature}, so a filter operator that requires it runs (api/12 R-FLT-20,
+     * R-VND-23, D-167). {@code false}, the default, fails safe: the filter is then refused with {@code MQ4015} before
+     * any statement, checked before the provider's {@code ProviderSupport#operators}. A database fact, no SQL
+     * (R-VND-11, INV-6). A profile written before an {@link OperatorFeature} was added must answer {@code false} for
+     * it.
+     */
+    @Incubating
+    default boolean operators(OperatorFeature feature) {
         return false;
     }
 

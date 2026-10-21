@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullOrdering;
+import com.rey.modelquery.core.OperatorFeature;
 import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.jpa.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
@@ -15,6 +16,7 @@ import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.Query;
 import jakarta.persistence.TypedQuery;
 import java.time.Duration;
+import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -145,6 +147,32 @@ class VendorResolverTest {
                 .isInstanceOfSatisfying(ModelQueryConfigurationException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ4002))
                 .hasMessageContaining("MYSQL");
+    }
+
+    @Test
+    void ac_flt_24_the_built_in_profiles_answer_operator_features_and_the_defaults_answer_none() {
+        assertThat(EnumSet.allOf(OperatorFeature.class)).allMatch(BuiltInProfile.POSTGRESQL::operators);
+        assertThat(EnumSet.allOf(OperatorFeature.class)).filteredOn(BuiltInProfile.H2::operators)
+                .containsExactly(OperatorFeature.ILIKE);
+        for (BuiltInProfile none : List.of(BuiltInProfile.MYSQL, BuiltInProfile.MYSQL_CURSOR_FETCH,
+                BuiltInProfile.OTHER)) {
+            assertThat(EnumSet.allOf(OperatorFeature.class)).as(none.name()).noneMatch(none::operators);
+        }
+        VendorProfile custom = new CustomProfile(DatabaseVendor.H2);
+        assertThat(EnumSet.allOf(OperatorFeature.class)).noneMatch(custom::operators);
+        ProviderSupport support = new ProviderSupport() {
+            @Override
+            public boolean supports(EntityManagerFactory emf) {
+                return true;
+            }
+
+            @Override
+            public <T> Stream<T> resultStream(TypedQuery<T> query, int fetchSize) {
+                return Stream.empty();
+            }
+        };
+        assertThat(support.operands(null)).isEmpty();
+        assertThat(EnumSet.allOf(OperatorFeature.class)).noneMatch(feature -> support.operators(null, feature));
     }
 
     @Test

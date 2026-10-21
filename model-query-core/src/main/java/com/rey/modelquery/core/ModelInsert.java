@@ -526,12 +526,29 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         JoinContext whereContext = JoinContext.of(target, cb, null, options);
         List<Predicate> where = ConditionGroup.toPredicates(conflict.update().where(), whereContext);
         if (!whereContext.statementParameters().isEmpty()) {
-            // The provider renders the conflict clause itself, so no executor binds a parameter in it (R-COL-26).
-            throw new ModelQueryDefinitionException(MqCode.MQ1804, "doUpdate(...).where(...) with Expr.value: the "
+            // The provider renders the conflict clause itself, so no executor binds a parameter in it (R-COL-26). A
+            // value-form op binds its value as one, so it is named rather than Expr.value (R-WRT-34).
+            String bound = valueFormOperator(ConditionGroup.conditions(conflict.update().where()))
+                    .map(operator -> "op(" + operator.name() + ")").orElse("Expr.value");
+            throw new ModelQueryDefinitionException(MqCode.MQ1804, "doUpdate(...).where(...) with " + bound + ": the "
                     + "conflict action's where renders inside the provider's insert, where a bound argument cannot be "
-                    + "set; use Expr.constant or a plain value");
+                    + "set; use Expr.constant, a plain value or an op's field form");
         }
         return where.isEmpty() ? Optional.empty() : Optional.of(ConditionGroup.and(cb, where));
+    }
+
+    /** The first operator in {@code conditions} applied in value form, whose value is a bound parameter. */
+    private static Optional<FilterOperator<?, ?>> valueFormOperator(List<Condition> conditions) {
+        for (Condition condition : conditions) {
+            if (condition.kind() == Condition.Kind.OPERATOR && condition.right().isEmpty()) {
+                return condition.operator();
+            }
+            Optional<FilterOperator<?, ?>> nested = valueFormOperator(condition.children());
+            if (nested.isPresent()) {
+                return nested;
+            }
+        }
+        return Optional.empty();
     }
 
     /**

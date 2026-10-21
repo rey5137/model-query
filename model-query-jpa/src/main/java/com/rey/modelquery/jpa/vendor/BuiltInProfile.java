@@ -3,6 +3,7 @@ package com.rey.modelquery.jpa.vendor;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullOrdering;
+import com.rey.modelquery.core.OperatorFeature;
 import com.rey.modelquery.jpa.MysqlStreamingMode;
 import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.ReturningShape;
@@ -18,7 +19,7 @@ import java.util.Optional;
  * The built-in profiles: a fixed table of the Tier-1 values in vendor/41 §2 and the conservative {@code OTHER}
  * values. A {@code ServiceLoader}-discovered profile for the same vendor takes precedence (R-VND-03).
  *
- * @implSpec R-PRF-11, R-PRF-08, R-PRF-03, R-PRF-07, R-VND-06, R-VND-11, R-VND-14, R-VND-17
+ * @implSpec R-PRF-11, R-PRF-08, R-PRF-03, R-PRF-07, R-VND-06, R-VND-11, R-VND-14, R-VND-17, R-VND-23
  */
 enum BuiltInProfile implements VendorProfile {
 
@@ -56,6 +57,12 @@ enum BuiltInProfile implements VendorProfile {
         @Override
         public boolean sources(SourceFeature feature) {
             return tier1Source(feature);
+        }
+
+        /** H2 has {@code ILIKE} natively, and none of PostgreSQL's pattern operators (R-VND-23). */
+        @Override
+        public boolean operators(OperatorFeature feature) {
+            return feature == OperatorFeature.ILIKE;
         }
     },
 
@@ -113,6 +120,15 @@ enum BuiltInProfile implements VendorProfile {
         @Override
         public boolean sources(SourceFeature feature) {
             return recursiveSource(feature);
+        }
+
+        /** Every catalogue operator's SQL is PostgreSQL's own; a feature added later answers for itself (R-VND-23). */
+        @Override
+        public boolean operators(OperatorFeature feature) {
+            return switch (feature) {
+                case ILIKE, REGEX_MATCH, ARRAY_CONTAINMENT, JSONB_CONTAINMENT, FULL_TEXT -> true;
+                default -> false;
+            };
         }
     },
 

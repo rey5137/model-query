@@ -27,6 +27,8 @@ import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullPrecedence;
+import com.rey.modelquery.core.OperatorFeature;
+import com.rey.modelquery.core.OperatorGate;
 import com.rey.modelquery.core.OrderField;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.PersistenceContextMode;
@@ -106,6 +108,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -272,7 +275,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 .map(options::withTreatRenderer)
                 .orElse(options)
                 .withMetamodel(emf.getMetamodel()); // ofType's subtypes (R-FLT-28)
-        this.renderOptions = sources(options);
+        options = vendor.providerSupport()
+                .flatMap(support -> support.operands(emf))
+                .map(options::withOperandBinder)
+                .orElse(options);
+        this.renderOptions = sources(options.withOperatorGate(operatorGate(emf)));
         this.keyLimits = new Keys(profile.maxInListSize(), profile.maxBindParameters());
         this.primaryKeyFirstBatchSize = config.primaryKeyFirstBatchSize();
         this.queryTimeout = config.queryTimeout();
@@ -283,6 +290,24 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         this.bulkWriteChunkSize = config.bulkWriteChunkSize();
         this.chunkTransactions = config.chunkTransactions().orElse(null);
         this.conflictUpdateWhereOnAssignedColumns = config.conflictUpdateWhereOnAssignedColumns();
+    }
+
+    /**
+     * The vendor's and the provider's answer for every {@link OperatorFeature}, asked once here so no render asks a
+     * profile; with no {@code ProviderSupport} the provider serves none (R-VND-23, D-169).
+     */
+    private OperatorGate operatorGate(EntityManagerFactory emf) {
+        Set<OperatorFeature> vendorFeatures = EnumSet.noneOf(OperatorFeature.class);
+        Set<OperatorFeature> providerFeatures = EnumSet.noneOf(OperatorFeature.class);
+        for (OperatorFeature feature : OperatorFeature.values()) {
+            if (vendor.profile().operators(feature)) {
+                vendorFeatures.add(feature);
+            }
+            if (vendor.providerSupport().map(support -> support.operators(emf, feature)).orElse(false)) {
+                providerFeatures.add(feature);
+            }
+        }
+        return OperatorGate.of(String.valueOf(vendor.detectedVendor()), vendorFeatures, providerFeatures);
     }
 
     /**

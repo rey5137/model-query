@@ -350,8 +350,9 @@ is for logs, inspection and messages only, and two definitions with one name are
   converter's attribute type on a converted column, R-COL-14; the aggregate's type in `having`, R-AGG-04) is not a
   `type`.
 - **`requires(feature)`** names an `OperatorFeature` (`ILIKE`, `REGEX_MATCH`, `ARRAY_CONTAINMENT`,
-  `JSONB_CONTAINMENT`, `FULL_TEXT`) the vendor and the provider must both serve (`vendor/40` R-VND-23). Rendered with
-  no operator gate, such an operator is `MQ4014`, before any statement. An operator that requires none is never gated.
+  `JSONB_CONTAINMENT`, `FULL_TEXT`) the vendor and the provider must both serve (`vendor/40` R-VND-23). When the filter
+  is rendered, before any statement, the vendor's answer is checked first (`MQ4015`), then the provider's (`MQ4014`);
+  rendered with no operator gate, such an operator is `MQ4014`. An operator that requires none is never gated.
 - **Field form.** Both sides are fields of the query's model, as in `compare` (R-FLT-18); an expression on either side
   is an operand. For a `FilterOperator<C, C>`, a converted column on either side whose attribute type differs from the
   other side's is `MQ1001`, as `compare` refuses it. It has no `Optional` twin.
@@ -376,6 +377,8 @@ mapping binds: a `String`, a `java.lang` or `java.math` number, or a `java.time`
 an enum, an array, a `Boolean` or a `UUID`, is `MQ1502` naming the operator and the column, before any statement: a
 parameter typed by class binds a `STRING` enum by ordinal and a `@Convert` value not at all (`rfc/0017` spike finding
 1), and a `Boolean` mapped to `'Y'`/`'N'` or a `UUID` stored as `char(36)` matches nothing.
+With a binder, the `<C, C>` form's parameter is the binder's, typed by the column's mapping, so an enum, an array or a
+converted value binds; the `<C, V>` form, which no column types, keeps the no-binder rule (D-169).
 
 **R-FLT-22** *(D-167)* **NULLs and negation.** An operator renders as its renderer builds it, with no `OR col IS NULL`
 added: a NULL column or operand makes it unknown, so the row doesn't match. `not(g -> g.op(...))` is plain `NOT (…)`

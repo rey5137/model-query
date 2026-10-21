@@ -111,8 +111,8 @@ final class InsertRules {
      * has no rendering.
      *
      * @throws ModelQueryDefinitionException {@code MQ1804} for any other kind, a column not on the root, a joined
-     *     column, an expression operand, an {@code Expr.value} or {@code Expr.constant}, or an empty {@code in},
-     *     {@code notIn} or {@code or}, which has no SQL of its own
+     *     column, an expression operand, an {@code Expr.value} or {@code Expr.constant}, an {@code op} in any form,
+     *     or an empty {@code in}, {@code notIn} or {@code or}, which has no SQL of its own
      */
     static void checkConflictArbiter(TableField<?, ?> root, List<Condition> conditions) {
         for (Condition condition : conditions) {
@@ -131,6 +131,10 @@ final class InsertRules {
                     }
                     checkConflictArbiter(root, condition.children());
                 }
+                // Any form: the provider renders the predicate with literals, and an operator's SQL is its own.
+                case OPERATOR -> throw new ModelQueryDefinitionException(MqCode.MQ1804, ARBITER + " with op("
+                        + condition.operator().orElseThrow().name() + "): the arbiter predicate of a partial unique "
+                        + "index compares root columns with plain values, and holds no custom operator");
                 default -> throw new ModelQueryDefinitionException(MqCode.MQ1804, ARBITER + " with "
                         + condition.kind() + ": the arbiter predicate of a partial unique index compares root columns "
                         + "with plain values, and holds no exists, sub-select, expression or other operator");

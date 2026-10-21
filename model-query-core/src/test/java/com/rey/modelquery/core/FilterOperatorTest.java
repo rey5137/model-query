@@ -194,6 +194,20 @@ class FilterOperatorTest {
     // ---- refusals when the filter is added
 
     @Test
+    void ac_flt_26_an_op_in_a_case_condition_is_mq1505_naming_the_operator_in_value_and_field_form() {
+        assertThatThrownBy(() -> Expr.cases(OrderView.class, Long.class).when(f -> f.op(MATCHES, NAME, "a"), 1L))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1505))
+                .hasMessageContaining("op(matches)");
+        assertCode(() -> Expr.cases(OrderView.class, Long.class).when(f -> f.op(MATCHES, NAME, CODE), 1L),
+                MqCode.MQ1505);
+        // Nested under or and not too: the check walks the whole condition.
+        assertCode(() -> Expr.cases(OrderView.class, Long.class)
+                .when(f -> f.eq(ID, 1L).or(g -> g.not(h -> h.op(MATCHES, NAME, "a")), g -> g.eq(ID, 2L)), 1L),
+                MqCode.MQ1505);
+    }
+
+    @Test
     void ac_flt_22_a_null_through_a_typed_variable_is_mq1301_naming_the_column() {
         String none = null;
 

@@ -496,7 +496,7 @@ public final class Expr {
         return new ExpressionField.CaseBranch(filters, conditions, result);
     }
 
-    /** {@code MQ1505} for {@code add}, {@code exists} or a sub-select inside a CASE condition (R-COL-17). */
+    /** {@code MQ1505} for {@code add}, {@code exists}, a sub-select or an {@code op} in a CASE condition (R-COL-17). */
     private static void checkCaseCondition(Condition condition) {
         if (ExpressionField.containsCorrelated(condition)) {
             throw new ModelQueryDefinitionException(MqCode.MQ1505,
@@ -506,6 +506,9 @@ public final class Expr {
             case CUSTOM, EXISTS, NOT_EXISTS, IN_SUBSELECT, NOT_IN_SUBSELECT, EXISTS_SUBSELECT, NOT_EXISTS_SUBSELECT ->
                     throw new ModelQueryDefinitionException(MqCode.MQ1505, "cases(...).when(...): a CASE condition "
                             + "cannot use add(...), exists(...) or a sub-select; use a plain column filter");
+            case OPERATOR -> throw new ModelQueryDefinitionException(MqCode.MQ1505, "cases(...).when(...): a CASE "
+                    + "condition cannot use op(" + condition.operator().orElseThrow().name() + "); use a plain column "
+                    + "filter");
             default -> condition.children().forEach(Expr::checkCaseCondition);
         }
     }

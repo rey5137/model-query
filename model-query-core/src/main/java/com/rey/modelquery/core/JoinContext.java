@@ -359,7 +359,14 @@ public final class JoinContext {
      * bind on the statement that renders it (R-COL-26). The value never reaches SQL as a literal.
      */
     ParameterExpression<?> parameter(Class<?> type, Object value) {
-        ParameterExpression<?> parameter = cb.parameter(type);
+        return bind(cb.parameter(type), value);
+    }
+
+    /**
+     * {@code parameter}, made elsewhere (an {@code OperandBinder}'s), recorded to bind {@code value} on the statement
+     * that renders it, as {@link #parameter(Class, Object)} records its own (R-FLT-21).
+     */
+    <T> ParameterExpression<T> bind(ParameterExpression<T> parameter, Object value) {
         parameters.put(parameter, value);
         return parameter;
     }
@@ -381,6 +388,13 @@ public final class JoinContext {
      * this statement keeps, such as a write's {@code EXISTS} (R-COL-19, R-COL-26, D-80).
      */
     void addSubqueryBinds(JoinContext rendered) {
+        for (ParameterExpression<?> parameter : rendered.parameters.keySet()) {
+            if (parameters.containsKey(parameter)) {
+                // Only a provider's operand binder reusing a parameter gets here: cb.parameter is new on every call.
+                throw new ModelQueryDefinitionException(MqCode.MQ1502, "a sub-query binds a parameter its statement "
+                        + "already binds: the provider's operand binder must make a new parameter on every call");
+            }
+        }
         repeatedExpressionBinds[0] += rendered.repeatedExpressionBinds[0];
         parameters.putAll(rendered.parameters);
     }

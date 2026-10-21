@@ -9,6 +9,7 @@ import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.ColumnConverter;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.ExportOptions;
+import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.FilterOperator;
 import com.rey.modelquery.core.Filters;
 import com.rey.modelquery.core.KeysetSlice;
@@ -19,7 +20,9 @@ import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.OperatorFeature;
+import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.core.SelectSet;
 import com.rey.modelquery.core.SubSelect;
 import com.rey.modelquery.core.TableField;
@@ -295,16 +298,34 @@ class UserOperatorTest {
     @TckTest
     void ac_flt_24_an_operator_that_requires_a_feature_is_mq4014_with_no_gate(TckDatabase db) {
         FilterOperator<String, String> gated = EQUALS.requires(OperatorFeature.ILIKE);
-        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, ConstantRowEntity.class, executor ->
-                assertThatThrownBy(() -> executor.list(ROWS_QUERY.where(f -> f.op(gated, LABEL, "plain")).build(),
-                        Limit.unlimited()))
+        ModelQuery<ConstantRowEntity, Object, R> query = ROWS_QUERY.where(f -> f.op(gated, LABEL, "plain")).build();
+        // RenderOptions.portable() carries no operator gate, unlike every executor's options (R-VND-23).
+        List<String> sql = SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+                sf.inSession(em -> assertThatThrownBy(() -> query.buildQuery(em.getCriteriaBuilder(), Phase.MODEL,
+                        RenderOptions.portable()))
                         .isInstanceOfSatisfying(ModelQueryConfigurationException.class,
                                 e -> assertThat(e.code()).isEqualTo(MqCode.MQ4014))
-                        .hasMessageContaining("op(equals)").hasMessageContaining("ILIKE")));
+                        .hasMessageContaining("op(equals)").hasMessageContaining("ILIKE")
+                        .hasMessageContaining("no operator gate"));
+            }
+        });
         assertThat(sql).noneMatch(s -> s.contains("constant_rows"));
     }
 
-    // ---- AC-FLT-26: NULL rows, composition and having
+    // ---- AC-FLT-26: NULL rows, composition, having and a CASE condition
+
+    @TckTest
+    void ac_flt_26_an_op_in_a_case_condition_is_mq1505_before_any_statement(TckDatabase db) {
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, ConstantRowEntity.class, executor ->
+                assertThatThrownBy(() -> executor.list(ROWS_QUERY.select(SelectSet.of(ID, LABEL,
+                        Expr.cases(R.class, Long.class).when(f -> f.op(EQUALS, LABEL, "plain"), 1L).orNull()))
+                        .build(), Limit.unlimited()))
+                        .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                                e -> assertThat(e.code()).isEqualTo(MqCode.MQ1505))
+                        .hasMessageContaining("op(equals)")));
+        assertThat(sql).noneMatch(s -> s.contains("constant_rows"));
+    }
 
     @TckTest
     void ac_flt_26_op_and_not_op_both_drop_rows_whose_column_is_null(TckDatabase db) {

@@ -377,7 +377,7 @@ expression may span tables. `cases` takes the model class so the condition lambd
   is `MQ1503`.
 - **`concat`** is NULL when any operand is NULL.
 - **CASE conditions** are a `Filters` group with local skipping (`api/12` R-FLT-01). A condition left with no filter is
-  `MQ1504`; `add`, `exists` and sub-selects are `MQ1505`.
+  `MQ1504`; `add`, `exists`, sub-selects and an `op` (`api/12` R-FLT-20) are `MQ1505`.
 - **`function(name, type, args)`** takes a plain identifier that is not a built-in aggregate, else `MQ1506`. It is
   vendor SQL, and must be deterministic to order a paged or exported query (`engine/21` R-PAG-25).
 - **A column with a `ColumnConverter`** is `MQ1501`.
