@@ -682,23 +682,25 @@ Slices are written once the RFC is accepted (§4).
 | M29.7 | `PortabilityCheck` over operators (`rfc/0011`): each target's vendor and provider checks reached through the calls it renders, the report naming the operator, its feature and the target; an `op` with an empty `Optional` not reported | AC-FLT-24's and AC-FLT-32's `PortabilityCheck` cases green on both lines |
 | M29.8 | Docs and release prep: the Filters page's "Custom operators" (defining an operator, the catalogue, NULLs and `not`, a renderer uses the `right` it is given and captures no value, operators kept in constants, `PortabilityCheck` given a present value, `rfc/0017` §6's index advice with its generic-plan caveat); Diagnostics for `MQ1313` and `MQ1315`; `delivery/61`'s incubating list; the 0.10.0 `CHANGELOG.md` section | `mkdocs build --strict` green, every runnable snippet with JPA and Spring tabs |
 
-## 30. M30 — Inline count, converted ignore-case filters and inline value handling → 0.10.0
+## 30. M30 — Inline count, converted ignore-case filters, inline value handling, filter-only to-many joins → 0.10.0
 
-Spec: D-176, `rfc/0018` (draft), Q-28, Q-29, Q-30. Three independent parts, accepted or rejected separately. Part A:
+Spec: D-176, `rfc/0018` (draft), Q-28 to Q-31. Four independent parts, accepted or rejected separately. Part A:
 `CountMode.INLINE_COUNT`, a page's exact total read from the page statement as a `count(...) over ()` window rendered through
 `SourceRenderer#window` where `ProviderSupport#inlineCounts` says the dialect has windows (R-VND-27), falling back to
 `COUNT`'s statements wherever the page statement doesn't return exactly the rows `COUNT` counts (R-EXE-15). Part B: `likeIgnoreCase` and `eqIgnoreCase` over
 a JPA `@Convert` attribute convert the value through the operand binder and fold both sides in SQL
-(`OperandBinder#converts`, R-FLT-07 amended), so they stop returning no rows silently (INV-5). Part C: under
+(`OperandBinder#converts`, R-FLT-07 amended), so they stop returning no rows silently where the binder serves the line (INV-5). Part C: under
 Hibernate's `value_handling_mode=inline` (`ProviderSupport#inlinesValues`, R-VND-28), every engine value path binds
-through the operator path's rule (R-FLT-21), so R-FLT-08 holds; the default setting renders as today. Model: an
+through the operator path's rule (R-FLT-21), so R-FLT-08 holds; the default setting renders as today. Part D: a filter through a to-many join no selected column reads renders as a
+correlated `exists` semi-join holding the whole predicate (R-EXE-16), so each root is one row and `count`, pages and
+aggregates agree (Q-31). Model: an
 `architect-review` of the RFC and at the gate (public API, the `ProviderSupport` surface, INV-5, INV-7). Every new
 public type and member is `@Incubating`. The last slice finishes the 0.10.0 release prep (`CHANGELOG.md`), moved from
 M29. Slices are written once the RFC is accepted (§4).
 
 | Slice | Content | Done when |
 |---|---|---|
-| M30.0 | `rfc/0018`'s `architect-review` passes and its acceptance spike on both Hibernate lines and Tier 1 (`rfc/0018-spike-results.md`): §A.6's rendering, shape and performance probes, §B.4's `eqIgnoreCase`, `lower(?)` and `converts` probes, §C.4's audit of every value path under the inline setting; a part the spike or review rejects is withdrawn, its question closed | the RFC accepted or a part withdrawn, recorded as a `D-n` |
+| M30.0 | `rfc/0018`'s `architect-review` passes and its acceptance spike on both Hibernate lines and Tier 1 (`rfc/0018-spike-results.md`): §A.6's rendering, shape and performance probes, §B.4's `eqIgnoreCase`, `lower(?)` and `converts` probes, §C.4's audit of every value path under the inline setting, §D.5's wrong-result, semi-join and plan probes; a part the spike or review rejects is withdrawn, its question closed | the RFC accepted or a part withdrawn, recorded as a `D-n` |
 
 ## 31. M31 — Freeze → 1.0.0
 

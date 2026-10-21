@@ -1,4 +1,4 @@
-# RFC 0018 — Inline count, case-insensitive filters over converted attributes, and values under inline value handling
+# RFC 0018 — Inline count, case-insensitive filters over converted attributes, values under inline value handling, and filter-only to-many joins
 
 - **Status:** draft, revised after the first `architect-review` (2026-10-21). M30, 0.10.0 (D-176); the freeze moves
   to M31.
@@ -14,23 +14,26 @@
     and its "inlined under `value_handling_mode=inline` too" made true only of user values; R-FLT-08 amended (it holds
     under `hibernate.criteria.value_handling_mode=inline`); new AC-FLT-33 to AC-FLT-36. `Having`'s `likeIgnoreCase`
     follows `Filters`'.
-  - **`engine/21`:** AC-PAG-28's cursor-binding claim (and `Keyset`'s javadoc for it) amended for the setting.
+  - **`engine/20`, Part D:** R-EXE-04 amended (a filter-only to-many join renders as a semi-join); new R-EXE-16,
+    AC-EXE-22 to AC-EXE-24; AC-EXE-11, AC-EXE-13 and `integration/50` AC-SPR-19's `MQ2003` cases move to a customizer's join.
+  - **`engine/21`:** AC-PAG-28's cursor-binding claim (and `Keyset`'s javadoc for it) amended for the setting;
+    R-PAG-02's within-page drop and R-PAG-21's short-page note scoped to a customizer's join (Part D).
   - **`vendor/40`:** R-VND-24 amended (`converts`); new R-VND-27: `ProviderSupport#inlineCounts(EntityManagerFactory)`,
     a provider fact; the window itself renders through `SourceRenderer#window` (R-SRC-04); new R-VND-28:
     `ProviderSupport#inlinesValues(EntityManagerFactory)`.
   - **`model-query-hibernate`:** `inlineCounts` from the dialect's `supportsWindowFunctions()`; `converts` on
     `HibernateOperandBinder`; `inlinesValues` from the factory's criteria value handling mode.
   - **`reference/92`:** D-176 (release, decided before acceptance), the acceptance `D-n`; Q-28, Q-29 and Q-30
-    resolved; Q-31, `COUNT` against a page over a predicate-only to-many join (§A.3).
+    resolved; Q-31 (`COUNT` against a page over a filter-only to-many join) resolved by Part D.
   - **`docs/site`:** the paging page's count modes, the filters page's case-insensitive section, a note on inline
     value handling (both tabs, CC-DOC-01).
 - **Discussion:** to open
-- **Target:** 0.10.0 (M30, D-176), `@Incubating`. Parts A and C are additive; Part B changes the rows of a shipped filter
+- **Target:** 0.10.0 (M30, D-176), `@Incubating`. Parts A and C are additive; Parts B and D change the rows of shipped filters
   (§Compatibility).
 
 ## Summary
 
-Three independent parts, accepted or rejected separately, shipped together before the 1.0 freeze.
+Four independent parts, accepted or rejected separately, shipped together before the 1.0 freeze.
 
 **Part A (Q-29).** `CountMode.INLINE_COUNT` takes a page's total from the page statement itself, as a
 `count(...) over ()` window, instead of a separate count statement: one round trip, and the total and the rows from
@@ -49,6 +52,13 @@ engine's value paths. When the provider reports that setting, every engine value
 operator path already follows (R-FLT-21): the binder's parameter, typed by the column, or a parameter typed by class for
 a value whose binding doesn't depend on the mapping, or `MQ1502` for that filter before any statement. Under the
 default setting the rendering is unchanged.
+
+**Part D (Q-31).** A filter through a to-many join that no selected column reads repeats its root once per matching
+child: `list`, `stream` and offset pages return the repeats, `one` fails with `MQ2003`, keyset and export pages drop
+them client-side into short pages, and `count` reports distinct roots, so a page's total and its rows disagree. The
+engine will render such a join as a correlated semi-join instead: the statement's predicate moves into
+`exists (select 1 from E e2 join e2.items i … where e2 = root and <predicate over e2>)`, so each root is one row, and
+`count`, `list`, pages and aggregates agree. Only that shape's SQL changes.
 
 ## Motivation
 
@@ -82,12 +92,30 @@ itself, inline the value under `value_handling_mode=inline`; an explicit `Parame
 operators bind explicitly (D-167, D-170), and AC-FLT-22 runs under the setting. The rest of the engine passes raw
 values: filters (`ConditionGroup`: `eq`/`ne`, ranges, `like`, the ignore-case pair), keyset cursors (`jpa`'s
 `Keyset`), primary keys (`PrimaryKey`, so `one(q, key)`, `byKeys` and primary-key-first pages), the optimistic-lock
-version check (`ModelUpdate`), and very likely write assignments, conflict clauses and source parameters.
+version check (`ModelUpdate`), fetch-plan child rounds (`load.key(built).in(roundKeys)`, raw values through
+`Expression.in(Object...)`), the executor's own `CriteriaUpdate` assignments (`setValue`), `PersistedEntity`, and very
+likely insert assignments, conflict clauses and source parameters.
 
 An inlined value still returns the right rows (D-171 (7) measured `like`'s), so this is not INV-5. What breaks is
 R-FLT-08's promise itself, the plan cache (every distinct value is a new statement), and R-FLT-09's bind limit, which
 no longer counts what it was written to count. An application may set the mode for its own reasons, and nothing tells
 it the engine's promise has gone.
+
+### Part D
+
+`ExecutionTest`'s AC-EXE-04 and `SingleRowTest`'s AC-EXE-11 pin both halves. `ORDER_ROWS.where(f ->
+f.eq(ITEM_PRODUCT_FILTER, "P001"))` joins `OrderEntity.items` only to filter, so order 1, with four `P001` items, is
+four identical rows: `count` says one order (`count(distinct o)`, R-EXE-04), `list` returns four, `one` throws
+`MQ2003` with a hint to use `Filters.exists`, and the engine already admits the repeats where it has to: export and
+keyset pages drop a key repeated within a page (R-PAG-02, R-PAG-21: "a look-ahead row that repeats a key within the page
+can give a short page"). An offset page under `COUNT` reports a total of distinct roots over pages of repeated rows,
+so the last page number it implies is wrong and some roots fall off the end (INV-5). On a grouped query the join very
+likely inflates every aggregate over a root column (`sum(o.total)` counted once per item), with no error; the spike
+confirms it (§D.5).
+
+The model never sees a child's column, so a repeat is an identical row: no caller wants it. `Filters.exists` gives the
+right rows today, but the filter column that joins is the natural way to write the filter, generated QModels expose
+it, and nothing refuses it.
 
 ## Design
 
@@ -122,38 +150,48 @@ and needs no change; the repository default stays `COUNT`.
 
 ```java
 // ProviderSupport
-/** Whether the factory's database renders a window function over the page statement (R-EXE-15). */
+/**
+ * Whether the factory's database renders a window function over the page statement (R-EXE-15). True only where
+ * sources() is present and its window renders COUNT.
+ */
 @Incubating default boolean inlineCounts(EntityManagerFactory emf) { return false; }
 ```
 
 The window renders through the `core` SPI that already renders windows, `SourceRenderer#window(cb, WindowSpec)`
-(R-SRC-04): `WindowSpec(COUNT, <argument>, [], [], NONE)`, the argument `root.<id>` on an entity root and `1` on a
-source with no id. No new renderer type, no new `mq_*` function, and nothing in `RenderOptions` that `core` can't see
-(INV-7): `RenderOptions` carries `core` renderers only. `model-query-hibernate` answers `inlineCounts(emf)` from the
-dialect's `supportsWindowFunctions()`, as `operators(emf, f)` answers from the dialect (D-171, D-175). Nothing is
-refused, so no `VendorProfile` fact and no `PortabilityCheck` report are needed (INV-6: no vendor branch at a call
-site).
+(R-SRC-04; Hibernate's renders `COUNT` as `windowFunction("count", Long.class, window, argument)` and adds no frame for
+`NONE`): `WindowSpec(COUNT, cb.literal(1), [], [], NONE)`, so `count(1) over ()` in every shape. Not `root.<id>`:
+on a grouped page `count(o.id) over ()` is refused by PostgreSQL ("must appear in the GROUP BY clause"), by MySQL
+under `ONLY_FULL_GROUP_BY` and by H2, and on an `@EmbeddedId` or `@IdClass` root it counts a tuple; `count(1)` is what
+`COUNT` already uses on a source. No new renderer type, no new `mq_*` function, and nothing in `RenderOptions` that
+`core` can't see (INV-7): `RenderOptions` carries `core` renderers only. `model-query-hibernate` answers
+`inlineCounts(emf)` from the dialect's `supportsWindowFunctions()`, as `operators(emf, f)` answers from the dialect
+(D-171, D-175); its `sources()` is unconditional, so the two facts agree. A third-party `ProviderSupport` answering
+`inlineCounts` true with no `sources()` would reach `SourceRenderer#window`'s `MQ4014` default where `COUNT` works, so
+the executor gates on both (fallback 1). Nothing is refused, so no `VendorProfile` fact and no `PortabilityCheck`
+report are needed (INV-6: no vendor branch at a call site).
 
 #### A.3 Execution (R-EXE-15)
 
-**The rule.** The page statement carries the window only when it returns exactly the rows `COUNT` counts: no
-`DISTINCT`, no row the engine adds or drops client-side, and a count `COUNT` itself renders in SQL. The executor decides
-on the built statement *after* the customizer runs (`query.isDistinct()` included), not on the definition, since a
-customizer can set `distinct` (`ModelQuery` R-QRY-11; D-154 and AC-COL-52 treat a `distinct()` query as supported).
-Any shape not proven to meet the rule falls back, so a shape added after M30 falls back until a slice admits it,
-rather than miscounting until someone lists it.
+**The rule.** The page statement carries the window only when it returns exactly the rows `COUNT` counts, and the
+rule follows the code rather than a reading of the definition: the window is used only when the `Counting` that
+`preflightedCounting` already builds is the content statement itself with its selection replaced by `count(root)` or
+`count(1)`, or is the database-side count of its groups (R-EXE-03). That `Counting` is built from the statement after
+the customizer runs, so a customizer's `distinct()` (`ModelQuery` R-QRY-11; D-154 and AC-COL-52 treat a `distinct()`
+query as supported) and a customizer's own to-many join are seen. Any other shape falls back, so a shape added after
+M30 falls back until a slice admits it, rather than miscounting until someone lists it.
 
 **The fallback** is `COUNT`'s statements, for the total only. It applies:
 
-1. with `inlineCounts(emf)` false (no `model-query-hibernate`, or a dialect without window functions);
+1. with `inlineCounts(emf)` false or `sources()` empty (no `model-query-hibernate`, a dialect without window
+   functions, or a provider without a window renderer);
 2. on a `DISTINCT` statement;
 3. where `COUNT` counts client-side (R-EXE-03: no grouped count support, a source carrying checks, a refused
    `GROUPED_COUNT` treat site). Some of these grouped cases would count correctly on the content statement; falling
    back is conservative, never wrong;
-4. where `COUNT` counts `count(distinct root)` over a predicate-only to-many join (R-EXE-04). The content statement has
-   no `DISTINCT` here (R-PAG-13 lets the shape through to `page`), so its rows are the joined rows and the window would
-   count them, while `COUNT` reports distinct roots. Falling back keeps R-EXE-02's "same total as `COUNT`". That
-   `COUNT` and the page's rows already disagree in this shape is recorded as Q-31, not fixed here;
+4. where `COUNT`'s statement is not the content statement with its selection replaced: `count(distinct root)` over a
+   to-many join that no selected column reads (R-EXE-04; after Part D only a customizer's own join produces it), and a
+   treated, ungrouped root, which `COUNT` counts on a freshly built statement (`buildRootIdCount`, R-EXE-05, D-154). A
+   later slice may admit the treated shape once §A.6's probe 4 proves the totals equal;
 5. on a page past the end: no row, offset above 0.
 
 | Shape | Behaviour |
@@ -171,18 +209,22 @@ statement. `checkFirstRun` and `preflightedCounting` take `INLINE_COUNT` as they
 `MQ4016` before any statement (AC-EXE-19).
 
 **The hidden column.** The window is selected as `mq_0total`, following `mq_0id` (D-154), outside D-146's
-`mq_<property>` space; it is added after the customizer runs, so a `multiselect` can't drop it, is read by alias, never
-by position, and never reaches `fields()`, `Rows`, the mapper or a fetch plan.
+`mq_<property>` space. It is added inside `offsetPage` and `keyQuery`, after `buildQuery` (so after the customizer,
+whose `multiselect` can't drop it, and after `core` adds `mq_0id`) and before `preflight`, so under treated nodes the
+statement R-VND-26 checks and runs is the one carrying the window; fallbacks 1–4 are decided there. It is appended the
+way `selecting(...)` already appends a selection to a compound `Tuple` selection. It is read by alias, never by
+position: `loaded(built, tuple)` ignores the trailing alias, step 1's `readKeys` reads the total off a
+primary-key-first page's keys, and it never reaches `fields()`, `Rows`, the mapper or a fetch plan.
 
 **Logging.** Each fallback logs its reason at `DEBUG`, once per executor and `ModelQuery`, with the state held in the
 executor, as `count`'s ignored-`orderBy` warning does: fallback 1 depends on the factory, and a `static final` query
-is shared between executors (INV-9).
+is shared between executors (INV-9). The executor's existing weak warn-once sets hold it.
 
 Keyset pages carry no total (D-105) and take no `CountMode`, so they are untouched. `page` already refuses row locks
 (R-EXE-14), so `FOR UPDATE` with a window never arises. `ONLY_COUNT`, `count(q)` and exports are unchanged. The
-review checked, and found nothing to add for: grouped with `HAVING`, correlated columns (R-EXE-05 keeps their joins in
-both statements), treated roots (AC-COL-52), set-operation and CTE sources (the window sits on the outer select),
-`NO_COUNT`'s probe row (not used), fetch plans (separate statements).
+reviews checked, and found nothing to add for: grouped with `HAVING`, correlated columns (R-EXE-05 keeps their joins
+in both statements), set-operation and CTE sources (the window sits on the outer select), `NO_COUNT`'s probe row (not
+used), fetch plans (separate statements). Treated roots fall back (fallback 4).
 
 #### A.4 Why fall back rather than refuse
 
@@ -202,10 +244,10 @@ statements, the same `Slice`).
 
 On both Hibernate lines and Tier 1:
 
-1. `SourceRenderer#window` with `COUNT` and an empty window on an entity root's page statement, under
-   `setFirstResult` and `setMaxResults`: its SQL, and `mq_0total` read by alias;
-2. grouped with `HAVING`: the window counts groups;
-3. a customizer's `distinct()` and a predicate-only to-many join: confirm the miscounts fallbacks 2 and 4 avoid;
+1. `SourceRenderer#window` with `COUNT` over `cb.literal(1)` and an empty window on an entity root's page statement,
+   under `setFirstResult` and `setMaxResults`: `count(1) over ()` in its SQL, and `mq_0total` read by alias;
+2. grouped with `HAVING`: `count(1) over ()` is accepted and counts groups;
+3. a customizer's `distinct()` and a customizer's to-many join: confirm the miscounts fallbacks 2 and 4 avoid;
 4. sources (CTEs), set-operation and recursive sources, treated roots and correlated columns: the window's total
    against `COUNT`'s, as a check of the rule, not the place fallbacks are found;
 5. performance: PostgreSQL and MySQL, 1M rows, first, middle and deep pages, selective and unselective filters, flat
@@ -297,9 +339,21 @@ Hibernate key in `jpa` would put provider knowledge outside `ProviderSupport`, a
 #### C.2 Binding (R-FLT-08 amended)
 
 The operator path's value rule (`ConditionGroup`'s `operand` and `requireMappingIndependent`) moves into one
-`@EngineFacing` helper, `valueOperand(cb, binder, typedBy, value, type)`, callable from `core`'s value paths and from
-`jpa`'s `Keyset`, which builds its predicates from a `CriteriaBuilder` and a parameter map, not a `JoinContext`. It
-keeps a name distinct from `JoinContext`'s existing `bind(ParameterExpression, Object)`.
+`@EngineFacing` helper, callable from `core`'s value paths and from `jpa`:
+
+```java
+<T> Expression<T> valueOperand(RenderOptions options, CriteriaBuilder cb, Expression<?> typedBy, Class<T> type,
+        Object value, String label, ParameterSink sink)
+```
+
+Today's `operand` needs its `JoinContext` for three things: making the parameter, binding it, and checking that the
+parameter isn't already one of the statement's (`ctx.statementParameters()`); it also names the operator and the column
+in `MQ1502`. The helper takes those as `label` and a `sink` that binds and checks reuse, so `Keyset` (whose
+`after(cursor, joins, cb)` reaches the binder and `inlinesValues` through `joins.renderOptions()`, but collects its
+parameters in `Beyond.parameters`, not `ctx.bind`) and the executor's fetch-plan and update paths can call it. The
+operator path's `valueType() == null` gate stays with its caller. `Keyset`'s placeholders are already explicit
+parameters and are unaffected. The name stays distinct from `JoinContext`'s existing
+`bind(ParameterExpression, Object)`.
 
 | `inlinesValues` | Binder types `typedBy` | Value | Rendering |
 |---|---|---|---|
@@ -314,7 +368,8 @@ provider, or a Hibernate line the binder doesn't serve) every enum, `Boolean` an
 and every query would go through D-170's reflective constructor. Under the setting, the operator path's tested rule
 takes over. `MQ1502` is the operator path's code already; its message widens to name a filter, cursor, key or
 assignment. No new code, and a path the audit can't type gets `MQ1502` for that path, not a refusal of the whole
-setting.
+setting. `MQ1502` is a `ModelQueryDefinitionException`; for a call-time key or cursor value it reports input the
+installation can't bind rather than a bad definition, which R-FLT-08 states and the acceptance `D-n` records.
 
 Two texts that say the engine's values are never inlined are amended to hold under the setting: R-FLT-06's
 "(inlined under `value_handling_mode=inline` too)", which then describes a user's own `like` value only, and AC-PAG-28's
@@ -323,7 +378,7 @@ cursor claim with `Keyset`'s javadoc for it.
 #### C.3 New ids
 
 R-VND-28; AC-FLT-35 (a TCK profile with the setting on, run by the two-line verify on both lines and Tier 1: the
-filter, paging, keyset, `byKeys`, write, insert, conflict and source suites with a `StatementInspector` failing on a
+filter, paging, keyset, `byKeys`, fetch-plan, write, insert, conflict and source suites with a `StatementInspector` failing on a
 marker value in SQL text, each returning the rows it returns under the default setting, enum, `@Convert`, `Boolean` and
 `UUID` columns included); AC-FLT-36 (under the setting with a test provider and no binder: a `String` filter binds,
 an enum filter is `MQ1502` before any statement; under the default setting both run as today). A profile rather than a
@@ -338,6 +393,73 @@ one-off test, because the setting is a second rendering of every value path and 
    as today.
 4. The default setting's SQL snapshots don't move.
 
+### Part D — a filter-only to-many join as a semi-join
+
+#### D.1 Which joins (R-EXE-04 amended, new R-EXE-16)
+
+A **filter-only to-many join** is a to-many join the engine creates for a filter column's path (`Filters`, a
+`@FilterColumn`, a field's filter form) that no selected column, group key, aggregate, order term or fetch-plan key
+reads: the join `DefaultModelQueryExecutor` already finds for `MQ2003`'s hint ("a to-many join of `built` that no
+selected column is read through"). A to-many join a selected column reads is unchanged: each joined row is a result
+(R-EXE-04, AC-EXE-10), and key-based paging refuses it (R-PAG-13). A join a customizer adds is the customizer's and is
+unchanged.
+
+#### D.2 Rendering
+
+When a statement has one or more filter-only to-many joins, the engine builds the statement's `WHERE` predicate, the
+whole of it, inside a correlated sub-query over a second root of the same entity, and the outer statement keeps only
+the semi-join:
+
+```sql
+-- today
+select o.id, o.number from orders o join order_items i on i.order_id = o.id
+ where i.product_code = ? and o.status = ?
+-- Part D
+select o.id, o.number from orders o
+ where exists (select 1 from orders o2 join order_items i on i.order_id = o2.id
+                where o2.id = o.id and i.product_code = ? and o2.status = ?)
+```
+
+The whole predicate moves, not only its terms on the to-many join, because a term on the child and a term on the root
+can sit under one `or`, and two terms on the same join must hold for the same child (`i.product_code = ? and
+i.qty > ?` is not two independent `exists`). Moving the whole predicate keeps every boolean shape's meaning exactly.
+Correlation is entity equality (`o2 = o`), so composite and embedded ids work. To-one joins the predicate needs are
+rebuilt inside the sub-query; the outer statement keeps the joins its selection, order and grouping read. `HAVING`
+stays outside. The bind count is unchanged: each value still binds once (R-FLT-09). The sub-query is built through
+`JoinContext`'s existing sub-query support, as `Filters.exists` and correlated columns are (R-FLT-12, R-COL-35).
+
+#### D.3 What it changes
+
+- `list`, `stream` and offset pages return each root once; `count(q)` is unchanged, and now equals `list(q).size()`.
+- `count` on that shape no longer needs `count(distinct root)`: the outer statement has no to-many join. R-EXE-04's
+  distinct count stays for a customizer's join.
+- `one(q)`, `one(q, key)` and `byKeys` no longer throw `MQ2003` for that shape; the hint stays for a customizer's join.
+- Keyset and export pages no longer meet within-page repeats from the engine's joins; R-PAG-02's drop stays as the
+  guard for a customizer's.
+- A grouped query's aggregates count each root once (§D.5, probe 2).
+- Part A's fallback 4 no longer arises from the engine's own joins.
+- Writes (`ModelUpdate`, deletes) are checked by the spike: a JPA `CriteriaUpdate` can't join, so they should already
+  filter through a sub-query (§D.5, probe 5).
+
+#### D.4 New ids
+
+R-EXE-16; AC-EXE-22 (over a filter-only to-many join, on both lines and Tier 1: `list` and offset pages return each
+root once, `count` equals `list`'s size, a page's total matches its rows, `one` returns the single root; and the SQL
+holds one `exists` and no outer to-many join), AC-EXE-23 (an `or` mixing a child term and a root term, and two terms on
+the same child, return the rows `Filters.exists` with the same predicate returns), AC-EXE-24 (a grouped query's `sum`
+over a root column with a filter-only to-many join equals the sum over distinct roots). AC-EXE-11, AC-EXE-13 and
+AC-SPR-19's `MQ2003` cases move to a customizer's join.
+
+#### D.5 Spike (M30.0)
+
+1. Today's wrong results: an offset page's total against its rows, and the last page under `COUNT`.
+2. A grouped query's `sum` over a root column with a filter-only to-many join, today and under Part D.
+3. The semi-join on both lines and Tier 1: `exists` with `o2 = o` (entity equality), with an embedded id, through a
+   treated root and on a source's to-many join, if any can arise; its plan on PostgreSQL and MySQL against the join
+   and against `select distinct`.
+4. Every boolean shape of AC-EXE-23, and a predicate holding a correlated sub-query, under both.
+5. Writes: a bulk update and delete whose filter column crosses a to-many join, today.
+
 ## Compatibility
 
 **Part A** is additive. `CountMode.INLINE_COUNT` and `ProviderSupport#inlineCounts` (a default method) are new and
@@ -351,10 +473,19 @@ before the freeze rather than waiting; the `CHANGELOG.md` entry names it under *
 
 **Part C** adds `ProviderSupport#inlinesValues` (a default method, `@Incubating`). Under the default setting nothing
 changes. Under `value_handling_mode=inline`, statements carry `?` instead of literals, and where no binder types a
-column, a filter on an enum, `Boolean`, `UUID` or converted column becomes `MQ1502` where it ran with an inlined value
-before. That is R-FLT-08 being kept, not narrowed. The message names the case it is in: without `model-query-hibernate`,
+column, every value of an enum, `Boolean`, `UUID` or converted column becomes `MQ1502` where it ran with an inlined
+value before: not only a filter, but with such a primary key `one(q, key)`, `byKeys`, primary-key-first pages, keyset
+cursors and every fetch-plan child load. On a Hibernate line the binder doesn't serve, that is a large share of an
+application's queries. That is R-FLT-08 being kept, not narrowed. The message names the case it is in: without `model-query-hibernate`,
 add it; with it on a Hibernate line its binder doesn't serve (7.5, say), `inlinesValues` is true and the binder empty,
 so the fix is a served line or the default setting.
+
+**Part D** adds no API and changes results for one shape, a filter through a to-many join no selected column reads:
+`list`, `stream` and offset pages return each root once instead of once per matching child; `one`, `one(q, key)` and
+`byKeys` return the root where they threw `MQ2003`; grouped aggregates stop counting a root once per child. Each change
+replaces a result `count` already disagreed with, so it fixes INV-5 rather than narrowing anything; the `CHANGELOG.md`
+entry names it under *Changed*, with `Filters.exists` unchanged and a customizer's own join as before. The SQL of that
+shape changes; every other snapshot stays.
 
 ## Alternatives
 
@@ -394,6 +525,20 @@ so the fix is a served line or the default setting.
   `ProviderSupport`, and correct rows turned into `MQ1502` without `model-query-hibernate`.
 - **Document only.** R-FLT-08 would stay false under a setting the engine can detect.
 
+**Part D**
+
+- **`select distinct` on the content statement.** Merges two roots whose selected values are equal, and PostgreSQL
+  refuses `ORDER BY` a column the distinct selection lacks; adding the root id to fix both changes the selection.
+- **Count rows instead of distinct roots.** Makes the total agree with the pages by making both wrong: the repeats
+  stay, and aggregates stay inflated.
+- **Refuse the shape** with an `MQ` code pointing at `Filters.exists`. Honest, but breaks every query written the
+  natural way, generated filter columns included, for a rewrite the engine can do itself.
+- **Move only the terms on the to-many join into the `exists`.** Wrong under `or` and for two terms on one child
+  (§D.2).
+- **`root.id in (select o2.id …)`.** Same rows where the id is single; fails on composite ids, which entity equality
+  in a correlated `exists` handles.
+- **Do nothing; keep Q-31 open.** Leaves silently wrong totals and aggregates past the freeze.
+
 ## Unresolved questions
 
 The first review's recommendations, for the second review and the spike to confirm and the acceptance `D-n` to record:
@@ -407,3 +552,7 @@ The first review's recommendations, for the second review and the spike to confi
    Document the property (§B.2).
 4. **Part C, without `model-query-hibernate`.** `inlinesValues` stays false, documented (§C.1).
 5. **Part C, bind or refuse.** Bind; a path the audit can't type is `MQ1502` for that path under the setting.
+6. **Part D, scope.** Whether a customizer's own to-many join should get the same rendering (it can't be told apart
+   from one the customizer reads), and whether the outer statement should drop to-one joins only the predicate used.
+7. **Part D, performance.** If probe 3 shows the semi-join markedly slower than the join on a common shape, whether
+   to keep the join where the to-many relation is known unique per root (none is today).
