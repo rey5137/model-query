@@ -2109,7 +2109,7 @@ as its own milestone with an RFC and an acceptance spike first: M26, a recursive
 over sources with a source read directly (Q-22, `rfc/0015`); M28, query models over a polymorphic entity root through
 `cb.treat` (`rfc/0016`). Q-23 is resolved in M25.6: `generateChanges` on a source model or a model rooted at one is a
 compile-time code, not silently ignored. The freeze moves from M26 to M29 and stays last. Everything new is
-`@Incubating`, so the M29.1 freeze review decides each type. Left out, as not fitting: updatable entity views with
+`@Incubating`, so the M30.1 freeze review decides each type. Left out, as not fitting: updatable entity views with
 dirty tracking (explicit writes, `rfc/0005`), lateral joins (H2 has none; a window source covers top-N per parent),
 MULTISET-style fetch strategies (batched fetch plans with row caps cover them), `VALUES` sources and derived tables
 (`byKeys` covers the first; the second is a `SourceSupport` rendering choice), DML in a CTE (Q-16, PostgreSQL-only
@@ -2664,6 +2664,15 @@ under `hibernate.criteria.value_handling_mode=inline`, while an explicit paramet
 is explicit (D-167); whether any engine value path (filters, writes, keyset cursors, sources) relies on Hibernate's
 conversion, and so breaks R-FLT-08 under that setting, is unchecked. An audit and a TCK case under that setting would
 answer it. → `rfc/0017` §1, D-167, `api/12` R-FLT-08.
+
+**Q-29 — An inline count.** `CountMode.COUNT` runs a separate count statement (R-EXE-03); Blaze-Persistence can
+instead inline `COUNT(*) OVER()` into the page query. That saves a round trip and takes the total and the page from
+one snapshot without a transaction (cf. R-FCH-06), and counts groups on a grouped query. Against it: the window
+evaluates the whole result before `LIMIT`, losing the top-N early stop, often slower than a separate count on large
+sets; a page past the end returns no row and so no total, which needs a count fallback; keyset pages carry no total
+(D-105); JPA Criteria has no window functions, so it sits behind `ProviderSupport` with `COUNT` as the portable
+fallback (INV-7). If adopted, an opt-in `CountMode` constant, never the default; additive, so not freeze-blocking. →
+`engine/20` R-EXE-03, D-34, D-51, D-105.
 
 ## 3. Risks
 
