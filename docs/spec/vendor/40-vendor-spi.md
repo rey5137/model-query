@@ -545,6 +545,16 @@ literal, a sub-query or an aggregate over one of these, whose node type Hibernat
 node type the line doesn't expect (on 6.6 anything but a basic type or a path source whose `getSqmPathType()` is one, on
 7.4 anything but a basic type, an entity path's included) makes it throw, so `MQ1502`.
 
+Its `@Incubating` default `boolean converts(Expression<?> typedBy)`, `false` unless overridden and asked only where
+`typesBy(typedBy)` is `true`, says whether a value typed by `typedBy` goes through a converter of the mapping when
+bound, a JPA `AttributeConverter` (`@Convert` or auto-applied); where it is `true`, `eqIgnoreCase` and `likeIgnoreCase`
+bind their value through `parameter` under `lower(?)` (`api/12` R-FLT-07, D-177). Hibernate's binder answers from the
+basic type `parameter` binds by, behind the same `typesBy` check and the same 6.6 unwrapping, so it can't drift from
+what it binds: `true` exactly when that type's value converter is a `JpaAttributeConverter`. An enum's built-in
+conversion (`@Enumerated`, `@EnumeratedValue`), a converter Hibernate applies that isn't a JPA `AttributeConverter` (on
+7.4 an `AttributeConverterInstance`, which `@Convert` and auto-applied mappings don't produce), and a node type the line
+doesn't expect answer `false` rather than throw, so the column renders as with no conversion.
+
 **R-VND-27** *(D-177, `@Incubating`)* `ProviderSupport#inlineCounts(EntityManagerFactory emf)` is an `@Incubating` default method
 returning `false`: whether the factory's database renders a window function over the page statement (`engine/20`
 R-EXE-15), true only where `sources()` is present and its window renders `COUNT`. The executor asks it once, when it is

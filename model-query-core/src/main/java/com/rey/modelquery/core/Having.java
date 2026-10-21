@@ -93,7 +93,10 @@ public sealed interface Having<M> permits HavingGroup {
     /** {@link #likeIgnoreCase(AggregateField, String, LikeMode)}, skipped when {@code value} is empty. */
     Having<M> likeIgnoreCase(AggregateField<M, String> aggregate, Optional<String> value, LikeMode mode);
 
-    /** {@code lower(aggregate) = value}, the value lower-cased with {@code Locale.ROOT}. */
+    /**
+     * {@code lower(aggregate) = value}, the value lower-cased with {@code Locale.ROOT}, or {@code lower(?)} over a
+     * converted attribute, as {@link Filters#eqIgnoreCase(ScalarField, String)}.
+     */
     Having<M> eqIgnoreCase(AggregateField<M, String> aggregate, String value);
 
     /** {@link #eqIgnoreCase(AggregateField, String)}, skipped when {@code value} is empty. */

@@ -212,9 +212,10 @@ The custom-operator members (D-167, M29) are `@Incubating` through 1.0: `FilterO
 `OperatorContext` and `OperatorFeature`, `Filters.op` and `Having.op` in their three forms (R-FLT-20),
 `Condition.Kind#OPERATOR` and `Condition#operator()`, `FilterMatchers.op` (R-INS-13), `MqCode.MQ1313` and `MQ1315`,
 and `model-query-hibernate`'s `HibernateOperators` (R-VND-23). The SPI surface is `@Incubating` the same way:
-`OperandBinder` with `parameter` and `typesBy` (R-VND-24), `ProviderSupport#operands(EntityManagerFactory)` and
-`#operators(EntityManagerFactory, OperatorFeature)`, `VendorProfile#operators(OperatorFeature)`, and
-`RenderOptions#withOperatorGate`, `#withOperandBinder`, `#operatorGate()` and `#operandBinder()` (R-VND-23).
+`OperandBinder` with `parameter`, `typesBy` and `converts` (R-VND-24, D-177),
+`ProviderSupport#operands(EntityManagerFactory)` and `#operators(EntityManagerFactory, OperatorFeature)`,
+`VendorProfile#operators(OperatorFeature)`, and `RenderOptions#withOperatorGate`, `#withOperandBinder`,
+`#operatorGate()` and `#operandBinder()` (R-VND-23).
 `OperatorGate`, `LikeMode#pattern` and `LikeMode.escapeCharacter()`, which `like` and `HibernateOperators.ilike`
 share, are `@EngineFacing`; the `FunctionContributor` `HibernateOperatorFunctions` is loaded by Hibernate.
 They are not API (D-169, D-171).

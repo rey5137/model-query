@@ -117,17 +117,35 @@ rewritten portably. The Javadoc states that rows where the group is UNKNOWN are 
 with a `ColumnConverter` the value is converted first and the pattern is built from the attribute value (R-COL-14), as
 an operator's `prepare` is (R-FLT-21, D-171). On a JPA `@Convert` attribute, Hibernate runs the `AttributeConverter` on
 the finished pattern, wildcards and escapes included, for `like` (inlined under `value_handling_mode=inline` too) and
-for `HibernateOperators.ilike` through Hibernate's binder (`vendor/40` R-VND-24, D-170), but not for `likeIgnoreCase`
-(R-FLT-07), which binds the lower-cased pattern as given and so misses the stored form. `like` and `ilike` thus match a
-model value only through a converter that turns a pattern into the stored form's pattern, such as one adding a prefix
-(AC-FLT-21, D-171).
+for `HibernateOperators.ilike` through Hibernate's binder (`vendor/40` R-VND-24, D-170), and for `likeIgnoreCase`
+through the same binder (R-FLT-07, D-177). `like`, `ilike` and `likeIgnoreCase` thus match a model value only through
+a converter that turns a pattern into the stored form's pattern, such as one adding a prefix (AC-FLT-21, AC-FLT-33,
+D-171).
 
-**R-FLT-07** `likeIgnoreCase` renders `lower(col) LIKE ?`; the value is lower-cased in Java with `Locale.ROOT` and
-bound (R-FLT-08, D-22). A database whose `lower()` folds only ASCII, such as PostgreSQL with C collation, can disagree
-on non-ASCII text. The user guide notes that this needs a functional index to be fast, and that case sensitivity
-otherwise follows collation (`vendor/40` §4). Known limitation: on a JPA `@Convert` attribute `likeIgnoreCase` (and
-probably `eqIgnoreCase`, unconfirmed, Q-30) binds the unconverted, lower-cased value and can miss rows without an error
-(D-171, Q-30).
+**R-FLT-07** `likeIgnoreCase` renders `lower(col) LIKE ?` and `eqIgnoreCase` `lower(col) = ?`; the value (or its
+pattern) is lower-cased in Java with `Locale.ROOT` and bound (R-FLT-08, D-22). `Having.likeIgnoreCase` and
+`Having.eqIgnoreCase` render the same over the aggregate. A database whose `lower()` folds only ASCII, such as
+PostgreSQL with C collation, can disagree on non-ASCII text. The user guide notes that this needs a functional index to
+be fast, and that case sensitivity otherwise follows collation (`vendor/40` §4).
+
+Over a column whose mapping converts a value (a JPA `AttributeConverter`, `@Convert` or auto-applied), the value goes
+through the provider's binder instead (D-177): where an `OperandBinder` exists, `typesBy(col)` is `true` and
+`converts(col)` is `true` (`vendor/40` R-VND-24), asked of the column's own expression (or the aggregate's), never of
+`lower(col)`, the filter renders `lower(col) = lower(?)` or `lower(col) LIKE lower(?)` (with `ESCAPE '\'` but for
+`EXACT`), the parameter typed by the column's mapping and bound to the value, or `mode`'s pattern of it, not
+lower-cased. A `ColumnConverter` runs first (R-FLT-06, R-COL-14); the provider then runs the mapping's converter on the
+value, wildcards and escapes included, and the database folds both sides with the same `lower`. The parameter stays
+`?` under `hibernate.criteria.value_handling_mode=inline`, as every binder parameter does (D-170). Every other column,
+and every run without a binder, renders as above, unchanged (AC-FLT-33, AC-FLT-34). An enum's built-in conversion is
+no `AttributeConverter`, and `likeIgnoreCase` takes `String` attributes only.
+
+Known limitations: the rendering is right exactly when `lower(conv(x)) = lower(conv(y))` holds if and only if
+`lower(x) = lower(y)`, true of a converter that adds a prefix or suffix, changes case or trims, not of one that
+encrypts (a deterministic encryption then matches only the exact case, silently) or encodes (base64 can collide under
+`lower()` and return extra rows); `converts` can't tell converters apart, so none is refused. Without a binder (no
+`model-query-hibernate`, or a Hibernate line outside the binder's, `vendor/40` R-VND-24), the value is lowered in Java
+and compared unconverted, and can miss rows on a converted attribute without an error (INV-5's exposure narrowed, not
+closed; D-171, D-177).
 
 ## 5. Bind parameters and large sets
 
@@ -447,6 +465,8 @@ collection means "none"; negation includes NULLs; `like` input is escaped; long 
 | AC-FLT-30 | Per strategy, `ofType` keeps a grandchild and an `orm.xml` subtype, accepts an abstract type, skips on an empty `Optional` and keeps no row for an empty collection; beside a treated read in one statement it runs, except on 6.6 `JOINED`, whose preflight refuses it (`MQ4016`) (R-FLT-28, D-158). |
 | AC-FLT-31 | Per strategy, `notOfType` includes the rows of an absent LEFT join and, on `SINGLE_TABLE`, of a discriminator value no entity maps, which `ofType` drops and `typeOf` fails on; an empty collection keeps every row (R-FLT-28). |
 | AC-FLT-32 | `fullTextMatch(config)` on PostgreSQL, both lines: returns the right rows for request text with spaces and punctuation (`acme corp`, a quote), with no database error; the statement renders the configuration as a literal and the text as `?` (SQL snapshot); a null, blank or non-identifier configuration (`english'`, `a b`) is `MQ1315` at the factory call, and two calls with one configuration return the same instance; it is `MQ4015` on H2 and MySQL with their profiles, and `MQ4014` with a custom profile answering `FULL_TEXT` true there; `PortabilityCheck` reports it per target (`vendor/40` R-VND-23). |
+| AC-FLT-33 | Over a JPA `AttributeConverter` with Hibernate's binder, on both lines and Tier 1, under the default value handling and `hibernate.criteria.value_handling_mode=inline`: `eqIgnoreCase` and `likeIgnoreCase` in every `LikeMode` over the `SKU:` prefixing `@Convert` return the rows `like` with the same case returns (`ConvertedLikeTest`'s `likeIgnoreCase` misses become matches), the statement shows `lower(?)` and binds the converted value or pattern; the same over a path through a join and through an embeddable, over an auto-applied converter, and `Having.eqIgnoreCase` and `Having.likeIgnoreCase` over `min` and `max` of a converted column; Hibernate's `converts` is `true` there and `false` for a plain `String`, an `@Enumerated` enum and a declined expression (R-FLT-07, `vendor/40` R-VND-24, D-177). |
+| AC-FLT-34 | `eqIgnoreCase` and `likeIgnoreCase` on a column without a converter, and on any column with no `OperandBinder`, render today's SQL, `lower(col) = ?` and `lower(col) like ?` with the value lower-cased in Java (SQL snapshots unchanged), and never ask the binder for a parameter; without a binder a converted column keeps R-FLT-07's limitation (R-FLT-07, D-177). |
 
 AC-FLT-15 includes compile-failure cases for a mismatched `C` and another model's lifted column, and cases for
 `MQ1309`, `MQ1310`, `MQ1311` (a path crossing a to-many join, checked at first resolution), `MQ1312` and `MQ1001`

@@ -223,15 +223,20 @@ public sealed interface Filters<M> permits FilterGroup {
     Filters<M> like(ScalarField<M, String> column, Optional<String> value, LikeMode mode);
 
     /**
-     * {@code lower(column) LIKE pattern}, the pattern lower-cased with {@code Locale.ROOT} (R-FLT-07). Fast only with a
-     * functional index on {@code lower(column)}; plain {@code like} follows the column's collation instead.
+     * {@code lower(column) LIKE pattern}, the pattern lower-cased with {@code Locale.ROOT} (R-FLT-07). Over an
+     * attribute whose JPA {@code AttributeConverter} the provider's operand binder converts by,
+     * {@code lower(column) LIKE lower(?)} instead, the pattern bound through the converter. Fast only with a functional
+     * index on {@code lower(column)}; plain {@code like} follows the column's collation instead.
      */
     Filters<M> likeIgnoreCase(ScalarField<M, String> column, String value, LikeMode mode);
 
     /** {@link #likeIgnoreCase(ScalarField, String, LikeMode)}, skipped when {@code value} is empty. */
     Filters<M> likeIgnoreCase(ScalarField<M, String> column, Optional<String> value, LikeMode mode);
 
-    /** {@code lower(column) = value}, the value lower-cased with {@code Locale.ROOT}. */
+    /**
+     * {@code lower(column) = value}, the value lower-cased with {@code Locale.ROOT}; {@code lower(column) = lower(?)}
+     * over a converted attribute, as {@link #likeIgnoreCase(ScalarField, String, LikeMode)} (R-FLT-07).
+     */
     Filters<M> eqIgnoreCase(ScalarField<M, String> column, String value);
 
     /** {@link #eqIgnoreCase(ScalarField, String)}, skipped when {@code value} is empty. */

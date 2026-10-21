@@ -389,6 +389,13 @@ abstract class ConditionGroup<M, G> {
                 : cb.like(expression, pattern, LikeMode.escapeCharacter());
     }
 
+    /** {@link #like(CriteriaBuilder, Expression, String, LikeMode)} with the pattern an expression. */
+    private static Predicate like(CriteriaBuilder cb, Expression<String> expression, Expression<String> pattern,
+            LikeMode mode) {
+        return mode == LikeMode.EXACT ? cb.like(expression, pattern)
+                : cb.like(expression, pattern, LikeMode.escapeCharacter());
+    }
+
     final G like(SelectField<M, String> column, Optional<String> value, LikeMode mode) {
         Objects.requireNonNull(mode, "mode");
         return present(column, value) ? like(column, value.get(), mode) : self();
@@ -396,10 +403,17 @@ abstract class ConditionGroup<M, G> {
 
     final G likeIgnoreCase(SelectField<M, String> column, String value, LikeMode mode) {
         Objects.requireNonNull(mode, "mode");
-        String pattern = lower(mode.pattern(
-                bound(column, required(column, "likeIgnoreCase", value), String.class, "likeIgnoreCase")));
-        return record(Condition.like(Kind.LIKE_IGNORE_CASE, column, value, mode),
-                ctx -> Optional.of(like(ctx.cb(), ctx.cb().lower(column.expression(ctx)), pattern, mode)));
+        String pattern = mode.pattern(
+                bound(column, required(column, "likeIgnoreCase", value), String.class, "likeIgnoreCase"));
+        String lowered = lower(pattern);
+        return record(Condition.like(Kind.LIKE_IGNORE_CASE, column, value, mode), ctx -> {
+            CriteriaBuilder cb = ctx.cb();
+            Expression<String> expression = column.expression(ctx);
+            Expression<String> folded = cb.lower(expression);
+            return Optional.of(convertedOperand(column, "likeIgnoreCase", ctx, expression, pattern)
+                    .map(operand -> like(cb, folded, operand, mode))
+                    .orElseGet(() -> like(cb, folded, lowered, mode)));
+        });
     }
 
     final G likeIgnoreCase(SelectField<M, String> column, Optional<String> value, LikeMode mode) {
@@ -408,11 +422,30 @@ abstract class ConditionGroup<M, G> {
     }
 
     final G eqIgnoreCase(SelectField<M, String> column, String value) {
-        String v = lower(bound(column, required(column, "eqIgnoreCase", value), String.class, "eqIgnoreCase"));
+        String v = bound(column, required(column, "eqIgnoreCase", value), String.class, "eqIgnoreCase");
+        String lowered = lower(v);
         return record(Condition.of(Kind.EQ_IGNORE_CASE, column, List.of(value)), ctx -> {
             CriteriaBuilder cb = ctx.cb();
-            return Optional.of(cb.equal(cb.lower(column.expression(ctx)), v));
+            Expression<String> expression = column.expression(ctx);
+            Expression<String> folded = cb.lower(expression);
+            return Optional.of(convertedOperand(column, "eqIgnoreCase", ctx, expression, v)
+                    .map(operand -> cb.equal(folded, operand))
+                    .orElseGet(() -> cb.equal(folded, lowered)));
         });
+    }
+
+    /**
+     * An ignore-case filter's value over a converted column: {@code lower(?)}, the parameter the provider's binder
+     * types by {@code expression}'s mapping, so the mapping's converter runs on {@code value} and the database folds
+     * both sides alike; empty, and the value lowered in Java as before, with no binder or where it doesn't type by
+     * {@code expression} or says its mapping converts nothing (R-FLT-07, R-VND-24, D-177).
+     */
+    private static Optional<Expression<String>> convertedOperand(SelectField<?, ?> column, String operation,
+            JoinContext ctx, Expression<String> expression, String value) {
+        Optional<OperandBinder> binder = ctx.renderOptions().operandBinder()
+                .filter(b -> b.typesBy(expression) && b.converts(expression));
+        return binder.map(b -> ctx.cb().lower(
+                typedParameter(b, column + ": " + operation, ctx, expression, String.class, value)));
     }
 
     final G eqIgnoreCase(SelectField<M, String> column, Optional<String> value) {
@@ -634,23 +667,33 @@ abstract class ConditionGroup<M, G> {
             requireMappingIndependent(operator, column, value, binder.isPresent());
             return ctx.parameter(type, value);
         }
-        ParameterExpression<?> parameter;
+        return typedParameter(binder.get(), column + ": op(" + operator.name() + ")", ctx, left, type, value);
+    }
+
+    /**
+     * {@code binder}'s parameter of {@code type} typed by {@code left}'s mapping, recorded to bind {@code value} on
+     * the statement; {@code MQ1502} naming {@code what}, the column and its operation, when the binder throws, returns
+     * no parameter or one this statement already binds (R-VND-24).
+     */
+    private static <T> ParameterExpression<T> typedParameter(OperandBinder binder, String what, JoinContext ctx,
+            Expression<?> left, Class<T> type, Object value) {
+        ParameterExpression<T> parameter;
         try {
-            parameter = binder.get().parameter(ctx.cb(), left, type);
+            parameter = binder.parameter(ctx.cb(), left, type);
         } catch (ModelQueryException e) {
             throw e; // an engine error keeps its own code
         } catch (RuntimeException e) {
-            throw new ModelQueryDefinitionException(MqCode.MQ1502, column + ": op(" + operator.name()
-                    + ") cannot bind its value: the provider's operand binder threw " + e, e);
+            throw new ModelQueryDefinitionException(MqCode.MQ1502, what
+                    + " cannot bind its value: the provider's operand binder threw " + e, e);
         }
         if (parameter == null) {
-            throw new ModelQueryDefinitionException(MqCode.MQ1502, column + ": op(" + operator.name()
-                    + ") cannot bind its value: the provider's operand binder returned no parameter");
+            throw new ModelQueryDefinitionException(MqCode.MQ1502, what
+                    + " cannot bind its value: the provider's operand binder returned no parameter");
         }
         if (ctx.statementParameters().containsKey(parameter)) {
             // A parameter binds one value per statement: reused, the later value would replace the earlier (INV-5).
-            throw new ModelQueryDefinitionException(MqCode.MQ1502, column + ": op(" + operator.name()
-                    + ") cannot bind its value: the provider's operand binder returned a parameter this statement "
+            throw new ModelQueryDefinitionException(MqCode.MQ1502, what
+                    + " cannot bind its value: the provider's operand binder returned a parameter this statement "
                     + "already binds; it must make a new parameter on every call");
         }
         return ctx.bind(parameter, value);
@@ -934,9 +977,10 @@ abstract class ConditionGroup<M, G> {
     }
 
     /**
-     * The value side of an ignore-case filter, lowered here rather than as {@code lower(?)}: JPA 3.1 has no bound
-     * value expression, so {@code lower(literal)} would inline the value (R-FLT-08), and H2 cannot type a bare
-     * {@code lower(?)}.
+     * The value side of an ignore-case filter over a column the provider's binder doesn't convert, lowered here rather
+     * than as {@code lower(?)}: JPA 3.1 has no bound value expression, so {@code lower(literal)} would inline the value
+     * (R-FLT-08), and H2 cannot type a bare {@code lower(?)}. A converted column's {@code lower(?)} is the binder's
+     * typed parameter instead ({@link #convertedOperand}, R-FLT-07).
      */
     private static String lower(String value) {
         return value.toLowerCase(Locale.ROOT);

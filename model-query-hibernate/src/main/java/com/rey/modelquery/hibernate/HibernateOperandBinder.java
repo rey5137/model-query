@@ -18,6 +18,7 @@ import org.hibernate.query.sqm.tree.expression.SqmDistinct;
 import org.hibernate.query.sqm.tree.expression.SqmExpression;
 import org.hibernate.query.sqm.tree.expression.SqmFunction;
 import org.hibernate.type.BasicType;
+import org.hibernate.type.descriptor.converter.spi.JpaAttributeConverter;
 
 /**
  * Hibernate's {@link OperandBinder}: a {@code JpaCriteriaParameter} whose anticipated type is the column's own basic
@@ -36,9 +37,9 @@ import org.hibernate.type.BasicType;
  * <p>Only a path, or an aggregate over one, carries the column's mapping: any other expression's node type (a
  * function's, a {@code CASE}'s, a sub-query's) Hibernate may infer from a Java class alone, which would bind an enum by
  * ordinal. Such an expression is declined ({@link #typesBy}), and the engine binds only a mapping-independent value
- * over it (R-FLT-21, D-168, D-170). Immutable and thread-safe.
+ * over it (R-FLT-21, D-168, D-170). {@link #converts} answers from the same basic type. Immutable and thread-safe.
  *
- * @implSpec vendor/40 R-VND-24, api/12 R-FLT-21, D-167, D-170
+ * @implSpec vendor/40 R-VND-24, api/12 R-FLT-07, R-FLT-21, D-167, D-170, D-177
  */
 final class HibernateOperandBinder implements OperandBinder {
 
@@ -83,6 +84,28 @@ final class HibernateOperandBinder implements OperandBinder {
         SqmTypedNode<?> argument = aggregate.getArguments().get(0);
         SqmTypedNode<?> operand = argument instanceof SqmDistinct<?> distinct ? distinct.getExpression() : argument;
         return operand instanceof SqmPath<?>;
+    }
+
+    /**
+     * Whether {@code typedBy}'s basic type, the one {@link #parameter} binds by, carries a JPA
+     * {@code AttributeConverter}, a {@code @Convert} or an auto-applied one; an enum's built-in conversion, a node
+     * type this line's binder doesn't take, and a node type whose lookup throws, answer {@code false} (R-VND-24,
+     * D-177).
+     */
+    @Override
+    public boolean converts(Expression<?> typedBy) {
+        if (!(typedBy instanceof SqmExpression<?> expression) || !typesBy(typedBy)) {
+            return false;
+        }
+        try {
+            Object nodeType = expression.getNodeType();
+            Object type = unwrapsPathSource ? pathType(nodeType) : nodeType;
+            return type instanceof BasicType<?> basic
+                    && basic.getValueConverter() instanceof JpaAttributeConverter<?, ?>;
+        } catch (RuntimeException e) {
+            // Answers rather than throws: the column keeps its Java-lowered rendering (R-VND-24).
+            return false;
+        }
     }
 
     @Override
