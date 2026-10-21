@@ -691,8 +691,9 @@ Spec: D-176, `rfc/0018` (draft), Q-28 to Q-31. Four independent parts, accepted 
 a JPA `@Convert` attribute convert the value through the operand binder and fold both sides in SQL
 (`OperandBinder#converts`, R-FLT-07 amended), so they stop returning no rows silently where the binder serves the line (INV-5). Part C: under
 Hibernate's `value_handling_mode=inline` (`ProviderSupport#inlinesValues`, R-VND-28), every engine value path binds
-through the operator path's rule (R-FLT-21), so R-FLT-08 holds; the default setting renders as today. Part D: a filter through a to-many join no selected column reads renders as a
-correlated `exists` semi-join holding the whole predicate (R-EXE-16), so each root is one row and `count`, pages and
+through the operator path's rule (R-FLT-21), so R-FLT-08 holds; the default setting renders as today. Part D: a filter through a to-many join no selected column reads renders, where
+the outer statement keeps no to-many join and the root isn't treated, as a correlated `exists` semi-join holding the
+whole predicate, as bulk writes do (R-EXE-16, R-WRT-10), so each root is one row and `count`, pages and
 aggregates agree (Q-31). Model: an
 `architect-review` of the RFC and at the gate (public API, the `ProviderSupport` surface, INV-5, INV-7). Every new
 public type and member is `@Incubating`. The last slice finishes the 0.10.0 release prep (`CHANGELOG.md`), moved from
