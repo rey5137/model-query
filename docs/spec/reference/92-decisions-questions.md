@@ -2676,6 +2676,15 @@ on 6.6.58 and 7.4.11; it is `true` on `PostgreSQLDialect`, `H2Dialect` and `Cock
 `true` to `false` (`MQ4014`). The vendor check still runs first and answers `ILIKE` for PostgreSQL and H2 only
 (R-VND-23), so CockroachDB is `MQ4015` unless a profile answers `ILIKE`. → `vendor/40` R-VND-23, AC-FLT-24, D-171.
 
+**D-176 — Inline count, converted ignore-case filters and inline value handling join 0.10.0 (2026-10-21, user
+decision).** RFC 0018's three parts ship in 0.10.0 as M30, after M29, with an RFC acceptance spike first (M30.0): `CountMode.INLINE_COUNT` (Q-29)
+, `likeIgnoreCase` and `eqIgnoreCase` over a JPA `@Convert` attribute (Q-30) and the engine's value paths under
+`value_handling_mode=inline` (Q-28). Q-28 keeps R-FLT-08 true under a setting the engine can detect; Q-30 narrows or changes a shipped
+filter's rows, which is cheaper before D-85 freezes it; Q-29 is additive but is decided with it so the freeze review
+places `CountMode` once. The freeze moves from M30 to M31 and stays last, and M30's last slice finishes the 0.10.0
+release prep. Everything new is `@Incubating`, so the M31.1 freeze review decides each type. → `rfc/0018`,
+`docs/plan/mvp-plan.md` §30–§31, `delivery/62`, D-85, D-148.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -2804,7 +2813,7 @@ under `hibernate.criteria.value_handling_mode=inline`, while an explicit paramet
 is explicit (D-167); whether any engine value path (filters, writes, keyset cursors, sources) relies on Hibernate's
 conversion, and so breaks R-FLT-08 under that setting, is unchecked. An audit and a TCK case under that setting would
 answer it. An operator's value, typed by Hibernate's binder, stays `?` under it on both lines and Tier 1 (D-170,
-AC-FLT-22); the other paths are still unchecked. → `rfc/0017` §1, D-167, D-170, `api/12` R-FLT-08.
+AC-FLT-22); the other paths are still unchecked. → `rfc/0017` §1, D-167, D-170, `api/12` R-FLT-08, `rfc/0018` Part C (M30, D-176).
 
 **Q-29 — An inline count.** `CountMode.COUNT` runs a separate count statement (R-EXE-03); Blaze-Persistence can
 instead inline `COUNT(*) OVER()` into the page query. That saves a round trip and takes the total and the page from
@@ -2813,7 +2822,7 @@ evaluates the whole result before `LIMIT`, losing the top-N early stop, often sl
 sets; a page past the end returns no row and so no total, which needs a count fallback; keyset pages carry no total
 (D-105); JPA Criteria has no window functions, so it sits behind `ProviderSupport` with `COUNT` as the portable
 fallback (INV-7). If adopted, an opt-in `CountMode` constant, never the default; additive, so not freeze-blocking. →
-`engine/20` R-EXE-03, D-34, D-51, D-105.
+`engine/20` R-EXE-03, D-34, D-51, D-105, `rfc/0018` Part A (M30, D-176).
 
 **Q-30 — Case-insensitive string filters over a `@Convert` attribute.** On an attribute with a JPA `@Convert`
 `AttributeConverter`, `likeIgnoreCase` renders `lower(col) like ?` and Hibernate does not run the converter on the bound
@@ -2821,7 +2830,9 @@ value, so `EXACT` and `STARTS_WITH` return no rows with no error (`CONTAINS` hap
 help, since `lower(col)` folds the stored value. `ConvertedLikeTest` pins this. `eqIgnoreCase` is probably the same and
 is untested: confirm it first. Proposed direction: refuse `likeIgnoreCase` and `eqIgnoreCase` on a `@Convert` attribute
 with `MQ1001` through a new `ProviderSupport` fact (core cannot see `@Convert` in the JPA metamodel), by RFC, since it
-narrows shipped operators. Until then `api/12` R-FLT-07 documents the limitation. → D-171, `api/12` R-FLT-07, INV-5.
+narrows shipped operators. Until then `api/12` R-FLT-07 documents the limitation. → D-171, `api/12` R-FLT-07, INV-5,
+`rfc/0018` Part B (M30, D-176): proposes converting the value through the binder and folding both sides in SQL instead
+of refusing.
 
 ## 3. Risks
 

@@ -1,7 +1,7 @@
 # RFC 0013 — Source models: CTEs, window fields, set operations and recursive reads
 
 - **Status:** accepted 2026-10-15 as D-143 (revised after two architect reviews; the acceptance spike passed, see
-  [0013-spike-results.md](0013-spike-results.md)). M25, 0.10.0; the freeze is renumbered M26, later M29 (D-145), then M30 (D-148).
+  [0013-spike-results.md](0013-spike-results.md)). M25, 0.10.0; the freeze is renumbered M26, later M29 (D-145), then M30 (D-148), then M31 (D-176).
 - **Affects:**
   - **New spec file:** `api/17-query-sources.md`, with R-SRC-01 to R-SRC-12 and AC-SRC-01 to AC-SRC-16.
   - **`SPEC.md`:** `SRC 17` in §1 Areas; `SourceQuery` and `WindowField` in INV-9's list.
@@ -525,4 +525,4 @@ Everything here is additive and `@Incubating`, apart from one support-floor chan
   - entity joins from a model rooted at a source (`@Join(entity = …, on = …)`);
   - `@BindSourceModel` for a source model in an API module (RFC 0012).
 - **Release (decided 2026-10-15):** M25, shipped in 0.10.0 before the freeze, which is renumbered M26, later M29
-  (D-145), then M30 (D-148). Every new public type and member is `@Incubating`, so the M30.1 freeze review decides each one.
+  (D-145), then M30 (D-148), then M31 (D-176). Every new public type and member is `@Incubating`, so the M31.1 freeze review decides each one.

@@ -522,5 +522,5 @@ The AC-SRC-17..25 cases are:
   query), and says which form it took in the AC row.
 - **The opt-in's name.** `tree(step, maxDepth)`, a sibling of `recursive(...)` (§1), chosen at acceptance (D-147); a
   modifier is rejected (§Alternatives).
-- **Release.** M26 in 0.10.0 (D-145), before the freeze (M29, then M30 by D-148). Every new public member is `@Incubating`, so the M30.1
+- **Release.** M26 in 0.10.0 (D-145), before the freeze (M29, then M30 by D-148, then M31 by D-176). Every new public member is `@Incubating`, so the M31.1
   freeze review decides each one.
