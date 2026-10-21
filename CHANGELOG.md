@@ -9,6 +9,32 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 Nothing is frozen yet: every public type stays `@Incubating`, and the additions below are all `@Incubating`.
 
 ### Added (incubating)
+- Custom filter operators (RFC 0017, D-167, R-FLT-20..22): immutable `FilterOperator` definitions with
+  `OperatorRenderer` and `OperatorContext`, attribute checks, feature requirements and value preparation;
+  `Filters.op` and `Having.op` accept values, optional values or fields. Values bind for every statement;
+  both an operator and its negation drop NULL-column rows. Renderer or preparation failures are `MQ1313`.
+  Reuse constants for identity equality; inspection records `Condition.Kind.OPERATOR` and `FilterMatchers.op`
+  matches the definition (AC-FLT-21, AC-FLT-23, AC-FLT-25..27).
+  See [Custom operators](docs/site/docs/queries.md#custom-operators).
+- Mapping-aware operator operands (D-168..D-170, R-FLT-21, R-VND-24): `OperandBinder` and
+  `ProviderSupport#operands` let Hibernate 6.6.x and 7.4.x bind enums, converted attributes and arrays by the column's
+  mapping. Without a mapping-aware binder, only strings, `java.lang` or `java.math` numbers and `java.time` values
+  bind; other operator values, including `Boolean` and `UUID`, are `MQ1502`. A binder returning null, throwing or
+  reusing a bound parameter is also `MQ1502` (AC-FLT-22).
+- Operator feature gates (R-VND-23): `OperatorFeature`, `VendorProfile#operators`, `ProviderSupport#operators` and
+  `RenderOptions#withOperatorGate` check the vendor first (`MQ4015`), then the provider (`MQ4014`), before any
+  statement. `RenderOptions#withOperandBinder` supplies the mapping-aware binder. `PortabilityCheck` reports missing
+  features per target when an operator's value is present; an empty `Optional` is skipped (AC-FLT-24, AC-FLT-32).
+- Hibernate pattern operators (D-171, R-VND-23): `HibernateOperators.ilike(LikeMode)` serves PostgreSQL and H2,
+  and `regexMatch()` serves PostgreSQL. `ilike` prepares patterns like `like`; MySQL is refused rather than
+  emulated (AC-FLT-21, AC-FLT-24). The recorded JPA `@Convert` limitation for case-insensitive string filters
+  remains open as Q-30.
+- Hibernate containment operators (D-172, R-VND-23): `arrayContains()`, `arrayOverlaps()` and `jsonbContains()`
+  serve PostgreSQL's array `@>`, array `&&` and jsonb `@>` predicates; H2 and MySQL are refused before execution
+  (AC-FLT-24).
+- Hibernate full-text operator (D-173, R-VND-23): `fullTextMatch(configuration)` serves PostgreSQL with
+  `plainto_tsquery`, binding request text and rendering the validated configuration as a literal to match expression
+  indexes. An invalid configuration is `MQ1315`; blank or stop-word-only text matches nothing (AC-FLT-32).
 - Source models (RFC 0013, D-143): `@SourceModel(root = OrderItemEntity.class)` declares a model read as a common
   table expression rather than a select, so a read the Criteria API cannot express becomes one generated model with
   the compile-time checks an entity root gets. `QQuantitySource.source()` builds a `SourceQuery`, which carries the
