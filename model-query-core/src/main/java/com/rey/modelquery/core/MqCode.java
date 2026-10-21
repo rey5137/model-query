@@ -118,6 +118,10 @@ public enum MqCode {
     @Incubating
     MQ1314("A correlated value cannot be a group key and must lift only group keys in grouped selections and orders"),
 
+    /** A {@code fullTextMatch} configuration that is not a plain SQL identifier (R-VND-23, D-173). */
+    @Incubating
+    MQ1315("A full-text configuration must be a plain, optionally schema-qualified SQL identifier"),
+
     /** A selected non-aggregate column or expression does not fit the group-by (R-AGG-08, R-AGG-14). */
     MQ1401("A selected non-aggregate column or expression does not fit the group-by"),
 

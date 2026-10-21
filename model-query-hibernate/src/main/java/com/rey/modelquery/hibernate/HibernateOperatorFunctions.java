@@ -15,7 +15,7 @@ import org.hibernate.type.StandardBasicTypes;
  * before Hibernate could render an unknown function through to the database. Loaded by Hibernate from
  * {@code META-INF/services/org.hibernate.boot.model.FunctionContributor}; not API. Identical on both lines.
  *
- * @implSpec vendor/40 R-VND-23, rfc/0017 §4, D-172
+ * @implSpec vendor/40 R-VND-23, rfc/0017 §4, D-172, D-173
  */
 public final class HibernateOperatorFunctions implements FunctionContributor {
 
@@ -27,6 +27,11 @@ public final class HibernateOperatorFunctions implements FunctionContributor {
     static final String ARRAY_OVERLAPS = "mq_array_overlaps";
     /** {@link OperatorFeature#JSONB_CONTAINMENT}'s function: the value, passed as its text, cast to {@code jsonb}. */
     static final String JSONB_CONTAINS = "mq_jsonb_contains";
+    /**
+     * {@link OperatorFeature#FULL_TEXT}'s function: the configuration, a literal, then the column and the request
+     * text; the one configuration argument feeds both calls, so the expression index's form always matches.
+     */
+    static final String TS_MATCH = "mq_ts_match";
 
     @Override
     public void contributeFunctions(FunctionContributions contributions) {
@@ -39,12 +44,18 @@ public final class HibernateOperatorFunctions implements FunctionContributor {
         register(contributions, ARRAY_CONTAINS, "(?1 @> ?2)");
         register(contributions, ARRAY_OVERLAPS, "(?1 && ?2)");
         register(contributions, JSONB_CONTAINS, "(?1 @> cast(?2 as jsonb))");
+        // plainto_tsquery reads the text as words, never as tsquery syntax (D-173).
+        register(contributions, TS_MATCH, "(to_tsvector(?1, ?2) @@ plainto_tsquery(?1, ?3))", 3);
     }
 
     private static void register(FunctionContributions contributions, String name, String pattern) {
+        register(contributions, name, pattern, 2);
+    }
+
+    private static void register(FunctionContributions contributions, String name, String pattern, int arguments) {
         SqmFunctionRegistry registry = contributions.getFunctionRegistry();
         registry.patternDescriptorBuilder(name, pattern)
-                .setExactArgumentCount(2)
+                .setExactArgumentCount(arguments)
                 .setInvariantType(contributions.getTypeConfiguration().getBasicTypeRegistry()
                         .resolve(StandardBasicTypes.BOOLEAN))
                 .register();
@@ -53,15 +64,13 @@ public final class HibernateOperatorFunctions implements FunctionContributor {
     /**
      * The {@code mq_*} functions a pattern {@code feature} renders through, all of which must be registered for the
      * provider to serve it; empty for {@code ILIKE}, an HQL predicate rather than a function, and any later feature.
-     * The full-text name is looked up before its function is registered, so {@code FULL_TEXT} answers {@code false}
-     * until it is.
      */
     static List<String> functions(OperatorFeature feature) {
         return switch (feature) {
             case REGEX_MATCH -> List.of(REGEX_MATCH);
             case ARRAY_CONTAINMENT -> List.of(ARRAY_CONTAINS, ARRAY_OVERLAPS);
             case JSONB_CONTAINMENT -> List.of(JSONB_CONTAINS);
-            case FULL_TEXT -> List.of("mq_ts_match");
+            case FULL_TEXT -> List.of(TS_MATCH);
             default -> List.of();
         };
     }
