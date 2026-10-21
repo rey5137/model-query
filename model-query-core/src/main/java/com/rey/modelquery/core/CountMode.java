@@ -14,5 +14,12 @@ public enum CountMode {
     /** Fetches one row more than the page to learn {@code hasNext}, and reports the total as unknown. */
     NO_COUNT,
     /** Runs the count query only; the content is empty. */
-    ONLY_COUNT
+    ONLY_COUNT,
+    /**
+     * COUNT's exact total, read from the page statement as a window where that statement returns exactly the rows
+     * COUNT counts, and from COUNT's statements otherwise (R-EXE-15). The window counts the whole result before the
+     * page's LIMIT, so the database can't stop early: on a large, unselective result COUNT can be faster.
+     */
+    @Incubating
+    INLINE_COUNT
 }

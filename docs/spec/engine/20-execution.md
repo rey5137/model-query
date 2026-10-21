@@ -27,10 +27,61 @@ constructor, so a page number cannot be read as an offset (D-88).
 | `COUNT` | Runs the count query (R-EXE-03, R-EXE-04) and reports an exact total. |
 | `NO_COUNT` | Fetches `pageSize + 1` rows to compute `hasNext`, returns `pageSize` of them, and reports the total as unknown. Page number and size are preserved. |
 | `ONLY_COUNT` | Runs the count query only; the content list is empty. |
+| `INLINE_COUNT` | `COUNT`'s exact total and `hasNext`, read from the page statement as a window where that statement returns exactly the rows `COUNT` counts, and from `COUNT`'s statements otherwise (R-EXE-15). |
 
 A `Slice` never reports a total of `0` when it holds rows, and never reports `hasNext == false` because the count was
 skipped. A fetch plan runs on the content only, after the `NO_COUNT` probe row is dropped, and `ONLY_COUNT` runs none
 (`api/15` R-FCH-09).
+
+**R-EXE-15** *(D-177, `@Incubating`)* `CountMode.INLINE_COUNT` is a request about *how* to count, not *whether*: its
+`Slice` reports the same total and `hasNext` as `COUNT`'s, always (R-EXE-02's guarantees unchanged). It is opt-in and
+never a default; the Spring Data repository default stays `COUNT`, and `ModelPage` reads `Slice.total` unchanged. The
+window counts the whole result before the page's `LIMIT`, so the database can't stop early: on a large, unselective
+result `COUNT` can be faster. The user chooses the mode; there is no automatic performance fallback.
+
+The window is `count(1) over ()`, rendered through `SourceRenderer#window(cb, WindowSpec(COUNT, cb.literal(1), [], [],
+NONE))` (`api/17` R-SRC-04) and gated by `ProviderSupport#inlineCounts(emf)` and a source renderer (`vendor/40`
+R-VND-27). The page statement carries it only when it returns exactly the rows `COUNT` counts: when the `Counting` that
+`page` builds for `COUNT` (after the customizer, so a customizer's `distinct()` or to-many join is seen) is the content
+statement itself with its selection replaced by `count(root)` or `count(1)`, or is the database-side count of its
+groups (R-EXE-03). Any other shape falls back, so a shape added later falls back until it is admitted.
+
+The fallback reads the total from `COUNT`'s statements. It applies:
+
+1. with `inlineCounts(emf)` false or `sources()` empty (no `model-query-hibernate`, a dialect without window
+   functions, or a provider without a window renderer);
+2. on a `DISTINCT` statement;
+3. where `COUNT` counts client-side (R-EXE-03: no grouped count support, a source carrying checks, a refused
+   `GROUPED_COUNT` treat site), conservatively, even where the content statement would count correctly;
+4. where `COUNT`'s statement is not the content statement with its selection replaced: `count(distinct root)` over a
+   to-many join that no selected column reads (R-EXE-04), and a treated, ungrouped root, which `COUNT` counts on a
+   freshly built statement (R-EXE-05, D-154);
+5. on a page past the end: no row, offset above 0.
+
+| Shape | Behaviour |
+|---|---|
+| Window used, rows returned | total = the window's value; `hasNext = offset + rows < total` |
+| Window used, no row, offset 0 | total = 0 |
+| Window used, no row, offset > 0 | `COUNT`'s statement runs for the total (fallback 5) |
+| Grouped, `COUNT` in SQL | the window runs after `GROUP BY` and `HAVING`, so it counts groups (R-EXE-03's meaning) |
+| Primary-key-first page | the window is on step 1's key query; step 2 is unchanged (R-PAG-13 keeps key rows as root rows) |
+| A fallback of 1–4 | `COUNT`'s two statements, as under `COUNT` |
+
+*Preflight.* `INLINE_COUNT` builds, checks and preflights `COUNT`'s statements exactly as `COUNT` does, before the first
+statement runs, whether or not the window is used, since fallback 5 can only be known after the content statement
+(`vendor/40` R-VND-26): a refused treat site is `MQ4016` before any statement.
+
+*The hidden column.* The window is selected as `mq_0total`, following `mq_0id` (D-154), outside D-146's
+`mq_<property>` space. It is added to the page statement (or step 1's key query) after `buildQuery`, so after the
+customizer, whose `multiselect` can't drop it, and after `core` adds `mq_0id`, and before the preflight, so under
+treated nodes the statement R-VND-26 checks and runs is the one carrying the window; fallbacks 1–4 are decided there.
+It is read by alias, never by position, and never reaches `fields()`, `Rows`, the mapper or a fetch plan.
+
+*Logging.* Each fallback logs its reason at `DEBUG`, once per executor and `ModelQuery`, with the state held by the
+executor: fallback 1 depends on the factory, and a `static final` query is shared between executors (INV-9). A query re-sorted per call (`orderedBy`, as a Spring repository's `Sort` does) is a new `ModelQuery` and logs again.
+
+Keyset pages carry no total (D-105) and take no `CountMode`. `page` already refuses row locks (R-EXE-14), so a window
+never meets `FOR UPDATE`. `ONLY_COUNT`, `count(q)` and exports are unchanged.
 
 ## 3. `count`
 
@@ -263,3 +314,7 @@ returning clause, compose into one statement.
 | AC-EXE-15 | `count(q)`, `one(q)` and `one(q, key)` on an ordered query each log one `WARNING` per `ModelQuery`; the `one` statements render no `ORDER BY`; `page`'s count and `first` log nothing (R-EXE-05, R-EXE-12). |
 | AC-EXE-16 | Each read in R-EXE-14's table locks or refuses as stated, before any SQL: `list`, `list(q, Limit)`, `first`, `one(q)`, `one(q, key)` and `byKeys` lock; `page`, `count`, `stream` and `export` refuse with `MQ2211`, as does a joined query and `one(q)` with `SKIP_LOCKED`; `MQ2102` outside a transaction; fetch-plan statements carry no lock and `byKeys` chunks are ordered by key (R-EXE-14). |
 | AC-EXE-17 | (TCK, PostgreSQL and MySQL, two connections) a second `first` with `WAIT` blocks until the first commits; with `SKIP_LOCKED` it returns the next row; with `NO_WAIT` it throws `PessimisticLockException` or `LockTimeoutException`, as recorded per vendor (R-EXE-14). |
+| AC-EXE-18 | The inline total equals `COUNT`'s on flat, grouped, `HAVING` and primary-key-first pages, both lines, Tier 1, one statement each (R-EXE-15). |
+| AC-EXE-19 | Past the end, `COUNT`'s statement runs and the total is exact; a refused treat site is `MQ4016` before any statement (R-EXE-15). |
+| AC-EXE-20 | Fallbacks 1–4, a customizer's `distinct()` included, run `COUNT`'s statements and log their reason once per executor and query (R-EXE-15). |
+| AC-EXE-21 | Without `model-query-hibernate`, `INLINE_COUNT` runs `COUNT`'s statements and returns the same `Slice` (R-EXE-15, R-VND-27). |

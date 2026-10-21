@@ -239,6 +239,18 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private final boolean conflictUpdateWhereOnAssignedColumns;
     /** The root's insert target, which the provider reads reflectively: read on first use, then kept. */
     private volatile InsertTarget insertTarget;
+    /**
+     * Whether the provider renders a window over the page statement: its {@code inlineCounts} answer, asked once,
+     * and only where it also serves {@code sources()} (R-EXE-15 fallback 1, R-VND-27).
+     */
+    private final boolean inlineCounts;
+    /**
+     * The queries whose {@code INLINE_COUNT} fallback this executor logged, by identity, so each is logged once per
+     * executor: the reason can depend on the factory, and a {@code static final} query is shared between executors
+     * (R-EXE-15, INV-9). Weak, so a query built per request does not stay reachable.
+     */
+    private final Set<ModelQuery<?, ?, ?>> inlineCountFallbacksLogged =
+            Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
 
     DefaultModelQueryExecutor(EntityManager em, Class<E> rootEntity, ModelQueryConfig config) {
         this.em = Objects.requireNonNull(em, "em");
@@ -290,6 +302,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         this.bulkWriteChunkSize = config.bulkWriteChunkSize();
         this.chunkTransactions = config.chunkTransactions().orElse(null);
         this.conflictUpdateWhereOnAssignedColumns = config.conflictUpdateWhereOnAssignedColumns();
+        this.inlineCounts = vendor.providerSupport()
+                .filter(support -> support.sources().isPresent())
+                .map(support -> support.inlineCounts(emf))
+                .orElse(false);
     }
 
     /**
@@ -543,6 +559,27 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         if (first) {
             LOG.log(System.Logger.Level.WARNING, "{0}: {1} ignores the query''s orderBy{2}", q, call,
                     call.startsWith("byKeys") ? "; the map is in key order" : "");
+        }
+    }
+
+    /**
+     * Why {@code q}'s {@code INLINE_COUNT} page reads its total from {@code COUNT}'s statements instead of a window on
+     * the page statement, or empty where the page statement carries the window (R-EXE-15). Without the provider's
+     * window, fallback 1; with it, every page still falls back, as no page statement carries the window yet.
+     */
+    private Optional<String> inlineCountFallback(ModelQuery<E, ?, ?> q) {
+        if (!inlineCounts) {
+            return Optional.of("the provider renders no window over the page statement (no ProviderSupport, or its "
+                    + "inlineCounts(emf) is false or its sources() is empty)");
+        }
+        return Optional.of("no page statement carries the inline count's window yet");
+    }
+
+    /** Logs {@code reason} at {@code DEBUG} the first time this executor falls back for {@code q} (R-EXE-15). */
+    private void logInlineCountFallback(ModelQuery<?, ?, ?> q, String reason) {
+        if (inlineCountFallbacksLogged.add(q)) {
+            LOG.log(DEBUG, () -> "page " + q + ": INLINE_COUNT runs COUNT's statements for the total, because "
+                    + reason + " (R-EXE-15)");
         }
     }
 
@@ -1237,9 +1274,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Objects.requireNonNull(page, "page");
         Objects.requireNonNull(mode, "mode");
         refuseLock(q, "page(query, PageSpec, CountMode)");
+        // INLINE_COUNT builds, checks and preflights COUNT's statements as COUNT does, whether or not the window is
+        // used, since a page past the end can only be known after the content statement (R-EXE-15).
+        boolean withCount = mode == CountMode.COUNT || mode == CountMode.INLINE_COUNT;
         Optional<String> clientSide = checkFirstRun(q, mode != CountMode.ONLY_COUNT,
                 mode == CountMode.ONLY_COUNT ? StatementShape.COUNT : StatementShape.CONTENT,
-                false, mode == CountMode.COUNT);
+                false, withCount);
         int offset = page.offset();
         int size = page.pageSize();
         // A non-unique source needs every selected column to close the order; a tree's key suffices when the query
@@ -1271,7 +1311,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 return new Slice<>(List.of(), page.pageNumber(), size, offset + (long) size < total,
                         OptionalLong.of(total));
             }
-            case COUNT: {
+            case COUNT:
+            case INLINE_COUNT: {
+                if (mode == CountMode.INLINE_COUNT) {
+                    // A fallback reads the total from COUNT's statements, exactly as COUNT does (R-EXE-15).
+                    inlineCountFallback(q).ifPresent(reason -> logInlineCountFallback(q, reason));
+                }
                 long total = countRows(q, counting);
                 List<M> content = offset >= total ? List.of()
                         : models(q, fetch(q, offset, size, batch, everyColumn, first));
