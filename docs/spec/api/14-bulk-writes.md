@@ -554,7 +554,8 @@ an action does not compile. `ConflictUpdate` offers `setFromRow(first, rest...)`
 computes from the stored row's path, the incoming row's path and the `CriteriaBuilder` and renders before the other
 assignments (R-WRT-13, R-WRT-51); each returns `Assigned`, an `Action` offering more assignments and one
 `where(UnaryOperator<Filters<M>>)` that returns a bare `Action`; so an update assigning nothing does not compile. The `where` renders inside the provider's insert, so it takes no `Expr.value` (R-COL-26), which no
-executor could bind there: that is `MQ1804` on first execution; `Expr.constant` and plain values work.
+executor could bind there: that is `MQ1804` on first execution, as is a value-form `op` (`api/12` R-FLT-20), whose
+value is such a parameter, naming the operator; a field-form `op`, `Expr.constant` and plain values work.
 `ConflictOptions` offers `anyUniqueKey()` (R-WRT-36), `chunked`, `persistenceContext` and `build()`, which returns a
 `ModelInsert`; `Upserting` adds `keepVersion()`. The assignments follow R-WRT-13: a key column (the conflict columns or
 the model's `@PrimaryKey`), a column assigned twice or a column not on the root is `MQ1804` at `build()`, as is a
@@ -887,7 +888,8 @@ R-WRT-34's key-column and assigned-twice checks apply to it unchanged. An update
 applies the conflict action only to the rows it holds, so a row whose key matches a stored row outside the predicate
 inserts rather than updating. The predicate names root columns and plain comparisons only — `eq`, `ne`, `lt`, `le`,
 `gt`, `ge`, `isNull` and `isNotNull`, `in` and `notIn` with constants, and `and`/`or`/`not`; an `Expr.value` or
-`Expr.constant`, an expression, `exists`, a sub-select, or an empty `in`, `notIn` or `or` is `MQ1804` at `build()`, and
+`Expr.constant`, an expression, `exists`, a sub-select, an `op` in any form (`api/12` R-FLT-20, naming the operator),
+or an empty `in`, `notIn` or `or` is `MQ1804` at `build()`, and
 a predicate whose every filter was skipped is `MQ1601` there rather than a plain conflict target. With a predicate,
 R-WRT-34's check of the key columns against the mapping's declared unique keys is skipped: a partial unique index has no
 JPA mapping, and PostgreSQL itself refuses a target that no unique index matches. The values render as literals through

@@ -499,6 +499,40 @@ unattributed narrowing, a declaration left unconsumed, an unknown kind, a declar
 declarations of one kind and entity naming different subtypes, and an AST shape the walk doesn't recognise are refused:
 it fails closed (AC-VND-21).
 
+**R-VND-23** *(D-167, D-169, `@Incubating`)* Whether a filter operator's `OperatorFeature` (`ILIKE`, `REGEX_MATCH`,
+`ARRAY_CONTAINMENT`, `JSONB_CONTAINMENT`, `FULL_TEXT`) can run is two facts, both checked when the filter is
+rendered, before any statement (`api/12` R-FLT-20), mirroring R-SRC-11's checks for sources:
+1. **The vendor.** `VendorProfile#operators(OperatorFeature)`, `false` by default. PostgreSQL answers all five `true`,
+   H2 only `ILIKE`, MySQL none; `OTHER` keeps the default. False is `MQ4015`, naming the feature, the vendor, the
+   operator and the column. It runs first, because the vendor is the real reason an operator can't run. A database
+   fact, no SQL (R-VND-11, INV-6).
+2. **The provider.** `ProviderSupport#operators(EntityManagerFactory emf, OperatorFeature feature)`, `false` by
+   default, so with no `ProviderSupport` every feature is refused. False is `MQ4014`. It takes the factory, as
+   `constants(emf)` does, because a `ProviderSupport` is a stateless `ServiceLoader` service; Hibernate's answer is
+   `model-query-hibernate`'s (`rfc/0017` §4).
+
+The executor asks both for every constant once, when it is built, into a `core.OperatorGate` (two immutable feature
+sets and the vendor's name) that `RenderOptions.withOperatorGate(gate)` carries to every statement it renders: queries,
+counts, exports, writes, child loads and conflict clauses. `core` sees only the gate, never a profile (INV-6, INV-7).
+With no gate (`RenderOptions.portable()`, `JoinContext.of(root, cb)`) an operator that requires a feature is
+`MQ4014`. `checkPhases`' scratch build falls back to a stand-in gate that serves every feature, as D-132's scratch
+sequence renderer does, so a query with an `op` and a customizer is not refused there for a fact the scratch lacks; the
+executor's own gate, when it passes one, still decides. An operator that requires no feature is never gated.
+
+**R-VND-24** *(D-167, D-169, `@Incubating`)* An operator's value is a parameter typed by the column's mapping where the
+provider can type one (`api/12` R-FLT-21). `core.OperandBinder` has one method, `<T> ParameterExpression<T>
+parameter(CriteriaBuilder cb, Expression<?> typedBy, Class<T> type)`: a parameter of `type` whose binding follows
+`typedBy`'s mapping (an `@Enumerated(STRING)` enum as its name, a `@Convert` value through its converter), a new
+parameter on every call. `ProviderSupport#operands(EntityManagerFactory emf)` supplies it, empty by default; the
+executor resolves it once, when it is built, and `RenderOptions.withOperandBinder(binder)` carries it with the gate. The
+engine sets the value on the parameter per statement, as for every `JoinContext` parameter. It types the `<C, C>` form
+only, by the rendered column (or aggregate) expression; the `<C, V>` form is typed by its declared `valueType` through
+`cb.parameter` and keeps the no-binder rule. A binder that throws a `RuntimeException`, returns `null` or returns a
+parameter the statement already binds (one value per parameter, so the later would replace the earlier, INV-5) is
+`MQ1502` naming the operator and the column, before any statement; a `ModelQueryException` it throws keeps its own code.
+It never falls back to a parameter typed by the value's class. Hibernate's binder is `model-query-hibernate`'s
+(`rfc/0017` §2 step 4).
+
 ## 2. Detection
 
 **R-VND-04** Resolution order:

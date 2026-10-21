@@ -530,6 +530,22 @@ class InsertDefinitionTest {
     }
 
     @Test
+    void ac_flt_26_an_op_in_an_arbiter_where_is_mq1804_at_build_naming_the_operator_in_value_and_field_form() {
+        FilterOperator<String, String> differs =
+                FilterOperator.of("differs", (ctx, left, right) -> ctx.cb().notEqual(left, right));
+        assertCode(() -> values().onConflict(REF).where(f -> f.op(differs, STATUS, "CLOSED")).doNothing().build(),
+                MqCode.MQ1804).hasMessageContaining("onConflict(...).where(...) with op(differs)");
+        assertCode(() -> values().onConflict(REF).where(f -> f.op(differs, STATUS, NOTE)).doNothing().build(),
+                MqCode.MQ1804).hasMessageContaining("op(differs)");
+        // Nested too: the check walks the whole predicate.
+        assertCode(() -> values().onConflict(REF).where(f -> f.not(g -> g.op(differs, STATUS, "CLOSED")))
+                .doNothing().build(), MqCode.MQ1804).hasMessageContaining("op(differs)");
+        // An empty Optional records nothing, so the arbiter is a plain conflict target's (R-FLT-01).
+        values().onConflict(REF).where(f -> f.ne(STATUS, "CLOSED").op(differs, STATUS, Optional.<String>empty()))
+                .doNothing().build();
+    }
+
+    @Test
     void ac_wrt_45_an_arbiter_predicate_on_a_joined_column_or_with_an_empty_in_or_or_throws_mq1804() {
         assertCode(() -> values().onConflict(REF).where(f -> f.eq(PARENT_STATUS, "OPEN")).doNothing().build(),
                 MqCode.MQ1804).hasMessageContaining("the arbiter has no join, so it filters on root columns");

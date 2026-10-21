@@ -4,6 +4,8 @@ import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ConstantRenderer;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
+import com.rey.modelquery.core.OperandBinder;
+import com.rey.modelquery.core.OperatorFeature;
 import com.rey.modelquery.core.SequenceRenderer;
 import com.rey.modelquery.core.SourceRenderer;
 import com.rey.modelquery.core.SubqueryRenderer;
@@ -24,8 +26,8 @@ import java.util.stream.Stream;
  * D-108). Discovered with {@code ServiceLoader}; the first that {@linkplain #supports supports} a factory serves it.
  * Implementations are stateless and thread-safe.
  *
- * @implSpec R-VND-04, R-EXE-03, R-VND-12, R-VND-13, R-VND-14, R-VND-15, R-VND-17, R-VND-20, R-SRC-11, D-119,
- *     D-127, D-143
+ * @implSpec R-VND-04, R-EXE-03, R-VND-12, R-VND-13, R-VND-14, R-VND-15, R-VND-17, R-VND-20, R-VND-23, R-VND-24,
+ *     R-SRC-11, D-119, D-127, D-143
  */
 @Incubating
 public interface ProviderSupport {
@@ -190,5 +192,25 @@ public interface ProviderSupport {
     @Incubating
     default Optional<TreatRenderer> treats(EntityManagerFactory emf) {
         return Optional.empty();
+    }
+
+    /**
+     * The factory's operand binder, typing a filter operator's value by its column's mapping, or empty by default:
+     * only a value whose binding doesn't depend on the mapping then binds, the rest {@code MQ1502} (R-VND-24,
+     * api/12 R-FLT-21). Asked once per executor.
+     */
+    @Incubating
+    default Optional<OperandBinder> operands(EntityManagerFactory emf) {
+        return Optional.empty();
+    }
+
+    /**
+     * Whether the factory's provider can render {@code feature} for a filter operator that requires it, {@code false}
+     * by default: the filter is then {@code MQ4014} before any statement, after the vendor's
+     * {@code VendorProfile#operators} passed (R-VND-23, api/12 R-FLT-20). Asked once per executor and feature.
+     */
+    @Incubating
+    default boolean operators(EntityManagerFactory emf, OperatorFeature feature) {
+        return false;
     }
 }

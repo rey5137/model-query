@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.Expr;
+import com.rey.modelquery.core.FilterOperator;
 import com.rey.modelquery.core.InsertColumns;
 import com.rey.modelquery.core.ModelInsert;
 import com.rey.modelquery.core.ModelQuery;
@@ -405,6 +406,65 @@ class InsertConflictTest {
         try (InsertProbes p = InsertProbes.open(db)) {
             assertRefused(run(p, insert), "Expr.value");
         }
+    }
+
+    // ---- AC-FLT-26: an op in a conflict clause (R-WRT-34, R-WRT-52)
+
+    private static final FilterOperator<String, String> DIFFERS =
+            FilterOperator.of("differs", (ctx, left, right) -> ctx.cb().notEqual(left, right));
+    private static final FilterOperator<String, String> SAME =
+            FilterOperator.of("same", (ctx, left, right) -> ctx.cb().equal(left, right));
+
+    @TckTest
+    void ac_flt_26_a_value_form_op_in_a_conflict_update_where_is_mq1804_naming_it_on_first_execution(TckDatabase db) {
+        var insert = ValuesInsert.builder(NAMED, Long.class, List.of(new Named(3L, "c3", "N3")))
+                .onConflict(ID).doUpdate(u -> u.setFromRow(NAME).where(f -> f.op(DIFFERS, NAME, "x")))
+                .anyUniqueKey().build();
+
+        try (InsertProbes p = InsertProbes.open(db)) {
+            assertRefused(run(p, insert), "doUpdate(...).where(...) with op(differs)");
+            assertThat(p.rows(ROWS)).isEqualTo(SEEDED);
+        }
+    }
+
+    @TckTest
+    void ac_flt_26_a_field_form_op_in_a_conflict_update_where_runs(TckDatabase db) {
+        var rows = List.of(new Named(1L, "c1", "Y1"), new Named(2L, "c2", "Y2"), new Named(3L, "c3", "N3"));
+        var differing = ValuesInsert.builder(NAMED, Long.class, rows)
+                .onConflict(ID).doUpdate(u -> u.setFromRow(NAME).where(f -> f.op(DIFFERS, NAME, CODE)))
+                .anyUniqueKey().build();
+        var same = ValuesInsert.builder(NAMED, Long.class, rows)
+                .onConflict(ID).doUpdate(u -> u.setFromRow(NAME).where(f -> f.op(SAME, NAME, CODE)))
+                .anyUniqueKey().build();
+
+        try (InsertProbes p = InsertProbes.open(db)) {
+            Outcome o = run(p, differing);
+            assertThat(o.failure()).isNull();
+            // Every stored name differs from its code, so both conflicting rows update and row 3 inserts.
+            assertThat(p.rows(ROWS)).containsExactly("1|c1|Y1|1", "2|c2|Y2|1", "3|c3|N3|0");
+
+            o = run(p, same);
+            assertThat(o.failure()).isNull();
+            // No stored name equals its code: the conflicting rows stay as seeded.
+            assertThat(p.rows(ROWS)).containsExactly("1|c1|N1|0", "2|c2|N2|0", "3|c3|N3|0");
+        }
+    }
+
+    @TckTest
+    void ac_flt_26_an_op_in_an_arbiter_where_is_mq1804_naming_it_at_build(TckDatabase db) {
+        var rows = List.of(new ArbiterRow(3L, "k3", "s1", "OPEN", "X1"));
+        assertThatThrownBy(() -> ValuesInsert.builder(ARBITER_COLUMNS, Long.class, rows)
+                .onConflict(ARBITER_SKU).where(f -> f.op(DIFFERS, ARBITER_STATUS, "CLOSED"))
+                .doUpdate(u -> u.setFromRow(ARBITER_NAME)).build())
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1804))
+                .hasMessageContaining("onConflict(...).where(...) with op(differs)");
+        assertThatThrownBy(() -> ValuesInsert.builder(ARBITER_COLUMNS, Long.class, rows)
+                .onConflict(ARBITER_SKU).where(f -> f.op(DIFFERS, ARBITER_STATUS, ARBITER_NAME))
+                .doUpdate(u -> u.setFromRow(ARBITER_NAME)).build())
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1804))
+                .hasMessageContaining("op(differs)");
     }
 
     // ---- AC-WRT-24

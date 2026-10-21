@@ -3,6 +3,7 @@ package com.rey.modelquery.core;
 import com.rey.modelquery.core.Condition.Kind;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.ParameterExpression;
 import jakarta.persistence.criteria.Predicate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -495,11 +496,11 @@ abstract class ConditionGroup<M, G> {
         Object bound = operator.valueType() == null ? bound(column, uncheckedColumnValue(prepared)) : prepared;
         Class<?> type = operator.valueType() != null ? operator.valueType() : ColumnField.boxed(attributeType(column));
         return record(Condition.operator(operator, column, value), ctx -> {
-            requireGate(operator, column);
-            requireMappingIndependent(operator, column, bound);
+            requireGate(operator, column, ctx);
+            Expression<C> left = column.expression(ctx);
             @SuppressWarnings("unchecked")
-            Expression<V> right = (Expression<V>) ctx.parameter(type, bound);
-            return Optional.of(rendered(operator, column, ctx, column.expression(ctx), right));
+            Expression<V> right = (Expression<V>) operand(operator, column, ctx, left, type, bound);
+            return Optional.of(rendered(operator, column, ctx, left, right));
         });
     }
 
@@ -524,7 +525,7 @@ abstract class ConditionGroup<M, G> {
         }
         requireOperatorAttribute(operator, left);
         return record(Condition.operator(operator, left, right), ctx -> {
-            requireGate(operator, left);
+            requireGate(operator, left, ctx);
             return Optional.of(rendered(operator, left, ctx, (Expression<C>) operand(left, ctx),
                     (Expression<V>) operand(right, ctx)));
         });
@@ -569,13 +570,64 @@ abstract class ConditionGroup<M, G> {
         return prepared;
     }
 
-    /** {@code MQ4014} for an operator that requires a feature: no operator gate answers for one (R-FLT-20). */
-    private static void requireGate(FilterOperator<?, ?> operator, SelectField<?, ?> column) {
-        if (operator.feature() != null) {
-            throw new ModelQueryConfigurationException(MqCode.MQ4014, column + ": op(" + operator.name()
-                    + ") requires " + operator.feature() + ", and this rendering has no operator gate to tell "
-                    + "whether the vendor and the persistence provider serve it");
+    /**
+     * For an operator that requires a feature, {@code MQ4015} when the target's vendor lacks it, then {@code MQ4014}
+     * when the provider can't render it or no operator gate answers for it (R-FLT-20, R-VND-23).
+     */
+    private static void requireGate(FilterOperator<?, ?> operator, SelectField<?, ?> column, JoinContext ctx) {
+        OperatorFeature feature = operator.feature();
+        if (feature == null) {
+            return;
         }
+        OperatorGate gate = ctx.renderOptions().operatorGate().orElseThrow(() ->
+                new ModelQueryConfigurationException(MqCode.MQ4014, column + ": op(" + operator.name()
+                        + ") requires " + feature + ", and this rendering has no operator gate to tell whether the "
+                        + "vendor and the persistence provider serve it"));
+        // The vendor first: it is the real reason an operator can't run, whatever the provider renders (R-VND-23).
+        if (!gate.vendorServes(feature)) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4015, column + ": op(" + operator.name()
+                    + ") requires " + feature + ", which " + gate.vendor() + " lacks (VendorProfile#operators)");
+        }
+        if (!gate.providerServes(feature)) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4014, column + ": op(" + operator.name()
+                    + ") requires " + feature + ", which the persistence provider can't render on " + gate.vendor()
+                    + " (ProviderSupport#operators)");
+        }
+    }
+
+    /**
+     * The value-form operand: the provider binder's parameter typed by {@code left}'s mapping for a
+     * {@code FilterOperator<C, C>}, else a parameter typed by {@code type}, which only a mapping-independent value
+     * takes (R-FLT-21, R-VND-24, D-169).
+     */
+    private static Expression<?> operand(FilterOperator<?, ?> operator, SelectField<?, ?> column, JoinContext ctx,
+            Expression<?> left, Class<?> type, Object value) {
+        Optional<OperandBinder> binder = operator.valueType() == null
+                ? ctx.renderOptions().operandBinder() : Optional.empty();
+        if (binder.isEmpty()) {
+            requireMappingIndependent(operator, column, value);
+            return ctx.parameter(type, value);
+        }
+        ParameterExpression<?> parameter;
+        try {
+            parameter = binder.get().parameter(ctx.cb(), left, type);
+        } catch (ModelQueryException e) {
+            throw e; // an engine error keeps its own code
+        } catch (RuntimeException e) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1502, column + ": op(" + operator.name()
+                    + ") cannot bind its value: the provider's operand binder threw " + e, e);
+        }
+        if (parameter == null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1502, column + ": op(" + operator.name()
+                    + ") cannot bind its value: the provider's operand binder returned no parameter");
+        }
+        if (ctx.statementParameters().containsKey(parameter)) {
+            // A parameter binds one value per statement: reused, the later value would replace the earlier (INV-5).
+            throw new ModelQueryDefinitionException(MqCode.MQ1502, column + ": op(" + operator.name()
+                    + ") cannot bind its value: the provider's operand binder returned a parameter this statement "
+                    + "already binds; it must make a new parameter on every call");
+        }
+        return ctx.bind(parameter, value);
     }
 
     /**
