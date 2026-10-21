@@ -2676,13 +2676,14 @@ on 6.6.58 and 7.4.11; it is `true` on `PostgreSQLDialect`, `H2Dialect` and `Cock
 `true` to `false` (`MQ4014`). The vendor check still runs first and answers `ILIKE` for PostgreSQL and H2 only
 (R-VND-23), so CockroachDB is `MQ4015` unless a profile answers `ILIKE`. → `vendor/40` R-VND-23, AC-FLT-24, D-171.
 
-**D-176 — Inline count, converted ignore-case filters and inline value handling join 0.10.0 (2026-10-21, user
-decision).** RFC 0018's three parts ship in 0.10.0 as M30, after M29, with an RFC acceptance spike first (M30.0): `CountMode.INLINE_COUNT` (Q-29)
-, `likeIgnoreCase` and `eqIgnoreCase` over a JPA `@Convert` attribute (Q-30) and the engine's value paths under
-`value_handling_mode=inline` (Q-28). Q-28 keeps R-FLT-08 true under a setting the engine can detect; Q-30 narrows or changes a shipped
-filter's rows, which is cheaper before D-85 freezes it; Q-29 is additive but is decided with it so the freeze review
-places `CountMode` once. The freeze moves from M30 to M31 and stays last, and M30's last slice finishes the 0.10.0
-release prep. Everything new is `@Incubating`, so the M31.1 freeze review decides each type. → `rfc/0018`,
+**D-176 — Inline count, converted ignore-case filters, inline value handling and filter-only to-many joins join 0.10.0
+(2026-10-21, user decision).** RFC 0018's four parts ship in 0.10.0 as M30, after M29, with an RFC acceptance spike
+first (M30.0): `CountMode.INLINE_COUNT` (Q-29), `likeIgnoreCase` and `eqIgnoreCase` over a JPA `@Convert` attribute
+(Q-30), the engine's value paths under `value_handling_mode=inline` (Q-28) and filter-only to-many joins (Q-31). Q-28
+keeps R-FLT-08 true under a setting the engine can detect; Q-30 and Q-31 change a shipped filter's rows, which is
+cheaper before D-85 freezes it; Q-29 is additive but is decided with them so the freeze review places `CountMode`
+once. The freeze moves from M30 to M31 and stays last, and M30's last slice finishes the 0.10.0 release prep.
+Everything new is `@Incubating`, so the M31.1 freeze review decides each type. → `rfc/0018`,
 `docs/plan/mvp-plan.md` §30–§31, `delivery/62`, D-85, D-148.
 
 ## 2. Open questions
@@ -2839,8 +2840,9 @@ to-many column reaches `page` (R-PAG-13 lets it through), and its content statem
 matching on several children is several rows, while `COUNT` reports `count(distinct root)` (R-EXE-04). The total and
 the rows can then disagree (`warnOfContradictedTotal`). Found by RFC 0018's first review; Part A falls back to `COUNT`
 here rather than inherit it. Whether the content statement should be distinct on the root, or `COUNT` should count
-rows, is open; `Filters.exists` (R-FLT-12) avoids it today. → `engine/20` R-EXE-02, R-EXE-04, `engine/21` R-PAG-13,
-`rfc/0018` §A.3.
+rows, is open; `Filters.exists` (R-FLT-12) avoids it today. `rfc/0018` Part D (M30, D-176, user 2026-10-21) proposes a
+correlated semi-join holding the whole predicate. → `engine/20` R-EXE-02, R-EXE-04, `engine/21` R-PAG-02, R-PAG-13,
+`rfc/0018` §A.3, Part D.
 
 ## 3. Risks
 
