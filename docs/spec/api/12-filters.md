@@ -132,7 +132,8 @@ probably `eqIgnoreCase`, unconfirmed, Q-30) binds the unconverted, lower-cased v
 ## 5. Bind parameters and large sets
 
 **R-FLT-08** Every value is a bind parameter. The engine never inlines a value into SQL, for any operator. Inside an expression, values bind as `api/10` R-COL-18
-states; `Expr.constant` is definition text, not a value.
+states; `Expr.constant` is definition text, not a value, and so is a validated `fullTextMatch` configuration (D-173,
+`MQ1315`), which renders as an inline literal.
 
 **R-FLT-09** Lists longer than `VendorProfile.maxInListSize()` render as `col IN (…) OR col IN (…)`, in chunks of at
 most that many values in the given order, and `notIn` as an AND of `NOT IN` chunks, ORed once with `col IS NULL` so
@@ -337,7 +338,10 @@ Equality with a NULL lifted value matches no row: correlated count is zero and e
 
 **R-FLT-20** *(D-167, D-168, `@Incubating`)* **`FilterOperator` and `op`.** A `FilterOperator<C, V>` is a named,
 immutable `core` definition (INV-9) built by `FilterOperator.of(name, renderer)`, whose value is of the column's own
-type (`FilterOperator<C, C>`), or `of(name, valueType, renderer)`, whose value is a `V` (`rfc/0017` §1). Each of
+type (`FilterOperator<C, C>`), or `of(name, valueType, renderer)`, whose value is a `V` (`rfc/0017` §1) and is never converted, unlike
+`of(name, renderer)`'s (R-FLT-21): on a `String`-to-`String` `ColumnConverter` column the two bind differently, so use
+`of(name, renderer)` when the value is a column value. An array value is copied when the filter is added
+(`api/16` R-INS-13). Each of
 `requiringAttribute(type)`, `requires(feature)` and `preparing(prepare)` returns a new instance that replaces that
 setting, so an operator belongs in a constant, never built at a call site. A null or blank name is `MQ1301`; the name
 is for logs, inspection and messages only, and two definitions with one name are two operators.
@@ -352,7 +356,8 @@ is for logs, inspection and messages only, and two definitions with one name are
 - **The renderer** (`OperatorRenderer`) gets an `OperatorContext` (its `cb()`), the column's expression as `left` (of
   the attribute's type on a converted column, D-37) and the operand as `right`: the engine's bind parameter in the
   value form, the right field's expression in the field form. It never sees the value, and must use the `right` it is
-  given and never capture a value (`cb.equal(left, someValue)`, `cb.literal`), which a provider may inline (R-FLT-08).
+  given and never capture a value (`cb.equal(left, someValue)`, `cb.literal`), which a provider may inline (R-FLT-08). The one
+  exception is the catalogue's `fullTextMatch` configuration, a validated identifier and definition text (D-173).
   It runs at build time; returning `null` or throwing a `RuntimeException` is `MQ1313` naming the operator and the
   column, the exception as the cause, before any statement. A `ModelQueryException` it throws keeps its own code.
 - **`requiringAttribute(type)`** refuses, with `MQ1001` when the filter is added, a column whose attribute type (the

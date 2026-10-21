@@ -237,9 +237,30 @@ public final class Condition {
         return Optional.ofNullable(path);
     }
 
-    /** The values as passed, before any converter, in order, as a list that throws on mutation. */
+    /**
+     * The values as passed, before any converter, in order, as a list that throws on mutation; an {@code OPERATOR}'s
+     * array value is a (shallow) copy, so the recorded one cannot be changed through it (INV-9).
+     */
     public List<Object> values() {
-        return values;
+        return kind == Kind.OPERATOR && values.size() == 1 && values.get(0) != null && values.get(0).getClass().isArray()
+                ? List.of(copyOfArray(values.get(0))) : values;
+    }
+
+    /**
+     * {@code value}, or a copy of it when it is an array: one level, so an element that is itself an array or an
+     * object is shared, as INV-9 states for inserts (R-INS-13).
+     */
+    static Object copyOfArray(Object value) {
+        if (value == null || !value.getClass().isArray()) {
+            return value;
+        }
+        if (value instanceof Object[] array) {
+            return array.clone();
+        }
+        int length = java.lang.reflect.Array.getLength(value);
+        Object copy = java.lang.reflect.Array.newInstance(value.getClass().getComponentType(), length);
+        System.arraycopy(value, 0, copy, 0, length);
+        return copy;
     }
 
     /** The operand fields of an {@code IN_FIELDS} or {@code NOT_IN_FIELDS}, in order; empty for any other kind. */

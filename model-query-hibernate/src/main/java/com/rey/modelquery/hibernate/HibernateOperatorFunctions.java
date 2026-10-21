@@ -1,5 +1,6 @@
 package com.rey.modelquery.hibernate;
 
+import com.rey.modelquery.core.EngineFacing;
 import com.rey.modelquery.core.OperatorFeature;
 import java.util.List;
 import org.hibernate.boot.model.FunctionContributions;
@@ -17,6 +18,7 @@ import org.hibernate.type.StandardBasicTypes;
  *
  * @implSpec vendor/40 R-VND-23, rfc/0017 §4, D-172, D-173
  */
+@EngineFacing
 public final class HibernateOperatorFunctions implements FunctionContributor {
 
     /** {@link OperatorFeature#REGEX_MATCH}'s function: PostgreSQL's case-sensitive {@code ~}. */

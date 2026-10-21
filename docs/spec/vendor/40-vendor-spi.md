@@ -511,6 +511,10 @@ rendered, before any statement (`api/12` R-FLT-20), mirroring R-SRC-11's checks 
    `constants(emf)` does, because a `ProviderSupport` is a stateless `ServiceLoader` service; Hibernate's answer is
    `model-query-hibernate`'s (`rfc/0017` §4).
 
+A feature means the catalogue's rendering: a vendor answers `true` only where that SQL runs, and a provider only where
+its functions are served (D-171, D-175). A user operator that renders its own SQL should require no feature, since the
+vendor and provider answers say nothing about its SQL (INV-6).
+
 The executor asks both for every constant once, when it is built, into a `core.OperatorGate` (two immutable feature
 sets and the vendor's name) that `RenderOptions.withOperatorGate(gate)` carries to every statement it renders: queries,
 counts, exports, writes, child loads and conflict clauses. `core` sees only the gate, never a profile (INV-6, INV-7).

@@ -51,7 +51,9 @@ public final class FilterOperator<C, V> {
     }
 
     /**
-     * An operator whose operand is a {@code V}, bound typed by {@code valueType} and never converted (R-FLT-21).
+     * An operator whose operand is a {@code V}, bound typed by {@code valueType} and never converted (R-FLT-21), unlike
+     * {@link #of(String, OperatorRenderer)}'s: on a {@code String}-to-{@code String} {@code ColumnConverter} column the
+     * two bind differently, so use that overload when the value is a column value.
      *
      * @throws ModelQueryDefinitionException {@code MQ1301} for a null or blank name
      */

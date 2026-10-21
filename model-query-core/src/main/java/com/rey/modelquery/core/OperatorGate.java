@@ -1,7 +1,6 @@
 package com.rey.modelquery.core;
 
 import com.rey.modelquery.annotations.Incubating;
-import java.util.EnumSet;
 import java.util.Objects;
 import java.util.Set;
 
@@ -39,7 +38,7 @@ public final class OperatorGate {
 
     private static Set<OperatorFeature> copy(Set<OperatorFeature> features, String name) {
         Objects.requireNonNull(features, name);
-        return features.isEmpty() ? Set.of() : Set.copyOf(EnumSet.copyOf(features));
+        return Set.copyOf(features);
     }
 
     /** The vendor this gate answers for, as messages name it. */

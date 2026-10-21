@@ -131,6 +131,18 @@ class OperatorGateExecutionTest {
         assertThat(results).containsExactly(List.of(new R(1L, "plain")));
     }
 
+    @TckTest
+    void ac_flt_22_an_enum_valued_op_passes_check_phases_with_no_executor_options(TckDatabase db) {
+        ModelQuery<ConstantRowEntity, Object, R> query =
+                ROWS_QUERY.where(f -> f.op(STATUS_IS, STATUS, ConstantStatus.PENDING)).build();
+        SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
+                // The scratch build's stand-in binder types the enum, where the real build has none (D-169 (4)).
+                sf.inSession(em -> query.checkPhases(em.getCriteriaBuilder()));
+            }
+        });
+    }
+
     // ---- the binder seam (R-VND-24): an enum value typed by the provider's binder
 
     @TckTest

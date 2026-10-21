@@ -119,6 +119,23 @@ class FullTextOperatorTest {
     }
 
     @TckTest
+    void ac_flt_32_the_field_form_matches_one_columns_text_as_the_query_of_another(TckDatabase db) {
+        Assumptions.assumeTrue(db.vendor() == TckVendor.POSTGRESQL, "only PostgreSQL has FULL_TEXT");
+        List<List<Long>> results = new ArrayList<>();
+        List<String> captured = SqlSnapshots.capture(db, ds -> {
+            try (SessionFactory sf = factory(ds, true)) {
+                sf.inSession(em -> results.add(ids(
+                        ModelQueryExecutor.create(em, FullTextRow.class, ModelQueryConfig.defaults()),
+                        f -> f.op(ENGLISH, NAME, NAME))));
+            }
+        });
+        // Every name matches itself as a query, but the null one (D-173 (5)); the right field binds nothing.
+        assertThat(results).containsExactly(List.of(1L, 2L, 3L, 4L, 5L));
+        assertThat(captured.stream().filter(s -> s.contains("from full_text_rows")).toList()).singleElement()
+                .satisfies(s -> assertThat(s).contains("plainto_tsquery('english', ftr1_0.name)").doesNotContain("?"));
+    }
+
+    @TckTest
     void ac_flt_32_the_vendor_check_refuses_full_text_with_mq4015_before_any_statement(TckDatabase db) {
         Assumptions.assumeTrue(db.vendor() != TckVendor.POSTGRESQL, "PostgreSQL serves FULL_TEXT");
         List<String> sql = SqlSnapshots.capture(db, ds -> {

@@ -471,8 +471,9 @@ public final class HibernateProviderSupport implements ProviderSupport {
     }
 
     /**
-     * Whether Hibernate renders {@code feature} on {@code emf} (R-VND-23): {@code ILIKE} by the dialect, true for
-     * PostgreSQL's and H2's (subclasses included), whose {@code ilike} is native, and false elsewhere, where
+     * Whether Hibernate renders {@code feature} on {@code emf} (R-VND-23): {@code ILIKE} by the dialect, true when
+     * its {@code supportsCaseInsensitiveLike()} (PostgreSQL, H2, CockroachDB), whose {@code ilike} is
+     * native, and false elsewhere, where
      * Hibernate emulates it as {@code lower(col) like lower(?)}; a pattern feature by looking its {@code mq_*}
      * functions up in the factory's registry, so it is true exactly where {@link HibernateOperatorFunctions}
      * registered them, whatever a custom profile says. False for another provider's factory.
@@ -486,7 +487,7 @@ public final class HibernateProviderSupport implements ProviderSupport {
         }
         if (feature == OperatorFeature.ILIKE) {
             Dialect dialect = factory.get().getJdbcServices().getDialect();
-            return dialect instanceof PostgreSQLDialect || dialect instanceof H2Dialect;
+            return dialect.supportsCaseInsensitiveLike();
         }
         List<String> functions = HibernateOperatorFunctions.functions(feature);
         SqmFunctionRegistry registry = factory.get().getQueryEngine().getSqmFunctionRegistry();

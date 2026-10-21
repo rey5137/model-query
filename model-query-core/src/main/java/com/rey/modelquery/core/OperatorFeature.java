@@ -9,6 +9,9 @@ import com.rey.modelquery.annotations.Incubating;
  * enum is the library's vendor knowledge, and it may gain constants, so a {@code switch} on it needs a
  * {@code default}.
  *
+ * <p>A feature means the catalogue's rendering: a vendor answers {@code true} only where that SQL runs, and a
+ * provider only where its functions are served. A user operator that renders its own SQL should require no feature.
+ *
  * @implSpec api/12 R-FLT-20, vendor/40 R-VND-23, D-167
  */
 @Incubating

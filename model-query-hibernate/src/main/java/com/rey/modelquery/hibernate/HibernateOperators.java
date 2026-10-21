@@ -34,9 +34,9 @@ public final class HibernateOperators {
         }
     }
 
-    private static final FilterOperator<String, String> REGEX_MATCH = FilterOperator.<String>of("regexMatch",
-                    (ctx, left, right) -> ctx.cb().isTrue(ctx.cb().function(HibernateOperatorFunctions.REGEX_MATCH,
-                            Boolean.class, left, right)))
+    private static final FilterOperator<String, String> REGEX_MATCH = FilterOperator.<String, String>of("regexMatch",
+                    String.class, (ctx, left, right) -> ctx.cb().isTrue(ctx.cb().function(
+                            HibernateOperatorFunctions.REGEX_MATCH, Boolean.class, left, right)))
             .requiringAttribute(String.class).requires(OperatorFeature.REGEX_MATCH);
 
     // One instance per operator for every element type, cast in its factory: an array operator's value carries no
@@ -66,8 +66,9 @@ public final class HibernateOperators {
 
     /**
      * Case-insensitive {@code col ILIKE ? ESCAPE '\'}, through {@code HibernateCriteriaBuilder#ilike}, on a
-     * {@code String} attribute; requires {@link OperatorFeature#ILIKE}: native on PostgreSQL and H2, refused
-     * elsewhere rather than emulated as {@code lower(col) like lower(?)}. The value is prepared as {@code like}'s is
+     * {@code String} attribute; requires {@link OperatorFeature#ILIKE}: the dialect's own (D-175), which the
+     * provider check answers for PostgreSQL, H2 and CockroachDB (not 7.4's Spanner PostgreSQL, {@code MQ4014}) while
+     * the built-in vendor check answers it for PostgreSQL and H2 only; refused elsewhere rather than emulated as {@code lower(col) like lower(?)}. The value is prepared as {@code like}'s is
      * (R-FLT-06): escaped and wrapped for every mode but {@code EXACT}, which passes no escape character, as
      * {@code like}'s doesn't, so its {@code \} is literal; on a converted column, from the attribute value
      * (R-FLT-21). In the field form the right column is the pattern as stored, its {@code \} an escape for every mode
@@ -79,7 +80,8 @@ public final class HibernateOperators {
 
     /**
      * PostgreSQL's case-sensitive regular-expression match, {@code col ~ ?}, on a {@code String} attribute; requires
-     * {@link OperatorFeature#REGEX_MATCH}. The value is the expression, unprepared.
+     * {@link OperatorFeature#REGEX_MATCH}. The value is the expression, unprepared, bound as a {@code String} and
+     * never converted, whatever converter the attribute has (R-FLT-21, D-174): a converter would rewrite the pattern.
      */
     public static FilterOperator<String, String> regexMatch() {
         return REGEX_MATCH;

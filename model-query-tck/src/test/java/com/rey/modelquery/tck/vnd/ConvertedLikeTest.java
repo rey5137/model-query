@@ -31,6 +31,7 @@ import org.hibernate.SessionFactory;
 import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
 import org.hibernate.cfg.AvailableSettings;
 import org.hibernate.cfg.Configuration;
+import org.junit.jupiter.api.Assumptions;
 
 /**
  * What a JPA {@code @Convert} on a {@code String} attribute does to a pattern, on both lines and Tier 1: Hibernate
@@ -122,6 +123,21 @@ class ConvertedLikeTest {
                 assertThat(ilike).as(handling).extracting(Run::bound)
                         .containsExactly(List.of("SKU:A12"), List.of("SKU:12%"));
             }
+        }
+    }
+
+    @TckTest
+    void ac_flt_24_regex_match_pattern_is_never_converted_by_a_convert_attribute_d174(TckDatabase db) {
+        Assumptions.assumeTrue(db.vendor() == TckVendor.POSTGRESQL, "only PostgreSQL has REGEX_MATCH");
+        for (String handling : List.of("bind", "inline")) {
+            List<Run> runs = new ArrayList<>();
+            // SkuPrefix would turn the pattern into "SKU:^SKU:a", which matches nothing; the raw one meets the
+            // stored SKU:a12 and SKU:12b.
+            run(db, handling, runs, f -> f.op(HibernateOperators.regexMatch(), CODE, "^SKU:(a12|12b)$"));
+            run(db, handling, runs, f -> f.op(HibernateOperators.regexMatch(), CODE, "^SKU:a"));
+            run(db, handling, runs, f -> f.op(HibernateOperators.regexMatch(), CODE, "^a"));
+            assertThat(runs).as(handling).extracting(Run::ids)
+                    .containsExactly(List.of(1L, 2L), List.of(1L), List.of());
         }
     }
 

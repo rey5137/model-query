@@ -26,11 +26,13 @@ Nothing is frozen yet: every public type stays `@Incubating`, and the additions 
   statement. `RenderOptions#withOperandBinder` supplies the mapping-aware binder. `PortabilityCheck` reports missing
   features per target when an operator's value is present; an empty `Optional` is skipped (AC-FLT-24, AC-FLT-32).
 - Hibernate pattern operators (D-171, R-VND-23): `HibernateOperators.ilike(LikeMode)` serves PostgreSQL and H2,
-  and `regexMatch()` serves PostgreSQL. `ilike` prepares patterns like `like`; MySQL is refused rather than
+  and `regexMatch()` serves PostgreSQL, taking its pattern unconverted (D-174). `ilike` prepares patterns like `like`,
+  and Hibernate answers it by the dialect's `supportsCaseInsensitiveLike()` (D-175), so CockroachDB's dialect is served
+  by the provider (still `MQ4015` from the vendor check) and 7.4's Spanner PostgreSQL dialect is `MQ4014`; MySQL is refused rather than
   emulated (AC-FLT-21, AC-FLT-24). The recorded JPA `@Convert` limitation for case-insensitive string filters
   remains open as Q-30.
 - Hibernate containment operators (D-172, R-VND-23): `arrayContains()`, `arrayOverlaps()` and `jsonbContains()`
-  serve PostgreSQL's array `@>`, array `&&` and jsonb `@>` predicates; H2 and MySQL are refused before execution
+  serve PostgreSQL's array `@>`, array `&&` and jsonb `@>` predicates (the array operators take boxed arrays, D-172); H2 and MySQL are refused before execution
   (AC-FLT-24).
 - Hibernate full-text operator (D-173, R-VND-23): `fullTextMatch(configuration)` serves PostgreSQL with
   `plainto_tsquery`, binding request text and rendering the validated configuration as a literal to match expression

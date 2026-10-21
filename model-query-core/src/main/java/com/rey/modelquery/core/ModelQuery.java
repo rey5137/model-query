@@ -9,6 +9,7 @@ import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Order;
+import jakarta.persistence.criteria.ParameterExpression;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
@@ -52,10 +53,24 @@ public final class ModelQuery<E, K, M> {
      * this executor's own options (D-132). Its stand-in operator gate serves every feature for the same reason, so a
      * query with an {@code op} and a customizer passes there (R-VND-23, D-169).
      */
-    private static final RenderOptions PHASE_SCRATCH =
+    private static final RenderOptions PHASE_SCRATCH_BASE =
             UNLIMITED.withSequenceRenderer((cb, sequence) -> cb.nullLiteral(Long.class))
                     .withOperatorGate(OperatorGate.of("checkPhases' scratch build",
                             EnumSet.allOf(OperatorFeature.class), EnumSet.allOf(OperatorFeature.class)));
+
+    /**
+     * {@link #PHASE_SCRATCH_BASE} with a stand-in binder, for {@link #checkPhases(CriteriaBuilder)} alone: with an
+     * executor's options the scratch build uses the options' binder or none, as the real build does (MQ1502, D-169).
+     */
+    private static final RenderOptions PHASE_SCRATCH = PHASE_SCRATCH_BASE
+                    // A scratch statement never runs, so a parameter typed by the class is enough for any value.
+                    .withOperandBinder(new OperandBinder() {
+                        @Override
+                        public <T> ParameterExpression<T> parameter(CriteriaBuilder cb, Expression<?> typedBy,
+                                Class<T> type) {
+                            return cb.parameter(type);
+                        }
+                    });
 
     private final TableField<E, E> root;
     private final RowMapper<M> mapper;
@@ -796,7 +811,7 @@ public final class ModelQuery<E, K, M> {
      */
     @EngineFacing
     public void checkPhases(CriteriaBuilder cb) {
-        checkPhases(cb, UNLIMITED);
+        checkPhasesOn(cb, PHASE_SCRATCH);
     }
 
     /**
@@ -806,8 +821,11 @@ public final class ModelQuery<E, K, M> {
      */
     @EngineFacing
     public void checkPhases(CriteriaBuilder cb, RenderOptions options) {
+        checkPhasesOn(cb, PHASE_SCRATCH_BASE.withRenderersOf(Objects.requireNonNull(options, "options")));
+    }
+
+    private void checkPhasesOn(CriteriaBuilder cb, RenderOptions scratchOptions) {
         Objects.requireNonNull(cb, "cb");
-        RenderOptions scratchOptions = PHASE_SCRATCH.withRenderersOf(Objects.requireNonNull(options, "options"));
         if (customizer == null) {
             return;
         }

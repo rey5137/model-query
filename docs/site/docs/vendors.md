@@ -96,7 +96,8 @@ list is declared.
 ## PostgreSQL
 
 - **Custom operators.** The Hibernate catalogue serves `ilike`, `regexMatch`, `arrayContains`, `arrayOverlaps`,
-  `jsonbContains` and `fullTextMatch` (R-VND-23). See [Custom operators](queries.md#custom-operators) for index advice
+  `jsonbContains` and `fullTextMatch` (R-VND-23). The array operators take boxed
+  arrays (`Integer[]`, not `int[]`, D-172). See [Custom operators](queries.md#custom-operators) for index advice
   and the generic-plan caveat. Regex `~` (`regexMatch`) and `ILIKE` on a column with a nondeterministic collation
   raise a database error; choose a deterministic collation for those operations.
 - **Streaming needs a transaction.** The PostgreSQL driver only uses a cursor when autocommit is off. Outside a
