@@ -2611,7 +2611,8 @@ recorded as found, not changed here (shipped `like` behaviour; see Q-30). → `v
 `mq_array_contains` as `(?1 @> ?2)`, `mq_array_overlaps` as `(?1 && ?2)` and `mq_jsonb_contains` as
 `(?1 @> cast(?2 as jsonb))`, boolean-valued with two arguments, in the same PostgreSQL-dialect branch as
 `mq_regex_match` (user, 2026-10-21: PostgreSQL's dialect only), so `ARRAY_CONTAINMENT` and `JSONB_CONTAINMENT` now
-answer `true` there and `false` on every other dialect; `FULL_TEXT` still answers `false` (D-171 (2)). Never
+answer `true` there and `false` on every other dialect; `FULL_TEXT` still answers `false` (D-171 (2); served
+since D-173). Never
 Hibernate's `array_includes` / `array_overlaps`, which are registered on H2 too (`rfc/0017` §4). (2) The names are
 `arrayContains`, `arrayOverlaps` and `jsonbContains`; each factory returns one instance shared by every element or
 column type, so `arrayContains()` for `String[]` and for `Integer[]` is the same object. (3) None requires an
@@ -2624,6 +2625,32 @@ hibernate module (Jackson is absent on 6.6); malformed text is PostgreSQL's erro
 than silently wrong (INV-5), as an invalid `regexMatch` pattern is. (5) PostgreSQL's
 semantics pass through unchanged: every array contains the empty one, and a `null` column matches neither a filter
 nor its `not(...)`. → `vendor/40` R-VND-23, `api/12` R-FLT-20, AC-FLT-24, `rfc/0017` §4.
+
+**D-173 — Full text through `plainto_tsquery` (M29.6, 2026-10-21).** (1) The request text goes through
+`plainto_tsquery`, not `websearch_to_tsquery` (user, 2026-10-21). A probe on PostgreSQL 17, both lines, over the rows
+`Acme Corp`, `Acme Industries`, `Global Corp`, `O'Brien and Sons`, `The "Best" Widgets` and a `null`: neither function
+raised a database error on any input, and both kept `gin (to_tsvector('english', name))` (a Bitmap Index Scan with
+`enable_seqscan = off`, and under `force_generic_plan`). `plainto_tsquery` reads the text as words that must all
+match: `acme corp`, `acme, corp.`, `"acme corp"`, `acme or corp` and `acme -corp` are all `'acm' & 'corp'` (Acme
+Corp); `o'brien` is `'o' & 'brien'`; operators (`&`, `:*`, `-`) are ignored. `websearch_to_tsquery` reads it as a
+query language: `acme or corp` is `'acm' | 'corp'`, quotes make a phrase, and `-` negates, so `-acme` is `!'acm'` and
+matches every non-null row without the word (three of five here): a search box turning a narrowing filter into a
+nearly full match from a pasted hyphen is silently wrong (INV-5). `websearch_to_tsquery` may come later as a separate
+operator. `to_tsquery` stays out (`rfc/0017` §4). (2) Text with no lexemes (empty, blank, only stop words such as
+`the`, or only operators such as `&|!():*`) matches no row, never every row, and PostgreSQL raises only a notice
+(`text-search query doesn't contain lexemes` / `contains only stop words`), no error; the library doesn't refuse it,
+and the javadoc tells callers to skip the filter for blank input (user, 2026-10-21). (3) `HibernateOperatorFunctions`
+registers `mq_ts_match` as `(to_tsvector(?1, ?2) @@ plainto_tsquery(?1, ?3))`, boolean-valued with three arguments,
+in the PostgreSQL-dialect branch, so `FULL_TEXT` now answers `true` there and `false` elsewhere. Both calls sit in the
+pattern and take the one configuration argument, so the two literals can't differ and the statement always has the
+form `gin (to_tsvector('<config>', col))` matches. (4) `HibernateOperators.fullTextMatch(String configuration)` is a
+`FilterOperator<String, String>` in the `<C, V>` form on a `String` attribute (`MQ1001` otherwise), named
+`fullTextMatch(<configuration>)`; the text is bound as a `String`, never converted. The configuration must match
+`[A-Za-z_][A-Za-z0-9_]*`, optionally one `.`-qualified more (`english`, `public.my_config`); null, blank or anything
+else is `MQ1315` at the factory call, naming it, so nothing can break out of the literal. It is passed as
+`cb.literal(configuration)` and renders inline (`to_tsvector('english',…)`), never bound. The factory caches one
+instance per configuration in a `ConcurrentHashMap`; an invalid one is never cached. → `vendor/40` R-VND-23,
+`api/12` R-FLT-20, R-FLT-21, AC-FLT-32, `reference/90` `MQ1315`, `rfc/0017` §4.
 
 ## 2. Open questions
 

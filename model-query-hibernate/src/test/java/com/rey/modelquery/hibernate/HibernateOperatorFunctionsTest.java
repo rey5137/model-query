@@ -28,29 +28,30 @@ import org.junit.jupiter.api.Test;
  * The {@code mq_*} functions {@link HibernateOperatorFunctions} registers per dialect, and the provider's
  * {@code operators} answer per dialect built on them: a factory booted without a connection per dialect, so every
  * vendor's answer is checked here, and the TCK checks the same answers on the real databases (spec vendor/40
- * R-VND-23; TCK AC-FLT-24).
+ * R-VND-23; TCK AC-FLT-24, AC-FLT-32).
  */
 class HibernateOperatorFunctionsTest {
 
     private static final List<String> MQ_FUNCTIONS = List.of(HibernateOperatorFunctions.REGEX_MATCH,
             HibernateOperatorFunctions.ARRAY_CONTAINS, HibernateOperatorFunctions.ARRAY_OVERLAPS,
-            HibernateOperatorFunctions.JSONB_CONTAINS);
+            HibernateOperatorFunctions.JSONB_CONTAINS, HibernateOperatorFunctions.TS_MATCH);
 
     private final HibernateProviderSupport support = new HibernateProviderSupport();
 
     @Test
-    void ac_flt_24_postgresql_serves_ilike_and_every_pattern_feature_but_full_text_through_its_registered_functions() {
+    void ac_flt_24_ac_flt_32_postgresql_serves_ilike_and_every_pattern_feature_through_its_registered_functions() {
         on(PostgreSQLDialect.class, sf -> {
             assertThat(MQ_FUNCTIONS).allSatisfy(f -> assertThat(registered(sf, f)).as(f).isTrue());
             assertThat(served(sf)).containsExactlyInAnyOrder(OperatorFeature.ILIKE, OperatorFeature.REGEX_MATCH,
-                    OperatorFeature.ARRAY_CONTAINMENT, OperatorFeature.JSONB_CONTAINMENT);
+                    OperatorFeature.ARRAY_CONTAINMENT, OperatorFeature.JSONB_CONTAINMENT, OperatorFeature.FULL_TEXT);
         });
     }
 
     @Test
     void ac_flt_24_a_postgresql_dialect_subclass_is_served_as_postgresql() {
         on(PostgresPlusDialect.class, sf -> assertThat(served(sf)).containsExactlyInAnyOrder(OperatorFeature.ILIKE,
-                OperatorFeature.REGEX_MATCH, OperatorFeature.ARRAY_CONTAINMENT, OperatorFeature.JSONB_CONTAINMENT));
+                OperatorFeature.REGEX_MATCH, OperatorFeature.ARRAY_CONTAINMENT, OperatorFeature.JSONB_CONTAINMENT,
+                OperatorFeature.FULL_TEXT));
     }
 
     @Test

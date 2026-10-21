@@ -4,12 +4,15 @@ import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.FilterOperator;
 import com.rey.modelquery.core.LikeMode;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
+import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.OperatorContext;
 import com.rey.modelquery.core.OperatorFeature;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 import org.hibernate.query.criteria.HibernateCriteriaBuilder;
 
 /**
@@ -18,7 +21,7 @@ import org.hibernate.query.criteria.HibernateCriteriaBuilder;
  * statement ({@code MQ4015}, then {@code MQ4014}) rather than emulated or sent to a database that refuses it. Each
  * factory returns one cached instance, which may be kept in a constant.
  *
- * @implSpec api/12 R-FLT-20, vendor/40 R-VND-23, rfc/0017 §4, D-171, D-172
+ * @implSpec api/12 R-FLT-20, vendor/40 R-VND-23, rfc/0017 §4, D-171, D-172, D-173
  */
 @Incubating
 public final class HibernateOperators {
@@ -50,6 +53,13 @@ public final class HibernateOperators {
                     "jsonbContains", String.class, (ctx, left, right) -> ctx.cb().isTrue(ctx.cb().function(
                             HibernateOperatorFunctions.JSONB_CONTAINS, Boolean.class, left, right)))
             .requires(OperatorFeature.JSONB_CONTAINMENT);
+
+    /** A plain SQL identifier, optionally schema-qualified: nothing a literal could be broken out of (D-173). */
+    private static final Pattern CONFIGURATION =
+            Pattern.compile("[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)?");
+
+    /** One instance per configuration; configurations are constants of definitions, so the map stays small. */
+    private static final Map<String, FilterOperator<String, String>> FULL_TEXT = new ConcurrentHashMap<>();
 
     private HibernateOperators() {
     }
@@ -102,6 +112,36 @@ public final class HibernateOperators {
     @SuppressWarnings("unchecked")
     public static <C> FilterOperator<C, String> jsonbContains() {
         return (FilterOperator<C, String>) (FilterOperator<?, ?>) JSONB_CONTAINS;
+    }
+
+    /**
+     * PostgreSQL's full text, {@code to_tsvector('<configuration>', col) @@ plainto_tsquery('<configuration>', ?)},
+     * on a {@code String} attribute; requires {@link OperatorFeature#FULL_TEXT}. The configuration is rendered as a
+     * literal in both calls, so a {@code gin (to_tsvector('<configuration>', col))} index can serve the filter; the
+     * value is the request's text, read as plain words that must all match (never tsquery syntax), bound as a
+     * {@code String} and never converted (R-FLT-21). Text with no lexemes, blank or only stop words, matches no row,
+     * so skip the filter for blank input. Equal configurations return the same instance: the configuration is a
+     * constant of the definition, never request input, and each distinct one is kept for the JVM's life, so call
+     * this once per configuration and keep the result in a constant.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1315} for a null, blank or other configuration than a plain,
+     *     optionally schema-qualified SQL identifier ({@code english}, {@code public.my_config})
+     * @implSpec api/12 AC-FLT-32, vendor/40 R-VND-23, D-173
+     */
+    public static FilterOperator<String, String> fullTextMatch(String configuration) {
+        if (configuration == null || !CONFIGURATION.matcher(configuration).matches()) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1315, "fullTextMatch(" + (configuration == null ? "null"
+                    : "\"" + configuration + "\"") + "): the configuration must be a plain, optionally"
+                    + " schema-qualified SQL identifier, such as english or public.my_config");
+        }
+        return FULL_TEXT.computeIfAbsent(configuration, HibernateOperators::fullTextOf);
+    }
+
+    private static FilterOperator<String, String> fullTextOf(String configuration) {
+        return FilterOperator.<String, String>of("fullTextMatch(" + configuration + ")", String.class,
+                        (ctx, left, right) -> ctx.cb().isTrue(ctx.cb().function(HibernateOperatorFunctions.TS_MATCH,
+                                Boolean.class, ctx.cb().literal(configuration), left, right)))
+                .requiringAttribute(String.class).requires(OperatorFeature.FULL_TEXT);
     }
 
     private static FilterOperator<Object[], Object[]> pattern(String name, String function) {

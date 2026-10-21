@@ -1,0 +1,11 @@
+select ftr1_0.id from full_text_rows ftr1_0 where (to_tsvector('english', ftr1_0.name) @@ plainto_tsquery('english', ?)) order by 1
+select ftr1_0.id from full_text_rows ftr1_0 where (to_tsvector('english', ftr1_0.name) @@ plainto_tsquery('english', ?)) order by 1
+select ftr1_0.id from full_text_rows ftr1_0 where (to_tsvector('english', ftr1_0.name) @@ plainto_tsquery('english', ?)) order by 1
+select ftr1_0.id from full_text_rows ftr1_0 where (to_tsvector('english', ftr1_0.name) @@ plainto_tsquery('english', ?)) order by 1
+select ftr1_0.id from full_text_rows ftr1_0 where (to_tsvector('english', ftr1_0.name) @@ plainto_tsquery('english', ?)) order by 1
+select ftr1_0.id from full_text_rows ftr1_0 where (to_tsvector('english', ftr1_0.name) @@ plainto_tsquery('english', ?)) order by 1
+select ftr1_0.id from full_text_rows ftr1_0 where (to_tsvector('english', ftr1_0.name) @@ plainto_tsquery('english', ?)) order by 1
+select ftr1_0.id from full_text_rows ftr1_0 where (to_tsvector('english', ftr1_0.name) @@ plainto_tsquery('english', ?)) order by 1
+select ftr1_0.id from full_text_rows ftr1_0 where (to_tsvector('english', ftr1_0.name) @@ plainto_tsquery('english', ?)) order by 1
+select ftr1_0.id from full_text_rows ftr1_0 where not((to_tsvector('english', ftr1_0.name) @@ plainto_tsquery('english', ?))) order by 1
+select ftr1_0.id from full_text_rows ftr1_0 where (to_tsvector('public.mq_full_text_config', ftr1_0.name) @@ plainto_tsquery('public.mq_full_text_config', ?)) order by 1

@@ -67,6 +67,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1312` | `in` or `notIn` over a sub-select with an embeddable-valued column on either side; checked at first resolution | `api/12` R-FLT-16 |
 | `MQ1313` | An operator's renderer returned `null` or threw a `RuntimeException`, or its `prepare` did; the message names the operator and the column, and a thrown exception is the cause. The renderer's at build time, before any statement; `prepare`'s when the filter is added. A `ModelQueryException` thrown from either is rethrown unwrapped, keeping its own code | `api/12` R-FLT-20, D-168 |
 | `MQ1314` | Correlated group key or grouped selection/order lifting non-keys; at definition | `api/10` R-COL-33 |
+| `MQ1315` | A `fullTextMatch` configuration that is null, blank or not a plain, optionally schema-qualified SQL identifier (`english`, `public.my_config`), when the factory is called: ASCII letters, digits and `_`, not starting with a digit, optionally one schema qualifier; quoted, `$` and non-ASCII names are refused. The message names the configuration | `api/12` AC-FLT-32, `vendor/40` R-VND-23, D-173 |
 | `MQ1401` | A selected non-aggregate column or expression does not fit the group-by | `api/13` R-AGG-08, R-AGG-14 |
 | `MQ1402` | Keyset paging or primary-key-first on a grouped query | `api/13` R-AGG-10 |
 | `MQ1403` | `Agg.sum` or `Agg.sumAsLong` over a column whose SQL sum type differs from the declared result type | `api/13` R-AGG-03 |

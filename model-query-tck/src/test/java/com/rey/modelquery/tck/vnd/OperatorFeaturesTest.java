@@ -14,7 +14,8 @@ import org.hibernate.SessionFactory;
 
 /**
  * Hibernate's answer per Tier-1 database to which operator features it renders: {@code ILIKE} by the dialect, a
- * pattern feature by its {@code mq_*} function in the factory's registry (spec vendor/40 R-VND-23; TCK AC-FLT-24).
+ * pattern feature by its {@code mq_*} function in the factory's registry (spec vendor/40 R-VND-23; TCK AC-FLT-24,
+ * AC-FLT-32).
  */
 class OperatorFeaturesTest {
 
@@ -31,10 +32,9 @@ class OperatorFeaturesTest {
                 }
             }
         });
-        // The full-text function isn't registered on any dialect yet, so it is never served.
         Set<OperatorFeature> expected = switch (db.vendor()) {
             case POSTGRESQL -> EnumSet.of(OperatorFeature.ILIKE, OperatorFeature.REGEX_MATCH,
-                    OperatorFeature.ARRAY_CONTAINMENT, OperatorFeature.JSONB_CONTAINMENT);
+                    OperatorFeature.ARRAY_CONTAINMENT, OperatorFeature.JSONB_CONTAINMENT, OperatorFeature.FULL_TEXT);
             case H2 -> EnumSet.of(OperatorFeature.ILIKE);
             case MYSQL -> EnumSet.noneOf(OperatorFeature.class);
         };
