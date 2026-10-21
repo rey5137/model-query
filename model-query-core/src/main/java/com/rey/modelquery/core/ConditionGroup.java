@@ -483,7 +483,9 @@ abstract class ConditionGroup<M, G> {
      */
     final <C, V> G op(FilterOperator<C, V> operator, SelectField<M, C> column, V value) {
         Objects.requireNonNull(operator, "operator");
-        V given = required(column, "op", value);
+        // An array is copied: the caller's may change later, and a definition must not (INV-9).
+        @SuppressWarnings("unchecked")
+        V given = (V) Condition.copyOfArray(required(column, "op", value));
         if (given instanceof Optional<?> || given instanceof Collection<?> || given instanceof Map<?, ?>) {
             // A Collection operand is an IN, and a Map has no portable binding: no binder takes either (R-FLT-21).
             throw new ModelQueryDefinitionException(MqCode.MQ1502, column + ": op(" + operator.name()
@@ -495,12 +497,14 @@ abstract class ConditionGroup<M, G> {
         if (operator.valueType() == null) {
             // As like: the converter runs first, and prepare builds on the attribute value (R-FLT-21, D-171).
             requirePreparable(operator, column);
-            bound = prepared(operator, column, uncheckedColumnValue(bound(column, uncheckedColumnValue(given))));
+            bound = prepared(operator, column,
+                    uncheckedColumnValue(Condition.copyOfArray(bound(column, uncheckedColumnValue(given)))));
         } else {
-            bound = prepared(operator, column, given);
+            // prepare gets its own copy: one that sorts in place must not change the value recorded before it (R-INS-13).
+            bound = prepared(operator, column, uncheckedColumnValue(Condition.copyOfArray(given)));
         }
         Class<?> type = operator.valueType() != null ? operator.valueType() : ColumnField.boxed(attributeType(column));
-        return record(Condition.operator(operator, column, value), ctx -> {
+        return record(Condition.operator(operator, column, given), ctx -> {
             requireGate(operator, column, ctx);
             Expression<C> left = column.expression(ctx);
             @SuppressWarnings("unchecked")

@@ -65,9 +65,16 @@ class HibernateOperatorFunctionsTest {
     }
 
     @Test
-    void ac_flt_24_mysql_mariadb_and_cockroachdb_serve_nothing_never_the_ilike_emulation() {
-        for (Class<? extends Dialect> dialect : Set.of(MySQLDialect.class, MariaDBDialect.class,
-                CockroachDialect.class)) {
+    void ac_flt_24_cockroachdb_serves_ilike_alone_as_its_dialect_has_a_native_one() {
+        on(CockroachDialect.class, sf -> {
+            assertThat(MQ_FUNCTIONS).allSatisfy(f -> assertThat(registered(sf, f)).as(f).isFalse());
+            assertThat(served(sf)).containsExactly(OperatorFeature.ILIKE);
+        });
+    }
+
+    @Test
+    void ac_flt_24_mysql_and_mariadb_serve_nothing_never_the_ilike_emulation() {
+        for (Class<? extends Dialect> dialect : Set.of(MySQLDialect.class, MariaDBDialect.class)) {
             on(dialect, sf -> {
                 assertThat(MQ_FUNCTIONS).allSatisfy(f -> assertThat(registered(sf, f)).as(f).isFalse());
                 assertThat(served(sf)).as(dialect.getName()).isEmpty();

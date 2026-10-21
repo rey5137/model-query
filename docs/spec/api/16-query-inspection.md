@@ -246,7 +246,7 @@ writes and argument-dependent calls need `call`. Holders are explicit; there is 
 
 **R-INS-13** *(D-167, `@Incubating`)* **Operators.** `op(...)` (`api/12` R-FLT-20) records `Condition.Kind#OPERATOR`
 with `column()`, `operator()` (an `Optional<FilterOperator<?, ?>>`, empty for every other kind) and either one value
-in `values()`, as passed, before `prepare` and any converter (R-INS-01), or the right operand in `right()`. Two
+in `values()`, as passed (an array value is copied, shallow per element as INV-9 states for inserts, so a later change to the caller's array doesn't change the condition, and `values()` returns a fresh copy), before `prepare` and any converter (R-INS-01), or the right operand in `right()`. Two
 `OPERATOR` conditions are equal when their operators are the same instance and their columns and values or right
 operands are equal (R-INS-04), so two queries built from equal calls stay equal when they share the operator constant,
 and an operator built at each call site makes them unequal. `toString` prints the operator's name with each value as

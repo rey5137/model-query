@@ -408,10 +408,14 @@ private static final FilterOperator<String, String> TRIMMED_TEXT =
 The lambda is an `OperatorRenderer<C, V>`; its `OperatorContext` exposes the statement's `CriteriaBuilder` through
 `cb()`. Use the `right` expression you are given. In value form it is a parameter bound separately for every
 statement, including counts and export pages; in field form it is the right field's expression. Never capture a
-request value in a renderer or replace `right` with `cb.literal(value)` or `cb.equal(left, value)`.
+request value in a renderer or replace `right` with `cb.literal(value)` or `cb.equal(left, value)`. The one
+exception is the catalogue's validated `fullTextMatch` configuration, which is definition text (D-173). An array value
+passed to `op` is copied when the filter is added (R-INS-13).
 
 `FilterOperator.of(name, renderer)` takes a value of the column's type (`C, C`). For a different operand type, use
-`FilterOperator.of(name, valueType, renderer)` (`C, V`); that value is not passed through a `ColumnConverter`.
+`FilterOperator.of(name, valueType, renderer)` (`C, V`); that value is never passed through a `ColumnConverter`, unlike
+`of(name, renderer)`'s, so on a `String`-to-`String` `ColumnConverter` column the two bind differently. Use
+`of(name, renderer)` when the value is a column value.
 `requiringAttribute(type)` checks the mapped attribute's type (`MQ1001` on a mismatch). `preparing(prepare)`
 transforms a value once when the filter is added, after a `ColumnConverter` has converted it. A renderer or preparation
 returning `null` or throwing a runtime exception is `MQ1313`; a `ModelQueryException` keeps its own code.
@@ -448,13 +452,15 @@ The NULL handling of `ne` and `notIn` does not apply here.
 | Factory | Meaning | Vendors served |
 |---|---|---|
 | `ilike(LikeMode)` | Case-insensitive LIKE; the value uses the same pattern preparation as `like` | PostgreSQL, H2 |
-| `regexMatch()` | PostgreSQL `~` regular-expression match | PostgreSQL |
-| `arrayContains()` | Array contains every element of the operand (`@>`) | PostgreSQL |
-| `arrayOverlaps()` | Arrays share an element (`&&`) | PostgreSQL |
+| `regexMatch()` | PostgreSQL `~` regular-expression match; the pattern is text, never converted by a `ColumnConverter` or `@Convert` (D-174) | PostgreSQL |
+| `arrayContains()` | Array contains every element of the operand (`@>`); boxed arrays only (`Integer[]`, not `int[]`) | PostgreSQL |
+| `arrayOverlaps()` | Arrays share an element (`&&`); boxed arrays only | PostgreSQL |
 | `jsonbContains()` | JSON document contains the operand's JSON text (`@>`) | PostgreSQL |
 | `fullTextMatch(configuration)` | Plain-text words must all match (`plainto_tsquery`) | PostgreSQL |
 
-MySQL serves none of these catalogue features. At execution the vendor check runs first (`MQ4015`), then the provider
+MySQL serves none of these catalogue features. CockroachDB is refused with `MQ4015` unless a profile answers `ILIKE`,
+even though Hibernate's `CockroachDialect` renders a native `ilike`; on Hibernate 7.4 a Spanner PostgreSQL dialect is
+`MQ4014` for `ilike`, since it emulates it (D-175). At execution the vendor check runs first (`MQ4015`), then the provider
 check (`MQ4014`), before any statement. A custom vendor profile answering yes cannot bypass the provider check;
 rendering a feature-requiring operator without a gate is also `MQ4014`.
 
@@ -486,7 +492,8 @@ Full text takes a required plain SQL identifier, optionally schema-qualified, as
 invalid text is `MQ1315` at the factory call. Request text is bound, while the configuration is a literal so an
 expression index can match. Punctuation is read as plain text, not a query language. Blank or stop-word-only text
 matches nothing and PostgreSQL emits a notice; callers should skip the filter when that input means no search
-(D-173). For a field-form `ilike`, the right field holds the pattern as stored; no value preparation runs.
+(D-173). The field form `op(fullTextMatch(c), left, right)` works too, matching one column's text as the query of
+another. For a field-form `ilike`, the right field holds the pattern as stored; no value preparation runs.
 
 **Converted attributes (Q-30, D-171).** With a JPA `@Convert` attribute, Hibernate converts the finished `like` and
 `ilike` patterns, but does not convert `likeIgnoreCase`'s bound pattern against `lower(col)`. A converter adding

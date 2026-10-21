@@ -2524,7 +2524,7 @@ R-WRT-34, R-WRT-52, `api/16` R-INS-04, R-INS-07, R-INS-13, `vendor/40` R-VND-23,
 attribute check, one feature and one `prepare`, and composing them is the caller's. (2) `prepare` runs once, when the
 filter is added, before conversion, so its value is converted and bound as is; a `null` from it or a thrown
 `RuntimeException` is `MQ1313`, as the renderer's is, since both are the operator's own code, and a
-`ModelQueryException` keeps its code. (3) An `Optional`, `Collection` or `Map` value is `MQ1502` when the filter is
+`ModelQueryException` keeps its code (order superseded by D-171 (6)). (3) An `Optional`, `Collection` or `Map` value is `MQ1502` when the filter is
 added, since no binder takes one; the mapping-independent check and the feature check run at render time, where the
 binder and the gate are known. (4) "A number" without a binder is a `java.lang` or `java.math` `Number` (a
 `Long`, a `BigDecimal`), not any `Number` subclass, which a class-typed parameter can't bind. (5) The field form's
@@ -2551,7 +2551,11 @@ cause; a parameter binds one value per statement, so a reused one would bind the
 write's sub-query whose binds repeat one of its statement's is `MQ1502` too, when they are merged; a
 `ModelQueryException` it throws keeps its code. (4) `checkPhases`' stand-in gate serves every feature and, as D-132's
 scratch sequence renderer, is a fallback: when the executor passes its own gate, that gate decides the scratch builds
-too, with the codes the real build would raise. (5) `Expr.cases().when(...)` refuses an `op` with `MQ1505` when the
+too, with the codes the real build would raise. The stand-in gate has a stand-in `OperandBinder` beside it, returning
+`cb.parameter(type)`, so `checkPhases(cb)`, which has no executor options, doesn't refuse an enum, `Boolean`, `UUID` or converted
+`op` value with `MQ1502` (D-168 (6)): scratch statements never run, so the bind is never observed. With executor options
+the scratch build uses the options' binder or none, as the real build does, so options that carry no binder still refuse
+such a value with `MQ1502`. (5) `Expr.cases().when(...)` refuses an `op` with `MQ1505` when the
 filter is added, as it refuses `exists`; an arbiter's `where` refuses any `op` with `MQ1804` at `build()`, and a
 conflict update's `where` refuses a value-form `op` on first execution, where it refuses `Expr.value`, naming the
 operator. → `api/10` R-COL-17, `api/12` R-FLT-20, R-FLT-21, `api/14` R-WRT-34, R-WRT-52, `vendor/40` R-VND-23, R-VND-24,
@@ -2581,9 +2585,10 @@ correctly by class; repeating the no-binder check in `model-query-hibernate`. �
 R-FLT-21, AC-FLT-22, `reference/90` `MQ1502`.
 
 **D-171 — Hibernate's provider check, `ilike` and `regexMatch` (M29.4, 2026-10-21).** (1) The `FunctionContributor`,
-`HibernateOperatorFunctions`, registers `mq_regex_match` as `(?1 ~ ?2)`, boolean, exactly two arguments, when the
+`HibernateOperatorFunctions`, registers `mq_regex_match` as `(?1 ~ ?2)`, boolean, exactly two arguments (`regexMatch`'s pattern is unconverted, D-174), when the
 dialect is a `PostgreSQLDialect` (subclasses included; `CockroachDialect` is not one). The API is the same on both
-lines. (2) `ProviderSupport#operators(emf, f)` answers `ILIKE` by the dialect (PostgreSQL's or H2's), and a pattern
+lines. (2) `ProviderSupport#operators(emf, f)` answers `ILIKE` by the dialect (PostgreSQL's or H2's; D-175 replaces the
+list with `supportsCaseInsensitiveLike()`), and a pattern
 feature by looking up each `mq_*` function it renders through in the factory's registry, all of which must be there:
 `mq_array_contains` and `mq_array_overlaps` for `ARRAY_CONTAINMENT`, `mq_jsonb_contains`, `mq_ts_match`. The three
 not registered yet answer `false` until their slices register them. Another provider's factory answers `false`.
@@ -2617,7 +2622,9 @@ Hibernate's `array_includes` / `array_overlaps`, which are registered on H2 too 
 `arrayContains`, `arrayOverlaps` and `jsonbContains`; each factory returns one instance shared by every element or
 column type, so `arrayContains()` for `String[]` and for `Integer[]` is the same object. (3) None requires an
 attribute type: an array operator's column is an `E[]` by its type, and `jsonbContains` takes any column; an array
-guard would refuse a `List<String>` attribute behind a `ColumnConverter` and primitive arrays (user, 2026-10-21). The array
+guard would refuse a `List<String>` attribute behind a `ColumnConverter` (user, 2026-10-21). `arrayContains` and
+`arrayOverlaps` take a boxed-array model type (`Integer[]`, not `int[]`): a primitive array has no binder typing in
+`rfc/0017` §4, and support for one would be additive later (user, 2026-10-21; amended at the M29 gate). The array
 operators' value has no declared type and binds through the `OperandBinder` typed by the column (D-170); with no
 binder it is `MQ1502` (D-168 (6)). `jsonbContains`'s value is the document's text, bound as a `String` and never
 converted (the `<C, V>` form). (4) The library doesn't parse that text: no JSON library is a dependency of the
@@ -2650,7 +2657,24 @@ form `gin (to_tsvector('<config>', col))` matches. (4) `HibernateOperators.fullT
 else is `MQ1315` at the factory call, naming it, so nothing can break out of the literal. It is passed as
 `cb.literal(configuration)` and renders inline (`to_tsvector('english',…)`), never bound. The factory caches one
 instance per configuration in a `ConcurrentHashMap`; an invalid one is never cached. → `vendor/40` R-VND-23,
-`api/12` R-FLT-20, R-FLT-21, AC-FLT-32, `reference/90` `MQ1315`, `rfc/0017` §4.
+`api/12` R-FLT-20, R-FLT-21, AC-FLT-32, `reference/90` `MQ1315`, `rfc/0017` §4. (5) The field form
+`op(fullTextMatch(c), left, right)` works: it matches one column's text as the query of another (M29 gate).
+
+**D-174 — `regexMatch` takes its pattern unconverted (M29 gate, 2026-10-21).** `regexMatch()` is a
+`FilterOperator<String, String>` in the `<C, V>` form: its pattern is text matched against the stored column and is never
+passed through a `ColumnConverter` or a JPA `AttributeConverter`, as `jsonbContains`' and `fullTextMatch`'s text isn't
+(D-172 (3), D-173). With the `<C, C>` form a converter rewrites the pattern (an upper-casing converter turns `\d` into
+`\D`), giving silently wrong rows (INV-5). It binds as a `String` with no binder (D-168 (6), D-169). Rejected: `MQ1001`
+on converted columns, which refuses a legitimate regex over converted text. This supersedes D-171's `regexMatch` as a
+`<C, C>` operator where it differs. → `api/12` R-FLT-21, AC-FLT-24, `vendor/40` R-VND-23, D-171.
+
+**D-175 — Hibernate answers `ILIKE` by `supportsCaseInsensitiveLike()` (M29 gate, 2026-10-21).** Amends D-171 (2): the
+provider's `ILIKE` answer is the dialect's `supportsCaseInsensitiveLike()`, not a list of dialects (user, 2026-10-21).
+`AbstractSqlAstTranslator` renders a native `ilike` iff it is `true` and emulates it with `lower()` otherwise, measured
+on 6.6.58 and 7.4.11; it is `true` on `PostgreSQLDialect`, `H2Dialect` and `CockroachDialect`. Against the old list,
+`CockroachDialect` goes from `false` to `true`, and 7.4's `SpannerPostgreSQLDialect`, which overrides it to `false`, from
+`true` to `false` (`MQ4014`). The vendor check still runs first and answers `ILIKE` for PostgreSQL and H2 only
+(R-VND-23), so CockroachDB is `MQ4015` unless a profile answers `ILIKE`. → `vendor/40` R-VND-23, AC-FLT-24, D-171.
 
 ## 2. Open questions
 

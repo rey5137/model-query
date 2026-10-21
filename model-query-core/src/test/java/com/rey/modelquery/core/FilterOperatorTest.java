@@ -189,6 +189,64 @@ class FilterOperatorTest {
     }
 
     @Test
+    void ac_flt_25_an_object_array_value_is_copied_so_changing_the_callers_array_changes_nothing() {
+        FilterOperator<String, String[]> anyOf =
+                FilterOperator.of("anyOf", String[].class, (ctx, left, right) -> ctx.cb().conjunction());
+        String[] given = {"a", "b"};
+        ModelQuery<Order, Long, OrderView> query = where(f -> f.op(anyOf, NAME, given));
+        given[0] = "changed";
+
+        Condition condition = query.conditions().where().get(0);
+        assertThat(condition.values()).hasSize(1);
+        assertThat((String[]) condition.values().get(0)).containsExactly("a", "b");
+        assertThat(query.conditions()).isEqualTo(where(f -> f.op(anyOf, NAME, new String[] {"a", "b"})).conditions())
+                .hasSameHashCodeAs(where(f -> f.op(anyOf, NAME, new String[] {"a", "b"})).conditions())
+                .isNotEqualTo(where(f -> f.op(anyOf, NAME, given)).conditions());
+        // The array values() hands out is a copy too.
+        ((String[]) condition.values().get(0))[1] = "changed";
+        assertThat((String[]) condition.values().get(0)).containsExactly("a", "b");
+        assertThat(query.conditions()).isEqualTo(where(f -> f.op(anyOf, NAME, new String[] {"a", "b"})).conditions());
+    }
+
+    @Test
+    void ac_flt_25_a_primitive_array_is_copied_and_a_nested_one_one_level_deep() {
+        FilterOperator<Long, long[]> anyOf =
+                FilterOperator.of("anyOfLongs", long[].class, (ctx, left, right) -> ctx.cb().conjunction());
+        FilterOperator<Long, long[][]> grid =
+                FilterOperator.of("grid", long[][].class, (ctx, left, right) -> ctx.cb().conjunction());
+        long[] given = {1L, 2L};
+        long[][] nested = {{1L}, {2L}};
+        ModelQuery<Order, Long, OrderView> flat = where(f -> f.op(anyOf, ID, given));
+        ModelQuery<Order, Long, OrderView> deep = where(f -> f.op(grid, ID, nested));
+        given[0] = 99L;
+        long[] inner = nested[1];
+        nested[1] = new long[] {7L};
+
+        assertThat((long[]) flat.conditions().where().get(0).values().get(0)).containsExactly(1L, 2L);
+        assertThat((long[][]) deep.conditions().where().get(0).values().get(0)).isDeepEqualTo(new long[][] {{1L}, {2L}});
+        // One level only (INV-9, R-INS-13): an inner array is shared, so it is not copied again.
+        assertThat(((long[][]) deep.conditions().where().get(0).values().get(0))[1]).isSameAs(inner);
+        assertThat(flat.conditions()).isEqualTo(where(f -> f.op(anyOf, ID, new long[] {1L, 2L})).conditions())
+                .hasSameHashCodeAs(where(f -> f.op(anyOf, ID, new long[] {1L, 2L})).conditions());
+        assertThat(deep.conditions()).isEqualTo(where(f -> f.op(grid, ID, new long[][] {{1L}, {2L}})).conditions());
+        ((long[]) flat.conditions().where().get(0).values().get(0))[0] = 99L;
+        assertThat((long[]) flat.conditions().where().get(0).values().get(0)).containsExactly(1L, 2L);
+    }
+
+    @Test
+    void ac_flt_25_a_prepare_that_sorts_its_array_in_place_leaves_the_recorded_value_as_passed() {
+        FilterOperator<String, String[]> anyOf =
+                FilterOperator.<String, String[]>of("anyOf", String[].class, (ctx, left, right) -> ctx.cb().conjunction())
+                        .preparing(array -> {
+                            java.util.Arrays.sort(array);
+                            return array;
+                        });
+        ModelQuery<Order, Long, OrderView> query = where(f -> f.op(anyOf, NAME, new String[] {"b", "a"}));
+
+        assertThat((String[]) query.conditions().where().get(0).values().get(0)).containsExactly("b", "a");
+    }
+
+    @Test
     void ac_flt_25_to_string_prints_the_operator_name_and_no_value() {
         String text = conditions(f -> f.op(MATCHES, NAME, "secret-value")).get(0).toString();
 

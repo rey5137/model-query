@@ -219,6 +219,19 @@ class CatalogueOperatorsTest {
     }
 
     @TckTest
+    void ac_flt_24_regex_match_pattern_is_never_converted_by_a_column_converter_d174(TckDatabase db) {
+        Assumptions.assumeTrue(db.vendor() == TckVendor.POSTGRESQL, "only PostgreSQL has REGEX_MATCH");
+        List<List<Long>> results = new ArrayList<>();
+        SqlSnapshots.capture(db, ds -> {
+            // Prefixed would store the pattern as "p^p(lain|added)$", which matches nothing; the raw one meets the
+            // stored labels plain and padded.
+            results.add(ids(rows(ds, f -> f.op(REGEX, PREFIXED, "^p(lain|added)$"))));
+            results.add(ids(rows(ds, f -> f.op(REGEX, PREFIXED, "\\\\slash$"))));
+        });
+        assertThat(results).containsExactly(List.of(1L, 5L), List.of(3L, 6L));
+    }
+
+    @TckTest
     void ac_flt_24_the_vendor_check_refuses_with_mq4015_before_any_statement(TckDatabase db) {
         Assumptions.assumeTrue(db.vendor() != TckVendor.POSTGRESQL, "PostgreSQL serves both features");
         List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, ConstantRowEntity.class, executor -> {
