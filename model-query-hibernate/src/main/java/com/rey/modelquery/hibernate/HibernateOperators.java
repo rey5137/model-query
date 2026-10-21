@@ -18,7 +18,7 @@ import org.hibernate.query.criteria.HibernateCriteriaBuilder;
  * statement ({@code MQ4015}, then {@code MQ4014}) rather than emulated or sent to a database that refuses it. Each
  * factory returns one cached instance, which may be kept in a constant.
  *
- * @implSpec api/12 R-FLT-20, vendor/40 R-VND-23, rfc/0017 §4, D-171
+ * @implSpec api/12 R-FLT-20, vendor/40 R-VND-23, rfc/0017 §4, D-171, D-172
  */
 @Incubating
 public final class HibernateOperators {
@@ -35,6 +35,21 @@ public final class HibernateOperators {
                     (ctx, left, right) -> ctx.cb().isTrue(ctx.cb().function(HibernateOperatorFunctions.REGEX_MATCH,
                             Boolean.class, left, right)))
             .requiringAttribute(String.class).requires(OperatorFeature.REGEX_MATCH);
+
+    // One instance per operator for every element type, cast in its factory: an array operator's value carries no
+    // declared type, so it binds through the OperandBinder, typed by the column (D-169, D-170).
+    private static final FilterOperator<Object[], Object[]> ARRAY_CONTAINS =
+            pattern("arrayContains", HibernateOperatorFunctions.ARRAY_CONTAINS)
+                    .requires(OperatorFeature.ARRAY_CONTAINMENT);
+
+    private static final FilterOperator<Object[], Object[]> ARRAY_OVERLAPS =
+            pattern("arrayOverlaps", HibernateOperatorFunctions.ARRAY_OVERLAPS)
+                    .requires(OperatorFeature.ARRAY_CONTAINMENT);
+
+    private static final FilterOperator<Object, String> JSONB_CONTAINS = FilterOperator.<Object, String>of(
+                    "jsonbContains", String.class, (ctx, left, right) -> ctx.cb().isTrue(ctx.cb().function(
+                            HibernateOperatorFunctions.JSONB_CONTAINS, Boolean.class, left, right)))
+            .requires(OperatorFeature.JSONB_CONTAINMENT);
 
     private HibernateOperators() {
     }
@@ -58,6 +73,40 @@ public final class HibernateOperators {
      */
     public static FilterOperator<String, String> regexMatch() {
         return REGEX_MATCH;
+    }
+
+    /**
+     * PostgreSQL's array containment, {@code col @> ?}: the column holds every element of the value; requires
+     * {@link OperatorFeature#ARRAY_CONTAINMENT}. The value is bound typed by the column's mapping, so with no
+     * {@code OperandBinder} it is {@code MQ1502}.
+     */
+    @SuppressWarnings("unchecked")
+    public static <E> FilterOperator<E[], E[]> arrayContains() {
+        return (FilterOperator<E[], E[]>) (FilterOperator<?, ?>) ARRAY_CONTAINS;
+    }
+
+    /**
+     * PostgreSQL's array overlap, {@code col && ?}: the column and the value share an element; requires
+     * {@link OperatorFeature#ARRAY_CONTAINMENT}. The value is bound as {@link #arrayContains()}'s is.
+     */
+    @SuppressWarnings("unchecked")
+    public static <E> FilterOperator<E[], E[]> arrayOverlaps() {
+        return (FilterOperator<E[], E[]>) (FilterOperator<?, ?>) ARRAY_OVERLAPS;
+    }
+
+    /**
+     * PostgreSQL's {@code jsonb} containment, {@code col @> cast(? as jsonb)}, on a column of any attribute type;
+     * requires {@link OperatorFeature#JSONB_CONTAINMENT}. The value is the JSON document as text, bound as a
+     * {@code String} and never converted (R-FLT-21).
+     */
+    @SuppressWarnings("unchecked")
+    public static <C> FilterOperator<C, String> jsonbContains() {
+        return (FilterOperator<C, String>) (FilterOperator<?, ?>) JSONB_CONTAINS;
+    }
+
+    private static FilterOperator<Object[], Object[]> pattern(String name, String function) {
+        return FilterOperator.<Object[]>of(name, (ctx, left, right) -> ctx.cb().isTrue(ctx.cb().function(function,
+                Boolean.class, left, right)));
     }
 
     private static FilterOperator<String, String> ilikeOf(LikeMode mode) {

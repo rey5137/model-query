@@ -7,6 +7,7 @@ import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceException;
 import java.lang.reflect.Proxy;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -31,26 +32,33 @@ import org.junit.jupiter.api.Test;
  */
 class HibernateOperatorFunctionsTest {
 
+    private static final List<String> MQ_FUNCTIONS = List.of(HibernateOperatorFunctions.REGEX_MATCH,
+            HibernateOperatorFunctions.ARRAY_CONTAINS, HibernateOperatorFunctions.ARRAY_OVERLAPS,
+            HibernateOperatorFunctions.JSONB_CONTAINS);
+
     private final HibernateProviderSupport support = new HibernateProviderSupport();
 
     @Test
-    void ac_flt_24_postgresql_serves_ilike_and_regex_match_through_its_registered_function() {
+    void ac_flt_24_postgresql_serves_ilike_and_every_pattern_feature_but_full_text_through_its_registered_functions() {
         on(PostgreSQLDialect.class, sf -> {
-            assertThat(registered(sf, HibernateOperatorFunctions.REGEX_MATCH)).isTrue();
-            assertThat(served(sf)).containsExactlyInAnyOrder(OperatorFeature.ILIKE, OperatorFeature.REGEX_MATCH);
+            assertThat(MQ_FUNCTIONS).allSatisfy(f -> assertThat(registered(sf, f)).as(f).isTrue());
+            assertThat(served(sf)).containsExactlyInAnyOrder(OperatorFeature.ILIKE, OperatorFeature.REGEX_MATCH,
+                    OperatorFeature.ARRAY_CONTAINMENT, OperatorFeature.JSONB_CONTAINMENT);
         });
     }
 
     @Test
     void ac_flt_24_a_postgresql_dialect_subclass_is_served_as_postgresql() {
-        on(PostgresPlusDialect.class, sf -> assertThat(served(sf))
-                .containsExactlyInAnyOrder(OperatorFeature.ILIKE, OperatorFeature.REGEX_MATCH));
+        on(PostgresPlusDialect.class, sf -> assertThat(served(sf)).containsExactlyInAnyOrder(OperatorFeature.ILIKE,
+                OperatorFeature.REGEX_MATCH, OperatorFeature.ARRAY_CONTAINMENT, OperatorFeature.JSONB_CONTAINMENT));
     }
 
     @Test
-    void ac_flt_24_h2_serves_ilike_alone_and_has_no_mq_function() {
+    void ac_flt_24_h2_serves_ilike_alone_and_has_no_mq_function_never_hibernates_array_ones() {
         on(H2Dialect.class, sf -> {
-            assertThat(registered(sf, HibernateOperatorFunctions.REGEX_MATCH)).isFalse();
+            // Hibernate's own array_overlaps is registered on H2 and fails to prepare there; no mq_* function is.
+            assertThat(registered(sf, "array_overlaps")).isTrue();
+            assertThat(MQ_FUNCTIONS).allSatisfy(f -> assertThat(registered(sf, f)).as(f).isFalse());
             assertThat(served(sf)).containsExactly(OperatorFeature.ILIKE);
         });
     }
@@ -60,7 +68,7 @@ class HibernateOperatorFunctionsTest {
         for (Class<? extends Dialect> dialect : Set.of(MySQLDialect.class, MariaDBDialect.class,
                 CockroachDialect.class)) {
             on(dialect, sf -> {
-                assertThat(registered(sf, HibernateOperatorFunctions.REGEX_MATCH)).as(dialect.getName()).isFalse();
+                assertThat(MQ_FUNCTIONS).allSatisfy(f -> assertThat(registered(sf, f)).as(f).isFalse());
                 assertThat(served(sf)).as(dialect.getName()).isEmpty();
             });
         }

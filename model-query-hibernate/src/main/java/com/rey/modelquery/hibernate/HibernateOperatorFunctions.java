@@ -15,21 +15,35 @@ import org.hibernate.type.StandardBasicTypes;
  * before Hibernate could render an unknown function through to the database. Loaded by Hibernate from
  * {@code META-INF/services/org.hibernate.boot.model.FunctionContributor}; not API. Identical on both lines.
  *
- * @implSpec vendor/40 R-VND-23, rfc/0017 §4
+ * @implSpec vendor/40 R-VND-23, rfc/0017 §4, D-172
  */
 public final class HibernateOperatorFunctions implements FunctionContributor {
 
     /** {@link OperatorFeature#REGEX_MATCH}'s function: PostgreSQL's case-sensitive {@code ~}. */
     static final String REGEX_MATCH = "mq_regex_match";
+    /** {@link OperatorFeature#ARRAY_CONTAINMENT}'s functions: the column holds every element of the value. */
+    static final String ARRAY_CONTAINS = "mq_array_contains";
+    /** The column and the value share an element. */
+    static final String ARRAY_OVERLAPS = "mq_array_overlaps";
+    /** {@link OperatorFeature#JSONB_CONTAINMENT}'s function: the value, passed as its text, cast to {@code jsonb}. */
+    static final String JSONB_CONTAINS = "mq_jsonb_contains";
 
     @Override
     public void contributeFunctions(FunctionContributions contributions) {
         if (!(contributions.getDialect() instanceof PostgreSQLDialect)) {
             return;
         }
+        // Each parenthesised so the operator binds as one predicate wherever Hibernate places the call.
+        register(contributions, REGEX_MATCH, "(?1 ~ ?2)");
+        // Not Hibernate's array_includes / array_overlaps: it registers those on H2 too, where they fail or emulate.
+        register(contributions, ARRAY_CONTAINS, "(?1 @> ?2)");
+        register(contributions, ARRAY_OVERLAPS, "(?1 && ?2)");
+        register(contributions, JSONB_CONTAINS, "(?1 @> cast(?2 as jsonb))");
+    }
+
+    private static void register(FunctionContributions contributions, String name, String pattern) {
         SqmFunctionRegistry registry = contributions.getFunctionRegistry();
-        // Parenthesised so the operator binds as one predicate wherever Hibernate places the call.
-        registry.patternDescriptorBuilder(REGEX_MATCH, "(?1 ~ ?2)")
+        registry.patternDescriptorBuilder(name, pattern)
                 .setExactArgumentCount(2)
                 .setInvariantType(contributions.getTypeConfiguration().getBasicTypeRegistry()
                         .resolve(StandardBasicTypes.BOOLEAN))
@@ -39,14 +53,14 @@ public final class HibernateOperatorFunctions implements FunctionContributor {
     /**
      * The {@code mq_*} functions a pattern {@code feature} renders through, all of which must be registered for the
      * provider to serve it; empty for {@code ILIKE}, an HQL predicate rather than a function, and any later feature.
-     * The array, {@code jsonb} and full-text names are looked up before their functions are registered, so those
-     * features answer {@code false} until they are.
+     * The full-text name is looked up before its function is registered, so {@code FULL_TEXT} answers {@code false}
+     * until it is.
      */
     static List<String> functions(OperatorFeature feature) {
         return switch (feature) {
             case REGEX_MATCH -> List.of(REGEX_MATCH);
-            case ARRAY_CONTAINMENT -> List.of("mq_array_contains", "mq_array_overlaps");
-            case JSONB_CONTAINMENT -> List.of("mq_jsonb_contains");
+            case ARRAY_CONTAINMENT -> List.of(ARRAY_CONTAINS, ARRAY_OVERLAPS);
+            case JSONB_CONTAINMENT -> List.of(JSONB_CONTAINS);
             case FULL_TEXT -> List.of("mq_ts_match");
             default -> List.of();
         };
