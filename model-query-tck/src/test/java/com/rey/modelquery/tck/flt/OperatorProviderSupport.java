@@ -167,7 +167,7 @@ public final class OperatorProviderSupport implements ProviderSupport {
      * Runs {@code work} where this class is the only {@code ProviderSupport} {@code ServiceLoader} finds, answering
      * {@code operators} for each feature and supplying {@code binder}, or none when it is {@code null}.
      */
-    static void serving(Predicate<OperatorFeature> operators, OperandBinder binder, Runnable work) {
+    public static void serving(Predicate<OperatorFeature> operators, OperandBinder binder, Runnable work) {
         byte[] declaration = (OperatorProviderSupport.class.getName() + "\n").getBytes(StandardCharsets.UTF_8);
         URL url;
         try {

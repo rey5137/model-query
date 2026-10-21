@@ -19,7 +19,7 @@ import org.hibernate.SessionFactory;
 class OperatorFeaturesTest {
 
     @TckTest
-    void ac_flt_24_hibernate_serves_ilike_on_postgresql_and_h2_and_regex_match_on_postgresql_alone(TckDatabase db) {
+    void ac_flt_24_hibernate_serves_ilike_on_postgresql_and_h2_and_patterns_on_postgresql_alone(TckDatabase db) {
         Set<OperatorFeature> served = EnumSet.noneOf(OperatorFeature.class);
         SqlSnapshots.capture(db, ds -> {
             try (SessionFactory sf = JoinTestSupport.sessionFactory(ds)) {
@@ -31,9 +31,10 @@ class OperatorFeaturesTest {
                 }
             }
         });
-        // The array, jsonb and full-text functions aren't registered on any dialect yet, so none is served.
+        // The full-text function isn't registered on any dialect yet, so it is never served.
         Set<OperatorFeature> expected = switch (db.vendor()) {
-            case POSTGRESQL -> EnumSet.of(OperatorFeature.ILIKE, OperatorFeature.REGEX_MATCH);
+            case POSTGRESQL -> EnumSet.of(OperatorFeature.ILIKE, OperatorFeature.REGEX_MATCH,
+                    OperatorFeature.ARRAY_CONTAINMENT, OperatorFeature.JSONB_CONTAINMENT);
             case H2 -> EnumSet.of(OperatorFeature.ILIKE);
             case MYSQL -> EnumSet.noneOf(OperatorFeature.class);
         };

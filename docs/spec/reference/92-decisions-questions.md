@@ -2607,6 +2607,24 @@ over a converter adding `SKU:` its `EXACT` "A12" binds `a12` and misses the stor
 recorded as found, not changed here (shipped `like` behaviour; see Q-30). → `vendor/40` R-VND-23,
 `api/12` R-FLT-06, R-FLT-20, R-FLT-21, AC-FLT-21, AC-FLT-24, `reference/90` `MQ1001`, `rfc/0017` §4.
 
+**D-172 — Array and `jsonb` containment (M29.5, 2026-10-21).** (1) `HibernateOperatorFunctions` registers
+`mq_array_contains` as `(?1 @> ?2)`, `mq_array_overlaps` as `(?1 && ?2)` and `mq_jsonb_contains` as
+`(?1 @> cast(?2 as jsonb))`, boolean-valued with two arguments, in the same PostgreSQL-dialect branch as
+`mq_regex_match` (user, 2026-10-21: PostgreSQL's dialect only), so `ARRAY_CONTAINMENT` and `JSONB_CONTAINMENT` now
+answer `true` there and `false` on every other dialect; `FULL_TEXT` still answers `false` (D-171 (2)). Never
+Hibernate's `array_includes` / `array_overlaps`, which are registered on H2 too (`rfc/0017` §4). (2) The names are
+`arrayContains`, `arrayOverlaps` and `jsonbContains`; each factory returns one instance shared by every element or
+column type, so `arrayContains()` for `String[]` and for `Integer[]` is the same object. (3) None requires an
+attribute type: an array operator's column is an `E[]` by its type, and `jsonbContains` takes any column; an array
+guard would refuse a `List<String>` attribute behind a `ColumnConverter` and primitive arrays (user, 2026-10-21). The array
+operators' value has no declared type and binds through the `OperandBinder` typed by the column (D-170); with no
+binder it is `MQ1502` (D-168 (6)). `jsonbContains`'s value is the document's text, bound as a `String` and never
+converted (the `<C, V>` form). (4) The library doesn't parse that text: no JSON library is a dependency of the
+hibernate module (Jackson is absent on 6.6); malformed text is PostgreSQL's error when the statement runs, loud rather
+than silently wrong (INV-5), as an invalid `regexMatch` pattern is. (5) PostgreSQL's
+semantics pass through unchanged: every array contains the empty one, and a `null` column matches neither a filter
+nor its `not(...)`. → `vendor/40` R-VND-23, `api/12` R-FLT-20, AC-FLT-24, `rfc/0017` §4.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
