@@ -2557,6 +2557,29 @@ conflict update's `where` refuses a value-form `op` on first execution, where it
 operator. → `api/10` R-COL-17, `api/12` R-FLT-20, R-FLT-21, `api/14` R-WRT-34, R-WRT-52, `vendor/40` R-VND-23, R-VND-24,
 `reference/90` `MQ1502`, `MQ1505`, `MQ1804`, `MQ4014`, `MQ4015`.
 
+**D-170 — Hibernate's operand binder (M29.3, 2026-10-21).** (1) One adapter, `HibernateOperandBinder`, serves both
+measured lines; `operands(emf)` returns it on the 6.6.x and 7.4.x lines only, by the same line check as `treats(emf)`
+(R-VND-26), and is empty with one WARN per factory elsewhere, so a later line whose internals moved binds only the
+mapping-independent values (D-168) rather than binding through internals nobody measured. (2) It builds
+`JpaCriteriaParameter(null, type, false, nodeBuilder)` (`rfc/0017-spike-results.md` consequence 1); the constructor is
+found by its shape, so its `BindableType` package (`org.hibernate.query` on 6.6, `org.hibernate.type` on 7.4) needs no
+per-line class. (3) Which node type each line expects is fixed per line, not discovered: on 6.6 a path's node type is
+a path source unwrapped through `getSqmPathType()`, and an aggregate's may already be the basic type; on 7.4 the node
+type is the basic type and is never unwrapped. The unwrapped type must be a `BasicType` the constructor takes; anything
+else, an entity or embeddable path included, throws, which the engine reports as `MQ1502` naming the operator and the
+column (D-169 (3)). Rejected: the spike's fallback to the raw node type when the unwrap is missing, which on 6.6
+fails late with a `ConversionException` for an enum or a `@Convert` value, and on a moved line could bind by class.
+(4) Only a path, or an aggregate over one (its single argument a path, `DISTINCT` or not), is typed by its node type:
+for any other expression (a function, `coalesce`, `CASE`, arithmetic, a literal, a sub-query or correlated column, an
+aggregate over one of these) Hibernate may infer the node type from the expression's Java class alone, so an enum over
+`function("f", Phase.class, path)` would bind by ordinal and match nothing (R-FLT-21, INV-5). The binder declines those
+through `OperandBinder#typesBy`, a default method that is `true` unless overridden, and the engine applies the
+no-binder rule (D-168 (6)): a `String`, `java.lang` or `java.math` number or `java.time` value binds by its class,
+anything else is `MQ1502` naming the operator and the column. Its `parameter` throws for a declined expression too.
+Rejected: the binder throwing for every such expression, which would refuse a `String` over `upper(name)` that binds
+correctly by class; repeating the no-binder check in `model-query-hibernate`. → `vendor/40` R-VND-24, `api/12`
+R-FLT-21, AC-FLT-22, `reference/90` `MQ1502`.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
@@ -2684,7 +2707,8 @@ R-COL-35.
 under `hibernate.criteria.value_handling_mode=inline`, while an explicit parameter never does. An operator's operand
 is explicit (D-167); whether any engine value path (filters, writes, keyset cursors, sources) relies on Hibernate's
 conversion, and so breaks R-FLT-08 under that setting, is unchecked. An audit and a TCK case under that setting would
-answer it. → `rfc/0017` §1, D-167, `api/12` R-FLT-08.
+answer it. An operator's value, typed by Hibernate's binder, stays `?` under it on both lines and Tier 1 (D-170,
+AC-FLT-22); the other paths are still unchecked. → `rfc/0017` §1, D-167, D-170, `api/12` R-FLT-08.
 
 **Q-29 — An inline count.** `CountMode.COUNT` runs a separate count statement (R-EXE-03); Blaze-Persistence can
 instead inline `COUNT(*) OVER()` into the page query. That saves a round trip and takes the total and the page from

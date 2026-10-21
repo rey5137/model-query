@@ -47,6 +47,8 @@ class OperatorGateTest {
                     .requires(OperatorFeature.REGEX_MATCH);
     private static final FilterOperator<Status, Status> STATUS_IS =
             FilterOperator.of("statusIs", (ctx, left, right) -> ctx.cb().conjunction());
+    private static final FilterOperator<String, String> NAME_IS =
+            FilterOperator.of("nameIs", (ctx, left, right) -> ctx.cb().conjunction());
     private static final FilterOperator<Boolean, Boolean> ACTIVE_IS =
             FilterOperator.of("activeIs", (ctx, left, right) -> ctx.cb().conjunction());
     private static final FilterOperator<String, Boolean> FLAGGED =
@@ -230,6 +232,24 @@ class OperatorGateTest {
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ1502));
     }
 
+    @Test
+    void ac_flt_22_a_binder_declining_the_column_expression_keeps_the_no_binder_rule() {
+        RecordingBinder binder = new RecordingBinder(false);
+        JoinContext ctx = context(RenderOptions.portable().withOperandBinder(binder));
+        assertThat(FilterGroup.<OperatorGateTest.OrderView>collect(f -> f.op(NAME_IS, NAME, "Ann"))
+                .stream().map(filter -> filter.toPredicate(ctx))).allMatch(Optional::isPresent);
+        assertThat(ctx.statementParameters()).hasSize(1).containsValues("Ann");
+        assertThatThrownBy(() -> render(f -> f.op(STATUS_IS, STATUS, Status.OPEN),
+                RenderOptions.portable().withOperandBinder(binder)))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1502))
+                .hasMessageContaining("op(statusIs)")
+                .hasMessageContaining("can't type it by this column's expression");
+        assertThat(binder.typedBy).hasSize(2).doesNotContainNull();
+        assertThat(binder.types).isEmpty();
+        assertThat(binder.made).isEmpty();
+    }
+
     // ---- helpers: a stand-in CriteriaBuilder and root, since core has no provider
 
     /** A binder that records what it is asked for and makes a parameter of its own. */
@@ -237,6 +257,24 @@ class OperatorGateTest {
         final List<Class<?>> types = new ArrayList<>();
         final List<Expression<?>> typedBy = new ArrayList<>();
         final List<ParameterExpression<?>> made = new ArrayList<>();
+        private final boolean typesAll;
+
+        RecordingBinder() {
+            this(true);
+        }
+
+        /** {@code typesAll} false: declines every expression, as for a column it can type only by its class. */
+        RecordingBinder(boolean typesAll) {
+            this.typesAll = typesAll;
+        }
+
+        @Override
+        public boolean typesBy(Expression<?> typedBy) {
+            if (!typesAll) {
+                this.typedBy.add(typedBy);
+            }
+            return typesAll;
+        }
 
         @Override
         @SuppressWarnings("unchecked")

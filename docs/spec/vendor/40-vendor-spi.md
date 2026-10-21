@@ -520,18 +520,26 @@ sequence renderer does, so a query with an `op` and a customizer is not refused 
 executor's own gate, when it passes one, still decides. An operator that requires no feature is never gated.
 
 **R-VND-24** *(D-167, D-169, `@Incubating`)* An operator's value is a parameter typed by the column's mapping where the
-provider can type one (`api/12` R-FLT-21). `core.OperandBinder` has one method, `<T> ParameterExpression<T>
+provider can type one (`api/12` R-FLT-21). `core.OperandBinder` has one abstract method, `<T> ParameterExpression<T>
 parameter(CriteriaBuilder cb, Expression<?> typedBy, Class<T> type)`: a parameter of `type` whose binding follows
 `typedBy`'s mapping (an `@Enumerated(STRING)` enum as its name, a `@Convert` value through its converter), a new
-parameter on every call. `ProviderSupport#operands(EntityManagerFactory emf)` supplies it, empty by default; the
-executor resolves it once, when it is built, and `RenderOptions.withOperandBinder(binder)` carries it with the gate. The
-engine sets the value on the parameter per statement, as for every `JoinContext` parameter. It types the `<C, C>` form
-only, by the rendered column (or aggregate) expression; the `<C, V>` form is typed by its declared `valueType` through
-`cb.parameter` and keeps the no-binder rule. A binder that throws a `RuntimeException`, returns `null` or returns a
-parameter the statement already binds (one value per parameter, so the later would replace the earlier, INV-5) is
-`MQ1502` naming the operator and the column, before any statement; a `ModelQueryException` it throws keeps its own code.
-It never falls back to a parameter typed by the value's class. Hibernate's binder is `model-query-hibernate`'s
-(`rfc/0017` §2 step 4).
+parameter on every call. Its default `boolean typesBy(Expression<?> typedBy)`, `true` unless overridden, is asked first:
+where it is `false`, an expression whose type the provider knows only from a Java class, the engine binds the value as
+with no binder, by the no-binder rule (D-168, D-170). `ProviderSupport#operands(EntityManagerFactory emf)` supplies it,
+empty by default; the executor resolves it once, when it is built, and `RenderOptions.withOperandBinder(binder)` carries
+it with the gate. The engine sets the value on the parameter per statement, as for every `JoinContext` parameter. It
+types the `<C, C>` form only, by the rendered column (or aggregate) expression; the `<C, V>` form is typed by its
+declared `valueType` through `cb.parameter` and keeps the no-binder rule. A binder that throws a `RuntimeException`,
+returns `null` or returns a parameter the statement already binds (one value per parameter, so the later would replace
+the earlier, INV-5) is `MQ1502` naming the operator and the column, before any statement; a `ModelQueryException` it
+throws keeps its own code. It never falls back to a parameter typed by the value's class. Hibernate's binder is
+`model-query-hibernate`'s (`rfc/0017` §2 step 4, D-170): a `JpaCriteriaParameter` whose anticipated type is `typedBy`'s
+basic type, so it stays `?` under `hibernate.criteria.value_handling_mode=inline`, on the 6.6.x and 7.4.x lines only; on
+any other line `operands(emf)` is empty, with one WARN per factory. It types only a path or an aggregate over one
+(`DISTINCT` included); `typesBy` is `false` for any other expression, a function, `coalesce`, `CASE`, arithmetic, a
+literal, a sub-query or an aggregate over one of these, whose node type Hibernate may infer from a Java class alone. A
+node type the line doesn't expect (on 6.6 anything but a basic type or a path source whose `getSqmPathType()` is one, on
+7.4 anything but a basic type, an entity path's included) makes it throw, so `MQ1502`.
 
 ## 2. Detection
 

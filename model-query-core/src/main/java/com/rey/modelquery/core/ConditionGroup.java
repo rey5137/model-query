@@ -597,15 +597,15 @@ abstract class ConditionGroup<M, G> {
 
     /**
      * The value-form operand: the provider binder's parameter typed by {@code left}'s mapping for a
-     * {@code FilterOperator<C, C>}, else a parameter typed by {@code type}, which only a mapping-independent value
-     * takes (R-FLT-21, R-VND-24, D-169).
+     * {@code FilterOperator<C, C>} whose {@code left} the binder types by, else a parameter typed by {@code type},
+     * which only a mapping-independent value takes (R-FLT-21, R-VND-24, D-169, D-170).
      */
     private static Expression<?> operand(FilterOperator<?, ?> operator, SelectField<?, ?> column, JoinContext ctx,
             Expression<?> left, Class<?> type, Object value) {
         Optional<OperandBinder> binder = operator.valueType() == null
                 ? ctx.renderOptions().operandBinder() : Optional.empty();
-        if (binder.isEmpty()) {
-            requireMappingIndependent(operator, column, value);
+        if (binder.isEmpty() || !binder.get().typesBy(left)) {
+            requireMappingIndependent(operator, column, value, binder.isPresent());
             return ctx.parameter(type, value);
         }
         ParameterExpression<?> parameter;
@@ -634,18 +634,19 @@ abstract class ConditionGroup<M, G> {
      * {@code MQ1502} for a value whose binding depends on the column's mapping, which a parameter typed by a Java
      * class gets wrong: a {@code STRING} enum binds by ordinal, a {@code @Convert} value not at all, a
      * {@code Boolean} mapped to {@code 'Y'/'N'} or a {@code UUID} stored as {@code char(36)} matches nothing (R-FLT-21,
-     * D-168).
+     * D-168). {@code declined}: the provider has a binder, but it can't type a value by this column's expression.
      */
     private static void requireMappingIndependent(FilterOperator<?, ?> operator, SelectField<?, ?> column,
-            Object value) {
+            Object value, boolean declined) {
         // An array's package is its element's, so a LocalDate[] would pass the package check alone.
         if (!(value instanceof String
                 || value instanceof Number && plainNumber(value.getClass())
                 || !value.getClass().isArray() && value.getClass().getPackageName().equals("java.time"))) {
             throw new ModelQueryDefinitionException(MqCode.MQ1502, column + ": op(" + operator.name()
-                    + ") cannot bind a value of type " + value.getClass().getSimpleName() + " without the "
-                    + "provider's operand binder; with none only a String, a java.lang or java.math number or a "
-                    + "java.time value binds");
+                    + ") cannot bind a value of type " + value.getClass().getSimpleName()
+                    + (declined ? ": the provider's operand binder can't type it by this column's expression"
+                            : " without the provider's operand binder")
+                    + "; only a String, a java.lang or java.math number or a java.time value binds by its class");
         }
     }
 

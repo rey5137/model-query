@@ -28,4 +28,14 @@ public interface OperandBinder {
      * {@code null} result as {@code MQ1502} naming the operator and the column, the exception as the cause.
      */
     <T> ParameterExpression<T> parameter(CriteriaBuilder cb, Expression<?> typedBy, Class<T> type);
+
+    /**
+     * Whether {@code typedBy} carries a mapping this binder types a value by, asked before {@link #parameter}. When it
+     * doesn't, a function of a column say, whose type the provider knows only from its Java class, the engine binds
+     * the value as with no binder: only a mapping-independent value binds, anything else is {@code MQ1502} (R-FLT-21,
+     * D-168). Every expression by default.
+     */
+    default boolean typesBy(Expression<?> typedBy) {
+        return true;
+    }
 }

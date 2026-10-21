@@ -6,6 +6,7 @@ import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
+import com.rey.modelquery.core.OperandBinder;
 import com.rey.modelquery.core.SequenceRenderer;
 import com.rey.modelquery.core.SourceRenderer;
 import com.rey.modelquery.core.SubqueryRenderer;
@@ -36,6 +37,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 import org.hibernate.SessionFactory;
 import org.hibernate.Version;
@@ -106,6 +108,18 @@ public final class HibernateProviderSupport implements ProviderSupport {
     /** The factories already warned about a disabled treated path, so one WARN per factory (R-VND-26). */
     private static final Set<EntityManagerFactory> TREATS_WARNED =
             Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
+
+    /** The factories already warned about operator values bound without an operand binder, one WARN each. */
+    private static final Set<EntityManagerFactory> OPERANDS_WARNED =
+            Collections.newSetFromMap(Collections.synchronizedMap(new WeakHashMap<>()));
+
+    /**
+     * The binder for the running Hibernate, its constructor found once rather than per executor; in a holder, as
+     * {@link Inserts} is, so the provider stays loadable without Hibernate.
+     */
+    private static final class Operands {
+        static final Optional<HibernateOperandBinder> INSTANCE = HibernateOperandBinder.of(Version.getVersionString());
+    }
 
     /** In a holder, as {@link DefaultNullPrecedence} is, so the provider stays loadable without Hibernate. */
     private static final class Inserts {
@@ -413,7 +427,7 @@ public final class HibernateProviderSupport implements ProviderSupport {
         return Optional.of(TREATS.computeIfAbsent(emf, key -> new HibernateTreatRenderer(factory.get())));
     }
 
-    /** Whether {@code version} is on the 6.6.x or 7.4.x line, the CI matrix's minor lines (R-VND-26). */
+    /** Whether {@code version} is on the 6.6.x or 7.4.x line, the CI matrix's minor lines (R-VND-26, R-VND-24). */
     static boolean treatsLine(String version) {
         if (version == null) {
             return false;
@@ -421,6 +435,37 @@ public final class HibernateProviderSupport implements ProviderSupport {
         String[] parts = version.split("\\.");
         return parts.length > 2 && ("6".equals(parts[0]) && "6".equals(parts[1])
                 || "7".equals(parts[0]) && "4".equals(parts[1]));
+    }
+
+    /**
+     * {@link HibernateOperandBinder} on the 6.6.x and 7.4.x lines, the ones its two line differences were measured on
+     * (R-VND-24, D-170). Empty on any other minor line, so an operator's value binds only where its binding doesn't
+     * depend on the mapping, the rest {@code MQ1502}; a WARN names the reason, once per factory.
+     */
+    @Override
+    @Incubating
+    public Optional<OperandBinder> operands(EntityManagerFactory emf) {
+        return operands(emf, Version.getVersionString(), () -> Operands.INSTANCE);
+    }
+
+    /** {@link #operands(EntityManagerFactory)} for the Hibernate {@code version} given, a test seam. */
+    static Optional<OperandBinder> operands(EntityManagerFactory emf, String version) {
+        return operands(emf, version, () -> HibernateOperandBinder.of(version));
+    }
+
+    /** {@code binders}' binder, asked for only on a measured line, or empty with the WARN naming why. */
+    private static Optional<OperandBinder> operands(EntityManagerFactory emf, String version,
+            Supplier<Optional<HibernateOperandBinder>> binders) {
+        if (sessionFactory(emf).isEmpty()) {
+            return Optional.empty();
+        }
+        if (!treatsLine(version)) {
+            return warnOperands(emf, "Hibernate " + version + " is outside the measured 6.6.x and 7.4.x lines");
+        }
+        Optional<OperandBinder> binder = binders.get().map(OperandBinder.class::cast);
+        return binder.isPresent() ? binder
+                : warnOperands(emf, "Hibernate " + version + " has no JpaCriteriaParameter(String, BindableType,"
+                        + " boolean, NodeBuilder)");
     }
 
     /** {@link HibernateSequenceRenderer}: the dialect's own sequence call (R-VND-18). */
@@ -510,6 +555,14 @@ public final class HibernateProviderSupport implements ProviderSupport {
         } catch (PersistenceException notHibernate) {
             return Optional.empty();
         }
+    }
+
+    /** Empty, and one WARN naming why operator values bind without the column's mapping (R-VND-24). */
+    private static Optional<OperandBinder> warnOperands(EntityManagerFactory emf, String reason) {
+        if (OPERANDS_WARNED.add(emf)) {
+            LOG.log(System.Logger.Level.WARNING, "MQ1502: operator values are not typed by their column: " + reason);
+        }
+        return Optional.empty();
     }
 
     /** Empty, and one WARN naming why a treated path is disabled (R-VND-26). */
