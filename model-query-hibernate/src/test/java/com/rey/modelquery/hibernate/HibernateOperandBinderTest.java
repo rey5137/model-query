@@ -6,10 +6,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.rey.modelquery.core.OperandBinder;
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Convert;
+import jakarta.persistence.Converter;
+import jakarta.persistence.Embeddable;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -18,18 +22,26 @@ import jakarta.persistence.criteria.ParameterExpression;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
+import java.io.Serializable;
+import java.lang.reflect.Proxy;
+import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.function.BiFunction;
 import org.hibernate.SessionFactory;
 import org.hibernate.Version;
 import org.hibernate.cfg.AvailableSettings;
 import org.hibernate.cfg.Configuration;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
+import org.hibernate.query.sqm.tree.domain.SqmPath;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-/** Hibernate's operand binder: the lines it serves, the node types it takes per line and what it binds (AC-FLT-22). */
+/**
+ * Hibernate's operand binder: the lines it serves, the node types it takes per line and what it binds (AC-FLT-22), and
+ * which mappings it says convert a value (AC-FLT-33, AC-FLT-34).
+ */
 class HibernateOperandBinderTest {
 
     enum Shade {
@@ -50,11 +62,61 @@ class HibernateOperandBinderTest {
         }
     }
 
+    /** Stores {@code SKU:<code>}, as a prefixing converter of the attribute's own type. */
+    static final class SkuPrefix implements AttributeConverter<String, String> {
+        @Override
+        public String convertToDatabaseColumn(String code) {
+            return code == null ? null : "SKU:" + code;
+        }
+
+        @Override
+        public String convertToEntityAttribute(String column) {
+            return column == null ? null : column.substring(4);
+        }
+    }
+
+    /** A value type mapped by an auto-applied converter alone, with no {@code @Convert} on the attribute. */
+    record Code(String value) implements Serializable {}
+
+    @Converter(autoApply = true)
+    static final class CodeConverter implements AttributeConverter<Code, String> {
+        @Override
+        public String convertToDatabaseColumn(Code code) {
+            return code == null ? null : "C-" + code.value();
+        }
+
+        @Override
+        public Code convertToEntityAttribute(String column) {
+            return column == null ? null : new Code(column.substring(2));
+        }
+    }
+
+    @Embeddable
+    static class Label {
+        @Convert(converter = SkuPrefix.class)
+        String labelSku;
+
+        String text;
+    }
+
     @Entity
     @Table(name = "operand_binder_rows")
     static class Row {
         @Id
         Long id;
+
+        @Convert(converter = SkuPrefix.class)
+        String sku;
+
+        String name;
+
+        Code code;
+
+        @Embedded
+        Label label;
+
+        @ManyToOne
+        Row parent;
 
         @Enumerated(EnumType.STRING)
         Shade named;
@@ -71,6 +133,7 @@ class HibernateOperandBinderTest {
             this.named = shade;
             this.lowered = shade;
             this.tags = tags;
+            this.sku = id == 2 ? "B2" : "a" + id;
         }
     }
 
@@ -101,6 +164,7 @@ class HibernateOperandBinderTest {
         factory = new Configuration().setProperty(AvailableSettings.JAKARTA_JDBC_URL, "jdbc:h2:mem:operand-binder")
                 .setProperty(AvailableSettings.HBM2DDL_AUTO, "create-drop")
                 .addAnnotatedClass(Row.class)
+                .addAnnotatedClass(CodeConverter.class)
                 .buildSessionFactory();
         factory.inTransaction(session -> {
             session.persist(new Row(1, Shade.LIGHT, "red"));
@@ -192,6 +256,111 @@ class HibernateOperandBinderTest {
         assertThat(ids((cb, root) -> equal(cb, root.get("named"), Shade.DARK))).containsExactly(2L, 3L);
         assertThat(ids((cb, root) -> equal(cb, root.get("lowered"), Shade.LIGHT))).containsExactly(1L);
         assertThat(ids((cb, root) -> equal(cb, root.get("tags"), new String[] {"red", "blue"}))).containsExactly(2L);
+    }
+
+    @Test
+    void ac_flt_33_a_jpa_converter_converts_on_a_path_through_a_join_or_embeddable_and_on_its_aggregates() {
+        OperandBinder binder = new HibernateProviderSupport().operands(factory).orElseThrow();
+        CriteriaBuilder cb = factory.getCriteriaBuilder();
+        Root<Row> root = cb.createQuery(Row.class).from(Row.class);
+        Expression<String> sku = root.get("sku");
+        List<Expression<?>> converted = List.of(sku, root.get("lowered"), root.get("code"),
+                root.join("parent").get("sku"), root.get("label").get("labelSku"), cb.least(sku), cb.greatest(sku),
+                cb.greatest(root.join("parent").<String>get("sku")));
+        assertThat(converted).allMatch(binder::typesBy).allMatch(binder::converts);
+    }
+
+    @Test
+    void ac_flt_34_the_binder_says_a_plain_column_a_builtin_enum_or_a_declined_expression_converts_nothing() {
+        OperandBinder binder = new HibernateProviderSupport().operands(factory).orElseThrow();
+        CriteriaBuilder cb = factory.getCriteriaBuilder();
+        Root<Row> root = cb.createQuery(Row.class).from(Row.class);
+        Expression<String> name = root.get("name");
+        // An @Enumerated enum, an array and an entity are no JPA converter; a function of a converted column is
+        // declined, so never asked (R-VND-24).
+        List<Expression<?>> unconverted = List.of(name, root.get("label").get("text"), root.get("named"),
+                root.get("tags"), root.get("id"), cb.greatest(name), cb.count(root), root, root.join("parent"),
+                cb.lower(root.get("sku")));
+        assertThat(unconverted).noneMatch(binder::converts);
+        assertThat(new OperandBinder() {
+            @Override
+            public <T> ParameterExpression<T> parameter(CriteriaBuilder b, Expression<?> typedBy, Class<T> type) {
+                throw new UnsupportedOperationException();
+            }
+        }.converts(root.get("sku"))).isFalse();
+    }
+
+    @Test
+    void ac_flt_34_the_binder_says_a_path_whose_node_type_lookup_throws_converts_nothing() {
+        HibernateOperandBinder six = HibernateOperandBinder.of("6.6.58.Final").orElseThrow();
+        HibernateOperandBinder seven = HibernateOperandBinder.of("7.4.11.Final").orElseThrow();
+        // 6.6 unwraps the path source reflectively; its getSqmPathType() throwing, unchecked or checked, answers false.
+        assertThat(six.converts(path(() -> {
+            throw new IllegalStateException("no path type");
+        }))).isFalse();
+        assertThat(six.converts(path(() -> {
+            throw new Exception("no path type");
+        }))).isFalse();
+        // A node type lookup that throws on either line answers false (R-VND-24).
+        Expression<?> unresolved = path(null);
+        assertThat(six.converts(unresolved)).isFalse();
+        assertThat(seven.converts(unresolved)).isFalse();
+    }
+
+    /** A path source whose path type lookup is {@code pathType}. */
+    public interface ThrowingSource {
+        Object getSqmPathType() throws Exception;
+    }
+
+    /**
+     * An {@link SqmPath} whose node type is a {@link ThrowingSource} running {@code pathType}, or, for a {@code null}
+     * one, whose {@code getNodeType()} itself throws.
+     */
+    private static Expression<?> path(Callable<Object> pathType) {
+        ThrowingSource source = () -> pathType.call();
+        return (Expression<?>) Proxy.newProxyInstance(SqmPath.class.getClassLoader(), new Class<?>[] {SqmPath.class},
+                (proxy, method, args) -> switch (method.getName()) {
+                    case "getNodeType" -> {
+                        if (pathType == null) {
+                            throw new IllegalStateException("no node type");
+                        }
+                        yield nodeType(method.getReturnType(), source);
+                    }
+                    case "toString" -> "throwing path";
+                    case "hashCode" -> System.identityHashCode(proxy);
+                    case "equals" -> proxy == args[0];
+                    default -> throw new UnsupportedOperationException(method.getName());
+                });
+    }
+
+    /** A {@code type} (the line's declared node type) that is also a {@link ThrowingSource} delegating to it. */
+    private static Object nodeType(Class<?> type, ThrowingSource source) {
+        boolean declares = Arrays.stream(type.getMethods())
+                .anyMatch(m -> m.getName().equals("getSqmPathType") && m.getParameterCount() == 0);
+        Class<?>[] types = declares ? new Class<?>[] {type} : new Class<?>[] {type, ThrowingSource.class};
+        return Proxy.newProxyInstance(HibernateOperandBinderTest.class.getClassLoader(), types,
+                (proxy, method, args) -> {
+                    if (!method.getName().equals("getSqmPathType")) {
+                        throw new UnsupportedOperationException(method.getName());
+                    }
+                    return source.getSqmPathType();
+                });
+    }
+
+    @Test
+    void ac_flt_33_lower_of_the_binder_parameter_runs_the_converter_and_folds_both_sides() {
+        assertThat(ids((cb, root) -> lowerEqual(cb, root.get("sku"), "A1"))).containsExactly(1L);
+        assertThat(ids((cb, root) -> lowerEqual(cb, root.get("sku"), "b2"))).containsExactly(2L);
+        assertThat(ids((cb, root) -> lowerEqual(cb, root.get("sku"), "SKU:a1"))).isEmpty();
+    }
+
+    /** {@code lower(column) = lower(?)}, the parameter typed by {@code column} through the binder (R-FLT-07). */
+    private static Bound lowerEqual(CriteriaBuilder cb, Expression<String> column, String value) {
+        OperandBinder binder = new HibernateProviderSupport().operands(factory).orElseThrow();
+        ParameterExpression<String> parameter = binder.parameter(cb, column, String.class);
+        @SuppressWarnings("unchecked")
+        ParameterExpression<Object> bound = (ParameterExpression<Object>) (ParameterExpression<?>) parameter;
+        return new Bound(cb.equal(cb.lower(column), cb.lower(parameter)), bound, value);
     }
 
     /** {@code column = ?}, the parameter typed by {@code column} through the binder, and the value it binds. */

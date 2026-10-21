@@ -2609,7 +2609,7 @@ column whose attribute type is not `C` is `MQ1001` when the filter is added, nev
 Tier 1 (`ConvertedLikeTest`). `like`'s finished pattern is converted, as a parameter and as an inlined literal, and
 `ilike`'s, typed by the binder (D-170), is too; `likeIgnoreCase`'s is not, since the parameter meets `lower(col)`, so
 over a converter adding `SKU:` its `EXACT` "A12" binds `a12` and misses the stored `SKU:a12`: silently no rows. That is
-recorded as found, not changed here (shipped `like` behaviour; see Q-30). → `vendor/40` R-VND-23,
+recorded as found, not changed here (shipped `like` behaviour; see Q-30, resolved by D-177). → `vendor/40` R-VND-23,
 `api/12` R-FLT-06, R-FLT-20, R-FLT-21, AC-FLT-21, AC-FLT-24, `reference/90` `MQ1001`, `rfc/0017` §4.
 
 **D-172 — Array and `jsonb` containment (M29.5, 2026-10-21).** (1) `HibernateOperatorFunctions` registers
@@ -2881,7 +2881,8 @@ the same and is untested: confirm it first. Proposed direction: refuse `likeIgno
 `@Convert` attribute with `MQ1001` through a new `ProviderSupport` fact (core cannot see `@Convert` in the JPA
 metamodel), by RFC, since it narrows shipped operators. Until then `api/12` R-FLT-07 documents the limitation. →
 D-171, `api/12` R-FLT-07, INV-5, `rfc/0018` Part B (M30, D-176): proposes converting the value through the binder and
-folding both sides in SQL instead of refusing.
+folding both sides in SQL instead of refusing; built so in M30.3 (`OperandBinder#converts`, `vendor/40` R-VND-24,
+AC-FLT-33, AC-FLT-34).
 
 **Q-31 — `COUNT` against a page over a predicate-only to-many join.** Resolved by D-177. Was: a filter through a
 to-many join that selects no to-many column reaches `page` (R-PAG-13 lets it through), and its content statement has

@@ -14,7 +14,7 @@ import jakarta.persistence.criteria.ParameterExpression;
  * <p>Vendor- and provider-neutral, so {@code core} names no provider (INV-7); {@code ProviderSupport#operands(emf)}
  * supplies one, resolved once per executor. Immutable and thread-safe.
  *
- * @implSpec vendor/40 R-VND-24, api/12 R-FLT-21, D-169
+ * @implSpec vendor/40 R-VND-24, api/12 R-FLT-07, R-FLT-21, D-169, D-177
  */
 @Incubating
 @FunctionalInterface
@@ -37,5 +37,18 @@ public interface OperandBinder {
      */
     default boolean typesBy(Expression<?> typedBy) {
         return true;
+    }
+
+    /**
+     * Whether a value typed by {@code typedBy} goes through a converter of the mapping, a JPA
+     * {@code AttributeConverter} ({@code @Convert} or auto-applied), when bound; asked only where {@link #typesBy} is
+     * {@code true}. An enum's built-in conversion is no such converter. Where it is {@code true}, an ignore-case filter
+     * binds its value through {@link #parameter} and folds both sides, {@code lower(col) = lower(?)}, rather than
+     * comparing with a value lower-cased in Java that the converter never sees (api/12 R-FLT-07). {@code false} by
+     * default.
+     */
+    @Incubating
+    default boolean converts(Expression<?> typedBy) {
+        return false;
     }
 }

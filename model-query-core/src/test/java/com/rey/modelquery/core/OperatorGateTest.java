@@ -21,8 +21,9 @@ import org.junit.jupiter.api.Test;
 
 /**
  * The operator gate and the operand binder {@code RenderOptions} carries to a filter's render: the vendor check first
- * ({@code MQ4015}), then the provider's ({@code MQ4014}), no gate {@code MQ4014}, and a value typed by the binder
- * (api/12 R-FLT-20, R-FLT-21, vendor/40 R-VND-23, R-VND-24, D-169).
+ * ({@code MQ4015}), then the provider's ({@code MQ4014}), no gate {@code MQ4014}, a value typed by the binder, and an
+ * ignore-case value bound through it only over a column it says converts (api/12 R-FLT-07, R-FLT-20, R-FLT-21,
+ * vendor/40 R-VND-23, R-VND-24, D-169, D-177).
  */
 class OperatorGateTest {
 
@@ -250,6 +251,61 @@ class OperatorGateTest {
         assertThat(binder.made).isEmpty();
     }
 
+    // ---- AC-FLT-33, AC-FLT-34: an ignore-case value over a converted column
+
+    @Test
+    void ac_flt_33_over_a_converted_column_the_ignore_case_value_binds_through_the_binder_as_given() {
+        RecordingBinder binder = new RecordingBinder(true, true);
+        JoinContext ctx = context(RenderOptions.portable().withOperandBinder(binder));
+        assertThat(FilterGroup.<OrderView>collect(f -> f.eqIgnoreCase(NAME, "Ann")
+                        .likeIgnoreCase(CODE, "A_1", LikeMode.STARTS_WITH).likeIgnoreCase(CODE, "B2", LikeMode.EXACT))
+                .stream().map(filter -> filter.toPredicate(ctx))).allMatch(Optional::isPresent);
+        // The value, or mode's escaped pattern of it, unlowered: the converter runs first, then lower(?) folds it.
+        assertThat(binder.types).containsExactly(String.class, String.class, String.class);
+        assertThat(ctx.statementParameters()).containsOnlyKeys(binder.made);
+        assertThat(ctx.statementParameters().values()).containsExactly("Ann", "A\\_1%", "B2");
+    }
+
+    @Test
+    void ac_flt_34_without_a_binder_or_a_converting_mapping_no_ignore_case_value_is_a_binder_parameter() {
+        RecordingBinder plain = new RecordingBinder(true, false);
+        RecordingBinder declining = new RecordingBinder(false, true);
+        for (RenderOptions options : List.of(RenderOptions.portable(),
+                RenderOptions.portable().withOperandBinder(plain),
+                RenderOptions.portable().withOperandBinder(declining))) {
+            JoinContext ctx = context(options);
+            assertThat(FilterGroup.<OrderView>collect(f -> f.eqIgnoreCase(NAME, "Ann")
+                            .likeIgnoreCase(CODE, "A1", LikeMode.CONTAINS))
+                    .stream().map(filter -> filter.toPredicate(ctx))).allMatch(Optional::isPresent);
+            assertThat(ctx.statementParameters()).isEmpty();
+        }
+        assertThat(plain.converted).hasSize(2);
+        // Declined, converts is never asked.
+        assertThat(declining.converted).isEmpty();
+        assertThat(plain.made).isEmpty();
+        assertThat(declining.made).isEmpty();
+    }
+
+    @Test
+    void ac_flt_33_a_converting_binder_that_throws_is_mq1502_naming_the_ignore_case_filter() {
+        OperandBinder throwing = new OperandBinder() {
+            @Override
+            public <T> ParameterExpression<T> parameter(CriteriaBuilder cb, Expression<?> typedBy, Class<T> type) {
+                throw new IllegalStateException("no basic type");
+            }
+
+            @Override
+            public boolean converts(Expression<?> typedBy) {
+                return true;
+            }
+        };
+        assertThatThrownBy(() -> render(f -> f.likeIgnoreCase(CODE, "a", LikeMode.EXACT),
+                RenderOptions.portable().withOperandBinder(throwing)))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1502))
+                .hasMessageContaining("likeIgnoreCase cannot bind its value").hasMessageContaining("no basic type");
+    }
+
     // ---- helpers: a stand-in CriteriaBuilder and root, since core has no provider
 
     /** A binder that records what it is asked for and makes a parameter of its own. */
@@ -257,7 +313,9 @@ class OperatorGateTest {
         final List<Class<?>> types = new ArrayList<>();
         final List<Expression<?>> typedBy = new ArrayList<>();
         final List<ParameterExpression<?>> made = new ArrayList<>();
+        final List<Expression<?>> converted = new ArrayList<>();
         private final boolean typesAll;
+        private final boolean convertsAll;
 
         RecordingBinder() {
             this(true);
@@ -265,7 +323,19 @@ class OperatorGateTest {
 
         /** {@code typesAll} false: declines every expression, as for a column it can type only by its class. */
         RecordingBinder(boolean typesAll) {
+            this(typesAll, false);
+        }
+
+        /** {@code convertsAll}: says every expression's mapping converts a value. */
+        RecordingBinder(boolean typesAll, boolean convertsAll) {
             this.typesAll = typesAll;
+            this.convertsAll = convertsAll;
+        }
+
+        @Override
+        public boolean converts(Expression<?> typedBy) {
+            converted.add(typedBy);
+            return convertsAll;
         }
 
         @Override
