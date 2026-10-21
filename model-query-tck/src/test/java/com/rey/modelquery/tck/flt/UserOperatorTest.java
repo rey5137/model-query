@@ -48,9 +48,9 @@ import javax.sql.DataSource;
 import org.hibernate.SessionFactory;
 
 /**
- * User-defined {@code FilterOperator}s through the executor, with no operand binder: what binds and what is refused,
- * the renderer's failures, NULL rows and {@code Having.op} (spec api/12 R-FLT-20..22; TCK AC-FLT-22, AC-FLT-23,
- * AC-FLT-24's no-gate case, AC-FLT-26).
+ * User-defined {@code FilterOperator}s through the executor, with Hibernate's operand binder and, where a test says so,
+ * with none: what binds and what is refused, the renderer's failures, NULL rows and {@code Having.op} (spec api/12
+ * R-FLT-20..22; TCK AC-FLT-22, AC-FLT-23, AC-FLT-24's no-gate case, AC-FLT-26).
  */
 class UserOperatorTest {
 
@@ -136,7 +136,7 @@ class UserOperatorTest {
         // Order i is placed 17 minutes after the previous one from 2020-01-01T00:00, so 9 come before 02:50.
         LocalDateTime cutoff = LocalDateTime.of(2020, 1, 1, 2, 50);
         List<List<? extends Record>> results = new ArrayList<>();
-        List<String> sql = SqlSnapshots.capture(db, ds -> {
+        List<String> sql = SqlSnapshots.capture(db, ds -> withoutBinder(() -> {
             results.add(rows(ds, f -> f.op(EQUALS, LABEL, "plain")));
             withExecutor(ds, OrderEntity.class, executor -> {
                 results.add(executor.list(ORDERS_QUERY.where(f -> f.op(AT_MOST, ORDER_ID, 7L)).build(),
@@ -147,7 +147,7 @@ class UserOperatorTest {
                 results.add(executor.list(ORDERS_QUERY.where(f -> f.lt(PLACED_AT, cutoff)).build(),
                         Limit.unlimited()));
             });
-        });
+        }));
         assertThat(results.get(0)).isEqualTo(List.of(new R(1L, "plain")));
         assertThat(results.get(1)).hasSize(7).isEqualTo(results.get(2));
         assertThat(results.get(3)).hasSize(9).isEqualTo(results.get(4));
@@ -160,7 +160,8 @@ class UserOperatorTest {
     @TckTest
     void ac_flt_22_with_no_binder_an_enum_an_array_a_boolean_or_a_uuid_value_is_mq1502_before_any_statement(
             TckDatabase db) {
-        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, ConstantRowEntity.class, executor -> {
+        List<String> sql = SqlSnapshots.capture(db, ds -> withoutBinder(() -> withExecutor(ds, ConstantRowEntity.class,
+                executor -> {
             assertThatThrownBy(() -> executor.list(ROWS_QUERY.where(f -> f.op(STATUS_IS, STATUS,
                     ConstantStatus.PENDING)).build(), Limit.unlimited()))
                     .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
@@ -188,7 +189,7 @@ class UserOperatorTest {
                     .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                             e -> assertThat(e.code()).isEqualTo(MqCode.MQ1502))
                     .hasMessageContaining("op(onAny)");
-        }));
+        })));
         assertThat(sql).noneMatch(s -> s.contains("constant_rows"));
     }
 
@@ -383,6 +384,11 @@ class UserOperatorTest {
             sf.inSession(em -> ids.addAll(em.createQuery(jpql, Long.class).getResultList()));
             return ids;
         }
+    }
+
+    /** Runs {@code work} where the provider supplies no operand binder, Hibernate's answers otherwise. */
+    private static void withoutBinder(Runnable work) {
+        OperatorProviderSupport.serving(feature -> false, null, work);
     }
 
     private static List<R> rows(DataSource ds, UnaryOperator<Filters<R>> where) {
