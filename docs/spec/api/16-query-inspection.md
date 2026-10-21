@@ -42,6 +42,7 @@ c.path();      // Optional<TableField<?, ?>>: the join path of EXISTS and NOT_EX
 c.label();     // Optional<String>: a labelled add(...)
 c.subSelect(); // Optional<SubSelect<?, ?>>: the sub-select of the four *_SUBSELECT kinds (R-INS-08)
 c.operands();  // List<ScalarField<?, ?>>: the operand fields of IN_FIELDS and NOT_IN_FIELDS (R-INS-09)
+c.operator();  // Optional<FilterOperator<?, ?>>: the operator of OPERATOR (R-INS-13)
 ```
 
 `Condition` and `QueryConditions` are final classes, not records, with no public constructor or factory: only the DSL
@@ -66,6 +67,7 @@ a `default`:
 | `IN_FIELDS`, `NOT_IN_FIELDS` | `in`, `notIn` against operand fields (`api/12` R-FLT-19) | `column`, `operands()` |
 | `EXISTS_SUBSELECT`, `NOT_EXISTS_SUBSELECT` | `exists`, `notExists` over a sub-select | `subSelect`, `children` (the correlation, an implicit AND) |
 | `OF_TYPE`, `NOT_OF_TYPE` | `ofType`, `notOfType` (`api/12` R-FLT-28) | `column` (the node's `Expr.typeOf`), `values` (the types as passed) |
+| `OPERATOR` | `op` (`api/12` R-FLT-20) | `column`, `operator`, and one value or `right` (R-INS-13) |
 
 `having` records the same kinds over aggregate columns, except `EXISTS`, `NOT_EXISTS`, `CUSTOM`, the four
 `*_SUBSELECT` kinds and `OF_TYPE`/`NOT_OF_TYPE`, which it has no operator for.
@@ -93,8 +95,9 @@ is inspected.
 
 **R-INS-04** **The view is a value.** `conditions()` returns an immutable, thread-safe tree (INV-9), equal for two
 queries built from equal calls; `withFetch` and `orderedBy` copies share it. Columns compare as `ColumnField` does,
-expressions structurally (`api/10` R-COL-20), paths by their key, `CUSTOM` conditions by label alone. Values are held by reference: a mutable value changed after
-the call (a `java.util.Date`) changes the view.
+expressions structurally (`api/10` R-COL-20), paths by their key, `CUSTOM` conditions by label alone, and
+`OPERATOR` conditions by their operator's identity with their columns and values (R-INS-13). Values are held by
+reference: a mutable value changed after the call (a `java.util.Date`) changes the view.
 
 **R-INS-05** **Logs name conditions, never values.** `QueryConditions.toString()`, `Condition.toString()`, the D-95
 build log and the D-95 `update` and `delete` logs list each condition's kind and column, with values shown as `?`, since
@@ -114,9 +117,9 @@ the child's `foreignKey` unless already selected, then its join plans', R-FCH-05
 children it loads.
 
 **R-INS-07** **Matchers mirror `Filters`.** `FilterMatchers` has one factory per `Filters` operator, with the same
-name and the value form of its parameters (`eq`, `ne`, `in`, `like`, `isNull`, `between`, `compare`, `or`, `not`,
-`exists`, …), plus `and(...)` for an `or` branch and `custom(label)`; no `Optional` overloads, and no `when` or `apply`,
-which record nothing of their own. A matcher is a test-module type that matches a `Condition`; core exposes no way to
+name and the value form of its parameters (`eq`, `ne`, `in`, `like`, `isNull`, `between`, `compare`, `op`, `or`,
+`not`, `exists`, …), plus `and(...)` for an `or` branch and `custom(label)`; no `Optional` overloads, and no `when` or
+`apply`, which record nothing of their own. A matcher is a test-module type that matches a `Condition`; core exposes no way to
 build one. `IN` and `NOT_IN` values match as multisets. `hasFilters` matches the top-level conditions exactly, as a
 multiset, in any order; `containsFilter` matches one of them; a failure message prints the whole condition tree,
 values included.
@@ -240,6 +243,15 @@ writes and argument-dependent calls need `call`. Holders are explicit; there is 
   no target, no call, a swept holder with no definition, a `skip` of an unknown field, of a field that is not a
   `static final` definition, with a blank reason or of a holder no sweep reads, mapping files for a named unit, and a
   class list with no class. A check never passes vacuously.
+
+**R-INS-13** *(D-167, `@Incubating`)* **Operators.** `op(...)` (`api/12` R-FLT-20) records `Condition.Kind#OPERATOR`
+with `column()`, `operator()` (an `Optional<FilterOperator<?, ?>>`, empty for every other kind) and either one value
+in `values()`, as passed, before `prepare` and any converter (R-INS-01), or the right operand in `right()`. Two
+`OPERATOR` conditions are equal when their operators are the same instance and their columns and values or right
+operands are equal (R-INS-04), so two queries built from equal calls stay equal when they share the operator constant,
+and an operator built at each call site makes them unequal. `toString` prints the operator's name with each value as
+`?` (R-INS-05). `FilterMatchers.op(operator, column, value)` and `op(operator, left, right)` match it, by the same
+identity; a different operator of the same name doesn't match.
 
 ## 3. Acceptance criteria
 

@@ -207,6 +207,7 @@ class QueryInspectionTest {
                 .or(a -> a.eq(NAME, "f").eq(NAME, "g"), b -> b.isNull(TOTAL)).not(g -> g.eq(NAME, "h"))
                 .exists(ITEMS).notExists(ITEMS, i -> i.eq(SKU, "i"))
                 .ofType(ROOT, Order.class).notOfType(ROOT, List.of(Order.class))
+                .op(FilterOperator.<String>of("matches", (ctx, left, right) -> ctx.cb().equal(left, right)), NAME, "j")
                 .add((ctx, cb) -> cb.conjunction())));
 
         assertThat(seen).containsExactlyInAnyOrder(Kind.values());

@@ -424,6 +424,23 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
         return super.compare(left, op, right);
     }
 
+    // ---- custom operators
+
+    @Override
+    public <C, V> Filters<M> op(FilterOperator<C, V> operator, ScalarField<M, C> column, V value) {
+        return super.op(operator, column, value);
+    }
+
+    @Override
+    public <C, V> Filters<M> op(FilterOperator<C, V> operator, ScalarField<M, C> column, Optional<? extends V> value) {
+        return super.op(operator, column, value);
+    }
+
+    @Override
+    public <C, V> Filters<M> op(FilterOperator<C, V> operator, ScalarField<M, C> left, ScalarField<M, V> right) {
+        return super.op(operator, left, right);
+    }
+
     // ---- correlated sub-queries
 
     @Override

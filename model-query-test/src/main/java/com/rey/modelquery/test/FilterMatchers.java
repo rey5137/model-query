@@ -6,6 +6,7 @@ import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.Condition.Kind;
+import com.rey.modelquery.core.FilterOperator;
 import com.rey.modelquery.core.LikeMode;
 import com.rey.modelquery.core.Op;
 import com.rey.modelquery.core.Outer;
@@ -246,6 +247,38 @@ public final class FilterMatchers {
     public static <C> ConditionMatcher compare(AggregateField<?, C> left, Op op, AggregateField<?, C> right) {
         return new ConditionMatcher(Kind.COMPARE, left, right, requireNonNull(op, "op"), null, null, List.of(), null,
                 List.of());
+    }
+
+    /**
+     * Matches op(operator, column, value) (OPERATOR): the same operator instance, and the value as passed, before
+     * the operator's {@code prepare} (R-INS-13).
+     */
+    public static <C, V> ConditionMatcher op(FilterOperator<C, V> operator, ScalarField<?, C> column, V value) {
+        return operator(operator, column, null, requireNonNull(value, "a value; a filter never records null"));
+    }
+
+    /** The {@code having} form of op(operator, column, value). */
+    public static <C, V> ConditionMatcher op(FilterOperator<C, V> operator, AggregateField<?, C> aggregate, V value) {
+        return operator(operator, aggregate, null, requireNonNull(value, "a value; a filter never records null"));
+    }
+
+    /** Matches op(operator, left, right) (OPERATOR), the field form. */
+    public static <C, V> ConditionMatcher op(FilterOperator<C, V> operator, ScalarField<?, C> left,
+            ScalarField<?, V> right) {
+        return operator(operator, left, requireNonNull(right, "right"), null);
+    }
+
+    /** The {@code having} form of op(operator, left, right). */
+    public static <C, V> ConditionMatcher op(FilterOperator<C, V> operator, AggregateField<?, C> left,
+            AggregateField<?, V> right) {
+        return operator(operator, left, requireNonNull(right, "right"), null);
+    }
+
+    private static ConditionMatcher operator(FilterOperator<?, ?> operator, SelectField<?, ?> column,
+            SelectField<?, ?> right, Object value) {
+        return new ConditionMatcher(Kind.OPERATOR, requireNonNull(column, "column"), right, null, null, null,
+                value == null ? List.of() : List.of(value), null, List.of(), null, List.of(),
+                requireNonNull(operator, "operator"));
     }
 
     /** Matches or(...) (OR), one matcher per branch, in order. A branch of two or more filters is an {@link #and}. */

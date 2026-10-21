@@ -9,6 +9,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BiFunction;
@@ -472,6 +473,156 @@ abstract class ConditionGroup<M, G> {
                 case GTE -> cb.greaterThanOrEqualTo(l, r);
             });
         });
+    }
+
+    // ---- custom operators (R-FLT-20..22)
+
+    /**
+     * {@code operator} over {@code column} and {@code value}: the value checked, prepared and converted here, once
+     * (R-FLT-21), and bound as a statement parameter each time the filter renders, so every statement binds it.
+     */
+    final <C, V> G op(FilterOperator<C, V> operator, SelectField<M, C> column, V value) {
+        Objects.requireNonNull(operator, "operator");
+        V given = required(column, "op", value);
+        if (given instanceof Optional<?> || given instanceof Collection<?> || given instanceof Map<?, ?>) {
+            // A Collection operand is an IN, and a Map has no portable binding: no binder takes either (R-FLT-21).
+            throw new ModelQueryDefinitionException(MqCode.MQ1502, column + ": op(" + operator.name()
+                    + ") cannot bind a value of type " + given.getClass().getSimpleName() + "; an operator binds one "
+                    + "value, and an Optional, a Collection or a Map is not one");
+        }
+        requireOperatorAttribute(operator, column);
+        V prepared = prepared(operator, column, given);
+        Object bound = operator.valueType() == null ? bound(column, uncheckedColumnValue(prepared)) : prepared;
+        Class<?> type = operator.valueType() != null ? operator.valueType() : ColumnField.boxed(attributeType(column));
+        return record(Condition.operator(operator, column, value), ctx -> {
+            requireGate(operator, column);
+            requireMappingIndependent(operator, column, bound);
+            @SuppressWarnings("unchecked")
+            Expression<V> right = (Expression<V>) ctx.parameter(type, bound);
+            return Optional.of(rendered(operator, column, ctx, column.expression(ctx), right));
+        });
+    }
+
+    final <C, V> G op(FilterOperator<C, V> operator, SelectField<M, C> column, Optional<? extends V> value) {
+        Objects.requireNonNull(operator, "operator");
+        return present(column, value) ? op(operator, column, value.get()) : self();
+    }
+
+    /** {@code operator} of {@code left} against the field {@code right}, which binds nothing of its own (R-FLT-20). */
+    @SuppressWarnings("unchecked")
+    final <C, V> G op(FilterOperator<C, V> operator, SelectField<M, C> left, SelectField<M, V> right) {
+        Objects.requireNonNull(operator, "operator");
+        guard(left, "left");
+        guard(right, "right");
+        if (operator.valueType() == null && (converted(left) != null || converted(right) != null)
+                && attributeType(left) != attributeType(right)) {
+            // As compare: the database compares attribute values, and no converter applies to a column (R-COL-14).
+            throw new ModelQueryDefinitionException(MqCode.MQ1001, String.format(
+                    "op(%s, %s, %s): the columns read attributes of type %s and %s, which a converter makes look "
+                            + "alike; apply the operator to columns of one attribute type", operator.name(), left,
+                    right, attributeType(left).getSimpleName(), attributeType(right).getSimpleName()));
+        }
+        requireOperatorAttribute(operator, left);
+        return record(Condition.operator(operator, left, right), ctx -> {
+            requireGate(operator, left);
+            return Optional.of(rendered(operator, left, ctx, (Expression<C>) operand(left, ctx),
+                    (Expression<V>) operand(right, ctx)));
+        });
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <C> C uncheckedColumnValue(Object value) {
+        return (C) value; // a FilterOperator<C, C>'s value is a C
+    }
+
+    /** {@code MQ1001} for a column whose attribute is not the type {@code requiringAttribute} named (R-COL-14). */
+    private static void requireOperatorAttribute(FilterOperator<?, ?> operator, SelectField<?, ?> column) {
+        Class<?> needed = operator.attributeType();
+        Class<?> actual = ColumnField.boxed(attributeType(column));
+        if (needed != null && !needed.isAssignableFrom(actual)) {
+            ColumnField<?, ?, ?> field = converted(column);
+            throw new ModelQueryDefinitionException(MqCode.MQ1001, String.format(
+                    "%s: op(%s) needs a %s attribute, and the column reads one of type %s%s", column, operator.name(),
+                    needed.getSimpleName(), actual.getSimpleName(), field == null ? ""
+                            : " through its converter " + field.converterClass().getSimpleName()));
+        }
+    }
+
+    /** {@code value} through the operator's {@code prepare}, whose {@code null} or throw is {@code MQ1313}. */
+    private static <V> V prepared(FilterOperator<?, V> operator, SelectField<?, ?> column, V value) {
+        if (operator.prepare() == null) {
+            return value;
+        }
+        V prepared;
+        try {
+            prepared = operator.prepare().apply(value);
+        } catch (ModelQueryException e) {
+            throw e; // an engine error keeps its own code
+        } catch (RuntimeException e) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1313, column + ": op(" + operator.name()
+                    + ")'s prepare threw " + e, e);
+        }
+        if (prepared == null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1313, column + ": op(" + operator.name()
+                    + ")'s prepare returned null");
+        }
+        return prepared;
+    }
+
+    /** {@code MQ4014} for an operator that requires a feature: no operator gate answers for one (R-FLT-20). */
+    private static void requireGate(FilterOperator<?, ?> operator, SelectField<?, ?> column) {
+        if (operator.feature() != null) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4014, column + ": op(" + operator.name()
+                    + ") requires " + operator.feature() + ", and this rendering has no operator gate to tell "
+                    + "whether the vendor and the persistence provider serve it");
+        }
+    }
+
+    /**
+     * {@code MQ1502} for a value whose binding depends on the column's mapping, which a parameter typed by a Java
+     * class gets wrong: a {@code STRING} enum binds by ordinal, a {@code @Convert} value not at all, a
+     * {@code Boolean} mapped to {@code 'Y'/'N'} or a {@code UUID} stored as {@code char(36)} matches nothing (R-FLT-21,
+     * D-168).
+     */
+    private static void requireMappingIndependent(FilterOperator<?, ?> operator, SelectField<?, ?> column,
+            Object value) {
+        // An array's package is its element's, so a LocalDate[] would pass the package check alone.
+        if (!(value instanceof String
+                || value instanceof Number && plainNumber(value.getClass())
+                || !value.getClass().isArray() && value.getClass().getPackageName().equals("java.time"))) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1502, column + ": op(" + operator.name()
+                    + ") cannot bind a value of type " + value.getClass().getSimpleName() + " without the "
+                    + "provider's operand binder; with none only a String, a java.lang or java.math number or a "
+                    + "java.time value binds");
+        }
+    }
+
+    /** A {@code java.lang} or {@code java.math} number, which a parameter typed by its class binds as is (D-168). */
+    private static boolean plainNumber(Class<?> type) {
+        String pkg = type.getPackageName();
+        return pkg.equals("java.lang") || pkg.equals("java.math");
+    }
+
+    /**
+     * The operator's predicate, {@code MQ1313} when its renderer returns {@code null} or throws; a
+     * {@link ModelQueryException} it throws keeps its own code.
+     */
+    private static <C, V> Predicate rendered(FilterOperator<C, V> operator, SelectField<?, ?> column,
+            JoinContext ctx, Expression<C> left, Expression<V> right) {
+        Predicate predicate;
+        try {
+            predicate = operator.renderer().render(ctx::cb, left, right);
+        } catch (ModelQueryException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1313, column + ": op(" + operator.name()
+                    + ")'s renderer threw " + e, e);
+        }
+        if (predicate == null) {
+            throw new ModelQueryDefinitionException(MqCode.MQ1313, column + ": op(" + operator.name()
+                    + ")'s renderer returned null; an operator always renders a predicate");
+        }
+        return predicate;
     }
 
     // ---- composition: public here, since these signatures take G and so implement the builder's own

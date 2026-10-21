@@ -20,6 +20,7 @@ import static com.rey.modelquery.test.FilterMatchers.ne;
 import static com.rey.modelquery.test.FilterMatchers.not;
 import static com.rey.modelquery.test.FilterMatchers.notExists;
 import static com.rey.modelquery.test.FilterMatchers.notIn;
+import static com.rey.modelquery.test.FilterMatchers.op;
 import static com.rey.modelquery.test.FilterMatchers.or;
 import static com.rey.modelquery.test.FilterMatchers.outer;
 import static com.rey.modelquery.test.FilterMatchers.range;
@@ -32,6 +33,7 @@ import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.Condition;
 import com.rey.modelquery.core.Expr;
+import com.rey.modelquery.core.FilterOperator;
 import com.rey.modelquery.core.Filters;
 import com.rey.modelquery.core.LikeMode;
 import com.rey.modelquery.core.Limit;
@@ -157,6 +159,51 @@ class QueryAssertTest {
                 likeIgnoreCase(NAME, "D", LikeMode.STARTS_WITH), like(NAME, "c", LikeMode.CONTAINS),
                 notIn(TOTAL, List.of(11)), in(TOTAL, List.of(10, 9)), between(TOTAL, 7, 8), range(TOTAL, 5, 6),
                 lte(TOTAL, 4), lt(TOTAL, 3), gte(TOTAL, 2), gt(TOTAL, 1), ne(NAME, "b"), eq(NAME, "a"));
+    }
+
+    private static final FilterOperator<String, String> MATCHES =
+            FilterOperator.of("matches", (ctx, left, right) -> ctx.cb().equal(left, right));
+
+    @Test
+    void ac_flt_25_op_matches_the_same_operator_and_not_another_of_the_same_name() {
+        FilterOperator<String, String> trimmed = MATCHES.preparing(String::trim);
+        FilterOperator<String, String> twin =
+                FilterOperator.of("matches", (ctx, left, right) -> ctx.cb().equal(left, right));
+        FilterOperator<Long, Long> atLeast = FilterOperator.of("atLeast", (ctx, l, r) -> ctx.cb().ge(l, r));
+        var q = ModelQuery.builder(ROOT, row -> new OrderView())
+                .select(SelectSet.of(NAME, COUNT))
+                .where(f -> f.op(trimmed, NAME, " acme ").op(MATCHES, NAME, NAME))
+                .groupBy(NAME)
+                .having(h -> h.op(atLeast, COUNT, 2L).op(atLeast, COUNT, COUNT))
+                .build();
+
+        assertThatQuery(q)
+                .hasFilters(op(MATCHES, NAME, NAME), op(trimmed, NAME, " acme "))
+                .hasHaving(op(atLeast, COUNT, 2L), op(atLeast, COUNT, COUNT));
+        Condition first = q.conditions().where().get(0);
+        assertThat(op(trimmed, NAME, "acme").matches(first)).isFalse(); // recorded unprepared (R-INS-13)
+        assertThat(op(twin, NAME, " acme ").matches(first)).isFalse();
+        assertThat(op(MATCHES, NAME, " acme ").matches(first)).isFalse();
+        assertThat(op(trimmed, NAME, NAME).matches(first)).isFalse();
+        assertThat(op(twin, NAME, " acme ")).hasToString("OPERATOR(OrderView.name, matches, \" acme \")");
+        assertThatThrownBy(() -> assertThatQuery(q).containsFilter(op(twin, NAME, " acme ")))
+                .isInstanceOf(AssertionError.class).hasMessageContaining("OPERATOR(OrderView.name, matches");
+    }
+
+    @Test
+    void ac_flt_25_op_matches_an_array_value_by_content() {
+        FilterOperator<String, String[]> anyOf =
+                FilterOperator.of("anyOf", String[].class, (ctx, left, right) -> ctx.cb().conjunction());
+        var q = ModelQuery.builder(ROOT, row -> new OrderView())
+                .select(SelectSet.of(NAME))
+                .where(f -> f.op(anyOf, NAME, new String[] {"a", "b"}))
+                .build();
+
+        assertThatQuery(q).hasFilters(op(anyOf, NAME, new String[] {"a", "b"}));
+        Condition first = q.conditions().where().get(0);
+        assertThat(op(anyOf, NAME, new String[] {"b", "a"}).matches(first)).isFalse();
+        assertThat(op(anyOf, NAME, new String[] {"a"}).matches(first)).isFalse();
+        assertThat(op(anyOf, NAME, new String[] {"a", "b"})).hasToString("OPERATOR(OrderView.name, anyOf, [a, b])");
     }
 
     @Test
