@@ -545,6 +545,17 @@ literal, a sub-query or an aggregate over one of these, whose node type Hibernat
 node type the line doesn't expect (on 6.6 anything but a basic type or a path source whose `getSqmPathType()` is one, on
 7.4 anything but a basic type, an entity path's included) makes it throw, so `MQ1502`.
 
+**R-VND-27** *(D-177, `@Incubating`)* `ProviderSupport#inlineCounts(EntityManagerFactory emf)` is an `@Incubating` default method
+returning `false`: whether the factory's database renders a window function over the page statement (`engine/20`
+R-EXE-15), true only where `sources()` is present and its window renders `COUNT`. The executor asks it once, when it is
+built, and only where `sources()` is present, so a `ProviderSupport` answering true with no source renderer never
+reaches `SourceRenderer#window`'s `MQ4014` default where `COUNT` works (fallback 1). The window renders through the
+existing core `SourceRenderer#window(cb, WindowSpec)` (`api/17` R-SRC-04) as `count(1) over ()`: no new renderer type,
+no new `mq_*` function and nothing in `RenderOptions` that `core` can't see (INV-7). `model-query-hibernate` answers
+from the dialect's `supportsWindowFunctions()`, as `operators(emf, f)` answers from the dialect (D-171, D-175); its
+`sources()` is unconditional, so the two facts agree. Nothing is refused, so no `VendorProfile` fact and no
+`PortabilityCheck` report are needed (R-VND-11, INV-6).
+
 ## 2. Detection
 
 **R-VND-04** Resolution order:

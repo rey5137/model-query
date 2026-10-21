@@ -68,7 +68,8 @@ public interface ModelQueryExecutor<E> {
     <M> List<M> list(ModelQuery<E, ?, M> q, Limit limit);
 
     /**
-     * Reads one page of {@code q}: an exact total, a {@code hasNext} probe, or the total alone (R-EXE-02). An invalid
+     * Reads one page of {@code q}: an exact total, a {@code hasNext} probe, or the total alone (R-EXE-02); under
+     * {@code INLINE_COUNT}, the same total and {@code hasNext} as under {@code COUNT} (R-EXE-15). An invalid
      * page never reaches here: {@link PageSpec} rejects it when built (R-EXE-06). With {@code primaryKeyFirst(...)}, a
      * page whose offset is above its threshold is read in two steps, the page's primary keys in the query's order and
      * then the rows of those keys, in statements of at most the vendor's IN-list and bind-parameter limits; it holds

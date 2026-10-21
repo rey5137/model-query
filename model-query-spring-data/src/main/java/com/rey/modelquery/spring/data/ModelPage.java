@@ -16,14 +16,15 @@ import org.springframework.data.domain.Slice;
 public interface ModelPage<M> extends Slice<M> {
 
     /**
-     * The exact number of rows behind the query under {@link CountMode#COUNT} and {@link CountMode#ONLY_COUNT};
-     * {@code null} under {@link CountMode#NO_COUNT}, never a number made up from the current page.
+     * The exact number of rows behind the query under {@link CountMode#COUNT}, {@link CountMode#INLINE_COUNT} and
+     * {@link CountMode#ONLY_COUNT}; {@code null} under {@link CountMode#NO_COUNT}, never a number made up from the
+     * current page.
      */
     Long getTotalElements();
 
     /**
-     * The exact number of pages of {@link #getSize()} rows under {@link CountMode#COUNT} and
-     * {@link CountMode#ONLY_COUNT}; {@code null} under {@link CountMode#NO_COUNT}.
+     * The exact number of pages of {@link #getSize()} rows under {@link CountMode#COUNT},
+     * {@link CountMode#INLINE_COUNT} and {@link CountMode#ONLY_COUNT}; {@code null} under {@link CountMode#NO_COUNT}.
      *
      * @throws ArithmeticException when that number does not fit an {@code int}
      */

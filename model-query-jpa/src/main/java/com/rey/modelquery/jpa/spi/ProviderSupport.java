@@ -188,6 +188,16 @@ public interface ProviderSupport {
         return Optional.empty();
     }
 
+    /**
+     * Whether the factory's database renders a window function over the page statement (R-EXE-15). True only where
+     * {@link #sources()} is present and its window renders {@code COUNT}; {@code false}, the default, makes every
+     * {@code CountMode.INLINE_COUNT} page run {@code COUNT}'s statements (R-VND-27). Asked once per executor.
+     */
+    @Incubating
+    default boolean inlineCounts(EntityManagerFactory emf) {
+        return false;
+    }
+
     /** The factory's treated-path renderer, or empty: a treated node is then {@code MQ4014} (R-VND-26). */
     @Incubating
     default Optional<TreatRenderer> treats(EntityManagerFactory emf) {
