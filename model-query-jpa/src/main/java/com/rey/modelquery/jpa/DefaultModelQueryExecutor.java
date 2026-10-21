@@ -1,5 +1,7 @@
 package com.rey.modelquery.jpa;
 
+import com.rey.modelquery.annotations.WindowFrame;
+import com.rey.modelquery.annotations.WindowFunction;
 import com.rey.modelquery.core.BuiltQuery;
 import com.rey.modelquery.core.ChildLoad;
 import com.rey.modelquery.core.ChunkOptions;
@@ -151,6 +153,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /** The prefix of the parameters an insert-select selects its write assignments' values as (R-WRT-49). */
     private static final String ASSIGNED = "mqAssigned";
+    /**
+     * The alias an {@code INLINE_COUNT} page selects its total as, after the model's columns and {@code mq_0id}, read
+     * by alias only and outside D-146's {@code mq_<property>} space (R-EXE-15).
+     */
+    private static final String INLINE_TOTAL = "mq_0total";
     private static final System.Logger.Level DEBUG = System.Logger.Level.DEBUG;
     private static final System.Logger.Level TRACE = System.Logger.Level.TRACE;
 
@@ -564,15 +571,52 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * Why {@code q}'s {@code INLINE_COUNT} page reads its total from {@code COUNT}'s statements instead of a window on
-     * the page statement, or empty where the page statement carries the window (R-EXE-15). Without the provider's
-     * window, fallback 1; with it, every page still falls back, as no page statement carries the window yet.
+     * {@code first}, its page statement or step 1's key query, or empty where {@code first} carries the window: only
+     * where {@code counting}, the count {@code COUNT} would run, is {@code first}'s own rows counted (R-EXE-15
+     * fallbacks 1–4). Decided after {@code buildQuery}, so a customizer's {@code distinct()} or join is seen. Where
+     * {@code keysFirst}, {@code first} is the {@code PRIMARY_KEY} statement and {@code counting} the {@code MODEL} one,
+     * so a to-many join in {@code first} alone, a customizer's {@code LEFT} join that R-PAG-15 admits, repeats keys
+     * {@code COUNT} counts once.
      */
-    private Optional<String> inlineCountFallback(ModelQuery<E, ?, ?> q) {
+    private Optional<String> inlineCountFallback(Counting<?> counting, BuiltQuery<?> first, boolean keysFirst) {
         if (!inlineCounts) {
             return Optional.of("the provider renders no window over the page statement (no ProviderSupport, or its "
                     + "inlineCounts(emf) is false or its sources() is empty)");
         }
-        return Optional.of("no page statement carries the inline count's window yet");
+        if (first.query().isDistinct() || counting.built().query().isDistinct()) {
+            return Optional.of("the statement is DISTINCT, which applies after the window counts");
+        }
+        if (counting.notWindowed().isPresent()) {
+            return counting.notWindowed();
+        }
+        if (keysFirst && first.query().getRoots().stream().anyMatch(DefaultModelQueryExecutor::hasToManyJoin)) {
+            return Optional.of("step 1's key query carries a to-many join, which repeats a key COUNT counts once");
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Selects {@code count(1) over ()} as {@link #INLINE_TOTAL} after {@code built}'s own selection, through the
+     * provider's window renderer: after {@code buildQuery}, so the customizer can't drop it, and before any preflight,
+     * so the statement checked is the one run (R-EXE-15, R-VND-27).
+     */
+    private void selectInlineTotal(BuiltQuery<?> built) {
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        // inlineCounts holds only where the provider serves sources() (R-EXE-15 fallback 1).
+        SourceRenderer renderer = vendor.providerSupport().flatMap(ProviderSupport::sources).orElseThrow();
+        Expression<?> total = renderer.window(cb, new WindowSpec(WindowFunction.COUNT, cb.literal(1), List.of(),
+                List.of(), WindowFrame.NONE));
+        CriteriaQuery<Tuple> query = built.query();
+        Selection<?> own = query.getSelection();
+        var selected = new ArrayList<Selection<?>>(own.isCompoundSelection() ? own.getCompoundSelectionItems()
+                : List.of(own));
+        selected.add(total.alias(INLINE_TOTAL));
+        query.multiselect(selected);
+    }
+
+    /** The total {@code tuple}'s {@link #INLINE_TOTAL} window read, by its alias (R-EXE-15). */
+    private static long inlineTotal(Tuple tuple) {
+        return ((Number) tuple.get(INLINE_TOTAL)).longValue();
     }
 
     /** Logs {@code reason} at {@code DEBUG} the first time this executor falls back for {@code q} (R-EXE-15). */
@@ -1300,8 +1344,17 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         // and then run as built (R-VND-26).
         Counting<M> counting = mode != CountMode.NO_COUNT ? preflightedCounting(q, clientSide) : null;
         BuiltQuery<M> first = null;
-        if (mode != CountMode.ONLY_COUNT && preflights(q)) {
+        if (mode != CountMode.ONLY_COUNT && (preflights(q) || mode == CountMode.INLINE_COUNT && inlineCounts)) {
             first = primaryKeyFirst(q, offset) ? keyQuery(q) : offsetPage(q, everyColumn);
+        }
+        // Fallbacks 1-4 are decided on the statements as built, after the customizer; the window is selected before
+        // the preflight, so the statement checked is the one run (R-EXE-15).
+        Optional<String> inlineFallback = mode == CountMode.INLINE_COUNT
+                ? inlineCountFallback(counting, first, primaryKeyFirst(q, offset)) : Optional.empty();
+        if (mode == CountMode.INLINE_COUNT && inlineFallback.isEmpty()) {
+            selectInlineTotal(first);
+        }
+        if (first != null && preflights(q)) {
             preflight(q, primaryKeyFirst(q, offset) ? "primary-key-first page's keys" : "page",
                     StatementShape.CONTENT, first);
         }
@@ -1311,12 +1364,14 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 return new Slice<>(List.of(), page.pageNumber(), size, offset + (long) size < total,
                         OptionalLong.of(total));
             }
-            case COUNT:
-            case INLINE_COUNT: {
-                if (mode == CountMode.INLINE_COUNT) {
-                    // A fallback reads the total from COUNT's statements, exactly as COUNT does (R-EXE-15).
-                    inlineCountFallback(q).ifPresent(reason -> logInlineCountFallback(q, reason));
+            case INLINE_COUNT:
+                if (inlineFallback.isEmpty()) {
+                    return inlineCounted(q, page, batch, first, counting);
                 }
+                // A fallback reads the total from COUNT's statements, exactly as COUNT does (R-EXE-15).
+                logInlineCountFallback(q, inlineFallback.get());
+                // fall through
+            case COUNT: {
                 long total = countRows(q, counting);
                 List<M> content = offset >= total ? List.of()
                         : models(q, fetch(q, offset, size, batch, everyColumn, first));
@@ -1335,6 +1390,45 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                         hasNext, OptionalLong.empty());
             }
         }
+    }
+
+    /**
+     * An {@code INLINE_COUNT} page whose {@code first} statement, the page or step 1's key query, carries the window:
+     * the total is read off its first row; with no row, it is 0 on the first page, and past it {@code COUNT}'s
+     * statement runs, as a page past the end can't tell an empty result from an offset beyond it (R-EXE-15 fallback 5).
+     */
+    private <M> Slice<M> inlineCounted(ModelQuery<E, ?, M> q, PageSpec page, int batch, BuiltQuery<M> first,
+            Counting<M> counting) {
+        int offset = page.offset();
+        int size = page.pageSize();
+        TypedQuery<Tuple> query = create(q, first);
+        query.setFirstResult(offset);
+        query.setMaxResults(size);
+        List<Tuple> tuples = rows(q, first, query);
+        long total;
+        if (!tuples.isEmpty()) {
+            total = inlineTotal(tuples.get(0));
+        } else if (offset == 0) {
+            total = 0;
+        } else {
+            logInlineCountFallback(q, "the page is past the end: it read no row at offset " + offset);
+            total = countRows(q, counting);
+        }
+        List<Loaded<M>> rows;
+        if (primaryKeyFirst(q, offset)) {
+            PrimaryKey<M, ?> key = q.primaryKey().orElseThrow(); // primaryKeyFirst(...) needs one (MQ1201)
+            boolean uniqueParents = q.fetch().filter(DefaultModelQueryExecutor::hasFetchWork).isPresent();
+            rows = readByKeys(q, key, keysOf(q, key, first, tuples), batch, uniqueParents);
+        } else {
+            rows = new ArrayList<>(tuples.size());
+            for (Tuple tuple : tuples) {
+                rows.add(loaded(first, tuple));
+            }
+        }
+        List<M> content = models(q, rows);
+        warnOfContradictedTotal(q, offset, content.size(), total);
+        return new Slice<>(content, page.pageNumber(), size, offset + (long) content.size() < total,
+                OptionalLong.of(total));
     }
 
     @Override
@@ -3072,7 +3166,12 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         TypedQuery<Tuple> query = create(q, keyQuery);
         query.setFirstResult(offset);
         query.setMaxResults(maxRows);
-        List<Tuple> rows = rows(q, keyQuery, query);
+        return keysOf(q, key, keyQuery, rows(q, keyQuery, query));
+    }
+
+    /** The primary keys of {@code rows}, step 1's rows of {@code keyQuery}, in order. */
+    private static <M> List<Object> keysOf(ModelQuery<?, ?, M> q, PrimaryKey<M, ?> key, BuiltQuery<M> keyQuery,
+            List<Tuple> rows) {
         List<Object> keys = new ArrayList<>(rows.size());
         for (Tuple tuple : rows) {
             keys.add(Keys.keyOf(q, key, keyQuery.selection().row(tuple)));
@@ -3752,10 +3851,13 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     /**
      * A count's statement, built and not run: {@code built}'s own, or {@code groups}, the provider's count over a
      * grouped statement; {@code inMemory} when a grouped statement's rows are counted client-side, with the treat
-     * renderer's {@code refusal} when it refused the count of the groups (D-159).
+     * renderer's {@code refusal} when it refused the count of the groups (D-159). {@code notWindowed} says why a
+     * window on the content statement would not count what this counts, and is empty where it would: the content
+     * statement with its selection replaced by {@code count(root)} or {@code count(1)}, or the database's count of its
+     * groups (R-EXE-15).
      */
     private record Counting<M>(BuiltQuery<M> built, CriteriaQuery<Long> groups, boolean inMemory,
-            Optional<String> refusal) {
+            Optional<String> refusal, Optional<String> notWindowed) {
 
         /** The statement the count runs. */
         CriteriaQuery<?> statement() {
@@ -3773,7 +3875,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             // Built fresh and counting the root id: the content statement with its selection replaced would lose the
             // rows a select-only or order-only treat narrows away, and count(root) those a null-accepting predicate
             // keeps (R-COL-35, R-EXE-05). A grouped query keeps its count of groups below.
-            return new Counting<>(q.buildRootIdCount(cb, renderOptions), null, false, Optional.empty());
+            return new Counting<>(q.buildRootIdCount(cb, renderOptions), null, false, Optional.empty(),
+                    Optional.of("COUNT counts a treated, ungrouped root on a freshly built statement"));
         }
         BuiltQuery<M> built = q.buildQuery(cb, Phase.MODEL, renderOptions);
         CriteriaQuery<Tuple> query = built.query();
@@ -3788,15 +3891,23 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         // rows are counted by a constant (R-SRC-12); a source root has no to-many join, which needs no dedup.
         boolean source = q.source().isPresent();
         boolean readThroughToMany = !source && readsThroughToMany(built);
+        boolean distinctRoots = !source && hasToManyJoin(root) && !readThroughToMany;
         Expression<Long> count = source ? cb.count(cb.literal(1))
-                : hasToManyJoin(root) && !readThroughToMany ? cb.countDistinct(root) : cb.count(root);
+                : distinctRoots ? cb.countDistinct(root) : cb.count(root);
         // The count replaces the selection, so a recursive source's checks are selected beside it, and the count's own
         // statement is the one that reads them (R-SRC-07).
         List<Selection<?>> selections = new ArrayList<>();
         selections.add(count);
         selections.addAll(built.recursionChecks());
         query.multiselect(selections);
-        return new Counting<>(built, null, false, Optional.empty());
+        // A recursive source's checks beside the count fall back too: COUNT's one row reads them even over no row,
+        // where an empty page would leave them unread (R-SRC-08).
+        Optional<String> notWindowed = distinctRoots
+                ? Optional.of("COUNT counts distinct roots over a to-many join no selected column reads")
+                : !built.recursionChecks().isEmpty()
+                        ? Optional.of("COUNT selects the recursive source's checks beside its count")
+                        : Optional.empty();
+        return new Counting<>(built, null, false, Optional.empty(), notWindowed);
     }
 
     /**
@@ -3829,7 +3940,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Optional<CriteriaQuery<Long>> count = checks.isEmpty() && clientSide.isEmpty()
                 ? vendor.providerSupport().flatMap(p -> p.countQuery(query))
                 : Optional.empty();
-        return new Counting<>(built, count.orElse(null), count.isEmpty(), clientSide);
+        Optional<String> notWindowed = count.isPresent() ? Optional.empty()
+                : Optional.of("COUNT counts the groups client-side: " + (clientSide.isPresent()
+                        ? "the treat renderer refuses their count" : !checks.isEmpty()
+                        ? "the source carries checks" : "no ProviderSupport counts groups"));
+        return new Counting<>(built, count.orElse(null), count.isEmpty(), clientSide, notWindowed);
     }
 
     private static boolean hasToManyJoin(From<?, ?> from) {
