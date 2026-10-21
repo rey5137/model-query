@@ -111,6 +111,22 @@ public sealed interface Having<M> permits HavingGroup {
     /** {@code left op right}, aggregate against aggregate, with plain SQL comparison semantics. */
     <C> Having<M> compare(AggregateField<M, C> left, Op op, AggregateField<M, C> right);
 
+    /**
+     * {@code operator} applied to {@code aggregate} and {@code value}, as
+     * {@link Filters#op(FilterOperator, ScalarField, Object)}: the parameter is typed by the aggregate's type, a
+     * {@code min} or {@code max} over a converted column's by the attribute's (R-AGG-04, R-FLT-21).
+     */
+    @Incubating
+    <C, V> Having<M> op(FilterOperator<C, V> operator, AggregateField<M, C> aggregate, V value);
+
+    /** {@link #op(FilterOperator, AggregateField, Object)}, skipped when {@code value} is empty. */
+    @Incubating
+    <C, V> Having<M> op(FilterOperator<C, V> operator, AggregateField<M, C> aggregate, Optional<? extends V> value);
+
+    /** {@code operator} of two aggregates, as {@link Filters#op(FilterOperator, ScalarField, ScalarField)}. */
+    @Incubating
+    <C, V> Having<M> op(FilterOperator<C, V> operator, AggregateField<M, C> left, AggregateField<M, V> right);
+
     /** {@code (first) OR (second)}, skipped as {@link Filters#or(UnaryOperator, UnaryOperator)} is (R-FLT-01). */
     Having<M> or(UnaryOperator<Having<M>> first, UnaryOperator<Having<M>> second);
 

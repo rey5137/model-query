@@ -196,4 +196,21 @@ final class HavingGroup<M> extends ConditionGroup<M, Having<M>> implements Havin
     public <C> Having<M> compare(AggregateField<M, C> left, Op op, AggregateField<M, C> right) {
         return super.compare(left, op, right);
     }
+
+    @Override
+    public <C, V> Having<M> op(FilterOperator<C, V> operator, AggregateField<M, C> aggregate, V value) {
+        return super.op(operator, aggregate, value);
+    }
+
+    @Override
+    public <C, V> Having<M> op(FilterOperator<C, V> operator, AggregateField<M, C> aggregate,
+            Optional<? extends V> value) {
+        return super.op(operator, aggregate, value);
+    }
+
+    @Override
+    public <C, V> Having<M> op(FilterOperator<C, V> operator, AggregateField<M, C> left,
+            AggregateField<M, V> right) {
+        return super.op(operator, left, right);
+    }
 }

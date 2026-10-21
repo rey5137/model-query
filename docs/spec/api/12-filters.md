@@ -324,7 +324,64 @@ Equality with a NULL lifted value matches no row: correlated count is zero and e
   loses no row the filter keeps (D-157, D-158). `typeOf` and `ofType` alone make no treated statement
   (`api/10` R-COL-35).
 
-## 8. Scope
+## 8. Custom operators
+
+**R-FLT-20** *(D-167, D-168, `@Incubating`)* **`FilterOperator` and `op`.** A `FilterOperator<C, V>` is a named,
+immutable `core` definition (INV-9) built by `FilterOperator.of(name, renderer)`, whose value is of the column's own
+type (`FilterOperator<C, C>`), or `of(name, valueType, renderer)`, whose value is a `V` (`rfc/0017` §1). Each of
+`requiringAttribute(type)`, `requires(feature)` and `preparing(prepare)` returns a new instance that replaces that
+setting, so an operator belongs in a constant, never built at a call site. A null or blank name is `MQ1301`; the name
+is for logs, inspection and messages only, and two definitions with one name are two operators.
+
+```java
+<C, V> Filters<M> op(FilterOperator<C, V> operator, ScalarField<M, C> column, V value);
+<C, V> Filters<M> op(FilterOperator<C, V> operator, ScalarField<M, C> column, Optional<? extends V> value);
+<C, V> Filters<M> op(FilterOperator<C, V> operator, ScalarField<M, C> left, ScalarField<M, V> right);
+// Having gains the same three over AggregateField (api/13)
+```
+
+- **The renderer** (`OperatorRenderer`) gets an `OperatorContext` (its `cb()`), the column's expression as `left` (of
+  the attribute's type on a converted column, D-37) and the operand as `right`: the engine's bind parameter in the
+  value form, the right field's expression in the field form. It never sees the value, and must use the `right` it is
+  given and never capture a value (`cb.equal(left, someValue)`, `cb.literal`), which a provider may inline (R-FLT-08).
+  It runs at build time; returning `null` or throwing a `RuntimeException` is `MQ1313` naming the operator and the
+  column, the exception as the cause, before any statement. A `ModelQueryException` it throws keeps its own code.
+- **`requiringAttribute(type)`** refuses, with `MQ1001` when the filter is added, a column whose attribute type (the
+  converter's attribute type on a converted column, R-COL-14; the aggregate's type in `having`, R-AGG-04) is not a
+  `type`.
+- **`requires(feature)`** names an `OperatorFeature` (`ILIKE`, `REGEX_MATCH`, `ARRAY_CONTAINMENT`,
+  `JSONB_CONTAINMENT`, `FULL_TEXT`) the vendor and the provider must both serve (`vendor/40` R-VND-23). Rendered with
+  no operator gate, such an operator is `MQ4014`, before any statement. An operator that requires none is never gated.
+- **Field form.** Both sides are fields of the query's model, as in `compare` (R-FLT-18); an expression on either side
+  is an operand. For a `FilterOperator<C, C>`, a converted column on either side whose attribute type differs from the
+  other side's is `MQ1001`, as `compare` refuses it. It has no `Optional` twin.
+- **`Optional` form.** Empty skips the filter, with no join (R-FLT-01, R-FLT-03).
+- **Scope.** Inside `or`, `not`, `exists` and a sub-select an `op` behaves like any operator: a join it first needs
+  inside `or` is LEFT (R-FLT-10), and a column outside an `exists` path is `MQ1302`.
+- **Recorded** as `Condition.Kind#OPERATOR` (`api/16` R-INS-13).
+
+**R-FLT-21** *(D-167, D-168)* **An operator's value.** In order, when the filter is added:
+1. `null` is `MQ1301` naming the column; an `Optional`, a `Collection` or a `Map` is `MQ1502` naming the operator and
+   the column (a `Collection` operand is an `IN`, and a `Map` has no portable binding).
+2. `prepare` runs, if the operator has one. Returning `null` or throwing a `RuntimeException` is `MQ1313`.
+3. For a `FilterOperator<C, C>` the value goes through a converted column's converter to the attribute's type
+   (R-COL-14, D-37); for a `FilterOperator<C, V>` it is not converted.
+
+Then, each time the filter is rendered, the engine binds it as a statement parameter through `JoinContext`, so every
+statement that renders the filter binds it (the content query, the count, each export and keyset page, a sub-select
+merged into its outer query) and it counts toward R-FLT-09's bind limit. The parameter is typed by the column's
+attribute type (the `<C, C>` form) or by the declared `valueType` (the `<C, V>` form), never by the value's class
+alone. With no `OperandBinder` (`vendor/40` R-VND-24), only a value whose binding doesn't depend on the column's
+mapping binds: a `String`, a `java.lang` or `java.math` number, or a `java.time` value (D-168). Anything else, such as
+an enum, an array, a `Boolean` or a `UUID`, is `MQ1502` naming the operator and the column, before any statement: a
+parameter typed by class binds a `STRING` enum by ordinal and a `@Convert` value not at all (`rfc/0017` spike finding
+1), and a `Boolean` mapped to `'Y'`/`'N'` or a `UUID` stored as `char(36)` matches nothing.
+
+**R-FLT-22** *(D-167)* **NULLs and negation.** An operator renders as its renderer builds it, with no `OR col IS NULL`
+added: a NULL column or operand makes it unknown, so the row doesn't match. `not(g -> g.op(...))` is plain `NOT (…)`
+(R-FLT-05) and also drops the NULL rows. R-FLT-04's NULL rule for `ne` and `notIn` doesn't apply.
+
+## 9. Scope
 
 **R-FLT-13** *(was R15)* Filter values never change a query's meaning by accident: empty `Optional` skips; an empty
 collection means "none"; negation includes NULLs; `like` input is escaped; long `IN` lists are split.
@@ -332,7 +389,7 @@ collection means "none"; negation includes NULLs; `like` input is escaped; long 
 **R-FLT-14** `Filters` builds `WHERE` predicates only. Conditions on aggregates go through `having(...)`
 (`api/13` §3), never through `Filters` and never through `QueryCustomizer`.
 
-## 9. Acceptance criteria
+## 10. Acceptance criteria
 
 | ID | Criterion |
 |---|---|
@@ -356,10 +413,18 @@ collection means "none"; negation includes NULLs; `like` input is escaped; long 
 | AC-FLT-18 | An expression over a column outside the `exists` path throws `MQ1302`. One in a sub-select's `where` over another root throws `MQ1003`. A correlation whose only lifted column sits inside an expression is not `MQ1309` (R-FLT-18). |
 | AC-FLT-19 | A bulk update and a bulk delete whose `where` compares an expression change exactly the rows `list` returns for that filter, key-first on MySQL too (R-FLT-18, `api/14` R-WRT-11). |
 | AC-FLT-20 | On every Tier-1 vendor, `in(col, a, b)`, `in(col, a, b, c)` and the same two for `notIn` return the rows whose column equals one of the operands, `notIn` also returns the rows whose column is NULL, and a `'` and a `\` in a constant operand round-trip. The statement inlines the operand literals, e.g. `in ('PENDING','FAILED')`. `var` infers the call, and operands of another model or type do not compile (R-FLT-19, R-COL-27). |
+| AC-FLT-21 | A user operator and `ilike(mode)` filter on PostgreSQL and H2 on both lines: in value, `Optional` and field form, and inside `or`, `not`, `exists` and a sub-select; an empty `Optional` creates no join; the value is a bind parameter (SQL snapshot) (R-FLT-20, R-FLT-21). |
+| AC-FLT-22 | An operator's value is typed and converted correctly: with Hibernate's binder, on each served line, an enum (`STRING` and `ORDINAL`), a `@Convert` attribute, an array and a converted value bind typed by the column's mapping, the statement shows `?` with the default value handling and under `hibernate.criteria.value_handling_mode=inline`, and on MySQL a `STRING` enum over a `varchar` column and over a native `enum(...)` column each returns exactly its matching rows, never every row or none; the binder refuses a node type its line doesn't expect with `MQ1502` (a test double for the node type), and `operands(emf)` is empty outside 6.6.x and 7.4.x; with no binder, an enum or an array value is `MQ1502`, a `Boolean` or `UUID` value is `MQ1502`, and a `String`, number or `java.time` value binds; a `FilterOperator<C, V>` binds `V` unconverted, and one with `requiringAttribute` over the wrong attribute is `MQ1001` (R-COL-14); a field form over two converted columns of different attribute types is `MQ1001`; a `null` through a typed variable is `MQ1301`, and a `Collection` value is `MQ1502` (R-FLT-21, `vendor/40` R-VND-24). |
+| AC-FLT-23 | A renderer returning `null` and one throwing are `MQ1313` naming the operator and column, before any statement; a `ModelQueryException` thrown from a renderer keeps its own code (R-FLT-20). |
+| AC-FLT-24 | The catalogue's `regexMatch`, `arrayContains`, `arrayOverlaps` and `jsonbContains` return the right rows on PostgreSQL. On H2 and MySQL each is refused before any statement: `MQ4015` with H2's and MySQL's profiles (the vendor check runs first); `MQ4014` with a custom profile that answers true and Hibernate's provider, which has no `mq_*` function there, and for `arrayOverlaps` on H2 never `Unknown data type`; an operator that requires a feature is `MQ4014` with no gate (`RenderOptions.portable()`), and a query with an `op` and a customizer passes `checkPhases`; `ilike` is `MQ4015` on MySQL with its profile, and `MQ4014` with a custom profile answering true there (the provider answers `ILIKE` by dialect), never the `lower(col) like lower(?)` emulation; `PortabilityCheck` reports each per target when the value is present, and an `op` with an empty `Optional` is not reported (R-FLT-20, `vendor/40` R-VND-23). |
+| AC-FLT-25 | Inspection and matching: inspection records `OPERATOR` with the operator, column and unprepared value; `FilterMatchers.op` matches it, and a different operator with the same name doesn't; two queries sharing the constant are equal; `toString` prints no value (`api/16` R-INS-13). |
+| AC-FLT-26 | `not(op(...))` and `op(...)` both drop rows whose column is NULL (R-FLT-22); `Having.op` filters groups; any `op` in an arbiter's `where` is `MQ1804` naming the operator at `build()`, a value-form `op` in a conflict update's `where` is `MQ1804` naming the operator on first execution, and a field-form one runs there; an `op` in `Expr.cases().when(...)` is `MQ1505` (R-FLT-22, `api/14` R-WRT-34, R-WRT-52, `api/10` R-COL-17). |
+| AC-FLT-27 | Compile failures (P-2, as AC-FLT-15 and AC-FLT-20 have): a value of the wrong type; a field of another model; a `FilterOperator<String, String>` on an `Integer` column (R-FLT-20). |
 | AC-FLT-28 | Lifted to-one paths in exists/notExists (R-FLT-27). |
 | AC-FLT-29 | Lifted to-one paths in correlated columns and count statements (R-FLT-27, R-EXE-05). |
 | AC-FLT-30 | Per strategy, `ofType` keeps a grandchild and an `orm.xml` subtype, accepts an abstract type, skips on an empty `Optional` and keeps no row for an empty collection; beside a treated read in one statement it runs, except on 6.6 `JOINED`, whose preflight refuses it (`MQ4016`) (R-FLT-28, D-158). |
 | AC-FLT-31 | Per strategy, `notOfType` includes the rows of an absent LEFT join and, on `SINGLE_TABLE`, of a discriminator value no entity maps, which `ofType` drops and `typeOf` fails on; an empty collection keeps every row (R-FLT-28). |
+| AC-FLT-32 | `fullTextMatch(config)` on PostgreSQL, both lines: returns the right rows for request text with spaces and punctuation (`acme corp`, a quote), with no database error; the statement renders the configuration as a literal and the text as `?` (SQL snapshot); a null, blank or non-identifier configuration (`english'`, `a b`) is `MQ1315` at the factory call, and two calls with one configuration return the same instance; it is `MQ4015` on H2 and MySQL with their profiles, and `MQ4014` with a custom profile answering `FULL_TEXT` true there; `PortabilityCheck` reports it per target (`vendor/40` R-VND-23). |
 
 AC-FLT-15 includes compile-failure cases for a mismatched `C` and another model's lifted column, and cases for
 `MQ1309`, `MQ1310`, `MQ1311` (a path crossing a to-many join, checked at first resolution), `MQ1312` and `MQ1001`

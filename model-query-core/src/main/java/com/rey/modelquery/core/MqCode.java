@@ -110,6 +110,10 @@ public enum MqCode {
     /** {@code in} or {@code notIn} over a sub-select with an embeddable-valued column on either side. */
     MQ1312("in(...) and notIn(...) over a sub-select do not take an embeddable-valued column"),
 
+    /** An operator's renderer or {@code prepare} returned {@code null} or threw (R-FLT-20, D-168). */
+    @Incubating
+    MQ1313("A filter operator's renderer or prepare returned null or threw"),
+
     /** A correlated group key, or a grouped selection/order lifting a non-group-key column (R-COL-33). */
     @Incubating
     MQ1314("A correlated value cannot be a group key and must lift only group keys in grouped selections and orders"),
@@ -147,8 +151,8 @@ public enum MqCode {
     /** An expression reads a column with a {@code ColumnConverter} (R-COL-17). */
     MQ1501("An expression reads a column with a ColumnConverter, which the database computes over without applying it"),
 
-    /** An expression is given a null or a value of a type it cannot bind (R-COL-18). */
-    MQ1502("An expression is given a null value, or a value of a type it cannot bind (arrays, Date, Calendar, enums)"),
+    /** An expression or a filter operator is given a null or a value of a type it cannot bind (R-COL-18, R-FLT-21). */
+    MQ1502("An expression is given a null value, or it or a filter operator a value of a type it cannot bind"),
 
     /** {@code dividedBy} over two integral operands (R-COL-17). */
     MQ1503("dividedBy over two integral operands, whose division truncates on some vendors"),

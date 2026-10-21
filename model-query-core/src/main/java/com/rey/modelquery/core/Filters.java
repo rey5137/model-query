@@ -256,6 +256,39 @@ public sealed interface Filters<M> permits FilterGroup {
     <C> Filters<M> compare(ScalarField<M, C> left, Op op, ScalarField<M, C> right);
 
     /**
+     * {@code operator} applied to {@code column} and {@code value}, as its renderer builds it (R-FLT-20). The value is
+     * prepared and, for a {@code FilterOperator<C, C>}, converted when the filter is added, then bound as a statement
+     * parameter on every statement that renders it; the renderer gets that parameter, never the value (R-FLT-21). No
+     * NULL handling is added: a row whose column is NULL never matches, under {@code not} too (R-FLT-22).
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1301} for a null value; {@code MQ1502} for an {@code Optional},
+     *     a {@code Collection} or a {@code Map}, and when built, before any statement, for a value whose binding
+     *     depends on the column's mapping (an enum, an array) when the provider has no operand binder;
+     *     {@code MQ1001} on a column whose attribute is not the operator's {@code requiringAttribute} type;
+     *     {@code MQ1313} when its {@code prepare} or, when built, its renderer returns {@code null} or throws
+     * @throws ModelQueryConfigurationException {@code MQ4014} when built for an operator that {@code requires} a
+     *     feature, with no operator gate
+     */
+    @Incubating
+    <C, V> Filters<M> op(FilterOperator<C, V> operator, ScalarField<M, C> column, V value);
+
+    /** {@link #op(FilterOperator, ScalarField, Object)}, skipped, with no join, when {@code value} is empty. */
+    @Incubating
+    <C, V> Filters<M> op(FilterOperator<C, V> operator, ScalarField<M, C> column, Optional<? extends V> value);
+
+    /**
+     * {@code operator} applied to two fields of this model, either of which may be an expression (R-FLT-20). For a
+     * {@code FilterOperator<C, C>} two columns that convert to different attribute types are {@code MQ1001}, as in
+     * {@link #compare(ScalarField, Op, ScalarField)}.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1001} as above, and on a {@code left} whose attribute is not the
+     *     operator's {@code requiringAttribute} type; {@code MQ1313} when built, as above
+     * @throws ModelQueryConfigurationException {@code MQ4014} when built, as above
+     */
+    @Incubating
+    <C, V> Filters<M> op(FilterOperator<C, V> operator, ScalarField<M, C> left, ScalarField<M, V> right);
+
+    /**
      * {@code (branch1) OR (branch2) ...}, each branch an AND group. A branch whose filters were all skipped is dropped,
      * and with every branch dropped the {@code or} is skipped rather than matching nothing (R-FLT-01). A join first
      * needed inside a branch is LEFT, so a row without the joined row can still match another branch; a path joined

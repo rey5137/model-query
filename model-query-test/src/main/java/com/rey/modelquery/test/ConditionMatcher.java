@@ -3,6 +3,7 @@ package com.rey.modelquery.test;
 import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.Condition;
 import com.rey.modelquery.core.Condition.Kind;
+import com.rey.modelquery.core.FilterOperator;
 import com.rey.modelquery.core.LikeMode;
 import com.rey.modelquery.core.Op;
 import com.rey.modelquery.core.ScalarField;
@@ -10,6 +11,7 @@ import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.SubSelect;
 import com.rey.modelquery.core.TableField;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -34,6 +36,8 @@ public final class ConditionMatcher {
     private final List<ConditionMatcher> children;
     private final SubSelect<?, ?> subSelect;
     private final List<ScalarField<?, ?>> operands;
+    /** An {@code OPERATOR}'s operator, matched by identity as the condition compares it (R-INS-13). */
+    private final FilterOperator<?, ?> operator;
 
     ConditionMatcher(Kind kind, SelectField<?, ?> column, SelectField<?, ?> right, Op op, LikeMode likeMode,
             TableField<?, ?> path, List<?> values, String label, List<ConditionMatcher> children) {
@@ -49,6 +53,12 @@ public final class ConditionMatcher {
     ConditionMatcher(Kind kind, SelectField<?, ?> column, SelectField<?, ?> right, Op op, LikeMode likeMode,
             TableField<?, ?> path, List<?> values, String label, List<ConditionMatcher> children,
             SubSelect<?, ?> subSelect, List<? extends ScalarField<?, ?>> operands) {
+        this(kind, column, right, op, likeMode, path, values, label, children, subSelect, operands, null);
+    }
+
+    ConditionMatcher(Kind kind, SelectField<?, ?> column, SelectField<?, ?> right, Op op, LikeMode likeMode,
+            TableField<?, ?> path, List<?> values, String label, List<ConditionMatcher> children,
+            SubSelect<?, ?> subSelect, List<? extends ScalarField<?, ?>> operands, FilterOperator<?, ?> operator) {
         this.kind = Objects.requireNonNull(kind, "kind");
         this.column = column;
         this.right = right;
@@ -60,6 +70,7 @@ public final class ConditionMatcher {
         this.children = List.copyOf(children);
         this.subSelect = subSelect;
         this.operands = List.copyOf(operands);
+        this.operator = operator;
     }
 
     /** Whether {@code condition} is the one this matcher describes, with every operand matching in order. */
@@ -68,6 +79,7 @@ public final class ConditionMatcher {
                 || !Objects.equals(condition.column().orElse(null), column)
                 || !Objects.equals(condition.right().orElse(null), right)
                 || condition.op().orElse(null) != op
+                || condition.operator().orElse(null) != operator
                 || condition.likeMode().orElse(null) != likeMode
                 || !Objects.equals(condition.path().orElse(null), path)
                 || !Objects.equals(condition.label().orElse(null), label)
@@ -94,8 +106,14 @@ public final class ConditionMatcher {
         return operands.stream().allMatch(remaining::remove);
     }
 
-    /** {@code IN} and {@code NOT_IN} values match as multisets, every other kind's in order. */
+    /**
+     * {@code IN} and {@code NOT_IN} values match as multisets, every other kind's in order; an {@code OPERATOR} value
+     * may be an array, matched by content as {@code Condition.equals} does.
+     */
     private boolean valuesMatch(List<Object> actual) {
+        if (kind == Kind.OPERATOR) {
+            return Arrays.deepEquals(values.toArray(), actual.toArray());
+        }
         if (kind != Kind.IN && kind != Kind.NOT_IN) {
             return values.equals(actual);
         }
@@ -108,7 +126,7 @@ public final class ConditionMatcher {
 
     @Override
     public String toString() {
-        return ConditionText.format(kind, column, op, right, path, values, likeMode, label, subSelect,
+        return ConditionText.format(kind, column, op, operator, right, path, values, likeMode, label, subSelect,
                 operands, children.stream().map(ConditionMatcher::toString).toList());
     }
 }

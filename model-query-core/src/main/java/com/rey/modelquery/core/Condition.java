@@ -2,6 +2,7 @@ package com.rey.modelquery.core;
 
 import com.rey.modelquery.annotations.Incubating;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -12,10 +13,11 @@ import java.util.Optional;
  * Only the DSL builds one (D-101). Immutable; values are held by reference.
  *
  * <p>Two conditions are equal when built from equal calls: columns compare as {@link ColumnField} and
- * {@link AggregateField} do, paths by their join key, and {@code CUSTOM} conditions by label alone. {@link #toString()}
- * shows each value as {@code ?}, since a bound value can be personal data; only {@link #values()} exposes them.
+ * {@link AggregateField} do, paths by their join key, {@code CUSTOM} conditions by label alone and an
+ * {@code OPERATOR}'s operator by identity. {@link #toString()} shows each value as {@code ?}, since a bound value
+ * can be personal data; only {@link #values()} exposes them.
  *
- * @implSpec api/16 §1, R-INS-01, R-INS-04, R-INS-05, D-101
+ * @implSpec api/16 §1, R-INS-01, R-INS-04, R-INS-05, R-INS-13, D-101
  */
 @Incubating
 public final class Condition {
@@ -97,7 +99,13 @@ public final class Condition {
          * empty collection (R-FLT-28).
          */
         @Incubating
-        NOT_OF_TYPE
+        NOT_OF_TYPE,
+        /**
+         * {@code op}: {@code column}, {@code operator}, and one value as passed (before {@code prepare} and any
+         * converter) or the {@code right} operand (R-INS-13).
+         */
+        @Incubating
+        OPERATOR
     }
 
     private final Kind kind;
@@ -111,10 +119,18 @@ public final class Condition {
     private final String label;
     private final SubSelect<?, ?> subSelect;
     private final List<ScalarField<?, ?>> operands;
+    /** The operator of an {@code OPERATOR}, compared by identity (R-INS-13). */
+    private final FilterOperator<?, ?> operator;
 
     private Condition(Kind kind, SelectField<?, ?> column, SelectField<?, ?> right, Op op, LikeMode likeMode,
             TableField<?, ?> path, List<?> values, List<Condition> children, String label, SubSelect<?, ?> subSelect,
             List<? extends ScalarField<?, ?>> operands) {
+        this(kind, column, right, op, likeMode, path, values, children, label, subSelect, operands, null);
+    }
+
+    private Condition(Kind kind, SelectField<?, ?> column, SelectField<?, ?> right, Op op, LikeMode likeMode,
+            TableField<?, ?> path, List<?> values, List<Condition> children, String label, SubSelect<?, ?> subSelect,
+            List<? extends ScalarField<?, ?>> operands, FilterOperator<?, ?> operator) {
         this.kind = kind;
         this.column = column;
         this.right = right;
@@ -126,6 +142,7 @@ public final class Condition {
         this.label = label;
         this.subSelect = subSelect;
         this.operands = List.copyOf(operands);
+        this.operator = operator;
     }
 
     /** A condition on {@code column} with {@code values}, as passed: a comparison, a range, a set or a null test. */
@@ -170,6 +187,18 @@ public final class Condition {
         return new Condition(kind, column, null, null, null, null, List.of(), List.of(), null, null, operands);
     }
 
+    /** {@code OPERATOR} on {@code column} with {@code value} as passed, unprepared and unconverted (R-INS-13). */
+    static Condition operator(FilterOperator<?, ?> operator, SelectField<?, ?> column, Object value) {
+        return new Condition(Kind.OPERATOR, column, null, null, null, null, List.of(value), List.of(), null, null,
+                List.of(), Objects.requireNonNull(operator, "operator"));
+    }
+
+    /** {@code OPERATOR} of {@code left} against the field {@code right} (R-INS-13). */
+    static Condition operator(FilterOperator<?, ?> operator, SelectField<?, ?> left, SelectField<?, ?> right) {
+        return new Condition(Kind.OPERATOR, left, right, null, null, null, List.of(), List.of(), null, null,
+                List.of(), Objects.requireNonNull(operator, "operator"));
+    }
+
     /** {@code CUSTOM}, labelled with {@code label}, or {@code null} for none. */
     static Condition custom(String label) {
         return new Condition(Kind.CUSTOM, null, null, null, null, null, List.of(), List.of(), label, null, List.of());
@@ -180,12 +209,15 @@ public final class Condition {
         return kind;
     }
 
-    /** The column filtered on, or the left column of a {@code COMPARE}; empty for a group and {@code CUSTOM}. */
+    /**
+     * The column filtered on, or the left column of a {@code COMPARE} or a field-form {@code OPERATOR}; empty for a
+     * group and {@code CUSTOM}.
+     */
     public Optional<SelectField<?, ?>> column() {
         return Optional.ofNullable(column);
     }
 
-    /** The right column of a {@code COMPARE}. */
+    /** The right column of a {@code COMPARE}, or the right operand of a field-form {@code OPERATOR}. */
     public Optional<SelectField<?, ?>> right() {
         return Optional.ofNullable(right);
     }
@@ -232,6 +264,12 @@ public final class Condition {
         return Optional.ofNullable(subSelect);
     }
 
+    /** The operator of an {@code OPERATOR}; empty for every other kind (R-INS-13). */
+    @Incubating
+    public Optional<FilterOperator<?, ?>> operator() {
+        return Optional.ofNullable(operator);
+    }
+
     @Override
     public boolean equals(Object o) {
         if (!(o instanceof Condition other) || kind != other.kind) {
@@ -245,11 +283,12 @@ public final class Condition {
                 && op == other.op
                 && likeMode == other.likeMode
                 && Objects.equals(pathKey(), other.pathKey())
-                && values.equals(other.values)
+                && valuesEqual(other)
                 && children.equals(other.children)
                 && Objects.equals(label, other.label)
                 && Objects.equals(subSelect, other.subSelect)
-                && operands.equals(other.operands);
+                && operands.equals(other.operands)
+                && operator == other.operator; // identity: two operators of one name differ (R-INS-13)
     }
 
     @Override
@@ -257,8 +296,19 @@ public final class Condition {
         // Computed per call: a mutable value changed after the call changes the view (R-INS-04).
         return kind == Kind.CUSTOM
                 ? Objects.hash(kind, label)
-                : Objects.hash(kind, column, right, op, likeMode, pathKey(), values, children, label, subSelect,
-                        operands);
+                : Objects.hash(kind, column, right, op, likeMode, pathKey(), valuesHash(), children, label, subSelect,
+                        operands, System.identityHashCode(operator));
+    }
+
+    /** An {@code OPERATOR} value may be an array (a {@code String[]} for an array operator), compared by content. */
+    private boolean valuesEqual(Condition other) {
+        return kind == Kind.OPERATOR
+                ? Arrays.deepEquals(values.toArray(), other.values.toArray())
+                : values.equals(other.values);
+    }
+
+    private int valuesHash() {
+        return kind == Kind.OPERATOR ? Arrays.deepHashCode(values.toArray()) : values.hashCode();
     }
 
     /** {@code path}'s identity: a {@code TableField} compares by its join key, not by instance (CC-IMM-04). */
@@ -266,7 +316,9 @@ public final class Condition {
         return path == null ? null : path.key();
     }
 
-    /** The kind, column, path, label and operands, each value shown as {@code ?}; the format is not API. */
+    /**
+     * The kind, column, operator name, path, label and operands, each value shown as {@code ?}; the format is not API.
+     */
     @Override
     public String toString() {
         var parts = new ArrayList<String>();
@@ -275,6 +327,9 @@ public final class Condition {
         }
         if (op != null) {
             parts.add(op.name());
+        }
+        if (operator != null) {
+            parts.add(operator.name());
         }
         if (right != null) {
             parts.add(right.toString());

@@ -2519,6 +2519,23 @@ renderer given the raw value, binding through `Expr.value`, one vendor check onl
 R-WRT-34, R-WRT-52, `api/16` R-INS-04, R-INS-07, R-INS-13, `vendor/40` R-VND-23, R-VND-24, `reference/90` `MQ1313`,
 `MQ1315`, `MQ1502`, `MQ1804`, `MQ4014`, `MQ4015`, D-148, Q-28.
 
+**D-168 — What `rfc/0017` left to the core slice (M29.1, 2026-10-21).** (1) `requiringAttribute`, `requires` and
+`preparing` each replace that setting on the new instance rather than adding to it: an operator has at most one
+attribute check, one feature and one `prepare`, and composing them is the caller's. (2) `prepare` runs once, when the
+filter is added, before conversion, so its value is converted and bound as is; a `null` from it or a thrown
+`RuntimeException` is `MQ1313`, as the renderer's is, since both are the operator's own code, and a
+`ModelQueryException` keeps its code. (3) An `Optional`, `Collection` or `Map` value is `MQ1502` when the filter is
+added, since no binder takes one; the mapping-independent check and the feature check run at render time, where the
+binder and the gate are known. (4) "A number" without a binder is a `java.lang` or `java.math` `Number` (a
+`Long`, a `BigDecimal`), not any `Number` subclass, which a class-typed parameter can't bind. (5) The field form's
+`MQ1001` check is `compare`'s, for the `<C, C>` form only: in the `<C, V>` form the sides are of different types by
+design. (6) With no `OperandBinder`, a `Boolean` or `UUID` value is `MQ1502` too, amending `rfc/0017` §2 step 5
+(user, 2026-10-21): a class-typed parameter binds a `Boolean` as the database's boolean and a `UUID` as its native or
+binary form, so a column mapped to `'Y'`/`'N'` or a `UUID` stored as `char(36)` would silently match nothing (INV-5).
+Only a `String`, a `java.lang` or `java.math` number and a `java.time` value bind without a binder, and an array of
+`java.time` values is an array, not a `java.time` value. → `api/12` R-FLT-20, R-FLT-21, `reference/90` `MQ1313`,
+`MQ1502`.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.
