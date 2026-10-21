@@ -1,6 +1,6 @@
 # RFC 0018 — Inline count, case-insensitive filters over converted attributes, values under inline value handling, and filter-only to-many joins
 
-- **Status:** draft, revised after the first `architect-review` (2026-10-21). M30, 0.10.0 (D-176); the freeze moves
+- **Status:** draft, revised after three `architect-review` passes (2026-10-21). M30, 0.10.0 (D-176); the freeze moves
   to M31.
 - **Affects:**
   - **`core`:** `CountMode.INLINE_COUNT` (Part A); `OperandBinder#converts(Expression)`, a default method (Part B);
@@ -14,7 +14,8 @@
     and its "inlined under `value_handling_mode=inline` too" made true only of user values; R-FLT-08 amended (it holds
     under `hibernate.criteria.value_handling_mode=inline`); new AC-FLT-33 to AC-FLT-36. `Having`'s `likeIgnoreCase`
     follows `Filters`'.
-  - **`engine/20`, Part D:** R-EXE-04 amended (a filter-only to-many join renders as a semi-join); new R-EXE-16,
+  - **`engine/20`, Part D:** R-EXE-04 amended (a filter-only to-many join renders as a semi-join), R-EXE-14 amended
+    (a locked read over the shape runs); new R-EXE-16, R-WRT-10 named as the shared mechanism;
     AC-EXE-22 to AC-EXE-24; AC-EXE-11, AC-EXE-13 and `integration/50` AC-SPR-19's `MQ2003` cases move to a customizer's join.
   - **`engine/21`:** AC-PAG-28's cursor-binding claim (and `Keyset`'s javadoc for it) amended for the setting;
     R-PAG-02's within-page drop and R-PAG-21's short-page note scoped to a customizer's join (Part D).
@@ -58,7 +59,8 @@ child: `list`, `stream` and offset pages return the repeats, `one` fails with `M
 them client-side into short pages, and `count` reports distinct roots, so a page's total and its rows disagree. The
 engine will render such a join as a correlated semi-join instead: the statement's predicate moves into
 `exists (select 1 from E e2 join e2.items i … where e2 = root and <predicate over e2>)`, so each root is one row, and
-`count`, `list`, pages and aggregates agree. Only that shape's SQL changes.
+`count`, `list`, pages and aggregates agree, where nothing else in the outer statement keeps a to-many join and the
+root isn't treated (D.1). It is the rendering bulk writes already use (R-WRT-10). Only that shape's SQL changes.
 
 ## Motivation
 
@@ -109,9 +111,10 @@ four identical rows: `count` says one order (`count(distinct o)`, R-EXE-04), `li
 `MQ2003` with a hint to use `Filters.exists`, and the engine already admits the repeats where it has to: export and
 keyset pages drop a key repeated within a page (R-PAG-02, R-PAG-21: "a look-ahead row that repeats a key within the page
 can give a short page"). An offset page under `COUNT` reports a total of distinct roots over pages of repeated rows,
-so the last page number it implies is wrong and some roots fall off the end (INV-5). On a grouped query the join very
-likely inflates every aggregate over a root column (`sum(o.total)` counted once per item), with no error; the spike
-confirms it (§D.5).
+so roots whose rows fall after row position `total` are never returned: `COUNT` returns nothing once `offset >= total`
+and sets `hasNext = offset + rows < total`, and `warnOfContradictedTotal` fires only for treated queries, so the loss
+is silent (INV-5). On a grouped query the join inflates every aggregate over a root column (`sum(o.total)` counted
+once per item), certain by SQL semantics, with no error and no test today; AC-EXE-24 pins the fix.
 
 The model never sees a child's column, so a repeat is an identical row: no caller wants it. `Filters.exists` gives the
 right rows today, but the filter column that joins is the natural way to write the filter, generated QModels expose
@@ -395,20 +398,33 @@ one-off test, because the setting is a second rendering of every value path and 
 
 ### Part D — a filter-only to-many join as a semi-join
 
-#### D.1 Which joins (R-EXE-04 amended, new R-EXE-16)
+#### D.1 When it applies (R-EXE-04 amended, new R-EXE-16)
 
-A **filter-only to-many join** is a to-many join the engine creates for a filter column's path (`Filters`, a
-`@FilterColumn`, a field's filter form) that no selected column, group key, aggregate, order term or fetch-plan key
-reads: the join `DefaultModelQueryExecutor` already finds for `MQ2003`'s hint ("a to-many join of `built` that no
-selected column is read through"). A to-many join a selected column reads is unchanged: each joined row is a result
-(R-EXE-04, AC-EXE-10), and key-based paging refuses it (R-PAG-13). A join a customizer adds is the customizer's and is
-unchanged.
+Part D applies to a statement whose `WHERE` would make a to-many join that **nothing else in the outer statement
+keeps**: no selected column, order term, group key, aggregate, `HAVING` term or fetch-plan key reads a to-many join,
+and the root is not treated. If the outer statement keeps any to-many join, the statement renders as today, `MQ2003`'s
+hint and R-PAG-02's within-page drop included: moving the whole `WHERE` into a sub-query would then test terms on that
+kept join against some child of the sub-query's root instead of the outer row's child, and return rows filtered today
+(a model selecting `items.productCode`, filtered on `items.qty > 5` and `tags.name = 'x'`, would get every item of an
+order having one such item). Treated roots are excluded too: a `WHERE` treat moved into a second-root sub-query is a
+treat site no `TreatRenderer` has been measured for (R-COL-35, `ExpectedNarrowing`); `buildRootIdCount` stays as it
+is. Sources have no to-many join, so they never qualify. Fetch-plan child loads through a `through` path, rooted at a
+join, are out of scope and keep today's rendering.
+
+The decision is made in `core`, inside `ModelQuery`'s `assemble`, before the `WHERE` renders, since Criteria can't
+remove a join once made; the executor's `filterOnlyToManyJoin` (used for `MQ2003`'s hint) runs after the build and the
+customizer, excludes only selected columns, and can't tell a customizer's join from the engine's, so it can't decide
+this. Filters are lambdas, so the only way to see which joins they make is to render them (D-65). The shipped precedent
+is R-WRT-10's `WriteRendering.rows`/`probe`: render the predicate into a scratch sub-query with a fresh `JoinContext`,
+so no orphan parameter reaches `statementParameters()`, compare the to-many joins it made with the outer context's
+`toManyJoins()` **by join path** (not by `JoinKey`, which carries the join type: an `or` makes a LEFT join in the probe
+where today it reuses the outer INNER one), then render for real and add the sub-query's binds.
 
 #### D.2 Rendering
 
-When a statement has one or more filter-only to-many joins, the engine builds the statement's `WHERE` predicate, the
-whole of it, inside a correlated sub-query over a second root of the same entity, and the outer statement keeps only
-the semi-join:
+The statement's `WHERE` predicate, the whole of it, renders inside a correlated sub-query over a second root of the same
+entity, and the outer statement keeps only the semi-join, as R-WRT-10 already renders a bulk write's filter tree in one
+`EXISTS` over a second root (AC-WRT-07 pins reads and writes agreeing):
 
 ```sql
 -- today
@@ -422,43 +438,49 @@ select o.id, o.number from orders o
 
 The whole predicate moves, not only its terms on the to-many join, because a term on the child and a term on the root
 can sit under one `or`, and two terms on the same join must hold for the same child (`i.product_code = ? and
-i.qty > ?` is not two independent `exists`). Moving the whole predicate keeps every boolean shape's meaning exactly.
-Correlation is entity equality (`o2 = o`), so composite and embedded ids work. To-one joins the predicate needs are
-rebuilt inside the sub-query; the outer statement keeps the joins its selection, order and grouping read. `HAVING`
-stays outside. The bind count is unchanged: each value still binds once (R-FLT-09). The sub-query is built through
-`JoinContext`'s existing sub-query support, as `Filters.exists` and correlated columns are (R-FLT-12, R-COL-35).
+i.qty > ?` is not two independent `exists`). The predicate is evaluated row by row with the same join types rebuilt
+inside, so `or`, `not(...)` and the null-extended rows of a LEFT join keep their meaning. Correlation is entity
+equality (`o2 = o`), not key columns: a read need not declare a `primaryKey`. To-one joins only the predicate uses are
+made only in the sub-query, so they never reach the outer statement. `WHERE` and `HAVING` render together today (D-26);
+Part D splits them, `WHERE` into the sub-query and `HAVING` on the outer statement. What the executor adds after
+`buildQuery` against `built.joins()` (keyset `Beyond` predicates, `byKeys`, `one(q, key)`, `MODEL_BY_KEYS`, fetch
+rounds) is ANDed onto the outer statement and stays outside the `exists`, as it must. Each value still binds once
+(R-FLT-09).
 
 #### D.3 What it changes
 
-- `list`, `stream` and offset pages return each root once; `count(q)` is unchanged, and now equals `list(q).size()`.
-- `count` on that shape no longer needs `count(distinct root)`: the outer statement has no to-many join. R-EXE-04's
-  distinct count stays for a customizer's join.
-- `one(q)`, `one(q, key)` and `byKeys` no longer throw `MQ2003` for that shape; the hint stays for a customizer's join.
-- Keyset and export pages no longer meet within-page repeats from the engine's joins; R-PAG-02's drop stays as the
-  guard for a customizer's.
-- A grouped query's aggregates count each root once (§D.5, probe 2).
+- `list`, `stream` and offset pages return each root once; `count(q)` is unchanged and now equals `list(q).size()`.
+- `count` on that shape takes `count(root)`: the outer statement has no to-many join. R-EXE-04's distinct count stays
+  for a customizer's join and for the shapes D.1 excludes.
+- `one(q)`, `one(q, key)` and `byKeys` no longer throw `MQ2003` for that shape; `checkPageKeys`, `byKeys` and
+  `one(q, key)` take their strict paths, where a duplicate key would be `duplicateKey`, not `MQ2003`.
+- Keyset and export pages stop coming back short from the engine's own joins; `stream` emits fewer elements. R-PAG-02's
+  drop stays as the guard for the excluded shapes and a customizer's join.
+- A grouped query's aggregates count each root once.
+- Locked reads (`list`, `first`, `one`, `byKeys`, R-EXE-14) over that shape run where they threw `MQ2211`: the outer
+  statement has no join; the sub-query's tables are not locked on PostgreSQL or MySQL. A filter-only to-one join no
+  longer reaches the outer statement either, so it no longer refuses. R-EXE-14 is amended.
 - Part A's fallback 4 no longer arises from the engine's own joins.
-- Writes (`ModelUpdate`, deletes) are checked by the spike: a JPA `CriteriaUpdate` can't join, so they should already
-  filter through a sub-query (§D.5, probe 5).
+- Writes are unchanged: R-WRT-10 already renders them this way, and Part D brings reads in step with them.
 
 #### D.4 New ids
 
 R-EXE-16; AC-EXE-22 (over a filter-only to-many join, on both lines and Tier 1: `list` and offset pages return each
-root once, `count` equals `list`'s size, a page's total matches its rows, `one` returns the single root; and the SQL
-holds one `exists` and no outer to-many join), AC-EXE-23 (an `or` mixing a child term and a root term, and two terms on
-the same child, return the rows `Filters.exists` with the same predicate returns), AC-EXE-24 (a grouped query's `sum`
-over a root column with a filter-only to-many join equals the sum over distinct roots). AC-EXE-11, AC-EXE-13 and
-AC-SPR-19's `MQ2003` cases move to a customizer's join.
+root once, `count` equals `list`'s size, a page's total matches its rows, `one` returns the single root, a locked
+`list` runs; the SQL holds one `exists` and no outer to-many join), AC-EXE-23 (an `or` mixing a child term and a root
+term, two terms on the same child, and a `not(...)` around a child term return the rows `Filters.exists` with the same
+predicate returns; a statement that also selects through a to-many join renders and returns as today), AC-EXE-24 (a
+grouped query's `sum` over a root column with a filter-only to-many join equals the sum over distinct roots).
+AC-EXE-11, AC-EXE-13 and AC-SPR-19's `MQ2003` cases move to a customizer's join or an excluded shape.
 
 #### D.5 Spike (M30.0)
 
-1. Today's wrong results: an offset page's total against its rows, and the last page under `COUNT`.
-2. A grouped query's `sum` over a root column with a filter-only to-many join, today and under Part D.
-3. The semi-join on both lines and Tier 1: `exists` with `o2 = o` (entity equality), with an embedded id, through a
-   treated root and on a source's to-many join, if any can arise; its plan on PostgreSQL and MySQL against the join
-   and against `select distinct`.
-4. Every boolean shape of AC-EXE-23, and a predicate holding a correlated sub-query, under both.
-5. Writes: a bulk update and delete whose filter column crosses a to-many join, today.
+1. Today's wrong results: an offset page's total against its rows and the last page under `COUNT`; a grouped `sum`
+   over a root column (AC-EXE-24 then pins the fix).
+2. The probe of D.1 on both lines: the scratch render's to-many joins by path, under `or` (LEFT) and `and` (INNER).
+3. The semi-join on both lines and Tier 1, `o2 = o` with a single and an embedded id; its plan on PostgreSQL and MySQL
+   8.0 (semi-join conversion) against the join and `select distinct`.
+4. Every boolean shape of AC-EXE-23, a predicate holding a correlated sub-query, and a locked read.
 
 ## Compatibility
 
@@ -480,12 +502,21 @@ application's queries. That is R-FLT-08 being kept, not narrowed. The message na
 add it; with it on a Hibernate line its binder doesn't serve (7.5, say), `inlinesValues` is true and the binder empty,
 so the fix is a served line or the default setting.
 
-**Part D** adds no API and changes results for one shape, a filter through a to-many join no selected column reads:
-`list`, `stream` and offset pages return each root once instead of once per matching child; `one`, `one(q, key)` and
-`byKeys` return the root where they threw `MQ2003`; grouped aggregates stop counting a root once per child. Each change
-replaces a result `count` already disagreed with, so it fixes INV-5 rather than narrowing anything; the `CHANGELOG.md`
-entry names it under *Changed*, with `Filters.exists` unchanged and a customizer's own join as before. The SQL of that
-shape changes; every other snapshot stays.
+**Part D** adds no API and changes results for one shape, a filter through a to-many join that nothing else in the
+outer statement keeps (D.1):
+- `list`, `stream` and offset pages return each root once instead of once per matching child; export and keyset
+  pages stop coming back short;
+- `one`, `one(q, key)` and `byKeys` return the root where they threw `MQ2003`;
+- grouped aggregates stop counting a root once per child;
+- locked reads over the shape run where they threw `MQ2211`, the sub-query's tables unlocked;
+- a customizer that resolves the filter's child path through `built.joins()` used to reuse the filter's join; it now
+  makes a fresh one, multiplying rows by all children, not only the matching ones, and `query.getRestriction()` is the
+  `exists`.
+
+Each change but the last replaces a result `count` already disagreed with, so it fixes INV-5 rather than narrowing
+anything; the `CHANGELOG.md` entry names all five under *Changed*, with `Filters.exists`, a customizer's own join and
+the excluded shapes as before. That shape's SQL changes; every other snapshot stays. `PortabilityCheck` has no
+read-join rule, so it reports nothing new (INV-6 unchanged).
 
 ## Alternatives
 
@@ -535,6 +566,13 @@ shape changes; every other snapshot stays.
   natural way, generated filter columns included, for a rewrite the engine can do itself.
 - **Move only the terms on the to-many join into the `exists`.** Wrong under `or` and for two terms on one child
   (§D.2).
+- **Correlate the outer root itself**, as `Filters.exists` does. Hibernate 6 drops the ON clause of a join off a
+  correlated root, which breaks the LEFT joins an `or` or a `not` makes; a second root with an equality is R-WRT-10's
+  shape, already shipped for writes.
+- **Decide from the executor's `filterOnlyToManyJoin`.** It runs after the build, sees only selected columns and
+  can't tell a customizer's join; the decision has to come before the `WHERE` renders (D.1).
+- **Move the whole `WHERE` whenever any filter-only to-many join exists.** Wrong when another to-many join is kept
+  (D.1), a silent wrong result.
 - **`root.id in (select o2.id …)`.** Same rows where the id is single; fails on composite ids, which entity equality
   in a correlated `exists` handles.
 - **Do nothing; keep Q-31 open.** Leaves silently wrong totals and aggregates past the freeze.
@@ -552,7 +590,8 @@ The first review's recommendations, for the second review and the spike to confi
    Document the property (§B.2).
 4. **Part C, without `model-query-hibernate`.** `inlinesValues` stays false, documented (§C.1).
 5. **Part C, bind or refuse.** Bind; a path the audit can't type is `MQ1502` for that path under the setting.
-6. **Part D, scope.** Whether a customizer's own to-many join should get the same rendering (it can't be told apart
-   from one the customizer reads), and whether the outer statement should drop to-one joins only the predicate used.
-7. **Part D, performance.** If probe 3 shows the semi-join markedly slower than the join on a common shape, whether
-   to keep the join where the to-many relation is known unique per root (none is today).
+6. **Part D, scope.** Leave a customizer's own to-many join as it is: it can't be told apart from one the customizer
+   reads. Filter-only to-one joins are moot: rendered only in the sub-query, they never reach the outer statement.
+7. **Part D, performance.** No "unique per root" escape hatch: no metamodel fact says so, and such a relation should
+   be mapped to-one. Measure MySQL 8.0's semi-join conversion and PostgreSQL's second-root self-join (§D.5, probe 3);
+   if slower on a common shape, document it rather than restore the join.
