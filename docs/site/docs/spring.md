@@ -23,7 +23,7 @@ fails at startup with `MQ4007`.
 | `findPage(query, pageable, CountMode)` | Returns a `ModelPage<M>` |
 | `findAll(query, Limit)` | The rows as a list |
 | `findOne(query)`, `findFirst(query)`, `findByKey(query, key)` | An `Optional` of at most one row (incubating); see [Reading one row](queries.md#reading-one-row) |
-| `findAllByKeys(query, keys)` | A `Map` of the rows for many keys, in key order (incubating); see [Reading many keys](queries.md#reading-many-keys) |
+| `findAllByKeys(query, keys)` | A `Map` of the rows for many keys, in key order (incubating); see [Reading many keys](reading-keys.md) |
 | `count(query)` | The number of rows (groups, for a grouped query) |
 | `stream(query, Limit, body)` | Streams inside a transaction that the repository opens, read-only, when none is active |
 | `export(query, ExportOptions, pageTransformer, sink)` | The [export](paging-export.md) loop |

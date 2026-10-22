@@ -1,10 +1,11 @@
 # Fetch plans
 
+!!! note "Incubating"
+    Fetch plans are annotated `@Incubating` (see [API stability](stability.md)).
+
 A query model selects what its own row holds. A fetch plan adds what a row cannot: the to-many children of each model
 (an order's items), a to-one child found by key, a nested plan for a `@Join`ed model, and values you look up yourself.
 The library loads them once per page, in a few extra statements, so there is no query per row.
-
-Fetch plans are `@Incubating`, as every type is in 0.x; see [API stability](stability.md).
 
 ## A plan and a child
 

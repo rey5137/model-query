@@ -94,12 +94,12 @@ They are the `@ExcludeFromInserts` annotation and the `generateInserts` rules th
 default, so a class that implements `ModelQueryExecutor` itself must add it. `PrimaryKey.attributeKey` is
 `@EngineFacing`, so it is not API. See
 [One model for reading and creating](models.md#one-model-for-reading-and-creating) and
-[Reading many keys](queries.md#reading-many-keys).
+[Reading many keys](reading-keys.md).
 
 The row-lock members are new in 0.9.0 and `@Incubating` (D-127), and join the list above. They are `RowLock` and its
 `Wait`, `ModelQuery.Builder#lock`, `ModelQuery#lock()` and `ModelQuery#withLock`; `ProviderSupport#locks()` returns an
 `Optional<LockSupport>`, and both are in `jpa.spi`, `@Incubating` and not `@EngineFacing`, so a provider implements
-them as an extension point. See [Row locks](queries.md#row-locks).
+them as an extension point. See [Row locks](row-locks.md).
 
 The literal-filter and bound-argument members are new in 0.9.0 and `@Incubating` (D-128), and join the list above.
 They are the fixed-arity `Filters#in` and `#notIn` field forms, `Condition#operands()` with `Condition.Kind#IN_FIELDS` and `#NOT_IN_FIELDS`, the two- and three-operand
@@ -108,7 +108,7 @@ They are the fixed-arity `Filters#in` and `#notIn` field forms, `Condition#opera
 in `jpa.spi`; `ConstantRenderer` sits in `core`, is not `@EngineFacing`, and a provider implements it as an extension
 point. The public `ModelUpdate.Rendered` and `ModelDelete.Rendered` records, `EntityLoad` (what `buildEntityLoad` returns)
 and `JoinContext#statementParameters()` are
-`@EngineFacing`, so not API. See [Literal filters](queries.md#literal-filters).
+`@EngineFacing`, so not API. See [Literal filters](filters.md#literal-filters).
 
 The returning-write and conflict-extension members are new in 0.9.0 and `@Incubating` (D-129), and join the list above.
 They are the three returning writes, `updateReturning`, `deleteReturning` and `insertReturning`, on `ModelQueryExecutor`
@@ -119,7 +119,7 @@ and on `ModelQueryRepository`; `ConflictUpdate#setExpression` with `ConflictExpr
 `VendorProfile#returning(WriteStatement)`; and the `VendorProfile` facts `conflictOnConstraint()`,
 `conflictArbiterPredicate()` and `sequences()`. The `jpa.spi` capabilities are extension points of a provider and a
 vendor profile, not `@EngineFacing`. See [Returning the changed rows](bulk-writes.md#returning-the-changed-rows),
-[Conflict clauses](inserts.md#conflict-clauses) and [Sequence values](queries.md#sequence-values).
+[Conflict clauses](inserts.md#conflict-clauses) and [Sequence values](filters.md#sequence-values).
 
 The write-expression members are new in 0.9.0 and `@Incubating` (D-130), and join the list above: the
 `setExpression(column, ExpressionField)` overloads on `ModelUpdate.Builder`, `ConflictUpdate`,

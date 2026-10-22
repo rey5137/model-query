@@ -38,7 +38,7 @@ See [Architecture](architecture.md) for how the modules depend on each other and
 
 1. Getting started [without Spring](getting-started/plain-jpa.md) or
    [with Spring Boot](getting-started/spring-boot.md).
-2. [Models and QModels](models.md), then [queries and filters](queries.md).
+2. [Models and QModels](models.md), then [running queries](queries.md) and [filters](filters.md).
 3. [Paging and export](paging-export.md) before you export anything large.
 4. [Vendor notes](vendors.md) for what differs between H2, PostgreSQL and MySQL.
 5. [Diagnostics](diagnostics.md) when you meet an `MQnnnn` code.

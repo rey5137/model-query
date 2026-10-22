@@ -389,5 +389,5 @@ Tested by `ExprFactoryTest`.
 ## See also
 
 - [Migration recipes](recipes.md): the adoption cases, each with its own recipe.
-- [Queries and Filters](queries.md): the `Filters` operators a `SubSelect` and an expression plug into.
+- [Filters](filters.md): the `Filters` operators a `SubSelect` and an expression plug into.
 - [Models and QModels](models.md): `@Computed`, `@GroupBy` and the generated `Q<Model>` constants.

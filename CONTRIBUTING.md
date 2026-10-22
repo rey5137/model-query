@@ -102,6 +102,8 @@ Community profiles are welcome and never gate a release (`vendor/41` R-PRF-02).
 
 AI-assisted contributions are welcome. You are the author: you must understand every line you submit, be able to
 explain it in review, and have run the build yourself. Say in the PR if a substantial part was generated.
+See [How Model Query is built](docs/site/docs/how-its-built.md) for how the project itself is developed using AI
+assistants under human direction.
 
 Everything that applies to a contributor is in this file and in `docs/spec/` — there is nothing an assistant needs that
 a human does not.

@@ -7,7 +7,7 @@
     ships with no change to them.
 
 A bulk write is "change the rows these filters match". It is rendered as one JPA `CriteriaUpdate` or
-`CriteriaDelete`, or as a series of them in chunks. It reuses the [`Filters`](queries.md) DSL, the same join
+`CriteriaDelete`, or as a series of them in chunks. It reuses the [`Filters`](filters.md) DSL, the same join
 resolution and converters as reads, and the vendor's limits.
 
 !!! important "What a bulk write does not do"

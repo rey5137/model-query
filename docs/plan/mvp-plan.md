@@ -698,8 +698,9 @@ Part D: a filter through a to-many join renders, where the outer statement keeps
 treated, as a correlated `exists` semi-join holding the whole predicate, as bulk writes do (R-EXE-16, R-WRT-10), so
 each root is one row and `count`, pages and aggregates agree. Model: an `architect-review` of the RFC and at the gate
 (public API, the `ProviderSupport` surface, INV-5, INV-7, paging correctness). Every new public type and member is
-`@Incubating`. M30.1–M30.7 require Opus / high for those surfaces and invariants; M30.8 uses the default tier. The
-last slice finishes the 0.10.0 release prep (`CHANGELOG.md`), moved from M29 (D-176).
+`@Incubating`. M30.1–M30.7 require Opus / high for those surfaces and invariants; M30.8 and M30.9 use the default
+tier. M30.8 finishes the 0.10.0 release prep (`CHANGELOG.md`), moved from M29 (D-176); M30.9 restructures the
+documentation site.
 
 | Slice | Content | Done when |
 |---|---|---|
@@ -712,6 +713,7 @@ last slice finishes the 0.10.0 release prep (`CHANGELOG.md`), moved from M29 (D-
 | M30.6 | R-FLT-08: insert, conflict, sources and profile | AC-FLT-35 green on both lines and Tier 1 |
 | M30.7 | R-EXE-16: semi-joins | AC-EXE-11/13/22–24, `integration/50` AC-SPR-19 green on both lines and Tier 1 |
 | M30.8 | Docs and release prep | Docs and `CHANGELOG.md` complete; `mkdocs build --strict` green |
+| M30.9 | Docs site structure and how it's built | Nav regrouped, queries.md split, comparison current, how-its-built page; mkdocs build --strict green |
 
 **M30.1 — Part A's API and portable route.** Add `CountMode.INLINE_COUNT` and the default-false
 `ProviderSupport#inlineCounts(emf)` (R-VND-27). Treat the new mode as `COUNT` for execution and preflight until the
@@ -775,6 +777,15 @@ the accidental CONTAINS/ENDS_WITH successes, folding property and
 missing-binder limitation; explain inline handling and per-path `MQ1502` in Diagnostics. Finish the 0.10.0
 `CHANGELOG.md` prep moved from M29 (D-176), naming the result changes and new incubating API. `mkdocs build --strict`
 is green and every runnable snippet has tested JPA and Spring tabs (CC-DOC-01).
+
+**M30.9 — Docs site structure and how it's built.** Regroup the nav into clear sections (Start here, Models,
+Reading data, Writing data, Operating, Cookbook, Reference) and drop `(incubating)` labels in favor of page-top
+admonitions. Split `queries.md` into `reading-keys.md`, `filters.md`, `custom-operators.md` and `row-locks.md`, keeping
+`queries.md` for running queries and reading one row; rewrite all inbound links across the documentation. Move
+`comparison.md` right under Home as "Why Model Query" and update it with current capabilities (source models, trees,
+`byKeys`, `generateInserts`, `CountMode.INLINE_COUNT`, semi-join `EXISTS`, custom operators and portability checks).
+Add `how-its-built.md` under Reference describing the AI-assisted methodology under human maintainer direction and
+the evidence-backed quality process (spec rules, ArchUnit invariants, TCK, SQL snapshots, verified milestone tags).
 
 ## 31. M31 — Freeze → 1.0.0
 
