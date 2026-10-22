@@ -21,6 +21,10 @@ public class KeysetRowEntity {
     @Column(name = "c", nullable = false)
     Integer c;
 
+    /** Never set: a type whose binding depends on the column's mapping, for the inline value handling refusal. */
+    @Column(name = "flag")
+    Boolean flag;
+
     protected KeysetRowEntity() {}
 
     KeysetRowEntity(long id, Integer a, Integer b, int c) {

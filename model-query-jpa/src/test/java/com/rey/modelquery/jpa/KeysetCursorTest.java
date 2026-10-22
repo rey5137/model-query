@@ -427,6 +427,28 @@ class KeysetCursorTest {
     }
 
     @Test
+    void ac_flt_21_a_byte_array_cursor_value_binds_as_before_under_inline_value_handling() {
+        var q = ModelQuery.builder(CURSOR_ROOT, CURSOR_MAPPER)
+                .select(SelectSet.of(CURSOR_ID, PAYLOAD))
+                .primaryKey(PrimaryKey.of(CURSOR_ID))
+                .orderBy(PAYLOAD.asc().nullsFirst())
+                .keyset()
+                .build();
+        Keyset<CursorRow> keyset = Keyset.of(q, q.primaryKey().orElseThrow(), NullOrdering.UNKNOWN,
+                Optional.empty(), KeysetNullKeys.HONOUR_NULL_PRECEDENCE);
+        try (EntityManager em = sessions.createEntityManager()) {
+            CriteriaBuilder cb = em.getCriteriaBuilder();
+            BuiltQuery<CursorRow> built = q.buildQuery(cb, Phase.MODEL, portable().withInlinesValues(true));
+            // A byte[] key needs no binder to refuse it before the first statement: it binds by its class (R-PAG-17).
+            keyset.requireBindableCursors(built.joins());
+            Keyset.Beyond beyond = keyset.after(new Object[] {new byte[] {2}, 2L}, built.joins(), cb);
+            // The payload and the id each bind explicitly, the payload by its class.
+            assertThat(beyond.parameters()).hasSize(3);
+            assertThat(beyond.parameters().values()).anySatisfy(v -> assertThat(v).isEqualTo(new byte[] {2}));
+        }
+    }
+
+    @Test
     void r_pag_17_a_byte_array_cursor_value_binds_through_a_parameter_and_pages() {
         var q = ModelQuery.builder(CURSOR_ROOT, CURSOR_MAPPER)
                 .select(SelectSet.of(CURSOR_ID, PAYLOAD))

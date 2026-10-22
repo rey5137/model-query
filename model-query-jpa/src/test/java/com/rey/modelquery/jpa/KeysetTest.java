@@ -13,7 +13,9 @@ import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.OrderField;
 import com.rey.modelquery.core.Phase;
+import com.rey.modelquery.core.OperandBinder;
 import com.rey.modelquery.core.PrimaryKey;
+import com.rey.modelquery.core.RenderOptions;
 import com.rey.modelquery.core.Row;
 import com.rey.modelquery.core.RowMapper;
 import com.rey.modelquery.core.SelectSet;
@@ -22,6 +24,8 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.ParameterExpression;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -523,6 +527,99 @@ class KeysetTest {
             assertThat(cursors.get(0)[0]).isNotNull().isNotSameAs(cursors.get(0)[1]);
             assertThat(cursors.get(0)[1]).isNotSameAs(cursors.get(1)[1]);
             assertThat(cursors.get(1)[0]).isNull();
+        }
+    }
+
+    /** The ids after {@code cursor} under {@code options}, with the parameters the cursor binds of its own. */
+    private static List<Long> afterUnder(RenderOptions options, ModelQuery<KeysetRowEntity, Long, Row3> q,
+            Keyset<Row3> keyset, Object[] cursor, int[] ownBinds) {
+        try (EntityManager em = sessions.createEntityManager()) {
+            CriteriaBuilder cb = em.getCriteriaBuilder();
+            BuiltQuery<Row3> built = q.buildQuery(cb, Phase.MODEL, options);
+            Keyset.Beyond beyond = keyset.after(cursor, built.joins(), cb);
+            ownBinds[0] = beyond.parameters().size();
+            built.query().where(beyond.predicate());
+            keyset.appendOrder(built, cb);
+            TypedQuery<Tuple> typed = em.createQuery(built.query());
+            beyond.bindTo(typed);
+            return typed.getResultList().stream().map(t -> built.map(t).id()).toList();
+        }
+    }
+
+    private static final OperandBinder FRESH = new OperandBinder() {
+        @Override
+        public <T> ParameterExpression<T> parameter(CriteriaBuilder cb, Expression<?> typedBy, Class<T> type) {
+            return cb.parameter(type);
+        }
+    };
+
+    @Test
+    void ac_flt_21_under_inline_value_handling_every_cursor_value_binds_as_a_parameter_of_its_own() {
+        var q = query(A.asc(), B.asc());
+        Keyset<Row3> keyset = keyset(q, NullOrdering.NULLS_FIRST, KeysetNullKeys.FAIL);
+        Object[] cursor = {1, 10, 5L};
+        List<Long> expected = after(q, keyset, cursor).stream().map(Row3::id).toList();
+        for (RenderOptions options : List.of(portable().withInlinesValues(true),
+                portable().withInlinesValues(true).withOperandBinder(FRESH))) {
+            int[] binds = new int[1];
+            // Branch 0 binds a; branch 1 a and b; branch 2 a, b and id: six values, none left to the provider.
+            assertThat(afterUnder(options, q, keyset, cursor, binds)).isEqualTo(expected);
+            assertThat(binds[0]).isEqualTo(6);
+        }
+        int[] binds = new int[1];
+        assertThat(afterUnder(portable(), q, keyset, cursor, binds)).isEqualTo(expected);
+        assertThat(binds[0]).isZero();
+    }
+
+    @Test
+    void ac_flt_21_a_binder_that_returns_a_parameter_the_cursor_already_binds_is_refused() {
+        var q = query(A.asc(), B.asc());
+        Keyset<Row3> keyset = keyset(q, NullOrdering.NULLS_FIRST, KeysetNullKeys.FAIL);
+        OperandBinder shared = new OperandBinder() {
+            private ParameterExpression<?> only;
+
+            @Override
+            @SuppressWarnings("unchecked")
+            public <T> ParameterExpression<T> parameter(CriteriaBuilder cb, Expression<?> typedBy, Class<T> type) {
+                if (only == null) {
+                    only = cb.parameter(type);
+                }
+                return (ParameterExpression<T>) only;
+            }
+        };
+        try (EntityManager em = sessions.createEntityManager()) {
+            CriteriaBuilder cb = em.getCriteriaBuilder();
+            RenderOptions options = portable().withInlinesValues(true).withOperandBinder(shared);
+            BuiltQuery<Row3> built = q.buildQuery(cb, Phase.MODEL, options);
+            assertThatThrownBy(() -> keyset.after(new Object[] {1, 10, 5L}, built.joins(), cb))
+                    .hasMessageContaining("already binds");
+        }
+    }
+
+    @Test
+    void ac_flt_21_a_keyset_loop_refuses_a_cursor_that_cannot_bind_before_its_first_statement() {
+        RenderOptions inline = portable().withInlinesValues(true);
+        ColumnField<Row3, KeysetRowEntity, Boolean> flag = ColumnField.of(Row3.class, ROOT, "flag", Boolean.class);
+        try (EntityManager em = sessions.createEntityManager()) {
+            CriteriaBuilder cb = em.getCriteriaBuilder();
+            for (var column : List.of(A, flag)) {
+                var q = ModelQuery.builder(ROOT, MAPPER)
+                        .select(SelectSet.of(ID, A))
+                        .primaryKey(PrimaryKey.of(ID))
+                        .orderBy(column.asc())
+                        .keyset()
+                        .build();
+                Keyset<Row3> keyset = keyset(q, NullOrdering.NULLS_FIRST, KeysetNullKeys.FAIL);
+                keyset.requireBindableCursors(q.buildQuery(cb, Phase.MODEL, portable()).joins());
+                var joins = q.buildQuery(cb, Phase.MODEL, inline).joins();
+                if (column == flag) {
+                    assertThatThrownBy(() -> keyset.requireBindableCursors(joins))
+                            .hasMessageContaining("the keyset cursor under inline value handling")
+                            .hasMessageContaining("Boolean");
+                } else {
+                    keyset.requireBindableCursors(joins);
+                }
+            }
         }
     }
 
