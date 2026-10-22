@@ -67,7 +67,9 @@ active.
     long total = orders.count(q);
     ```
 
-`count` is not inflated by collection joins: the engine uses `count(distinct root)` only when a to-many join exists.
+`count` is not inflated by collection joins: a filter-only to-many join renders as a semi-join (`exists`), while for a
+customizer's join, or a shape the semi-join excludes (a treated node, a having, or a selected column, order or group
+key that keeps the to-many join, or a fetch-plan through load), the engine uses `count(distinct root)`.
 
 ## Reading one row
 
@@ -96,9 +98,11 @@ Three methods read at most one model and return an `Optional` (D-123, `@Incubati
     ```
 
 `one` reads at a limit of 2, so a second row is found and not hidden; `MQ2003` is thrown before any row is mapped, and
-the [fetch plan](fetch-plans.md) runs once, on the one row left. `one` counts rows as `list` returns them, so a
-predicate-only to-many join can repeat the root row and give `MQ2003`. The message names the join; replace it with
-[`Filters.exists`](#exists), which joins nothing on the outer query.
+the [fetch plan](fetch-plans.md) runs once, on the one row left. `one` counts rows as `list` returns them: a
+filter-only to-many join renders as a semi-join (`R-EXE-16`) and does not repeat the root row, but a customizer's join,
+or a shape the semi-join excludes (a treated node, a having, or a selected column, order or group key that keeps the
+to-many join, or a fetch-plan through load), can repeat the root row and give `MQ2003`. The message names the join;
+replace it with [`Filters.exists`](#exists), which joins nothing on the outer query.
 
 `first` orders by the query's `orderBy`, then by the primary key (the group keys, for a grouped query) wherever the
 `orderBy` does not already cover it, with `nullsLast` stated for those implicit columns. That tie-breaker makes the
@@ -133,8 +137,9 @@ non-id column that matches two rows is `MQ2003`. On a Spring repository the thre
 The map iterates in the order of the keys' first occurrence, and a key with no row — or one `q`'s filter excludes — is
 absent rather than a `null` entry. Each key is converted as `whereKey` converts it, so two keys a converter maps to
 one value share one model, read once, and rows are matched back by the converted attribute value. A duplicate key
-is `MQ2213`, as `one(q, key)` gives, including a non-id model key matching two rows. If a filter-only to-many join
-repeats the row, both calls give `MQ2003` with a `Filters.exists` hint. A row whose key equals none of the requested
+is `MQ2213`, as `one(q, key)` gives, including a non-id model key matching two rows. If a customizer's join, or a
+shape the semi-join excludes, repeats the row, both calls give `MQ2003` with a `Filters.exists` hint. A row whose key
+equals none of the requested
 values is `MQ2005`, naming the value, before any row is mapped. That happens when the column's collation is
 case-insensitive or ignores trailing spaces, or a `BigDecimal` key has a different scale, so the row the database
 matched is not one the caller asked for.
@@ -270,6 +275,15 @@ The available filters:
 - **`likeIgnoreCase` lower-cases the column**, so it needs a functional index to be fast. Without it, case
   sensitivity follows the column's collation; see [Vendor notes](vendors.md).
 - **Every value is a bind parameter.** The library never inlines a value into SQL.
+- **Inline value handling (`hibernate.criteria.value_handling_mode=inline`).** Under this factory setting, Hibernate
+  normally renders criteria values without an explicit parameter as inline SQL literals. ModelQuery detects this mode
+  (`ProviderSupport#inlinesValues`, `R-VND-28`) and binds every filter value, comparison, membership chunk, range,
+  ignore-case parameter, call-time key (`one(q, key)`, `byKeys`, primary-key-first pages), keyset cursor, fetch-plan
+  round key, and update assignment as an explicit statement parameter (`R-FLT-08`). Where the provider's operand
+  binder can type the parameter by the column mapping, a mapped parameter is used; where no binder is available or it
+  declines, only mapping-independent types (`String`, `java.lang` or `java.math` numbers, and `java.time` types) bind
+  by class, and a value of a mapping-dependent type (an enum, `Boolean`, `UUID`, array, or a converter's non-JDK
+  attribute type) fails with `MQ1502` before any statement runs.
 - **Long `IN` lists are split** into chunks of the vendor's limit, within one statement. A query's own statement is
   never split across statements, so one filter with more values than the vendor's bind parameter limit fails with
   `MQ1306` when the query is built, and filters that only together pass it fail with `MQ1307` before the statement
@@ -278,6 +292,20 @@ The available filters:
   how many of the binds are the cursor's.
 - **A join first needed inside `or` or `not` is a LEFT join**, so one branch cannot remove rows another branch should
   match.
+- **Filter-only to-many joins render as a semi-join.** When a statement's `where` makes a to-many join that nothing
+  else in the statement keeps, its terms that join or nest a sub-query render inside one correlated sub-query over a
+  second root of the same entity: `exists (select 1 from <entity> r2 <joins> where r2 = r and <terms>)` (`R-EXE-16`,
+  `D-180`). Root terms (those that make no join and no sub-query) stay on the outer statement (`D-181`), so an index
+  on the root table can narrow the outer scan. Each root is returned once however many children match: `list`, `stream`
+  and offset pages never duplicate root rows, keyset paging and export do not end early with short pages, `one()`,
+  `one(q, key)` and `byKeys()` return the root rather than throwing `MQ2003`, and `count` agrees with `list` without
+  needing `count(distinct root)`. Where a customizer adds a join, or a shape the semi-join excludes is present (a
+  treated node, a having, or a selected column, order or group key that keeps the to-many join, or a fetch-plan through
+  load), the query retains the outer join as before and continues to duplicate rows.
+  *Performance caveat:* In benchmarks, PostgreSQL ran the semi-join roughly 2–3.5x faster than a join or DISTINCT,
+  while MySQL 8.0 was 1.4–3.6x slower due to duplicate weedout and a second root lookup. These are single-laptop
+  EXPLAIN observations; check real execution plans and indexes. There is no unique-per-root escape hatch to force a
+  join.
 
 ### Literal filters
 
@@ -495,11 +523,21 @@ matches nothing and PostgreSQL emits a notice; callers should skip the filter wh
 (D-173). The field form `op(fullTextMatch(c), left, right)` works too, matching one column's text as the query of
 another. For a field-form `ilike`, the right field holds the pattern as stored; no value preparation runs.
 
-**Converted attributes (Q-30, D-171).** With a JPA `@Convert` attribute, Hibernate converts the finished `like` and
-`ilike` patterns, but does not convert `likeIgnoreCase`'s bound pattern against `lower(col)`. A converter adding
-`SKU:` can therefore make `likeIgnoreCase` with `EXACT` or `STARTS_WITH` silently return no rows; `CONTAINS` happens
-to work in that fixture. `eqIgnoreCase` is suspected to have the same limitation and remains untested in Q-30.
-These filters have no general converted-attribute guarantee; Q-30 remains open.
+**Converted attributes (R-FLT-07, D-177).** Over a column whose mapping converts a value (a JPA `@Convert`
+`AttributeConverter`, or auto-applied), `likeIgnoreCase` and `eqIgnoreCase` bind the parameter through the provider's
+mapping-aware operand binder (`OperandBinder#converts`) and fold both sides in SQL: `lower(col) LIKE lower(?)` or
+`lower(col) = lower(?)`. The provider runs the converter on the pattern or value (wildcards and escapes included),
+and the database folds both sides with `lower()`. Previously, `eqIgnoreCase`, `EXACT` and `STARTS_WITH` silently
+missed rows because the unconverted lowercase value was compared against converted stored text; `CONTAINS` and
+`ENDS_WITH` succeeded only by accident of their leading `%` wildcard.
+*Folding property limitation:* This rendering is correct when the converter satisfies the folding property:
+`lower(conv(x)) = lower(conv(y))` if and only if `lower(x) = lower(y)`. This holds for converters adding prefixes or
+suffixes, trimming, or changing case, but not for converters that encrypt (matching becomes case-sensitive) or
+encode (such as base64, which can collide under `lower()` and return extra rows). The provider cannot classify
+converter logic, so none is refused.
+*Missing-binder limitation:* Without a mapping-aware binder (e.g. without `model-query-hibernate`, or on an
+unsupported Hibernate version), the value is lower-cased in Java and compared unconverted, which can silently miss
+rows on converted columns; inline value handling binds the `String` value by class, so it adds no error here.
 
 Give `PortabilityCheck` a query with a present operator value to check each target's feature support. An empty
 `Optional` removes the operator and is not reported (AC-FLT-24, AC-FLT-32).

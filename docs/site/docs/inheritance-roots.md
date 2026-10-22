@@ -280,8 +280,9 @@ Paging and export over polymorphic roots enforce strict key and cursor validatio
 - **Duplicate key detection (`MQ2213`)**: Keyset pages, export pages, `byKeys`, `one(q, key)`, and fetch-plan parent
   rows check for duplicate primary keys on every root (for example, in `TABLE_PER_CLASS` hierarchies, views, or
   assigned IDs where distinct rows can share a key). When duplicate keys are encountered, execution fails with
-  `MQ2213`. Queries with a filter-only to-many join are exempt from `MQ2213` (preserving row deduplication for pages,
-  or raising `MQ2003` with a `Filters.exists` hint for `byKeys` and `one(q, key)`).
+  `MQ2213`. A filter-only to-many join renders as a semi-join (`R-EXE-16`), so each root is returned once; only a
+  customizer's join or a shape the semi-join excludes can duplicate rows, raising `MQ2003` with a `Filters.exists` hint
+  for `byKeys` and `one(q, key)`.
 - **Offset page contradiction warning (`MQ2214`)**: If an offset page with a total (`CountMode.TOTAL`) returns at
   least one row and more rows than `total - offset`, the executor logs one `WARNING` `MQ2214` per `ModelQuery`. It
   never throws: under `READ COMMITTED`, concurrent transactions committing rows between the count and content queries

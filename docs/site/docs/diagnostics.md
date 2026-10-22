@@ -78,7 +78,7 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1408` | Grouped query: aggregate function over a column with a ColumnConverter (`sum`, `sumAsLong` and `avg`; `min`, `max` and `countDistinct` take an `OrderedColumnField` and do not compile over any other converted column). |
 | `MQ1409` | Grouped query: column selected under a `presentBy` join whose key columns are not all group keys. |
 | `MQ1410` | Runtime `groupBy` or group key over a column that selects a whole to-one entity. Group by the id form instead. |
-| `MQ1502` | An expression or custom operator value cannot bind, or an operand binder failed; see below. |
+| `MQ1502` | An expression, operator, key, cursor or assignment value cannot bind, or binder failed; see below. |
 | `MQ1505` | A CASE condition uses `add`, `exists`, a sub-select, a correlated value or `op`. |
 | `MQ1508` | An `Expr.constant` cannot be rendered as a literal: its value is not a `String`, `Number` or `Boolean` after the column's converter, the column is not a basic attribute of a root table, the provider has no constant renderer, or it is used other than as a comparison or `in` operand. The message names the cause. |
 | `MQ1509` | `Expr.nextval` misused: a name that is not a plain, optionally schema-qualified identifier, use in a filter, `having`, order or group key, or a vendor with no sequences (MySQL). |
@@ -123,10 +123,17 @@ qualifier (`english`, `public.my_config`). Null, blank, quoted, `$` and non-ASCI
 
 For `MQ1502`, expression values exclude null, `Optional`, arrays, `Collection`, `Map`, `Date`, `Calendar`, enums and
 entities. Operator values always exclude `Optional`, `Collection` and `Map`. Without a mapping-aware binder, only
-strings, `java.lang` or `java.math` numbers and `java.time` values bind: an enum, array, `Boolean` or `UUID` fails.
-That restriction also applies to a `<C, V>` operator and an expression the binder declines through `typesBy`, even
-with a binder installed. A binder throwing, returning null or reusing a parameter already bound by the statement
-also fails with `MQ1502`, naming the operator and column, before any statement runs (R-FLT-21, R-VND-24).
+strings, `java.lang` or `java.math` numbers and `java.time` values bind: a value of a mapping-dependent type (an
+enum, `Boolean`, `UUID`, array, or a converter's non-JDK attribute type) fails with `MQ1502`. That restriction also
+applies to a `<C, V>` operator and an expression the binder declines through `typesBy`, even with a binder
+installed. Under inline value handling (`hibernate.criteria.value_handling_mode=inline`,
+`ProviderSupport#inlinesValues`), every filter value, call-time key (`one(q, key)`, `byKeys`, primary-key-first
+pages), keyset cursor, fetch-plan round key, and update assignment binds as an explicit statement parameter: where
+no binder types the column, a value of a mapping-dependent type (an enum, `Boolean`, `UUID`, array, or a
+converter's non-JDK attribute type) fails with `MQ1502` naming the operation and column before any statement runs
+(`R-FLT-08`). For call-time inputs, `MQ1502` indicates input the environment cannot bind rather than an invalid query
+definition (`D-177`). A binder throwing, returning null or reusing a parameter already bound by the statement also
+fails with `MQ1502`, naming the operator and column, before any statement runs (`R-FLT-21`, `R-VND-24`).
 
 For `MQ1804`, conflict columns must be the id, a natural id or a declared unique constraint. Other causes include
 `doNothing` the provider cannot render; a vendor detecting any unique key without `anyUniqueKey()`; a `doUpdate`

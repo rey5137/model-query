@@ -9,6 +9,7 @@
 | `CountMode` | Behaviour |
 |---|---|
 | `COUNT` | Runs a count query and reports the exact total. |
+| `INLINE_COUNT` | Reads the total from a `count(1) over ()` window; falls back to `COUNT` if rows differ (R-EXE-15). |
 | `NO_COUNT` | Fetches one extra row to compute `hasNext`; the total is unknown. Cheapest for infinite scroll. |
 | `ONLY_COUNT` | Runs the count only; the content is empty. |
 
@@ -27,6 +28,56 @@ count was skipped. A `PageSpec` with a non-positive size fails with `MQ2001`, an
     // A sorted Pageable replaces the query's orderBy; an unsorted one keeps it.
     ModelPage<OrderView> page = orders.findPage(query, PageRequest.of(2, 50), CountMode.NO_COUNT);
     ```
+
+### Choosing a count mode
+
+`CountMode.INLINE_COUNT` requests the exact total and `hasNext` from the page statement itself via a
+`count(1) over ()` window function, avoiding a separate count query where possible (`R-EXE-15`, `@Incubating`). It
+is opt-in and never a default; Spring Data repositories default to `COUNT`.
+
+=== "Plain JPA"
+
+    ```java
+    Slice<OrderView> page = executor.page(query, PageSpec.of(0, 50), CountMode.INLINE_COUNT);
+    ```
+
+=== "Spring repository"
+
+    ```java
+    ModelPage<OrderView> page = orders.findPage(query, PageRequest.of(0, 50), CountMode.INLINE_COUNT);
+    ```
+
+**When the window runs and when it falls back.** The window is added to the page statement (or step 1 of a
+primary-key-first page) when that statement returns exactly the rows `COUNT` would count. In all other cases, it
+falls back to running `COUNT`'s two statements, producing the exact same `Slice` and total (`AC-EXE-21`):
+
+1. Without `model-query-hibernate`, on a database dialect lacking window functions, or on a provider without a window
+   renderer (`ProviderSupport#inlineCounts` is false or `sources()` is empty).
+2. On a `DISTINCT` query.
+3. Where `COUNT` counts client-side (no grouped count support, a source carrying checks, or a refused treat site).
+4. Where `COUNT`'s statement is not the content statement with its selection replaced: `count(distinct root)` over a
+   to-many join that no selected column reads (such as a customizer's to-many join; a filter's own renders as a
+   semi-join, which counts by `count(root)`), an ungrouped treated root, or a primary-key-first page whose step-1 key
+   query carries a to-many join.
+5. On a page past the end (no rows returned with offset > 0).
+
+In every fallback case, preflight validation matches `COUNT` before any statement runs, and the executor logs the
+fallback reason once at `DEBUG` level per executor and query definition.
+
+**Performance trade-offs.** The window function counts the entire result set before applying `LIMIT` and `OFFSET`,
+so the database cannot exit early:
+
+- **Selective filters:** Flat first pages with selective filters tie `COUNT` on both PostgreSQL and MySQL (no loss
+  beyond run-to-run spread).
+- **Unselective filters:** When a filter matches many rows, under `COUNT` the page query stops at its limit and the
+  separate count can use a cheaper index-only plan, while the window reads every matching row. Flat unselective first
+  pages cost 8–20x compared to `COUNT`, and middle/deep pages roughly 2–8x (deep PostgreSQL ~1.3–1.4x).
+- **Grouped queries:** Grouped middle and deep pages improve to ~0.53–0.71x; grouped selective first pages cost
+  14–32x in the fixture (with an inferred offset-0 planner cause), whereas grouped unselective first pages run at
+  ~1.04–1.20x of `COUNT`.
+
+The user chooses the count mode based on query characteristics. Always check real execution plans in your
+environment; there is no automatic performance fallback.
 
 On a repository, `findPage` takes the page from a `Pageable` and returns a `ModelPage`; see
 [Spring Data and the starter](spring.md#pageable-and-sort).

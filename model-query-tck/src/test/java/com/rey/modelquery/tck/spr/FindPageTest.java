@@ -289,6 +289,23 @@ class FindPageTest {
     }
 
     @TckTest
+    void ac_spr_06_inline_count_reports_the_exact_totals(TckDatabase db) {
+        Paged counted = assertSameAsExecutor(db,
+                executor -> Paged.of(executor.page(NEW_ORDERS, PageSpec.of(0, 300), CountMode.INLINE_COUNT)),
+                repository -> Paged.of(repository.findPage(NEW_ORDERS, PageRequest.of(0, 300),
+                        CountMode.INLINE_COUNT)));
+        ModelPage<OrderRow> page = withRepository(dataSource(db), ModelQueryRepositoryTest.DefaultTransactions.class,
+                (repository, context) -> repository.findPage(NEW_ORDERS, PageRequest.of(0, 300),
+                        CountMode.INLINE_COUNT));
+
+        assertThat(counted.content()).hasSize(300);
+        assertThat(counted.total()).isEqualTo(NEW);
+        assertThat(counted.hasNext()).isTrue();
+        assertThat(page.getTotalElements()).isEqualTo(NEW);
+        assertThat(page.getTotalPages()).isEqualTo(5);
+    }
+
+    @TckTest
     void ac_spr_06_an_unpaged_pageable_throws_mq2001(TckDatabase db) {
         assertRefusedBeforeAnyQuery(db, NEW_ORDERS, Pageable.unpaged(), MqCode.MQ2001, "Pageable.unpaged()");
     }
