@@ -418,22 +418,23 @@ class FilterCompositionTest {
     @TckTest
     void ac_flt_11_count_over_exists_equals_distinct_count_over_the_equivalent_join(TckDatabase db) {
         // The executor's count is M2.1; the counts are built here the way R-EXE-04 describes, from the built query.
+        // A filter through the join now renders as a semi-join (R-EXE-16), so the join itself is counted in JPQL.
         var viaExists = ORDER_QUERY.where(P007_VIA_EXISTS);
         var viaJoin = ORDER_QUERY.where(P007_VIA_JOIN);
-        long[] counts = new long[3];
+        long[] counts = new long[4];
         SqlSnapshots.assertMatches(db, "flt-11-exists-count", ds -> inSession(ds, em -> {
-            counts[0] = count(em, viaExists, false);
-            counts[1] = count(em, viaJoin, true);
-            counts[2] = count(em, viaJoin, false);
+            counts[0] = count(em, viaExists);
+            counts[1] = count(em, viaJoin);
         }));
-        List<Long> distinctJoined = new ArrayList<>();
         inSession(db, em -> {
-            assertThat(ids(em, viaExists)).isEqualTo(ids(em, viaJoin).stream().distinct().toList());
-            distinctJoined.addAll(ids(em, viaJoin).stream().distinct().toList());
+            assertThat(ids(em, viaExists)).isEqualTo(ids(em, viaJoin));
+            String join = " from OrderEntity o join o.items i where i.productCode = 'P007' and i.quantity >= 3";
+            counts[2] = em.createQuery("select count(distinct o)" + join, Long.class).getSingleResult();
+            counts[3] = em.createQuery("select count(o)" + join, Long.class).getSingleResult();
         });
-        assertThat(counts[0]).isEqualTo(counts[1]).isEqualTo(distinctJoined.size()).isPositive();
+        assertThat(counts[0]).isEqualTo(counts[1]).isEqualTo(counts[2]).isPositive();
         // The join multiplies orders with several matching items; exists never does (R-FLT-12).
-        assertThat(counts[2]).isGreaterThan(counts[1]);
+        assertThat(counts[3]).isGreaterThan(counts[2]);
     }
 
     // ---- add(...), the escape hatch (D-24)
@@ -472,12 +473,12 @@ class FilterCompositionTest {
 
     // ---- helpers
 
-    /** {@code count(root)}, or {@code count(distinct root)}, over the query's own joins and predicate. */
-    private static long count(EntityManager em, ModelQuery.Builder<?, ?, ?> query, boolean distinct) {
+    /** {@code count(root)} over the query's own joins and predicate. */
+    private static long count(EntityManager em, ModelQuery.Builder<?, ?, ?> query) {
         CriteriaBuilder cb = em.getCriteriaBuilder();
         CriteriaQuery<Tuple> criteria = query.build().buildQuery(cb, Phase.MODEL, portable()).query();
         Root<?> root = criteria.getRoots().iterator().next();
-        criteria.multiselect(distinct ? cb.countDistinct(root) : cb.count(root)).orderBy(List.of());
+        criteria.multiselect(cb.count(root)).orderBy(List.of());
         return em.createQuery(criteria).getSingleResult().get(0, Long.class);
     }
 

@@ -136,15 +136,17 @@ class GeneratedModelTest {
         assertThat(sql.get(0).split(" join order_items ", -1)).hasSize(2);
         assertThat(sql.get(1).split(" join order_items ", -1)).hasSize(3);
         assertThat(sql.get(2).split(" join order_items ", -1)).hasSize(2);
-        // One alias is one item: both of its filters hold on the same row.
+        // One alias is one item: both of its filters hold on the same row. The filters render as a semi-join, so each
+        // order comes once (R-EXE-16).
         assertThat(sameLine)
-                .hasSize(count("SELECT COUNT(*) FROM order_items WHERE product_code = 'P007' AND quantity = 1"))
+                .hasSize(count("SELECT COUNT(DISTINCT order_id) FROM order_items WHERE product_code = 'P007' "
+                        + "AND quantity = 1"))
                 .isNotEmpty();
         assertThat(neverOneLine).isEmpty();
         // Two aliases are two items of the order, which no single item could be.
         assertThat(twoLines)
-                .hasSize(count("SELECT COUNT(*) FROM order_items a JOIN order_items b ON b.order_id = a.order_id "
-                        + "WHERE a.quantity = 1 AND b.quantity = 9"))
+                .hasSize(count("SELECT COUNT(DISTINCT a.order_id) FROM order_items a JOIN order_items b "
+                        + "ON b.order_id = a.order_id WHERE a.quantity = 1 AND b.quantity = 9"))
                 .isNotEmpty();
     }
 
@@ -192,15 +194,16 @@ class GeneratedModelTest {
         assertThat(sql.get(1)).contains(" join order_items ").doesNotContain(" left join ");
         assertThat(sql.get(2)).contains(" left join order_items ");
         assertThat(sql.get(2).split(" join order_items ", -1)).hasSize(3);
+        // The filters render as a semi-join, so each order comes once (R-EXE-16).
         assertThat(onTheTable)
-                .hasSize(count("SELECT COUNT(*) FROM order_items WHERE product_code = 'P007'"))
+                .hasSize(count("SELECT COUNT(DISTINCT order_id) FROM order_items WHERE product_code = 'P007'"))
                 .isNotEmpty();
         assertThat(onItsOwnJoin)
-                .hasSize(count("SELECT COUNT(*) FROM order_items WHERE quantity = 1"))
+                .hasSize(count("SELECT COUNT(DISTINCT order_id) FROM order_items WHERE quantity = 1"))
                 .isNotEmpty();
         assertThat(onBoth)
-                .hasSize(count("SELECT COUNT(*) FROM order_items a JOIN order_items b ON b.order_id = a.order_id "
-                        + "WHERE a.product_code = 'P007' AND b.quantity = 9"))
+                .hasSize(count("SELECT COUNT(DISTINCT a.order_id) FROM order_items a JOIN order_items b "
+                        + "ON b.order_id = a.order_id WHERE a.product_code = 'P007' AND b.quantity = 9"))
                 .isNotEmpty();
     }
 

@@ -127,8 +127,9 @@ public interface ModelQueryExecutor<E> {
      * ModelQueryConfig.exportPageSize()} when the options leave the size open (R-QRY-15), with memory bounded by one
      * page (INV-4). Offset pages are read in a stable order, the primary key appended to the query's order (R-PAG-01).
      * A row whose key the previous page or the same page already held is dropped: with a stable order a row can repeat
-     * only across a page boundary, or within a page through a to-many join used only by predicates (R-PAG-02). A {@code
-     * keyset()} query reads each page after the last row of the one before, its order closed by the primary key in the
+     * only across a page boundary, or within a page through a to-many join no selected column reads that a customizer
+     * made or a shape R-EXE-16 excludes keeps; a filter's own renders as a semi-join (R-PAG-02). A {@code keyset()}
+     * query reads each page after the last row of the one before, its order closed by the primary key in the
      * direction of its last order column (R-PAG-04); it drops a key repeated within a page, and throws on a key of the
      * page before, which only a cursor value that does not compare equal once bound, or a row whose keyset value moved
      * after the cursor, can bring back (R-PAG-14); a {@code Float} or {@code Double} keyset column is refused at build

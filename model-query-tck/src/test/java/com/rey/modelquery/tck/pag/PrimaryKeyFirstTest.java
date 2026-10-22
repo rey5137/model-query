@@ -141,11 +141,11 @@ class PrimaryKeyFirstTest {
     }
 
     @TckTest
-    void ac_pag_08_a_to_many_join_only_in_a_predicate_repeats_rows_as_offset_paging_does(TckDatabase db) {
-        // Each order holding P001 holds it four times, so the join repeats each root four times in a row. A page
-        // repeats it as the one-step page does, whichever page the repeats fall on; export still visits it once.
-        var withItem = ORDER_ROWS.where(f -> f.eq(ORDER_ITEM_PRODUCT, Optional.of("P001")))
-                .orderBy(ORDER_STATUS.asc());
+    void ac_pag_08_a_customizer_to_many_join_repeats_rows_as_offset_paging_does(TckDatabase db) {
+        // Each order holding P001 holds it four times, so the customizer's join repeats each root four times in a
+        // row. A page repeats it as the one-step page does, whichever page the repeats fall on; export still visits
+        // it once, dropping the repeats within the page (R-PAG-02).
+        var withItem = ORDER_ROWS.customize(JoinTestSupport.itemJoin("P001")).orderBy(ORDER_STATUS.asc());
         var plain = withItem.build();
         var twoStep = withItem.primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
         List<OrderRow> paged = samePages(db, OrderEntity.class, plain, twoStep, 7);
@@ -153,6 +153,22 @@ class PrimaryKeyFirstTest {
         assertThat(paged).as("the join does repeat the roots").hasSizeGreaterThan(distinct.size());
         List<OrderRow> exported = export(db, OrderEntity.class, twoStep, 7);
         assertThat(exported).isEqualTo(export(db, OrderEntity.class, plain, 7)).containsExactlyElementsOf(distinct);
+    }
+
+    @TckTest
+    void ac_pag_08_ac_exe_22_a_filter_only_to_many_join_pages_each_root_once(TckDatabase db) {
+        // The filter renders as a semi-join (R-EXE-16): pages, primary-key-first pages and export hold each root
+        // once, the same rows as the customizer's join above with its repeats dropped.
+        var withItem = ORDER_ROWS.where(f -> f.eq(ORDER_ITEM_PRODUCT, Optional.of("P001")))
+                .orderBy(ORDER_STATUS.asc());
+        var plain = withItem.build();
+        var twoStep = withItem.primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(0)).build();
+        List<OrderRow> paged = samePages(db, OrderEntity.class, plain, twoStep, 7);
+        assertThat(paged).isNotEmpty().doesNotHaveDuplicates();
+        assertThat(export(db, OrderEntity.class, twoStep, 7)).isEqualTo(export(db, OrderEntity.class, plain, 7))
+                .isEqualTo(paged).isEqualTo(export(db, OrderEntity.class,
+                        ORDER_ROWS.customize(JoinTestSupport.itemJoin("P001")).orderBy(ORDER_STATUS.asc()).build(),
+                        7));
     }
 
     @TckTest

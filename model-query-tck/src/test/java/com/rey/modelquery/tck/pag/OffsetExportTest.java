@@ -411,11 +411,13 @@ class OffsetExportTest {
 
     @TckTest
     void ac_pag_12_the_same_export_with_the_to_many_join_only_in_a_predicate_succeeds(TckDatabase db) {
-        // Each order holding P001 holds it four times, so the join repeats each root four times in a row. Page sizes
-        // that split those runs across a boundary and within a page all export each order once.
-        var withItem = ORDER_ROWS.where(f -> f.eq(ORDER_ITEM_PRODUCT, Optional.of("P001")))
+        // A filter's join renders as a semi-join (R-EXE-16). Each order holding P001 holds it four times, so a
+        // customizer's join repeats each root four times in a row. Page sizes that split those runs across a
+        // boundary and within a page all export each order once (R-PAG-02).
+        var filtered = ORDER_ROWS.where(f -> f.eq(ORDER_ITEM_PRODUCT, Optional.of("P001")))
                 .orderBy(ORDER_STATUS.asc())
                 .build();
+        var customized = ORDER_ROWS.customize(JoinTestSupport.itemJoin("P001")).orderBy(ORDER_STATUS.asc()).build();
         List<Long> expected = new ArrayList<>();
         long[] joinedRows = new long[1];
         inSession(db, em -> {
@@ -425,13 +427,15 @@ class OffsetExportTest {
                     + " where i.productCode = 'P001'", Long.class).getSingleResult();
         });
         assertThat(joinedRows[0]).as("the join does repeat the roots").isGreaterThan(expected.size());
-        for (int pageSize : new int[] {3, 4, 7, 1_000}) {
-            List<OrderRow> rows = new ArrayList<>();
-            withExecutor(db, OrderEntity.class,
-                    executor -> executor.export(withItem, ExportOptions.of(pageSize), page -> page, rows::add));
-            assertThat(rows).extracting(OrderRow::id).as("page size %d", pageSize)
-                    .containsExactlyInAnyOrderElementsOf(expected);
-            assertThat(rows).extracting(OrderRow::status).isSorted();
+        for (var withItem : List.of(filtered, customized)) {
+            for (int pageSize : new int[] {3, 4, 7, 1_000}) {
+                List<OrderRow> rows = new ArrayList<>();
+                withExecutor(db, OrderEntity.class,
+                        executor -> executor.export(withItem, ExportOptions.of(pageSize), page -> page, rows::add));
+                assertThat(rows).extracting(OrderRow::id).as("page size %d", pageSize)
+                        .containsExactlyInAnyOrderElementsOf(expected);
+                assertThat(rows).extracting(OrderRow::status).isSorted();
+            }
         }
     }
 

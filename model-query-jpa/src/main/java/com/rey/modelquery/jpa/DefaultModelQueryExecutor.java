@@ -947,7 +947,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * A to-many join of {@code built} that no selected column is read through, the one that repeats a root row once
-     * per matching child when only a filter reads it (R-EXE-04, R-EXE-12); empty when there is none.
+     * per matching child when only a filter reads it (R-EXE-04, R-EXE-12); empty when there is none. A filter-only
+     * join the engine makes renders as a semi-join and leaves none (R-EXE-16), so this finds a customizer's join, or
+     * one a statement keeps for an order term, a group key or a shape R-EXE-16 excludes.
      */
     private static Optional<Join<?, ?>> filterOnlyToManyJoin(BuiltQuery<?> built) {
         Set<Join<?, ?>> selectedThrough = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -1530,7 +1532,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 throw new ModelQueryExecutionException(MqCode.MQ2205, q + ": a keyset page holds the cursor's own "
                         + "primary key: a cursor value did not survive being bound, or the boundary row moved");
             }
-            // A predicate's to-many join repeats its root within the page, and that repeat is dropped (R-PAG-02).
+            // A customizer's to-many join, or one R-EXE-16 leaves in the statement, repeats its root within the page,
+            // and that repeat is dropped (R-PAG-02).
             if (seen.add(rowKey)) {
                 fresh.add(new Loaded<>(built.map(row), row));
             }
@@ -3056,7 +3059,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         if (primaryKeyFirst(q, offset)) {
             PrimaryKey<M, ?> key = q.primaryKey().orElseThrow(); // primaryKeyFirst(...) needs one (MQ1201)
             // Read the page's keys in the stable order, then their rows: the same rows as the one-step page, a key
-            // read twice through a predicate's to-many join included.
+            // read twice through a customizer's to-many join, or one R-EXE-16 leaves in the statement, included.
             List<Object> keys = readKeys(q, key, first != null ? first : keyQuery(q), offset, maxRows);
             boolean uniqueParents = q.fetch().filter(DefaultModelQueryExecutor::hasFetchWork).isPresent();
             return readByKeys(q, key, keys, batch, uniqueParents);
@@ -3239,7 +3242,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             return List.of();
         }
         CriteriaBuilder cb = em.getCriteriaBuilder();
-        // A predicate's to-many join repeats a key in step 1; its row is read once and placed at every position.
+        // A customizer's to-many join, or one R-EXE-16 leaves in the statement, repeats a key in step 1; its row is
+        // read once and placed at every position.
         List<Object> distinct = List.copyOf(new LinkedHashSet<>(keys));
         Map<Object, Found<M>> found = new HashMap<>();
         for (int from = 0; from < distinct.size(); from += batch) {
@@ -3306,8 +3310,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
 
     /**
      * Whether {@code rowKey} is new to the export: a key seen before is a row the stable order already delivered,
-     * across the boundary when rows shifted between pages, or within the page when a predicate's to-many join repeats
-     * the root. Records it in {@code pageKeys}.
+     * across the boundary when rows shifted between pages, or within the page when a customizer's to-many join, or
+     * one R-EXE-16 leaves in the statement, repeats the root. Records it in {@code pageKeys}.
      */
     private static boolean isFresh(Set<Object> pageKeys, Set<Object> previousKeys, Object rowKey) {
         return pageKeys.add(rowKey) && !previousKeys.contains(rowKey);
@@ -3455,7 +3459,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 // Read from every row, not only the last, so a NULL key is refused wherever the page holds it.
                 cursor = keyset.cursor(row);
                 // Equal keys sort together and the cursor is past them all, so a key repeats only within a page,
-                // when a predicate's to-many join repeats the root, and that repeat is dropped (R-PAG-02).
+                // when a customizer's to-many join, or one R-EXE-16 leaves in the statement, repeats the root, and
+                // that repeat is dropped (R-PAG-02).
                 if (keys.add(rowKey)) {
                     fresh.add(new Loaded<>(built.map(row), row));
                 }

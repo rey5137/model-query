@@ -1,8 +1,10 @@
 package com.rey.modelquery.tck.col;
 
+import com.rey.modelquery.core.QueryCustomizer;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.tck.harness.TckDatabase;
+import jakarta.persistence.criteria.Predicate;
 import java.io.IOException;
 import java.lang.reflect.Proxy;
 import java.net.URL;
@@ -87,6 +89,13 @@ public final class JoinTestSupport {
                 .applySetting(AvailableSettings.JAKARTA_NON_JTA_DATASOURCE, dataSource));
     }
 
+    /** Like {@link #sessionFactory(DataSource)}, also mapping {@code extra}, as {@link #sessionFactory(TckDatabase,
+     * Class[])} does. */
+    public static SessionFactory sessionFactory(DataSource dataSource, Class<?>... extra) {
+        return build(new StandardServiceRegistryBuilder()
+                .applySetting(AvailableSettings.JAKARTA_NON_JTA_DATASOURCE, dataSource), extra);
+    }
+
     /** Like {@link #sessionFactory(DataSource)}, with the extra {@code settings} applied to the factory. */
     public static SessionFactory sessionFactory(DataSource dataSource, Map<String, Object> settings) {
         return build(new StandardServiceRegistryBuilder()
@@ -115,6 +124,21 @@ public final class JoinTestSupport {
                 .applySetting(AvailableSettings.JAKARTA_NON_JTA_DATASOURCE, dataSource)
                 .applySetting(AvailableSettings.CONNECTION_HANDLING,
                         "DELAYED_ACQUISITION_AND_RELEASE_AFTER_STATEMENT"));
+    }
+
+    /**
+     * A customizer joining an order root's {@code items} and keeping the orders holding {@code productCode}, ANDed
+     * onto the engine's restriction in every phase: a to-many join the engine did not make, so it stays in the
+     * statement and repeats an order once per matching item, where a filter through the same join renders as a
+     * semi-join (R-EXE-04, R-EXE-16).
+     */
+    public static QueryCustomizer itemJoin(String productCode) {
+        return (spec, joins, query, cb, phase) -> {
+            Predicate item = cb.equal(query.getRoots().iterator().next().join("items").get("productCode"),
+                    productCode);
+            Predicate own = query.getRestriction();
+            query.where(own == null ? item : cb.and(own, item));
+        };
     }
 
     /** Runs {@code work} where no {@code ServiceLoader} service file is visible: the executor as without add-ons. */

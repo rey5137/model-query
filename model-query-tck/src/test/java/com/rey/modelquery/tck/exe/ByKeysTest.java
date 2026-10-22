@@ -155,9 +155,9 @@ class ByKeysTest {
     }
 
     @TckTest
-    void ac_exe_14_a_key_matching_two_rows_throws_mq2003_naming_the_filter_only_join(TckDatabase db) {
-        // Order 1 holds four items of product P001, so the filter's join repeats it four times.
-        var q = orders().where(f -> f.eq(ITEM_PRODUCT_FILTER, "P001")).build();
+    void ac_exe_14_a_key_matching_two_rows_throws_mq2003_naming_the_customizer_join(TckDatabase db) {
+        // Order 1 holds four items of product P001, so the customizer's join repeats it four times.
+        var q = orders().customize(JoinTestSupport.itemJoin("P001")).build();
         withExecutor(db, ModelQueryConfig.defaults(), executor -> assertMq(() -> executor.byKeys(q, List.of(1L)),
                 MqCode.MQ2003, "OrderRow: byKeys(query, keys) found more than one row for key 1; if the to-many join "
                         + "OrderEntity.items, which no selected column reads, repeats the row once per matching "
@@ -165,9 +165,20 @@ class ByKeysTest {
     }
 
     @TckTest
-    void ac_pag_31_filter_only_join_repeats_are_allowed_as_fetch_plan_parents(TckDatabase db) {
+    void ac_exe_14_ac_exe_22_a_filter_only_join_reads_each_key_once_on_the_strict_path(TckDatabase db) {
+        // The filter renders as a semi-join, so order 1 comes once and byKeys keeps its duplicate-key check (R-EXE-16).
+        var q = orders().where(f -> f.eq(ITEM_PRODUCT_FILTER, "P001")).build();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withExecutor(ds, ModelQueryConfig.defaults(),
+                executor -> assertThat(executor.byKeys(q, List.of(1L, -1L))).containsOnlyKeys(1L)));
+        assertThat(sql).singleElement().asString().contains("exists")
+                .satisfies(statement -> assertThat(statement.substring(0, statement.indexOf("exists")))
+                        .doesNotContain(" join "));
+    }
+
+    @TckTest
+    void ac_pag_31_customizer_join_repeats_are_allowed_as_fetch_plan_parents(TckDatabase db) {
         var plan = FetchPlan.of(SelectSet.of(ID, STATUS, TOTAL)).enrich(Enricher.of(rows -> rows));
-        var filtered = orders().where(f -> f.eq(ID, 1L).eq(ITEM_PRODUCT_FILTER, "P001")).fetch(plan);
+        var filtered = orders().where(f -> f.eq(ID, 1L)).customize(JoinTestSupport.itemJoin("P001")).fetch(plan);
         withExecutor(db, ModelQueryConfig.defaults(), executor -> {
             assertThat(executor.list(filtered.build(), Limit.of(10))).extracting(OrderRow::id)
                     .containsExactly(1L, 1L, 1L, 1L);

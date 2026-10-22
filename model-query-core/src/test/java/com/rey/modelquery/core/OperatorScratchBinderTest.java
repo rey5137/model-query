@@ -9,6 +9,7 @@ import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.ParameterExpression;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
 import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.Set;
@@ -58,7 +59,10 @@ class OperatorScratchBinderTest {
         query().checkPhases(criteria(), RenderOptions.portable().withOperandBinder(binder));
     }
 
-    /** A CriteriaBuilder handing out one query; every expression is a fake. */
+    /**
+     * A CriteriaBuilder handing out one query, whose sub-queries, the semi-join's scratch among them (R-EXE-16), are
+     * fakes over a root with no join; every expression is a fake.
+     */
     private static CriteriaBuilder criteria() {
         CriteriaQuery<?> query = (CriteriaQuery<?>) Proxy.newProxyInstance(CriteriaQuery.class.getClassLoader(),
                 new Class<?>[] {CriteriaQuery.class}, (proxy, method, args) -> switch (method.getName()) {
@@ -66,11 +70,12 @@ class OperatorScratchBinderTest {
                     case "isDistinct" -> false;
                     case "getOrderList", "getGroupList" -> List.of();
                     case "getRoots" -> Set.of();
+                    case "subquery" -> fakeSubquery();
                     default -> method.getReturnType().isInstance(proxy) ? proxy : null;
                 });
         return (CriteriaBuilder) Proxy.newProxyInstance(CriteriaBuilder.class.getClassLoader(),
                 new Class<?>[] {CriteriaBuilder.class}, (proxy, method, args) -> {
-                    if (method.getName().equals("createTupleQuery")) {
+                    if (method.getName().equals("createTupleQuery") || method.getName().equals("createQuery")) {
                         return query;
                     }
                     if (method.getName().equals("parameter")) {
@@ -89,8 +94,15 @@ class OperatorScratchBinderTest {
                 (proxy, method, args) -> switch (method.getName()) {
                     case "getJavaType" -> Entity.class;
                     case "get" -> fake(Path.class, Status.class);
+                    case "getJoins" -> Set.of();
                     default -> null;
                 });
+    }
+
+    private static Subquery<?> fakeSubquery() {
+        return (Subquery<?>) Proxy.newProxyInstance(Subquery.class.getClassLoader(), new Class<?>[] {Subquery.class},
+                (proxy, method, args) -> method.getName().equals("from") ? fakeRoot()
+                        : method.getReturnType().isInstance(proxy) ? proxy : null);
     }
 
     @SuppressWarnings("unchecked")

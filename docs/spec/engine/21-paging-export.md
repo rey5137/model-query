@@ -42,8 +42,10 @@ appends the primary-key columns as a tie-breaker to whatever order the caller ga
 
 **R-PAG-02** *(was R2)* **Export memory is bounded.** There is no global "seen ids" set. With a stable order,
 duplicates can only appear at a page boundary, so the engine dedupes only against the previous page's keys (INV-4).
-It also drops a key repeated within one page: a to-many join used only by predicates repeats its root's rows, and
-exporting each root once matches `count` (`engine/20` R-EXE-04) whatever the page size.
+It also drops a key repeated within one page: a to-many join no selected column reads, made by a customizer or kept
+by a shape `engine/20` R-EXE-16 excludes, repeats its root's rows, and exporting each root once matches `count`
+(`engine/20` R-EXE-04) whatever the page size. A filter's own to-many join renders as a semi-join (R-EXE-16), so its
+pages come back full; the drop stays as the guard for the rest.
 
 **R-PAG-03** *(was R3)* **Export fails loudly when the primary key isn't selected.** If `primaryKey` is set and a row's
 key is `null`, the engine throws `MQ2201` naming the model. Primary-key columns are added to the selection
@@ -154,7 +156,8 @@ because that would be a second statement.
 `hasNext() == read > size`; `after` gives `hasPrevious() == true` and `hasNext() == read > size`; `before` gives
 `hasPrevious() == read > size` and `hasNext() == true`. An empty page has both flags false and both cursors empty,
 and the client restarts with `first`. A true flag reached through a cursor can lead to an empty page after deletes,
-and a look-ahead row that repeats a key within the page can give a short page; it never skips a row. An `EXISTS`
+and a look-ahead row that repeats a key within the page, through a customizer's to-many join or one a shape
+`engine/20` R-EXE-16 excludes keeps, can give a short page; it never skips a row. An `EXISTS`
 probe for an exact `hasPrevious`, or a top-up of a short `before` page, is rejected: each is a second statement.
 
 **R-PAG-22 — Null rules under `before`.** The default is R-PAG-05 unchanged: a NULL keyset column throws `MQ2202`,
@@ -168,8 +171,9 @@ MySQL.
 **R-PAG-23 — The keyset page with grouped queries and fetch plans.** A grouped query is refused for keyset paging at
 build with `MQ1402` (`api/13` R-AGG-10) and stays `Future`; a keyset page asked of one past that point hits `MQ2207`
 (R-PAG-16). A fetch plan is allowed and runs on the page's content (`api/15` R-FCH-09). R-PAG-13 still holds: a
-to-many selection is `MQ2204` before querying, while a to-many join used only in predicates is accepted and its
-repeated roots are dropped within the page (R-PAG-02). A keyset page always runs in one step, so R-PAG-15's `MQ2206`
+to-many selection is `MQ2204` before querying, while a to-many join used only in predicates is accepted: a filter's
+renders as a semi-join (`engine/20` R-EXE-16), and a customizer's repeated roots are dropped within the page
+(R-PAG-02). A keyset page always runs in one step, so R-PAG-15's `MQ2206`
 applies and `MQ1307` covers its binds as it does for any keyset statement (R-PAG-07).
 
 **R-PAG-24 — `MQ2205` covers the stateless page, and R-PAG-14's guarantee is restated.** A keyset page reached
@@ -194,7 +198,9 @@ plan's parent rows check for a duplicate primary key before returning the page o
 adjacent row keys; a key-to-row map refuses a key seen twice. An identity duplicate is `MQ2213`, naming the model
 and key, including a non-id model key matching two rows. When the built statement has a filter-only to-many join
 (`filterOnlyToManyJoin(built).isPresent()`), repeats retain their existing deduplication (R-PAG-02, D-99) and never
-raise `MQ2213`; `byKeys` and `one(q, key)` instead raise `MQ2003` with the join and `Filters.exists` hint.
+raise `MQ2213`; `byKeys` and `one(q, key)` instead raise `MQ2003` with the join and `Filters.exists` hint. Such a
+join is a customizer's or one a shape `engine/20` R-EXE-16 excludes keeps: a filter's own renders as a semi-join, and
+the statement takes the strict path.
 Child rows remain deduplicated per parent (R-FCH-04); only parent rows are in this rule's scope.
 `list()` and offset pages without fetch-plan work are unchecked. This partial guard misses duplicates split across
 page boundaries and non-adjacent duplicates under an order with a leading non-key column. A view or an assigned id
@@ -295,7 +301,7 @@ that could overlap pages, and R-PAG-11 makes it unreachable.
 | AC-PAG-20 | A cursor from another sort, direction, precedence or entity throws `MQ2209` before querying; the same order under another filter is accepted (R-PAG-19). |
 | AC-PAG-21 | `first` on an empty result returns empty content, both flags false and both cursors empty; so does `after` once its rows are deleted (R-PAG-21). |
 | AC-PAG-22 | Before querying, a non-`keyset()` query throws `MQ2207`, a to-many selection `MQ2204`, a narrowing customizer with `primaryKeyFirst` `MQ2206`; a fetch plan loads children for the content only (R-PAG-16, R-PAG-23). |
-| AC-PAG-23 | A page holding the cursor's own primary key throws `MQ2205`; repeats from a predicate-only to-many join are dropped and no root is skipped (R-PAG-02, R-PAG-24). |
+| AC-PAG-23 | A page holding the cursor's own primary key throws `MQ2205`; repeats from a customizer's to-many join are dropped and no root is skipped, and a filter's semi-join pages the same roots (R-PAG-02, R-PAG-24, R-EXE-16). |
 | AC-PAG-24 | A String primary key works on the keyset page, keyset export and primary-key-first paging: a first/after walk and its backward walk over a non-key order with tied keys visit every row once in the key-closed order, and export and primary-key-first hold the same rows as `list`, in that order, under a filter and an explicit non-key sort too (R-PAG-04, R-PAG-07, R-PAG-16, D-111). |
 | AC-PAG-25 | An `@EmbeddedId` primary key works the same on the keyset page, keyset export and primary-key-first paging: a first/after walk and its backward walk over a non-key order with tied keys visit every row once in the order the composite key closes, and export and primary-key-first hold the same rows as `list`, in that order, filtered and explicitly sorted too (R-PAG-04, R-PAG-07, R-PAG-16, D-111). |
 | AC-PAG-26 | Over a table with duplicated expression values: offset export ordered by an expression visits every row once; `primaryKeyFirst` returns the same rows in the same order as plain offset paging, single and composite keys; the step-2 batch split keeps the order (R-PAG-25, R-PAG-01, R-PAG-07, R-PAG-08). |

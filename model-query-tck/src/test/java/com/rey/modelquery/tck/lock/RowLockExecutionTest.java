@@ -145,8 +145,10 @@ class RowLockExecutionTest {
     /** A query whose statement joins is {@code MQ2211} before any statement: a projection gives no lock root. */
     @TckTest
     void ac_exe_16_a_joined_query_is_refused_with_mq2211(TckDatabase db) {
+        // A customizer's join stays in the statement; a filter-only to-many one renders as a semi-join and runs
+        // (AC-EXE-22, R-EXE-16).
         ModelQuery<OrderEntity, Long, OrderLines> joined = QOrderLines.query().select(QOrderLines.ALL)
-                .where(f -> f.eq(QOrderLines.ITEM_CODE, "P001"))
+                .customize((spec, joins, query, cb, phase) -> query.getRoots().iterator().next().join("items"))
                 .build()
                 .withLock(LOCK);
         withExecutor(db, executor -> assertMq(() -> executor.list(joined, Limit.unlimited()), MqCode.MQ2211,

@@ -143,6 +143,35 @@ class InlineCountTest {
         assertThat(counted.get(1).hasNext()).isFalse();
     }
 
+    @TckTest
+    void ac_exe_18_ac_exe_22_a_filter_only_to_many_join_reads_counts_total_in_its_own_statement(TckDatabase db) {
+        // The filter renders as a semi-join, so the statement returns each root once, as COUNT counts them: no
+        // fallback 4, and the window's total matches the rows of every page, the last included (R-EXE-16).
+        var p001 = ORDER_ROWS.where(f -> f.eq(ITEM_PRODUCT, Optional.of("P001"))).build();
+        int size = 7;
+        List<Slice<OrderRow>> counted = new ArrayList<>();
+        withOrders(db, executor -> {
+            Slice<OrderRow> page;
+            int number = 0;
+            do {
+                page = executor.page(p001, PageSpec.of(number++, size), CountMode.COUNT);
+                counted.add(page);
+            } while (page.hasNext());
+        });
+        List<OrderRow> rows = counted.stream().flatMap(page -> page.content().stream()).toList();
+        assertThat(rows).isNotEmpty().doesNotHaveDuplicates();
+        assertThat(counted).hasSizeGreaterThan(1)
+                .allSatisfy(page -> assertThat(page.total()).hasValue(rows.size()));
+        var pages = List.of(PageSpec.of(0, size), PageSpec.of(counted.size() - 1, size));
+        List<Slice<OrderRow>> inline = new ArrayList<>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withOrders(ds, executor -> pages.forEach(spec ->
+                inline.add(executor.page(p001, spec, CountMode.INLINE_COUNT)))));
+        assertThat(sql).hasSize(2).allSatisfy(statement -> assertThat(statement).contains("count(1) over()")
+                .contains("exists"));
+        assertThat(inline).containsExactly(counted.get(0), counted.get(counted.size() - 1));
+        assertThat(inline.get(1).hasNext()).isFalse();
+    }
+
     // ---- AC-EXE-19
 
     @TckTest
@@ -229,9 +258,8 @@ class InlineCountTest {
         assertFallsBack(db, InlineCountTest::withOrders,
                 new Case<>(NEW.customize((spec, joins, query, cb, phase) -> query.distinct(true)).build(), page),
                 "the statement is DISTINCT");
-        assertFallsBack(db, InlineCountTest::withOrders,
-                new Case<>(ORDER_ROWS.where(f -> f.eq(ITEM_PRODUCT, Optional.of("P001"))).build(), page),
-                "COUNT counts distinct roots over a to-many join no selected column reads");
+        // A filter's to-many join renders as a semi-join, which the window counts (AC-EXE-18); a customizer's join
+        // stays in the statement, and COUNT counts its distinct roots.
         var customizerJoin = ORDER_ROWS.customize((spec, joins, query, cb, phase) -> query.where(
                 cb.equal(query.getRoots().iterator().next().join("items").get("productCode"), "P001"))).build();
         assertFallsBack(db, InlineCountTest::withOrders, new Case<>(customizerJoin, page),

@@ -674,31 +674,36 @@ class KeysetPageTest {
     }
 
     @TckTest
-    void ac_pag_23_repeats_from_a_predicate_only_to_many_join_are_dropped_and_no_root_is_skipped(TckDatabase db) {
-        // Each order holding P001 holds it four times, so the join repeats each root four times in a row: within a
-        // page the repeats are dropped, and the cursor is past all of them (R-PAG-02, R-PAG-24).
-        var withItem = ORDER_ROWS.where(f -> f.eq(ORDER_ITEM_PRODUCT, Optional.of("P001")))
+    void ac_pag_23_repeats_from_a_customizer_to_many_join_are_dropped_and_no_root_is_skipped(TckDatabase db) {
+        // Each order holding P001 holds it four times, so a customizer's join repeats each root four times in a row:
+        // within a page the repeats are dropped, and the cursor is past all of them (R-PAG-02, R-PAG-24). A filter's
+        // join renders as a semi-join and pages the same roots without repeats (R-EXE-16).
+        var filtered = ORDER_ROWS.where(f -> f.eq(ORDER_ITEM_PRODUCT, Optional.of("P001")))
                 .orderBy(ORDER_STATUS.asc())
                 .build();
+        var customized = ORDER_ROWS.customize(JoinTestSupport.itemJoin("P001")).orderBy(ORDER_STATUS.asc()).build();
         List<Long> expected = new ArrayList<>();
         inSession(db, em -> expected.addAll(em.createQuery("select distinct o.id from OrderEntity o join o.items i"
                 + " where i.productCode = 'P001'", Long.class).getResultList()));
-        for (int pageSize : new int[] {3, 4, 7, 1_000}) {
-            List<OrderRow> rows = new ArrayList<>();
-            withExecutor(db, OrderEntity.class, executor -> {
-                KeysetSpec spec = KeysetSpec.first(pageSize);
-                while (true) {
-                    KeysetSlice<OrderRow> page = executor.page(withItem, spec);
-                    rows.addAll(page.content());
-                    if (!page.hasNext()) {
-                        break;
+        for (var withItem : List.of(filtered, customized)) {
+            for (int pageSize : new int[] {3, 4, 7, 1_000}) {
+                List<OrderRow> rows = new ArrayList<>();
+                withExecutor(db, OrderEntity.class, executor -> {
+                    KeysetSpec spec = KeysetSpec.first(pageSize);
+                    while (true) {
+                        KeysetSlice<OrderRow> page = executor.page(withItem, spec);
+                        rows.addAll(page.content());
+                        if (!page.hasNext()) {
+                            break;
+                        }
+                        spec = KeysetSpec.after(page.nextCursor().orElseThrow(), pageSize);
                     }
-                    spec = KeysetSpec.after(page.nextCursor().orElseThrow(), pageSize);
-                }
-            });
-            assertThat(rows).extracting(OrderRow::id).as("page size %d", pageSize)
-                    .containsExactlyInAnyOrderElementsOf(expected).doesNotHaveDuplicates();
-            assertThat(rows).isSortedAccordingTo(Comparator.comparing(OrderRow::status).thenComparing(OrderRow::id));
+                });
+                assertThat(rows).extracting(OrderRow::id).as("page size %d", pageSize)
+                        .containsExactlyInAnyOrderElementsOf(expected).doesNotHaveDuplicates();
+                assertThat(rows)
+                        .isSortedAccordingTo(Comparator.comparing(OrderRow::status).thenComparing(OrderRow::id));
+            }
         }
     }
 
