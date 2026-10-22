@@ -29,6 +29,8 @@ def main() -> int:
     base = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else Path(__file__).resolve().parents[2]
     root_pom, parent, _ = project(base / "pom.xml")
     version = text(root_pom, "m:version")
+    if version == "${revision}":
+        version = text(root_pom, "m:properties/m:revision")
     errors = []
     modules = {}  # artifactId -> (directory, packaging)
     for mod in root_pom.findall("m:modules/m:module", NS):
