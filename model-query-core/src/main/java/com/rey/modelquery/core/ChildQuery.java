@@ -13,6 +13,7 @@ import java.util.function.UnaryOperator;
  * @param <C> the child model
  * @implSpec R-FCH-04, R-FCH-11
  */
+@CheckReturnValue
 @Incubating
 public final class ChildQuery<C> {
 

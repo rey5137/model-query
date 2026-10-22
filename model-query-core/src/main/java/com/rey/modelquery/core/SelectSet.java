@@ -16,6 +16,7 @@ import java.util.Set;
  * @param <M> the model the selections belong to
  * @implSpec R-COL-09, R-COL-21, R-COL-22
  */
+@CheckReturnValue
 @Incubating
 public final class SelectSet<M> {
 

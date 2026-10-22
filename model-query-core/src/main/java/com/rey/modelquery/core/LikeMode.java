@@ -9,7 +9,12 @@ import com.rey.modelquery.annotations.Incubating;
  */
 @Incubating
 public enum LikeMode {
-    /** The value is the pattern, passed through as given: its {@code %} and {@code _} are wildcards. */
+    /**
+     * The value is the pattern, passed through as given: its {@code %} and {@code _} are wildcards. No escape character
+     * is passed, which Hibernate renders as {@code escape ''} (on PostgreSQL too), so a {@code \} in the pattern is a
+     * literal character and cannot escape a wildcard; to match {@code %}, {@code _} or {@code \} literally, use
+     * {@link #CONTAINS}, {@link #STARTS_WITH} or {@link #ENDS_WITH} with the raw text.
+     */
     EXACT,
     /** Matches the value anywhere; {@code %}, {@code _} and {@code \} in it match literally. */
     CONTAINS,

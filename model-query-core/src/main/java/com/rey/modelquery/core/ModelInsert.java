@@ -40,6 +40,7 @@ import java.util.function.UnaryOperator;
  * @param <M> the insert model
  * @implSpec R-WRT-24, R-WRT-26, R-WRT-27, R-WRT-28, R-WRT-34, R-WRT-37, D-60, D-61, D-116, D-117
  */
+@CheckReturnValue
 @Incubating
 public sealed class ModelInsert<E, M> permits ValuesInsert {
 

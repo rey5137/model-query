@@ -6,6 +6,15 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
+### Changed
+
+- Immutable builders (`ModelQuery`, `SourceQuery`, `FetchPlan`, the write models and others) carry a
+  `@CheckReturnValue`, so Error Prone flags an ignored `select(...)` or `where(...)` result at compile time instead of
+  `MQ1202` at run time (D-183).
+- The `LikeMode.EXACT` javadoc says the pattern is rendered with `escape ''`, so a `\` in it cannot escape a wildcard.
+- The custom-operators page explains how pgjdbc's `prepareThreshold` leads to generic plans that skip a trigram
+  index, and how to avoid it.
+
 ## [0.10.0] - 2026-10-22
 
 Nothing is frozen yet: every public type stays `@Incubating`, and the additions below are all `@Incubating`.

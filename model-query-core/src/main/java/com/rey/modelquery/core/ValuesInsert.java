@@ -17,6 +17,7 @@ import java.util.Objects;
  * @param <M> the insert model
  * @implSpec R-WRT-29, R-WRT-30, R-WRT-32, R-WRT-33, D-60, D-61, D-117
  */
+@CheckReturnValue
 @Incubating
 public final class ValuesInsert<E, K, M> extends ModelInsert<E, M> {
 

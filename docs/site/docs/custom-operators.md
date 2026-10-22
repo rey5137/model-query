@@ -134,7 +134,11 @@ each plan, never an operator guarantee (RFC 0017 §6):
 - `ILIKE '%x%'` can use `gin (col gin_trgm_ops)` (`pg_trgm`), and jsonb `@>` can use `gin (col)`. In the PostgreSQL 16
   spike both used those indexes under a custom plan, but both used a sequential scan at 20,000 rows under
   `plan_cache_mode = force_generic_plan`. A reused server-side prepared statement can get a generic plan; whether
-  `auto` chooses it after pgjdbc starts server preparation was not measured.
+  `auto` chooses it after pgjdbc starts server preparation was not measured. pgjdbc server-prepares a statement once
+  the same SQL has run `prepareThreshold` times on a connection (default 5), and PostgreSQL may then switch it to a
+  generic plan; a search that needs its trigram index can set `prepareThreshold=0` on the connection URL, which keeps
+  every execution on a custom plan, or run with `plan_cache_mode = force_custom_plan` (per role, session or
+  `SET LOCAL`).
 - Regex `~` can also use a trigram GIN index; the spike did not measure it.
 - A `lower(col)` index serves `likeIgnoreCase`, not `ILIKE`.
 
