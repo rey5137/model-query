@@ -1164,7 +1164,7 @@ Tested by `BulkWriteTest` in the TCK.
 ## Number rows from a sequence
 
 The case in one line: read a database sequence's next value next to each row, without a function call that names the
-dialect (`Expr.nextval`, R-COL-28, `@Incubating`; see [Sequence values](queries.md#sequence-values)).
+dialect (`Expr.nextval`, R-COL-28, `@Incubating`; see [Sequence values](filters.md#sequence-values)).
 
 ```java
 private static final ExpressionField<Numbered, Long> NEXT = Expr.nextval("tck_seq");
@@ -1197,7 +1197,7 @@ one instead, use `setExpression(column, Expr.nextval(...))` on the update or ins
 A pool of workers pulls work from a table: each takes the next pending rows, marks them claimed and commits, and a
 second worker must not take the same rows. Claim in two steps in one transaction, so the rows stay locked from the
 read until the commit (`RowLock`, D-127, and returning writes, R-WRT-50, both `@Incubating`; see
-[Row locks](queries.md#row-locks) and [Returning the changed rows](bulk-writes.md#returning-the-changed-rows)):
+[Row locks](row-locks.md) and [Returning the changed rows](bulk-writes.md#returning-the-changed-rows)):
 
 1. read the next pending rows' keys with `RowLock.exclusive(SKIP_LOCKED)`, an order and a limit, so a row another
    worker holds is passed over rather than waited for;
@@ -1262,7 +1262,7 @@ Caveats:
 - On PostgreSQL a `WAIT` claim can return fewer rows than the limit, or no row while a match exists, because a locked
   row that no longer matches is dropped after `LIMIT`; `SKIP_LOCKED`, as here, avoids it.
 - H2 renders `SKIP_LOCKED` only on Hibernate 7; on Hibernate 6.6 the locked read is `MQ4010` before any statement.
-- To filter by a related table's rows, use [`Filters.exists(...)`](queries.md#exists), not a join: a locked query whose
+- To filter by a related table's rows, use [`Filters.exists(...)`](filters.md#exists), not a join: a locked query whose
   statement joins is `MQ2211`.
 
 Tested by `ac_wrt_47_two_concurrent_workers_claim_disjoint_jobs_and_read_their_claims_back` and
@@ -1273,7 +1273,7 @@ Tested by `ac_wrt_47_two_concurrent_workers_claim_disjoint_jobs_and_read_their_c
 
 The case in one line: a filter that matches a small, fixed set of enum states, inlined as literals so the planner can
 use the column's index (`Expr.constant`, D-128, R-FLT-19, R-COL-27, `@Incubating`; see
-[Literal filters](queries.md#literal-filters)).
+[Literal filters](filters.md#literal-filters)).
 
 Wrap each state in an `Expr.constant` typed by the column, and pass them to the fixed-arity `Filters#in` field form.
 An `@Enumerated(STRING)` column inlines the member's name; an `ORDINAL` one its ordinal:
@@ -1328,7 +1328,7 @@ Tested by `ac_flt_20_in_and_not_in_over_operand_fields_inline_the_literals_and_k
 
 The case in one line: group rows by a timestamp shifted into a zone the caller chooses per request, with the zone
 bound as a parameter so one statement serves every zone (`Expr.value`, D-128, R-COL-26, `@Incubating`; see
-[Bound function arguments](queries.md#bound-function-arguments)). PostgreSQL only.
+[Bound function arguments](filters.md#bound-function-arguments)). PostgreSQL only.
 
 `timezone(text, timestamp)` returns a timestamp without a zone, so nesting it under `timezone('UTC', …)` makes the
 group key independent of the JVM and session zone. The zone itself is an `Expr.value`, so it renders as `?` and one
@@ -1371,7 +1371,7 @@ static ModelQuery<CustomerEntity, Object, Hour> byZone(String zone) {
     ```
 
 The value binds on the statement, so each distinct zone does not create a new statement text (the plan-cache note on
-[Literal filters](queries.md#literal-filters)). A function that reads a value changing between statements — `now()`,
+[Literal filters](filters.md#literal-filters)). A function that reads a value changing between statements — `now()`,
 say — is evaluated by each statement that renders it, so the pages of a paged read may disagree; read such a value
 from a column when it must be stable (INV-4).
 

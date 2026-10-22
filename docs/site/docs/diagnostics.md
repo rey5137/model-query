@@ -142,7 +142,8 @@ assigning a key column or reading two or more assigned columns in its `where` wi
 the vendor does not support. Any `op` in an arbiter's `where` fails at `build()`; a value-form `op` in a conflict
 update's `where` fails on first execution, naming the operator. Field-form `op` is allowed there (R-WRT-34, R-WRT-52).
 
-See [Queries and Filters](queries.md), [Grouped queries](grouped-queries.md), [Bulk writes](bulk-writes.md) and [Inserts](inserts.md).
+See [Running queries](queries.md), [Filters](filters.md), [Grouped queries](grouped-queries.md),
+[Bulk writes](bulk-writes.md) and [Inserts](inserts.md).
 
 ## `MQ2xxx`: execution
 

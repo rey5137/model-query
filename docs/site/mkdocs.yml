@@ -11,6 +11,17 @@ theme:
   name: material
   features:
     - content.tabs.link
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - content.code.copy
+    - toc.follow
+
+plugins:
+  - search
+  - redirects
 
 markdown_extensions:
   - admonition
@@ -39,25 +50,36 @@ validation:
 
 nav:
   - Home: index.md
-  - Architecture: architecture.md
-  - Compared with SQL, JPA, Querydsl and Blaze: comparison.md
-  - Getting started:
+  - Why Model Query: comparison.md
+  - Start here:
       - Without Spring: getting-started/plain-jpa.md
       - With Spring Boot: getting-started/spring-boot.md
-  - Models and QModels: models.md
-  - Queries and Filters: queries.md
-  - Sub-queries and expressions: subqueries-expressions.md
-  - Paging and export: paging-export.md
-  - Grouped queries: grouped-queries.md
-  - Source models (incubating): source-models.md
-  - Inheritance roots (incubating): inheritance-roots.md
-  - Fetch plans: fetch-plans.md
-  - Migration recipes: recipes.md
-  - Testing queries: testing.md
-  - Bulk writes (incubating): bulk-writes.md
-  - Inserts (incubating): inserts.md
-  - API stability: stability.md
-  - Spring Data and the starter: spring.md
-  - Vendor notes: vendors.md
-  - Portability (incubating): portability.md
-  - Diagnostics: diagnostics.md
+      - How it fits together: architecture.md
+  - Models:
+      - Models and QModels: models.md
+      - Inheritance roots: inheritance-roots.md
+      - Source models: source-models.md
+  - Reading data:
+      - Running queries: queries.md
+      - Reading many keys: reading-keys.md
+      - Filters: filters.md
+      - Custom operators: custom-operators.md
+      - Row locks: row-locks.md
+      - Sub-queries and expressions: subqueries-expressions.md
+      - Grouped queries: grouped-queries.md
+      - Fetch plans: fetch-plans.md
+      - Paging and export: paging-export.md
+  - Writing data:
+      - Bulk writes: bulk-writes.md
+      - Inserts: inserts.md
+  - Operating:
+      - Spring Data and the starter: spring.md
+      - Vendor notes: vendors.md
+      - Portability: portability.md
+      - Testing queries: testing.md
+      - Diagnostics: diagnostics.md
+  - Cookbook:
+      - Migration recipes: recipes.md
+  - Reference:
+      - API stability: stability.md
+      - How it's built: how-its-built.md

@@ -16,7 +16,7 @@ Nothing is frozen yet: every public type stays `@Incubating`, and the additions 
   both an operator and its negation drop NULL-column rows. Renderer or preparation failures are `MQ1313`.
   Reuse constants for identity equality; inspection records `Condition.Kind.OPERATOR` and `FilterMatchers.op`
   matches the definition (AC-FLT-21, AC-FLT-23, AC-FLT-25..27).
-  See [Custom operators](docs/site/docs/queries.md#custom-operators).
+  See [Custom operators](docs/site/docs/custom-operators.md).
 - Mapping-aware operator operands (D-168..D-170, R-FLT-21, R-VND-24): `OperandBinder` and
   `ProviderSupport#operands` let Hibernate 6.6.x and 7.4.x bind enums, converted attributes and arrays by the column's
   mapping. Without a mapping-aware binder, only strings, `java.lang` or `java.math` numbers and `java.time` values

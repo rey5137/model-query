@@ -87,7 +87,7 @@ list is declared.
 ## H2
 
 - **Custom operators.** `HibernateOperators.ilike(LikeMode)` is served; the other catalogue operators are refused
-  with `MQ4015` (R-VND-23). See [Custom operators](queries.md#custom-operators).
+  with `MQ4015` (R-VND-23). See [Custom operators](custom-operators.md).
 - **Keep H2's default null ordering.** With `DEFAULT_NULL_ORDERING` set to anything else, Hibernate's H2 dialect
   assumes NULLs sort smallest and leaves an explicit `nullsFirst()`/`nullsLast()` bare where it is needed. NULLs are
   then misplaced, and keyset paging may skip them even with explicit precedence. The library cannot detect this without
@@ -97,7 +97,7 @@ list is declared.
 
 - **Custom operators.** The Hibernate catalogue serves `ilike`, `regexMatch`, `arrayContains`, `arrayOverlaps`,
   `jsonbContains` and `fullTextMatch` (R-VND-23). The array operators take boxed
-  arrays (`Integer[]`, not `int[]`, D-172). See [Custom operators](queries.md#custom-operators) for index advice
+  arrays (`Integer[]`, not `int[]`, D-172). See [Custom operators](custom-operators.md) for index advice
   and the generic-plan caveat. Regex `~` (`regexMatch`) and `ILIKE` on a column with a nondeterministic collation
   raise a database error; choose a deterministic collation for those operations.
 - **Streaming needs a transaction.** The PostgreSQL driver only uses a cursor when autocommit is off. Outside a
@@ -112,7 +112,7 @@ list is declared.
 ## MySQL
 
 - **Custom operators.** None of the Hibernate catalogue operators is served; the vendor check refuses them with
-  `MQ4015`, before any statement (R-VND-23). See [Custom operators](queries.md#custom-operators).
+  `MQ4015`, before any statement (R-VND-23). See [Custom operators](custom-operators.md).
 - **Streaming default (`row-by-row`).** MySQL streams with `fetchSize = Integer.MIN_VALUE` by default. It is the
   fastest mode, but it **holds the connection until the whole result has been read and blocks other statements on
   that connection** until then. This is why keyset `export`, which runs a short query per page, is the recommended way

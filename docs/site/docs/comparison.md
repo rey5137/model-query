@@ -39,7 +39,14 @@ shapes, because a query selects column sets of it rather than declaring a new vi
 | Paging | Whatever you write | Offset (Hibernate 6.5+ adds keyed pages) | Offset | Offset and keyset | Offset, keyset and primary-key-first, plus `export` |
 | Writes | Any statement | Entities, or bulk JPQL | Bulk update and delete | Updatable entity views, CTE DML | Filter-driven bulk writes, inserts with conflict clauses, writes that return their rows (`@Incubating`) |
 | Row locks | `for update`, in each vendor's syntax | `LockModeType`; skip-locked through a provider hint | `setLockMode` | `setLockMode` | `RowLock` with `WAIT`, `NO_WAIT` or `SKIP_LOCKED` (`@Incubating`) |
-| Several databases | One statement per vendor, or the common subset | The provider's dialect | The provider's dialect | The provider's dialect | The provider's dialect; a feature a target lacks is refused before any statement, and a unit test checks every target offline (`@Incubating`) |
+| Several databases | One statement per vendor, or the common subset | The provider's dialect | The provider's dialect | The provider's dialect | The provider's dialect; declare target databases (`targetVendors`), a feature a target lacks is refused before any statement, and offline unit tests check all targets ([Portability](portability.md), `@Incubating`) |
+| Reading many keys | Manual `WHERE id IN (...)` and chunking | Manual loop or `IN` query | Manual `id.in(...)` | — | `byKeys`/`findAllByKeys` chunked automatically to bind limits, in key order ([Reading many keys](reading-keys.md), `@Incubating`) |
+| Count mode / totals | `COUNT(*)` or `COUNT(*) OVER ()` | Separate count query | Separate count query | Separate count query or paginated count | `COUNT`, `NO_COUNT`, `ONLY_COUNT` and windowed `INLINE_COUNT` where the shape allows ([Paging and export](paging-export.md), `@Incubating`) |
+| Filter-only to-many joins | Native `EXISTS` or manual subquery | Duplicates parent rows unless `DISTINCT` or manual subquery | Duplicates parent rows unless `DISTINCT` or manual subquery | Subviews or criteria subquery | Where the shape allows, renders automatically as correlated `EXISTS` semi-join: no duplicated roots, no `DISTINCT` needed ([Filters](filters.md#what-the-rules-mean-for-you)) |
+| Custom operators | Native SQL functions / operators | Native queries or provider extensions | Template expressions | Custom JPQL functions | Typed `FilterOperator` with feature gates; unsupported vendors refused before execution ([Custom operators](custom-operators.md), `@Incubating`) |
+| Correlated columns | Correlated scalar subquery in SELECT | Criteria / JPQL subquery | Expressions with subquery | Correlated expressions / subviews | `Correlated` scalar sub-queries as `ExpressionField`s you select, filter and order by ([Sub-queries and expressions](subqueries-expressions.md#correlated-columns), `@Incubating`) |
+| Trees and recursion | Recursive CTEs (`WITH RECURSIVE`) | — | — | Recursive CTEs | Recursive source models with `tree(...)` and `@Depth` ([Source models](source-models.md#trees), `@Incubating`) |
+| Insert generation | `INSERT INTO ...` statements | Entity `persist()` only | Querydsl SQL `insert(...)` | Updatable entity view / CTE DML | `generateInserts` on `@QueryModel` adds generated `QModel.insert(rows)` and `persist(row)` ([One model for reading and creating](models.md#one-model-for-reading-and-creating), `@Incubating`) |
 | What you add to the project | Nothing, or a template helper | Nothing | An annotation processor and a runtime | A runtime, integrations and view definitions | An annotation processor and a runtime |
 | Reach | Everything your database supports | Any JPA query | Most of JPQL | Beyond JPQL: CTEs, window functions, set operations | What Criteria expresses, plus CTEs, window functions, set operations and recursive queries through [source models](source-models.md), including sources over sources (`@Incubating`); [correlated columns](subqueries-expressions.md#correlated-columns) (`@Incubating`); inheritance roots via treat ([Inheritance roots](inheritance-roots.md), `@Incubating`); `QueryCustomizer` for the rest |
 
@@ -88,8 +95,10 @@ and Model Query refuses `updateReturning` with `MQ4011`: write with `update`, th
 [Portability](portability.md) shows how a unit test finds such refusals for every target database without starting
 one.
 
-Model Query still stops at CTEs, window functions, set operations and recursive queries. Keep those in SQL;
-`QueryCustomizer` covers the Criteria features the builder doesn't expose.
+Source models and recursive queries ([tree(...)](source-models.md#trees), 0.10.0) cover common table
+expressions, window functions, set operations and hierarchies on top of JPA entities. Keep SQL for what a source
+model cannot express; [QueryCustomizer](queries.md#the-builder) covers the Criteria features the builder doesn't
+expose.
 
 ## Plain JPA
 
@@ -101,8 +110,11 @@ matter only when a model names them with `@Join` or `@Child`, so the fetch type 
 read loads.
 
 It also covers what plain JPA leaves to native queries or provider hints: `byKeys` reads many primary keys into a map
-in chunks, `RowLock` names `SKIP_LOCKED` on every vendor that renders it, and inserts take conflict clauses and can
-return the rows they wrote.
+in chunks ([Reading many keys](reading-keys.md)), `RowLock` names `SKIP_LOCKED` on every vendor that renders it
+([Row locks](row-locks.md)), inserts take conflict clauses and can return the rows they wrote ([Inserts](inserts.md)),
+filter-only to-many joins render as correlated `EXISTS` semi-joins without duplicating root rows where the shape allows
+([Filters](filters.md#what-the-rules-mean-for-you)), and `CountMode.INLINE_COUNT` calculates total rows in the same
+statement using window functions where the shape allows ([Paging and export](paging-export.md)).
 
 ```java
 // JPA: a DTO needs a constructor expression in a string, and the join is written by hand
@@ -135,17 +147,17 @@ entity with the same simple name in the same package.
 
 ## Blaze-Persistence
 
-Blaze-Persistence is the closest in intent and is more powerful. Its criteria builder goes beyond JPQL with CTEs,
-window functions and set operations, and its Entity Views can be updatable. If you need those, it is the better
-choice.
+Blaze-Persistence is the closest in intent and is more powerful. It excels at criteria-level CTEs, complex query
+transformations, and updatable Entity Views for mutating entire view hierarchies in place. If you need criteria-level
+CTE manipulation or two-way updatable views, it is the better choice.
 
 Model Query trades that reach for a smaller surface:
 
 - **Records instead of view interfaces.** A model is a plain record or class with a few annotations. Your service
   and API layers use it directly, with no generated implementation behind an interface.
 - **One model for several shapes.** A list screen, a detail screen and an export can share one model and select
-  different column sets. With [selected fields](models.md#selected-fields), a row also tells an unselected column from a selected
-  `NULL`.
+  different column sets. With [selected fields](models.md#selected-fields), a row also tells an unselected column from
+  a selected `NULL`.
 - **Models outside the entity module.** With [`@BindQueryModel`](models.md#models-in-an-api-module), a model lives
   in an API module that depends only on `model-query-annotations`, and its QModel is generated beside the entities.
 - **Plain JPA underneath.** Queries are standard Criteria on your provider. There is no criteria builder to learn,
@@ -153,8 +165,8 @@ Model Query trades that reach for a smaller surface:
 
 ## When to choose something else
 
-- You need CTEs, window functions or recursive queries everywhere: use Blaze-Persistence, or jOOQ or plain SQL if
-  you can drop JPA on the read path.
+- You need CTEs, window functions or recursive queries beyond what [source models](source-models.md) express: use
+  Blaze-Persistence, or jOOQ or plain SQL if you can drop JPA on the read path.
 - You target one database, want its whole dialect and have no entities: plain SQL or jOOQ is simpler.
 - Your queries are mostly ad hoc and each returns a different shape: Querydsl's per-query projections fit better.
 - You read only through managed entities and edit them in place: plain JPA is enough.

@@ -95,7 +95,7 @@ When a query model reads an attribute of a specific subtype, rows representing o
 - **In the select list**: Subtype columns read `null` on rows of different subtypes. The row is retained in the result.
 - **In predicates**: A treated column evaluates against `null` for other subtypes. Conditions like `eq`, `lt`, `like`,
   `in`, and `isNotNull` evaluate to false; `isNull` evaluates to true. Consistent with SQL ternary logic, `ne` and
-  `notIn` include other subtypes through their `IS NULL` branch (see [Filters](queries.md#filters)),
+  `notIn` include other subtypes through their `IS NULL` branch (see [Filters](filters.md)),
   whereas `not(eq(...))` excludes them (`NOT(UNKNOWN)` remains false).
 - **In ordering**: A treated column is nullable. Nulls sort according to the column's null precedence (`nullsFirst()`
   or `nullsLast()`). Keyset paging over a treated column hits `null` on other subtypes, failing with `MQ2202` unless

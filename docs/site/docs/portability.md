@@ -1,4 +1,7 @@
-# Portability (incubating)
+# Portability
+
+!!! note "Incubating"
+    Portability checking and target vendors are annotated `@Incubating` (see [API stability](stability.md)).
 
 A query or write that runs on your development database can still be refused on the one you deploy: a row lock the
 provider would drop, a returning write on MySQL, a conflict arbiter outside PostgreSQL, `Expr.nextval` without
