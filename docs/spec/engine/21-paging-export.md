@@ -117,9 +117,12 @@ which keeps its scale; `UUID`; an enum by `name()`; `LocalDate`, `LocalTime`, `L
 `OffsetDateTime`, `OffsetTime` and `ZonedDateTime` at nanosecond precision, keeping their offset or zone;
 `java.util.Date`, `java.sql.Date`, `Time` and `Timestamp` by runtime class, `Timestamp` keeping its nanos; and
 `byte[]`, which binds as a parameter like any other cursor value (R-FLT-08). Any other type — an `@Convert` value class or `Calendar` — throws `MQ2210` naming the column before any
-query runs; Java serialization is never used. The cursor's values are readable by anyone who decodes it, filter-only
-order columns and internal primary keys included; that is documented, not hidden, and non-breaking to change later
-because the format is not API (R-PAG-18).
+query runs; Java serialization is never used. Under `hibernate.criteria.value_handling_mode=inline` every cursor
+value binds as an explicit parameter: typed by its column's mapping where the provider's operand binder types the
+column, else by its class for a `byte[]` or a mapping-independent value (R-FLT-21), else `MQ1502` naming the cursor
+and the column before any statement, a keyset export's before its first page (R-FLT-08, D-177). The cursor's values are
+readable by anyone who decodes it, filter-only order columns and internal primary keys included; that is documented, not
+hidden, and non-breaking to change later because the format is not API (R-PAG-18).
 
 **R-PAG-18 — A cursor's encoding.** A cursor is URL-safe base64 without padding over
 `[version=1][fingerprint 8 bytes][key count][per value: kind byte (NULL or codec kind) + length-prefixed
@@ -297,7 +300,7 @@ that could overlap pages, and R-PAG-11 makes it unreachable.
 | AC-PAG-25 | An `@EmbeddedId` primary key works the same on the keyset page, keyset export and primary-key-first paging: a first/after walk and its backward walk over a non-key order with tied keys visit every row once in the order the composite key closes, and export and primary-key-first hold the same rows as `list`, in that order, filtered and explicitly sorted too (R-PAG-04, R-PAG-07, R-PAG-16, D-111). |
 | AC-PAG-26 | Over a table with duplicated expression values: offset export ordered by an expression visits every row once; `primaryKeyFirst` returns the same rows in the same order as plain offset paging, single and composite keys; the step-2 batch split keeps the order (R-PAG-25, R-PAG-01, R-PAG-07, R-PAG-08). |
 | AC-PAG-27 | A selected or ordered expression reading a column through a to-many join throws `MQ2204` for offset export, keyset and `primaryKeyFirst` before querying, and `count` equals `list`'s size for the same query (R-PAG-13). |
-| AC-PAG-28 | A `byte[]` keyset cursor value is a bind parameter, never an inlined literal (R-FLT-08). |
+| AC-PAG-28 | A `byte[]` keyset cursor value is a bind parameter, never an inlined literal (R-FLT-08). Under `hibernate.criteria.value_handling_mode=inline` so is every cursor value, after and before, the comparison and each earlier key's equality, a composite primary key's included: typed by its column's mapping, while a provider with no operand binder binds a mapping-independent or `byte[]` value by its class and refuses any other with `MQ1502` before any statement, a keyset export before its first page; the pages are those of the default setting (R-PAG-17, D-177). |
 | AC-PAG-29 | Treated keyset paging and cursor identity, as detailed below (R-PAG-19). |
 | AC-PAG-30 | Treated offset paging and full export, as detailed below. |
 | AC-PAG-31 | Duplicate row identities are refused by key-identified reads, as detailed below (R-PAG-26). |

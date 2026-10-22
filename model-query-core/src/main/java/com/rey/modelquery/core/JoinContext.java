@@ -411,7 +411,12 @@ public final class JoinContext {
         parameters.putAll(rendered.parameters);
     }
 
-    RenderOptions renderOptions() {
+    /**
+     * The options this build renders by: how an engine path outside {@code core} that adds its own values to the
+     * statement, such as a keyset cursor, binds them by {@link ValueOperands#valueOperand}'s rule (R-FLT-08, D-177).
+     */
+    @EngineFacing
+    public RenderOptions renderOptions() {
         return renderOptions;
     }
 

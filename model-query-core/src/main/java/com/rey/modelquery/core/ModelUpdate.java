@@ -4,6 +4,7 @@ import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaUpdate;
 import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.ParameterExpression;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
@@ -38,7 +39,7 @@ import java.util.function.UnaryOperator;
  * @param <E> the root entity
  * @param <M> the update model
  * @implSpec R-WRT-05, R-WRT-07, R-WRT-08, R-WRT-10, R-WRT-11, R-WRT-13, R-WRT-14, R-WRT-15, R-WRT-16, R-WRT-41,
- *     R-WRT-46, D-60, D-61, D-62, D-63
+ *     R-WRT-46, R-FLT-08, D-60, D-61, D-62, D-63, D-177
  */
 @Incubating
 public final class ModelUpdate<E, M> {
@@ -453,7 +454,8 @@ public final class ModelUpdate<E, M> {
                 if (next instanceof Expression expression) {
                     setTo(update, path, expression);
                 } else {
-                    setValue(update, path, next);
+                    setBound(update, path, next, ctx, entity.getJavaType().getSimpleName() + "." + version.getName()
+                            + ": the version increment under inline value handling");
                 }
             });
         }
@@ -461,7 +463,12 @@ public final class ModelUpdate<E, M> {
                 update, from, ctx, cb, options, rootTermsOnly);
         SingularAttribute<?, ?> version = expectedVersionAttribute(entity, versionAttribute);
         if (version != null) {
-            where.add(cb.equal(from.get(version.getName()), definition.expectedVersion()));
+            Path<?> path = from.get(version.getName());
+            Object expected = definition.expectedVersion();
+            where.add(ctx.renderOptions().inlinesValues()
+                    ? cb.equal(path, bound(ctx, path, expected, entity.getJavaType().getSimpleName() + "."
+                            + version.getName() + ": the expected version under inline value handling"))
+                    : cb.equal(path, expected));
         }
         if (!where.isEmpty()) {
             update.where(where.toArray(Predicate[]::new));
@@ -479,7 +486,11 @@ public final class ModelUpdate<E, M> {
         }
     }
 
-    /** One value or NULL assignment; a to-one attribute written by id binds a reference to the target (R-WRT-14). */
+    /**
+     * One value or NULL assignment; a to-one attribute written by id binds a reference to the target (R-WRT-14). Under
+     * inline value handling a value binds as an explicit parameter by {@link ValueOperands#valueOperand}'s rule, and a
+     * reference as a parameter typed by the target entity, whose class alone gives its mapping (R-FLT-08, D-177).
+     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     private static <E> void assign(CriteriaUpdate<E> update, Root<E> from, JoinContext ctx, EntityType<E> entity,
             Assignment<?, ?> assignment, CriteriaBuilder cb, BiFunction<Class<?>, Object, ?> references) {
@@ -494,7 +505,18 @@ public final class ModelUpdate<E, M> {
         }
         if (assignment instanceof Assignment.Value value) {
             Object attribute = column.toAttribute(value.value());
-            setValue(update, path, target == null ? attribute : references.apply(target.getJavaType(), attribute));
+            if (target == null) {
+                setBound(update, path, attribute, ctx, column + ": the update assignment under inline value handling");
+            } else {
+                Object reference = references.apply(target.getJavaType(), attribute);
+                if (reference == null || !ctx.renderOptions().inlinesValues()) {
+                    setValue(update, path, reference);
+                } else {
+                    ParameterExpression parameter = cb.parameter(target.getJavaType());
+                    ctx.sink().add(parameter, reference);
+                    setTo(update, path, parameter);
+                }
+            }
         } else {
             if (target == null) {
                 setValue(update, path, null); // the provider's own null, so a JPA converter sees it
@@ -506,6 +528,29 @@ public final class ModelUpdate<E, M> {
 
     private static <Y> void setTo(CriteriaUpdate<?> update, Path<Y> path, Expression<? extends Y> value) {
         update.set(path, value);
+    }
+
+    /**
+     * Assigns {@code value} to {@code path}: as is under the default setting, which the provider binds; under inline
+     * value handling, a value other than {@code null} through {@link #bound}, {@code label} naming the assignment.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static void setBound(CriteriaUpdate<?> update, Path path, Object value, JoinContext ctx, String label) {
+        if (value == null || !ctx.renderOptions().inlinesValues()) {
+            setValue(update, path, value);
+        } else {
+            setTo(update, path, (Expression) bound(ctx, path, value, label));
+        }
+    }
+
+    /**
+     * {@code value}, a value of {@code path}'s attribute, as an explicit parameter recorded in {@code ctx}: typed by
+     * the path's mapping where the provider's binder types it, else by its class, which only a mapping-independent
+     * value takes, else {@code MQ1502} naming {@code label} before any statement (R-FLT-08, R-FLT-21, D-177).
+     */
+    private static Expression<?> bound(JoinContext ctx, Path<?> path, Object value, String label) {
+        return ValueOperands.valueOperand(ctx.renderOptions(), ctx.cb(), path, ColumnField.boxed(path.getJavaType()),
+                value, label, ctx.sink());
     }
 
     /** Binds {@code value}, which the provider checks against the path's type. */

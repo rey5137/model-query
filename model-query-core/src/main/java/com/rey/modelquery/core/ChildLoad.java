@@ -4,6 +4,8 @@ import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Predicate;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -15,7 +17,7 @@ import java.util.Objects;
  *
  * @param <M> the parent model
  * @param <C> the child model
- * @implSpec R-FCH-04, R-FCH-05, R-FCH-11, R-FCH-14
+ * @implSpec R-FCH-04, R-FCH-05, R-FCH-11, R-FCH-14, R-FLT-08
  */
 @EngineFacing
 @Incubating
@@ -82,9 +84,50 @@ public final class ChildLoad<M, C> {
                 : query.buildThroughQuery(cb, options, through, field.key());
     }
 
-    /** The expression of {@code built} the parent keys are matched against, in an {@code IN}. */
-    public Expression<?> key(BuiltQuery<C> built) {
+    /**
+     * {@code built}'s key match, its expression the parent keys are matched against {@code IN (keys)}, the parent keys'
+     * attribute values. Under inline value handling each key is its own explicit parameter, typed by the key column's
+     * mapping, else {@code MQ1502} naming the fetch key and the column before any statement (R-FLT-08, D-177).
+     */
+    public Predicate keyIn(BuiltQuery<C> built, List<Object> keys) {
+        Expression<?> expression = keyExpression(built);
+        JoinContext joins = built.joins();
+        if (!joins.renderOptions().inlinesValues()) {
+            return expression.in(keys);
+        }
+        ColumnField<?, ?, ?> column = keyColumn();
+        return expression.in(keys.stream()
+                .map(key -> ValueOperands.attributeOperand(joins, column, expression, key, keyLabel(column)))
+                .toArray(Expression<?>[]::new));
+    }
+
+    /**
+     * Under inline value handling, {@code MQ1502} as {@link #keyIn} raises it for a key of {@code built}, decided from
+     * the key column's type alone: the keys bind only after the parent statement ran, so an executor checks this
+     * before it (R-FLT-08, R-FLT-21, D-177). A no-op under the default setting.
+     */
+    public void requireBindableKeys(BuiltQuery<C> built) {
+        RenderOptions options = built.joins().renderOptions();
+        if (options.inlinesValues()) {
+            ColumnField<?, ?, ?> column = keyColumn();
+            ValueOperands.requireBindable(options, keyExpression(built), ColumnField.boxed(column.attributeType()),
+                    keyLabel(column));
+        }
+    }
+
+    /** The expression of {@code built} the parent keys are matched against. */
+    private Expression<?> keyExpression(BuiltQuery<C> built) {
         return through == null ? foreignKey.path(built.joins()) : built.parentKey();
+    }
+
+    /** The column whose attribute values the parent keys are: the foreign key, or the parent's key column. */
+    private ColumnField<?, ?, ?> keyColumn() {
+        return through == null ? foreignKey : field.key();
+    }
+
+    /** {@code column} as {@code MQ1502} names the fetch key. */
+    private String keyLabel(ColumnField<?, ?, ?> column) {
+        return column + ": the fetch-plan key of " + this + " under inline value handling";
     }
 
     /**

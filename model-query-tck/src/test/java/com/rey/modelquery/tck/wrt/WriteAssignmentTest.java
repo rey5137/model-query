@@ -204,6 +204,25 @@ class WriteAssignmentTest {
     }
 
     @TckTest
+    void ac_flt_35_under_inline_value_handling_the_update_assignments_bind_and_write_the_default_settings_rows(
+            TckDatabase db) {
+        var audit = new Audit();
+        var update = ModelUpdate.builder(ROOT).primaryKey(PrimaryKey.of(ID)).set(NAME, "N").where(f -> f.lte(ID, 2L))
+                .build();
+
+        try (InsertProbes p = InsertProbes.withInlineValues(db, InsAuditedEntity.class)) {
+            seed(p, 3);
+            long written = inCommittedTransaction(p, em -> executor(em, audit.config()).update(update));
+
+            assertThat(written).isEqualTo(2);
+            assertThat(p.statements()).filteredOn(sql -> sql.startsWith("update")).singleElement()
+                    .satisfies(sql -> assertThat(sql).doesNotContain("'N'", "'u1'", "'t1'", "'w1'"));
+            assertThat(p.rows(ROWS)).containsExactly("1|N|seed|u1|t1|w1|1", "2|N|seed|u1|t1|w1|1",
+                    "3|r3|seed|seed|null|null|0");
+        }
+    }
+
+    @TckTest
     void ac_wrt_39_a_chunked_update_calls_each_supplier_once_per_execution_and_again_on_resume(TckDatabase db) {
         var audit = new Audit();
         var options = ChunkOptions.size(2).commitEachChunk();

@@ -135,6 +135,10 @@ final class KeysetWrite {
                     built.query().where(own == null ? past.predicate() : cb.and(own, past.predicate()));
                 }
                 keyset.appendOrder(built, cb);
+                if (after == null) {
+                    // The next round binds a cursor read from this one's rows: refuse it before this select runs.
+                    keyset.requireBindableCursors(built.joins());
+                }
                 List<Tuple> rows = rows(write.label(), on, built, n, lockKeys, keyset, after, past);
                 if (rows.isEmpty()) {
                     return Round.NONE;
