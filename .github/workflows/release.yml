@@ -29,9 +29,6 @@ jobs:
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
           gpg-passphrase-env-var: GPG_PASSPHRASE
 
-      - name: Set version from tag
-        run: ./mvnw -B -ntp versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false -DprocessAllModules
-
       # AC-REL-05: the tag commit's time becomes project.build.outputTimestamp, so a rebuild of the tag is identical.
       - name: Set build timestamp from the tag commit
         run: >
@@ -39,7 +36,7 @@ jobs:
           -DnewVersion="$(git log -1 --format=%cI)" -DgenerateBackupPoms=false
 
       - name: Build, sign and publish to Maven Central
-        run: ./mvnw -B -ntp -Prelease deploy
+        run: ./mvnw -B -ntp -Prelease deploy -Drevision="${GITHUB_REF_NAME#v}"
         env:
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
