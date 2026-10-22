@@ -7,6 +7,7 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 ## [Unreleased]
 
 Nothing is frozen yet: every public type stays `@Incubating`, and the additions below are all `@Incubating`.
+0.10.0 covers milestones M25–M30 (D-176).
 
 ### Added (incubating)
 - Custom filter operators (RFC 0017, D-167, R-FLT-20..22): immutable `FilterOperator` definitions with
@@ -28,15 +29,32 @@ Nothing is frozen yet: every public type stays `@Incubating`, and the additions 
 - Hibernate pattern operators (D-171, R-VND-23): `HibernateOperators.ilike(LikeMode)` serves PostgreSQL and H2,
   and `regexMatch()` serves PostgreSQL, taking its pattern unconverted (D-174). `ilike` prepares patterns like `like`,
   and Hibernate answers it by the dialect's `supportsCaseInsensitiveLike()` (D-175), so CockroachDB's dialect is served
-  by the provider (still `MQ4015` from the vendor check) and 7.4's Spanner PostgreSQL dialect is `MQ4014`; MySQL is refused rather than
-  emulated (AC-FLT-21, AC-FLT-24). The recorded JPA `@Convert` limitation for case-insensitive string filters
-  remains open as Q-30.
+  by the provider (still `MQ4015` from the vendor check) and 7.4's Spanner PostgreSQL dialect is `MQ4014`; MySQL is
+  refused rather than emulated (AC-FLT-21, AC-FLT-24). Case-insensitive string filters over JPA `@Convert` attributes
+  now convert through the operand binder (D-177, Q-30 resolved; see below).
 - Hibernate containment operators (D-172, R-VND-23): `arrayContains()`, `arrayOverlaps()` and `jsonbContains()`
   serve PostgreSQL's array `@>`, array `&&` and jsonb `@>` predicates (the array operators take boxed arrays, D-172); H2 and MySQL are refused before execution
   (AC-FLT-24).
 - Hibernate full-text operator (D-173, R-VND-23): `fullTextMatch(configuration)` serves PostgreSQL with
   `plainto_tsquery`, binding request text and rendering the validated configuration as a literal to match expression
   indexes. An invalid configuration is `MQ1315`; blank or stop-word-only text matches nothing (AC-FLT-32).
+- Inline count mode (RFC 0018 Part A, D-177, R-EXE-15): `CountMode.INLINE_COUNT` reads a page's exact total and
+  `hasNext` from a `count(1) over ()` window on the page statement (or step-1 key query) when that statement returns
+  exactly the rows `COUNT` counts; falls back to `COUNT`'s statements otherwise, producing the same total and
+  `Slice` (`AC-EXE-21`). Gated by `ProviderSupport#inlineCounts(EntityManagerFactory)` (R-VND-27, default false),
+  answered from Hibernate's dialect window function support. See [Paging and export](docs/site/docs/paging-export.md).
+- Converted ignore-case binding (RFC 0018 Part B, D-177, R-FLT-07, R-VND-24): `OperandBinder#converts` (default false)
+  reports whether an expression's mapping applies a JPA `AttributeConverter`. Where true, `likeIgnoreCase` and
+  `Having.likeIgnoreCase` render `lower(col) LIKE lower(?)` and `eqIgnoreCase` and `Having.eqIgnoreCase` render
+  `lower(col) = lower(?)`, binding the converted pattern or value through the binder and folding both sides in SQL.
+- Explicit binding under inline value handling (RFC 0018 Part C, D-177, R-FLT-08, R-VND-28):
+  `ProviderSupport#inlinesValues(EntityManagerFactory)` (default false) and `RenderOptions#withInlinesValues` and
+  `#inlinesValues` detect Hibernate's `hibernate.criteria.value_handling_mode=inline`. Under this setting, every filter
+  comparison, membership chunk, range, ignore-case parameter, call-time key (`one(q, key)`, `byKeys`,
+  primary-key-first pages), keyset cursor, fetch-plan round key, and update assignment binds explicitly as a statement
+  parameter via `@EngineFacing` `ValueOperands` and `ParameterSink`. Where no binder types the column, a value of a
+  mapping-dependent type (an enum, `Boolean`, `UUID`, array, or a converter's non-JDK attribute type) fails with
+  `MQ1502` before any statement runs.
 - Source models (RFC 0013, D-143): `@SourceModel(root = OrderItemEntity.class)` declares a model read as a common
   table expression rather than a select, so a read the Criteria API cannot express becomes one generated model with
   the compile-time checks an entity root gets. `QQuantitySource.source()` builds a `SourceQuery`, which carries the
@@ -112,6 +130,39 @@ Nothing is frozen yet: every public type stays `@Incubating`, and the additions 
 - `MQ3031` checks an ungrouped source's `@PrimaryKey` against the root entity's id as a whole (D-149, RFC 0014): a
   source over an `@IdClass` or `@EmbeddedId` entity now compiles with every id column as its key, where it was refused
   for keying more than one column, and the message no longer calls the key "one row's key".
+- Filter-only to-many joins render as correlated `exists` semi-joins (RFC 0018 Part D, D-177, D-180, D-181, R-EXE-16):
+  where a statement's `where` makes a to-many join that nothing else in the outer statement keeps, its terms that join
+  or nest a sub-query render inside one correlated sub-query over a second root of the same entity:
+  `exists (select 1 from <entity> r2 <joins> where r2 = r and <terms>)`. Root terms (those that make no join and no
+  sub-query) stay on the outer statement (`D-181`). Result rows and aggregates change to match:
+  1. `list`, `stream` and offset pages return each root entity once rather than repeating it per matching child; export
+     and keyset pages stop ending prematurely with short pages;
+  2. `one(q)`, `one(q, key)` and `byKeys` return the root entity where they previously threw `MQ2003`;
+  3. Grouped aggregates count each root entity once instead of multiplying by matched children;
+  4. Locked reads (`LockModeType`) run where they previously threw `MQ2211`, leaving sub-query tables unlocked;
+  5. A customizer that resolves the filter's child path through `built.joins()` creates a separate outer join rather
+     than reusing the filter's join, multiplying rows by all children (not only matching), and `query.getRestriction()`
+     is now the `exists`.
+  A customizer's join, or a shape the semi-join excludes (a treated node, a having, or a selected column, order or
+  group key that keeps the to-many join, or a fetch-plan through load), retains the outer join as before and continues
+  to duplicate rows.
+  PostgreSQL semi-joins ran ~2–3.5x faster in benchmarks, whereas MySQL 8.0 was 1.4–3.6x slower due to duplicate
+  weedout and a second root lookup; check real plans, as no unique-per-root bypass is provided.
+- Unsupported mapping-dependent inputs fail under inline value handling (RFC 0018 Part C, D-177, R-FLT-08): under
+  `hibernate.criteria.value_handling_mode=inline`, where no binder types a column, every value of an enum, `Boolean`,
+  `UUID` or converted column that previously ran with an inlined literal now fails with `MQ1502` before any statement
+  runs: not only filters, but primary keys in `one(q, key)`, `byKeys` and primary-key-first pages, keyset cursors and
+  fetch-plan child loads.
+- Case-insensitive filters over converted attributes return matching rows (RFC 0018 Part B, D-177, R-FLT-07):
+  `eqIgnoreCase`, `EXACT` and `STARTS_WITH` over JPA `@Convert` attributes (such as `SKU:`) now return matching rows
+  where they previously missed; `CONTAINS` and `ENDS_WITH` previously succeeded only by accident of their leading `%`.
+  Matches require converters with the folding property (`lower(conv(x)) = lower(conv(y))` iff `lower(x) = lower(y)`).
+  Without a mapping-aware binder, values remain compared unconverted.
+- Primitive basic attribute binding under Hibernate 6.6 (D-179): Hibernate 6.6 reports primitive node types (`int`,
+  `boolean`) as JPA basic types; the operand binder accepts them so typed inserts and filters bind rather than failing
+  with `MQ1502`.
+- Source `where` parameter binding (D-179): an `Expr.value` in a source's `where` now binds under the default setting,
+  where before its parameter was never bound and the statement could not run.
 
 ## [0.9.0] - 2026-10-14
 
