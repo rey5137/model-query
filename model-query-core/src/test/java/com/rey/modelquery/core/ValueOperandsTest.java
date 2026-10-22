@@ -83,6 +83,39 @@ class ValueOperandsTest {
     }
 
     @Test
+    void ac_flt_35_the_type_check_decides_as_the_value_rule_does() {
+        for (Class<?> type : List.of(String.class, Long.class, BigDecimal.class, LocalDate.class)) {
+            ValueOperands.requireBindable(RenderOptions.portable(), column, type, "O.id: the keyset cursor");
+        }
+        for (Class<?> type : List.of(Status.class, Boolean.class, UUID.class, LocalDate[].class)) {
+            assertThatThrownBy(() -> ValueOperands.requireBindable(RenderOptions.portable(), column, type,
+                    "O.id: the keyset cursor"))
+                    .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                            e -> assertThat(e.code()).isEqualTo(MqCode.MQ1502))
+                    .hasMessageContaining("O.id: the keyset cursor").hasMessageContaining(type.getSimpleName())
+                    .hasMessageContaining("without the provider's operand binder");
+        }
+        OperandBinder declining = new OperandBinder() {
+            @Override
+            public <T> ParameterExpression<T> parameter(CriteriaBuilder cb, Expression<?> by, Class<T> type) {
+                throw new AssertionError("a type check makes no parameter");
+            }
+
+            @Override
+            public boolean typesBy(Expression<?> typedBy) {
+                return typedBy != column;
+            }
+        };
+        RenderOptions options = RenderOptions.portable().withOperandBinder(declining);
+        ValueOperands.requireBindable(options, fake(Expression.class), UUID.class, "O.token: the keyset cursor");
+        assertThatThrownBy(() -> ValueOperands.requireBindable(options, column, UUID.class,
+                "O.token: the keyset cursor"))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1502))
+                .hasMessageContaining("can't type it by this column's expression");
+    }
+
+    @Test
     void ac_flt_35_a_binder_typing_by_the_column_makes_the_parameter_and_a_null_typed_by_skips_it() {
         List<Expression<?>> typedBy = new ArrayList<>();
         OperandBinder binder = new OperandBinder() {

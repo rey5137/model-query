@@ -99,10 +99,10 @@ public final class InsertProbes implements AutoCloseable {
 
     /**
      * As {@link #open(TckDatabase)}, with {@code hibernate.criteria.value_handling_mode=inline}, which renders a
-     * criteria value given without a parameter as a literal (R-FLT-08).
+     * criteria value given without a parameter as a literal (R-FLT-08), also mapping {@code extra}.
      */
-    public static InsertProbes withInlineValues(TckDatabase db) {
-        return open(db, null, List.of(), Map.of(AvailableSettings.CRITERIA_VALUE_HANDLING_MODE, "inline"));
+    public static InsertProbes withInlineValues(TckDatabase db, Class<?>... extra) {
+        return open(db, null, List.of(extra), Map.of(AvailableSettings.CRITERIA_VALUE_HANDLING_MODE, "inline"));
     }
 
     private static InsertProbes open(TckDatabase db, EnhancingClassLoader loader, List<Class<?>> extra) {

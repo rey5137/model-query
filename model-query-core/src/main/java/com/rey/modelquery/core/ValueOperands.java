@@ -30,12 +30,35 @@ public final class ValueOperands {
             Class<T> type, Object value, String label, ParameterSink sink) {
         Optional<OperandBinder> binder = typedBy == null ? Optional.empty() : options.operandBinder();
         if (binder.isEmpty() || !binder.get().typesBy(typedBy)) {
-            requireMappingIndependent(label, value, binder.isPresent());
+            requireMappingIndependent(label, value.getClass(), binder.isPresent());
             ParameterExpression<T> parameter = cb.parameter(type);
             sink.add(parameter, value);
             return parameter;
         }
         return typedParameter(binder.get(), label, cb, typedBy, type, value, sink);
+    }
+
+    /**
+     * {@code MQ1502} naming {@code label} when a value of {@code type} rendered at {@code typedBy} would not bind by
+     * {@link #valueOperand}'s rule, decided from the type alone: for a path that binds its values only after a
+     * statement ran, such as a keyset export's later cursors, so it refuses before the first one (R-FLT-21, D-177).
+     */
+    public static void requireBindable(RenderOptions options, Expression<?> typedBy, Class<?> type, String label) {
+        Optional<OperandBinder> binder = options.operandBinder();
+        if (binder.isEmpty() || !binder.get().typesBy(typedBy)) {
+            requireMappingIndependent(label, type, binder.isPresent());
+        }
+    }
+
+    /**
+     * {@code value}, an attribute value of {@code column} rendered at {@code typedBy}, as an explicit parameter of the
+     * column's attribute type recorded in {@code ctx}, by {@link #valueOperand}'s rule: how a key, a fetch-plan key or
+     * an assignment binds under inline value handling, {@code label} naming the path and the column (R-FLT-08, D-177).
+     */
+    static Expression<?> attributeOperand(JoinContext ctx, ColumnField<?, ?, ?> column, Expression<?> typedBy,
+            Object value, String label) {
+        return valueOperand(ctx.renderOptions(), ctx.cb(), typedBy, ColumnField.boxed(column.attributeType()), value,
+                label, ctx.sink());
     }
 
     /**
@@ -69,18 +92,19 @@ public final class ValueOperands {
     }
 
     /**
-     * {@code MQ1502} for a value whose binding depends on the column's mapping, which a parameter typed by a Java
-     * class gets wrong: a {@code STRING} enum binds by ordinal, a {@code @Convert} value not at all, a
-     * {@code Boolean} mapped to {@code 'Y'/'N'} or a {@code UUID} stored as {@code char(36)} matches nothing (R-FLT-21,
-     * D-168). {@code declined}: the provider has a binder, but it can't type a value by this column's expression.
+     * {@code MQ1502} for a value of {@code type} whose binding depends on the column's mapping, which a parameter
+     * typed by a Java class gets wrong: a {@code STRING} enum binds by ordinal, a {@code @Convert} value not at all, a
+     * {@code Boolean} mapped to {@code 'Y'/'N'} or a {@code UUID} stored as {@code char(36)} matches nothing
+     * (R-FLT-21, D-168). {@code declined}: the provider has a binder, but it can't type a value by this column's
+     * expression.
      */
-    private static void requireMappingIndependent(String label, Object value, boolean declined) {
+    private static void requireMappingIndependent(String label, Class<?> type, boolean declined) {
         // An array's package is its element's, so a LocalDate[] would pass the package check alone.
-        if (!(value instanceof String
-                || value instanceof Number && plainNumber(value.getClass())
-                || !value.getClass().isArray() && value.getClass().getPackageName().equals("java.time"))) {
+        if (!(type == String.class
+                || Number.class.isAssignableFrom(type) && plainNumber(type)
+                || !type.isArray() && type.getPackageName().equals("java.time"))) {
             throw new ModelQueryDefinitionException(MqCode.MQ1502, label
-                    + " cannot bind a value of type " + value.getClass().getSimpleName()
+                    + " cannot bind a value of type " + type.getSimpleName()
                     + (declined ? ": the provider's operand binder can't type it by this column's expression"
                             : " without the provider's operand binder")
                     + "; only a String, a java.lang or java.math number or a java.time value binds by its class");

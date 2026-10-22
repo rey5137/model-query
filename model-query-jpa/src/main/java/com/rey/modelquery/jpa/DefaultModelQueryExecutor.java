@@ -33,6 +33,7 @@ import com.rey.modelquery.core.OperatorFeature;
 import com.rey.modelquery.core.OperatorGate;
 import com.rey.modelquery.core.OrderField;
 import com.rey.modelquery.core.PageSpec;
+import com.rey.modelquery.core.ParameterSink;
 import com.rey.modelquery.core.PersistenceContextMode;
 import com.rey.modelquery.core.Phase;
 import com.rey.modelquery.core.PrimaryKey;
@@ -48,6 +49,7 @@ import com.rey.modelquery.core.SelectField;
 import com.rey.modelquery.core.ModelUpdate;
 import com.rey.modelquery.core.SetOperation;
 import com.rey.modelquery.core.Slice;
+import com.rey.modelquery.core.ValueOperands;
 import com.rey.modelquery.core.ValuesInsert;
 import com.rey.modelquery.core.SourceRenderer;
 import com.rey.modelquery.core.SourceQuery;
@@ -1141,9 +1143,17 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     /** {@code rendered}'s update with {@code added} assigned, its {@code Expr.value} parameters bound (R-COL-26). */
     private static <E> Query updateStatement(EntityManager on, ModelUpdate.Rendered<E> rendered,
             List<WriteAssignments.Written> added) {
-        Query statement = on.createQuery(assigning(rendered.update(), added));
+        Map<ParameterExpression<?>, Object> assigned = new LinkedHashMap<>();
+        Query statement = on.createQuery(assigning(rendered.update(), added, rendered.joins(),
+                on.getCriteriaBuilder(), assigned));
         bindValues(statement, rendered.joins());
+        assigned.forEach((parameter, value) -> bind(statement, parameter, value));
         return statement;
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static void bind(Query query, ParameterExpression<?> parameter, Object value) {
+        query.setParameter((Parameter) parameter, value);
     }
 
     /** {@code rendered}'s delete statement, its {@code Expr.value} parameters bound (R-COL-26). */
@@ -1676,12 +1686,42 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         return write(u.persistenceContext(), () -> keyset(keyed, whole, byKeys, u.chunkOptions(), cb, repeated));
     }
 
-    /** {@code update} with a plain {@code set} of each of {@code added}'s values, after its own (R-WRT-49). */
-    private static <E> CriteriaUpdate<E> assigning(CriteriaUpdate<E> update, List<WriteAssignments.Written> added) {
+    /**
+     * {@code update} with a plain {@code set} of each of {@code added}'s values, after its own (R-WRT-49). Under
+     * inline value handling a value other than {@code null} is an explicit parameter by the value rule, typed by the
+     * attribute's mapping, else by its class, which only a mapping-independent value takes, else {@code MQ1502} naming
+     * the assignment, before the statement runs; each such parameter is recorded in {@code assigned} for the
+     * statement to bind (R-FLT-08, D-177).
+     */
+    private static <E> CriteriaUpdate<E> assigning(CriteriaUpdate<E> update, List<WriteAssignments.Written> added,
+            JoinContext joins, CriteriaBuilder cb, Map<ParameterExpression<?>, Object> assigned) {
+        ParameterSink sink = new ParameterSink() {
+            @Override
+            public boolean binds(ParameterExpression<?> parameter) {
+                return assigned.containsKey(parameter) || joins.statementParameters().containsKey(parameter);
+            }
+
+            @Override
+            public void add(ParameterExpression<?> parameter, Object value) {
+                assigned.put(parameter, value);
+            }
+        };
         for (WriteAssignments.Written written : added) {
-            setValue(update, path(update.getRoot(), written.path()), written.value());
+            Path<?> path = path(update.getRoot(), written.path());
+            if (written.value() == null || !joins.renderOptions().inlinesValues()) {
+                setValue(update, path, written.value());
+            } else {
+                setTo(update, path, ValueOperands.valueOperand(joins.renderOptions(), cb, path, written.type(),
+                        written.value(), update.getRoot().getJavaType().getSimpleName() + "." + written.path()
+                                + ": the configured write assignment under inline value handling", sink));
+            }
         }
         return update;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <Y> void setTo(CriteriaUpdate<?> update, Path<Y> path, Expression<?> value) {
+        update.set(path, (Expression<? extends Y>) value);
     }
 
     @SuppressWarnings("unchecked")
@@ -2980,6 +3020,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private <M, C> void checkChildBuild(ChildLoad<M, C> load) {
         checkFirstRun(load.query()); // the child's own phases and plan, its nested children included
         BuiltQuery<C> built = load.build(em.getCriteriaBuilder(), renderOptions);
+        load.requireBindableKeys(built); // the keys bind after the parent statement ran (R-FLT-08)
         withinBindLimit(load, childOwnBinds(load, built) + 1, 0);
     }
 
@@ -3236,9 +3277,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
      * one bind per key column (R-PAG-07, D-32, D-80). At least one, so a query that alone passes the bind limit is
      * refused here with {@code MQ1307}, before any statement, as its one-step page would be (D-138). {@code byKeys}
      * is the query's {@code MODEL_BY_KEYS} statement, compiled here without running, so a caller computes it once per
-     * {@code page} or {@code export} call, before step 1.
+     * {@code page} or {@code export} call, before step 1. Under inline value handling a key column that would not bind
+     * is {@code MQ1502} here, before step 1 (R-FLT-08).
      */
     private <M> int keyBatchSize(ModelQuery<E, ?, M> q, PrimaryKey<M, ?> key, BuiltQuery<M> byKeys) {
+        key.requireBindable(byKeys.joins());
         // The statement's own binds, the query's values and the customizer's, before any key is added. JPA reports a
         // literal the provider binds as a parameter of the query; one it renders inline takes no bind. A memoised
         // expression used twice reports once, so its repeated renderings are added back (R-COL-19).
@@ -3370,6 +3413,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         Object[] cursor = null;
         Set<Object> previousKeys = Set.of();
         keyset.appendOrder(first, cb);
+        // Each later page binds a cursor read from the page before: refuse one that can't bind before any page runs.
+        keyset.requireBindableCursors(first.joins());
         if (preflights(q)) {
             // The first page, then each later page's shape, before the first page runs (R-VND-26).
             preflight(q, "keyset export page", StatementShape.CONTENT, first);
@@ -3769,7 +3814,7 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
     private <C> BuiltQuery<C> childRound(ChildLoad<?, C> load, ModelQuery<?, ?, C> q, CriteriaBuilder cb,
             List<Object> roundKeys) {
         BuiltQuery<C> built = load.build(cb, renderOptions);
-        Predicate byKey = load.key(built).in(roundKeys);
+        Predicate byKey = load.keyIn(built, roundKeys);
         Predicate own = built.query().getRestriction();
         built.query().where(own == null ? byKey : cb.and(own, byKey));
         appendStableOrder(q, built);

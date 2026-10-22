@@ -2733,6 +2733,14 @@ R-EXE-14, R-FLT-06–08, R-VND-24, R-PAG-02, R-PAG-21 and AC-PAG-28; move AC-EXE
 → `rfc/0018`, `rfc/0018-spike-results.md`, `api/12`, `engine/20–21`, `vendor/40`, `integration/50`,
 `reference/90` `MQ1502`, D-167, D-170, D-171, D-175, D-176; Q-28–Q-31 resolved.
 
+**D-178 — A to-one written by id binds its reference past the operand binder (M30.5, 2026-10-22).** Under inline value
+handling (D-177 Part C) a to-one assignment written by id binds its reference as `cb.parameter(targetEntityClass)`, not
+through the `OperandBinder`: Hibernate's binder throws on an entity path, and R-FLT-21's operator rule would then make
+every to-one assignment `MQ1502`, since an entity reference is not a mapping-independent value. The target entity's
+class alone gives the parameter its mapping, so the reference binds as its identifier does. Under the default setting
+the reference binds as before.
+→ `api/12` R-FLT-08, `api/14` R-WRT-14, D-177.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

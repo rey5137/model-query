@@ -10,8 +10,10 @@ import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.OrderField;
+import com.rey.modelquery.core.ParameterSink;
 import com.rey.modelquery.core.PrimaryKey;
 import com.rey.modelquery.core.Row;
+import com.rey.modelquery.core.ValueOperands;
 import jakarta.persistence.Parameter;
 import jakarta.persistence.Query;
 import jakarta.persistence.criteria.CriteriaBuilder;
@@ -356,10 +358,12 @@ final class Keyset<M> {
     }
 
     /**
-     * The rows-after-a-cursor predicate, and the values its comparisons bind through a parameter. A comparison value
+     * The rows-after-a-cursor predicate, and the values it binds through a parameter of its own. A comparison value
      * the {@code CriteriaBuilder} value overloads do not take, such as the {@code byte[]} key of R-PAG-17, is compared
      * as an expression bound through a parameter the executor sets, so it never reaches SQL as an inlined literal
-     * (R-FLT-08, AC-PAG-28). Empty for a cursor of value types alone.
+     * (R-FLT-08, AC-PAG-28). Under inline value handling every cursor value binds so, typed by its column's mapping
+     * or else by its class, which only a mapping-independent value takes (R-FLT-21, D-177). Empty for a cursor of
+     * value types alone under the default setting.
      */
     record Beyond(Predicate predicate, Map<ParameterExpression<?>, Object> parameters) {
 
@@ -376,27 +380,105 @@ final class Keyset<M> {
     Beyond after(Object[] cursor, JoinContext joins, CriteriaBuilder cb) {
         List<Predicate> branches = new ArrayList<>();
         List<Expression<?>> columns = new ArrayList<>();
-        Map<ParameterExpression<?>, Object> parameters = new LinkedHashMap<>();
+        Values values = new Values(joins, cb, new LinkedHashMap<>());
         for (int i = 0; i < keys.size(); i++) {
             Key<M> key = keys.get(i);
             Expression<?> column = key.order().column().expression(joins);
-            Predicate beyond = beyond(key, column, cursor[i], cb, parameters);
+            Predicate beyond = beyond(key, column, cursor[i], values);
             if (beyond != null) {
                 // Each branch builds its own equal predicates: one shared across branches renders a bind per branch
                 // but JPA reports it once, so the bind limit check would undercount (D-82).
                 List<Predicate> branch = new ArrayList<>();
                 for (int j = 0; j < i; j++) {
                     branch.add(cursor[j] == null ? cb.isNull(columns.get(j))
-                            : cursor[j] instanceof Placeholder placeholder
-                                    ? cb.equal(columns.get(j), placeholder.parameter())
-                                    : cb.equal(columns.get(j), cursor[j]));
+                            : values.equal(keys.get(j), columns.get(j), cursor[j]));
                 }
                 branch.add(beyond);
                 branches.add(branch.size() == 1 ? beyond : cb.and(branch.toArray(Predicate[]::new)));
             }
             columns.add(column);
         }
-        return new Beyond(cb.or(branches.toArray(Predicate[]::new)), parameters);
+        return new Beyond(cb.or(branches.toArray(Predicate[]::new)), values.parameters());
+    }
+
+    /**
+     * {@code MQ1502} under inline value handling when a cursor value of some key would not bind by
+     * {@link ValueOperands#valueOperand}'s rule, decided from the keys' types, for a loop whose later statements
+     * bind cursors read from the rows of its first: called on that first statement, before it runs, so the loop
+     * refuses before any statement rather than after a page reached the caller (R-FLT-21, D-177). {@code joins} is
+     * the first statement's, which already renders every key column.
+     */
+    void requireBindableCursors(JoinContext joins) {
+        if (!joins.renderOptions().inlinesValues()) {
+            return;
+        }
+        for (Key<M> key : keys) {
+            Class<?> type = cursorType(key);
+            if (type != byte[].class) {
+                ValueOperands.requireBindable(joins.renderOptions(), key.order().column().expression(joins), type,
+                        cursorLabel(key));
+            }
+        }
+    }
+
+    /** The type a cursor value of {@code key} binds as under inline value handling: its column's attribute type. */
+    private static Class<?> cursorType(Key<?> key) {
+        return box(((ColumnField<?, ?, ?>) key.order().column()).attributeType());
+    }
+
+    /** {@code key}'s column as the path {@code MQ1502} names. */
+    private static String cursorLabel(Key<?> key) {
+        return key.order().column() + ": the keyset cursor under inline value handling";
+    }
+
+    /**
+     * How {@link #after} binds the cursor values it compares, recording each parameter it makes for {@link Beyond}
+     * to set: a placeholder as its own parameter; under the default setting a value as the {@code CriteriaBuilder}
+     * overloads take it, which the provider binds, a comparison's {@code byte[]} excepted; under inline value
+     * handling every value explicitly (R-FLT-08, D-177).
+     */
+    private record Values(JoinContext joins, CriteriaBuilder cb, Map<ParameterExpression<?>, Object> parameters)
+            implements ParameterSink {
+
+        /** Whether the build renders a criteria value given without a parameter as a literal (R-FLT-08). */
+        boolean inlines() {
+            return joins.renderOptions().inlinesValues();
+        }
+
+        /** {@code column = value}, {@code value} being {@code key}'s cursor value: an earlier key's branch term. */
+        Predicate equal(Key<?> key, Expression<?> column, Object value) {
+            if (value instanceof Placeholder placeholder) {
+                return cb.equal(column, placeholder.parameter());
+            }
+            return inlines() ? cb.equal(column, explicit(key, column, value)) : cb.equal(column, value);
+        }
+
+        /**
+         * {@code value} as a parameter of this predicate. A {@code byte[]} key keeps the parameter typed by its class
+         * it binds through under the default setting (R-PAG-17); under inline value handling any other value is
+         * typed by its column's mapping where the provider's binder types the column, else by its class, which only
+         * a mapping-independent value takes, else {@code MQ1502} naming the cursor and the column before the
+         * statement runs (R-FLT-21, D-177).
+         */
+        Expression<?> explicit(Key<?> key, Expression<?> column, Object value) {
+            if (value instanceof byte[] || !inlines()) {
+                ParameterExpression<?> bound = cb.parameter(value.getClass());
+                add(bound, value);
+                return bound;
+            }
+            return ValueOperands.valueOperand(joins.renderOptions(), cb, column, cursorType(key), value,
+                    cursorLabel(key), this);
+        }
+
+        @Override
+        public boolean binds(ParameterExpression<?> parameter) {
+            return parameters.containsKey(parameter) || joins.statementParameters().containsKey(parameter);
+        }
+
+        @Override
+        public void add(ParameterExpression<?> parameter, Object value) {
+            parameters.put(parameter, value);
+        }
     }
 
     /**
@@ -472,15 +554,15 @@ final class Keyset<M> {
 
     /** The values of {@code key}'s column that sort after {@code value}, or {@code null} when none does. */
     @SuppressWarnings("rawtypes")
-    private static Predicate beyond(Key<?> key, Expression<?> column, Object value, CriteriaBuilder cb,
-            Map<ParameterExpression<?>, Object> parameters) {
+    private static Predicate beyond(Key<?> key, Expression<?> column, Object value, Values values) {
+        CriteriaBuilder cb = values.cb();
         NullPrecedence nulls = key.nulls();
         if (value == null) {
             // Only a known precedence reaches here (cursor() refuses the rest): under FIRST every value follows a
             // NULL, under LAST nothing does.
             return nulls == NullPrecedence.FIRST ? cb.isNotNull(column) : null;
         }
-        Predicate past = comparison(key.order().ascending(), column, value, cb, parameters);
+        Predicate past = comparison(key, column, value, values);
         // Under LAST every NULL follows every value. A column that refuses its NULLs keeps the branch whatever the
         // ordering, known or not: it makes sure a NULL is read, and so refused, wherever the database really sorts
         // it, instead of being skipped silently when the reported ordering is wrong (INV-5, D-30, D-35).
@@ -490,8 +572,8 @@ final class Keyset<M> {
 
     /**
      * Binds {@code parameter} to {@code value}. JPA's {@code setParameter(Parameter<T>, T)} cannot be called with a
-     * wildcard parameter and an {@code Object} value, so the parameter is raw: the value's runtime type is the
-     * parameter's declared type, which {@link #comparison} set from it.
+     * wildcard parameter and an {@code Object} value, so the parameter is raw: the value is of the parameter's
+     * declared type, its class or its column's attribute type, which {@link Values} set.
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
     private static void bind(Query query, ParameterExpression<?> parameter, Object value) {
@@ -499,26 +581,22 @@ final class Keyset<M> {
     }
 
     /**
-     * {@code column} against {@code value} with {@code <} or {@code >}. The value binds as a parameter, never as an
-     * inlined literal, so R-FLT-08 stays absolute (AC-PAG-28). A {@code byte[]} key (R-PAG-17) is not
-     * {@code Comparable}, so it cannot reach the value overloads: it is compared as an expression and registered for
-     * the executor to bind. The column types every other bind, so a UUID column stored as text is not compared as
-     * {@code uuid}.
+     * {@code column} against {@code key}'s cursor {@code value} with {@code <} or {@code >}. The value binds as a
+     * parameter, never as an inlined literal, so R-FLT-08 stays absolute (AC-PAG-28). A {@code byte[]} key
+     * (R-PAG-17) is not {@code Comparable}, so it cannot reach the value overloads: it is compared as an expression
+     * and registered for the executor to bind, as every value is under inline value handling (D-177). Otherwise the
+     * column types the bind, so a UUID column stored as text is not compared as {@code uuid}.
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private static Predicate comparison(boolean ascending, Expression<?> column, Object value, CriteriaBuilder cb,
-            Map<ParameterExpression<?>, Object> parameters) {
-        if (value instanceof Placeholder placeholder) {
-            return ascending ? cb.greaterThan((Expression) column, (Expression) placeholder.parameter())
-                    : cb.lessThan((Expression) column, (Expression) placeholder.parameter());
+    private static Predicate comparison(Key<?> key, Expression<?> column, Object value, Values values) {
+        CriteriaBuilder cb = values.cb();
+        boolean ascending = key.order().ascending();
+        if (value instanceof Comparable comparable && !values.inlines()) {
+            return ascending ? cb.greaterThan((Expression) column, comparable)
+                    : cb.lessThan((Expression) column, comparable);
         }
-        if (value instanceof Comparable) {
-            return ascending ? cb.greaterThan((Expression) column, (Comparable) value)
-                    : cb.lessThan((Expression) column, (Comparable) value);
-        }
-        ParameterExpression<?> bound = cb.parameter(value.getClass());
-        parameters.put(bound, value);
-        return ascending ? cb.greaterThan((Expression) column, (Expression) bound)
-                : cb.lessThan((Expression) column, (Expression) bound);
+        Expression bound = value instanceof Placeholder placeholder ? placeholder.parameter()
+                : values.explicit(key, column, value);
+        return ascending ? cb.greaterThan((Expression) column, bound) : cb.lessThan((Expression) column, bound);
     }
 }
