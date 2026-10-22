@@ -587,25 +587,29 @@ public final class ModelQuery<E, K, M> {
                         + ": this query reads the source " + source.model().getSimpleName()
                         + ", and the factory's persistence provider has no SourceRenderer "
                         + "(ProviderSupport#sources()); model-query-hibernate serves Hibernate"));
-        // A CTE body's parameters stay in its own context, which no statement binds, so its filter values render
-        // as without the inline setting until the source path binds them (R-FLT-08, RFC 0018 Part C).
-        RenderOptions bodyOptions = options.withInlinesValues(false);
+        // Each CTE body renders in a context of its own; the statement binds the parameters they rendered (R-FLT-08).
+        var bodies = new ArrayList<JoinContext>();
         if (source.hasInner()) {
             var checks = new ArrayList<Selection<?>>();
-            SourceRenderer.CteHandle handle = source.register(query, cb, bodyOptions, renderer, modelName(), checks);
+            SourceRenderer.CteHandle handle = source.register(query, cb, options, renderer, modelName(), checks,
+                    bodies);
             JoinContext joins = JoinContext.sourceOf(
                     renderer.from(query, handle), source.model(), cb, query, options);
+            bodies.forEach(joins::addBodyParameters);
             return new SourceStatement(joins, List.of(), checks);
         }
         if (!source.recurses()) {
-            return new SourceStatement(JoinContext.sourceOf(renderer.cte(query, source.body(cb, bodyOptions, renderer)),
-                    source.model(), cb, query, options), List.of(), List.of());
+            JoinContext joins = JoinContext.sourceOf(renderer.cte(query, source.body(cb, options, renderer, bodies)),
+                    source.model(), cb, query, options);
+            bodies.forEach(joins::addBodyParameters);
+            return new SourceStatement(joins, List.of(), List.of());
         }
-        RecursiveSpec spec = source.recursiveSpec(cb, bodyOptions, renderer);
+        RecursiveSpec spec = source.recursiveSpec(cb, options, renderer, bodies);
         RecursiveCte cte = renderer.recursive(query, spec);
         List<Selection<?>> checks = SourceQuery.recursionChecks(
                 modelName(), source, spec, cte.depthKey(), cte.cycleKey(), cte.duplicateKey());
         JoinContext joins = JoinContext.sourceOf(cte.root(), source.model(), cb, query, options);
+        bodies.forEach(joins::addBodyParameters);
         // The extra level the recursion produced and the row that closed a cycle are both hidden here, in the same
         // statement that produced them (RFC 0013 §5, R-SRC-07).
         return new SourceStatement(joins, source.walkGuards(cb, cte.root()), checks);

@@ -225,7 +225,7 @@ class TreeSourceQueryTest {
     }
 
     private static RecursiveSpec spec(SourceQuery<Node> source) {
-        return source.recursiveSpec(criteria(), RenderOptions.portable(), renderer(false));
+        return source.recursiveSpec(criteria(), RenderOptions.portable(), renderer(false), new ArrayList<>());
     }
 
     @Test

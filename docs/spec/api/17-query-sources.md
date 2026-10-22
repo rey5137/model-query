@@ -442,7 +442,9 @@ can collide with a vendor reserved word, INV-6), filtered by its `where` and `ha
 (INV-7). The CTE is registered on **every** statement built over the source: the content query, the count, both
 primary-key-first steps, each export page, `byKeys` (every chunk) and the parent reads of a fetch plan. A statement
 that reaches the database without its CTE is therefore a bug in the engine, not a state the user can hold: the body is
-built per statement from the immutable `SourceQuery`, which itself carries no Criteria object (INV-9).
+built per statement from the immutable `SourceQuery`, which itself carries no Criteria object (INV-9). The body's
+parameters, its `where`'s and `having`'s values with an `Expr.value` included, are bound by the statement that registers
+it, under either value-handling setting (`api/12` R-FLT-08, D-179).
 
 ## 8. Sources over sources
 

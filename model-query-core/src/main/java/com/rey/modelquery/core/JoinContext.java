@@ -400,6 +400,15 @@ public final class JoinContext {
      * this statement keeps, such as a write's {@code EXISTS} (R-COL-19, R-COL-26, D-80).
      */
     void addSubqueryBinds(JoinContext rendered) {
+        addBodyParameters(rendered);
+        repeatedExpressionBinds[0] += rendered.repeatedExpressionBinds[0];
+    }
+
+    /**
+     * Adds the statement parameters {@code rendered} recorded, the context of a body this statement registers, such
+     * as a source's CTE body, to bind on this statement (R-COL-26, R-FLT-08).
+     */
+    void addBodyParameters(JoinContext rendered) {
         for (ParameterExpression<?> parameter : rendered.parameters.keySet()) {
             if (parameters.containsKey(parameter)) {
                 // Only a provider's operand binder reusing a parameter gets here: cb.parameter is new on every call.
@@ -407,7 +416,6 @@ public final class JoinContext {
                         + "already binds: the provider's operand binder must make a new parameter on every call");
             }
         }
-        repeatedExpressionBinds[0] += rendered.repeatedExpressionBinds[0];
         parameters.putAll(rendered.parameters);
     }
 
