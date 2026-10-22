@@ -6,8 +6,11 @@ release (`docs/spec/delivery/61-repo-release-governance.md` R-REL-07).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-22
+
 Nothing is frozen yet: every public type stays `@Incubating`, and the additions below are all `@Incubating`.
-0.10.0 covers milestones M25–M30 (D-176).
+0.10.0 covers milestones M25–M30 (D-176). Several behaviour changes (see the upgrade notes) can change the SQL, the
+rows or the diagnostics of a 0.9.0 model.
 
 ### Added (incubating)
 - Custom filter operators (RFC 0017, D-167, R-FLT-20..22): immutable `FilterOperator` definitions with
@@ -163,6 +166,17 @@ Nothing is frozen yet: every public type stays `@Incubating`, and the additions 
   with `MQ1502`.
 - Source `where` parameter binding (D-179): an `Expr.value` in a source's `where` now binds under the default setting,
   where before its parameter was never bound and the statement could not run.
+
+### Upgrade notes
+- The Tier-1 MySQL floor is 8.0.31; 8.0.0 to 8.0.30 are unsupported.
+- An exhaustive `switch` over `SelectField` needs a `WindowField` case.
+- A filter-only to-many join now renders as a correlated `exists` semi-join, so `list`, pages and grouped aggregates
+  return each root once. A customizer that resolves the filter's child path through `built.joins()` now gets its own
+  outer join, and `query.getRestriction()` is the `exists`. On MySQL, check the plans of such queries.
+- Under `hibernate.criteria.value_handling_mode=inline`, an enum, `Boolean`, `UUID` or converted value with no binder
+  for its column now fails with `MQ1502` before any statement runs, keys, cursors and fetch-plan child loads included.
+- `eqIgnoreCase`, `EXACT` and `STARTS_WITH` over a `@Convert` attribute now compare converted values, which is correct
+  only for a converter that keeps case folding.
 
 ## [0.9.0] - 2026-10-14
 
