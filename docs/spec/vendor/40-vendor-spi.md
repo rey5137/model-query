@@ -556,7 +556,7 @@ conversion (`@Enumerated`, `@EnumeratedValue`), a converter Hibernate applies th
 7.4 an `AttributeConverterInstance`, which `@Convert` and auto-applied mappings don't produce), and a node type the line
 doesn't expect answer `false` rather than throw, so the column renders as with no conversion.
 
-**R-VND-27** *(D-177, `@Incubating`)* `ProviderSupport#inlineCounts(EntityManagerFactory emf)` is an `@Incubating` default method
+**R-VND-27** *(D-177, D-182, `@Incubating`)* `ProviderSupport#inlineCounts(EntityManagerFactory emf)` is an `@Incubating` default method
 returning `false`: whether the factory's database renders a window function over the page statement (`engine/20`
 R-EXE-15), true only where `sources()` is present and its window renders `COUNT`. The executor asks it once, when it is
 built, and only where `sources()` is present, so a `ProviderSupport` answering true with no source renderer never
