@@ -2278,9 +2278,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         int providerBinds = support.providerBindsPerRow(emf, rootEntity);
         int conflictRepeatedBinds = i.conflictRepeatedBinds(updated.keySet());
         int perStatement = rowsPerStatement(i, attributes.size() + providerBinds, i.conflictBinds(updated.keySet()));
-        InsertConflict<E> clause = i.hasConflict() ? new InsertConflict<>(i, renderOptions, updated) : null;
-        Optional<ConflictClause<E>> conflict = Optional.ofNullable(clause);
+        Map<String, Object> written = updated;
         ValuesWrite.Statement statement = (on, from, to) -> {
+            // A clause per statement: it keeps the parameters of the where it renders for this statement alone.
+            InsertConflict<E> clause = i.hasConflict() ? new InsertConflict<>(i, renderOptions, written) : null;
+            Optional<ConflictClause<E>> conflict = Optional.ofNullable(clause);
             List<List<Object>> values = i.valueRows(from, to);
             values.forEach(row -> row.addAll(added));
             if (drawn) {

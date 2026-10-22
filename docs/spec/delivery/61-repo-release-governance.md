@@ -220,6 +220,13 @@ and `model-query-hibernate`'s `HibernateOperators` (R-VND-23). The SPI surface i
 share, are `@EngineFacing`; the `FunctionContributor` `HibernateOperatorFunctions` is loaded by Hibernate.
 They are not API (D-169, D-171).
 
+The RFC 0018 members (D-177, M30) are `@Incubating` through 1.0: `CountMode.INLINE_COUNT` (R-EXE-15),
+`ProviderSupport#inlineCounts(EntityManagerFactory)` (R-VND-27, D-182) and `#inlinesValues(EntityManagerFactory)`
+(R-VND-28), and `RenderOptions#withInlinesValues` and `#inlinesValues()`. `ValueOperands`, `ParameterSink`,
+`PrimaryKey#requireBindable`, `JoinContext#renderOptions()`, `ChildLoad#keyIn` and `#requireBindableKeys`, and
+`ModelInsert#buildConflictUpdate`'s parameter sink are `@EngineFacing`, so they are not API; `ValueOperands`,
+`ParameterSink` and `ChildLoad` also carry `@Incubating`, which marks a change to them breaking (R-REL-08).
+
 **R-REL-08** Tag → GitHub Actions → Maven Central through the Central Portal
 (`central-publishing-maven-plugin`), GPG-signed, with `-sources` and `-javadoc` jars. The changelog is generated from
 Conventional Commits. A commit that breaks an `@Incubating` type is still marked breaking (`!` and a

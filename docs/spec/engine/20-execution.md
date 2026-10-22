@@ -116,7 +116,7 @@ R-EXE-16 excludes. When a selected column is read through a to-many join, each j
 counts rows and agrees with `list`; key-based paging refuses that shape (`engine/21` R-PAG-13).
 
 **R-EXE-16** *(D-177, D-180, D-181)* **A filter-only to-many join renders as a semi-join.** When a statement's `where`
-makes a to-many join that nothing else in the statement keeps, its terms that join or nest a sub-query render inside
+makes a to-many join that nothing else in the statement keeps, its terms that join or nest an `exists(...)` render inside
 one correlated sub-query over a second root of the same entity, and the statement keeps its root terms and
 `exists (select 1 from <entity> r2 <joins> where r2 = r and <terms>)`, so each root comes once however many of its
 children match. It is R-WRT-10's rendering (`api/14`), which bulk writes already use:

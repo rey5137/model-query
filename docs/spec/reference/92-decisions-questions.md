@@ -2782,6 +2782,12 @@ or eligibility changes. The root terms render with `having` (D-26), the `exists`
 once.
 → `engine/20` R-EXE-16, `api/14` R-WRT-10, R-WRT-11, D-26, D-177, D-180.
 
+**D-182 — `ProviderSupport#inlineCounts` keeps its name (M30 gate, 2026-10-22).** The gate review asked whether
+`inlineCounts(emf)` reads as a noun returning counts beside `inlinesValues(emf)`, and proposed `rendersInlineCount`.
+It keeps its name: both answer in the same third-person verb form ("the provider inline-counts", "the provider
+inlines values"), and the method is `@Incubating`, so a later rename stays a marked breaking change.
+→ `vendor/40` R-VND-27, D-177.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

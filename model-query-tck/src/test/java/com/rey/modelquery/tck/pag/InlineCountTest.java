@@ -35,6 +35,7 @@ import com.rey.modelquery.tck.col.TreatTestSupport;
 import com.rey.modelquery.tck.col.TreatTestSupport.CountingRenderer;
 import com.rey.modelquery.tck.col.TreatTestSupport.Payment;
 import com.rey.modelquery.tck.col.TreatTestSupport.ServingProvider;
+import com.rey.modelquery.tck.harness.InlineValueHandling;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
 import com.rey.modelquery.tck.sql.SqlSnapshots;
@@ -170,6 +171,46 @@ class InlineCountTest {
                 .contains("exists"));
         assertThat(inline).containsExactly(counted.get(0), counted.get(counted.size() - 1));
         assertThat(inline.get(1).hasNext()).isFalse();
+    }
+
+    @TckTest
+    void ac_exe_18_ac_exe_22_a_key_first_page_over_a_semi_join_carries_the_window_on_its_key_statement(
+            TckDatabase db) {
+        var keyFirst = ORDER_ROWS.where(f -> f.eq(ITEM_PRODUCT, Optional.of("P001")))
+                .primaryKeyFirst(PrimaryKeyFirst.whenOffsetAbove(10)).build();
+        var spec = PageSpec.of(2, 7);
+        List<Slice<OrderRow>> inline = new ArrayList<>();
+        List<String> sql = SqlSnapshots.capture(db, ds -> withOrders(ds,
+                executor -> inline.add(executor.page(keyFirst, spec, CountMode.INLINE_COUNT))));
+        // Step 1 reads the keys with the window and the exists; step 2 reads the rows by key.
+        assertThat(sql).hasSize(2);
+        assertThat(sql.get(0)).contains("count(1) over()").contains("exists");
+        assertThat(sql.get(1)).doesNotContain("over()");
+        List<Slice<OrderRow>> counted = new ArrayList<>();
+        withOrders(db, executor -> counted.add(executor.page(keyFirst, spec, CountMode.COUNT)));
+        assertThat(counted.get(0).content()).isNotEmpty().doesNotHaveDuplicates();
+        assertThat(inline).isEqualTo(counted);
+    }
+
+    // ---- AC-FLT-35
+
+    @TckTest
+    void ac_exe_18_ac_flt_35_under_inline_value_handling_an_inline_count_page_binds_its_filter_value(TckDatabase db) {
+        var query = ORDER_ROWS.where(f -> f.eq(STATUS, Optional.of("NEW"))).build();
+        var spec = PageSpec.of(1, 5);
+        List<Slice<OrderRow>> counted = new ArrayList<>();
+        withOrders(db, executor -> counted.add(executor.page(query, spec, CountMode.COUNT)));
+        assertThat(counted.get(0).content()).isNotEmpty();
+        try (InlineValueHandling inline = InlineValueHandling.open(db)) {
+            inline.watch("NEW", 5);
+            List<Slice<OrderRow>> windowed = new ArrayList<>();
+            inline.factory().inSession(em -> windowed.add(ModelQueryExecutor.create(em, OrderEntity.class,
+                    ModelQueryConfig.defaults()).page(query, spec, CountMode.INLINE_COUNT)));
+            assertThat(windowed).isEqualTo(counted);
+            // The marker inspector fails a statement carrying a watched value as a literal; the window is one statement.
+            assertThat(inline.statements()).singleElement()
+                    .satisfies(statement -> assertThat(statement).contains("count(1) over()").contains("?"));
+        }
     }
 
     // ---- AC-EXE-19

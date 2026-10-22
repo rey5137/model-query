@@ -339,6 +339,33 @@ class SemiJoinTest {
                 .doesNotContainAnyElementsOf(expected);
     }
 
+    @TckTest
+    void ac_exe_24_ac_exe_20_a_grouped_filter_only_join_counts_its_groups_the_same_in_every_count_mode(
+            TckDatabase db) {
+        var byStatus = ModelQuery.builder(ORDERS, row -> new StatusTotal(row.get(GROUP_STATUS), row.get(GROUP_TOTAL)))
+                .select(SelectSet.of(GROUP_STATUS, GROUP_TOTAL))
+                .groupBy(GROUP_STATUS)
+                .orderBy(GROUP_STATUS.asc())
+                .where(f -> f.lte(GROUP_ORDER_ID, LAST_ORDER).eq(GROUP_ITEM_CODE, "P001"))
+                .build();
+        // A group count is the same over a plain join, so the count statement itself must carry the semi-join.
+        var counts = new ArrayList<Long>();
+        List<String> countSql = SqlSnapshots.capture(db, ds -> withExecutor(ds,
+                executor -> counts.add(executor.count(byStatus))));
+        assertThat(countSql).singleElement().satisfies(SemiJoinTest::assertSemiJoin);
+        withExecutor(db, executor -> {
+            int groups = executor.list(byStatus, Limit.unlimited()).size();
+            assertThat(groups).isPositive();
+            // The count's derived table groups the same semi-joined rows the list does.
+            assertThat(counts).singleElement().isEqualTo((long) groups);
+            Slice<StatusTotal> counted = executor.page(byStatus, PageSpec.of(0, 50), CountMode.COUNT);
+            Slice<StatusTotal> inline = executor.page(byStatus, PageSpec.of(0, 50), CountMode.INLINE_COUNT);
+            assertThat(counted.total()).hasValue(groups);
+            assertThat(counted.content()).hasSize(groups);
+            assertThat(inline).isEqualTo(counted);
+        });
+    }
+
     /** {@code jpql}'s status and sum pairs, as {@code status=sum}. */
     private static List<String> sums(TckDatabase db, String jpql) {
         var sums = new ArrayList<String>();

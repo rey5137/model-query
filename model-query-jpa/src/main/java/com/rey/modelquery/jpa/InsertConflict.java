@@ -18,8 +18,8 @@ import java.util.Optional;
 /**
  * An insert-values definition's conflict clause as {@link com.rey.modelquery.jpa.spi.InsertSupport} takes it: the
  * definition renders its own update (R-WRT-34, D-117). It keeps the statement parameters its last rendered
- * {@code where} holds, which the executor binds on the statement {@code insertValues} returns (R-FLT-08): one
- * clause serves each statement of the insert in turn, never two at once.
+ * {@code where} holds, which the executor binds on the statement {@code insertValues} returns (R-FLT-08): the
+ * executor makes one clause per statement.
  */
 final class InsertConflict<E> implements ConflictClause<E> {
 
@@ -67,9 +67,13 @@ final class InsertConflict<E> implements ConflictClause<E> {
                 assign::expression, parameters::put);
     }
 
-    /** Binds on {@code statement} the parameters of the {@code where} last rendered for it, if any (R-FLT-08). */
+    /**
+     * Binds on {@code statement} the parameters of the {@code where} last rendered for it, if any (R-FLT-08), then
+     * forgets them, so a statement whose {@code where} was never rendered is never bound another statement's values.
+     */
     @SuppressWarnings({"unchecked", "rawtypes"})
     void bind(Query statement) {
         parameters.forEach((parameter, value) -> statement.setParameter((Parameter) parameter, value));
+        parameters.clear();
     }
 }
