@@ -2788,6 +2788,17 @@ It keeps its name: both answer in the same third-person verb form ("the provider
 inlines values"), and the method is `@Incubating`, so a later rename stays a marked breaking change.
 → `vendor/40` R-VND-27, D-177.
 
+**D-183 — Immutable builders carry a package-private `@CheckReturnValue` (2026-10-22).** LitePOS reported an
+ignored `select(...)` result that compiled and failed only at run time (`MQ1202`). `core` gains a package-private
+`CheckReturnValue` annotation (class retention, type target) on the types whose methods return a new immutable
+value: `ModelQuery` (and its `Builder`), `SourceQuery`, `FetchPlan`, `ChildQuery`, `SelectSet`, `ModelInsert`,
+`ValuesInsert`, `ModelUpdate`, `ModelDelete` and `ConflictUpdate`. Error Prone's `CheckReturnValue` check matches
+the annotation by simple name, so this adds no public type, no dependency and no RFC (R-REL-14). `Filters` and
+`Having` are left out: they change the receiver, so a dropped result is not a bug. Records, `RenderOptions` and
+engine-facing types are left out too. Rejected: a dependency on `error_prone_annotations` or JSR-305, which `core`'s
+JDK-plus-`jakarta.persistence` rule (INV-7) excludes; a public annotation, which would be new API surface.
+→ `CHANGELOG.md` [Unreleased].
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

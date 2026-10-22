@@ -40,6 +40,7 @@ import java.util.function.UnaryOperator;
  * @param <M> the model
  * @implSpec R-QRY-01, R-QRY-02
  */
+@CheckReturnValue
 @Incubating
 public final class ModelQuery<E, K, M> {
 

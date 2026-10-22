@@ -19,6 +19,7 @@ import java.util.function.UnaryOperator;
  * @param <M> the insert model
  * @implSpec R-WRT-34, R-WRT-53, D-117
  */
+@CheckReturnValue
 @Incubating
 public final class ConflictUpdate<E, M> {
 

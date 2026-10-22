@@ -25,6 +25,7 @@ import java.util.function.UnaryOperator;
  * @param <M> the model whose key and filter columns the delete uses
  * @implSpec R-WRT-08, R-WRT-09, R-WRT-10, R-WRT-11, R-WRT-12, R-WRT-15, R-WRT-41, D-60, D-61, D-62, D-63
  */
+@CheckReturnValue
 @Incubating
 public final class ModelDelete<E, M> {
 

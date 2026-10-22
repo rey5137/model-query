@@ -37,6 +37,7 @@ import java.util.function.UnaryOperator;
  * @param <S> the source's shape: the model itself, or the model named by {@code @SourceModel(shape)} (R-PROC-38)
  * @implSpec R-SRC-01, R-SRC-05, R-SRC-10, R-GEN-37
  */
+@CheckReturnValue
 @Incubating
 public final class SourceQuery<S> {
 

@@ -41,6 +41,7 @@ import java.util.function.UnaryOperator;
  * @implSpec R-WRT-05, R-WRT-07, R-WRT-08, R-WRT-10, R-WRT-11, R-WRT-13, R-WRT-14, R-WRT-15, R-WRT-16, R-WRT-41,
  *     R-WRT-46, R-FLT-08, D-60, D-61, D-62, D-63, D-177
  */
+@CheckReturnValue
 @Incubating
 public final class ModelUpdate<E, M> {
 

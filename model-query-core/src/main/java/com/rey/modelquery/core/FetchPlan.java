@@ -16,6 +16,7 @@ import java.util.function.UnaryOperator;
  * @param <M> the model the plan fills
  * @implSpec R-FCH-01, R-FCH-02, R-FCH-07
  */
+@CheckReturnValue
 @Incubating
 public final class FetchPlan<M> {
 
