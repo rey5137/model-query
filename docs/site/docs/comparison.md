@@ -165,7 +165,8 @@ Model Query trades that reach for a smaller surface:
 
 ## When to choose something else
 
-- You need CTEs, window functions or recursive queries beyond what [source models](source-models.md) express: use
+- You need CTEs or recursive queries beyond what [source models](source-models.md) express, or a window function
+  outside the [`@Window`](source-models.md#window-fields) set (such as `NTILE` or `PERCENT_RANK`): use
   Blaze-Persistence, or jOOQ or plain SQL if you can drop JPA on the read path.
 - You target one database, want its whole dialect and have no entities: plain SQL or jOOQ is simpler.
 - Your queries are mostly ad hoc and each returns a different shape: Querydsl's per-query projections fit better.
