@@ -2275,8 +2275,8 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         int providerBinds = support.providerBindsPerRow(emf, rootEntity);
         int conflictRepeatedBinds = i.conflictRepeatedBinds(updated.keySet());
         int perStatement = rowsPerStatement(i, attributes.size() + providerBinds, i.conflictBinds(updated.keySet()));
-        Optional<ConflictClause<E>> conflict = i.hasConflict() ? Optional.of(new InsertConflict<>(i, renderOptions,
-                updated)) : Optional.empty();
+        InsertConflict<E> clause = i.hasConflict() ? new InsertConflict<>(i, renderOptions, updated) : null;
+        Optional<ConflictClause<E>> conflict = Optional.ofNullable(clause);
         ValuesWrite.Statement statement = (on, from, to) -> {
             List<List<Object>> values = i.valueRows(from, to);
             values.forEach(row -> row.addAll(added));
@@ -2289,8 +2289,11 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                     keys.addAll(drawnKeys);
                 }
             }
-            return Math.toIntExact(execute(support.insertValues(on, rootEntity, attributes, values, computed, conflict),
-                    providerBinds * (to - from) + conflictRepeatedBinds, returning));
+            Query insert = support.insertValues(on, rootEntity, attributes, values, computed, conflict);
+            if (clause != null) {
+                clause.bind(insert); // the where's values, statement parameters under inline value handling
+            }
+            return Math.toIntExact(execute(insert, providerBinds * (to - from) + conflictRepeatedBinds, returning));
         };
         boolean perChunk = i.chunkOptions().map(ChunkOptions::commitsEachChunk).orElse(false);
         logWrite("insert", i, i.chunkOptions(), false);

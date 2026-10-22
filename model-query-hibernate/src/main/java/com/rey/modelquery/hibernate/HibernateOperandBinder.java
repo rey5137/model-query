@@ -128,17 +128,24 @@ final class HibernateOperandBinder implements OperandBinder {
 
     /**
      * The anticipated type for {@code nodeType}, the column's node type: a basic type this line's constructor takes,
-     * reached through {@code getSqmPathType()} first on 6.6. Anything else throws, which the engine reports as
-     * {@code MQ1502} naming the operator and the column (R-VND-24).
+     * reached through {@code getSqmPathType()} first on 6.6, or the domain type of a primitive attribute, which 6.6
+     * reports for an {@code int} or a {@code boolean} and which carries no converter or enum mapping. Anything else
+     * throws, which the engine reports as {@code MQ1502} naming the operator and the column (R-VND-24).
      */
     Object bindType(Object nodeType) {
         Object type = unwrapsPathSource ? pathType(nodeType) : nodeType;
-        if (!(type instanceof BasicType<?>) || !parameter.getParameterTypes()[1].isInstance(type)) {
+        if (!(type instanceof BasicType<?> || primitive(type)) || !parameter.getParameterTypes()[1].isInstance(type)) {
             throw new IllegalStateException("Hibernate " + version + " types an operator's value by a basic node type"
                     + (unwrapsPathSource ? " or a path source of one" : "") + ", not " + describe(nodeType)
                     + (type == nodeType ? "" : " of " + describe(type)));
         }
         return type;
+    }
+
+    /** Whether {@code type} is a JPA basic type of a primitive Java type, a primitive attribute's domain type. */
+    private static boolean primitive(Object type) {
+        return type instanceof jakarta.persistence.metamodel.BasicType<?> basic && basic.getJavaType() != null
+                && basic.getJavaType().isPrimitive();
     }
 
     /** {@code nodeType}'s {@code getSqmPathType()} where it has one (6.6's path source), else {@code nodeType}. */

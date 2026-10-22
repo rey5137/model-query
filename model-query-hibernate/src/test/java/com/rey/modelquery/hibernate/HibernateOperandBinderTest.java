@@ -126,6 +126,11 @@ class HibernateOperandBinderTest {
 
         String[] tags;
 
+        /** Primitive attributes, whose path type on 6.6 is a domain type rather than a mapping's basic type. */
+        int rank;
+
+        boolean flagged;
+
         Row() {}
 
         Row(long id, Shade shade, String... tags) {
@@ -134,6 +139,8 @@ class HibernateOperandBinderTest {
             this.lowered = shade;
             this.tags = tags;
             this.sku = id == 2 ? "B2" : "a" + id;
+            this.rank = (int) id * 10;
+            this.flagged = id == 2;
         }
     }
 
@@ -249,6 +256,12 @@ class HibernateOperandBinderTest {
             assertThatThrownBy(() -> binder.parameter(cb, column, Object.class))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("a path or an aggregate over one");
         }
+    }
+
+    @Test
+    void ac_flt_22_a_primitive_int_or_boolean_attribute_binds_by_its_own_type() {
+        assertThat(ids((cb, root) -> equal(cb, root.get("rank"), 20))).containsExactly(2L);
+        assertThat(ids((cb, root) -> equal(cb, root.get("flagged"), true))).containsExactly(2L);
     }
 
     @Test

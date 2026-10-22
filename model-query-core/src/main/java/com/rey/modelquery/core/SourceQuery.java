@@ -791,18 +791,19 @@ public final class SourceQuery<S> {
      * Registers this source and every inner source it reads on {@code top}, innermost first, and returns the handle
      * for the next CTE body or {@code top} to select from (R-SRC-18). A recursive inner source's walk filter goes
      * into the next CTE body's {@code WHERE}, and its checks are added to {@code checks} for {@code top} to select.
+     * Each body's context is added to {@code bodies}, whose parameters {@code top} binds (R-FLT-08).
      */
     SourceRenderer.CteHandle register(CriteriaQuery<?> top, CriteriaBuilder cb, RenderOptions options,
-            SourceRenderer renderer, String outerModel, List<Selection<?>> checks) {
+            SourceRenderer renderer, String outerModel, List<Selection<?>> checks, List<JoinContext> bodies) {
         if (recursion != null) {
-            RecursiveSpec spec = recursiveSpec(cb, options, renderer);
+            RecursiveSpec spec = recursiveSpec(cb, options, renderer, bodies);
             SourceRenderer.RecursiveHandle registered = renderer.registerRecursive(top, spec);
             checks.addAll(recursionChecks(outerModel, this, spec, registered.depthKey(), registered.cycleKey(),
                     registered.duplicateKey()));
             return registered.handle();
         }
         return renderer.register(top, body(top, cb, options, renderer, outerModel, checks,
-                operation != null && rootIdAnchored(options)));
+                operation != null && rootIdAnchored(options), bodies));
     }
 
     /**
@@ -887,57 +888,69 @@ public final class SourceQuery<S> {
      * <p>A recursive source's CTE is not this body but the pair {@link #recursiveSpec} builds, which the provider
      * registers through {@code SourceRenderer#recursive} (R-SRC-07).
      *
+     * @param bodies where the context of each body rendered is added, for the statement that registers the CTE to bind
+     *     the parameters it rendered (R-FLT-08)
      * @throws ModelQueryDefinitionException {@code MQ1906} when a {@code where} predicate's path crosses a to-many
      *     join, which no join inside the CTE can express (R-SRC-03)
      */
-    CriteriaQuery<Tuple> body(CriteriaBuilder cb, RenderOptions options, SourceRenderer renderer) {
+    CriteriaQuery<Tuple> body(CriteriaBuilder cb, RenderOptions options, SourceRenderer renderer,
+            List<JoinContext> bodies) {
         return body(null, cb, options, renderer, model.getSimpleName(), new ArrayList<>(),
-                operation != null && rootIdAnchored(options));
+                operation != null && rootIdAnchored(options), bodies);
     }
 
     private CriteriaQuery<Tuple> body(CriteriaQuery<?> top, CriteriaBuilder cb, RenderOptions options,
-            SourceRenderer renderer, String outerModel, List<Selection<?>> checks, boolean combinedAnchor) {
+            SourceRenderer renderer, String outerModel, List<Selection<?>> checks, boolean combinedAnchor,
+            List<JoinContext> bodies) {
         if (operation != null) {
             // The combined body: each branch's own body, combined in the order the operations were called, and
             // itself a statement the provider registers as the source (R-SRC-05, R-SRC-12).
             return renderer.combine(cb, operation.operation,
-                    operation.left.body(top, cb, options, renderer, outerModel, checks, combinedAnchor),
-                    operation.right.body(top, cb, options, renderer, outerModel, checks, combinedAnchor));
+                    operation.left.body(top, cb, options, renderer, outerModel, checks, combinedAnchor, bodies),
+                    operation.right.body(top, cb, options, renderer, outerModel, checks, combinedAnchor, bodies));
         }
         if (inner != null) {
             SourceRenderer.CteHandle handle = inner.register(
-                    Objects.requireNonNull(top, "top"), cb, options, renderer, outerModel, checks);
+                    Objects.requireNonNull(top, "top"), cb, options, renderer, outerModel, checks, bodies);
             CriteriaQuery<Tuple> query = cb.createTupleQuery();
             Root<Tuple> from = renderer.from(query, handle);
             JoinContext joins = JoinContext.sourceOf(from, root.rootEntity(), cb, query, options);
+            bodies.add(joins);
             List<Predicate> guards = inner.recurses() ? inner.walkGuards(cb, from) : List.of();
             return select(query, joins, cb, renderer, null, guards, Optional.empty());
         }
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root<?> from = query.from(root.rootEntity());
-        return select(query, JoinContext.readOf(from, cb, query, options), cb, renderer, null, List.of(),
-                rootIdAnchor(from, combinedAnchor));
+        JoinContext joins = JoinContext.readOf(from, cb, query, options);
+        bodies.add(joins);
+        return select(query, joins, cb, renderer, null, List.of(), rootIdAnchor(from, combinedAnchor));
     }
 
     /**
      * The CTE of a recursive source, for the provider to register as {@code with recursive} (R-SRC-07, R-SRC-12):
      * the seed is the source's own rows at level 0, and the term steps one level deeper from each row, joined through
      * the step's keys, while the level is below {@code maxDepth + 1}. Levels above {@code maxDepth} are produced so
-     * that the depth check of {@code RecursiveCte} can see a tree deeper than the limit.
+     * that the depth check of {@code RecursiveCte} can see a tree deeper than the limit. The seed's and the term's
+     * contexts are added to {@code bodies}, the term's when the provider renders it, whose parameters the statement
+     * that registers the CTE binds (R-FLT-08).
      */
-    RecursiveSpec recursiveSpec(CriteriaBuilder cb, RenderOptions options, SourceRenderer renderer) {
+    RecursiveSpec recursiveSpec(CriteriaBuilder cb, RenderOptions options, SourceRenderer renderer,
+            List<JoinContext> bodies) {
         Recursion recursion = Objects.requireNonNull(this.recursion, "recursion");
-        return new RecursiveSpec(cb, select(cb, options, renderer, cb.literal(0)), term(cb, options, renderer),
+        return new RecursiveSpec(cb, select(cb, options, renderer, cb.literal(0), bodies),
+                term(cb, options, renderer, bodies),
                 key.columns().get(0).type(), keyAliases(), alias(recursion.depth()), MARK_ALIAS,
                 recursion.maxDepth(), recursion.tree());
     }
 
     /** The one level of the recursion a recursive source's CTE steps by (R-SRC-07). */
     @SuppressWarnings({"unchecked", "rawtypes"})
-    private RecursiveTerm term(CriteriaBuilder cb, RenderOptions options, SourceRenderer renderer) {
+    private RecursiveTerm term(CriteriaBuilder cb, RenderOptions options, SourceRenderer renderer,
+            List<JoinContext> bodies) {
         return (query, parent) -> {
             RecursiveKeys<?, ?> keys = Objects.requireNonNull(recursion, "recursion").keys();
             JoinContext joins = JoinContext.readOf(query.from(root.rootEntity()), cb, query, options);
+            bodies.add(joins);
             Expression<Integer> level = (Expression<Integer>) (Expression<?>) parent.get(alias(recursion.depth()));
             List<Selection<?>> selections = new ArrayList<>(fields.fields().size());
             for (SelectField<?, ?> field : fields.fields()) {
@@ -971,11 +984,12 @@ public final class SourceQuery<S> {
      */
     @SuppressWarnings({"unchecked", "rawtypes"})
     private CriteriaQuery<Tuple> select(CriteriaBuilder cb, RenderOptions options, SourceRenderer renderer,
-            Expression<?> level) {
+            Expression<?> level, List<JoinContext> bodies) {
         CriteriaQuery<Tuple> query = cb.createTupleQuery();
         Root from = query.from(root.rootEntity());
-        return select(query, JoinContext.readOf(from, cb, query, options), cb, renderer, level, List.of(),
-                Optional.empty());
+        JoinContext joins = JoinContext.readOf(from, cb, query, options);
+        bodies.add(joins);
+        return select(query, joins, cb, renderer, level, List.of(), Optional.empty());
     }
 
     private CriteriaQuery<Tuple> select(CriteriaQuery<Tuple> query, JoinContext joins, CriteriaBuilder cb,

@@ -18,8 +18,10 @@ import org.hibernate.resource.jdbc.spi.StatementInspector;
  * criteria value given without a parameter as a literal, and a {@link StatementInspector} that fails a statement whose
  * SQL text carries one of the watched input values as a literal, before it runs. Structural literals are classified
  * separately and recorded, not failed: {@code like}'s {@code ESCAPE} character, SQL {@code NULL}, and the literals a
- * test declares structural, a discriminator restriction or a user's own {@code cb.literal} or {@code Expr.constant}
- * (spec api/12 R-FLT-08; TCK AC-FLT-35). Every suite that checks a value path under the setting reuses it.
+ * test declares structural, a discriminator restriction, a user's own {@code cb.literal} or {@code Expr.constant}, or
+ * a source branch's tag (spec api/12 R-FLT-08; TCK AC-FLT-35). Every literal of the statement is read, not only the
+ * operand after a comparison, so a {@code between} bound, a function's argument and a later {@code in} element are
+ * caught too. Every suite that checks a value path under the setting reuses it.
  */
 public final class InlineValueHandling implements AutoCloseable {
 

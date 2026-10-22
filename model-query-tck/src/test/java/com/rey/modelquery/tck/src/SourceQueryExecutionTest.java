@@ -6,12 +6,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.rey.modelquery.core.ColumnField;
 import com.rey.modelquery.core.CountMode;
 import com.rey.modelquery.core.ExportOptions;
+import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.FetchPlan;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.ModelQueryDefinitionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullOrdering;
+import com.rey.modelquery.core.Op;
 import com.rey.modelquery.core.PageSpec;
 import com.rey.modelquery.core.PrimaryKeyFirst;
 import com.rey.modelquery.core.RowLock;
@@ -78,7 +80,7 @@ class SourceQueryExecutionTest {
     }
 
     @TckTest
-    void ac_src_01_under_inline_value_handling_a_source_where_value_renders_as_before(TckDatabase db) {
+    void ac_src_01_ac_flt_35_under_inline_value_handling_a_source_where_value_binds(TckDatabase db) {
         var feed = QOrderFeed.query(QOrderSource.source().where(f -> f.eq(QOrderSource.STATUS, "PAID")).build())
                 .select(QOrderFeed.ALL).where(f -> f.gt(QOrderFeed.TOTAL, new BigDecimal("100.00")))
                 .orderBy(QOrderFeed.ID.asc()).build();
@@ -87,15 +89,36 @@ class SourceQueryExecutionTest {
         assertThat(expected).isNotEmpty();
 
         try (InlineValueHandling inline = InlineValueHandling.open(db)) {
-            // The outer statement's value binds; the CTE body's parameters would sit in a context no statement binds,
-            // so its value is left to the factory, which inlines it as before R-FLT-08 (M30.6 binds it)
-            inline.watch(100);
+            // The CTE body's value binds on the outer statement, as the outer where's does (R-FLT-08)
+            inline.watch("PAID", 100);
             List<OrderFeed> rows = new ArrayList<>();
             inline.factory().inSession(em -> rows.addAll(ModelQueryExecutor.create(em, OrderSource.class,
                     ModelQueryConfig.defaults()).list(feed, Limit.unlimited())));
             assertThat(rows).isEqualTo(expected);
-            assertThat(inline.statements()).singleElement().asString().contains("'paid'").contains("?");
+            assertThat(inline.statements()).singleElement().asString().doesNotContain("'paid'").contains("?");
         }
+    }
+
+    /**
+     * Under the default setting an {@code Expr.value} in a source's {@code where} binds on the statement that
+     * registers the CTE, a list's and a count's alike, as every body parameter does (R-SRC-12, D-179).
+     */
+    @TckTest
+    void ac_src_01_an_expr_value_in_a_source_where_binds_on_the_outer_statement(TckDatabase db) throws SQLException {
+        var feed = QOrderFeed.query(QOrderSource.source()
+                        .where(f -> f.compare(QOrderSource.STATUS, Op.EQ, Expr.value("PAID"))).build())
+                .select(QOrderFeed.ALL).orderBy(QOrderFeed.ID.asc()).build();
+        List<OrderFeed> rows = new ArrayList<>();
+        long[] count = new long[1];
+        withExecutor(db, OrderSource.class, executor -> {
+            rows.addAll(executor.list(feed, Limit.unlimited()));
+            count[0] = executor.count(feed);
+        });
+
+        List<String> expected = rows(db, "select id, status, total from orders where status = 'PAID' order by id");
+        assertThat(expected).isNotEmpty();
+        assertThat(orders(rows)).isEqualTo(expected);
+        assertThat(count[0]).isEqualTo(expected.size());
     }
 
     // ---- AC-SRC-02

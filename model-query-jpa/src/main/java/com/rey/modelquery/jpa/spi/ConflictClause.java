@@ -53,6 +53,10 @@ public interface ConflictClause<E> {
      * Renders the update of a conflicting row: calls {@code assign} once per assignment, with the stored row's
      * attribute and its new value, which may read {@code excluded}, the incoming row; returns the predicate the stored
      * row must match to be updated, or empty to update every conflicting row. Not called for {@link #doNothing()}.
+     * Under inline value handling ({@code ProviderSupport#inlinesValues}, R-VND-28) the returned predicate may hold
+     * criteria parameters the engine binds on the {@code Query} that {@code InsertSupport#insertValues} returns, so an
+     * implementation renders that predicate into that same statement, not into native SQL text, and calls
+     * {@code update} once per {@code insertValues} call, using that call's predicate.
      *
      * @param target the stored row
      * @param excluded the incoming row

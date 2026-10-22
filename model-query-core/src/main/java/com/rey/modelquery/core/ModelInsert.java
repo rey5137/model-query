@@ -5,6 +5,7 @@ import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.ParameterExpression;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
@@ -453,7 +454,9 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
      * wrote. A to-one attribute is written by its target's id ({@code customer.id}), as the rows are. Then each of
      * {@code written}, the engine's write assignments, as a {@code value}, unless the clause assigns its attribute
      * itself (R-WRT-49). Returns the {@code where} over the stored row, {@code target}, or empty without one or when
-     * every filter was skipped (R-WRT-13, R-WRT-34, R-WRT-35).
+     * every filter was skipped (R-WRT-13, R-WRT-34, R-WRT-35). Under inline value handling the {@code where}'s
+     * values are statement parameters, each passed to {@code parameter} with its value for the executor to bind on
+     * the statement that renders them (R-FLT-08).
      *
      * @param written attribute values by attribute path, dotted through embeddables, in the order to assign them
      * @throws IllegalStateException without a {@code doUpdate} clause
@@ -462,7 +465,7 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
     @SuppressWarnings({"unchecked", "rawtypes"})
     public Optional<Predicate> buildConflictUpdate(Root<E> target, Root<E> excluded, CriteriaBuilder cb,
             RenderOptions options, Map<String, ?> written, BiConsumer<Path<?>, Object> value,
-            BiConsumer<Path<?>, Expression<?>> expression) {
+            BiConsumer<Path<?>, Expression<?>> expression, BiConsumer<ParameterExpression<?>, Object> parameter) {
         Objects.requireNonNull(written, "written");
         ConflictUpdate.Action<E, M> update = conflictUpdate();
         if (update == null) {
@@ -523,19 +526,27 @@ public sealed class ModelInsert<E, M> permits ValuesInsert {
         }
         first.forEach(Runnable::run);
         last.forEach(Runnable::run);
-        // No executor binds a parameter in the conflict clause, so its filter values render as without the inline
-        // setting until that path binds them (R-FLT-08, RFC 0018 Part C).
-        JoinContext whereContext = JoinContext.of(target, cb, null, options.withInlinesValues(false));
+        JoinContext whereContext = JoinContext.of(target, cb, null, options);
         List<Predicate> where = ConditionGroup.toPredicates(conflict.update().where(), whereContext);
-        if (!whereContext.statementParameters().isEmpty()) {
-            // The provider renders the conflict clause itself, so no executor binds a parameter in it (R-COL-26). A
-            // value-form op binds its value as one, so it is named rather than Expr.value (R-WRT-34).
+        // Under inline value handling every filter value is a parameter (R-FLT-08), so the refusal reads a render
+        // under the default setting, on a root of its own, where only an Expr.value or an op's value form is one.
+        JoinContext checked = whereContext;
+        if (options.inlinesValues() && !where.isEmpty()) {
+            checked = JoinContext.of(cb.createCriteriaUpdate(rootEntity()).from(rootEntity()), cb, null,
+                    options.withInlinesValues(false));
+            ConditionGroup.toPredicates(conflict.update().where(), checked);
+        }
+        if (!checked.statementParameters().isEmpty()) {
+            // The provider renders the conflict clause itself, so a bound argument of the user's own is refused
+            // there (R-COL-26). A value-form op binds its value as one, so it is named rather than Expr.value
+            // (R-WRT-34).
             String bound = valueFormOperator(ConditionGroup.conditions(conflict.update().where()))
                     .map(operator -> "op(" + operator.name() + ")").orElse("Expr.value");
             throw new ModelQueryDefinitionException(MqCode.MQ1804, "doUpdate(...).where(...) with " + bound + ": the "
                     + "conflict action's where renders inside the provider's insert, where a bound argument cannot be "
                     + "set; use Expr.constant, a plain value or an op's field form");
         }
+        whereContext.statementParameters().forEach(parameter);
         return where.isEmpty() ? Optional.empty() : Optional.of(ConditionGroup.and(cb, where));
     }
 

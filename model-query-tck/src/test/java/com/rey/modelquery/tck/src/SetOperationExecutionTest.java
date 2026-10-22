@@ -19,6 +19,7 @@ import com.rey.modelquery.core.SourceQuery;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.tck.col.JoinTestSupport;
+import com.rey.modelquery.tck.harness.InlineValueHandling;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
@@ -124,6 +125,57 @@ class SetOperationExecutionTest {
 
         assertThat(count[0]).isEqualTo(TckFixture.ORDERS + TckFixture.NULLABLE_SORT_ROWS);
         assertThat(exported).doesNotHaveDuplicates();
+    }
+
+    /**
+     * Under inline value handling a keyset page over the feed binds its cursor's values, the branch tag and the id,
+     * while the branches' own tags stay structural literals of their CTE bodies; it reads the default setting's pages
+     * (api/12 R-FLT-08; TCK AC-FLT-35's {@code source-keyset}).
+     */
+    @TckTest
+    void ac_src_08_ac_flt_35_under_inline_value_handling_a_keyset_cursor_over_a_feed_binds_its_values(
+            TckDatabase db) {
+        var query = rowsBuilder(DISJOINT).keyset().build();
+        List<List<DispatchRow>> expected = new ArrayList<>();
+        withExecutor(db, DispatchFeed.class, executor -> expected.addAll(twoPages(executor, query, null)));
+        assertThat(expected.get(1)).hasSize(5);
+
+        try (InlineValueHandling inline = InlineValueHandling.open(db)) {
+            List<List<DispatchRow>> pages = new ArrayList<>();
+            List<List<String>> statements = new ArrayList<>();
+            inline.factory().inSession(em -> pages.addAll(twoPages(ModelQueryExecutor.create(em, DispatchFeed.class,
+                    ModelQueryConfig.defaults()), query, new PageWatch(inline, statements))));
+
+            assertThat(pages).isEqualTo(expected);
+            // Page 2's cursor (live, 7) adds no 'live': only the bodies' discriminator tags carry one
+            assertThat(tags(statements.get(1))).isEqualTo(tags(statements.get(0))).isPositive();
+        }
+    }
+
+    /** Watches each page's statements, the second page's cursor id as an input. */
+    private record PageWatch(InlineValueHandling inline, List<List<String>> statements) {}
+
+    /** Page 1 of 7 rows over {@code query}, then the 5 rows after its cursor. */
+    private static List<List<DispatchRow>> twoPages(ModelQueryExecutor<DispatchFeed> executor,
+            ModelQuery<DispatchFeed, ?, DispatchRow> query, PageWatch watch) {
+        if (watch != null) {
+            watch.inline().watch();
+        }
+        KeysetSlice<DispatchRow> first = executor.page(query, KeysetSpec.first(7));
+        if (watch != null) {
+            watch.statements().add(watch.inline().statements());
+            watch.inline().watch(List.of(first.content().get(6).id()), List.of("'live'", "'shelved'"));
+        }
+        KeysetSlice<DispatchRow> second = executor.page(query, KeysetSpec.after(first.nextCursor().orElseThrow(), 5));
+        if (watch != null) {
+            watch.statements().add(watch.inline().statements());
+        }
+        return List.of(first.content(), second.content());
+    }
+
+    /** How many {@code 'live'} literals {@code statements} carry. */
+    private static long tags(List<String> statements) {
+        return statements.stream().mapToLong(sql -> sql.split("'live'", -1).length - 1L).sum();
     }
 
     // ---- AC-SRC-09

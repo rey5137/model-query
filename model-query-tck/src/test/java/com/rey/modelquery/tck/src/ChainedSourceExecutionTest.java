@@ -19,6 +19,7 @@ import com.rey.modelquery.core.SourceQuery;
 import com.rey.modelquery.jpa.ModelQueryConfig;
 import com.rey.modelquery.jpa.ModelQueryExecutor;
 import com.rey.modelquery.tck.col.JoinTestSupport;
+import com.rey.modelquery.tck.harness.InlineValueHandling;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckFixture;
 import com.rey.modelquery.tck.harness.TckTest;
@@ -529,6 +530,52 @@ class ChainedSourceExecutionTest {
                     "1|null|node-1|0|6", "2|1|node-2|1|4", "3|1|node-3|1|5",
                     "4|2|node-4|2|1", "5|2|node-5|2|2", "6|3|node-6|2|3");
         }));
+    }
+
+    // ---- AC-FLT-35: CTE bodies under inline value handling
+
+    /**
+     * Under inline value handling the filter values of each CTE body, a chained source's inner and outer bodies, a
+     * recursive walk's seed and a source's over a walk, bind on the statement that registers the CTE, a list's and a
+     * count's alike, and read the default setting's rows (api/12 R-FLT-08; TCK AC-FLT-35).
+     */
+    @TckTest
+    void ac_src_26_ac_flt_35_under_inline_value_handling_each_cte_bodys_filter_values_bind(TckDatabase db) {
+        SourceQuery<OrderSource> inner = QOrderSource.source()
+                .where(f -> f.in(QOrderSource.STATUS, List.of("PAID", "SHIPPED"))).build();
+        var ranked = QRankedOrderFeed.query(QRankedOrderSource.source(inner)
+                        .where(f -> f.gte(QRankedOrderSource.ORDER_TOTAL, new BigDecimal("50.00"))).build())
+                .select(QRankedOrderFeed.ALL).orderBy(QRankedOrderFeed.STATUS.asc(), QRankedOrderFeed.RANK.asc())
+                .build();
+        // The whole chain, so no node is past maxDepth
+        SourceQuery<FolderNode> chain = walk(TckFixture.FOLDER_CHAIN_ROOT, TckFixture.FOLDER_CHAIN_NODES);
+        var walked = QFolderRow.query(chain).select(QFolderRow.ALL).orderBy(QFolderRow.ID.asc()).build();
+        var rankedWalk = QRankedFolderRow.query(QRankedFolderNode.source(chain).build()).select(QRankedFolderRow.ALL)
+                .orderBy(QRankedFolderRow.ID.asc()).build();
+
+        assertReadsAsDefault(db, RankedOrderSource.class, ranked, "PAID", "SHIPPED", new BigDecimal("50.00"));
+        assertReadsAsDefault(db, FolderNode.class, walked, TckFixture.FOLDER_CHAIN_ROOT);
+        assertReadsAsDefault(db, RankedFolderNode.class, rankedWalk, TckFixture.FOLDER_CHAIN_ROOT);
+    }
+
+    /** {@code query}'s list and count under inline value handling, {@code inputs} watched, are the default's. */
+    private static <E> void assertReadsAsDefault(TckDatabase db, Class<E> root, ModelQuery<E, ?, ?> query,
+            Object... inputs) {
+        List<Object> expected = new ArrayList<>();
+        withExecutor(JoinTestSupport.dataSource(db), root, executor -> expected.addAll(reads(executor, query)));
+        assertThat((List<?>) expected.get(0)).isNotEmpty();
+        try (InlineValueHandling inline = InlineValueHandling.open(db)) {
+            inline.watch(inputs);
+            List<Object> read = new ArrayList<>();
+            inline.factory().inSession(em -> read.addAll(reads(ModelQueryExecutor.create(em, root,
+                    ModelQueryConfig.defaults()), query)));
+            assertThat(read).isEqualTo(expected);
+            assertThat(inline.statements()).isNotEmpty();
+        }
+    }
+
+    private static <E> List<Object> reads(ModelQueryExecutor<E> executor, ModelQuery<E, ?, ?> query) {
+        return List.of(executor.list(query, Limit.unlimited()), executor.count(query));
     }
 
     // ---- Helpers

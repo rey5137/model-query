@@ -2741,6 +2741,19 @@ class alone gives the parameter its mapping, so the reference binds as its ident
 the reference binds as before.
 → `api/12` R-FLT-08, `api/14` R-WRT-14, D-177.
 
+**D-179 — Write, conflict and source values under inline value handling (M30.6, 2026-10-22).** Under inline value
+handling (D-177 Part C) a delete's filters and an insert-select's source predicate bind by R-FLT-21's operator rule, as a
+query's do. A conflict update's `where` gets a bind channel: its parameters are recorded per statement and the executor
+binds them on each insert statement, so `ConflictClause` does not change; `MQ1804` for an `Expr.value` or an operator's
+value form still reads the `where` as the default setting renders it. A conflict arbiter predicate stays a literal,
+since a partial unique index matches its text. A source's CTE body is no longer built with inline values off: its
+parameters are collected per body and bound by the statement that registers it. As a side effect an `Expr.value` in a
+source's `where` now binds under the default setting too, where before its parameter was never bound and the statement
+could not run. Hibernate 6.6 reports a primitive attribute's node type (`int`, `boolean`) as a JPA basic type that is not a
+Hibernate `BasicType`; the operand binder accepts it, since it carries no converter or enum mapping, so a typed insert or
+a filter on such a column binds rather than being `MQ1502`.
+→ `api/12` R-FLT-08, `api/17` R-SRC-12, `vendor/40` R-VND-24, D-177.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

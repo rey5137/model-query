@@ -28,11 +28,16 @@ import com.rey.modelquery.tck.fch.FetchTestSupport;
 import com.rey.modelquery.tck.harness.InlineValueHandling;
 import com.rey.modelquery.tck.harness.TckDatabase;
 import com.rey.modelquery.tck.harness.TckTest;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.BiFunction;
 import java.util.function.UnaryOperator;
 import org.hibernate.SessionFactory;
 
@@ -93,9 +98,9 @@ class InlineValueFiltersTest {
                     .orderBy(ROW_ID.asc());
 
     /** One audited path: its filter and the input values that must not reach the SQL text. */
-    private record Case<M>(String path, UnaryOperator<Filters<M>> where, List<Object> inputs) {}
+    record Case<M>(String path, UnaryOperator<Filters<M>> where, List<Object> inputs) {}
 
-    private static final List<Case<O>> ORDER_CASES = List.of(
+    static final List<Case<O>> ORDER_CASES = List.of(
             new Case<O>("comparison-eq", f -> f.eq(STATUS, "PAID"), List.of("PAID")),
             new Case<O>("comparison-ne", f -> f.ne(STATUS, "PAID"), List.of("PAID")),
             new Case<O>("comparison-gt", f -> f.gt(TOTAL, new BigDecimal("500.00")), List.of(500)),
@@ -125,7 +130,7 @@ class InlineValueFiltersTest {
                     (s, outer) -> s.compare(ITEM_ORDER_ID, Op.EQ, outer.column(ID))), List.of("P007")),
             new Case<O>("converted-enum STATUS_CODE", f -> f.eq(STATUS_CODE, OrderStatus.PAID), List.of("PAID")));
 
-    private static final List<Case<C>> ROW_CASES = List.of(
+    static final List<Case<C>> ROW_CASES = List.of(
             new Case<C>("converted-enum", f -> f.eq(STATE, ConstantStatus.CLOSED), List.of("C")),
             new Case<C>("converted-enum in", f -> f.in(STATE, List.of(ConstantStatus.PENDING, ConstantStatus.FAILED)),
                     List.of("P", "F")),
@@ -194,6 +199,32 @@ class InlineValueFiltersTest {
             assertThatThrownBy(() -> orderIds(inline.factory(), ModelQueryConfig.defaults(),
                     f -> f.compare(STATUS, Op.NE, Expr.constant(STATUS, "CANCELLED"))))
                     .isInstanceOf(AssertionError.class).hasMessageContaining("'cancelled'");
+        }
+    }
+
+    /**
+     * The inspector reads every literal of a statement, so a value the audit's marker regex missed, a {@code between}
+     * upper bound, a function's argument and a later {@code in} element, fails it when inlined: a criteria value given
+     * without a parameter reaches the SQL text as a literal under the setting.
+     */
+    @TckTest
+    void ac_flt_35_the_inspector_catches_a_between_bound_a_function_argument_and_a_later_in_element(TckDatabase db) {
+        record Probe(String form, Object watched, BiFunction<CriteriaBuilder, Root<OrderEntity>, Predicate> where) {}
+        try (InlineValueHandling inline = InlineValueHandling.open(db)) {
+            for (Probe probe : List.of(
+                    new Probe("between", 417, (cb, root) -> cb.between(root.get("total"), new BigDecimal("0.01"),
+                            new BigDecimal("417.00"))),
+                    new Probe("function argument", "zq-none", (cb, root) -> cb.equal(
+                            cb.coalesce(root.<String>get("status"), "ZQ-NONE"), "PAID")),
+                    new Probe("later in element", 417L, (cb, root) -> root.get("id").in(1L, 2L, 417L)))) {
+                inline.watch(probe.watched());
+                assertThatThrownBy(() -> inline.factory().inSession(em -> {
+                    var cb = em.getCriteriaBuilder();
+                    CriteriaQuery<OrderEntity> query = cb.createQuery(OrderEntity.class);
+                    Root<OrderEntity> root = query.from(OrderEntity.class);
+                    em.createQuery(query.where(probe.where().apply(cb, root))).getResultList();
+                })).as(probe.form()).hasStackTraceContaining("reached the SQL text as literals");
+            }
         }
     }
 

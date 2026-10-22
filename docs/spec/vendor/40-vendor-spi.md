@@ -130,7 +130,7 @@ default <E> Query insertValues(EntityManager em, Class<E> entity, List<String> a
 inheritance, a `@SecondaryTable`, a composite id with generated parts, `@MapsId`). `ConflictClause<E>` carries
 `keyAttributes()`, `doNothing()` and `Optional<Predicate> update(Root<E> target, Root<E> excluded, CriteriaBuilder,
 ConflictClause.Assignments assign)`, where `Assignments` takes `value(Path<?>, Object)`, a value the implementation
-binds as the path's type, and `expression(Path<?>, Expression<?>)`. `insertSelect` binds each of `constants`, the
+binds as the path's type, and `expression(Path<?>, Expression<?>)`. Under inline value handling (R-VND-28, D-179) the predicate `update` returns may hold criteria parameters the engine binds on the `Query` that `insertValues` returns, so the implementation renders it into that same statement, not into native SQL text, and calls `update` once per `insertValues` call, using that call's predicate. `insertSelect` binds each of `constants`, the
 source select's named parameters written to the last attributes, as its attribute's type, as `insertValues` binds its
 values. The six-argument `insertValues` (D-130) also writes, in each row after `attributes`, each of `computed`'s
 attributes the expression its factory returns: the implementation calls each factory once per row, so no Criteria node
@@ -543,7 +543,8 @@ any other line `operands(emf)` is empty, with one WARN per factory. It types onl
 (`DISTINCT` included); `typesBy` is `false` for any other expression, a function, `coalesce`, `CASE`, arithmetic, a
 literal, a sub-query or an aggregate over one of these, whose node type Hibernate may infer from a Java class alone. A
 node type the line doesn't expect (on 6.6 anything but a basic type or a path source whose `getSqmPathType()` is one, on
-7.4 anything but a basic type, an entity path's included) makes it throw, so `MQ1502`.
+7.4 anything but a basic type, an entity path's included) makes it throw, so `MQ1502`. On 6.6 a primitive attribute's
+node type, the JPA basic type of an `int` or a `boolean`, which carries no converter or enum mapping, binds too (D-179).
 
 Its `@Incubating` default `boolean converts(Expression<?> typedBy)`, `false` unless overridden and asked only where
 `typesBy(typedBy)` is `true`, says whether a value typed by `typedBy` goes through a converter of the mapping when

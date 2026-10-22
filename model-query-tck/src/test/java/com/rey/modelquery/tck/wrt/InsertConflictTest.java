@@ -142,7 +142,7 @@ class InsertConflictTest {
     }
 
     @TckTest
-    void ac_wrt_25_under_inline_value_handling_a_conflict_where_value_renders_as_before(TckDatabase db) {
+    void ac_wrt_25_ac_flt_35_under_inline_value_handling_a_conflict_where_value_binds(TckDatabase db) {
         var insert = ValuesInsert.builder(NAMED, Long.class, List.of(new Named(1L, "c1", "Y1"),
                         new Named(2L, "c2", "Y2"), new Named(3L, "c3", "N3")))
                 .onConflict(ID).doUpdate(u -> u.setFromRow(NAME).where(f -> f.eq(NAME, "N2"))).anyUniqueKey().build();
@@ -150,12 +150,30 @@ class InsertConflictTest {
         try (InsertProbes p = InsertProbes.withInlineValues(db)) {
             Outcome o = run(p, insert);
 
-            // As under the default setting: no executor binds a parameter in the conflict clause, so its value is not
-            // bound explicitly (no MQ1804) and the factory inlines it, as before R-FLT-08 (M30.6 binds it)
+            // The where's plain value is a statement parameter the executor binds on the insert (R-FLT-08), with no
+            // MQ1804: that refusal is for an Expr.value or an op's value form, as under the default setting
             assertThat(o.failure()).isNull();
             assertThat(o.count()).isEqualTo(anyKey(p.factory()) ? 4 : 2);
             assertThat(p.rows(ROWS)).containsExactly("1|c1|N1|0", "2|c2|Y2|1", "3|c3|N3|0");
-            assertThat(o.sql()).anySatisfy(sql -> assertThat(sql).containsIgnoringCase("'N2'"));
+            assertThat(o.sql()).isNotEmpty().noneSatisfy(sql -> assertThat(sql).containsIgnoringCase("'N2'"));
+        }
+    }
+
+    @TckTest
+    void ac_wrt_25_ac_flt_35_under_inline_value_handling_a_bound_argument_in_a_conflict_where_is_still_mq1804(
+            TckDatabase db) {
+        var value = ValuesInsert.builder(NAMED, Long.class, List.of(new Named(3L, "c3", "N3")))
+                .onConflict(ID).doUpdate(u -> u.setFromRow(NAME).where(f -> f.compare(NAME, Op.NE, Expr.value("x"))))
+                .anyUniqueKey().build();
+        var op = ValuesInsert.builder(NAMED, Long.class, List.of(new Named(3L, "c3", "N3")))
+                .onConflict(ID).doUpdate(u -> u.setFromRow(NAME).where(f -> f.op(DIFFERS, NAME, "x")))
+                .anyUniqueKey().build();
+
+        try (InsertProbes p = InsertProbes.withInlineValues(db)) {
+            // The refusal reads the where as the default setting renders it, where a plain value is no parameter
+            assertRefused(run(p, value), "doUpdate(...).where(...) with Expr.value");
+            assertRefused(run(p, op), "doUpdate(...).where(...) with op(differs)");
+            assertThat(p.rows(ROWS)).isEqualTo(SEEDED);
         }
     }
 
@@ -507,6 +525,30 @@ class InsertConflictTest {
         }
     }
 
+    @TckTest
+    void ac_wrt_24_ac_flt_35_under_inline_value_handling_each_statement_binds_the_conflict_where_value(
+            TckDatabase db) {
+        // As above: the where's value is now an explicit parameter, the same one bind, set on each statement
+        var config = ModelQueryConfig.defaults().vendorProfiles(List.of(InsertValuesTest.limited(db, 14,
+                Integer.MAX_VALUE)));
+        var rows = LongStream.rangeClosed(1, 5).mapToObj(i -> new Named(i, "c" + i, "N" + i)).toList();
+        var insert = ValuesInsert.builder(NAMED, Long.class, rows)
+                .onConflict(ID).doUpdate(u -> u.setFromRow(NAME).where(f -> f.ne(NAME, "N2"))).anyUniqueKey().build();
+
+        try (InsertProbes p = InsertProbes.withInlineValues(db)) {
+            Outcome o = run(p, insert, config);
+
+            // Rows 1 and 2 are stored: 1 is updated, 2 filtered out; 3 to 5 are inserted, over three statements
+            assertThat(o.failure()).isNull();
+            assertThat(p.rows(ROWS)).containsExactly("1|c1|N1|1", "2|c2|N2|0", "3|c3|N3|0", "4|c4|N4|0",
+                    "5|c5|N5|0");
+            assertThat(o.sql()).hasSize(3).allSatisfy(statement -> {
+                assertThat(BulkWriteTest.binds(statement)).isLessThanOrEqualTo(14);
+                assertThat(statement).doesNotContainIgnoringCase("'N2'");
+            });
+        }
+    }
+
     // ---- AC-WRT-44
 
     /**
@@ -592,6 +634,36 @@ class InsertConflictTest {
             assertThat(p.rows(ARBITER_ROWS)).containsExactly("1|k1|s1|OPEN|X1", "2|k2|s2|CLOSED|N2",
                     "4|k4|s2|OPEN|X2");
             SqlSnapshots.assertMatches(db, "wrt-45-arbiter", o.sql());
+        }
+    }
+
+    /**
+     * Under inline value handling the arbiter predicate stays the structural literal a partial unique index matches,
+     * while the rows' values bind, so PostgreSQL still infers the index and writes the default setting's rows; H2 and
+     * MySQL refuse {@code MQ1804} as by default (api/12 R-FLT-08, R-WRT-52; TCK AC-FLT-35).
+     */
+    @TckTest
+    void ac_wrt_45_ac_flt_35_under_inline_value_handling_an_arbiter_predicate_stays_structural(TckDatabase db) {
+        var insert = ValuesInsert.builder(ARBITER_COLUMNS, Long.class, List.of(
+                        new ArbiterRow(3L, "k3", "s1", "OPEN", "X1"),
+                        new ArbiterRow(4L, "k4", "s2", "OPEN", "X2")))
+                .onConflict(ARBITER_SKU).where(f -> f.ne(ARBITER_STATUS, "CLOSED"))
+                .doUpdate(u -> u.setFromRow(ARBITER_NAME)).build();
+
+        try (InsertProbes p = InsertProbes.withInlineValues(db, InsArbiterEntity.class)) {
+            if (!arbiterHonoured(p.factory())) {
+                assertRefused(runArbiter(p, insert, false), "takes no arbiter predicate");
+                assertThat(p.rows(ARBITER_ROWS)).isEqualTo(ARBITER_SEEDED);
+                return;
+            }
+            Outcome o = runArbiter(p, insert, true);
+
+            assertThat(o.failure()).isNull();
+            assertThat(o.count()).isEqualTo(2);
+            assertThat(p.rows(ARBITER_ROWS)).containsExactly("1|k1|s1|OPEN|X1", "2|k2|s2|CLOSED|N2",
+                    "4|k4|s2|OPEN|X2");
+            assertThat(o.sql()).singleElement().asString().containsIgnoringCase("'CLOSED'")
+                    .doesNotContainIgnoringCase("'X1'").doesNotContainIgnoringCase("'k4'");
         }
     }
 
