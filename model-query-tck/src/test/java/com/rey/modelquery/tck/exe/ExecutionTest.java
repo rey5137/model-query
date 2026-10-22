@@ -68,8 +68,6 @@ class ExecutionTest {
             ColumnField.of(OrderRow.class, ORDERS, "status", String.class);
     private static final ColumnField<OrderRow, OrderEntity, BigDecimal> TOTAL =
             ColumnField.of(OrderRow.class, ORDERS, "total", BigDecimal.class);
-    private static final ColumnField<OrderRow, OrderItemEntity, String> ITEM_PRODUCT_FILTER =
-            ColumnField.of(OrderRow.class, ITEMS, "productCode", String.class);
 
     private static final ColumnField<ItemRow, OrderEntity, Long> ITEM_ORDER_ID =
             ColumnField.of(ItemRow.class, ORDERS, "id", Long.class);
@@ -247,8 +245,10 @@ class ExecutionTest {
     // ---- AC-EXE-04
 
     @TckTest
-    void ac_exe_04_count_over_a_to_many_join_equals_the_distinct_roots(TckDatabase db) {
-        var withItem = ORDER_ROWS.where(f -> f.eq(ITEM_PRODUCT_FILTER, Optional.of("P001"))).build();
+    void ac_exe_04_count_over_a_customizer_to_many_join_equals_the_distinct_roots(TckDatabase db) {
+        // A customizer's join stays in the statement; a filter-only one renders as a semi-join (AC-EXE-22, R-EXE-16).
+        var withItem = ORDER_ROWS.customize((spec, joins, query, cb, phase) -> query.where(cb.equal(
+                query.getRoots().iterator().next().join("items").get("productCode"), "P001"))).build();
         List<Long> counts = new ArrayList<>();
         List<String> sql = SqlSnapshots.assertMatches(db, "exe-04-distinct-roots",
                 ds -> withExecutor(ds, executor -> counts.add(executor.count(withItem))));

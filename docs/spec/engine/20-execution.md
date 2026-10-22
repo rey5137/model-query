@@ -56,7 +56,8 @@ The fallback reads the total from `COUNT`'s statements. It applies:
    query over a source carrying checks falls back too, since `COUNT`'s one row reads the checks where an empty page
    leaves them unread (R-SRC-08);
 4. where `COUNT`'s statement is not the content statement with its selection replaced: `count(distinct root)` over a
-   to-many join that no selected column reads (R-EXE-04), a treated, ungrouped root, which `COUNT` counts on a
+   to-many join that no selected column reads, a customizer's or one a shape R-EXE-16 excludes keeps (a filter's
+   own renders as a semi-join, which `COUNT` counts by `count(root)`) (R-EXE-04), a treated, ungrouped root, which `COUNT` counts on a
    freshly built statement (R-EXE-05, D-154), and a primary-key-first page whose step-1 key query carries a to-many
    join (a customizer's `LEFT` join in the `PRIMARY_KEY` phase alone, which R-PAG-15 admits), which repeats keys
    `COUNT` counts once;
@@ -106,11 +107,58 @@ renderer's reason and no bound value (D-95, D-159). Hibernate's renderer refuses
 `JOINED` root without a physical discriminator, where `createCountQuery()` drops the subtype joins and reads one type
 for every row, so the total would be silently wrong.
 
-**R-EXE-04** *(was R7)* `count` is not inflated by collection joins. After predicates are built, the engine inspects
-`root.getJoins()` recursively and uses `count(distinct root)` only when a to-many join exists. A query using
-`Filters.exists` instead of a join needs neither (`api/12` R-FLT-12). When a selected column is read through a to-many
-join, each joined row is a result, so `count` counts rows and agrees with `list`; key-based paging refuses that shape
-(`engine/21` R-PAG-13).
+**R-EXE-04** *(was R7; amended by D-177)* `count` is not inflated by collection joins. After predicates are built, the
+engine inspects `root.getJoins()` recursively and uses `count(distinct root)` only when a to-many join exists. A query
+using `Filters.exists` instead of a join needs neither (`api/12` R-FLT-12), and neither does a filter through a to-many
+join that nothing else in the statement keeps, which renders as a semi-join (R-EXE-16), so its `count` is
+`count(root)` and equals `list`'s size. The distinct count stays for a customizer's to-many join and for the shapes
+R-EXE-16 excludes. When a selected column is read through a to-many join, each joined row is a result, so `count`
+counts rows and agrees with `list`; key-based paging refuses that shape (`engine/21` R-PAG-13).
+
+**R-EXE-16** *(D-177, D-180, D-181)* **A filter-only to-many join renders as a semi-join.** When a statement's `where`
+makes a to-many join that nothing else in the statement keeps, its terms that join or nest a sub-query render inside
+one correlated sub-query over a second root of the same entity, and the statement keeps its root terms and
+`exists (select 1 from <entity> r2 <joins> where r2 = r and <terms>)`, so each root comes once however many of its
+children match. It is R-WRT-10's rendering (`api/14`), which bulk writes already use:
+
+```sql
+select o.id, o.number from orders o
+ where o.status = ?
+   and exists (select 1 from orders o2 join order_items i on i.order_id = o2.id
+                where o2.id = o.id and i.product_code = ?)
+```
+
+- **When.** The statement reads an entity root, not a source (sources have no to-many join) and not a fetch plan's
+  `through` child load, and has no treated node anywhere (`api/10` R-COL-35): a treat moved into a second-root
+  sub-query is a site no `TreatRenderer` has been measured for. No selected column, order term, group key or fetch-plan
+  key has made a to-many join, and the `having` makes none. If anything else keeps a to-many join, the statement renders
+  as before: moving the `where`'s terms would test them on that join against some child of the second root instead of
+  the row's own. A customizer's join is made after the decision and stays outside it.
+- **Decision.** A filter is a lambda, so which joins the `where` makes is learnt by rendering each top-level term
+  alone into a scratch sub-query over a second root with a fresh `JoinContext`, of a throwaway statement, so nothing
+  it binds reaches the statement (D-65); the eligibility is read off those sub-queries' joins by attribute, whatever
+  the join type, since an `or` joins `LEFT` in the scratch where the statement would reuse an `INNER` join. The `having` is checked the same
+  way. The decision is made in `core` before the `where` renders, since a Criteria join cannot be removed once made.
+- **Rendering.** The `where`'s top-level terms split as R-WRT-11 splits a key-first write's (D-181): a root term,
+  one whose own scratch render makes no join and no `exists(...)` sub-query, stays on the statement, where an index on
+  the root's table can narrow the outer scan; every other top-level term moves, not only those on the to-many join.
+  A top-level `or` or `not(...)` is one term and moves whole, since a child term and a root term can sit under it, and
+  two terms on the same join move together, so they must hold for the same child. `C(r) and exists (r2 = r and rest)`
+  chooses the rows `exists (r2 = r and C and rest)` does, so the split changes no row. The sub-query rebuilds the joins
+  with their types, so `or`, `not(...)` and a `LEFT` join's null-extended rows keep their meaning; a nested
+  `exists(...)` correlates to the second root. Correlation is entity equality, not key columns, so a read needs no
+  `primaryKey` and an embedded id compares whole. A to-one join only the `where` uses is made only in the sub-query.
+  `having` renders on the statement with the root terms (D-26), and the `exists` follows the root terms. What the
+  executor adds after the build (keyset bounds, `byKeys`, `one(q, key)`, `MODEL_BY_KEYS`, fetch rounds) is ANDed on
+  the statement, outside the `exists`.
+  Each value binds once (`api/12` R-FLT-09): the scratch render's parameters are dropped with it.
+- **Effects.** `list`, `stream` and pages return each root once; `count` is `count(root)` (R-EXE-04); `one(q)`,
+  `one(q, key)` and `byKeys` take their strict paths; a grouped query's aggregates count each root once; a locked read
+  runs (R-EXE-14). Every phase of a query renders the same way, so primary-key-first paging pages the rows `MODEL`
+  returns.
+- **Performance.** PostgreSQL ran the semi-join roughly 2–3.5x faster than the join or `select distinct`, MySQL 8.0
+  1.4–3.6x slower, with duplicate weedout or a second root lookup, in single EXPLAINs of the RFC 0018 spike. Check the
+  application's real plans and indexes; there is no switch back to the duplicating join (D-177).
 
 **R-EXE-05** The count query drops `orderBy` and any selection the count does not need, and keeps every predicate and
 join that can change the number of matching rows. A correlated scalar value used only in the select list adds
@@ -175,8 +223,9 @@ extra row, so none is one (`delivery/61` R-REL-07).
 - `one(q)` renders the statement `list` would, with a limit of 2. A second row throws `MQ2003`
   (`OrderView: one(query) found more than one row`) before any row is mapped or the fetch plan runs; the fetch plan
   then runs once, on the single row left, so an enricher never sees the extra row. `one` counts rows as `list`
-  returns them: `list` does not deduplicate, so a predicate-only to-many join (R-EXE-04, `engine/21` R-PAG-02) can
-  repeat the root row and give `MQ2003`. The message then names the join and points at `Filters.exists`.
+  returns them: `list` does not deduplicate, so a to-many join no selected column reads can repeat the root row and
+  give `MQ2003`, which after R-EXE-16 is a customizer's join or a shape R-EXE-16 excludes (R-EXE-04, `engine/21`
+  R-PAG-02). The message then names the join and points at `Filters.exists`.
 - `first(q)` renders with a limit of 1 and a stable order: `q`'s `orderBy`, then the primary key (or, for a grouped
   query, its group keys) wherever the `orderBy` does not already cover it. With no `orderBy`, that is the key
   ascending. An implicit column that can be NULL sorts `nullsLast` explicitly (`api/10` R-COL-12), since vendors place
@@ -192,8 +241,8 @@ extra row, so none is one (`delivery/61` R-REL-07).
   number of components throws `IllegalArgumentException`. A query without a primary key throws `MQ2203`, before any
   statement: a keyless query has `K = Object`, and a grouped query keeps the builder's `K` but drops its key
   (`api/13` R-AGG-09), so in both any key compiles. A duplicate key is `MQ2213` (R-PAG-26), including a non-id model
-  key matching two rows. A filter-only to-many join instead gives `MQ2003` with the join and `Filters.exists` hint
-  above (D-160).
+  key matching two rows. A to-many join no selected column reads, which R-EXE-16 left in the statement, instead
+  gives `MQ2003` with the join and `Filters.exists` hint above (D-160).
 - `one(q)` and `one(q, key)` read at most one row, so neither renders an `ORDER BY`; each logs one `WARNING` per
   `ModelQuery` and call when `q` has an `orderBy`, `<Model>: one(query) ignores the query's orderBy` (`one(query,
   key)` for the keyed one). `first` uses the order and is unchanged (D-126).
@@ -217,7 +266,8 @@ extra row, so none is one (`delivery/61` R-REL-07).
   `ORDER BY`; `q`'s `orderBy` is ignored, with one `WARNING` per `ModelQuery`, `<Model>: byKeys(query, keys) ignores
   the query's orderBy; the map is in key order`.
 - Every chunk is read, then checked, then mapped. A duplicate key is `MQ2213` (R-PAG-26), including a non-id model
-  key matching two rows. A filter-only to-many join instead gives `MQ2003` (`<Model>: byKeys(query, keys) found more
+  key matching two rows. A to-many join no selected column reads, which R-EXE-16 left in the statement, instead
+  gives `MQ2003` (`<Model>: byKeys(query, keys) found more
   than one row for key <k>`, naming the join and `Filters.exists` as `one` does; D-160). A row
   whose key equals none of the requested values (a case-insensitive or padding collation, a `BigDecimal` scale) is
   `MQ2005`, naming the value. Neither lets `afterMap` or the fetch plan see a row.
@@ -251,6 +301,9 @@ keys are.
   Hibernate renders a locking clause with no `OF` list (locking every table on PostgreSQL) or follows on to locking only
   loaded entities, which is nobody (`vendor/41`). The message suggests `Filters.exists(...)` instead; the check reads
   the built criteria statement's roots and their joins, a customizer's included, so it is pure JPA (INV-7).
+  *(D-177)* A filter through a to-many join that renders as a semi-join (R-EXE-16) leaves the statement no join, and
+  neither does a filter-only to-one join rendered beside it in the sub-query, so such a locked read runs; the
+  sub-query's tables are not locked on PostgreSQL or MySQL.
   A path a customizer navigates past the root (`root.get("customer").get("name")`) is an implicit join that no join
   list reports, so it is not refused, and the joined rows are locked too: on a locked query a customizer should name
   only the root's own columns (known limitation, M18 gate).
@@ -304,17 +357,17 @@ returning clause, compose into one statement.
 | AC-EXE-01 | `Limit.of(0)` and `pageSize + 1` probing are observable in the SQL snapshot; no query runs for a zero limit (R-EXE-01, R-EXE-06). |
 | AC-EXE-02 | `NO_COUNT` reports `hasNext` correctly on an exact multiple of the page size (R-EXE-02). |
 | AC-EXE-03 | `count` over a grouped query equals the number of groups, with and without `model-query-hibernate`, and client-side when the treat renderer refuses its `GROUPED_COUNT` site, as Hibernate's does for a `typeOf` group key on `JOINED` without a discriminator, whose sites are then checked as `GROUPED` (`MQ4016` when refused there) (R-EXE-03, D-159). |
-| AC-EXE-04 | `count` over a query with a to-many join equals the number of distinct roots (R-EXE-04). |
+| AC-EXE-04 | `count` over a query with a to-many join equals the number of distinct roots: by `count(distinct root)` for a customizer's join, and by the semi-join's `count(root)` for a filter-only one (R-EXE-04, R-EXE-16). |
 | AC-EXE-10 | `count` over a query selecting a column through a to-many join equals the number of rows `list` returns (R-EXE-04). |
 | AC-EXE-05 | `pageSize <= 0` throws `MQ2001`; a negative offset throws `MQ2002` (R-EXE-06). |
 | AC-EXE-06 | Streaming 20 000 rows keeps heap bounded; the assertion fails if the engine buffers (R-EXE-07). |
 | AC-EXE-07 | An early exit from `body` releases the connection, checked against the pool's active count (R-EXE-09). |
 | AC-EXE-08 | PostgreSQL streaming without a transaction throws `MQ2101` before executing (R-EXE-08). |
 | AC-EXE-09 | A slow query is cancelled by the configured timeout on every Tier-1 vendor (R-EXE-11). |
-| AC-EXE-11 | `one` reads at a limit of 2 and returns the single row or empty; a second row throws `MQ2003` before an enricher or `afterMap` sees it, and through a predicate-only to-many join the message names the join and `Filters.exists` (R-EXE-12). |
+| AC-EXE-11 | `one` reads at a limit of 2 and returns the single row or empty; a second row throws `MQ2003` before an enricher or `afterMap` sees it, and through a to-many join a customizer made, which no selected column reads, the message names the join and `Filters.exists` (R-EXE-12). |
 | AC-EXE-12 | `first` orders by `orderBy`, then the key with explicit `nullsLast`: on a nullable non-id `@PrimaryKey` it returns the same row on every Tier-1 vendor; a grouped `first` orders by its group keys; a query with neither an `orderBy` nor a key throws `MQ2203`, an aggregate-only query excepted (R-EXE-12). |
-| AC-EXE-13 | `one(q, key)` ANDs the converted key with `q`'s filter, and contradictory filters give empty; a `null` key or component, or a wrong component count, throws `IllegalArgumentException`; a keyless or grouped query throws `MQ2203` (R-EXE-12). |
-| AC-EXE-14 | `byKeys` returns the map in first-occurrence key order with missing keys absent and duplicates read once, for single and composite keys; more keys than the vendor's limits give several statements and one fetch-plan run, and a configured `primaryKeyFirstBatchSize` does not change the chunks; no keys run no SQL; the `orderBy` is ignored with one `WARNING` and no `ORDER BY`; a duplicate key is `MQ2213`, or `MQ2003` with the `Filters.exists` hint for a filter-only to-many join; a keyless query is `MQ2203`, with empty keys too; two keys converting to one value are both present with `afterMap` run once; a `MODEL`-phase customizer applies; a case-insensitive string key on MySQL and SQL Server whose row matches no requested value is `MQ2005` (R-EXE-13). |
+| AC-EXE-13 | `one(q, key)` ANDs the converted key with `q`'s filter, and contradictory filters give empty; a `null` key or component, or a wrong component count, throws `IllegalArgumentException`; a keyless or grouped query throws `MQ2203`; a second row through a to-many join a customizer made is `MQ2003` naming the join and `Filters.exists` (R-EXE-12). |
+| AC-EXE-14 | `byKeys` returns the map in first-occurrence key order with missing keys absent and duplicates read once, for single and composite keys; more keys than the vendor's limits give several statements and one fetch-plan run, and a configured `primaryKeyFirstBatchSize` does not change the chunks; no keys run no SQL; the `orderBy` is ignored with one `WARNING` and no `ORDER BY`; a duplicate key is `MQ2213`, or `MQ2003` with the `Filters.exists` hint for a to-many join a customizer made; a keyless query is `MQ2203`, with empty keys too; two keys converting to one value are both present with `afterMap` run once; a `MODEL`-phase customizer applies; a case-insensitive string key on MySQL and SQL Server whose row matches no requested value is `MQ2005` (R-EXE-13). |
 | AC-EXE-15 | `count(q)`, `one(q)` and `one(q, key)` on an ordered query each log one `WARNING` per `ModelQuery`; the `one` statements render no `ORDER BY`; `page`'s count and `first` log nothing (R-EXE-05, R-EXE-12). |
 | AC-EXE-16 | Each read in R-EXE-14's table locks or refuses as stated, before any SQL: `list`, `list(q, Limit)`, `first`, `one(q)`, `one(q, key)` and `byKeys` lock; `page`, `count`, `stream` and `export` refuse with `MQ2211`, as does a joined query and `one(q)` with `SKIP_LOCKED`; `MQ2102` outside a transaction; fetch-plan statements carry no lock and `byKeys` chunks are ordered by key (R-EXE-14). |
 | AC-EXE-17 | (TCK, PostgreSQL and MySQL, two connections) a second `first` with `WAIT` blocks until the first commits; with `SKIP_LOCKED` it returns the next row; with `NO_WAIT` it throws `PessimisticLockException` or `LockTimeoutException`, as recorded per vendor (R-EXE-14). |
@@ -322,3 +375,6 @@ returning clause, compose into one statement.
 | AC-EXE-19 | Past the end, `COUNT`'s statement runs and the total is exact; a refused treat site is `MQ4016` before any statement (R-EXE-15). |
 | AC-EXE-20 | Fallbacks 1–4, a customizer's `distinct()` included, run `COUNT`'s statements and log their reason once per executor and query (R-EXE-15). |
 | AC-EXE-21 | Without `model-query-hibernate`, `INLINE_COUNT` runs `COUNT`'s statements and returns the same `Slice` (R-EXE-15, R-VND-27). |
+| AC-EXE-22 | Over a filter-only to-many join, on both lines and Tier 1, with a single and an embedded id: `list` and offset pages return each root once, `count` equals `list`'s size, a page's total matches its rows, `one` returns the single root, and a locked `list` and `one` run; the SQL holds one `exists` and no join outside it (R-EXE-16, R-EXE-04, R-EXE-14). |
+| AC-EXE-23 | An `or` mixing a child term and a root term, two terms on the same child, a `not(...)` around a child term and a nested `exists(...)` return the rows `Filters.exists` with the same predicate returns, with no outer join; a statement that also selects through the to-many join renders the join and returns as before (R-EXE-16). |
+| AC-EXE-24 | A grouped query's `sum` over a root column with a filter-only to-many join equals the sum over distinct roots (R-EXE-16, R-EXE-04). |

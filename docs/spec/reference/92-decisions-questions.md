@@ -2754,6 +2754,34 @@ Hibernate `BasicType`; the operand binder accepts it, since it carries no conver
 a filter on such a column binds rather than being `MQ1502`.
 → `api/12` R-FLT-08, `api/17` R-SRC-12, `vendor/40` R-VND-24, D-177.
 
+**D-180 — When a read's `where` becomes a semi-join (M30.7, 2026-10-22).** D-177 Part D's eligibility, as built:
+(1) the statement must keep no to-many join at all once its selection, order and group keys are rendered, read off the
+Criteria root's joins, so a join a selected column, order term or group key makes, by any path, excludes it; with no
+outer to-many join, comparing join paths reduces to whether the scratch `where` made any. (2) The scratch reads its
+own sub-query root's joins, so a to-many join an `add(...)` predicate makes itself counts too, and moves with the
+`where`. (3) "The root is not treated" is applied as no treated node anywhere in the query's own statement
+(`TreatChecks.treated`, R-COL-35): such a statement keeps its anchor and root-id count (D-154), and a treat moved into
+the sub-query is a site no renderer was measured for. (4) `having` gets a scratch render of its own; one that would
+make a to-many join keeps the statement as before, rendering `where` and `having` together (D-26). (5) Sources and a
+fetch plan's `through` child loads are never rewritten. (6) Every scratch render runs on a throwaway statement, so no
+unused sub-query or parameter reaches the statement; the real sub-query's parameters and repeated binds are added to
+the statement's (R-COL-26, R-FLT-09). Which of the `where`'s terms move is D-181.
+→ `engine/20` R-EXE-04, R-EXE-14, R-EXE-16, `api/14` R-WRT-10, D-26, D-65, D-154, D-177.
+
+**D-181 — A semi-join leaves the root terms on the statement (M30.7, 2026-10-22).** D-177 Part D moved the whole
+`where` into the semi-join's `exists`, so the statement kept no predicate on its own table, and a selective root term
+(`id < ?`, a status) could not narrow the outer scan through an index on PostgreSQL or MySQL. Now each top-level
+`where` term is rendered alone into a scratch sub-query (D-180 (6)); the split applies only when one of them makes a
+to-many join. Then a root term, one that makes no join and no `exists(...)` sub-query, as R-WRT-11 tells a key-first
+write's, renders on the statement only, not again inside the sub-query; every other top-level term moves into
+`exists (r2 = r and ...)`. A top-level `or` or `not(...)` is one term, so one mixing child and root terms moves whole,
+and its meaning is kept as R-WRT-10 keeps it. A term through a to-one join moves too, so a locked read whose `where`
+joins only to-one paths beside the to-many one still leaves the statement no join (R-EXE-14). `C(r) and exists (r2 = r
+and rest)` chooses the rows `exists (r2 = r and C and rest)` does, since `C` reads only `r` and `r2 = r`; no row, total
+or eligibility changes. The root terms render with `having` (D-26), the `exists` after them; each value still binds
+once.
+→ `engine/20` R-EXE-16, `api/14` R-WRT-10, R-WRT-11, D-26, D-177, D-180.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

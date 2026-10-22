@@ -142,7 +142,11 @@ correlated sub-query over the root, built with the same `JoinContext` as the rea
 `EXISTS (SELECT 1 FROM orders o2 LEFT JOIN … WHERE o2.pk = o.pk AND <tree>)`, which works for composite keys too. The
 tree is never split per predicate, because that changes what `not` and `or` mean: `not(eq(CUSTOMER_COUNTRY, "X"))`
 excludes an order with no customer on the read path, while `NOT EXISTS (…)` would include it. `exists(...)` filters
-stay correlated sub-queries inside the tree.
+stay correlated sub-queries inside the tree. *(D-177, D-181)* A read renders a `where` through a to-many join that
+nothing else in its statement keeps the same way (`engine/20` R-EXE-16), correlated by entity equality instead of key
+columns, since a read need not declare a primary key, and leaves the tree's top-level root terms (R-WRT-11) on its
+root: a top-level `and` is split, never an `or` or `not`, so no meaning changes. The two agree on the rows a tree
+chooses (AC-WRT-07).
 
 **R-WRT-11** **Bulk writes work where the database cannot read the target table in a sub-query.** The rendering reads
 the target table in a sub-query when R-WRT-10 builds one, when an `exists(...)` path or a sub-select (`api/12`

@@ -108,9 +108,10 @@ class SingleRowTest {
     }
 
     @TckTest
-    void ac_exe_11_a_filter_only_to_many_join_names_the_join_and_filters_exists(TckDatabase db) {
-        // Order 1 holds four items of product P001, so the filter's join repeats it four times.
-        var throughItems = ORDER_ROWS.where(f -> f.eq(ID, 1L).eq(ITEM_PRODUCT_FILTER, "P001")).build();
+    void ac_exe_11_a_customizer_to_many_join_names_the_join_and_filters_exists(TckDatabase db) {
+        // Order 1 holds four items of product P001, so the customizer's join repeats it four times; a filter through
+        // the same join renders as a semi-join and returns it once (AC-EXE-22).
+        var throughItems = ORDER_ROWS.where(f -> f.eq(ID, 1L)).customize(JoinTestSupport.itemJoin("P001")).build();
         withExecutor(db, executor -> assertMq(() -> executor.one(throughItems), MqCode.MQ2003,
                 "OrderRow: one(query) found more than one row; if the to-many join OrderEntity.items, which no "
                         + "selected column reads, repeats the row once per matching child, filter with "
@@ -118,12 +119,22 @@ class SingleRowTest {
     }
 
     @TckTest
-    void ac_exe_13_one_by_key_keeps_the_filter_only_join_hint(TckDatabase db) {
-        var throughItems = ORDER_ROWS.where(f -> f.eq(ITEM_PRODUCT_FILTER, "P001")).build();
+    void ac_exe_13_one_by_key_keeps_the_customizer_join_hint(TckDatabase db) {
+        var throughItems = ORDER_ROWS.customize(JoinTestSupport.itemJoin("P001")).build();
         withExecutor(db, executor -> assertMq(() -> executor.one(throughItems, 1L), MqCode.MQ2003,
                 "OrderRow: one(query, key) found more than one row; if the to-many join OrderEntity.items, which no "
                         + "selected column reads, repeats the row once per matching child, filter with "
                         + "Filters.exists(...) instead"));
+    }
+
+    @TckTest
+    void ac_exe_13_ac_exe_22_one_by_key_through_a_filter_only_join_returns_the_single_root(TckDatabase db) {
+        // The filter renders as a semi-join, so order 1 comes once and the key's strict path returns it (R-EXE-16).
+        var throughItems = ORDER_ROWS.where(f -> f.eq(ITEM_PRODUCT_FILTER, "P001")).build();
+        withExecutor(db, executor -> {
+            assertThat(executor.one(throughItems, 1L)).map(OrderRow::id).contains(1L);
+            assertThat(executor.one(throughItems, -1L)).isEmpty();
+        });
     }
 
     // ---- AC-EXE-12

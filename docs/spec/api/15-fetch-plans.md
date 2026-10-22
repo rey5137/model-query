@@ -96,7 +96,8 @@ so a `@Child` and a back-`@Join` between two models initialise in either order. 
 **R-FCH-04** `child(ChildField<M, C>, FetchPlan<C>)` loads a child; one not in the plan stays empty. An optional
 `ChildQuery` adds child filters (`where`), an order (`orderBy`, closed by the child's primary key; the primary key alone
 by default) and `maxPerParent` (R-FCH-11; below 1 it throws `MQ2001`). Child rows are deduplicated on the child's
-primary key per parent key, since a child filter through a to-many join can repeat them, while a many-to-many child
+primary key per parent key, since a child filter through a to-many join can repeat them where the statement keeps
+that join, as an order term through it does (`engine/20` R-EXE-16), while a many-to-many child
 belongs to several parents (D-99). A to-one child that finds two distinct rows
 for one key throws `MQ2601` naming the child field. A to-one child without a `@PrimaryKey` is not deduplicated, so one
 reached through a to-many path (a child filter or `foreignKey` crossing a collection) throws `MQ2601` on the repeated

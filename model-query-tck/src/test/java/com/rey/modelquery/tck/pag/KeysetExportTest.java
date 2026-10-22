@@ -395,21 +395,26 @@ class KeysetExportTest {
 
     @TckTest
     void ac_pag_12_the_same_keyset_export_with_the_to_many_join_only_in_a_predicate_succeeds(TckDatabase db) {
-        // Each order holding P001 holds it four times, so the join repeats each root four times in a row: within a
-        // page the repeats are dropped, and the cursor is past all of them.
-        var withItem = ORDER_ROWS.where(f -> f.eq(ORDER_ITEM_PRODUCT, Optional.of("P001")))
+        // A filter's join renders as a semi-join (R-EXE-16). Each order holding P001 holds it four times, so a
+        // customizer's join repeats each root four times in a row: within a page the repeats are dropped, and the
+        // cursor is past all of them (R-PAG-02).
+        var filtered = ORDER_ROWS.where(f -> f.eq(ORDER_ITEM_PRODUCT, Optional.of("P001")))
                 .orderBy(ORDER_STATUS.asc())
                 .build();
+        var customized = ORDER_ROWS.customize(JoinTestSupport.itemJoin("P001")).orderBy(ORDER_STATUS.asc()).build();
         List<Long> expected = new ArrayList<>();
         inSession(db, em -> expected.addAll(em.createQuery("select distinct o.id from OrderEntity o join o.items i"
                 + " where i.productCode = 'P001'", Long.class).getResultList()));
-        for (int pageSize : new int[] {3, 4, 7, 1_000}) {
-            List<OrderRow> rows = new ArrayList<>();
-            withExecutor(db, OrderEntity.class,
-                    executor -> executor.export(withItem, ExportOptions.of(pageSize), page -> page, rows::add));
-            assertThat(rows).extracting(OrderRow::id).as("page size %d", pageSize)
-                    .containsExactlyInAnyOrderElementsOf(expected);
-            assertThat(rows).isSortedAccordingTo(Comparator.comparing(OrderRow::status).thenComparing(OrderRow::id));
+        for (var withItem : List.of(filtered, customized)) {
+            for (int pageSize : new int[] {3, 4, 7, 1_000}) {
+                List<OrderRow> rows = new ArrayList<>();
+                withExecutor(db, OrderEntity.class,
+                        executor -> executor.export(withItem, ExportOptions.of(pageSize), page -> page, rows::add));
+                assertThat(rows).extracting(OrderRow::id).as("page size %d", pageSize)
+                        .containsExactlyInAnyOrderElementsOf(expected);
+                assertThat(rows)
+                        .isSortedAccordingTo(Comparator.comparing(OrderRow::status).thenComparing(OrderRow::id));
+            }
         }
     }
 
@@ -449,9 +454,9 @@ class KeysetExportTest {
         }
         assertThat(pages).as("page 2 never reaches pageTransformer").hasSize(1);
         assertThat(pages.get(0)).hasSize(250);
-        // A key a predicate's to-many join repeats within a page is still dropped, not refused: each order holding
+        // A key a customizer's to-many join repeats within a page is still dropped, not refused: each order holding
         // P001 holds it four times, so pages of 3 split the repeats of one order across a boundary (R-PAG-02).
-        var withItem = ORDER_ROWS.where(f -> f.eq(ORDER_ITEM_PRODUCT, Optional.of("P001"))).build();
+        var withItem = ORDER_ROWS.customize(JoinTestSupport.itemJoin("P001")).build();
         List<Long> orders = new ArrayList<>();
         withExecutor(db, OrderEntity.class, executor -> executor.export(withItem, ExportOptions.of(3), page -> page,
                 row -> orders.add(row.id())));

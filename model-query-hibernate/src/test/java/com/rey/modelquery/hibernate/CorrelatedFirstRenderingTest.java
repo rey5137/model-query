@@ -253,7 +253,9 @@ class CorrelatedFirstRenderingTest {
                 em.createQuery(built.query()).getResultList();
                 assertThat(SQL).singleElement().asString().contains("fetch first ? rows only")
                         .doesNotContain("nulls first", "nulls last", "case when");
-                assertThat(calls).hasValue(i + 1);
+                // One node for the select, the where and the order, plus one in the throwaway scratch that tells
+                // whether the where makes a to-many join (R-EXE-16): it renders with a context of its own.
+                assertThat(calls).hasValue(2 * (i + 1));
             }
         });
     }

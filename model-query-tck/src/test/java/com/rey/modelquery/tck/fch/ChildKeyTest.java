@@ -100,14 +100,16 @@ class ChildKeyTest {
 
     @TckTest
     void ac_fch_02_repeated_child_rows_from_a_to_many_child_filter_are_deduplicated(TckDatabase db) {
-        // Every order has four items, so the filter through the to-many join reads each order four times.
-        var q = customers(10, c -> c.where(f -> f.like(QOrderLines.ITEM_CODE, "P0", LikeMode.STARTS_WITH)));
+        // Every order has four items, and the order through the to-many join keeps it in the statement rather than
+        // rendering the filter as a semi-join (R-EXE-16), so the round reads each order four times.
+        var q = customers(10, c -> c.where(f -> f.like(QOrderLines.ITEM_CODE, "P0", LikeMode.STARTS_WITH))
+                .orderBy(QOrderLines.ITEM_CODE.asc()));
         Map<Long, List<Long>> expected = ordersOf(db, 10, "", "id");
 
         withExecutor(JoinTestSupport.dataSource(db), CustomerEntity.class, executor ->
                 assertThat(executor.list(q, Limit.unlimited())).hasSize(10).allSatisfy(customer ->
-                        assertThat(customer.orders()).extracting(OrderLines::id)
-                                .containsExactlyElementsOf(expected.get(customer.id()))));
+                        assertThat(customer.orders()).extracting(OrderLines::id).doesNotHaveDuplicates()
+                                .containsExactlyInAnyOrderElementsOf(expected.get(customer.id()))));
     }
 
     @TckTest
@@ -304,9 +306,11 @@ class ChildKeyTest {
 
     @TckTest
     void ac_fch_08_max_per_parent_throws_mq2603_within_one_round_cap(TckDatabase db) {
-        // Each order is read once per item, four times, so 3 x 5 + 1 rows hold no customer's sixth order.
+        // The order through the to-many join keeps it in the statement, so the filter renders on it rather than as
+        // a semi-join (R-EXE-16): each order is read once per item, four times, so 3 x 5 + 1 rows hold no
+        // customer's sixth order.
         var q = customers(3, c -> c.where(f -> f.like(QOrderLines.ITEM_CODE, "P0", LikeMode.STARTS_WITH))
-                .maxPerParent(5));
+                .orderBy(QOrderLines.ITEM_CODE.asc()).maxPerParent(5));
 
         withExecutor(JoinTestSupport.dataSource(db), CustomerEntity.class, executor ->
                 assertThatThrownBy(() -> executor.list(q, Limit.unlimited()))

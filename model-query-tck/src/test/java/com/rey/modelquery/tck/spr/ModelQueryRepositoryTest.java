@@ -1,6 +1,5 @@
 package com.rey.modelquery.tck.spr;
 
-import static jakarta.persistence.criteria.JoinType.INNER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -31,7 +30,6 @@ import com.rey.modelquery.spring.data.ModelQueryRepositoryFactoryBean;
 import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
-import com.rey.modelquery.tck.col.OrderItemEntity;
 import com.rey.modelquery.tck.fch.OrderLines;
 import com.rey.modelquery.tck.fch.QOrderLines;
 import com.rey.modelquery.tck.harness.TckDatabase;
@@ -95,9 +93,6 @@ class ModelQueryRepositoryTest {
             ColumnField.of(OrderRow.class, ORDERS, "status", String.class);
     private static final ColumnField<OrderRow, OrderEntity, BigDecimal> TOTAL =
             ColumnField.of(OrderRow.class, ORDERS, "total", BigDecimal.class);
-    private static final TableField<OrderEntity, OrderItemEntity> ITEMS = TableField.join(ORDERS, "items", INNER);
-    private static final ColumnField<OrderRow, OrderItemEntity, String> ITEM_PRODUCT_FILTER =
-            ColumnField.of(OrderRow.class, ITEMS, "productCode", String.class);
 
     private static final ModelQuery<OrderEntity, ?, OrderRow> NEW_ORDERS = ModelQuery
             .builder(ORDERS, row -> new OrderRow(row.get(ID), row.get(STATUS), row.get(TOTAL)))
@@ -580,9 +575,9 @@ class ModelQueryRepositoryTest {
 
     @TckTest
     void ac_spr_19_a_key_matching_two_rows_surfaces_the_executors_mq2003_unchanged(TckDatabase db) {
-        // Order 1 holds four items of product P001, so the filter's join repeats it four times.
-        ModelQuery<OrderEntity, Long, OrderRow> repeated = ORDER_ROWS
-                .where(f -> f.eq(ITEM_PRODUCT_FILTER, "P001")).build();
+        // Order 1 holds four items of product P001, so the customizer's join repeats it four times.
+        ModelQuery<OrderEntity, Long, OrderRow> repeated = ORDER_ROWS.customize(JoinTestSupport.itemJoin("P001"))
+                .build();
         withRepository(JoinTestSupport.dataSource(db), DefaultTransactions.class, (repository, context) -> {
             assertThatThrownBy(() -> repository.findAllByKeys(repeated, List.of(1L)))
                     .isInstanceOfSatisfying(ModelQueryExecutionException.class,

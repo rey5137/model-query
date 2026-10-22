@@ -12,18 +12,22 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 /**
- * The 23 value paths the RFC 0018 execution-family audit observed, each named with the TCK test that covers it under
+ * The 23 value paths the RFC 0018 execution-family audit observed, and the semi-join a filter-only to-many join renders
+ * as since (R-EXE-16), each named with the TCK test that covers it under
  * {@code hibernate.criteria.value_handling_mode=inline}: a path with no covering test, or a covering test renamed or
  * removed, fails here rather than silently dropping out of the profile (spec api/12 R-FLT-08; TCK AC-FLT-35).
  */
 class InlineValuePathInventoryTest {
 
-    /** The audit's paths in its order: 22 confirmed input leaks, then the typed insert-values binding to retain. */
+    /**
+     * The audit's paths in its order: 22 confirmed input leaks, then the typed insert-values binding to retain; last,
+     * the semi-join's filter, a value path Part D added after the audit.
+     */
     private static final List<String> AUDITED_PATHS = List.of("comparison-eq", "comparison-ne", "comparison-gt",
             "comparison-ge", "comparison-lt", "comparison-le", "comparison-range", "filter-membership",
             "eq-ignore-case", "like", "ignore-case", "subquery-filter", "byKeys-chunk", "fetch-key", "keyset-UUID",
             "converted-enum", "converted-Boolean", "update-assignment", "delete-filter", "insert-select-filter",
-            "conflict-condition", "source-keyset", "typed-insert-binds");
+            "conflict-condition", "source-keyset", "typed-insert-binds", "semi-join-filter");
 
     private static final String FILTERS = "flt.InlineValueFiltersTest#"
             + "ac_flt_35_each_filter_path_binds_its_value_and_returns_the_default_settings_rows";
@@ -69,12 +73,14 @@ class InlineValuePathInventoryTest {
                         + "ac_src_26_ac_flt_35_under_inline_value_handling_each_cte_bodys_filter_values_bind"));
         paths.put("typed-insert-binds", List.of("flt.InlineValueWritesTest#"
                 + "ac_flt_35_typed_insert_values_keep_binding_through_their_mapping"));
+        paths.put("semi-join-filter", List.of("exe.SemiJoinTest#"
+                + "ac_exe_22_ac_flt_35_under_inline_value_handling_a_semi_join_binds_its_filter_values"));
         return paths;
     }
 
     @Test
     void ac_flt_35_every_audited_path_names_a_covering_test() {
-        assertThat(AUDITED_PATHS).hasSize(23).doesNotHaveDuplicates();
+        assertThat(AUDITED_PATHS).hasSize(24).doesNotHaveDuplicates();
         assertThat(COVERED_BY.keySet()).containsExactlyInAnyOrderElementsOf(AUDITED_PATHS);
         COVERED_BY.forEach((path, tests) -> assertThat(tests).as(path).isNotEmpty()
                 .allSatisfy(test -> assertThat(tckTest(test)).as(path + ": " + test).isTrue()));

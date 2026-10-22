@@ -14,6 +14,7 @@ import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Selection;
+import jakarta.persistence.criteria.Subquery;
 import jakarta.persistence.metamodel.PluralAttribute;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -427,7 +428,9 @@ public final class ModelQuery<E, K, M> {
      * the columns plus, where the {@code SelectSet} omits them, the primary-key columns of an ungrouped query, every
      * ordering key and every group key, so an executor can read them from the row (R-QRY-04, D-29), and on an
      * ungrouped query the presence key of each {@code presentBy} join a column is read through (D-38);
-     * {@code PRIMARY_KEY} selects the key columns only. The customizer, if any, runs last. A new {@link JoinContext}
+     * {@code PRIMARY_KEY} selects the key columns only. The {@code where} terms through a to-many join that nothing
+     * else in the statement keeps render in one {@code EXISTS} over a second root, in every phase alike, and the
+     * other terms on the root (R-EXE-16, D-181). The customizer, if any, runs last. A new {@link JoinContext}
      * is created per call and carries {@code options}, the facts about the target database the build renders by
      * ({@link RenderOptions#portable()} when unknown, D-34).
      *
@@ -672,9 +675,14 @@ public final class ModelQuery<E, K, M> {
             query.groupBy(groupBy.stream()
                     .<Expression<?>>map(key -> joins.withoutSequences(() -> key.expression(joins))).toList());
         }
-        List<List<Predicate>> predicates = ConditionGroup.clausePredicates(List.of(where, having), joins);
-        if (!predicates.get(0).isEmpty() || !guards.isEmpty()) {
-            var restrictions = new ArrayList<>(predicates.get(0));
+        WhereSplit split = parentKey == null ? splitWhere(joins) : new WhereSplit(where, List.of());
+        // WHERE and HAVING render together (D-26); the terms a semi-join takes render after them, in its sub-query.
+        List<List<Predicate>> predicates = ConditionGroup.clausePredicates(List.of(split.root(), having), joins);
+        var restrictions = new ArrayList<>(predicates.get(0));
+        if (!split.semiJoined().isEmpty()) {
+            restrictions.add(semiJoin(split.semiJoined(), query, joins));
+        }
+        if (!restrictions.isEmpty() || !guards.isEmpty()) {
             restrictions.addAll(guards);
             query.where(restrictions.toArray(Predicate[]::new));
         }
@@ -686,6 +694,74 @@ public final class ModelQuery<E, K, M> {
         return new BuiltQuery<>(query, joins, selection, mapping, parentKey, checks,
                 recursive == null ? 0 : recursive.maxDepth(),
                 keyed == null ? List.of() : keyed.key().columns().stream().map(ColumnField::name).toList());
+    }
+
+    /**
+     * The {@code where} terms of a statement split by where they render (R-EXE-16, D-181). When a top-level term's own
+     * render makes a to-many join, every term that joins or nests a sub-query, that one included, renders in one
+     * {@code EXISTS} over a second root ({@code semiJoined}; an {@code or} or {@code not} mixing child and root terms
+     * is one term), and each root term, which reads only the root's own columns, stays on the statement's root
+     * ({@code root}), where an index on the root's table can narrow the outer scan. {@code semiJoined} is empty, and
+     * the whole {@code where} renders on the root as before, unless the statement has an entity root with no treated
+     * node, no source, no to-many join that a selected column, order term or group key has made on {@code joins}, and
+     * a {@code having} that makes none.
+     */
+    private record WhereSplit(List<Filter> root, List<Filter> semiJoined) {}
+
+    /**
+     * {@link WhereSplit} for this definition's {@code where}. Since a filter is a lambda, which joins a term makes is
+     * learnt by rendering it alone into a scratch sub-query of a throwaway statement with a fresh context, so nothing
+     * it binds reaches the statement (D-65).
+     */
+    private WhereSplit splitWhere(JoinContext joins) {
+        WhereSplit unsplit = new WhereSplit(where, List.of());
+        if (where.isEmpty() || source != null || !(joins.root() instanceof Root<?> from) || hasToManyJoin(from)
+                || TreatChecks.treated(this)) {
+            return unsplit;
+        }
+        var onRoot = new ArrayList<Filter>();
+        var semiJoined = new ArrayList<Filter>();
+        boolean toMany = false;
+        for (Filter term : where) {
+            JoinContext probe = scratch(List.of(term), joins);
+            toMany |= hasToManyJoin(probe.root());
+            // A root term as a key-first write tells one (R-WRT-11): no join, and no exists(...) sub-query.
+            (probe.root().getJoins().isEmpty() && !probe.renderedExists() ? onRoot : semiJoined).add(term);
+        }
+        if (!toMany || (!having.isEmpty() && hasToManyJoin(scratch(having, joins).root()))) {
+            return unsplit;
+        }
+        return new WhereSplit(List.copyOf(onRoot), List.copyOf(semiJoined));
+    }
+
+    /**
+     * {@code terms} rendered as one {@code EXISTS} over a second root of the entity correlated by entity equality,
+     * so a root comes once however many children match (R-EXE-16, R-WRT-10). The root's other terms stay on the
+     * statement: {@code C(root) AND EXISTS(r2 = r AND rest)} chooses the rows {@code EXISTS(r2 = r AND C AND rest)}
+     * does (D-181). The statement binds what the sub-query rendered, once.
+     */
+    private Predicate semiJoin(List<Filter> terms, CriteriaQuery<Tuple> query, JoinContext joins) {
+        CriteriaBuilder cb = joins.cb();
+        Subquery<Integer> sub = query.subquery(Integer.class);
+        Root<E> inner = sub.from(root.rootEntity());
+        JoinContext innerJoins = JoinContext.readOf(inner, cb, sub, joins.renderOptions());
+        var restrictions = new ArrayList<Predicate>();
+        // Entity equality, not key columns: a read need not declare a primary key, and an embedded id compares whole.
+        restrictions.add(cb.equal(inner, joins.root()));
+        restrictions.addAll(ConditionGroup.toPredicates(terms, innerJoins));
+        sub.select(cb.literal(1)).where(restrictions.toArray(Predicate[]::new));
+        joins.adoptForeignKeyReads(innerJoins);
+        joins.addSubqueryBinds(innerJoins);
+        return cb.exists(sub);
+    }
+
+    /** {@code clause} rendered over a second root, as {@link #semiJoin} renders it, in a throwaway statement. */
+    private JoinContext scratch(List<Filter> clause, JoinContext joins) {
+        CriteriaBuilder cb = joins.cb();
+        Subquery<Integer> scratch = cb.createQuery().subquery(Integer.class);
+        JoinContext probe = JoinContext.readOf(scratch.from(root.rootEntity()), cb, scratch, joins.renderOptions());
+        ConditionGroup.toPredicates(clause, probe);
+        return probe;
     }
 
     /**
@@ -709,7 +785,8 @@ public final class ModelQuery<E, K, M> {
      * column that is only selected or ordered is absent, since resolving it could narrow the root to its subtype: the
      * path of each column a model or order field reads, an expression's and a window's included, is joined when it
      * holds an {@code INNER} join, and otherwise only up to its first treated node. The count is distinct when a
-     * predicate's to-many join repeats a root, and counts rows when a selected column is read through a to-many join,
+     * to-many join no selected column reads repeats a root (a customizer's, or one R-EXE-16 leaves in the statement),
+     * and counts rows when a selected column is read through a to-many join,
      * as {@code list} returns it (R-EXE-04). The customizer runs on it as on
      * {@code MODEL}, before the count replaces its selection. Only for an ungrouped query over an entity root.
      */
