@@ -69,6 +69,7 @@ nav:
       - Grouped queries: grouped-queries.md
       - Fetch plans: fetch-plans.md
       - Paging and export: paging-export.md
+      - Hot paths: performance.md
   - Writing data:
       - Bulk writes: bulk-writes.md
       - Inserts: inserts.md
