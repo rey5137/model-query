@@ -5,7 +5,9 @@ import com.rey.modelquery.core.OperatorFeature;
 import java.util.List;
 import org.hibernate.boot.model.FunctionContributions;
 import org.hibernate.boot.model.FunctionContributor;
+import org.hibernate.dialect.H2Dialect;
 import org.hibernate.dialect.PostgreSQLDialect;
+import org.hibernate.dialect.function.array.ElementViaArrayArgumentReturnTypeResolver;
 import org.hibernate.query.sqm.function.SqmFunctionRegistry;
 import org.hibernate.type.StandardBasicTypes;
 
@@ -35,11 +37,22 @@ public final class HibernateOperatorFunctions implements FunctionContributor {
      */
     static final String TS_MATCH = "mq_ts_match";
 
+    /**
+     * {@code Agg.firstBy}'s function: the first element of an ordered {@code array_agg}, registered on PostgreSQL
+     * ({@code (?1)[1]}) and H2 ({@code ?1[1]}) only. Hibernate's {@code array_get} renders {@code array_agg(...)[?]}
+     * without the parentheses PostgreSQL needs, and on H2 aggregates twice (spike B.1).
+     */
+    static final String FIRST_ELEMENT = "mq_first_element";
+
     @Override
     public void contributeFunctions(FunctionContributions contributions) {
+        if (contributions.getDialect() instanceof H2Dialect) {
+            registerFirstElement(contributions, "?1[1]");
+        }
         if (!(contributions.getDialect() instanceof PostgreSQLDialect)) {
             return;
         }
+        registerFirstElement(contributions, "(?1)[1]");
         // Each parenthesised so the operator binds as one predicate wherever Hibernate places the call.
         register(contributions, REGEX_MATCH, "(?1 ~ ?2)");
         // Not Hibernate's array_includes / array_overlaps: it registers those on H2 too, where they fail or emulate.
@@ -48,6 +61,14 @@ public final class HibernateOperatorFunctions implements FunctionContributor {
         register(contributions, JSONB_CONTAINS, "(?1 @> cast(?2 as jsonb))");
         // plainto_tsquery reads the text as words, never as tsquery syntax (D-173).
         register(contributions, TS_MATCH, "(to_tsvector(?1, ?2) @@ plainto_tsquery(?1, ?3))", 3);
+    }
+
+    /** Typed as the array's element by Hibernate's own resolver, so a converted element reads through its converter. */
+    private static void registerFirstElement(FunctionContributions contributions, String pattern) {
+        contributions.getFunctionRegistry().patternDescriptorBuilder(FIRST_ELEMENT, pattern)
+                .setExactArgumentCount(1)
+                .setReturnTypeResolver(ElementViaArrayArgumentReturnTypeResolver.DEFAULT_INSTANCE)
+                .register();
     }
 
     private static void register(FunctionContributions contributions, String name, String pattern) {

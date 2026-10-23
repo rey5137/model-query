@@ -38,6 +38,11 @@ public final class Agg {
     public static <M, C extends Comparable<? super C>> AggregateField<M, C> min(ExpressionField<M, C> expression);
     public static <M, C extends Comparable<? super C>> AggregateField<M, C> max(ExpressionField<M, C> expression);
 
+    // the value on the first row of each group in the given order, the root's id appended (R-AGG-16)
+    @SafeVarargs
+    public static <M, C> AggregateField<M, C> firstBy(ScalarField<M, C> value, OrderField<M, ?> order,
+                                                      OrderField<M, ?>... more);
+
     public static <M, C> AggregateField<M, C> of(String name, Class<C> type,
                                                 BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression);
 }
@@ -72,6 +77,7 @@ a `ClassCastException` when a row is read. `Agg.of` is for aggregate expressions
 | `avg` | any numeric | `Double` |
 | `avgExact` | `BigDecimal` / `Long` / `Integer` / `Short` | `BigDecimal` — exact (R-AGG-18) |
 | `min` / `max` | any comparable | same type |
+| `firstBy` | any column or expression | the value's own type, its converter applied (R-AGG-16); NULL for a group with no row |
 
 *(was R16)* Checked by the processor for generated models (`processor/32`) and at build time for hand-written ones.
 `Agg.sum` accepts `BigDecimal`, `Double` and `Long` columns; `Agg.sumAsLong` accepts `Integer`, `Short`, `Long` and
@@ -162,6 +168,24 @@ selects a whole-entity to-one (the D-124 form) throws `MQ1410` before any statem
 foreign key while the select lists every column of the entity (PostgreSQL refuses it). The id form (`api/10` R-COL-29)
 stays allowed as a group key; `@GroupBy` on the whole-entity form is `MQ3028` at compile time.
 
+**R-AGG-16** *(D-185, `@Incubating`)* **The first value in a group.** `Agg.firstBy(value, order, more...)` returns an
+`AggregateField<M, C>` of the value's own type (R-AGG-03): the `value` of the first row of each group in the order
+given, `NULL` for a group with no row. The engine appends the root's id ascending after the caller's keys (every id
+component, by attribute name, as R-COL-32 does for `Correlated.first`), so ties pick the same row on every vendor; the
+id is appended for an entity root only. Null precedence follows R-COL-12, so say `nullsFirst()` or `nullsLast()`.
+The value is read, not compared: its `ColumnConverter` (if any) is applied to the result as for any column read, with
+no converter restriction. Equality and `hashCode` include the orders, so two `firstBy` over one value in different
+orders are two fields (give them an `as(...)` name, since both render the same default name). An order key that is
+itself an aggregate or window field, and a value or order key read through a to-many join (the root's id does not
+break ties among the joined rows, so the pick would not be deterministic), throw `MQ1412`. A correlated sub-query
+as the value or as an order key is `MQ1510`, as for any aggregate (R-COL-33). Rendering goes through
+`AggregateRenderer#firstBy` (R-VND-30): `array_agg(v order by k, id)[1]` (parenthesised on PostgreSQL), which
+Hibernate renders through its own function pattern called with no result type. The vendor's fact is checked first:
+`VendorProfile#aggregates(AggregateFeature.FIRST_BY)` is true on PostgreSQL and H2 and false on MySQL and `OTHER`,
+and false is `MQ4015` naming the feature, the vendor and the field, before any statement; then a provider without the
+renderer is `MQ4014`. There is no MySQL emulation; the portable route (a ranked source filtered on `rank = 1`, joined)
+is a different statement shape the author chooses (RFC 0020 Part B).
+
 **R-AGG-17** *(D-185, D-186, `@Incubating`)* **Filtered aggregates.** `AggregateField#filter(UnaryOperator<Filters<M>>)`
 returns a new immutable field (INV-9) that aggregates only the rows its condition matches: `Agg.sum(amount).filter(f ->
 f.eq(kind, "refund"))`. It works on `count`, `countDistinct`, `sum`, `sumAsLong`, `avg`, `min` and `max`, over a column
@@ -176,7 +200,10 @@ the database has it and its own CASE emulation elsewhere. With no such hook the 
 `fn(case when c then x end)` (a count passes the argument the unfiltered count uses); the two forms give equal rows on
 every vendor. `MQ1412` when the field is already filtered (combine the conditions in one `filter`), when it comes from
 `Agg.of` (the engine cannot place a condition inside an opaque expression), when the condition leaves no filter, when
-it reads a correlated value (thrown by `filter`), when a filtered `count(table)` has an embedded or composite id with no usable first id attribute (the filtered count counts that id attribute), or when the condition adds a to-many join (thrown when the query is built): a to-many join already in the statement, such as the argument's own, is the aggregated rows' own and is allowed, and `Filters.exists(path, inner)` filters on a to-many without joining it.
+it reads a correlated value (thrown by `filter`), when a filtered `count(table)` has an embedded or composite id with no usable first id attribute (the filtered count counts that id attribute), or when the condition adds a to-many join (thrown when the query is built): a to-many join already in the statement, such as the argument's own, is the aggregated rows' own and is allowed, and `Filters.exists(path, inner)` filters on a to-many without joining it. A filtered `firstBy` is the exception to the CASE
+form: `array_agg` keeps NULLs, so the CASE form would yield a NULL element where `FILTER` skips the row. It needs the
+native `FILTER` (`AggregateRenderer#firstBy` taking the condition); a provider without it is `MQ4014`, and a vendor
+without `FIRST_BY` is `MQ4015` first.
 
 **R-AGG-18** *(D-185, `@Incubating`)* **Exact average and rounding.** `Agg.avgExact(ColumnField)` and
 `Agg.avgExact(ExpressionField)` return an `AggregateField<M, BigDecimal>` for a `BigDecimal`, `Long`, `Integer` or
@@ -242,6 +269,8 @@ generated `GROUP_KEYS` `SelectSet`, and `QProductSales.query()` comes pre-config
 | AC-AGG-15 | For a query grouped by an expression key: `list`, `count` and grouped export visit every group once on every Tier-1 vendor, and on PostgreSQL that holds with a key that binds a value, ordered by it with and without explicit null precedence, with and without `model-query-hibernate`; a selected expression over group-key columns only is accepted; a selected expression reading another column throws `MQ1401`; an expression that only contains a group-key expression throws `MQ1401`; an order key that does not fit throws `MQ1406`; `groupBy(SelectSet)` holding an expression builds (R-AGG-14, R-AGG-05, R-AGG-08, R-COL-19). |
 | AC-AGG-16 | A runtime `groupBy(ScalarField...)` or `groupBy(SelectSet)` over one of a model's `@GroupBy` fields selects that key and an aggregate and leaves the other `@GroupBy` fields unselected, reading `null`, with the groups and sums the rows hold, on every Tier-1 vendor (R-AGG-05, R-PROC-16). |
 | AC-AGG-17 | A runtime `groupBy` over a whole-entity to-one column throws `MQ1410` before any statement; over the id form it groups (R-AGG-15). |
+| AC-AGG-18 | `firstBy` returns the same value on PostgreSQL and H2 under ties and NULL keys, with `nullsFirst` and `nullsLast`; a converted value is read through its converter; a group with no row is NULL; a filtered `firstBy` uses the native `FILTER`, skipping a first row that fails the filter; a value read through a to-many join is `MQ1412`; a provider whose renderer lacks the filtered form refuses it with `MQ4014` (R-AGG-16, R-AGG-17). |
+| AC-AGG-19 | `firstBy` on a vendor that answers `false` for `FIRST_BY` (MySQL) is `MQ4015` before any statement, ahead of the provider's `MQ4014`; `PortabilityCheck` reports it per target (R-AGG-16, R-VND-29). |
 | AC-AGG-20 | On every Tier-1 vendor and both Hibernate lines, a filtered `count`, `countDistinct`, `sum`, `sumAsLong`, `avg`, `min` and `max` equals the hand-written `Expr.cases` form; a filter through an optional to-one with NULL foreign keys resolves `LEFT` and drops no row from the statement (R-AGG-17, R-FLT-10). |
 | AC-AGG-21 | `filter` on an `Agg.of` field, a second `filter`, a condition that leaves no filter, one that reads a correlated value, and one that adds a to-many join each throw `MQ1412`; with no aggregate renderer the engine's CASE form runs (R-AGG-17, R-VND-30). |
 | AC-AGG-22 | A filtered aggregate in `having` keeps the groups over the threshold on every vendor; two equal filtered fields are one selection and different conditions are two (R-AGG-17, R-AGG-06). |

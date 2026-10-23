@@ -175,6 +175,15 @@ CREATE TABLE sample_values (
     big_value   BIGINT NOT NULL,
     dec_value   DECIMAL(12,3) NOT NULL
 );
+-- Rows a first-by picks from (TCK AC-AGG-18): per grp the order key k holds ties and NULLs, v is the value read, and
+-- state the same value stored as a letter a converter maps.
+CREATE TABLE first_by_rows (
+    id    BIGINT NOT NULL PRIMARY KEY,
+    grp   INT NOT NULL,
+    k     INT NULL,
+    v     VARCHAR(10) @COLLATE@ NULL,
+    state VARCHAR(1) @COLLATE@ NULL
+);
 -- The counter a conflict setExpression increments (TCK AC-WRT-44): next_value is the value of the row the insert
 -- added, then the stored value plus one on each further insert of the same key; empty in the seed.
 CREATE TABLE counter_rows (

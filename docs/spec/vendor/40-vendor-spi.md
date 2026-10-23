@@ -587,7 +587,9 @@ fact, no SQL (R-VND-11, INV-6).
 the database serves an aggregate feature. `AggregateFeature` (`@Incubating`, in `core`, as `OperatorFeature`) has one
 constant, `FIRST_BY` (`api/13` R-AGG-16), `true` on PostgreSQL and H2, `false` on MySQL and `OTHER`. The executor folds
 the answers into an immutable `AggregateGate` carried by `RenderOptions`, as `OperatorGate` does for R-VND-23, so
-`core` sees no profile; nothing consumes `FIRST_BY` until `firstBy` ships.
+`core` sees no profile. An `Agg.firstBy` (`api/13` R-AGG-16) asks the gate first: false is `MQ4015` naming `FIRST_BY`,
+the vendor and the field, before any statement and ahead of the provider's `MQ4014`. `checkPhases`' scratch build
+serves the feature with a renderer returning a NULL literal, as it does for operators (D-169).
 
 **R-VND-30** *(D-185, `@Incubating`)* `ProviderSupport#nullSafeEquality()` is an `@Incubating` default method returning
 an empty `Optional<NullSafeEqualityRenderer>` (`@EngineFacing @Incubating core.NullSafeEqualityRenderer`, with
@@ -610,7 +612,15 @@ R-AGG-19) and returns `cb.count(current)`, the identity count, so a provider wit
 default: it is slower than `count(t.id)` on PostgreSQL's page total (D-185). Its `@Incubating` default
 `exactAverage(cb, argument)` renders `Agg.avgExact` (`api/13` R-AGG-18) and throws `MQ4014`, since standard Criteria
 types `avg` as `Double` and has no exact form; `model-query-hibernate` renders `sum(x) / count(x)` typed `BigDecimal`,
-casting an integer input with `HibernateCriteriaBuilder#cast` first.
+casting an integer input with `HibernateCriteriaBuilder#cast` first. Its `@Incubating` default
+`firstBy(cb, value, orders)` renders `Agg.firstBy` (`api/13` R-AGG-16), the value of the first row in `orders`, the
+root's id already appended, and throws `MQ4014`; its overload taking a `Predicate` is the native `FILTER (WHERE ...)`
+form and throws `MQ4014` by default, as does the default `filtered` for `Kind.FIRST_BY`, since the CASE form would
+yield a NULL element where `FILTER` skips the row. `model-query-hibernate` renders
+`HibernateCriteriaBuilder#arrayAgg` with the whole order (the first key as its `JpaOrder`, the rest, the id among them,
+on its within-group order), then its own `mq_first_element` function pattern, `(?1)[1]` on PostgreSQL and `?1[1]` on
+H2, called with no result type so Hibernate types the result as the array's element and applies its converter; the
+pattern is not registered on other dialects.
 
 ## 2. Detection
 

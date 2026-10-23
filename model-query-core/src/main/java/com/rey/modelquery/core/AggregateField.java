@@ -4,10 +4,16 @@ import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.From;
+import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.Order;
+import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import jakarta.persistence.metamodel.EntityType;
+import jakarta.persistence.metamodel.PluralAttribute;
 import jakarta.persistence.metamodel.SingularAttribute;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -48,6 +54,8 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         AVG_EXACT("avgExact"),
         /** An {@code Agg.round} over another aggregate, which is its {@code inner}. */
         ROUND("round"),
+        /** The first row's value in the aggregate's order, from {@link AggregateRenderer#firstBy}. */
+        FIRST_BY("firstBy"),
         MIN("min"),
         MAX("max"),
         OF(null);
@@ -87,33 +95,43 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
     private final List<Filter> filters;
     /** The {@link #filter} condition's structure, which equality compares; empty when unfiltered (R-AGG-17). */
     private final List<Condition> conditions;
+    /** The keys a {@link Kind#FIRST_BY} picks its row by; empty for any other kind. */
+    private final List<OrderField<?, ?>> orders;
     private final int hash;
 
     AggregateField(Kind kind, JoinKey source, String attribute, String alias, Class<C> type,
             ColumnField<?, ?, C> converted, ExpressionField<?, ?> sourceExpression,
             BiFunction<JoinContext, CriteriaBuilder, Expression<?>> argument) {
         this(kind, source, attribute, alias, type, converted, sourceExpression, null, argument, null, List.of(),
-                List.of(), null, 0);
+                List.of(), null, 0, List.of());
     }
 
     /** An {@link Agg#of} aggregate, whose expression is the caller's. */
     static <M, C> AggregateField<M, C> custom(String name, Class<C> type,
             BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
         return new AggregateField<>(Kind.OF, null, name, "", type, null, null, null, null, expression, List.of(),
-                List.of(), null, 0);
+                List.of(), null, 0, List.of());
     }
 
     /** An {@link Agg#round} aggregate: {@code inner} rounded to {@code scale} decimals. */
     static <M> AggregateField<M, BigDecimal> rounding(AggregateField<M, BigDecimal> inner, int scale) {
         return new AggregateField<>(Kind.ROUND, null, "", "", BigDecimal.class, null, null, null, null, null,
-                List.of(), List.of(), inner, scale);
+                List.of(), List.of(), inner, scale, List.of());
+    }
+
+    /** An {@link Agg#firstBy} aggregate: the value of {@code argument} on the first row in {@code orders}. */
+    static <M, C> AggregateField<M, C> first(JoinKey source, String attribute, Class<C> type,
+            ColumnField<?, ?, C> converted, ExpressionField<?, ?> sourceExpression,
+            BiFunction<JoinContext, CriteriaBuilder, Expression<?>> argument, List<OrderField<?, ?>> orders) {
+        return new AggregateField<>(Kind.FIRST_BY, source, attribute, "", type, converted, sourceExpression, null,
+                argument, null, List.of(), List.of(), null, 0, List.copyOf(orders));
     }
 
     private AggregateField(Kind kind, JoinKey source, String attribute, String alias, Class<C> type,
             ColumnField<?, ?, C> converted, ExpressionField<?, ?> sourceExpression, String property,
             BiFunction<JoinContext, CriteriaBuilder, Expression<?>> argument,
             BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression, List<Filter> filters,
-            List<Condition> conditions, AggregateField<?, ?> inner, int scale) {
+            List<Condition> conditions, AggregateField<?, ?> inner, int scale, List<OrderField<?, ?>> orders) {
         this.kind = kind;
         this.inner = inner;
         this.scale = scale;
@@ -128,8 +146,9 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         this.expression = expression;
         this.filters = filters;
         this.conditions = conditions;
+        this.orders = orders;
         this.hash = Objects.hash(kind, source, attribute, alias, converterClass(), sourceExpression, conditions, inner,
-                scale);
+                scale, orders);
     }
 
     /**
@@ -138,7 +157,7 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
      */
     public AggregateField<M, C> as(String alias) {
         return new AggregateField<>(kind, source, attribute, Objects.requireNonNull(alias, "alias"), type, converted,
-                sourceExpression, property, argument, expression, filters, conditions, inner, scale);
+                sourceExpression, property, argument, expression, filters, conditions, inner, scale, orders);
     }
 
     /**
@@ -179,7 +198,7 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
             }
         }
         return new AggregateField<>(kind, source, attribute, alias, type, converted, sourceExpression, property,
-                argument, expression, List.copyOf(recorded), List.copyOf(structure), inner, scale);
+                argument, expression, List.copyOf(recorded), List.copyOf(structure), inner, scale, orders);
     }
 
     private static ModelQueryDefinitionException refused(String message) {
@@ -193,7 +212,8 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
      */
     public AggregateField<M, C> named(String property) {
         return new AggregateField<>(kind, source, attribute, alias, type, converted, sourceExpression,
-                Objects.requireNonNull(property, "property"), argument, expression, filters, conditions, inner, scale);
+                Objects.requireNonNull(property, "property"), argument, expression, filters, conditions, inner, scale,
+                orders);
     }
 
     /** The name given to {@link #named}; empty with none. */
@@ -253,6 +273,9 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         if (kind == Kind.ROUND) {
             return (Expression<C>) cb.round((Expression<BigDecimal>) inner.expression(ctx), scale);
         }
+        if (kind == Kind.FIRST_BY) {
+            return (Expression<C>) firstBy(ctx);
+        }
         Expression<?> value = argument.apply(ctx, cb);
         AggregateRenderer renderer = ctx.renderOptions().aggregateRenderer().orElse(AggregateRenderer.DEFAULT);
         if (kind == Kind.AVG_EXACT) {
@@ -276,6 +299,68 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         }
         Predicate condition = filterCondition(ctx);
         return (Expression<C>) renderer.filtered(cb, kind, counted, condition);
+    }
+
+    /**
+     * The first value in {@link #orders}, with the root's id appended ascending (R-AGG-16): the vendor's fact first,
+     * {@code MQ4015}, then the provider's renderer, {@code MQ4014} by default (R-VND-23). The root's id is appended
+     * for an entity root only, as a source root has no id to break ties by.
+     */
+    private Expression<?> firstBy(JoinContext ctx) {
+        CriteriaBuilder cb = ctx.cb();
+        AggregateGate gate = ctx.renderOptions().aggregateGate().orElseThrow(() ->
+                new ModelQueryConfigurationException(MqCode.MQ4014, this + " requires "
+                        + AggregateFeature.FIRST_BY + ", and this rendering has no aggregate gate to tell whether "
+                        + "the vendor serves it"));
+        if (!gate.vendorServes(AggregateFeature.FIRST_BY)) {
+            throw new ModelQueryConfigurationException(MqCode.MQ4015, this + " requires " + AggregateFeature.FIRST_BY
+                    + ", which " + gate.vendor() + " lacks (VendorProfile#aggregates)");
+        }
+        int joined = ctx.toManyJoins().size();
+        Expression<?> value = argument.apply(ctx, cb);
+        var keys = new ArrayList<Order>();
+        for (OrderField<?, ?> order : orders) {
+            keys.addAll(order.toOrders(ctx, cb));
+        }
+        if (ctx.root() instanceof Root<?> root && root.getModel() instanceof EntityType<?>) {
+            SubqueryOrders.appendId(root, cb, keys);
+        }
+        Join<?, ?> toMany = toManyJoin(value);
+        for (int i = 0; toMany == null && i < keys.size(); i++) {
+            toMany = toManyJoin(keys.get(i).getExpression());
+        }
+        if (toMany == null && ctx.toManyJoins().size() > joined) {
+            toMany = ctx.toManyJoins().get(joined);
+        }
+        if (toMany != null) {
+            throw refused(this + ": the value or an order key is read through the to-many join "
+                    + toMany.getAttribute().getName() + ", where the root's id does not break ties among the joined "
+                    + "rows, so the first row would not be deterministic; read it from a to-one path");
+        }
+        AggregateRenderer renderer = ctx.renderOptions().aggregateRenderer().orElse(AggregateRenderer.DEFAULT);
+        return conditions.isEmpty() ? renderer.firstBy(cb, value, keys)
+                : renderer.firstBy(cb, value, keys, filterCondition(ctx));
+    }
+
+    /** The first to-many join on {@code expression}'s path, or {@code null}. */
+    private static Join<?, ?> toManyJoin(Expression<?> expression) {
+        Path<?> path = expression instanceof Path<?> own ? own : null;
+        while (path != null) {
+            if (path instanceof Join<?, ?> join) {
+                if (join.getAttribute() instanceof PluralAttribute<?, ?, ?>) {
+                    return join;
+                }
+                path = join.getParent();
+            } else {
+                path = path.getParentPath();
+            }
+        }
+        return null;
+    }
+
+    /** The keys this {@link Kind#FIRST_BY} picks its row by, in order; empty for any other aggregate. */
+    List<OrderField<?, ?>> orders() {
+        return orders;
     }
 
     /** The {@link #filter} condition as one predicate; LEFT-joined, and refused when it adds a to-many join. */
@@ -334,7 +419,8 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
             // Only declares the result type, which is the point of sumAsLong.
             case SUM_AS_LONG -> cb.sumAsLong((Expression<Integer>) argument);
             case AVG -> cb.avg((Expression) argument);
-            case AVG_EXACT, ROUND -> throw new IllegalArgumentException(kind.function + " has no standard form");
+            case AVG_EXACT, ROUND, FIRST_BY ->
+                    throw new IllegalArgumentException(kind.function + " has no standard form");
             case MIN -> cb.least((Expression) argument);
             case MAX -> cb.greatest((Expression) argument);
             case OF -> throw new IllegalArgumentException("Agg.of has no argument");
@@ -363,6 +449,7 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         } else {
             vocabulary.table(source, attribute);
         }
+        orders.forEach(order -> vocabulary.field(order.column()));
         conditions.forEach(vocabulary::condition);
     }
 
@@ -374,6 +461,7 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         checks.table(source, Optional.of(attribute));
         checks.field(converted);
         checks.field(sourceExpression);
+        orders.forEach(order -> checks.field(order.column()));
         checks.leftJoining(() -> conditions.forEach(checks::condition));
     }
 
@@ -405,7 +493,8 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
                 && Objects.equals(sourceExpression, other.sourceExpression)
                 && conditions.equals(other.conditions)
                 && Objects.equals(inner, other.inner)
-                && scale == other.scale;
+                && scale == other.scale
+                && orders.equals(other.orders);
     }
 
     @Override
