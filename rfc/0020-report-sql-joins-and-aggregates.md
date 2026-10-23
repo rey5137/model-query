@@ -23,8 +23,8 @@
     `AggregateRenderer` over `HibernateCriteriaBuilder`'s `arrayAgg`, filtered aggregates and `round`.
   - **`api/13`, `engine/20`, `api/10`:** new R-AGG-19, a count of a row's identity renders `count(*)` (Part F);
     R-EXE-05's page total and `api/10`'s `count(root.<id>)` sentence follow it; new AC-AGG-27 to AC-AGG-29.
-  - **`reference/90`:** `MQ1910`, `MQ1411`, `MQ1412` (engine); `MQ1903`, `MQ4014` and `MQ4015` rows widened; `MQ3045`
-    widened (Part B).
+  - **`reference/90`:** new `MQ1910`, `MQ1411`, `MQ1412` (engine) and `MQ3045` (processor, Parts B to D); `MQ1903`, `MQ4014` and
+    `MQ4015` rows widened.
   - **`docs/site`:** the sources page (joining a source), the aggregates page (first-by, filter, exact average), the
     filters page (null-safe equality), each runnable snippet in both tabs (CC-DOC-01).
 - **Discussion:** to open
@@ -134,7 +134,8 @@ public static final ColumnField<UnreconciledDay, BigDecimal, BigDecimal> SALES_C
 - **`Agg.count` over a joined source.** `Agg.count(table)` renders `count(1)` for any source table (`Agg.java:50-54`),
   so an unmatched row of a `LEFT`-joined source would count 1. Over a `LEFT`-joined source it renders
   `count(x.mq_<first key field>)` (a NULL key never matches the `on` `=`, so an unmatched row counts 0); over an
-  `INNER` one it is the row count (Part F).
+  `INNER` one it is the row count (Part F). The kind comes from the `SourceJoin`; the `Join#getParent()` walk of F.1
+  applies to entity joins only.
 - `ModelQuery.Builder#joinSource(SourceJoin<M, S>, SourceQuery<S>)` binds the `SourceQuery` to the definition. A
   `SourceJoin` whose pairs do not cover the source's key, or a second binding of one join, is `MQ1910` when the query
   is built. Every builder copy (`withFetch`, `orderedBy`, …) carries the bindings, as it carries a source today.
@@ -146,11 +147,13 @@ public static final ColumnField<UnreconciledDay, BigDecimal, BigDecimal> SALES_C
 
 ```java
 // SourceRenderer, @EngineFacing @Incubating; default throws MQ4014 ("joined sources")
-default From<?, Tuple> join(From<?, ?> outer, CteHandle source, JoinType type);
+default From<?, Tuple> join(From<?, ?> outer, CteHandle source, JoinType type,
+        Function<From<?, Tuple>, Predicate> on);
 ```
 
-The engine then adds the `on` predicates with `Join#on` over standard Criteria, so the key comparison stays in
-`core`. SQL, every vendor:
+The engine builds the key predicate in `core` over standard Criteria; the provider applies it to the new join, once
+per statement. `core` never calls `Join#on` itself, since the type the provider holds is not always a `Join` (A.5).
+SQL, every vendor:
 
 ```sql
 with sales as (select s.business_date mq_businessDate, sum(s.cash_total) mq_cash from sale s group by s.business_date)
@@ -181,8 +184,11 @@ H2, PostgreSQL and MySQL, `false` on `OTHER`, which is `MQ4015` before any state
 provider without the `join` hook is `MQ4014`. LATERAL stays out (D-145): the join is keyed, not correlated.
 
 **A.5 Hibernate.** Both lines expose `JpaFrom#join(JpaCteCriteria<X>, SqmJoinType)` and
-`JpaFrom#join(Subquery<X>, SqmJoinType)` (checked with `javap` on 6.6.58 and 7.4.11), and `JpaJoinedFrom#on`. The
-spike confirms the rendered SQL on all three vendors, the `on` over a to-one path, and a joined CTE inside a
+`JpaFrom#join(Subquery<X>, SqmJoinType)` (checked with `javap` on 6.6.58 and 7.4.11), but the return type differs. On
+7.4.11 `JpaJoinedFrom` does not exist and the CTE overload returns `JpaJoin`. On 6.6.58 it returns `JpaJoinedFrom`,
+which extends only `JpaFrom` and is not a `jakarta.persistence.criteria.Join`. So the renderer applies `on` through
+whichever type its line returns (`JpaJoin#on` or `JpaJoinedFrom#on`), and the hook returns a plain `From`. The spike
+checks the derived-table overload's return type the same way, and confirms the rendered SQL on all three vendors, the `on` over a to-one path, and a joined CTE inside a
 statement that already has the root's own CTEs.
 
 ### Part B — the first value in a group (R-AGG-16)
@@ -203,7 +209,7 @@ public static final AggregateField<CategorySales, String> TOP_ITEM =
 - **Result type** is the value's own type. The value is read, not compared, so its converter (if any) is applied to
   the result as for any column read; no converter restriction. A group with no row is NULL.
 - **`orderBy` keys** in `@Aggregate` are model fields of the aggregated root; an unknown or malformed key is
-  `MQ3045` (its row widened). A `firstBy` whose value is read through a to-many join is `MQ1412`: the root id does
+  `MQ3045`. A `firstBy` whose value is read through a to-many join is `MQ1412`: the root id does
   not break ties among the joined rows, so the pick would not be deterministic.
 - **Rendering**, through `AggregateRenderer#firstBy(cb, value, orders)` (R-VND-30):
 
@@ -249,10 +255,12 @@ public static final AggregateField<DaySummary, BigDecimal> REFUNDS =
   renderer receives the aggregate's kind and its argument expression and can place the predicate. Hibernate renders
   `sum(x) filter (where …)` where its dialect supports the clause (PostgreSQL, H2) and its own CASE emulation elsewhere
   (MySQL). With no renderer the engine renders the CASE form itself in standard Criteria: `fn(case when cond then x
-  end)`, and `count(case when cond then 1 end)` for a row count. The two are equal for `count`, `countDistinct`, `sum`,
+  end)`, and `count(case when cond then <argument> end)` for a count, the argument being the one the unfiltered count
+  uses (F.2). The two are equal for `count`, `countDistinct`, `sum`,
   `avg`, `min` and `max`, since every one ignores NULL inputs. `firstBy` is not: `array_agg` keeps NULLs, so a CASE
-  yields a NULL element where `FILTER` skips the row. A filtered `firstBy` needs the native `FILTER` (`FIRST_BY` vendors
-  only); a provider without `filtered` is `MQ4015` for it. Every other aggregate has no refusal and no vendor fact:
+  yields a NULL element where `FILTER` skips the row. A filtered `firstBy` needs the native `FILTER`: the default
+  `filtered` refuses `Kind.FIRST_BY` with `MQ4014`, since its CASE form is the wrong form for it, and a vendor without
+  `FIRST_BY` is `MQ4015` first. Every other aggregate has no refusal and no vendor fact:
   every target runs it, and the provider only improves the SQL's shape (INV-6: no vendor branch in `core`).
 - **`having` over a filtered aggregate** works as over any aggregate (R-AGG-06).
 - **Hibernate.** Both lines have `count`, `sum` and `avg` overloads taking a `JpaPredicate`, and
@@ -269,14 +277,16 @@ public static <M> ExpressionField<M, BigDecimal> round(ScalarField<M, BigDecimal
 ```
 
 - **Input.** `BigDecimal`, `Long`, `Integer` and `Short` columns or expressions. A `Double` or `Float` is `MQ1411`
-  when the factory is called (D-25's reason), since its average is inexact on every vendor; a converted column is
+  when the factory is called (D-25's reason), since its average is inexact on every vendor, and so is an integer type
+  no candidate passes (below); a converted column is
   `MQ1408`, as for `avg`.
 - **Annotation.** `@Aggregate(fn = AVG)` on a `BigDecimal` component is the exact average, rather than `MQ3205`;
-  `@Aggregate(scale = n)` rounds it. `scale` on a non-`BigDecimal` field is `MQ3045`. The Java type already names the
+  `@Aggregate(scale = n)` rounds it. `scale` on a non-`BigDecimal` field is `MQ3045`, and so is an `AVG` field over an
+  input type the factory refuses with `MQ1411`. The Java type already names the
   intent, so no new `AggregateFunction` constant.
 - **Integer inputs.** `sum(x) / count(x)` is integer division on PostgreSQL and H2 `bigint`, and H2 may return DOUBLE
-  for `AVG(INTEGER)`. Default: an input type is `MQ4014` (refused) until a candidate passes for it on every Tier-1
-  vendor; the spike adds per-input-type argument casts (D.1) and only a passing type is allowed.
+  for `AVG(INTEGER)`. Default: an input type is `MQ1411` (refused when the factory is called, a type rule) until a candidate
+  passes for it on every Tier-1 vendor; the spike adds per-input-type argument casts (D.1) and only a passing type is allowed.
 - **Rounding** is half away from zero on PostgreSQL `numeric`, MySQL `DECIMAL` and H2 `NUMERIC`, so `round` takes a
   `BigDecimal` only. A `Double` round differs (MySQL rounds approximate values to even), so it doesn't compile. A
   negative `scale` or one over the bound is `MQ1411`. The bound is the smallest Tier-1 maximum the spike confirms
@@ -322,9 +332,7 @@ public <C> Filters<M> distinctFromColumn(ScalarField<M, C> column, ScalarField<M
   `IS NOT DISTINCT FROM` cannot. The spike compares it with Hibernate's `notDistinctFrom` (PostgreSQL and H2
   `is not distinct from`, MySQL `<=>`), on rows with exactly one side NULL and with each form inside `not(...)`, and
   records whether the extra `is not null` keeps the index plan; if the native form wins on a vendor, it moves behind a
-  provider hook with this form as its fallback, with no API change. An `exists` correlation or a `Correlated` key over
-  a nullable column may use this form as an option the user picks; existing correlations keep their SQL, so Parts A
-  to E change no snapshot.
+  provider hook with this form as its fallback, with no API change. Existing correlations keep their SQL, so Parts A to E change no snapshot.
 - **Converted columns.** The value is converted as `eq`'s is (R-FLT-06); two operands need the same converter, else
   `MQ1001` (R-COL-14), as any column comparison.
 - **Why built in, not a custom operator (RFC 0017).** An operator's value is always a bound parameter its renderer
@@ -361,6 +369,8 @@ one, with no treated node, counting the `From`'s own id, in a statement without 
   `JoinType.INNER`; it is not `ctx.root`, since a `rootedAt(join)` context (`JoinContext.java:217`; a fetch-plan
   `through`, R-FCH-14) has a `LEFT` join as its root.
 - "No treated node on the chain" (R-COL-35, R-EXE-16's wording).
+- A joined Part A source is classified by its `SourceJoin` kind, not by this walk: `INNER` renders the row count,
+  `LEFT` renders `count(x.mq_<first key field>)`. The `Join#getParent()` walk applies to entity joins only.
 - The rule tests the counted `From`'s own id attribute. A foreign-key read on the root (a join-free FK read, Q-20
   open) never qualifies.
 - A statement with a customizer keeps `count(t.id)`: the customizer runs after the selection is built and could add a
@@ -379,11 +389,15 @@ already does; how `count(root)` renders before and after on the three vendors is
 **F.2 Rendering.** Standard Criteria has no row count; `cb.count(cb.literal(1))` renders `count(1)`, which sources
 already use. `HibernateCriteriaBuilder#count()` renders `count(*)` on both lines (it exists from 6.4). So
 `AggregateRenderer` (R-VND-30) gains `rowCount(cb)`, whose default is `cb.count(cb.literal(1))`; the Hibernate renderer
-returns `count()`. Neither Hibernate line has `count(JpaPredicate)` for a row count, so what a filtered row count
-renders (`count(*) filter (where c)` or `count(1) filter (where c)`) is a spike F.1 cell; default whichever renders;
-in the CASE form it is `count(case when c then 1 end)`. The field's name, key and result type (`Long`) are unchanged,
+returns `count()`. A filtered count passes `filtered` the argument the unfiltered count would use: `cb.literal(1)` only
+when the R-AGG-19 eligibility holds, else the counted `From`'s id (for a LEFT-joined Part A source,
+`x.mq_<first key field>`). The CASE form is `count(case when c then <argument> end)`. A literal `1` for an ineligible
+count is wrong: `Agg.count(REFUND_LINES).filter(f -> f.eq(STATUS, OPEN))` over a LEFT join would report 5 for a group of
+5 open sales with no refunds, where the unfiltered count's argument gives 0. Neither Hibernate line has an
+argument-less `count(JpaPredicate)`, so an eligible filtered count renders `count(1) filter (where c)`. The field's name, key and result type (`Long`) are unchanged,
 and equality (R-AGG-01) is too, except for the generated `@Aggregate(fn = COUNT)` site: the processor now emits
-`Agg.count(column)` in place of `Agg.of(...)`, so that field's kind changes (R-AGG-01 equality and inspection).
+`Agg.count(column).named(...)` in place of `Agg.of(...)`, keeping today's field name (`field.constant()`,
+`QModelWriter.java:731-733`), so the only change is the field's kind and equality (R-AGG-01 and inspection).
 
 **F.3 Correctness.** Each eligible site counts a primary key that is non-null on every row the statement produces
 (an inner chain yields no row without a match), so `count(*)` and `count(t.id)` are equal row for row, grouped or not,
@@ -397,7 +411,7 @@ customizer's joins cannot change the count. The spike checks equal rows on every
   `OTHER`. False is `MQ4015`, naming the feature, the vendor and the field, before any statement.
 - **`ProviderSupport#aggregates()`** (R-VND-30) returns an `Optional<AggregateRenderer>`, empty by default. The
   `@EngineFacing @Incubating core.AggregateRenderer` has `firstBy`, `filtered` and `exactAverage`; `firstBy` and
-  `exactAverage` default to `MQ4014`, and `filtered` defaults to the engine's CASE form. The executor folds the vendor
+  `exactAverage` default to `MQ4014`, and `filtered` defaults to the engine's CASE form and refuses `Kind.FIRST_BY` with `MQ4014`. The executor folds the vendor
   answers into an immutable gate carried by `RenderOptions`, as R-VND-23 does for operators, so `core` sees no profile
   (INV-6, INV-7). `PortabilityCheck` reports `MQ4014` and `MQ4015` per declared target, with no database.
 - **`SourceRenderer#join`** (Part A), default `MQ4014`.
@@ -421,7 +435,8 @@ movements, with and without an index on the sale's business-date column.
    PostgreSQL, `EXPLAIN ANALYZE` on MySQL, `EXPLAIN` on H2, and medians of 7 alternating runs. Records whether
    PostgreSQL inlines the CTE, whether MySQL merges or materializes it, and whether PostgreSQL removes an unreferenced
    LEFT join in the count.
-2. **A.2 Rendering.** `JpaFrom#join(JpaCteCriteria, SqmJoinType)` with `on` over a to-one path, `LEFT` and `INNER`, on
+2. **A.2 Rendering.** The `join` hook over `JpaFrom#join(JpaCteCriteria, SqmJoinType)` (its return type on each line),
+   with `on` over a to-one path, `LEFT` and `INNER`, on
    every statement kind of R-SRC-12's list; two joined sources, and two joins of one source model; `Agg.count` over a
    LEFT-joined unmatched source; a joined source over a source; an outer `where` and an order on a joined column; a
    joined CTE next to a root CTE. The SQL and the rows per vendor and line.
@@ -445,7 +460,9 @@ movements, with and without an index on the sale's business-date column.
 7. **F.1 Row count.** RFC 0019's grouped read (cell `A.1/grouped`) and a page total over the sales lines, as
    `count(s1_0.id)`, `count(1)` and `count(*)`: medians of 7 alternating runs, `EXPLAIN (ANALYZE, BUFFERS)` on
    PostgreSQL, rows on all three vendors; the SQL `HibernateCriteriaBuilder#count()` renders on each line, alone and
-   with a `JpaPredicate` filter (and which of `count(*) filter` or `count(1) filter` renders); a composite-id
+   with a `JpaPredicate` filter (`count(1) filter`); a filtered `Agg.count` over a LEFT-joined table and over a
+   LEFT-joined source with unmatched rows; a `Correlated` count over the sub-select root's id, including an outer row
+   with zero matches; a composite-id
    `count(root)` before and after on all three vendors; an inner-joined and a LEFT-joined `Agg.count(table)` side by
    side (equal and unequal rows respectively); and the list of committed SQL snapshots that would change.
 8. **Line parity.** The probe module compiles and behaves the same on 6.6 and 7.4.
@@ -465,7 +482,7 @@ movements, with and without an index on the sale's business-date column.
 | R-PROC-45 | `@Aggregate`'s `orderBy`, `filter`, `scale`; `AVG` typed `BigDecimal` |
 | R-VND-29 | `VendorProfile#aggregates(AggregateFeature)` |
 | R-VND-30 | `ProviderSupport#aggregates()`, `AggregateRenderer` (with `rowCount`); `SourceRenderer#join` |
-| R-AGG-19 | A count of the identity of a criteria root or INNER chain from one, untreated, in a statement without a customizer, renders the row count |
+| R-AGG-19 | A count of the identity of a criteria root or INNER chain from one, untreated, in a statement without a customizer, renders the row count; a joined source is classified by its `SourceJoin` kind (`INNER` the row count, `LEFT` its first key field) |
 
 | AC | Asserts |
 |---|---|
@@ -475,29 +492,29 @@ movements, with and without an index on the sale's business-date column.
 | AC-SRC-45 | `MQ3044`: partial key, extra pair, type mismatch, non-unique source; `MQ1910` for the hand-written forms |
 | AC-SRC-46 | `MQ1903` for a lock, `MQ3039` for a child model that joins a source, `MQ3035` unchanged |
 | AC-SRC-47 | `OTHER` target: `MQ4015` before any statement; `PortabilityCheck` reports it |
-| AC-AGG-18 | `firstBy` returns the same value on PostgreSQL and H2 under ties and NULL keys; a filtered `firstBy` uses native `FILTER`, else `MQ4015` |
+| AC-AGG-18 | `firstBy` returns the same value on PostgreSQL and H2 under ties and NULL keys; a filtered `firstBy` uses native `FILTER`; a provider whose `filtered` is the default refuses it with `MQ4014` |
 | AC-AGG-19 | `firstBy` on MySQL is `MQ4015` before any statement; `PortabilityCheck` reports it |
 | AC-AGG-20 | A filtered `sum`/`count`/`avg`/`min`/`max`/`countDistinct` equals its CASE form on every vendor; a LEFT filter join drops no row |
 | AC-AGG-21 | Without a renderer the engine's CASE form runs; a filter reading an aggregate, or on `Agg.of`, is `MQ1412` |
 | AC-AGG-22 | A filtered aggregate in `having`; equality of two filtered fields |
 | AC-AGG-23 | `avgExact` over `numeric(12,2)` returns the database's exact `BigDecimal` on every vendor; zero rows NULL |
-| AC-AGG-24 | `avgExact` over a `Double` column, a bad `scale`: `MQ1411` |
+| AC-AGG-24 | `avgExact` over a `Double` column or an integer type no candidate passes, a bad `scale`: `MQ1411` |
 | AC-AGG-25 | `round` half away from zero on every vendor, aggregate and row-level |
 | AC-AGG-26 | Generated: `@Aggregate(fn = AVG) BigDecimal`, `scale`, `filter`, `FIRST_BY` with `orderBy`; `MQ3045` cases |
 | AC-FLT-37 | `notDistinctFrom(col, null)` renders `is null`; a non-null value renders `= and is not null`; `distinctFrom` both ways, also inside `not(...)` with a NULL column |
 | AC-FLT-38 | Two operands match NULL to NULL, and one-sided NULL is distinct, on every vendor, in `where`, under `not(...)` and in a correlated `exists` |
 | AC-FLT-39 | An empty `Optional` still skips; inspection records the operator |
-| AC-AGG-27 | `Agg.count(table)` over the root and over an inner-joined table renders `count(*)` and returns `count(t.id)`'s rows, grouped and ungrouped, on every vendor and line |
+| AC-AGG-27 | `Agg.count(table)` over the root and over an inner-joined table renders `count(*)` and returns `count(t.id)`'s rows, grouped and ungrouped, on every vendor and line; a `Correlated` count over the sub-select root's id renders `count(*)` and equals today's rows, including an outer row with zero matches |
 | AC-AGG-28 | A LEFT-joined or treated table, a `rootedAt` LEFT root, a statement with a customizer, an FK read, `countDistinct`, the page total's dedup and a non-id column keep their SQL |
-| AC-AGG-29 | The page total, a filtered row count (FILTER and CASE form) and a provider without `rowCount` (`count(1)`) |
+| AC-AGG-29 | The page total, a filtered row count (FILTER and CASE form) and a provider without `rowCount` (`count(1)`); a filtered count over a LEFT-joined table and over a LEFT-joined source with unmatched rows counts 0 for them, as the unfiltered count does |
 
 | Code | Meaning |
 |---|---|
 | `MQ1910` | A hand-written `SourceJoin` whose pairs miss the source's key, over a non-unique source, or bound twice |
-| `MQ1411` | `avgExact` over an inexact column; a `round` scale below 0 or above the confirmed bound (default 30) |
+| `MQ1411` | `avgExact` over an inexact column or an integer type no candidate passes; a `round` scale below 0 or above the confirmed bound (default 30) |
 | `MQ1412` | An aggregate filter that reads an aggregate, window or correlated value, sits on `Agg.of`, repeats, is on a rounded aggregate or reads a to-many path; a `firstBy` value read through a to-many join |
 | `MQ3044` | A `@JoinSource` whose `on` misses or exceeds the source key, mismatches a type, names an unknown field or a non-unique source; a `@SourceColumn` naming an unknown join or field |
-| `MQ3045` | `orderBy` without `FIRST_BY` or `FIRST_BY` without it; an unknown or malformed `orderBy` key; `filter` naming a class that is not a `FilterDefinition`; `scale` on a non-`BigDecimal` field |
+| `MQ3045` | `orderBy` without `FIRST_BY` or `FIRST_BY` without it; an unknown or malformed `orderBy` key; `filter` naming a class that is not a `FilterDefinition`; `scale` on a non-`BigDecimal` field; an `AVG` field over an input type `avgExact` refuses |
 | `MQ1903`, `MQ3039`, `MQ4014`, `MQ4015` | Widened as above; meanings unchanged |
 
 Each new code was checked unused in `reference/90` and `processor/32` when this draft was written.
@@ -511,8 +528,8 @@ gain default methods only, so a third-party profile or provider fails safe (`fal
 committed SQL snapshot. Part F changes rendered SQL but no result: every snapshot with an eligible `count(t.id)` becomes
 `count(*)` (on the Hibernate provider; `count(1)` on a provider without `rowCount`), about 100 files today, regenerated
 in one slice and listed by the spike. A test or tool that matches the SQL text sees the change; the changelog says so.
-The generated code for `@Aggregate(fn = COUNT)` changes: it emits `Agg.count(column)` in place of `Agg.of(...)`, so that
-field's kind changes (R-AGG-01 equality and inspection), and F.2's "equality unchanged" excludes it. Everything new is
+The generated code for `@Aggregate(fn = COUNT)` changes: it emits `Agg.count(column).named(field.constant())` in place of `Agg.of(...)`, so the
+name stays and only the field's kind and equality change (R-AGG-01 and inspection), and F.2's "equality unchanged" excludes it. Everything new is
 `@Incubating`; the freeze review decides each piece.
 
 ## Alternatives
@@ -537,20 +554,23 @@ field's kind changes (R-AGG-01 equality and inspection), and F.2's "equality unc
 - **Null-safe equality as a catalogue operator** (RFC 0017). It cannot resolve a null value at add time, and the
   native SQL is unindexed on PostgreSQL (Part E).
 
-## Unresolved questions
+## Resolutions to record
 
-Only what the spike measures; each has its default:
+No question stays open. Each resolution below is recorded in the acceptance D-n; where the spike decides it, the item
+says what the spike confirms.
 
-1. **A:** whether the CTE join plans as the derived-table join on PostgreSQL and MySQL (default: CTE everywhere).
-2. **B:** how Hibernate renders the array element read on PostgreSQL and H2 on each line, and whether the ranked-source
-   route covers LitePOS's two blocked methods at a comparable plan (default: ship `firstBy` as above).
-3. **D:** which exact-average candidate reads the database's exact value on all three vendors (default: candidate 2, per
-   input type; an input type with no passing candidate is refused, `MQ4014`).
-4. **E:** whether the OR form keeps its index on MySQL as it does on PostgreSQL (default: the OR form everywhere).
-5. **F:** whether `count(1)` costs what `count(*)` does on PostgreSQL (default: `count(*)` through `rowCount`, so the
-   answer only sets what a provider without the hook gets).
-6. **D:** H2's type for an integer `AVG` (default: refuse the input type, `MQ4014`, until a cast passes).
-7. **D:** MySQL's `DECIMAL` scale limit (default: 30, the `round` bound until the spike confirms more).
-8. **F:** the SQL of a filtered row count, `count(*) filter` or `count(1) filter` (default: whichever Hibernate
-   renders).
-9. **F:** how a composite-id `count(root)` renders before and after on each vendor (default: one identity, as today).
+1. **A:** the CTE everywhere. A derived table only behind the `join` hook, if the spike shows a plan regression on a
+   vendor; no API change either way.
+2. **B:** ship `firstBy`; document the ranked-source route. The spike records the array element read on PostgreSQL and
+   H2 on each line and the ranked-source plan against LitePOS's two blocked methods.
+3. **D:** the exact average uses candidate 2 (`sum(x) / count(x)`), with a per-input-type argument cast where one is
+   needed. A type no candidate passes (H2's integer `AVG` included) is refused with `MQ1411` (`MQ3045` in the
+   processor). The spike confirms which types pass.
+4. **E:** the OR form everywhere; the native form moves behind a hook only if MySQL loses the index.
+5. **F:** `count(1)` is fixed for a provider without `rowCount`, since standard Criteria has no `count(*)`; the spike
+   only records its cost.
+6. **D:** the `round` scale bound is fixed at 30; raising it later is additive.
+7. **F:** a filtered row count is `count(1) filter` (Hibernate has no argument-less `count(JpaPredicate)` on either
+   line), with the argument rule of F.2.
+8. **F:** an eligible composite id renders the row count; an ineligible one keeps today's SQL. The spike only records
+   it.
