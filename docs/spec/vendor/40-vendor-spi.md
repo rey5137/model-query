@@ -578,6 +578,19 @@ Without `model-query-hibernate` the answer is `false`: `jpa` reads no Hibernate 
 knowledge outside `ProviderSupport` (INV-7), so a factory inlining values with no `ProviderSupport` renders its
 filter values as the provider does.
 
+**R-VND-29** *(D-185, `@Incubating`)* `VendorProfile#nativeNullSafeEquality()` is an `@Incubating` default method
+returning `false`: whether the database runs its native null-safe equality as an index lookup where the portable `OR`
+form reads every NULL key (`api/12` R-FLT-29). `true` on MySQL and H2, `false` on PostgreSQL and `OTHER`. A database
+fact, no SQL (R-VND-11, INV-6).
+
+**R-VND-30** *(D-185, `@Incubating`)* `ProviderSupport#nullSafeEquality()` is an `@Incubating` default method returning
+an empty `Optional<NullSafeEqualityRenderer>` (`@EngineFacing @Incubating core.NullSafeEqualityRenderer`, with
+`notDistinctFrom(cb, a, b)` and `distinctFrom(cb, a, b)`). The executor folds it into `RenderOptions` only when the
+profile answers `nativeNullSafeEquality()` `true`, as it does `sequences` (R-VND-18); a vendor answering `true` with no
+hook, or a provider with the hook on a vendor answering `false`, renders the portable form, with no error.
+`model-query-hibernate` implements it with `HibernateCriteriaBuilder#notDistinctFrom` and `distinctFrom` on both lines;
+`jpa` imports no `org.hibernate` (INV-7).
+
 ## 2. Detection
 
 **R-VND-04** Resolution order:

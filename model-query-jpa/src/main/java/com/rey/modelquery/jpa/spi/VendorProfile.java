@@ -150,6 +150,18 @@ public interface VendorProfile {
     }
 
     /**
+     * Whether the database runs a native null-safe equality of two columns ({@code IS NOT DISTINCT FROM} or
+     * {@code <=>}) as an index lookup, where the portable {@code OR} form reads every NULL key (api/12 R-FLT-29,
+     * R-VND-29). {@code false}, the default, renders the portable form; {@code true} renders the native one when the
+     * provider has {@code ProviderSupport#nullSafeEquality}, and the portable one, silently, when it has not. A
+     * performance fact, no SQL (R-VND-11, INV-6).
+     */
+    @Incubating
+    default boolean nativeNullSafeEquality() {
+        return false;
+    }
+
+    /**
      * The deepest level a recursive source may reach on this database, the vendor's own recursion ceiling: a source
      * whose {@code maxDepth + 2} exceeds it is {@code MQ4015} before any statement (api/17 R-SRC-11, R-VND-22,
      * D-143). {@code Integer.MAX_VALUE}, the default, means the database sets no ceiling. A database fact, no SQL

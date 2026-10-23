@@ -80,6 +80,22 @@ class QueryInspectionTest {
     }
 
     @Test
+    void ac_flt_39_the_null_safe_operators_record_their_kind_column_and_value() {
+        String none = null;
+        List<Condition> where = conditions(f -> f
+                .notDistinctFrom(NAME, "a").distinctFrom(NAME, "b").notDistinctFrom(NAME, none)
+                .distinctFrom(NAME, none).notDistinctFromColumn(TOTAL, DISCOUNT).distinctFromColumn(TOTAL, DISCOUNT));
+
+        assertThat(where).extracting(Condition::kind).containsExactly(Kind.NOT_DISTINCT_FROM, Kind.DISTINCT_FROM,
+                Kind.NOT_DISTINCT_FROM, Kind.DISTINCT_FROM, Kind.NOT_DISTINCT_FROM_COLUMN,
+                Kind.DISTINCT_FROM_COLUMN);
+        assertThat(where).extracting(Condition::values).containsExactly(List.of("a"), List.of("b"), List.of(),
+                List.of(), List.of(), List.of());
+        assertThat(where.get(4).right()).contains(DISCOUNT);
+        assertThat(where.get(5).column()).contains(TOTAL);
+    }
+
+    @Test
     void ac_ins_01_each_filters_operator_records_its_kind_column_and_values() {
         List<Condition> where = conditions(f -> f
                 .eq(NAME, "a").ne(NAME, "b").gt(TOTAL, 1).gte(TOTAL, 2).lt(TOTAL, 3).lte(TOTAL, 4)
@@ -204,6 +220,8 @@ class QueryInspectionTest {
                 .notExists(sub, (s, outer) -> s.isNull(outer.column(NAME)))
                 .like(NAME, "c", LikeMode.EXACT).likeIgnoreCase(NAME, "d", LikeMode.EXACT).eqIgnoreCase(NAME, "e")
                 .isNull(NAME).isNotNull(NAME).compare(TOTAL, Op.EQ, DISCOUNT)
+                .notDistinctFrom(NAME, "k").distinctFrom(NAME, "l")
+                .notDistinctFromColumn(TOTAL, DISCOUNT).distinctFromColumn(TOTAL, DISCOUNT)
                 .or(a -> a.eq(NAME, "f").eq(NAME, "g"), b -> b.isNull(TOTAL)).not(g -> g.eq(NAME, "h"))
                 .exists(ITEMS).notExists(ITEMS, i -> i.eq(SKU, "i"))
                 .ofType(ROOT, Order.class).notOfType(ROOT, List.of(Order.class))

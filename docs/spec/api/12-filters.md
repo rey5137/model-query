@@ -14,6 +14,7 @@ What a built query records of its filters (`conditions()`, `add(label, …)`) is
 value has two overloads:
 
 - `(column, C value)` — the filter always applies; `null` throws `MQ1301`, because "no filter" must be explicit (P-3).
+  The one exception is `notDistinctFrom` / `distinctFrom` (R-FLT-29), where `null` is the value NULL.
   A predicate from `add(...)` that returns `null` throws `MQ1305` (D-24). A `Filters` used outside its own operator,
   or while a nested operator runs, throws `MQ1303` (D-23).
 - `(column, Optional<? extends C> value)` — `Optional.empty()` skips the filter, and no join is created for it.
@@ -33,6 +34,12 @@ public interface Filters<M> {
                                                        Optional<? extends C> fromInclusive,
                                                        Optional<? extends C> toExclusive);
     <C extends Comparable<? super C>> Filters<M> between(ScalarField<M, C> column, C fromInclusive, C toInclusive);
+
+    // Null-safe equality (R-FLT-29, @Incubating)
+    <C> Filters<M> notDistinctFrom(ScalarField<M, C> column, C value);     // null value: is null
+    <C> Filters<M> notDistinctFromColumn(ScalarField<M, C> column, ScalarField<M, C> other);
+    <C> Filters<M> distinctFrom(ScalarField<M, C> column, C value);
+    <C> Filters<M> distinctFromColumn(ScalarField<M, C> column, ScalarField<M, C> other);
 
     // Sets
     <C> Filters<M> in(ScalarField<M, C> column, Collection<? extends C> values);
@@ -108,7 +115,8 @@ rendered SQL at all (`api/10` AC-COL-07).
 means by "not X"; plain SQL `<>` drops NULL rows silently. For the strict SQL meaning, combine with `isNotNull(col)`.
 
 **R-FLT-05** `not(group)` is plain SQL `NOT (…)`, because three-valued logic over an arbitrary group cannot be
-rewritten portably. The Javadoc states that rows where the group is UNKNOWN are excluded.
+rewritten portably. The Javadoc states that rows where the group is UNKNOWN are excluded. `notDistinctFrom` and `distinctFrom` (R-FLT-29)
+are two-valued, so a NULL column does not make them UNKNOWN under `not`.
 
 ## 4. Strings
 
@@ -381,6 +389,29 @@ Equality with a NULL lifted value matches no row: correlated count is zero and e
   loses no row the filter keeps (D-157, D-158). `typeOf` and `ofType` alone make no treated statement
   (`api/10` R-COL-35).
 
+**R-FLT-29** *(D-185, `@Incubating`)* **Null-safe equality.** `notDistinctFrom(column, value)`,
+`notDistinctFromColumn(column, other)`, `distinctFrom(column, value)` and `distinctFromColumn(column, other)`, each
+value form with an `Optional` twin.
+
+- **Names.** A bare `notDistinctFrom(COL, null)` fits the `(ScalarField, C)` and the `Optional` overload alike, as
+  `eq(COL, null)` does, so the null literal is written `(String) null` (or any typed `null`); the column forms are
+  `...Column` so a `ScalarField` operand never competes with a value.
+- **A value operand resolves when the filter is added.** A non-null value renders `col = ? AND col IS NOT NULL`, a
+  `null` one `col IS NULL`; `distinctFrom` renders `col IS NULL OR col <> ?` and `col IS NOT NULL`. All four are
+  two-valued, so they stay correct under `not(...)` (R-FLT-05, INV-5), where `not(eq(...))` drops a NULL row. The §1
+  `MQ1301` rule and AC-FLT-02 do not apply to a `null` here; an empty `Optional` still skips (R-FLT-13). The value is
+  converted as `eq`'s is (R-FLT-06).
+- **Two operands** render the two-valued portable form
+  `(a = b AND a IS NOT NULL AND b IS NOT NULL) OR (a IS NULL AND b IS NULL)`, and `distinctFrom` its `NOT`. Columns
+  with different converters are `MQ1001` (R-COL-14), as `compare`.
+- **Native form.** Where `VendorProfile#nativeNullSafeEquality()` (R-VND-29) is `true` (MySQL, H2) and the provider has
+  `ProviderSupport#nullSafeEquality()` (R-VND-30), the two-operand form renders the database's own operator
+  (`<=>`, `IS NOT DISTINCT FROM`); PostgreSQL and a provider without the hook render the portable form, and a vendor
+  answering `true` with no hook is not an error. The value form is the same everywhere.
+- **Recorded.** `Condition.Kind#NOT_DISTINCT_FROM`, `#DISTINCT_FROM`, `#NOT_DISTINCT_FROM_COLUMN` and
+  `#DISTINCT_FROM_COLUMN` (`api/16`): `column` and the value as passed, none for a `null`, or `right` for the column
+  forms.
+
 ## 8. Custom operators
 
 **R-FLT-20** *(D-167, D-168, `@Incubating`)* **`FilterOperator` and `op`.** A `FilterOperator<C, V>` is a named,
@@ -464,7 +495,7 @@ collection means "none"; negation includes NULLs; `like` input is escaped; long 
 | ID | Criterion |
 |---|---|
 | AC-FLT-01 | Every operator behaves identically in value and `Optional` form on every Tier-1 vendor. |
-| AC-FLT-02 | A value-form filter with `null` throws `MQ1301` naming the column; an `add(...)` predicate returning `null` throws `MQ1305` (§1). |
+| AC-FLT-02 | A value-form filter with `null` throws `MQ1301` naming the column (but for `notDistinctFrom` and `distinctFrom`, AC-FLT-37); an `add(...)` predicate returning `null` throws `MQ1305` (§1). |
 | AC-FLT-03 | An `or` whose every branch was skipped disappears; the query returns the same rows as one without it (R-FLT-01). An `or(List.of())` renders `FALSE` and returns no rows (R-FLT-01, D-92). |
 | AC-FLT-04 | `exists(path, inner)` with every inner filter skipped is skipped; `exists(path)` still renders (R-FLT-01). |
 | AC-FLT-05 | `in(col, List.of())` returns no rows; `notIn(col, List.of())` returns every row (R-FLT-02). |
@@ -499,6 +530,9 @@ collection means "none"; negation includes NULLs; `like` input is escaped; long 
 | AC-FLT-34 | `eqIgnoreCase` and `likeIgnoreCase` on a column without a converter, and on any column with no `OperandBinder`, render today's SQL, `lower(col) = ?` and `lower(col) like ?` with the value lower-cased in Java (SQL snapshots unchanged), and under the default value handling never ask the binder for a parameter (under inline value handling the lowered value binds by R-FLT-08); without a binder a converted column keeps R-FLT-07's limitation (R-FLT-07, D-177). |
 | AC-FLT-35 | Under `hibernate.criteria.value_handling_mode=inline`, on both lines and Tier 1, with a `StatementInspector` that fails on a marker input value anywhere in the SQL text, a `between` bound, a function's argument and a later `in` element included, and classifies structural literals (`ESCAPE`, a discriminator, SQL `NULL`, a user's `cb.literal` or `Expr.constant`, a source branch's tag, a conflict arbiter's predicate) separately: the filter paths `comparison-eq`, `-ne`, `-gt`, `-ge`, `-lt`, `-le`, `comparison-range` (`between`), `filter-membership` (`in`, later elements and chunked `in` included), `eq-ignore-case`, `like`, `ignore-case`, `subquery-filter`, `converted-enum` and `converted-Boolean` each bind their value and return the rows they return under the default setting (R-FLT-08, `vendor/40` R-VND-28, D-177). So do the key paths (`byKeys-chunk`: `one(q, key)`, `byKeys` chunks and primary-key-first pages over a `UUID`, decimal, timestamp and converted key), the fetch-plan round keys (`fetch-key`), the keyset cursors after and before (`keyset-UUID`, and decimal, timestamp, binary and a composite primary key's equality-prefix cursors, AC-PAG-28) and the update paths (`update-assignment`: assigned values, a to-one written by id, a configured write assignment and the expected version check), which return the rows, or write the rows, the default setting does. With no operand binder a mapping-independent key, cursor or assigned value, a `byte[]` cursor, a to-one reference and a numeric or `java.time` expected version still bind, while a `UUID` or converted key, a `UUID` or timestamp cursor, a `UUID` assignment and a `java.sql.Timestamp` expected version are `MQ1502` before any statement, a keyset export's before its first page reaches the consumer, and a primary-key-first page's `UUID` keys and a `UUID` fetch-plan round key before the first statement even when no row matches. So do the write and source paths: a delete's filters and key selection (`delete-filter`) and an insert-select's source predicate (`insert-select-filter`) bind and delete or write the default setting's rows, while typed insert values and insert-select assignment columns keep binding (`typed-insert-binds`); a conflict update's `where` value binds on every insert statement, a chunked insert's included, and writes the default's rows, an `Expr.value` or an operator's value form in it staying `MQ1804`, and an arbiter predicate stays the literal a partial unique index matches (`conflict-condition`); a source's CTE body values, a chained source's inner and outer bodies and a recursive walk's seed included, bind on the statement registering it, a list's and a count's alike, and a keyset page over a set-operation feed binds its cursor, the computed branch tag by a class-typed parameter (a keyset refuses an expression key, `MQ1208`) and the id, while the branches' own tags stay structural (`source-keyset`). So does a filter-only to-many join's semi-join (`semi-join-filter`, `engine/20` R-EXE-16), whose values bind on the statement that keeps its sub-query. Each of the 23 audited paths (RFC 0018 §C.2) and the semi-join path names an existing covering test, which the inventory test checks. |
 | AC-FLT-36 | Under the setting with a test `ProviderSupport` answering `inlinesValues` `true` and serving no `OperandBinder`: a `String` filter binds as `?`, and an enum filter is `MQ1502` naming the filter and the column before any statement; under the default setting both run as today (R-FLT-08, R-FLT-21, `vendor/40` R-VND-28). |
+| AC-FLT-37 | `notDistinctFrom(col, (T) null)` renders `is null` and a non-null value `= ? and is not null`; `distinctFrom` renders both ways; each is two-valued, so under `not(...)` over a column with NULLs they return the rows the opposite operator returns, on every Tier-1 target and both lines (R-FLT-29). |
+| AC-FLT-38 | Two operands match NULL to NULL and treat a one-sided NULL as distinct, on every vendor, in `where`, under `not(...)` and in a correlated `exists`; MySQL and H2 render the native operator, PostgreSQL the portable form, and a provider without the hook, or a vendor without the fact, the portable form with no error (R-FLT-29, `vendor/40` R-VND-29, R-VND-30). |
+| AC-FLT-39 | An empty `Optional` still skips the null-safe filters and a null value throws no `MQ1301`; inspection records each operator with its value; a converter mismatch between two operands is `MQ1001` (R-FLT-29). |
 
 AC-FLT-15 includes compile-failure cases for a mismatched `C` and another model's lifted column, and cases for
 `MQ1309`, `MQ1310`, `MQ1311` (a path crossing a to-many join, checked at first resolution), `MQ1312` and `MQ1001`

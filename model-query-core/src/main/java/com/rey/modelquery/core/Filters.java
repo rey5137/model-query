@@ -14,7 +14,8 @@ import java.util.function.UnaryOperator;
  * Each method adds its filter to this builder and returns it, for chaining.
  *
  * <p>A method taking a value has two forms. The value form always applies, and a {@code null} value throws
- * {@code MQ1301}, because "no filter" must be explicit (P-3). The {@code Optional} form skips the filter when the
+ * {@code MQ1301} (but for {@link #notDistinctFrom} and {@link #distinctFrom}, where {@code null} is the value NULL),
+ * because "no filter" must be explicit (P-3). The {@code Optional} form skips the filter when the
  * value is empty, and a skipped filter joins nothing (R-FLT-03). Every value is a bind parameter (R-FLT-08).
  *
  * <p>Only {@link ScalarField}s (a {@link ColumnField} or an {@link ExpressionField}) are accepted, so an aggregate in
@@ -25,7 +26,7 @@ import java.util.function.UnaryOperator;
  * {@code exists} inner group) is valid only inside its own operator, and the enclosing one cannot be used while it
  * runs: add the nested filters to the {@code Filters} the operator receives. Either misuse throws {@code MQ1303}.
  *
- * @implSpec api/12 §1, R-FLT-01..08, R-FLT-10, R-FLT-11, R-FLT-13, R-FLT-14, R-FLT-28
+ * @implSpec api/12 §1, R-FLT-01..08, R-FLT-10, R-FLT-11, R-FLT-13, R-FLT-14, R-FLT-28, R-FLT-29
  */
 @Incubating
 public sealed interface Filters<M> permits FilterGroup {
@@ -41,6 +42,45 @@ public sealed interface Filters<M> permits FilterGroup {
 
     /** {@link #ne(ScalarField, Object)}, skipped when {@code value} is empty. */
     <C> Filters<M> ne(ScalarField<M, C> column, Optional<? extends C> value);
+
+    /**
+     * {@code column} equals {@code value}, a NULL column matching a {@code null} value (R-FLT-29). Unlike the other
+     * value forms a {@code null} here is a value, not {@code MQ1301}: it renders {@code column IS NULL}, and a
+     * non-null value {@code column = ? AND column IS NOT NULL}; write the null as {@code (String) null}, since a bare
+     * {@code null} fits the {@code Optional} overload too. Both are two-valued, so they hold under
+     * {@link #not} where {@code not(eq(...))} would drop a NULL row (R-FLT-05).
+     */
+    @Incubating
+    <C> Filters<M> notDistinctFrom(ScalarField<M, C> column, C value);
+
+    /** {@link #notDistinctFrom(ScalarField, Object)}, skipped when {@code value} is empty (R-FLT-13). */
+    @Incubating
+    <C> Filters<M> notDistinctFrom(ScalarField<M, C> column, Optional<? extends C> value);
+
+    /**
+     * {@code column} equals {@code other}, two NULLs matching. It renders the portable
+     * {@code (a = b AND a IS NOT NULL AND b IS NOT NULL) OR (a IS NULL AND b IS NULL)}, or the database's native
+     * {@code IS NOT DISTINCT FROM} where the vendor and the provider have it (R-FLT-29, R-VND-29, R-VND-30). The
+     * columns need the same converter, else {@code MQ1001}.
+     */
+    @Incubating
+    <C> Filters<M> notDistinctFromColumn(ScalarField<M, C> column, ScalarField<M, C> other);
+
+    /**
+     * {@code column} differs from {@code value}, a NULL column differing from a non-null one: {@code column IS NULL OR
+     * column <> ?}, or {@code column IS NOT NULL} for a {@code null} value. Two-valued, as
+     * {@link #notDistinctFrom(ScalarField, Object)}, and a {@code null} is a value, not {@code MQ1301} (R-FLT-29).
+     */
+    @Incubating
+    <C> Filters<M> distinctFrom(ScalarField<M, C> column, C value);
+
+    /** {@link #distinctFrom(ScalarField, Object)}, skipped when {@code value} is empty (R-FLT-13). */
+    @Incubating
+    <C> Filters<M> distinctFrom(ScalarField<M, C> column, Optional<? extends C> value);
+
+    /** The negation of {@link #notDistinctFromColumn}: two-valued, so it holds under {@link #not} (R-FLT-29). */
+    @Incubating
+    <C> Filters<M> distinctFromColumn(ScalarField<M, C> column, ScalarField<M, C> other);
 
     /** {@code column > value}. */
     <C extends Comparable<? super C>> Filters<M> gt(ScalarField<M, C> column, C value);

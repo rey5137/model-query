@@ -287,6 +287,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 .flatMap(support -> support.sequences(emf))
                 .map(options::withSequenceRenderer)
                 .orElse(options);
+        options = !profile.nativeNullSafeEquality() ? options : vendor.providerSupport()
+                .flatMap(ProviderSupport::nullSafeEquality)
+                .map(options::withNullSafeEqualityRenderer)
+                .orElse(options);
         options = vendor.providerSupport()
                 .flatMap(ProviderSupport::subqueries)
                 .map(options::withSubqueryRenderer)

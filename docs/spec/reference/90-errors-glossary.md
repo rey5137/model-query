@@ -53,7 +53,7 @@ aggregates, `MQ15xx` expressions (D-115), `MQ16xx` bulk writes, `MQ17xx` fetch p
 | `MQ1207` | `keyset()` with a `Float` or `Double` order or primary-key column | `api/11` R-QRY-13 |
 | `MQ1208` | `keyset()` with an expression order key, `Expr.typeOf` included, whose cursor and fingerprint are defined over attribute values | `api/11` R-QRY-16, `api/10` R-COL-36 |
 | `MQ1209` | A lock on a grouped query, which has no row to lock | `api/11` R-QRY-17 |
-| `MQ1301` | A value-form filter received `null`, or `add(label, …)` a null or blank label, or a `FilterOperator` a null or blank name | `api/12` §1, R-FLT-20 |
+| `MQ1301` | A value-form filter received `null` (not `notDistinctFrom` or `distinctFrom`, R-FLT-29), or `add(label, …)` a null or blank label, or a `FilterOperator` a null or blank name | `api/12` §1, R-FLT-20 |
 | `MQ1302` | A column or nested `exists(...)` path inside `exists(...)` is not on or below the given path | `api/12` R-FLT-11 |
 | `MQ1303` | A `Filters` or `Having` used after its operator returned, or while a nested operator runs | `api/12` §1, D-23 |
 | `MQ1304` | `exists(...)` given a root instead of a join path | `api/12` R-FLT-11 |

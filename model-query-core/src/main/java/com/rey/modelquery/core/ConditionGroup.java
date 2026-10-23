@@ -522,6 +522,67 @@ abstract class ConditionGroup<M, G> {
                 column + ": " + operation + "(...) under inline value handling", ctx.sink());
     }
 
+    // ---- null-safe equality (R-FLT-29)
+
+    /**
+     * {@code column} null-safely equal to {@code value}, or unequal when {@code negated}: a {@code null} value is the
+     * value NULL, resolved here. Both forms are two-valued, so they hold under {@code not} (R-FLT-05, INV-5).
+     */
+    final <C> G nullSafe(SelectField<M, C> column, C value, boolean negated) {
+        String operator = negated ? "distinctFrom" : "notDistinctFrom";
+        Kind kind = negated ? Kind.DISTINCT_FROM : Kind.NOT_DISTINCT_FROM;
+        if (value == null) {
+            guard(column, "column");
+            return record(Condition.of(kind, column, List.of()), ctx -> {
+                Expression<C> expression = column.expression(ctx);
+                return Optional.of(negated ? ctx.cb().isNotNull(expression) : ctx.cb().isNull(expression));
+            });
+        }
+        C v = bound(column, required(column, operator, value));
+        return record(Condition.of(kind, column, List.of(value)), ctx -> {
+            CriteriaBuilder cb = ctx.cb();
+            Expression<C> expression = column.expression(ctx);
+            Object operand = inlines(ctx) ? parameter(column, operator, ctx, expression, v) : v;
+            return Optional.of(negated
+                    ? cb.or(cb.notEqual(expression, operand), cb.isNull(expression))
+                    : cb.and(cb.equal(expression, operand), cb.isNotNull(expression)));
+        });
+    }
+
+    final <C> G nullSafe(SelectField<M, C> column, Optional<? extends C> value, boolean negated) {
+        return present(column, value) ? nullSafe(column, value.get(), negated) : self();
+    }
+
+    /** {@code left} null-safely equal to {@code right}, or unequal when {@code negated} (R-FLT-29). */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    final <C> G nullSafe(SelectField<M, C> left, SelectField<M, C> right, boolean negated) {
+        guard(left, "left");
+        guard(right, "right");
+        String operator = negated ? "distinctFrom" : "notDistinctFrom";
+        if ((converted(left) != null || converted(right) != null) && attributeType(left) != attributeType(right)) {
+            // As compare: the database compares attribute values, and no converter applies to a column (R-COL-14).
+            throw new ModelQueryDefinitionException(MqCode.MQ1001, String.format(
+                    "%s %s %s: the columns read attributes of type %s and %s, which a converter makes look alike; "
+                            + "compare columns of one attribute type", left, operator,
+                    right, attributeType(left).getSimpleName(), attributeType(right).getSimpleName()));
+        }
+        return record(Condition.nullSafe(negated ? Kind.DISTINCT_FROM_COLUMN : Kind.NOT_DISTINCT_FROM_COLUMN, left,
+                right), ctx -> {
+            CriteriaBuilder cb = ctx.cb();
+            Expression l = operand(left, ctx);
+            Expression r = operand(right, ctx);
+            var nativeForm = ctx.renderOptions().nullSafeEqualityRenderer();
+            if (nativeForm.isPresent()) {
+                var renderer = nativeForm.get();
+                return Optional.of(negated ? renderer.distinctFrom(cb, l, r) : renderer.notDistinctFrom(cb, l, r));
+            }
+            // Not a bare a = b OR (both null): exactly one NULL would make that NULL, and its negation would drop rows.
+            Predicate same = cb.or(cb.and(cb.equal(l, r), cb.isNotNull(l), cb.isNotNull(r)),
+                    cb.and(cb.isNull(l), cb.isNull(r)));
+            return Optional.of(negated ? cb.not(same) : same);
+        });
+    }
+
     // ---- nulls
 
     final G isNull(SelectField<M, ?> column) {

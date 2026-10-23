@@ -31,6 +31,8 @@ class TreatSitesTest {
             ColumnField.of(View.class, ROOT, "status", String.class);
     private static final ColumnField<View, Card, String> NUMBER =
             ColumnField.of(View.class, ROOT.treat(Card.class), "number", String.class);
+    private static final ColumnField<View, Card, String> NUMBER2 =
+            ColumnField.of(View.class, ROOT.treat(Card.class), "number", String.class);
 
     @Test
     void ac_vnd_17_each_read_keeps_its_statement_and_enclosing_uses() {
@@ -89,6 +91,40 @@ class TreatSitesTest {
                     .where(f -> f.not(n -> n.eq(NUMBER, "1"))).build();
             assertThat(sites(eq, shape, false)).containsExactly(
                     site(shape, true, TreatUse.PREDICATE, TreatUse.NEGATED));
+        }
+    }
+
+    @Test
+    void ac_vnd_17_null_safe_equality_sites_follow_the_sql_each_form_renders() {
+        for (var shape : List.of(StatementShape.CONTENT, StatementShape.COUNT)) {
+            var distinct = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID))
+                    .where(f -> f.distinctFrom(NUMBER, "1")).build();
+            assertThat(sites(distinct, shape, false)).containsExactly(
+                    site(shape, true, TreatUse.PREDICATE, TreatUse.NULL_TEST, TreatUse.DISJUNCTION));
+            var negatedDistinct = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID))
+                    .where(f -> f.not(n -> n.distinctFrom(NUMBER, "1"))).build();
+            var negatedNe = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID))
+                    .where(f -> f.not(n -> n.ne(NUMBER, "1"))).build();
+            assertThat(sites(negatedDistinct, shape, false)).isEqualTo(sites(negatedNe, shape, false))
+                    .containsExactly(site(shape, true, TreatUse.PREDICATE, TreatUse.NULL_TEST,
+                            TreatUse.DISJUNCTION, TreatUse.NEGATED));
+            var same = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID))
+                    .where(f -> f.notDistinctFrom(NUMBER, "1")).build();
+            assertThat(sites(same, shape, false)).containsExactly(
+                    site(shape, true, TreatUse.PREDICATE, TreatUse.NULL_TEST));
+            var sameNull = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID))
+                    .where(f -> f.notDistinctFrom(NUMBER, (String) null)).build();
+            var isNull = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID))
+                    .where(f -> f.isNull(NUMBER)).build();
+            assertThat(sites(sameNull, shape, false)).isEqualTo(sites(isNull, shape, false))
+                    .containsExactly(site(shape, true, TreatUse.NULL_TEST));
+            var distinctNull = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID))
+                    .where(f -> f.distinctFrom(NUMBER, (String) null)).build();
+            assertThat(sites(distinctNull, shape, false)).containsExactly(site(shape, true, TreatUse.NULL_TEST));
+            var column = ModelQuery.builder(ROOT, row -> new View()).select(SelectSet.of(ID))
+                    .where(f -> f.notDistinctFromColumn(NUMBER, NUMBER2).distinctFromColumn(NUMBER, NUMBER2)).build();
+            assertThat(sites(column, shape, false)).containsExactly(site(shape, true, TreatUse.PREDICATE,
+                    TreatUse.NULL_TEST, TreatUse.DISJUNCTION));
         }
     }
 
