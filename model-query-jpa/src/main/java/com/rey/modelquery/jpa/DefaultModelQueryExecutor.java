@@ -3957,7 +3957,9 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 LOG.log(System.Logger.Level.WARNING, "count over the grouped query on {0} runs it and counts its "
                         + "rows in memory, because the treat renderer refuses the count of its groups: {1} (R-EXE-03)",
                         rootEntity.getSimpleName(), counting.refusal().get());
-            } else if (built.recursionChecks().isEmpty()) {
+            } else if (built.recursionChecks().isEmpty() && !q.joinsSource()) {
+                // A query that joins a source, like one whose source carries checks, is counted here on every
+                // provider (D-192), so adding one would not help.
                 LOG.log(System.Logger.Level.WARNING, "count over the grouped query on {0} runs it and counts its "
                         + "rows in memory, because no ProviderSupport counts groups for this persistence provider; "
                         + "add model-query-hibernate for a count in the database (R-EXE-03)",
@@ -4059,13 +4061,16 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
         // reach, and with zero groups no row carries them (R-EXE-03, RFC 0014 §3). The provider support only builds
         // the count; it runs here, so the configured timeout applies (R-EXE-11).
         // A renderer that refuses the count of the groups (GROUPED_COUNT) has them counted client-side too (D-159).
-        Optional<CriteriaQuery<Long>> count = checks.isEmpty() && clientSide.isEmpty()
+        // So does a query that joins a source: Hibernate's createCountQuery() loses the joined CTE on 6.6 and on 7.4
+        // with H2 (D-192, R-SRC-22).
+        Optional<CriteriaQuery<Long>> count = checks.isEmpty() && clientSide.isEmpty() && !q.joinsSource()
                 ? vendor.providerSupport().flatMap(p -> p.countQuery(query))
                 : Optional.empty();
         Optional<String> notWindowed = count.isPresent() ? Optional.empty()
                 : Optional.of("COUNT counts the groups client-side: " + (clientSide.isPresent()
                         ? "the treat renderer refuses their count" : !checks.isEmpty()
-                        ? "the source carries checks" : "no ProviderSupport counts groups"));
+                        ? "the source carries checks" : q.joinsSource()
+                        ? "the query joins a source" : "no ProviderSupport counts groups"));
         return new Counting<>(built, count.orElse(null), count.isEmpty(), clientSide, notWindowed);
     }
 

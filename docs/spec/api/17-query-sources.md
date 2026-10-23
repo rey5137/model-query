@@ -14,7 +14,7 @@ check site, the grouped count and the composite node key — land with M26.1, as
 unique, completes AC-SRC-18 and AC-SRC-22 for every statement kind, and adds `R-SRC-15` and AC-SRC-17, AC-SRC-19,
 AC-SRC-20 and AC-SRC-23. A plain `recursive(...)` source keeps R-SRC-09's non-unique refusals. M32.6 adds `R-SRC-21`
 and `R-SRC-22` with AC-SRC-42 to AC-SRC-50 (D-185 Part A, D-187), and names the joined source in `R-SRC-08`,
-`R-SRC-11`, `R-SRC-12`, `R-SRC-14`, `R-SRC-15` and `R-SRC-18`; `@JoinSource` and `@SourceColumn` are `processor/30` R-PROC-44.
+`R-SRC-11`, `R-SRC-12`, `R-SRC-14`, `R-SRC-15` and `R-SRC-18`; `@JoinSource` and `@SourceColumn` are `processor/30` R-PROC-44. D-192 adds R-SRC-22's count over groups and AC-SRC-52.
 
 ---
 
@@ -629,6 +629,8 @@ returns, refuses a joined source with `MQ4014` and still renders every other sou
 - **Every statement.** The join is on every statement of R-SRC-12's list, even a `LEFT` join no filter reads, and on
   the root-id count of a query with a treated path and a `through` child load (R-SRC-15). Each statement binds the
   body's parameters once (`api/12` R-FLT-08, D-179).
+- **Count over groups.** A grouped query that joins a source counts its groups client-side on every provider, since
+  Hibernate's `createCountQuery()` loses the joined CTE on 6.6 and on 7.4 with H2 (`engine/20` R-EXE-03, D-192).
 - **Inlining.** Hibernate inlines a joined non-recursive CTE as a derived table on H2, which evaluates it once per
   outer row; an index on the join key keeps that usable on a test database. A recursive CTE is never inlined: H2, too,
   receives a joined walk's `with recursive`.
@@ -699,3 +701,4 @@ returns, refuses a joined source with `MQ4014` and still renders every other sou
 | AC-SRC-49 | Through a joined tree, `MQ2701`, `MQ2702` and `MQ2703` name the join on content, count, count over groups, offset, primary-key-first and keyset pages, both `one` calls, `byKeys`, every export, a stream, a fetch plan's parent read and a `through` child load; an unreached `LEFT` row still raises, an empty `INNER` read returns empty; `MQ2703` precedes `MQ2003`, `MQ2005` and `MQ2202`; `Agg.count` over the `LEFT` join is `0` for an unreached node (R-SRC-14, R-SRC-15, R-SRC-22). |
 | AC-SRC-50 | A grouped source over a `recursive(...)` walk, joined, aggregates levels 0 to `maxDepth` with its filter in the grouped body and raises `MQ2701` and `MQ2702`; a second walk is `MQ1910`; a joined tree over a composite node key is `MQ4015` on H2 and read on PostgreSQL and MySQL, and `PortabilityCheck` reports it and MySQL's `maxDepth` 999 ceiling per target (R-SRC-11, R-SRC-18, R-SRC-21). |
 | AC-SRC-51 | A hand-written `on(...)` pair whose source key field has a converter, or whose outer column and key differ in boxed attribute type (a converted outer column, `Long` against `Integer`), is `MQ1910` before any statement; `int` against `Integer` is accepted (R-SRC-21, D-191). |
+| AC-SRC-52 | `count` and a counted page of a grouped query that joins a source return the number of groups on every vendor and Hibernate line, counted client-side with no warning (R-SRC-22, `engine/20` R-EXE-03, D-192). |
