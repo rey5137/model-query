@@ -2924,6 +2924,30 @@ source model (through a raw type) is `MQ1910`. A column over a `SourceJoin.root(
 is `MQ1003`, raised at first resolution; the generated `query(...)` takes every joined source, so only hand-written
 code reaches it. → `api/17` R-SRC-08, R-SRC-14, R-SRC-15, R-SRC-18, R-SRC-21, R-SRC-22; D-185, D-147.
 
+**D-188 — `@Aggregate`'s `orderBy` keys are entity attribute paths; `scale` -1 is unset (M32.7, 2026-10-23).**
+`orderBy` is a `String[]` of `"path [asc|desc] [nulls first|nulls last]"`, each path a basic attribute of the
+aggregated root (a field of the source on a source-rooted model); an association or collection is `MQ3045`. `scale`
+defaults to `-1` for "not set" because `0` is a real scale, and is written `0` to `30`. `filter` names a core
+`@Incubating` `FilterDefinition<Model>`, built once as `@Aggregate(expression)` is (D-115). → `processor/30` R-PROC-45,
+`processor/32` `MQ3045`, AC-PROC-47, `api/13` AC-AGG-26.
+
+**D-189 — `@JoinSource` is repeatable; every misdeclaration is `MQ3044` (M32.7, 2026-10-23).** Two joins of one
+source need two declarations, so `@JoinSource` is repeatable through `@JoinSources`. An unknown `@SourceColumn` join
+or field, a join that misses or exceeds the key, and a nested `@Join` model that joins a source (its parent's statement
+would carry a join the nested model cannot bind) are `MQ3044`; a child model that joins a source is `MQ3039`, as one
+rooted at a source is. A `@SourceColumn` beside `@PrimaryKey` is `MQ3044` too: a model's key is the root's, and a
+`LEFT`-joined value can be `NULL` or shared, which breaks keyset paging and row dedup. So is one beside an annotation
+that makes the field no column (it would be silently ignored), and an `@On` key field with a converter (refused rather
+than comparing database-side types, INV-3). A `@SourceColumn` field is left out of `generateInserts` and
+`generateChanges`: it is no column of the root. → `processor/30` R-PROC-44, `processor/32` `MQ3039`, `MQ3044`,
+AC-PROC-46.
+
+**D-190 — A joined source's uniqueness is checked at build time, not by the processor (M32.7, 2026-10-23).** RFC 0020
+had `MQ3044` refuse a non-unique source at compile time. The generated `query(...)` takes the caller's `SourceQuery<S>`,
+so whether it is a set operation, or a plain `recursive(...)` against `tree(...)`, is known only when the query is
+built, where `MQ1910` (D-187) already refuses it before any statement. The compile-time check is narrowed to the join's
+pairs, types and names. → `processor/30` R-PROC-44, `api/17` AC-SRC-45.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

@@ -34,10 +34,11 @@ record ModelDefinition(
         TypeElement type, TypeElement root, String generatedName, boolean selectSets, boolean singleGroup,
         List<ModelField> fields, List<FilterColumnDefinition> filterColumns, Kind kind,
         boolean generateChanges, boolean generateInserts, Element origin, ModelDefinition source,
-        ModelDefinition shape) {
+        ModelDefinition shape, List<JoinSourceDefinition> joinSources) {
 
     ModelDefinition {
         fields = List.copyOf(fields);
+        joinSources = List.copyOf(joinSources);
         filterColumns = List.copyOf(filterColumns);
     }
 
@@ -171,7 +172,8 @@ record ModelDefinition(
      * since a column's path never crosses an association (R-GEN-19, R-PROC-19).
      */
     List<ModelField> writable() {
-        return fields.stream().filter(field -> field.column() && !field.primaryKey()).toList();
+        return fields.stream().filter(field -> field.column() && !field.primaryKey() && field.sourceColumn() == null)
+                .toList();
     }
 
     /** The {@code @Join} fields, in declaration order. */
@@ -284,12 +286,15 @@ record ModelDefinition(
      * @param depth whether the field carries {@code @Depth}, which makes the model recursive (R-PROC-37)
      * @param treat the subtype named by {@code @Column(treat)}, or {@code null} for none (R-PROC-41)
      * @param subtype whether the field carries {@code @Subtype} (R-PROC-43)
+     * @param sourceColumn what {@code @SourceColumn} says of the field, or {@code null} when it carries none; such a
+     *     field is a column over a joined source (R-PROC-44)
      */
     record ModelField(
             VariableElement element, boolean column, String attribute, String constant, boolean primaryKey,
             boolean excludedFromDefaults, TypeMirror converter, TypeMirror definition, JoinDefinition join,
             AggregateDefinition aggregate, WindowDefinition window, boolean groupBy, ChildDefinition child,
-            boolean selected, String discriminator, boolean depth, TypeMirror treat, boolean subtype) {
+            boolean selected, String discriminator, boolean depth, TypeMirror treat, boolean subtype,
+            SourceColumnDefinition sourceColumn) {
 
         String name() {
             return element.getSimpleName().toString();
@@ -314,6 +319,39 @@ record ModelDefinition(
             return discriminator != null;
         }
     }
+
+    /**
+     * A {@code @JoinSource} as written.
+     *
+     * @param name the join's name
+     * @param source the class named by {@code source}
+     * @param sourceModel the source model it reads, or {@code null} when the class is no {@code @SourceModel}
+     * @param kind {@code LEFT} or {@code INNER}
+     * @param on the key pairs, in order
+     */
+    record JoinSourceDefinition(
+            String name, TypeMirror source, ModelDefinition sourceModel, String kind, List<JoinOn> on) {
+
+        JoinSourceDefinition {
+            on = List.copyOf(on);
+        }
+    }
+
+    /**
+     * One {@code @JoinSource.On} pair.
+     *
+     * @param column the outer attribute path
+     * @param key the source's key field
+     */
+    record JoinOn(String column, String key) {}
+
+    /**
+     * A {@code @SourceColumn} as written.
+     *
+     * @param join the join's name
+     * @param field the source field's name
+     */
+    record SourceColumnDefinition(String join, String field) {}
 
     /** The {@code @Depth} fields, in declaration order: one in a valid recursive model (R-PROC-37). */
     List<ModelField> depths() {
@@ -361,8 +399,44 @@ record ModelDefinition(
      *     an aggregate over an expression
      * @param expression the class named by {@code expression}, or {@code null} for none
      * @param distinct whether {@code distinct = true} was written
+     * @param orderBy the entries written for {@code orderBy}, as written
+     * @param filter the class named by {@code filter}, or {@code null} for none
+     * @param scale the {@code scale} written, or {@code null} when it was left out
      */
-    record AggregateDefinition(String fn, String attribute, TypeMirror expression, boolean distinct) {}
+    record AggregateDefinition(String fn, String attribute, TypeMirror expression, boolean distinct,
+            List<String> orderBy, TypeMirror filter, Integer scale) {
+
+        AggregateDefinition {
+            orderBy = List.copyOf(orderBy);
+        }
+    }
+
+    /**
+     * One {@code FIRST_BY} order key, {@code "path [asc|desc] [nulls first|nulls last]"}.
+     *
+     * @param path the attribute path
+     * @param ascending whether the key sorts ascending
+     * @param nulls {@code "first"}, {@code "last"} or {@code ""} for the database's precedence
+     */
+    record AggregateOrder(String path, boolean ascending, String nulls) {
+
+        /** The key {@code entry} writes, or {@code null} when it is malformed. */
+        static AggregateOrder parse(String entry) {
+            String[] words = entry.trim().split("\\s+");
+            int at = 1;
+            boolean ascending = true;
+            if (at < words.length && (words[at].equalsIgnoreCase("asc") || words[at].equalsIgnoreCase("desc"))) {
+                ascending = words[at++].equalsIgnoreCase("asc");
+            }
+            String nulls = "";
+            if (at + 1 < words.length && words[at].equalsIgnoreCase("nulls")
+                    && (words[at + 1].equalsIgnoreCase("first") || words[at + 1].equalsIgnoreCase("last"))) {
+                nulls = words[at + 1].toLowerCase(java.util.Locale.ROOT);
+                at += 2;
+            }
+            return words[0].isEmpty() || at != words.length ? null : new AggregateOrder(words[0], ascending, nulls);
+        }
+    }
 
     /**
      * A {@code @Window} as written on its field.

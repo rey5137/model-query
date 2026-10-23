@@ -45,4 +45,30 @@ public @interface Aggregate {
      * @return {@code true} for a distinct aggregate
      */
     boolean distinct() default false;
+
+    /**
+     * For {@code FIRST_BY}: the keys the group is ordered by, each an attribute path of the root with an optional
+     * {@code asc} or {@code desc} and an optional {@code nulls first} or {@code nulls last}, such as
+     * {@code "qty desc nulls last"}. {@code FIRST_BY} needs it and no other function takes it (R-PROC-45).
+     *
+     * @return the order keys, or none
+     */
+    String[] orderBy() default {};
+
+    /**
+     * The class implementing {@code FilterDefinition<Model>} whose condition limits the rows the function reads, as
+     * {@code AggregateField#filter} does (R-AGG-17, R-PROC-45). It is declared as {@code Class<?>} for the reason
+     * {@link #expression()} is.
+     *
+     * @return the definition class, or {@code void.class} for none
+     */
+    Class<?> filter() default void.class;
+
+    /**
+     * The number of decimals a {@code BigDecimal} aggregate is rounded to, half away from zero, from 0 to 30
+     * (R-AGG-18). The field must be a {@code BigDecimal}.
+     *
+     * @return the scale; leave it out for no rounding
+     */
+    int scale() default -1;
 }

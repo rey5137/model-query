@@ -2,6 +2,9 @@ package com.rey.modelquery.processor;
 
 import com.rey.modelquery.processor.JoinedTable.JoinedColumn;
 import com.rey.modelquery.processor.ModelDefinition.AggregateDefinition;
+import com.rey.modelquery.processor.ModelDefinition.AggregateOrder;
+import com.rey.modelquery.processor.ModelDefinition.JoinOn;
+import com.rey.modelquery.processor.ModelDefinition.JoinSourceDefinition;
 import com.rey.modelquery.processor.ModelDefinition.JoinDefinition;
 import com.rey.modelquery.processor.ModelDefinition.ModelField;
 import com.rey.modelquery.processor.ModelDefinition.WindowDefinition;
@@ -64,6 +67,8 @@ final class QModelWriter {
     private static final ClassName ROW = ClassName.get(CORE, "Row");
     private static final ClassName MODEL_QUERY = ClassName.get(CORE, "ModelQuery");
     private static final ClassName SOURCE_QUERY = ClassName.get(CORE, "SourceQuery");
+    private static final ClassName SOURCE_JOIN = ClassName.get(CORE, "SourceJoin");
+    private static final ClassName JOIN_KIND = ClassName.get("com.rey.modelquery.annotations", "JoinKind");
     private static final ClassName MODEL_UPDATE = ClassName.get(CORE, "ModelUpdate");
     private static final ClassName MODEL_DELETE = ClassName.get(CORE, "ModelDelete");
     private static final ClassName CHANGES = ClassName.get(CORE, "Changes");
@@ -142,12 +147,24 @@ final class QModelWriter {
         }
         // A column is named after its field, so a sort names it as the model does (D-55).
         for (ModelField field : model.columns()) {
+            if (field.sourceColumn() != null) {
+                continue;
+            }
             type.addField(field.subtype() ? subtype(modelName, field.constant(), "ROOT", field.name(), field)
                     : model.readsSource()
                     ? overColumn(modelName, model, field)
                     : column(modelName, EntityMetamodel.treatedRoot(model.root(), field.treat()), field.constant(),
                             TreatTables.root(field.treat()), field.attribute(), field.type(), converter(model, field),
                             field.name()));
+        }
+        // A joined source's table comes before the columns read through it (R-SRC-21).
+        for (JoinSourceDefinition join : model.joinSources()) {
+            type.addField(sourceJoin(modelName, model, join));
+        }
+        for (ModelField field : model.columns()) {
+            if (field.sourceColumn() != null) {
+                type.addField(joinedColumn(modelName, model, field));
+            }
         }
         for (JoinedTable table : joined) {
             ClassName nested = generatedName(table.nested());
@@ -503,7 +520,17 @@ final class QModelWriter {
                 .returns(ParameterizedTypeName.get(
                         MODEL_QUERY.nestedClass("Builder"), entity, keyed ? keyType : TypeName.OBJECT, modelName));
         if (!model.readsSource()) {
-            return method.addStatement("return $T.builder(ROOT, MAPPER)$L$L", MODEL_QUERY, key, group).build();
+            // Each joined source is a parameter, in declaration order, so a query without its source doesn't compile
+            // (R-SRC-21).
+            var joins = new StringBuilder();
+            for (JoinSourceDefinition join : model.joinSources()) {
+                method.addParameter(ParameterizedTypeName.get(SOURCE_QUERY, ClassName.get(join.sourceModel().type())),
+                        join.name());
+                joins.append(".joinSource(").append(QueryModelReader.constantName(join.name())).append(", ")
+                        .append(join.name()).append(")");
+            }
+            return method.addStatement("return $T.builder(ROOT, MAPPER)$L$L$L", MODEL_QUERY, key, group, joins)
+                    .build();
         }
         return method.addParameter(ParameterizedTypeName.get(SOURCE_QUERY, entity), "source")
                 .addStatement("return $T.builder(ROOT, MAPPER, source)$L$L", MODEL_QUERY, key, group)
@@ -650,6 +677,11 @@ final class QModelWriter {
 
     private FieldSpec overColumn(ClassName modelName, ModelDefinition sourceModel, ModelField source,
             String constant, boolean named, boolean qualify) {
+        return overColumn(modelName, sourceModel, source, constant, named, qualify, CodeBlock.of("ROOT"));
+    }
+
+    private FieldSpec overColumn(ClassName modelName, ModelDefinition sourceModel, ModelField source,
+            String constant, boolean named, boolean qualify, CodeBlock root) {
         ClassName kind = ConverterType.ordered(types, converter(sourceModel, source))
                 ? ORDERED_COLUMN_FIELD : COLUMN_FIELD;
         ClassName sourceType = ClassName.get(sourceModel.type());
@@ -659,10 +691,45 @@ final class QModelWriter {
                         ParameterizedTypeName.get(qualify ? qualified(kind) : kind, modelName,
                                 qualify ? qualified(sourceType) : sourceType, qualify ? qualified(value) : value),
                         constant, CONSTANT)
-                .initializer("$T.over($T.class,$WROOT,$W$T.$L)$L", qualify ? qualified(COLUMN_FIELD) : COLUMN_FIELD,
-                        modelName, qualify ? qualified(sourceQModel) : sourceQModel, source.constant(),
+                .initializer("$T.over($T.class,$W$L,$W$T.$L)$L", qualify ? qualified(COLUMN_FIELD) : COLUMN_FIELD,
+                        modelName, root, qualify ? qualified(sourceQModel) : sourceQModel, source.constant(),
                         named ? CodeBlock.of(".named($S)", source.name()) : CodeBlock.of(""))
                 .build();
+    }
+
+    /**
+     * The {@code SourceJoin} constant of a {@code @JoinSource}, named after the join: the outer columns are built in
+     * place from the attribute paths, as an aggregate's are (R-SRC-21, R-PROC-44).
+     */
+    private FieldSpec sourceJoin(ClassName modelName, ModelDefinition model, JoinSourceDefinition join) {
+        ModelDefinition source = join.sourceModel();
+        var pairs = new ArrayList<CodeBlock>();
+        for (JoinOn pair : join.on()) {
+            TypeMirror attribute = metamodel.resolve(model.root(), pair.column()).attribute().type();
+            ModelField key = source.readable().stream().filter(field -> field.name().equals(pair.key()))
+                    .findFirst().orElseThrow();
+            pairs.add(CodeBlock.of("$T.on($T.of($T.class,$WROOT,$W$S,$W$L),$W$T.$L)", SOURCE_JOIN, COLUMN_FIELD,
+                    modelName, pair.column(), classOf(column(attribute)), generatedName(source), key.constant()));
+        }
+        ClassName sourceType = ClassName.get(source.type());
+        return FieldSpec.builder(ParameterizedTypeName.get(SOURCE_JOIN, modelName, sourceType),
+                        QueryModelReader.constantName(join.name()), CONSTANT)
+                .initializer("$T.of($S, $T.class, $T.$L,$W$L)", SOURCE_JOIN, join.name(), sourceType, JOIN_KIND,
+                        join.kind(), listOf(pairs))
+                .build();
+    }
+
+    /**
+     * The constant of a {@code @SourceColumn} field: the source field's column over the join's table, which keeps its
+     * type, alias and converter (R-PROC-44).
+     */
+    private FieldSpec joinedColumn(ClassName modelName, ModelDefinition model, ModelField field) {
+        JoinSourceDefinition join = model.joinSources().stream()
+                .filter(each -> each.name().equals(field.sourceColumn().join())).findFirst().orElseThrow();
+        ModelField read = join.sourceModel().readable().stream()
+                .filter(each -> each.name().equals(field.sourceColumn().field())).findFirst().orElseThrow();
+        return overColumn(modelName, join.sourceModel(), read, field.constant(), false, false,
+                CodeBlock.of("$L.root()", QueryModelReader.constantName(join.name())));
     }
 
     /**
@@ -701,13 +768,15 @@ final class QModelWriter {
             // The aggregate is the Agg overload over the definition's expression (R-PROC-22, R-GEN-27).
             ExpressionDefinitionType definition = ExpressionDefinitionType.of(types, aggregate.expression());
             TypeMirror sourceType = definition.value();
-            String function = aggregateFunction(aggregate, sourceType);
-            return constant.initializer("$T.$L($L)$L", AGG, function, definitionExpression(definition), named)
-                    .build();
+            String function = aggregateFunction(field, sourceType);
+            CodeBlock call = CodeBlock.of("$T.$L($L$L)", AGG, function, definitionExpression(definition),
+                    firstByOrders(aggregate, model, modelName));
+            return constant.initializer("$L$L", refined(aggregate, call), named).build();
         }
         if (aggregate.attribute().isEmpty() && aggregate.fn().equals("COUNT")) {
             // The model can't be inferred from ROOT, once .named() is chained on the call.
-            return constant.initializer("$T.<$T>count(ROOT)$L", AGG, modelName, named).build();
+            CodeBlock call = CodeBlock.of("$T.<$T>count(ROOT)", AGG, modelName);
+            return constant.initializer("$L$L", refined(aggregate, call), named).build();
         }
         // An aggregate over a model rooted at a source reads a source constant: it carries the CTE alias, the type
         // and the converter the source declares, so no column is built in place for it (R-SRC-10).
@@ -727,20 +796,63 @@ final class QModelWriter {
                                 ClassName.get((TypeElement) types.asElement(converter)));
         // COUNT is Agg.count(column), keyed by the column, so a count of the id is the row count (R-AGG-19) and the
         // field takes a filter like any count (R-AGG-01).
-        String function = aggregateFunction(aggregate, attributeType);
-        return constant.initializer("$T.$L($Z$L)$L", AGG, function, source, named).build();
+        String function = aggregateFunction(field, attributeType);
+        CodeBlock call = CodeBlock.of("$T.$L($Z$L$L)", AGG, function, source,
+                firstByOrders(aggregate, model, modelName));
+        return constant.initializer("$L$L", refined(aggregate, call), named).build();
     }
 
     /**
-     * The {@code Agg} factory for {@code aggregate}'s function over a column of {@code sourceType}: {@code COUNT}
-     * counts, {@code SUM} sums, and any other function is its name lower-cased.
+     * {@code call} filtered by the {@code FilterDefinition} {@code aggregate} names, then rounded to its
+     * {@code scale}: the filter goes on the inner aggregate, as {@code Agg.round(...).filter(...)} is refused
+     * (R-PROC-45).
      */
-    private String aggregateFunction(AggregateDefinition aggregate, TypeMirror sourceType) {
+    private CodeBlock refined(AggregateDefinition aggregate, CodeBlock call) {
+        CodeBlock filtered = call;
+        if (aggregate.filter() != null) {
+            FilterDefinitionType definition = FilterDefinitionType.of(types, aggregate.filter());
+            ClassName type = ClassName.get(definition.type());
+            filtered = CodeBlock.of("$L.filter($L.condition())", call, definition.hasInstance()
+                    ? CodeBlock.of("$T.INSTANCE", type) : CodeBlock.of("new $T()", type));
+        }
+        return aggregate.scale() == null ? filtered
+                : CodeBlock.of("$T.round($L, $L)", AGG, filtered, aggregate.scale());
+    }
+
+    /** The {@code , order...} arguments of a {@code FIRST_BY}, and nothing for any other function. */
+    private CodeBlock firstByOrders(AggregateDefinition aggregate, ModelDefinition model, ClassName modelName) {
+        if (!aggregate.fn().equals("FIRST_BY")) {
+            return CodeBlock.of("");
+        }
+        var keys = new ArrayList<CodeBlock>();
+        for (String entry : aggregate.orderBy()) {
+            AggregateOrder order = AggregateOrder.parse(entry);
+            ModelField fromSource = model.sourceField(order.path());
+            CodeBlock column = fromSource != null && model.readsSource()
+                    ? CodeBlock.of("$T.over($T.class,$WROOT,$W$T.$L)", COLUMN_FIELD, modelName,
+                            generatedName(model.source()), fromSource.constant())
+                    : CodeBlock.of("$T.of($T.class,$WROOT,$W$S,$W$L)", COLUMN_FIELD, modelName, order.path(),
+                            classOf(column(metamodel.resolve(model.root(), order.path()).attribute().type())));
+            keys.add(CodeBlock.of(",$W$L.$L()$L", column, order.ascending() ? "asc" : "desc",
+                    order.nulls().isEmpty() ? "" : order.nulls().equals("first") ? ".nullsFirst()" : ".nullsLast()"));
+        }
+        return keys.stream().collect(CodeBlock.joining(""));
+    }
+
+    /**
+     * The {@code Agg} factory for {@code field}'s function over a column of {@code sourceType}: {@code COUNT}
+     * counts, {@code SUM} sums, an {@code AVG} on a {@code BigDecimal} field is the exact average, and any other
+     * function is its name lower-cased.
+     */
+    private String aggregateFunction(ModelField field, TypeMirror sourceType) {
+        AggregateDefinition aggregate = field.aggregate();
         return switch (aggregate.fn()) {
             case "COUNT" -> aggregate.distinct() ? "countDistinct" : "count";
             // Agg.sum refuses a 32-bit expression; the field is a Long and the QModel sums it as one (MQ3205).
             case "SUM" -> column(sourceType).toString().matches("java\\.lang\\.(Integer|Short|Byte)")
                     ? "sumAsLong" : "sum";
+            case "AVG" -> column(field.type()).toString().equals("java.math.BigDecimal") ? "avgExact" : "avg";
+            case "FIRST_BY" -> "firstBy";
             default -> aggregate.fn().toLowerCase(Locale.ROOT);
         };
     }

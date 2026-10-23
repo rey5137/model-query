@@ -193,7 +193,9 @@ f.eq(kind, "refund"))`. It works on `count`, `countDistinct`, `sum`, `sumAsLong`
 or an expression, and on a field that has `as(...)` or `named(...)`, which both keep the filter. Equality and `hashCode`
 include the condition, compared structurally as `Expr.cases` compares its `when` conditions: two fields with equal
 filters are one selection, and different conditions are two (give them an `as(...)` name, since both render the same
-default name). The result type is R-AGG-03's. The filter is also usable in `having` as any aggregate (R-AGG-06).
+default name). The result type is R-AGG-03's. The filter is also usable in `having` as any aggregate (R-AGG-06). A generated model names its condition with
+`@Aggregate(filter = Def.class)`, a `FilterDefinition<Model>` (core, `@Incubating`) whose `condition()` returns the
+`UnaryOperator<Filters<Model>>` (`processor/30` R-PROC-45).
 `Filters` takes only a `ScalarField`, so a condition cannot read an aggregate or a window field. A join the condition
 is the first to need resolves `LEFT` (R-FLT-10), so a NULL path drops no row from the statement: an implicit inner join
 would. Rendering goes through `ProviderSupport#aggregates()` (R-VND-30): `Hibernate` renders `FILTER (WHERE ...)` where
@@ -278,6 +280,7 @@ generated `GROUP_KEYS` `SelectSet`, and `QProductSales.query()` comes pre-config
 | AC-AGG-23 | `avgExact` over `numeric(12,2)` returns the database's exact `BigDecimal` on every Tier-1 vendor and both Hibernate lines, and zero rows is NULL; a filtered `avgExact` averages only the matched rows, exactly; with no `exactAverage` renderer it is `MQ4014` (R-AGG-18, R-AGG-17, R-VND-30). |
 | AC-AGG-24 | `avgExact` over `bigint`, `integer` and `smallint` returns the exact `BigDecimal` on every Tier-1 vendor; over a `Double` or `Float` column, and a `round` scale below 0 or over 30: `MQ1411` (R-AGG-18). |
 | AC-AGG-25 | `round` is half away from zero on every Tier-1 vendor, as an aggregate and per row (`Expr.round`, `api/10` R-COL-37): 2.345 to 2.35, -2.345 to -2.35, 2.5 to 3, -2.5 to -3; a rounded aggregate groups, filters in `having` and orders; equal rounds are one selection. For `Agg.round` the inputs are values whose quotient is exact at every vendor's scale; a mean with more decimals than MySQL's quotient scale is rounded twice there (R-AGG-18, R-COL-37). |
+| AC-AGG-26 | Generated from `@Aggregate`: an `AVG` field typed `BigDecimal` is `Agg.avgExact`, rounded by `scale` and averaged over the `filter` only; `FIRST_BY` with `orderBy` is `Agg.firstBy`; each runs as the hand-written aggregate does, `FIRST_BY` on H2 and PostgreSQL; `MQ3045` for each misuse (R-PROC-45, D-188, `processor/32` AC-PROC-47). |
 | AC-AGG-27 | On every Tier-1 vendor and both Hibernate lines, `Agg.count(table)` over the root and over an inner-joined table, and `count` over the root's id column, render `count(*)` and return `count(t.id)`'s rows, grouped and ungrouped; a `Correlated` count over the sub-select root's id renders `count(*)` and equals the identity count, `0` for an outer row with no match (R-AGG-19). |
 | AC-AGG-28 | A `LEFT`-joined or treated table, a `rootedAt` `LEFT` root, a statement with a customizer, a foreign-key read, `countDistinct`, the page total's dedup and a non-id column keep counting the identity or column (R-AGG-19). |
 | AC-AGG-29 | The page total of an entity root renders `count(*)`; a filtered row count renders `count(1) filter (where c)` or its CASE form; with no `rowCount` the count is `count(t.id)`; a filtered count over a `LEFT`-joined table counts 0 for an unmatched row, as the unfiltered count does (R-AGG-19, R-AGG-17). |

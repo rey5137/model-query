@@ -20,7 +20,9 @@
 | `@Child(key = {}, foreignKey = {})` | `List<ChildModel>` or `Optional<ChildModel>` field or component | Filled from another model's rows when a fetch plan names it (`api/15`) |
 | `@FilterColumn(name = "...", path = "...", joinType = LEFT, alias = "", converter = Foo.class, treat = void.class)` | model type (repeatable) | A filter-only column: a `ColumnField` constant with no model field, left out of every generated `SelectSet` and of `map(Row)` |
 | `@FilterColumns` | model type | The container that makes `@FilterColumn` repeatable; never written by hand |
-| `@Aggregate(fn = SUM, attribute = "...", expression = Def.class, distinct = false)` | field or component | An `AggregateField` constant, mapped into this field (`api/13`); `expression` aggregates a `@Computed`-style definition instead of an attribute |
+| `@Aggregate(fn = SUM, attribute = "...", expression = Def.class, distinct = false, orderBy = {}, filter = Def.class, scale = -1)` | field or component | An `AggregateField` constant, mapped into this field (`api/13`); `expression` aggregates a `@Computed`-style definition instead of an attribute; `orderBy` orders `FIRST_BY`, `filter` names a `FilterDefinition<Model>` and `scale` rounds a `BigDecimal` average (R-PROC-45, D-188) |
+| `@JoinSource(name = "...", source = S.class, type = LEFT, on = @On(column = "...", key = "..."))` | model type (repeatable through `@JoinSources`) | Joins a `@SourceModel` to a `@QueryModel` rooted at an entity; the generated `query(...)` takes the caller's `SourceQuery<S>` for it (R-PROC-44, D-189) |
+| `@SourceColumn(join = "...", field = "...")` | field or component | A column read from a joined source's field, through `ColumnField.over(Model.class, JOIN.root(), QSource.FIELD)` (R-PROC-44) |
 | `@Computed(Def.class)` | field or component | An `ExpressionField` constant, mapped into this field (`api/10` §3a); a bound model may leave the class to its binding's `@BindExpression` (R-PROC-29) |
 | `@Window(function = ROW_NUMBER, argument = "", partitionBy = {}, orderBy = {}, frame = NONE)` | field or component of a `@SourceModel` | A `WindowField<S, T>` constant, a window function over the source's rows (`api/17` R-SRC-04, R-PROC-36) |
 | `@Discriminator("REFUND")` | field or component of a `@SourceModel` | The constant a branch fixes its shape's discriminator column to; part of the key (`api/17` R-SRC-06, R-PROC-38) |
@@ -96,6 +98,38 @@ from a write (Q-23).
 `Class<? extends R>` field, where `R` is the model's root (D-154, Q-25). It maps `Expr.typeOf(ROOT)` (R-GEN-42).
 A second field, another type, combination with `@Column`, `@Computed`, `@Aggregate` or `@PrimaryKey`, or use on a
 source-rooted or write model is `MQ3043`. `@GroupBy @Subtype` is allowed.
+
+**R-PROC-44** *(D-189, D-190, `@Incubating`)* `@JoinSource` (repeatable, on a model type) and `@SourceColumn` (on a field
+or component) declare a joined source (`api/17` R-SRC-21). `@JoinSource` has a `name` (a Java identifier, unique in
+the model), the `@SourceModel` class `source`, a `type` (`JoinKind`, default `LEFT`) and one `@On(column, key)` per
+pair: `column` is an attribute path of the model's root, `key` a field of the source. The pairs must be exactly the
+source's key fields, each once, with the same type on both sides. A `@SourceColumn(join, field)` reads one field of
+the named join and has the source field's type; it takes no `@Column` and no converter. The processor refuses with
+`MQ3044` a join that misses or exceeds the key, pairs a key twice, mismatches a type, names an unknown root attribute
+or source field, names a class that is no `@SourceModel`, or repeats a name; a `@SourceColumn` naming an unknown join or
+field; a `@JoinSource` or `@SourceColumn` on a model that is not a `@QueryModel` rooted at an entity; and a nested
+`@Join` model that joins a source. A `@SourceColumn` is also `MQ3044` beside `@PrimaryKey` (a model's key is the
+root's; a `LEFT`-joined value can be `NULL` or shared, which breaks keyset paging and row dedup) and beside any
+annotation that makes the field no column (`@Aggregate`, `@Computed`, `@Window`, `@Join`, `@Transient`, `@Child`,
+`@Selected`), and so is an `@On` key field with a converter (the join would compare the database value, not the model
+value, INV-3). A `@SourceColumn` field is no column of the root: `generateInserts` and `generateChanges` leave it out.
+A `@SourceColumn` of another type than its source field is `MQ3002`, and one
+beside `@Column` is `MQ3014`. A child model that joins a source is `MQ3039`. Whether the source is unique (a set
+operation, a plain `recursive(...)` against `tree(...)`) is not checked here: the generated `query(...)` takes the
+caller's `SourceQuery`, so `MQ1910` at build time covers it (D-190).
+
+**R-PROC-45** *(D-188, `@Incubating`)* `@Aggregate` takes three more members. `orderBy` is a `String[]` of
+`"path [asc|desc] [nulls first|nulls last]"` keys, each a basic attribute path of the aggregated root (a field of the
+source on a source-rooted model, never an association or collection); it is required by `FIRST_BY` (new
+`AggregateFunction`, generated as `Agg.firstBy`) and refused on any other function. `filter` is a class implementing
+`FilterDefinition<Model>` (core, `@Incubating`) with an `INSTANCE` or a visible no-arg constructor, applied as
+`AggregateField#filter` (`api/13` R-AGG-17). `scale` (default `-1`, unset; an explicit `-1` is the same) is `0` to `30` and rounds a `BigDecimal`
+field, as `Agg.round`. An `AVG` field typed `BigDecimal` generates `Agg.avgExact` (`api/13` R-AGG-18) instead of the
+`Double` average; its filter applies to the inner aggregate and `scale` rounds the result. `MQ3045` for `orderBy`
+without `FIRST_BY` or `FIRST_BY` without one, an unknown or malformed `orderBy` key, a `filter` class that is no
+public `FilterDefinition<Model>` or has neither `INSTANCE` nor a no-arg constructor, `scale` outside 0 to 30 or on a
+field that is not a `BigDecimal`, and an `AVG` field typed `BigDecimal` over an input type `Agg.avgExact` refuses
+(`Double`, `Float`).
 
 ## 4. `@Join` and nested models
 
