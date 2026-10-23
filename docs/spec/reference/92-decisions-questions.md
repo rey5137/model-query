@@ -2948,6 +2948,12 @@ so whether it is a set operation, or a plain `recursive(...)` against `tree(...)
 built, where `MQ1910` (D-187) already refuses it before any statement. The compile-time check is narrowed to the join's
 pairs, types and names. → `processor/30` R-PROC-44, `api/17` AC-SRC-45.
 
+**D-191 — A hand-written SourceJoin pair is MQ1910 when its key is converted or the types differ (M32 gate, 2026-10-23).** A
+hand-written `SourceJoin` pair is `MQ1910` when its source key field has a converter or the two attribute types differ.
+`on(...)` is typed by the model type, but the join compares database values, so a converted key would match nothing or the
+wrong rows. Matches the processor's `MQ3044` (D-189). The check runs in `SourceJoin.check` because the signature can't
+express the attribute type (P-2 fallback, INV-5). → `api/17` R-SRC-21, AC-SRC-51.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

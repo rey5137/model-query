@@ -9,6 +9,7 @@ import com.rey.modelquery.core.AggregateFeature;
 import com.rey.modelquery.core.AggregateField;
 import com.rey.modelquery.core.ColumnConverter;
 import com.rey.modelquery.core.ColumnField;
+import com.rey.modelquery.core.Expr;
 import com.rey.modelquery.core.Limit;
 import com.rey.modelquery.core.ModelQuery;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
@@ -24,6 +25,7 @@ import com.rey.modelquery.jpa.spi.DatabaseVendor;
 import com.rey.modelquery.jpa.spi.VendorProfile;
 import com.rey.modelquery.jpa.vendor.VendorResolver;
 import com.rey.modelquery.tck.col.ConstantStatus;
+import com.rey.modelquery.tck.col.CustomerEntity;
 import com.rey.modelquery.tck.col.FirstByRowEntity;
 import com.rey.modelquery.tck.col.JoinTestSupport;
 import com.rey.modelquery.tck.col.OrderEntity;
@@ -88,6 +90,10 @@ class FirstByTest {
             ColumnField.of(Pick.class, ORDERS, "version", Integer.class);
     private static final ColumnField<Pick, OrderItemEntity, String> ITEM_CODE =
             ColumnField.of(Pick.class, ITEMS, "productCode", String.class);
+    private static final TableField<OrderEntity, CustomerEntity> CUSTOMER =
+            TableField.join(ORDERS, "customer", INNER);
+    private static final ColumnField<Pick, CustomerEntity, String> CUSTOMER_NAME =
+            ColumnField.of(Pick.class, CUSTOMER, "name", String.class);
     private static final ColumnField<Pick, OrderEntity, Long> ORDER_ID =
             ColumnField.of(Pick.class, ORDERS, "id", Long.class);
 
@@ -180,6 +186,50 @@ class FirstByTest {
                 .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ1412))
                 .hasMessageContaining("items"));
+    }
+
+    /** Runs {@code first} after a {@code count} over the to-many {@code items}: the cached join must still be refused. */
+    private static void assertToManyRefused(TckDatabase db, AggregateField<Pick, ?> first) {
+        AggregateField<Pick, Long> counted = Agg.count(ITEM_CODE);
+        var query = ModelQuery.builder(ORDERS, row -> new Pick(row.get(ORDER_GROUP), row.get(first)))
+                .select(SelectSet.of(ORDER_GROUP, counted, first)).groupBy(ORDER_GROUP).build();
+
+        onOrders(db, executor -> assertThatThrownBy(() -> executor.list(query, Limit.unlimited()))
+                .isInstanceOfSatisfying(ModelQueryDefinitionException.class,
+                        e -> assertThat(e.code()).isEqualTo(MqCode.MQ1412))
+                .hasMessageContaining("items"));
+    }
+
+    @TckTest
+    void ac_agg_30_an_expression_over_a_to_many_join_already_joined_by_a_count_is_mq1412(TckDatabase db) {
+        assumeFirstBy(db);
+
+        assertToManyRefused(db, Agg.firstBy(Expr.concat(ITEM_CODE, "x"), ORDER_ID.asc()));
+    }
+
+    @TckTest
+    void ac_agg_30_a_value_read_through_a_to_many_join_already_joined_by_a_count_is_mq1412(TckDatabase db) {
+        assumeFirstBy(db);
+
+        assertToManyRefused(db, Agg.firstBy(ITEM_CODE, ORDER_ID.asc()));
+    }
+
+    @TckTest
+    void ac_agg_30_an_order_key_read_through_a_to_many_join_already_joined_by_a_count_is_mq1412(TckDatabase db) {
+        assumeFirstBy(db);
+
+        assertToManyRefused(db, Agg.firstBy(ORDER_ID, ITEM_CODE.asc()));
+    }
+
+    @TckTest
+    void ac_agg_30_a_to_one_value_after_a_count_over_a_to_many_join_is_accepted(TckDatabase db) {
+        assumeFirstBy(db);
+        AggregateField<Pick, Long> counted = Agg.count(ITEM_CODE);
+        var first = Agg.firstBy(CUSTOMER_NAME, ORDER_ID.asc());
+        var query = ModelQuery.builder(ORDERS, row -> new Pick(row.get(ORDER_GROUP), row.get(first)))
+                .select(SelectSet.of(ORDER_GROUP, counted, first)).groupBy(ORDER_GROUP).build();
+
+        onOrders(db, executor -> assertThat(executor.list(query, Limit.unlimited())).isNotNull());
     }
 
     // ---- AC-AGG-19

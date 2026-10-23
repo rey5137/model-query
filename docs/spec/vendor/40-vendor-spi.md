@@ -624,8 +624,8 @@ on its within-group order), then its own `mq_first_element` function pattern, `(
 H2, called with no result type so Hibernate types the result as the array's element and applies its converter; the
 pattern is not registered on other dialects. Over a source root the source's key fields are appended instead of an id.
 
-`SourceRenderer#join(outer, source, type, on)` (`@Incubating`, D-185, D-187) joins a CTE registered on the statement
-to `outer` with `INNER` or `LEFT` and applies `on`, the key predicate `core` builds over the new join, as its `ON`
+`SourceRenderer#join(outer, source, kind, on)` (`@Incubating`, D-185, D-187) joins a CTE registered on the statement
+to `outer` with the `JoinKind` (`INNER` or `LEFT`, no other kind) and applies `on`, the key predicate `core` builds over the new join, as its `ON`
 condition; it returns the join as a plain `From`, and its default throws `MQ4014` ("joined sources", `api/17`
 R-SRC-22). `core` never calls `Join#on` itself, since the type a provider joins a CTE with need not be a `Join`.
 `model-query-hibernate` calls `JpaFrom#join(JpaCteCriteria, SqmJoinType)` and applies `on` through the type its line

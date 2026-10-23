@@ -321,7 +321,7 @@ SourceQuery<CategoryNode> tree = QCategoryNode.source()
 - **`MQ3037`, where the model is written:** a recursive source has no `@Window`, `@Aggregate` or `@GroupBy` (every
   database forbids all three in the recursive term), exactly one `@Depth`, and it is an `Integer`. A `@Depth` outside a
   `@SourceModel`, or on a branch or a shape, is `MQ3037` and `MQ3034` (`processor/30`, `processor/32`).
-- **Never a branch.** A recursive source given to `union`, `unionAll`, `intersect` or `except`, on either side, is
+- **Never a branch.** A source with any walk (a recursive source, or one built over a walk), given to `union`, `unionAll`, `intersect` or `except`, on either side, is
   `MQ1904` where the operation is built, since a set operation would read it as its seed rows alone (R-SRC-05).
 - **The source never writes.** Recursion is a read: the recursive model generates no `changes()`, `update(...)`,
   `from(...)` or `delete()`, as any source model does not.
@@ -603,7 +603,10 @@ runtime API they generate against.
   than once, a combined source's branches counted, is refused.
 - **`MQ1910`** when the query is built, before any statement: a partial key, an extra pair or a key field paired
   twice; a non-unique source, whose message names `tree(...)` when it recurses; a join bound twice, by name; a source
-  of another model bound through a raw type; a second walk. `joinSource` on a query rooted at a source is `MQ1905`:
+  of another model bound through a raw type; a second walk; a hand-written `on(column, key)` pair whose source key
+  field has a converter or whose outer column and key differ in boxed attribute type (a converted outer column, `Long`
+  against `Integer`; `int` against `Integer` is the same type), since the join compares database values (D-191, as the
+  processor's `MQ3044`). `joinSource` on a query rooted at a source is `MQ1905`:
   joining a source to a source-rooted model is not supported, and `MQ3035` (a `@Join` on such a model) is unchanged.
   A `join.root()` passed as the root of `ModelQuery.builder` or `SourceQuery.builder` is `MQ1203`. A query that joins
   a source, `INNER` or `LEFT`, is no returning query: `MQ1809` before any statement (`api/14` R-WRT-48). A fetch plan
@@ -630,7 +633,9 @@ returns, refuses a joined source with `MQ4014` and still renders every other sou
   outer row; an index on the join key keeps that usable on a test database. A recursive CTE is never inlined: H2, too,
   receives a joined walk's `with recursive`.
 - **A joined walk.** When the joined source is itself a walk, its filter `level <= maxDepth and not mark` goes into
-  the join's `on`, which is the same as joining the filtered walk: a `LEFT` join keeps an outer row whose node is past
+  the join's `on`, which is the same as joining the filtered walk (with an `INNER` join the outer rows past `maxDepth` are
+  dropped, and if that drops every row the result is empty and its checks are not read, as with a source root over no
+  rows; the count statement still reads them): a `LEFT` join keeps an outer row whose node is past
   the limit, marked or never reached, with NULL columns, where the outer `where` would drop it. A walk inside the
   joined chain is filtered in the next body (R-SRC-18). The walk's depth, cycle and, for a tree, duplicate-key checks
   are uncorrelated sub-selects over the whole walk in the top statement's selection, read by the one check site in
@@ -693,3 +698,4 @@ returns, refuses a joined source with `MQ4014` and still renders every other sou
 | AC-SRC-48 | Per vendor and Hibernate line, a SQL snapshot of a `LEFT`-joined tree: `with recursive` on H2 too, the walk filter in the join's `on`, the depth, cycle and duplicate-key sub-selects in the selection, and every outer row kept (R-SRC-22). |
 | AC-SRC-49 | Through a joined tree, `MQ2701`, `MQ2702` and `MQ2703` name the join on content, count, count over groups, offset, primary-key-first and keyset pages, both `one` calls, `byKeys`, every export, a stream, a fetch plan's parent read and a `through` child load; an unreached `LEFT` row still raises, an empty `INNER` read returns empty; `MQ2703` precedes `MQ2003`, `MQ2005` and `MQ2202`; `Agg.count` over the `LEFT` join is `0` for an unreached node (R-SRC-14, R-SRC-15, R-SRC-22). |
 | AC-SRC-50 | A grouped source over a `recursive(...)` walk, joined, aggregates levels 0 to `maxDepth` with its filter in the grouped body and raises `MQ2701` and `MQ2702`; a second walk is `MQ1910`; a joined tree over a composite node key is `MQ4015` on H2 and read on PostgreSQL and MySQL, and `PortabilityCheck` reports it and MySQL's `maxDepth` 999 ceiling per target (R-SRC-11, R-SRC-18, R-SRC-21). |
+| AC-SRC-51 | A hand-written `on(...)` pair whose source key field has a converter, or whose outer column and key differ in boxed attribute type (a converted outer column, `Long` against `Integer`), is `MQ1910` before any statement; `int` against `Integer` is accepted (R-SRC-21, D-191). |

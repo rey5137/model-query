@@ -2,6 +2,7 @@ package com.rey.modelquery.processor;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.PackageElement;
@@ -431,7 +432,7 @@ record ModelDefinition(
             String nulls = "";
             if (at + 1 < words.length && words[at].equalsIgnoreCase("nulls")
                     && (words[at + 1].equalsIgnoreCase("first") || words[at + 1].equalsIgnoreCase("last"))) {
-                nulls = words[at + 1].toLowerCase(java.util.Locale.ROOT);
+                nulls = words[at + 1].toLowerCase(Locale.ROOT);
                 at += 2;
             }
             return words[0].isEmpty() || at != words.length ? null : new AggregateOrder(words[0], ascending, nulls);

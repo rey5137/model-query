@@ -1,13 +1,13 @@
 package com.rey.modelquery.core;
 
 import com.rey.modelquery.annotations.Incubating;
+import com.rey.modelquery.annotations.JoinKind;
 import jakarta.persistence.Tuple;
 import jakarta.persistence.criteria.AbstractQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.From;
-import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import java.util.Objects;
@@ -125,14 +125,14 @@ public interface SourceRenderer {
     }
 
     /**
-     * Joins {@code source}, a CTE registered on {@code outer}'s statement, to {@code outer} with {@code type}
-     * ({@code INNER} or {@code LEFT}), applies {@code on} over the new join as its {@code ON} condition, and returns
+     * Joins {@code source}, a CTE registered on {@code outer}'s statement, to {@code outer} with {@code kind}
+     * (an inner or a left join, the only two a source takes), applies {@code on} over the new join as its {@code ON} condition, and returns
      * the join, whose columns the statement reads by the source's field aliases (R-SRC-21, R-SRC-22). The engine
      * builds the predicate over standard Criteria and never calls {@code Join#on} itself, since the type a provider
      * joins a CTE with need not be a {@code Join}. Called once per statement, for each source the query joins.
      */
     @Incubating
-    default From<?, Tuple> join(From<?, ?> outer, CteHandle source, JoinType type,
+    default From<?, Tuple> join(From<?, ?> outer, CteHandle source, JoinKind kind,
             Function<From<?, Tuple>, Predicate> on) {
         throw unsupported("joined sources");
     }

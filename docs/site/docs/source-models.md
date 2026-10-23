@@ -461,7 +461,9 @@ joins of one source model (a high band and a low band, say) stay apart by name.
 - **The full key, once.** `on` must pair every key field of the source exactly once, so the join adds at most one row
   per outer row and the outer key, cursors, counts and export pages keep their guarantees. A missing, extra or
   repeated pair is [`MQ3044`](diagnostics.md) at compile time for `@JoinSource` and [`MQ1910`](diagnostics.md) when a
-  hand-written query is built.
+  hand-written query is built. A hand-written `on(...)` pair is also `MQ1910` when the source key field has a
+  converter or the two attribute types differ (`Long` against `Integer`; `int` against `Integer` is fine), since the join
+  compares database values.
 - **The source must be unique.** `SourceQuery#unique()` decides: a plain or grouped source, a `tree(...)` source, an
   ungrouped source over a tree and a grouped source over any walk qualify. A set operation, a plain `recursive(...)`
   source and an ungrouped source over one do not, because a node reached by two paths would repeat its outer row. They
