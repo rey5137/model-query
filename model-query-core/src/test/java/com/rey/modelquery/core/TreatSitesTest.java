@@ -10,6 +10,10 @@ import jakarta.persistence.criteria.CommonAbstractCriteria;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.From;
 import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.metamodel.ManagedType;
+import jakarta.persistence.metamodel.Metamodel;
+import jakarta.persistence.metamodel.SingularAttribute;
+import jakarta.persistence.metamodel.Type;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -217,6 +221,47 @@ class TreatSitesTest {
                 .groupBy(STATUS).where(f -> f.eq(NUMBER, "1")).build();
         assertThat(sites(filtered, StatementShape.CONTENT, false)).containsExactly(
                 site(StatementShape.GROUPED, false, TreatUse.PREDICATE));
+    }
+
+    @Test
+    void ac_agg_21_a_treated_inner_join_in_an_aggregate_filter_is_judged_as_the_left_join_it_renders() {
+        var viaInner = ColumnField.of(View.class, TableField.join(ROOT, "views", JoinType.INNER).treat(Card.class),
+                "number", String.class);
+        var query = ModelQuery.builder(ROOT, row -> new View())
+                .select(SelectSet.of(STATUS, Agg.count(ID).filter(f -> f.eq(viaInner, "1"))))
+                .groupBy(STATUS).build();
+        // The join's target is the metamodel's to name: a stand-in that maps every association to Payment.
+        Metamodel metamodel = (Metamodel) java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] {Metamodel.class}, (proxy, method, args) -> {
+                    if (method.getName().equals("getEntities")) {
+                        return java.util.List.of(Payment.class, Card.class).stream()
+                                .map(type -> java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),
+                                        new Class<?>[] {jakarta.persistence.metamodel.EntityType.class},
+                                        (t, g, y) -> switch (g.getName()) {
+                                            case "getJavaType" -> type;
+                                            case "hashCode" -> System.identityHashCode(t);
+                                            case "equals" -> t == y[0];
+                                            default -> null;
+                                        }))
+                                .collect(java.util.stream.Collectors.toSet());
+                    }
+                    if (!method.getName().equals("managedType")) {
+                        throw new UnsupportedOperationException(method.getName());
+                    }
+                    return java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),
+                            new Class<?>[] {ManagedType.class}, (type, getter, none) -> {
+                                var singular = java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),
+                                        new Class<?>[] {SingularAttribute.class}, (a, m, x) -> m.getName()
+                                                .equals("getType") ? java.lang.reflect.Proxy.newProxyInstance(
+                                                getClass().getClassLoader(), new Class<?>[] {Type.class},
+                                                (t, g, y) -> Payment.class) : null);
+                                return singular;
+                            });
+                });
+        assertThatThrownBy(() -> TreatChecks.check(query, RenderOptions.portable().withTreatRenderer(new Renderer()),
+                metamodel, StatementShape.CONTENT, false, true))
+                .isInstanceOf(ModelQueryConfigurationException.class)
+                .hasMessageContaining("LEFT_JOIN").hasMessageNotContaining("INNER_JOIN");
     }
 
     @Test

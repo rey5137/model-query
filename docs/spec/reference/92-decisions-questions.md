@@ -2898,6 +2898,14 @@ equality as a catalogue operator (RFC 0017).
 → `rfc/0020`, `rfc/0020-spike-results.md`, `api/17` R-SRC-12, `api/13` R-AGG-01, R-AGG-03, `api/12` R-FLT-13, `vendor/40`
 R-VND-21, R-VND-23, `engine/20` R-EXE-05, D-145, D-150, D-184.
 
+**D-186 — `AggregateFeature` lives in `core`, with the gate on `RenderOptions` (M32.2, 2026-10-23).** RFC 0020 :447
+places `AggregateFeature` in `jpa.spi`. `AggregateField` renders in `core` and `RenderOptions` carries the answers
+(`AggregateGate`), so the enum must be visible to `core`, as `OperatorFeature` and `OperatorGate` are (R-VND-23): it is
+`core.AggregateFeature`, `@Incubating`, with `FIRST_BY`. `VendorProfile#aggregates(AggregateFeature)` stays in `jpa.spi`.
+`ProviderSupport#aggregates()` returns `Optional<AggregateRenderer>`; with no renderer the engine renders the CASE form
+of a filtered aggregate (R-AGG-17), so no vendor or provider combination refuses it. `AggregateField.Kind` is public
+`@Incubating` so a renderer sees which function it renders. → `api/13` R-AGG-17, `vendor/40` R-VND-29, R-VND-30, D-185.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

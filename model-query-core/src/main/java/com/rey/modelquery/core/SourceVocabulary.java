@@ -40,6 +40,10 @@ final class SourceVocabulary {
         ConditionGroup.conditions(filters).forEach(condition -> condition(condition, false));
     }
 
+    void condition(Condition condition) {
+        condition(condition, false);
+    }
+
     private void condition(Condition condition, boolean liftedOnly) {
         condition.column().ifPresent(field -> operand(field, liftedOnly));
         condition.right().ifPresent(field -> operand(field, liftedOnly));

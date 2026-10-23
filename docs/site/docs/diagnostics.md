@@ -78,6 +78,7 @@ throws when it affects no rows (see [Bulk writes](bulk-writes.md)).
 | `MQ1408` | Grouped query: aggregate function over a column with a ColumnConverter (`sum`, `sumAsLong` and `avg`; `min`, `max` and `countDistinct` take an `OrderedColumnField` and do not compile over any other converted column). |
 | `MQ1409` | Grouped query: column selected under a `presentBy` join whose key columns are not all group keys. |
 | `MQ1410` | Runtime `groupBy` or group key over a column that selects a whole to-one entity. Group by the id form instead. |
+| `MQ1412` | `filter(...)` on an `Agg.of` field or an already filtered aggregate, with a condition that leaves no filter, reads a correlated value, or is a filtered `count(table)` over an embedded or composite id with no usable first id attribute, or adds a to-many join. |
 | `MQ1502` | An expression, operator, key, cursor or assignment value cannot bind, or binder failed; see below. |
 | `MQ1505` | A CASE condition uses `add`, `exists`, a sub-select, a correlated value or `op`. |
 | `MQ1508` | An `Expr.constant` cannot be rendered as a literal: its value is not a `String`, `Number` or `Boolean` after the column's converter, the column is not a basic attribute of a root table, the provider has no constant renderer, or it is used other than as a comparison or `in` operand. The message names the cause. |

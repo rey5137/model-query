@@ -4,6 +4,8 @@ import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ConstantRenderer;
 import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
+import com.rey.modelquery.core.AggregateField;
+import com.rey.modelquery.core.AggregateRenderer;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
 import com.rey.modelquery.core.NullSafeEqualityRenderer;
@@ -65,6 +67,7 @@ import org.hibernate.query.criteria.HibernateCriteriaBuilder;
 import org.hibernate.query.criteria.JpaCriteriaQuery;
 import org.hibernate.query.criteria.JpaSubQuery;
 import org.hibernate.query.criteria.JpaExpression;
+import org.hibernate.query.criteria.JpaPredicate;
 import org.hibernate.query.criteria.ValueHandlingMode;
 import org.hibernate.query.sqm.function.SqmFunctionRegistry;
 
@@ -576,6 +579,34 @@ public final class HibernateProviderSupport implements ProviderSupport {
             @Incubating
             public Predicate distinctFrom(CriteriaBuilder cb, Expression<?> a, Expression<?> b) {
                 return ((HibernateCriteriaBuilder) cb).distinctFrom(a, b);
+            }
+        });
+    }
+
+    /**
+     * Hibernate's {@code FILTER (WHERE ...)} aggregates, on both lines (R-VND-30, R-AGG-17): rendered natively where
+     * the dialect has the clause and as Hibernate's own CASE emulation elsewhere. A {@code countDistinct} has no
+     * filtered overload, so it keeps the engine's CASE form.
+     */
+    @Override
+    @Incubating
+    public Optional<AggregateRenderer> aggregates() {
+        return Optional.of(new AggregateRenderer() {
+            @Override
+            @Incubating
+            @SuppressWarnings({"unchecked", "rawtypes"})
+            public Expression<?> filtered(CriteriaBuilder cb, AggregateField.Kind kind, Expression<?> argument,
+                    Predicate condition) {
+                var hcb = (HibernateCriteriaBuilder) cb;
+                var filter = (JpaPredicate) condition;
+                return switch (kind) {
+                    case COUNT -> hcb.count(argument, filter);
+                    case SUM, SUM_AS_LONG -> hcb.sum((Expression) argument, filter);
+                    case AVG -> hcb.avg((Expression) argument, filter);
+                    case MIN -> hcb.functionAggregate("min", argument.getJavaType(), filter, argument);
+                    case MAX -> hcb.functionAggregate("max", argument.getJavaType(), filter, argument);
+                    default -> AggregateRenderer.super.filtered(cb, kind, argument, condition);
+                };
             }
         });
     }

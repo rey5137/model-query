@@ -1,6 +1,7 @@
 package com.rey.modelquery.jpa.spi;
 
 import com.rey.modelquery.annotations.Incubating;
+import com.rey.modelquery.core.AggregateFeature;
 import com.rey.modelquery.core.NullOrdering;
 import com.rey.modelquery.core.OperatorFeature;
 import jakarta.persistence.EntityManager;
@@ -158,6 +159,17 @@ public interface VendorProfile {
      */
     @Incubating
     default boolean nativeNullSafeEquality() {
+        return false;
+    }
+
+    /**
+     * Whether the database has the aggregate form {@code feature}, so a query that uses it runs (api/13 R-AGG-17,
+     * R-VND-29, D-185). {@code false}, the default, fails safe: the query is then refused with {@code MQ4015} before
+     * any statement. A database fact, no SQL (R-VND-11, INV-6). A profile written before an {@link AggregateFeature}
+     * was added must answer {@code false} for it.
+     */
+    @Incubating
+    default boolean aggregates(AggregateFeature feature) {
         return false;
     }
 

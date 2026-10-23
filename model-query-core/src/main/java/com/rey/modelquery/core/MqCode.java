@@ -152,6 +152,9 @@ public enum MqCode {
     /** A group key reads a to-one as its whole entity, which has no portable {@code GROUP BY} (R-AGG-05, D-137). */
     MQ1410("A group key reads a to-one as its whole entity; group by its id or a column of the target"),
 
+    /** An aggregate's {@code filter} that cannot be placed: repeated, on {@code Agg.of} or correlated (R-AGG-17). */
+    MQ1412("An aggregate filter is repeated, sits on Agg.of, or reads a correlated value or a to-many path"),
+
     /** An expression reads a column with a {@code ColumnConverter} (R-COL-17). */
     MQ1501("An expression reads a column with a ColumnConverter, which the database computes over without applying it"),
 

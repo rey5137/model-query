@@ -18,7 +18,8 @@ public final class RenderOptions {
 
     /** The limits of the {@code OTHER} profile, which are safe on any database (R-VND-06). */
     private static final RenderOptions PORTABLE =
-            new RenderOptions(1_000, 2_000, null, null, null, null, null, null, null, null, null, false, null);
+            new RenderOptions(1_000, 2_000, null, null, null, null, null, null, null, null, null, false, null, null,
+                    null);
 
     private final int maxInListSize;
     private final int maxBindParameters;
@@ -33,12 +34,15 @@ public final class RenderOptions {
     private final OperandBinder operandBinder;
     private final boolean inlinesValues;
     private final NullSafeEqualityRenderer nullSafeEquality;
+    private final AggregateRenderer aggregateRenderer;
+    private final AggregateGate aggregateGate;
 
     private RenderOptions(int maxInListSize, int maxBindParameters, NullPrecedenceRenderer nullPrecedenceRenderer,
             ConstantRenderer constantRenderer, SequenceRenderer sequenceRenderer, SourceRenderer sourceRenderer,
             SubqueryRenderer subqueryRenderer, TreatRenderer treatRenderer, Metamodel metamodel,
             OperatorGate operatorGate, OperandBinder operandBinder, boolean inlinesValues,
-            NullSafeEqualityRenderer nullSafeEquality) {
+            NullSafeEqualityRenderer nullSafeEquality, AggregateRenderer aggregateRenderer,
+            AggregateGate aggregateGate) {
         this.maxInListSize = maxInListSize;
         this.maxBindParameters = maxBindParameters;
         this.nullPrecedenceRenderer = nullPrecedenceRenderer;
@@ -52,6 +56,8 @@ public final class RenderOptions {
         this.operandBinder = operandBinder;
         this.inlinesValues = inlinesValues;
         this.nullSafeEquality = nullSafeEquality;
+        this.aggregateRenderer = aggregateRenderer;
+        this.aggregateGate = aggregateGate;
     }
 
     /** The options of an unknown database: the {@code OTHER} limits and no renderer. */
@@ -70,35 +76,39 @@ public final class RenderOptions {
                     + maxInListSize + " and " + maxBindParameters);
         }
         return new RenderOptions(maxInListSize, maxBindParameters, null, null, null, null, null, null, null, null,
-                null, false, null);
+                null, false, null, null, null);
     }
 
     /** These options with {@code renderer} rendering explicit null precedence. */
     public RenderOptions withNullPrecedenceRenderer(NullPrecedenceRenderer renderer) {
         return new RenderOptions(maxInListSize, maxBindParameters, Objects.requireNonNull(renderer, "renderer"),
                 constantRenderer, sequenceRenderer, sourceRenderer, subqueryRenderer, treatRenderer, metamodel,
-                operatorGate, operandBinder, inlinesValues, nullSafeEquality);
+                operatorGate, operandBinder, inlinesValues, nullSafeEquality,
+                aggregateRenderer, aggregateGate);
     }
 
     /** These options with {@code renderer} rendering a column-typed constant (R-COL-27). */
     public RenderOptions withConstantRenderer(ConstantRenderer renderer) {
         return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer,
                 Objects.requireNonNull(renderer, "renderer"), sequenceRenderer, sourceRenderer, subqueryRenderer,
-                treatRenderer, metamodel, operatorGate, operandBinder, inlinesValues, nullSafeEquality);
+                treatRenderer, metamodel, operatorGate, operandBinder, inlinesValues, nullSafeEquality,
+                aggregateRenderer, aggregateGate);
     }
 
     /** These options with {@code renderer} rendering a sequence's next value (R-COL-28). */
     public RenderOptions withSequenceRenderer(SequenceRenderer renderer) {
         return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer, constantRenderer,
                 Objects.requireNonNull(renderer, "renderer"), sourceRenderer, subqueryRenderer, treatRenderer,
-                metamodel, operatorGate, operandBinder, inlinesValues, nullSafeEquality);
+                metamodel, operatorGate, operandBinder, inlinesValues, nullSafeEquality,
+                aggregateRenderer, aggregateGate);
     }
 
     /** These options with {@code renderer} registering a source's CTE on every statement that reads it (R-SRC-12). */
     public RenderOptions withSourceRenderer(SourceRenderer renderer) {
         return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer, constantRenderer,
                 sequenceRenderer, Objects.requireNonNull(renderer, "renderer"), subqueryRenderer, treatRenderer,
-                metamodel, operatorGate, operandBinder, inlinesValues, nullSafeEquality);
+                metamodel, operatorGate, operandBinder, inlinesValues, nullSafeEquality,
+                aggregateRenderer, aggregateGate);
     }
 
     /** These options with {@code renderer} limiting an ordered scalar sub-query to one row (R-VND-25). */
@@ -106,7 +116,8 @@ public final class RenderOptions {
     public RenderOptions withSubqueryRenderer(SubqueryRenderer renderer) {
         return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer, constantRenderer,
                 sequenceRenderer, sourceRenderer, Objects.requireNonNull(renderer, "renderer"), treatRenderer,
-                metamodel, operatorGate, operandBinder, inlinesValues, nullSafeEquality);
+                metamodel, operatorGate, operandBinder, inlinesValues, nullSafeEquality,
+                aggregateRenderer, aggregateGate);
     }
 
     /** These options with the provider's treated-path renderer (R-VND-26). */
@@ -114,7 +125,8 @@ public final class RenderOptions {
     public RenderOptions withTreatRenderer(TreatRenderer renderer) {
         return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer, constantRenderer,
                 sequenceRenderer, sourceRenderer, subqueryRenderer, Objects.requireNonNull(renderer, "renderer"),
-                metamodel, operatorGate, operandBinder, inlinesValues, nullSafeEquality);
+                metamodel, operatorGate, operandBinder, inlinesValues, nullSafeEquality,
+                aggregateRenderer, aggregateGate);
     }
 
     /**
@@ -126,7 +138,8 @@ public final class RenderOptions {
         return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer, constantRenderer,
                 sequenceRenderer, sourceRenderer, subqueryRenderer, treatRenderer,
                 Objects.requireNonNull(metamodel, "metamodel"), operatorGate, operandBinder, inlinesValues,
-                nullSafeEquality);
+                nullSafeEquality,
+                aggregateRenderer, aggregateGate);
     }
 
     /**
@@ -137,7 +150,8 @@ public final class RenderOptions {
     public RenderOptions withOperatorGate(OperatorGate gate) {
         return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer, constantRenderer,
                 sequenceRenderer, sourceRenderer, subqueryRenderer, treatRenderer, metamodel,
-                Objects.requireNonNull(gate, "gate"), operandBinder, inlinesValues, nullSafeEquality);
+                Objects.requireNonNull(gate, "gate"), operandBinder, inlinesValues, nullSafeEquality,
+                aggregateRenderer, aggregateGate);
     }
 
     /** These options with the provider's {@code binder}, typing an operator's value by its column (R-VND-24). */
@@ -145,7 +159,8 @@ public final class RenderOptions {
     public RenderOptions withOperandBinder(OperandBinder binder) {
         return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer, constantRenderer,
                 sequenceRenderer, sourceRenderer, subqueryRenderer, treatRenderer, metamodel, operatorGate,
-                Objects.requireNonNull(binder, "binder"), inlinesValues, nullSafeEquality);
+                Objects.requireNonNull(binder, "binder"), inlinesValues, nullSafeEquality,
+                aggregateRenderer, aggregateGate);
     }
 
     /**
@@ -156,7 +171,8 @@ public final class RenderOptions {
     public RenderOptions withInlinesValues(boolean inlines) {
         return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer, constantRenderer,
                 sequenceRenderer, sourceRenderer, subqueryRenderer, treatRenderer, metamodel, operatorGate,
-                operandBinder, inlines, nullSafeEquality);
+                operandBinder, inlines, nullSafeEquality,
+                aggregateRenderer, aggregateGate);
     }
 
     /**
@@ -167,7 +183,26 @@ public final class RenderOptions {
     public RenderOptions withNullSafeEqualityRenderer(NullSafeEqualityRenderer renderer) {
         return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer, constantRenderer,
                 sequenceRenderer, sourceRenderer, subqueryRenderer, treatRenderer, metamodel, operatorGate,
-                operandBinder, inlinesValues, Objects.requireNonNull(renderer, "renderer"));
+                operandBinder, inlinesValues, Objects.requireNonNull(renderer, "renderer"), aggregateRenderer,
+                aggregateGate);
+    }
+
+    /** These options with the provider's aggregate renderer, which shapes an aggregate's SQL (R-VND-30, R-AGG-17). */
+    @Incubating
+    public RenderOptions withAggregateRenderer(AggregateRenderer renderer) {
+        return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer, constantRenderer,
+                sequenceRenderer, sourceRenderer, subqueryRenderer, treatRenderer, metamodel, operatorGate,
+                operandBinder, inlinesValues, nullSafeEquality, Objects.requireNonNull(renderer, "renderer"),
+                aggregateGate);
+    }
+
+    /** These options with the vendor's answers for every {@link AggregateFeature} (R-VND-29). */
+    @Incubating
+    public RenderOptions withAggregateGate(AggregateGate gate) {
+        return new RenderOptions(maxInListSize, maxBindParameters, nullPrecedenceRenderer, constantRenderer,
+                sequenceRenderer, sourceRenderer, subqueryRenderer, treatRenderer, metamodel, operatorGate,
+                operandBinder, inlinesValues, nullSafeEquality, aggregateRenderer,
+                Objects.requireNonNull(gate, "gate"));
     }
 
     /** The most values one {@code IN} list takes before it is split (R-FLT-09). */
@@ -232,6 +267,18 @@ public final class RenderOptions {
         return Optional.ofNullable(nullSafeEquality);
     }
 
+    /** The provider's aggregate renderer, or empty: the engine's own standard-Criteria forms render (R-AGG-17). */
+    @Incubating
+    public Optional<AggregateRenderer> aggregateRenderer() {
+        return Optional.ofNullable(aggregateRenderer);
+    }
+
+    /** The aggregate gate, or empty: no vendor fact is known (R-VND-29). */
+    @Incubating
+    public Optional<AggregateGate> aggregateGate() {
+        return Optional.ofNullable(aggregateGate);
+    }
+
     /**
      * Whether the factory inlines a criteria value given without a parameter, so every filter value binds as an
      * explicit parameter; {@code false} by default, every filter value then rendering as before (R-VND-28, R-FLT-08).
@@ -253,7 +300,8 @@ public final class RenderOptions {
                 orElse(other.sourceRenderer, sourceRenderer), orElse(other.subqueryRenderer, subqueryRenderer),
                 orElse(other.treatRenderer, treatRenderer), orElse(other.metamodel, metamodel),
                 orElse(other.operatorGate, operatorGate), orElse(other.operandBinder, operandBinder),
-                other.inlinesValues || inlinesValues, orElse(other.nullSafeEquality, nullSafeEquality));
+                other.inlinesValues || inlinesValues, orElse(other.nullSafeEquality, nullSafeEquality),
+                orElse(other.aggregateRenderer, aggregateRenderer), orElse(other.aggregateGate, aggregateGate));
     }
 
     private static <T> T orElse(T value, T fallback) {
