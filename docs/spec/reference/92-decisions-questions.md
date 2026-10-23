@@ -2799,6 +2799,38 @@ engine-facing types are left out too. Rejected: a dependency on `error_prone_ann
 JDK-plus-`jakarta.persistence` rule (INV-7) excludes; a public annotation, which would be new API surface.
 → `CHANGELOG.md` [Unreleased].
 
+**D-184 — Compiled queries are not adopted; flat reads skip the general row bookkeeping (RFC 0019, 2026-10-23, user
+decision).** RFC 0019's acceptance spike (`rfc/0019-spike-results.md`) ran on Hibernate 6.6.58 and 7.4.11 against
+H2, PostgreSQL 16 and MySQL 8.0.31 (informational).
+
+**Part A, not adopted (rule 2, "Neither").** On PostgreSQL, today's executor adds about 0.03 ms (median) over
+`JdbcClient` running the same SQL on the "today" read, and `buildQuery` takes about 3 µs, so no route saves the
+1–3 ms LitePOS reported. Neither the sealed build cache nor the HQL provider route (RA.5) has a saving whose
+one-sided 99.9% lower bound is at least 0 on every read cell. RA.5's one large saving, on the grouped read, beats
+JDBC itself because it renders `count(*)` where model-query renders `count(s1_0.id)`, so it is a rendering
+difference, not overhead removed. On 7.4, `hibernate.criteria.plan_cache_enabled` got 0 hits in 100 calls both for
+today's executor and for one stored tree; the second miss is not explained. `QueryParam`, `Expr.param`,
+`ModelQuery#with`, `Builder#compiled()`, `ProviderSupport#statements` and `modelquery.statement-cache-size` do not
+ship; INV-9 is unchanged; the reserved R-COL-38, R-QRY-18, R-FLT-30, R-EXE-17, R-VND-31, `MQ1210` and `MQ2215` are
+released unused. The docs gain a "hot paths" page instead: the measured per-call overhead and build time, the 7.4
+plan-cache result, when `JdbcClient` is the better tool for a large flat read, and `keyset()` for a large export
+(the offset export re-reads about 44 times the rows it returns on the spike's 86k-row read).
+
+**Part B, P-B.2 only.** Model-query's own mapping is 90% / 78% of the gap to JDBC on the 86k-row flat read, so the
+gate passes. P-B.2, the flat-row `mapAll`, is 52% / 47% faster than today's `list` (194 → 92 ms, 203 → 108 ms) and
+allocates 109 / 155 MB against 393 / 429 MB, so it ships. For a read with no fetch plan, no to-many join left in its
+statement (a customizer's, or one R-EXE-16 keeps) and no customizer, `mapAll` maps each tuple straight to its model,
+without keeping a `Loaded` and its `Row` per row, and decides eligibility once per call, not per row; keys and cursors
+are still read from the `Row` before mapping (R-COL-11), and `Limit.of(Integer.MAX_VALUE)` must not presize the
+list. Any other read takes today's path. P-B.1 (index-resolved `ValueRow`, 0.3–2.4% slower) and P-B.3 (`Object[]`
+selection, 7.8% slower to 1.9% faster against a 15% threshold) are dropped, so R-COL-10 keeps `Tuple` read by alias.
+No public API, no `MQnnnn` code and no SQL snapshot change; new AC-COL-53.
+
+M31 (0.11.0) builds it; the freeze moves from M31 to M32 and stays last. Rejected: shipping RA.5 for the grouped
+read alone (its gain belongs to the `count(*)` rendering, which any route could adopt), and P-B.1 as a stepping stone
+for P-B.2 (P-B.2 measured on today's row path).
+→ `rfc/0019`, `rfc/0019-spike-results.md`, `api/10` R-COL-10, R-COL-11, `engine/20` R-EXE-16, D-177.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

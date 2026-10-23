@@ -410,7 +410,7 @@ user can push the `v0.8.0` tag.
 
 Spec: `docs/plan/litepos-gaps.md` §1 and §3 (M17), `api/10` (new `AC-COL` rows from AC-COL-29), `api/13` (new
 `AC-AGG` rows from AC-AGG-16), `api/14` (new `AC-WRT` rows from AC-WRT-41), CC-DOC-01 (every runnable snippet gets the
-Plain JPA and Spring tabs). Runs before the freeze, M31, which stays last. No API change; ships in 0.9.0 with M18–M22 (the
+Plain JPA and Spring tabs). Runs before the freeze, M32 (D-184), which stays last. No API change; ships in 0.9.0 with M18–M22 (the
 docs site still publishes from `main` as it merges). Model: none; the M17.1 cases may each fail, and a failing case is recorded as a gap
 in `litepos-gaps.md` and left out of M17.2's docs rather than fixed here.
 
@@ -581,7 +581,7 @@ R-VND-21, R-VND-22), `vendor/41` (the Tier-1 MySQL floor 8.0 → 8.0.31), the `j
 models" page; the comparison page's Reach row). The acceptance spike is done (`rfc/0013-spike-results.md`). Model: an
 `architect-review` at the gate (public API and generics of `SourceQuery`/`WindowField`, paging and export over sources,
 the `VendorProfile` and `SourceSupport` surface, INV-6 and INV-7). Every new public type and member is `@Incubating`.
-Ships in 0.10.0 with M26–M30 (D-145, D-148, D-176), before the freeze, M31, which stays last. Spec rows land with the slice that implements them; AC-SRC
+Ships in 0.10.0 with M26–M30 (D-145, D-148, D-176), before the freeze, M32 (D-184), which stays last. Spec rows land with the slice that implements them; AC-SRC
 and AC-PROC numbers are taken in slice order. The `spike/rfc-0013` branch (unpushed, `model-query-tck/.../tck/spike/`)
 is the reference for the Hibernate hooks.
 
@@ -787,16 +787,43 @@ admonitions. Split `queries.md` into `reading-keys.md`, `filters.md`, `custom-op
 Add `how-its-built.md` under Reference describing the AI-assisted methodology under human maintainer direction and
 the evidence-backed quality process (spec rules, ArchUnit invariants, TCK, SQL snapshots, verified milestone tags).
 
-## 31. M31 — Freeze → 1.0.0
+## 31. M31 — Flat-row mapping and the hot-paths page → 0.11.0
+
+Spec: D-184, `rfc/0019` (accepted as D-184). RFC 0019's Part A (compiled queries) is not adopted; Part B ships P-B.2
+alone: a read with no fetch plan, no to-many join left in its statement and no customizer maps each tuple straight to
+its model in `DefaultModelQueryExecutor#mapAll`, without a `Loaded` and `Row` kept per row. Behaviour-identical: no
+public API, no `MQnnnn` code, no SQL snapshot change. Default tier; no `architect-review` (no public API, `INV-*` or
+module-boundary change). The freeze moves to M32 and stays last.
+
+| Slice | Content | Done when |
+|---|---|---|
+| M31.0 | RFC review and acceptance spike (`rfc/0019-spike-results.md`) | Done: D-184 |
+| M31.1 | P-B.2: flat-row `mapAll` | AC-COL-06/11/14/20 unchanged and AC-COL-53 green on both lines and Tier 1; SQL snapshots unchanged |
+| M31.2 | Hot-paths docs page and release prep | Page with both tabs (CC-DOC-01), `CHANGELOG.md` 0.11.0 section; `mkdocs build --strict` green |
+
+**M31.1 — Flat rows.** Decide eligibility once per call: no fetch plan, no to-many join in the statement (a
+customizer's or one R-EXE-16 keeps) and no customizer. An eligible read maps each tuple to its model directly,
+reading keys and cursors from the `Row` before mapping where the call needs them (R-COL-11), and presizes the list
+from the result, never from `Limit.of(Integer.MAX_VALUE)`. Every other read keeps today's path. Add AC-COL-53 to
+`api/10`: eligible reads match the general path's models, keys and cursors; ineligible reads take the general path.
+
+**M31.2 — Hot paths.** A docs page on what a read costs: the executor's overhead over `JdbcClient` (tens of
+microseconds on PostgreSQL) and `buildQuery`'s (about 3 µs); that 7.4's `hibernate.criteria.plan_cache_enabled` got no
+hits for model-query's queries; when `JdbcClient` is the better tool for a large flat read; and that a large export
+should use `keyset()`, since the offset loop re-reads earlier rows. `CHANGELOG.md` gains the 0.11.0 section.
+
+**Exit:** the M31 rows' criteria green on Tier 1 and both lines.
+
+## 32. M32 — Freeze → 1.0.0
 
 Spec: D-85 (amended by D-106, D-116 and D-118), D-86, D-111, D-116, D-118. Starts only when the user says the D-111 adopter has migrated onto 0.5.0 or later
-and run it in production long enough. Model: `architect-review` at M31.1. Both slices are attended. Tagging `v1.0.0`
+and run it in production long enough. Model: `architect-review` at M32.1. Both slices are attended. Tagging `v1.0.0`
 is the user's step after the gate, never a slice's.
 
 | Slice | Contents | Done when |
 |---|---|---|
-| M31.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field, M13 field-index, M14 single-model and M15 insert-column and multi-key types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
-| M31.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M31` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M31 started |
+| M32.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field, M13 field-index, M14 single-model and M15 insert-column and multi-key types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
+| M32.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M32` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M31 started |
 
-**Exit:** the M31 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M31.1 decision, so the user can
+**Exit:** the M32 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M32.1 decision, so the user can
 push the `v1.0.0` tag.
