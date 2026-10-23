@@ -225,6 +225,8 @@ body exits early or throws; the library never returns an open stream. It is for 
 
 For millions of rows, prefer keyset `export`.
 
+See [Hot paths](performance.md) for read costs and guidance on large flat reads and exports.
+
 ## Timeouts
 
 A per-query timeout from `ModelQueryConfig.queryTimeout(Duration)` or `modelquery.query-timeout` is applied to every
