@@ -2964,6 +2964,48 @@ PostgreSQL and MySQL but needs the vendor in an `@Incubating` SPI signature and 
 waiting for M33. The client-side count reads one row per group; a per-line database count stays a later optimisation.
 → `engine/20` R-EXE-03, `api/17` R-SRC-22, AC-SRC-52.
 
+**D-193 — Entity joins off joined sources and request-bound join filters (RFC 0021, 2026-10-24, user decision).**
+RFC 0021 is accepted after its acceptance spike (`rfc/0021-spike-results.md`), run on Hibernate 6.6.58 and 7.4.11
+against H2, PostgreSQL 16 and MySQL 8.0.31, with no line-parity difference. M33 (0.11.0) builds it; the freeze moves
+from M33 to M34 and stays last. Every new type, member and annotation member is `@Incubating`.
+
+**Part A (R-SRC-23, R-SRC-24).** A model that joins a source joins an entity on that entity's full id, equal to fields
+of one joined source: `@JoinEntity(name, entity, type, on = @JoinEntity.On(join, field, id))` with columns through
+`@Column#join` and `@FilterColumn#join`, or `EntityJoin` and `joinEntity` by hand; `LEFT` by default or `INNER`. The
+join renders through a new provider hook, `core.EntityJoinRenderer` behind `ProviderSupport#entityJoins()` (R-VND-32),
+empty by default (`MQ4014`, no portable default until `core` moves to Jakarta Persistence 3.2), taking
+`annotations.JoinKind`. The Hibernate renderer calls `JpaFrom#join(Class, SqmJoinType)`, which links on both lines,
+and looks up `on` reflectively: a direct `JpaEntityJoin#on` compiled against 6.6 throws `NoSuchMethodError` on 7.4.
+`on` is called exactly once per join, since 6.6 ANDs successive calls and 7.4 replaces the first. **The anchor is the
+statement's root on every line**, never the CTE join, so `INNER` drops the rows a LEFT source left unmatched and the
+entity's non-null attributes are non-null; the contract does not depend on a provider's grouping of nested joins. The
+join is created right after its anchor source join, and creation order is rendering order on every vendor and line,
+so it is on exactly R-SRC-22's statements, even where nothing reads it: PostgreSQL removes the unreferenced LEFT join;
+MySQL and H2 pay a primary-key lookup per row (0 to 1% of a page of 20, 4 to 5% of a count, 3 to 4% of an export on
+MySQL; 12 to 15% on H2). A grouped query takes D-192's client-side group count. `Agg.count` over a joined entity and
+every join below it counts `count(<first id attribute>)` on both lines and in both kinds, since `count(entity)` over a
+composite id renders `count((a, b))` on PostgreSQL and H2 and counts unmatched rows; R-AGG-19's walk stops at a joined
+entity. `MQ1911` is checked at build where no metamodel is needed (a converted anchor, pairs over two sources or an
+unbound one, a duplicate name) and at first resolution otherwise (a partial or extra id pair, a non-id or association
+id attribute, a boxed-type mismatch per D-191, a to-many path below the entity); a column over an unregistered entity
+join is `MQ1003`. The processor's checks are `MQ3046`. Locks stay `MQ1903` and child models `MQ3039`.
+
+**Part B (R-COL-39).** `joinFilter(join, f -> ...)` on the built query ANDs a request-bound filter into one LEFT join's
+`ON`, the entity join or an ordinary to-one join, so a per-request condition blanks the joined columns and keeps the
+row; nothing is held on a static constant (INV-9). A second `joinFilter` on one join replaces the first, as `where`
+does. The filter reads that join's own columns, values and constants only; anything else is `MQ1912` at build, and a
+join key the content statement never creates is `MQ1912` at first resolution. An `exists` inside an `ON` renders alike
+on all three vendors, so its refusal is a scope choice; a sub-query crossing the filtered join is refused because
+Hibernate drops the `ON` of a join off a correlated root, confirmed on both lines and all vendors. Part B is built as
+its own slice after Part A; Part A ships alone if Part B's review rejects it.
+
+Rejected: aggregates inside the source, chaining `@JoinSource` off a joined source, a `QueryCustomizer` join, an entity
+off an outer entity's plain column (a read-only association covers it), a join filter held on a `TableField`, entity
+joins nested in `@JoinSource`, a separate `@EntityColumn`, a `joinEntity` method on `SourceRenderer`, and the CTE join
+as anchor.
+→ `rfc/0021`, `rfc/0021-spike-results.md`, `api/17` R-SRC-22, `api/10` R-COL-03, `api/13` R-AGG-19, `vendor/40`,
+D-185, D-191, D-192.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

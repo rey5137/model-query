@@ -410,7 +410,7 @@ user can push the `v0.8.0` tag.
 
 Spec: `docs/plan/litepos-gaps.md` §1 and §3 (M17), `api/10` (new `AC-COL` rows from AC-COL-29), `api/13` (new
 `AC-AGG` rows from AC-AGG-16), `api/14` (new `AC-WRT` rows from AC-WRT-41), CC-DOC-01 (every runnable snippet gets the
-Plain JPA and Spring tabs). Runs before the freeze, M33 (D-185), which stays last. No API change; ships in 0.9.0 with M18–M22 (the
+Plain JPA and Spring tabs). Runs before the freeze, M34 (D-193), which stays last. No API change; ships in 0.9.0 with M18–M22 (the
 docs site still publishes from `main` as it merges). Model: none; the M17.1 cases may each fail, and a failing case is recorded as a gap
 in `litepos-gaps.md` and left out of M17.2's docs rather than fixed here.
 
@@ -581,7 +581,7 @@ R-VND-21, R-VND-22), `vendor/41` (the Tier-1 MySQL floor 8.0 → 8.0.31), the `j
 models" page; the comparison page's Reach row). The acceptance spike is done (`rfc/0013-spike-results.md`). Model: an
 `architect-review` at the gate (public API and generics of `SourceQuery`/`WindowField`, paging and export over sources,
 the `VendorProfile` and `SourceSupport` surface, INV-6 and INV-7). Every new public type and member is `@Incubating`.
-Ships in 0.10.0 with M26–M30 (D-145, D-148, D-176), before the freeze, M33 (D-185), which stays last. Spec rows land with the slice that implements them; AC-SRC
+Ships in 0.10.0 with M26–M30 (D-145, D-148, D-176), before the freeze, M34 (D-193), which stays last. Spec rows land with the slice that implements them; AC-SRC
 and AC-PROC numbers are taken in slice order. The `spike/rfc-0013` branch (unpushed, `model-query-tck/.../tck/spike/`)
 is the reference for the Hibernate hooks.
 
@@ -793,7 +793,7 @@ Spec: D-184, `rfc/0019` (accepted as D-184). RFC 0019's Part A (compiled queries
 alone: a read with no fetch plan maps each tuple straight to
 its model in `DefaultModelQueryExecutor#mapAll`, without a `Loaded` and `Row` kept per row. Behaviour-identical: no
 public API, no `MQnnnn` code, no SQL snapshot change. Default tier; no `architect-review` (no public API, `INV-*` or
-module-boundary change). The freeze moved to M32 (D-184), then to M33 (D-185), and stays last.
+module-boundary change). The freeze moved to M32 (D-184), then to M33 (D-185), then to M34 (D-193), and stays last.
 
 | Slice | Content | Done when |
 |---|---|---|
@@ -873,16 +873,50 @@ unfiltered pages of a few rows over an indexed child; give the ranked-source rou
 
 **Exit:** the M32 rows' criteria green on Tier 1 and both lines.
 
-## 33. M33 — Freeze → 1.0.0
+## 33. M33 — Entity joins off joined sources and request-bound join filters → 0.11.0
+
+Spec: D-193, `rfc/0021` (accepted as D-193). Two parts, both extending M32's Part A. Part A: a model that joins a
+source joins an entity on that entity's full id, equal to fields of the joined source (`@JoinEntity`, `EntityJoin`,
+`joinEntity`), `LEFT` by default or `INNER`, attached to the statement's root right after its anchor source join, so
+it is on every statement of R-SRC-22's list (R-SRC-23, R-SRC-24). Part B: `joinFilter`, a request-bound filter ANDed
+into one LEFT join's `ON`, over that join's own columns only (R-COL-39). SPI: `ProviderSupport#entityJoins()`
+returning a `core.EntityJoinRenderer` (R-VND-32); the Hibernate provider calls `JpaFrom#join(Class, SqmJoinType)` and
+looks up `on` reflectively, once per join. New codes `MQ1911`, `MQ1912`, `MQ3046`; `MQ4014` widened. Every new type,
+member and annotation member is `@Incubating`. Model: `architect-review` at the gate (public API, the `ProviderSupport`
+surface, paging correctness of an `INNER` entity join and of a filtered `ON` in every phase); M33.1 and M33.3 run at
+`opus` / `high`. Ships in 0.11.0 with M31 and M32; the freeze moves to M34 and stays last.
+
+| Slice | Content | Done when |
+|---|---|---|
+| M33.0 | RFC review and acceptance spike (`rfc/0021-spike-results.md`) | Done: D-193 |
+| M33.1 | Part A, engine and provider: `EntityJoin`, `joinEntity`, the joined-entity table-field kind, `EntityJoinRenderer`, `ProviderSupport#entityJoins()`, the Hibernate renderer, `MQ1911`, `MQ4014` widened, R-AGG-19's walk stopping at a joined entity, inspection | AC-SRC-53 to AC-SRC-55, AC-SRC-56's `MQ1911` and `MQ1003` cases, AC-SRC-57, AC-SRC-58 green on both lines and Tier 1; SQL snapshots unchanged |
+| M33.2 | Processor: `@JoinEntity`, `@JoinEntity.On`, `@Column#join`, `@FilterColumn#join` (R-PROC-46, `MQ3046`) | AC-SRC-56's `MQ3046` cases green; a generated model runs AC-SRC-53's query |
+| M33.3 | Part B: `joinFilter`, R-COL-39, `MQ1912`, the filter in every phase's `ON` | AC-COL-54 to AC-COL-57 green on both lines and Tier 1; SQL snapshots unchanged |
+| M33.4 | Docs: the sources page (an entity joined off a joined source, its cost per vendor), the joins page (join filters), both tabs (CC-DOC-01), `CHANGELOG.md` 0.11.0 section extended | `mkdocs build --strict` green |
+
+**M33.1 — Entity joins.** The engine builds the key predicate over standard Criteria and passes the root as the
+anchor; the provider calls `on` exactly once, since Hibernate 6.6 ANDs successive `on` calls and 7.4 replaces the
+first. `Agg.count` over a joined entity and every join below it renders `count(<first id attribute>)`, never the
+entity (a composite id would render `count((a, b))` and count unmatched rows). A grouped query takes D-192's
+client-side group count. Checks split by what they need: the metamodel-free ones at build, the rest at first
+resolution (D-193, Resolution 8).
+
+**M33.3 — Join filters.** One filter per join per query; a second replaces the first. The filter is ANDed into the
+join's one `on` call with the entity join's key predicate or a static `TableField.on`. A join key the content
+statement never creates is `MQ1912` at first resolution; every other refusal is at build.
+
+**Exit:** the M33 rows' criteria green on Tier 1 and both lines.
+
+## 34. M34 — Freeze → 1.0.0
 
 Spec: D-85 (amended by D-106, D-116 and D-118), D-86, D-111, D-116, D-118. Starts only when the user says the D-111 adopter has migrated onto 0.5.0 or later
-and run it in production long enough. Model: `architect-review` at M33.1. Both slices are attended. Tagging `v1.0.0`
+and run it in production long enough. Model: `architect-review` at M34.1. Both slices are attended. Tagging `v1.0.0`
 is the user's step after the gate, never a slice's.
 
 | Slice | Contents | Done when |
 |---|---|---|
-| M33.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field, M13 field-index, M14 single-model and M15 insert-column and multi-key types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
-| M33.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M33` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M32 started |
+| M34.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field, M13 field-index, M14 single-model and M15 insert-column and multi-key types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
+| M34.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M34` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M33 started |
 
-**Exit:** the M33 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M33.1 decision, so the user can
+**Exit:** the M34 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M34.1 decision, so the user can
 push the `v1.0.0` tag.

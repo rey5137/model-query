@@ -1,11 +1,11 @@
 # RFC 0021 — Entity joins off joined sources, and request-bound join filters
 
-- **Status:** draft. Prompted by a hierarchy report (a closure-table node search, native MySQL today) that RFC 0020
+- **Status:** accepted (D-193), after the acceptance spike (`rfc/0021-spike-results.md`). Prompted by a hierarchy report (a closure-table node search, native MySQL today) that RFC 0020
   Part A almost expresses: the source joins, but nothing joins *off* it.
 - **Affects:**
   - **`api/17`:** new R-SRC-23 (a model that joins a source joins an entity on that entity's full id, equal to columns
     of the joined source) and R-SRC-24 (how it renders, which statements carry it, counts, locks, fetch plans); R-SRC-22's
-    "every statement" sentence names the joined entity; new AC-SRC-52 to AC-SRC-57 (Part A). `MQ3035` (a `@Join` on a
+    "every statement" sentence names the joined entity; new AC-SRC-53 to AC-SRC-58 (Part A). `MQ3035` (a `@Join` on a
     model rooted at a source) is unchanged.
   - **`api/10`:** new R-COL-39, a request-bound `ON` filter on a LEFT join (Part B); R-COL-03's `on(...)` bullet points
     to it; new AC-COL-54 to AC-COL-57.
@@ -186,7 +186,7 @@ public static final ColumnField<NodeDetail, ProfileTypeEntity, String> MANAGER_T
   and the join key of a child join starts from the join name (R-COL-02), so `MANAGER_TYPE_TABLE` never meets the
   node's `type` join.
 - `ModelQuery.Builder#joinEntity(EntityJoin<M, ?>)` registers the join on the definition; every builder copy carries
-  it. A definition is built without the metamodel (INV-9), so `MQ1911` is split by what each check needs (D-next,
+  it. A definition is built without the metamodel (INV-9), so `MQ1911` is split by what each check needs (D-193,
   Resolution 8):
   - **when the query is built:** an anchor whose `isConverted()` holds, pairs over two joined sources or over a source
     the query does not bind, a second registration of one name;
@@ -203,7 +203,7 @@ public static final ColumnField<NodeDetail, ProfileTypeEntity, String> MANAGER_T
 
 - **Every joined-entity column is nullable under `LEFT`**, its id included, as a column of a LEFT `@Join` is. Under
   `INNER` the entity's own non-null attributes are non-null, and a to-one path from it follows R-COL-25. This holds
-  because the join is always attached to the statement's root (A.6, D-next Resolution 5), so `INNER` keeps only rows
+  because the join is always attached to the statement's root (A.6, D-193, Resolution 5), so `INNER` keeps only rows
   with a matching entity row, whatever kind the anchor source join is. Filters,
   orders and `Row.get` treat a joined-entity column as any column. A keyset order on a nullable one needs `nullsFirst`
   or `nullsLast` by the existing rules (R-COL-12, R-COL-13, R-PAG-05); a NULL in a keyset column is `MQ2202` as today.
@@ -211,11 +211,13 @@ public static final ColumnField<NodeDetail, ProfileTypeEntity, String> MANAGER_T
 - **Grouping.** A grouped outer `@QueryModel` may group by a joined-entity column; a nullable group key follows the
   rules a LEFT `@Join` column has today (`MQ2201` in an export). No new rule.
 - **`Agg.count` over a joined entity.** `Agg.count(MANAGER.root())` renders `count(p.id)` (the first id attribute) in
-  both kinds: an unmatched `LEFT` row counts 0. R-AGG-19's row count (`count(*)`) does not apply: the joined entity is not a
+  both kinds: an unmatched `LEFT` row counts 0. `count(entity)` would render `count(<id>)` on both lines for a single
+  id, but `count((a, b))` for a composite id on PostgreSQL and H2, which counts an unmatched LEFT row, so the
+  first-id-attribute rule is required (spike A.4). R-AGG-19's row count (`count(*)`) does not apply: the joined entity is not a
   `jakarta Join` on 6.6 but is one on 7.4 (`JpaEntityJoin` extends `JpaJoin`, A.6), so a `Join#getParent()` walk would
   render `count(*)` on one line and `count(pt.id)` on the other. A joined entity, and every join below it
   (`Agg.count(MANAGER_TYPE_TABLE)` included), counts its identity (`count(<first id attribute>)`) on both lines and in
-  both kinds; R-AGG-19's walk stops at a joined entity, as it stops at a joined source (D-next, Resolution 7). Making
+  both kinds; R-AGG-19's walk stops at a joined entity, as it stops at a joined source (D-193, Resolution 7). Making
   `INNER` under an `INNER` source a row count is a later optimisation.
 - **`firstBy`.** `Agg.firstBy` (R-AGG-16) may read a joined-entity column in its value or order: the join is to-one,
   so it is never recorded as a to-many join, and the root id appended as the tie-breaker still picks one row. A
@@ -229,9 +231,15 @@ public static final ColumnField<NodeDetail, ProfileTypeEntity, String> MANAGER_T
   that join on: content, count, the count over groups (through `ProviderSupport#countQuery`), the root-id count of a
   treated path, both primary-key-first steps, the keyset page, every `byKeys` chunk, `one(q, key)`, the `through`
   child load, every export page and the stream, and the parent reads of a fetch plan. The phases keep the same joins (R-QRY-09). A `LEFT` join on a full id never changes the row
-  count, so this costs one index lookup per row on MySQL and H2; PostgreSQL removes an unreferenced LEFT join to a
-  relation unique on the join keys (spike A.1 of RFC 0020 saw it for the CTE; to confirm in the spike for a table). One
-  rule, as R-SRC-22 chose, needs no proof per statement that dropping the join keeps the rows.
+  count. PostgreSQL removes an unreferenced LEFT join to `profile` on its primary key, with an ON filter, in the count,
+  the page and the export (plan: 0 scans, spike A.4); MySQL and H2 do a primary-key lookup per outer row: 0 to 1% of a
+  page of 20, 4 to 5% of a count and 3 to 4% of an export on MySQL, and 12 to 15% on H2. One rule, as R-SRC-22 chose,
+  needs no proof per statement that dropping the join keeps the rows.
+- **The count over groups.** The entity join adds no rule here. A grouped query that joins a source counts its groups
+  with `createCountQuery()` only where Hibernate can: it fails on 6.6 on every vendor and on 7.4 with H2 for any joined
+  CTE, entity join or not (spike A.2), and the entity join survives the copy where it runs (7.4 PostgreSQL and MySQL).
+  The executor counts the groups of any query that joins a source client-side (R-EXE-03, D-192), so a query with an
+  entity join takes that path.
 - **Locks.** A query with an entity join has a joined source, so `withLock(...)` is `MQ1903` already (R-SRC-11,
   R-SRC-22). No new code.
 - **Fetch plans.** A parent model with an entity join carries it on its parent reads. A `@Child` whose child model has
@@ -259,21 +267,23 @@ public interface EntityJoinRenderer {
   so `core` cannot call it. The hook keeps `core` free of profiles and `jpa` free of `org.hibernate` (INV-6, INV-7).
 - **Hibernate.** `JpaFrom#join(Class<X>, SqmJoinType)` exists on both lines and returns `JpaEntityJoin` (`javap`,
   6.6.58 and 7.4.11): abstract on 6.6, a default on 7.4, with the same erased descriptor, so a renderer compiled
-  against 6.6 should link on 7.4 (to confirm in the spike). The return type's place differs: on 6.6 `JpaEntityJoin<T>`
+  against 6.6 links and runs on 7.4 (spike A.1: a direct `JpaEntityJoin#on` compiled against 6.6 throws
+  `NoSuchMethodError` on 7.4, so the `on` is looked up reflectively on the returned type). The return type's place differs: on 6.6 `JpaEntityJoin<T>`
   extends `JpaJoinedFrom<T, T>`, not a `jakarta Join`, and declares `on(Predicate...)`; on 7.4 `JpaEntityJoin<L, R>`
   extends `JpaJoin<L, R>` and inherits `on(Predicate...)` from it, returning `JpaJoin`. So the renderer applies `on`
   reflectively, as RFC 0020's `SourceRenderer#join` does, and the hook returns a plain `From`. `core` never calls `on`
   itself and calls the `on` function once, so a join filter (Part B) is ANDed into the one predicate rather than set by
-  a second `on` call, which would replace the first.
+  a second `on` call: Hibernate 6.6 ANDs successive `on` calls and 7.4 replaces the first (spike B.1), so the engine
+  calls `on` exactly once on every line.
 - **The anchor.** The engine passes the statement's root as `anchor`, so the entity join is a sibling of the source's
   CTE join in the root's join list, created after it (the anchor source join is resolved first, since the key
   predicate reads it). That renders the flat SQL, `from hierarchy_node hn left join edge x on … left join profile p on
   p.id = x.mq_startVertex`, in which an `INNER` entity join drops the rows a LEFT source left unmatched. The join is
-  attached to the root on every line, never under the CTE join (`cteJoin.join(ProfileEntity.class, …)`), which could
-  render a nested join group that keeps those rows with NULL entity columns: that would reverse both `INNER`'s meaning
-  and the result type's nullability (A.4), and the count would be wrong without an error. A Hibernate line that cannot
-  render the join off the root refuses an `INNER` entity join with `MQ4014` on that line; the meaning never changes
-  per line. The spike confirms that creation order is rendering order.
+  attached to the root on every line, never under the CTE join (`cteJoin.join(ProfileEntity.class, …)`): the
+  contract does not depend on a provider's grouping of nested joins. Spike A.2 rendered the CTE anchor and the root
+  anchor identically on both lines and all three vendors. A provider whose hook cannot attach to the root refuses an
+  entity join with `MQ4014`; the meaning never changes per line. Creation order is rendering order: spike A.2 confirms
+  it on all vendors and both lines.
 - **Order of checks.** The vendor gate `MQ4015` (R-VND-21), then the `SourceRenderer` `MQ4014`
   (`ModelQuery.java:631`), then the `EntityJoinRenderer` `MQ4014`.
 - **Vendors.** No new database fact. A query with an entity join already has a joined source, gated by
@@ -301,8 +311,8 @@ Slice<NodeDetail> page = executor.page(q, PageSpec.of(0, 20), CountMode.COUNT);
 ```
 
 `NODE_TABLE` is `TableField.join(ROOT, "node", JoinType.LEFT)`, equal by join key (R-COL-02) to the join the
-`node.*` columns read through (R-COL-25), so the filter lands on that one join. Rendered on MySQL, `include_deleted = 0`, every optional value present (the
-order and the profile join's place to confirm in the spike):
+`node.*` columns read through (R-COL-25), so the filter lands on that one join. Rendered on MySQL, `include_deleted = 0`, every optional value present; the join
+order is creation order (spike A.2):
 
 ```sql
 with edge as (select e.hierarchy_id mq_hierarchyId, e.end_vertex mq_endVertex,
@@ -312,10 +322,10 @@ with edge as (select e.hierarchy_id mq_hierarchyId, e.end_vertex mq_endVertex,
               group by e.hierarchy_id, e.end_vertex)
 select hn.id, hn.hierarchy_id, hn.node_id, c.first_name, ct.name, x.mq_startVertex, p.first_name, pt.name, x.mq_createdAt
 from hierarchy_node hn
-left join profile c        on c.id = hn.node_id and c.is_deleted <> ?
-left join profile_type ct  on ct.id = c.type_id
 left join edge x           on x.mq_hierarchyId = hn.hierarchy_id and x.mq_endVertex = hn.node_id
 left join profile p        on p.id = x.mq_startVertex and p.is_deleted <> ?
+left join profile c        on c.id = hn.node_id and c.is_deleted <> ?
+left join profile_type ct  on ct.id = c.type_id
 left join profile_type pt  on pt.id = p.type_id
 where hn.hierarchy_id = ? and x.mq_startVertex = ? and hn.node_id = ? and c.first_name = ? and hn.is_deleted <> ?
 order by hn.id
@@ -368,13 +378,14 @@ ModelQuery.Builder<E, K, M> joinFilter(TableField<?, ?> table, UnaryOperator<Fil
   request, exactly as its `where` and a `SourceQuery`'s `where` do. Nothing is held on `EntityJoin` or `TableField`, so
   the static constants stay shared (INV-9), and the join key stays what R-COL-02 and A.3 say (no alias needed, unlike
   R-COL-04's static `on`, whose lambda cannot be compared). One join takes one filter per query; a second
-  `joinFilter` on the same join key replaces the first, as a second `where` does (to settle at acceptance, Resolution
+  `joinFilter` on the same join key replaces the first, as a second `where` does (D-193, Resolution
   4). Every builder copy carries it.
 - **Skipping.** The `Optional` skip contract and `when(...)` apply (R-FLT-01, R-FLT-13): a filter whose terms are all
   skipped adds nothing to the `ON`.
 - **Rendering.** The engine ANDs the filter into the join's one `on` call: the entity join's key predicate (A.6), an
   association join's `Join#on` (R-COL-03), together with a static `TableField.on(...)` if the table has one. Values
-  bind as statement parameters, once per statement that has the join. No new hook.
+  bind as statement parameters, once per statement that has the join. No new hook. Hibernate 6.6 ANDs successive `on`
+  calls and 7.4 replaces the first (spike B.1), so the engine calls `on` exactly once on every line.
 
 **B.2 What it may reference, and why.** Only columns whose table is the filtered join itself, plus values and
 constants (`Expr.value`, R-COL-26). Anything else is `MQ1912` when the query is built:
@@ -384,12 +395,13 @@ constants (`Expr.value`, R-COL-26). Anything else is `MQ1912` when the query is 
 - **a to-one path from the joined table** (`type.name` in the manager's `ON`). The path's own join would be created
   while the `ON` is built and rendered after it, the same ordering problem; filter the next join instead
   (`joinFilter(MANAGER_TYPE_TABLE, …)`).
-- **a to-many path or an `exists`.** A to-many join multiplies rows, R-PAG-*'s concern; an `exists` in an `ON` is not
-  rendered by every Tier-1 vendor the same way (to confirm in the spike before it is ever allowed).
+- **a to-many path or an `exists`.** A to-many join multiplies rows, R-PAG-*'s concern; an `exists` in an `ON`
+  renders the same SQL on H2, PostgreSQL and MySQL on both lines (spike B.1), so its refusal is a scope decision, not a
+  vendor gap: Part B takes values and constants only, and lifting it is a later RFC.
 - **an aggregate, a window or a correlated value**, which have no meaning per joined row.
 - **a sub-query term that crosses the filtered join** (`exists`, `in(subSelect)`, a `Correlated` whose path goes through
   a join-filtered join): Hibernate 6 drops the `ON` of a join made off a correlated root (`JoinContext.java:952-957`),
-  so the sub-query would read unfiltered rows.
+  so the sub-query would read unfiltered rows (spike B.1: both lines, all three vendors).
 - **an `INNER` join or a root.** On `INNER` an `ON` filter equals a `where` filter; one spelling stays. A to-many join
   takes the static `on(...)` only.
 - **a join an id-form column reads** (R-COL-29: `@Column(attribute = "node") Long nodeId`). That column reads the
@@ -432,6 +444,11 @@ the replace-on-second-call rule wrong for existing models, Part A ships alone an
 
 ### Spike plan
 
+Done: every item below ran, nothing is deferred; results in `rfc/0021-spike-results.md`. Two acceptance criteria come
+from it: the engine passes a join's predicate to `on` exactly once (AC-SRC-58 for the entity join, AC-COL-55 with a
+join filter), and `Agg.count` over a composite-id joined entity counts its first id attribute, the PostgreSQL and H2
+`count((a, b))` case (AC-SRC-58).
+
 A throwaway branch `spike/rfc-0021` with one test-source module `spike-rfc0021/`, on Hibernate 6.6.58.Final and
 7.4.11.Final, against H2, PostgreSQL 16 (`postgres:16-alpine`) and MySQL 8.0.31. Results go to
 `rfc/0021-spike-results.md` in `rfc/0020-spike-results.md`'s shape (a verdict per part, **Matrix**, **Findings**,
@@ -468,7 +485,7 @@ the requested `hops`.
 ### New ids (placeholders)
 
 Checked against the spec and RFC 0020's ids: the highest in use are R-SRC-22, R-COL-38 (released unused by D-184),
-R-PROC-45, D-191, R-VND-31 (released unused by D-184), AC-SRC-51, AC-COL-53, `MQ1910` and `MQ3045`. Every id below is above
+R-PROC-45, D-192, R-VND-31 (released unused by D-184), AC-SRC-52 (D-192), AC-COL-53, `MQ1910` and `MQ3045`. Every id below is above
 both and unused in the repository.
 
 | Id | What |
@@ -481,14 +498,14 @@ both and unused in the repository.
 
 | AC | Asserts |
 |---|---|
-| AC-SRC-52 | A LEFT entity join off a joined source returns the hand-written SQL's rows; an unmatched source or entity row reads NULL; two joins of one entity stay apart; a to-one path from the joined entity reads through its own LEFT join |
-| AC-SRC-53 | The entity join is in every statement of R-SRC-22's list, after its anchor source join |
-| AC-SRC-54 | `INNER` drops outer rows with no entity row, including those the LEFT source left unmatched, in content and count alike; keyset pages over a nullable joined column with `nullsLast` lose no row; `Agg.count` over an unmatched LEFT entity join is 0 |
-| AC-SRC-55 | `MQ3046`: partial id, extra pair, non-id attribute, association id, converted field, boxed-type mismatch, unknown join or field, anchor not a joined source, a to-many path, a nested `@Join`, a `@PrimaryKey` on a joined column, on a `@SourceModel`, a duplicate name; `MQ1911` for the hand-written forms, each at build or at first resolution as A.3 splits them; `MQ1003` for a column over an unregistered joined entity |
-| AC-SRC-56 | `MQ1903` for a lock and `MQ3039` for a child model with an entity join, unchanged; an `@IdClass` and an `@EmbeddedId` target join on every id attribute |
-| AC-SRC-57 | A provider without `entityJoins()`: `MQ4014` before any statement, after `MQ4015` and the `SourceRenderer` `MQ4014`; `PortabilityCheck` reports it per target; `Agg.count` over a joined entity and over a join below it renders `count(<id>)` on both lines; `firstBy` over a joined-entity column returns one row per group |
+| AC-SRC-53 | A LEFT entity join off a joined source returns the hand-written SQL's rows; an unmatched source or entity row reads NULL; two joins of one entity stay apart; a to-one path from the joined entity reads through its own LEFT join |
+| AC-SRC-54 | The entity join is in every statement of R-SRC-22's list, after its anchor source join |
+| AC-SRC-55 | `INNER` drops outer rows with no entity row, including those the LEFT source left unmatched, in content and count alike; keyset pages over a nullable joined column with `nullsLast` lose no row; `Agg.count` over an unmatched LEFT entity join is 0 |
+| AC-SRC-56 | `MQ3046`: partial id, extra pair, non-id attribute, association id, converted field, boxed-type mismatch, unknown join or field, anchor not a joined source, a to-many path, a nested `@Join`, a `@PrimaryKey` on a joined column, on a `@SourceModel`, a duplicate name; `MQ1911` for the hand-written forms, each at build or at first resolution as A.3 splits them; `MQ1003` for a column over an unregistered joined entity |
+| AC-SRC-57 | `MQ1903` for a lock and `MQ3039` for a child model with an entity join, unchanged; an `@IdClass` and an `@EmbeddedId` target join on every id attribute |
+| AC-SRC-58 | A provider without `entityJoins()`: `MQ4014` before any statement, after `MQ4015` and the `SourceRenderer` `MQ4014`; `PortabilityCheck` reports it per target; `Agg.count` over a joined entity and over a join below it renders `count(<id>)` on both lines, and over a composite-id joined entity counts its first id attribute; the provider's `on` is called once per entity join; `firstBy` over a joined-entity column returns one row per group |
 | AC-COL-54 | A join filter on a LEFT entity join and on a LEFT to-one join blanks the joined columns and keeps the row, on every vendor and line, in content, count, both primary-key-first steps and export |
-| AC-COL-55 | A join filter ANDs with a static `TableField.on` in one `ON`; a skipped filter adds nothing; a `where` filter on a blanked column drops the row |
+| AC-COL-55 | A join filter ANDs with a static `TableField.on` in one `ON`, passed to the provider's `on` once; a skipped filter adds nothing; a `where` filter on a blanked column drops the row |
 | AC-COL-56 | `MQ1912`: another table, a to-one or to-many path, `exists`, an aggregate, an `INNER` join, a root, a join an id-form column reads, a sub-query term crossing the filtered join, a filter on a join key the content statement never creates; a `null` value is `MQ1301` at the `joinFilter` call |
 | AC-COL-57 | A `joinFilter` alone creates no association join; the static constants are unchanged after a filtered build (INV-9) |
 
@@ -529,33 +546,36 @@ result or committed SQL snapshot changes. Everything new is `@Incubating`; the f
 
 ## Resolutions to record
 
-No question stays open; each item is a proposed decision (D-next) for acceptance.
+No question stays open. Each resolution below is recorded in D-193, with the spike's evidence
+(`rfc/0021-spike-results.md`).
 
-1. **D-next, the annotation shape.** Options: (a) a class-level repeatable `@JoinEntity(name, entity, type, on =
+1. **The annotation shape.** Options: (a) a class-level repeatable `@JoinEntity(name, entity, type, on =
    @JoinEntity.On(join, field, id))`, columns via `@Column(join = ...)`; (b) entity joins nested in the source,
    `@JoinSource(..., entities = @JoinSource.Entity(...))`; (c) a separate `@EntityColumn(join, attribute)` in place of
-   `@Column#join`. Recommended: (a) with `@Column#join`. A joined entity's column is checked as an entity path, the
+   `@Column#join`. Decided: (a) with `@Column#join`. A joined entity's column is checked as an entity path, the
    check `@Column` already runs, so a separate annotation (RFC 0020's reason for `@SourceColumn`) does not apply; (a)
    keeps the join named on its own, which A.2's later outer-column anchor needs, where (b) would tie it to a source.
-2. **D-next, the hook's home.** Options: a new `EntityJoinRenderer` behind `ProviderSupport#entityJoins()`, or a
-   `joinEntity` method on `SourceRenderer`. Recommended: the new renderer, since an entity join is not a source
+2. **The hook's home.** Options: a new `EntityJoinRenderer` behind `ProviderSupport#entityJoins()`, or a
+   `joinEntity` method on `SourceRenderer`. Decided: the new renderer, since an entity join is not a source
    feature and A.2's later anchor would reuse it.
-3. **D-next, a portable default.** Options: `MQ4014` without a provider, or a `core` default that calls Jakarta
-   Persistence 3.2's `From#join(Class, JoinType)` reflectively when present. Recommended: `MQ4014` now; the 3.2
-   default is additive once the `core` baseline moves to 3.2.
-4. **D-next, a second `joinFilter` on one join.** Options: replace, as `where` does, or `MQ1912`. Recommended:
+3. **A portable default.** Options: `MQ4014` without a provider, or a `core` default that calls Jakarta
+   Persistence 3.2's `From#join(Class, JoinType)` reflectively when present. Decided: `MQ4014` now; the 3.2
+   default is additive once the `core` baseline moves to 3.2, and it would need the same one-`on` rule, since a
+   `Join#on` on 3.2 replaces the previous one (spike B.1).
+4. **A second `joinFilter` on one join.** Options: replace, as `where` does, or `MQ1912`. Decided:
    replace, matching `where`; inspection shows the one in force.
-5. **D-next, the anchor.** The root, never the CTE join, on every line: `INNER` keeps only rows with a matching entity
+5. **The anchor.** The root, never the CTE join, on every line: `INNER` keeps only rows with a matching entity
    row whatever kind the source join is, so the entity's non-null attributes are non-null and its to-one paths follow
-   R-COL-25. A Hibernate line that cannot render the join off the root refuses an `INNER` entity join with `MQ4014` on
-   that line; the meaning never changes per line.
-6. **D-next, Part B with Part A** (B.5): accepted together, built as a later slice, with the id-form refusal; Part A
+   R-COL-25. The contract does not depend on a provider's grouping of nested joins, although spike A.2 rendered both
+   anchors identically on both lines and all three vendors. A provider whose hook cannot attach to the root refuses an
+   entity join with `MQ4014`; the meaning never changes per line.
+6. **Part B with Part A** (B.5): accepted together, built as a later slice, with the id-form refusal; Part A
    ships alone if Part B's review rejects it.
-7. **D-next, the count over a joined entity:** a joined entity and every join below it count their identity
+7. **The count over a joined entity:** a joined entity and every join below it count their identity
    (`count(<first id attribute>)`) on both lines and in both kinds; R-AGG-19's walk stops at a joined entity, as it
    does at a joined source. No row-count form in this RFC.
-8. **D-next, when `MQ1911` is checked.** At build, without the metamodel: a converted anchor, pairs over two joined
+8. **When `MQ1911` is checked.** At build, without the metamodel: a converted anchor, pairs over two joined
    sources or an unbound source, a name registered twice. At first resolution, before any statement: a partial or
    extra id pair, a non-id attribute, an association id attribute, a boxed-type mismatch (D-191), a to-many path below
    the joined entity. A column over an unregistered entity join is `MQ1003`; `MQ1910` stays the `SourceJoin` code.
-9. **D-next, the `EntityJoinRenderer` kind parameter:** `annotations.JoinKind`, as `SourceRenderer#join` (M32 gate).
+9. **The `EntityJoinRenderer` kind parameter:** `annotations.JoinKind`, as `SourceRenderer#join` (M32 gate).
