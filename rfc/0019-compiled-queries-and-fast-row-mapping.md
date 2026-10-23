@@ -1,32 +1,22 @@
 # RFC 0019 — Compiled queries with late-bound values, and a faster row path
 
-- **Status:** draft
-- **Affects:**
-  - **`core`:** new `QueryParam<C>`, a typed, named placeholder for a value bound per call (Part A); `Filters` and
-    `Having` overloads taking a `QueryParam` for the comparison, `between` and `like` operators; `Expr.param`, the
-    late-bound counterpart of `Expr.value` (R-COL-26); `ModelQuery#with(QueryParam, value)`, a bound copy whose
-    `definition()` is the unbound query (as `orderedBy` copies are, R-QRY-14); `Builder#compiled()`, the opt-in.
-    Part B changes `RowSelection`'s `Row` view internally (`@EngineFacing`, no public signature).
-  - **`api/10`:** new R-COL-38 for `QueryParam` and `Expr.param`; R-COL-10's wrapper reads by a position resolved
-    once per build (Part B, P-B.1), and, only if P-B.3 ships, "a `Tuple` or an `Object[]`".
-  - **`api/11`:** new R-QRY-18 for `compiled()` and `with`; R-QRY-07 gains "a compiled definition refuses a
-    customizer"; R-QRY-14's `definition()` text becomes "differs in its ordering and bindings alone".
-  - **`api/12`:** new R-FLT-30: a `QueryParam` filter is never skipped (R-FLT-01's skip contract is for `Optional`
-    values), and binding `null` is refused; R-FLT-08 unchanged (a parameter is a bind, always).
-  - **`engine/20`:** new R-EXE-17: the entry cache, its scope and key, which calls use it, what runs per call; new
-    AC-EXE-25 and up.
-  - **`engine/21`:** no rule changes. Every R-PAG-* path takes today's build route with the bound values (P-A.4).
-  - **`vendor/40`:** new R-VND-31: `ProviderSupport#statements(EntityManagerFactory)`, an optional provider mechanism
-    (`copiesOnCreate(EntityManager)`, `prepare`); the portable fallback rebuilds per call. The ids are reserved against
-    RFC 0020's R-COL-37, R-FLT-29, R-VND-29 and R-VND-30.
-  - **`model-query-hibernate`:** the `statements` implementation; its route is chosen by the spike (§Spike).
-  - **`model-query-spring-boot-starter`:** `modelquery.statement-cache-size`.
-  - **`docs/spec/SPEC.md`:** at acceptance, INV-9's "Per-query state lives only in `JoinContext`, created per build"
-    gains "or a sealed entry derived from one (R-EXE-17)", and `QueryParam` joins the list of immutable definitions.
-  - **`docs/site`:** a "hot paths" page (compiled queries, the row path's cost, when `JdbcClient` is the better tool,
-    and a paragraph on `hibernate.criteria.plan_cache_enabled` for 7.4 users), both tabs (CC-DOC-01).
-- **Discussion:** to open
-- **Target:** after 0.10.0, `@Incubating`. Both parts are additive; Part B is behaviour-identical.
+- **Status:** accepted as D-184 (2026-10-23, user decision), as the acceptance spike decided it
+  ([0019-spike-results.md](0019-spike-results.md)): **Part A is not adopted** (rule 2, "Neither"), so `QueryParam`,
+  `compiled()` and the statement cache do not ship and become a docs paragraph; **Part B ships P-B.2 only**. M31,
+  0.11.0; the freeze moves to M32.
+- **Affects (as accepted):**
+  - **`model-query-jpa`:** `DefaultModelQueryExecutor`'s `mapAll` takes the flat-row path of P-B.2 for an eligible
+    query (D-184). No public signature, no `@EngineFacing` change, no SQL snapshot change.
+  - **`api/10`:** R-COL-10 unchanged (P-B.1 and P-B.3 are dropped, so queries still select a `Tuple` read by alias);
+    new AC-COL-53 for the flat-row path.
+  - **`docs/site`:** a "hot paths" page: what a read costs over `JdbcClient`, our build time, that 7.4's
+    `hibernate.criteria.plan_cache_enabled` gets no hits for model-query's queries, when `JdbcClient` is the better
+    tool for a large flat read, and that a large export should use `keyset()`; both tabs (CC-DOC-01).
+  - **Not adopted (Part A):** `QueryParam`, `Expr.param`, `ModelQuery#with`, `Builder#compiled()`,
+    `ProviderSupport#statements`, `modelquery.statement-cache-size`, and the INV-9 amendment. The reserved ids R-COL-38,
+    R-QRY-18, R-FLT-30, R-EXE-17, R-VND-31, `MQ1210` and `MQ2215` are released unused.
+- **Discussion:** the spike results.
+- **Target:** M31, 0.11.0. Part B is behaviour-identical.
 
 ## Summary
 
@@ -36,6 +26,12 @@ built and translated once and bound per call: a definition marked `compiled()` d
 definition and statement variant. Part B makes the path from a JDBC row to a model cheaper for every query, flat
 projections first. Both parts start with a spike that measures where the time goes before anything is designed further,
 and each has kill criteria that shrink or drop it.
+
+**Outcome (D-184).** On PostgreSQL the executor adds tens of microseconds over `JdbcClient` running the same SQL,
+and our build takes about 3 µs, so there is no per-call 1–3 ms for Part A to save on the spike's dataset: no route
+meets its ship condition and rule 2 holds on both lines; LitePOS's 1–3 ms was not reproduced. On the 86k-row flat read, model-query's own mapping is 78–90% of the gap to
+JDBC, and P-B.2's flat-row `mapAll` closes almost all of it (194 → 92 ms on 6.6, 203 → 108 ms on 7.4); P-B.1 and
+P-B.3 miss their thresholds. The sections below keep the design the spike tested; §Design marks what ships.
 
 ## Motivation
 
@@ -201,6 +197,8 @@ Profiled classes: `RowSelection.ValueRow#get`/`#raw`, `SelectField#hashCode` (an
 
 ### Part A: compiled queries
 
+**Not adopted (D-184, rule 2).** Kept as the design the spike measured; nothing in this part ships.
+
 **P-A.1 Placeholders.**
 
 ```java
@@ -342,66 +340,43 @@ across sessions and leak rows across tenants.
 
 ### Part B: a faster row path
 
-Part B adds no public API. Each step is behaviour-identical and ships only if its rule in §Spike B holds.
+Part B adds no public API. Each step is behaviour-identical and ships only if its rule in §Spike B holds. The spike
+ships P-B.2 alone (D-184): P-B.1 is 0.3–2.4% slower than today's row path, P-B.3 7.8% slower to 1.9% faster.
 
-- **P-B.1 Index-resolved rows.** The tuple position of each selected field and its value column (the converter,
+- **P-B.1 Index-resolved rows** (dropped). The tuple position of each selected field and its value column (the converter,
   `ColumnField.valueColumn`) are resolved once per build, into arrays held by `BuiltQuery`, not on `RowSelection`
   (which is definition state, INV-9) and after the customizer runs (R-QRY-08). `ValueRow` reads `Tuple.get(int)`
   through them, instead of the alias `HashMap` and `Tuple.get(String)`. R-COL-10's guarantee is kept: no layer above
   the wrapper reads by index, so inserting a selection still cannot shift a mapping. Scoped rows (`Row#scoped`)
   resolve their re-rooted paths once per scope, not per cell.
-- **P-B.2 Flat rows.** For a query with no fetch plan and no to-many join in its statement, `mapAll` skips per-row
+- **P-B.2 Flat rows** (ships, 52% / 47% faster on the flat read, allocation 393 → 109 MB / 429 → 155 MB). For a query with no fetch plan and no to-many join in its statement, `mapAll` skips per-row
   bookkeeping that only the dedupe and child-load paths read, and presizes the result list to
   `min(limit, 1,024)`; `Limit.of(Integer.MAX_VALUE)` must not allocate that array. R-COL-11 is unchanged: keys and
   cursors are still read from the `Row`, through `Row.raw`, before mapping.
-- **P-B.3 `Object[]` selection** (conditional). The engine selects `cb.array(...)` instead of a `Tuple` and wraps the
+- **P-B.3 `Object[]` selection** (conditional; dropped). The engine selects `cb.array(...)` instead of a `Tuple` and wraps the
   array; standard JPA, so no SPI. R-COL-10's first sentence becomes "Queries select a JPA `Tuple` or an `Object[]`". A
   customizer's added selections (R-QRY-08) need an alias-addressable tuple, so a query with a customizer keeps
   `Tuple`. A one-column projection (a single-item `cb.array`) has a functional cell.
 
 ### Spec changes
 
-New ids are reserved now (R-COL-38, R-QRY-18, R-FLT-30, R-EXE-17, R-VND-31; `MQ1210`, `MQ2215`; unused in the spec and
-in RFC 0020). AC ids, AC-QRY-17 and up for the surface, AC-EXE-25 and up for the cache:
+As accepted (D-184): Part A's reserved ids are released unused, and INV-9 is unchanged. Part B: AC-COL-06,
+AC-COL-11, AC-COL-14 and AC-COL-20 run unchanged on the flat-row path, plus AC-COL-53: an eligible flat read returns
+the same models, keys and cursors as the general path on both lines, an ineligible read (fetch plan, to-many join in
+the statement, customizer) takes the general path, and `Limit.of(Integer.MAX_VALUE)` does not presize the list.
 
-- a compiled `list`, `one`, `count` and offset `page` return the rows and SQL of the built route, on each Tier-1
-  vendor and both lines, under `value_handling_mode` `bind` and `inline`, with each value a `?` in the statement log;
-- 16 threads binding different values to one compiled definition each read only their own rows;
-- `one(q, k1)` then `one(q, k2)` on a compiled query return different rows;
-- keyset, primary-key-first, export and `byKeys` over a bound compiled query match the non-compiled route, and their
-  R-PAG-* refusals still throw;
-- the unbound, undeclared, duplicate-name and customizer refusals throw their `MQ` codes before any statement or lock;
-  `null` throws `NullPointerException` and a wrong type `IllegalArgumentException` (neither carries a code);
-  `QueryParam.of("n", long.class)` binds a `Long`;
-- the cache holds at most its size; a definition built per call does not grow it unless it is `compiled()`;
-  `q.with(..).withLock(l)` and `q.with(..).orderedBy(s)` per call hit one entry (hit rate above 0); two executors on one
-  factory share entries; executors with unequal configurations stop at 8 scopes per factory; a closed factory's scope
-  is swept; a session with `copy_tree` off builds per call and returns correct rows;
-- two sessions with different enabled filters or tenants on one compiled definition each see their own rows.
+The draft's Part A list, kept for the record: a compiled `list`, `one`, `count` and offset `page` matching the built
+route; 16 threads binding their own values; keyset, primary-key-first, export and `byKeys` matching the non-compiled
+route; the refusals; the cache bounds and scopes; per-session filters and tenants.
 
-At acceptance, `docs/spec/SPEC.md` INV-9 changes as listed under Affects.
+### Decision recorded at acceptance
 
-Part B: AC-COL-06, AC-COL-11, AC-COL-14 and AC-COL-20 run unchanged on the new row path, plus AC-COL-53: a scoped row
-over a re-rooted join (and, if P-B.3 ships, a single-item array).
-
-### Decision to record at acceptance
-
-**D-184 — Compiled queries: entry scope, key and layering.**
-
-- An entry is sealed when stored. Calls whose additions take a value (`one(key)`, keyset, primary-key-first, exports,
-  `byKeys`) build per call.
-- The key is (definition identity, call variant, `SortSpec`, `CountMode`), within a scope per (factory, executor-config
-  record); scopes are capped at 8 per factory.
-- Bindings are the outermost copy layer.
-- The build cache needs the provider's copy-on-create fact, checked per `EntityManager` through the SPI and never
-  `emf.unwrap` in `jpa`; when false, that call is built per call.
-- RA.5 (HQL with named parameters, `Optional<Prepared>`) is the only provider route; it may use only the provider's
-  own session-aware caches.
-- Rejected: keying by `RenderOptions` (identity, so no hits); a provider-owned LRU (duplicates the key logic); named
-  queries (the registry never evicts); a criteria-plan-cache provider route (needs a shared uncopied tree, forbidden).
+D-184 in `reference/92` records the outcome. The draft's D-184 (entry scope, key and layering of a compiled-query
+cache) is not recorded, since Part A does not ship.
 
 ## Compatibility
 
+As accepted, Part B alone: no public API, no `MQnnnn` code and no SQL snapshot changes. The draft's text follows.
 Additive and `@Incubating`. No existing signature changes and no `MQnnnn` code changes meaning; `MQ1210` and `MQ2215`
 are new. `Filters` and `Having` are sealed, so the new overloads are compatible; a `null` literal is already ambiguous
 because of the `Optional` overload. A definition without `compiled()` builds per call exactly as today, so caching is
@@ -433,13 +408,12 @@ tuple render the same SQL) and the spike confirms it on both lines.
 
 ## Unresolved questions
 
-Only what the spike measures; each answer selects a branch already decided above.
+None. The spike answered each (D-184, `0019-spike-results.md`):
 
-1. **Part A's rule.** Which of rules 1–5 holds, from `O(RA.1)`, `B`, `S_b`, `S_p` and the 99% plan-cache hit
-   ratio, per line.
-2. **Provider route.** Whether RA.5 passes its functional and statistics cells, so that `prepare` ships.
-3. **Build-cache safety and cost.** Whether the sealed `CriteriaQuery` passes the 16-thread, `copy_tree` and
-   session-filter cells, whether its `@Threads(16)` throughput is at least RA.1's (else a lock-striped LRU is tried,
-   then the cache is struck), and whether the factory-leak heap check is clean.
-4. **Part B's steps.** The gate share and the gains of RB.5, RB.6 and RB.3, which decide whether P-B.1, P-B.2 and
-   P-B.3 ship.
+1. **Part A's rule.** Rule 2 ("Neither") on both lines.
+2. **Provider route.** RA.5 passes its functional and hit-ratio cells (200/200) but fails the ship condition: its
+   saving's lower bound is negative on the "today" and `orderedBy` reads. Its grouped-read saving comes from
+   rendering `count(*)`, not from removed overhead.
+3. **Build-cache safety and cost.** The sealed `CriteriaQuery` passes its functional and gating cells but saves
+   nothing measurable on any read, so it is not adopted.
+4. **Part B's steps.** Gate 90% / 78%; P-B.1 and P-B.3 dropped, P-B.2 ships.
