@@ -1,0 +1,143 @@
+# count(<alias>.id) occurrences by alias kind: {'root': 313}
+
+## Would change: root or inner-joined id count (106 files)
+- h2/agg-01-functions.sql  {'root': 1}
+- h2/agg-09-grouped-export-without-primary-key.sql  {'root': 12}
+- h2/agg-10-single-group.sql  {'root': 3}
+- h2/agg-11-after-map.sql  {'root': 1}
+- h2/agg-d26-or-reuses-having-join.sql  {'root': 1}
+- h2/col-20-expression-one-node.sql  {'root': 1}
+- h2/col-31-count.sql  {'root': 1}
+- h2/col-31-grouped-export.sql  {'root': 1}
+- h2/col-31-order-statements.sql  {'root': 1}
+- h2/col-31-projection-statements.sql  {'root': 1}
+- h2/col-34-reads.sql  {'root': 2}
+- h2/col-35-group-by-id.sql  {'root': 4}
+- h2/col-36-correlated-count.sql  {'root': 5}
+- h2/col-36-correlated-custom-equality.sql  {'root': 8}
+- h2/col-36-correlated-equality.sql  {'root': 4}
+- h2/col-41-correlated-count-statement.sql  {'root': 7}
+- h2/col-41-correlated-grouped-where.sql  {'root': 2}
+- h2/col-41-correlated-paging.sql  {'root': 1}
+- h2/col-43-correlated-delete.sql  {'root': 1}
+- h2/col-43-correlated-update.sql  {'root': 1}
+- h2/col-52-joined.sql  {'root': 6}
+- h2/col-52-single-table.sql  {'root': 6}
+- h2/col-52-table-per-class.sql  {'root': 6}
+- h2/exe-10-rows.sql  {'root': 2}
+- h2/exe-22-semi-join.sql  {'root': 1}
+- h2/flt-11-exists-count.sql  {'root': 2}
+- h2/flt-16-sub-select-count-and-list.sql  {'root': 2}
+- h2/flt-28-lifted-nested-or.sql  {'root': 1}
+- h2/flt-29-lifted-count-statement.sql  {'root': 7}
+- h2/flt-29-lifted-values.sql  {'root': 1}
+- h2/flt-29-source-outer.sql  {'root': 1}
+- h2/pag-10-grouped-stable-order.sql  {'root': 5}
+- h2/proc-09-summary-model-grouped.sql  {'root': 1}
+- h2/proc-10-summary-model-single-group.sql  {'root': 1}
+- h2/src-02-grouped-cte.sql  {'root': 2}
+- h2/src-05-grouped-window.sql  {'root': 1}
+- mysql/agg-01-functions.sql  {'root': 1}
+- mysql/agg-09-grouped-export-without-primary-key.sql  {'root': 12}
+- mysql/agg-10-single-group.sql  {'root': 3}
+- mysql/agg-11-after-map.sql  {'root': 1}
+- mysql/agg-d26-or-reuses-having-join.sql  {'root': 1}
+- mysql/col-20-expression-one-node.sql  {'root': 1}
+- mysql/col-31-count.sql  {'root': 1}
+- mysql/col-31-grouped-export.sql  {'root': 1}
+- mysql/col-31-order-statements.sql  {'root': 1}
+- mysql/col-31-projection-statements.sql  {'root': 1}
+- mysql/col-34-reads.sql  {'root': 2}
+- mysql/col-35-group-by-id.sql  {'root': 4}
+- mysql/col-36-correlated-count.sql  {'root': 5}
+- mysql/col-36-correlated-custom-equality.sql  {'root': 8}
+- mysql/col-36-correlated-equality.sql  {'root': 4}
+- mysql/col-41-correlated-count-statement.sql  {'root': 7}
+- mysql/col-41-correlated-grouped-where.sql  {'root': 2}
+- mysql/col-41-correlated-paging.sql  {'root': 1}
+- mysql/col-43-correlated-delete.sql  {'root': 1}
+- mysql/col-43-correlated-update.sql  {'root': 1}
+- mysql/col-52-joined.sql  {'root': 6}
+- mysql/col-52-single-table.sql  {'root': 6}
+- mysql/col-52-table-per-class.sql  {'root': 6}
+- mysql/exe-10-rows.sql  {'root': 2}
+- mysql/exe-22-semi-join.sql  {'root': 1}
+- mysql/flt-11-exists-count.sql  {'root': 2}
+- mysql/flt-16-sub-select-count-and-list.sql  {'root': 2}
+- mysql/flt-28-lifted-nested-or.sql  {'root': 1}
+- mysql/flt-29-lifted-count-statement.sql  {'root': 7}
+- mysql/flt-29-lifted-values.sql  {'root': 1}
+- mysql/flt-29-source-outer.sql  {'root': 1}
+- mysql/hibernate7/col-41-correlated-count-statement.sql  {'root': 7}
+- mysql/hibernate7/flt-29-lifted-values.sql  {'root': 1}
+- mysql/pag-10-grouped-stable-order.sql  {'root': 5}
+- mysql/src-02-grouped-cte.sql  {'root': 2}
+- mysql/src-05-grouped-window.sql  {'root': 1}
+- postgresql/agg-01-functions.sql  {'root': 1}
+- postgresql/agg-09-grouped-export-without-primary-key.sql  {'root': 12}
+- postgresql/agg-10-single-group.sql  {'root': 3}
+- postgresql/agg-11-after-map.sql  {'root': 1}
+- postgresql/agg-d26-or-reuses-having-join.sql  {'root': 1}
+- postgresql/col-20-expression-one-node.sql  {'root': 1}
+- postgresql/col-31-count.sql  {'root': 1}
+- postgresql/col-31-grouped-export.sql  {'root': 1}
+- postgresql/col-31-order-statements.sql  {'root': 1}
+- postgresql/col-31-projection-statements.sql  {'root': 1}
+- postgresql/col-34-reads.sql  {'root': 2}
+- postgresql/col-35-group-by-id.sql  {'root': 4}
+- postgresql/col-36-correlated-count.sql  {'root': 5}
+- postgresql/col-36-correlated-custom-equality.sql  {'root': 8}
+- postgresql/col-36-correlated-equality.sql  {'root': 4}
+- postgresql/col-41-correlated-count-statement.sql  {'root': 7}
+- postgresql/col-41-correlated-grouped-where.sql  {'root': 2}
+- postgresql/col-41-correlated-paging.sql  {'root': 1}
+- postgresql/col-43-correlated-delete.sql  {'root': 1}
+- postgresql/col-43-correlated-update.sql  {'root': 1}
+- postgresql/col-52-joined.sql  {'root': 6}
+- postgresql/col-52-single-table.sql  {'root': 6}
+- postgresql/col-52-table-per-class.sql  {'root': 6}
+- postgresql/exe-10-rows.sql  {'root': 2}
+- postgresql/exe-22-semi-join.sql  {'root': 1}
+- postgresql/flt-11-exists-count.sql  {'root': 2}
+- postgresql/flt-16-sub-select-count-and-list.sql  {'root': 2}
+- postgresql/flt-28-lifted-nested-or.sql  {'root': 1}
+- postgresql/flt-29-lifted-count-statement.sql  {'root': 7}
+- postgresql/flt-29-lifted-values.sql  {'root': 1}
+- postgresql/flt-29-source-outer.sql  {'root': 1}
+- postgresql/pag-10-grouped-stable-order.sql  {'root': 5}
+- postgresql/src-02-grouped-cte.sql  {'root': 2}
+- postgresql/src-05-grouped-window.sql  {'root': 1}
+
+## Unchanged: only LEFT/other-joined id counts (0 files)
+
+## count(1) (source roots; change only if routed through the R-AGG-19 helper) (30 files)
+- h2/exe-18-inline-count.sql  x5
+- h2/flt-29-source-outer.sql  x1
+- h2/hibernate7/src-17-tree-reads.sql  x30
+- h2/hibernate7/src-18-tree.sql  x1
+- h2/hibernate7/src-20-tree-offset-unkeyed.sql  x4
+- h2/hibernate7/src-20-tree-offset.sql  x1
+- h2/src-17-tree-reads.sql  x30
+- h2/src-18-tree.sql  x1
+- h2/src-20-tree-offset-unkeyed.sql  x4
+- h2/src-20-tree-offset.sql  x1
+- mysql/exe-18-inline-count.sql  x5
+- mysql/flt-29-source-outer.sql  x1
+- mysql/hibernate7/src-17-tree-reads.sql  x30
+- mysql/hibernate7/src-18-tree.sql  x1
+- mysql/hibernate7/src-20-tree-offset-unkeyed.sql  x4
+- mysql/hibernate7/src-20-tree-offset.sql  x1
+- mysql/src-17-tree-reads.sql  x30
+- mysql/src-18-tree.sql  x1
+- mysql/src-20-tree-offset-unkeyed.sql  x4
+- mysql/src-20-tree-offset.sql  x1
+- postgresql/exe-18-inline-count.sql  x5
+- postgresql/flt-29-source-outer.sql  x1
+- postgresql/hibernate7/src-17-tree-reads.sql  x30
+- postgresql/hibernate7/src-18-tree.sql  x1
+- postgresql/hibernate7/src-20-tree-offset-unkeyed.sql  x4
+- postgresql/hibernate7/src-20-tree-offset.sql  x1
+- postgresql/src-17-tree-reads.sql  x30
+- postgresql/src-18-tree.sql  x1
+- postgresql/src-20-tree-offset-unkeyed.sql  x4
+- postgresql/src-20-tree-offset.sql  x1

@@ -1,0 +1,1148 @@
+### H2 | A.1/page of 20 | a correlated | no index
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,(select sum(s1_0.cash_total) from sale s1_0 where s1_0.business_date=bd1_0.business_date),(select sum(s2_0.total) from sale s2_0 where s2_0.business_date=bd1_0.business_date) from business_day bd1_0 where not(bd1_0.counted_cash=(select sum(s3_0.cash_total) from sale s3_0 where s3_0.business_date=bd1_0.business_date) and bd1_0.counted_cash is not null and (select sum(s4_0.cash_total) from sale s4_0 where s4_0.business_date=bd1_0.business_date) is not null or bd1_0.counted_cash is null and (select sum(s5_0.cash_total) from sale s5_0 where s5_0.business_date=bd1_0.business_date) is null) order by 2 desc fetch first ? rows only || 20
+SELECT
+    "BD1_0"."ID",
+    "BD1_0"."BUSINESS_DATE",
+    "BD1_0"."COUNTED_CASH",
+    (SELECT
+        SUM("S1_0"."CASH_TOTAL")
+    FROM "PUBLIC"."SALE" "S1_0"
+        /* PUBLIC.SALE.tableScan */
+    WHERE "S1_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE"),
+    (SELECT
+        SUM("S2_0"."TOTAL")
+    FROM "PUBLIC"."SALE" "S2_0"
+        /* PUBLIC.SALE.tableScan */
+    WHERE "S2_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE")
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_6 */
+WHERE (("BD1_0"."COUNTED_CASH" IS NOT NULL)
+    OR ((SELECT
+    SUM("S5_0"."CASH_TOTAL")
+FROM "PUBLIC"."SALE" "S5_0"
+    /* PUBLIC.SALE.tableScan */
+WHERE "S5_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE") IS NOT NULL))
+    AND (("BD1_0"."COUNTED_CASH" IS NULL)
+    OR ((SELECT
+    SUM("S4_0"."CASH_TOTAL")
+FROM "PUBLIC"."SALE" "S4_0"
+    /* PUBLIC.SALE.tableScan */
+WHERE "S4_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE") IS NULL)
+    OR ("BD1_0"."COUNTED_CASH" <> (SELECT
+    SUM("S3_0"."CASH_TOTAL")
+FROM "PUBLIC"."SALE" "S3_0"
+    /* PUBLIC.SALE.tableScan */
+WHERE "S3_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE")))
+ORDER BY 2 DESC
+FETCH FIRST ?1 ROWS ONLY
+/* index sorted */
+
+### H2 | A.1/page of 20 | b cte | no index
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,var_1_11_0.mq_cash,var_1_11_0.mq_total from business_day bd1_0 left join (select s1_0.business_date c0,sum(s1_0.cash_total) c1,sum(s1_0.total) c2 from sale s1_0 group by c0) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null) order by 2 desc fetch first ? rows only || 20
+SELECT
+    "BD1_0"."ID",
+    "BD1_0"."BUSINESS_DATE",
+    "BD1_0"."COUNTED_CASH",
+    "VAR_1_11_0"."MQ_CASH",
+    "VAR_1_11_0"."MQ_TOTAL"
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_6 */
+LEFT OUTER JOIN (
+    SELECT
+        "S1_0"."BUSINESS_DATE" AS "C0",
+        SUM("S1_0"."CASH_TOTAL") AS "C1",
+        SUM("S1_0"."TOTAL") AS "C2"
+    FROM "PUBLIC"."SALE" "S1_0"
+    GROUP BY "S1_0"."BUSINESS_DATE"
+) "VAR_1_11_0"("MQ_BUSINESSDATE", "MQ_CASH", "MQ_TOTAL")
+    /* SELECT
+        S1_0.BUSINESS_DATE AS C0,
+        SUM(S1_0.CASH_TOTAL) AS C1,
+        SUM(S1_0.TOTAL) AS C2
+    FROM PUBLIC.SALE S1_0
+        /* PUBLIC.SALE.tableScan */
+    WHERE S1_0.BUSINESS_DATE IS NOT DISTINCT FROM ?2
+    GROUP BY S1_0.BUSINESS_DATE: MQ_BUSINESSDATE = BD1_0.BUSINESS_DATE
+     */
+    ON "VAR_1_11_0"."MQ_BUSINESSDATE" = "BD1_0"."BUSINESS_DATE"
+WHERE (("BD1_0"."COUNTED_CASH" IS NOT NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NOT NULL))
+    AND (("BD1_0"."COUNTED_CASH" IS NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NULL)
+    OR ("BD1_0"."COUNTED_CASH" <> "VAR_1_11_0"."MQ_CASH"))
+ORDER BY 2 DESC
+FETCH FIRST ?1 ROWS ONLY
+/* index sorted */
+
+### H2 | A.1/page of 20 | c derived | no index
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,var_1_11_0.mq_cash,var_1_11_0.mq_total from business_day bd1_0 left join (select s1_0.business_date c0,sum(s1_0.cash_total) c1,sum(s1_0.total) c2 from sale s1_0 group by c0) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null) order by 2 desc fetch first ? rows only || 20
+SELECT
+    "BD1_0"."ID",
+    "BD1_0"."BUSINESS_DATE",
+    "BD1_0"."COUNTED_CASH",
+    "VAR_1_11_0"."MQ_CASH",
+    "VAR_1_11_0"."MQ_TOTAL"
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_6 */
+LEFT OUTER JOIN (
+    SELECT
+        "S1_0"."BUSINESS_DATE" AS "C0",
+        SUM("S1_0"."CASH_TOTAL") AS "C1",
+        SUM("S1_0"."TOTAL") AS "C2"
+    FROM "PUBLIC"."SALE" "S1_0"
+    GROUP BY "S1_0"."BUSINESS_DATE"
+) "VAR_1_11_0"("MQ_BUSINESSDATE", "MQ_CASH", "MQ_TOTAL")
+    /* SELECT
+        S1_0.BUSINESS_DATE AS C0,
+        SUM(S1_0.CASH_TOTAL) AS C1,
+        SUM(S1_0.TOTAL) AS C2
+    FROM PUBLIC.SALE S1_0
+        /* PUBLIC.SALE.tableScan */
+    WHERE S1_0.BUSINESS_DATE IS NOT DISTINCT FROM ?2
+    GROUP BY S1_0.BUSINESS_DATE: MQ_BUSINESSDATE = BD1_0.BUSINESS_DATE
+     */
+    ON "VAR_1_11_0"."MQ_BUSINESSDATE" = "BD1_0"."BUSINESS_DATE"
+WHERE (("BD1_0"."COUNTED_CASH" IS NOT NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NOT NULL))
+    AND (("BD1_0"."COUNTED_CASH" IS NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NULL)
+    OR ("BD1_0"."COUNTED_CASH" <> "VAR_1_11_0"."MQ_CASH"))
+ORDER BY 2 DESC
+FETCH FIRST ?1 ROWS ONLY
+/* index sorted */
+
+### H2 | A.1/full export | a correlated | no index
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,(select sum(s1_0.cash_total) from sale s1_0 where s1_0.business_date=bd1_0.business_date),(select sum(s2_0.total) from sale s2_0 where s2_0.business_date=bd1_0.business_date) from business_day bd1_0 where not(bd1_0.counted_cash=(select sum(s3_0.cash_total) from sale s3_0 where s3_0.business_date=bd1_0.business_date) and bd1_0.counted_cash is not null and (select sum(s4_0.cash_total) from sale s4_0 where s4_0.business_date=bd1_0.business_date) is not null or bd1_0.counted_cash is null and (select sum(s5_0.cash_total) from sale s5_0 where s5_0.business_date=bd1_0.business_date) is null) order by 1
+SELECT
+    "BD1_0"."ID",
+    "BD1_0"."BUSINESS_DATE",
+    "BD1_0"."COUNTED_CASH",
+    (SELECT
+        SUM("S1_0"."CASH_TOTAL")
+    FROM "PUBLIC"."SALE" "S1_0"
+        /* PUBLIC.SALE.tableScan */
+    WHERE "S1_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE"),
+    (SELECT
+        SUM("S2_0"."TOTAL")
+    FROM "PUBLIC"."SALE" "S2_0"
+        /* PUBLIC.SALE.tableScan */
+    WHERE "S2_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE")
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.PRIMARY_KEY_6 */
+WHERE (("BD1_0"."COUNTED_CASH" IS NOT NULL)
+    OR ((SELECT
+    SUM("S5_0"."CASH_TOTAL")
+FROM "PUBLIC"."SALE" "S5_0"
+    /* PUBLIC.SALE.tableScan */
+WHERE "S5_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE") IS NOT NULL))
+    AND (("BD1_0"."COUNTED_CASH" IS NULL)
+    OR ((SELECT
+    SUM("S4_0"."CASH_TOTAL")
+FROM "PUBLIC"."SALE" "S4_0"
+    /* PUBLIC.SALE.tableScan */
+WHERE "S4_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE") IS NULL)
+    OR ("BD1_0"."COUNTED_CASH" <> (SELECT
+    SUM("S3_0"."CASH_TOTAL")
+FROM "PUBLIC"."SALE" "S3_0"
+    /* PUBLIC.SALE.tableScan */
+WHERE "S3_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE")))
+ORDER BY 1
+/* index sorted */
+
+### H2 | A.1/full export | b cte | no index
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,var_1_11_0.mq_cash,var_1_11_0.mq_total from business_day bd1_0 left join (select s1_0.business_date c0,sum(s1_0.cash_total) c1,sum(s1_0.total) c2 from sale s1_0 group by c0) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null) order by 1
+SELECT
+    "BD1_0"."ID",
+    "BD1_0"."BUSINESS_DATE",
+    "BD1_0"."COUNTED_CASH",
+    "VAR_1_11_0"."MQ_CASH",
+    "VAR_1_11_0"."MQ_TOTAL"
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.PRIMARY_KEY_6 */
+LEFT OUTER JOIN (
+    SELECT
+        "S1_0"."BUSINESS_DATE" AS "C0",
+        SUM("S1_0"."CASH_TOTAL") AS "C1",
+        SUM("S1_0"."TOTAL") AS "C2"
+    FROM "PUBLIC"."SALE" "S1_0"
+    GROUP BY "S1_0"."BUSINESS_DATE"
+) "VAR_1_11_0"("MQ_BUSINESSDATE", "MQ_CASH", "MQ_TOTAL")
+    /* SELECT
+        S1_0.BUSINESS_DATE AS C0,
+        SUM(S1_0.CASH_TOTAL) AS C1,
+        SUM(S1_0.TOTAL) AS C2
+    FROM PUBLIC.SALE S1_0
+        /* PUBLIC.SALE.tableScan */
+    WHERE S1_0.BUSINESS_DATE IS NOT DISTINCT FROM ?1
+    GROUP BY S1_0.BUSINESS_DATE: MQ_BUSINESSDATE = BD1_0.BUSINESS_DATE
+     */
+    ON "VAR_1_11_0"."MQ_BUSINESSDATE" = "BD1_0"."BUSINESS_DATE"
+WHERE (("BD1_0"."COUNTED_CASH" IS NOT NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NOT NULL))
+    AND (("BD1_0"."COUNTED_CASH" IS NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NULL)
+    OR ("BD1_0"."COUNTED_CASH" <> "VAR_1_11_0"."MQ_CASH"))
+ORDER BY 1
+/* index sorted */
+
+### H2 | A.1/full export | c derived | no index
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,var_1_11_0.mq_cash,var_1_11_0.mq_total from business_day bd1_0 left join (select s1_0.business_date c0,sum(s1_0.cash_total) c1,sum(s1_0.total) c2 from sale s1_0 group by c0) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null) order by 1
+SELECT
+    "BD1_0"."ID",
+    "BD1_0"."BUSINESS_DATE",
+    "BD1_0"."COUNTED_CASH",
+    "VAR_1_11_0"."MQ_CASH",
+    "VAR_1_11_0"."MQ_TOTAL"
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.PRIMARY_KEY_6 */
+LEFT OUTER JOIN (
+    SELECT
+        "S1_0"."BUSINESS_DATE" AS "C0",
+        SUM("S1_0"."CASH_TOTAL") AS "C1",
+        SUM("S1_0"."TOTAL") AS "C2"
+    FROM "PUBLIC"."SALE" "S1_0"
+    GROUP BY "S1_0"."BUSINESS_DATE"
+) "VAR_1_11_0"("MQ_BUSINESSDATE", "MQ_CASH", "MQ_TOTAL")
+    /* SELECT
+        S1_0.BUSINESS_DATE AS C0,
+        SUM(S1_0.CASH_TOTAL) AS C1,
+        SUM(S1_0.TOTAL) AS C2
+    FROM PUBLIC.SALE S1_0
+        /* PUBLIC.SALE.tableScan */
+    WHERE S1_0.BUSINESS_DATE IS NOT DISTINCT FROM ?1
+    GROUP BY S1_0.BUSINESS_DATE: MQ_BUSINESSDATE = BD1_0.BUSINESS_DATE
+     */
+    ON "VAR_1_11_0"."MQ_BUSINESSDATE" = "BD1_0"."BUSINESS_DATE"
+WHERE (("BD1_0"."COUNTED_CASH" IS NOT NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NOT NULL))
+    AND (("BD1_0"."COUNTED_CASH" IS NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NULL)
+    OR ("BD1_0"."COUNTED_CASH" <> "VAR_1_11_0"."MQ_CASH"))
+ORDER BY 1
+/* index sorted */
+
+### H2 | A.1/count | a correlated | no index
+-- select count(bd1_0.id) from business_day bd1_0 where not(bd1_0.counted_cash=(select sum(s1_0.cash_total) from sale s1_0 where s1_0.business_date=bd1_0.business_date) and bd1_0.counted_cash is not null and (select sum(s2_0.cash_total) from sale s2_0 where s2_0.business_date=bd1_0.business_date) is not null or bd1_0.counted_cash is null and (select sum(s3_0.cash_total) from sale s3_0 where s3_0.business_date=bd1_0.business_date) is null)
+SELECT
+    COUNT("BD1_0"."ID")
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.BUSINESS_DAY.tableScan */
+WHERE (("BD1_0"."COUNTED_CASH" IS NOT NULL)
+    OR ((SELECT
+    SUM("S3_0"."CASH_TOTAL")
+FROM "PUBLIC"."SALE" "S3_0"
+    /* PUBLIC.SALE.tableScan */
+WHERE "S3_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE") IS NOT NULL))
+    AND (("BD1_0"."COUNTED_CASH" IS NULL)
+    OR ((SELECT
+    SUM("S2_0"."CASH_TOTAL")
+FROM "PUBLIC"."SALE" "S2_0"
+    /* PUBLIC.SALE.tableScan */
+WHERE "S2_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE") IS NULL)
+    OR ("BD1_0"."COUNTED_CASH" <> (SELECT
+    SUM("S1_0"."CASH_TOTAL")
+FROM "PUBLIC"."SALE" "S1_0"
+    /* PUBLIC.SALE.tableScan */
+WHERE "S1_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE")))
+
+### H2 | A.1/count | b cte | no index
+-- select count(bd1_0.id) from business_day bd1_0 left join (select s1_0.business_date c0,sum(s1_0.cash_total) c1,sum(s1_0.total) c2 from sale s1_0 group by c0) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null)
+SELECT
+    COUNT("BD1_0"."ID")
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.BUSINESS_DAY.tableScan */
+LEFT OUTER JOIN (
+    SELECT
+        "S1_0"."BUSINESS_DATE" AS "C0",
+        SUM("S1_0"."CASH_TOTAL") AS "C1",
+        SUM("S1_0"."TOTAL") AS "C2"
+    FROM "PUBLIC"."SALE" "S1_0"
+    GROUP BY "S1_0"."BUSINESS_DATE"
+) "VAR_1_11_0"("MQ_BUSINESSDATE", "MQ_CASH", "MQ_TOTAL")
+    /* SELECT
+        S1_0.BUSINESS_DATE AS C0,
+        SUM(S1_0.CASH_TOTAL) AS C1,
+        SUM(S1_0.TOTAL) AS C2
+    FROM PUBLIC.SALE S1_0
+        /* PUBLIC.SALE.tableScan */
+    WHERE S1_0.BUSINESS_DATE IS NOT DISTINCT FROM ?1
+    GROUP BY S1_0.BUSINESS_DATE: MQ_BUSINESSDATE = BD1_0.BUSINESS_DATE
+     */
+    ON "VAR_1_11_0"."MQ_BUSINESSDATE" = "BD1_0"."BUSINESS_DATE"
+WHERE (("BD1_0"."COUNTED_CASH" IS NOT NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NOT NULL))
+    AND (("BD1_0"."COUNTED_CASH" IS NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NULL)
+    OR ("BD1_0"."COUNTED_CASH" <> "VAR_1_11_0"."MQ_CASH"))
+
+### H2 | A.1/count | c derived | no index
+-- select count(bd1_0.id) from business_day bd1_0 left join (select s1_0.business_date c0,sum(s1_0.cash_total) c1,sum(s1_0.total) c2 from sale s1_0 group by c0) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null)
+SELECT
+    COUNT("BD1_0"."ID")
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.BUSINESS_DAY.tableScan */
+LEFT OUTER JOIN (
+    SELECT
+        "S1_0"."BUSINESS_DATE" AS "C0",
+        SUM("S1_0"."CASH_TOTAL") AS "C1",
+        SUM("S1_0"."TOTAL") AS "C2"
+    FROM "PUBLIC"."SALE" "S1_0"
+    GROUP BY "S1_0"."BUSINESS_DATE"
+) "VAR_1_11_0"("MQ_BUSINESSDATE", "MQ_CASH", "MQ_TOTAL")
+    /* SELECT
+        S1_0.BUSINESS_DATE AS C0,
+        SUM(S1_0.CASH_TOTAL) AS C1,
+        SUM(S1_0.TOTAL) AS C2
+    FROM PUBLIC.SALE S1_0
+        /* PUBLIC.SALE.tableScan */
+    WHERE S1_0.BUSINESS_DATE IS NOT DISTINCT FROM ?1
+    GROUP BY S1_0.BUSINESS_DATE: MQ_BUSINESSDATE = BD1_0.BUSINESS_DATE
+     */
+    ON "VAR_1_11_0"."MQ_BUSINESSDATE" = "BD1_0"."BUSINESS_DATE"
+WHERE (("BD1_0"."COUNTED_CASH" IS NOT NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NOT NULL))
+    AND (("BD1_0"."COUNTED_CASH" IS NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NULL)
+    OR ("BD1_0"."COUNTED_CASH" <> "VAR_1_11_0"."MQ_CASH"))
+
+### H2 | A.1/count unfiltered | a correlated | no index
+-- select count(bd1_0.id) from business_day bd1_0
+SELECT
+    COUNT("BD1_0"."ID")
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_6 */
+/* direct lookup */
+
+### H2 | A.1/count unfiltered | b cte | no index
+-- select count(bd1_0.id) from business_day bd1_0 left join (select s1_0.business_date c0,sum(s1_0.cash_total) c1,sum(s1_0.total) c2 from sale s1_0 group by c0) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date
+SELECT
+    COUNT("BD1_0"."ID")
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_6 */
+LEFT OUTER JOIN (
+    SELECT
+        "S1_0"."BUSINESS_DATE" AS "C0",
+        SUM("S1_0"."CASH_TOTAL") AS "C1",
+        SUM("S1_0"."TOTAL") AS "C2"
+    FROM "PUBLIC"."SALE" "S1_0"
+    GROUP BY "S1_0"."BUSINESS_DATE"
+) "VAR_1_11_0"("MQ_BUSINESSDATE", "MQ_CASH", "MQ_TOTAL")
+    /* SELECT
+        S1_0.BUSINESS_DATE AS C0,
+        SUM(S1_0.CASH_TOTAL) AS C1,
+        SUM(S1_0.TOTAL) AS C2
+    FROM PUBLIC.SALE S1_0
+        /* PUBLIC.SALE.tableScan */
+    WHERE S1_0.BUSINESS_DATE IS NOT DISTINCT FROM ?1
+    GROUP BY S1_0.BUSINESS_DATE: MQ_BUSINESSDATE = BD1_0.BUSINESS_DATE
+     */
+    ON "VAR_1_11_0"."MQ_BUSINESSDATE" = "BD1_0"."BUSINESS_DATE"
+
+### H2 | A.1/count unfiltered | c derived | no index
+-- select count(bd1_0.id) from business_day bd1_0 left join (select s1_0.business_date c0,sum(s1_0.cash_total) c1,sum(s1_0.total) c2 from sale s1_0 group by c0) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date
+SELECT
+    COUNT("BD1_0"."ID")
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_6 */
+LEFT OUTER JOIN (
+    SELECT
+        "S1_0"."BUSINESS_DATE" AS "C0",
+        SUM("S1_0"."CASH_TOTAL") AS "C1",
+        SUM("S1_0"."TOTAL") AS "C2"
+    FROM "PUBLIC"."SALE" "S1_0"
+    GROUP BY "S1_0"."BUSINESS_DATE"
+) "VAR_1_11_0"("MQ_BUSINESSDATE", "MQ_CASH", "MQ_TOTAL")
+    /* SELECT
+        S1_0.BUSINESS_DATE AS C0,
+        SUM(S1_0.CASH_TOTAL) AS C1,
+        SUM(S1_0.TOTAL) AS C2
+    FROM PUBLIC.SALE S1_0
+        /* PUBLIC.SALE.tableScan */
+    WHERE S1_0.BUSINESS_DATE IS NOT DISTINCT FROM ?1
+    GROUP BY S1_0.BUSINESS_DATE: MQ_BUSINESSDATE = BD1_0.BUSINESS_DATE
+     */
+    ON "VAR_1_11_0"."MQ_BUSINESSDATE" = "BD1_0"."BUSINESS_DATE"
+
+### H2 | A.1/page of 20 | a correlated | with ix_sale_business_date
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,(select sum(s1_0.cash_total) from sale s1_0 where s1_0.business_date=bd1_0.business_date),(select sum(s2_0.total) from sale s2_0 where s2_0.business_date=bd1_0.business_date) from business_day bd1_0 where not(bd1_0.counted_cash=(select sum(s3_0.cash_total) from sale s3_0 where s3_0.business_date=bd1_0.business_date) and bd1_0.counted_cash is not null and (select sum(s4_0.cash_total) from sale s4_0 where s4_0.business_date=bd1_0.business_date) is not null or bd1_0.counted_cash is null and (select sum(s5_0.cash_total) from sale s5_0 where s5_0.business_date=bd1_0.business_date) is null) order by 2 desc fetch first ? rows only || 20
+SELECT
+    "BD1_0"."ID",
+    "BD1_0"."BUSINESS_DATE",
+    "BD1_0"."COUNTED_CASH",
+    (SELECT
+        SUM("S1_0"."CASH_TOTAL")
+    FROM "PUBLIC"."SALE" "S1_0"
+        /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE = BD1_0.BUSINESS_DATE */
+    WHERE "S1_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE"),
+    (SELECT
+        SUM("S2_0"."TOTAL")
+    FROM "PUBLIC"."SALE" "S2_0"
+        /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE = BD1_0.BUSINESS_DATE */
+    WHERE "S2_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE")
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_6 */
+WHERE (("BD1_0"."COUNTED_CASH" IS NOT NULL)
+    OR ((SELECT
+    SUM("S5_0"."CASH_TOTAL")
+FROM "PUBLIC"."SALE" "S5_0"
+    /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE = BD1_0.BUSINESS_DATE */
+WHERE "S5_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE") IS NOT NULL))
+    AND (("BD1_0"."COUNTED_CASH" IS NULL)
+    OR ((SELECT
+    SUM("S4_0"."CASH_TOTAL")
+FROM "PUBLIC"."SALE" "S4_0"
+    /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE = BD1_0.BUSINESS_DATE */
+WHERE "S4_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE") IS NULL)
+    OR ("BD1_0"."COUNTED_CASH" <> (SELECT
+    SUM("S3_0"."CASH_TOTAL")
+FROM "PUBLIC"."SALE" "S3_0"
+    /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE = BD1_0.BUSINESS_DATE */
+WHERE "S3_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE")))
+ORDER BY 2 DESC
+FETCH FIRST ?1 ROWS ONLY
+/* index sorted */
+
+### H2 | A.1/page of 20 | b cte | with ix_sale_business_date
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,var_1_11_0.mq_cash,var_1_11_0.mq_total from business_day bd1_0 left join (select s1_0.business_date c0,sum(s1_0.cash_total) c1,sum(s1_0.total) c2 from sale s1_0 group by c0) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null) order by 2 desc fetch first ? rows only || 20
+SELECT
+    "BD1_0"."ID",
+    "BD1_0"."BUSINESS_DATE",
+    "BD1_0"."COUNTED_CASH",
+    "VAR_1_11_0"."MQ_CASH",
+    "VAR_1_11_0"."MQ_TOTAL"
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_6 */
+LEFT OUTER JOIN (
+    SELECT
+        "S1_0"."BUSINESS_DATE" AS "C0",
+        SUM("S1_0"."CASH_TOTAL") AS "C1",
+        SUM("S1_0"."TOTAL") AS "C2"
+    FROM "PUBLIC"."SALE" "S1_0"
+    GROUP BY "S1_0"."BUSINESS_DATE"
+) "VAR_1_11_0"("MQ_BUSINESSDATE", "MQ_CASH", "MQ_TOTAL")
+    /* SELECT
+        S1_0.BUSINESS_DATE AS C0,
+        SUM(S1_0.CASH_TOTAL) AS C1,
+        SUM(S1_0.TOTAL) AS C2
+    FROM PUBLIC.SALE S1_0
+        /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE IS NOT DISTINCT FROM ?2 */
+    WHERE S1_0.BUSINESS_DATE IS NOT DISTINCT FROM ?2
+    GROUP BY S1_0.BUSINESS_DATE
+    /* group sorted */: MQ_BUSINESSDATE = BD1_0.BUSINESS_DATE
+     */
+    ON "VAR_1_11_0"."MQ_BUSINESSDATE" = "BD1_0"."BUSINESS_DATE"
+WHERE (("BD1_0"."COUNTED_CASH" IS NOT NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NOT NULL))
+    AND (("BD1_0"."COUNTED_CASH" IS NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NULL)
+    OR ("BD1_0"."COUNTED_CASH" <> "VAR_1_11_0"."MQ_CASH"))
+ORDER BY 2 DESC
+FETCH FIRST ?1 ROWS ONLY
+/* index sorted */
+
+### H2 | A.1/page of 20 | c derived | with ix_sale_business_date
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,var_1_11_0.mq_cash,var_1_11_0.mq_total from business_day bd1_0 left join (select s1_0.business_date c0,sum(s1_0.cash_total) c1,sum(s1_0.total) c2 from sale s1_0 group by c0) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null) order by 2 desc fetch first ? rows only || 20
+SELECT
+    "BD1_0"."ID",
+    "BD1_0"."BUSINESS_DATE",
+    "BD1_0"."COUNTED_CASH",
+    "VAR_1_11_0"."MQ_CASH",
+    "VAR_1_11_0"."MQ_TOTAL"
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_6 */
+LEFT OUTER JOIN (
+    SELECT
+        "S1_0"."BUSINESS_DATE" AS "C0",
+        SUM("S1_0"."CASH_TOTAL") AS "C1",
+        SUM("S1_0"."TOTAL") AS "C2"
+    FROM "PUBLIC"."SALE" "S1_0"
+    GROUP BY "S1_0"."BUSINESS_DATE"
+) "VAR_1_11_0"("MQ_BUSINESSDATE", "MQ_CASH", "MQ_TOTAL")
+    /* SELECT
+        S1_0.BUSINESS_DATE AS C0,
+        SUM(S1_0.CASH_TOTAL) AS C1,
+        SUM(S1_0.TOTAL) AS C2
+    FROM PUBLIC.SALE S1_0
+        /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE IS NOT DISTINCT FROM ?2 */
+    WHERE S1_0.BUSINESS_DATE IS NOT DISTINCT FROM ?2
+    GROUP BY S1_0.BUSINESS_DATE
+    /* group sorted */: MQ_BUSINESSDATE = BD1_0.BUSINESS_DATE
+     */
+    ON "VAR_1_11_0"."MQ_BUSINESSDATE" = "BD1_0"."BUSINESS_DATE"
+WHERE (("BD1_0"."COUNTED_CASH" IS NOT NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NOT NULL))
+    AND (("BD1_0"."COUNTED_CASH" IS NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NULL)
+    OR ("BD1_0"."COUNTED_CASH" <> "VAR_1_11_0"."MQ_CASH"))
+ORDER BY 2 DESC
+FETCH FIRST ?1 ROWS ONLY
+/* index sorted */
+
+### H2 | A.1/full export | a correlated | with ix_sale_business_date
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,(select sum(s1_0.cash_total) from sale s1_0 where s1_0.business_date=bd1_0.business_date),(select sum(s2_0.total) from sale s2_0 where s2_0.business_date=bd1_0.business_date) from business_day bd1_0 where not(bd1_0.counted_cash=(select sum(s3_0.cash_total) from sale s3_0 where s3_0.business_date=bd1_0.business_date) and bd1_0.counted_cash is not null and (select sum(s4_0.cash_total) from sale s4_0 where s4_0.business_date=bd1_0.business_date) is not null or bd1_0.counted_cash is null and (select sum(s5_0.cash_total) from sale s5_0 where s5_0.business_date=bd1_0.business_date) is null) order by 1
+SELECT
+    "BD1_0"."ID",
+    "BD1_0"."BUSINESS_DATE",
+    "BD1_0"."COUNTED_CASH",
+    (SELECT
+        SUM("S1_0"."CASH_TOTAL")
+    FROM "PUBLIC"."SALE" "S1_0"
+        /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE = BD1_0.BUSINESS_DATE */
+    WHERE "S1_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE"),
+    (SELECT
+        SUM("S2_0"."TOTAL")
+    FROM "PUBLIC"."SALE" "S2_0"
+        /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE = BD1_0.BUSINESS_DATE */
+    WHERE "S2_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE")
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.PRIMARY_KEY_6 */
+WHERE (("BD1_0"."COUNTED_CASH" IS NOT NULL)
+    OR ((SELECT
+    SUM("S5_0"."CASH_TOTAL")
+FROM "PUBLIC"."SALE" "S5_0"
+    /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE = BD1_0.BUSINESS_DATE */
+WHERE "S5_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE") IS NOT NULL))
+    AND (("BD1_0"."COUNTED_CASH" IS NULL)
+    OR ((SELECT
+    SUM("S4_0"."CASH_TOTAL")
+FROM "PUBLIC"."SALE" "S4_0"
+    /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE = BD1_0.BUSINESS_DATE */
+WHERE "S4_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE") IS NULL)
+    OR ("BD1_0"."COUNTED_CASH" <> (SELECT
+    SUM("S3_0"."CASH_TOTAL")
+FROM "PUBLIC"."SALE" "S3_0"
+    /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE = BD1_0.BUSINESS_DATE */
+WHERE "S3_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE")))
+ORDER BY 1
+/* index sorted */
+
+### H2 | A.1/full export | b cte | with ix_sale_business_date
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,var_1_11_0.mq_cash,var_1_11_0.mq_total from business_day bd1_0 left join (select s1_0.business_date c0,sum(s1_0.cash_total) c1,sum(s1_0.total) c2 from sale s1_0 group by c0) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null) order by 1
+SELECT
+    "BD1_0"."ID",
+    "BD1_0"."BUSINESS_DATE",
+    "BD1_0"."COUNTED_CASH",
+    "VAR_1_11_0"."MQ_CASH",
+    "VAR_1_11_0"."MQ_TOTAL"
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.PRIMARY_KEY_6 */
+LEFT OUTER JOIN (
+    SELECT
+        "S1_0"."BUSINESS_DATE" AS "C0",
+        SUM("S1_0"."CASH_TOTAL") AS "C1",
+        SUM("S1_0"."TOTAL") AS "C2"
+    FROM "PUBLIC"."SALE" "S1_0"
+    GROUP BY "S1_0"."BUSINESS_DATE"
+) "VAR_1_11_0"("MQ_BUSINESSDATE", "MQ_CASH", "MQ_TOTAL")
+    /* SELECT
+        S1_0.BUSINESS_DATE AS C0,
+        SUM(S1_0.CASH_TOTAL) AS C1,
+        SUM(S1_0.TOTAL) AS C2
+    FROM PUBLIC.SALE S1_0
+        /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE IS NOT DISTINCT FROM ?1 */
+    WHERE S1_0.BUSINESS_DATE IS NOT DISTINCT FROM ?1
+    GROUP BY S1_0.BUSINESS_DATE
+    /* group sorted */: MQ_BUSINESSDATE = BD1_0.BUSINESS_DATE
+     */
+    ON "VAR_1_11_0"."MQ_BUSINESSDATE" = "BD1_0"."BUSINESS_DATE"
+WHERE (("BD1_0"."COUNTED_CASH" IS NOT NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NOT NULL))
+    AND (("BD1_0"."COUNTED_CASH" IS NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NULL)
+    OR ("BD1_0"."COUNTED_CASH" <> "VAR_1_11_0"."MQ_CASH"))
+ORDER BY 1
+/* index sorted */
+
+### H2 | A.1/full export | c derived | with ix_sale_business_date
+-- select bd1_0.id,bd1_0.business_date,bd1_0.counted_cash,var_1_11_0.mq_cash,var_1_11_0.mq_total from business_day bd1_0 left join (select s1_0.business_date c0,sum(s1_0.cash_total) c1,sum(s1_0.total) c2 from sale s1_0 group by c0) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null) order by 1
+SELECT
+    "BD1_0"."ID",
+    "BD1_0"."BUSINESS_DATE",
+    "BD1_0"."COUNTED_CASH",
+    "VAR_1_11_0"."MQ_CASH",
+    "VAR_1_11_0"."MQ_TOTAL"
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.PRIMARY_KEY_6 */
+LEFT OUTER JOIN (
+    SELECT
+        "S1_0"."BUSINESS_DATE" AS "C0",
+        SUM("S1_0"."CASH_TOTAL") AS "C1",
+        SUM("S1_0"."TOTAL") AS "C2"
+    FROM "PUBLIC"."SALE" "S1_0"
+    GROUP BY "S1_0"."BUSINESS_DATE"
+) "VAR_1_11_0"("MQ_BUSINESSDATE", "MQ_CASH", "MQ_TOTAL")
+    /* SELECT
+        S1_0.BUSINESS_DATE AS C0,
+        SUM(S1_0.CASH_TOTAL) AS C1,
+        SUM(S1_0.TOTAL) AS C2
+    FROM PUBLIC.SALE S1_0
+        /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE IS NOT DISTINCT FROM ?1 */
+    WHERE S1_0.BUSINESS_DATE IS NOT DISTINCT FROM ?1
+    GROUP BY S1_0.BUSINESS_DATE
+    /* group sorted */: MQ_BUSINESSDATE = BD1_0.BUSINESS_DATE
+     */
+    ON "VAR_1_11_0"."MQ_BUSINESSDATE" = "BD1_0"."BUSINESS_DATE"
+WHERE (("BD1_0"."COUNTED_CASH" IS NOT NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NOT NULL))
+    AND (("BD1_0"."COUNTED_CASH" IS NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NULL)
+    OR ("BD1_0"."COUNTED_CASH" <> "VAR_1_11_0"."MQ_CASH"))
+ORDER BY 1
+/* index sorted */
+
+### H2 | A.1/count | a correlated | with ix_sale_business_date
+-- select count(bd1_0.id) from business_day bd1_0 where not(bd1_0.counted_cash=(select sum(s1_0.cash_total) from sale s1_0 where s1_0.business_date=bd1_0.business_date) and bd1_0.counted_cash is not null and (select sum(s2_0.cash_total) from sale s2_0 where s2_0.business_date=bd1_0.business_date) is not null or bd1_0.counted_cash is null and (select sum(s3_0.cash_total) from sale s3_0 where s3_0.business_date=bd1_0.business_date) is null)
+SELECT
+    COUNT("BD1_0"."ID")
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.BUSINESS_DAY.tableScan */
+WHERE (("BD1_0"."COUNTED_CASH" IS NOT NULL)
+    OR ((SELECT
+    SUM("S3_0"."CASH_TOTAL")
+FROM "PUBLIC"."SALE" "S3_0"
+    /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE = BD1_0.BUSINESS_DATE */
+WHERE "S3_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE") IS NOT NULL))
+    AND (("BD1_0"."COUNTED_CASH" IS NULL)
+    OR ((SELECT
+    SUM("S2_0"."CASH_TOTAL")
+FROM "PUBLIC"."SALE" "S2_0"
+    /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE = BD1_0.BUSINESS_DATE */
+WHERE "S2_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE") IS NULL)
+    OR ("BD1_0"."COUNTED_CASH" <> (SELECT
+    SUM("S1_0"."CASH_TOTAL")
+FROM "PUBLIC"."SALE" "S1_0"
+    /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE = BD1_0.BUSINESS_DATE */
+WHERE "S1_0"."BUSINESS_DATE" = "BD1_0"."BUSINESS_DATE")))
+
+### H2 | A.1/count | b cte | with ix_sale_business_date
+-- select count(bd1_0.id) from business_day bd1_0 left join (select s1_0.business_date c0,sum(s1_0.cash_total) c1,sum(s1_0.total) c2 from sale s1_0 group by c0) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null)
+SELECT
+    COUNT("BD1_0"."ID")
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.BUSINESS_DAY.tableScan */
+LEFT OUTER JOIN (
+    SELECT
+        "S1_0"."BUSINESS_DATE" AS "C0",
+        SUM("S1_0"."CASH_TOTAL") AS "C1",
+        SUM("S1_0"."TOTAL") AS "C2"
+    FROM "PUBLIC"."SALE" "S1_0"
+    GROUP BY "S1_0"."BUSINESS_DATE"
+) "VAR_1_11_0"("MQ_BUSINESSDATE", "MQ_CASH", "MQ_TOTAL")
+    /* SELECT
+        S1_0.BUSINESS_DATE AS C0,
+        SUM(S1_0.CASH_TOTAL) AS C1,
+        SUM(S1_0.TOTAL) AS C2
+    FROM PUBLIC.SALE S1_0
+        /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE IS NOT DISTINCT FROM ?1 */
+    WHERE S1_0.BUSINESS_DATE IS NOT DISTINCT FROM ?1
+    GROUP BY S1_0.BUSINESS_DATE
+    /* group sorted */: MQ_BUSINESSDATE = BD1_0.BUSINESS_DATE
+     */
+    ON "VAR_1_11_0"."MQ_BUSINESSDATE" = "BD1_0"."BUSINESS_DATE"
+WHERE (("BD1_0"."COUNTED_CASH" IS NOT NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NOT NULL))
+    AND (("BD1_0"."COUNTED_CASH" IS NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NULL)
+    OR ("BD1_0"."COUNTED_CASH" <> "VAR_1_11_0"."MQ_CASH"))
+
+### H2 | A.1/count | c derived | with ix_sale_business_date
+-- select count(bd1_0.id) from business_day bd1_0 left join (select s1_0.business_date c0,sum(s1_0.cash_total) c1,sum(s1_0.total) c2 from sale s1_0 group by c0) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date where not(bd1_0.counted_cash=var_1_11_0.mq_cash and bd1_0.counted_cash is not null and var_1_11_0.mq_cash is not null or bd1_0.counted_cash is null and var_1_11_0.mq_cash is null)
+SELECT
+    COUNT("BD1_0"."ID")
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.BUSINESS_DAY.tableScan */
+LEFT OUTER JOIN (
+    SELECT
+        "S1_0"."BUSINESS_DATE" AS "C0",
+        SUM("S1_0"."CASH_TOTAL") AS "C1",
+        SUM("S1_0"."TOTAL") AS "C2"
+    FROM "PUBLIC"."SALE" "S1_0"
+    GROUP BY "S1_0"."BUSINESS_DATE"
+) "VAR_1_11_0"("MQ_BUSINESSDATE", "MQ_CASH", "MQ_TOTAL")
+    /* SELECT
+        S1_0.BUSINESS_DATE AS C0,
+        SUM(S1_0.CASH_TOTAL) AS C1,
+        SUM(S1_0.TOTAL) AS C2
+    FROM PUBLIC.SALE S1_0
+        /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE IS NOT DISTINCT FROM ?1 */
+    WHERE S1_0.BUSINESS_DATE IS NOT DISTINCT FROM ?1
+    GROUP BY S1_0.BUSINESS_DATE
+    /* group sorted */: MQ_BUSINESSDATE = BD1_0.BUSINESS_DATE
+     */
+    ON "VAR_1_11_0"."MQ_BUSINESSDATE" = "BD1_0"."BUSINESS_DATE"
+WHERE (("BD1_0"."COUNTED_CASH" IS NOT NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NOT NULL))
+    AND (("BD1_0"."COUNTED_CASH" IS NULL)
+    OR ("VAR_1_11_0"."MQ_CASH" IS NULL)
+    OR ("BD1_0"."COUNTED_CASH" <> "VAR_1_11_0"."MQ_CASH"))
+
+### H2 | A.1/count unfiltered | a correlated | with ix_sale_business_date
+-- select count(bd1_0.id) from business_day bd1_0
+SELECT
+    COUNT("BD1_0"."ID")
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_6 */
+/* direct lookup */
+
+### H2 | A.1/count unfiltered | b cte | with ix_sale_business_date
+-- select count(bd1_0.id) from business_day bd1_0 left join (select s1_0.business_date c0,sum(s1_0.cash_total) c1,sum(s1_0.total) c2 from sale s1_0 group by c0) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date
+SELECT
+    COUNT("BD1_0"."ID")
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_6 */
+LEFT OUTER JOIN (
+    SELECT
+        "S1_0"."BUSINESS_DATE" AS "C0",
+        SUM("S1_0"."CASH_TOTAL") AS "C1",
+        SUM("S1_0"."TOTAL") AS "C2"
+    FROM "PUBLIC"."SALE" "S1_0"
+    GROUP BY "S1_0"."BUSINESS_DATE"
+) "VAR_1_11_0"("MQ_BUSINESSDATE", "MQ_CASH", "MQ_TOTAL")
+    /* SELECT
+        S1_0.BUSINESS_DATE AS C0,
+        SUM(S1_0.CASH_TOTAL) AS C1,
+        SUM(S1_0.TOTAL) AS C2
+    FROM PUBLIC.SALE S1_0
+        /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE IS NOT DISTINCT FROM ?1 */
+    WHERE S1_0.BUSINESS_DATE IS NOT DISTINCT FROM ?1
+    GROUP BY S1_0.BUSINESS_DATE
+    /* group sorted */: MQ_BUSINESSDATE = BD1_0.BUSINESS_DATE
+     */
+    ON "VAR_1_11_0"."MQ_BUSINESSDATE" = "BD1_0"."BUSINESS_DATE"
+
+### H2 | A.1/count unfiltered | c derived | with ix_sale_business_date
+-- select count(bd1_0.id) from business_day bd1_0 left join (select s1_0.business_date c0,sum(s1_0.cash_total) c1,sum(s1_0.total) c2 from sale s1_0 group by c0) var_1_11_0(mq_businessDate,mq_cash,mq_total) on var_1_11_0.mq_businessDate=bd1_0.business_date
+SELECT
+    COUNT("BD1_0"."ID")
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_6 */
+LEFT OUTER JOIN (
+    SELECT
+        "S1_0"."BUSINESS_DATE" AS "C0",
+        SUM("S1_0"."CASH_TOTAL") AS "C1",
+        SUM("S1_0"."TOTAL") AS "C2"
+    FROM "PUBLIC"."SALE" "S1_0"
+    GROUP BY "S1_0"."BUSINESS_DATE"
+) "VAR_1_11_0"("MQ_BUSINESSDATE", "MQ_CASH", "MQ_TOTAL")
+    /* SELECT
+        S1_0.BUSINESS_DATE AS C0,
+        SUM(S1_0.CASH_TOTAL) AS C1,
+        SUM(S1_0.TOTAL) AS C2
+    FROM PUBLIC.SALE S1_0
+        /* PUBLIC.IX_SALE_BUSINESS_DATE: BUSINESS_DATE IS NOT DISTINCT FROM ?1 */
+    WHERE S1_0.BUSINESS_DATE IS NOT DISTINCT FROM ?1
+    GROUP BY S1_0.BUSINESS_DATE
+    /* group sorted */: MQ_BUSINESSDATE = BD1_0.BUSINESS_DATE
+     */
+    ON "VAR_1_11_0"."MQ_BUSINESSDATE" = "BD1_0"."BUSINESS_DATE"
+
+### H2 | E.1/filter | eq baseline | with ix_sale_promo_code
+-- select s1_0.id from sale s1_0 where s1_0.promo_code=? || P7
+SELECT
+    "S1_0"."ID"
+FROM "PUBLIC"."SALE" "S1_0"
+    /* PUBLIC.IX_SALE_PROMO_CODE: PROMO_CODE = ?1 */
+WHERE "S1_0"."PROMO_CODE" = ?1
+
+### H2 | E.1/filter | value form (= ? and is not null) | with ix_sale_promo_code
+-- select s1_0.id from sale s1_0 where s1_0.promo_code=? and s1_0.promo_code is not null || P7
+SELECT
+    "S1_0"."ID"
+FROM "PUBLIC"."SALE" "S1_0"
+    /* PUBLIC.IX_SALE_PROMO_CODE: PROMO_CODE = ?1 */
+WHERE ("S1_0"."PROMO_CODE" = ?1)
+    AND ("S1_0"."PROMO_CODE" IS NOT NULL)
+
+### H2 | E.1/filter | native notDistinctFrom(col, ?) | with ix_sale_promo_code
+-- select s1_0.id from sale s1_0 where s1_0.promo_code is not distinct from ? || P7
+SELECT
+    "S1_0"."ID"
+FROM "PUBLIC"."SALE" "S1_0"
+    /* PUBLIC.IX_SALE_PROMO_CODE: PROMO_CODE IS NOT DISTINCT FROM ?1 */
+WHERE "S1_0"."PROMO_CODE" IS NOT DISTINCT FROM ?1
+
+### H2 | E.1/filter-2op | eq baseline | with ix_sale_promo_code, ix_promo_code
+-- select s1_0.id,p1_0.id from sale s1_0,promo p1_0 where s1_0.promo_code=p1_0.code and p1_0.id in (?,?,?,?,?) || 7, 51, 61, 62, 63
+SELECT
+    "S1_0"."ID",
+    "P1_0"."ID"
+FROM "PUBLIC"."PROMO" "P1_0"
+    /* PUBLIC.PRIMARY_KEY_48: ID IN(?1, ?2, ?3, ?4, ?5) */
+    /* WHERE P1_0.ID IN(?1, ?2, ?3, ?4, ?5)
+    */
+INNER JOIN "PUBLIC"."SALE" "S1_0"
+    /* PUBLIC.IX_SALE_PROMO_CODE: PROMO_CODE = P1_0.CODE */
+    ON 1=1
+WHERE ("P1_0"."ID" IN(?1, ?2, ?3, ?4, ?5))
+    AND ("S1_0"."PROMO_CODE" = "P1_0"."CODE")
+
+### H2 | E.1/filter-2op | or-form | with ix_sale_promo_code, ix_promo_code
+-- select s1_0.id,p1_0.id from sale s1_0,promo p1_0 where (s1_0.promo_code=p1_0.code and s1_0.promo_code is not null and p1_0.code is not null or s1_0.promo_code is null and p1_0.code is null) and p1_0.id in (?,?,?,?,?) || 7, 51, 61, 62, 63
+SELECT
+    "S1_0"."ID",
+    "P1_0"."ID"
+FROM "PUBLIC"."PROMO" "P1_0"
+    /* PUBLIC.PRIMARY_KEY_48: ID IN(?1, ?2, ?3, ?4, ?5) */
+    /* WHERE P1_0.ID IN(?1, ?2, ?3, ?4, ?5)
+    */
+INNER JOIN "PUBLIC"."SALE" "S1_0"
+    /* PUBLIC.IX_SALE_PROMO_CODE */
+    ON 1=1
+WHERE ("P1_0"."ID" IN(?1, ?2, ?3, ?4, ?5))
+    AND ((("S1_0"."PROMO_CODE" IS NULL)
+    AND ("P1_0"."CODE" IS NULL))
+    OR (("S1_0"."PROMO_CODE" IS NOT NULL)
+    AND ("P1_0"."CODE" IS NOT NULL)
+    AND ("S1_0"."PROMO_CODE" = "P1_0"."CODE")))
+
+### H2 | E.1/filter-2op | bare-or | with ix_sale_promo_code, ix_promo_code
+-- select s1_0.id,p1_0.id from sale s1_0,promo p1_0 where (s1_0.promo_code=p1_0.code or s1_0.promo_code is null and p1_0.code is null) and p1_0.id in (?,?,?,?,?) || 7, 51, 61, 62, 63
+SELECT
+    "S1_0"."ID",
+    "P1_0"."ID"
+FROM "PUBLIC"."PROMO" "P1_0"
+    /* PUBLIC.PRIMARY_KEY_48: ID IN(?1, ?2, ?3, ?4, ?5) */
+    /* WHERE P1_0.ID IN(?1, ?2, ?3, ?4, ?5)
+    */
+INNER JOIN "PUBLIC"."SALE" "S1_0"
+    /* PUBLIC.IX_SALE_PROMO_CODE */
+    ON 1=1
+WHERE ("P1_0"."ID" IN(?1, ?2, ?3, ?4, ?5))
+    AND (("S1_0"."PROMO_CODE" = "P1_0"."CODE")
+    OR (("S1_0"."PROMO_CODE" IS NULL)
+    AND ("P1_0"."CODE" IS NULL)))
+
+### H2 | E.1/filter-2op | native | with ix_sale_promo_code, ix_promo_code
+-- select s1_0.id,p1_0.id from sale s1_0,promo p1_0 where s1_0.promo_code is not distinct from p1_0.code and p1_0.id in (?,?,?,?,?) || 7, 51, 61, 62, 63
+SELECT
+    "S1_0"."ID",
+    "P1_0"."ID"
+FROM "PUBLIC"."PROMO" "P1_0"
+    /* PUBLIC.PRIMARY_KEY_48: ID IN(?1, ?2, ?3, ?4, ?5) */
+    /* WHERE P1_0.ID IN(?1, ?2, ?3, ?4, ?5)
+    */
+INNER JOIN "PUBLIC"."SALE" "S1_0"
+    /* PUBLIC.IX_SALE_PROMO_CODE: PROMO_CODE IS NOT DISTINCT FROM P1_0.CODE */
+    ON 1=1
+WHERE ("P1_0"."ID" IN(?1, ?2, ?3, ?4, ?5))
+    AND ("S1_0"."PROMO_CODE" IS NOT DISTINCT FROM "P1_0"."CODE")
+
+### H2 | E.1/exists | eq baseline | with ix_sale_promo_code, ix_promo_code
+-- select p1_0.id from promo p1_0 where exists(select s1_0.id from sale s1_0 where s1_0.promo_code=p1_0.code) order by 1
+SELECT
+    "P1_0"."ID"
+FROM "PUBLIC"."PROMO" "P1_0"
+    /* PUBLIC.PRIMARY_KEY_48 */
+WHERE EXISTS(    SELECT
+        "S1_0"."ID"
+    FROM "PUBLIC"."SALE" "S1_0"
+        /* PUBLIC.IX_SALE_PROMO_CODE: PROMO_CODE = P1_0.CODE */
+    WHERE "S1_0"."PROMO_CODE" = "P1_0"."CODE")
+ORDER BY 1
+/* index sorted */
+
+### H2 | E.1/exists | eq baseline, non-null codes | with ix_sale_promo_code, ix_promo_code
+-- select p1_0.id from promo p1_0 where exists(select s1_0.id from sale s1_0 where s1_0.promo_code=p1_0.code) and p1_0.code is not null order by 1
+SELECT
+    "P1_0"."ID"
+FROM "PUBLIC"."PROMO" "P1_0"
+    /* PUBLIC.PRIMARY_KEY_48 */
+WHERE ("P1_0"."CODE" IS NOT NULL)
+    AND EXISTS(    SELECT
+        "S1_0"."ID"
+    FROM "PUBLIC"."SALE" "S1_0"
+        /* PUBLIC.IX_SALE_PROMO_CODE: PROMO_CODE = P1_0.CODE */
+    WHERE "S1_0"."PROMO_CODE" = "P1_0"."CODE")
+ORDER BY 1
+/* index sorted */
+
+### H2 | E.1/exists | or-form | with ix_sale_promo_code, ix_promo_code
+-- select p1_0.id from promo p1_0 where exists(select s1_0.id from sale s1_0 where s1_0.promo_code=p1_0.code and s1_0.promo_code is not null and p1_0.code is not null or s1_0.promo_code is null and p1_0.code is null) order by 1
+SELECT
+    "P1_0"."ID"
+FROM "PUBLIC"."PROMO" "P1_0"
+    /* PUBLIC.PRIMARY_KEY_48 */
+WHERE EXISTS(    SELECT
+        "S1_0"."ID"
+    FROM "PUBLIC"."SALE" "S1_0"
+        /* PUBLIC.IX_SALE_PROMO_CODE */
+    WHERE (("S1_0"."PROMO_CODE" IS NULL)
+        AND ("P1_0"."CODE" IS NULL))
+        OR (("P1_0"."CODE" IS NOT NULL)
+        AND ("S1_0"."PROMO_CODE" IS NOT NULL)
+        AND ("S1_0"."PROMO_CODE" = "P1_0"."CODE")))
+ORDER BY 1
+/* index sorted */
+
+### H2 | E.1/exists | bare-or | with ix_sale_promo_code, ix_promo_code
+-- select p1_0.id from promo p1_0 where exists(select s1_0.id from sale s1_0 where s1_0.promo_code=p1_0.code or s1_0.promo_code is null and p1_0.code is null) order by 1
+SELECT
+    "P1_0"."ID"
+FROM "PUBLIC"."PROMO" "P1_0"
+    /* PUBLIC.PRIMARY_KEY_48 */
+WHERE EXISTS(    SELECT
+        "S1_0"."ID"
+    FROM "PUBLIC"."SALE" "S1_0"
+        /* PUBLIC.IX_SALE_PROMO_CODE */
+    WHERE ("S1_0"."PROMO_CODE" = "P1_0"."CODE")
+        OR (("S1_0"."PROMO_CODE" IS NULL)
+        AND ("P1_0"."CODE" IS NULL)))
+ORDER BY 1
+/* index sorted */
+
+### H2 | E.1/exists | native | with ix_sale_promo_code, ix_promo_code
+-- select p1_0.id from promo p1_0 where exists(select s1_0.id from sale s1_0 where s1_0.promo_code is not distinct from p1_0.code) order by 1
+SELECT
+    "P1_0"."ID"
+FROM "PUBLIC"."PROMO" "P1_0"
+    /* PUBLIC.PRIMARY_KEY_48 */
+WHERE EXISTS(    SELECT
+        "S1_0"."ID"
+    FROM "PUBLIC"."SALE" "S1_0"
+        /* PUBLIC.IX_SALE_PROMO_CODE: PROMO_CODE IS NOT DISTINCT FROM P1_0.CODE */
+    WHERE "S1_0"."PROMO_CODE" IS NOT DISTINCT FROM "P1_0"."CODE")
+ORDER BY 1
+/* index sorted */
+
+### H2 | B/litepos day | B.1/litepos/day/arrayGet | no index
+-- select s1_0.business_date c0,case when array_length(array_agg(i1_0.name order by sl1_0.qty desc,sl1_0.id))>=? then array_agg(i1_0.name order by sl1_0.qty desc,sl1_0.id)[?] end c1 from sale_line sl1_0 join sale s1_0 on s1_0.id=sl1_0.sale_id join item i1_0 on i1_0.id=sl1_0.item_id group by c0 order by 1 || 1, 1
+SELECT
+    "S1_0"."BUSINESS_DATE" AS "C0",
+    CASE WHEN CARDINALITY(ARRAY_AGG("I1_0"."NAME" ORDER BY "SL1_0"."QTY" DESC, "SL1_0"."ID")) >= ?1 THEN ARRAY_AGG("I1_0"."NAME" ORDER BY "SL1_0"."QTY" DESC, "SL1_0"."ID")[?2] END AS "C1"
+FROM "PUBLIC"."ITEM" "I1_0"
+    /* PUBLIC.ITEM.tableScan */
+INNER JOIN "PUBLIC"."SALE_LINE" "SL1_0"
+    /* PUBLIC.FK9AN4X33EJRW2HP6LLRDOJKMIH_INDEX_A: ITEM_ID = I1_0.ID */
+    ON 1=1
+    /* WHERE I1_0.ID = SL1_0.ITEM_ID
+    */
+INNER JOIN "PUBLIC"."SALE" "S1_0"
+    /* PUBLIC.PRIMARY_KEY_26: ID = SL1_0.SALE_ID */
+    ON 1=1
+WHERE ("I1_0"."ID" = "SL1_0"."ITEM_ID")
+    AND ("S1_0"."ID" = "SL1_0"."SALE_ID")
+GROUP BY "S1_0"."BUSINESS_DATE"
+ORDER BY 1
+
+### H2 | B/litepos day | B.1/litepos/day/pattern | no index
+-- select s1_0.business_date c0,(array_agg(i1_0.name order by sl1_0.qty desc,sl1_0.id))[1] c1 from sale_line sl1_0 join sale s1_0 on s1_0.id=sl1_0.sale_id join item i1_0 on i1_0.id=sl1_0.item_id group by c0 order by 1
+SELECT
+    "S1_0"."BUSINESS_DATE" AS "C0",
+    ARRAY_AGG("I1_0"."NAME" ORDER BY "SL1_0"."QTY" DESC, "SL1_0"."ID")[1] AS "C1"
+FROM "PUBLIC"."ITEM" "I1_0"
+    /* PUBLIC.ITEM.tableScan */
+INNER JOIN "PUBLIC"."SALE_LINE" "SL1_0"
+    /* PUBLIC.FK9AN4X33EJRW2HP6LLRDOJKMIH_INDEX_A: ITEM_ID = I1_0.ID */
+    ON 1=1
+    /* WHERE I1_0.ID = SL1_0.ITEM_ID
+    */
+INNER JOIN "PUBLIC"."SALE" "S1_0"
+    /* PUBLIC.PRIMARY_KEY_26: ID = SL1_0.SALE_ID */
+    ON 1=1
+WHERE ("I1_0"."ID" = "SL1_0"."ITEM_ID")
+    AND ("S1_0"."ID" = "SL1_0"."SALE_ID")
+GROUP BY "S1_0"."BUSINESS_DATE"
+ORDER BY 1
+
+### H2 | B/litepos day | B.2/litepos/day | no index
+-- select bd1_0.business_date,var_1_11_0.mq_name from business_day bd1_0 left join (select cte01_0.mq_key,cte01_0.mq_name from (select s1_0.business_date,i1_0.name,row_number() over(partition by s1_0.business_date order by sl1_0.qty desc,sl1_0.id) from sale_line sl1_0 join sale s1_0 on s1_0.id=sl1_0.sale_id join item i1_0 on i1_0.id=sl1_0.item_id) cte01_0(mq_key,mq_name,mq_rank) where cte01_0.mq_rank=?) var_1_11_0(mq_key,mq_name) on var_1_11_0.mq_key=bd1_0.business_date where var_1_11_0.mq_key is not null order by bd1_0.id || 1
+SELECT
+    "BD1_0"."BUSINESS_DATE",
+    "VAR_1_11_0"."MQ_NAME"
+FROM "PUBLIC"."BUSINESS_DAY" "BD1_0"
+    /* PUBLIC.PRIMARY_KEY_6 */
+LEFT OUTER JOIN (
+    SELECT
+        "CTE01_0"."MQ_KEY",
+        "CTE01_0"."MQ_NAME"
+    FROM (
+        SELECT
+            "S1_0"."BUSINESS_DATE",
+            "I1_0"."NAME",
+            ROW_NUMBER() OVER (PARTITION BY "S1_0"."BUSINESS_DATE" ORDER BY "SL1_0"."QTY" DESC, "SL1_0"."ID")
+        FROM "PUBLIC"."ITEM" "I1_0"
+        INNER JOIN "PUBLIC"."SALE_LINE" "SL1_0"
+            ON 1=1
+        INNER JOIN "PUBLIC"."SALE" "S1_0"
+            ON 1=1
+        WHERE ("I1_0"."ID" = "SL1_0"."ITEM_ID")
+            AND ("S1_0"."ID" = "SL1_0"."SALE_ID")
+    ) "CTE01_0"("MQ_KEY", "MQ_NAME", "MQ_RANK")
+    WHERE "CTE01_0"."MQ_RANK" = ?1
+) "VAR_1_11_0"("MQ_KEY", "MQ_NAME")
+    /* SELECT
+        CTE01_0.MQ_KEY,
+        CTE01_0.MQ_NAME
+    FROM (
+        SELECT
+            "S1_0"."BUSINESS_DATE",
+            "I1_0"."NAME",
+            ROW_NUMBER() OVER (PARTITION BY "S1_0"."BUSINESS_DATE" ORDER BY "SL1_0"."QTY" DESC, "SL1_0"."ID")
+        FROM "PUBLIC"."ITEM" "I1_0"
+        INNER JOIN "PUBLIC"."SALE_LINE" "SL1_0"
+            ON 1=1
+        INNER JOIN "PUBLIC"."SALE" "S1_0"
+            ON 1=1
+        WHERE ("I1_0"."ID" = "SL1_0"."ITEM_ID")
+            AND ("S1_0"."ID" = "SL1_0"."SALE_ID")
+    ) CTE01_0(MQ_KEY, MQ_NAME, MQ_RANK)
+        /* SELECT
+            S1_0.BUSINESS_DATE,
+            I1_0.NAME,
+            ROW_NUMBER() OVER (PARTITION BY S1_0.BUSINESS_DATE ORDER BY SL1_0.QTY DESC, SL1_0.ID)
+        FROM PUBLIC.ITEM I1_0
+            /* PUBLIC.ITEM.tableScan */
+        INNER JOIN PUBLIC.SALE_LINE SL1_0
+            /* PUBLIC.FK9AN4X33EJRW2HP6LLRDOJKMIH_INDEX_A: ITEM_ID = I1_0.ID */
+            ON 1=1
+            /* WHERE I1_0.ID = SL1_0.ITEM_ID
+            */
+        INNER JOIN PUBLIC.SALE S1_0
+            /* PUBLIC.PRIMARY_KEY_26: ID = SL1_0.SALE_ID */
+            ON 1=1
+        WHERE (I1_0.ID = SL1_0.ITEM_ID)
+            AND (S1_0.ID = SL1_0.SALE_ID)
+        QUALIFY (?4 IS NOT DISTINCT FROM ?4)
+            AND (S1_0.BUSINESS_DATE IS NOT DISTINCT FROM ?3): MQ_RANK = ?1
+            AND MQ_KEY IS NOT DISTINCT FROM ?2
+         */
+    WHERE (CTE01_0.MQ_RANK = ?1)
+        _LOCAL_AND_GLOBAL_ (CTE01_0.MQ_KEY IS NOT DISTINCT FROM ?2): MQ_KEY = BD1_0.BUSINESS_DATE
+     */
+    ON "VAR_1_11_0"."MQ_KEY" = "BD1_0"."BUSINESS_DATE"
+WHERE "VAR_1_11_0"."MQ_KEY" IS NOT NULL
+ORDER BY "BD1_0"."ID"
+/* index sorted */
+
+### H2 | B/litepos category | B.1/litepos/category/arrayGet | no index
+-- select i1_0.category c0,case when array_length(array_agg(i1_0.name order by sl1_0.qty desc,sl1_0.id))>=? then array_agg(i1_0.name order by sl1_0.qty desc,sl1_0.id)[?] end c1 from sale_line sl1_0 join item i1_0 on i1_0.id=sl1_0.item_id group by c0 order by 1 || 1, 1
+SELECT
+    "I1_0"."CATEGORY" AS "C0",
+    CASE WHEN CARDINALITY(ARRAY_AGG("I1_0"."NAME" ORDER BY "SL1_0"."QTY" DESC, "SL1_0"."ID")) >= ?1 THEN ARRAY_AGG("I1_0"."NAME" ORDER BY "SL1_0"."QTY" DESC, "SL1_0"."ID")[?2] END AS "C1"
+FROM "PUBLIC"."ITEM" "I1_0"
+    /* PUBLIC.ITEM.tableScan */
+INNER JOIN "PUBLIC"."SALE_LINE" "SL1_0"
+    /* PUBLIC.FK9AN4X33EJRW2HP6LLRDOJKMIH_INDEX_A: ITEM_ID = I1_0.ID */
+    ON 1=1
+WHERE "I1_0"."ID" = "SL1_0"."ITEM_ID"
+GROUP BY "I1_0"."CATEGORY"
+ORDER BY 1
+
+### H2 | B/litepos category | B.1/litepos/category/pattern | no index
+-- select i1_0.category c0,(array_agg(i1_0.name order by sl1_0.qty desc,sl1_0.id))[1] c1 from sale_line sl1_0 join item i1_0 on i1_0.id=sl1_0.item_id group by c0 order by 1
+SELECT
+    "I1_0"."CATEGORY" AS "C0",
+    ARRAY_AGG("I1_0"."NAME" ORDER BY "SL1_0"."QTY" DESC, "SL1_0"."ID")[1] AS "C1"
+FROM "PUBLIC"."ITEM" "I1_0"
+    /* PUBLIC.ITEM.tableScan */
+INNER JOIN "PUBLIC"."SALE_LINE" "SL1_0"
+    /* PUBLIC.FK9AN4X33EJRW2HP6LLRDOJKMIH_INDEX_A: ITEM_ID = I1_0.ID */
+    ON 1=1
+WHERE "I1_0"."ID" = "SL1_0"."ITEM_ID"
+GROUP BY "I1_0"."CATEGORY"
+ORDER BY 1
+
+### H2 | B/litepos category | B.2/litepos/category | no index
+-- select cte11_0.mq_key,cte11_0.mq_name from (select cte01_0.mq_key,cte01_0.mq_name from (select i1_0.category,i1_0.name,row_number() over(partition by i1_0.category order by sl1_0.qty desc,sl1_0.id) from sale_line sl1_0 join item i1_0 on i1_0.id=sl1_0.item_id) cte01_0(mq_key,mq_name,mq_rank) where cte01_0.mq_rank=?) cte11_0(mq_key,mq_name) order by 1 || 1
+SELECT
+    "CTE11_0"."MQ_KEY",
+    "CTE11_0"."MQ_NAME"
+FROM (
+    SELECT
+        "CTE01_0"."MQ_KEY",
+        "CTE01_0"."MQ_NAME"
+    FROM (
+        SELECT
+            "I1_0"."CATEGORY",
+            "I1_0"."NAME",
+            ROW_NUMBER() OVER (PARTITION BY "I1_0"."CATEGORY" ORDER BY "SL1_0"."QTY" DESC, "SL1_0"."ID")
+        FROM "PUBLIC"."ITEM" "I1_0"
+        INNER JOIN "PUBLIC"."SALE_LINE" "SL1_0"
+            ON 1=1
+        WHERE "I1_0"."ID" = "SL1_0"."ITEM_ID"
+    ) "CTE01_0"("MQ_KEY", "MQ_NAME", "MQ_RANK")
+    WHERE "CTE01_0"."MQ_RANK" = ?1
+) "CTE11_0"("MQ_KEY", "MQ_NAME")
+    /* SELECT
+        CTE01_0.MQ_KEY,
+        CTE01_0.MQ_NAME
+    FROM (
+        SELECT
+            "I1_0"."CATEGORY",
+            "I1_0"."NAME",
+            ROW_NUMBER() OVER (PARTITION BY "I1_0"."CATEGORY" ORDER BY "SL1_0"."QTY" DESC, "SL1_0"."ID")
+        FROM "PUBLIC"."ITEM" "I1_0"
+        INNER JOIN "PUBLIC"."SALE_LINE" "SL1_0"
+            ON 1=1
+        WHERE "I1_0"."ID" = "SL1_0"."ITEM_ID"
+    ) CTE01_0(MQ_KEY, MQ_NAME, MQ_RANK)
+        /* SELECT
+            I1_0.CATEGORY,
+            I1_0.NAME,
+            ROW_NUMBER() OVER (PARTITION BY I1_0.CATEGORY ORDER BY SL1_0.QTY DESC, SL1_0.ID)
+        FROM PUBLIC.ITEM I1_0
+            /* PUBLIC.ITEM.tableScan */
+        INNER JOIN PUBLIC.SALE_LINE SL1_0
+            /* PUBLIC.FK9AN4X33EJRW2HP6LLRDOJKMIH_INDEX_A: ITEM_ID = I1_0.ID */
+            ON 1=1
+        WHERE I1_0.ID = SL1_0.ITEM_ID
+        QUALIFY ?2 IS NOT DISTINCT FROM ?2: MQ_RANK = ?1
+         */
+    WHERE CTE01_0.MQ_RANK = ?1
+     */
+ORDER BY 1
+
+### H2 | F.1/grouped | F.1/grouped/id | no index
+-- select s1_0.kind c0,count(s1_0.id) c1 from sale s1_0 group by c0 order by 1
+SELECT
+    "S1_0"."KIND" AS "C0",
+    COUNT("S1_0"."ID") AS "C1"
+FROM "PUBLIC"."SALE" "S1_0"
+    /* PUBLIC.SALE.tableScan */
+GROUP BY "S1_0"."KIND"
+ORDER BY 1
+
+### H2 | F.1/grouped | F.1/grouped/one | no index
+-- select s1_0.kind c0,count(1) c1 from sale s1_0 group by c0 order by 1
+SELECT
+    "S1_0"."KIND" AS "C0",
+    COUNT(*) AS "C1"
+FROM "PUBLIC"."SALE" "S1_0"
+    /* PUBLIC.SALE.tableScan */
+GROUP BY "S1_0"."KIND"
+ORDER BY 1
+
+### H2 | F.1/grouped | F.1/grouped/star | no index
+-- select s1_0.kind c0,count(*) c1 from sale s1_0 group by c0 order by 1
+SELECT
+    "S1_0"."KIND" AS "C0",
+    COUNT(*) AS "C1"
+FROM "PUBLIC"."SALE" "S1_0"
+    /* PUBLIC.SALE.tableScan */
+GROUP BY "S1_0"."KIND"
+ORDER BY 1
+
+### H2 | F.1/page-total | F.1/page-total/id | no index
+-- select count(sl1_0.id) from sale_line sl1_0 where sl1_0.qty>=? || 3
+SELECT
+    COUNT("SL1_0"."ID")
+FROM "PUBLIC"."SALE_LINE" "SL1_0"
+    /* PUBLIC.SALE_LINE.tableScan */
+WHERE "SL1_0"."QTY" >= ?1
+
+### H2 | F.1/page-total | F.1/page-total/one | no index
+-- select count(1) from sale_line sl1_0 where sl1_0.qty>=? || 3
+SELECT
+    COUNT(*)
+FROM "PUBLIC"."SALE_LINE" "SL1_0"
+    /* PUBLIC.SALE_LINE.tableScan */
+WHERE "SL1_0"."QTY" >= ?1
+
+### H2 | F.1/page-total | F.1/page-total/star | no index
+-- select count(*) from sale_line sl1_0 where sl1_0.qty>=? || 3
+SELECT
+    COUNT(*)
+FROM "PUBLIC"."SALE_LINE" "SL1_0"
+    /* PUBLIC.SALE_LINE.tableScan */
+WHERE "SL1_0"."QTY" >= ?1
+
