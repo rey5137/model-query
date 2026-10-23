@@ -150,8 +150,8 @@ class FlatRowMappingTest {
             var qRecordGeneral = ORDERS.orderBy(STATUS.asc(), REF.asc()).customize(NO_OP).build();
 
             // Eligibility check confirms paths
-            assertThat(FlatPathHooks.isFlatEligible(qRecordFlat, em.getCriteriaBuilder())).isTrue();
-            assertThat(FlatPathHooks.isFlatEligible(qRecordGeneral, em.getCriteriaBuilder())).isFalse();
+            assertThat(FlatPathHooks.isFlatEligible(qRecordFlat)).isTrue();
+            assertThat(FlatPathHooks.isFlatEligible(qRecordGeneral)).isTrue();
 
             // 1. Record model: flat path returns same models as general path (which uses NO_OP customizer)
             List<OrderView> flatRecord = executor.list(qRecordFlat, Limit.of(25));
@@ -168,8 +168,8 @@ class FlatRowMappingTest {
             var qClassFlat = CLASS_ORDERS.orderBy(CLASS_STATUS.asc(), CLASS_REF.asc()).build();
             var qClassGeneral = CLASS_ORDERS.orderBy(CLASS_STATUS.asc(), CLASS_REF.asc()).customize(NO_OP).build();
 
-            assertThat(FlatPathHooks.isFlatEligible(qClassFlat, em.getCriteriaBuilder())).isTrue();
-            assertThat(FlatPathHooks.isFlatEligible(qClassGeneral, em.getCriteriaBuilder())).isFalse();
+            assertThat(FlatPathHooks.isFlatEligible(qClassFlat)).isTrue();
+            assertThat(FlatPathHooks.isFlatEligible(qClassGeneral)).isTrue();
 
             List<OrderClassView> flatClass = executor.list(qClassFlat, Limit.of(25));
             List<OrderClassView> generalClass = executor.list(qClassGeneral, Limit.of(25));
@@ -185,35 +185,43 @@ class FlatRowMappingTest {
             var secondPage = executor.page(keysetQ, KeysetSpec.after(nextCursor, 10));
             assertThat(secondPage.content()).hasSize(10);
             assertThat(secondPage.content().get(0).id()).isNotEqualTo(firstPage.content().get(9).id());
+            // The two keyset pages are exactly the flat list's first 20 rows, in order.
+            List<OrderView> pages = new java.util.ArrayList<>(firstPage.content());
+            pages.addAll(secondPage.content());
+            assertThat(pages).isEqualTo(executor.list(qRecordFlat, Limit.of(20)));
         });
     }
 
     @TckTest
-    void ac_col_53_ineligible_reads_take_general_path(TckDatabase db) {
+    void ac_col_53_only_a_fetch_plan_takes_the_general_path(TckDatabase db) {
         withSession(JoinTestSupport.dataSource(db), (executor, em) -> {
-            var cb = em.getCriteriaBuilder();
-
             // A. Plain query is eligible
             var qPlain = ORDERS.orderBy(REF.asc()).build();
-            assertThat(FlatPathHooks.isFlatEligible(qPlain, cb)).isTrue();
+            assertThat(FlatPathHooks.isFlatEligible(qPlain)).isTrue();
 
             // B. Query with fetch plan is ineligible
             var qFetch = ORDERS.orderBy(REF.asc())
                     .fetch(FetchPlan.of(SelectSet.of(REF)))
                     .build();
-            assertThat(FlatPathHooks.isFlatEligible(qFetch, cb)).isFalse();
+            assertThat(FlatPathHooks.isFlatEligible(qFetch)).isFalse();
 
-            // C. Kept to-many join: order term through to-many join kept by R-EXE-16
+            // C. Kept to-many join: order term through to-many join kept by R-EXE-16. Without a fetch plan nothing
+            // reads the filter-only flag or the row, so the flat path is the general path (D-184 amendment).
             var qKeptOrder = ORDERS.orderBy(ITEM_PRODUCT.asc(), REF.asc()).build();
-            assertThat(FlatPathHooks.isFlatEligible(qKeptOrder, cb)).isFalse();
+            assertThat(FlatPathHooks.isFlatEligible(qKeptOrder)).isTrue();
+            // The kept join repeats the root, as the general path does: more rows than orders, each fully mapped.
+            List<OrderView> kept = executor.list(qKeptOrder, Limit.unlimited());
+            assertThat(kept).hasSizeGreaterThan(TckFixture.ORDERS).allSatisfy(v -> assertThat(v.status()).isNotNull());
 
-            // D. Kept to-many join: customizer to-many join
+            // D. Customizer to-many join is eligible too
             var qCustomJoin = ORDERS.customize(JoinTestSupport.itemJoin("PROD-1")).build();
-            assertThat(FlatPathHooks.isFlatEligible(qCustomJoin, cb)).isFalse();
+            assertThat(FlatPathHooks.isFlatEligible(qCustomJoin)).isTrue();
+            assertThat(executor.list(qCustomJoin, Limit.unlimited()))
+                    .allSatisfy(v -> assertThat(v.status()).isNotNull());
 
-            // E. Customizer attached to the query is ineligible
+            // E. Customizer alone is eligible
             var qCustom = ORDERS.orderBy(REF.asc()).customize(NO_OP).build();
-            assertThat(FlatPathHooks.isFlatEligible(qCustom, cb)).isFalse();
+            assertThat(FlatPathHooks.isFlatEligible(qCustom)).isTrue();
         });
     }
 
@@ -221,7 +229,7 @@ class FlatRowMappingTest {
     void ac_col_53_limit_integer_max_value_does_not_presize(TckDatabase db) {
         withSession(JoinTestSupport.dataSource(db), (executor, em) -> {
             var q = ORDERS.orderBy(REF.asc()).build();
-            assertThat(FlatPathHooks.isFlatEligible(q, em.getCriteriaBuilder())).isTrue();
+            assertThat(FlatPathHooks.isFlatEligible(q)).isTrue();
             List<OrderView> rows = executor.list(q, Limit.of(Integer.MAX_VALUE));
             assertThat(rows).hasSize(TckFixture.ORDERS);
         });
