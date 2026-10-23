@@ -2841,6 +2841,63 @@ read alone (its gain belongs to the `count(*)` rendering, which any route could 
 for P-B.2 (P-B.2 measured on today's row path).
 → `rfc/0019`, `rfc/0019-spike-results.md`, `api/10` R-COL-10, R-COL-11, `engine/20` R-EXE-16, D-177.
 
+**D-185 — Report SQL: joins to sources, ordered and filtered aggregates, exact averages, null-safe equality, row
+counts (RFC 0020, 2026-10-23, user decision).** RFC 0020 is accepted after two architect rounds and its acceptance
+spike (`rfc/0020-spike-results.md`), run on Hibernate 6.6.58 and 7.4.11 against H2, PostgreSQL 16 and MySQL 8.0.31:
+660 cells, no line-parity difference. M32 (0.11.0) builds it; the freeze moves from M32 to M33 and stays last. Every
+new type, member and annotation member is `@Incubating`.
+
+**Part A (R-SRC-21, R-SRC-22).** A model rooted at an entity joins a unique source on its full key, rendered as a
+join to the source's CTE in every statement of R-SRC-12's list, even a `LEFT` join no filter reads. Hibernate inlines
+a joined CTE as a derived table on H2, which evaluates it once per outer row; MySQL and H2 run the source in full in
+every count. The docs say so, and narrow "keep `Correlated.*`" to unfiltered pages of a few rows over an indexed
+child: the joined source won every filtered page, export and count in the spike. A derived table stays only behind
+the `join` hook, which no Tier-1 vendor needs. Locks are `MQ1903`; a child model that joins a source is `MQ3039`.
+
+**Part B (R-AGG-16).** `Agg.firstBy` renders through the renderer's own function pattern, `(?1)[1]` on PostgreSQL
+and `?1[1]` on H2, called with no Java result type so the value's converter applies; `arrayGet` is not the rendering
+(PostgreSQL syntax error, H2 aggregates twice). MySQL and `OTHER` answer `FIRST_BY` false, `MQ4015`; the ranked-source
+route is documented.
+
+**Part C (R-AGG-17).** FILTER and the CASE form give equal rows for every aggregate on every vendor; a filter's first
+join resolves `LEFT`, since an implicit inner join drops the rows a NULL path has.
+
+**Part D (R-AGG-18, R-COL-37).** The exact average is `sum(x) / count(x)` with the numerator typed `BigDecimal`;
+`avg` typed `BigDecimal` reads a `Double` on every vendor and line. Integer inputs (`bigint`, `integer`, `smallint`)
+are cast with `HibernateCriteriaBuilder#cast(x, BigDecimal.class)`, since `Expression#as` renders no SQL cast; a
+`BigDecimal` input is not cast, since the cast's `numeric(38,2)` would round it. MySQL's average scale is the input's
+scale + `div_precision_increment`. **The `round` scale bound is 30:** MySQL clamps a larger scale to 30 with no
+error, where PostgreSQL and H2 honour 31 to 38. `Double` and `Float` inputs and a scale outside 0 to 30 are `MQ1411`.
+
+**Part E (R-FLT-29).** A value operand resolves when the filter is added (`col = ? and col is not null`, or
+`col is null`), which keeps the index on all three vendors. Two operands render the two-valued OR form, except where
+the new database fact `VendorProfile#nativeNullSafeEquality()` (R-VND-29, `false` by default) is `true` and the
+provider has `ProviderSupport#nullSafeEquality()` (R-VND-30): then Hibernate's `notDistinctFrom` / `distinctFrom`.
+`true` on MySQL and H2, where `<=>` and `is not distinct from` are lookups and the OR form reads every NULL key per
+outer row (`exists` 1.2 vs 33 to 72 ms on MySQL, 0.04 vs 58 to 89 ms on H2); `false` on PostgreSQL, whose plain
+filter has a `BitmapOr` plan only for the OR form, and on `OTHER`. No public API change.
+
+**Part F (R-AGG-19).** *Eligibility:* a criteria `Root` or a chain of INNER `Join`s from one (walked through
+`Join#getParent()`, not `ctx.root`), with no treated node, counting the `From`'s own id, in a statement without a
+customizer; a joined Part A source is classified by its `SourceJoin` kind (`INNER` the row count, `LEFT`
+`count(x.mq_<first key field>)`). Otherwise the count keeps `count(t.id)`. One core helper builds every counting site,
+the page total and the source-root `count(1)` sites included. `AggregateRenderer#rowCount(cb, Expression<?> current)`
+defaults to `cb.count(current)`, today's SQL; the Hibernate renderer returns `count(*)` (`HibernateCriteriaBuilder#count()`,
+from 6.4); sources keep `count(1)`. `count(1)` is not the portable default: it is 7 to 8% slower than `count(id)` on
+PostgreSQL page totals, where `count(*)` saves up to 12% with identical plans and rows. A filtered count passes
+`filtered` the unfiltered count's argument (`count(1) filter (where c)` when eligible, since Hibernate has no
+argument-less `count(JpaPredicate)`), so a LEFT-joined unmatched group counts 0. A composite id already renders
+`count(*)`. A statement with a customizer keeps `count(t.id)`, since the customizer could add a `RIGHT` or `FULL`
+join; scanning for one and refusing is rejected. The processor emits `Agg.count(column).named(...)` for
+`@Aggregate(fn = COUNT)`, changing that field's kind and equality, not its name. About 106 snapshot files plus about
+30 source-root files change, listed by the Part F slice. This closes D-184's deferred `count(*)` follow-up.
+
+Rejected: lowering a correlated column to a join automatically (D-150), LATERAL (D-145), `firstBy` emulated on MySQL,
+refusing `filter` without native FILTER, a separate `AggregateFunction.AVG_EXACT`, `round` over `Double`, null-safe
+equality as a catalogue operator (RFC 0017).
+→ `rfc/0020`, `rfc/0020-spike-results.md`, `api/17` R-SRC-12, `api/13` R-AGG-01, R-AGG-03, `api/12` R-FLT-13, `vendor/40`
+R-VND-21, R-VND-23, `engine/20` R-EXE-05, D-145, D-150, D-184.
+
 ## 2. Open questions
 
 **Q-1 — Project name and coordinates.** Resolved by D-77.

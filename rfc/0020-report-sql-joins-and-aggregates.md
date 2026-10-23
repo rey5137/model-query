@@ -1,6 +1,6 @@
 # RFC 0020 — Report SQL: joins to sources, ordered and filtered aggregates, exact averages, null-safe equality
 
-- **Status:** draft. Prompted by the LitePOS 0.10.0 report trial (gap items 3, 4, 5, 9 and 10); Part F by RFC 0019's
+- **Status:** accepted (D-185), after the acceptance spike (`rfc/0020-spike-results.md`). Prompted by the LitePOS 0.10.0 report trial (gap items 3, 4, 5, 9 and 10); Part F by RFC 0019's
   spike (`rfc/0019-spike-results.md`, rule 2) and D-184's amendment.
 - **Affects:**
   - **`api/17`:** new R-SRC-21 (a model rooted at an entity joins a source on the source's full key) and R-SRC-22
@@ -17,8 +17,9 @@
     `orderBy`, `filter` and `scale` members, and an `AVG` field typed `BigDecimal`); new `MQ3044`, `MQ3045`;
     `MQ3039` widened to a child model that joins a source.
   - **`vendor/40`:** new R-VND-29, `VendorProfile#aggregates(AggregateFeature)`, a database fact; new R-VND-30,
-    `ProviderSupport#aggregates()` returning a `core.AggregateRenderer`, a provider fact; `SourceRenderer` gains
-    `join` (R-VND-21's hook list). `vendor/41` gains the Tier-1 answers.
+    `ProviderSupport#aggregates()` returning a `core.AggregateRenderer`, a provider fact; R-VND-29 also gains
+    `VendorProfile#nativeNullSafeEquality()` and R-VND-30 `ProviderSupport#nullSafeEquality()` (Part E);
+    `SourceRenderer` gains `join` (R-VND-21's hook list). `vendor/41` gains the Tier-1 answers.
   - **`model-query-hibernate`:** `SourceRenderer#join` over `JpaFrom#join(JpaCteCriteria, SqmJoinType)`; an
     `AggregateRenderer` over `HibernateCriteriaBuilder`'s `arrayAgg`, filtered aggregates and `round`.
   - **`api/13`, `engine/20`, `api/10`:** new R-AGG-19, a count of a row's identity renders `count(*)` (Part F);
@@ -27,7 +28,7 @@
     `MQ4015` rows widened.
   - **`docs/site`:** the sources page (joining a source), the aggregates page (first-by, filter, exact average), the
     filters page (null-safe equality), each runnable snippet in both tabs (CC-DOC-01).
-- **Discussion:** to open
+- **Discussion:** two architect rounds and the acceptance spike
 - **Target:** 0.11.0, as milestone M32 (the freeze moves to M33); every new type, member and annotation member is
   `@Incubating`. Parts A to E are additive; Part F changes rendered SQL, not results (§Compatibility). The ids below
   were checked against RFC 0019's: D-184 released R-COL-38, R-QRY-18, R-FLT-30, R-EXE-17, R-VND-31, `MQ1210` and
@@ -163,21 +164,29 @@ from business_day d left join sales x on x.mq_businessDate = d.business_date
 
 - **CTE, not a derived table (recommended).** The CTE reuses R-SRC-12's body, parameter binding and chain
   registration unchanged, and needs one hook. PostgreSQL 12+ inlines a non-recursive CTE referenced once, so its plan
-  is the derived table's; MySQL 8.0 merges or materializes a CTE as it does a derived table; H2 runs both. The spike
-  compares both forms; a vendor whose CTE plan loses would get the derived form behind the same `join` hook
+  is the derived table's; MySQL 8.0 merges or materializes a CTE as it does a derived table. H2 never receives the
+  CTE: Hibernate inlines a joined CTE as a derived table, and H2 evaluates it once per outer row (spike A.1, about
+  265 ms for 365 outer rows over a grouped source with no index on the join key; 37 to 46 s for a window source).
+  H2 is a test database; the docs say a joined source there wants an index on the join key and a few dozen outer
+  rows at most. A vendor whose CTE plan loses would get the derived form behind the same `join` hook
   (`JpaFrom#join(Subquery, SqmJoinType)`), with no API change.
 - **Every statement carries the join** (R-SRC-12's list: content, count, both primary-key-first steps, every export
   page, every `byKeys` chunk, the parent reads of a fetch plan), even a `LEFT` join no filter reads. One rule needs
-  no proof that dropping it keeps the count; PostgreSQL removes an unreferenced LEFT join to a relation unique on the
-  join keys by itself, which the spike records.
+  no proof that dropping it keeps the count. PostgreSQL removes an unreferenced LEFT join to a relation unique on
+  the join keys by itself (spike A.1: 0.38 ms unfiltered, 3.2 ms once a filter reads the source); MySQL and H2 run
+  the source in full in every count, filtered or not (13x the plain count on MySQL, over 5,000x on H2 without an
+  index).
 - **Locks.** `withLock(...)` on a query with a joined source is `MQ1903` (widened), for R-SRC-11's reason.
 - **Fetch plans.** A parent model that joins a source carries it on its parent reads. A `@Child` whose child model
   joins a source is `MQ3039` (widened): the fetch plan has no `SourceQuery` to pass it.
 - **Writes.** `ModelUpdate`, `ModelDelete`, `InsertColumns` and `ModelInsert.select` take no source, as today.
 - **Cost, documented, not hidden.** A grouped source aggregates every row its `where` admits, on every statement,
-  even for a page of 20; a correlated column probes one index entry per row. RFC 0015 §6's table stands, so the docs
-  say: join a source for exports and whole-table reports, or when the correlation has no index; keep `Correlated.*`
-  for pages over an indexed child; narrow the source's own `where` either way.
+  even for a page of 20 and its count (on MySQL and H2 the count pays the whole source); a correlated column probes
+  one index entry per row, and a filter on it re-evaluates the sub-select. In the spike the joined source won every
+  filtered page, export and count on all three vendors, with or without the child index, and tied only the indexed
+  count. So the docs say: join a source for a page, export or report that filters or sorts on the aggregate; keep
+  `Correlated.*` for an unfiltered page of a few rows over an indexed child; narrow the source's own `where` either
+  way.
 
 **A.4 Vendors.** The join is a plain CTE: `VendorProfile#sources(SourceFeature.CTE)` answers it (R-VND-21), `true` on
 H2, PostgreSQL and MySQL, `false` on `OTHER`, which is `MQ4015` before any statement. No new `SourceFeature`. A
@@ -207,7 +216,10 @@ public static final AggregateField<CategorySales, String> TOP_ITEM =
   does for `Correlated.first`, so ties pick the same row on every vendor. Over a source root the source key is
   appended. Null precedence follows R-COL-12; the docs advise an explicit `nullsFirst()` / `nullsLast()`.
 - **Result type** is the value's own type. The value is read, not compared, so its converter (if any) is applied to
-  the result as for any column read; no converter restriction. A group with no row is NULL.
+  the result as for any column read; no converter restriction. A group with no row is NULL. The renderer must not
+  pass a Java result type to its function pattern: called untyped, Hibernate types the element from the array and
+  applies the converter (spike B.1); called with the value's class, it bypasses the converter and fails to read the
+  stored value.
 - **`orderBy` keys** in `@Aggregate` are model fields of the aggregated root; an unknown or malformed key is
   `MQ3045`. A `firstBy` whose value is read through a to-many join is `MQ1412`: the root id does
   not break ties among the joined rows, so the pick would not be deterministic.
@@ -224,8 +236,10 @@ public static final AggregateField<CategorySales, String> TOP_ITEM =
   by the key, read by a source over it (R-SRC-16) filtered on `rank = 1`, then joined (Part A). It runs on every
   Tier-1 vendor today with Part A; the docs give it next to `firstBy`. It is not an automatic fallback: it changes
   the statement's shape and its cost, which the author should choose.
-- **Hibernate.** Both lines have `HibernateCriteriaBuilder#arrayAgg(JpaOrder, Expression)`; the element read is
-  `arrayGet` (HQL `array_get`), whose PostgreSQL and H2 rendering the spike records. Both also offer `mode(...)`,
+- **Hibernate.** Both lines have `HibernateCriteriaBuilder#arrayAgg(JpaOrder, Expression)`. The element read is not
+  `arrayGet`: on PostgreSQL it renders `array_agg(…)[?]` without parentheses (a syntax error) on both lines, and on H2
+  it aggregates twice (spike B.1). The renderer registers its own function pattern, `(?1)[1]` on PostgreSQL and
+  `?1[1]` on H2, the table's SQL. Both also offer `mode(...)`,
   `listagg(...)` and `functionWithinGroup(...)`; none of them returns the first row's value of a non-text column, so
   none is the rendering. A provider without the renderer is `MQ4014`.
 
@@ -265,7 +279,9 @@ public static final AggregateField<DaySummary, BigDecimal> REFUNDS =
 - **`having` over a filtered aggregate** works as over any aggregate (R-AGG-06).
 - **Hibernate.** Both lines have `count`, `sum` and `avg` overloads taking a `JpaPredicate`, and
   `functionAggregate(name, type, filter, args)` for `min` and `max`. `sum(Expression<N>, JpaPredicate)` is typed
-  `Number`, so the renderer must keep R-AGG-03's result type; the spike checks what each line reads back.
+  `Number`, so the renderer must keep R-AGG-03's result type. The spike (C.1) found FILTER and CASE rows equal for
+  every aggregate on every vendor and line, and C.2 that an implicit path's inner join drops the rows a LEFT filter
+  join keeps.
 
 ### Part D — exact average and rounding (R-AGG-18, R-COL-37)
 
@@ -277,23 +293,28 @@ public static <M> ExpressionField<M, BigDecimal> round(ScalarField<M, BigDecimal
 ```
 
 - **Input.** `BigDecimal`, `Long`, `Integer` and `Short` columns or expressions. A `Double` or `Float` is `MQ1411`
-  when the factory is called (D-25's reason), since its average is inexact on every vendor, and so is an integer type
-  no candidate passes (below); a converted column is
-  `MQ1408`, as for `avg`.
+  when the factory is called (D-25's reason), since its average is inexact on every vendor; a converted column is
+  `MQ1408`, as for `avg`. All three integer types pass with the cast below (spike D.1), so no integer type is
+  refused; `MQ1411` keeps the rule for any future input type with no passing rendering.
 - **Annotation.** `@Aggregate(fn = AVG)` on a `BigDecimal` component is the exact average, rather than `MQ3205`;
   `@Aggregate(scale = n)` rounds it. `scale` on a non-`BigDecimal` field is `MQ3045`, and so is an `AVG` field over an
   input type the factory refuses with `MQ1411`. The Java type already names the
   intent, so no new `AggregateFunction` constant.
-- **Integer inputs.** `sum(x) / count(x)` is integer division on PostgreSQL and H2 `bigint`, and H2 may return DOUBLE
-  for `AVG(INTEGER)`. Default: an input type is `MQ1411` (refused when the factory is called, a type rule) until a candidate
-  passes for it on every Tier-1 vendor; the spike adds per-input-type argument casts (D.1) and only a passing type is allowed.
+- **Integer inputs.** Uncast, `sum(x) / count(x)` is integer division on PostgreSQL and H2, and on every vendor for
+  `bigint` read through Hibernate; H2's own `AVG(INTEGER)` and `AVG(SMALLINT)` are `DOUBLE PRECISION`.
+  `Expression#as(BigDecimal.class)` renders no SQL cast. The renderer casts an integer input with
+  `HibernateCriteriaBuilder#cast(x, BigDecimal.class)` (`cast(x as numeric(38,2))`, MySQL `decimal(38,2)`; `cb.cast`
+  on 7.4's Jakarta Persistence 3.2), and candidate 2 then passes for `bigint`, `integer` and `smallint` on every
+  vendor and line (spike D.1). Only integer inputs are cast: a `BigDecimal` input is left as is, since the cast's
+  default `numeric(38,2)` would round one with more than 2 decimals.
 - **Rounding** is half away from zero on PostgreSQL `numeric`, MySQL `DECIMAL` and H2 `NUMERIC`, so `round` takes a
   `BigDecimal` only. A `Double` round differs (MySQL rounds approximate values to even), so it doesn't compile. A
-  negative `scale` or one over the bound is `MQ1411`. The bound is the smallest Tier-1 maximum the spike confirms
-  (default 30: MySQL's `DECIMAL` scale limit may be 30, not 38); D.2 tests scales 31 to 38. Standard Criteria has
-  `CriteriaBuilder#round` (Jakarta Persistence 3.1), on both lines.
+  negative `scale` or one over 30 is `MQ1411`. 30 is the smallest Tier-1 maximum: MySQL clamps any scale over 30 to
+  30 with no error, where PostgreSQL honours 31 to 38 (spike D.2), so a larger bound would let MySQL return fewer
+  decimals than asked. Standard Criteria has `CriteriaBuilder#round` (Jakarta Persistence 3.1), on both lines.
 - **Scale of the average** follows the database unless rounded, as a decimal quotient's does (R-VND-09,
-  R-COL-17): PostgreSQL's `avg(numeric)` scale, MySQL's `div_precision_increment`. The docs recommend `round` for money.
+  R-COL-17): PostgreSQL 16, H2 40, MySQL the input's scale + `div_precision_increment` (4 by default: 6 for a
+  `numeric(12,2)` input or a cast integer, spike D.1). The docs recommend `round` for money.
   Zero rows is NULL, as `sum` is (R-AGG-04).
 - **Rendering**, through `AggregateRenderer#exactAverage(cb, expression)`. Hibernate types `avg` as `Double` on both
   lines (`JpaExpression<Double> avg(...)`) and reads the column as a double, so a `BigDecimal` result needs the
@@ -301,7 +322,8 @@ public static <M> ExpressionField<M, BigDecimal> round(ScalarField<M, BigDecimal
   1. `avg(x)` rendered with a `BigDecimal` result type (`functionAggregate("avg", BigDecimal.class, …)`), if the
      dialect's average descriptor keeps the argument uncast;
   2. `sum(x) / count(x)` with the numerator typed `BigDecimal`, which every vendor computes in exact arithmetic.
-  The first that returns the database's exact value with no cast to double is the rendering. A provider without the
+  Candidate 2 is the rendering: candidate 1 reads a `Double` on every vendor and line, since Hibernate's `avg`
+  descriptor fixes the type, and on H2 casts integer inputs to `float(53)` (spike D.1). A provider without the
   renderer is `MQ4014`; no vendor answer is needed, since all three compute an exact average.
 
 ### Part E — null-safe equality (R-FLT-29)
@@ -328,11 +350,18 @@ public <C> Filters<M> distinctFromColumn(ScalarField<M, C> column, ScalarField<M
 - **Two operands** render the two-valued portable form
   `(a = b and a is not null and b is not null) or (a is null and b is null)` in standard Criteria; `distinctFrom` is
   its `NOT`. A bare `a = b or (a is null and b is null)` is NULL when exactly one side is NULL, so its negation would
-  drop rows under `not(...)`. Every vendor runs this form and PostgreSQL can serve it from an index, where its native
-  `IS NOT DISTINCT FROM` cannot. The spike compares it with Hibernate's `notDistinctFrom` (PostgreSQL and H2
-  `is not distinct from`, MySQL `<=>`), on rows with exactly one side NULL and with each form inside `not(...)`, and
-  records whether the extra `is not null` keeps the index plan; if the native form wins on a vendor, it moves behind a
-  provider hook with this form as its fallback, with no API change. Existing correlations keep their SQL, so Parts A to E change no snapshot.
+  drop rows under `not(...)`. Every vendor runs this form, and both forms give the right rows alone and under
+  `not(...)` on every vendor (spike E.1).
+- **Native form behind a provider hook.** Where the native form wins, the two-operand form renders it: Hibernate's
+  `notDistinctFrom` / `distinctFrom` (H2 `is not distinct from`, MySQL `<=>`), gated by the database fact
+  `VendorProfile#nativeNullSafeEquality()` (R-VND-29), `false` by default: `true` on MySQL and H2, `false` on
+  PostgreSQL and `OTHER`. The spike's reason: MySQL's `<=>` is a plain lookup where the OR form reads every NULL key per outer row
+  (`exists` 1.2 vs 33 to 72 ms, filter 5.1 vs 11.5 ms), and H2 runs only the native form as a lookup (`exists` 0.04
+  vs 58 to 89 ms). PostgreSQL keeps the OR form: in a plain filter it has a parameterized `BitmapOr` plan the native
+  form lacks, and in a correlated `exists` neither form is parameterized. A provider without the hook, or a vendor
+  answering `false`, renders the OR form; the value form (above) is the same everywhere, since its `is not null`
+  keeps the index on all three. No public API change. Existing correlations keep their SQL, so Parts A to E change
+  no snapshot.
 - **Converted columns.** The value is converted as `eq`'s is (R-FLT-06); two operands need the same converter, else
   `MQ1001` (R-COL-14), as any column comparison.
 - **Why built in, not a custom operator (RFC 0017).** An operator's value is always a bound parameter its renderer
@@ -341,8 +370,11 @@ public <C> Filters<M> distinctFromColumn(ScalarField<M, C> column, ScalarField<M
   `OperatorFeature` that H2 and MySQL would answer through Hibernate's emulation, so the gate would say nothing about
   the SQL. A user who needs it before this ships can still write
   `FilterOperator.of("notDistinctFrom", (ctx, l, r) -> ((HibernateCriteriaBuilder) ctx.cb()).notDistinctFrom(l, r))`.
-- **Hibernate.** Both lines have `distinctFrom` and `notDistinctFrom` on `HibernateCriteriaBuilder`; the built-in needs
-  neither, since both forms are standard Criteria. No provider hook, no vendor fact.
+- **Hibernate.** Both lines have `distinctFrom` and `notDistinctFrom` on `HibernateCriteriaBuilder`. The value form
+  and the OR form are standard Criteria; the native two-operand form is the provider hook
+  `ProviderSupport#nullSafeEquality()` (R-VND-30), an `Optional<NullSafeEqualityRenderer>` with
+  `notDistinctFrom(cb, a, b)` and `distinctFrom(cb, a, b)`, empty by default. Unlike Part B's gate, a vendor answering
+  `true` with no hook is not an error: the OR form is correct everywhere, only slower.
 
 ### Part F — counting rows as `count(*)` (R-AGG-19)
 
@@ -361,7 +393,7 @@ value that cannot be null on any row the statement reads, so `count(*)` returns 
 | A correlated `count` whose column is the sub-select root's id (`JoinContext.java:728`) | `count(t.id)` |
 | The page total of an ungrouped, entity-rooted query without dedup (`DefaultModelQueryExecutor.java:3987`, R-EXE-05) | `count(root.id)` |
 
-**The rule** (the text for a future D-n): *R-AGG-19 eligibility: a criteria `Root` or a chain of INNER `Join`s from
+**The rule** (recorded in D-185): *R-AGG-19 eligibility: a criteria `Root` or a chain of INNER `Join`s from
 one, with no treated node, counting the `From`'s own id, in a statement without a customizer; otherwise
 `count(t.id)`.* In detail:
 
@@ -384,12 +416,17 @@ one, with no treated node, counting the `From`'s own id, in a statement without 
 Unchanged: `countDistinct` (including the page total's dedup through a to-many join, R-EXE-04), the treated root's
 fresh `buildRootIdCount`, the RFC 0018 inline window and the count of groups (`count(*)` over the grouped
 statement), and `count(col)` over any other column. A composite id counts as one identity, as `Agg.count(table)`
-already does; how `count(root)` renders before and after on the three vendors is a spike F.1 cell.
+already does: `count(root)` over a composite id already renders `count(*)` on all three vendors and both lines
+(spike F.1), so Part F changes nothing there. About 106 snapshot files change under the rule, plus about 30
+`count(1)` files once the source-root sites route through the helper; the Part F slice owes the exact list.
 
 **F.2 Rendering.** Standard Criteria has no row count; `cb.count(cb.literal(1))` renders `count(1)`, which sources
 already use. `HibernateCriteriaBuilder#count()` renders `count(*)` on both lines (it exists from 6.4). So
-`AggregateRenderer` (R-VND-30) gains `rowCount(cb)`, whose default is `cb.count(cb.literal(1))`; the Hibernate renderer
-returns `count()`. A filtered count passes `filtered` the argument the unfiltered count would use: `cb.literal(1)` only
+`AggregateRenderer` (R-VND-30) gains `rowCount(cb, Expression<?> current)`, whose default is `cb.count(current)`, the
+argument today's SQL counts (the root's id), so a provider without the Hibernate renderer keeps today's SQL; the
+Hibernate renderer returns `count()`. Sources keep `count(1)`. The portable default is not `count(1)`: on
+PostgreSQL's page total `count(1)` is 7 to 8% slower than `count(id)` on both lines (spike F.2), where `count(*)`
+saves up to 12%. A filtered count passes `filtered` the argument the unfiltered count would use: `cb.literal(1)` only
 when the R-AGG-19 eligibility holds, else the counted `From`'s id (for a LEFT-joined Part A source,
 `x.mq_<first key field>`). The CASE form is `count(case when c then <argument> end)`. A literal `1` for an ineligible
 count is wrong: `Agg.count(REFUND_LINES).filter(f -> f.eq(STATUS, OPEN))` over a LEFT join would report 5 for a group of
@@ -402,7 +439,8 @@ and equality (R-AGG-01) is too, except for the generated `@Aggregate(fn = COUNT)
 **F.3 Correctness.** Each eligible site counts a primary key that is non-null on every row the statement produces
 (an inner chain yields no row without a match), so `count(*)` and `count(t.id)` are equal row for row, grouped or not,
 with any `where`, `having` or R-EXE-16 kept join. A statement with a customizer is not eligible (above), so a
-customizer's joins cannot change the count. The spike checks equal rows on every vendor and line (F.1 below).
+customizer's joins cannot change the count. The spike found equal rows and identical plans on every vendor and
+line (F.1).
 
 ### Vendor and provider SPI
 
@@ -415,8 +453,12 @@ customizer's joins cannot change the count. The spike checks equal rows on every
   answers into an immutable gate carried by `RenderOptions`, as R-VND-23 does for operators, so `core` sees no profile
   (INV-6, INV-7). `PortabilityCheck` reports `MQ4014` and `MQ4015` per declared target, with no database.
 - **`SourceRenderer#join`** (Part A), default `MQ4014`.
-- **`AggregateRenderer#rowCount(cb)`** (Part F), default `count(1)`; no vendor fact, since every database counts rows.
-- **`model-query-hibernate`** implements all three on both lines; `jpa` still imports no `org.hibernate` (INV-7).
+- **`AggregateRenderer#rowCount(cb, current)`** (Part F), default `cb.count(current)` (today's SQL); no vendor fact,
+  since every database counts rows.
+- **`VendorProfile#nativeNullSafeEquality()`** (R-VND-29, Part E), `false` by default, `true` on MySQL and H2; and
+  **`ProviderSupport#nullSafeEquality()`** (R-VND-30), an `Optional<NullSafeEqualityRenderer>` (`@EngineFacing
+  @Incubating core.NullSafeEqualityRenderer`), empty by default, folded into the same `RenderOptions` gate.
+- **`model-query-hibernate`** implements all four on both lines; `jpa` still imports no `org.hibernate` (INV-7).
 
 ### Spike plan
 
@@ -480,8 +522,8 @@ movements, with and without an index on the sale's business-date column.
 | R-FLT-29 | `notDistinctFrom`, `distinctFrom` and their `Column` forms, two-valued; §1 `MQ1301`'s null-value exception |
 | R-PROC-44 | `@JoinSource` and `@SourceColumn` checks |
 | R-PROC-45 | `@Aggregate`'s `orderBy`, `filter`, `scale`; `AVG` typed `BigDecimal` |
-| R-VND-29 | `VendorProfile#aggregates(AggregateFeature)` |
-| R-VND-30 | `ProviderSupport#aggregates()`, `AggregateRenderer` (with `rowCount`); `SourceRenderer#join` |
+| R-VND-29 | `VendorProfile#aggregates(AggregateFeature)`, `VendorProfile#nativeNullSafeEquality()` |
+| R-VND-30 | `ProviderSupport#aggregates()`, `AggregateRenderer` (with `rowCount`); `ProviderSupport#nullSafeEquality()`, `NullSafeEqualityRenderer`; `SourceRenderer#join` |
 | R-AGG-19 | A count of the identity of a criteria root or INNER chain from one, untreated, in a statement without a customizer, renders the row count; a joined source is classified by its `SourceJoin` kind (`INNER` the row count, `LEFT` its first key field) |
 
 | AC | Asserts |
@@ -498,20 +540,20 @@ movements, with and without an index on the sale's business-date column.
 | AC-AGG-21 | Without a renderer the engine's CASE form runs; a filter reading an aggregate, or on `Agg.of`, is `MQ1412` |
 | AC-AGG-22 | A filtered aggregate in `having`; equality of two filtered fields |
 | AC-AGG-23 | `avgExact` over `numeric(12,2)` returns the database's exact `BigDecimal` on every vendor; zero rows NULL |
-| AC-AGG-24 | `avgExact` over a `Double` column or an integer type no candidate passes, a bad `scale`: `MQ1411` |
+| AC-AGG-24 | `avgExact` over `bigint`, `integer` and `smallint` returns the exact `BigDecimal` on every vendor; over a `Double` or `Float` column, and a `scale` below 0 or over 30: `MQ1411` |
 | AC-AGG-25 | `round` half away from zero on every vendor, aggregate and row-level |
 | AC-AGG-26 | Generated: `@Aggregate(fn = AVG) BigDecimal`, `scale`, `filter`, `FIRST_BY` with `orderBy`; `MQ3045` cases |
 | AC-FLT-37 | `notDistinctFrom(col, null)` renders `is null`; a non-null value renders `= and is not null`; `distinctFrom` both ways, also inside `not(...)` with a NULL column |
-| AC-FLT-38 | Two operands match NULL to NULL, and one-sided NULL is distinct, on every vendor, in `where`, under `not(...)` and in a correlated `exists` |
+| AC-FLT-38 | Two operands match NULL to NULL, and one-sided NULL is distinct, on every vendor, in `where`, under `not(...)` and in a correlated `exists`; MySQL and H2 render the native form, PostgreSQL and a provider without the hook the OR form |
 | AC-FLT-39 | An empty `Optional` still skips; inspection records the operator |
 | AC-AGG-27 | `Agg.count(table)` over the root and over an inner-joined table renders `count(*)` and returns `count(t.id)`'s rows, grouped and ungrouped, on every vendor and line; a `Correlated` count over the sub-select root's id renders `count(*)` and equals today's rows, including an outer row with zero matches |
 | AC-AGG-28 | A LEFT-joined or treated table, a `rootedAt` LEFT root, a statement with a customizer, an FK read, `countDistinct`, the page total's dedup and a non-id column keep their SQL |
-| AC-AGG-29 | The page total, a filtered row count (FILTER and CASE form) and a provider without `rowCount` (`count(1)`); a filtered count over a LEFT-joined table and over a LEFT-joined source with unmatched rows counts 0 for them, as the unfiltered count does |
+| AC-AGG-29 | The page total, a filtered row count (FILTER and CASE form) and a provider without `rowCount` (today's `count(t.id)`); a filtered count over a LEFT-joined table and over a LEFT-joined source with unmatched rows counts 0 for them, as the unfiltered count does |
 
 | Code | Meaning |
 |---|---|
 | `MQ1910` | A hand-written `SourceJoin` whose pairs miss the source's key, over a non-unique source, or bound twice |
-| `MQ1411` | `avgExact` over an inexact column or an integer type no candidate passes; a `round` scale below 0 or above the confirmed bound (default 30) |
+| `MQ1411` | `avgExact` over an inexact column (or a future input type with no passing rendering); a `round` scale below 0 or above 30 |
 | `MQ1412` | An aggregate filter that reads an aggregate, window or correlated value, sits on `Agg.of`, repeats, is on a rounded aggregate or reads a to-many path; a `firstBy` value read through a to-many join |
 | `MQ3044` | A `@JoinSource` whose `on` misses or exceeds the source key, mismatches a type, names an unknown field or a non-unique source; a `@SourceColumn` naming an unknown join or field |
 | `MQ3045` | `orderBy` without `FIRST_BY` or `FIRST_BY` without it; an unknown or malformed `orderBy` key; `filter` naming a class that is not a `FilterDefinition`; `scale` on a non-`BigDecimal` field; an `AVG` field over an input type `avgExact` refuses |
@@ -524,10 +566,10 @@ Each new code was checked unused in `reference/90` and `processor/32` when this 
 All additive. No shipped signature or result changes: `Agg.avg` still returns `Double`; `@Aggregate(fn = AVG)` on a
 `BigDecimal` component was `MQ3205` and now compiles as the exact average, which widens what the processor accepts;
 `@Aggregate` gains members with defaults; `VendorProfile`, `ProviderSupport`, `SourceRenderer` and `AggregateRenderer`
-gain default methods only, so a third-party profile or provider fails safe (`false`, `MQ4014`). Parts A to E change no
-committed SQL snapshot. Part F changes rendered SQL but no result: every snapshot with an eligible `count(t.id)` becomes
-`count(*)` (on the Hibernate provider; `count(1)` on a provider without `rowCount`), about 100 files today, regenerated
-in one slice and listed by the spike. A test or tool that matches the SQL text sees the change; the changelog says so.
+gain default methods only, so a third-party profile or provider fails safe (`false`, `MQ4014`, the OR form, today's
+count). Parts A to E change no committed SQL snapshot. Part F changes rendered SQL but no result: every snapshot with an eligible `count(t.id)` becomes
+`count(*)` on the Hibernate provider (a provider without `rowCount` keeps today's SQL), about 106 files plus about 30
+source-root `count(1)` files (spike F.1), regenerated and listed in the Part F slice. A test or tool that matches the SQL text sees the change; the changelog says so.
 The generated code for `@Aggregate(fn = COUNT)` changes: it emits `Agg.count(column).named(field.constant())` in place of `Agg.of(...)`, so the
 name stays and only the field's kind and equality change (R-AGG-01 and inspection), and F.2's "equality unchanged" excludes it. Everything new is
 `@Incubating`; the freeze review decides each piece.
@@ -539,8 +581,10 @@ name stays and only the field's kind and equality change (R-AGG-01 and inspectio
 - **Lower a correlated column to a join automatically.** RFC 0015 §6 measured it: it loses on MySQL pages with an
   index and wins only without one. D-150 keeps the scalar form; an explicit join is the author's choice.
 - **LATERAL joins.** Rejected by D-145 (H2 has none). A keyed join to a CTE needs no correlation.
-- **A derived table instead of a CTE.** Kept as the per-vendor fallback behind the same hook if the spike shows a
-  plan loss; a CTE reuses all of R-SRC-12.
+- **A derived table instead of a CTE.** Kept as the per-vendor fallback behind the same hook; the spike showed no
+  plan loss (H2 already receives the derived table); a CTE reuses all of R-SRC-12.
+- **`count(1)` as the portable `rowCount` default** (Part F). Rejected: 7 to 8% slower than today's `count(id)` on
+  PostgreSQL page totals (spike F.2).
 - **`firstBy` emulated on MySQL** through `group_concat` or a correlated `first` per group. The first truncates and
   works on text only; the second is the per-row sub-plan Part A removes. The ranked-source route is documented
   instead.
@@ -556,21 +600,27 @@ name stays and only the field's kind and equality change (R-AGG-01 and inspectio
 
 ## Resolutions to record
 
-No question stays open. Each resolution below is recorded in the acceptance D-n; where the spike decides it, the item
-says what the spike confirms.
+No question stays open. Each resolution below is recorded in D-185, with the spike's evidence
+(`rfc/0020-spike-results.md`).
 
-1. **A:** the CTE everywhere. A derived table only behind the `join` hook, if the spike shows a plan regression on a
-   vendor; no API change either way.
-2. **B:** ship `firstBy`; document the ranked-source route. The spike records the array element read on PostgreSQL and
-   H2 on each line and the ranked-source plan against LitePOS's two blocked methods.
-3. **D:** the exact average uses candidate 2 (`sum(x) / count(x)`), with a per-input-type argument cast where one is
-   needed. A type no candidate passes (H2's integer `AVG` included) is refused with `MQ1411` (`MQ3045` in the
-   processor). The spike confirms which types pass.
-4. **E:** the OR form everywhere; the native form moves behind a hook only if MySQL loses the index.
-5. **F:** `count(1)` is fixed for a provider without `rowCount`, since standard Criteria has no `count(*)`; the spike
-   only records its cost.
-6. **D:** the `round` scale bound is fixed at 30; raising it later is additive.
+1. **A:** the CTE everywhere; a derived table only behind the `join` hook, which no Tier-1 vendor needs (H2 already
+   receives the inlined derived table). The docs name the count's cost on MySQL and H2 and narrow the "keep
+   `Correlated.*`" advice to unfiltered pages of a few rows over an indexed child.
+2. **B:** ship `firstBy` through the renderer's own function pattern (`(?1)[1]` PostgreSQL, `?1[1]` H2), called with
+   no Java result type so the value's converter applies; `arrayGet` is not the rendering. Document the ranked-source
+   route.
+3. **D:** the exact average is candidate 2 (`sum(x) / count(x)`); integer inputs (`bigint`, `integer`, `smallint`) are
+   cast with `HibernateCriteriaBuilder#cast(x, BigDecimal.class)`, a `BigDecimal` input is not cast. Every listed
+   input type passes; `Double` and `Float` are `MQ1411` (`MQ3045` in the processor).
+4. **E:** the value form and the OR form are standard Criteria; the two-operand native form renders behind
+   `ProviderSupport#nullSafeEquality()`, gated by `VendorProfile#nativeNullSafeEquality()`, `true` on MySQL and H2,
+   `false` on PostgreSQL and `OTHER`. No public API change.
+5. **F:** `AggregateRenderer#rowCount(cb, current)` defaults to `cb.count(current)`, today's SQL; the Hibernate
+   renderer returns `count(*)`; sources keep `count(1)`.
+6. **D:** the `round` scale bound is 30 (MySQL clamps a larger scale silently); raising it later is additive.
 7. **F:** a filtered row count is `count(1) filter` (Hibernate has no argument-less `count(JpaPredicate)` on either
    line), with the argument rule of F.2.
-8. **F:** an eligible composite id renders the row count; an ineligible one keeps today's SQL. The spike only records
-   it.
+8. **F:** an eligible composite id renders the row count, which `count(root)` already does on all three vendors; an
+   ineligible one keeps today's SQL.
+9. **F:** a statement with a customizer keeps `count(t.id)`; scanning for RIGHT/FULL joins after the customizer is
+   rejected (§Alternatives).
