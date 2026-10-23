@@ -2,6 +2,8 @@ package com.rey.modelquery.jpa;
 
 import com.rey.modelquery.annotations.WindowFrame;
 import com.rey.modelquery.annotations.WindowFunction;
+import com.rey.modelquery.core.AggregateFeature;
+import com.rey.modelquery.core.AggregateGate;
 import com.rey.modelquery.core.BuiltQuery;
 import com.rey.modelquery.core.ChildLoad;
 import com.rey.modelquery.core.ChunkOptions;
@@ -304,11 +306,15 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 .flatMap(support -> support.operands(emf))
                 .map(options::withOperandBinder)
                 .orElse(options);
+        options = vendor.providerSupport()
+                .flatMap(ProviderSupport::aggregates)
+                .map(options::withAggregateRenderer)
+                .orElse(options);
         // Asked once, as the binder is; without a ProviderSupport no Hibernate key is read here (R-VND-28, INV-7).
         options = options.withInlinesValues(vendor.providerSupport()
                 .map(support -> support.inlinesValues(emf))
                 .orElse(false));
-        this.renderOptions = sources(options.withOperatorGate(operatorGate(emf)));
+        this.renderOptions = sources(options.withOperatorGate(operatorGate(emf)).withAggregateGate(aggregateGate()));
         this.keyLimits = new Keys(profile.maxInListSize(), profile.maxBindParameters());
         this.primaryKeyFirstBatchSize = config.primaryKeyFirstBatchSize();
         this.queryTimeout = config.queryTimeout();
@@ -323,6 +329,17 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
                 .filter(support -> support.sources().isPresent())
                 .map(support -> support.inlineCounts(emf))
                 .orElse(false);
+    }
+
+    /** The vendor's answer for every {@link AggregateFeature}, asked once so no render asks a profile (R-VND-29). */
+    private AggregateGate aggregateGate() {
+        Set<AggregateFeature> features = EnumSet.noneOf(AggregateFeature.class);
+        for (AggregateFeature feature : AggregateFeature.values()) {
+            if (vendor.profile().aggregates(feature)) {
+                features.add(feature);
+            }
+        }
+        return AggregateGate.of(String.valueOf(vendor.detectedVendor()), features);
     }
 
     /**

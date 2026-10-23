@@ -46,6 +46,7 @@ as community-supported. It never gates a release.
 | Source features (`sources(SourceFeature)`) | the six shared ones; **no** composite node key (`RECURSIVE_COMPOSITE_KEY` false) | all seven | all seven (`api/17` R-SRC-11, R-VND-21) |
 | Recursion ceiling (`maxRecursionDepth()`) | none known | none known | **1 000**: `cte_max_recursion_depth`'s default, so `maxDepth + 2 > 1000` is `MQ4015` (`api/17` R-SRC-08, R-VND-22) |
 | Native null-safe equality (`nativeNullSafeEquality()`) | **yes**: `is not distinct from` | no: the portable form | **yes**: `<=>` (`api/12` R-FLT-29, `vendor/40` R-VND-29) |
+| Aggregate features (`aggregates(AggregateFeature)`) | `FIRST_BY` **yes** | `FIRST_BY` **yes** | `FIRST_BY` **no** (`api/13` R-AGG-16, `vendor/40` R-VND-29) |
 
 **R-PRF-11** The built-in H2, PostgreSQL and MySQL profiles carry the values in this table (`vendor/40` R-VND-03);
 "no limit" is `maxValuesRows()` returning `Integer.MAX_VALUE` (`vendor/40` R-VND-14, D-117).

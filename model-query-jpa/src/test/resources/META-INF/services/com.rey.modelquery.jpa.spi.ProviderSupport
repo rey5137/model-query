@@ -14,3 +14,5 @@ com.rey.modelquery.jpa.InlineCountTest$Windowed
 com.rey.modelquery.jpa.InlineCountTest$WindowedNoGroupCount
 com.rey.modelquery.jpa.NullSafeEqualityFoldTest$Support
 com.rey.modelquery.jpa.NullSafeEqualityFoldTest$NoHook
+com.rey.modelquery.jpa.AggregateFoldTest$Support
+com.rey.modelquery.jpa.AggregateFoldTest$NoHook

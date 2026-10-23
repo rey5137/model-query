@@ -47,7 +47,7 @@ public final class Agg {
         }
         boolean source = table.isSource();
         return new AggregateField<>(AggregateField.Kind.COUNT, table.key(), name, "", Long.class, null, null,
-                (ctx, cb) -> source ? cb.count(cb.literal(1)) : cb.count(table.resolve(ctx)));
+                (ctx, cb) -> source ? cb.literal(1) : table.resolve(ctx));
     }
 
     /**
@@ -58,8 +58,7 @@ public final class Agg {
      * (D-93).
      */
     public static <M> AggregateField<M, Long> countDistinct(OrderedColumnField<M, ?, ?> column) {
-        return over(AggregateField.Kind.COUNT_DISTINCT, Objects.requireNonNull(column, "column"), Long.class,
-                (ctx, cb) -> cb.countDistinct(column.path(ctx)));
+        return over(AggregateField.Kind.COUNT_DISTINCT, Objects.requireNonNull(column, "column"), Long.class);
     }
 
     /**
@@ -70,8 +69,7 @@ public final class Agg {
      * @throws ModelQueryDefinitionException {@code MQ1403} for any other column type (D-25)
      */
     public static <M, C extends Number> AggregateField<M, C> sum(ColumnField<M, ?, C> column) {
-        return over(AggregateField.Kind.SUM, summable(column, "Agg.sum", "use Agg.sumAsLong"), column.type(),
-                (ctx, cb) -> cb.sum(column.path(ctx)));
+        return over(AggregateField.Kind.SUM, summable(column, "Agg.sum", "use Agg.sumAsLong"), column.type());
     }
 
     /** A column whose sum keeps its type, shared by grouped and correlated sums (R-AGG-03). */
@@ -86,20 +84,16 @@ public final class Agg {
      * @throws ModelQueryDefinitionException {@code MQ1403} for any other column type, whose sum a {@code Long} would
      *     truncate (D-25)
      */
-    @SuppressWarnings("unchecked")
     public static <M> AggregateField<M, Long> sumAsLong(ColumnField<M, ?, ? extends Number> column) {
         return over(AggregateField.Kind.SUM_AS_LONG,
                 summable(column, SUM_AS_LONG_TYPES, "Agg.sumAsLong", "use Agg.sum"),
-                Long.class,
-                // Unchecked: sumAsLong only declares the result type, which is the point of this function.
-                (ctx, cb) -> cb.sumAsLong((Expression<Integer>) (Expression<?>) column.path(ctx)));
+                Long.class);
     }
 
     /** {@code avg(column)}, always a {@code Double}. */
     public static <M, C extends Number> AggregateField<M, Double> avg(ColumnField<M, ?, C> column) {
         supported(Objects.requireNonNull(column, "column"));
-        return over(AggregateField.Kind.AVG, column, Double.class,
-                (ctx, cb) -> cb.avg(column.path(ctx)));
+        return over(AggregateField.Kind.AVG, column, Double.class);
     }
 
     /**
@@ -111,7 +105,7 @@ public final class Agg {
      */
     public static <M, C extends Comparable<? super C>> AggregateField<M, C> min(
             OrderedColumnField<M, ?, C> column) {
-        return extreme(AggregateField.Kind.MIN, column, (ctx, cb) -> cb.least(column.path(ctx)));
+        return extreme(AggregateField.Kind.MIN, column);
     }
 
     /**
@@ -123,7 +117,7 @@ public final class Agg {
      */
     public static <M, C extends Comparable<? super C>> AggregateField<M, C> max(
             OrderedColumnField<M, ?, C> column) {
-        return extreme(AggregateField.Kind.MAX, column, (ctx, cb) -> cb.greatest(column.path(ctx)));
+        return extreme(AggregateField.Kind.MAX, column);
     }
 
     /**
@@ -134,18 +128,16 @@ public final class Agg {
         Objects.requireNonNull(value, "value");
         if (value instanceof ColumnField<?, ?, ?> column) {
             return new AggregateField<>(AggregateField.Kind.COUNT, column.table().key(), column.name(), "",
-                    Long.class, null, null, (ctx, cb) -> cb.count(column.expression(ctx)));
+                    Long.class, null, null, (ctx, cb) -> column.expression(ctx));
         }
         ExpressionField<M, ?> expression = (ExpressionField<M, ?>) value;
-        return expressionOver(AggregateField.Kind.COUNT, expression, Long.class,
-                (ctx, cb) -> cb.count(expression.expression(ctx)));
+        return expressionOver(AggregateField.Kind.COUNT, expression, Long.class);
     }
 
     /** {@code count(distinct expression)} (R-AGG-13). */
     public static <M> AggregateField<M, Long> countDistinct(ExpressionField<M, ?> expression) {
         Objects.requireNonNull(expression, "expression");
-        return expressionOver(AggregateField.Kind.COUNT_DISTINCT, expression, Long.class,
-                (ctx, cb) -> cb.countDistinct(expression.expression(ctx)));
+        return expressionOver(AggregateField.Kind.COUNT_DISTINCT, expression, Long.class);
     }
 
     /**
@@ -158,8 +150,7 @@ public final class Agg {
         Objects.requireNonNull(expression, "expression");
         checkCorrelated(expression);
         requireSumType(expression.type(), SUM_TYPES, "sum", "use Agg.sumAsLong", expression);
-        return expressionOver(AggregateField.Kind.SUM, expression, expression.type(),
-                (ctx, cb) -> cb.sum(expression.expression(ctx)));
+        return expressionOver(AggregateField.Kind.SUM, expression, expression.type());
     }
 
     /**
@@ -167,35 +158,29 @@ public final class Agg {
      *
      * @throws ModelQueryDefinitionException {@code MQ1403} for any other expression type
      */
-    @SuppressWarnings("unchecked")
     public static <M> AggregateField<M, Long> sumAsLong(ExpressionField<M, ? extends Number> expression) {
         Objects.requireNonNull(expression, "expression");
         checkCorrelated(expression);
         requireSumType(expression.type(), SUM_AS_LONG_TYPES, "sumAsLong", "use Agg.sum", expression);
-        return expressionOver(AggregateField.Kind.SUM_AS_LONG, expression, Long.class,
-                // Unchecked: sumAsLong only declares the result type, which is the point of this function.
-                (ctx, cb) -> cb.sumAsLong((Expression<Integer>) (Expression<?>) expression.expression(ctx)));
+        return expressionOver(AggregateField.Kind.SUM_AS_LONG, expression, Long.class);
     }
 
     /** {@code avg(expression)}, always a {@code Double} (R-AGG-13). */
     public static <M, C extends Number> AggregateField<M, Double> avg(ExpressionField<M, C> expression) {
         Objects.requireNonNull(expression, "expression");
-        return expressionOver(AggregateField.Kind.AVG, expression, Double.class,
-                (ctx, cb) -> cb.avg(expression.expression(ctx)));
+        return expressionOver(AggregateField.Kind.AVG, expression, Double.class);
     }
 
     /** {@code min(expression)}, of the expression's type (R-AGG-13). */
     public static <M, C extends Comparable<? super C>> AggregateField<M, C> min(ExpressionField<M, C> expression) {
         Objects.requireNonNull(expression, "expression");
-        return expressionOver(AggregateField.Kind.MIN, expression, expression.type(),
-                (ctx, cb) -> cb.least(expression.expression(ctx)));
+        return expressionOver(AggregateField.Kind.MIN, expression, expression.type());
     }
 
     /** {@code max(expression)}, of the expression's type (R-AGG-13). */
     public static <M, C extends Comparable<? super C>> AggregateField<M, C> max(ExpressionField<M, C> expression) {
         Objects.requireNonNull(expression, "expression");
-        return expressionOver(AggregateField.Kind.MAX, expression, expression.type(),
-                (ctx, cb) -> cb.greatest(expression.expression(ctx)));
+        return expressionOver(AggregateField.Kind.MAX, expression, expression.type());
     }
 
     /** A custom aggregate expression, keyed by {@code name} because a lambda cannot be compared (R-AGG-02): two fields
@@ -210,9 +195,9 @@ public final class Agg {
     @SuppressWarnings("unchecked")
     public static <M, C> AggregateField<M, C> of(
             String name, Class<C> type, BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
-        return new AggregateField<>(AggregateField.Kind.OF, null, Objects.requireNonNull(name, "name"), "",
+        return AggregateField.custom(Objects.requireNonNull(name, "name"),
                 // Sound: int.class is a Class<Integer>, so its wrapper is still a Class<C>.
-                (Class<C>) ColumnField.boxed(Objects.requireNonNull(type, "type")), null, null,
+                (Class<C>) ColumnField.boxed(Objects.requireNonNull(type, "type")),
                 Objects.requireNonNull(expression, "expression"));
     }
 
@@ -243,24 +228,24 @@ public final class Agg {
     }
 
     private static <M, C> AggregateField<M, C> over(AggregateField.Kind kind, ColumnField<M, ?, ?> column,
-            Class<C> type, BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
-        return new AggregateField<>(kind, column.table().key(), column.name(), "", type, null, null, expression);
+            Class<C> type) {
+        return new AggregateField<>(kind, column.table().key(), column.name(), "", type, null, null,
+                (ctx, cb) -> column.path(ctx));
     }
 
     /** {@code min} or {@code max}, whose result a converted column's converter maps (R-AGG-04). */
-    private static <M, C> AggregateField<M, C> extreme(AggregateField.Kind kind, ColumnField<M, ?, C> column,
-            BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
+    private static <M, C> AggregateField<M, C> extreme(AggregateField.Kind kind, ColumnField<M, ?, C> column) {
         Objects.requireNonNull(column, "column");
         return new AggregateField<>(kind, column.table().key(), column.name(), "", column.type(),
-                column.isConverted() ? column : null, null, expression);
+                column.isConverted() ? column : null, null, (ctx, cb) -> column.path(ctx));
     }
 
     /** An aggregate over an expression, keyed structurally by the expression (R-AGG-13). */
     private static <M, C> AggregateField<M, C> expressionOver(AggregateField.Kind kind,
-            ExpressionField<M, ?> expression, Class<C> type,
-            BiFunction<JoinContext, CriteriaBuilder, Expression<C>> render) {
+            ExpressionField<M, ?> expression, Class<C> type) {
         checkCorrelated(expression);
-        return new AggregateField<>(kind, null, "", "", type, null, expression, render);
+        return new AggregateField<>(kind, null, "", "", type, null, expression,
+                (ctx, cb) -> expression.expression(ctx));
     }
 
     private static void checkCorrelated(ExpressionField<?, ?> expression) {

@@ -583,6 +583,12 @@ returning `false`: whether the database runs its native null-safe equality as an
 form reads every NULL key (`api/12` R-FLT-29). `true` on MySQL and H2, `false` on PostgreSQL and `OTHER`. A database
 fact, no SQL (R-VND-11, INV-6).
 
+`VendorProfile#aggregates(AggregateFeature)` is a second `@Incubating` default method returning `false` (D-186): whether
+the database serves an aggregate feature. `AggregateFeature` (`@Incubating`, in `core`, as `OperatorFeature`) has one
+constant, `FIRST_BY` (`api/13` R-AGG-16), `true` on PostgreSQL and H2, `false` on MySQL and `OTHER`. The executor folds
+the answers into an immutable `AggregateGate` carried by `RenderOptions`, as `OperatorGate` does for R-VND-23, so
+`core` sees no profile; nothing consumes `FIRST_BY` until `firstBy` ships.
+
 **R-VND-30** *(D-185, `@Incubating`)* `ProviderSupport#nullSafeEquality()` is an `@Incubating` default method returning
 an empty `Optional<NullSafeEqualityRenderer>` (`@EngineFacing @Incubating core.NullSafeEqualityRenderer`, with
 `notDistinctFrom(cb, a, b)` and `distinctFrom(cb, a, b)`). The executor folds it into `RenderOptions` only when the
@@ -590,6 +596,15 @@ profile answers `nativeNullSafeEquality()` `true`, as it does `sequences` (R-VND
 hook, or a provider with the hook on a vendor answering `false`, renders the portable form, with no error.
 `model-query-hibernate` implements it with `HibernateCriteriaBuilder#notDistinctFrom` and `distinctFrom` on both lines;
 `jpa` imports no `org.hibernate` (INV-7).
+
+`ProviderSupport#aggregates()` is a third `@Incubating` default method returning an empty
+`Optional<AggregateRenderer>` (`@EngineFacing @Incubating core.AggregateRenderer`, D-186). Its `filtered(cb, kind,
+argument, condition)` renders a filtered aggregate (`api/13` R-AGG-17); the default, and the engine's form with no
+hook, is `fn(case when condition then argument end)`. Unlike R-VND-30's null-safe hook it needs no database fact: the
+provider only improves the SQL shape. `model-query-hibernate` implements it with `HibernateCriteriaBuilder`'s
+`count`, `sum` and `avg` overloads taking a `JpaPredicate` and `functionAggregate` for `min` and `max`, so PostgreSQL
+and H2 render `FILTER (WHERE ...)` and MySQL Hibernate's CASE emulation; `countDistinct` keeps the CASE form. `jpa`
+imports no `org.hibernate` (INV-7).
 
 ## 2. Detection
 

@@ -3,9 +3,15 @@ package com.rey.modelquery.core;
 import com.rey.modelquery.annotations.Incubating;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.From;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.metamodel.EntityType;
+import jakarta.persistence.metamodel.SingularAttribute;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BiFunction;
+import java.util.function.UnaryOperator;
 
 /**
  * An aggregate selection: a function over a column or a table, or a named custom expression, created by {@link Agg}.
@@ -21,13 +27,17 @@ import java.util.function.BiFunction;
  * @param <M> the model the selection belongs to
  * @param <C> the aggregate's result type, which is what the database returns (R-AGG-03), or the model type for a
  *     {@code min} or {@code max} over a column with an {@link OrderedColumnConverter} (R-AGG-04)
- * @implSpec R-AGG-01, R-AGG-02, R-AGG-04, R-COL-23, D-3, D-84, D-121
+ * @implSpec R-AGG-01, R-AGG-02, R-AGG-04, R-AGG-17, R-COL-23, D-3, D-84, D-121, D-185
  */
 @Incubating
 public final class AggregateField<M, C> implements SelectField<M, C> {
 
-    /** The aggregate function; its name is the one used in {@link #name()}. */
-    enum Kind {
+    /**
+     * The aggregate function; its name is the one used in {@link #name()}. An {@code AggregateRenderer} receives only
+     * the functions that take an argument expression, never {@link #OF}, whose expression is the caller's.
+     */
+    @Incubating
+    public enum Kind {
         COUNT("count"),
         COUNT_DISTINCT("countDistinct"),
         SUM("sum"),
@@ -60,18 +70,35 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
     private final ExpressionField<?, ?> sourceExpression;
     /** The model field the aggregate fills, or {@code null}; not part of {@link #equals}, as in an expression. */
     private final String property;
+    /** The expression the function is applied to, or {@code null} for an {@code Agg.of}. */
+    private final BiFunction<JoinContext, CriteriaBuilder, Expression<?>> argument;
+    /** The caller's whole expression of an {@code Agg.of}, or {@code null} for any other aggregate. */
     private final BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression;
+    /** The {@link #filter} condition as recorded, which renders it; empty when unfiltered (R-AGG-17). */
+    private final List<Filter> filters;
+    /** The {@link #filter} condition's structure, which equality compares; empty when unfiltered (R-AGG-17). */
+    private final List<Condition> conditions;
     private final int hash;
 
     AggregateField(Kind kind, JoinKey source, String attribute, String alias, Class<C> type,
             ColumnField<?, ?, C> converted, ExpressionField<?, ?> sourceExpression,
+            BiFunction<JoinContext, CriteriaBuilder, Expression<?>> argument) {
+        this(kind, source, attribute, alias, type, converted, sourceExpression, null, argument, null, List.of(),
+                List.of());
+    }
+
+    /** An {@link Agg#of} aggregate, whose expression is the caller's. */
+    static <M, C> AggregateField<M, C> custom(String name, Class<C> type,
             BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
-        this(kind, source, attribute, alias, type, converted, sourceExpression, null, expression);
+        return new AggregateField<>(Kind.OF, null, name, "", type, null, null, null, null, expression, List.of(),
+                List.of());
     }
 
     private AggregateField(Kind kind, JoinKey source, String attribute, String alias, Class<C> type,
             ColumnField<?, ?, C> converted, ExpressionField<?, ?> sourceExpression, String property,
-            BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression) {
+            BiFunction<JoinContext, CriteriaBuilder, Expression<?>> argument,
+            BiFunction<JoinContext, CriteriaBuilder, Expression<C>> expression, List<Filter> filters,
+            List<Condition> conditions) {
         this.kind = kind;
         this.source = source;
         this.attribute = attribute;
@@ -80,8 +107,11 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         this.converted = converted;
         this.sourceExpression = sourceExpression;
         this.property = property;
+        this.argument = argument;
         this.expression = expression;
-        this.hash = Objects.hash(kind, source, attribute, alias, converterClass(), sourceExpression);
+        this.filters = filters;
+        this.conditions = conditions;
+        this.hash = Objects.hash(kind, source, attribute, alias, converterClass(), sourceExpression, conditions);
     }
 
     /**
@@ -90,7 +120,48 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
      */
     public AggregateField<M, C> as(String alias) {
         return new AggregateField<>(kind, source, attribute, Objects.requireNonNull(alias, "alias"), type, converted,
-                sourceExpression, property, expression);
+                sourceExpression, property, argument, expression, filters, conditions);
+    }
+
+    /**
+     * This aggregate over only the rows {@code condition} matches, as SQL {@code FILTER (WHERE ...)} where the provider
+     * renders it and {@code fn(CASE WHEN ... THEN x END)} otherwise (R-AGG-17). A join the condition is the first to
+     * need resolves {@code LEFT}, so it drops no row from the statement. Equal to another filtered aggregate when
+     * their conditions are equal, and the same name: give two filtered aggregates over one source an
+     * {@link #as alias}.
+     *
+     * @throws ModelQueryDefinitionException {@code MQ1412} for an aggregate that is already filtered or made by
+     *     {@link Agg#of}, a condition that leaves no filter, or one that reads a correlated value; at build time also
+     *     one that adds a to-many join
+     */
+    @Incubating
+    public AggregateField<M, C> filter(UnaryOperator<Filters<M>> condition) {
+        Objects.requireNonNull(condition, "condition");
+        if (kind == Kind.OF) {
+            throw refused(this + ": Agg.of cannot be filtered, as the engine cannot place a condition inside the "
+                    + "expression of a function; put the condition inside it");
+        }
+        if (!conditions.isEmpty()) {
+            throw refused(this + " is already filtered; combine the conditions in one filter(...)");
+        }
+        List<Filter> recorded = FilterGroup.collect(condition);
+        List<Condition> structure = ConditionGroup.conditions(recorded);
+        if (structure.isEmpty()) {
+            throw refused(this + ".filter(...): the condition left no filter, so it would match every row; add a "
+                    + "filter or drop the call");
+        }
+        for (Condition each : structure) {
+            if (ExpressionField.containsCorrelated(each)) {
+                throw refused(this + ".filter(...): the condition reads a correlated value, which an aggregate "
+                        + "cannot filter on");
+            }
+        }
+        return new AggregateField<>(kind, source, attribute, alias, type, converted, sourceExpression, property,
+                argument, expression, List.copyOf(recorded), List.copyOf(structure));
+    }
+
+    private static ModelQueryDefinitionException refused(String message) {
+        return new ModelQueryDefinitionException(MqCode.MQ1412, message);
     }
 
     /**
@@ -100,7 +171,7 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
      */
     public AggregateField<M, C> named(String property) {
         return new AggregateField<>(kind, source, attribute, alias, type, converted, sourceExpression,
-                Objects.requireNonNull(property, "property"), expression);
+                Objects.requireNonNull(property, "property"), argument, expression, filters, conditions);
     }
 
     /** The name given to {@link #named}; empty with none. */
@@ -129,12 +200,12 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
      * The aggregate expression, resolving the source's joins through {@code ctx}.
      *
      * @throws ModelQueryDefinitionException {@code MQ1405} when an {@code Agg.of} function returns {@code null} or an
-     *     expression whose Java type is not {@link #type()}
+     *     expression whose Java type is not {@link #type()}; {@code MQ1412} when a filter adds a to-many join
      */
     @Override
     public Expression<C> expression(JoinContext ctx) {
         Objects.requireNonNull(ctx, "ctx");
-        Expression<C> result = ctx.aggregating(() -> expression.apply(ctx, ctx.cb()));
+        Expression<C> result = ctx.aggregating(() -> kind == Kind.OF ? expression.apply(ctx, ctx.cb()) : apply(ctx));
         // Only an Agg.of function can return null; failing here names it, where Criteria would fail anonymously.
         if (result == null) {
             throw new ModelQueryDefinitionException(MqCode.MQ1405,
@@ -148,6 +219,72 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
                     ColumnField.name(actual, type)));
         }
         return result;
+    }
+
+    /** The function over its argument, filtered by the provider's renderer or by the engine's CASE form. */
+    @SuppressWarnings("unchecked")
+    private Expression<C> apply(JoinContext ctx) {
+        CriteriaBuilder cb = ctx.cb();
+        Expression<?> value = argument.apply(ctx, cb);
+        if (conditions.isEmpty()) {
+            return (Expression<C>) over(cb, kind, value);
+        }
+        // LEFT, as an or/not branch's join is (R-FLT-10): an inner join made here would drop the rows the filter
+        // does not match from every other column of the statement.
+        int joined = ctx.toManyJoins().size();
+        Predicate condition = ctx.leftJoining(() -> ctx.inCase(() -> {
+            List<Predicate> parts = ConditionGroup.toPredicates(filters, ctx);
+            if (ctx.toManyJoins().size() > joined) {
+                throw refused(this + ".filter(...): the condition adds the to-many join "
+                        + ctx.toManyJoins().get(joined).getAttribute().getName()
+                        + ", which would multiply the aggregated rows; filter on it with exists(...)");
+            }
+            return parts.isEmpty() ? cb.conjunction()
+                    : parts.size() == 1 ? parts.get(0) : cb.and(parts.toArray(Predicate[]::new));
+        }));
+        AggregateRenderer renderer = ctx.renderOptions().aggregateRenderer().orElse(AggregateRenderer.DEFAULT);
+        return (Expression<C>) renderer.filtered(cb, kind, kind == Kind.COUNT ? identifying(value) : value, condition);
+    }
+
+    /**
+     * A table count's argument as a column a CASE can yield: the entity's identifier, which the unfiltered count
+     * counts and is never null. Any other argument is returned as it is. Providers cannot convert an entity inside
+     * {@code case when ... then <entity> end}.
+     */
+    private Expression<?> identifying(Expression<?> value) {
+        if (!(value instanceof From<?, ?> from) || !(from.getModel() instanceof EntityType<?> entity)) {
+            return value;
+        }
+        SingularAttribute<?, ?> id = null;
+        if (entity.hasSingleIdAttribute()) {
+            id = entity.getId(entity.getIdType().getJavaType());
+        } else if (!entity.getIdClassAttributes().isEmpty()) {
+            id = entity.getIdClassAttributes().iterator().next();
+        }
+        // An embedded id's path is no column, and a composite id has no single one to count.
+        if (id == null || id.getPersistentAttributeType() == jakarta.persistence.metamodel.Attribute
+                .PersistentAttributeType.EMBEDDED) {
+            throw refused(this + ".filter(...): " + entity.getName()
+                    + " has a composite or embedded identifier, so its rows cannot be counted under a filter; "
+                    + "count a column of it instead");
+        }
+        return from.get(id.getName());
+    }
+
+    /** {@code kind} applied to {@code argument} with standard Criteria, the unfiltered aggregate. */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    static Expression<?> over(CriteriaBuilder cb, Kind kind, Expression<?> argument) {
+        return switch (kind) {
+            case COUNT -> cb.count(argument);
+            case COUNT_DISTINCT -> cb.countDistinct(argument);
+            case SUM -> cb.sum((Expression) argument);
+            // Only declares the result type, which is the point of sumAsLong.
+            case SUM_AS_LONG -> cb.sumAsLong((Expression<Integer>) argument);
+            case AVG -> cb.avg((Expression) argument);
+            case MIN -> cb.least((Expression) argument);
+            case MAX -> cb.greatest((Expression) argument);
+            case OF -> throw new IllegalArgumentException("Agg.of has no argument");
+        };
     }
 
     /** The converted column a {@code min} or {@code max} aggregates, which maps its values; else {@code null}. */
@@ -168,12 +305,14 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         } else {
             vocabulary.table(source, attribute);
         }
+        conditions.forEach(vocabulary::condition);
     }
 
     void checkTreats(TreatChecks checks) {
         checks.table(source, Optional.of(attribute));
         checks.field(converted);
         checks.field(sourceExpression);
+        checks.leftJoining(() -> conditions.forEach(checks::condition));
     }
 
     /** Whether {@code a} and {@code b} are one {@code Agg.of} key defined by different functions (R-AGG-02). */
@@ -197,7 +336,8 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
                 && attribute.equals(other.attribute)
                 && alias.equals(other.alias)
                 && Objects.equals(converterClass(), other.converterClass())
-                && Objects.equals(sourceExpression, other.sourceExpression);
+                && Objects.equals(sourceExpression, other.sourceExpression)
+                && conditions.equals(other.conditions);
     }
 
     @Override

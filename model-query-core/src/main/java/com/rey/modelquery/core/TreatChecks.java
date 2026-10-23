@@ -44,6 +44,8 @@ public final class TreatChecks {
     private StatementShape shape;
     private boolean anchored;
     private boolean joinsOnly;
+    /** While scanning a condition whose joins render LEFT whatever their declared type (an aggregate's filter). */
+    private boolean leftJoining;
     /** Inside the counted column of a correlated count, whose own treated root R-COL-35 leaves admitted. */
     private boolean correlatedCount;
     /** Inside an {@code exists} whose path holds a treat, which a nested {@code exists} correlates on. */
@@ -205,6 +207,17 @@ public final class TreatChecks {
         }
     }
 
+    /** Runs {@code scan} recording each join as LEFT, the shape it renders in (R-AGG-17). */
+    void leftJoining(Runnable scan) {
+        boolean previous = leftJoining;
+        leftJoining = true;
+        try {
+            scan.run();
+        } finally {
+            leftJoining = previous;
+        }
+    }
+
     void joins(SelectField<?, ?> field) {
         boolean previous = joinsOnly;
         joinsOnly = true;
@@ -354,7 +367,8 @@ public final class TreatChecks {
             }
             JoinKey parent = node.parent();
             if (parent.type() != null) {
-                siteUses.add(parent.type() == JoinType.LEFT ? TreatUse.LEFT_JOIN : TreatUse.INNER_JOIN);
+                siteUses.add(parent.type() == JoinType.LEFT || leftJoining ? TreatUse.LEFT_JOIN
+                        : TreatUse.INNER_JOIN);
             } else if (joinsOnly) {
                 siteUses.add(TreatUse.INNER_JOIN);
             }
@@ -409,6 +423,9 @@ public final class TreatChecks {
         siteUses.addAll(uses);
         siteUses.add(TreatUse.TYPE);
         TreatUse join = joinUse(table.key());
+        if (join != null && leftJoining) {
+            join = TreatUse.LEFT_JOIN;
+        }
         if (join != null) {
             siteUses.add(join);
         }

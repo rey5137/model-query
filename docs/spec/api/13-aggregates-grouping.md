@@ -161,6 +161,22 @@ selects a whole-entity to-one (the D-124 form) throws `MQ1410` before any statem
 foreign key while the select lists every column of the entity (PostgreSQL refuses it). The id form (`api/10` R-COL-29)
 stays allowed as a group key; `@GroupBy` on the whole-entity form is `MQ3028` at compile time.
 
+**R-AGG-17** *(D-185, D-186, `@Incubating`)* **Filtered aggregates.** `AggregateField#filter(UnaryOperator<Filters<M>>)`
+returns a new immutable field (INV-9) that aggregates only the rows its condition matches: `Agg.sum(amount).filter(f ->
+f.eq(kind, "refund"))`. It works on `count`, `countDistinct`, `sum`, `sumAsLong`, `avg`, `min` and `max`, over a column
+or an expression, and on a field that has `as(...)` or `named(...)`, which both keep the filter. Equality and `hashCode`
+include the condition, compared structurally as `Expr.cases` compares its `when` conditions: two fields with equal
+filters are one selection, and different conditions are two (give them an `as(...)` name, since both render the same
+default name). The result type is R-AGG-03's. The filter is also usable in `having` as any aggregate (R-AGG-06).
+`Filters` takes only a `ScalarField`, so a condition cannot read an aggregate or a window field. A join the condition
+is the first to need resolves `LEFT` (R-FLT-10), so a NULL path drops no row from the statement: an implicit inner join
+would. Rendering goes through `ProviderSupport#aggregates()` (R-VND-30): `Hibernate` renders `FILTER (WHERE ...)` where
+the database has it and its own CASE emulation elsewhere. With no such hook the engine renders the CASE form,
+`fn(case when c then x end)` (a count passes the argument the unfiltered count uses); the two forms give equal rows on
+every vendor. `MQ1412` when the field is already filtered (combine the conditions in one `filter`), when it comes from
+`Agg.of` (the engine cannot place a condition inside an opaque expression), when the condition leaves no filter, when
+it reads a correlated value (thrown by `filter`), when a filtered `count(table)` has an embedded or composite id with no usable first id attribute (the filtered count counts that id attribute), or when the condition adds a to-many join (thrown when the query is built): a to-many join already in the statement, such as the argument's own, is the aggregated rows' own and is allowed, and `Filters.exists(path, inner)` filters on a to-many without joining it.
+
 ## 5. Generated support
 
 `processor/30` defines `@Aggregate` and `@GroupBy`; `processor/31` defines what they generate. In short: an
@@ -188,3 +204,6 @@ generated `GROUP_KEYS` `SelectSet`, and `QProductSales.query()` comes pre-config
 | AC-AGG-15 | For a query grouped by an expression key: `list`, `count` and grouped export visit every group once on every Tier-1 vendor, and on PostgreSQL that holds with a key that binds a value, ordered by it with and without explicit null precedence, with and without `model-query-hibernate`; a selected expression over group-key columns only is accepted; a selected expression reading another column throws `MQ1401`; an expression that only contains a group-key expression throws `MQ1401`; an order key that does not fit throws `MQ1406`; `groupBy(SelectSet)` holding an expression builds (R-AGG-14, R-AGG-05, R-AGG-08, R-COL-19). |
 | AC-AGG-16 | A runtime `groupBy(ScalarField...)` or `groupBy(SelectSet)` over one of a model's `@GroupBy` fields selects that key and an aggregate and leaves the other `@GroupBy` fields unselected, reading `null`, with the groups and sums the rows hold, on every Tier-1 vendor (R-AGG-05, R-PROC-16). |
 | AC-AGG-17 | A runtime `groupBy` over a whole-entity to-one column throws `MQ1410` before any statement; over the id form it groups (R-AGG-15). |
+| AC-AGG-20 | On every Tier-1 vendor and both Hibernate lines, a filtered `count`, `countDistinct`, `sum`, `sumAsLong`, `avg`, `min` and `max` equals the hand-written `Expr.cases` form; a filter through an optional to-one with NULL foreign keys resolves `LEFT` and drops no row from the statement (R-AGG-17, R-FLT-10). |
+| AC-AGG-21 | `filter` on an `Agg.of` field, a second `filter`, a condition that leaves no filter, one that reads a correlated value, and one that adds a to-many join each throw `MQ1412`; with no aggregate renderer the engine's CASE form runs (R-AGG-17, R-VND-30). |
+| AC-AGG-22 | A filtered aggregate in `having` keeps the groups over the threshold on every vendor; two equal filtered fields are one selection and different conditions are two (R-AGG-17, R-AGG-06). |

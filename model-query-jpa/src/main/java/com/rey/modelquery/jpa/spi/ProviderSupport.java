@@ -1,6 +1,7 @@
 package com.rey.modelquery.jpa.spi;
 
 import com.rey.modelquery.annotations.Incubating;
+import com.rey.modelquery.core.AggregateRenderer;
 import com.rey.modelquery.core.ConstantRenderer;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
@@ -187,6 +188,16 @@ public interface ProviderSupport {
      */
     @Incubating
     default Optional<NullSafeEqualityRenderer> nullSafeEquality() {
+        return Optional.empty();
+    }
+
+    /**
+     * The provider's native forms of an aggregate, or empty, the default: the engine's own standard-Criteria forms
+     * then render, so every aggregate still runs (api/13 R-AGG-17, R-VND-30). The provider only improves the SQL's
+     * shape; the vendor's facts are {@code VendorProfile#aggregates}.
+     */
+    @Incubating
+    default Optional<AggregateRenderer> aggregates() {
         return Optional.empty();
     }
 

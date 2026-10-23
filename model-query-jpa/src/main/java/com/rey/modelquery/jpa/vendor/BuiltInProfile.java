@@ -1,5 +1,6 @@
 package com.rey.modelquery.jpa.vendor;
 
+import com.rey.modelquery.core.AggregateFeature;
 import com.rey.modelquery.core.ModelQueryExecutionException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullOrdering;
@@ -52,6 +53,12 @@ enum BuiltInProfile implements VendorProfile {
         @Override
         public Optional<ReturningShape> returning(WriteStatement kind) {
             return Optional.of(ReturningShape.DELTA_TABLE);
+        }
+
+        /** {@code FIRST_BY} needs {@code FILTER} and ordered arrays, which this database has (R-VND-29). */
+        @Override
+        public boolean aggregates(AggregateFeature feature) {
+            return feature == AggregateFeature.FIRST_BY;
         }
 
         @Override
@@ -121,6 +128,12 @@ enum BuiltInProfile implements VendorProfile {
         @Override
         public Optional<ReturningShape> returning(WriteStatement kind) {
             return Optional.of(ReturningShape.SUFFIX);
+        }
+
+        /** {@code FIRST_BY} needs {@code FILTER} and ordered arrays, which this database has (R-VND-29). */
+        @Override
+        public boolean aggregates(AggregateFeature feature) {
+            return feature == AggregateFeature.FIRST_BY;
         }
 
         @Override
