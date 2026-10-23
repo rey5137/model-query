@@ -1,1 +1,1 @@
-select cte01_0.mq_quantity,cte01_0.mq_lineCount,cte01_0.mq_revenue from (select oie1_0.quantity c0,count(oie1_0.id) c1,sum(oie1_0.unit_price) c2 from order_items oie1_0 where oie1_0.quantity>=? group by c0 having count(oie1_0.id)>?) cte01_0(mq_quantity,mq_lineCount,mq_revenue) order by 1
+select cte01_0.mq_quantity,cte01_0.mq_lineCount,cte01_0.mq_revenue from (select oie1_0.quantity c0,count(*) c1,sum(oie1_0.unit_price) c2 from order_items oie1_0 where oie1_0.quantity>=? group by c0 having count(*)>?) cte01_0(mq_quantity,mq_lineCount,mq_revenue) order by 1

@@ -166,7 +166,9 @@ nothing to the count statement except row-changing joins its lifted columns need
 A correlated value used in WHERE remains in the count, and lifted joins needed only inside OR/NOT are LEFT
 (R-FLT-10, R-COL-31). A source's check sub-selects are never dropped: a count over a
 source that carries checks selects them beside what it counts, on its own statement or on the group rows it counts
-(R-SRC-08, RFC 0014 §3). *(D-154)* A count over an ungrouped entity-rooted statement with a treated node
+(R-SRC-08, RFC 0014 §3). *(D-185)* Its selection counts the root as `api/13` R-AGG-19 says: the row count,
+`count(*)` on Hibernate, where the root is eligible, else `count(root.<id>)`; a source root counts `count(1)`.
+*(D-154)* A count over an ungrouped entity-rooted statement with a treated node
 (`api/10` R-COL-35) is not the content statement with its selection replaced, which loses the rows a select-only or
 order-only treat narrows away: it is built fresh from the definition, with the `where` predicates and the path of
 each column a model or order field reads (inside an `Expr`, a `@Computed` value or a window too, and a correlated

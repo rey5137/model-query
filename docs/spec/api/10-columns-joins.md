@@ -104,7 +104,8 @@ a downcast join in its selection, order, grouping or filters:
   mapper or `Rows`. The name sits outside D-146's `mq_<property>` space. A source body's anchor is `api/17` R-SRC-20's.
 - **A LEFT treated join,** whose type restriction sits in its `ON` (R-COL-34).
 - **A count of the root id.** A count over an ungrouped statement with a treated node is built fresh from the
-  definition (`engine/20` R-EXE-05) and selects `count(root.<id>)`: only its predicates and the joins that can change
+  definition (`engine/20` R-EXE-05) and selects `count(root.<id>)`, never the row count, since its root is treated
+  (`api/13` R-AGG-19): only its predicates and the joins that can change
   its row count, with no selection and no order. A grouped query's total keeps R-AGG's count of groups.
 
 A hidden anchor changes the rows of a `distinct()` query and of a `union`, `intersect` or `except`, so a query whose

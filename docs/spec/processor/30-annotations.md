@@ -161,7 +161,8 @@ and is `MQ3206` on any other function. An `@Aggregate` field can't also carry `@
 or `MAX` field of `Instant` or `Date` over a `Timestamp` attribute reads it through the built-in converter of R-PROC-07
 and is typed as the field; `SUM` and `AVG` over a `Timestamp` stay `MQ3202`, as does `MIN` or `MAX` into any other
 type than the attribute's (D-84). The column a `MIN`, `MAX` or `distinct` `COUNT` reads is the `OrderedColumnField` of
-R-PROC-07 (D-93).
+R-PROC-07 (D-93). A `COUNT` over an attribute is `Agg.count(column)` (D-185), so a count of the id is the row count
+(`api/13` R-AGG-19) and the field takes `filter` (R-AGG-17).
 
 **R-PROC-16** `@GroupBy` fields, in declaration order, form the generated `GROUP_KEYS` `SelectSet`, and
 `Q<Model>.query()` is pre-configured with `groupBy(GROUP_KEYS)`. `@GroupBy` cannot be combined with `@Aggregate` or

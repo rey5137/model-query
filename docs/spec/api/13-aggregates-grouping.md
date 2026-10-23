@@ -177,6 +177,22 @@ every vendor. `MQ1412` when the field is already filtered (combine the condition
 `Agg.of` (the engine cannot place a condition inside an opaque expression), when the condition leaves no filter, when
 it reads a correlated value (thrown by `filter`), when a filtered `count(table)` has an embedded or composite id with no usable first id attribute (the filtered count counts that id attribute), or when the condition adds a to-many join (thrown when the query is built): a to-many join already in the statement, such as the argument's own, is the aggregated rows' own and is allowed, and `Filters.exists(path, inner)` filters on a to-many without joining it.
 
+**R-AGG-19** *(D-185, `@Incubating`)* **Row counts.** A count of a table's identity renders the provider's row count,
+`AggregateRenderer#rowCount` (R-VND-30, `count(*)` on Hibernate), where no row the statement reads can leave that
+identity null: the counted `From` is a criteria `Root` or reached from one through `INNER` joins only (walked through
+`Join#getParent()`, so a `rootedAt` context whose root is a `LEFT` join does not qualify), no node on that chain is
+treated (R-COL-35), the count reads the `From` itself or its own single id attribute, and the statement has no
+customizer (which could add a `RIGHT` or `FULL` join). The sites are `Agg.count(table)`, `Agg.count(column)` over the
+id, the generated `@Aggregate(fn = COUNT)` (emitted as `Agg.count(column).named(...)`), a `Correlated` count over the
+sub-select root's id, and the page total (`engine/20` R-EXE-05). Everything else keeps counting the identity,
+`count(t.id)`: a `LEFT` hop, a treated node, a foreign-key read, a statement with a customizer. Unchanged:
+`countDistinct` (and the page total's dedup, R-EXE-04), a treated root's page total, the inline count window, the
+count of groups, and `count(col)` over a non-id column; a composite id already counts as one identity. A source's row
+is counted as `count(1)`. A filtered count (R-AGG-17) counts `1` under its condition when the count is eligible, else
+the identity, so a `LEFT`-joined unmatched row counts 0 as the unfiltered count does. The row count returns the same
+number as `count(t.id)`, grouped or not. A joined source is classified by its join kind (`INNER` the row count,
+`LEFT` its first key field).
+
 ## 5. Generated support
 
 `processor/30` defines `@Aggregate` and `@GroupBy`; `processor/31` defines what they generate. In short: an
@@ -207,3 +223,6 @@ generated `GROUP_KEYS` `SelectSet`, and `QProductSales.query()` comes pre-config
 | AC-AGG-20 | On every Tier-1 vendor and both Hibernate lines, a filtered `count`, `countDistinct`, `sum`, `sumAsLong`, `avg`, `min` and `max` equals the hand-written `Expr.cases` form; a filter through an optional to-one with NULL foreign keys resolves `LEFT` and drops no row from the statement (R-AGG-17, R-FLT-10). |
 | AC-AGG-21 | `filter` on an `Agg.of` field, a second `filter`, a condition that leaves no filter, one that reads a correlated value, and one that adds a to-many join each throw `MQ1412`; with no aggregate renderer the engine's CASE form runs (R-AGG-17, R-VND-30). |
 | AC-AGG-22 | A filtered aggregate in `having` keeps the groups over the threshold on every vendor; two equal filtered fields are one selection and different conditions are two (R-AGG-17, R-AGG-06). |
+| AC-AGG-27 | On every Tier-1 vendor and both Hibernate lines, `Agg.count(table)` over the root and over an inner-joined table, and `count` over the root's id column, render `count(*)` and return `count(t.id)`'s rows, grouped and ungrouped; a `Correlated` count over the sub-select root's id renders `count(*)` and equals the identity count, `0` for an outer row with no match (R-AGG-19). |
+| AC-AGG-28 | A `LEFT`-joined or treated table, a `rootedAt` `LEFT` root, a statement with a customizer, a foreign-key read, `countDistinct`, the page total's dedup and a non-id column keep counting the identity or column (R-AGG-19). |
+| AC-AGG-29 | The page total of an entity root renders `count(*)`; a filtered row count renders `count(1) filter (where c)` or its CASE form; with no `rowCount` the count is `count(t.id)`; a filtered count over a `LEFT`-joined table counts 0 for an unmatched row, as the unfiltered count does (R-AGG-19, R-AGG-17). |

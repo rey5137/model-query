@@ -639,6 +639,7 @@ public final class ModelQuery<E, K, M> {
     private BuiltQuery<M> assemble(CriteriaQuery<Tuple> query, JoinContext joins, Phase phase,
             Expression<?> parentKey, List<Predicate> guards, List<Selection<?>> checks) {
         CriteriaBuilder cb = joins.cb();
+        joins.customized(customizer != null); // before any count is built (R-AGG-19)
         // Joins resolve in one order in every phase: selection, ordering and grouping first, then every filter
         // outside or/not, then those inside. An or(...) then finds the INNER join the rest of the query needs and
         // reuses it, instead of joining the path LEFT and leaving the rest to join it again (R-FLT-10, D-26).

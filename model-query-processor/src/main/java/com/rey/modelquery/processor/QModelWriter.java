@@ -725,14 +725,9 @@ final class QModelWriter {
                         : CodeBlock.of("$T.of($T.class,$WROOT,$W$S,$W$L,$W$L,$W$T.INSTANCE)", COLUMN_FIELD,
                                 modelName, aggregate.attribute(), classOf(result), classOf(column(attributeType)),
                                 ClassName.get((TypeElement) types.asElement(converter)));
-        String function = aggregate.fn().equals("COUNT") && !aggregate.distinct()
-                ? null
-                : aggregateFunction(aggregate, attributeType);
-        if (function == null) {
-            // Agg has no count(column), so it counts the column's non-null values as an expression of its own.
-            return constant.initializer("$T.<$T, $T>of($S, $T.class,$W(ctx, cb) -> cb.count($Z$L.path(ctx)))$L",
-                    AGG, modelName, Long.class, field.constant(), Long.class, source, named).build();
-        }
+        // COUNT is Agg.count(column), keyed by the column, so a count of the id is the row count (R-AGG-19) and the
+        // field takes a filter like any count (R-AGG-01).
+        String function = aggregateFunction(aggregate, attributeType);
         return constant.initializer("$T.$L($Z$L)$L", AGG, function, source, named).build();
     }
 
