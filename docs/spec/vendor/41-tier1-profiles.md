@@ -47,6 +47,9 @@ as community-supported. It never gates a release.
 | Recursion ceiling (`maxRecursionDepth()`) | none known | none known | **1 000**: `cte_max_recursion_depth`'s default, so `maxDepth + 2 > 1000` is `MQ4015` (`api/17` R-SRC-08, R-VND-22) |
 | Native null-safe equality (`nativeNullSafeEquality()`) | **yes**: `is not distinct from` | no: the portable form | **yes**: `<=>` (`api/12` R-FLT-29, `vendor/40` R-VND-29) |
 | Aggregate features (`aggregates(AggregateFeature)`) | `FIRST_BY` **yes** | `FIRST_BY` **yes** | `FIRST_BY` **no** (`api/13` R-AGG-16, `vendor/40` R-VND-29) |
+| Joined source (`SourceRenderer#join`; no profile method) | a joined non-recursive CTE is inlined as a derived table that H2 evaluates once per outer row, so the join key wants an index; the source runs in full in every count | the CTE as written; an unreferenced `LEFT` join is dropped from a count while no filter reads the source | the source runs in full in every count, filtered or not (`api/17` R-SRC-22, AC-SRC-42 to AC-SRC-50) |
+| Exact average (`AggregateRenderer#exactAverage`; no profile method) | quotient scale 40 | quotient scale 16 | the input's scale + `div_precision_increment` (4 by default), so a rounded average can round twice; `Agg.round` takes a scale of 0 to 30 on every vendor (`api/13` R-AGG-18, AC-AGG-23 to AC-AGG-25) |
+| Row count (`AggregateRenderer#rowCount`; no profile method) | `count(*)` where R-AGG-19's eligibility holds, else `count(id)` | the same | the same (`api/13` R-AGG-19, AC-AGG-27 to AC-AGG-29) |
 
 **R-PRF-11** The built-in H2, PostgreSQL and MySQL profiles carry the values in this table (`vendor/40` R-VND-03);
 "no limit" is `maxValuesRows()` returning `Integer.MAX_VALUE` (`vendor/40` R-VND-14, D-117).

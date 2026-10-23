@@ -407,6 +407,100 @@ Key predicates also stay in the top statement: `byKeys`, the keyset cursor, `pri
 `one(query, key)` filter the finished result. They do not narrow a CTE before its ranks or aggregates are computed,
 so a rank always counts the full source defined by its own filters.
 
+## Joining a source
+
+A query rooted at an entity can join a unique source on the source's full key, which reads the source's completed
+rows (a group's total, a rank, a first value) as columns of the outer row. This is the report shape: one row per day,
+with the day's sales alongside. `@JoinSource` joins it, and `@SourceColumn` reads one of its fields. This is adapted
+from `JoinSourceModelTest` and `SourceJoinExecutionTest`:
+
+```java
+@SourceModel(root = SaleEntity.class)
+public record DaySales(
+        @PrimaryKey @GroupBy LocalDate businessDate,
+        @Aggregate(fn = AggregateFunction.SUM, attribute = "cashTotal") BigDecimal cash) {}
+
+@QueryModel(root = DayEntity.class)
+@JoinSource(name = "sales", source = DaySales.class,
+        on = @JoinSource.On(column = "businessDate", key = "businessDate"))
+public record UnreconciledDay(
+        @PrimaryKey Long id, LocalDate businessDate, BigDecimal countedCash,
+        @SourceColumn(join = "sales", field = "cash") BigDecimal salesCash) {}
+```
+
+The generated `QUnreconciledDay.query(...)` takes one `SourceQuery` for each join, in declaration order, so the
+caller supplies the completed source definition (with its own `where`) and the compiler checks that none is missing.
+The joined column is an ordinary column of the model: select it, filter it, order by it or page by it.
+
+```java
+SourceQuery<DaySales> sales = QDaySales.source().build();
+var query = QUnreconciledDay.query(sales)
+        .select(QUnreconciledDay.ALL)
+        .where(f -> f.distinctFromColumn(QUnreconciledDay.COUNTED_CASH, QUnreconciledDay.SALES_CASH))
+        .orderBy(QUnreconciledDay.BUSINESS_DATE.asc()).build();
+```
+
+=== "Plain JPA"
+
+    ```java
+    List<UnreconciledDay> days = executor.list(query, Limit.unlimited());
+    ```
+
+=== "Spring repository"
+
+    ```java
+    List<UnreconciledDay> rows = days.findAll(query, Limit.unlimited());
+    ```
+
+A hand-written query does the same with `SourceJoin.of(name, Source.class, kind, List.of(SourceJoin.on(outer, key)))`,
+`ModelQuery.Builder#joinSource(join, sourceQuery)` and `ColumnField.over(Model.class, join.root(), SOURCE_FIELD)`. Two
+joins of one source model (a high band and a low band, say) stay apart by name.
+
+- **`LEFT` or `INNER`.** The default, `JoinKind.LEFT`, keeps an outer row the source has no row for and reads its
+  joined columns as `NULL`, so a joined field is a boxed type. `JoinKind.INNER` drops that outer row.
+- **The full key, once.** `on` must pair every key field of the source exactly once, so the join adds at most one row
+  per outer row and the outer key, cursors, counts and export pages keep their guarantees. A missing, extra or
+  repeated pair is [`MQ3044`](diagnostics.md) at compile time for `@JoinSource` and [`MQ1910`](diagnostics.md) when a
+  hand-written query is built.
+- **The source must be unique.** `SourceQuery#unique()` decides: a plain or grouped source, a `tree(...)` source, an
+  ungrouped source over a tree and a grouped source over any walk qualify. A set operation, a plain `recursive(...)`
+  source and an ungrouped source over one do not, because a node reached by two paths would repeat its outer row. They
+  are `MQ1910` when the query is built, and the message names `tree(...)` when the source recurses. The generated
+  `query(...)` takes the caller's `SourceQuery`, so this check is at build time, never in the processor.
+- **One walk per statement.** A statement reads one walk's checks, so joined chains that walk more than once are
+  `MQ1910`. A `LEFT` join to a walk keeps an outer row whose node is past the depth limit, marked or never reached,
+  with `NULL` columns; an outer row is checked whether or not the walk reached it. A grouped entity query that joins
+  a walk counts its groups client-side through the same check site.
+- **The join is in every statement.** Content, count, both primary-key-first steps, every export page, every `byKeys`
+  chunk and the fetch plan's parent reads carry the CTE and the join, even a `LEFT` join no filter reads.
+  Each statement binds the source's parameters once.
+- **No locks, no writes.** `withLock(...)` on a query that joins a source is `MQ1903`, as for any source. A
+  returning write (`persist(persist, returning)` and the other returning forms) over a query that joins one is
+  `MQ1809`. `ModelUpdate`, `ModelDelete`, `InsertColumns` and `ModelInsert.select` take no source, and
+  `generateInserts` and `generateChanges` leave a `@SourceColumn` field out. A `@Child` whose child model joins a
+  source is `MQ3039`, since a fetch plan has no `SourceQuery` to pass it; a parent that joins one carries it on its
+  parent reads.
+- **Same vendor needs as a source root.** A joined source needs `CTE`, which `OTHER` lacks (`MQ4015`), and a provider
+  whose `SourceRenderer` has the `join` hook (`MQ4014`). `model-query-hibernate` has it on both lines.
+
+### What a joined source costs
+
+A grouped source aggregates every row its `where` admits, on every statement, including the count behind a page, not
+just the 20 rows you display. The measured costs differ by vendor:
+
+- **PostgreSQL** drops an unreferenced `LEFT` join from the count by itself, but only while no filter reads the
+  source. A filter on a joined column runs the source (0.38 ms unfiltered against 3.2 ms filtered in the spike).
+- **MySQL** runs the source in full in every count, filtered or not: about 13 times the plain count in the spike.
+- **H2** runs the source in full in every count too, and Hibernate inlines the joined CTE as a derived table, which H2
+  evaluates once per outer row. Without an index on the join key a grouped source over 365 outer rows took about
+  265 ms, and a window source tens of seconds. H2 is a test database: give the join key an index and keep the outer
+  rows to a few dozen.
+
+Join a source for a page, export or report that **filters or sorts on the aggregate**: in the spike the joined source
+won every such page, export and count on all three vendors. Keep [`Correlated.*`](subqueries-expressions.md#correlated-columns)
+for **unfiltered** pages of a few rows over an indexed child, where its probe per row is cheap. Either way, narrow the
+source's own `where` to the rows the report needs, so the aggregate does less work.
+
 ## Reading a source
 
 A separate outer model is optional. Every non-branch source QModel generates the `@Incubating` `Rows` vocabulary

@@ -248,6 +248,42 @@ not fill the set a second time, so a copy built with `null` holds `null` (R-GEN-
 
 Tested by `SelectedFieldsTest` and `SelectedPersistTest`.
 
+## Joined sources and report aggregates
+
+Three additions serve report models. They are `@Incubating`.
+
+`@JoinSource` (repeatable, on a `@QueryModel` rooted at an entity) joins a unique `@SourceModel` on its full key, and
+`@SourceColumn` reads one of its fields into the annotated field:
+
+```java
+@QueryModel(root = DayEntity.class)
+@JoinSource(name = "sales", source = DaySales.class, type = JoinKind.LEFT,
+        on = @JoinSource.On(column = "businessDate", key = "businessDate"))
+public record UnreconciledDay(
+        @PrimaryKey Long id, BigDecimal countedCash,
+        @SourceColumn(join = "sales", field = "cash") BigDecimal salesCash) {}
+```
+
+The `name` is a Java identifier unique in the model; it becomes the generated `SourceJoin` constant and the
+parameter of `QUnreconciledDay.query(SourceQuery<DaySales> sales)`. `type` is `LEFT` (the default) or `INNER`, and one
+`@On(column, key)` is needed for each key field of the source, once, with the same type on both sides. A
+`@SourceColumn` has the source field's type, takes no `@Column` and no converter, and is no column of the root, so
+`generateInserts` and `generateChanges` leave it out. [Joining a source](source-models.md#joining-a-source) covers
+uniqueness, cost and the runtime rules.
+
+`@Aggregate` takes three more members, described with the [aggregate functions](grouped-queries.md#first-value-in-a-group):
+
+- `orderBy`, a `String[]` of `"path [asc|desc] [nulls first|nulls last]"` keys over basic attributes of the aggregated
+  root, required by `fn = FIRST_BY` and refused on any other function;
+- `filter`, a class implementing `FilterDefinition<Model>` with an `INSTANCE` or a visible no-arg constructor, which
+  aggregates only the rows its condition matches;
+- `scale`, `0` to `30` (`-1`, the default, is unset), which rounds a `BigDecimal` field. An `AVG` field typed
+  `BigDecimal` is the exact average (`Agg.avgExact`).
+
+The processor refuses a misdeclared `@JoinSource` or `@SourceColumn` with `MQ3044` (a mismatched type is `MQ3002`, a `@Column` beside it `MQ3014`; including a `@SourceColumn` beside
+`@PrimaryKey`, and a nested `@Join` model that joins a source), a `@Child` model that joins a source with `MQ3039`, and a
+misdeclared `orderBy`, `filter` or `scale` with `MQ3045`; see [Diagnostics](diagnostics.md).
+
 ## Shared accessors across models
 
 A type carries one of `@QueryModel`, `@UpdateModel` and `@InsertModel` (`MQ3503` otherwise), and the processor reads
