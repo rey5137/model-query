@@ -410,7 +410,7 @@ user can push the `v0.8.0` tag.
 
 Spec: `docs/plan/litepos-gaps.md` §1 and §3 (M17), `api/10` (new `AC-COL` rows from AC-COL-29), `api/13` (new
 `AC-AGG` rows from AC-AGG-16), `api/14` (new `AC-WRT` rows from AC-WRT-41), CC-DOC-01 (every runnable snippet gets the
-Plain JPA and Spring tabs). Runs before the freeze, M32 (D-184), which stays last. No API change; ships in 0.9.0 with M18–M22 (the
+Plain JPA and Spring tabs). Runs before the freeze, M33 (D-185), which stays last. No API change; ships in 0.9.0 with M18–M22 (the
 docs site still publishes from `main` as it merges). Model: none; the M17.1 cases may each fail, and a failing case is recorded as a gap
 in `litepos-gaps.md` and left out of M17.2's docs rather than fixed here.
 
@@ -581,7 +581,7 @@ R-VND-21, R-VND-22), `vendor/41` (the Tier-1 MySQL floor 8.0 → 8.0.31), the `j
 models" page; the comparison page's Reach row). The acceptance spike is done (`rfc/0013-spike-results.md`). Model: an
 `architect-review` at the gate (public API and generics of `SourceQuery`/`WindowField`, paging and export over sources,
 the `VendorProfile` and `SourceSupport` surface, INV-6 and INV-7). Every new public type and member is `@Incubating`.
-Ships in 0.10.0 with M26–M30 (D-145, D-148, D-176), before the freeze, M32 (D-184), which stays last. Spec rows land with the slice that implements them; AC-SRC
+Ships in 0.10.0 with M26–M30 (D-145, D-148, D-176), before the freeze, M33 (D-185), which stays last. Spec rows land with the slice that implements them; AC-SRC
 and AC-PROC numbers are taken in slice order. The `spike/rfc-0013` branch (unpushed, `model-query-tck/.../tck/spike/`)
 is the reference for the Hibernate hooks.
 
@@ -793,7 +793,7 @@ Spec: D-184, `rfc/0019` (accepted as D-184). RFC 0019's Part A (compiled queries
 alone: a read with no fetch plan maps each tuple straight to
 its model in `DefaultModelQueryExecutor#mapAll`, without a `Loaded` and `Row` kept per row. Behaviour-identical: no
 public API, no `MQnnnn` code, no SQL snapshot change. Default tier; no `architect-review` (no public API, `INV-*` or
-module-boundary change). The freeze moves to M32 and stays last.
+module-boundary change). The freeze moved to M32 (D-184), then to M33 (D-185), and stays last.
 
 | Slice | Content | Done when |
 |---|---|---|
@@ -813,16 +813,76 @@ should use `keyset()`, since the offset loop re-reads earlier rows. `CHANGELOG.m
 
 **Exit:** the M31 rows' criteria green on Tier 1 and both lines.
 
-## 32. M32 — Freeze → 1.0.0
+## 32. M32 — Report SQL: joins to sources, ordered and filtered aggregates, exact averages, null-safe equality → 0.11.0
+
+Spec: D-185, `rfc/0020` (accepted as D-185). Six parts. Part A: a model rooted at an entity joins a unique source on
+its full key (`@JoinSource`, `SourceJoin`, `joinSource`), rendered as a join to the source's CTE on every statement
+(R-SRC-21, R-SRC-22). Part B: `Agg.firstBy`, gated by `AggregateFeature.FIRST_BY` (R-AGG-16). Part C:
+`AggregateField#filter`, FILTER or the CASE form (R-AGG-17). Part D: `Agg.avgExact`, `Agg.round`, `Expr.round`
+(R-AGG-18, R-COL-37). Part E: `Filters.notDistinctFrom` / `distinctFrom`, two-valued, the native two-operand form
+behind a provider hook on MySQL and H2 (R-FLT-29). Part F: a count of a row's identity renders `count(*)` on the
+Hibernate provider (R-AGG-19). SPI: `VendorProfile#aggregates`, `#nativeNullSafeEquality` (R-VND-29),
+`ProviderSupport#aggregates`, `#nullSafeEquality`, `SourceRenderer#join` (R-VND-30). Every new type, member and
+annotation member is `@Incubating`. Model: `architect-review` at the gate (public API, the `VendorProfile` and
+`ProviderSupport` surface, paging correctness of a joined source and of the page total); M32.3 and M32.6 run at
+`opus` / `high`. Ships in 0.11.0 with M31; the freeze moves to M33 and stays last.
+
+| Slice | Content | Done when |
+|---|---|---|
+| M32.0 | RFC review and acceptance spike (`rfc/0020-spike-results.md`) | Done: D-185 |
+| M32.1 | Part E: null-safe equality, `nativeNullSafeEquality`, `NullSafeEqualityRenderer` | AC-FLT-37 to AC-FLT-39 green on both lines and Tier 1; SQL snapshots unchanged |
+| M32.2 | Part C and the aggregate SPI: `AggregateField#filter`, `AggregateRenderer` (`filtered`), `ProviderSupport#aggregates`, `VendorProfile#aggregates`, the `RenderOptions` gate, `PortabilityCheck` | AC-AGG-20 to AC-AGG-22 green; SQL snapshots unchanged |
+| M32.3 | Part F: the R-AGG-19 helper at every counting site, `AggregateRenderer#rowCount`, the filtered row count, the processor's `@Aggregate(fn = COUNT)` emitting `Agg.count(column)` | AC-AGG-27 to AC-AGG-29 green; every changed SQL snapshot listed in the slice commit |
+| M32.4 | Part D: `Agg.avgExact`, `Agg.round`, `Expr.round` | AC-AGG-23 to AC-AGG-25 green; SQL snapshots unchanged |
+| M32.5 | Part B: `Agg.firstBy`, `AggregateFeature.FIRST_BY`, the Hibernate function pattern | AC-AGG-18, AC-AGG-19 green; SQL snapshots unchanged |
+| M32.6 | Part A: `SourceJoin`, `joinSource`, the joined-source table-field kind, `SourceRenderer#join`, `MQ1910`, `MQ1903` and `MQ3039` widened | AC-SRC-42 to AC-SRC-47 (engine cases) green; SQL snapshots unchanged |
+| M32.7 | Processor: `@JoinSource`, `@SourceColumn` (R-PROC-44, `MQ3044`); `@Aggregate`'s `orderBy`, `filter`, `scale` and an `AVG` field typed `BigDecimal` (R-PROC-45, `MQ3045`) | AC-AGG-26 and AC-SRC-45's processor cases green |
+| M32.8 | Docs and release prep: the sources, aggregates and filters pages (both tabs, CC-DOC-01), `vendor/41`'s Tier-1 answers, `CHANGELOG.md` 0.11.0 section extended | `mkdocs build --strict` green |
+
+**M32.1 — Null-safe equality.** A value operand resolves when the filter is added (`col = ? and col is not null`, or
+`col is null`); two operands render the two-valued OR form, or the native form where `nativeNullSafeEquality()` is
+`true` and the provider has the hook (Hibernate's `notDistinctFrom` / `distinctFrom`). §1's `MQ1301` rule gains its
+null-value exception; an empty `Optional` still skips.
+
+**M32.2 — Filtered aggregates.** The filter's first join resolves `LEFT`; a to-many filter path, a filter reading an
+aggregate, window or correlated value, or one on `Agg.of`, is `MQ1412`. Without a renderer the engine's CASE form
+runs. This slice adds the SPI types later slices extend.
+
+**M32.3 — Row counts.** One core helper decides R-AGG-19 eligibility (a criteria `Root` or INNER chain from one, no
+treated node, the `From`'s own id, no customizer; a joined source by its `SourceJoin` kind once M32.6 lands) and
+builds the count at every site in rfc/0020 F.1, including the page total and the source-root `count(1)` sites.
+`rowCount(cb, current)` defaults to `cb.count(current)`; Hibernate returns `count()`. Regenerate the snapshots (about
+106 plus about 30 source-root files) and list them.
+
+**M32.4 — Exact average.** `sum(x) / count(x)` with the numerator typed `BigDecimal`; integer inputs cast with
+`HibernateCriteriaBuilder#cast(x, BigDecimal.class)`, `BigDecimal` inputs uncast; `Double` / `Float` and a scale
+outside 0 to 30 are `MQ1411`.
+
+**M32.5 — First by.** The renderer registers its own pattern (`(?1)[1]` PostgreSQL, `?1[1]` H2) and calls it with no
+Java result type, so the value's converter applies; the root's id is appended ascending. MySQL and `OTHER` are
+`MQ4015` before any statement; a value read through a to-many join is `MQ1412`; a filtered `firstBy` needs native
+FILTER, else `MQ4014`.
+
+**M32.6 — Joined sources.** The join is in every statement of R-SRC-12's list, with the body's parameters bound once
+per statement; `OTHER` is `MQ4015`; a provider without `join` is `MQ4014`. Both lines' `on` types (A.5). Adds the
+`SourceJoin` case to M32.3's helper.
+
+**M32.8 — Docs.** Name the count's cost on MySQL and H2, the H2 inlining, and narrow "keep `Correlated.*`" to
+unfiltered pages of a few rows over an indexed child; give the ranked-source route next to `firstBy`; recommend
+`round` for money.
+
+**Exit:** the M32 rows' criteria green on Tier 1 and both lines.
+
+## 33. M33 — Freeze → 1.0.0
 
 Spec: D-85 (amended by D-106, D-116 and D-118), D-86, D-111, D-116, D-118. Starts only when the user says the D-111 adopter has migrated onto 0.5.0 or later
-and run it in production long enough. Model: `architect-review` at M32.1. Both slices are attended. Tagging `v1.0.0`
+and run it in production long enough. Model: `architect-review` at M33.1. Both slices are attended. Tagging `v1.0.0`
 is the user's step after the gate, never a slice's.
 
 | Slice | Contents | Done when |
 |---|---|---|
-| M32.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field, M13 field-index, M14 single-model and M15 insert-column and multi-key types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
-| M32.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M32` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M31 started |
+| M33.1 | Freeze review: `architect-review` of every public type against D-85, placing the fetch-plan (`api/15`), inspection (`api/16`), M9, adoption, M10 insert and M11 entity-write and M12 selected-field, M13 field-index, M14 single-model and M15 insert-column and multi-key types frozen or `@Incubating`, with the adopter's production feedback; recorded as `D-n`. Review only, no code | every public type has a recorded placement |
+| M33.2 | Apply the freeze: `@Incubating` removed from the frozen types, `Filters` and `Having` `sealed` (D-85), `CHANGELOG.md` `1.0.0` section, docs site and stability page say 1.0.0, `M33` added to the audit's started scope | build and TCK green; `JapicmpExclusionsTest` green; AC audit green with M32 started |
 
-**Exit:** the M32 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M32.1 decision, so the user can
+**Exit:** the M33 rows' criteria green on Tier 1 and the freeze applied per D-85 and the M33.1 decision, so the user can
 push the `v1.0.0` tag.
