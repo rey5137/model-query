@@ -1,0 +1,1390 @@
+### H2 | A.4/page of 20 | native | hierarchy 1
+-- SELECT r.id, r.hierarchy_id, r.node_id, c.first_name, ct.name, r.start_vertex, p.first_name, pt.name, r.created_at FROM (SELECT hn.id, hn.hierarchy_id, hn.node_id, e.start_vertex, e.created_at FROM hierarchy_node hn LEFT JOIN hierarchy h ON h.id = hn.hierarchy_id LEFT JOIN hierarchy_edge e ON e.hierarchy_id = h.id AND e.end_vertex = hn.node_id AND e.hops = 2 AND e.is_deleted = false WHERE 1 = 1 AND h.id = 1 AND hn.is_deleted = false) r LEFT JOIN profile c ON c.id = r.node_id AND c.is_deleted = false LEFT JOIN profile_type ct ON ct.id = c.type_id LEFT JOIN profile p ON p.id = r.start_vertex AND p.is_deleted = false LEFT JOIN profile_type pt ON pt.id = p.type_id ORDER BY r.id fetch first ? rows only || 20
+SELECT
+    "R"."ID",
+    "R"."HIERARCHY_ID",
+    "R"."NODE_ID",
+    "C"."FIRST_NAME",
+    "CT"."NAME",
+    "R"."START_VERTEX",
+    "P"."FIRST_NAME",
+    "PT"."NAME",
+    "R"."CREATED_AT"
+FROM (
+    SELECT
+        "HN"."ID",
+        "HN"."HIERARCHY_ID",
+        "HN"."NODE_ID",
+        "E"."START_VERTEX",
+        "E"."CREATED_AT"
+    FROM "PUBLIC"."HIERARCHY_NODE" "HN"
+    LEFT OUTER JOIN "PUBLIC"."HIERARCHY" "H"
+        ON "H"."ID" = "HN"."HIERARCHY_ID"
+    LEFT OUTER JOIN "PUBLIC"."HIERARCHY_EDGE" "E"
+        ON ("E"."HIERARCHY_ID" = "H"."ID")
+        AND ("E"."END_VERTEX" = "HN"."NODE_ID")
+        AND ("E"."HOPS" = 2)
+        AND ("E"."IS_DELETED" = FALSE)
+    WHERE ("H"."ID" = CAST(1 AS BIGINT))
+        AND ("HN"."IS_DELETED" = FALSE)
+) "R"
+    /* SELECT
+        HN.ID,
+        HN.HIERARCHY_ID,
+        HN.NODE_ID,
+        E.START_VERTEX,
+        E.CREATED_AT
+    FROM PUBLIC.HIERARCHY_NODE HN
+        /* PUBLIC.HIERARCHY_NODE.tableScan */
+        /* WHERE HN.IS_DELETED = FALSE
+        */
+    LEFT OUTER JOIN PUBLIC.HIERARCHY H
+        /* PUBLIC.PRIMARY_KEY_2: ID = HN.HIERARCHY_ID */
+        ON H.ID = HN.HIERARCHY_ID
+    LEFT OUTER JOIN PUBLIC.HIERARCHY_EDGE E
+        /* PUBLIC.CONSTRAINT_INDEX_8: HOPS = 2
+            AND HIERARCHY_ID = H.ID
+            AND END_VERTEX = HN.NODE_ID
+         */
+        ON (E.HOPS = 2)
+        AND (E.IS_DELETED = FALSE)
+        AND (E.HIERARCHY_ID = H.ID)
+        AND (E.END_VERTEX = HN.NODE_ID)
+    WHERE (H.ID = CAST(1 AS BIGINT))
+        AND (HN.IS_DELETED = FALSE)
+     */
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "C"
+    /* PUBLIC.PRIMARY_KEY_1: ID = R.NODE_ID */
+    ON ("C"."IS_DELETED" = FALSE)
+    AND ("C"."ID" = "R"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "CT"
+    /* PUBLIC.PRIMARY_KEY_D: ID = C.TYPE_ID */
+    ON "CT"."ID" = "C"."TYPE_ID"
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "P"
+    /* PUBLIC.PRIMARY_KEY_1: ID = R.START_VERTEX */
+    ON ("P"."IS_DELETED" = FALSE)
+    AND ("P"."ID" = "R"."START_VERTEX")
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "PT"
+    /* PUBLIC.PRIMARY_KEY_D: ID = P.TYPE_ID */
+    ON "PT"."ID" = "P"."TYPE_ID"
+ORDER BY 1
+FETCH FIRST ?1 ROWS ONLY
+
+### H2 | A.4/page of 20 | lib: entity join, referenced (Details) | hierarchy 1
+-- select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,n1_0.first_name,t1_0.name,cte01_0.mq_startVertex,p1_0.first_name,t2_0.name,cte01_0.mq_createdAt from hierarchy_node hn1_0 left join (select he1_0.hierarchy_id c0,he1_0.end_vertex c1,max(he1_0.start_vertex) c2,max(he1_0.created_at) c3 from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by c0,c1) cte01_0(mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) on cte01_0.mq_hierarchyId=hn1_0.hierarchy_id and cte01_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=cte01_0.mq_startVertex and p1_0.is_deleted<>? left join profile n1_0 on n1_0.id=hn1_0.node_id and n1_0.is_deleted<>? left join profile_type t1_0 on t1_0.id=n1_0.type_id left join profile_type t2_0 on t2_0.id=p1_0.type_id where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 fetch first ? rows only || 2, 1, true, true, true, 1, true, 20
+SELECT
+    "HN1_0"."ID",
+    "HN1_0"."HIERARCHY_ID",
+    "HN1_0"."NODE_ID",
+    "N1_0"."FIRST_NAME",
+    "T1_0"."NAME",
+    "CTE01_0"."MQ_STARTVERTEX",
+    "P1_0"."FIRST_NAME",
+    "T2_0"."NAME",
+    "CTE01_0"."MQ_CREATEDAT"
+FROM "PUBLIC"."HIERARCHY_NODE" "HN1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_80: HIERARCHY_ID = ?6 */
+    /* WHERE (HN1_0.HIERARCHY_ID = ?6)
+        AND (HN1_0.IS_DELETED <> ?7)
+    */
+LEFT OUTER JOIN (
+    SELECT
+        "HE1_0"."HIERARCHY_ID" AS "C0",
+        "HE1_0"."END_VERTEX" AS "C1",
+        MAX("HE1_0"."START_VERTEX") AS "C2",
+        MAX("HE1_0"."CREATED_AT") AS "C3"
+    FROM "PUBLIC"."HIERARCHY_EDGE" "HE1_0"
+    WHERE ("HE1_0"."IS_DELETED" <> ?3)
+        AND ("HE1_0"."HOPS" = ?1)
+        AND ("HE1_0"."HIERARCHY_ID" = ?2)
+    GROUP BY "HE1_0"."HIERARCHY_ID", "HE1_0"."END_VERTEX"
+) "CTE01_0"("MQ_HIERARCHYID", "MQ_ENDVERTEX", "MQ_STARTVERTEX", "MQ_CREATEDAT")
+    /* SELECT
+        HE1_0.HIERARCHY_ID AS C0,
+        HE1_0.END_VERTEX AS C1,
+        MAX(HE1_0.START_VERTEX) AS C2,
+        MAX(HE1_0.CREATED_AT) AS C3
+    FROM PUBLIC.HIERARCHY_EDGE HE1_0
+        /* PUBLIC.CONSTRAINT_INDEX_8: HIERARCHY_ID = ?2
+            AND HOPS = ?1
+            AND HIERARCHY_ID IS NOT DISTINCT FROM ?9
+            AND END_VERTEX IS NOT DISTINCT FROM ?10
+         */
+    WHERE ((HE1_0.HIERARCHY_ID = ?2)
+        AND (HE1_0.IS_DELETED <> ?3)
+        AND (HE1_0.HOPS = ?1))
+        _LOCAL_AND_GLOBAL_ ((HE1_0.HIERARCHY_ID IS NOT DISTINCT FROM ?9)
+        AND (HE1_0.END_VERTEX IS NOT DISTINCT FROM ?10))
+    GROUP BY HE1_0.HIERARCHY_ID, HE1_0.END_VERTEX
+    /* group sorted */: MQ_HIERARCHYID = HN1_0.HIERARCHY_ID
+        AND MQ_ENDVERTEX = HN1_0.NODE_ID
+     */
+    ON ("CTE01_0"."MQ_HIERARCHYID" = "HN1_0"."HIERARCHY_ID")
+    AND ("CTE01_0"."MQ_ENDVERTEX" = "HN1_0"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "P1_0"
+    /* PUBLIC.PRIMARY_KEY_1: ID = CTE01_0.MQ_STARTVERTEX */
+    ON ("P1_0"."IS_DELETED" <> ?4)
+    AND ("P1_0"."ID" = "CTE01_0"."MQ_STARTVERTEX")
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "N1_0"
+    /* PUBLIC.PRIMARY_KEY_1: ID = HN1_0.NODE_ID */
+    ON ("N1_0"."IS_DELETED" <> ?5)
+    AND ("N1_0"."ID" = "HN1_0"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "T1_0"
+    /* PUBLIC.PRIMARY_KEY_D: ID = N1_0.TYPE_ID */
+    ON "T1_0"."ID" = "N1_0"."TYPE_ID"
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "T2_0"
+    /* PUBLIC.PRIMARY_KEY_D: ID = P1_0.TYPE_ID */
+    ON "T2_0"."ID" = "P1_0"."TYPE_ID"
+WHERE ("HN1_0"."HIERARCHY_ID" = ?6)
+    AND ("HN1_0"."IS_DELETED" <> ?7)
+ORDER BY 1
+FETCH FIRST ?8 ROWS ONLY
+
+### H2 | A.4/page of 20 | lib: no manager columns, entity join attached (3 columns read) | hierarchy 1
+-- select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,cte01_0.mq_startVertex,cte01_0.mq_createdAt from hierarchy_node hn1_0 left join (select he1_0.hierarchy_id c0,he1_0.end_vertex c1,max(he1_0.start_vertex) c2,max(he1_0.created_at) c3 from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by c0,c1) cte01_0(mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) on cte01_0.mq_hierarchyId=hn1_0.hierarchy_id and cte01_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=cte01_0.mq_startVertex and p1_0.is_deleted<>? where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 fetch first ? rows only || 2, 1, true, true, 1, true, 20
+SELECT
+    "HN1_0"."ID",
+    "HN1_0"."HIERARCHY_ID",
+    "HN1_0"."NODE_ID",
+    "CTE01_0"."MQ_STARTVERTEX",
+    "CTE01_0"."MQ_CREATEDAT"
+FROM "PUBLIC"."HIERARCHY_NODE" "HN1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_80: HIERARCHY_ID = ?5 */
+    /* WHERE (HN1_0.HIERARCHY_ID = ?5)
+        AND (HN1_0.IS_DELETED <> ?6)
+    */
+LEFT OUTER JOIN (
+    SELECT
+        "HE1_0"."HIERARCHY_ID" AS "C0",
+        "HE1_0"."END_VERTEX" AS "C1",
+        MAX("HE1_0"."START_VERTEX") AS "C2",
+        MAX("HE1_0"."CREATED_AT") AS "C3"
+    FROM "PUBLIC"."HIERARCHY_EDGE" "HE1_0"
+    WHERE ("HE1_0"."IS_DELETED" <> ?3)
+        AND ("HE1_0"."HOPS" = ?1)
+        AND ("HE1_0"."HIERARCHY_ID" = ?2)
+    GROUP BY "HE1_0"."HIERARCHY_ID", "HE1_0"."END_VERTEX"
+) "CTE01_0"("MQ_HIERARCHYID", "MQ_ENDVERTEX", "MQ_STARTVERTEX", "MQ_CREATEDAT")
+    /* SELECT
+        HE1_0.HIERARCHY_ID AS C0,
+        HE1_0.END_VERTEX AS C1,
+        MAX(HE1_0.START_VERTEX) AS C2,
+        MAX(HE1_0.CREATED_AT) AS C3
+    FROM PUBLIC.HIERARCHY_EDGE HE1_0
+        /* PUBLIC.CONSTRAINT_INDEX_8: HIERARCHY_ID = ?2
+            AND HOPS = ?1
+            AND HIERARCHY_ID IS NOT DISTINCT FROM ?8
+            AND END_VERTEX IS NOT DISTINCT FROM ?9
+         */
+    WHERE ((HE1_0.HIERARCHY_ID = ?2)
+        AND (HE1_0.IS_DELETED <> ?3)
+        AND (HE1_0.HOPS = ?1))
+        _LOCAL_AND_GLOBAL_ ((HE1_0.HIERARCHY_ID IS NOT DISTINCT FROM ?8)
+        AND (HE1_0.END_VERTEX IS NOT DISTINCT FROM ?9))
+    GROUP BY HE1_0.HIERARCHY_ID, HE1_0.END_VERTEX
+    /* group sorted */: MQ_HIERARCHYID = HN1_0.HIERARCHY_ID
+        AND MQ_ENDVERTEX = HN1_0.NODE_ID
+     */
+    ON ("CTE01_0"."MQ_HIERARCHYID" = "HN1_0"."HIERARCHY_ID")
+    AND ("CTE01_0"."MQ_ENDVERTEX" = "HN1_0"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "P1_0"
+    /* PUBLIC.PRIMARY_KEY_1: ID = CTE01_0.MQ_STARTVERTEX */
+    ON ("P1_0"."IS_DELETED" <> ?4)
+    AND ("P1_0"."ID" = "CTE01_0"."MQ_STARTVERTEX")
+WHERE ("HN1_0"."HIERARCHY_ID" = ?5)
+    AND ("HN1_0"."IS_DELETED" <> ?6)
+ORDER BY 1
+FETCH FIRST ?7 ROWS ONLY
+
+### H2 | A.4/page of 20 | lib: unreferenced, no entity join | hierarchy 1
+-- select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,cte01_0.mq_startVertex,cte01_0.mq_createdAt from hierarchy_node hn1_0 left join (select he1_0.hierarchy_id c0,he1_0.end_vertex c1,max(he1_0.start_vertex) c2,max(he1_0.created_at) c3 from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by c0,c1) cte01_0(mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) on cte01_0.mq_hierarchyId=hn1_0.hierarchy_id and cte01_0.mq_endVertex=hn1_0.node_id where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 fetch first ? rows only || 2, 1, true, 1, true, 20
+SELECT
+    "HN1_0"."ID",
+    "HN1_0"."HIERARCHY_ID",
+    "HN1_0"."NODE_ID",
+    "CTE01_0"."MQ_STARTVERTEX",
+    "CTE01_0"."MQ_CREATEDAT"
+FROM "PUBLIC"."HIERARCHY_NODE" "HN1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_80: HIERARCHY_ID = ?4 */
+    /* WHERE (HN1_0.HIERARCHY_ID = ?4)
+        AND (HN1_0.IS_DELETED <> ?5)
+    */
+LEFT OUTER JOIN (
+    SELECT
+        "HE1_0"."HIERARCHY_ID" AS "C0",
+        "HE1_0"."END_VERTEX" AS "C1",
+        MAX("HE1_0"."START_VERTEX") AS "C2",
+        MAX("HE1_0"."CREATED_AT") AS "C3"
+    FROM "PUBLIC"."HIERARCHY_EDGE" "HE1_0"
+    WHERE ("HE1_0"."IS_DELETED" <> ?3)
+        AND ("HE1_0"."HOPS" = ?1)
+        AND ("HE1_0"."HIERARCHY_ID" = ?2)
+    GROUP BY "HE1_0"."HIERARCHY_ID", "HE1_0"."END_VERTEX"
+) "CTE01_0"("MQ_HIERARCHYID", "MQ_ENDVERTEX", "MQ_STARTVERTEX", "MQ_CREATEDAT")
+    /* SELECT
+        HE1_0.HIERARCHY_ID AS C0,
+        HE1_0.END_VERTEX AS C1,
+        MAX(HE1_0.START_VERTEX) AS C2,
+        MAX(HE1_0.CREATED_AT) AS C3
+    FROM PUBLIC.HIERARCHY_EDGE HE1_0
+        /* PUBLIC.CONSTRAINT_INDEX_8: HIERARCHY_ID = ?2
+            AND HOPS = ?1
+            AND HIERARCHY_ID IS NOT DISTINCT FROM ?7
+            AND END_VERTEX IS NOT DISTINCT FROM ?8
+         */
+    WHERE ((HE1_0.HIERARCHY_ID = ?2)
+        AND (HE1_0.IS_DELETED <> ?3)
+        AND (HE1_0.HOPS = ?1))
+        _LOCAL_AND_GLOBAL_ ((HE1_0.HIERARCHY_ID IS NOT DISTINCT FROM ?7)
+        AND (HE1_0.END_VERTEX IS NOT DISTINCT FROM ?8))
+    GROUP BY HE1_0.HIERARCHY_ID, HE1_0.END_VERTEX
+    /* group sorted */: MQ_HIERARCHYID = HN1_0.HIERARCHY_ID
+        AND MQ_ENDVERTEX = HN1_0.NODE_ID
+     */
+    ON ("CTE01_0"."MQ_HIERARCHYID" = "HN1_0"."HIERARCHY_ID")
+    AND ("CTE01_0"."MQ_ENDVERTEX" = "HN1_0"."NODE_ID")
+WHERE ("HN1_0"."HIERARCHY_ID" = ?4)
+    AND ("HN1_0"."IS_DELETED" <> ?5)
+ORDER BY 1
+FETCH FIRST ?6 ROWS ONLY
+
+### H2 | A.4/page of 20 | lib: Details without the manager (no entity join, null columns) | hierarchy 1
+-- select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,n1_0.first_name,t1_0.name,cte01_0.mq_startVertex,null,null,cte01_0.mq_createdAt from hierarchy_node hn1_0 left join (select he1_0.hierarchy_id c0,he1_0.end_vertex c1,max(he1_0.start_vertex) c2,max(he1_0.created_at) c3 from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by c0,c1) cte01_0(mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) on cte01_0.mq_hierarchyId=hn1_0.hierarchy_id and cte01_0.mq_endVertex=hn1_0.node_id left join profile n1_0 on n1_0.id=hn1_0.node_id and n1_0.is_deleted<>? left join profile_type t1_0 on t1_0.id=n1_0.type_id where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 fetch first ? rows only || 2, 1, true, true, 1, true, 20
+SELECT
+    "HN1_0"."ID",
+    "HN1_0"."HIERARCHY_ID",
+    "HN1_0"."NODE_ID",
+    "N1_0"."FIRST_NAME",
+    "T1_0"."NAME",
+    "CTE01_0"."MQ_STARTVERTEX",
+    NULL,
+    NULL,
+    "CTE01_0"."MQ_CREATEDAT"
+FROM "PUBLIC"."HIERARCHY_NODE" "HN1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_80: HIERARCHY_ID = ?5 */
+    /* WHERE (HN1_0.HIERARCHY_ID = ?5)
+        AND (HN1_0.IS_DELETED <> ?6)
+    */
+LEFT OUTER JOIN (
+    SELECT
+        "HE1_0"."HIERARCHY_ID" AS "C0",
+        "HE1_0"."END_VERTEX" AS "C1",
+        MAX("HE1_0"."START_VERTEX") AS "C2",
+        MAX("HE1_0"."CREATED_AT") AS "C3"
+    FROM "PUBLIC"."HIERARCHY_EDGE" "HE1_0"
+    WHERE ("HE1_0"."IS_DELETED" <> ?3)
+        AND ("HE1_0"."HOPS" = ?1)
+        AND ("HE1_0"."HIERARCHY_ID" = ?2)
+    GROUP BY "HE1_0"."HIERARCHY_ID", "HE1_0"."END_VERTEX"
+) "CTE01_0"("MQ_HIERARCHYID", "MQ_ENDVERTEX", "MQ_STARTVERTEX", "MQ_CREATEDAT")
+    /* SELECT
+        HE1_0.HIERARCHY_ID AS C0,
+        HE1_0.END_VERTEX AS C1,
+        MAX(HE1_0.START_VERTEX) AS C2,
+        MAX(HE1_0.CREATED_AT) AS C3
+    FROM PUBLIC.HIERARCHY_EDGE HE1_0
+        /* PUBLIC.CONSTRAINT_INDEX_8: HIERARCHY_ID = ?2
+            AND HOPS = ?1
+            AND HIERARCHY_ID IS NOT DISTINCT FROM ?8
+            AND END_VERTEX IS NOT DISTINCT FROM ?9
+         */
+    WHERE ((HE1_0.HIERARCHY_ID = ?2)
+        AND (HE1_0.IS_DELETED <> ?3)
+        AND (HE1_0.HOPS = ?1))
+        _LOCAL_AND_GLOBAL_ ((HE1_0.HIERARCHY_ID IS NOT DISTINCT FROM ?8)
+        AND (HE1_0.END_VERTEX IS NOT DISTINCT FROM ?9))
+    GROUP BY HE1_0.HIERARCHY_ID, HE1_0.END_VERTEX
+    /* group sorted */: MQ_HIERARCHYID = HN1_0.HIERARCHY_ID
+        AND MQ_ENDVERTEX = HN1_0.NODE_ID
+     */
+    ON ("CTE01_0"."MQ_HIERARCHYID" = "HN1_0"."HIERARCHY_ID")
+    AND ("CTE01_0"."MQ_ENDVERTEX" = "HN1_0"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "N1_0"
+    /* PUBLIC.PRIMARY_KEY_1: ID = HN1_0.NODE_ID */
+    ON ("N1_0"."IS_DELETED" <> ?4)
+    AND ("N1_0"."ID" = "HN1_0"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "T1_0"
+    /* PUBLIC.PRIMARY_KEY_D: ID = N1_0.TYPE_ID */
+    ON "T1_0"."ID" = "N1_0"."TYPE_ID"
+WHERE ("HN1_0"."HIERARCHY_ID" = ?5)
+    AND ("HN1_0"."IS_DELETED" <> ?6)
+ORDER BY 1
+FETCH FIRST ?7 ROWS ONLY
+
+### H2 | A.4/count | native | hierarchy 1
+-- SELECT count(*) FROM (SELECT hn.id, hn.hierarchy_id, hn.node_id, e.start_vertex, e.created_at FROM hierarchy_node hn LEFT JOIN hierarchy h ON h.id = hn.hierarchy_id LEFT JOIN hierarchy_edge e ON e.hierarchy_id = h.id AND e.end_vertex = hn.node_id AND e.hops = 2 AND e.is_deleted = false WHERE 1 = 1 AND h.id = 1 AND hn.is_deleted = false) r LEFT JOIN profile c ON c.id = r.node_id AND c.is_deleted = false LEFT JOIN profile_type ct ON ct.id = c.type_id LEFT JOIN profile p ON p.id = r.start_vertex AND p.is_deleted = false LEFT JOIN profile_type pt ON pt.id = p.type_id
+SELECT
+    COUNT(*)
+FROM (
+    SELECT
+        "HN"."ID",
+        "HN"."HIERARCHY_ID",
+        "HN"."NODE_ID",
+        "E"."START_VERTEX",
+        "E"."CREATED_AT"
+    FROM "PUBLIC"."HIERARCHY_NODE" "HN"
+    LEFT OUTER JOIN "PUBLIC"."HIERARCHY" "H"
+        ON "H"."ID" = "HN"."HIERARCHY_ID"
+    LEFT OUTER JOIN "PUBLIC"."HIERARCHY_EDGE" "E"
+        ON ("E"."HIERARCHY_ID" = "H"."ID")
+        AND ("E"."END_VERTEX" = "HN"."NODE_ID")
+        AND ("E"."HOPS" = 2)
+        AND ("E"."IS_DELETED" = FALSE)
+    WHERE ("H"."ID" = CAST(1 AS BIGINT))
+        AND ("HN"."IS_DELETED" = FALSE)
+) "R"
+    /* SELECT
+        HN.ID,
+        HN.HIERARCHY_ID,
+        HN.NODE_ID,
+        E.START_VERTEX,
+        E.CREATED_AT
+    FROM PUBLIC.HIERARCHY_NODE HN
+        /* PUBLIC.HIERARCHY_NODE.tableScan */
+        /* WHERE HN.IS_DELETED = FALSE
+        */
+    LEFT OUTER JOIN PUBLIC.HIERARCHY H
+        /* PUBLIC.PRIMARY_KEY_2: ID = HN.HIERARCHY_ID */
+        ON H.ID = HN.HIERARCHY_ID
+    LEFT OUTER JOIN PUBLIC.HIERARCHY_EDGE E
+        /* PUBLIC.CONSTRAINT_INDEX_8: HOPS = 2
+            AND HIERARCHY_ID = H.ID
+            AND END_VERTEX = HN.NODE_ID
+         */
+        ON (E.HOPS = 2)
+        AND (E.IS_DELETED = FALSE)
+        AND (E.HIERARCHY_ID = H.ID)
+        AND (E.END_VERTEX = HN.NODE_ID)
+    WHERE (H.ID = CAST(1 AS BIGINT))
+        AND (HN.IS_DELETED = FALSE)
+     */
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "C"
+    /* PUBLIC.PRIMARY_KEY_1: ID = R.NODE_ID */
+    ON ("C"."IS_DELETED" = FALSE)
+    AND ("C"."ID" = "R"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "CT"
+    /* PUBLIC.PRIMARY_KEY_D: ID = C.TYPE_ID */
+    ON "CT"."ID" = "C"."TYPE_ID"
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "P"
+    /* PUBLIC.PRIMARY_KEY_1: ID = R.START_VERTEX */
+    ON ("P"."IS_DELETED" = FALSE)
+    AND ("P"."ID" = "R"."START_VERTEX")
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "PT"
+    /* PUBLIC.PRIMARY_KEY_D: ID = P.TYPE_ID */
+    ON "PT"."ID" = "P"."TYPE_ID"
+
+### H2 | A.4/count | lib: count, entity join attached unreferenced | hierarchy 1
+-- select count(hn1_0.id) from hierarchy_node hn1_0 left join (select he1_0.hierarchy_id c0,he1_0.end_vertex c1,max(he1_0.start_vertex) c2,max(he1_0.created_at) c3 from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by c0,c1) cte01_0(mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) on cte01_0.mq_hierarchyId=hn1_0.hierarchy_id and cte01_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=cte01_0.mq_startVertex and p1_0.is_deleted<>? where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? || 2, 1, true, true, 1, true
+SELECT
+    COUNT("HN1_0"."ID")
+FROM "PUBLIC"."HIERARCHY_NODE" "HN1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_80: HIERARCHY_ID = ?5 */
+    /* WHERE (HN1_0.HIERARCHY_ID = ?5)
+        AND (HN1_0.IS_DELETED <> ?6)
+    */
+LEFT OUTER JOIN (
+    SELECT
+        "HE1_0"."HIERARCHY_ID" AS "C0",
+        "HE1_0"."END_VERTEX" AS "C1",
+        MAX("HE1_0"."START_VERTEX") AS "C2",
+        MAX("HE1_0"."CREATED_AT") AS "C3"
+    FROM "PUBLIC"."HIERARCHY_EDGE" "HE1_0"
+    WHERE ("HE1_0"."IS_DELETED" <> ?3)
+        AND ("HE1_0"."HOPS" = ?1)
+        AND ("HE1_0"."HIERARCHY_ID" = ?2)
+    GROUP BY "HE1_0"."HIERARCHY_ID", "HE1_0"."END_VERTEX"
+) "CTE01_0"("MQ_HIERARCHYID", "MQ_ENDVERTEX", "MQ_STARTVERTEX", "MQ_CREATEDAT")
+    /* SELECT
+        HE1_0.HIERARCHY_ID AS C0,
+        HE1_0.END_VERTEX AS C1,
+        MAX(HE1_0.START_VERTEX) AS C2,
+        MAX(HE1_0.CREATED_AT) AS C3
+    FROM PUBLIC.HIERARCHY_EDGE HE1_0
+        /* PUBLIC.CONSTRAINT_INDEX_8: HIERARCHY_ID = ?2
+            AND HOPS = ?1
+            AND HIERARCHY_ID IS NOT DISTINCT FROM ?7
+            AND END_VERTEX IS NOT DISTINCT FROM ?8
+         */
+    WHERE ((HE1_0.HIERARCHY_ID = ?2)
+        AND (HE1_0.IS_DELETED <> ?3)
+        AND (HE1_0.HOPS = ?1))
+        _LOCAL_AND_GLOBAL_ ((HE1_0.HIERARCHY_ID IS NOT DISTINCT FROM ?7)
+        AND (HE1_0.END_VERTEX IS NOT DISTINCT FROM ?8))
+    GROUP BY HE1_0.HIERARCHY_ID, HE1_0.END_VERTEX
+    /* group sorted */: MQ_HIERARCHYID = HN1_0.HIERARCHY_ID
+        AND MQ_ENDVERTEX = HN1_0.NODE_ID
+     */
+    ON ("CTE01_0"."MQ_HIERARCHYID" = "HN1_0"."HIERARCHY_ID")
+    AND ("CTE01_0"."MQ_ENDVERTEX" = "HN1_0"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "P1_0"
+    /* PUBLIC.PRIMARY_KEY_1: ID = CTE01_0.MQ_STARTVERTEX */
+    ON ("P1_0"."IS_DELETED" <> ?4)
+    AND ("P1_0"."ID" = "CTE01_0"."MQ_STARTVERTEX")
+WHERE ("HN1_0"."HIERARCHY_ID" = ?5)
+    AND ("HN1_0"."IS_DELETED" <> ?6)
+
+### H2 | A.4/count | lib: count, no entity join | hierarchy 1
+-- select count(hn1_0.id) from hierarchy_node hn1_0 left join (select he1_0.hierarchy_id c0,he1_0.end_vertex c1,max(he1_0.start_vertex) c2,max(he1_0.created_at) c3 from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by c0,c1) cte01_0(mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) on cte01_0.mq_hierarchyId=hn1_0.hierarchy_id and cte01_0.mq_endVertex=hn1_0.node_id where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? || 2, 1, true, 1, true
+SELECT
+    COUNT("HN1_0"."ID")
+FROM "PUBLIC"."HIERARCHY_NODE" "HN1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_80: HIERARCHY_ID = ?4 */
+    /* WHERE (HN1_0.HIERARCHY_ID = ?4)
+        AND (HN1_0.IS_DELETED <> ?5)
+    */
+LEFT OUTER JOIN (
+    SELECT
+        "HE1_0"."HIERARCHY_ID" AS "C0",
+        "HE1_0"."END_VERTEX" AS "C1",
+        MAX("HE1_0"."START_VERTEX") AS "C2",
+        MAX("HE1_0"."CREATED_AT") AS "C3"
+    FROM "PUBLIC"."HIERARCHY_EDGE" "HE1_0"
+    WHERE ("HE1_0"."IS_DELETED" <> ?3)
+        AND ("HE1_0"."HOPS" = ?1)
+        AND ("HE1_0"."HIERARCHY_ID" = ?2)
+    GROUP BY "HE1_0"."HIERARCHY_ID", "HE1_0"."END_VERTEX"
+) "CTE01_0"("MQ_HIERARCHYID", "MQ_ENDVERTEX", "MQ_STARTVERTEX", "MQ_CREATEDAT")
+    /* SELECT
+        HE1_0.HIERARCHY_ID AS C0,
+        HE1_0.END_VERTEX AS C1,
+        MAX(HE1_0.START_VERTEX) AS C2,
+        MAX(HE1_0.CREATED_AT) AS C3
+    FROM PUBLIC.HIERARCHY_EDGE HE1_0
+        /* PUBLIC.CONSTRAINT_INDEX_8: HIERARCHY_ID = ?2
+            AND HOPS = ?1
+            AND HIERARCHY_ID IS NOT DISTINCT FROM ?6
+            AND END_VERTEX IS NOT DISTINCT FROM ?7
+         */
+    WHERE ((HE1_0.HIERARCHY_ID = ?2)
+        AND (HE1_0.IS_DELETED <> ?3)
+        AND (HE1_0.HOPS = ?1))
+        _LOCAL_AND_GLOBAL_ ((HE1_0.HIERARCHY_ID IS NOT DISTINCT FROM ?6)
+        AND (HE1_0.END_VERTEX IS NOT DISTINCT FROM ?7))
+    GROUP BY HE1_0.HIERARCHY_ID, HE1_0.END_VERTEX
+    /* group sorted */: MQ_HIERARCHYID = HN1_0.HIERARCHY_ID
+        AND MQ_ENDVERTEX = HN1_0.NODE_ID
+     */
+    ON ("CTE01_0"."MQ_HIERARCHYID" = "HN1_0"."HIERARCHY_ID")
+    AND ("CTE01_0"."MQ_ENDVERTEX" = "HN1_0"."NODE_ID")
+WHERE ("HN1_0"."HIERARCHY_ID" = ?4)
+    AND ("HN1_0"."IS_DELETED" <> ?5)
+
+### H2 | A.4/full export | native | hierarchy 1
+-- SELECT r.id, r.hierarchy_id, r.node_id, c.first_name, ct.name, r.start_vertex, p.first_name, pt.name, r.created_at FROM (SELECT hn.id, hn.hierarchy_id, hn.node_id, e.start_vertex, e.created_at FROM hierarchy_node hn LEFT JOIN hierarchy h ON h.id = hn.hierarchy_id LEFT JOIN hierarchy_edge e ON e.hierarchy_id = h.id AND e.end_vertex = hn.node_id AND e.hops = 2 AND e.is_deleted = false WHERE 1 = 1 AND h.id = 1 AND hn.is_deleted = false) r LEFT JOIN profile c ON c.id = r.node_id AND c.is_deleted = false LEFT JOIN profile_type ct ON ct.id = c.type_id LEFT JOIN profile p ON p.id = r.start_vertex AND p.is_deleted = false LEFT JOIN profile_type pt ON pt.id = p.type_id ORDER BY r.id
+SELECT
+    "R"."ID",
+    "R"."HIERARCHY_ID",
+    "R"."NODE_ID",
+    "C"."FIRST_NAME",
+    "CT"."NAME",
+    "R"."START_VERTEX",
+    "P"."FIRST_NAME",
+    "PT"."NAME",
+    "R"."CREATED_AT"
+FROM (
+    SELECT
+        "HN"."ID",
+        "HN"."HIERARCHY_ID",
+        "HN"."NODE_ID",
+        "E"."START_VERTEX",
+        "E"."CREATED_AT"
+    FROM "PUBLIC"."HIERARCHY_NODE" "HN"
+    LEFT OUTER JOIN "PUBLIC"."HIERARCHY" "H"
+        ON "H"."ID" = "HN"."HIERARCHY_ID"
+    LEFT OUTER JOIN "PUBLIC"."HIERARCHY_EDGE" "E"
+        ON ("E"."HIERARCHY_ID" = "H"."ID")
+        AND ("E"."END_VERTEX" = "HN"."NODE_ID")
+        AND ("E"."HOPS" = 2)
+        AND ("E"."IS_DELETED" = FALSE)
+    WHERE ("H"."ID" = CAST(1 AS BIGINT))
+        AND ("HN"."IS_DELETED" = FALSE)
+) "R"
+    /* SELECT
+        HN.ID,
+        HN.HIERARCHY_ID,
+        HN.NODE_ID,
+        E.START_VERTEX,
+        E.CREATED_AT
+    FROM PUBLIC.HIERARCHY_NODE HN
+        /* PUBLIC.HIERARCHY_NODE.tableScan */
+        /* WHERE HN.IS_DELETED = FALSE
+        */
+    LEFT OUTER JOIN PUBLIC.HIERARCHY H
+        /* PUBLIC.PRIMARY_KEY_2: ID = HN.HIERARCHY_ID */
+        ON H.ID = HN.HIERARCHY_ID
+    LEFT OUTER JOIN PUBLIC.HIERARCHY_EDGE E
+        /* PUBLIC.CONSTRAINT_INDEX_8: HOPS = 2
+            AND HIERARCHY_ID = H.ID
+            AND END_VERTEX = HN.NODE_ID
+         */
+        ON (E.HOPS = 2)
+        AND (E.IS_DELETED = FALSE)
+        AND (E.HIERARCHY_ID = H.ID)
+        AND (E.END_VERTEX = HN.NODE_ID)
+    WHERE (H.ID = CAST(1 AS BIGINT))
+        AND (HN.IS_DELETED = FALSE)
+     */
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "C"
+    /* PUBLIC.PRIMARY_KEY_1: ID = R.NODE_ID */
+    ON ("C"."IS_DELETED" = FALSE)
+    AND ("C"."ID" = "R"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "CT"
+    /* PUBLIC.PRIMARY_KEY_D: ID = C.TYPE_ID */
+    ON "CT"."ID" = "C"."TYPE_ID"
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "P"
+    /* PUBLIC.PRIMARY_KEY_1: ID = R.START_VERTEX */
+    ON ("P"."IS_DELETED" = FALSE)
+    AND ("P"."ID" = "R"."START_VERTEX")
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "PT"
+    /* PUBLIC.PRIMARY_KEY_D: ID = P.TYPE_ID */
+    ON "PT"."ID" = "P"."TYPE_ID"
+ORDER BY 1
+
+### H2 | A.4/full export | lib: entity join, referenced (Details) | hierarchy 1
+-- select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,n1_0.first_name,t1_0.name,cte01_0.mq_startVertex,p1_0.first_name,t2_0.name,cte01_0.mq_createdAt from hierarchy_node hn1_0 left join (select he1_0.hierarchy_id c0,he1_0.end_vertex c1,max(he1_0.start_vertex) c2,max(he1_0.created_at) c3 from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by c0,c1) cte01_0(mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) on cte01_0.mq_hierarchyId=hn1_0.hierarchy_id and cte01_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=cte01_0.mq_startVertex and p1_0.is_deleted<>? left join profile n1_0 on n1_0.id=hn1_0.node_id and n1_0.is_deleted<>? left join profile_type t1_0 on t1_0.id=n1_0.type_id left join profile_type t2_0 on t2_0.id=p1_0.type_id where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 || 2, 1, true, true, true, 1, true
+SELECT
+    "HN1_0"."ID",
+    "HN1_0"."HIERARCHY_ID",
+    "HN1_0"."NODE_ID",
+    "N1_0"."FIRST_NAME",
+    "T1_0"."NAME",
+    "CTE01_0"."MQ_STARTVERTEX",
+    "P1_0"."FIRST_NAME",
+    "T2_0"."NAME",
+    "CTE01_0"."MQ_CREATEDAT"
+FROM "PUBLIC"."HIERARCHY_NODE" "HN1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_80: HIERARCHY_ID = ?6 */
+    /* WHERE (HN1_0.HIERARCHY_ID = ?6)
+        AND (HN1_0.IS_DELETED <> ?7)
+    */
+LEFT OUTER JOIN (
+    SELECT
+        "HE1_0"."HIERARCHY_ID" AS "C0",
+        "HE1_0"."END_VERTEX" AS "C1",
+        MAX("HE1_0"."START_VERTEX") AS "C2",
+        MAX("HE1_0"."CREATED_AT") AS "C3"
+    FROM "PUBLIC"."HIERARCHY_EDGE" "HE1_0"
+    WHERE ("HE1_0"."IS_DELETED" <> ?3)
+        AND ("HE1_0"."HOPS" = ?1)
+        AND ("HE1_0"."HIERARCHY_ID" = ?2)
+    GROUP BY "HE1_0"."HIERARCHY_ID", "HE1_0"."END_VERTEX"
+) "CTE01_0"("MQ_HIERARCHYID", "MQ_ENDVERTEX", "MQ_STARTVERTEX", "MQ_CREATEDAT")
+    /* SELECT
+        HE1_0.HIERARCHY_ID AS C0,
+        HE1_0.END_VERTEX AS C1,
+        MAX(HE1_0.START_VERTEX) AS C2,
+        MAX(HE1_0.CREATED_AT) AS C3
+    FROM PUBLIC.HIERARCHY_EDGE HE1_0
+        /* PUBLIC.CONSTRAINT_INDEX_8: HIERARCHY_ID = ?2
+            AND HOPS = ?1
+            AND HIERARCHY_ID IS NOT DISTINCT FROM ?8
+            AND END_VERTEX IS NOT DISTINCT FROM ?9
+         */
+    WHERE ((HE1_0.HIERARCHY_ID = ?2)
+        AND (HE1_0.IS_DELETED <> ?3)
+        AND (HE1_0.HOPS = ?1))
+        _LOCAL_AND_GLOBAL_ ((HE1_0.HIERARCHY_ID IS NOT DISTINCT FROM ?8)
+        AND (HE1_0.END_VERTEX IS NOT DISTINCT FROM ?9))
+    GROUP BY HE1_0.HIERARCHY_ID, HE1_0.END_VERTEX
+    /* group sorted */: MQ_HIERARCHYID = HN1_0.HIERARCHY_ID
+        AND MQ_ENDVERTEX = HN1_0.NODE_ID
+     */
+    ON ("CTE01_0"."MQ_HIERARCHYID" = "HN1_0"."HIERARCHY_ID")
+    AND ("CTE01_0"."MQ_ENDVERTEX" = "HN1_0"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "P1_0"
+    /* PUBLIC.PRIMARY_KEY_1: ID = CTE01_0.MQ_STARTVERTEX */
+    ON ("P1_0"."IS_DELETED" <> ?4)
+    AND ("P1_0"."ID" = "CTE01_0"."MQ_STARTVERTEX")
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "N1_0"
+    /* PUBLIC.PRIMARY_KEY_1: ID = HN1_0.NODE_ID */
+    ON ("N1_0"."IS_DELETED" <> ?5)
+    AND ("N1_0"."ID" = "HN1_0"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "T1_0"
+    /* PUBLIC.PRIMARY_KEY_D: ID = N1_0.TYPE_ID */
+    ON "T1_0"."ID" = "N1_0"."TYPE_ID"
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "T2_0"
+    /* PUBLIC.PRIMARY_KEY_D: ID = P1_0.TYPE_ID */
+    ON "T2_0"."ID" = "P1_0"."TYPE_ID"
+WHERE ("HN1_0"."HIERARCHY_ID" = ?6)
+    AND ("HN1_0"."IS_DELETED" <> ?7)
+ORDER BY 1
+
+### H2 | A.4/full export | lib: unreferenced, entity join attached | hierarchy 1
+-- select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,cte01_0.mq_startVertex,cte01_0.mq_createdAt from hierarchy_node hn1_0 left join (select he1_0.hierarchy_id c0,he1_0.end_vertex c1,max(he1_0.start_vertex) c2,max(he1_0.created_at) c3 from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by c0,c1) cte01_0(mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) on cte01_0.mq_hierarchyId=hn1_0.hierarchy_id and cte01_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=cte01_0.mq_startVertex and p1_0.is_deleted<>? where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 || 2, 1, true, true, 1, true
+SELECT
+    "HN1_0"."ID",
+    "HN1_0"."HIERARCHY_ID",
+    "HN1_0"."NODE_ID",
+    "CTE01_0"."MQ_STARTVERTEX",
+    "CTE01_0"."MQ_CREATEDAT"
+FROM "PUBLIC"."HIERARCHY_NODE" "HN1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_80: HIERARCHY_ID = ?5 */
+    /* WHERE (HN1_0.HIERARCHY_ID = ?5)
+        AND (HN1_0.IS_DELETED <> ?6)
+    */
+LEFT OUTER JOIN (
+    SELECT
+        "HE1_0"."HIERARCHY_ID" AS "C0",
+        "HE1_0"."END_VERTEX" AS "C1",
+        MAX("HE1_0"."START_VERTEX") AS "C2",
+        MAX("HE1_0"."CREATED_AT") AS "C3"
+    FROM "PUBLIC"."HIERARCHY_EDGE" "HE1_0"
+    WHERE ("HE1_0"."IS_DELETED" <> ?3)
+        AND ("HE1_0"."HOPS" = ?1)
+        AND ("HE1_0"."HIERARCHY_ID" = ?2)
+    GROUP BY "HE1_0"."HIERARCHY_ID", "HE1_0"."END_VERTEX"
+) "CTE01_0"("MQ_HIERARCHYID", "MQ_ENDVERTEX", "MQ_STARTVERTEX", "MQ_CREATEDAT")
+    /* SELECT
+        HE1_0.HIERARCHY_ID AS C0,
+        HE1_0.END_VERTEX AS C1,
+        MAX(HE1_0.START_VERTEX) AS C2,
+        MAX(HE1_0.CREATED_AT) AS C3
+    FROM PUBLIC.HIERARCHY_EDGE HE1_0
+        /* PUBLIC.CONSTRAINT_INDEX_8: HIERARCHY_ID = ?2
+            AND HOPS = ?1
+            AND HIERARCHY_ID IS NOT DISTINCT FROM ?7
+            AND END_VERTEX IS NOT DISTINCT FROM ?8
+         */
+    WHERE ((HE1_0.HIERARCHY_ID = ?2)
+        AND (HE1_0.IS_DELETED <> ?3)
+        AND (HE1_0.HOPS = ?1))
+        _LOCAL_AND_GLOBAL_ ((HE1_0.HIERARCHY_ID IS NOT DISTINCT FROM ?7)
+        AND (HE1_0.END_VERTEX IS NOT DISTINCT FROM ?8))
+    GROUP BY HE1_0.HIERARCHY_ID, HE1_0.END_VERTEX
+    /* group sorted */: MQ_HIERARCHYID = HN1_0.HIERARCHY_ID
+        AND MQ_ENDVERTEX = HN1_0.NODE_ID
+     */
+    ON ("CTE01_0"."MQ_HIERARCHYID" = "HN1_0"."HIERARCHY_ID")
+    AND ("CTE01_0"."MQ_ENDVERTEX" = "HN1_0"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "P1_0"
+    /* PUBLIC.PRIMARY_KEY_1: ID = CTE01_0.MQ_STARTVERTEX */
+    ON ("P1_0"."IS_DELETED" <> ?4)
+    AND ("P1_0"."ID" = "CTE01_0"."MQ_STARTVERTEX")
+WHERE ("HN1_0"."HIERARCHY_ID" = ?5)
+    AND ("HN1_0"."IS_DELETED" <> ?6)
+ORDER BY 1
+
+### H2 | A.4/full export | lib: unreferenced, no entity join | hierarchy 1
+-- select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,cte01_0.mq_startVertex,cte01_0.mq_createdAt from hierarchy_node hn1_0 left join (select he1_0.hierarchy_id c0,he1_0.end_vertex c1,max(he1_0.start_vertex) c2,max(he1_0.created_at) c3 from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.hierarchy_id=? and he1_0.is_deleted<>? group by c0,c1) cte01_0(mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) on cte01_0.mq_hierarchyId=hn1_0.hierarchy_id and cte01_0.mq_endVertex=hn1_0.node_id where hn1_0.hierarchy_id=? and hn1_0.is_deleted<>? order by 1 || 2, 1, true, 1, true
+SELECT
+    "HN1_0"."ID",
+    "HN1_0"."HIERARCHY_ID",
+    "HN1_0"."NODE_ID",
+    "CTE01_0"."MQ_STARTVERTEX",
+    "CTE01_0"."MQ_CREATEDAT"
+FROM "PUBLIC"."HIERARCHY_NODE" "HN1_0"
+    /* PUBLIC.CONSTRAINT_INDEX_80: HIERARCHY_ID = ?4 */
+    /* WHERE (HN1_0.HIERARCHY_ID = ?4)
+        AND (HN1_0.IS_DELETED <> ?5)
+    */
+LEFT OUTER JOIN (
+    SELECT
+        "HE1_0"."HIERARCHY_ID" AS "C0",
+        "HE1_0"."END_VERTEX" AS "C1",
+        MAX("HE1_0"."START_VERTEX") AS "C2",
+        MAX("HE1_0"."CREATED_AT") AS "C3"
+    FROM "PUBLIC"."HIERARCHY_EDGE" "HE1_0"
+    WHERE ("HE1_0"."IS_DELETED" <> ?3)
+        AND ("HE1_0"."HOPS" = ?1)
+        AND ("HE1_0"."HIERARCHY_ID" = ?2)
+    GROUP BY "HE1_0"."HIERARCHY_ID", "HE1_0"."END_VERTEX"
+) "CTE01_0"("MQ_HIERARCHYID", "MQ_ENDVERTEX", "MQ_STARTVERTEX", "MQ_CREATEDAT")
+    /* SELECT
+        HE1_0.HIERARCHY_ID AS C0,
+        HE1_0.END_VERTEX AS C1,
+        MAX(HE1_0.START_VERTEX) AS C2,
+        MAX(HE1_0.CREATED_AT) AS C3
+    FROM PUBLIC.HIERARCHY_EDGE HE1_0
+        /* PUBLIC.CONSTRAINT_INDEX_8: HIERARCHY_ID = ?2
+            AND HOPS = ?1
+            AND HIERARCHY_ID IS NOT DISTINCT FROM ?6
+            AND END_VERTEX IS NOT DISTINCT FROM ?7
+         */
+    WHERE ((HE1_0.HIERARCHY_ID = ?2)
+        AND (HE1_0.IS_DELETED <> ?3)
+        AND (HE1_0.HOPS = ?1))
+        _LOCAL_AND_GLOBAL_ ((HE1_0.HIERARCHY_ID IS NOT DISTINCT FROM ?6)
+        AND (HE1_0.END_VERTEX IS NOT DISTINCT FROM ?7))
+    GROUP BY HE1_0.HIERARCHY_ID, HE1_0.END_VERTEX
+    /* group sorted */: MQ_HIERARCHYID = HN1_0.HIERARCHY_ID
+        AND MQ_ENDVERTEX = HN1_0.NODE_ID
+     */
+    ON ("CTE01_0"."MQ_HIERARCHYID" = "HN1_0"."HIERARCHY_ID")
+    AND ("CTE01_0"."MQ_ENDVERTEX" = "HN1_0"."NODE_ID")
+WHERE ("HN1_0"."HIERARCHY_ID" = ?4)
+    AND ("HN1_0"."IS_DELETED" <> ?5)
+ORDER BY 1
+
+### H2 | A.4/page of 20 | native | all hierarchies
+-- SELECT r.id, r.hierarchy_id, r.node_id, c.first_name, ct.name, r.start_vertex, p.first_name, pt.name, r.created_at FROM (SELECT hn.id, hn.hierarchy_id, hn.node_id, e.start_vertex, e.created_at FROM hierarchy_node hn LEFT JOIN hierarchy h ON h.id = hn.hierarchy_id LEFT JOIN hierarchy_edge e ON e.hierarchy_id = h.id AND e.end_vertex = hn.node_id AND e.hops = 2 AND e.is_deleted = false WHERE 1 = 1 AND hn.is_deleted = false) r LEFT JOIN profile c ON c.id = r.node_id AND c.is_deleted = false LEFT JOIN profile_type ct ON ct.id = c.type_id LEFT JOIN profile p ON p.id = r.start_vertex AND p.is_deleted = false LEFT JOIN profile_type pt ON pt.id = p.type_id ORDER BY r.id fetch first ? rows only || 20
+SELECT
+    "R"."ID",
+    "R"."HIERARCHY_ID",
+    "R"."NODE_ID",
+    "C"."FIRST_NAME",
+    "CT"."NAME",
+    "R"."START_VERTEX",
+    "P"."FIRST_NAME",
+    "PT"."NAME",
+    "R"."CREATED_AT"
+FROM (
+    SELECT
+        "HN"."ID",
+        "HN"."HIERARCHY_ID",
+        "HN"."NODE_ID",
+        "E"."START_VERTEX",
+        "E"."CREATED_AT"
+    FROM "PUBLIC"."HIERARCHY_NODE" "HN"
+    LEFT OUTER JOIN "PUBLIC"."HIERARCHY" "H"
+        ON "H"."ID" = "HN"."HIERARCHY_ID"
+    LEFT OUTER JOIN "PUBLIC"."HIERARCHY_EDGE" "E"
+        ON ("E"."HIERARCHY_ID" = "H"."ID")
+        AND ("E"."END_VERTEX" = "HN"."NODE_ID")
+        AND ("E"."HOPS" = 2)
+        AND ("E"."IS_DELETED" = FALSE)
+    WHERE "HN"."IS_DELETED" = FALSE
+) "R"
+    /* SELECT
+        HN.ID,
+        HN.HIERARCHY_ID,
+        HN.NODE_ID,
+        E.START_VERTEX,
+        E.CREATED_AT
+    FROM PUBLIC.HIERARCHY_NODE HN
+        /* PUBLIC.HIERARCHY_NODE.tableScan */
+        /* WHERE HN.IS_DELETED = FALSE
+        */
+    LEFT OUTER JOIN PUBLIC.HIERARCHY H
+        /* PUBLIC.PRIMARY_KEY_2: ID = HN.HIERARCHY_ID */
+        ON H.ID = HN.HIERARCHY_ID
+    LEFT OUTER JOIN PUBLIC.HIERARCHY_EDGE E
+        /* PUBLIC.CONSTRAINT_INDEX_8: HOPS = 2
+            AND HIERARCHY_ID = H.ID
+            AND END_VERTEX = HN.NODE_ID
+         */
+        ON (E.HOPS = 2)
+        AND (E.IS_DELETED = FALSE)
+        AND (E.HIERARCHY_ID = H.ID)
+        AND (E.END_VERTEX = HN.NODE_ID)
+    WHERE HN.IS_DELETED = FALSE
+     */
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "C"
+    /* PUBLIC.PRIMARY_KEY_1: ID = R.NODE_ID */
+    ON ("C"."IS_DELETED" = FALSE)
+    AND ("C"."ID" = "R"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "CT"
+    /* PUBLIC.PRIMARY_KEY_D: ID = C.TYPE_ID */
+    ON "CT"."ID" = "C"."TYPE_ID"
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "P"
+    /* PUBLIC.PRIMARY_KEY_1: ID = R.START_VERTEX */
+    ON ("P"."IS_DELETED" = FALSE)
+    AND ("P"."ID" = "R"."START_VERTEX")
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "PT"
+    /* PUBLIC.PRIMARY_KEY_D: ID = P.TYPE_ID */
+    ON "PT"."ID" = "P"."TYPE_ID"
+ORDER BY 1
+FETCH FIRST ?1 ROWS ONLY
+
+### H2 | A.4/page of 20 | lib: entity join, referenced (Details) | all hierarchies
+-- select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,n1_0.first_name,t1_0.name,cte01_0.mq_startVertex,p1_0.first_name,t2_0.name,cte01_0.mq_createdAt from hierarchy_node hn1_0 left join (select he1_0.hierarchy_id c0,he1_0.end_vertex c1,max(he1_0.start_vertex) c2,max(he1_0.created_at) c3 from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by c0,c1) cte01_0(mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) on cte01_0.mq_hierarchyId=hn1_0.hierarchy_id and cte01_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=cte01_0.mq_startVertex and p1_0.is_deleted<>? left join profile n1_0 on n1_0.id=hn1_0.node_id and n1_0.is_deleted<>? left join profile_type t1_0 on t1_0.id=n1_0.type_id left join profile_type t2_0 on t2_0.id=p1_0.type_id where hn1_0.is_deleted<>? order by 1 fetch first ? rows only || 2, true, true, true, true, 20
+SELECT
+    "HN1_0"."ID",
+    "HN1_0"."HIERARCHY_ID",
+    "HN1_0"."NODE_ID",
+    "N1_0"."FIRST_NAME",
+    "T1_0"."NAME",
+    "CTE01_0"."MQ_STARTVERTEX",
+    "P1_0"."FIRST_NAME",
+    "T2_0"."NAME",
+    "CTE01_0"."MQ_CREATEDAT"
+FROM "PUBLIC"."HIERARCHY_NODE" "HN1_0"
+    /* PUBLIC.PRIMARY_KEY_80 */
+    /* WHERE HN1_0.IS_DELETED <> ?5
+    */
+LEFT OUTER JOIN (
+    SELECT
+        "HE1_0"."HIERARCHY_ID" AS "C0",
+        "HE1_0"."END_VERTEX" AS "C1",
+        MAX("HE1_0"."START_VERTEX") AS "C2",
+        MAX("HE1_0"."CREATED_AT") AS "C3"
+    FROM "PUBLIC"."HIERARCHY_EDGE" "HE1_0"
+    WHERE ("HE1_0"."HOPS" = ?1)
+        AND ("HE1_0"."IS_DELETED" <> ?2)
+    GROUP BY "HE1_0"."HIERARCHY_ID", "HE1_0"."END_VERTEX"
+) "CTE01_0"("MQ_HIERARCHYID", "MQ_ENDVERTEX", "MQ_STARTVERTEX", "MQ_CREATEDAT")
+    /* SELECT
+        HE1_0.HIERARCHY_ID AS C0,
+        HE1_0.END_VERTEX AS C1,
+        MAX(HE1_0.START_VERTEX) AS C2,
+        MAX(HE1_0.CREATED_AT) AS C3
+    FROM PUBLIC.HIERARCHY_EDGE HE1_0
+        /* PUBLIC.CONSTRAINT_INDEX_8: HOPS = ?1
+            AND HIERARCHY_ID IS NOT DISTINCT FROM ?7
+            AND END_VERTEX IS NOT DISTINCT FROM ?8
+         */
+    WHERE ((HE1_0.HOPS = ?1)
+        AND (HE1_0.IS_DELETED <> ?2))
+        _LOCAL_AND_GLOBAL_ ((HE1_0.HIERARCHY_ID IS NOT DISTINCT FROM ?7)
+        AND (HE1_0.END_VERTEX IS NOT DISTINCT FROM ?8))
+    GROUP BY HE1_0.HIERARCHY_ID, HE1_0.END_VERTEX
+    /* group sorted */: MQ_HIERARCHYID = HN1_0.HIERARCHY_ID
+        AND MQ_ENDVERTEX = HN1_0.NODE_ID
+     */
+    ON ("CTE01_0"."MQ_HIERARCHYID" = "HN1_0"."HIERARCHY_ID")
+    AND ("CTE01_0"."MQ_ENDVERTEX" = "HN1_0"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "P1_0"
+    /* PUBLIC.PRIMARY_KEY_1: ID = CTE01_0.MQ_STARTVERTEX */
+    ON ("P1_0"."IS_DELETED" <> ?3)
+    AND ("P1_0"."ID" = "CTE01_0"."MQ_STARTVERTEX")
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "N1_0"
+    /* PUBLIC.PRIMARY_KEY_1: ID = HN1_0.NODE_ID */
+    ON ("N1_0"."IS_DELETED" <> ?4)
+    AND ("N1_0"."ID" = "HN1_0"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "T1_0"
+    /* PUBLIC.PRIMARY_KEY_D: ID = N1_0.TYPE_ID */
+    ON "T1_0"."ID" = "N1_0"."TYPE_ID"
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "T2_0"
+    /* PUBLIC.PRIMARY_KEY_D: ID = P1_0.TYPE_ID */
+    ON "T2_0"."ID" = "P1_0"."TYPE_ID"
+WHERE "HN1_0"."IS_DELETED" <> ?5
+ORDER BY 1
+FETCH FIRST ?6 ROWS ONLY
+/* index sorted */
+
+### H2 | A.4/page of 20 | lib: no manager columns, entity join attached (3 columns read) | all hierarchies
+-- select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,cte01_0.mq_startVertex,cte01_0.mq_createdAt from hierarchy_node hn1_0 left join (select he1_0.hierarchy_id c0,he1_0.end_vertex c1,max(he1_0.start_vertex) c2,max(he1_0.created_at) c3 from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by c0,c1) cte01_0(mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) on cte01_0.mq_hierarchyId=hn1_0.hierarchy_id and cte01_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=cte01_0.mq_startVertex and p1_0.is_deleted<>? where hn1_0.is_deleted<>? order by 1 fetch first ? rows only || 2, true, true, true, 20
+SELECT
+    "HN1_0"."ID",
+    "HN1_0"."HIERARCHY_ID",
+    "HN1_0"."NODE_ID",
+    "CTE01_0"."MQ_STARTVERTEX",
+    "CTE01_0"."MQ_CREATEDAT"
+FROM "PUBLIC"."HIERARCHY_NODE" "HN1_0"
+    /* PUBLIC.PRIMARY_KEY_80 */
+    /* WHERE HN1_0.IS_DELETED <> ?4
+    */
+LEFT OUTER JOIN (
+    SELECT
+        "HE1_0"."HIERARCHY_ID" AS "C0",
+        "HE1_0"."END_VERTEX" AS "C1",
+        MAX("HE1_0"."START_VERTEX") AS "C2",
+        MAX("HE1_0"."CREATED_AT") AS "C3"
+    FROM "PUBLIC"."HIERARCHY_EDGE" "HE1_0"
+    WHERE ("HE1_0"."HOPS" = ?1)
+        AND ("HE1_0"."IS_DELETED" <> ?2)
+    GROUP BY "HE1_0"."HIERARCHY_ID", "HE1_0"."END_VERTEX"
+) "CTE01_0"("MQ_HIERARCHYID", "MQ_ENDVERTEX", "MQ_STARTVERTEX", "MQ_CREATEDAT")
+    /* SELECT
+        HE1_0.HIERARCHY_ID AS C0,
+        HE1_0.END_VERTEX AS C1,
+        MAX(HE1_0.START_VERTEX) AS C2,
+        MAX(HE1_0.CREATED_AT) AS C3
+    FROM PUBLIC.HIERARCHY_EDGE HE1_0
+        /* PUBLIC.CONSTRAINT_INDEX_8: HOPS = ?1
+            AND HIERARCHY_ID IS NOT DISTINCT FROM ?6
+            AND END_VERTEX IS NOT DISTINCT FROM ?7
+         */
+    WHERE ((HE1_0.HOPS = ?1)
+        AND (HE1_0.IS_DELETED <> ?2))
+        _LOCAL_AND_GLOBAL_ ((HE1_0.HIERARCHY_ID IS NOT DISTINCT FROM ?6)
+        AND (HE1_0.END_VERTEX IS NOT DISTINCT FROM ?7))
+    GROUP BY HE1_0.HIERARCHY_ID, HE1_0.END_VERTEX
+    /* group sorted */: MQ_HIERARCHYID = HN1_0.HIERARCHY_ID
+        AND MQ_ENDVERTEX = HN1_0.NODE_ID
+     */
+    ON ("CTE01_0"."MQ_HIERARCHYID" = "HN1_0"."HIERARCHY_ID")
+    AND ("CTE01_0"."MQ_ENDVERTEX" = "HN1_0"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "P1_0"
+    /* PUBLIC.PRIMARY_KEY_1: ID = CTE01_0.MQ_STARTVERTEX */
+    ON ("P1_0"."IS_DELETED" <> ?3)
+    AND ("P1_0"."ID" = "CTE01_0"."MQ_STARTVERTEX")
+WHERE "HN1_0"."IS_DELETED" <> ?4
+ORDER BY 1
+FETCH FIRST ?5 ROWS ONLY
+/* index sorted */
+
+### H2 | A.4/page of 20 | lib: unreferenced, no entity join | all hierarchies
+-- select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,cte01_0.mq_startVertex,cte01_0.mq_createdAt from hierarchy_node hn1_0 left join (select he1_0.hierarchy_id c0,he1_0.end_vertex c1,max(he1_0.start_vertex) c2,max(he1_0.created_at) c3 from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by c0,c1) cte01_0(mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) on cte01_0.mq_hierarchyId=hn1_0.hierarchy_id and cte01_0.mq_endVertex=hn1_0.node_id where hn1_0.is_deleted<>? order by 1 fetch first ? rows only || 2, true, true, 20
+SELECT
+    "HN1_0"."ID",
+    "HN1_0"."HIERARCHY_ID",
+    "HN1_0"."NODE_ID",
+    "CTE01_0"."MQ_STARTVERTEX",
+    "CTE01_0"."MQ_CREATEDAT"
+FROM "PUBLIC"."HIERARCHY_NODE" "HN1_0"
+    /* PUBLIC.PRIMARY_KEY_80 */
+    /* WHERE HN1_0.IS_DELETED <> ?3
+    */
+LEFT OUTER JOIN (
+    SELECT
+        "HE1_0"."HIERARCHY_ID" AS "C0",
+        "HE1_0"."END_VERTEX" AS "C1",
+        MAX("HE1_0"."START_VERTEX") AS "C2",
+        MAX("HE1_0"."CREATED_AT") AS "C3"
+    FROM "PUBLIC"."HIERARCHY_EDGE" "HE1_0"
+    WHERE ("HE1_0"."HOPS" = ?1)
+        AND ("HE1_0"."IS_DELETED" <> ?2)
+    GROUP BY "HE1_0"."HIERARCHY_ID", "HE1_0"."END_VERTEX"
+) "CTE01_0"("MQ_HIERARCHYID", "MQ_ENDVERTEX", "MQ_STARTVERTEX", "MQ_CREATEDAT")
+    /* SELECT
+        HE1_0.HIERARCHY_ID AS C0,
+        HE1_0.END_VERTEX AS C1,
+        MAX(HE1_0.START_VERTEX) AS C2,
+        MAX(HE1_0.CREATED_AT) AS C3
+    FROM PUBLIC.HIERARCHY_EDGE HE1_0
+        /* PUBLIC.CONSTRAINT_INDEX_8: HOPS = ?1
+            AND HIERARCHY_ID IS NOT DISTINCT FROM ?5
+            AND END_VERTEX IS NOT DISTINCT FROM ?6
+         */
+    WHERE ((HE1_0.HOPS = ?1)
+        AND (HE1_0.IS_DELETED <> ?2))
+        _LOCAL_AND_GLOBAL_ ((HE1_0.HIERARCHY_ID IS NOT DISTINCT FROM ?5)
+        AND (HE1_0.END_VERTEX IS NOT DISTINCT FROM ?6))
+    GROUP BY HE1_0.HIERARCHY_ID, HE1_0.END_VERTEX
+    /* group sorted */: MQ_HIERARCHYID = HN1_0.HIERARCHY_ID
+        AND MQ_ENDVERTEX = HN1_0.NODE_ID
+     */
+    ON ("CTE01_0"."MQ_HIERARCHYID" = "HN1_0"."HIERARCHY_ID")
+    AND ("CTE01_0"."MQ_ENDVERTEX" = "HN1_0"."NODE_ID")
+WHERE "HN1_0"."IS_DELETED" <> ?3
+ORDER BY 1
+FETCH FIRST ?4 ROWS ONLY
+/* index sorted */
+
+### H2 | A.4/page of 20 | lib: Details without the manager (no entity join, null columns) | all hierarchies
+-- select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,n1_0.first_name,t1_0.name,cte01_0.mq_startVertex,null,null,cte01_0.mq_createdAt from hierarchy_node hn1_0 left join (select he1_0.hierarchy_id c0,he1_0.end_vertex c1,max(he1_0.start_vertex) c2,max(he1_0.created_at) c3 from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by c0,c1) cte01_0(mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) on cte01_0.mq_hierarchyId=hn1_0.hierarchy_id and cte01_0.mq_endVertex=hn1_0.node_id left join profile n1_0 on n1_0.id=hn1_0.node_id and n1_0.is_deleted<>? left join profile_type t1_0 on t1_0.id=n1_0.type_id where hn1_0.is_deleted<>? order by 1 fetch first ? rows only || 2, true, true, true, 20
+SELECT
+    "HN1_0"."ID",
+    "HN1_0"."HIERARCHY_ID",
+    "HN1_0"."NODE_ID",
+    "N1_0"."FIRST_NAME",
+    "T1_0"."NAME",
+    "CTE01_0"."MQ_STARTVERTEX",
+    NULL,
+    NULL,
+    "CTE01_0"."MQ_CREATEDAT"
+FROM "PUBLIC"."HIERARCHY_NODE" "HN1_0"
+    /* PUBLIC.PRIMARY_KEY_80 */
+    /* WHERE HN1_0.IS_DELETED <> ?4
+    */
+LEFT OUTER JOIN (
+    SELECT
+        "HE1_0"."HIERARCHY_ID" AS "C0",
+        "HE1_0"."END_VERTEX" AS "C1",
+        MAX("HE1_0"."START_VERTEX") AS "C2",
+        MAX("HE1_0"."CREATED_AT") AS "C3"
+    FROM "PUBLIC"."HIERARCHY_EDGE" "HE1_0"
+    WHERE ("HE1_0"."HOPS" = ?1)
+        AND ("HE1_0"."IS_DELETED" <> ?2)
+    GROUP BY "HE1_0"."HIERARCHY_ID", "HE1_0"."END_VERTEX"
+) "CTE01_0"("MQ_HIERARCHYID", "MQ_ENDVERTEX", "MQ_STARTVERTEX", "MQ_CREATEDAT")
+    /* SELECT
+        HE1_0.HIERARCHY_ID AS C0,
+        HE1_0.END_VERTEX AS C1,
+        MAX(HE1_0.START_VERTEX) AS C2,
+        MAX(HE1_0.CREATED_AT) AS C3
+    FROM PUBLIC.HIERARCHY_EDGE HE1_0
+        /* PUBLIC.CONSTRAINT_INDEX_8: HOPS = ?1
+            AND HIERARCHY_ID IS NOT DISTINCT FROM ?6
+            AND END_VERTEX IS NOT DISTINCT FROM ?7
+         */
+    WHERE ((HE1_0.HOPS = ?1)
+        AND (HE1_0.IS_DELETED <> ?2))
+        _LOCAL_AND_GLOBAL_ ((HE1_0.HIERARCHY_ID IS NOT DISTINCT FROM ?6)
+        AND (HE1_0.END_VERTEX IS NOT DISTINCT FROM ?7))
+    GROUP BY HE1_0.HIERARCHY_ID, HE1_0.END_VERTEX
+    /* group sorted */: MQ_HIERARCHYID = HN1_0.HIERARCHY_ID
+        AND MQ_ENDVERTEX = HN1_0.NODE_ID
+     */
+    ON ("CTE01_0"."MQ_HIERARCHYID" = "HN1_0"."HIERARCHY_ID")
+    AND ("CTE01_0"."MQ_ENDVERTEX" = "HN1_0"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "N1_0"
+    /* PUBLIC.PRIMARY_KEY_1: ID = HN1_0.NODE_ID */
+    ON ("N1_0"."IS_DELETED" <> ?3)
+    AND ("N1_0"."ID" = "HN1_0"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "T1_0"
+    /* PUBLIC.PRIMARY_KEY_D: ID = N1_0.TYPE_ID */
+    ON "T1_0"."ID" = "N1_0"."TYPE_ID"
+WHERE "HN1_0"."IS_DELETED" <> ?4
+ORDER BY 1
+FETCH FIRST ?5 ROWS ONLY
+/* index sorted */
+
+### H2 | A.4/count | native | all hierarchies
+-- SELECT count(*) FROM (SELECT hn.id, hn.hierarchy_id, hn.node_id, e.start_vertex, e.created_at FROM hierarchy_node hn LEFT JOIN hierarchy h ON h.id = hn.hierarchy_id LEFT JOIN hierarchy_edge e ON e.hierarchy_id = h.id AND e.end_vertex = hn.node_id AND e.hops = 2 AND e.is_deleted = false WHERE 1 = 1 AND hn.is_deleted = false) r LEFT JOIN profile c ON c.id = r.node_id AND c.is_deleted = false LEFT JOIN profile_type ct ON ct.id = c.type_id LEFT JOIN profile p ON p.id = r.start_vertex AND p.is_deleted = false LEFT JOIN profile_type pt ON pt.id = p.type_id
+SELECT
+    COUNT(*)
+FROM (
+    SELECT
+        "HN"."ID",
+        "HN"."HIERARCHY_ID",
+        "HN"."NODE_ID",
+        "E"."START_VERTEX",
+        "E"."CREATED_AT"
+    FROM "PUBLIC"."HIERARCHY_NODE" "HN"
+    LEFT OUTER JOIN "PUBLIC"."HIERARCHY" "H"
+        ON "H"."ID" = "HN"."HIERARCHY_ID"
+    LEFT OUTER JOIN "PUBLIC"."HIERARCHY_EDGE" "E"
+        ON ("E"."HIERARCHY_ID" = "H"."ID")
+        AND ("E"."END_VERTEX" = "HN"."NODE_ID")
+        AND ("E"."HOPS" = 2)
+        AND ("E"."IS_DELETED" = FALSE)
+    WHERE "HN"."IS_DELETED" = FALSE
+) "R"
+    /* SELECT
+        HN.ID,
+        HN.HIERARCHY_ID,
+        HN.NODE_ID,
+        E.START_VERTEX,
+        E.CREATED_AT
+    FROM PUBLIC.HIERARCHY_NODE HN
+        /* PUBLIC.HIERARCHY_NODE.tableScan */
+        /* WHERE HN.IS_DELETED = FALSE
+        */
+    LEFT OUTER JOIN PUBLIC.HIERARCHY H
+        /* PUBLIC.PRIMARY_KEY_2: ID = HN.HIERARCHY_ID */
+        ON H.ID = HN.HIERARCHY_ID
+    LEFT OUTER JOIN PUBLIC.HIERARCHY_EDGE E
+        /* PUBLIC.CONSTRAINT_INDEX_8: HOPS = 2
+            AND HIERARCHY_ID = H.ID
+            AND END_VERTEX = HN.NODE_ID
+         */
+        ON (E.HOPS = 2)
+        AND (E.IS_DELETED = FALSE)
+        AND (E.HIERARCHY_ID = H.ID)
+        AND (E.END_VERTEX = HN.NODE_ID)
+    WHERE HN.IS_DELETED = FALSE
+     */
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "C"
+    /* PUBLIC.PRIMARY_KEY_1: ID = R.NODE_ID */
+    ON ("C"."IS_DELETED" = FALSE)
+    AND ("C"."ID" = "R"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "CT"
+    /* PUBLIC.PRIMARY_KEY_D: ID = C.TYPE_ID */
+    ON "CT"."ID" = "C"."TYPE_ID"
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "P"
+    /* PUBLIC.PRIMARY_KEY_1: ID = R.START_VERTEX */
+    ON ("P"."IS_DELETED" = FALSE)
+    AND ("P"."ID" = "R"."START_VERTEX")
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "PT"
+    /* PUBLIC.PRIMARY_KEY_D: ID = P.TYPE_ID */
+    ON "PT"."ID" = "P"."TYPE_ID"
+
+### H2 | A.4/count | lib: count, entity join attached unreferenced | all hierarchies
+-- select count(hn1_0.id) from hierarchy_node hn1_0 left join (select he1_0.hierarchy_id c0,he1_0.end_vertex c1,max(he1_0.start_vertex) c2,max(he1_0.created_at) c3 from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by c0,c1) cte01_0(mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) on cte01_0.mq_hierarchyId=hn1_0.hierarchy_id and cte01_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=cte01_0.mq_startVertex and p1_0.is_deleted<>? where hn1_0.is_deleted<>? || 2, true, true, true
+SELECT
+    COUNT("HN1_0"."ID")
+FROM "PUBLIC"."HIERARCHY_NODE" "HN1_0"
+    /* PUBLIC.HIERARCHY_NODE.tableScan */
+    /* WHERE HN1_0.IS_DELETED <> ?4
+    */
+LEFT OUTER JOIN (
+    SELECT
+        "HE1_0"."HIERARCHY_ID" AS "C0",
+        "HE1_0"."END_VERTEX" AS "C1",
+        MAX("HE1_0"."START_VERTEX") AS "C2",
+        MAX("HE1_0"."CREATED_AT") AS "C3"
+    FROM "PUBLIC"."HIERARCHY_EDGE" "HE1_0"
+    WHERE ("HE1_0"."HOPS" = ?1)
+        AND ("HE1_0"."IS_DELETED" <> ?2)
+    GROUP BY "HE1_0"."HIERARCHY_ID", "HE1_0"."END_VERTEX"
+) "CTE01_0"("MQ_HIERARCHYID", "MQ_ENDVERTEX", "MQ_STARTVERTEX", "MQ_CREATEDAT")
+    /* SELECT
+        HE1_0.HIERARCHY_ID AS C0,
+        HE1_0.END_VERTEX AS C1,
+        MAX(HE1_0.START_VERTEX) AS C2,
+        MAX(HE1_0.CREATED_AT) AS C3
+    FROM PUBLIC.HIERARCHY_EDGE HE1_0
+        /* PUBLIC.CONSTRAINT_INDEX_8: HOPS = ?1
+            AND HIERARCHY_ID IS NOT DISTINCT FROM ?5
+            AND END_VERTEX IS NOT DISTINCT FROM ?6
+         */
+    WHERE ((HE1_0.HOPS = ?1)
+        AND (HE1_0.IS_DELETED <> ?2))
+        _LOCAL_AND_GLOBAL_ ((HE1_0.HIERARCHY_ID IS NOT DISTINCT FROM ?5)
+        AND (HE1_0.END_VERTEX IS NOT DISTINCT FROM ?6))
+    GROUP BY HE1_0.HIERARCHY_ID, HE1_0.END_VERTEX
+    /* group sorted */: MQ_HIERARCHYID = HN1_0.HIERARCHY_ID
+        AND MQ_ENDVERTEX = HN1_0.NODE_ID
+     */
+    ON ("CTE01_0"."MQ_HIERARCHYID" = "HN1_0"."HIERARCHY_ID")
+    AND ("CTE01_0"."MQ_ENDVERTEX" = "HN1_0"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "P1_0"
+    /* PUBLIC.PRIMARY_KEY_1: ID = CTE01_0.MQ_STARTVERTEX */
+    ON ("P1_0"."IS_DELETED" <> ?3)
+    AND ("P1_0"."ID" = "CTE01_0"."MQ_STARTVERTEX")
+WHERE "HN1_0"."IS_DELETED" <> ?4
+
+### H2 | A.4/count | lib: count, no entity join | all hierarchies
+-- select count(hn1_0.id) from hierarchy_node hn1_0 left join (select he1_0.hierarchy_id c0,he1_0.end_vertex c1,max(he1_0.start_vertex) c2,max(he1_0.created_at) c3 from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by c0,c1) cte01_0(mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) on cte01_0.mq_hierarchyId=hn1_0.hierarchy_id and cte01_0.mq_endVertex=hn1_0.node_id where hn1_0.is_deleted<>? || 2, true, true
+SELECT
+    COUNT("HN1_0"."ID")
+FROM "PUBLIC"."HIERARCHY_NODE" "HN1_0"
+    /* PUBLIC.HIERARCHY_NODE.tableScan */
+    /* WHERE HN1_0.IS_DELETED <> ?3
+    */
+LEFT OUTER JOIN (
+    SELECT
+        "HE1_0"."HIERARCHY_ID" AS "C0",
+        "HE1_0"."END_VERTEX" AS "C1",
+        MAX("HE1_0"."START_VERTEX") AS "C2",
+        MAX("HE1_0"."CREATED_AT") AS "C3"
+    FROM "PUBLIC"."HIERARCHY_EDGE" "HE1_0"
+    WHERE ("HE1_0"."HOPS" = ?1)
+        AND ("HE1_0"."IS_DELETED" <> ?2)
+    GROUP BY "HE1_0"."HIERARCHY_ID", "HE1_0"."END_VERTEX"
+) "CTE01_0"("MQ_HIERARCHYID", "MQ_ENDVERTEX", "MQ_STARTVERTEX", "MQ_CREATEDAT")
+    /* SELECT
+        HE1_0.HIERARCHY_ID AS C0,
+        HE1_0.END_VERTEX AS C1,
+        MAX(HE1_0.START_VERTEX) AS C2,
+        MAX(HE1_0.CREATED_AT) AS C3
+    FROM PUBLIC.HIERARCHY_EDGE HE1_0
+        /* PUBLIC.CONSTRAINT_INDEX_8: HOPS = ?1
+            AND HIERARCHY_ID IS NOT DISTINCT FROM ?4
+            AND END_VERTEX IS NOT DISTINCT FROM ?5
+         */
+    WHERE ((HE1_0.HOPS = ?1)
+        AND (HE1_0.IS_DELETED <> ?2))
+        _LOCAL_AND_GLOBAL_ ((HE1_0.HIERARCHY_ID IS NOT DISTINCT FROM ?4)
+        AND (HE1_0.END_VERTEX IS NOT DISTINCT FROM ?5))
+    GROUP BY HE1_0.HIERARCHY_ID, HE1_0.END_VERTEX
+    /* group sorted */: MQ_HIERARCHYID = HN1_0.HIERARCHY_ID
+        AND MQ_ENDVERTEX = HN1_0.NODE_ID
+     */
+    ON ("CTE01_0"."MQ_HIERARCHYID" = "HN1_0"."HIERARCHY_ID")
+    AND ("CTE01_0"."MQ_ENDVERTEX" = "HN1_0"."NODE_ID")
+WHERE "HN1_0"."IS_DELETED" <> ?3
+
+### H2 | A.4/full export | native | all hierarchies
+-- SELECT r.id, r.hierarchy_id, r.node_id, c.first_name, ct.name, r.start_vertex, p.first_name, pt.name, r.created_at FROM (SELECT hn.id, hn.hierarchy_id, hn.node_id, e.start_vertex, e.created_at FROM hierarchy_node hn LEFT JOIN hierarchy h ON h.id = hn.hierarchy_id LEFT JOIN hierarchy_edge e ON e.hierarchy_id = h.id AND e.end_vertex = hn.node_id AND e.hops = 2 AND e.is_deleted = false WHERE 1 = 1 AND hn.is_deleted = false) r LEFT JOIN profile c ON c.id = r.node_id AND c.is_deleted = false LEFT JOIN profile_type ct ON ct.id = c.type_id LEFT JOIN profile p ON p.id = r.start_vertex AND p.is_deleted = false LEFT JOIN profile_type pt ON pt.id = p.type_id ORDER BY r.id
+SELECT
+    "R"."ID",
+    "R"."HIERARCHY_ID",
+    "R"."NODE_ID",
+    "C"."FIRST_NAME",
+    "CT"."NAME",
+    "R"."START_VERTEX",
+    "P"."FIRST_NAME",
+    "PT"."NAME",
+    "R"."CREATED_AT"
+FROM (
+    SELECT
+        "HN"."ID",
+        "HN"."HIERARCHY_ID",
+        "HN"."NODE_ID",
+        "E"."START_VERTEX",
+        "E"."CREATED_AT"
+    FROM "PUBLIC"."HIERARCHY_NODE" "HN"
+    LEFT OUTER JOIN "PUBLIC"."HIERARCHY" "H"
+        ON "H"."ID" = "HN"."HIERARCHY_ID"
+    LEFT OUTER JOIN "PUBLIC"."HIERARCHY_EDGE" "E"
+        ON ("E"."HIERARCHY_ID" = "H"."ID")
+        AND ("E"."END_VERTEX" = "HN"."NODE_ID")
+        AND ("E"."HOPS" = 2)
+        AND ("E"."IS_DELETED" = FALSE)
+    WHERE "HN"."IS_DELETED" = FALSE
+) "R"
+    /* SELECT
+        HN.ID,
+        HN.HIERARCHY_ID,
+        HN.NODE_ID,
+        E.START_VERTEX,
+        E.CREATED_AT
+    FROM PUBLIC.HIERARCHY_NODE HN
+        /* PUBLIC.HIERARCHY_NODE.tableScan */
+        /* WHERE HN.IS_DELETED = FALSE
+        */
+    LEFT OUTER JOIN PUBLIC.HIERARCHY H
+        /* PUBLIC.PRIMARY_KEY_2: ID = HN.HIERARCHY_ID */
+        ON H.ID = HN.HIERARCHY_ID
+    LEFT OUTER JOIN PUBLIC.HIERARCHY_EDGE E
+        /* PUBLIC.CONSTRAINT_INDEX_8: HOPS = 2
+            AND HIERARCHY_ID = H.ID
+            AND END_VERTEX = HN.NODE_ID
+         */
+        ON (E.HOPS = 2)
+        AND (E.IS_DELETED = FALSE)
+        AND (E.HIERARCHY_ID = H.ID)
+        AND (E.END_VERTEX = HN.NODE_ID)
+    WHERE HN.IS_DELETED = FALSE
+     */
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "C"
+    /* PUBLIC.PRIMARY_KEY_1: ID = R.NODE_ID */
+    ON ("C"."IS_DELETED" = FALSE)
+    AND ("C"."ID" = "R"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "CT"
+    /* PUBLIC.PRIMARY_KEY_D: ID = C.TYPE_ID */
+    ON "CT"."ID" = "C"."TYPE_ID"
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "P"
+    /* PUBLIC.PRIMARY_KEY_1: ID = R.START_VERTEX */
+    ON ("P"."IS_DELETED" = FALSE)
+    AND ("P"."ID" = "R"."START_VERTEX")
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "PT"
+    /* PUBLIC.PRIMARY_KEY_D: ID = P.TYPE_ID */
+    ON "PT"."ID" = "P"."TYPE_ID"
+ORDER BY 1
+
+### H2 | A.4/full export | lib: entity join, referenced (Details) | all hierarchies
+-- select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,n1_0.first_name,t1_0.name,cte01_0.mq_startVertex,p1_0.first_name,t2_0.name,cte01_0.mq_createdAt from hierarchy_node hn1_0 left join (select he1_0.hierarchy_id c0,he1_0.end_vertex c1,max(he1_0.start_vertex) c2,max(he1_0.created_at) c3 from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by c0,c1) cte01_0(mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) on cte01_0.mq_hierarchyId=hn1_0.hierarchy_id and cte01_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=cte01_0.mq_startVertex and p1_0.is_deleted<>? left join profile n1_0 on n1_0.id=hn1_0.node_id and n1_0.is_deleted<>? left join profile_type t1_0 on t1_0.id=n1_0.type_id left join profile_type t2_0 on t2_0.id=p1_0.type_id where hn1_0.is_deleted<>? order by 1 || 2, true, true, true, true
+SELECT
+    "HN1_0"."ID",
+    "HN1_0"."HIERARCHY_ID",
+    "HN1_0"."NODE_ID",
+    "N1_0"."FIRST_NAME",
+    "T1_0"."NAME",
+    "CTE01_0"."MQ_STARTVERTEX",
+    "P1_0"."FIRST_NAME",
+    "T2_0"."NAME",
+    "CTE01_0"."MQ_CREATEDAT"
+FROM "PUBLIC"."HIERARCHY_NODE" "HN1_0"
+    /* PUBLIC.PRIMARY_KEY_80 */
+    /* WHERE HN1_0.IS_DELETED <> ?5
+    */
+LEFT OUTER JOIN (
+    SELECT
+        "HE1_0"."HIERARCHY_ID" AS "C0",
+        "HE1_0"."END_VERTEX" AS "C1",
+        MAX("HE1_0"."START_VERTEX") AS "C2",
+        MAX("HE1_0"."CREATED_AT") AS "C3"
+    FROM "PUBLIC"."HIERARCHY_EDGE" "HE1_0"
+    WHERE ("HE1_0"."HOPS" = ?1)
+        AND ("HE1_0"."IS_DELETED" <> ?2)
+    GROUP BY "HE1_0"."HIERARCHY_ID", "HE1_0"."END_VERTEX"
+) "CTE01_0"("MQ_HIERARCHYID", "MQ_ENDVERTEX", "MQ_STARTVERTEX", "MQ_CREATEDAT")
+    /* SELECT
+        HE1_0.HIERARCHY_ID AS C0,
+        HE1_0.END_VERTEX AS C1,
+        MAX(HE1_0.START_VERTEX) AS C2,
+        MAX(HE1_0.CREATED_AT) AS C3
+    FROM PUBLIC.HIERARCHY_EDGE HE1_0
+        /* PUBLIC.CONSTRAINT_INDEX_8: HOPS = ?1
+            AND HIERARCHY_ID IS NOT DISTINCT FROM ?6
+            AND END_VERTEX IS NOT DISTINCT FROM ?7
+         */
+    WHERE ((HE1_0.HOPS = ?1)
+        AND (HE1_0.IS_DELETED <> ?2))
+        _LOCAL_AND_GLOBAL_ ((HE1_0.HIERARCHY_ID IS NOT DISTINCT FROM ?6)
+        AND (HE1_0.END_VERTEX IS NOT DISTINCT FROM ?7))
+    GROUP BY HE1_0.HIERARCHY_ID, HE1_0.END_VERTEX
+    /* group sorted */: MQ_HIERARCHYID = HN1_0.HIERARCHY_ID
+        AND MQ_ENDVERTEX = HN1_0.NODE_ID
+     */
+    ON ("CTE01_0"."MQ_HIERARCHYID" = "HN1_0"."HIERARCHY_ID")
+    AND ("CTE01_0"."MQ_ENDVERTEX" = "HN1_0"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "P1_0"
+    /* PUBLIC.PRIMARY_KEY_1: ID = CTE01_0.MQ_STARTVERTEX */
+    ON ("P1_0"."IS_DELETED" <> ?3)
+    AND ("P1_0"."ID" = "CTE01_0"."MQ_STARTVERTEX")
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "N1_0"
+    /* PUBLIC.PRIMARY_KEY_1: ID = HN1_0.NODE_ID */
+    ON ("N1_0"."IS_DELETED" <> ?4)
+    AND ("N1_0"."ID" = "HN1_0"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "T1_0"
+    /* PUBLIC.PRIMARY_KEY_D: ID = N1_0.TYPE_ID */
+    ON "T1_0"."ID" = "N1_0"."TYPE_ID"
+LEFT OUTER JOIN "PUBLIC"."PROFILE_TYPE" "T2_0"
+    /* PUBLIC.PRIMARY_KEY_D: ID = P1_0.TYPE_ID */
+    ON "T2_0"."ID" = "P1_0"."TYPE_ID"
+WHERE "HN1_0"."IS_DELETED" <> ?5
+ORDER BY 1
+/* index sorted */
+
+### H2 | A.4/full export | lib: unreferenced, entity join attached | all hierarchies
+-- select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,cte01_0.mq_startVertex,cte01_0.mq_createdAt from hierarchy_node hn1_0 left join (select he1_0.hierarchy_id c0,he1_0.end_vertex c1,max(he1_0.start_vertex) c2,max(he1_0.created_at) c3 from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by c0,c1) cte01_0(mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) on cte01_0.mq_hierarchyId=hn1_0.hierarchy_id and cte01_0.mq_endVertex=hn1_0.node_id left join profile p1_0 on p1_0.id=cte01_0.mq_startVertex and p1_0.is_deleted<>? where hn1_0.is_deleted<>? order by 1 || 2, true, true, true
+SELECT
+    "HN1_0"."ID",
+    "HN1_0"."HIERARCHY_ID",
+    "HN1_0"."NODE_ID",
+    "CTE01_0"."MQ_STARTVERTEX",
+    "CTE01_0"."MQ_CREATEDAT"
+FROM "PUBLIC"."HIERARCHY_NODE" "HN1_0"
+    /* PUBLIC.PRIMARY_KEY_80 */
+    /* WHERE HN1_0.IS_DELETED <> ?4
+    */
+LEFT OUTER JOIN (
+    SELECT
+        "HE1_0"."HIERARCHY_ID" AS "C0",
+        "HE1_0"."END_VERTEX" AS "C1",
+        MAX("HE1_0"."START_VERTEX") AS "C2",
+        MAX("HE1_0"."CREATED_AT") AS "C3"
+    FROM "PUBLIC"."HIERARCHY_EDGE" "HE1_0"
+    WHERE ("HE1_0"."HOPS" = ?1)
+        AND ("HE1_0"."IS_DELETED" <> ?2)
+    GROUP BY "HE1_0"."HIERARCHY_ID", "HE1_0"."END_VERTEX"
+) "CTE01_0"("MQ_HIERARCHYID", "MQ_ENDVERTEX", "MQ_STARTVERTEX", "MQ_CREATEDAT")
+    /* SELECT
+        HE1_0.HIERARCHY_ID AS C0,
+        HE1_0.END_VERTEX AS C1,
+        MAX(HE1_0.START_VERTEX) AS C2,
+        MAX(HE1_0.CREATED_AT) AS C3
+    FROM PUBLIC.HIERARCHY_EDGE HE1_0
+        /* PUBLIC.CONSTRAINT_INDEX_8: HOPS = ?1
+            AND HIERARCHY_ID IS NOT DISTINCT FROM ?5
+            AND END_VERTEX IS NOT DISTINCT FROM ?6
+         */
+    WHERE ((HE1_0.HOPS = ?1)
+        AND (HE1_0.IS_DELETED <> ?2))
+        _LOCAL_AND_GLOBAL_ ((HE1_0.HIERARCHY_ID IS NOT DISTINCT FROM ?5)
+        AND (HE1_0.END_VERTEX IS NOT DISTINCT FROM ?6))
+    GROUP BY HE1_0.HIERARCHY_ID, HE1_0.END_VERTEX
+    /* group sorted */: MQ_HIERARCHYID = HN1_0.HIERARCHY_ID
+        AND MQ_ENDVERTEX = HN1_0.NODE_ID
+     */
+    ON ("CTE01_0"."MQ_HIERARCHYID" = "HN1_0"."HIERARCHY_ID")
+    AND ("CTE01_0"."MQ_ENDVERTEX" = "HN1_0"."NODE_ID")
+LEFT OUTER JOIN "PUBLIC"."PROFILE" "P1_0"
+    /* PUBLIC.PRIMARY_KEY_1: ID = CTE01_0.MQ_STARTVERTEX */
+    ON ("P1_0"."IS_DELETED" <> ?3)
+    AND ("P1_0"."ID" = "CTE01_0"."MQ_STARTVERTEX")
+WHERE "HN1_0"."IS_DELETED" <> ?4
+ORDER BY 1
+/* index sorted */
+
+### H2 | A.4/full export | lib: unreferenced, no entity join | all hierarchies
+-- select hn1_0.id,hn1_0.hierarchy_id,hn1_0.node_id,cte01_0.mq_startVertex,cte01_0.mq_createdAt from hierarchy_node hn1_0 left join (select he1_0.hierarchy_id c0,he1_0.end_vertex c1,max(he1_0.start_vertex) c2,max(he1_0.created_at) c3 from hierarchy_edge he1_0 where he1_0.hops=? and he1_0.is_deleted<>? group by c0,c1) cte01_0(mq_hierarchyId,mq_endVertex,mq_startVertex,mq_createdAt) on cte01_0.mq_hierarchyId=hn1_0.hierarchy_id and cte01_0.mq_endVertex=hn1_0.node_id where hn1_0.is_deleted<>? order by 1 || 2, true, true
+SELECT
+    "HN1_0"."ID",
+    "HN1_0"."HIERARCHY_ID",
+    "HN1_0"."NODE_ID",
+    "CTE01_0"."MQ_STARTVERTEX",
+    "CTE01_0"."MQ_CREATEDAT"
+FROM "PUBLIC"."HIERARCHY_NODE" "HN1_0"
+    /* PUBLIC.PRIMARY_KEY_80 */
+    /* WHERE HN1_0.IS_DELETED <> ?3
+    */
+LEFT OUTER JOIN (
+    SELECT
+        "HE1_0"."HIERARCHY_ID" AS "C0",
+        "HE1_0"."END_VERTEX" AS "C1",
+        MAX("HE1_0"."START_VERTEX") AS "C2",
+        MAX("HE1_0"."CREATED_AT") AS "C3"
+    FROM "PUBLIC"."HIERARCHY_EDGE" "HE1_0"
+    WHERE ("HE1_0"."HOPS" = ?1)
+        AND ("HE1_0"."IS_DELETED" <> ?2)
+    GROUP BY "HE1_0"."HIERARCHY_ID", "HE1_0"."END_VERTEX"
+) "CTE01_0"("MQ_HIERARCHYID", "MQ_ENDVERTEX", "MQ_STARTVERTEX", "MQ_CREATEDAT")
+    /* SELECT
+        HE1_0.HIERARCHY_ID AS C0,
+        HE1_0.END_VERTEX AS C1,
+        MAX(HE1_0.START_VERTEX) AS C2,
+        MAX(HE1_0.CREATED_AT) AS C3
+    FROM PUBLIC.HIERARCHY_EDGE HE1_0
+        /* PUBLIC.CONSTRAINT_INDEX_8: HOPS = ?1
+            AND HIERARCHY_ID IS NOT DISTINCT FROM ?4
+            AND END_VERTEX IS NOT DISTINCT FROM ?5
+         */
+    WHERE ((HE1_0.HOPS = ?1)
+        AND (HE1_0.IS_DELETED <> ?2))
+        _LOCAL_AND_GLOBAL_ ((HE1_0.HIERARCHY_ID IS NOT DISTINCT FROM ?4)
+        AND (HE1_0.END_VERTEX IS NOT DISTINCT FROM ?5))
+    GROUP BY HE1_0.HIERARCHY_ID, HE1_0.END_VERTEX
+    /* group sorted */: MQ_HIERARCHYID = HN1_0.HIERARCHY_ID
+        AND MQ_ENDVERTEX = HN1_0.NODE_ID
+     */
+    ON ("CTE01_0"."MQ_HIERARCHYID" = "HN1_0"."HIERARCHY_ID")
+    AND ("CTE01_0"."MQ_ENDVERTEX" = "HN1_0"."NODE_ID")
+WHERE "HN1_0"."IS_DELETED" <> ?3
+ORDER BY 1
+/* index sorted */
+

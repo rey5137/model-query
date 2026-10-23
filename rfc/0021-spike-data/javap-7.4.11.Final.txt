@@ -1,0 +1,46 @@
+# javap -public -s, hibernate-core 7.4.11.Final, jakarta.persistence-api 3.2.0
+
+## org.hibernate.query.criteria.JpaFrom
+public interface org.hibernate.query.criteria.JpaFrom<O, T> extends org.hibernate.query.criteria.JpaPath<T>, org.hibernate.query.criteria.JpaFetchParent<O, T>, jakarta.persistence.criteria.From<O, T> {
+  public abstract org.hibernate.query.criteria.JpaFrom<O, T> getCorrelationParent();
+  public abstract <Y> org.hibernate.query.criteria.JpaEntityJoin<T, Y> join(java.lang.Class<Y>);
+    descriptor: (Ljava/lang/Class;)Lorg/hibernate/query/criteria/JpaEntityJoin;
+  public abstract <Y> org.hibernate.query.criteria.JpaEntityJoin<T, Y> join(java.lang.Class<Y>, jakarta.persistence.criteria.JoinType);
+    descriptor: (Ljava/lang/Class;Ljakarta/persistence/criteria/JoinType;)Lorg/hibernate/query/criteria/JpaEntityJoin;
+  public default <X> org.hibernate.query.criteria.JpaEntityJoin<T, X> join(java.lang.Class<X>, org.hibernate.query.sqm.tree.SqmJoinType);
+    descriptor: (Ljava/lang/Class;Lorg/hibernate/query/sqm/tree/SqmJoinType;)Lorg/hibernate/query/criteria/JpaEntityJoin;
+  public default <X> org.hibernate.query.criteria.JpaEntityJoin<T, X> join(java.lang.Class<X>, org.hibernate.query.common.JoinType);
+    descriptor: (Ljava/lang/Class;Lorg/hibernate/query/common/JoinType;)Lorg/hibernate/query/criteria/JpaEntityJoin;
+  public abstract <X> org.hibernate.query.criteria.JpaEntityJoin<T, X> join(org.hibernate.metamodel.model.domain.EntityDomainType<X>);
+    descriptor: (Lorg/hibernate/metamodel/model/domain/EntityDomainType;)Lorg/hibernate/query/criteria/JpaEntityJoin;
+  public abstract <X> org.hibernate.query.criteria.JpaEntityJoin<T, X> join(org.hibernate.metamodel.model.domain.EntityDomainType<X>, org.hibernate.query.sqm.tree.SqmJoinType);
+    descriptor: (Lorg/hibernate/metamodel/model/domain/EntityDomainType;Lorg/hibernate/query/sqm/tree/SqmJoinType;)Lorg/hibernate/query/criteria/JpaEntityJoin;
+  public default <X> org.hibernate.query.criteria.JpaEntityJoin<T, X> join(org.hibernate.metamodel.model.domain.EntityDomainType<X>, org.hibernate.query.common.JoinType);
+    descriptor: (Lorg/hibernate/metamodel/model/domain/EntityDomainType;Lorg/hibernate/query/common/JoinType;)Lorg/hibernate/query/criteria/JpaEntityJoin;
+  public default jakarta.persistence.criteria.Join join(java.lang.Class, jakarta.persistence.criteria.JoinType);
+    descriptor: (Ljava/lang/Class;Ljakarta/persistence/criteria/JoinType;)Ljakarta/persistence/criteria/Join;
+  public default jakarta.persistence.criteria.Join join(java.lang.Class);
+    descriptor: (Ljava/lang/Class;)Ljakarta/persistence/criteria/Join;
+
+## org.hibernate.query.criteria.JpaEntityJoin
+public interface org.hibernate.query.criteria.JpaEntityJoin<L, R> extends org.hibernate.query.criteria.JpaJoin<L, R> {
+  public abstract org.hibernate.metamodel.model.domain.EntityDomainType<R> getModel();
+
+## org.hibernate.query.criteria.JpaJoin
+public interface org.hibernate.query.criteria.JpaJoin<L, R> extends org.hibernate.query.criteria.JpaFrom<L, R>, jakarta.persistence.criteria.Join<L, R> {
+  public abstract org.hibernate.metamodel.model.domain.PersistentAttribute<? super L, ?> getAttribute();
+  public abstract org.hibernate.query.criteria.JpaJoin<L, R> on(org.hibernate.query.criteria.JpaExpression<java.lang.Boolean>);
+    descriptor: (Lorg/hibernate/query/criteria/JpaExpression;)Lorg/hibernate/query/criteria/JpaJoin;
+  public abstract org.hibernate.query.criteria.JpaJoin<L, R> on(jakarta.persistence.criteria.Expression<java.lang.Boolean>);
+    descriptor: (Ljakarta/persistence/criteria/Expression;)Lorg/hibernate/query/criteria/JpaJoin;
+  public abstract org.hibernate.query.criteria.JpaJoin<L, R> on(org.hibernate.query.criteria.JpaPredicate...);
+    descriptor: ([Lorg/hibernate/query/criteria/JpaPredicate;)Lorg/hibernate/query/criteria/JpaJoin;
+  public abstract org.hibernate.query.criteria.JpaJoin<L, R> on(jakarta.persistence.criteria.Predicate...);
+    descriptor: ([Ljakarta/persistence/criteria/Predicate;)Lorg/hibernate/query/criteria/JpaJoin;
+  public default jakarta.persistence.criteria.Join on(jakarta.persistence.criteria.Predicate[]);
+    descriptor: ([Ljakarta/persistence/criteria/Predicate;)Ljakarta/persistence/criteria/Join;
+  public default jakarta.persistence.criteria.Join on(jakarta.persistence.criteria.Expression);
+    descriptor: (Ljakarta/persistence/criteria/Expression;)Ljakarta/persistence/criteria/Join;
+
+## org.hibernate.query.criteria.JpaJoinedFrom
+Error: class not found: org.hibernate.query.criteria.JpaJoinedFrom
