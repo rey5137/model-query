@@ -66,6 +66,18 @@ public final class Condition {
         IS_NULL,
         /** {@code isNotNull}: {@code column}. */
         IS_NOT_NULL,
+        /** {@code notDistinctFrom} with a value: {@code column} and one value, none for a {@code null} (R-FLT-29). */
+        @Incubating
+        NOT_DISTINCT_FROM,
+        /** {@code distinctFrom} with a value: {@code column} and one value, none for a {@code null} (R-FLT-29). */
+        @Incubating
+        DISTINCT_FROM,
+        /** {@code notDistinctFromColumn}: {@code column} and {@code right} (R-FLT-29). */
+        @Incubating
+        NOT_DISTINCT_FROM_COLUMN,
+        /** {@code distinctFromColumn}: {@code column} and {@code right} (R-FLT-29). */
+        @Incubating
+        DISTINCT_FROM_COLUMN,
         /** {@code compare(left, op, right)}: {@code column}, {@code op} and {@code right}. */
         COMPARE,
         /** An {@code or} branch of two or more filters: {@code children}. */
@@ -158,6 +170,11 @@ public final class Condition {
     /** {@code COMPARE} of {@code left} with {@code right}. */
     static Condition compare(SelectField<?, ?> left, Op op, SelectField<?, ?> right) {
         return new Condition(Kind.COMPARE, left, right, op, null, null, List.of(), List.of(), null, null, List.of());
+    }
+
+    /** {@code NOT_DISTINCT_FROM_COLUMN} or {@code DISTINCT_FROM_COLUMN} of {@code left} with {@code right}. */
+    static Condition nullSafe(Kind kind, SelectField<?, ?> left, SelectField<?, ?> right) {
+        return new Condition(kind, left, right, null, null, null, List.of(), List.of(), null, null, List.of());
     }
 
     /** {@code AND}, {@code OR} or {@code NOT} over {@code children}. */

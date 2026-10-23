@@ -4,6 +4,7 @@ import com.rey.modelquery.annotations.Incubating;
 import com.rey.modelquery.core.ConstantRenderer;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
+import com.rey.modelquery.core.NullSafeEqualityRenderer;
 import com.rey.modelquery.core.OperandBinder;
 import com.rey.modelquery.core.OperatorFeature;
 import com.rey.modelquery.core.SequenceRenderer;
@@ -176,6 +177,16 @@ public interface ProviderSupport {
      * {@link #inserts()} (R-SRC-11, D-143).
      */
     default Optional<SourceRenderer> sources() {
+        return Optional.empty();
+    }
+
+    /**
+     * The provider's native null-safe comparison of two operands, or empty, the default: the portable {@code OR}
+     * form then renders. Folded in only where the vendor answers {@code VendorProfile#nativeNullSafeEquality}, and a
+     * vendor answering {@code true} with no hook is not an error (api/12 R-FLT-29, R-VND-30).
+     */
+    @Incubating
+    default Optional<NullSafeEqualityRenderer> nullSafeEquality() {
         return Optional.empty();
     }
 

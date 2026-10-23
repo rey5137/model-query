@@ -123,6 +123,7 @@ RFC 0004 (rey5137/model-query#29) is mapped the same way, by its own sections, a
 | RFC 0018 (D-177) | Part C.1 `ProviderSupport#inlinesValues`; R-VND-28 | `vendor/40` R-VND-28 |
 | RFC 0018 (D-177) | Part C.2 the shared value helper and every value path under inline value handling (filter, key, cursor, fetch-plan, update, delete, insert-select, conflict and source, D-178, D-179); R-FLT-06, R-FLT-08, R-FLT-21, R-SRC-12, R-VND-24, AC-FLT-35 (all 23 audited paths, the path inventory), AC-FLT-36, code `MQ1502` widened | `api/12` R-FLT-08, `reference/90` §2 |
 | RFC 0018 (D-177) | Part D a filter-only to-many join as a semi-join, its eligibility and exclusions (D-180), root terms kept on the statement (D-181); R-EXE-16, R-EXE-04, R-EXE-14 amended, AC-EXE-22 to AC-EXE-24 | `engine/20` R-EXE-16, `api/14` R-WRT-10 |
+| RFC 0020 (D-185) | Part E null-safe equality, `nativeNullSafeEquality`, `NullSafeEqualityRenderer`; R-FLT-29, R-VND-29, R-VND-30, AC-FLT-37 to AC-FLT-39, AC-FLT-02 amended | `api/12` R-FLT-29, `vendor/40` R-VND-29, R-VND-30 |
 | RFC 0002 (D-128) | §Outcome 1 literal filters; R-FLT-19, AC-FLT-20 | `api/12` R-FLT-19, `api/16` R-INS-09 |
 | RFC 0002 (D-128) | §Outcome 2 constants; R-COL-27, AC-COL-32 | `api/10` R-COL-27, `vendor/40` R-VND-16 |
 | RFC 0002 (D-128) | §Outcome 3 bound arguments; R-COL-26, AC-COL-31 | `api/10` R-COL-26 |

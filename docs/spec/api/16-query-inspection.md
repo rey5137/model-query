@@ -67,10 +67,12 @@ a `default`:
 | `IN_FIELDS`, `NOT_IN_FIELDS` | `in`, `notIn` against operand fields (`api/12` R-FLT-19) | `column`, `operands()` |
 | `EXISTS_SUBSELECT`, `NOT_EXISTS_SUBSELECT` | `exists`, `notExists` over a sub-select | `subSelect`, `children` (the correlation, an implicit AND) |
 | `OF_TYPE`, `NOT_OF_TYPE` | `ofType`, `notOfType` (`api/12` R-FLT-28) | `column` (the node's `Expr.typeOf`), `values` (the types as passed) |
+| `NOT_DISTINCT_FROM`, `DISTINCT_FROM` | `notDistinctFrom`, `distinctFrom` with a value (`api/12` R-FLT-29) | `column`, one value (none for a `null`) |
+| `NOT_DISTINCT_FROM_COLUMN`, `DISTINCT_FROM_COLUMN` | `notDistinctFromColumn`, `distinctFromColumn` | `column`, `right` |
 | `OPERATOR` | `op` (`api/12` R-FLT-20) | `column`, `operator`, and one value or `right` (R-INS-13) |
 
 `having` records the same kinds over aggregate columns, except `EXISTS`, `NOT_EXISTS`, `CUSTOM`, the four
-`*_SUBSELECT` kinds and `OF_TYPE`/`NOT_OF_TYPE`, which it has no operator for.
+`*_SUBSELECT` kinds, `OF_TYPE`/`NOT_OF_TYPE` and the four `*DISTINCT_FROM*` kinds, which it has no operator for.
 
 ## 2. Rules
 

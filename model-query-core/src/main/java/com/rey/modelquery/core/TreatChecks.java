@@ -24,9 +24,13 @@ import java.util.Set;
 @Incubating
 public final class TreatChecks {
 
-    /** The conditions that also accept a NULL column through a D-5 {@code IS NULL} branch (R-FLT-04). */
+    /**
+     * The conditions that also accept a NULL column through a D-5 {@code IS NULL} branch (R-FLT-04), and the
+     * null-safe ones, classified by their portable {@code IS NULL ... OR} form even where a native one renders.
+     */
     private static final Set<Condition.Kind> NULL_ACCEPTING = EnumSet.of(Condition.Kind.NE, Condition.Kind.NOT_IN,
-            Condition.Kind.NOT_IN_FIELDS, Condition.Kind.NOT_IN_SUBSELECT);
+            Condition.Kind.NOT_IN_FIELDS, Condition.Kind.NOT_IN_SUBSELECT, Condition.Kind.DISTINCT_FROM,
+            Condition.Kind.NOT_DISTINCT_FROM_COLUMN, Condition.Kind.DISTINCT_FROM_COLUMN);
 
     private final Set<Object> seen = Collections.newSetFromMap(new IdentityHashMap<>());
     private final Set<Object> checked = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -538,6 +542,13 @@ public final class TreatChecks {
                 Condition.Kind kind = condition.kind();
                 if (kind == Condition.Kind.OF_TYPE || kind == Condition.Kind.NOT_OF_TYPE) {
                     typeCondition(condition, scan);
+                } else if ((kind == Condition.Kind.DISTINCT_FROM || kind == Condition.Kind.NOT_DISTINCT_FROM)
+                        && condition.values().isEmpty()) {
+                    // A null operand renders IS [NOT] NULL alone (R-FLT-29).
+                    using(TreatUse.NULL_TEST, scan);
+                } else if (kind == Condition.Kind.NOT_DISTINCT_FROM) {
+                    // Rendered as "column = ? and column IS NOT NULL" (R-FLT-29).
+                    using(TreatUse.PREDICATE, () -> using(TreatUse.NULL_TEST, scan));
                 } else if (NULL_ACCEPTING.contains(kind)) {
                     // Rendered as "<test> OR column IS NULL" (R-FLT-04): the site is the spike's ne/notIn envelope.
                     using(TreatUse.PREDICATE, () -> using(TreatUse.NULL_TEST, () -> using(TreatUse.DISJUNCTION, scan)));

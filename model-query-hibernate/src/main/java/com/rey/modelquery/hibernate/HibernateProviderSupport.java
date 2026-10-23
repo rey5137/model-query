@@ -6,6 +6,7 @@ import com.rey.modelquery.core.ModelQueryConfigurationException;
 import com.rey.modelquery.core.MqCode;
 import com.rey.modelquery.core.NullPrecedence;
 import com.rey.modelquery.core.NullPrecedenceRenderer;
+import com.rey.modelquery.core.NullSafeEqualityRenderer;
 import com.rey.modelquery.core.OperandBinder;
 import com.rey.modelquery.core.OperatorFeature;
 import com.rey.modelquery.core.SequenceRenderer;
@@ -26,6 +27,7 @@ import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.Order;
+import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Subquery;
 import java.io.Serializable;
 import java.lang.reflect.Method;
@@ -555,6 +557,25 @@ public final class HibernateProviderSupport implements ProviderSupport {
                     throw new ModelQueryConfigurationException(MqCode.MQ4014,
                             "ordered scalar sub-queries require hibernate.jpa.compliance.query=false", e);
                 }
+            }
+        });
+    }
+
+    /** Hibernate's {@code notDistinctFrom} and {@code distinctFrom}, on both lines (R-VND-30). */
+    @Override
+    @Incubating
+    public Optional<NullSafeEqualityRenderer> nullSafeEquality() {
+        return Optional.of(new NullSafeEqualityRenderer() {
+            @Override
+            @Incubating
+            public Predicate notDistinctFrom(CriteriaBuilder cb, Expression<?> a, Expression<?> b) {
+                return ((HibernateCriteriaBuilder) cb).notDistinctFrom(a, b);
+            }
+
+            @Override
+            @Incubating
+            public Predicate distinctFrom(CriteriaBuilder cb, Expression<?> a, Expression<?> b) {
+                return ((HibernateCriteriaBuilder) cb).distinctFrom(a, b);
             }
         });
     }

@@ -148,6 +148,36 @@ final class FilterGroup<M> extends ConditionGroup<M, Filters<M>> implements Filt
     }
 
     @Override
+    public <C> Filters<M> notDistinctFrom(ScalarField<M, C> column, C value) {
+        return super.nullSafe(column, value, false);
+    }
+
+    @Override
+    public <C> Filters<M> notDistinctFrom(ScalarField<M, C> column, Optional<? extends C> value) {
+        return super.nullSafe(column, value, false);
+    }
+
+    @Override
+    public <C> Filters<M> notDistinctFromColumn(ScalarField<M, C> column, ScalarField<M, C> other) {
+        return super.nullSafe(column, other, false);
+    }
+
+    @Override
+    public <C> Filters<M> distinctFrom(ScalarField<M, C> column, C value) {
+        return super.nullSafe(column, value, true);
+    }
+
+    @Override
+    public <C> Filters<M> distinctFrom(ScalarField<M, C> column, Optional<? extends C> value) {
+        return super.nullSafe(column, value, true);
+    }
+
+    @Override
+    public <C> Filters<M> distinctFromColumn(ScalarField<M, C> column, ScalarField<M, C> other) {
+        return super.nullSafe(column, other, true);
+    }
+
+    @Override
     public <C extends Comparable<? super C>> Filters<M> gt(ScalarField<M, C> column, C value) {
         return super.gt(column, value);
     }

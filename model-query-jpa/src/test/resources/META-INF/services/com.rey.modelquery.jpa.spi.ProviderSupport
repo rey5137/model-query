@@ -12,3 +12,5 @@ com.rey.modelquery.jpa.TargetVendorsTest$Naming
 com.rey.modelquery.jpa.InlineCountTest$WithoutSources
 com.rey.modelquery.jpa.InlineCountTest$Windowed
 com.rey.modelquery.jpa.InlineCountTest$WindowedNoGroupCount
+com.rey.modelquery.jpa.NullSafeEqualityFoldTest$Support
+com.rey.modelquery.jpa.NullSafeEqualityFoldTest$NoHook

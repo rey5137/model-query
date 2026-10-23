@@ -64,6 +64,12 @@ enum BuiltInProfile implements VendorProfile {
         public boolean operators(OperatorFeature feature) {
             return feature == OperatorFeature.ILIKE;
         }
+
+        /** {@code <=>} on MySQL and {@code IS NOT DISTINCT FROM} on H2 are index lookups (R-VND-29). */
+        @Override
+        public boolean nativeNullSafeEquality() {
+            return true;
+        }
     },
 
     // The driver uses a cursor only with autocommit off, so streaming outside a transaction would buffer (R-PRF-03).
@@ -160,6 +166,12 @@ enum BuiltInProfile implements VendorProfile {
         public int maxRecursionDepth() {
             return MYSQL_RECURSION_DEPTH;
         }
+
+        /** MySQL's {@code <=>} is an index lookup (R-VND-29). */
+        @Override
+        public boolean nativeNullSafeEquality() {
+            return true;
+        }
     },
 
     /** {@link MysqlStreamingMode#CURSOR_FETCH}: a positive fetch size, which needs {@code useCursorFetch=true}. */
@@ -177,6 +189,12 @@ enum BuiltInProfile implements VendorProfile {
         @Override
         public int maxRecursionDepth() {
             return MYSQL_RECURSION_DEPTH;
+        }
+
+        /** MySQL's {@code <=>} is an index lookup (R-VND-29). */
+        @Override
+        public boolean nativeNullSafeEquality() {
+            return true;
         }
     },
 

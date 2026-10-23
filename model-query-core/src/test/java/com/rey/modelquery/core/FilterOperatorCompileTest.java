@@ -57,6 +57,26 @@ class FilterOperatorCompileTest {
         assertThat(probe(out, WHERE + "op(MATCHES, SIZE, java.util.Optional.of(\"a\"))")).isNotEmpty();
     }
 
+    @Test
+    void ac_flt_37_the_null_safe_forms_compile_and_a_typed_null_binds_the_value_overload(@TempDir Path out)
+            throws IOException {
+        assertThat(probe(out, WHERE + "notDistinctFrom(NAME, (String) null)")).isEmpty();
+        // as eq(NAME, null): a bare null fits the value and the Optional overload alike
+        assertThat(probe(out, WHERE + "notDistinctFrom(NAME, null)")).isNotEmpty();
+        assertThat(probe(out, WHERE + "eq(NAME, null)")).isNotEmpty();
+        assertThat(probe(out, WHERE + "distinctFrom(NAME, \"a\")")).isEmpty();
+        assertThat(probe(out, WHERE + "distinctFrom(NAME, java.util.Optional.of(\"a\"))")).isEmpty();
+        assertThat(probe(out, WHERE + "notDistinctFromColumn(NAME, CODE)")).isEmpty();
+        assertThat(probe(out, WHERE + "distinctFromColumn(NAME, CODE)")).isEmpty();
+    }
+
+    @Test
+    void ac_flt_37_a_null_safe_comparison_of_the_wrong_type_does_not_compile(@TempDir Path out) throws IOException {
+        assertThat(probe(out, WHERE + "notDistinctFrom(NAME, 1)")).isNotEmpty();
+        assertThat(probe(out, WHERE + "notDistinctFromColumn(NAME, SIZE)")).isNotEmpty();
+        assertThat(probe(out, WHERE + "distinctFromColumn(NAME, OTHER_NAME)")).isNotEmpty();
+    }
+
     private static List<String> probe(Path out, String call) throws IOException {
         return CompileProbe.problems(out, MEMBERS, call, "-Xlint:unchecked");
     }
