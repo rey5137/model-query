@@ -445,9 +445,9 @@ public final class SourceQuery<S> {
      */
     private SourceQuery<S> combine(SetOperation operation, SourceQuery<S> other) {
         SourceQuery<S> right = Objects.requireNonNull(other, "other");
-        if (recursion != null || right.recursion != null) {
+        if (walks() + right.walks() > 0) {
             throw new ModelQueryDefinitionException(MqCode.MQ1904, "a recursive source can't be a branch of "
-                    + operation + ": " + (recursion != null ? model : right.model).getSimpleName() + " recurses, "
+                    + operation + ": " + (walks() > 0 ? model : right.model).getSimpleName() + " recurses, "
                     + "and a set operation would read it as its seed rows alone (R-SRC-07)");
         }
         if (shape != other.shape) {

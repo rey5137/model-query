@@ -152,6 +152,8 @@ public final class JoinContext {
      * an {@code exists} may legitimately cross are not counted here.
      */
     private final List<Join<?, ?>> toManyJoins = new ArrayList<>();
+    /** Where {@link #recordingToMany} collects the plural joins a render reads, or {@code null}. */
+    private List<Join<?, ?>> touchedToMany;
 
     private JoinContext(From<?, ?> root, Class<?> rootType, CriteriaBuilder cb, CommonAbstractCriteria query,
             JoinKey rootKey, Set<JoinKey> required, RenderOptions renderOptions, Set<Class<?>> existsJoined) {
@@ -891,6 +893,20 @@ public final class JoinContext {
         }
     }
 
+    /**
+     * Runs {@code body} and adds to {@code touched} every plural join it reads, one already in the statement included
+     * (R-AGG-16): {@link #toManyJoins()} only grows by the joins {@code body} creates.
+     */
+    <T> T recordingToMany(Supplier<T> body, List<Join<?, ?>> touched) {
+        List<Join<?, ?>> previous = touchedToMany;
+        touchedToMany = touched;
+        try {
+            return body.get();
+        } finally {
+            touchedToMany = previous;
+        }
+    }
+
     boolean aggregating() {
         return aggregating > 0;
     }
@@ -923,6 +939,7 @@ public final class JoinContext {
                 throw new ModelQueryDefinitionException(
                         MqCode.MQ1101, description + " is defined twice with different on(...) conditions");
             }
+            touch(cached.from());
             return cached.from();
         }
         Join<?, ?> join;
@@ -947,10 +964,18 @@ public final class JoinContext {
         if (join.getAttribute() instanceof PluralAttribute<?, ?, ?>) {
             toManyJoins.add(join);
         }
+        touch(join);
         if (existsPath != null) {
             existsJoined.add(join.getJavaType());
         }
         return join;
+    }
+
+    private void touch(From<?, ?> from) {
+        if (touchedToMany != null && from instanceof Join<?, ?> join
+                && join.getAttribute() instanceof PluralAttribute<?, ?, ?> && !touchedToMany.contains(join)) {
+            touchedToMany.add(join);
+        }
     }
 
     /**

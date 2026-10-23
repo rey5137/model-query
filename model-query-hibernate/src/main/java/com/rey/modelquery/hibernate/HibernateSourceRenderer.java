@@ -1,5 +1,6 @@
 package com.rey.modelquery.hibernate;
 
+import com.rey.modelquery.annotations.JoinKind;
 import com.rey.modelquery.annotations.WindowFrame;
 import com.rey.modelquery.core.RecursiveSpec;
 import com.rey.modelquery.core.SetOperation;
@@ -11,7 +12,6 @@ import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Expression;
 import jakarta.persistence.criteria.From;
-import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
@@ -103,18 +103,17 @@ final class HibernateSourceRenderer implements SourceRenderer {
 
     @Override
     @SuppressWarnings("unchecked")
-    public From<?, Tuple> join(From<?, ?> outer, CteHandle source, JoinType type,
+    public From<?, Tuple> join(From<?, ?> outer, CteHandle source, JoinKind kind,
             Function<From<?, Tuple>, Predicate> on) {
         if (cteJoin.isEmpty()) {
-            return SourceRenderer.super.join(outer, source, type, on); // MQ4014, naming joined sources
+            return SourceRenderer.super.join(outer, source, kind, on); // MQ4014, naming joined sources
         }
         if (!(source instanceof HibernateCteHandle handle)) {
             throw new IllegalArgumentException("Expected a Hibernate CteHandle, got: " + source);
         }
-        SqmJoinType joinType = switch (type) {
+        SqmJoinType joinType = switch (kind) {
             case INNER -> SqmJoinType.INNER;
             case LEFT -> SqmJoinType.LEFT;
-            case RIGHT -> throw new IllegalArgumentException("A source joins INNER or LEFT, not RIGHT");
         };
         // jpa builds the statement with the provider's own CriteriaBuilder, so every From is Hibernate's.
         CteJoin methods = cteJoin.get();

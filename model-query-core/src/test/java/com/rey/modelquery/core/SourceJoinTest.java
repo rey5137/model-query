@@ -100,6 +100,81 @@ class SourceJoinTest {
         return definition;
     }
 
+    static final class Keyed {}
+
+    /** Stores a number as its text: any converted key or column, whose attribute is a {@code String}. */
+    private static final ColumnConverter<Long, String> AS_TEXT = new ColumnConverter<>() {
+        @Override
+        public Long toModel(String attribute) {
+            return Long.valueOf(attribute);
+        }
+
+        @Override
+        public String toAttribute(Long model) {
+            return String.valueOf(model);
+        }
+    };
+
+    private static <C> SourceQuery<Keyed> keyed(ColumnField<Keyed, Day, C> key) {
+        return SourceQuery.builder(Keyed.class, DAY, SelectSet.of(key), PrimaryKey.of(key)).build();
+    }
+
+    private static <C> SourceJoin<View, Keyed> keyedJoin(ColumnField<View, Day, C> column,
+            ColumnField<Keyed, Day, C> key) {
+        return SourceJoin.of("keyed", Keyed.class, JoinKind.LEFT, List.of(SourceJoin.on(column, key)));
+    }
+
+    @Test
+    void ac_src_51_a_converted_source_key_is_mq1910() {
+        ColumnField<Keyed, Day, Long> key =
+                ColumnField.of(Keyed.class, DAY, "code", Long.class, String.class, AS_TEXT).named("code");
+
+        assertThat(mq1910(() -> base().joinSource(keyedJoin(V_ID, key), keyed(key)).build()))
+                .hasMessageContaining("on(id, code) joins a converted or differently typed key")
+                .hasMessageContaining("can't be joined");
+    }
+
+    @Test
+    void ac_src_51_a_converted_outer_column_over_a_key_of_another_attribute_type_is_mq1910() {
+        ColumnField<View, Day, Long> column = ColumnField.of(View.class, DAY, "code", Long.class, String.class, AS_TEXT);
+        ColumnField<Keyed, Day, Long> key = ColumnField.of(Keyed.class, DAY, "code", Long.class).named("code");
+
+        assertThat(mq1910(() -> base().joinSource(keyedJoin(column, key), keyed(key)).build()))
+                .hasMessageContaining("on(code, code) joins a converted or differently typed key");
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void ac_src_51_a_pair_of_different_attribute_types_is_mq1910() {
+        ColumnField<Keyed, Day, Integer> key = ColumnField.of(Keyed.class, DAY, "code", Integer.class).named("code");
+        SourceJoin join = SourceJoin.of("keyed", Keyed.class, JoinKind.LEFT,
+                List.of(SourceJoin.on((ColumnField) V_ID, (ColumnField) key)));
+
+        assertThat(mq1910(() -> base().joinSource(join, keyed(key)).build()))
+                .hasMessageContaining("on(id, code) joins a converted or differently typed key");
+    }
+
+    @Test
+    void ac_src_51_a_primitive_and_its_wrapper_are_the_same_attribute_type() {
+        ColumnField<View, Day, Integer> column = ColumnField.of(View.class, DAY, "code", int.class);
+        ColumnField<Keyed, Day, Integer> key = ColumnField.of(Keyed.class, DAY, "code", Integer.class).named("code");
+
+        assertThat(base().joinSource(keyedJoin(column, key), keyed(key)).build()).isNotNull();
+    }
+
+    @Test
+    void r_src_07_a_source_that_recurses_under_a_wrapper_cannot_be_a_branch_mq1904() {
+        SourceQuery<Counts> wrapped = counts(walk(false));
+
+        for (Runnable combine : List.<Runnable>of(() -> wrapped.union(wrapped), () -> wrapped.intersect(wrapped),
+                () -> counts(walk(false)).unionAll(wrapped))) {
+            Throwable thrown = catchThrowable(combine::run);
+            assertThat(thrown).isInstanceOf(ModelQueryDefinitionException.class)
+                    .hasMessageContaining("a recursive source can't be a branch of");
+            assertThat(((ModelQueryDefinitionException) thrown).code()).isEqualTo(MqCode.MQ1904);
+        }
+    }
+
     @Test
     void ac_src_45_a_binding_on_the_full_key_in_any_order_builds() {
         var reversed = join("sales", List.of(SourceJoin.on(V_SHOP, S_SHOP), SourceJoin.on(V_DATE, S_DATE)));

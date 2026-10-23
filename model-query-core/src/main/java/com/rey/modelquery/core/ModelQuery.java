@@ -646,8 +646,7 @@ public final class ModelQuery<E, K, M> {
             // The outer columns resolve first, so a to-one join they make precedes the join to the CTE.
             var outerPaths = new ArrayList<Expression<?>>();
             join.on().forEach(pair -> outerPaths.add(pair.column().path(joins)));
-            JoinType type = join.kind() == JoinKind.INNER ? JoinType.INNER : JoinType.LEFT;
-            From<?, Tuple> joined = renderer.join(outer, handle, type, cte -> {
+            From<?, Tuple> joined = renderer.join(outer, handle, join.kind(), cte -> {
                 var equal = new ArrayList<Predicate>();
                 for (int i = 0; i < outerPaths.size(); i++) {
                     equal.add(cb.equal(cte.get(join.on().get(i).alias()), outerPaths.get(i)));
@@ -657,7 +656,7 @@ public final class ModelQuery<E, K, M> {
                 }
                 return cb.and(equal.toArray(Predicate[]::new));
             });
-            joins.joinSource(join.root().key(), joined, outer, type == JoinType.INNER, source.keyColumns().get(0));
+            joins.joinSource(join.root().key(), joined, outer, join.kind() == JoinKind.INNER, source.keyColumns().get(0));
             bodies.forEach(joins::addBodyParameters);
         }
         return walk;

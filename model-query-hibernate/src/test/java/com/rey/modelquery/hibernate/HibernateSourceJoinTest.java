@@ -535,7 +535,7 @@ class HibernateSourceJoinTest {
 
         var renderer = new HibernateSourceRenderer(Optional.empty());
 
-        assertThatThrownBy(() -> renderer.join(null, null, JoinType.LEFT, joined -> null))
+        assertThatThrownBy(() -> renderer.join(null, null, JoinKind.LEFT, joined -> null))
                 .isInstanceOfSatisfying(ModelQueryConfigurationException.class,
                         e -> assertThat(e.code()).isEqualTo(MqCode.MQ4014))
                 .hasMessageContaining("joined sources");

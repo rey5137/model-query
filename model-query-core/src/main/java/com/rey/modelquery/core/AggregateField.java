@@ -316,11 +316,11 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
             throw new ModelQueryConfigurationException(MqCode.MQ4015, this + " requires " + AggregateFeature.FIRST_BY
                     + ", which " + gate.vendor() + " lacks (VendorProfile#aggregates)");
         }
-        int joined = ctx.toManyJoins().size();
-        Expression<?> value = argument.apply(ctx, cb);
+        var touched = new ArrayList<Join<?, ?>>();
+        Expression<?> value = ctx.recordingToMany(() -> argument.apply(ctx, cb), touched);
         var keys = new ArrayList<Order>();
         for (OrderField<?, ?> order : orders) {
-            keys.addAll(order.toOrders(ctx, cb));
+            keys.addAll(ctx.recordingToMany(() -> order.toOrders(ctx, cb), touched));
         }
         if (!ctx.sourceKey().isEmpty()) {
             // A CTE root, whose model Hibernate 7 does not expose, so it is not asked for one.
@@ -334,8 +334,8 @@ public final class AggregateField<M, C> implements SelectField<M, C> {
         for (int i = 0; toMany == null && i < keys.size(); i++) {
             toMany = toManyJoin(keys.get(i).getExpression());
         }
-        if (toMany == null && ctx.toManyJoins().size() > joined) {
-            toMany = ctx.toManyJoins().get(joined);
+        if (toMany == null && !touched.isEmpty()) {
+            toMany = touched.get(0);
         }
         if (toMany != null) {
             throw refused(this + ": the value or an order key is read through the to-many join "

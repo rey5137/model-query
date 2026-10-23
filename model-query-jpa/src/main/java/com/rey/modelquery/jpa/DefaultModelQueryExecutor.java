@@ -1,5 +1,6 @@
 package com.rey.modelquery.jpa;
 
+import com.rey.modelquery.annotations.JoinKind;
 import com.rey.modelquery.annotations.WindowFrame;
 import com.rey.modelquery.annotations.WindowFunction;
 import com.rey.modelquery.core.AggregateFeature;
@@ -408,10 +409,10 @@ final class DefaultModelQueryExecutor<E> implements ModelQueryExecutor<E> {
             }
 
             @Override
-            public From<?, Tuple> join(From<?, ?> outer, CteHandle source, JoinType type,
+            public From<?, Tuple> join(From<?, ?> outer, CteHandle source, JoinKind kind,
                     Function<From<?, Tuple>, Predicate> on) {
                 requireCte();
-                return renderer.join(outer, source, type, on);
+                return renderer.join(outer, source, kind, on);
             }
 
             private void requireCte() {

@@ -178,7 +178,9 @@ The value is read, not compared: its `ColumnConverter` (if any) is applied to th
 no converter restriction. Equality and `hashCode` include the orders, so two `firstBy` over one value in different
 orders are two fields (give them an `as(...)` name, since both render the same default name). An order key that is
 itself an aggregate or window field, and a value or order key read through a to-many join (the root's id does not
-break ties among the joined rows, so the pick would not be deterministic), throw `MQ1412`. A correlated sub-query
+break ties among the joined rows, so the pick would not be deterministic), throw `MQ1412`. The value and every order key
+are resolved under a recorder that notes each to-many join they read, one an earlier column already created included,
+so any recorded to-many join is `MQ1412` whatever the column order. A correlated sub-query
 as the value or as an order key is `MQ1510`, as for any aggregate (R-COL-33). Rendering goes through
 `AggregateRenderer#firstBy` (R-VND-30): `array_agg(v order by k, id)[1]` (parenthesised on PostgreSQL), which
 Hibernate renders through its own function pattern called with no result type. The vendor's fact is checked first:
@@ -203,7 +205,7 @@ the database has it and its own CASE emulation elsewhere. With no such hook the 
 `fn(case when c then x end)` (a count passes the argument the unfiltered count uses); the two forms give equal rows on
 every vendor. `MQ1412` when the field is already filtered (combine the conditions in one `filter`), when it comes from
 `Agg.of` (the engine cannot place a condition inside an opaque expression), when the condition leaves no filter, when
-it reads a correlated value (thrown by `filter`), when a filtered `count(table)` has an embedded or composite id with no usable first id attribute (the filtered count counts that id attribute), or when the condition adds a to-many join (thrown when the query is built): a to-many join already in the statement, such as the argument's own, is the aggregated rows' own and is allowed, and `Filters.exists(path, inner)` filters on a to-many without joining it. A filtered `firstBy` is the exception to the CASE
+it reads a correlated value (thrown by `filter`), when a filtered `count(table)` has an embedded or composite id with no usable first id attribute (the filtered count counts that id attribute), or when the condition adds a to-many join (thrown when the query is built): a to-many join already resolved when the filter renders (the argument's own, or one an earlier column joined) is the aggregated rows' own and is allowed, while one only a later column joins is `MQ1412`, and `Filters.exists(path, inner)` filters on a to-many without joining it. A filtered `firstBy` is the exception to the CASE
 form: `array_agg` keeps NULLs, so the CASE form would yield a NULL element where `FILTER` skips the row. It needs the
 native `FILTER` (`AggregateRenderer#firstBy` taking the condition); a provider without it is `MQ4014`, and a vendor
 without `FIRST_BY` is `MQ4015` first.
@@ -242,7 +244,7 @@ sub-select root's id, and the page total (`engine/20` R-EXE-05). Everything else
 count of groups, and `count(col)` over a non-id column; a composite id already counts as one identity. A source's row
 is counted as `count(1)`. A filtered count (R-AGG-17) counts `1` under its condition when the count is eligible, else
 the identity, so a `LEFT`-joined unmatched row counts 0 as the unfiltered count does. The row count returns the same
-number as `count(t.id)`, grouped or not. A joined source is classified by its join kind (`INNER` the row count,
+number as `count(t.id)`, grouped or not. A filtered `count(table)` over an embedded or composite id is `MQ1412` even where `count(*)` would be allowed. A joined source is classified by its join kind (`INNER` the row count,
 `LEFT` its first key field).
 
 ## 5. Generated support
@@ -284,3 +286,4 @@ generated `GROUP_KEYS` `SelectSet`, and `QProductSales.query()` comes pre-config
 | AC-AGG-27 | On every Tier-1 vendor and both Hibernate lines, `Agg.count(table)` over the root and over an inner-joined table, and `count` over the root's id column, render `count(*)` and return `count(t.id)`'s rows, grouped and ungrouped; a `Correlated` count over the sub-select root's id renders `count(*)` and equals the identity count, `0` for an outer row with no match (R-AGG-19). |
 | AC-AGG-28 | A `LEFT`-joined or treated table, a `rootedAt` `LEFT` root, a statement with a customizer, a foreign-key read, `countDistinct`, the page total's dedup and a non-id column keep counting the identity or column (R-AGG-19). |
 | AC-AGG-29 | The page total of an entity root renders `count(*)`; a filtered row count renders `count(1) filter (where c)` or its CASE form; with no `rowCount` the count is `count(t.id)`; a filtered count over a `LEFT`-joined table counts 0 for an unmatched row, as the unfiltered count does (R-AGG-19, R-AGG-17). |
+| AC-AGG-30 | `firstBy` whose value or order key reads a to-many join an earlier column created is `MQ1412`, as one that adds the join is, whatever the column order (R-AGG-16). |

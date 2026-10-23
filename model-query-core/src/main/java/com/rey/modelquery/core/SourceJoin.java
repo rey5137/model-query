@@ -125,6 +125,12 @@ public final class SourceJoin<M, S> {
                 throw new ModelQueryDefinitionException(MqCode.MQ1910, where + ": on(...) names " + field
                         + ", which is not a key field of the source; join on its key " + sorted(key));
             }
+            if (pair.key.isConverted()
+                    || ColumnField.boxed(pair.column.attributeType()) != ColumnField.boxed(pair.key.attributeType())) {
+                throw new ModelQueryDefinitionException(MqCode.MQ1910, where + ": on(" + pair.column.name() + ", "
+                        + field + ") joins a converted or differently typed key; the join compares database values, "
+                        + "so a converted or differently typed key can't be joined");
+            }
             if (!paired.add(field)) {
                 throw new ModelQueryDefinitionException(MqCode.MQ1910, where + ": on(...) pairs the key field "
                         + field + " twice");

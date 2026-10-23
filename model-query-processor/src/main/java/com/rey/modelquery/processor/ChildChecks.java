@@ -9,6 +9,7 @@ import com.rey.modelquery.processor.ModelDefinition.ModelField;
 import java.lang.annotation.Annotation;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.util.Types;
@@ -64,7 +65,7 @@ final class ChildChecks {
         if (child != null && !child.joinSources().isEmpty()) {
             diagnostics.error(field.element(), DiagnosticCode.MQ3039, where + child.name() + " joins "
                     + child.joinSources().stream().map(join -> "'" + join.name() + "'")
-                            .collect(java.util.stream.Collectors.joining(", "))
+                            .collect(Collectors.joining(", "))
                     + ", a @SourceModel; a fetch plan has no source to pass it");
             return;
         }

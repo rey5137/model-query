@@ -644,7 +644,7 @@ class AggregateModelTest {
     }
 
     @Test
-    void ac_agg_26_mq3045_for_every_orderby_filter_and_scale_misfit() {
+    void ac_proc_47_mq3045_for_every_orderby_filter_and_scale_misfit() {
         Compilation compilation = compile(SALE_ENTITY, REFUNDS_ONLY, summary("""
                 @QueryModel(root = SaleEntity.class)
                 public record SalesSummary(
@@ -680,7 +680,7 @@ class AggregateModelTest {
     }
 
     @Test
-    void ac_agg_26_an_association_as_an_orderby_key_is_mq3045() {
+    void ac_proc_47_an_association_as_an_orderby_key_is_mq3045() {
         JavaFileObject view = source("shop.OrderSales", IMPORTS + """
                 @QueryModel(root = OrderEntity.class, singleGroup = true)
                 public record OrderSales(

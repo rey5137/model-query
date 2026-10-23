@@ -17,8 +17,8 @@ addition below is `@Incubating`.
 - Joined sources (RFC 0020 Part A, D-185, D-187, R-SRC-21, R-SRC-22, R-PROC-44): `SourceJoin` and
   `ModelQuery.Builder#joinSource` join a unique `SourceQuery` on its full key, `LEFT` or `INNER`, in every statement
   (content, count, paging, export, `byKeys` and fetch-plan reads). `@JoinSource` and `@SourceColumn` generate
-  `query(...)` taking each joined source (AC-SRC-42 to AC-SRC-50, AC-PROC-46). `SourceRenderer#join` is the provider
-  hook, served by `model-query-hibernate` on both lines. A non-unique source, a partial key or a second walk is
+  `query(...)` taking each joined source (AC-SRC-42 to AC-SRC-51, AC-PROC-46). `SourceRenderer#join` is the provider
+  hook, served by `model-query-hibernate` on both lines. A non-unique source, a partial key, a second walk or a converted or differently typed hand-written key is
   `MQ1910`, a lock is `MQ1903`, a returning write is `MQ1809`, and a misdeclared annotation is `MQ3044`; a `@Child`
   model that joins a source is `MQ3039`. See [Source models](docs/site/docs/source-models.md#joining-a-source) for the
   cost of a joined source.
