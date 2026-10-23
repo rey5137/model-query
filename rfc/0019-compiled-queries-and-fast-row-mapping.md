@@ -154,7 +154,8 @@ its functional cells hold and its plan-cache hit ratio is at least 99%.
 2. **Neither** (also a docs paragraph, `QueryParam` does not ship) if no route has a lower-bound saving of at least
    0.2 ms while passing its functional cells.
 3. **Provider only** if the upper bound of `B` is under 0.2 ms on both lines (the build is cheap) and RA.5 passes:
-   `compiled()` entries hold only the provider's `Prepared` form, built from a rebuilt query.
+   `compiled()` entries hold only the provider's `Prepared` form and the row selection, both taken
+   once from one build of the definition; no call rebuilds (RA.5 measures exactly this).
 4. **Both** if the build cache passes its functional and throughput cells, RA.5 passes, and the lower bound of
    `S_p − S_b` reaches `max(0.1 ms, 10% of O(RA.1))` on both lines: the entry holds the sealed snapshot and the
    provider's `Prepared` form.
